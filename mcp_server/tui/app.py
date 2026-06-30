@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -69,7 +70,7 @@ from tui.config import (
     save_env,
     save_env_secrets,
 )
-from tui.constants import DEFAULT_POLL_INTERVAL, TERMINAL_STATUSES
+from tui.constants import CHECKPOINT_STEPS, DEFAULT_POLL_INTERVAL, STATUS_PILLS, TERMINAL_STATUSES
 from tui.poller import MilestoneTracker, fire_milestones, poll_once
 from tui.render import format_tokens
 from tui.stream import workspace_message_events
@@ -627,8 +628,6 @@ def _session_label(s: dict) -> str:
 
     Columns: status-symbol  generation-id  date  checkpoint-name
     """
-    from tui.constants import CHECKPOINT_STEPS, STATUS_PILLS
-
     gid = s.get("generation_id", "")
     status_key = (s.get("status") or "unknown").lower()
     pill_text, _ = STATUS_PILLS.get(status_key, STATUS_PILLS["unknown"])
@@ -647,7 +646,6 @@ def _session_label(s: dict) -> str:
     date_str = ""
     if created_at_raw:
         try:
-            from datetime import datetime, timezone
             dt = datetime.fromisoformat(created_at_raw).astimezone(timezone.utc)
             date_str = dt.strftime("%b %d %H:%M")
         except ValueError:
