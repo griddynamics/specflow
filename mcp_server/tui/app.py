@@ -1003,11 +1003,16 @@ class ClientSetupScreen(_SpecFlowScreen):
         if not ok_to_write:
             return mcp_clients.ClientStatus.FAILED
         merged = mcp_clients.merge_block(existing, block, target.key)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(merged, indent=2))
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(merged, indent=2))
+        except OSError as exc:
+            log.write(f"Couldn't write {path}: {exc}\n")
+            return mcp_clients.ClientStatus.FAILED
         log.write(f"Wrote {path}\n")
-        # Confirm on disk — the only verification Cursor allows.
-        confirmed = json.loads(path.read_text()).get(target.key.value, {}).get("specflow")
+        # The write succeeded, so our server block is on disk (merge_block put it
+        # there). Cursor itself stays unverifiable — status_after_add caps it at
+        # ADDED_UNVERIFIED regardless, so there's nothing to read back.
         # Fire the deeplink as a convenience so Cursor offers an approval prompt.
         # Best-effort only: the file write above is the real registration, so a
         # missing opener binary must never fail (or crash) the connect.
@@ -1018,7 +1023,7 @@ class ClientSetupScreen(_SpecFlowScreen):
                 await local_env.run_command([opener, url], path.parent, on_line=log.write, timeout=10)
             except OSError as exc:
                 log.write(f"(couldn't open Cursor automatically: {exc})\n")
-        return mcp_clients.status_after_add(client, add_ok=confirmed is not None)
+        return mcp_clients.status_after_add(client, add_ok=True)
 
     async def _read_existing_config(
         self, path: Path, log: RichLog
@@ -1042,7 +1047,12 @@ class ClientSetupScreen(_SpecFlowScreen):
             if not approved:
                 log.write("Left your existing config untouched.\n")
                 return {}, False
-            backup = path.with_suffix(path.suffix + ".bak")
+            # Never clobber a previous backup — pick the first free .bak name.
+            backup = path.parent / f"{path.name}.bak"
+            counter = 1
+            while backup.exists():
+                backup = path.parent / f"{path.name}.bak.{counter}"
+                counter += 1
             backup.write_text(path.read_text())
             log.write(f"Backed up your config to {backup}\n")
             return {}, True

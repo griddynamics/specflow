@@ -1064,6 +1064,67 @@ class TestClientSetupScreen:
         assert cfg.read_text() == "{not valid json"
 
     @pytest.mark.asyncio
+    async def test_cursor_malformed_approved_backs_up_then_writes(self, tmp_path):
+        cfg = tmp_path / ".cursor" / "mcp.json"
+        cfg.parent.mkdir(parents=True)
+        cfg.write_text("{bad json")
+        app, (a, b, c) = _make_app(tmp_path)
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+            "pathlib.Path.home", return_value=tmp_path
+        ), patch("tui.app.local_env.run_command", new=AsyncMock(
+            return_value=local_env.CommandResult(0, "", False)
+        )):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                screen = await _push_client_screen(app)
+                await pilot.pause()
+                log = screen.query_one("#client-log", tui_app.RichLog)
+                with patch.object(app, "push_screen_wait", new=AsyncMock(return_value=True)):
+                    status = await screen._connect_cursor(mc.CURSOR, _BLOCK, log)
+        assert status is mc.ClientStatus.ADDED_UNVERIFIED
+        assert json.loads(cfg.read_text())["mcpServers"]["specflow"]["command"] == "uvx"
+        # The old (malformed) content was preserved in a backup, not lost.
+        assert (tmp_path / ".cursor" / "mcp.json.bak").read_text() == "{bad json"
+
+    @pytest.mark.asyncio
+    async def test_cursor_backup_never_clobbers_existing_bak(self, tmp_path):
+        cur = tmp_path / ".cursor"
+        cur.mkdir(parents=True)
+        (cur / "mcp.json").write_text("{bad json")
+        (cur / "mcp.json.bak").write_text("ORIGINAL BACKUP")
+        app, (a, b, c) = _make_app(tmp_path)
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+            "pathlib.Path.home", return_value=tmp_path
+        ), patch("tui.app.local_env.run_command", new=AsyncMock(
+            return_value=local_env.CommandResult(0, "", False)
+        )):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                screen = await _push_client_screen(app)
+                await pilot.pause()
+                log = screen.query_one("#client-log", tui_app.RichLog)
+                with patch.object(app, "push_screen_wait", new=AsyncMock(return_value=True)):
+                    await screen._connect_cursor(mc.CURSOR, _BLOCK, log)
+        assert (cur / "mcp.json.bak").read_text() == "ORIGINAL BACKUP"  # preserved
+        assert (cur / "mcp.json.bak.1").read_text() == "{bad json"  # new backup rotated
+
+    @pytest.mark.asyncio
+    async def test_cursor_write_failure_is_failed_not_crash(self, tmp_path):
+        # Make ~/.cursor a regular FILE so the mkdir/write raises OSError.
+        (tmp_path / ".cursor").write_text("i am a file, not a directory")
+        app, (a, b, c) = _make_app(tmp_path)
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+            "pathlib.Path.home", return_value=tmp_path
+        ):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                screen = await _push_client_screen(app)
+                await pilot.pause()
+                log = screen.query_one("#client-log", tui_app.RichLog)
+                status = await screen._connect_cursor(mc.CURSOR, _BLOCK, log)
+        assert status is mc.ClientStatus.FAILED  # handled, worker did not crash
+
+    @pytest.mark.asyncio
     async def test_connect_persists_actual_status_not_assumed_connected(self, tmp_path):
         app, (a, b, c) = _make_app(tmp_path)
         with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
