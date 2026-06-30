@@ -63,9 +63,9 @@ Few simple steps to get you going:
   ```sh
   git clone https://github.com/griddynamics/specflow.git && cd specflow
   ```
-- install Specflow TUI (Terminal UI) to guide you through onboarding
+- install Specflow (includes the Terminal UI that guides you through onboarding)
   ```sh
-  uv tool install --editable "./mcp_server[tui]"
+  uv tool install --editable ./mcp_server
   ```
 - start Specflow app and follow instructions
   ```

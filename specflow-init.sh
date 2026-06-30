@@ -596,10 +596,9 @@ Next step (manual): add the MCP server to your IDE.
 The MCP server runs as an IDE-side process — do NOT start it via
 Docker Compose. The specflow backend is already running in Docker.
 
-Tip: for a live, glanceable view of a run from the terminal, install the
-interactive TUI and launch it from your project directory:
+Tip: for a live, glanceable view of a run from the terminal, launch the
+interactive TUI from your project directory:
 
-    cd mcp_server && uv run pip install -e ".[tui]" && cd ..
     specflow tui
 
 INSTRUCTIONS

@@ -612,14 +612,37 @@ class TestWorkspaceDrillIn:
 
 class TestCliGuardedImport:
     @pytest.mark.asyncio
-    async def test_missing_tui_prints_install_hint(self, capsys):
+    async def test_missing_textual_prints_install_hint(self, capsys):
         import cli
 
-        # Simulate the [tui] extra being absent: importing tui.app raises.
-        with patch.dict(sys.modules, {"tui.app": None}):
+        # Simulate the [tui] extra being absent: every `textual` module is
+        # unimportable, so re-importing tui.app raises ImportError(name="textual...").
+        with patch.dict(sys.modules):
+            sys.modules.pop("tui.app", None)
+            for name in list(sys.modules):
+                if name == "textual" or name.startswith("textual."):
+                    sys.modules[name] = None
             rc = await cli.cmd_tui(SimpleNamespace())
         assert rc == 1
-        assert "pip install" in capsys.readouterr().err
+        err = capsys.readouterr().err
+        # The hint must point at re-installing the uv tool, not a project-venv
+        # pip install that never touches the tool env this command runs from.
+        assert "uv tool install" in err
+        assert "textual" in err
+        assert "pip install" not in err
+
+    @pytest.mark.asyncio
+    async def test_unrelated_import_error_propagates(self):
+        import cli
+
+        # A failure that is NOT the optional `textual` dep (here: the `tui`
+        # package itself is unimportable) is a real bug — it must surface rather
+        # than be masked by the "TUI isn't installed" hint.
+        with patch.dict(sys.modules):
+            sys.modules.pop("tui.app", None)
+            sys.modules["tui"] = None
+            with pytest.raises(ImportError):
+                await cli.cmd_tui(SimpleNamespace())
 
     @pytest.mark.asyncio
     async def test_present_tui_delegates_to_run_tui(self):
