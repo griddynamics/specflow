@@ -30,12 +30,10 @@ dependencies = [
     "plyer[macosx]>=2.1.0; sys_platform == 'darwin'",
     "pypdf>=5.0",
     "pillow>=12.2.0",
+    # TUI runtime for `specflow tui`. Base (not an optional extra) so a fresh
+    # `uv tool install` always has a working TUI; only `tui.app` imports it.
+    "textual>=0.60",
 ]
-
-[project.optional-dependencies]
-# Interactive terminal UI (`specflow tui`). Optional so the base install and the
-# MCP path carry no new runtime deps. Textual pulls Rich transitively.
-tui = ["textual>=0.60"]
 
 [project.urls]
 Homepage = "https://github.com/griddynamics/specflow"
@@ -64,7 +62,6 @@ dev = [
     "black>=23.12.1",
     "ruff>=0.1.9",
     "mcp>=1.0.0",
-    "textual>=0.60",
 ]
 
 [tool.ruff]

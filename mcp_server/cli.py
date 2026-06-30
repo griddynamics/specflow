@@ -405,13 +405,24 @@ async def cmd_clear_workspace(args: argparse.Namespace) -> int:
 
 
 async def cmd_tui(args: argparse.Namespace) -> int:
-    """tui: launch the interactive terminal UI (optional [tui] extra)."""
+    """tui: launch the interactive terminal UI."""
     try:
         from tui.app import run_tui
-    except ImportError:
+    except ImportError as exc:
+        # `textual` is the only TUI runtime dependency (a base dependency). If a
+        # different module failed to import, that's a real bug in the TUI stack
+        # — surface it instead of the misleading "not installed" hint below.
+        missing = exc.name or ""
+        if missing != "textual" and not missing.startswith("textual."):
+            raise
+        # `textual` is a base dependency, so it should always be present. If it
+        # isn't, the install is incomplete — re-install the uv tool. This is NOT
+        # a project-venv `pip install`, which would not touch the tool
+        # environment this command actually runs from.
         print(
-            "The TUI isn't installed. Install the optional extra:\n"
-            '  cd mcp_server && uv run pip install -e ".[tui]"\n'
+            "The TUI dependency `textual` is missing — this install is incomplete.\n"
+            "Re-install specflow from the repo root:\n"
+            "  uv tool install --reinstall --editable ./mcp_server\n"
             "then run `specflow tui` again.",
             file=sys.stderr,
         )
@@ -600,9 +611,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # tui
-    p_tui = subparsers.add_parser(
-        "tui", help="Launch the interactive terminal UI (requires the [tui] extra)"
-    )
+    p_tui = subparsers.add_parser("tui", help="Launch the interactive terminal UI")
     p_tui.add_argument(
         "--generation-id",
         default=None,

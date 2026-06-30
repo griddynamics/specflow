@@ -11,8 +11,8 @@ cd specflow
 cp .env.quickstart.example .env
 # Fill the REQUIRED block at the top of .env.
 
-# Install the specflow CLI (the [tui] extra also enables `specflow tui`).
-uv tool install --editable "./mcp_server[tui]"
+# Install the specflow CLI (includes the `specflow tui` terminal UI).
+uv tool install --editable ./mcp_server
 
 # Bootstrap the local harness sandbox.
 specflow init
@@ -132,10 +132,10 @@ token/cost, and in-app actions — launch the interactive terminal UI:
 specflow tui
 ```
 
-(The TUI ships with the `[tui]` extra installed in step 1. On first launch with no
-`.env` yet, `specflow tui` walks you through collecting the required values, writes
-`.env`, and runs the bootstrap for you; on later launches it offers to start the Docker
-stack if it isn't already running.)
+(The TUI is installed with the CLI in step 1. On first launch with no `.env` yet,
+`specflow tui` walks you through collecting the required values, writes `.env`, and runs
+the bootstrap for you; on later launches it offers to start the Docker stack if it isn't
+already running.)
 
 ## Stop or Reset
 

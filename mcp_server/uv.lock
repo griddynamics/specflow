@@ -388,10 +388,6 @@ dependencies = [
     { name = "python-docx" },
     { name = "python-dotenv" },
     { name = "python-pptx" },
-]
-
-[package.optional-dependencies]
-tui = [
     { name = "textual" },
 ]
 
@@ -403,7 +399,6 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "ruff" },
-    { name = "textual" },
 ]
 
 [package.metadata]
@@ -419,9 +414,8 @@ requires-dist = [
     { name = "python-docx", specifier = ">=1.1.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "python-pptx", specifier = ">=1.0.0" },
-    { name = "textual", marker = "extra == 'tui'", specifier = ">=0.60" },
+    { name = "textual", specifier = ">=0.60" },
 ]
-provides-extras = ["tui"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -431,7 +425,6 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=0.21.1" },
     { name = "pytest-cov", specifier = ">=4.0.0" },
     { name = "ruff", specifier = ">=0.1.9" },
-    { name = "textual", specifier = ">=0.60" },
 ]
 
 [[package]]
