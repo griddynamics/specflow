@@ -32,8 +32,12 @@ SERVER_NAME = "specflow"
 # Cursor silently truncates deeplinks past this length; fall back to file/manual.
 MAX_DEEPLINK_URL_LENGTH = 8000
 
-# Connected-client marker (separate file so the mcp-config schema is untouched).
-CLIENTS_MARKER_FILENAME = ".specflow-local/clients.json"
+# Global SpecFlow config — the SSOT for cross-project TUI/MCP settings. Lives in
+# the user's HOME (not the project) because connecting a client is a machine-wide
+# action (claude/gemini `-s user`, Cursor `~/.cursor/mcp.json`) and the TUI must
+# reach it from any project. Future global settings get their own top-level key.
+CONFIG_DIRNAME = ".specflow"
+CONFIG_FILENAME = "config.json"
 
 
 # ---------------------------------------------------------------------------
@@ -499,13 +503,12 @@ class ClientRow:
 
 
 def client_rows(
-    root: Path,
     *,
     which: Callable[[str], str | None] = shutil.which,
     home: Path | None = None,
 ) -> list[ClientRow]:
     """The full list of clients with detection + saved status (pure view model)."""
-    saved = saved_statuses(root)
+    saved = saved_statuses(home=home)
     return [
         ClientRow(c, is_installed(c, which=which, home=home), saved.get(c.client_id))
         for c in REGISTRY
@@ -513,11 +516,13 @@ def client_rows(
 
 
 # ---------------------------------------------------------------------------
-# Per-client status marker (.specflow-local/clients.json)
+# Global SpecFlow config (~/.specflow/config.json)
 #
-# Stores the *actual* outcome per client — the same statuses shown in the TUI —
-# so an unverified add is remembered as unverified, never assumed connected. The
-# user closes the loop later by inspecting their client and confirming.
+# Stores the *actual* per-client status — the same statuses shown in the TUI —
+# under a "clients" section, so an unverified add is remembered as unverified,
+# never assumed connected. This file is the SSOT for any FUTURE global SpecFlow
+# settings: add new sections as sibling top-level keys; the read/write helpers
+# here preserve every key they don't own, so sections never clobber each other.
 # ---------------------------------------------------------------------------
 
 # Outcomes worth persisting (transient/detection states are recomputed live).
@@ -537,18 +542,28 @@ _ACTED_STATUSES: frozenset[ClientStatus] = frozenset(
 )
 
 
-def _marker_path(root: Path) -> Path:
-    return root / CLIENTS_MARKER_FILENAME
+def config_path(home: Path | None = None) -> Path:
+    """Path to the global SpecFlow config (``home`` injectable for tests)."""
+    return (home or Path.home()) / CONFIG_DIRNAME / CONFIG_FILENAME
 
 
-def saved_statuses(root: Path) -> dict[str, ClientStatus]:
-    """Read the per-client saved statuses from the marker file (unknown ids/values skipped)."""
+def _read_config(home: Path | None = None) -> dict:
     try:
-        data = json.loads(_marker_path(root).read_text())
+        return json.loads(config_path(home).read_text())
     except (FileNotFoundError, json.JSONDecodeError):
         return {}
+
+
+def _write_config(data: dict, home: Path | None = None) -> None:
+    path = config_path(home)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2))
+
+
+def saved_statuses(*, home: Path | None = None) -> dict[str, ClientStatus]:
+    """Per-client saved statuses from the global config (unknown ids/values skipped)."""
     out: dict[str, ClientStatus] = {}
-    for client_id, value in (data.get("clients") or {}).items():
+    for client_id, value in (_read_config(home).get("clients") or {}).items():
         try:
             out[client_id] = ClientStatus(value)
         except ValueError:
@@ -556,25 +571,30 @@ def saved_statuses(root: Path) -> dict[str, ClientStatus]:
     return out
 
 
-def save_status(root: Path, client_id: str, status: ClientStatus) -> None:
-    """Persist ``status`` for ``client_id`` (idempotent merge into the marker)."""
+def save_status(client_id: str, status: ClientStatus, *, home: Path | None = None) -> None:
+    """Persist ``status`` for ``client_id`` into the global config's ``clients`` section.
+
+    Read-modify-write that preserves every other top-level config section, so
+    future settings living in the same file are never lost.
+    """
     if status not in PERSISTABLE_STATUSES:
         return
-    statuses = saved_statuses(root)
-    statuses[client_id] = status
-    path = _marker_path(root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"clients": {cid: s.value for cid, s in sorted(statuses.items())}}
-    path.write_text(json.dumps(payload, indent=2))
+    data = _read_config(home)
+    clients = data.get("clients")
+    if not isinstance(clients, dict):
+        clients = {}
+    clients[client_id] = status.value
+    data["clients"] = {cid: clients[cid] for cid in sorted(clients)}
+    _write_config(data, home)
 
 
-def is_any_client_connected(root: Path) -> bool:
+def is_any_client_connected(*, home: Path | None = None) -> bool:
     """Gate for the startup screen: skip it once the user has connected/added a client.
 
     A bare FAILED does not count (they still need to succeed), so they are not
     dropped on the empty Sessions list with nothing wired up.
     """
-    return any(s in _ACTED_STATUSES for s in saved_statuses(root).values())
+    return any(s in _ACTED_STATUSES for s in saved_statuses(home=home).values())
 
 
 # ---------------------------------------------------------------------------

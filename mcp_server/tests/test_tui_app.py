@@ -1141,42 +1141,47 @@ class TestClientSetupScreen:
                 with patch.object(app, "push_screen_wait", new=AsyncMock(return_value=None)):
                     await screen._connect_flow(mc.CURSOR)
         # Cursor is unverifiable → saved as ADDED_UNVERIFIED, NOT "connected".
-        assert mc.saved_statuses(tmp_path).get("cursor") is mc.ClientStatus.ADDED_UNVERIFIED
+        assert mc.saved_statuses(home=tmp_path).get("cursor") is mc.ClientStatus.ADDED_UNVERIFIED
 
     @pytest.mark.asyncio
     async def test_inspect_confirm_marks_connected(self, tmp_path):
         app, (a, b, c) = _make_app(tmp_path)
-        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])):
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+            "pathlib.Path.home", return_value=tmp_path
+        ):
             async with app.run_test() as pilot:
                 await pilot.pause()
                 screen = await _push_client_screen(app)
                 await pilot.pause()
                 with patch.object(app, "push_screen_wait", new=AsyncMock(return_value=True)):
                     await screen._inspect_flow(mc.CURSOR)
-        assert mc.saved_statuses(tmp_path)["cursor"] is mc.ClientStatus.CONNECTED
+        assert mc.saved_statuses(home=tmp_path)["cursor"] is mc.ClientStatus.CONNECTED
 
     @pytest.mark.asyncio
     async def test_inspect_reject_marks_failed(self, tmp_path):
         app, (a, b, c) = _make_app(tmp_path)
-        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])):
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+            "pathlib.Path.home", return_value=tmp_path
+        ):
             async with app.run_test() as pilot:
                 await pilot.pause()
                 screen = await _push_client_screen(app)
                 await pilot.pause()
                 with patch.object(app, "push_screen_wait", new=AsyncMock(return_value=False)):
                     await screen._inspect_flow(mc.CURSOR)
-        assert mc.saved_statuses(tmp_path)["cursor"] is mc.ClientStatus.FAILED
+        assert mc.saved_statuses(home=tmp_path)["cursor"] is mc.ClientStatus.FAILED
 
     @pytest.mark.asyncio
     async def test_inspect_decide_later_leaves_status_untouched(self, tmp_path):
-        mc.save_status(tmp_path, "cursor", mc.ClientStatus.ADDED_UNVERIFIED)
-        app, (a, b, c) = _make_app(tmp_path)
-        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])):
-            async with app.run_test() as pilot:
-                await pilot.pause()
-                screen = await _push_client_screen(app)
-                await pilot.pause()
-                with patch.object(app, "push_screen_wait", new=AsyncMock(return_value=None)):
-                    await screen._inspect_flow(mc.CURSOR)
+        with patch("pathlib.Path.home", return_value=tmp_path):
+            mc.save_status("cursor", mc.ClientStatus.ADDED_UNVERIFIED, home=tmp_path)
+            app, (a, b, c) = _make_app(tmp_path)
+            with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])):
+                async with app.run_test() as pilot:
+                    await pilot.pause()
+                    screen = await _push_client_screen(app)
+                    await pilot.pause()
+                    with patch.object(app, "push_screen_wait", new=AsyncMock(return_value=None)):
+                        await screen._inspect_flow(mc.CURSOR)
         # Dismissed without deciding → unchanged.
-        assert mc.saved_statuses(tmp_path)["cursor"] is mc.ClientStatus.ADDED_UNVERIFIED
+        assert mc.saved_statuses(home=tmp_path)["cursor"] is mc.ClientStatus.ADDED_UNVERIFIED

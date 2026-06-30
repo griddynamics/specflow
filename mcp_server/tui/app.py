@@ -777,7 +777,7 @@ class ClientSetupScreen(_SpecFlowScreen):
     # -- rendering ---------------------------------------------------------
 
     async def _populate(self) -> None:
-        self._rows = mcp_clients.client_rows(self.app.root)
+        self._rows = mcp_clients.client_rows()
         self._status = {
             r.client.client_id: mcp_clients.initial_status(
                 r.client, installed=r.installed, saved=r.saved
@@ -935,7 +935,7 @@ class ClientSetupScreen(_SpecFlowScreen):
         self._set_status(cid, status)
         # Persist the real outcome — including "added (unverified)" — so next time
         # the screen shows actual state, never an assumed connection.
-        mcp_clients.save_status(self.app.root, cid, status)
+        mcp_clients.save_status(cid, status)
         if status in (
             mcp_clients.ClientStatus.VERIFIED,
             mcp_clients.ClientStatus.ADDED_UNVERIFIED,
@@ -959,7 +959,7 @@ class ClientSetupScreen(_SpecFlowScreen):
             mcp_clients.ClientStatus.CONNECTED if choice else mcp_clients.ClientStatus.FAILED
         )
         self._set_status(client.client_id, new_status)
-        mcp_clients.save_status(self.app.root, client.client_id, new_status)
+        mcp_clients.save_status(client.client_id, new_status)
         if choice:
             self.notify(f"{client.name} marked connected.", severity="information")
         else:
@@ -1487,7 +1487,7 @@ class SpecFlowTUI(App):
         # user's AI tool instead of dropping them on the empty Sessions list.
         # Only when not resuming a run and no client has been connected yet;
         # the screen is skippable and re-openable later via `c`.
-        if not self.generation_id and not mcp_clients.is_any_client_connected(self.root):
+        if not self.generation_id and not mcp_clients.is_any_client_connected():
             await self.push_screen_wait(ClientSetupScreen())
 
         # (c) Proceed to the existing app.

@@ -174,42 +174,56 @@ class TestIsInstalled:
         assert mc.is_installed(mc.CURSOR, which=lambda _b: None, home=tmp_path) is False
 
 
-class TestStatusMarker:
+class TestGlobalConfig:
+    def test_path_is_under_home_specflow(self, tmp_path):
+        assert mc.config_path(home=tmp_path) == tmp_path / ".specflow" / "config.json"
+
     def test_empty_when_absent(self, tmp_path):
-        assert mc.saved_statuses(tmp_path) == {}
-        assert mc.is_any_client_connected(tmp_path) is False
+        assert mc.saved_statuses(home=tmp_path) == {}
+        assert mc.is_any_client_connected(home=tmp_path) is False
 
     def test_save_and_read_back_actual_status(self, tmp_path):
-        mc.save_status(tmp_path, "claude_code", mc.ClientStatus.VERIFIED)
-        mc.save_status(tmp_path, "cursor", mc.ClientStatus.ADDED_UNVERIFIED)
-        assert mc.saved_statuses(tmp_path) == {
+        mc.save_status("claude_code", mc.ClientStatus.VERIFIED, home=tmp_path)
+        mc.save_status("cursor", mc.ClientStatus.ADDED_UNVERIFIED, home=tmp_path)
+        assert mc.saved_statuses(home=tmp_path) == {
             "claude_code": mc.ClientStatus.VERIFIED,
             "cursor": mc.ClientStatus.ADDED_UNVERIFIED,
         }
 
     def test_save_overwrites_prior_status(self, tmp_path):
-        mc.save_status(tmp_path, "cursor", mc.ClientStatus.ADDED_UNVERIFIED)
-        mc.save_status(tmp_path, "cursor", mc.ClientStatus.FAILED)
-        assert mc.saved_statuses(tmp_path)["cursor"] is mc.ClientStatus.FAILED
+        mc.save_status("cursor", mc.ClientStatus.ADDED_UNVERIFIED, home=tmp_path)
+        mc.save_status("cursor", mc.ClientStatus.FAILED, home=tmp_path)
+        assert mc.saved_statuses(home=tmp_path)["cursor"] is mc.ClientStatus.FAILED
 
     def test_transient_statuses_not_persisted(self, tmp_path):
-        mc.save_status(tmp_path, "cursor", mc.ClientStatus.CONNECTING)
-        mc.save_status(tmp_path, "cursor", mc.ClientStatus.NOT_CONFIGURED)
-        assert mc.saved_statuses(tmp_path) == {}
+        mc.save_status("cursor", mc.ClientStatus.CONNECTING, home=tmp_path)
+        mc.save_status("cursor", mc.ClientStatus.NOT_CONFIGURED, home=tmp_path)
+        assert mc.saved_statuses(home=tmp_path) == {}
 
     def test_added_unverified_counts_as_acted_but_failed_does_not(self, tmp_path):
-        mc.save_status(tmp_path, "cursor", mc.ClientStatus.FAILED)
-        assert mc.is_any_client_connected(tmp_path) is False  # bare failure still nags
-        mc.save_status(tmp_path, "cursor", mc.ClientStatus.ADDED_UNVERIFIED)
-        assert mc.is_any_client_connected(tmp_path) is True
+        mc.save_status("cursor", mc.ClientStatus.FAILED, home=tmp_path)
+        assert mc.is_any_client_connected(home=tmp_path) is False  # bare failure still nags
+        mc.save_status("cursor", mc.ClientStatus.ADDED_UNVERIFIED, home=tmp_path)
+        assert mc.is_any_client_connected(home=tmp_path) is True
+
+    def test_save_preserves_other_config_sections(self, tmp_path):
+        # A future global setting living in the same file must not be clobbered.
+        path = mc.config_path(home=tmp_path)
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"backend_url": "http://x", "theme": "dark"}))
+        mc.save_status("cursor", mc.ClientStatus.VERIFIED, home=tmp_path)
+        data = json.loads(path.read_text())
+        assert data["backend_url"] == "http://x"  # preserved
+        assert data["theme"] == "dark"  # preserved
+        assert data["clients"]["cursor"] == "verified"
 
     def test_malformed_or_unknown_values_read_as_empty(self, tmp_path):
-        path = tmp_path / mc.CLIENTS_MARKER_FILENAME
+        path = mc.config_path(home=tmp_path)
         path.parent.mkdir(parents=True)
         path.write_text("{not json")
-        assert mc.saved_statuses(tmp_path) == {}
+        assert mc.saved_statuses(home=tmp_path) == {}
         path.write_text(json.dumps({"clients": {"cursor": "bogus_status"}}))
-        assert mc.saved_statuses(tmp_path) == {}  # unknown value dropped, no crash
+        assert mc.saved_statuses(home=tmp_path) == {}  # unknown value dropped, no crash
 
 
 class TestRenderCliHint:
@@ -278,8 +292,10 @@ class TestStatus:
 
 class TestClientRows:
     def test_rows_cover_registry_with_flags(self, tmp_path):
-        mc.save_status(tmp_path, "claude_code", mc.ClientStatus.VERIFIED)
-        rows = mc.client_rows(tmp_path, which=lambda b: "/bin/" + b if b == "claude" else None)
+        mc.save_status("claude_code", mc.ClientStatus.VERIFIED, home=tmp_path)
+        rows = mc.client_rows(
+            which=lambda b: "/bin/" + b if b == "claude" else None, home=tmp_path
+        )
         by_id = {r.client.client_id: r for r in rows}
         assert set(by_id) == {c.client_id for c in mc.REGISTRY}
         assert by_id["claude_code"].installed is True

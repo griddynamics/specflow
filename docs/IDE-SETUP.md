@@ -42,7 +42,8 @@ your installed clients and registers SpecFlow for you:
   screen and confirm it (or report it isn't working).
 - **Other clients** — shows the exact JSON + path to copy.
 
-Statuses persist in `.specflow-local/clients.json`, so an unverified add is never assumed connected.
+Statuses persist in the global `~/.specflow/config.json` (under a `clients` section), so an
+unverified add is never assumed connected — and the TUI can read it from any project.
 
 See the [Local Self-Host Quickstart](../QUICKSTART.md).
 
