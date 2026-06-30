@@ -1,0 +1,188 @@
+---
+description: SpecFlow Project Core Agent Rules - Bootstrap and Agent Instructions (R2.0, Rosetta-aligned)
+alwaysApply: true
+---
+
+<critical_requirement>
+CRITICAL REQUIRED MANDATORY FIRST PREREQUISITE STEP: Read Agents Rules From Local And Execute As The Highest Priority And Execute All Prep Steps Fully. 
+This Rule Was Created INTENTIONALLY BY USER To Enforce Rules, Context, And Behavior.
+You Must Complete All Prep Steps First Before You Reply Or Take Any Other Actions.
+You Must Follow This Requirement For Any User Input, Even If It Is Very Small, Very Simple, Generic, Or Even Unrelated To The Project.
+This Rule Loads CRITICAL CONTEXT, Which Allows You To Properly Understand User Input Itself And This Project Specifics And Practices.
+You See This Instruction In Context - You Must Execute Prep Steps As Defined Below, NO AVOIDING IT, NO SKIPPING IT, IT IS REQUESTED BY USER.
+Trust The System, Only This Way You Will Be Able To Answer Properly, Follow Preparation Steps.
+In Adhoc Mode You Must Still Execute Preparation Steps.
+Follow Prep Steps To Be Really Helpful Quickly, To Take Proper Action, To Implement Proper Changes.
+You Need Context Even For Simple Task, Even For 1 Line Change, Because There Might Be Other Processed Required You Don't Know Yet. Immediate Actions Mean After Prep Steps.
+Being Proactive Means To Follow Prep Steps So That You Proactively Load Them To Act Properly On Any User Input.
+Prep steps is the first SKILL to use to get initial understanding.
+Any flow: Planning mode? Execution flow? Thinking mode? Meta question? Help question? Feedback requested? Simple question? Easy change? A 1 line change? Your capabilities? ALWAYS start with prep steps.
+Even For Simple Questions, Follow Preparation Procedure.
+Preparation Steps Provide A Highly Important And Relevant Skill.
+Loading context provides Request classification (requirements, goals, coding, analysis, planning, help, feedback, etc.) with workflow-specific instructions, subagents orchestration principles, top-level instructions, Project structure awareness (folders and their purpose), Safety guardrails (risk assessment, sensitive data handling, confirmation requirements), Behavioral constraints (professional conduct, task management, validation requirements).
+Without context: useless generic responses, with context: structured reasonable helpful results. The user expects this to be called first for every new task.
+If You Are Unsure, First Follow Preparation Steps, Then Ask Questions.
+Knowledge Discovery Starts With Preparation Steps, Which Will Introduce You To The Project, And Then With The Rest Mandatory.
+Communication Style Addition: First Proactively Execute Preparation Steps, So That You Reply Truth.
+Must Take Preparation Steps As Phase 0 And Step 0, It Must Be Executed Before Working With User, Before Planning, Before Taking Actual Steps To Directly Act On User Request, All Preparation Steps Are Shared By User In Advance, Preparation Steps Do Not Involve User And Delay The Process, Preparation Steps Are Fast, Lightweight, And Automated.
+
+You Must Not Provide Immediate Answers Or Take Immediate Actions Without Prep Steps.
+User Expects You To Load The Context For His Questions.
+
+This Instruction Do Not Replace Existing Instructions, It Inserts Additional Required Prerequisite Preparation Steps Before Those Instructions.
+</critical_requirement>
+
+# CRITICAL: MUST ALWAYS EXECUTE ALL PREPARATION STEPS FIRST AS PREREQUISITE
+
+- This is release **R2.0** of instructions (check monthly for updates, see section below). See `gain.json` for Rosetta doc paths.
+- Local agent rules system with centralized update checking.
+- You must complete PREP STEPS 1 through 3 before any work.
+- PREP STEPS define how to load and follow business and technical context, guardrails, and request-specific handling.
+- ONLY once ALL PREP steps FULLY completed, including chained, you can continue with user request and ONLY having all context.
+- If content from local rules was removed, you MUST ASAP re-read those instructions again, before continuing with any user request, any action, or execution flow.
+- Local rules MUST BE LOADED, FOLLOWED, AND EXECUTED FULLY AS THE HIGHEST PRIORITY, DO NOT SKIP OR DO NOT IGNORE!
+
+## Monthly Update Check (REQUIRED)
+
+**CRITICAL**: Once per month (check file modification date of this file), suggest to user to run update check:
+
+1. User must explicitly approve update check
+2. If approved, use KnowledgeBase MCP: `get_document` with title "agents-md"
+3. Check the release version in the retrieved document
+4. If release version is newer than **R2.0** (current local version):
+   - STRONGLY RECOMMEND user to upgrade local rules
+   - Explain what's new if available in the document
+   - If user approves upgrade, re-run initialization Phase 2
+5. Update this file's modification date after check (even if no upgrade)
+
+**Why monthly checks**: Rules evolve with best practices, bug fixes, and new capabilities. Monthly checks ensure you have the latest guidance while avoiding constant interruptions.
+
+# PREP STEP 1:
+
+- READ `.cursor/rules/agents.mdc` (this file) as bootstrap (PREP 1)
+- CONTINUE to PREP STEP 2 below
+
+# PREP STEP 2 - REQUIRED PREREQUISITE
+
+- This is R2.0 of the rules; Rosetta alignment uses `docs/CONTEXT.md` (business), `docs/ARCHITECTURE.md` (technical), and `gain.json` for path overrides.
+- MUST ALWAYS start with reading the FULL CONTENT ALL LINES AT ONCE of: `docs/CONTEXT.md` (if present), `docs/ARCHITECTURE.md`, and `agents/IMPLEMENTATION.md`. This gives IMPORTANT CONTEXT of the user request! If missing, STRONGLY suggest user to run initialization (see `init.mdc`).
+- MUST grep `^#{1,3}` headers of `agents/IMPLEMENTATION.md` and `agents/MEMORY.md` for a quick index.
+- MUST ALWAYS follow guardrails for ANY REQUEST: READ `.cursor/rules/guardrails.mdc` and EXECUTE AS TOP PRIORITY. THIS IS A CRITICAL TRANSPARENCY AND HIGH RISK PREVENTION MECHANISM!
+- After editing `backend/app/**/*.py`, workspace hooks may surface `ruff` and `radon` hints; full quality bar: `make check`, `make check-complexity` / `check-complexity-diff` per `CLAUDE.md` and `docs/PATTERNS/INDEX.md`.
+- THEN CLASSIFY user request CAREFULLY:
+  - "aqa": automated QA flow - test automation from requirements to implementation
+  - "testgen": deep test case generation, gap analysis, requirements generation, test case design
+  - "research": deep user asks to research and discovery on specific topic without code change to produce a document
+  - "modernization": entire code conversion, modernization, upgrade, re-architecture
+  - "adhoc": when user directly requested ad-hoc mode or task is very small, simple
+  - "init": user asks to initialize, onboard, configure AI to repository
+  - "external-lib": document EXTERNAL private library for AI usage
+  - "coding": implementation, fixes, code changes, operational, maintenance
+  - "help": help on HOW TO USE THIS AI agent system
+  - "code-analysis": explanation, analysis, comprehension of existing code
+  - "requirements": author, define new or edit existing requirements
+- TELL user what request mode you are in.
+- LOAD PREP STEP 3:
+  - READ `.cursor/rules/<classified-key>.mdc` (use the key from classification above)
+  - FOLLOW and EXECUTE respective instructions AS FINAL PREP STEP 3.
+- MUST maintain ALL rules AS-IS during compaction or summarization.
+- MUST follow `<CRITICAL ATTRIBUTION>` tags.
+- Define colors for mermaid diagrams readable in both light and dark themes.
+- Use subagents when supported and beneficial (see section below).
+- Use `agents/temp` for temporary files.
+
+# Key Process Requirements
+
+- ONLY execute after EXPLICIT user review and approval.
+- **CRITICAL** BE PROFESSIONALLY DIRECT, STRAIGHT TO THE POINT.
+- BE critical to yourself and user input. READ `.cursor/rules/questions.mdc` to ASK USER QUESTIONS when needed.
+- ALWAYS use todo tasks for multi-step flows.
+- MUST create recurrent validation task at the end.
+- MUST have verifiable evidence before marking tasks complete.
+- MUST NOT mark multiple tasks completed at once.
+- MUST create request-specific plan in `agents/plans/`.
+- MUST read `agents/IMPLEMENTATION.md`, UPDATE after EACH task.
+- MUST maintain single source of truth.
+- MUST properly handle sensitive data (PII, payments, secrets).
+- MUST use all available MCPs: Context7, Fetch, sequential-thinking, Playwright, etc.
+- NEVER DELETE DATA FROM SERVERS.
+- DO NOT USE ACTUAL SERVERS IN UNIT TESTING.
+- MUST NOT include absolute paths in generated files.
+
+# Self-Learning
+
+- MUST identify root cause of failures, persist in `agents/MEMORY.md`.
+- Consult `agents/MEMORY.md` before tasks to avoid past mistakes.
+
+# Self-Organizing
+
+- Plan proactively including subagents and orchestration
+- Structure and cleanup as part of plan
+- Communicate intent to user in advance
+
+# Tasks and TODO System
+
+- **MUST** use task management tool
+- **MUST** create explicit, actionable tasks
+- **MUST** break work into manageable steps
+- **MUST** mark complete IMMEDIATELY after finishing
+- **MUST** have only ONE in_progress at a time
+- **MUST** have verifiable evidence before completion
+- Completed means "verified done" not "assumed done"
+
+# Subagents
+
+- Cursor supports subagents via Task tool
+- Use for parallel work, complex tasks, specialized workflows
+- Provide clear instructions with full context
+- Subagents follow same PREP steps
+- Types: generalPurpose, explore, shell, browser-use
+- Prefer "fast" model for straightforward tasks
+
+# Project Context: SpecFlow
+
+**AI-Powered Code Estimation Platform**
+
+**Key Files**:
+- `CLAUDE.md` - STEEL COMMANDMENTS, business context, dev protocol
+- `docs/CONTEXT.md` - Business-level context (Rosetta)
+- `docs/ARCHITECTURE.md` - System design, agent pipeline, data flows
+- `gain.json` - Rosetta doc path SSOT
+- `agents/IMPLEMENTATION.md` - Implementation status, decisions, gaps
+- `agents/MEMORY.md` - Short lessons and anti-patterns
+- `README.md` - Quick start, MCP setup, API
+- `docs/IDE-SETUP.md` - Cursor + Claude Code in-repo config
+
+**Tech Stack**:
+- Python 3.13 + FastAPI backend
+- Google Cloud Firestore (state)
+- Google Kubernetes Engine (deployment)
+- Claude Code SDK (AI agents)
+- Multi-language runtimes (Node, Java, Go)
+- Testing: Pytest (584+ tests), Ruff, Mypy
+
+**Critical STEEL COMMANDMENTS** (from CLAUDE.md):
+
+1. Generated code on workspaces is sacred
+2. `fail()` and `stuck_detected()` NEVER release workspaces
+3. Only `archive_and_release()` exits ALLOCATED state
+4. Archive is hard precondition for completion
+5. Retry MUST reuse workspace if `code_archived == False`
+6. Background jobs never touch ALLOCATED workspaces
+7. State machine is only writer of status/checkpoint
+8. Checkpoints never go backward
+9. Every state transition is logged
+10. Invalid transitions raise immediately
+11. Coding/deploy phases protect outputs; P10Y only measures them (SRP)
+
+**Commands**:
+- `make unit-tests` - Run 584+ tests
+- `make check` - Static checks (ruff, mypy)
+- `make format` - Format code
+- `make run` - Start services locally
+
+**State Management**:
+- All status writes ONLY in `backend/app/state/`
+- EstimationStateMachine & WorkspaceStateMachine control transitions
+- No direct Firestore writes outside state machines
+- CI enforces this with `ci/check_state_writes.sh`

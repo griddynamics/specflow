@@ -1,0 +1,39 @@
+[
+  {
+    "workspace_id": "ws-01-1",
+    "repo_url": "https://github.com/your-org/your-test-repo-1",
+    "p10y_repository_id": 10001,
+    "workspace_pool": "default"
+  },
+  {
+    "workspace_id": "ws-01-2",
+    "repo_url": "https://github.com/your-org/your-test-repo-2",
+    "p10y_repository_id": 10002,
+    "workspace_pool": "default"
+  },
+  {
+    "workspace_id": "ws-01-3",
+    "repo_url": "https://github.com/your-org/your-test-repo-3",
+    "p10y_repository_id": 10003,
+    "workspace_pool": "default"
+  },
+
+  {
+    "workspace_id": "ws-extra-1",
+    "repo_url": "https://github.com/your-org/your-test-repo-extra-1",
+    "p10y_repository_id": 10011,
+    "workspace_pool": "testpool"
+  },
+  {
+    "workspace_id": "ws-extra-2",
+    "repo_url": "https://github.com/your-org/your-test-repo-extra-2",
+    "p10y_repository_id": 10012,
+    "workspace_pool": "testpool"
+  },
+  {
+    "workspace_id": "ws-extra-3",
+    "repo_url": "https://github.com/your-org/your-test-repo-extra-3",
+    "p10y_repository_id": 10013,
+    "workspace_pool": "testpool"
+  }
+]

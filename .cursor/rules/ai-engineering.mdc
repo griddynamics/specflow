@@ -1,0 +1,276 @@
+---
+description: AI Engineering - Prompt Engineering, Context Management, Agent Configuration
+globs: backend/app/prompts/**/*.py, backend/app/workflows/**/*.py, backend/app/services/claude_code.py
+alwaysApply: false
+---
+
+# AI Engineering Guidelines for GAIN
+
+## Context Management
+
+### Prompt Structure Principles
+- **Front-load critical constraints**: Put MUST NOT/MUST DO at the beginning
+- **Use structured sections**: Assumptions, Workflow, Tools, Format
+- **Reference standards by relative path**: `./standards/commit_standards.md`
+- **Single source of truth**: Standards in `backend/app/standards/`, referenced in prompts
+
+### Context Budget Management
+- **Claude Code SDK default**: 200K token context window
+- **Workspace isolation**: Each agent sees only its workspace directory
+- **Standards copied at runtime**: From `/standards_source` to `<workspace>/standards/`
+- **Relative paths always**: Never use absolute paths in prompts
+
+## Agent Scope & Sandboxing
+
+### File System Access
+**Allowed Paths**:
+- Current workspace directory (read/write)
+- `./specifications/` - Input specs
+- `./gain/` - Output artifacts
+- `./standards/` - Standards copied at runtime
+- Repository code (read/write for generation)
+
+**Forbidden**:
+- No access outside workspace
+- No `/tmp` or system directories
+- No `sudo` commands
+- No access to other workspaces
+
+### Tool Access
+**Built-in Claude Code SDK Tools**:
+- `bash` - Shell commands (sandboxed to workspace)
+- `str_replace` - File editing
+- `write_file` - File creation
+- `read_file` - File reading
+- `ls` - Directory listing
+
+**Agent Can**:
+- Clone/commit to workspace git repo
+- Install dependencies via package managers
+- Run tests
+- Start local services (PostgreSQL, LocalStack, etc.)
+
+**Agent Cannot**:
+- Access AWS/GCP/Azure (use LocalStack/mocks)
+- Connect to external APIs (must mock)
+- Access network outside allowed domains
+- Modify files outside workspace
+
+## Agent Configuration
+
+### Claude Code SDK Settings
+
+**In `backend/app/services/claude_code.py`**:
+```python
+# Agent budget configuration
+max_turns: int = 200  # Maximum agent iterations
+timeout: timedelta = timedelta(hours=8)  # 8-hour sessions
+
+# Model selection
+model: str = "claude-sonnet-4-20250514"  # Primary model
+```
+
+**Key Parameters**:
+- `max_turns`: 200 (enough for complex implementations)
+- `timeout`: 8 hours (for long-running generations)
+- `temperature`: Not explicitly set (SDK defaults)
+- `max_tokens`: Handled by SDK per-turn
+
+### Workspace Configuration
+
+**Isolated Workspace Model** (`backend/app/services/claude_code.py`):
+- Each agent gets dedicated directory: `/workspace1`, `/workspace2`, etc.
+- Standards copied per workspace (not shared)
+- No cross-workspace contamination
+- NFS persistence across container restarts
+
+## Prompt Engineering Patterns
+
+### Pattern 1: Specification Indexer
+**Purpose**: Index all spec files, create searchable summary
+**Key Technique**: Parallel processing with Task agents
+**File**: `backend/app/prompts/agents_claude_code.py::specification_indexer_agent_template()`
+
+```python
+def specification_indexer_agent_template(
+    spec_path: str = "./specifications",
+    outputs_dir: str = "./gain",
+):
+    # Front-load critical info
+    # Use relative paths
+    # Specify exact output format
+    # Reference Tools section
+```
+
+### Pattern 2: Specification Completeness
+**Purpose**: Gap analysis for architectural decisions
+**Key Technique**: Conversational - repeat until complete
+**File**: `backend/app/prompts/agents_claude_code.py::specification_completeness_agent_template()`
+
+**Critical Instruction**:
+```
+Your goal is to identify gaps that would cause different development teams 
+to make DIFFERENT ARCHITECTURAL CHOICES for the same specification.
+```
+
+### Pattern 3: Planning Agent
+**Purpose**: Create implementation plan with phases
+**Key Technique**: Constrained format (JSON-like markdown)
+**File**: `backend/app/prompts/agents_claude_code.py::planning_agent_template()`
+
+**Output Format Enforcement**:
+- Use strict format specifications
+- Provide examples of expected output
+- Reference validation in workflow
+
+### Pattern 4: Code Generation
+**Purpose**: Implement the plan
+**Key Technique**: Standards-driven, commit-based
+**File**: `backend/app/prompts/agents_claude_code.py::generate_production_agent_template()`
+
+**Critical Constraints** (from section 6):
+```
+6. ⚠️ CRITICAL: The workspace has no access to external services
+   - PostgreSQL: Use container or SQLite
+   - AWS services: Use LocalStack containers
+   - Third-party REST APIs: Use stub servers or mocked clients
+   - Auth providers: Local JWT or Keycloak container
+```
+
+## MCP Tool Integration
+
+### Available MCPs in Workspace
+GAIN agents run in Claude Code SDK, not via MCP. But for reference:
+
+**For Estimation Workflow**:
+- No MCPs used (pure Claude Code SDK)
+- Standards copied as files
+- All context via prompts
+
+**For Developers**:
+- GAIN MCP server (`server.py`) - for Cursor/Claude Desktop
+- Tools: spec_analyze, estimation_run, estimation_status, estimation_result
+
+## Prompt Maintenance
+
+### Standards Files (`backend/app/standards/`)
+- `commit_standards.md` - Git commit message format
+- `tech_stacks.md` - Technology constraints and patterns
+- `feature_implementation_standards.md` - Implementation guidelines
+- `DEVELOPER_GUIDELINES.md` - Copied to each workspace
+
+**Update Process**:
+1. Edit standard file in `backend/app/standards/`
+2. Changes automatically copied to new workspaces
+3. Existing workspaces keep their copy (consistency)
+
+### Prompt Files (`backend/app/prompts/`)
+- `agents_claude_code.py` - All agent prompt templates
+- `prompt_configs.py` - Shared configurations (base_awus, factors_markdown)
+
+**Testing Changes**:
+1. Update prompt template
+2. Run with SKIP_AGENT_EXECUTION=false
+3. Monitor `agent_logs/` for output
+4. Validate against expected behavior
+
+## Common Pitfalls
+
+### ❌ Absolute Paths in Prompts
+```python
+# BAD
+WORKSPACE_PATH = "/agent/workspace"  # Breaks isolation
+```
+
+```python
+# GOOD
+spec_path = "./specifications"  # Relative to workspace
+```
+
+### ❌ Assuming External Access
+```python
+# BAD - agent will fail
+"Connect to production database at db.example.com"
+```
+
+```python
+# GOOD
+"Use PostgreSQL container: docker run -p 5432:5432 postgres"
+```
+
+### ❌ Vague Output Format
+```python
+# BAD
+"Provide a summary"
+```
+
+```python
+# GOOD
+"Save summary as markdown with headers: 
+ ## Repository Overview
+ ## Specification Overview
+ Save to: ./gain/spec_index.md"
+```
+
+### ❌ No Tool Guidance
+```python
+# BAD
+"Process all files"
+```
+
+```python
+# GOOD
+"Tools:
+ - use built-in tools and skills
+ - spawn Task agents for parallel processing"
+```
+
+## Debugging Prompts
+
+### Agent Logs
+Location: `agent_logs/<generation_id>/`
+
+**What to Check**:
+- Agent turns count (approaching max_turns?)
+- Tool usage patterns (repeated failures?)
+- Output format compliance
+- Error messages from bash commands
+
+### Common Issues
+
+**Agent Timeout**:
+- Check `max_turns` setting
+- Review prompt complexity
+- Consider splitting workflow
+
+**Wrong Output Format**:
+- Add explicit format examples
+- Use structured sections (Markdown headers)
+- Validate with follow-up agent
+
+**File Not Found**:
+- Check relative paths
+- Verify standards copied correctly
+- Check `STANDARDS_DIR_NAME` setting
+
+## Workflow Orchestration
+
+See `docs/ARCHITECTURE.md` (AI Agent Pipeline section) for detailed workflow descriptions.
+
+**Key Workflows**:
+1. **Specification Analysis**: Indexer → Completeness check
+2. **Planning**: Gap analysis → Phase breakdown
+3. **Code Generation**: Plan → Implement → Validate
+4. **Estimation**: Commits → P10Y API → Summary
+
+**Orchestration** (`backend/app/workflows/`):
+- `generate_poc.py` - Single workspace
+- `multi_workspace_estimation_p10y.py` - Parallel execution
+
+## References
+
+- Agent templates: `backend/app/prompts/agents_claude_code.py`
+- Standards: `backend/app/standards/`
+- Claude Code service: `backend/app/services/claude_code.py`
+- Workflows: `backend/app/workflows/`
+- AI Agent Pipeline: `docs/ARCHITECTURE.md` (see comprehensive workflow docs)

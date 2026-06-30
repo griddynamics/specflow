@@ -1,0 +1,182 @@
+# Implementation Status
+
+**Updated**: June 23, 2026 | **Branch**: (current) | **Tests**: 1228+ passing (`make unit-tests`)
+
+## Core Systems (Production Ready)
+
+- **State**: `backend/app/state/` — estimation_state_machine, workspace_state_machine, transitions, workflow_orchestrator
+- **API**: `backend/app/api/v1/` — estimations, specifications, workspace, auth, status, generation
+- **Services**: `backend/app/services/` — estimation, workspace_pool, estimation_retry, crash_recovery, git_archive_service, claude_code, workflow_steps, planning_parser, api_key_lock, mcp_prune (spec MCP trim + `resolve_enabled_mcps_and_set_telemetry` for analyze/plan/run API), `json_llm_repair` (Pydantic + optional OpenRouter JSON fix via `LLM_LOW`), `llm_apis/anthropic_api` (direct Anthropic one-shot), `llm_apis/open_router_api` (OpenRouter chat completions one-shot)
+- **Workflows**: `backend/app/workflows/` — generate_poc, multi_workspace_estimation_p10y
+- **Database**: `backend/app/database/` — firestore, emulator, in_memory (IDatabase interface)
+- **Prompts**: `backend/app/prompts/agents_claude_code.py` — all agent templates
+- **Schemas**: `backend/app/schemas/` — estimation_enums (statuses/checkpoints), specification (SpecReadiness)
+- **Config**: `backend/app/core/config.py` — env vars including `TOKEN_ENCRYPTION_KEY`, `GITHUB_TOKEN_DEFAULT`, `GIT_USER_NAME_DEFAULT`, K8s secret key name settings; Rosetta `ims-mcp` via `uvx ims-mcp@latest` with `ROSETTA_SERVER_URL`, `ROSETTA_API_KEY`, `ROSETTA_USER_EMAIL`, `ROSETTA_IMS_VERSION` → subprocess `VERSION` (`build_rosetta_mcp_config`); `github_platform_secrets.py` loads Fernet + default PAT (K8s API or env); `workspace_pool_names.py` — pool allowlist; `artifact_subdirs.py` — `ANALYSIS_SUBDIR`, `PLANNING_SUBDIR`, `REPORT_SUBDIR` (SSOT for artifact/workspace output paths); `backend/app/prompts/mcp_workflow_registry.py` — matrix of optional agent MCPs per workflow + prune keyword field map
+- **MCP**: `server.py` — tools: check_specification_completeness, run_planning, run_generation, check_status, retry_generation, download_estimation_outputs; workspace tools take `ctx: Context` and call `apply_mcp_project_root_from_context` so `resolve_path` / session file resolve before `gain_session.json` exists (MCP `list_roots()` → Pydantic `FileUrl` → `_project_root`).
+
+## Key Decisions (PR83)
+
+- **Spec-driven pipeline**: Part F in spec completeness → `LOCAL_ONLY` or `INTEGRATION_TESTS_READY` (SpecReadiness enum). No feature flags.
+- **Two plan files**: `IMPLEMENTATION_PLAN.md` (code) + `e2e-test-plan.md` (deploy+QA). Both via `parse_planning_output()`.
+- **Optional checkpoints**: `DEPLOY_AND_E2E_DONE` registered only when `INTEGRATION_TESTS_READY`. Orchestrator skips missing steps.
+- **File-based flow communication**: `specification_completeness.md` → `parse_integration_readiness_from_file()` → `WorkflowContext.integration_readiness`.
+- **Conditional prompts**: Templates get `integration_readiness` param. Deploy instructions in `_sandbox_deployment_instructions()`.
+- **SKIP_MODE**: `SKIP_AGENT_EXECUTION` env var. Mocks all agent calls + Part F.
+
+## Critical Invariants
+
+- Checkpoint ordering synced across: `get_next_checkpoint()`, `is_valid_transition()`, `ESTIMATION_WORKFLOW_STEPS`. CI: `test_workflow_step_consistency.py`.
+- `GENERATION_STARTED` kept for backward compat. Single-model configs work. `LOCAL_ONLY` unchanged.
+
+## Recently Completed (June 2026)
+
+- **PR317 review follow-ups — TUI action safety (Jun 29)**: Three review fixes on the dashboard action refactor (`mcp_server/tui/app.py`). (1) `ConfirmScreen` now stops its countdown `set_interval` timer on confirm/cancel (new `_stop_timer()` called from `on_button_pressed`, `action_cancel`, `action_confirm`, and the terminal `_tick`) so no stray `_tick` fires against a dismissed modal; `_timer` annotated `Timer | None`. (2) Confirmed the `check_action("retry")` → `None` behavior is intentional (greyed-out, discoverable; not hidden) — renamed test to `test_retry_greyed_out_unless_failed` with a clarifying comment. (3) Added end-to-end worker-flow tests for the safety-critical paths in `test_tui_app.py::TestDashboardActionFlows`: retry confirm/cancel, clear for eligible set + confirm/cancel, clear ineligible-set message, clear pool-fetch-error message, and clear when `fetch_pool_status` is unavailable (`do_clear_set`/`do_retry` only reached on confirm; `_run_suspended` patched out). Plus `TestConfirmScreenCountdown::test_cancel_stops_countdown_timer`. 89 TUI tests pass (`test_tui_app/actions/render`).
+
+- **Per-workspace stats = full lifetime aggregate + arrow-key select (Jun 29)**: Two PR316 review follow-ups. (1) Reverted the active-workflow *usage* scoping that left the TUI workspace-stats panel empty for most of a run: usage records only when an `agent_query` returns its terminal message, but the "current in-flight workflow" scope always pointed at the next, still-empty step (KB init showed nothing until done; each generation phase perpetually showed the empty *next* phase). `generation_sessions._ws_usage_and_models(usage_tree, ws_id)` now returns the workspace's **full lifetime aggregate** across every workflow (the pre-KB `markdown_to_json_converter` runs, KB init, and each completed phase) — the general workspace usage the user expects, updating step-by-step as queries finish. Removed `_active_workflow_prefix` and the `kb_init`-only fallback (now-unused `WorkflowName`/`PhaseKind` imports dropped); `kb_init_in_progress` still drives the phase-name label only. The `workflow_prefix` param on `aggregate_model_usage_by_workspace`/`model_names_by_workspace` stays (generic, still unit-tested). Tests updated: `test_generation_sessions.py::TestGetGenerationStatus::{test_status_workspace_usage_uses_full_lifetime_aggregate,test_status_workspace_usage_surfaces_pre_kb_converter_usage,test_status_kb_init_usage_visible_after_kb_init_in_first_phase}`. (2) Dashboard ↑/↓ now select the workspace row (priority bindings so they win over the scroll container; `[`/`]` kept, PageUp/Down/wheel still scroll); subtitle updated. Test: `test_tui_app.py::TestWorkspaceDrillIn::test_arrow_keys_select_workspace`. Note: pre-existing unrelated mypy error in `app/state/workspace_models.py:73` (not touched here).
+
+- **Live agent-message stream hardening + presentation SSOT (Jun 29)**: Follow-up review fixes on the TUI message-stream feature. (1) Bug fix — `mcp_server/tui/app.py` re-imports `Button` (an import cleanup had dropped it while `OnboardingScreen` still used it → first-run `NameError`). (2) Parse+safety SSOT centralized in `backend/app/services/agent_stream_events.py`: tool *results* now collapse to a single line and clamp to the stricter `MAX_TOOL_RESULT_CHARS` (160, server-side — a real exposure control, not just client truncation); tool *inputs* keep name + one allow-listed arg summary. (3) Presentation SSOT centralized in `mcp_server/tui/render.py` (`KIND_STYLES` + `kind_style()`, pure strings, no Rich import); `app.stream_row_text` is now a mechanical `StreamRow → rich.Text` adapter. (4) Perf — `StreamPublisher.publish_nowait` short-circuits via `broker.has_subscribers()` before any conversion (hot path runs per SDK message for every generation). (5) SSE endpoint subscribes inside the generator so subscribe/unsubscribe are strictly paired (no queue leak if the body is never iterated). Also fixed 3 pre-existing `TestWorkspaceDrillIn` tests that omitted the `_gate_ready()` startup-gate patches. Tests: `test_agent_stream_events.py` (single-line/`MAX_TOOL_RESULT_CHARS` cap), `test_agent_stream_broker.py` (no-subscriber skip), `test_tui_render.py` (`kind_style`), `test_generation_sessions.py` (SSE subscribe-then-publish ordering).
+
+- **KB-init usage visible in workspace drill-in (Jun 29)**: Fixed the per-workspace stats panel showing empty turns/tokens during/after KB init. Root cause: usage is written to `workflow_usage_metrics` only when an `agent_query` returns its terminal `ResultMessage`; KB init is one long query that flushes exactly as the checkpoint leaves `kb_init`, so the active-scope view (`_active_workflow_prefix`) never saw it. Fix (no live-usage feature — deferred): `generation_sessions._ws_usage_and_models` falls back to the **`kb_init` scope only** (never the full aggregate, so the LOW-tier `markdown_to_json_converter` still can't leak) when the active step has recorded nothing yet — so KB-init turns/tokens stay viewable through the first generation phase. Generation-phase scoping is unchanged (phases flush progressively via their sub-step `agent_query` calls). TUI: `WorkspaceStats.has_usage` + `build_workspace_stats` now render "Turns / tokens · appear when this step completes" instead of zero rows while a step is in flight. Tests: `test_generation_sessions.py::TestGetGenerationStatus::{test_status_kb_init_usage_visible_after_kb_init_in_first_phase,test_status_kb_fallback_excludes_converter_leak}`, `test_tui_app.py::TestWorkspaceStatsPanel::test_phase_known_but_no_usage_shows_pending_hint`.
+
+## Recently Completed (March–April 2026)
+
+- **Per-workspace usage/model scoped to active workflow (Jun 26)**: The `/status` per-workspace `usage`/`models` view is now scoped to the workflow currently active on each workspace instead of the lifetime aggregate, so an earlier step's model no longer leaks (e.g. the LOW-tier `markdown_to_json_converter` showing Haiku during KB init). `aggregate_model_usage_by_workspace` / `model_names_by_workspace` gained an optional `workflow_prefix` (shared `_matches_workflow`; plain key exact-match, phased keys `generation_phase_{n}_` prefix with trailing `_` so phase 1 ≠ phase 10); default None preserves the cross-workflow aggregate used by notifications/P10Y. `generation_sessions.py::_active_workflow_prefix(checkpoint, ws_data, kb_init_in_progress)` maps stage→key (`kb_init`, or current `generation_phase_{last_completed+1}_`; None for terminal stages → full aggregate). Best-effort. Tests: `backend/test/schemas/test_model_usage.py::TestWorkflowPrefixScoping`, `backend/test/api/test_generation_sessions.py::TestGetGenerationStatus::test_status_workspace_usage_scoped_to_active_workflow`.
+
+- **KB-init streaming + model tier + TUI phase label (Jun 26)**: Three KB-init fixes. (1) `run_kb_init_agent` now calls `TelemetryContext.set_workspace_name(workspace_name)` before `agent_query` (real path, matching SKIP_MODE + `phase_agent_fn`); without it `build_stream_publisher_from_context()` returned `None` (needs both `generation_id` **and** `workspace_name`) so the TUI workspace drill-in showed no live messages during KB init. (2) `WORKFLOW_TIER_MAP[WorkflowName.KB_INIT]` moved `MEDIUM → HIGH` — KB init is a planning-stage step, so it now runs on the planning-tier model and the TUI stats panel truthfully shows it (model list reflects actual recorded usage). Cost note: KB init now uses the HIGH model. (3) `/status` per-workspace `phase_name` reports `"Knowledge Base Initialization with Rosetta"` while the session checkpoint is before `KB_INIT_DONE` (was mislabeling KB init as the first code-gen phase via `planning_data.phases[0]`); see `_ws_phase_view_entry(..., kb_init_in_progress=...)`. Also dropped a pre-existing unused `StateMachineDBAdapter` import in `workflow_steps.py`. Tests: `backend/test/test_workflow_steps_kb_init.py` (asserts `set_workspace_name`), `backend/test/test_model_selection.py::...test_workflow_tier_map_entries` (KB_INIT is HIGH), `backend/test/api/test_generation_sessions.py::TestGetGenerationStatus::test_status_phase_name_reports_kb_init_before_kb_init_done`.
+
+- **No allocation on first-run contract rejection (Jun 23)**: `/workspace/sync` now preflights first-run `generation_run` archives in a temporary directory before creating a generation session or allocating workspaces. The shared contract preflight covers file normalization plus implementation/e2e plan structure checks (`PLAN_NO_PHASES`, `PLAN_UNPARSEABLE`, `E2E_PLAN_UNPARSEABLE`), while post-allocation markdown conversion failures are treated as workflow/internal failures rather than user contract rejections. MCP sync includes the **archive-relative** `outputs_dir` in params (from `ArchiveBuilder`, not `outputs_dir.name`) so backend validation locates analysis/planning artifacts even when the outputs dir is nested below the archive root. Regression coverage: `backend/test/api/test_isolation_api.py::TestWorkspaceSyncGenerationPreflight`, `backend/test/services/test_contract_validator.py::TestGenerationContractPreflight`, `backend/test/services/test_run_contract_validator.py` (post-preflight conversion failure = workflow `RuntimeError`, not a contract rejection), `mcp_server/tests/test_file_sync_orchestrator.py`, `mcp_server/tests/test_archive_builder.py::test_nested_outputs_dir_returns_relative_path`.
+
+- **Local quickstart Firestore persistence (Jun 25)**: Docker Compose Firestore emulator now stores snapshots under `./workspaces/firestore_emulator/current` and restores the discovered `*overall_export_metadata` file on startup, with a legacy root-level export fallback for existing users. `firestore-exporter` periodically calls the emulator runtime export endpoint and attempts a final sidecar export on stop; Compose shutdown order keeps the emulator alive while backend marks in-flight runs failed, then lets the exporter snapshot that retry state. Native `--export-on-exit` remains as a clean-shutdown fallback. Quickstart defaults `FIRESTORE_DATABASE_NAME=specflow`; `specflow-init.sh --reset-local-db` explicitly clears the local emulator export directory before reseeding.
+
+- **Repo Rosetta R2 + IDE alignment (Apr 27)**: Added `docs/CONTEXT.md`, `gain.json`, `docs/PATTERNS/INDEX.md`, `agents/MEMORY.md`, `docs/IDE-SETUP.md`; upgraded `.cursor/rules/agents.mdc` to R2.0; `.cursor/hooks.json` + `scripts/ide_backend_quality.py` for post-write ruff/radon hints; archived ephemeral plans/reviews under `docs/_archive/ephemeral/`; mirrored Cursor slash commands into `.claude/commands/` and added `backend-quality-gate` skill.
+
+- **Notifications + PostHog (Apr 17)**: Slack/email token blocks use a single `Tokens:` section; completion summary shows P10Y variance + CV (not Approved/Rejected/buffer). PostHog `$ai_generation` includes `duration_seconds`; spec/planning duration always set; tool-result token extraction handles JSON strings and `usage` input+output sums; milestones `spec_check_triggered`, `kb_init_triggered`, `workspace_coding_completed`. Plan: `agents/plans/notifications-telemetry-fixes/notifications-telemetry-fixes-PLAN.md`.
+
+- **MCP API reference (Apr 14)**: `docs/mcp/API_REFERENCE.md` rewritten to match `server.py` (7 tools, session/path rules, no legacy `estimation_run` / `force_new_workspaces`), shorter; links to `README.md` and `docs/backend/API_REFERENCE.md`.
+- **Marketing site + README (Apr 14)**: GitHub Pages `docs/github-pages/index.md` — Claude Code manual `claude mcp add` example, How It Works + Pipeline include Deployment (GH Actions e2e), Key Capabilities adds Extensibility (MCPs + Dockerfile-aligned runtimes: Python 3.13, Node 22, JDK 21/Maven, Go 1.23, `gh`/`git`). `README.md` — User setup section with `PUT /api/v1/auth/github-token` curl for dedicated workspace pools.
+
+- **Pre-deploy milestone notification (Apr 13)**: When ``INTEGRATION_TESTS_READY``, ``run_deploy_and_e2e`` sends email/Slack before the deploy & QA loop using the same rich template as completion (cumulative ``workflow_usage_metrics`` / variants), with ``notification_kind=coding_complete_pre_deploy``; skipped on resume mid-loop or non-dict estimation docs (tests). Helpers: ``build_coding_complete_pre_deploy_response``, ``_notify_coding_complete_before_deploy_if_applicable``.
+
+- **WorkspaceEstimation.model_usage (Apr 13)**: ``WorkspaceEstimation`` carries optional ``ModelTokenUsage``. Stored ``result`` uses nested ``model_usage``; resend-email reconstruction requires full stored payload (``workspace_estimations`` + ``comparative_analysis``). P10Y workflow attaches Firestore aggregates with ``ModelTokenUsage``; notifications read ``model_usage``.
+
+- **ModelTokenUsage + workflow_usage_metrics (Apr 13)**: Single dataclass ``ModelTokenUsage`` (``model_name``, ``num_turns``, four token buckets); legacy ``ModelUsage`` removed — aggregates use empty ``model_name``, flat Firestore ``model_usage`` uses ``to_flat_dict()`` (no ``model_name``). Firestore field ``workflow_usage_metrics`` nests ``workflow_key → workspaces → workspace_id → models → model_name``. ``add_agent_query_token_usage`` replaces flat-only updates; ``agent_query`` passes workflow (``TelemetryWorkflowLabel``), workspace, and model. P10Y completion reads per-workspace totals from ``workflow_usage_metrics`` via ``aggregate_model_usage_by_workspace``. Legacy ``add_agent_query_totals`` maps to ``legacy_flat/_`` row.
+
+- **Notification usage + models (Apr 13)**: Spec-check and planning Slack/email show four cumulative token buckets + turns + total; resolved agent model lines (spec: indexer + completeness; planning: HIGH tier). Spec analyze persists ``build_llm_overrides`` to estimation parameters after ``begin_analysis``; ``POST /generation/plan`` merges full ``build_llm_overrides`` with MCP params so ``models: default`` is avoided when forms omit overrides. SpecFlow iteration complete email/Slack list per-workspace codegen usage on ``WorkspaceEstimation``. Tests: ``test_workflow_stats``, ``test_email_notifications``, ``test_specification_analyze_mcp_prune``.
+
+- **PostHog / TelemetryContext isolation (Apr 13)**: `TelemetryContext` no longer mutates the bound user-context dict in place (copy-on-write updates) so parallel asyncio tasks cannot share one dict and scramble `workspace_name`, workflow, or MCP fields. `$ai_generation` uses `basename(workspace_path)` as the workspace dimension SSOT alongside the explicit model. Test: `test_telemetry_context_async.py`.
+- **Telemetry workflow (Apr 13)**: `TelemetryContext.get_workflow()` / `set_workflow()` use Pydantic `TelemetryWorkflowLabel` (`.plain(str)` or `.phase(PhaseKind, num, role)`). PostHog `workflow` string = `to_stored_string()`. `$ai_generation` no longer sends `model_tier`.
+
+- **Large-file write prompt + workspace-scoped `rm` (Apr 10)**: `LARGE_FILE_WRITE_INSTRUCTIONS` + `LARGE_FILE_LINE_THRESHOLD` in `agents_claude_code.py` shared by spec completeness and planning prompts (proactive >200-line part writes; merge + `rm` cleanup). `get_workspace_rm_bash_allowlist()` in `tool_usage.py`; spec completeness + `planning_agent_fn` append it to `allowed_tools`. Global `Bash(rm:*)` removed from `get_disallowed_tools()` (rm remains off default bash allowlist; only explicit workspace pattern grants it). Tests: `test_tool_usage`.
+
+- **P10Y best-effort + coverage reporting + resend recalc (Apr 9, ops v0.4.0 #4)**:
+  Multi-workspace P10Y no longer raises when every workspace fails; `skipped_workspaces` lists reasons;
+  `aggregate_p10y_commit_coverage_pct` and per-workspace `p10y_scored_commits` drive markdown report wording
+  (partial vs full coverage; 100% stays silent). `POST .../resend-email` accepts `recalculate_p10y=true` to
+  re-run `multi_workspace_estimation_p10y_workflow`, then `EstimationService.update_completed_estimation_result`
+  patches Firestore `result` without changing status (sync `db.update`, not await). Tests:
+  `test_email_notifications` (resend recalc, `_multi_workspace_result_to_store`, reconstruct with P10Y fields),
+  `test_estimation` (`update_completed_estimation_result`), `test_report_generation` (skipped/coverage sections),
+  `test_workflow_integration`, `test_model_selection`.
+
+- **Rosetta unpack in standalone planning + Rosetta MCP on codegen (Apr 9, ops v0.4.0 #3)**: `planning_workflow` calls `unpack_rosetta_artifacts` on the primary workspace after KB init (or KB_INIT_DONE resume) and before `run_planning_agent`, matching full-estimation behavior from `prepare_parallel_workspaces`. `coding_mcp_servers_and_tools` merges `_rosetta_pair` when `ROSETTA_MCP_ENABLED` so generation/deploy phase agents get KnowledgeBase MCP like planning/KB init. `unpack_rosetta_artifacts` also maps `rosetta/skills/` and `rosetta/commands/` to `.claude/skills/` and `.claude/commands/` (same pattern as `rosetta/agents/`). Tests: `test_agents_claude_code` (coding MCP + rosetta), `test_execute_all_phases_mcps` mocks set `ROSETTA_MCP_ENABLED=False` where isolating Playwright/Figma.
+
+- **Async spec analyze + usage counters + milestone notifications (Apr 3)**: `POST /specification/analyze` returns immediately; background task awaits `archive_analysis` before clearing `spec_analysis_in_progress` and sending email/Slack `notify_spec_check_complete`. `GET /specification/outputs/{ws}` → **410 Gone**; MCP uses short analyze timeout and `download_outputs` only. Cumulative `num_turns` / `total_tokens_used` on estimation docs via transactional `add_agent_query_totals` from successful `agent_query` (TelemetryContext handler from `build_workflow_context`, spec/planning bg tasks, estimation run/retry). `GET .../estimations/{id}/status` + MCP `check_status` expose counters and `total_tokens_used_display` (`format_token_count`). `notify_planning_complete` after `archive_planning` + `PLANNING_DONE` in `planning_workflow`. Edge-case tests: `test_specification_analyze_async_edges.py` (API key lock, `begin_analysis` failure, workflow/archive failures, archive-before-notify ordering, notify failure cleanup), `test_get_estimation_status_includes_usage_and_spec_analysis_fields`. **TODO**: crash recovery could clear stale `spec_analysis_in_progress` if the process dies mid-task.
+
+## Recently Completed (March 2026)
+- **Workspace pool segregation + per-API-key GitHub tokens (Mar 31)**: Firestore fields `workspace_pool` / `key_uid` / encrypted PAT; `allocate_workspace_set` filters by pool; `GithubAuthContext` via `github_auth.py`; K8s Secret API loader + env fallback (`cryptography`, `kubernetes` deps); `PUT /api/v1/auth/github-token`; admin `APIKeyCreate.workspace_pool`; middleware exposes `key_uid` + `workspace_pool`; `verify_estimation_owner` enforces pool + key match; indexes + `migrate_workspace_pool_key_uid.py`. Tests: `test_github_auth.py`, fixture updates. Design: `docs/backend/workspace-pool-segregation-plan.md`.
+
+- **API key `current_process` after completion (Mar 31)**: On `EstimationStateMachine.complete()`, `clear_current_process_for_estimation()` clears `api_keys.current_process` for that estimation so a new MCP/Cursor session does not recover a finished run. `GET /auth/me` omits `current_process` when the linked estimation document is `completed` (defense in depth + legacy rows). Idempotent `complete_estimation()` on already-completed docs also clears the pointer. Tests: `test_get_auth_me_hides_completed_estimation_current_process`.
+
+- **Spec-driven MCP pruning + per-phase MCPs (Mar 30)**: After `specification_index.md`, `run_mcp_prune_after_spec_index()` **keyword-greps** index + spec tree (`MCP_PRUNE_KEYWORDS_*`, caps `MCP_PRUNE_GREP_MAX_*`); default **`MCP_PRUNE_USE_LLM=true`** in `Settings` (keyword grep for evidence, then prune **agent** on that evidence; set `false` for keyword-only keep-if-hit). No-hit → conservative full candidate; parse/repair via `json_llm_repair` when OpenRouter key present. **LLM path** (setup through parse): any exception → keyword fallback. Persists pruned `mcp_servers_enabled`. **Re-runs on each spec-analysis call** (after index exists) so iterating specs refreshes enablement. **`POST /generation/plan`** and **`POST /estimations/run`** use `resolve_enabled_mcps_detailed(..., prefer_stored=True)` so Firestore `mcp_servers_enabled` beats repeated `MCP_SERVERS_ENABLED` form/env; spec analyze keeps default (form-first) for prune candidates. Planning JSON phases may set **`applicable_agent_mcps`** (`[]` = no Playwright/Figma MCP that phase; omit = use estimation set); `execute_all_phases` intersects per phase. **Central matrix**: `backend/app/prompts/mcp_workflow_registry.py` (per-workflow allowlists, prune settings field names, resolution order). Summary in `CLAUDE.md` (Agent MCP policy). Docs: `docs/agents/enabled-mcps.md` (includes edge-case ↔ test matrix), future runtime extension notes `docs/agents/extending-mcps-in-runtime.md`; MCP client env note in `server.py`. Tests: `test_mcp_prune.py` (keyword/LLM/skip, `agent_query` failure fallback, multi-fence parse), `test_json_llm_repair.py` (extraction/repair on/off), `test_planning_parser_edges.py` (phase_count mismatch, empty phases, invalid MCP ids), `test_planning_parser_phase_mcps.py`, `test_execute_all_phases_mcps.py`, `test/api/test_specification_analyze_mcp_prune.py`. **Follow-up:** unify `planning_parser` JSON extraction with `json_llm_repair` — GitHub #138.
+
+- **HF-run2 Level 1 harness (Mar 30)**: Deploy-phase prompt — quoted `-f` on `gh workflow run`; deploy block points to `e2e-test-plan.md` + `IMPLEMENTATION_PLAN.md` + `deployment_standards.md` (not `specification_completeness.md` as runtime SSOT — that file drives spec updates upstream). **Deploy Phase Context** includes **Phase MCP scope** from actual `phase_mcps` (no duplicate line in nested phase header). Part F completeness rows still define planning inputs. Tests: `test_deploy_agent_prompt.py`.
+- **Commit metadata from git log (Mar 27)**: Removed agent-maintained `code-generation-commits.json`. P10Y metadata is built in `p10y_lib` from `git log` (`component_message` subjects; `SKIP_*` excluded). Initial user sync commit uses `SKIP_initial_user_source`. Janitor prompt takes programmatic JSON snapshot + validates messages; SKIP_MODE no longer fabricates JSON. `fetch_and_filter_commit_stats` keeps only P10Y rows whose full `sha` is in the local git allowlist. Removed deprecated single-workspace `estimation_p10y` workflow and JSON `from_json` parsers on commit metadata.
+- **Tool / MCP usage telemetry (Mar 27)**: `ClaudeCodeSdkAgentMetrics` consumes each SDK message in `process_query_stream`, pairs `ToolUseBlock` / `ToolResultBlock`, splits main vs Task-subagent and MCP (`mcp__` prefix). `AgentQueryMetrics.tool_usage_breakdown` in workflow JSON logs; PostHog `$ai_generation` gets token totals and compact `{name,count}` JSON per scope. See `docs/agents/tool_usage_metrics.md`.
+- **Configurable agent MCPs (Mar 25)**: `MCP_SERVERS_ENABLED` (comma-separated, default `playwright`)
+  flows from MCP `server.py` / sync params → estimation `parameters` → workflows. Backend `SUPPORTED_MCPS`
+  (`playwright`, `figma`) filters names; `FIGMA_ACCESS_TOKEN` / `FIGMA_API_KEY` + `FIGMA_MCP_*` / `PLAYWRIGHT_MCP_*`
+  in backend env build stdio MCP configs. Playwright wired for generation + deploy/E2E phase agents; Figma for
+  spec analysis, planning (with Rosetta), generation, and deploy/E2E. PostHog event `mcp_servers_configuration`
+  records `mcp_configuration_source` (form / estimation_parameters / backend_settings / workspace_sync_params),
+  `mcp_configuration_raw`, resolved enablement, and `mcp_supported_ids` at that moment. API form fields + tests in
+  `test_mcp_config.py`, `test_mcp_configuration_telemetry.py`.
+
+- **Bug fix — workspace_count not respected during spec check allocation (Mar 16)**: Initial
+  workspace allocation (triggered by `check_specification_completeness` → `/api/v1/workspace/sync`)
+  did not receive `workspace_count`, so it always defaulted to 3 active IDs. `run_generation`
+  then reused all 3 IDs regardless of `WORKSPACE_COUNT=1` in MCP env. Fix: pass
+  `_DEFAULT_WORKSPACE_COUNT` from `server.py` through `SpecificationOrchestrator.sync_files` →
+  `FileSyncOrchestrator.sync_files_to_backend` → `params["workspace_count"]` in the
+  `/api/v1/workspace/sync` body. Backend already reads and applies it. No backend changes needed.
+  Guard: `workspace_count` only added to params when creating a new estimation (not reuse path).
+  785 tests passing.
+
+- **Workspace Count Configuration (Mar 16)**: Added `workspace_count` param (1, 2, or 3) to
+  `run_generation` MCP tool and backend API (`/api/v1/generation-sessions/run`, `/api/v1/workspace/sync`).
+  Stored in Firestore estimation `parameters` as SSOT. `start_estimation()` reads from SSOT when
+  not explicitly passed (preserves original count on retry). Pool always allocates full set of 3
+  (set-partitioning blocks unused workspaces naturally); `allocate_workspace_set(count=N)` returns
+  only N active IDs. `EstimationStateMachine.complete()` releases orphaned blocked workspaces via
+  `allocation_rollback()` after releasing active ones. No new Firestore fields, no workflow changes,
+  no state machine schema changes. 10 new tests added (784 total).
+
+- **Planning tool (Phase 0–4)**: Split `estimation_run` into `run_planning` + `run_generation`. Checkpoint reorder: PLANNING_DONE before SYNCED_SPECS/SYNCED_CODE. New: `advance_planning_checkpoint`, `archive_planning()`, API key lock (`api_key_lock.py`), `POST /generation/plan`, `GET /auth/me`, migrations migrate_06/07. Phase 2: KB init prompt incremental mode (skip/minimal-update when specs unchanged). Phase 2b: Crash recovery lock release — `stuck_detected()` and `force_release()` now clear API key lock for stuck/force-released estimations. Phase 3: MCP file sync + orchestrator — `ArchiveBuilder` accepts optional `outputs_dir`, `FileSyncOrchestrator` passes it through, `EstimationOrchestrator.run_estimation()` renamed to `run_generation()`, new `run_planning()` method added. **Phase 4 (Mar 13)**: MCP tools — `get_current_process()` via `GET /auth/me` for session recovery, `run_planning` tool added, `estimation_run` → `run_generation`, `check_estimation_status` → `check_status` with capability flags + auto-download, `retry_estimation` → `retry_generation`, updated MCP instructions. Tool resolution uses `_resolve_generation_id()` helper (arg → module state → backend session). Planning outputs auto-download on first `check_status` call after `PLANNING_DONE`. **Phase 5 (partial, Mar 13)**: Tests — Added 5 tests for `GET /auth/me` endpoint covering session recovery, current_process retrieval, authentication errors, and full MCP recovery flow.
+- **Background jobs fix**: Removed PENDING/FAILED blocking from `cleanup_workspace()`. Fixed stuck_cleaning_recovery for missing timestamps.
+- **Multi-model**: Comma-separated model lists in `LLM_MEDIUM`/`LLM_HIGH`/`LLM_LOW`, round-robin assignment, OpenRouter validation.
+- **Integration readiness**: SpecReadiness enum, Part F, dual plans, DEPLOY_AND_E2E_DONE checkpoint, conditional workflow.
+- **KB Init**: `ROSETTA_MCP_ENABLED` flag, kb_init workflow step, rosetta artifact unpacking.
+- **Post-refactor audit**: State machine enforcement, rogue DB writes removed, CI guards.
+
+## Gaps & Debt
+
+- **STEEL XI + archive before P10Y (ops v0.4.0):** 
+`CHECKPOINT_ORDER` / `ESTIMATION_WORKFLOW_STEPS` place `OUTPUTS_ARCHIVED` before `ESTIMATION_DONE`. 
+
+`generate_app_workflow` always uses `WorkflowOrchestrator` with a bound `EstimationService` and required `GenerateAppRequest.generation_id` (no alternate linear step loop). It registers `archive_outputs` → `run_archive_outputs_step` → `estimation_output_protection.protect_workspace_after_generation`. 
+
+`EstimationStateMachine.advance_checkpoint(OUTPUTS_ARCHIVED)` sets `outputs_archived` + `artifact_path` (not `complete_estimation`). 
+
+Emergency download path: `ArtifactStore.emergency_archive`. 
+
+P10Y archives combined `report/` only; no commits there. 
+
+`multi_workspace_estimation_p10y_workflow` takes `EstimationService.db_adapter` (not raw `get_database()`): workspace docs via `get_workspace`, `ArtifactStore` wired the same as other flows.
+
+- **Workspace pool segregation** (Mar 31, 2026): Implemented — `workspace_pool` on workspaces/api_keys/estimations; `key_uid` on keys and estimations; `PUT /api/v1/auth/github-token`; platform secrets module (`github_platform_secrets`, K8s in-cluster loader + env fallback); allocation filter; strict pool/key checks in `verify_estimation_owner`. Migration: `backend/scripts/migrate_workspace_pool_key_uid.py`; indexes in `create_firestore_indexes.py`. Follow-ups: agent subprocess env allowlist, `gh` CLI plumbing per plan.
+- SSE streaming (currently polling)
+- Auto-provision workspaces when pool exhausted
+- API rate limiting
+- Retry backoff strategies
+- P10Y API integration tests
+- Workspace filesystem health check
+
+## Assumptions & Risks
+
+**Active**: P10Y API stability (monitoring). Claude rate limits (need backoff). GitHub rate limits (OK at ~60 ws). 500Gi storage (OK, monitor). NFS git perf (OK).
+**Needs work**: Agent 8h timeout telemetry. API key rotation. Cross-user workspace audit.
+**Unknowns**: Acceptable variance threshold. P10Y quotas. Per-estimation API cost.
+
+## Quality
+
+1092+ tests (`make unit-tests`), 80%+ coverage. `make check` (ruff, mypy, vulture).
+
+## Phase 4 & 6 Validation Summary (March 13, 2026)
+
+**Phase 4 - MCP Tools**: ✅ Complete
+- Session recovery via `GET /auth/me` + `get_current_process()`
+- New `run_planning` tool (15-45min async operation)
+- Renamed `estimation_run` → `run_generation`
+- Enhanced `check_estimation_status` → `check_status` with capability flags, human-readable phases, auto-download
+- Renamed `retry_estimation` → `retry_generation`
+- Updated MCP instructions with new workflow documentation
+
+**Phase 5.13 - GET /auth/me Tests**: ✅ Complete
+- 5 comprehensive tests added for session recovery
+- Tests cover: current_process retrieval, authentication, error handling, MCP restart flow
+- All tests passing
+
+**Phase 6 - Validation**: ✅ Complete
+- ✅ `make unit-tests`: 760 tests pass (34 skipped)
+- ✅ `make check`: No new ruff/mypy errors in changed files
+- ✅ No regressions in existing functionality
+- Note: `make e2e-setup` requires Docker (not run, optional defensive test)

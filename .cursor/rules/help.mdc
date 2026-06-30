@@ -1,0 +1,70 @@
+---
+description: Help - Guide to Using AI Agent System
+alwaysApply: false
+---
+
+# Help Agents Flow
+
+When user asks for help on how to use the AI agent system, workflows, or features:
+
+1. Describe available flows and workflows using introspection of rules
+2. Check current state of the repository and suggest next actions
+3. Read respective instructions (`.cursor/rules/` files) for better understanding
+4. Output as a helpful assistant at 101 level for developers
+5. Guide developers on how they can use AI features and what to expect
+
+## Available Workflows in This Project
+
+**Initialization** (`.cursor/rules/init.mdc`):
+- Repository onboarding and setup
+- Context file creation
+- Agent rules configuration
+
+**Coding** (`.cursor/rules/coding.mdc`):
+- Full development workflow: discovery → plan → implement → test → validate
+- GAIN-specific: Always run `make unit-tests` before completion
+- Requires explicit user approval at key milestones
+
+**Analysis** (`.cursor/rules/code-analysis.mdc`):
+- Code comprehension and reverse engineering
+- Architecture documentation
+- Requirements extraction from existing code
+
+**Questions** (`.cursor/rules/questions.mdc`):
+- Systematic resolution of unknowns and assumptions
+- Interactive Q&A to clarify requirements
+
+**Ad-hoc** (`.cursor/rules/adhoc.mdc`):
+- Quick, simple tasks without full workflow
+- User retains full control
+- Can reclassify to full workflow if needed
+
+## GAIN Project Quick Reference
+
+**Essential Commands**:
+- `make unit-tests` - Run 584+ test suite
+- `make check` - Static checks (ruff, mypy, vulture)
+- `make format` - Format Python code
+- `make run` - Start local services with Firestore Emulator
+
+**Key Files to Read**:
+- `CLAUDE.md` - Development instructions, STEEL COMMANDMENTS, business context
+- `docs/ARCHITECTURE.md` - System design, AI agent pipeline
+- `agents/IMPLEMENTATION.md` - Current implementation status (Phase 3)
+- Tech stack: `pyproject.toml`, `Dockerfile`
+- Project structure: use IDE file tree
+
+**Critical Rules**:
+- Generated code on workspaces is sacred
+- All state changes through `backend/app/state/` machines
+- Never commit without running tests
+- Follow STEEL COMMANDMENTS
+
+## How to Get More Help
+
+Ask specific questions about:
+- "How does the coding workflow work?"
+- "What workflows are available?"
+- "How do I use subagents?"
+- "What are the STEEL COMMANDMENTS?"
+- "How do I run tests?"

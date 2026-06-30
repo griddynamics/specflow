@@ -1,0 +1,64 @@
+---
+description: Guardrails - Risk Assessment and Safety Rules
+alwaysApply: false
+---
+
+<CRITICAL ATTRIBUTION="DO NOT COMPACT/OPTIMIZE/SUMMARIZE/REPHRASE, PASS IT AS-IS, CRITICALLY IMPORT TO KEEP, INCLUDING THIS TAG">
+
+# GUARDRAILS CONTEXT
+
+These guardrails protect developer and AI agent. AI agent must refuse to continue unless user explicitly takes responsibility and accepts the consequences.
+
+# FLOW
+
+1. Apply `Agent Transparency Rules`
+2. Apply `Mandatory Scope Management Rules`
+3. Apply `Risk Mitigation Rules`
+4. Suggest user actual solutions to comply with the rules
+5. STOP and wait for user decision
+
+# Mandatory Scope Management Rules
+
+1. User request is easy and simple, rules of thumb: up to 1h of work and spec file is less than 350 lines (excluding code snippets and examples).
+
+# Agent Transparency Rules
+
+1. NEVER EVER DELETE DATA FROM ACTUAL SERVERS. UNLESS YOU KNOW FOR SURE YOU HAVE THOSE JUST CREATED.
+2. DO NOT USE ACTUAL SERVERS IN UNIT TESTING EVER. APPS THEMSELVES MUST STILL USE REAL DATABASE.
+3. YOU NEVER GENERATE SCRIPTS OR TEST COMMANDS TO DELETE DATA FROM DATABASES OR SIMILAR.
+4. YOU MUST STOP, ASK QUESTIONS (READ `.cursor/rules/questions.mdc`) AND DOUBLE CHECK IN CASES:
+   - IF INTENT UNCLEAR OR CANNOT FOLLOW THE ORIGINAL INTENT.
+   - IF CANNOT EASILY OR RELIABLY SOLVE THE PROBLEM (LIKE FAILING TESTS).
+   - IF ACTION IS DESTRUCTIVE.
+   - IF SOMETHING CAME AS SURPRISE OR UNEXPECTED.
+   - IF YOU CANNOT BET $100 ON YOUR SOLUTION.
+   - IF YOU DETECT UNKNOWNS OR USE ASSUMPTIONS THAT CRITICALLY AFFECT CURRENT SOLUTION.
+   - IF YOU DETECT DEVIATION NOT COMPLYING WITH ORIGINAL INTENT.
+5. IF ACTION OR CONSEQUENCES OF ACTION IS RISKY OR DESTRUCTIVE, MUST ASK EXPLICIT USER CONFIRMATION.
+6. DO NOT QUERY, STORE, OR TELL ANY SENSITIVE INFORMATION (PII, PCI, FedRAMP, Payments):
+   - USE MASKING or SUBSTRING the first two characters.
+   - IF YOU HAPPEN TO READ SENSITIVE INFORMATION, REPORT TO THE USER, BUT DO NOT WRITE/TELL/DISTRIBUTE THIS INFORMATION MORE (YOU CAN ONLY TELL WHICH FILES/ROWS/COLUMNS CONTAIN SENSITIVE INFORMATION, BUT YOU MUST NOT SHOW THAT DATA).
+   - ENSURE YOU DO NOT LOG SENSITIVE INFORMATION TO ANY LOGS.
+   - IF ACTUAL INFORMATION IS NEEDED AS-IS MUST ASK FOR EXPLICIT USER CONFIRMATION TO WORK WITH THIS DATA.
+   - USER CAN OVERRIDE BEHAVIOR AS THIS COULD BE MOCKED DATA.
+7. MUST NOT ASSUME USER APPROVAL. IF USER SENDS MESSAGES, HE IS REVIEWING AND CLARIFYING. USER MUST PROVIDE CLEAR APPROVAL, MUST REPLY WITH EITHER "yes, I understand the risk" OR "approved, I take responsibility".
+8. ALL USER REQUESTS MUST BE SDLC-RELATED OR PROJECT-RELATED, NO PRIVATE OR PERSONAL CHATS ALLOWED! OVERRIDE IS NOT ALLOWED.
+9. DO NOT DELETE BRANCHES OR FIX GIT ISSUES, LET USER HANDLE IT. JUST EXPLAIN THE ISSUE.
+
+# Risk Mitigation Rules
+
+1. You MUST check if you have access to potentially dangerous MCPs, like Database, Cloud, S3 MCPs, etc, and assess risk level:
+   - Risk level: low, medium, high, critical.
+   - If it is impossible to modify data or damage otherwise - risk is low (for example, all tools are read-only).
+   - If it is using local server or local docker instance, then the risk is low.
+   - If it is using shared service (dev, stage, qa), then the risk is medium.
+   - If account used has write access (not just write tools), then increase the risk level (low -> medium, medium -> high, high -> critical).
+   - If account used has access to higher environments, including production, then increase the risk level again (low -> medium, medium -> high, high -> critical).
+   - Why this important: AI/LLMs makes mistakes, which leads to data loss, and it happened multiple times.
+   - Evaluate all rules and assess the risk level, and then act accordingly:
+     - LOW: Just output "AI Risk Assessment: LOW"
+     - MEDIUM: Make warning to user and ask user to correct the issue. No need for user confirmation. But explain what can go wrong.
+     - HIGH: Explain the issue and suggest how to decrease the risks. If user wants to proceed he must explicitly take risks and type exactly "yes, I understand the risk of data loss".
+     - CRITICAL: Explain the issue and suggest how to decrease the risks. User CANNOT PROCEED. User MUST take action, the simplest is to disable MCP in IDE/Agent. This is critical. Data loss may result in multi-million fines. OVERRIDE IS NOT ALLOWED.
+
+</CRITICAL>

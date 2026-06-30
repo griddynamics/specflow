@@ -1,0 +1,76 @@
+[project]
+name = "gd-specflow"
+version = "0.2.0"
+description = "SpecFlow MCP Server and CLI — spec-driven AI code generation"
+requires-python = "==3.13.*"
+license = { text = "MIT" }
+authors = [
+    { name = "Adam Wrobel", email = "awrobel@griddynamics.com" },
+    { name = "Artsiom Kozak", email = "akozak@griddynamics.com" },
+]
+keywords = ["mcp", "ai", "code-generation", "specflow", "llm", "claude"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "fastmcp>=0.2.0",
+    "httpx>=0.26.0",
+    "pydantic>=2.5.3",
+    "python-dotenv>=1.0.0",
+    "python-docx>=1.1.0",
+    "python-pptx>=1.0.0",
+    "openpyxl>=3.1.0",
+    "plyer>=2.1.0; sys_platform != 'darwin'",
+    "plyer[macosx]>=2.1.0; sys_platform == 'darwin'",
+    "pypdf>=5.0",
+    "pillow>=12.2.0",
+]
+
+[project.optional-dependencies]
+# Interactive terminal UI (`specflow tui`). Optional so the base install and the
+# MCP path carry no new runtime deps. Textual pulls Rich transitively.
+tui = ["textual>=0.60"]
+
+[project.urls]
+Homepage = "https://github.com/griddynamics/specflow"
+Repository = "https://github.com/griddynamics/specflow"
+
+[project.scripts]
+specflow-mcp = "server:main"
+specflow = "cli:main"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["server", "cli"]
+packages = ["services", "services.skills", "schemas", "tui"]
+
+[tool.setuptools.package-data]
+"services.skills" = ["**/*.md"]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.4.3",
+    "pytest-asyncio>=0.21.1",
+    "pytest-cov>=4.0.0",
+    "black>=23.12.1",
+    "ruff>=0.1.9",
+    "mcp>=1.0.0",
+    "textual>=0.60",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.black]
+line-length = 100
+target-version = ["py313"]

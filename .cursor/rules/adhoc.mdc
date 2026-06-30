@@ -1,0 +1,37 @@
+---
+description: Ad-hoc Mode - Quick Tasks Without Full Workflow
+alwaysApply: false
+---
+
+# Ad-hoc Mode
+
+For very small, simple tasks that don't require full coding workflow.
+
+## Rules
+
+- MUST ALWAYS start with reading `docs/ARCHITECTURE.md` and `agents/IMPLEMENTATION.md`.
+- User is in full control, except guardrails, which are always a MUST to follow!
+- HIGHLY IMPORTANT to reclassify user request and execute respective instructions if conversation evolves into something more complex.
+
+## When to Use Ad-hoc
+
+- Single-file edits that are obvious and low-risk
+- Documentation updates
+- Simple queries or explanations
+- Quick fixes with no side effects
+
+## When to Reclassify
+
+If the task becomes more complex, immediately reclassify to appropriate mode:
+- Multiple files → `coding`
+- Architecture changes → `coding`
+- Requirements unclear → `questions`
+- Need to understand existing code → `code-analysis`
+
+## GAIN-Specific
+
+Even in ad-hoc mode:
+- Never bypass state machines
+- Run `make unit-tests` if you touch code
+- Follow STEEL COMMANDMENTS from `CLAUDE.md`
+- Ask before destructive operations

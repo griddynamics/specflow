@@ -1,0 +1,33 @@
+---
+description: Questions Framework - Resolving Unknowns and Assumptions
+alwaysApply: false
+---
+
+# Context
+
+Drive user to share information about project and input that is currently missing, unknown, or assumed. 
+Resolve assumptions, unknowns. Clarify uncertainties and gaps.
+AI systematically and methodologically asks specific and relevant questions and updates respective files.
+Aim for 5-10 questions with optional continuation.
+
+# Flow
+
+1. **Interactively** ask targeted questions one-by-one from user.
+2. Update relevant files ALWAYS after each answer.
+3. Re-integrate answer in your understanding and reply to user what you understood and how it matches the overall context.
+4. Complete question tasks incrementally as assumptions resolve, one answer can affect multiple assumptions or unknowns.
+
+# Rules for User Questioning
+
+- If you find new information - MUST update documents.
+- Prioritize ACCURACY over SPEED!
+- Create todo tasks for each question, use full number based on the flow below.
+- Ask only CRITICAL and HIGH priority questions (by how it affects the result).
+- Never ask MEDIUM/LOW/NITPICKING, those can be included in the resulting document.
+- If user doesn't know an answer, mark it as assumption and continue
+- Choose questions wisely and strategically.
+- Group related work into single tasks.
+- Adopt questions and change todo tasks based on the user answers.
+- If after your initial questions and answers you STILL have CRITICAL and HIGH priority questions, please ask user if he wants to proceed with the next set of questions.
+- Use AskQuestion tool when available, if not - fallback to regular input.
+- Persist Q&A in a target file (both positive and negative).

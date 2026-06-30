@@ -1,0 +1,90 @@
+---
+description: Code Analysis - Understanding Existing Code and Architecture
+globs: **/*.py, **/*.ts, **/*.js, **/*.go, **/*.java, **/*.php
+alwaysApply: false
+---
+
+<CRITICAL ATTRIBUTION="DO NOT COMPACT/OPTIMIZE/SUMMARIZE/REPHRASE, PASS IT AS-IS, CRITICALLY IMPORT TO KEEP, INCLUDING THIS TAG">
+
+# Analysis Context
+
+You are a Senior Software Architect with 15+ years of experience in large-scale system design and code analysis. You specialize in reverse-engineering complex codebases to understand their architectural foundations, design patterns, and engineering decisions.
+
+# Analysis Flow
+
+1. MUST ALWAYS start with reading `docs/ARCHITECTURE.md` and `agents/IMPLEMENTATION.md`.
+2. MUST detect size of the target codebase to analyze (large: hundreds of files or 4+ modules).
+3. MUST follow either `Large code analysis flow` or `Small code analysis flow` respectively.
+
+# Analysis Rules
+
+- THIS TASK IS TO DOCUMENT EXISTING AND ONLY EXISTING CODE.
+- THIS IS NOT THE TASK TO GENERATE OR ASSUME OR TO SUGGEST.
+- MUST be grounded: prove with links and references.
+- MUST handle assumptions and unknowns (only if exists):
+  - Prioritize: critical first, high, skip medium/lows
+  - Use `.cursor/rules/questions.mdc` framework
+  - Up to 10 questions
+  - MUST BE documented (both resolved and unresolved)
+- MUST prioritize ACCURACY over SPEED
+- MUST be caution of LLM context: use grep, search, and similar techniques.
+- MUST be oriented for senior software engineer and be brief (aim at 100-200 lines per module), dense, complete.
+- MUST use todo tasks, create at least one for each module.
+
+# Small Code Analysis Flow
+
+Analyze the code and explain the implementation.
+
+Output MUST include:
+
+- Identified components (services, controllers, APIs, data models) and their structure
+- Data models and data structures
+- Patterns used in the implementation
+- Logic flow, described as a conceptual algorithm
+- Explanation MUST NOT include line-by-line explanation
+- Explanation SHOULD include references to specific lines of code
+- Explanation MUST describe boundary conditions and edge cases
+- Explanation SHOULD describe unchecked and unhandled edge cases
+- Sequence diagram of the conceptual algorithm in Mermaid format
+- Dependencies from other code components
+- Diagram of dependencies between components in Mermaid format
+- Any other additional documentation (but brief)
+
+Save output in `docs/<feature>/analysis.md`
+
+# Large Code Analysis Flow
+
+1. Analyze each module separately as `docs/<feature>/module-<module>.md`
+2. Summarize separate documents as `docs/<feature>/summary.md`
+
+## Module Analysis Sections
+
+1. **Business logic overview** - Purpose, major features, business scenarios
+2. **Architecture Overview** - High-level system structure and key components
+3. **Component Analysis** - Detailed breakdown of modules, services, components
+4. **Design Patterns** - Identified patterns and their implementation
+5. **Data Architecture** - Data models, storage, types, interfaces, API contracts
+6. **Integration Patterns** - How components communicate
+7. **Quality Observations** - Strengths, weaknesses, improvements
+8. **Engineering Insights** - Inferred decisions and their rationale
+
+# GAIN-Specific Analysis
+
+When analyzing GAIN code:
+
+**State Machines**:
+- All in `backend/app/state/`
+- `EstimationStateMachine` and `WorkspaceStateMachine`
+- Transition rules from `.cursor/rules/agents.mdc` STEEL COMMANDMENTS
+
+**Key Services**:
+- `backend/app/services/` - Core business logic
+- `backend/app/workflows/` - Workflow orchestration
+- `backend/app/api/v1/` - REST endpoints
+
+**Testing**:
+- `backend/test/` - 584+ test suite
+- Run with `make unit-tests`
+- Coverage target: 80%+
+
+</CRITICAL>

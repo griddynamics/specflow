@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "hooks": {
+    "postToolUse": [
+      {
+        "command": ".cursor/hooks/backend_post_write.sh",
+        "matcher": "Write|StrReplace",
+        "timeout": 120
+      }
+    ]
+  }
+}

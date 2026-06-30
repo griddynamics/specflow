@@ -1,0 +1,79 @@
+name: SpecFlow Unit Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  backend-tests:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v7
+      
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+      
+      - name: Install dependencies
+        working-directory: ./backend
+        run: |
+          uv sync --dev
+      
+      - name: Run backend tests
+        working-directory: ./backend
+        run: |
+          uv run pytest test/ -v --tb=short --cov=app --cov-report=xml
+
+  mcp-tests:
+    name: MCP Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v7
+      
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+      
+      - name: Install dependencies
+        working-directory: ./mcp_server
+        run: |
+          uv sync --dev
+
+      - name: Run MCP tests
+        working-directory: ./mcp_server
+        run: |
+          uv run pytest tests/ -v --tb=short --cov=. --cov-report=xml
+
+      - name: Check MCP server CLI (simulate Cursor MCP tool addition)
+        working-directory: ./mcp_server
+        run: |
+          uvx --refresh --from . specflow-mcp --help
+
+  test-summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [backend-tests, mcp-tests]
+    if: always()
+    
+    steps:
+      - name: Check test results
+        run: |
+          if [ "${{ needs.backend-tests.result }}" == "failure" ] || [ "${{ needs.mcp-tests.result }}" == "failure" ]; then
+            echo "❌ Some tests failed"
+            exit 1
+          else
+            echo "✅ All tests passed"
+          fi

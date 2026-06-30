@@ -1,0 +1,163 @@
+---
+description: Python Backend Rules - Standards, Edge Cases, Guardrails for GAIN
+globs: backend/app/**/*.py, **/*.py
+alwaysApply: false
+---
+
+# GAIN Python Backend Standards
+
+## CORE STANDARDS
+- Follow PEP 8, PEP 484; use **Ruff** (not Black) with line length **100** (see `backend/pyproject.toml`)
+- Type hints: MUST use for all function signatures (params + returns)
+- File structure: `api/` → `services/` → `state/` → `models/schemas/` → `utils/`
+- RORO pattern for complex ops; guard clauses + early returns for errors
+- Run `make check` before commits (ruff, mypy, vulture)
+- Run `make unit-tests` - must maintain 584+ passing tests
+
+## ASYNC/CONCURRENCY
+- MUST use `async def` for all I/O (Firestore, HTTP, file, network)
+- NEVER mix sync I/O in async without run_in_executor
+- Missing await on async call returns coroutine object (bug)
+- asyncio.create_task: untracked = never cancelled; use TaskGroup instead
+- gather(return_exceptions=False): one failure loses ALL results; prefer True
+- Connection pools: min=max for predictable behavior
+- Deadlock prevention: acquire locks in consistent order; timeout as backstop
+- Race conditions: dict/list ops not atomic; use asyncio.Lock
+
+## ERROR HANDLING
+- Guard clauses at function start; early returns for errors; happy path last
+- HTTPException with detail dict (structured errors)
+- NEVER expose stack traces/internal paths in production
+- Log with context: request_id, user_id, endpoint, generation_id
+- Middleware: separate RequestValidationError (422) from Exception (500)
+
+## DATABASE (FIRESTORE)
+- MUST use transactions for state changes (see `backend/app/state/`)
+- NEVER write status/checkpoint outside `backend/app/state/` (CI enforces this)
+- Optimistic locking: version field + MUST check transaction success
+- State machines: `EstimationStateMachine` and `WorkspaceStateMachine` are ONLY writers
+- Follow STEEL COMMANDMENTS in `CLAUDE.md` (11 critical rules for workspaces)
+- Connection reuse: Firestore client is singleton (`backend/app/database/firestore.py`)
+
+## VALIDATION/INPUT
+- Use Pydantic models (see `backend/app/schemas/`), not raw dicts
+- Path params: MUST constrain (Path(ge=1) for IDs, regex for strings)
+- Query params: explicit defaults or Optional[]
+- Request body validation via Pydantic schemas
+- File uploads: check Content-Type AND magic bytes; enforce size limits
+- Path traversal: Path.resolve() + .is_relative_to(base); reject ".."
+- URL schemes: whitelist http/https only
+- Float precision: use Decimal for estimates/measurements
+
+## SECURITY
+- Timing attacks: secrets.compare_digest() for API keys, not ==
+- Auth: API key middleware in `backend/app/middleware/api_key_auth.py`
+- API keys: validate format + check Firestore document existence
+- Sensitive data: PII in estimation specs - handle carefully, log minimal info
+- Rate limiting: TODO (not yet implemented)
+- Workspace paths: validate and sanitize (contains generated code artifacts)
+
+## SERIALIZATION/ENCODING
+- Datetime: MUST be timezone-aware; use UTC (`backend/app/utils/`)
+- ISO 8601: reject invalid dates
+- Unicode normalization: use unicodedata.normalize("NFC")
+- JSON serialization: Pydantic handles most cases automatically
+- Firestore timestamps: converted to datetime objects automatically
+
+## PERFORMANCE
+- BackgroundTasks: used for long-running estimations (see `backend/app/api/v1/generation-sessions.py`)
+- Caching: explicit TTL + invalidation strategy
+- Generators/iterators: for large collections (lazy evaluation)
+- Profile: for bottlenecks >100ms
+
+## TESTING
+- Async fixtures: @pytest_asyncio.fixture
+- Mock async: AsyncMock (not MagicMock)
+- Database: use in-memory database for unit tests (see `backend/app/database/in_memory.py`)
+- Test independence: MUST NOT rely on execution order
+- Validation testing: MUST test error cases (400/422), not just happy paths
+- Run: `make unit-tests` (584+ tests baseline)
+- Coverage target: 80%+
+
+## FASTAPI-SPECIFIC
+- Lifespan context managers (see `backend/app/main.py`)
+- Dependency injection: Depends() for database/auth (see `backend/app/api/dependencies.py`)
+- Status codes: use `status.HTTP_*` constants
+- Response model: specify response_model or return type annotation
+- TestClient: use with block to trigger lifespan events
+- Middleware: auth, logging, error handling (see `backend/app/middleware/`)
+
+## PYDANTIC V2
+- Field(default_factory=list) for mutable defaults
+- model_validate for parsing
+- ConfigDict for configuration
+- from_attributes=True for ORM-like models
+- @field_validator for single field validation
+- @model_validator for cross-field validation
+
+## GAIN-SPECIFIC PATTERNS
+
+### State Machine Usage
+```python
+from backend.app.state.estimation_state_machine import EstimationStateMachine
+
+# CORRECT: Use state machine for all status changes
+esm = EstimationStateMachine(generation_id, db)
+await esm.begin_allocation(workspace_ids)
+await esm.allocation_succeeded()
+await esm.advance_checkpoint(EstimationCheckpoint.CODE_GENERATED)
+
+# WRONG: Direct database writes
+await db.update_estimation(generation_id, {"status": "RUNNING"})  # CI will catch this!
+```
+
+### Workspace Safety
+```python
+# NEVER release workspace without archive
+# ONLY EstimationStateMachine.complete() → WorkspaceStateMachine.archive_and_release()
+
+# NEVER delete workspace files directly
+# Workspaces contain hours of generated code - treat as sacred!
+```
+
+### Testing Pattern
+```python
+@pytest_asyncio.fixture
+async def db():
+    """Use in-memory database for tests"""
+    from backend.app.database.in_memory import InMemoryDatabase
+    return InMemoryDatabase()
+
+async def test_estimation_creation(db):
+    """Scenario: Create new estimation request"""
+    # Setup
+    estimation = await db.create_estimation(...)
+    
+    # Execute
+    result = await service.start_estimation(estimation.id)
+    
+    # Verify
+    assert result.status == EstimationStatus.PENDING
+    assert len(result.workspace_ids) > 0
+```
+
+## CRITICAL GUARDRAILS CHECKLIST
+1. ✅ Type hints on all function signatures
+2. ✅ No direct status writes (only via state machines)
+3. ✅ Input validation via Pydantic models
+4. ✅ `make unit-tests` passes (584+ tests)
+5. ✅ `make check` passes (ruff, mypy, vulture)
+6. ✅ Follow STEEL COMMANDMENTS (workspace safety)
+7. ✅ API key validation on protected endpoints
+8. ✅ Error responses sanitized (no stack traces)
+9. ✅ Timezone-aware datetimes (UTC storage)
+10. ✅ State transitions logged in `state_history`
+
+## ANTI-PATTERNS (FORBIDDEN)
+- ❌ Direct database writes for status/checkpoint
+- ❌ Releasing workspaces without archive
+- ❌ Global mutable state without locks
+- ❌ Untracked background tasks
+- ❌ Exception swallowing (bare except: pass)
+- ❌ Missing await on async calls
+- ❌ Committing code without running tests

@@ -1,0 +1,15 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Local/generated/private directories outside the public source surface"
+paths = [
+  '''^\.env$''',
+  '''^\.specflow-local/''',
+  '''^\.specflow-test/''',
+  '''^agent_logs/''',
+  '''^workspaces/''',
+  '''^docs_internal/''',
+  '''(^|/)__pycache__/''',
+  '''\.pyc$''',
+]

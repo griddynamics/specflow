@@ -1,0 +1,92 @@
+[project]
+name = "specflow-backend"
+version = "0.1.0"
+description = "SpecFlow Backend Service - Specification Analysis & Code Generation"
+readme = "README.md"
+requires-python = "==3.14.0"
+dependencies = [
+    "cryptography>=46.0.7",
+    "kubernetes>=35.0.0",
+    "fastapi>=0.135.3",
+    "uvicorn[standard]>=0.44.0",
+    "pydantic>=2.12.5",
+    "pydantic-settings>=2.13.1",
+    "anthropic>=0.92.0",
+    "httpx>=0.28.1",
+    "python-dotenv>=1.2.2",
+    "python-multipart>=0.0.24",
+    "ipykernel>=7.2.0",
+    "claude-agent-sdk==0.2.99",
+    "pytest>=9.0.3",
+    "pytest-cov>=7.1.0",
+    "pyyaml>=6.0.3",
+    "google-cloud-firestore>=2.26.0",
+    "posthog>=7.10.3",
+    "langfuse>=4.0.0,<5.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.3.0",
+    "black>=26.3.1",
+    "ruff>=0.15.10",
+    "mypy>=1.20.0",
+    "vulture>=2.16",
+    "radon>=6.0.1",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.black]
+line-length = 100
+target-version = ["py313"]
+
+# ---------------------------------------------------------------------------
+# mypy: suppress pre-existing Optional/union-attr errors (142 errors on main).
+# These modules had errors BEFORE this PR. The suppression list is intentionally
+# explicit so that any NEW file we add stays checked by default.
+#
+# Files deliberately NOT listed here (must stay clean):
+#   app.api.v1.workspaces    — new clear endpoint (LV2, this PR)
+#   app.services.workspace_manager  — WORKSPACE_COUNT write (LV1, this PR)
+# ---------------------------------------------------------------------------
+
+[tool.mypy]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "app.api.v1.auth",
+    "app.api.v1.generation_sessions",
+    "app.core.config",
+    "app.core.logging",
+    "app.database.firestore",
+    "app.database.memory",
+    "app.main",
+    "app.middleware.auth",
+    "app.schemas.workspace",
+    "app.services.claude_code",
+    "app.services.contract_validator",
+    "app.services.generation_session",
+    "app.services.generation_session_retry",
+    "app.services.git_utils",
+    "app.services.json_llm_repair",
+    "app.services.langfuse.client",
+    "app.services.openrouter_models",
+    "app.services.p10y.multi_workspace_estimation",
+    "app.services.p10y.p10y_lib",
+    "app.services.parallel_executor",
+    "app.services.providers.openrouter",
+    "app.services.startup_validation",
+    "app.services.workflow_steps",
+    "app.services.workspace_config_loader",
+    "app.services.workspace_pool",
+    "app.state.api_key_session_concurrency",
+    "app.state.generation_session_state_machine",
+    "app.state.workspace_state_machine",
+    "app.workflows.multi_workspace_estimation_p10y",
+]
+ignore_errors = true

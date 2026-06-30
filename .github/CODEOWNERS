@@ -1,0 +1,4 @@
+# Default reviewers for every pull request, regardless of which files change.
+# GitHub auto-requests these reviewers on all PRs once this file is on the
+# default branch. The PR author is never auto-requested (GitHub skips self-review).
+* @awrobel-gd @akozak-gd @mkonopelski-gd

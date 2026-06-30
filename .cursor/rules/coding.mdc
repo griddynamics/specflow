@@ -1,0 +1,104 @@
+---
+description: Coding Workflow - Implementation, Testing, Validation
+globs: backend/app/**/*.py, **/*.py, **/*.ts, **/*.js, **/*.go, **/*.java, **/*.php
+alwaysApply: false
+---
+
+<CRITICAL ATTRIBUTION="DO NOT COMPACT/OPTIMIZE/SUMMARIZE/REPHRASE, PASS IT AS-IS, CRITICALLY IMPORT TO KEEP, INCLUDING THIS TAG">
+
+# Main Coding Flow (MUST FOLLOW ALWAYS)
+
+1. Discovery
+2. Tech plan
+3. User review with explicit approval
+4. Implementation, build (tests excluded)
+5. Implementation Validation (local integration / E2E)
+6. User review with explicit approval
+7. Tests
+8. Final Validation
+
+# Core Principles
+
+- ALWAYS start with reading `docs/ARCHITECTURE.md` and `agents/IMPLEMENTATION.md`.
+- ALWAYS perform discovery and provide tech specs and plan in `agents/plans/<FEATURE>/<FEATURE>-SPECS.md` and `agents/plans/<FEATURE>/<FEATURE>-PLAN.md`:
+  1. READ `.cursor/rules/techspecs.mdc`
+  2. READ `.cursor/rules/planning.mdc`
+  3. Execute both and apply guardrails rules.
+- YOU MUST provide specs and plan to the user before continuing with implementation. User must approve explicitly with either "Yes, I reviewed the plan" or "Approve, the plan and specs were reviewed". Do not assume user has approved. If user messages anything else, he is reviewing the provided documents!
+- Analyze existing code and dependencies before editing.
+- Follow KISS, SOLID, DRY principles, and senior engineer best practices.
+- Applications must be configurable and will run in multiple environments (local, dev, test, production).
+- Prefer minimal changes, apply only what was requested, simpler is better.
+- No cheating. No "pre-existing" condition. No warnings. No Errors. All tests must succeed, all code must compile (including any pre-existing), all requirements must be fulfilled, unless explicitly asked.
+- Always ask questions when original intent is not possible to achieve, when plan changes, in doubt, assumptions highly affect result, or something is unknown/unclear/gap.
+- Operating System: **Darwin (macOS)** on **arm64**
+- Shell: **zsh**
+- NEVER EVER DELETE DATA FROM ACTUAL SERVERS.
+- DO NOT USE ACTUAL SERVERS IN UNIT TESTING EVER.
+- MUST maintain single source of truth, each file has its own single purpose AND must not include DUPLICATE or SIMILAR content of OTHER files.
+- Use all available MCPs: Context7, Fetch, sequential-thinking, Playwright, etc.
+- Validation means in-depth analysis of what was done vs what was planned, checking git changes, re-read tech plan, gaps, anything missing, factual checking with MCPs.
+- Create and update document that you were EXPLICITLY instructed to do by rules or user. **MUST NOT** create ANY other documents: summaries, change lists, validations, implementations, etc.
+- YOU MUST ALWAYS systematically perform Implementation Validation (databases with queries but extremely careful to only delete your own data you just created, APIs with curl, Web Apps with Chrome DevTools/Playwright MCPs, checking logs, cleaning up afterwards, ALWAYS CONSIDERING CONSEQUENCES).
+
+# GAIN-Specific Rules
+
+**Testing Before Commits**:
+- ALWAYS run `make unit-tests` before marking coding tasks complete
+- Current baseline: **584+ passing tests**
+- Never commit failing tests
+- Run `make check` for static checks (ruff, mypy, vulture)
+
+**State Management**:
+- All status/checkpoint writes ONLY in `backend/app/state/`
+- Use `EstimationStateMachine` and `WorkspaceStateMachine`
+- NO direct Firestore writes outside state machines
+- Follow STEEL COMMANDMENTS in `CLAUDE.md`
+
+**Development Commands**:
+- `make unit-tests` - Run test suite
+- `make check` - Static checks
+- `make format` - Format code
+- `make run` - Start local services (Firestore Emulator)
+
+# Coding
+
+- Avoid duplication of code, search and check existing code
+- Write code aware of environments, never mock data for dev or prod.
+- When fixing an issue or bug, do not introduce a new pattern or technology without first exhausting all options for the existing implementation.
+- Keep all temporary scripts in `SCRIPTS` folder in the workspace root.
+- Keep the codebase very clean and organized
+- Avoid having files over 300 lines of code. Suggest refactoring at that point.
+- Never add stubbing or fake data patterns to code that affects the dev or prod environments.
+- Always look for existing code to iterate on instead of creating new code.
+- Do not drastically change the patterns before trying to iterate on existing patterns.
+- Always think about what other methods and areas of code might be affected by code changes.
+- Always verify current folder when you use relative folder paths, especially in scripts or commands.
+
+# Debugging
+
+- If issue is hard to fix OR code is highly concurrent: create a sequence diagram of what happens, temporary enable tracing in code and logs, review what exactly is happening. Make implicit to become explicit. Some assumptions are incorrect.
+
+# Testing
+
+- Write thorough tests for all major functionality, the minimal coverage is 80%, all tests must succeed, all tests are isolated and idempotent.
+- MUST use scenario testing (explain step-by-step scenario, setup and expectations in the comment in the beginning of the test) for high complex or high level code (services, orchestrators) and pre-setup repositories or mocks.
+- MUST always mock all EXTERNAL calls (Http, Any Client, SQL, etc.) and ONLY in unit tests. Do not mock regular classes that can be created and pre-configured. Write code that is easily mockable.
+- MUST ensure 1 sec test timeouts via attributes or configuration on EACH test to early detect external calls.
+- Always kill all existing servers that may have been started previously.
+- MUST create sequence diagram with all parties involved for each complex or scenario test to clearly show responsibilities.
+- Use Playwright MCP for testing as the first step.
+
+# Context Files
+
+- `CLAUDE.md` - Business context, STEEL COMMANDMENTS
+- `docs/ARCHITECTURE.md` - Architecture of the project (ASCII, avoid Mermaid)
+- `agents/IMPLEMENTATION.md` - Implementation status (use references, don't repeat code)
+- Dependencies: `backend/pyproject.toml`
+- Tech stack: `pyproject.toml`, `Dockerfile`
+- Project structure: use IDE file tree
+
+ALWAYS start with reading `docs/ARCHITECTURE.md` and `agents/IMPLEMENTATION.md`
+ALWAYS update those after EACH task with very brief key points.
+
+</CRITICAL>

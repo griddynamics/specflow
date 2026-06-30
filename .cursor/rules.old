@@ -1,0 +1,7 @@
+---
+globs:
+alwaysApply: true
+---
+- Develop in small chunks and subphases
+- Review if all requirements are covered
+- Review with developer before each edit
