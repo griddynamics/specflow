@@ -74,8 +74,11 @@ Few simple steps to get you going:
 
 
 > [!Important]
-> Specflow Harness Sandbox is now running locally. 
-> Access it via MCP in your favourite Agentic client: copy-paste the content of `.specflow-local/mcp-config.json`.
+> Specflow Harness Sandbox is now running locally.
+> **Easiest:** in `specflow tui`, press **`c`** (*Add MCP to AI tool*) — the setup screen detects
+> Claude Code, Gemini CLI, and Cursor and wires SpecFlow up for you (one key), with an honest
+> connected/added/failed status per client.
+> Prefer to do it by hand? Copy-paste the content of `.specflow-local/mcp-config.json` into your client.
 
 
 <table>

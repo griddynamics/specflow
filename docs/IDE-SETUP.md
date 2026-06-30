@@ -31,6 +31,19 @@ ready-to-paste snippet to `.specflow-local/mcp-config.json`:
   }
   ```
 
+**Guided setup (recommended):** instead of hand-editing client config, run
+`specflow tui` and press **`c`** (*Add MCP to AI tool*). The setup screen detects
+your installed clients and registers SpecFlow for you:
+
+- **Claude Code** — runs `claude mcp add-json … -s user` and verifies the server with `claude mcp get`.
+- **Gemini CLI** — runs `gemini mcp add … -s user` (trust the folder if Gemini shows it disabled).
+- **Cursor** — writes/merges `~/.cursor/mcp.json` and opens Cursor's quick-install; since Cursor
+  has no read-back, the status stays **"added — confirm in your client"** until you reopen the
+  screen and confirm it (or report it isn't working).
+- **Other clients** — shows the exact JSON + path to copy.
+
+Statuses persist in `.specflow-local/clients.json`, so an unverified add is never assumed connected.
+
 See the [Local Self-Host Quickstart](../QUICKSTART.md).
 
 ## Claude Code

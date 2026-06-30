@@ -5,6 +5,8 @@ directly; subprocess/HTTP-backed helpers are exercised with mocks so no docker
 or backend is required.
 """
 
+import sys
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -268,3 +270,49 @@ class TestRunInit:
             "--no-build",
         ]
         assert exec_mock.call_args.kwargs["cwd"] == str(tmp_path)
+
+
+class TestRunCommand:
+    """run_command runs against real child processes — the point is to prove the
+    timeout actually kills a hung process, which a mock cannot demonstrate."""
+
+    @pytest.mark.asyncio
+    async def test_captures_output_and_returncode_zero(self, tmp_path):
+        captured: list[str] = []
+        result = await local_env.run_command(
+            [sys.executable, "-c", "print('hi')"],
+            tmp_path,
+            on_line=captured.append,
+            timeout=10,
+        )
+        assert result.returncode == 0
+        assert result.timed_out is False
+        assert result.ok is True
+        assert result.output == "hi\n"
+        assert captured == ["hi\n"]
+
+    @pytest.mark.asyncio
+    async def test_nonzero_exit_is_not_ok(self, tmp_path):
+        result = await local_env.run_command(
+            [sys.executable, "-c", "import sys; sys.exit(3)"],
+            tmp_path,
+            timeout=10,
+        )
+        assert result.returncode == 3
+        assert result.timed_out is False
+        assert result.ok is False
+
+    @pytest.mark.asyncio
+    async def test_timeout_kills_hung_process_quickly(self, tmp_path):
+        start = time.monotonic()
+        result = await local_env.run_command(
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            tmp_path,
+            timeout=0.5,
+        )
+        elapsed = time.monotonic() - start
+        assert result.timed_out is True
+        assert result.ok is False
+        # Returned promptly after the timeout — the child was killed and reaped,
+        # not waited out for the full 60s (which would hang the caller).
+        assert elapsed < 10
