@@ -648,7 +648,7 @@ class TestCliGuardedImport:
     async def test_missing_textual_prints_install_hint(self, capsys):
         import cli
 
-        # Simulate the [tui] extra being absent: every `textual` module is
+        # Simulate an incomplete install: `textual` (a base dependency) is
         # unimportable, so re-importing tui.app raises ImportError(name="textual...").
         with patch.dict(sys.modules):
             sys.modules.pop("tui.app", None)
