@@ -165,10 +165,10 @@ def _estimate_panel(payload: dict[str, Any]) -> Panel | None:
     grid.add_row("Variance", f"{variance}" + (f"  (CV {cv:.2f})" if cv is not None else ""))
     if panel.min_hours is not None and panel.max_hours is not None:
         grid.add_row("Range", f"{panel.min_hours:.0f}–{panel.max_hours:.0f} h")
-    if panel.risk_status:
-        buf = f"  buffer +{panel.total_buffer_pct:.0f}%" if panel.total_buffer_pct else ""
-        final = f"  → {panel.final_estimate:.0f} h" if panel.final_estimate else ""
-        grid.add_row("Risk", f"{panel.risk_status}{buf}{final}")
+    if panel.total_buffer_pct is not None or panel.final_estimate is not None:
+        buf = f"+{panel.total_buffer_pct:.0f}%" if panel.total_buffer_pct is not None else ""
+        final = f"  → {panel.final_estimate:.0f} h" if panel.final_estimate is not None else ""
+        grid.add_row("Buffer", f"{buf}{final}".strip())
     if panel.per_workspace:
         variants = " · ".join(f"{n} {h:.0f}h" for n, h in panel.per_workspace)
         grid.add_row("Variants", variants)
