@@ -282,7 +282,7 @@ class TestGetGenerationStatus:
             "status": "running",
             "user_email": "u@example.com",
             "workspace_ids": ["ws-01-1", "ws-01-2"],
-            "parameters": {"workspace_count": 2},
+            "parameters": {"workspace_count": 2, "LLM_MEDIUM": "test/codegen-a,test/codegen-b"},
             "progress": {},
             "error": None,
             "workspace_phases": {
@@ -318,12 +318,14 @@ class TestGetGenerationStatus:
             "last_completed_phase": 2,
             "total_phases": 3,
             "phase_name": "Frontend",
+            "models": ["test/codegen-a"],
         }
-        # No planning data → empty phase name, counters still present.
+        # No planning data → empty phase name; configured codegen model still shown.
         assert wp["ws-01-2"] == {
             "last_completed_phase": 0,
             "total_phases": 3,
             "phase_name": "",
+            "models": ["test/codegen-b"],
         }
         # Heavy planning_data must not leak into the polled response.
         assert "planning_data" not in wp["ws-01-1"]
@@ -387,7 +389,7 @@ class TestGetGenerationStatus:
             "status": "running",
             "user_email": "u@example.com",
             "workspace_ids": ["ws-01-1", "ws-01-2"],
-            "parameters": {"workspace_count": 2},
+            "parameters": {"workspace_count": 2, "LLM_MEDIUM": "test/codegen-a,test/codegen-b"},
             "progress": {},
             "error": None,
             # Both at phase 0 → working on generation phase 1.
@@ -437,18 +439,15 @@ class TestGetGenerationStatus:
             "total_tokens": 1650,
         }
         assert wp["ws-01-1"]["models"] == ["claude-sonnet-4"]
-        # ws-01-2 has no usage yet → stays lean (phase counters only).
+        # ws-01-2 has no recorded usage yet → configured codegen model for index 1.
+        assert wp["ws-01-2"]["models"] == ["test/codegen-b"]
         assert "usage" not in wp["ws-01-2"]
-        assert "models" not in wp["ws-01-2"]
 
     def test_status_workspace_usage_uses_full_lifetime_aggregate(
         self, client, mock_generation_session_service
     ):
-        """The per-workspace usage/model view is the workspace's full lifetime
-        aggregate across every workflow that ran on it. Here the markdown→JSON
-        converter ran before KB init and KB init itself has recorded usage, so the
-        panel shows both combined (turns/tokens summed, both models listed) — the
-        general workspace usage, not a single active-step scope."""
+        """Per-workspace usage is the full lifetime aggregate; models are scoped to
+        the active step (KB init here) so earlier converter models do not leak."""
         generation_id = "est-scoped"
         doc = {
             "generation_id": generation_id,
@@ -511,9 +510,8 @@ class TestGetGenerationStatus:
 
         assert response.status_code == 200
         wp = response.json()["workspace_phases"]
-        # Full aggregate: the converter's Haiku and KB-init's Opus are both
-        # surfaced, with turns/tokens summed across the two workflows.
-        assert wp["ws-01-1"]["models"] == ["claude-haiku-4.5", "claude-opus-4.5"]
+        # Usage: full aggregate across converter + KB init.
+        assert wp["ws-01-1"]["models"] == ["claude-opus-4.5"]
         assert wp["ws-01-1"]["usage"]["num_turns"] == 4
         assert wp["ws-01-1"]["usage"]["total_tokens"] == 1305
         assert wp["ws-01-1"]["phase_name"] == "Knowledge Base Initialization with Rosetta"
@@ -531,7 +529,7 @@ class TestGetGenerationStatus:
             "status": "running",
             "user_email": "u@example.com",
             "workspace_ids": ["ws-01-1"],
-            "parameters": {"workspace_count": 1},
+            "parameters": {"workspace_count": 1, "LLM_MEDIUM": "test/codegen-a"},
             "progress": {},
             "error": None,
             # Past KB_INIT_DONE, working on generation phase 1 (nothing completed).
@@ -572,11 +570,63 @@ class TestGetGenerationStatus:
 
         assert response.status_code == 200
         wp = response.json()["workspace_phases"]
-        # Fallback surfaces the kb_init usage/model even though the active scope is
-        # generation phase 1 (which has no usage yet).
+        # Usage: still the kb_init aggregate; models: active generation phase (no
+        # recorded usage yet) → configured codegen model, not prior kb_init Opus.
         assert wp["ws-01-1"]["usage"]["num_turns"] == 4
         assert wp["ws-01-1"]["usage"]["total_tokens"] == 1290
-        assert wp["ws-01-1"]["models"] == ["claude-opus-4.5"]
+        assert wp["ws-01-1"]["models"] == ["test/codegen-a"]
+
+    def test_status_workspace_models_fallback_while_kb_init_in_flight(
+        self, client, mock_generation_session_service
+    ):
+        """During KB init (no usage flushed yet) the model row shows the configured
+        HIGH-tier model, not Haiku from the earlier plan converter."""
+        generation_id = "est-kb-model"
+        doc = {
+            "generation_id": generation_id,
+            "status": "running",
+            "user_email": "u@example.com",
+            "workspace_ids": ["ws-01-1"],
+            "parameters": {"workspace_count": 1, "LLM_HIGH": "test/planning-model"},
+            "progress": {},
+            "error": None,
+            "workspace_phases": {
+                "ws-01-1": {"last_completed_phase": 0, "total_phases": 3, "planning_data": {}},
+            },
+            "workflow_usage_metrics": {
+                "markdown_to_json_converter": {
+                    "workspaces": {
+                        "ws-01-1": {
+                            "models": {
+                                "claude-haiku-4.5": {
+                                    "model_name": "claude-haiku-4.5",
+                                    "num_turns": 1,
+                                    "input_tokens": 20,
+                                    "output_tokens": 10,
+                                    "cache_write_tokens": 0,
+                                    "cache_read_tokens": 0,
+                                }
+                            }
+                        }
+                    }
+                },
+            },
+        }
+        mock_generation_session_service.get_generation_session_status = AsyncMock(return_value=doc)
+        mock_generation_session_service.get_checkpoint = Mock(
+            return_value=GenerationCheckpoint.CONTRACT_VALIDATED
+        )
+        mock_generation_session_service.get_current_phase_name = Mock(return_value="kb_init")
+
+        response = client.get(
+            f"/api/v1/generation-sessions/{generation_id}/status",
+            headers={"X-API-Key": "test-key"},
+        )
+
+        assert response.status_code == 200
+        wp = response.json()["workspace_phases"]
+        assert wp["ws-01-1"]["models"] == ["test/planning-model"]
+        assert wp["ws-01-1"]["usage"]["num_turns"] == 1
 
     def test_status_workspace_usage_surfaces_pre_kb_converter_usage(
         self, client, mock_generation_session_service
@@ -591,7 +641,7 @@ class TestGetGenerationStatus:
             "status": "running",
             "user_email": "u@example.com",
             "workspace_ids": ["ws-01-1"],
-            "parameters": {"workspace_count": 1},
+            "parameters": {"workspace_count": 1, "LLM_MEDIUM": "test/codegen-a"},
             "progress": {},
             "error": None,
             "workspace_phases": {
@@ -629,8 +679,9 @@ class TestGetGenerationStatus:
 
         assert response.status_code == 200
         wp = response.json()["workspace_phases"]
-        # The pre-KB converter usage is part of the workspace aggregate and shows.
-        assert wp["ws-01-1"]["models"] == ["claude-haiku-4.5"]
+        # Converter usage is in the lifetime aggregate; models show the active codegen
+        # step (configured model), not the earlier converter Haiku.
+        assert wp["ws-01-1"]["models"] == ["test/codegen-a"]
         assert wp["ws-01-1"]["usage"]["num_turns"] == 1
         assert wp["ws-01-1"]["usage"]["total_tokens"] == 30
 
