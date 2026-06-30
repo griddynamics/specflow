@@ -1177,16 +1177,21 @@ def _plain_status(payload: dict[str, Any] | None, generation_id: str) -> str:
 async def run_tui(args) -> int:
     """Resolve the session and launch the TUI (or print plain status if non-TTY)."""
     given = Path(getattr(args, "root_path", None) or Path.cwd()).resolve()
-    # For self-host the project dir is the repo; prefer the repo root when found
-    # so .env / .specflow-local / the init script all resolve consistently.
-    root = local_env.repo_root(given) or given
-    set_project_root(root)
-    generation_id = resolve_generation_id(getattr(args, "generation_id", None), root)
+    # Locate the self-host checkout from cwd or, failing that, from this install's
+    # own location — an editable `uv tool install` runs from the clone, so the
+    # TUI works from any folder with no init step. `.env` / `.specflow-local` /
+    # the init script all resolve against this root.
+    root = local_env.resolve_repo_root(given)
+    # Headless status doesn't need the checkout — fall back to the given dir so it
+    # still works from any project folder that has config.
+    effective_root = root or given
+    set_project_root(effective_root)
+    generation_id = resolve_generation_id(getattr(args, "generation_id", None), effective_root)
     poll_interval = getattr(args, "interval", None) or DEFAULT_POLL_INTERVAL
 
     # Non-interactive fallback: never construct the full-screen app.
     if not sys.stdout.isatty():
-        if not local_env.is_setup_complete(root):
+        if not local_env.is_setup_complete(effective_root):
             print("SpecFlow isn't set up yet. Run `specflow init` first.")
             return 1
         if not generation_id:
@@ -1197,6 +1202,25 @@ async def run_tui(args) -> int:
         payload = await poll_once(generation_id)
         print(_plain_status(payload, generation_id))
         return 0
+
+    # Interactive launch requires the SpecFlow checkout: the TUI is the local
+    # control surface for a self-hosted stack (onboarding runs the init script,
+    # the gate starts the docker-compose stack). Outside a checkout the in-app
+    # gate can only notify-and-exit, which tears the screen down before the
+    # toast paints — so the user sees the app flash open and close with no
+    # message. Refuse here with a visible, actionable line instead.
+    if root is None:
+        print(
+            "`specflow tui` is the local control surface for a self-hosted "
+            "SpecFlow stack, so it needs your SpecFlow checkout — none was found.\n"
+            "  • Self-hosting? Run this from inside your clone, pass --root-path "
+            "pointing at it, or install the CLI from the clone with "
+            "`uv tool install --editable ./mcp_server`.\n"
+            "  • Using a remote SpecFlow backend? The TUI doesn't apply — drive "
+            "generations through the MCP tools / CLI instead.",
+            file=sys.stderr,
+        )
+        return 1
 
     app = SpecFlowTUI(root=root, generation_id=generation_id, poll_interval=poll_interval)
     await app.run_async()
