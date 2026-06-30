@@ -416,6 +416,7 @@ requires-dist = [
     { name = "python-pptx", specifier = ">=1.0.0" },
     { name = "textual", specifier = ">=0.60" },
 ]
+provides-extras = ["tui"]
 
 [package.metadata.requires-dev]
 dev = [

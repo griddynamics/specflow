@@ -30,10 +30,12 @@ def _args(root, **over):
 class TestCmdInit:
     @pytest.mark.asyncio
     async def test_repo_not_found(self, tmp_path, capsys):
-        # tmp_path has no sentinel files → repo_root returns None.
-        rc = await cli.cmd_init(_args(tmp_path))
+        # No checkout from cwd, and a non-editable install (no own checkout) →
+        # resolve_repo_root returns None.
+        with patch("cli.local_env.resolve_repo_root", return_value=None):
+            rc = await cli.cmd_init(_args(tmp_path))
         assert rc == 1
-        assert "inside a SpecFlow checkout" in capsys.readouterr().err
+        assert "Couldn't locate a SpecFlow checkout" in capsys.readouterr().err
 
     @pytest.mark.asyncio
     async def test_env_missing(self, tmp_path, capsys):

@@ -207,6 +207,39 @@ class TestRunTuiNonTty:
         assert "specflow init" in capsys.readouterr().out
 
 
+class TestRunTuiOutsideCheckout:
+    @pytest.mark.asyncio
+    async def test_interactive_launches_from_resolved_checkout(self, tmp_path):
+        """A TTY launch from any folder uses the checkout resolved from the
+        install's own location — the app is built with that root, not cwd."""
+        args = SimpleNamespace(root_path="/tmp/some-other-folder", generation_id=None, interval=3)
+        with (
+            patch("tui.app.sys.stdout.isatty", return_value=True),
+            patch("tui.app.local_env.resolve_repo_root", return_value=tmp_path),
+            patch("tui.app.resolve_generation_id", return_value=None),
+            patch("tui.app.SpecFlowTUI") as app_cls,
+        ):
+            app_cls.return_value.run_async = AsyncMock(return_value=None)
+            rc = await tui_app.run_tui(args)
+        assert rc == 0
+        assert app_cls.call_args.kwargs["root"] == tmp_path
+
+    @pytest.mark.asyncio
+    async def test_interactive_no_checkout_refuses_visibly(self, capsys):
+        """When no checkout can be resolved (non-editable install, no cwd match),
+        print an actionable message and return non-zero — never flash the app."""
+        args = SimpleNamespace(root_path="/tmp/not-a-checkout", generation_id=None, interval=3)
+        with (
+            patch("tui.app.sys.stdout.isatty", return_value=True),
+            patch("tui.app.local_env.resolve_repo_root", return_value=None),
+            patch("tui.app.SpecFlowTUI") as app_cls,
+        ):
+            rc = await tui_app.run_tui(args)
+        assert rc == 1
+        app_cls.assert_not_called()
+        assert "checkout" in capsys.readouterr().err
+
+
 def _gate_ready():
     """Patches that make the startup gate pass straight through to the app."""
     return (

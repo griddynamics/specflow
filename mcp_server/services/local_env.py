@@ -46,6 +46,15 @@ _FIRESTORE_CONTAINER_DEFAULT = "specflow-firestore-emulator"
 # ---------------------------------------------------------------------------
 
 
+def _find_sentinel_root(start: Path) -> Path | None:
+    """Nearest ancestor of ``start`` (inclusive) containing all SENTINEL_FILES."""
+    start = start.resolve()
+    for candidate in (start, *start.parents):
+        if all((candidate / name).exists() for name in SENTINEL_FILES):
+            return candidate
+    return None
+
+
 def repo_root(start: Path | None = None) -> Path | None:
     """Walk up from ``start`` (default cwd) for a dir containing all sentinels.
 
@@ -53,11 +62,29 @@ def repo_root(start: Path | None = None) -> Path | None:
     inherently requires a checkout (docker-compose.yml, the script, scripts/),
     so callers surface a clear error when this is ``None`` rather than guessing.
     """
-    current = (start or Path.cwd()).resolve()
-    for candidate in (current, *current.parents):
-        if all((candidate / name).exists() for name in SENTINEL_FILES):
-            return candidate
-    return None
+    return _find_sentinel_root(start or Path.cwd())
+
+
+def installed_repo_root() -> Path | None:
+    """The checkout this install's own code lives in, or ``None``.
+
+    With ``uv tool install --editable ./mcp_server`` (the documented install)
+    these modules are imported straight from the clone, so ``__file__`` lands
+    inside the checkout — found with no cwd dependency and no setup step. Returns
+    ``None`` for a non-editable / PyPI install, where the source sits in
+    site-packages rather than a checkout.
+    """
+    return _find_sentinel_root(Path(__file__).resolve().parent)
+
+
+def resolve_repo_root(start: Path | None = None) -> Path | None:
+    """Locate the checkout: walk up from ``start`` (cwd), else this install's own.
+
+    Lets ``specflow`` commands find the self-host checkout from any directory
+    once installed editable — running from inside a different checkout still
+    wins, otherwise we fall back to the clone the binary was installed from.
+    """
+    return repo_root(start) or installed_repo_root()
 
 
 def env_file_path(root: Path) -> Path:

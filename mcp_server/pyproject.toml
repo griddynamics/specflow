@@ -35,6 +35,12 @@ dependencies = [
     "textual>=0.60",
 ]
 
+[project.optional-dependencies]
+# This empty `tui` extra keeps the historical
+# `uv tool install "./mcp_server[tui]"` command working without emitting
+# "does not have an extra named `tui`".
+tui = []
+
 [project.urls]
 Homepage = "https://github.com/griddynamics/specflow"
 Repository = "https://github.com/griddynamics/specflow"

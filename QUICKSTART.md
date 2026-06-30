@@ -24,6 +24,9 @@ Prefer an interactive setup? Skip the `cp .env` / `specflow init` steps and run
 `specflow tui` — on first launch it walks you through collecting the required values,
 writes `.env`, and runs the bootstrap for you.
 
+> The editable install runs from your clone, so `specflow` / `specflow tui` work from
+> **any** directory afterwards — they locate this checkout automatically, no extra setup.
+
 #### MCP Setup
 When `specflow init` finishes, add the generated `.specflow-local/mcp-config.json` to your
 IDE MCP settings.
