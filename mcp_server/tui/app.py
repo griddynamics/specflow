@@ -622,8 +622,44 @@ class _SessionItem(ListItem):
         self.generation_id = generation_id
 
 
+def _session_label(s: dict) -> str:
+    """Format a session dict as a fixed-width sessions-list label.
+
+    Columns: status-symbol  generation-id  date  checkpoint-name
+    """
+    from tui.constants import CHECKPOINT_STEPS, STATUS_PILLS
+
+    gid = s.get("generation_id", "")
+    status_key = (s.get("status") or "unknown").lower()
+    pill_text, _ = STATUS_PILLS.get(status_key, STATUS_PILLS["unknown"])
+    # pill_text is like "✓ COMPLETED" — take the leading symbol only
+    symbol = pill_text.split()[0] if pill_text else "?"
+
+    # Human-readable checkpoint label from the steps mirror
+    checkpoint_key = s.get("checkpoint", "")
+    checkpoint_label = next(
+        (label for key, label in CHECKPOINT_STEPS if key == checkpoint_key),
+        checkpoint_key,
+    )
+
+    # Date from ISO created_at ("2026-06-30T14:23:45+00:00" → "Jun 30 14:23")
+    created_at_raw = s.get("created_at", "")
+    date_str = ""
+    if created_at_raw:
+        try:
+            from datetime import datetime, timezone
+            dt = datetime.fromisoformat(created_at_raw).astimezone(timezone.utc)
+            date_str = dt.strftime("%b %d %H:%M")
+        except ValueError:
+            date_str = created_at_raw[:16]
+
+    status_col = f"{symbol} {status_key.upper():<12}"
+    date_col = f"{date_str:<14}" if date_str else " " * 14
+    return f"{status_col}  {gid[:22]:<24}  {date_col}  {checkpoint_label}"
+
+
 class SessionsScreen(_SpecFlowScreen):
-    """Picker across active generation sessions."""
+    """Picker across all recent generation sessions (active and completed)."""
 
     BINDINGS = [
         Binding("r", "reload", "reload"),
@@ -631,7 +667,7 @@ class SessionsScreen(_SpecFlowScreen):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Static("SpecFlow · sessions   (↑/↓ select · ↵ open)", id="sessions-title")
+        yield Static("SpecFlow · sessions   (↑/↓ select · ↵ open · r reload)", id="sessions-title")
         yield ListView(id="sessions-list")
         yield Footer()
 
@@ -649,12 +685,13 @@ class SessionsScreen(_SpecFlowScreen):
             self.notify(f"Could not list sessions: {exc}", severity="warning")
             return
         if not sessions:
-            await listview.append(ListItem(Label("No active generation sessions.")))
+            await listview.append(ListItem(Label("No generation sessions found.")))
             return
         for s in sessions:
-            gid = s["generation_id"]
-            label = f"{gid[:18]:<20}  {s.get('status', '?'):<12}  {s.get('checkpoint', '')}"
-            await listview.append(_SessionItem(gid, label))
+            gid = s.get("generation_id", "")
+            if not gid:
+                continue
+            await listview.append(_SessionItem(gid, _session_label(s)))
 
     def action_reload(self) -> None:
         self.call_later(self.reload_sessions)

@@ -197,6 +197,92 @@ def get_generation_session_retry_service(
 # Endpoints
 # ============================================================
 
+
+@router.get("/", summary="List recent generation sessions for the authenticated API key")
+async def list_generation_sessions(
+    request: Request,
+    db: IDatabase = Depends(get_db),
+    limit: int = 50,
+):
+    """Return up to ``limit`` recent sessions for the caller's API key, newest first.
+
+    Queries the ``generation_sessions`` collection by ``key_uid`` so completed and
+    failed sessions are included (the ``active_generation_sessions`` list on the API
+    key document only tracks in-flight leases and is cleared on completion).
+
+    Falls back to the active-sessions snapshot when the key has no ``key_uid``
+    (older keys created before that field was added).
+    """
+    api_key = getattr(request.state, "api_key", None)
+    if not api_key:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+    doc = db.get("api_keys", api_key)
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
+
+    key_uid = doc.get("key_uid")
+
+    def _fmt_dt(val: Any) -> str:
+        if val is None:
+            return ""
+        if hasattr(val, "isoformat"):
+            return val.isoformat()
+        return str(val)
+
+    if key_uid:
+        from app.state.db_adapter import COL_GENERATION_SESSIONS
+        sessions = db.query(
+            COL_GENERATION_SESSIONS,
+            filters=[("key_uid", "==", key_uid)],
+            order_by="-created_at",
+            limit=limit,
+        )
+
+        def _slim_workspace_phases(raw: Any) -> dict:
+            """Return {ws_id: {last_completed_phase, phase_name}} — no planning_data."""
+            if not isinstance(raw, dict):
+                return {}
+            return {
+                ws_id: {
+                    "last_completed_phase": (data or {}).get("last_completed_phase", 0),
+                    "phase_name": (data or {}).get("phase_name", ""),
+                }
+                for ws_id, data in raw.items()
+            }
+
+        return [
+            {
+                "generation_id": s.get("generation_id") or s.get("_id", ""),
+                "status": s.get("status", "unknown"),
+                "checkpoint": s.get("checkpoint", ""),
+                "created_at": _fmt_dt(s.get("created_at")),
+                "workspace_phases": _slim_workspace_phases(s.get("workspace_phases")),
+                "current_phase": s.get("current_phase", ""),
+            }
+            for s in sessions
+        ]
+
+    # Fallback: key has no key_uid — return active sessions from the lease snapshot
+    from app.state.api_key_session_concurrency import ApiKeySessionConcurrency
+    from app.state.db_adapter import StateMachineDBAdapter
+    adapter = StateMachineDBAdapter(db)
+    session_concurrency = ApiKeySessionConcurrency(adapter)
+    try:
+        snap = await session_concurrency.snapshot(api_key_doc_id=api_key)
+    except ApiKeyDocMissingError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
+    return [
+        {
+            "generation_id": s.generation_id,
+            "status": "unknown",
+            "checkpoint": "",
+            "created_at": "",
+        }
+        for s in snap.active
+    ]
+
+
 @router.get("/{generation_id}", response_model=GenerationStatusResponse)
 @track_event(event_name="get_generation_session_triggered")
 async def get_generation_session(

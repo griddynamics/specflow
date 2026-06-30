@@ -325,13 +325,14 @@ async def cmd_download_outputs(args: argparse.Namespace) -> int:
 def _render_sessions_table(sessions: list[dict]) -> None:
     """Print a sessions table to stdout."""
     if not sessions:
-        print("No active generation sessions.")
+        print("No generation sessions found.")
         return
-    header = f"{'GENERATION ID':<40}  {'STATUS':<16}  {'CHECKPOINT'}"
+    header = f"{'GENERATION ID':<40}  {'STATUS':<16}  {'CREATED':<20}  {'CHECKPOINT'}"
     print(header)
     print("-" * len(header))
     for s in sessions:
-        print(f"{s['generation_id']:<40}  {s['status']:<16}  {s.get('checkpoint', '')}")
+        created = s.get("created_at", "")[:16].replace("T", " ") if s.get("created_at") else ""
+        print(f"{s['generation_id']:<40}  {s['status']:<16}  {created:<20}  {s.get('checkpoint', '')}")
 
 
 async def cmd_sessions(args: argparse.Namespace) -> int:

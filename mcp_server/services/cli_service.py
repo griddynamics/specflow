@@ -320,16 +320,33 @@ async def _fetch_session_status(gid: str) -> dict[str, Any]:
 
 
 async def fetch_sessions(exclude: set[str] | None = None) -> list[dict[str, Any]]:
-    """List active generation sessions by composing GET /auth/me + per-id status.
+    """List generation sessions (active and recently completed) via GET /generation-sessions/.
 
-    Returns a list of dicts with 'generation_id', 'status', 'checkpoint'. The
-    per-session status calls run concurrently and each degrades to status
-    'unknown' on failure, so one unreachable session never aborts the listing.
+    Returns a list of dicts with 'generation_id', 'status', 'checkpoint',
+    'created_at'. Completed and failed sessions are included so the TUI sessions
+    screen can show the full recent history, not just in-flight runs.
 
-    ``exclude`` skips the per-session status call for the given generation ids
-    (used by the TUI when a session is already being polled elsewhere).
+    Falls back to the /auth/me + per-session status approach when the list
+    endpoint is unavailable (older backends).
+
+    ``exclude`` omits the given generation ids from the result (used by the TUI
+    when a session is already being polled by the dashboard).
     """
     skip = exclude or set()
+    try:
+        list_text = await call_backend_endpoint(
+            endpoint="/api/v1/generation-sessions/",
+            method="GET",
+            timeout_seconds=15,
+        )
+        sessions: list[dict[str, Any]] = json.loads(list_text)
+        if not isinstance(sessions, list):
+            raise ValueError("unexpected response shape")
+        return [s for s in sessions if s.get("generation_id") not in skip]
+    except Exception as exc:
+        logger.warning("Session list endpoint unavailable, falling back to /auth/me: %s", exc)
+
+    # Fallback: compose /auth/me + per-session /status (active sessions only).
     auth_text = await call_backend_endpoint(
         endpoint="/api/v1/auth/me",
         method="GET",

@@ -14,6 +14,7 @@ Required indexes:
 4.  workspaces:           scheduled_for_wipe (ASC) + scheduled_for_wipe_at (ASC)
 5.  generation_sessions:  status (ASC) + status_changed_at (ASC)
 6.  generation_sessions:  status (ASC) + last_activity_at (ASC)
+7.  generation_sessions:  key_uid (ASC) + created_at (DESC)   [local quickstart uses emulator — index only needed for prod]
 
 Usage:
     # With Firestore Emulator (indexes not needed, but script will skip gracefully)
@@ -93,6 +94,16 @@ INDEXES = [
             {"field": "last_activity_at", "order": "ASCENDING"},
         ],
         "description": "For stuck_running_detector query: status == 'running' AND last_activity_at < threshold",
+    },
+    {
+        "collection": "generation_sessions",
+        "fields": [
+            {"field": "key_uid", "order": "ASCENDING"},
+            {"field": "created_at", "order": "DESCENDING"},
+        ],
+        # NOTE: local quickstart uses the Firestore emulator which does not require
+        # composite indexes — this index is only needed for prod Firestore deployments.
+        "description": "For GET /generation-sessions/ list: key_uid == x ORDER BY created_at DESC",
     },
     {
         "collection": "workspaces",
