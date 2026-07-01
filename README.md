@@ -194,6 +194,7 @@ Detailed SpecFlow harness instructions: [QUICKSTART.md](docs/QUICKSTART.md)
 | Document                                                                 | Description                                 |
 | ------------------------------------------------------------------------ | ------------------------------------------- |
 | [QUICKSTART.md](docs/QUICKSTART.md)                                      | Local setup and first run                   |
+| [CONTRIBUTING.md](docs/CONTRIBUTING.md)                                  | How to contribute — workflow and PR checklist |
 | [CLAUDE.md](CLAUDE.md)                                                   | Development protocol and STEEL commandments |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)                             | System design and data flow                 |
 | [docs/mcp/API_REFERENCE.md](docs/mcp/API_REFERENCE.md)                   | MCP tool reference                          |
