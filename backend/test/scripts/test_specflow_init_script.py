@@ -98,17 +98,19 @@ def test_makefile_test_stack_uses_separate_names_ports_and_isolated_sqlite_path(
 
 
 def test_specflow_init_defaults_local_firestore_database_name():
-    """Host-side seeding and Compose must agree on the quickstart database name."""
+    """Host-side seeding and Compose must agree on the hosted-Firestore database name
+    (only relevant when DATABASE_TYPE=firestore/emulator; sqlite ignores it)."""
     text = _script_text()
 
     assert 'export FIRESTORE_DATABASE_NAME="${FIRESTORE_DATABASE_NAME:-specflow}"' in text
 
 
-def test_reset_local_db_clears_persisted_emulator_export_only():
-    """A reset must clear the host export dir that survives docker compose down -v."""
+def test_reset_local_db_clears_sqlite_file_not_a_directory():
+    """A reset must clear the central SQLite file (+ WAL/SHM sidecars) that survives
+    docker compose down -v, guarded against clearing an unexpected path."""
     text = _script_text()
 
-    assert 'FIRESTORE_EMULATOR_DATA_DIR="${SCRIPT_DIR}/${_WORKSPACE_MOUNT_PATH#./}' in text
-    assert 'basename "${FIRESTORE_EMULATOR_DATA_DIR}"' in text
-    assert '!= "firestore_emulator"' in text
-    assert 'rm -rf "${FIRESTORE_EMULATOR_DATA_DIR}"' in text
+    assert 'SPECFLOW_HOME_PATH="${SPECFLOW_HOME_MOUNT_PATH:-${HOME}/.specflow}"' in text
+    assert 'basename "${SPECFLOW_HOME_PATH}"' in text
+    assert '!= ".specflow"' in text
+    assert 'rm -f "${SPECFLOW_HOME_PATH}/specflow.db"' in text
