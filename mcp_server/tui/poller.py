@@ -31,6 +31,14 @@ class Milestone:
     message: str
 
 
+@dataclass(frozen=True)
+class WorkspacePhaseSnapshot:
+    """One workspace's phase progress as seen in a status payload."""
+
+    completed: int
+    phase_name: str
+
+
 async def poll_once(generation_id: str) -> dict[str, Any] | None:
     """Fetch the latest ``/status`` payload, or None on any error.
 
@@ -47,12 +55,12 @@ def _checkpoint_index(checkpoint: str | None) -> int:
         return -1
 
 
-def _workspace_phase_snapshot(payload: dict[str, Any]) -> dict[str, tuple[int, str]]:
+def _workspace_phase_snapshot(payload: dict[str, Any]) -> dict[str, WorkspacePhaseSnapshot]:
     workspace_phases = payload.get("workspace_phases")
     if not workspace_phases:
         workspace_phases = (payload.get("progress") or {}).get("workspace_phases") or {}
 
-    snapshot: dict[str, tuple[int, str]] = {}
+    snapshot: dict[str, WorkspacePhaseSnapshot] = {}
     for workspace_id, raw in workspace_phases.items():
         data = raw or {}
         try:
@@ -60,15 +68,21 @@ def _workspace_phase_snapshot(payload: dict[str, Any]) -> dict[str, tuple[int, s
         except (TypeError, ValueError):
             completed = 0
         phase_name = str(data.get("phase_name") or "").strip()
-        snapshot[str(workspace_id)] = (completed, phase_name)
+        snapshot[str(workspace_id)] = WorkspacePhaseSnapshot(
+            completed=completed,
+            phase_name=phase_name,
+        )
     return snapshot
 
 
-def _workspace_phase_message(short_generation_id: str, workspace_id: str, phase: tuple[int, str]) -> str:
-    completed, phase_name = phase
-    label = f"phase {completed}" if completed else "phase update"
-    if phase_name:
-        label = f"{label}: {phase_name}"
+def _workspace_phase_message(
+    short_generation_id: str,
+    workspace_id: str,
+    phase: WorkspacePhaseSnapshot,
+) -> str:
+    label = f"phase {phase.completed}" if phase.completed else "phase update"
+    if phase.phase_name:
+        label = f"{label}: {phase.phase_name}"
     return f"{short_generation_id}... {workspace_id} -> {label}"
 
 
@@ -85,7 +99,7 @@ class MilestoneTracker:
         self._terminal_announced = False
         self._last_status: str | None = None
         self._observed_payload = False
-        self._workspace_phases: dict[str, tuple[int, str]] = {}
+        self._workspace_phases: dict[str, WorkspacePhaseSnapshot] = {}
 
     def process(self, payload: dict[str, Any] | None) -> list[Milestone]:
         if not payload:
@@ -118,7 +132,9 @@ class MilestoneTracker:
                 milestones.append(Milestone("Milestone reached", f"{short}... -> {phase}"))
             self._last_checkpoint_idx = idx
 
-        # Workspace phase progress — one ping per workspace phase/name advance.
+        # Workspace phase progress — one ping per actual completed-phase advance.
+        # Different status sources may project phase names differently; a label
+        # flip with the same completed count is not user-visible progress.
         workspace_phases = _workspace_phase_snapshot(payload)
         for workspace_id, phase in sorted(workspace_phases.items()):
             previous = self._workspace_phases.get(workspace_id)
@@ -131,7 +147,7 @@ class MilestoneTracker:
                         )
                     )
                 continue
-            if phase != previous:
+            if phase.completed > previous.completed:
                 milestones.append(
                     Milestone(
                         "Workspace phase progressed",

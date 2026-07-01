@@ -631,6 +631,10 @@ class WorkspaceMessagesScreen(_SpecFlowScreen):
         self._workspace_id = workspace_id
         self._got_event = False
 
+    @property
+    def generation_id(self) -> str:
+        return self._generation_id
+
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with Vertical():
@@ -648,6 +652,8 @@ class WorkspaceMessagesScreen(_SpecFlowScreen):
 
     async def refresh_stats(self) -> None:
         payload = await poll_once(self._generation_id)
+        if isinstance(self.app, SpecFlowTUI):
+            self.app.process_payload(self._generation_id, payload)
         self.query_one("#ws-stats", Static).update(
             build_workspace_stats(payload, self._workspace_id)
         )
@@ -1653,16 +1659,16 @@ class SpecFlowTUI(App):
             self._notification_trackers.pop(generation_id, None)
 
     def _displayed_generation_id(self) -> str | None:
-        """The run currently shown on the dashboard, which polls it itself."""
+        """The run currently shown on a screen that polls its own status."""
         try:
             screen = self.screen
         except Exception:
             return None
-        return screen.generation_id if isinstance(screen, DashboardScreen) else None
+        return screen.generation_id if isinstance(screen, (DashboardScreen, WorkspaceMessagesScreen)) else None
 
     async def notify_active_sessions(self) -> None:
-        # The visible dashboard polls its own run; exclude it here so it is not
-        # polled twice per interval.
+        # The visible dashboard/workspace screen polls its own run; exclude it
+        # here so list-shaped and status-shaped payloads cannot interleave.
         displayed = self._displayed_generation_id()
         exclude = {displayed} if displayed else set()
 

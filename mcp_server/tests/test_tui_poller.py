@@ -85,6 +85,34 @@ class TestMilestoneTracker:
             == []
         )
 
+    def test_kb_init_phase_label_change_without_progress_is_silent(self):
+        tracker = MilestoneTracker("gen_abc123def456")
+        tracker.process(
+            {
+                "status": "running",
+                "checkpoint": "generation_started",
+                "workspace_phases": {
+                    "ws-01-1": {
+                        "last_completed_phase": 0,
+                        "phase_name": "Knowledge Base Initialization with Rosetta",
+                    },
+                },
+            }
+        )
+
+        assert (
+            tracker.process(
+                {
+                    "status": "running",
+                    "checkpoint": "generation_started",
+                    "workspace_phases": {
+                        "ws-01-1": {"last_completed_phase": 0, "phase_name": ""},
+                    },
+                }
+            )
+            == []
+        )
+
     def test_none_payload_is_noop(self):
         assert MilestoneTracker("gen_x").process(None) == []
 
