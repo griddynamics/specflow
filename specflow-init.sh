@@ -10,9 +10,9 @@
 #   1. Load .env (user must have copied .env.quickstart.example → .env)
 #   2. Generate TOKEN_ENCRYPTION_KEY if blank (via Fernet, never echoed)
 #   3. Create .specflow-local/ and write workspaces.json, init.log, mcp-config.json
-#   4. Start the backend stack only (emulator + backend; NOT mcp-server profile)
+#   4. Start the backend stack only (backend + sqlite; NOT mcp-server profile)
 #   5. Health-gate: poll /health/ready before seeding
-#   6. Seed Firestore via init_firestore.py
+#   6. Seed the local SQLite database via init_db.py
 #   7. Write .specflow-local/mcp-config.json (keyless IDE MCP-client snippet)
 #   8. Install the local SpecFlow CLI entry point
 #   9. Print manual-install instruction for the user
@@ -60,7 +60,7 @@ Options:
   --provide-own-repos LIST
                           Comma-separated bare repo names (or org/repo) instead of
                           creating new repos; requires at least K×3 entries
-  --reset-local-db        Reset local Firestore emulator data before seeding
+  --reset-local-db        Reset the local SQLite database before seeding
   -h, -H, --help          Show this help message and exit
 
 Examples:
@@ -159,18 +159,19 @@ error() {
     exit 1
 }
 
-clear_firestore_emulator_data_dir() {
-    if [[ -z "${FIRESTORE_EMULATOR_DATA_DIR:-}" ]]; then
-        error "FIRESTORE_EMULATOR_DATA_DIR is empty; refusing to clear local emulator data."
+clear_local_sqlite_db() {
+    if [[ -z "${SPECFLOW_HOME_PATH:-}" ]]; then
+        error "SPECFLOW_HOME_PATH is empty; refusing to clear the local database."
     fi
-    if [[ "$(basename "${FIRESTORE_EMULATOR_DATA_DIR}")" != "firestore_emulator" ]]; then
-        error "Refusing to clear unexpected Firestore emulator data path: ${FIRESTORE_EMULATOR_DATA_DIR}"
+    if [[ "$(basename "${SPECFLOW_HOME_PATH}")" != ".specflow" ]]; then
+        error "Refusing to clear unexpected SpecFlow home path: ${SPECFLOW_HOME_PATH}"
     fi
 
-    info "Clearing persisted Firestore emulator export at ${FIRESTORE_EMULATOR_DATA_DIR} ..."
-    log "INFO: rm -rf <firestore emulator data dir>"
-    rm -rf "${FIRESTORE_EMULATOR_DATA_DIR}"
-    mkdir -p "${FIRESTORE_EMULATOR_DATA_DIR}"
+    info "Clearing local SQLite database at ${SPECFLOW_HOME_PATH}/specflow.db ..."
+    log "INFO: rm -f <sqlite db + wal/shm sidecars>"
+    rm -f "${SPECFLOW_HOME_PATH}/specflow.db" \
+          "${SPECFLOW_HOME_PATH}/specflow.db-wal" \
+          "${SPECFLOW_HOME_PATH}/specflow.db-shm"
 }
 
 set_env_value() {
@@ -225,13 +226,10 @@ set +a
 log "INFO: Loaded .env from ${ENV_FILE}"
 
 _WORKSPACE_MOUNT_PATH="${WORKSPACE_MOUNT_PATH:-./workspaces}"
-case "${_WORKSPACE_MOUNT_PATH}" in
-    /*) FIRESTORE_EMULATOR_DATA_DIR="${_WORKSPACE_MOUNT_PATH}/firestore_emulator" ;;
-    *) FIRESTORE_EMULATOR_DATA_DIR="${SCRIPT_DIR}/${_WORKSPACE_MOUNT_PATH#./}/firestore_emulator" ;;
-esac
+export SPECFLOW_HOME_PATH="${SPECFLOW_HOME_MOUNT_PATH:-${HOME}/.specflow}"
 export FIRESTORE_DATABASE_NAME="${FIRESTORE_DATABASE_NAME:-specflow}"
-log "INFO: Firestore emulator data dir: ${FIRESTORE_EMULATOR_DATA_DIR}"
-log "INFO: Firestore database name: ${FIRESTORE_DATABASE_NAME}"
+log "INFO: SpecFlow home (central SQLite db) dir: ${SPECFLOW_HOME_PATH}"
+log "INFO: Firestore database name (hosted-connect mode only): ${FIRESTORE_DATABASE_NAME}"
 
 # ---------------------------------------------------------------------------
 # Step 1b: Derive local LLM provider
@@ -348,13 +346,13 @@ if [[ -z "${TOKEN_ENCRYPTION_KEY:-}" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Step 3: Start the backend stack (emulator + backend; NOT mcp-server profile)
+# Step 3: Start the backend stack (backend + sqlite; NOT mcp-server profile)
 # ---------------------------------------------------------------------------
 if [[ "${DRY_RUN}" == "true" ]]; then
-    info "[DRY RUN] Would start backend stack: docker compose up -d (emulator + backend)"
+    info "[DRY RUN] Would start backend stack: docker compose up -d (backend)"
     info "[DRY RUN] Would skip mcp-server profile (IDE-side only)."
     if [[ "${RESET_LOCAL_DB}" == "true" ]]; then
-        info "[DRY RUN] Would clear persisted Firestore emulator export at ${FIRESTORE_EMULATOR_DATA_DIR}"
+        info "[DRY RUN] Would clear the local SQLite database at ${SPECFLOW_HOME_PATH}/specflow.db"
     fi
 else
     BUILD_FLAG=""
@@ -370,10 +368,10 @@ else
         info "Resetting local state (--reset-local-db): stopping and removing containers+volumes ..."
         log "INFO: docker compose down -v"
         docker compose -f "${SCRIPT_DIR}/docker-compose.yml" down -v > >(log_stream) 2> >(log_stream) || true
-        clear_firestore_emulator_data_dir
+        clear_local_sqlite_db
     fi
 
-    info "Starting emulator + backend (no mcp-server profile) ..."
+    info "Starting backend (sqlite; no mcp-server profile) ..."
     log "INFO: docker compose up -d"
     docker compose -f "${SCRIPT_DIR}/docker-compose.yml" up -d > >(log_stream) 2> >(log_stream) \
         || error "docker compose up failed. Check ${LOG_FILE} for details."
@@ -483,9 +481,10 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 6: Seed Firestore emulator from durable workspace config
+# Step 6: Seed the active database from durable workspace config
 # ---------------------------------------------------------------------------
-_FIRESTORE_HOST="localhost:8080"
+_DATABASE_TYPE="${DATABASE_TYPE:-sqlite}"
+_SQLITE_DB_PATH="${SQLITE_DB_PATH:-${SPECFLOW_HOME_PATH}/specflow.db}"
 
 # Guard (H): the provisioning steps above always write workspaces.json. A missing file
 # here means an anomalous failure — refuse to seed an empty pool.
@@ -500,18 +499,20 @@ if [[ "${RESET_LOCAL_DB}" == "true" ]]; then
 fi
 
 if [[ "${DRY_RUN}" == "true" ]]; then
-    info "[DRY RUN] Would run: FIRESTORE_EMULATOR_HOST=${_FIRESTORE_HOST} uv run scripts/init_firestore.py --dry-run ${_SEED_FLAGS[*]}"
-    log "INFO: [DRY RUN] init_firestore.py --dry-run ${_SEED_FLAGS[*]}"
+    info "[DRY RUN] Would run: DATABASE_TYPE=${_DATABASE_TYPE} uv run scripts/init_db.py --dry-run ${_SEED_FLAGS[*]}"
+    log "INFO: [DRY RUN] init_db.py --dry-run ${_SEED_FLAGS[*]}"
 else
-    info "Seeding Firestore emulator ..."
-    log "INFO: Running init_firestore.py ${_SEED_FLAGS[*]} against ${_FIRESTORE_HOST}"
+    info "Seeding the ${_DATABASE_TYPE} database ..."
+    log "INFO: Running init_db.py ${_SEED_FLAGS[*]} (DATABASE_TYPE=${_DATABASE_TYPE})"
     (
         cd "${SCRIPT_DIR}/backend"
-        FIRESTORE_EMULATOR_HOST="${_FIRESTORE_HOST}" \
-            uv run scripts/init_firestore.py "${_SEED_FLAGS[@]}"
+        DATABASE_TYPE="${_DATABASE_TYPE}" \
+        SQLITE_DB_PATH="${_SQLITE_DB_PATH}" \
+        FIRESTORE_EMULATOR_HOST="${FIRESTORE_EMULATOR_HOST:-localhost:8080}" \
+            uv run scripts/init_db.py "${_SEED_FLAGS[@]}"
     ) > >(log_stream) 2> >(log_stream) \
-        || error "init_firestore.py failed. Check ${LOG_FILE} for details."
-    info "Firestore seeded successfully."
+        || error "init_db.py failed. Check ${LOG_FILE} for details."
+    info "Database seeded successfully."
 fi
 
 # ---------------------------------------------------------------------------

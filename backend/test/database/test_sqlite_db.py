@@ -1,0 +1,151 @@
+"""
+SqliteDatabase contract + datetime tests.
+
+Runs the shared IDatabase contract (db_contract.py) against the SQLite backend so it
+must satisfy the exact same behavior as the in-memory reference, plus SQLite-specific
+datetime-boundary tests (the one place "works on memory" can differ from "works
+persisted").
+"""
+
+from datetime import datetime, timedelta, timezone
+
+import pytest
+
+from app.database.sqlite import SqliteDatabase
+
+from test.database.db_contract import (
+    TestArrayOperations as _TestArrayOperations,
+    TestBasicCRUD as _TestBasicCRUD,
+    TestIsolation as _TestIsolation,
+    TestQuery as _TestQuery,
+    TestServerTimestamp as _TestServerTimestamp,
+    TestTransactions as _TestTransactions,
+)
+
+
+@pytest.fixture
+def db():
+    """Create a fresh in-memory SQLite database for each test."""
+    database = SqliteDatabase(":memory:")
+    yield database
+    database.close()
+
+
+class TestBasicCRUD(_TestBasicCRUD):
+    pass
+
+
+class TestQuery(_TestQuery):
+    pass
+
+
+class TestTransactions(_TestTransactions):
+    pass
+
+
+class TestArrayOperations(_TestArrayOperations):
+    pass
+
+
+class TestServerTimestamp(_TestServerTimestamp):
+    pass
+
+
+class TestIsolation(_TestIsolation):
+    pass
+
+
+class TestSqliteDatetime:
+    """Datetime contract: round-trips as tz-aware UTC and compares correctly in SQL."""
+
+    def test_datetime_roundtrip_is_tz_aware(self, db):
+        stored = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        db.set("c", "d", {"ts": stored})
+
+        got = db.get("c", "d")["ts"]
+        assert isinstance(got, datetime)
+        assert got.tzinfo is not None
+        assert got == stored
+
+    def test_naive_datetime_assumed_utc(self, db):
+        db.set("c", "d", {"ts": datetime(2026, 1, 1, 12, 0, 0)})
+
+        got = db.get("c", "d")["ts"]
+        assert got == datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+
+    def test_datetime_filter_less_than(self, db):
+        now = datetime.now(timezone.utc)
+        db.set("gen", "old", {"last_activity_at": now - timedelta(minutes=60)})
+        db.set("gen", "fresh", {"last_activity_at": now - timedelta(minutes=1)})
+
+        cutoff = now - timedelta(minutes=30)
+        results = db.query("gen", filters=[("last_activity_at", "<", cutoff)])
+
+        assert {r["_id"] for r in results} == {"old"}
+
+    def test_none_datetime_excluded_by_less_than(self, db):
+        """None last_activity_at must be invisible to '<' (matches reference impl)."""
+        now = datetime.now(timezone.utc)
+        db.set("gen", "none", {"last_activity_at": None})
+
+        results = db.query("gen", filters=[("last_activity_at", "<", now)])
+        assert results == []
+
+    def test_nested_datetime_in_list_roundtrips(self, db):
+        ts = datetime(2026, 3, 1, 9, 30, 0, tzinfo=timezone.utc)
+        db.set("api_keys", "k", {
+            "active_generation_sessions": [{"generation_id": "g1", "lease_started_at": ts}],
+        })
+
+        got = db.get("api_keys", "k")
+        assert got["active_generation_sessions"][0]["lease_started_at"] == ts
+
+
+class TestSqlitePersistence:
+    """A SQLite file persists across connections (the whole point vs in-memory)."""
+
+    def test_state_survives_reopen(self, tmp_path):
+        db_path = str(tmp_path / "specflow.db")
+
+        db1 = SqliteDatabase(db_path)
+        db1.set("generation_sessions", "est-1", {"status": "running"})
+        db1.close()
+
+        db2 = SqliteDatabase(db_path)
+        try:
+            result = db2.get("generation_sessions", "est-1")
+            assert result == {"status": "running"}
+        finally:
+            db2.close()
+
+
+@pytest.mark.asyncio
+async def test_stuck_running_detector_against_sqlite():
+    """
+    End-to-end datetime boundary: a RUNNING generation with a stale last_activity_at
+    stored in SQLite must be detected and marked FAILED by the background job (proves
+    tz-aware cutoff vs SQL-stored datetime agree, and that the async
+    StateMachineDBAdapter works on the SQLite backend).
+    """
+    from app.database.sqlite import SqliteDatabase as _SqliteDatabase
+    from app.state.db_adapter import StateMachineDBAdapter, COL_GENERATION_SESSIONS
+    from app.jobs.stuck_running_detector import detect_stuck_running
+    from app.schemas.generation_workflow_enums import GenerationStatus
+
+    raw = _SqliteDatabase(":memory:")
+    adapter = StateMachineDBAdapter(raw)
+
+    now = datetime.now(timezone.utc)
+    raw.set(COL_GENERATION_SESSIONS, "est-stale", {
+        "status": GenerationStatus.RUNNING,
+        "last_activity_at": now - timedelta(minutes=60),
+        "state_history": [],
+    })
+
+    try:
+        await detect_stuck_running(adapter, threshold_minutes=30)
+        est = raw.get(COL_GENERATION_SESSIONS, "est-stale")
+        assert est["status"] == GenerationStatus.FAILED
+        assert est.get("failed_at") is not None
+    finally:
+        raw.close()

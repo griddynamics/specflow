@@ -23,3 +23,4 @@ class DatabaseType(StrEnum):
     MEMORY = "memory"
     EMULATOR = "emulator"
     FIRESTORE = "firestore"
+    SQLITE = "sqlite"

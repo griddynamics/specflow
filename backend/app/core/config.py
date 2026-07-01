@@ -227,6 +227,11 @@ class Settings(BaseSettings):
     FIRESTORE_EMULATOR_HOST: Optional[str] = None  # e.g., localhost:8080 or firestore-emulator:8080
     GCP_PROJECT_ID: Optional[str] = None  # GCP project ID for Firestore
     FIRESTORE_DATABASE_NAME: str = "default"  # Firestore database name (default: "(default)")
+    # SQLite file path for DATABASE_TYPE=sqlite (single-writer, local/Docker-dev default).
+    # Container-side path where docker-compose bind-mounts the host's ~/.specflow/ directory
+    # (one central database shared across every local project/MCP session, like the Firestore
+    # emulator used to be). MUST be on block storage, never NFS/Filestore.
+    SQLITE_DB_PATH: str = "/root/.specflow/specflow.db"
 
     # LLM Provider Configuration
     # Active LLM provider: "openrouter" (default) or "anthropic".

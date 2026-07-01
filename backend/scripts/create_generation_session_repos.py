@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Create GitHub repositories for generation workspaces, optionally upsert Firestore workspaces,
-and trigger P10y metrics.
+Create GitHub repositories for generation workspaces, optionally upsert workspaces into the
+active database (sqlite, firestore, or an explicit hosted-Firestore target), and trigger P10y
+metrics.
 
 Example:
     uv run python scripts/create_generation_session_repos.py \
@@ -20,16 +21,19 @@ This script:
 2. Grants a team in that org Write access (GitHub API permission "push") on each repo
 3. Starts metric calculation for the created repositories via the P10y enable/metrics API
 4. Polls P10y to check when repositories are live with metrics
-5. Upserts the workspace pool in Firestore (--gcp-project / --firestore-database target the DB)
+5. Upserts the workspace pool into the active database (--gcp-project / --firestore-database
+   target a hosted Firestore instance directly; otherwise the active DATABASE_TYPE is used —
+   sqlite by default)
 
 Further usage:
     python scripts/create_generation_session_repos.py --github-org MyOrg --team my-team-slug --start 7 --end 9 \\
       --gcp-project my-project --firestore-database default
 
 Environment (optional defaults for flags):
-    When both --gcp-project and --firestore-database are set, Firestore writes use only those
-    values (not Settings / not DATABASE_TYPE). Otherwise use get_database() and set
-    DATABASE_TYPE=firestore and GCP_PROJECT_ID / FIRESTORE_DATABASE_NAME in .env or the shell.
+    When both --gcp-project and --firestore-database are set, writes target that hosted
+    Firestore instance only (not Settings / not DATABASE_TYPE). Otherwise use get_database(),
+    which honors DATABASE_TYPE (sqlite by default; set to firestore + GCP_PROJECT_ID /
+    FIRESTORE_DATABASE_NAME in .env or the shell to write against a hosted instance instead).
     GITHUB_ORG or GITHUB_ORG_DEFAULT — organization login (owner of repos)
     GITHUB_TEAM or GITHUB_TEAM_SLUG — team slug within that org
 """
@@ -752,7 +756,7 @@ def emit_workspace_config(
 ) -> None:
     """
     Write a JSON workspace-config file in the exact schema consumed by
-    ``init_firestore.py --workspace-config``:
+    ``init_db.py --workspace-config``:
 
         [{"workspace_id": str, "repo_url": str,
           "p10y_repository_id": int, "workspace_pool": str}, ...]
@@ -902,7 +906,7 @@ async def main():
     parser.add_argument(
         "--skip-firestore",
         action="store_true",
-        help="Skip adding workspaces to Firestore database"
+        help="Skip adding workspaces to the active database (sqlite/firestore)"
     )
     parser.add_argument(
         "--skip-metrics",
@@ -920,7 +924,7 @@ async def main():
         action="store_true",
         help=(
             "Print token actor, org, team, and full repo URLs; exit before any GitHub mutations, "
-            "P10y, or Firestore (P10Y_* env not required)"
+            "P10y, or database writes (P10Y_* env not required)"
         ),
     )
     parser.add_argument(
@@ -930,7 +934,7 @@ async def main():
         metavar="FILE",
         help=(
             "After repo_id_map resolves (Step 3), write a JSON workspace-config file at FILE "
-            "in the exact schema consumed by init_firestore.py --workspace-config: "
+            "in the exact schema consumed by init_db.py --workspace-config: "
             "[{workspace_id, repo_url, p10y_repository_id (int), workspace_pool}, ...]. "
             "Does not write to Firestore directly."
         ),
@@ -974,7 +978,7 @@ async def main():
 
     if not args.dry_run and not args.skip_firestore and not github_org:
         print(
-            "❌ Error: --github-org is required for Firestore repo URLs "
+            "❌ Error: --github-org is required to record workspace repo URLs "
             "(or set GITHUB_ORG / GITHUB_ORG_DEFAULT)"
         )
         sys.exit(1)
@@ -983,16 +987,20 @@ async def main():
         if firestore_target_from_cli:
             pass
         else:
-            if not (cfg.GCP_PROJECT_ID or "").strip():
+            # These write real GitHub-backed workspace repos into the active database — reject
+            # only DatabaseType.MEMORY (throwaway, non-persistent). sqlite (local default) and
+            # firestore (production / hosted-GCP) are both valid persistent targets.
+            if cfg.DATABASE_TYPE == DatabaseType.MEMORY:
                 print(
-                    "❌ Error: pass both --gcp-project and --firestore-database for direct Firestore "
-                    "writes, or set GCP_PROJECT_ID (and DATABASE_TYPE=firestore) for settings-based mode"
+                    "❌ Error: DATABASE_TYPE must not be memory (throwaway) when writing real "
+                    "workspace repos — use sqlite (default), firestore, or pass both "
+                    "--gcp-project and --firestore-database for direct Firestore writes"
                 )
                 sys.exit(1)
-            if cfg.DATABASE_TYPE != DatabaseType.FIRESTORE:
+            if cfg.DATABASE_TYPE == DatabaseType.FIRESTORE and not (cfg.GCP_PROJECT_ID or "").strip():
                 print(
-                    "❌ Error: DATABASE_TYPE must be firestore when not passing both "
-                    "--gcp-project and --firestore-database (backend default is memory)"
+                    "❌ Error: GCP_PROJECT_ID must be set when DATABASE_TYPE=firestore "
+                    "(or pass both --gcp-project and --firestore-database for direct writes)"
                 )
                 sys.exit(1)
 
@@ -1143,7 +1151,7 @@ async def main():
 
         repo_ids = list(repo_id_map.values())
 
-        # Emit workspace config JSON if requested (schema matches init_firestore.py --workspace-config)
+        # Emit workspace config JSON if requested (schema matches init_db.py --workspace-config)
         if args.output_workspace_config:
             emit_workspace_config(
                 repo_id_map=repo_id_map,
@@ -1179,9 +1187,9 @@ async def main():
         else:
             final_statuses = {}
         
-        # Step 6: Add workspaces to Firestore
-        # --repos path: workspace-config JSON is written above; Firestore seeding is done
-        # separately by init_firestore.py --workspace-config. add_workspaces_to_firestore
+        # Step 6: Add workspaces to the active database
+        # --repos path: workspace-config JSON is written above; database seeding is done
+        # separately by init_db.py --workspace-config. add_workspaces_to_firestore
         # extracts workspace IDs from {prefix}{num} names and cannot handle arbitrary names.
         if not args.skip_firestore and own_repo_list is None:
             await add_workspaces_to_firestore(

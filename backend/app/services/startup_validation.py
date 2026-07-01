@@ -6,7 +6,7 @@ All checks must be idempotent and safe to run concurrently from multiple instanc
 
 Critical Checks:
 - Environment variables are set
-- Firestore is reachable
+- The active database backend is reachable
 - Workspace pool has available workspaces
 - Filestore mount is accessible
 
@@ -83,20 +83,20 @@ class StartupValidator:
                 f"Environment check failed: {results['environment']['error']}"
             )
         
-        # 2. Firestore connectivity (CRITICAL)
-        results["firestore"] = await self._check_firestore_connectivity()
-        if not results["firestore"]["passed"]:
+        # 2. Database connectivity (CRITICAL)
+        results["database"] = await self._check_database_connectivity()
+        if not results["database"]["passed"]:
             raise StartupValidationError(
-                f"Firestore check failed: {results['firestore']['error']}"
+                f"Database check failed: {results['database']['error']}"
             )
-        
+
         # 3. Workspace pool validation (CRITICAL in production, WARNING in test/dev)
         results["workspace_pool"] = await self._check_workspace_pool()
         database_type = os.getenv("DATABASE_TYPE", "firestore")
-        
+
         if not results["workspace_pool"]["passed"]:
-            # Non-critical in test/dev environments (emulator, memory)
-            if database_type in ["emulator", "memory"]:
+            # Non-critical in test/dev environments (sqlite, emulator, memory)
+            if database_type in ["sqlite", "emulator", "memory"]:
                 logger.warning(
                     f"Workspace pool check: {results['workspace_pool']['error']} "
                     "(non-critical in test/dev mode)"
@@ -106,13 +106,13 @@ class StartupValidator:
                 raise StartupValidationError(
                     f"Workspace pool check failed: {results['workspace_pool']['error']}"
                 )
-        
+
         # 4. Filestore mount check (CRITICAL in production, WARNING in test/dev)
         results["filestore"] = await self._check_filestore_mount()
-        
+
         if not results["filestore"]["passed"]:
             # Non-critical in test/dev environments
-            if database_type in ["emulator", "memory"]:
+            if database_type in ["sqlite", "emulator", "memory"]:
                 logger.warning(
                     f"Filestore check: {results['filestore']['error']} "
                     "(non-critical in test/dev mode)"
@@ -122,7 +122,7 @@ class StartupValidator:
                 raise StartupValidationError(
                     f"Filestore check failed: {results['filestore']['error']}"
                 )
-        
+
         return results
     
     async def _check_environment(self) -> Dict[str, Any]:
@@ -130,8 +130,10 @@ class StartupValidator:
         Validate required environment variables are set.
 
         - Active LLM provider key: required based on settings.DEFAULT_PROVIDER.
-        - Git platform (Fernet key + default PAT + git user): required for firestore/emulator
-          deployments unless platform secrets are loaded from Kubernetes at startup.
+        - Git platform (Fernet key + default PAT + git user): required for sqlite/firestore/
+          emulator deployments (all persist real workspace state across restarts and clone
+          real GitHub repos) unless platform secrets are loaded from Kubernetes at startup.
+          memory is the only backend exempt — it's throwaway/ephemeral (unit tests only).
         """
         missing: list[str] = []
 
@@ -159,7 +161,7 @@ class StartupValidator:
         except ValueError:
             database_type = DatabaseType.MEMORY
 
-        if database_type in (DatabaseType.FIRESTORE, DatabaseType.EMULATOR):
+        if database_type in (DatabaseType.SQLITE, DatabaseType.FIRESTORE, DatabaseType.EMULATOR):
             in_cluster = bool(os.environ.get("KUBERNETES_SERVICE_HOST"))
 
             k8s_ready = (
@@ -196,21 +198,22 @@ class StartupValidator:
 
         return {"passed": True, "error": None}
     
-    async def _check_firestore_connectivity(self) -> Dict[str, Any]:
+    async def _check_database_connectivity(self) -> Dict[str, Any]:
         """
-        Verify Firestore is reachable and responsive.
-        
-        Uses a simple read operation to validate connectivity.
-        Includes retry logic with exponential backoff for emulator startup.
+        Verify the active database backend is reachable and responsive.
+
+        Uses a simple read operation to validate connectivity. Includes retry logic
+        with exponential backoff for emulator startup; sqlite/memory go straight to
+        the generic retry loop since there's no separate process to wait on.
         """
         import os
-        
+
         # Log diagnostic information
         emulator_host = os.getenv("FIRESTORE_EMULATOR_HOST")
         database_type = os.getenv("DATABASE_TYPE", "memory")
-        
+
         logger.info(
-            f"Firestore connectivity check - "
+            f"Database connectivity check - "
             f"DATABASE_TYPE={database_type}, "
             f"FIRESTORE_EMULATOR_HOST={emulator_host}"
         )
@@ -264,37 +267,41 @@ class StartupValidator:
                     asyncio.to_thread(self._db.query, "_health_check", []),
                     timeout=10.0  # 10 second timeout per attempt
                 )
-                
-                logger.info(f"Firestore connectivity check passed on attempt {attempt + 1}")
+
+                logger.info(f"Database connectivity check passed on attempt {attempt + 1}")
                 return {"passed": True, "error": None}
-            
+
             except asyncio.TimeoutError:
                 if attempt < max_retries - 1:
                     logger.warning(
-                        f"Firestore connectivity check timed out (attempt {attempt + 1}/{max_retries}), "
+                        f"Database connectivity check timed out (attempt {attempt + 1}/{max_retries}), "
                         f"retrying in {retry_delay}s..."
                     )
                     await asyncio.sleep(retry_delay)
                     retry_delay *= 2  # Exponential backoff
                 else:
+                    hint = (
+                        f"Check if emulator is running at {emulator_host}"
+                        if database_type == "emulator"
+                        else f"Check DATABASE_TYPE={database_type} configuration"
+                    )
                     return {
                         "passed": False,
-                        "error": f"Firestore connection timeout after {max_retries} attempts. "
-                                f"Check if emulator is running at {emulator_host}"
+                        "error": f"Database connection timeout after {max_retries} attempts. {hint}"
                     }
-            
+
             except Exception as e:
                 error_msg = str(e)
-                
+
                 # Check if it's a connection error that might be transient
                 is_connection_error = any(
-                    keyword in error_msg.lower() 
+                    keyword in error_msg.lower()
                     for keyword in ["connection refused", "failed to connect", "timeout", "unavailable"]
                 )
-                
+
                 if is_connection_error and attempt < max_retries - 1:
                     logger.warning(
-                        f"Firestore connection error (attempt {attempt + 1}/{max_retries}): {error_msg}, "
+                        f"Database connection error (attempt {attempt + 1}/{max_retries}): {error_msg}, "
                         f"retrying in {retry_delay}s..."
                     )
                     await asyncio.sleep(retry_delay)
@@ -302,13 +309,13 @@ class StartupValidator:
                 else:
                     return {
                         "passed": False,
-                        "error": f"Firestore connection failed: {error_msg}"
+                        "error": f"Database connection failed: {error_msg}"
                     }
-        
+
         # Should never reach here, but just in case
         return {
             "passed": False,
-            "error": "Firestore connectivity check failed after all retries"
+            "error": "Database connectivity check failed after all retries"
         }
     
     async def _check_workspace_pool(self) -> Dict[str, Any]:

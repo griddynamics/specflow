@@ -1,5 +1,5 @@
 """
-Tests for backend/scripts/init_firestore.py — Phase 5 (Config-driven Firestore seeding).
+Tests for backend/scripts/init_db.py — Phase 5 (Config-driven database seeding).
 
 Coverage:
   (a) --workspace-config load replaces the hardcoded WORKSPACE_CONFIGS list.
@@ -26,7 +26,7 @@ from app.database.memory import InMemoryDatabase
 # get_database() returns the InMemoryDatabase.  We patch in our own db
 # instance rather than calling get_database() at all.
 # ---------------------------------------------------------------------------
-import scripts.init_firestore as init_script
+import scripts.init_db as init_script
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +146,7 @@ class TestWorkspaceConfigLoad:
 class TestWorkspaceConfigRequired:
     def test_main_without_workspace_config_exits(self, capsys):
         """main() refuses to run (exit 1) when --workspace-config is absent."""
-        with patch("sys.argv", ["init_firestore.py", "--yes"]):
+        with patch("sys.argv", ["init_db.py", "--yes"]):
             with pytest.raises(SystemExit) as exc:
                 init_script.main()
         assert exc.value.code == 1
@@ -156,11 +156,47 @@ class TestWorkspaceConfigRequired:
 
     def test_main_without_workspace_config_does_not_touch_db(self):
         """The gate fires before any database access."""
-        with patch("sys.argv", ["init_firestore.py"]):
+        with patch("sys.argv", ["init_db.py"]):
             with patch.object(init_script, "get_database") as mock_get_db:
                 with pytest.raises(SystemExit):
                     init_script.main()
         mock_get_db.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# (g) sqlite mode does not require FIRESTORE_EMULATOR_HOST (regression: the
+#     emulator-host gate must be conditional on DATABASE_TYPE, not unconditional).
+# ---------------------------------------------------------------------------
+
+class TestSqliteModeNoEmulatorRequired:
+    def test_sqlite_mode_does_not_require_emulator_host(self, tmp_path, monkeypatch):
+        """main() must not exit for a missing FIRESTORE_EMULATOR_HOST under sqlite mode."""
+        monkeypatch.delenv("FIRESTORE_EMULATOR_HOST", raising=False)
+        monkeypatch.setenv("DATABASE_TYPE", "sqlite")
+
+        path = _workspace_config_file(tmp_path, SAMPLE_WORKSPACE_ENTRIES)
+        db = _make_db()
+
+        with patch("sys.argv", ["init_db.py", "--yes", "--workspace-config", path]):
+            with patch.object(init_script, "get_database", return_value=db):
+                with patch.object(init_script, "attach_github_tokens"):
+                    # Should complete without SystemExit due to a missing emulator host.
+                    init_script.main()
+
+        assert db.get("workspaces", "ws-test-1") is not None
+
+    def test_emulator_mode_still_requires_emulator_host(self, tmp_path, monkeypatch, capsys):
+        """Regression guard: emulator mode keeps requiring FIRESTORE_EMULATOR_HOST."""
+        monkeypatch.delenv("FIRESTORE_EMULATOR_HOST", raising=False)
+        monkeypatch.setenv("DATABASE_TYPE", "emulator")
+
+        path = _workspace_config_file(tmp_path, SAMPLE_WORKSPACE_ENTRIES)
+
+        with patch("sys.argv", ["init_db.py", "--yes", "--workspace-config", path]):
+            with pytest.raises(SystemExit) as exc:
+                init_script.main()
+        assert exc.value.code == 1
+        assert "FIRESTORE_EMULATOR_HOST not set" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------

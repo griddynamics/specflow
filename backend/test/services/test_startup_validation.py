@@ -131,23 +131,23 @@ class TestEnvironmentValidation:
         assert "TOKEN_ENCRYPTION_KEY" in result["error"]
 
 
-class TestFirestoreConnectivity:
-    """Test Firestore connectivity check."""
-    
+class TestDatabaseConnectivity:
+    """Test database connectivity check."""
+
     @pytest.mark.asyncio
-    async def test_firestore_check_passes(self, validator):
-        """Firestore check passes with working connection."""
-        result = await validator._check_firestore_connectivity()
-        
+    async def test_database_check_passes(self, validator):
+        """Database check passes with working connection."""
+        result = await validator._check_database_connectivity()
+
         assert result["passed"] is True
         assert result["error"] is None
-    
+
     @pytest.mark.asyncio
-    async def test_firestore_check_fails(self, validator):
-        """Firestore check fails with connection error."""
+    async def test_database_check_fails(self, validator):
+        """Database check fails with connection error."""
         with patch.object(validator._db, "query", side_effect=Exception("Connection failed")):
-            result = await validator._check_firestore_connectivity()
-        
+            result = await validator._check_database_connectivity()
+
         assert result["passed"] is False
         assert "Connection failed" in result["error"]
 
@@ -241,10 +241,29 @@ class TestFullStartupValidation:
             results = await validator.run_all_checks()
 
         assert results["environment"]["passed"] is True
-        assert results["firestore"]["passed"] is True
+        assert results["database"]["passed"] is True
         assert results["workspace_pool"]["passed"] is True
         assert results["filestore"]["passed"] is True
-    
+
+    @pytest.mark.asyncio
+    async def test_sqlite_empty_pool_is_non_critical(self, validator, tmp_path):
+        """Regression: sqlite seeds AFTER the backend boots (start -> health-gate -> seed),
+        so an empty workspace pool at startup must be a warning, not a fatal
+        StartupValidationError — sqlite must be treated like memory/emulator here."""
+        with patch.dict(os.environ, {
+            "OPENROUTER_API_KEY": "test-key",
+            "DATABASE_TYPE": "sqlite",
+            "WORKSPACE_BASE_PATH": str(tmp_path),
+            "TOKEN_ENCRYPTION_KEY": "test-fernet",
+            "GITHUB_TOKEN_DEFAULT": "ghp-test",
+            "GIT_USER_NAME_DEFAULT": "tester",
+        }):
+            # Must not raise even though the pool is empty.
+            results = await validator.run_all_checks()
+
+        assert results["environment"]["passed"] is True
+        assert results["workspace_pool"]["passed"] is False
+
     @pytest.mark.asyncio
     async def test_startup_validation_fails_on_critical(self, validator, sample_workspaces):
         """Startup validation fails on critical check failure."""
@@ -345,6 +364,19 @@ class TestProviderKeyValidation:
         assert result["passed"] is True
         # Confirm no git-secret keys were required
         assert result["error"] is None
+
+    @pytest.mark.asyncio
+    async def test_sqlite_requires_token_encryption_key(self, validator):
+        """sqlite mode requires TOKEN_ENCRYPTION_KEY, same as firestore/emulator — sqlite
+        persists across restarts (unlike memory), so an ephemeral per-boot key would make
+        previously-encrypted GitHub tokens undecryptable after a restart."""
+        with patch.dict(os.environ, {
+            "OPENROUTER_API_KEY": "or-key",
+            "DATABASE_TYPE": "sqlite",
+        }, clear=True):
+            result = await validator._check_environment()
+        assert result["passed"] is False
+        assert "TOKEN_ENCRYPTION_KEY" in result["error"]
 
     @pytest.mark.asyncio
     async def test_emulator_requires_token_encryption_key(self, validator):

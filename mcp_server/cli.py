@@ -530,7 +530,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--reset-local-db",
         action="store_true",
         dest="reset_local_db",
-        help="Reset the local Firestore emulator data before seeding",
+        help="Reset the local SQLite database before seeding",
     )
     p_init.add_argument(
         "--provide-own-repos",

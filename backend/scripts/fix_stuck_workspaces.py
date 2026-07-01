@@ -51,9 +51,13 @@ dotenv_path = PROJECT_ROOT / ".env"
 if dotenv_path.exists():
     load_dotenv(dotenv_path)
 
-# Set DATABASE_TYPE early if FIRESTORE_EMULATOR_HOST is set
+# Set DATABASE_TYPE early: emulator auto-detect takes priority (manually-run emulator),
+# otherwise default to sqlite (the local/Docker-dev default) rather than the ephemeral
+# in-memory fallback, which would make this script find an always-empty pool.
 if os.getenv("FIRESTORE_EMULATOR_HOST") and not os.getenv("DATABASE_TYPE"):
     os.environ["DATABASE_TYPE"] = "emulator"
+elif not os.getenv("DATABASE_TYPE"):
+    os.environ["DATABASE_TYPE"] = "sqlite"
 
 from app.database.factory import get_database  # noqa: E402
 from app.services.workspace_pool import WorkspacePoolService  # noqa: E402

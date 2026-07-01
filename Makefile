@@ -3,7 +3,7 @@
 # Default target
 .DEFAULT_GOAL := build
 
-# One-command local quickstart: bootstrap emulator + backend, seed Firestore, emit MCP config
+# One-command local quickstart: bootstrap backend, seed the database, emit MCP config
 quickstart:
 	@./specflow-init.sh $(ARGS)
 
@@ -11,6 +11,16 @@ quickstart:
 WORKSPACE_MOUNT_PATH ?= ./workspaces
 
 BACKEND_URL ?= http://localhost:8000
+# Local/Docker default. Override to "firestore" to connect to an already-hosted, GCP-managed
+# Firestore instance, or "emulator" to connect to a manually-run Firestore emulator process —
+# SpecFlow itself never deploys/manages either locally.
+DATABASE_TYPE ?= sqlite
+# Central SQLite file, bind-mounted into the backend container at the same path (see
+# docker-compose.yml) — one database shared across every local project/MCP session, matching
+# the old shared Firestore-emulator model. Host-side scripts (init_db.py, tests) read/write
+# the exact same file directly; no docker exec needed.
+SPECFLOW_HOME_PATH ?= $(HOME)/.specflow
+SQLITE_DB_PATH ?= $(SPECFLOW_HOME_PATH)/specflow.db
 FIRESTORE_EMULATOR_HOST ?= localhost:8080
 # Must match docker-compose.yml defaults so host-side seeding/tests see the same
 # named Firestore database as the backend container (quickstart sets these via specflow-init.sh).
@@ -18,7 +28,7 @@ GCP_PROJECT_ID ?= local-dev
 FIRESTORE_DATABASE_NAME ?= specflow
 E2E_WORKSPACE_COUNT ?= 3
 
-# Workspace-pool repos used to prefill the test Firestore (init_firestore.py). REQUIRED: there are
+# Workspace-pool repos used to prefill the test database (init_db.py). REQUIRED: there are
 # no default repos, and SKIP_MODE still clones each repo during allocation — so point this at a JSON
 # list of YOUR test repos. The e2e targets refuse to run without it.
 # Schema: [{"workspace_id": "ws-01-1", "repo_url": "https://github.com/org/repo",
@@ -30,33 +40,33 @@ E2E_WORKSPACE_COUNT ?= 3
 # Or point at any path explicitly:  make skip-mode-e2e-tests E2E_WORKSPACE_CONFIG=my-test-repos.json
 E2E_WORKSPACE_CONFIG ?= $(wildcard e2e-workspace-config.json)
 # --yes keeps re-runs non-interactive; --workspace-config supplies the (required) workspace pool.
-INIT_FIRESTORE_ARGS := --yes
+INIT_DB_ARGS := --yes
 ifneq ($(strip $(E2E_WORKSPACE_CONFIG)),)
-INIT_FIRESTORE_ARGS += --workspace-config $(abspath $(E2E_WORKSPACE_CONFIG))
+INIT_DB_ARGS += --workspace-config $(abspath $(E2E_WORKSPACE_CONFIG))
 endif
 
 # ── Isolated local-testing stack ───────────────────────────────────────────────────────────
 # Contributor test runs (e2e + integration) use a SEPARATE docker-compose project, container
-# names, host ports, and workspace/Firestore volume from a self-hosted quickstart deployment
-# (quickstart uses the default project + ./workspaces). So a test run never clobbers a running
-# quickstart: `make stop` only tears down the test stack and removes its ephemeral ./.specflow-test
-# state.
+# names, host ports, and workspace/database paths from a self-hosted quickstart deployment
+# (quickstart uses the default project + ./workspaces + ~/.specflow). So a test run never
+# clobbers a running quickstart OR the real central SQLite database: `make stop` tears down
+# the test stack and removes its ephemeral ./.specflow-test state (which nests its own
+# isolated specflow-home/specflow.db, cleaned up the same way).
 #
 # Applied as target-specific *exported* vars so they also reach prerequisite targets
 # (run-detached / run-detached-skip) and sub-makes (`$(MAKE) stop`, `$(MAKE) e2e-setup`).
 SPECFLOW_BACKEND_CONTAINER ?= specflow-backend
 TEST_WORKSPACE_MOUNT_PATH := ./.specflow-test
+TEST_SPECFLOW_HOME_PATH := $(TEST_WORKSPACE_MOUNT_PATH)/specflow-home
 TEST_STACK_TARGETS := e2e-setup skip-mode-e2e-tests contract-validation-e2e-tests shutdown-recovery-e2e-tests real-e2e-tests integration-tests stop stop-test
 $(TEST_STACK_TARGETS): export COMPOSE_PROJECT_NAME := specflow-test
 $(TEST_STACK_TARGETS): export WORKSPACE_MOUNT_PATH := $(TEST_WORKSPACE_MOUNT_PATH)
 $(TEST_STACK_TARGETS): export SPECFLOW_BACKEND_CONTAINER := specflow-test-backend
-$(TEST_STACK_TARGETS): export SPECFLOW_FIRESTORE_CONTAINER := specflow-test-firestore-emulator
-$(TEST_STACK_TARGETS): export SPECFLOW_FIRESTORE_EXPORTER_CONTAINER := specflow-test-firestore-exporter
 $(TEST_STACK_TARGETS): export SPECFLOW_MCP_CONTAINER := specflow-test-mcp-server
 $(TEST_STACK_TARGETS): export SPECFLOW_BACKEND_PORT := 18000
-$(TEST_STACK_TARGETS): export SPECFLOW_FIRESTORE_PORT := 18080
 $(TEST_STACK_TARGETS): export BACKEND_URL := http://localhost:18000
-$(TEST_STACK_TARGETS): export FIRESTORE_EMULATOR_HOST := localhost:18080
+$(TEST_STACK_TARGETS): export SPECFLOW_HOME_MOUNT_PATH := $(TEST_SPECFLOW_HOME_PATH)
+$(TEST_STACK_TARGETS): export SQLITE_DB_PATH := $(TEST_SPECFLOW_HOME_PATH)/specflow.db
 $(TEST_STACK_TARGETS): export GCP_PROJECT_ID := $(GCP_PROJECT_ID)
 $(TEST_STACK_TARGETS): export FIRESTORE_DATABASE_NAME := $(FIRESTORE_DATABASE_NAME)
 
@@ -87,16 +97,16 @@ build:
 	docker-compose build
 
 run:
-	@echo "🚀 Starting services in DEV mode (with Firestore Emulator)..."
+	@echo "🚀 Starting services in DEV mode (DATABASE_TYPE=$(DATABASE_TYPE))..."
 	@echo "📁 Using WORKSPACE_MOUNT_PATH: $(WORKSPACE_MOUNT_PATH)"
-	@echo "💾 Database: Firestore Emulator (no GCP credentials needed)"
+	@echo "💾 Database: SQLite at $(SQLITE_DB_PATH) (no GCP credentials needed)"
 	WORKSPACE_MOUNT_PATH=$(WORKSPACE_MOUNT_PATH) docker-compose up --no-build
 
 # Run with SKIP_MODE enabled (agents return immediately without execution)
 run-skip:
 	@echo "🚀 Starting services in DEV mode with SKIP_MODE enabled..."
 	@echo "📁 Using WORKSPACE_MOUNT_PATH: $(WORKSPACE_MOUNT_PATH)"
-	@echo "💾 Database: Firestore Emulator (no GCP credentials needed)"
+	@echo "💾 Database: SQLite at $(SQLITE_DB_PATH) (no GCP credentials needed)"
 	@echo "⏭️  Agent execution: SKIPPED (testing mode)"
 	WORKSPACE_MOUNT_PATH=$(WORKSPACE_MOUNT_PATH) SKIP_AGENT_EXECUTION=true docker-compose up --no-build
 
@@ -104,19 +114,19 @@ run-skip:
 run-detached: build
 	@echo "🚀 Starting services in background (DEV mode)..."
 	@echo "📁 Using WORKSPACE_MOUNT_PATH: $(WORKSPACE_MOUNT_PATH)"
-	@echo "💾 Database: Firestore Emulator"
+	@echo "💾 Database: SQLite at $(SQLITE_DB_PATH)"
 	WORKSPACE_MOUNT_PATH=$(WORKSPACE_MOUNT_PATH) docker-compose up -d --no-build
 
 # Run in detached mode with SKIP_MODE (same as run-detached: build then up — cache-friendly)
 run-detached-skip: build
 	@echo "🚀 Starting services in background (DEV mode) with SKIP_MODE..."
 	@echo "📁 Using WORKSPACE_MOUNT_PATH: $(WORKSPACE_MOUNT_PATH)"
-	@echo "💾 Database: Firestore Emulator"
+	@echo "💾 Database: SQLite at $(SQLITE_DB_PATH)"
 	@echo "⏭️  Agent execution: SKIPPED (testing mode)"
 	WORKSPACE_MOUNT_PATH=$(WORKSPACE_MOUNT_PATH) SKIP_AGENT_EXECUTION=true docker-compose up -d --no-build
 
 # Stop ONLY the isolated local-testing stack (project: specflow-test) and wipe its ephemeral
-# workspace/Firestore state. Quickstart is stopped outside this Make target.
+# workspace/database state. Quickstart is stopped outside this Make target.
 stop:
 	@echo "🛑 Stopping the isolated local-testing stack (project: specflow-test)..."
 	docker-compose down --timeout 90
@@ -221,19 +231,35 @@ format:
 	@cd backend && uv run ruff check . --fix
 	@echo "✅ Code formatted"
 
-# Initialize Firestore (with emulator)
-init-firestore:
+# Initialize the active database backend (sqlite by default; override DATABASE_TYPE for
+# firestore/emulator). Runs host-side against the same file the backend container has
+# bind-mounted (sqlite) or the same emulator host:port (emulator) — no docker exec needed.
+init-db:
 	$(require-e2e-workspace-config)
-	@echo "🔧 Initializing Firestore database..."
-	@echo "⚠️  Using FIRESTORE_EMULATOR_HOST=$(FIRESTORE_EMULATOR_HOST)"
-	@cd backend && FIRESTORE_EMULATOR_HOST=$(FIRESTORE_EMULATOR_HOST) uv run scripts/init_firestore.py $(INIT_FIRESTORE_ARGS)
+	@echo "🔧 Initializing database (DATABASE_TYPE=$(DATABASE_TYPE))..."
+	@cd backend && \
+		DATABASE_TYPE=$(DATABASE_TYPE) \
+		SQLITE_DB_PATH=$(SQLITE_DB_PATH) \
+		FIRESTORE_EMULATOR_HOST=$(FIRESTORE_EMULATOR_HOST) \
+		uv run scripts/init_db.py $(INIT_DB_ARGS)
 
-# Initialize Firestore (dry run)
-init-firestore-dry:
+# Backward-compatible alias.
+init-firestore:
+	@$(MAKE) init-db
+
+# Initialize the active database backend (dry run)
+init-db-dry:
 	$(require-e2e-workspace-config)
-	@echo "🔧 Dry run: Initializing Firestore database..."
-	@echo "⚠️  Using FIRESTORE_EMULATOR_HOST=$(FIRESTORE_EMULATOR_HOST)"
-	@cd backend && FIRESTORE_EMULATOR_HOST=$(FIRESTORE_EMULATOR_HOST) uv run scripts/init_firestore.py --dry-run $(INIT_FIRESTORE_ARGS)
+	@echo "🔧 Dry run: Initializing database (DATABASE_TYPE=$(DATABASE_TYPE))..."
+	@cd backend && \
+		DATABASE_TYPE=$(DATABASE_TYPE) \
+		SQLITE_DB_PATH=$(SQLITE_DB_PATH) \
+		FIRESTORE_EMULATOR_HOST=$(FIRESTORE_EMULATOR_HOST) \
+		uv run scripts/init_db.py --dry-run $(INIT_DB_ARGS)
+
+# Backward-compatible alias.
+init-firestore-dry:
+	@$(MAKE) init-db-dry
 
 # Create estimation repositories
 # Usage: make create-repos START=7 END=9
@@ -268,15 +294,17 @@ unit-tests:
 	@cd mcp_server && uv run pytest tests/ -v
 	@echo "✅ Unit tests passed"
 
-# Run integration tests (with Firestore Emulator)
+# Run integration tests (sqlite by default; override DATABASE_TYPE=emulator/firestore)
 integration-tests:
 	@$(MAKE) stop
 	@$(MAKE) run-detached
 	@echo "⏳ Waiting for services to be ready..."
 	@sleep 5
-	@echo "🧪 Running integration tests (Firestore Emulator, database=$(FIRESTORE_DATABASE_NAME))..."
+	@echo "🧪 Running integration tests (DATABASE_TYPE=$(DATABASE_TYPE))..."
 	@cd backend && \
-		DATABASE_TYPE=emulator \
+		DATABASE_TYPE=$(DATABASE_TYPE) \
+		SQLITE_DB_PATH=$(SQLITE_DB_PATH) \
+		FIRESTORE_EMULATOR_HOST=$(FIRESTORE_EMULATOR_HOST) \
 		AUTH_MODE=api_key \
 		RUN_GIT_INTEGRATION_TESTS=1 \
 		uv run pytest test/ -v --cov=app
@@ -302,10 +330,13 @@ e2e-setup:
 		echo "   Attempt $$i/10..."; \
 		sleep 2; \
 	done
-	@echo "🔧 Initializing Firestore database (database=$(FIRESTORE_DATABASE_NAME))..."
+	@echo "🔧 Initializing database (DATABASE_TYPE=$(DATABASE_TYPE))..."
 	@cd backend && \
 		GITHUB_TOKEN=$${GITHUB_TOKEN:-} \
-		uv run scripts/init_firestore.py $(INIT_FIRESTORE_ARGS) || (echo "⚠️  Firestore initialization failed. Services may still be starting. Retry with: make init-firestore" && exit 1)
+		DATABASE_TYPE=$(DATABASE_TYPE) \
+		SQLITE_DB_PATH=$(SQLITE_DB_PATH) \
+		FIRESTORE_EMULATOR_HOST=$(FIRESTORE_EMULATOR_HOST) \
+		uv run scripts/init_db.py $(INIT_DB_ARGS) || (echo "⚠️  Database initialization failed. Services may still be starting. Retry with: make init-db" && exit 1)
 	@echo "🔑 Fetching API key..."
 	@cd backend && \
 		uv run python ../scripts/get-api-key.py || (echo "⚠️  Could not fetch API key" && exit 1)
@@ -317,8 +348,8 @@ e2e-setup:
 	@echo "=========================================="
 	@echo ""
 	@echo "📋 Services running:"
-	@echo "  - Backend API:     $(BACKEND_URL)"
-	@echo "  - Firestore Emulator: $(FIRESTORE_EMULATOR_HOST)"
+	@echo "  - Backend API: $(BACKEND_URL)"
+	@echo "  - Database:    $(DATABASE_TYPE) ($(SQLITE_DB_PATH))"
 	@echo ""
 	@echo "📁 Example specifications created at:"
 	@echo "  /tmp/specflow-e2e-specs"
@@ -410,7 +441,7 @@ help:
 	@echo "  make quickstart ARGS='--skip-repos'             - Skip GitHub repo creation (supply .specflow-local/workspaces.json)"
 	@echo "  make build                                      - Build base image and all services (default)"
 	@echo "  make base                                       - Build only the base image"
-	@echo "  make run                                        - Start in DEV mode (Firestore Emulator)"
+	@echo "  make run                                        - Start in DEV mode (SQLite, no GCP credentials needed)"
 	@echo "  make run-skip                                   - Start in DEV mode with SKIP_MODE (agents return immediately)"
 	@echo "  make run WORKSPACE_MOUNT_PATH=/path             - Start with custom workspace mount"
 	@echo "  make run-detached                               - Start in background (DEV mode)"
@@ -432,16 +463,16 @@ help:
 	@echo "  make secret-scan-history                        - Run secret scans including full local git history"
 	@echo "  make format                                     - Format code with ruff"
 	@echo "  make unit-tests                                 - Run unit tests (in-memory database, fast)"
-	@echo "  make integration-tests                          - Run integration tests (Firestore Emulator)"
+	@echo "  make integration-tests                          - Run integration tests (SQLite by default; DATABASE_TYPE=emulator|firestore to override)"
 	@echo "  (e2e + integration tests run in an isolated ephemeral stack: project specflow-test, mount ./.specflow-test)"
-	@echo "  make e2e-setup                                  - Setup E2E environment (starts services, initializes Firestore, creates example specs)"
+	@echo "  make e2e-setup                                  - Setup E2E environment (starts services, initializes the database, creates example specs)"
 	@echo "  make skip-mode-e2e-tests                        - Fast E2E of the MCP tool sequence + contract gate (SKIP mode)"
 	@echo "      E2E_WORKSPACE_CONFIG=path.json              - REQUIRED: prefill the test pool with your own repos (no defaults)"
 	@echo "  make contract-validation-e2e-tests              - E2E: contract rejections reject before allocating (no orphan workspaces)"
 	@echo "  make shutdown-recovery-e2e-tests                - E2E: restart backend mid-run, verify graceful shutdown + boot recovery"
 	@echo "  make real-e2e-tests                             - Full real-agent E2E (slow, 30-90 min)"
-	@echo "  make init-firestore-dry                         - Initialize Firestore (dry run, shows what would be done)"
-	@echo "  make init-firestore                             - Initialize Firestore database (requires FIRESTORE_EMULATOR_HOST)"
+	@echo "  make init-db-dry                                - Initialize the active database (dry run, shows what would be done)"
+	@echo "  make init-db                                    - Initialize the active database (SQLite by default; DATABASE_TYPE to override)"
 	@echo "  make create-repos START=7 END=9                 - Create generation workspace repositories"
 	@echo "  make create-repos START=1 END=3 PREFIX=test     - Create repos with custom prefix"
 	@echo ""
@@ -456,7 +487,9 @@ help:
 	@echo "  make ops-retry-run generation_id=X BACKEND_URL=http://host:8000  - Override backend URL"
 	@echo ""
 	@echo "Database Modes:"
-	@echo "  DEV mode:    Uses Firestore Emulator (no GCP credentials needed)"
+	@echo "  DEV mode:    Uses SQLite (no GCP credentials needed, single central db at ~/.specflow/specflow.db)"
+	@echo "  Override:    DATABASE_TYPE=firestore to connect to an already-hosted GCP Firestore instance"
+	@echo "               DATABASE_TYPE=emulator to connect to a manually-run Firestore emulator process"
 	@echo ""
 	@echo "SKIP_MODE:"
 	@echo "  When enabled, agent_query returns immediately with 'SKIP_MODE' response"
