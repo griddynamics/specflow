@@ -785,7 +785,7 @@ class ClientSetupScreen(_SpecFlowScreen):
 
     BINDINGS = [
         Binding("d", "show_config", "raw config"),
-        Binding("v", "recheck", "re-check", show=False),
+        Binding("v", "recheck", "re-scan", show=True),
         Binding("s", "skip", "skip"),
         Binding("escape", "skip", "return", show=True),
     ]
@@ -797,9 +797,10 @@ class ClientSetupScreen(_SpecFlowScreen):
 
     def compose(self) -> ComposeResult:
         yield Header()
+        # Key hints live in the Footer (from BINDINGS) — not duplicated here.
         yield Static(
             "[b]Connect SpecFlow to your AI tool[/b]   "
-            "[dim](↑/↓ select · ↵ connect · d raw config · v re-scan · esc return)[/dim]",
+            "[dim]↑/↓ select · ↵ connect[/dim]",
             id="client-setup-title",
         )
         yield ListView(id="client-list")
