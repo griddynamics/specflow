@@ -12,7 +12,7 @@ import asyncio
 import logging
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 from app.core.config import settings
@@ -83,11 +83,12 @@ from app.schemas.workflow_usage_metrics import (
 from app.utils.formatting import format_token_count
 from app.state.api_key_session_concurrency import (
     ApiKeyDocMissingError,
+    ApiKeySessionConcurrency,
     OperationKind,
     SessionAtCapacityError,
     SessionBeginOutcome,
 )
-from app.state.db_adapter import StateMachineDBAdapter
+from app.state.db_adapter import COL_GENERATION_SESSIONS, StateMachineDBAdapter
 from app.state.workspace_models import resolve_workspace_model
 from app.state.transitions import TriggeredBy
 from app.utils.file_utils import normalize_path_parameter
@@ -135,6 +136,59 @@ class GenerationStatusResponse(BaseModel):
     result: Optional[Dict[str, Any]]
     error: Optional[str]
 
+
+class WorkspacePhaseSummary(BaseModel):
+    """Per-workspace phase progress, slimmed for the sessions list (no planning_data)."""
+    last_completed_phase: int = 0
+    phase_name: str = ""
+
+
+class GenerationSessionListItem(BaseModel):
+    """One row of the sessions list — active or completed."""
+    generation_id: str
+    status: str = "unknown"
+    checkpoint: str = ""
+    created_at: str = ""
+    current_phase: str = ""
+    workspace_phases: Dict[str, WorkspacePhaseSummary] = Field(default_factory=dict)
+
+
+def _format_timestamp(val: Any) -> str:
+    """ISO-format a Firestore timestamp/datetime; '' when absent."""
+    if val is None:
+        return ""
+    if hasattr(val, "isoformat"):
+        return val.isoformat()
+    return str(val)
+
+
+def _slim_workspace_phases(raw: Any) -> Dict[str, WorkspacePhaseSummary]:
+    """Project per-workspace phase progress down to the fields the list needs."""
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        ws_id: WorkspacePhaseSummary(
+            last_completed_phase=(data or {}).get("last_completed_phase", 0),
+            phase_name=(data or {}).get("phase_name", ""),
+        )
+        for ws_id, data in raw.items()
+    }
+
+
+def _session_list_item(session: Dict[str, Any]) -> GenerationSessionListItem:
+    """Build a list item from a raw ``generation_sessions`` document.
+
+    Single source of truth for both the ``key_uid`` query path and the
+    no-``key_uid`` fallback, so the two paths cannot drift in shape.
+    """
+    return GenerationSessionListItem(
+        generation_id=session.get("generation_id") or session.get("_id", ""),
+        status=session.get("status", "unknown"),
+        checkpoint=session.get("checkpoint", ""),
+        created_at=_format_timestamp(session.get("created_at")),
+        current_phase=session.get("current_phase", ""),
+        workspace_phases=_slim_workspace_phases(session.get("workspace_phases")),
+    )
 
 
 class RetryGenerationSessionResponse(BaseModel):
@@ -196,6 +250,64 @@ def get_generation_session_retry_service(
 # ============================================================
 # Endpoints
 # ============================================================
+
+
+@router.get(
+    "/",
+    response_model=list[GenerationSessionListItem],
+    summary="List recent generation sessions for the authenticated API key",
+)
+async def list_generation_sessions(
+    request: Request,
+    db: IDatabase = Depends(get_db),
+    limit: int = Query(50, ge=1, le=200),
+) -> list[GenerationSessionListItem]:
+    """Return up to ``limit`` recent sessions for the caller's API key, newest first.
+
+    Queries the ``generation_sessions`` collection by ``key_uid`` so completed and
+    failed sessions are included (the ``active_generation_sessions`` list on the API
+    key document only tracks in-flight leases and is cleared on completion).
+
+    Falls back to the active-sessions snapshot when the key has no ``key_uid``
+    (older keys created before that field was added). The fallback resolves each
+    active id's real status from its session document — never a flat "unknown".
+    """
+    api_key = getattr(request.state, "api_key", None)
+    if not api_key:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+    doc = db.get("api_keys", api_key)
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
+
+    key_uid = doc.get("key_uid")
+    if key_uid:
+        sessions = db.query(
+            COL_GENERATION_SESSIONS,
+            filters=[("key_uid", "==", key_uid)],
+            order_by="-created_at",
+            limit=limit,
+        )
+        return [_session_list_item(s) for s in sessions]
+
+    # Fallback: key has no key_uid (created before that field existed). The lease
+    # snapshot only knows active generation ids, so resolve each one's real status
+    # from its session document and reuse the same builder as the primary path.
+    adapter = StateMachineDBAdapter(db)
+    session_concurrency = ApiKeySessionConcurrency(adapter)
+    try:
+        snap = await session_concurrency.snapshot(api_key_doc_id=api_key)
+    except ApiKeyDocMissingError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
+
+    items = [
+        _session_list_item(session)
+        for active in snap.active
+        if (session := db.get(COL_GENERATION_SESSIONS, active.generation_id))
+    ]
+    items.sort(key=lambda it: it.created_at, reverse=True)
+    return items[:limit]
+
 
 @router.get("/{generation_id}", response_model=GenerationStatusResponse)
 @track_event(event_name="get_generation_session_triggered")

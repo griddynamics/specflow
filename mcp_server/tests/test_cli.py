@@ -415,53 +415,68 @@ class TestDownloadOutputs:
 
 class TestSessions:
     @pytest.mark.asyncio
-    async def test_composes_auth_me_and_status(self, capsys):
+    async def test_uses_list_endpoint(self, capsys):
         from services.cli_service import fetch_sessions
 
-        auth_resp = json.dumps({
-            "active_generation_sessions": [
-                {"generation_id": "gen-001"},
-                {"generation_id": "gen-002"},
-            ]
-        })
-        status_resp_1 = json.dumps({"status": "running", "checkpoint": "generation_started"})
-        status_resp_2 = json.dumps({"status": "running", "checkpoint": "kb_init_done"})
+        list_resp = json.dumps([
+            {"generation_id": "gen-001", "status": "running", "checkpoint": "generation_started", "created_at": ""},
+            {"generation_id": "gen-002", "status": "completed", "checkpoint": "estimation_done", "created_at": "2026-06-30T10:00:00+00:00"},
+        ])
 
         with patch(
             "services.cli_service.call_backend_endpoint",
             new_callable=AsyncMock,
         ) as mock_ep:
-            mock_ep.side_effect = [auth_resp, status_resp_1, status_resp_2]
+            mock_ep.return_value = list_resp
             sessions = await fetch_sessions()
 
         assert len(sessions) == 2
         assert sessions[0]["generation_id"] == "gen-001"
         assert sessions[0]["status"] == "running"
         assert sessions[1]["generation_id"] == "gen-002"
-        assert mock_ep.call_count == 3  # 1 auth/me + 2 status calls
+        assert sessions[1]["status"] == "completed"
+        assert mock_ep.call_count == 1  # single list endpoint call
 
     @pytest.mark.asyncio
-    async def test_empty_active_sessions(self):
+    async def test_exclude_filters_sessions(self):
         from services.cli_service import fetch_sessions
 
-        auth_resp = json.dumps({"active_generation_sessions": []})
+        list_resp = json.dumps([
+            {"generation_id": "gen-001", "status": "running", "checkpoint": "", "created_at": ""},
+            {"generation_id": "gen-002", "status": "running", "checkpoint": "", "created_at": ""},
+        ])
 
         with patch(
             "services.cli_service.call_backend_endpoint",
             new_callable=AsyncMock,
         ) as mock_ep:
-            mock_ep.return_value = auth_resp
+            mock_ep.return_value = list_resp
+            sessions = await fetch_sessions(exclude={"gen-001"})
+
+        assert len(sessions) == 1
+        assert sessions[0]["generation_id"] == "gen-002"
+
+    @pytest.mark.asyncio
+    async def test_empty_sessions(self):
+        from services.cli_service import fetch_sessions
+
+        with patch(
+            "services.cli_service.call_backend_endpoint",
+            new_callable=AsyncMock,
+        ) as mock_ep:
+            mock_ep.return_value = json.dumps([])
             sessions = await fetch_sessions()
 
         assert sessions == []
 
     @pytest.mark.asyncio
-    async def test_cmd_sessions_renders_table(self, capsys):
-        from cli import cmd_sessions
-        args = SimpleNamespace(command="sessions")
+    async def test_falls_back_to_auth_me_on_error(self):
+        from services.cli_service import fetch_sessions
 
         auth_resp = json.dumps({
-            "active_generation_sessions": [{"generation_id": "gen-table"}]
+            "active_generation_sessions": [
+                {"generation_id": "gen-001"},
+            ]
         })
         status_resp = json.dumps({"status": "running", "checkpoint": "generation_started"})
 
@@ -469,7 +484,28 @@ class TestSessions:
             "services.cli_service.call_backend_endpoint",
             new_callable=AsyncMock,
         ) as mock_ep:
-            mock_ep.side_effect = [auth_resp, status_resp]
+            # First call (list endpoint) raises; second (auth/me) and third (status) succeed
+            mock_ep.side_effect = [Exception("not found"), auth_resp, status_resp]
+            sessions = await fetch_sessions()
+
+        assert len(sessions) == 1
+        assert sessions[0]["generation_id"] == "gen-001"
+        assert sessions[0]["status"] == "running"
+
+    @pytest.mark.asyncio
+    async def test_cmd_sessions_renders_table(self, capsys):
+        from cli import cmd_sessions
+        args = SimpleNamespace(command="sessions")
+
+        list_resp = json.dumps([
+            {"generation_id": "gen-table", "status": "running", "checkpoint": "generation_started", "created_at": ""}
+        ])
+
+        with patch(
+            "services.cli_service.call_backend_endpoint",
+            new_callable=AsyncMock,
+        ) as mock_ep:
+            mock_ep.return_value = list_resp
             code = await cmd_sessions(args)
 
         out = capsys.readouterr().out
@@ -478,27 +514,30 @@ class TestSessions:
         assert "running" in out
 
     @pytest.mark.asyncio
-    async def test_cmd_sessions_no_active(self, capsys):
+    async def test_cmd_sessions_no_sessions(self, capsys):
         from cli import cmd_sessions
         args = SimpleNamespace(command="sessions")
-
-        auth_resp = json.dumps({"active_generation_sessions": []})
 
         with patch(
             "services.cli_service.call_backend_endpoint",
             new_callable=AsyncMock,
         ) as mock_ep:
-            mock_ep.return_value = auth_resp
+            mock_ep.return_value = json.dumps([])
             code = await cmd_sessions(args)
 
         out = capsys.readouterr().out
         assert code == 0
-        assert "no active" in out.lower()
+        assert "no generation sessions" in out.lower()
 
 
 # ---------------------------------------------------------------------------
 # sessions --watch: desktop notification on terminal state
 # ---------------------------------------------------------------------------
+
+
+def _list_resp(*sessions):
+    """Helper: JSON-encode a sessions list as returned by GET /generation-sessions/."""
+    return json.dumps(list(sessions))
 
 
 class TestSessionsWatch:
@@ -509,10 +548,8 @@ class TestSessionsWatch:
         from unittest.mock import patch, AsyncMock
         import asyncio
 
-        auth_resp = json.dumps({
-            "active_generation_sessions": [{"generation_id": "gen-watch-01"}]
-        })
-        status_resp = json.dumps({"status": "completed", "checkpoint": "outputs_archived"})
+        resp = _list_resp({"generation_id": "gen-watch-01", "status": "completed",
+                           "checkpoint": "outputs_archived", "created_at": "", "workspace_phases": {}})
 
         async def fake_sleep(_):
             raise asyncio.CancelledError
@@ -526,7 +563,7 @@ class TestSessionsWatch:
             "asyncio.sleep",
             side_effect=fake_sleep,
         ):
-            mock_ep.side_effect = [auth_resp, status_resp]
+            mock_ep.return_value = resp
             args = SimpleNamespace(command="sessions", watch=True, interval=1)
             code = await cmd_sessions(args)
 
@@ -541,10 +578,8 @@ class TestSessionsWatch:
         from cli import cmd_sessions
         import asyncio
 
-        auth_resp = json.dumps({
-            "active_generation_sessions": [{"generation_id": "gen-fail-01"}]
-        })
-        status_resp = json.dumps({"status": "failed", "checkpoint": "generation_started"})
+        resp = _list_resp({"generation_id": "gen-fail-01", "status": "failed",
+                           "checkpoint": "generation_started", "created_at": "", "workspace_phases": {}})
 
         async def fake_sleep(_):
             raise asyncio.CancelledError
@@ -558,7 +593,7 @@ class TestSessionsWatch:
             "asyncio.sleep",
             side_effect=fake_sleep,
         ):
-            mock_ep.side_effect = [auth_resp, status_resp]
+            mock_ep.return_value = resp
             args = SimpleNamespace(command="sessions", watch=True, interval=1)
             await cmd_sessions(args)
 
@@ -572,10 +607,8 @@ class TestSessionsWatch:
         from cli import cmd_sessions
         import asyncio
 
-        auth_resp = json.dumps({
-            "active_generation_sessions": [{"generation_id": "gen-running-02"}]
-        })
-        status_resp = json.dumps({"status": "pending", "checkpoint": ""})
+        resp = _list_resp({"generation_id": "gen-running-02", "status": "pending",
+                           "checkpoint": "", "created_at": "", "workspace_phases": {}})
 
         async def fake_sleep(_):
             raise asyncio.CancelledError
@@ -589,7 +622,7 @@ class TestSessionsWatch:
             "asyncio.sleep",
             side_effect=fake_sleep,
         ):
-            mock_ep.side_effect = [auth_resp, status_resp]
+            mock_ep.return_value = resp
             args = SimpleNamespace(command="sessions", watch=True, interval=1)
             await cmd_sessions(args)
 
@@ -603,10 +636,8 @@ class TestSessionsWatch:
         from cli import cmd_sessions
         import asyncio
 
-        auth_resp = json.dumps({
-            "active_generation_sessions": [{"generation_id": "gen-running-03"}]
-        })
-        status_resp = json.dumps({"status": "running", "checkpoint": "generation_started"})
+        resp = _list_resp({"generation_id": "gen-running-03", "status": "running",
+                           "checkpoint": "generation_started", "created_at": "", "workspace_phases": {}})
 
         async def fake_sleep(_):
             raise asyncio.CancelledError
@@ -620,7 +651,7 @@ class TestSessionsWatch:
             "asyncio.sleep",
             side_effect=fake_sleep,
         ):
-            mock_ep.side_effect = [auth_resp, status_resp]
+            mock_ep.return_value = resp
             args = SimpleNamespace(command="sessions", watch=True, interval=1)
             await cmd_sessions(args)
 
@@ -632,11 +663,8 @@ class TestSessionsWatch:
         from cli import cmd_sessions
         import asyncio
 
-        # Two poll cycles — same session completed in both
-        auth_resp = json.dumps({
-            "active_generation_sessions": [{"generation_id": "gen-dedup-01"}]
-        })
-        status_resp = json.dumps({"status": "completed", "checkpoint": "outputs_archived"})
+        resp = _list_resp({"generation_id": "gen-dedup-01", "status": "completed",
+                           "checkpoint": "outputs_archived", "created_at": "", "workspace_phases": {}})
 
         poll_count = 0
 
@@ -655,8 +683,8 @@ class TestSessionsWatch:
             "asyncio.sleep",
             side_effect=fake_sleep,
         ):
-            # Auth + status returned for each poll cycle
-            mock_ep.side_effect = [auth_resp, status_resp, auth_resp, status_resp]
+            # Same sessions list returned for each poll cycle
+            mock_ep.return_value = resp
             args = SimpleNamespace(command="sessions", watch=True, interval=1)
             await cmd_sessions(args)
 
@@ -668,19 +696,21 @@ class TestSessionsWatch:
         from cli import cmd_sessions
         import asyncio
 
-        auth_resp = json.dumps({
-            "active_generation_sessions": [{"generation_id": "gen-progress-01"}]
-        })
-        first_status = json.dumps({
+        first_resp = _list_resp({
+            "generation_id": "gen-progress-01",
             "status": "running",
             "checkpoint": "kb_init_done",
+            "created_at": "",
+            "current_phase": "",
             "workspace_phases": {
                 "ws-01-1": {"last_completed_phase": 1, "phase_name": "Auth"},
             },
         })
-        second_status = json.dumps({
+        second_resp = _list_resp({
+            "generation_id": "gen-progress-01",
             "status": "running",
             "checkpoint": "generation_started",
+            "created_at": "",
             "current_phase": "Generating",
             "workspace_phases": {
                 "ws-01-1": {"last_completed_phase": 2, "phase_name": "Payments"},
@@ -704,7 +734,7 @@ class TestSessionsWatch:
             "asyncio.sleep",
             side_effect=fake_sleep,
         ):
-            mock_ep.side_effect = [auth_resp, first_status, auth_resp, second_status]
+            mock_ep.side_effect = [first_resp, second_resp]
             args = SimpleNamespace(command="sessions", watch=True, interval=1)
             await cmd_sessions(args)
 
@@ -953,3 +983,60 @@ class TestRunGenerationPreRunNotice:
 
         out = capsys.readouterr().out
         assert "outputs" in out.lower() or "archived" in out.lower() or "nothing is lost" in out.lower()
+
+
+# ---------------------------------------------------------------------------
+# cmd_init — IDE-registration hint is derived from the client registry
+# ---------------------------------------------------------------------------
+
+
+class TestCmdInitHint:
+    @pytest.mark.asyncio
+    async def test_prints_registry_derived_hint_on_success(self, tmp_path, capsys):
+        from cli import cmd_init
+
+        args = SimpleNamespace(
+            root_path=str(tmp_path),
+            max_parallel_runs=None,
+            skip_build=False,
+            reset_local_db=False,
+            provide_own_repos=None,
+            dry_run=False,
+        )
+        with patch("cli.local_env.repo_root", return_value=tmp_path), patch(
+            "cli.local_env.env_exists", return_value=True
+        ), patch(
+            "cli.local_env.run_init", new_callable=AsyncMock, return_value=0
+        ), patch(
+            "cli.local_env.mcp_config_path",
+            return_value=tmp_path / ".specflow-local" / "mcp-config.json",
+        ):
+            code = await cmd_init(args)
+
+        out = capsys.readouterr().out
+        assert code == 0
+        # Lines come from mcp_clients.render_cli_hint (single source of truth).
+        assert "claude mcp add-json specflow" in out
+        assert "gemini mcp add specflow" in out
+        assert "specflow tui" in out
+
+    @pytest.mark.asyncio
+    async def test_dry_run_skips_hint(self, tmp_path, capsys):
+        from cli import cmd_init
+
+        args = SimpleNamespace(
+            root_path=str(tmp_path),
+            max_parallel_runs=None,
+            skip_build=False,
+            reset_local_db=False,
+            provide_own_repos=None,
+            dry_run=True,
+        )
+        with patch("cli.local_env.repo_root", return_value=tmp_path), patch(
+            "cli.local_env.env_exists", return_value=True
+        ), patch("cli.local_env.run_init", new_callable=AsyncMock, return_value=0):
+            code = await cmd_init(args)
+
+        out = capsys.readouterr().out
+        assert code == 0
+        assert "claude mcp add-json" not in out

@@ -293,6 +293,63 @@ async def _stream_subprocess(
     return await proc.wait()
 
 
+@dataclass(frozen=True)
+class CommandResult:
+    """Outcome of a timeout-bounded subprocess run (see ``run_command``)."""
+
+    returncode: int
+    output: str
+    timed_out: bool
+
+    @property
+    def ok(self) -> bool:
+        """True only when the command exited 0 within the timeout."""
+        return self.returncode == 0 and not self.timed_out
+
+
+async def run_command(
+    argv: list[str],
+    cwd: Path,
+    on_line: Callable[[str], None] | None = None,
+    timeout: float = 30.0,
+) -> CommandResult:
+    """Run ``argv`` with a hard ``timeout``, capturing combined stdout/stderr.
+
+    Unlike ``_stream_subprocess`` — used for self-terminating, user-watched
+    commands like ``docker compose up`` / ``specflow-init.sh`` — this is for
+    MCP-client registration probes such as ``claude mcp get`` that may block
+    indefinitely on a network socket while producing no output. On timeout the
+    child is **killed and reaped** (never left as a zombie) and ``timed_out`` is
+    set, so a stuck probe can never freeze the caller. Output lines are collected
+    into ``output`` and, when given, forwarded to ``on_line`` for live display.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        *argv,
+        cwd=str(cwd),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    assert proc.stdout is not None
+    lines: list[str] = []
+
+    async def _run() -> int:
+        assert proc.stdout is not None
+        async for raw in proc.stdout:
+            line = raw.decode(errors="replace")
+            lines.append(line)
+            if on_line is not None:
+                on_line(line)
+        return await proc.wait()
+
+    try:
+        returncode = await asyncio.wait_for(_run(), timeout=timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.wait()
+        return CommandResult(returncode=-1, output="".join(lines), timed_out=True)
+    return CommandResult(returncode=returncode, output="".join(lines), timed_out=False)
+
+
 async def start_containers(root: Path, on_line: Callable[[str], None] | None = None) -> int:
     """Start the SpecFlow stack (``docker compose up -d --no-build``), streamed.
 

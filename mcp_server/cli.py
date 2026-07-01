@@ -31,6 +31,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from services import local_env
+from tui import mcp_clients
 
 logger = logging.getLogger(__name__)
 
@@ -325,13 +326,14 @@ async def cmd_download_outputs(args: argparse.Namespace) -> int:
 def _render_sessions_table(sessions: list[dict]) -> None:
     """Print a sessions table to stdout."""
     if not sessions:
-        print("No active generation sessions.")
+        print("No generation sessions found.")
         return
-    header = f"{'GENERATION ID':<40}  {'STATUS':<16}  {'CHECKPOINT'}"
+    header = f"{'GENERATION ID':<40}  {'STATUS':<16}  {'CREATED':<20}  {'CHECKPOINT'}"
     print(header)
     print("-" * len(header))
     for s in sessions:
-        print(f"{s['generation_id']:<40}  {s['status']:<16}  {s.get('checkpoint', '')}")
+        created = s.get("created_at", "")[:16].replace("T", " ") if s.get("created_at") else ""
+        print(f"{s['generation_id']:<40}  {s['status']:<16}  {created:<20}  {s.get('checkpoint', '')}")
 
 
 async def cmd_sessions(args: argparse.Namespace) -> int:
@@ -430,17 +432,6 @@ async def cmd_tui(args: argparse.Namespace) -> int:
     return await run_tui(args)
 
 
-_IDE_REGISTRATION_HINT = (
-    "\nRegister the MCP server in your IDE (config written to "
-    "{config}):\n"
-    "  Claude Code:    claude mcp add-json specflow "
-    "\"$(cat {config} | jq '.mcpServers.specflow')\"\n"
-    "  Cursor:         Settings → MCP → paste the mcpServers.specflow block\n"
-    "  Claude Desktop: merge the mcpServers block into "
-    "~/Library/Application Support/Claude/claude_desktop_config.json\n"
-)
-
-
 async def cmd_init(args: argparse.Namespace) -> int:
     """init: one-shot local bootstrap — wraps specflow-init.sh end to end."""
     start = Path(args.root_path).expanduser().resolve() if args.root_path else None
@@ -479,7 +470,7 @@ async def cmd_init(args: argparse.Namespace) -> int:
     )
     rc = await local_env.run_init(root, flags, on_line=lambda s: print(s, end=""))
     if rc == 0 and not args.dry_run:
-        print(_IDE_REGISTRATION_HINT.format(config=local_env.mcp_config_path(root)))
+        print(mcp_clients.render_cli_hint(local_env.mcp_config_path(root)))
     return rc
 
 
