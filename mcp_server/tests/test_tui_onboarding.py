@@ -111,6 +111,31 @@ class TestValidateAll:
         assert onboarding.validate_all(self._complete(), PROVIDER_ANTHROPIC) is not None
 
 
+class TestEnvSatisfiesRequirements:
+    def test_complete_openrouter_env_passes(self):
+        assert onboarding.env_satisfies_requirements(
+            {"OPENROUTER_API_KEY": "or", "GITHUB_TOKEN": "gh", "P10Y_API_KEY": "p1"}
+        )
+
+    def test_complete_anthropic_env_passes(self):
+        assert onboarding.env_satisfies_requirements(
+            {"ANTHROPIC_API_KEY": "an", "GITHUB_TOKEN": "gh", "P10Y_API_KEY": "p1"}
+        )
+
+    def test_missing_llm_key_fails(self):
+        assert not onboarding.env_satisfies_requirements(
+            {"GITHUB_TOKEN": "gh", "P10Y_API_KEY": "p1"}
+        )
+
+    def test_missing_shared_key_fails(self):
+        assert not onboarding.env_satisfies_requirements(
+            {"OPENROUTER_API_KEY": "or", "GITHUB_TOKEN": "gh"}
+        )
+
+    def test_empty_env_fails(self):
+        assert not onboarding.env_satisfies_requirements({})
+
+
 class TestCollectedSecrets:
     def test_drops_empty_and_unchosen_provider_key(self):
         values = {

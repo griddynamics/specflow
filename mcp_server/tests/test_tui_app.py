@@ -493,6 +493,49 @@ class TestOnboarding:
                 assert screen.query_one("#onb-GITHUB_TOKEN", Input).password is True
                 assert screen.query_one("#onb-GIT_USER_NAME", Input).password is False
 
+    @pytest.mark.asyncio
+    async def test_complete_env_skips_wizard_runs_init(self, tmp_path):
+        # A pre-existing, complete .env means there is nothing to collect: the
+        # gate runs init directly (RunInitScreen) with no wizard step, so init is
+        # awaited without a single ctrl+n/ctrl+s press.
+        run_init = AsyncMock(return_value=0)
+        complete = {"OPENROUTER_API_KEY": "or", "GITHUB_TOKEN": "gh", "P10Y_API_KEY": "p1"}
+        with (
+            patch("tui.app.local_env.is_setup_complete", return_value=False),
+            patch("tui.app.local_env.repo_root", return_value=tmp_path),
+            patch("tui.app.load_env_secrets", return_value=complete),
+            patch("tui.app.local_env.run_init", new=run_init),
+            patch("tui.app.local_env.containers_running", return_value=True),
+            patch("tui.app.local_env.backend_ready", new=AsyncMock(return_value=True)),
+            patch("tui.app.mcp_clients.is_any_client_connected", return_value=True),
+            patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])),
+        ):
+            app = tui_app.SpecFlowTUI(root=tmp_path, generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.SessionsScreen)
+        run_init.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_incomplete_env_still_shows_wizard(self, tmp_path):
+        run_init = AsyncMock(return_value=0)
+        incomplete = {"GITHUB_TOKEN": "gh"}  # no LLM key, no P10Y key
+        with (
+            patch("tui.app.local_env.is_setup_complete", return_value=False),
+            patch("tui.app.local_env.repo_root", return_value=tmp_path),
+            patch("tui.app.load_env_secrets", return_value=incomplete),
+            patch("tui.app.local_env.run_init", new=run_init),
+            patch("tui.app.local_env.containers_running", return_value=True),
+            patch("tui.app.local_env.backend_ready", new=AsyncMock(return_value=True)),
+            patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])),
+        ):
+            app = tui_app.SpecFlowTUI(root=tmp_path, generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.OnboardingScreen)
+        run_init.assert_not_awaited()
+
 
 class TestQuitBinding:
     @pytest.mark.asyncio

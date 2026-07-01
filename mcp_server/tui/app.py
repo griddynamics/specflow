@@ -752,6 +752,18 @@ class SessionsScreen(_SpecFlowScreen):
             self.app.push_screen(DashboardScreen(item.generation_id))
 
 
+async def _run_init_streamed(app: "SpecFlowTUI", log: RichLog) -> int:
+    """Resolve the repo root and run ``specflow-init.sh`` streaming into ``log``.
+
+    Shared by ``OnboardingScreen`` (wizard tail) and ``RunInitScreen`` (no-wizard
+    path when ``.env`` is already complete). Returns the init exit code; each
+    caller owns its own success/failure UI.
+    """
+    log.display = True
+    repo = local_env.repo_root(app.root) or app.root
+    return await local_env.run_init(repo, local_env.InitFlags(), on_line=log.write)
+
+
 def _platform_opener() -> str | None:
     """The OS command that hands a URL/deeplink to the registered handler."""
     if sys.platform == "darwin":
@@ -1356,9 +1368,7 @@ class OnboardingScreen(_SpecFlowScreen):
 
     async def _run_init(self) -> None:
         log = self.query_one("#onboard-log", RichLog)
-        log.display = True
-        repo = local_env.repo_root(self.app.root) or self.app.root
-        rc = await local_env.run_init(repo, local_env.InitFlags(), on_line=log.write)
+        rc = await _run_init_streamed(self.app, log)
         if rc == 0:
             self.dismiss(True)
         else:
@@ -1412,6 +1422,41 @@ class StartContainersScreen(_SpecFlowScreen):
                 "Backend didn't become healthy — check `docker compose logs`.",
                 severity="error",
             )
+
+
+class RunInitScreen(_SpecFlowScreen):
+    """Runs ``specflow init`` off an already-complete ``.env`` — no wizard.
+
+    Used when a fresh checkout has a hand-created ``.env`` with all required
+    secrets but no mcp-config yet: init still must write mcp-config and provision
+    workspace repos, but the onboarding wizard has nothing left to collect. Auto-
+    runs on mount, streams init output into a log pane, then dismisses ``True`` on
+    success so the startup gate proceeds; ``False`` on failure so the gate exits.
+    """
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Static(
+            "Found an existing .env — running `specflow init`…",
+            id="runinit-prompt",
+        )
+        yield RichLog(id="runinit-log", highlight=False, markup=False, wrap=True)
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.run_worker(self._run(), exclusive=True)
+
+    async def _run(self) -> None:
+        log = self.query_one("#runinit-log", RichLog)
+        rc = await _run_init_streamed(self.app, log)
+        if rc == 0:
+            self.dismiss(True)
+        else:
+            self.notify(
+                "Setup failed — review the log, fix .env, and try again.",
+                severity="error",
+            )
+            self.dismiss(False)
 
 
 class SettingsScreen(Screen):
@@ -1482,7 +1527,7 @@ class SpecFlowTUI(App):
     CSS = """
     #dashboard-body { padding: 0 1; }
     #sessions-title, #settings-title, #onboard-title { padding: 1 2; text-style: bold; }
-    #docker-prompt { padding: 2 3; }
+    #docker-prompt, #runinit-prompt { padding: 2 3; }
     .settings-section { padding: 1 2 0 2; text-style: bold; color: $accent; }
     .settings-row { height: 3; padding: 0 2; }
     .settings-label { width: 20; content-align: left middle; }
@@ -1494,7 +1539,7 @@ class SpecFlowTUI(App):
     #onboard-back, #onboard-next, #onboard-go { margin: 0 1 0 0; }
     .onboard-why { padding: 1 2; }
     .onboard-howto { padding: 0 2 0 4; color: $text-muted; }
-    #onboard-log, #docker-log { height: 1fr; border: round $primary; margin: 1 2; }
+    #onboard-log, #docker-log, #runinit-log { height: 1fr; border: round $primary; margin: 1 2; }
     #client-setup-title { padding: 1 2; text-style: bold; }
     #client-detail { padding: 1 2; color: $text-muted; }
     #client-log { height: 1fr; border: round $primary; margin: 1 2; }
@@ -1543,7 +1588,13 @@ class SpecFlowTUI(App):
                 )
                 self.exit()
                 return
-            if not await self.push_screen_wait(OnboardingScreen()):
+            # An already-complete .env means there's nothing to collect — run init
+            # directly (it still writes mcp-config + provisions) without the wizard.
+            if onboarding.env_satisfies_requirements(load_env_secrets(self.root)):
+                gate_screen: _SpecFlowScreen = RunInitScreen()
+            else:
+                gate_screen = OnboardingScreen()
+            if not await self.push_screen_wait(gate_screen):
                 self.exit()
                 return
 
