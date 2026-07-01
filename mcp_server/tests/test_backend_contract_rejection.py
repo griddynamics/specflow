@@ -31,6 +31,12 @@ class _FakeClient:
     async def post(self, *args, **kwargs):
         return self._resp
 
+    async def get(self, *args, **kwargs):
+        return self._resp
+
+    async def delete(self, *args, **kwargs):
+        return self._resp
+
 
 def _patch_client(resp):
     @asynccontextmanager
@@ -106,3 +112,59 @@ class TestUploadFileRejectionPassthrough:
                 form_data={},
             )
         assert "est-1" in text
+
+
+class TestCallBackendErrorHandling:
+    """call_backend() must raise on HTTP errors, not return a non-JSON string.
+
+    Regression coverage for the bug where a 4xx/5xx response was swallowed into
+    a plain "Error calling backend: ..." string; callers that json.loads() the
+    return value then failed with a misleading "Expecting value: line 1 column 1
+    (char 0)" instead of ever seeing the actual backend error.
+    """
+
+    @pytest.mark.asyncio
+    async def test_success_returns_body_text(self):
+        resp = _response(200, {"status": "running"})
+        with _patch_client(resp):
+            svc = SpecFlowBackendService()
+            text = await svc.call_backend(endpoint="/api/v1/generation-sessions/est-1/status", method="GET")
+        assert "running" in text
+
+    @pytest.mark.asyncio
+    async def test_plain_error_detail_surfaces_in_exception_message(self):
+        resp = _response(
+            500,
+            {"detail": "Cannot retry generation est-1: retry_count (3) has reached max_retries (3)."},
+        )
+        with _patch_client(resp):
+            svc = SpecFlowBackendService()
+            with pytest.raises(Exception) as exc_info:
+                await svc.call_backend(endpoint="/api/v1/generation-sessions/est-1/retry", method="POST")
+        assert not isinstance(exc_info.value, BackendContractRejection)
+        assert "max_retries" in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    async def test_structured_400_raises_typed_rejection(self):
+        resp = _response(400, {"detail": {"code": "PLAN_NO_PHASES", "error": "no phases"}})
+        with _patch_client(resp):
+            svc = SpecFlowBackendService()
+            with pytest.raises(BackendContractRejection) as exc_info:
+                await svc.call_backend(endpoint="/api/v1/generation-sessions/sync", method="POST")
+        assert exc_info.value.detail["code"] == "PLAN_NO_PHASES"
+
+    @pytest.mark.asyncio
+    async def test_connection_error_raises_not_returns_string(self):
+        @asynccontextmanager
+        async def _cm(*args, **kwargs):
+            class _RaisingClient:
+                async def get(self, *a, **k):
+                    raise httpx.ConnectError("connection refused")
+
+            yield _RaisingClient()
+
+        with patch.object(SpecFlowBackendService, "_client", lambda self, *a, **k: _cm()):
+            svc = SpecFlowBackendService()
+            with pytest.raises(Exception) as exc_info:
+                await svc.call_backend(endpoint="/api/v1/generation-sessions/est-1/status", method="GET")
+        assert "connection refused" in str(exc_info.value)
