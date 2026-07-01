@@ -784,9 +784,11 @@ class ClientSetupScreen(_SpecFlowScreen):
     """
 
     BINDINGS = [
-        Binding("d", "show_config", "raw config"),
-        Binding("v", "recheck", "re-scan", show=True),
-        Binding("s", "skip", "skip"),
+        # Screen-specific actions are documented in the header hint (see compose);
+        # keep them working but out of the footer. The footer carries navigation.
+        Binding("d", "show_config", "raw config", show=False),
+        Binding("v", "recheck", "re-scan", show=False),
+        Binding("s", "skip", "skip", show=False),
         Binding("escape", "skip", "return", show=True),
     ]
 
@@ -797,10 +799,11 @@ class ClientSetupScreen(_SpecFlowScreen):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        # Key hints live in the Footer (from BINDINGS) — not duplicated here.
+        # Screen-specific action hints live here in the header; the footer carries
+        # navigation (esc return) so the two don't duplicate each other.
         yield Static(
             "[b]Connect SpecFlow to your AI tool[/b]   "
-            "[dim]↑/↓ select · ↵ connect[/dim]",
+            "[dim]↑/↓ select · ↵ connect · d raw config · v re-scan[/dim]",
             id="client-setup-title",
         )
         yield ListView(id="client-list")
