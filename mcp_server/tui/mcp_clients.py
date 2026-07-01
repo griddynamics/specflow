@@ -588,6 +588,16 @@ def save_status(client_id: str, status: ClientStatus, *, home: Path | None = Non
     _write_config(data, home)
 
 
+def forget_status(client_id: str, *, home: Path | None = None) -> None:
+    """Drop ``client_id`` from the saved statuses (e.g. it's no longer registered)."""
+    data = _read_config(home)
+    clients = data.get("clients")
+    if isinstance(clients, dict) and client_id in clients:
+        del clients[client_id]
+        data["clients"] = {cid: clients[cid] for cid in sorted(clients)}
+        _write_config(data, home)
+
+
 def is_any_client_connected(*, home: Path | None = None) -> bool:
     """Gate for the startup screen: skip it once the user has connected/added a client.
 

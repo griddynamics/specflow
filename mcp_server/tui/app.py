@@ -306,7 +306,7 @@ class MessageScreen(ModalScreen[None]):
     """Informational popup — dismiss with Esc or Enter."""
 
     BINDINGS = [
-        Binding("escape", "dismiss", "close"),
+        Binding("escape", "dismiss", "ESC to close"),
         Binding("enter", "dismiss", "close", show=False),
     ]
 
@@ -322,7 +322,7 @@ class MessageScreen(ModalScreen[None]):
         with Vertical(classes="modal-panel"):
             yield Static(self._title, classes="modal-title")
             yield Static(self._body, classes="modal-body", markup=self._markup)
-            yield Static("[esc] or [enter] to close", classes="modal-hint")
+        yield Footer()  # same bottom-bar style as the main screens
 
     def action_dismiss(self) -> None:
         self.dismiss(None)
@@ -401,7 +401,7 @@ class VerifyChoiceScreen(ModalScreen[bool | None]):
     ``None`` (dismissed without deciding — the status is left unchanged).
     """
 
-    BINDINGS = [Binding("escape", "decide_later", "decide later", show=False)]
+    BINDINGS = [Binding("escape", "decide_later", "ESC to close")]
 
     def __init__(self, client_name: str) -> None:
         super().__init__()
@@ -412,19 +412,22 @@ class VerifyChoiceScreen(ModalScreen[bool | None]):
             yield Static("Did it work?", classes="modal-title")
             yield Static(
                 f"Open {self._client_name} and check whether SpecFlow's tools "
-                "show up. We can't detect this automatically — tell us what you see.",
+                "show up. We can't detect this automatically — pick what you see.",
                 classes="modal-body",
             )
-            with Horizontal(classes="modal-buttons"):
-                yield Button("No, not working", id="no")
-                yield Button("Yes, it's connected", id="yes")
-            yield Static("[esc] decide later", classes="modal-hint")
+            # Arrow-navigable list, matching the other screens (↑/↓ + ↵).
+            yield ListView(
+                ListItem(Label("Yes — it's connected"), id="opt-yes"),
+                ListItem(Label("No — not working"), id="opt-no"),
+                id="verify-choices",
+            )
+        yield Footer()
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "yes":
-            self.dismiss(True)
-        elif event.button.id == "no":
-            self.dismiss(False)
+    def on_mount(self) -> None:
+        self.query_one("#verify-choices", ListView).focus()
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        self.dismiss(event.item.id == "opt-yes")
 
     def action_decide_later(self) -> None:
         self.dismiss(None)
@@ -834,6 +837,34 @@ class ClientSetupScreen(_SpecFlowScreen):
             0,
         )
         listview.index = idx
+        self._render_detail()
+        # Reconcile clients we can read back (Claude): a user who already has the
+        # server registered is shown connected without re-adding, and a stale
+        # saved "connected" is cleared if it's gone. Runs in the background so it
+        # never blocks the initial render.
+        self.run_worker(self._probe_verifiable(), group="probe")
+
+    async def _probe_verifiable(self) -> None:
+        for row in self._rows:
+            client = row.client
+            if not row.installed or not client.can_verify:
+                continue
+            argv = mcp_clients.build_verify_argv(client)
+            if argv is None:
+                continue
+            result = await local_env.run_command(argv, self.app.root, timeout=15)
+            present = result.ok and mcp_clients.verify_passed(result.output)
+            current = self._status.get(client.client_id)
+            if present and current is not mcp_clients.ClientStatus.VERIFIED:
+                self._set_status(client.client_id, mcp_clients.ClientStatus.VERIFIED)
+                mcp_clients.save_status(client.client_id, mcp_clients.ClientStatus.VERIFIED)
+            elif not present and current in (
+                mcp_clients.ClientStatus.VERIFIED,
+                mcp_clients.ClientStatus.CONNECTED,
+            ):
+                # It was marked connected before but isn't registered now — forget it.
+                self._set_status(client.client_id, mcp_clients.ClientStatus.NOT_CONFIGURED)
+                mcp_clients.forget_status(client.client_id)
         self._render_detail()
 
     def _row_label(self, row: mcp_clients.ClientRow, status: mcp_clients.ClientStatus) -> Text:
@@ -1464,11 +1495,7 @@ class SpecFlowTUI(App):
     .modal-body { padding-bottom: 1; }
     .modal-hint { color: $text-muted; text-style: dim; }
     .modal-buttons { height: 3; align: center middle; }
-    /* Verify-choice buttons: coloured edge only, not a filled block. */
-    #yes { border: round $success; color: $success; background: $surface; text-style: none; }
-    #yes:hover { background: $success 20%; }
-    #no { border: round $error; color: $error; background: $surface; text-style: none; }
-    #no:hover { background: $error 20%; }
+    #verify-choices { height: auto; margin-top: 1; }
     """
 
     TITLE = "SpecFlow"

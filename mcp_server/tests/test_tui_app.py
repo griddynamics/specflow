@@ -263,7 +263,7 @@ class TestStartupGate:
     @pytest.mark.asyncio
     async def test_ready_no_gen_lands_on_sessions_when_client_connected(self):
         a, b, c = _gate_ready()
-        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()), patch(
             "tui.app.mcp_clients.is_any_client_connected", return_value=True
         ):
             app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
@@ -274,7 +274,7 @@ class TestStartupGate:
     @pytest.mark.asyncio
     async def test_no_gen_no_client_shows_client_setup_first(self):
         a, b, c = _gate_ready()
-        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()), patch(
             "tui.app.mcp_clients.is_any_client_connected", return_value=False
         ):
             app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
@@ -285,7 +285,7 @@ class TestStartupGate:
     @pytest.mark.asyncio
     async def test_client_setup_skip_proceeds_to_sessions(self):
         a, b, c = _gate_ready()
-        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()), patch(
             "tui.app.mcp_clients.is_any_client_connected", return_value=False
         ), patch("tui.mcp_clients.client_rows", return_value=[]):
             app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
@@ -327,7 +327,7 @@ class TestStartupGate:
             patch("tui.app.local_env.containers_running", return_value=False),
             patch("tui.app.local_env.start_containers", new=AsyncMock(return_value=0)),
             patch("tui.app.local_env.wait_backend_ready", new=AsyncMock(return_value=True)),
-            patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])),
+            patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()),
             patch("tui.app.mcp_clients.is_any_client_connected", return_value=True),
         ):
             app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
@@ -503,7 +503,7 @@ class TestQuitBinding:
             b,
             c,
             patch("tui.app.poll_once", new=AsyncMock(return_value=_running_payload())),
-            patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])),
+            patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()),
         ):
             app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
             async with app.run_test() as pilot:
@@ -516,7 +516,7 @@ class TestQuitBinding:
     @pytest.mark.asyncio
     async def test_q_exits_sessions_screen(self):
         a, b, c = _gate_ready()
-        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])):
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()):
             app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
             async with app.run_test() as pilot:
                 await pilot.pause()
@@ -557,7 +557,7 @@ class TestAppNotifications:
         app.watch_generation_id("gen_x")
 
         with (
-            patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])),
+            patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()),
             patch("tui.app.poll_once", new=AsyncMock(return_value=_running_payload())) as poll,
             patch("tui.app.fire_milestones") as fire,
         ):
@@ -969,7 +969,7 @@ class TestClientSetupScreen:
             mc.ClientRow(mc.MANUAL, installed=True, saved=None),
         ]
         app, (a, b, c) = _make_app(tmp_path)
-        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()), patch(
             "tui.mcp_clients.client_rows", return_value=rows
         ):
             async with app.run_test() as pilot:
@@ -1005,7 +1005,7 @@ class TestClientSetupScreen:
     @pytest.mark.asyncio
     async def test_show_config_pushes_message_screen(self, tmp_path):
         app, (a, b, c) = _make_app(tmp_path)
-        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()), patch(
             "tui.app.mcp_clients.load_server_block", return_value=_BLOCK
         ):
             async with app.run_test() as pilot:
@@ -1024,7 +1024,7 @@ class TestClientSetupScreen:
             local_env.CommandResult(0, "specflow: uvx ✔", False),  # verify get
         ]
         app, (a, b, c) = _make_app(tmp_path)
-        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()), patch(
             "tui.app.local_env.run_command", new=AsyncMock(side_effect=results)
         ) as run_cmd:
             async with app.run_test() as pilot:
@@ -1046,7 +1046,7 @@ class TestClientSetupScreen:
             local_env.CommandResult(1, "boom", False),  # add fails
         ]
         app, (a, b, c) = _make_app(tmp_path)
-        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()), patch(
             "tui.app.local_env.run_command", new=AsyncMock(side_effect=results)
         ):
             async with app.run_test() as pilot:
@@ -1060,7 +1060,7 @@ class TestClientSetupScreen:
     @pytest.mark.asyncio
     async def test_cursor_file_merge_added_unverified(self, tmp_path):
         app, (a, b, c) = _make_app(tmp_path)
-        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()), patch(
             "pathlib.Path.home", return_value=tmp_path
         ), patch("tui.app.local_env.run_command", new=AsyncMock(
             return_value=local_env.CommandResult(0, "", False)
@@ -1081,7 +1081,7 @@ class TestClientSetupScreen:
         cfg.parent.mkdir(parents=True)
         cfg.write_text("{not valid json")
         app, (a, b, c) = _make_app(tmp_path)
-        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()), patch(
             "pathlib.Path.home", return_value=tmp_path
         ):
             async with app.run_test() as pilot:
@@ -1102,7 +1102,7 @@ class TestClientSetupScreen:
         cfg.parent.mkdir(parents=True)
         cfg.write_text("{bad json")
         app, (a, b, c) = _make_app(tmp_path)
-        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()), patch(
             "pathlib.Path.home", return_value=tmp_path
         ), patch("tui.app.local_env.run_command", new=AsyncMock(
             return_value=local_env.CommandResult(0, "", False)
@@ -1126,7 +1126,7 @@ class TestClientSetupScreen:
         (cur / "mcp.json").write_text("{bad json")
         (cur / "mcp.json.bak").write_text("ORIGINAL BACKUP")
         app, (a, b, c) = _make_app(tmp_path)
-        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()), patch(
             "pathlib.Path.home", return_value=tmp_path
         ), patch("tui.app.local_env.run_command", new=AsyncMock(
             return_value=local_env.CommandResult(0, "", False)
@@ -1146,7 +1146,7 @@ class TestClientSetupScreen:
         # Make ~/.cursor a regular FILE so the mkdir/write raises OSError.
         (tmp_path / ".cursor").write_text("i am a file, not a directory")
         app, (a, b, c) = _make_app(tmp_path)
-        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()), patch(
             "pathlib.Path.home", return_value=tmp_path
         ):
             async with app.run_test() as pilot:
@@ -1160,7 +1160,7 @@ class TestClientSetupScreen:
     @pytest.mark.asyncio
     async def test_connect_persists_actual_status_not_assumed_connected(self, tmp_path):
         app, (a, b, c) = _make_app(tmp_path)
-        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()), patch(
             "pathlib.Path.home", return_value=tmp_path
         ), patch("tui.app.mcp_clients.load_server_block", return_value=_BLOCK), patch(
             "tui.app.local_env.run_command",
@@ -1179,7 +1179,7 @@ class TestClientSetupScreen:
     @pytest.mark.asyncio
     async def test_inspect_confirm_marks_connected(self, tmp_path):
         app, (a, b, c) = _make_app(tmp_path)
-        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()), patch(
             "pathlib.Path.home", return_value=tmp_path
         ):
             async with app.run_test() as pilot:
@@ -1193,7 +1193,7 @@ class TestClientSetupScreen:
     @pytest.mark.asyncio
     async def test_inspect_reject_marks_failed(self, tmp_path):
         app, (a, b, c) = _make_app(tmp_path)
-        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()), patch(
             "pathlib.Path.home", return_value=tmp_path
         ):
             async with app.run_test() as pilot:
@@ -1209,7 +1209,7 @@ class TestClientSetupScreen:
         with patch("pathlib.Path.home", return_value=tmp_path):
             mc.save_status("cursor", mc.ClientStatus.ADDED_UNVERIFIED, home=tmp_path)
             app, (a, b, c) = _make_app(tmp_path)
-            with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])):
+            with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()):
                 async with app.run_test() as pilot:
                     await pilot.pause()
                     screen = await _push_client_screen(app)
@@ -1218,3 +1218,68 @@ class TestClientSetupScreen:
                         await screen._inspect_flow(mc.CURSOR)
         # Dismissed without deciding → unchanged.
         assert mc.saved_statuses(home=tmp_path)["cursor"] is mc.ClientStatus.ADDED_UNVERIFIED
+
+    @pytest.mark.asyncio
+    async def test_probe_marks_already_registered_claude_verified(self, tmp_path):
+        # A user who already added specflow to Claude sees it connected — no re-add.
+        rows = [mc.ClientRow(mc.CLAUDE_CODE, installed=True, saved=None)]
+        app, (a, b, c) = _make_app(tmp_path)
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+            "tui.mcp_clients.client_rows", return_value=rows
+        ), patch("pathlib.Path.home", return_value=tmp_path), patch(
+            "tui.app.local_env.run_command",
+            new=AsyncMock(return_value=local_env.CommandResult(0, "specflow: uvx ✔", False)),
+        ):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                screen = await _push_client_screen(app)
+                await pilot.pause()
+                await pilot.pause()  # let the probe worker run
+                status = screen._status["claude_code"]
+        assert status is mc.ClientStatus.VERIFIED
+        assert mc.saved_statuses(home=tmp_path)["claude_code"] is mc.ClientStatus.VERIFIED
+
+    @pytest.mark.asyncio
+    async def test_probe_clears_stale_claude_when_not_registered(self, tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
+            mc.save_status("claude_code", mc.ClientStatus.VERIFIED, home=tmp_path)
+        rows = [mc.ClientRow(mc.CLAUDE_CODE, installed=True, saved=mc.ClientStatus.VERIFIED)]
+        app, (a, b, c) = _make_app(tmp_path)
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+            "tui.mcp_clients.client_rows", return_value=rows
+        ), patch("pathlib.Path.home", return_value=tmp_path), patch(
+            "tui.app.local_env.run_command",
+            new=AsyncMock(return_value=local_env.CommandResult(1, "No such server", False)),
+        ):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                screen = await _push_client_screen(app)
+                await pilot.pause()
+                await pilot.pause()
+                status = screen._status["claude_code"]
+        assert status is mc.ClientStatus.NOT_CONFIGURED
+        assert "claude_code" not in mc.saved_statuses(home=tmp_path)
+
+    @pytest.mark.asyncio
+    async def test_verify_choice_screen_list_selects_with_keyboard(self, tmp_path):
+        app, (a, b, c) = _make_app(tmp_path)
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+            "tui.app.mcp_clients.is_any_client_connected", return_value=True
+        ):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                # Enter on the highlighted first option ("Yes") → True.
+                yes_result: list = []
+                app.push_screen(tui_app.VerifyChoiceScreen("Cursor"), yes_result.append)
+                await pilot.pause()
+                await pilot.press("enter")
+                await pilot.pause()
+                # Arrow down to "No" then Enter → False.
+                no_result: list = []
+                app.push_screen(tui_app.VerifyChoiceScreen("Cursor"), no_result.append)
+                await pilot.pause()
+                await pilot.press("down")
+                await pilot.press("enter")
+                await pilot.pause()
+        assert yes_result == [True]
+        assert no_result == [False]

@@ -217,6 +217,15 @@ class TestGlobalConfig:
         assert data["theme"] == "dark"  # preserved
         assert data["clients"]["cursor"] == "verified"
 
+    def test_forget_status_removes_client_preserving_others(self, tmp_path):
+        mc.save_status("claude_code", mc.ClientStatus.VERIFIED, home=tmp_path)
+        mc.save_status("cursor", mc.ClientStatus.ADDED_UNVERIFIED, home=tmp_path)
+        mc.forget_status("claude_code", home=tmp_path)
+        assert mc.saved_statuses(home=tmp_path) == {"cursor": mc.ClientStatus.ADDED_UNVERIFIED}
+        # Forgetting an absent client is a no-op.
+        mc.forget_status("nope", home=tmp_path)
+        assert mc.saved_statuses(home=tmp_path) == {"cursor": mc.ClientStatus.ADDED_UNVERIFIED}
+
     def test_malformed_or_unknown_values_read_as_empty(self, tmp_path):
         path = mc.config_path(home=tmp_path)
         path.parent.mkdir(parents=True)
