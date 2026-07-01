@@ -148,7 +148,7 @@ Stop the local stack:
 docker compose down --timeout 90
 ```
 
-Reset local Firestore state and reseed:
+Reset the local SQLite database and reseed:
 
 ```bash
 specflow init --reset-local-db

@@ -38,7 +38,7 @@
 - **Services** (`backend/app/services/`): GenerationService, WorkspacePoolService, GenerationRetryService, ContractValidator, CrashRecoveryService, GitArchiveService, ClaudeCodeService.
 - **State Machines** (`backend/app/state/`): GenerationSM (PENDING→INITIALIZING→RUNNING→COMPLETED/FAILED), WorkspaceSM (AVAILABLE→ALLOCATED→CLEANING→AVAILABLE). Only writer of status/checkpoint. CI enforced.
 - **Workflows** (`backend/app/workflows/`): `generate_app_workflow` (KB init, parallel codegen, deploy/E2E, P10Y). No backend spec-analysis or planning agents after PR255.
-- **Database** (`backend/app/database/`): IDatabase interface — Firestore (prod), Emulator (local), InMemory (tests).
+- **Database** (`backend/app/database/`): IDatabase interface — SQLite (local/Docker default), Firestore (prod, or connecting to an already-hosted GCP instance), Emulator (manually-run Firestore emulator, not started by docker-compose), InMemory (tests).
 
 ## Data Flow
 
@@ -147,8 +147,9 @@ Legacy checkpoints (`planning_done`, `plan_synced`, `spec_check_done`) are not u
 
 **Self-hosted backend**: the backend can run on Kubernetes or Docker Compose with persistent workspace and log volumes sized for long-running code generation.
 
-**Local**: `make run` → Docker Compose (backend:8000 + firestore-emulator:8080).
-The emulator persists quickstart state with periodic sidecar exports plus native
-shutdown export under `./workspaces/firestore_emulator/`; generated outputs use
-`./workspaces/artifacts/`. Compose shutdown order keeps the emulator alive while
-the backend marks interrupted runs failed and the exporter takes a final snapshot.
+**Local**: `make run` → Docker Compose (backend:8000, SQLite). The backend container
+bind-mounts the host's `~/.specflow/` directory — one central SQLite database shared
+across every local project/MCP session on the machine (the local-dev analogue of the
+old shared Firestore emulator); generated outputs use `./workspaces/artifacts/`.
+`DATABASE_TYPE=firestore` connects to an already-hosted, GCP-managed Firestore instance
+instead — SpecFlow never deploys or manages Firestore itself locally.
