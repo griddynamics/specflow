@@ -654,6 +654,33 @@ class TestWorkspaceDrillIn:
                 assert isinstance(app.screen, tui_app.DashboardScreen)
 
     @pytest.mark.asyncio
+    async def test_workspace_screen_excludes_app_level_session_watcher(self):
+        # The workspace drill-in polls /status for its stats panel, so the
+        # app-wide session watcher must not also poll the same generation via
+        # the list endpoint. Mixing the two payload shapes can replay desktop
+        # "phase progressed" notifications.
+        a, b, c = _gate_ready()
+        fetch = AsyncMock(return_value=[])
+        with (
+            a,
+            b,
+            c,
+            patch("tui.app.fetch_sessions", new=fetch),
+            patch("tui.app.poll_once", new=AsyncMock(return_value=_ws_usage_payload())),
+            patch("tui.app.workspace_message_events", new=_events_iter([])),
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                app.push_screen(tui_app.WorkspaceMessagesScreen("gen_x", "ws-01-1"))
+                await pilot.pause()
+                fetch.reset_mock()
+
+                await app.notify_active_sessions()
+
+                fetch.assert_awaited_once_with(exclude={"gen_x"})
+
+    @pytest.mark.asyncio
     async def test_open_with_no_workspaces_notifies(self):
         # No workspace_phases → nothing to open; action must not crash.
         a, b, c = _gate_ready()
