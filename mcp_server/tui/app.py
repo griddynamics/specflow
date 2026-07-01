@@ -27,6 +27,8 @@ the only way to see a run.
 from __future__ import annotations
 
 import asyncio
+import json
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -60,7 +62,7 @@ from textual.widgets import (
 from cli import resolve_backend_config
 from services import local_env
 from services.session import resolve_generation_id, set_project_root
-from tui import actions, activity, onboarding, render
+from tui import actions, activity, mcp_clients, onboarding, render
 from tui.config import (
     EDITABLE_KEYS,
     ENV_SECRET_KEYS,
@@ -304,20 +306,23 @@ class MessageScreen(ModalScreen[None]):
     """Informational popup — dismiss with Esc or Enter."""
 
     BINDINGS = [
-        Binding("escape", "dismiss", "close"),
+        Binding("escape", "dismiss", "ESC to close"),
         Binding("enter", "dismiss", "close", show=False),
     ]
 
-    def __init__(self, title: str, body: str) -> None:
+    def __init__(self, title: str, body: str, *, markup: bool = True) -> None:
         super().__init__()
         self._title = title
         self._body = body
+        # Disable markup when the body contains literal brackets (e.g. JSON
+        # arrays) that Rich would otherwise try to parse as style tags.
+        self._markup = markup
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="modal-panel"):
             yield Static(self._title, classes="modal-title")
-            yield Static(self._body, classes="modal-body")
-            yield Static("[esc] or [enter] to close", classes="modal-hint")
+            yield Static(self._body, classes="modal-body", markup=self._markup)
+        yield Footer()  # same bottom-bar style as the main screens
 
     def action_dismiss(self) -> None:
         self.dismiss(None)
@@ -389,6 +394,45 @@ class ConfirmScreen(ModalScreen[bool]):
             self.dismiss(True)
 
 
+class VerifyChoiceScreen(ModalScreen[bool | None]):
+    """Manual-inspection prompt for a client we cannot read back (Cursor/Gemini).
+
+    Returns ``True`` (the user confirmed it works), ``False`` (it doesn't), or
+    ``None`` (dismissed without deciding — the status is left unchanged).
+    """
+
+    BINDINGS = [Binding("escape", "decide_later", "ESC to close")]
+
+    def __init__(self, client_name: str) -> None:
+        super().__init__()
+        self._client_name = client_name
+
+    def compose(self) -> ComposeResult:
+        with Vertical(classes="modal-panel"):
+            yield Static("Did it work?", classes="modal-title")
+            yield Static(
+                f"Open {self._client_name} and check whether SpecFlow's tools "
+                "show up. We can't detect this automatically — pick what you see.",
+                classes="modal-body",
+            )
+            # Arrow-navigable list, matching the other screens (↑/↓ + ↵).
+            yield ListView(
+                ListItem(Label("Yes — it's connected"), id="opt-yes"),
+                ListItem(Label("No — not working"), id="opt-no"),
+                id="verify-choices",
+            )
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.query_one("#verify-choices", ListView).focus()
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        self.dismiss(event.item.id == "opt-yes")
+
+    def action_decide_later(self) -> None:
+        self.dismiss(None)
+
+
 class DashboardScreen(_SpecFlowScreen):
     """Live dashboard for a single generation."""
 
@@ -397,6 +441,7 @@ class DashboardScreen(_SpecFlowScreen):
         Binding("w", "clear", "clear ws"),
         Binding("s", "settings", "settings"),
         Binding("b", "sessions", "sessions"),
+        Binding("c", "connect_client", "Add MCP to AI tool"),
         Binding("o", "open_workspace", "open ws"),
         Binding("enter", "open_workspace", "open ws", show=False),
         # Priority so the workspace selection wins over the scroll container's
@@ -562,6 +607,9 @@ class DashboardScreen(_SpecFlowScreen):
     def action_sessions(self) -> None:
         self.app.push_screen(SessionsScreen())
 
+    def action_connect_client(self) -> None:
+        self.app.push_screen(ClientSetupScreen())
+
 
 class WorkspaceMessagesScreen(_SpecFlowScreen):
     """Workspace drill-in: live SDK message stream (top) + stats (bottom).
@@ -661,6 +709,7 @@ class SessionsScreen(_SpecFlowScreen):
 
     BINDINGS = [
         Binding("r", "reload", "reload"),
+        Binding("c", "connect_client", "Add MCP to AI tool"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -694,10 +743,399 @@ class SessionsScreen(_SpecFlowScreen):
     def action_reload(self) -> None:
         self.call_later(self.reload_sessions)
 
+    def action_connect_client(self) -> None:
+        self.app.push_screen(ClientSetupScreen())
+
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         item = event.item
         if isinstance(item, _SessionItem):
             self.app.push_screen(DashboardScreen(item.generation_id))
+
+
+def _platform_opener() -> str | None:
+    """The OS command that hands a URL/deeplink to the registered handler."""
+    if sys.platform == "darwin":
+        return "open"
+    if sys.platform.startswith("linux"):
+        return "xdg-open"
+    return None  # Windows deeplink open is out of v1 scope (file-merge still runs)
+
+
+class _ClientItem(ListItem):
+    """A client row carrying its ``client_id`` and an updatable Rich label."""
+
+    def __init__(self, client_id: str, text: Text) -> None:
+        self._label = Label(text)
+        super().__init__(self._label)
+        self.client_id = client_id
+
+    def set_text(self, text: Text) -> None:
+        self._label.update(text)
+
+
+class ClientSetupScreen(_SpecFlowScreen):
+    """Register the SpecFlow MCP server with the user's AI client(s).
+
+    A thin renderer over ``tui.mcp_clients``: it lists the registry with
+    detection badges, runs the right add mechanism per client (CLI add /
+    deeplink+file-merge / copy), and reports an honest status — never a false
+    "verified" for a client we cannot read back (Cursor). Replaces the
+    misleading "No active generation sessions." landing on first run.
+    """
+
+    BINDINGS = [
+        # Screen-specific actions are documented in the header hint (see compose);
+        # keep them working but out of the footer. The footer carries navigation.
+        Binding("d", "show_config", "raw config", show=False),
+        Binding("v", "recheck", "re-scan", show=False),
+        Binding("s", "skip", "skip", show=False),
+        Binding("escape", "skip", "return", show=True),
+    ]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._rows: list[mcp_clients.ClientRow] = []
+        self._status: dict[str, mcp_clients.ClientStatus] = {}
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        # Screen-specific action hints live here in the header; the footer carries
+        # navigation (esc return) so the two don't duplicate each other.
+        yield Static(
+            "[b]Connect SpecFlow to your AI tool[/b]   "
+            "[dim]↑/↓ select · ↵ connect · d raw config · v re-scan[/dim]",
+            id="client-setup-title",
+        )
+        yield ListView(id="client-list")
+        yield Static(id="client-detail")
+        log = RichLog(id="client-log", highlight=False, markup=False, wrap=True)
+        log.display = False
+        yield log
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.call_later(self._populate)
+
+    # -- rendering ---------------------------------------------------------
+
+    async def _populate(self) -> None:
+        self._rows = mcp_clients.client_rows()
+        self._status = {
+            r.client.client_id: mcp_clients.initial_status(
+                r.client, installed=r.installed, saved=r.saved
+            )
+            for r in self._rows
+        }
+        # Clients we can read back get probed on mount; show "verifying…" up front
+        # so the row never looks like an idle "press ↵ to connect" the user clicks.
+        for row in self._rows:
+            cid = row.client.client_id
+            if (
+                row.installed
+                and row.client.can_verify
+                and self._status[cid] is mcp_clients.ClientStatus.NOT_CONFIGURED
+            ):
+                self._status[cid] = mcp_clients.ClientStatus.VERIFYING
+        listview = self.query_one("#client-list", ListView)
+        await listview.clear()
+        for row in self._rows:
+            cid = row.client.client_id
+            await listview.append(_ClientItem(cid, self._row_label(row, self._status[cid])))
+        # Pre-select the first installed, non-manual client so Enter just works.
+        idx = next(
+            (
+                i
+                for i, r in enumerate(self._rows)
+                if r.installed and r.client.strategy is not mcp_clients.AddStrategy.MANUAL_COPY
+            ),
+            0,
+        )
+        listview.index = idx
+        self._render_detail()
+        # Reconcile clients we can read back (Claude): a user who already has the
+        # server registered is shown connected without re-adding, and a stale
+        # saved "connected" is cleared if it's gone. Runs in the background so it
+        # never blocks the initial render.
+        self.run_worker(self._probe_verifiable(), group="probe")
+
+    async def _probe_verifiable(self) -> None:
+        for row in self._rows:
+            client = row.client
+            if not row.installed or not client.can_verify:
+                continue
+            argv = mcp_clients.build_verify_argv(client)
+            if argv is None:
+                continue
+            result = await local_env.run_command(argv, self.app.root, timeout=15)
+            present = result.ok and mcp_clients.verify_passed(result.output)
+            current = self._status.get(client.client_id)
+            if present:
+                if current is not mcp_clients.ClientStatus.VERIFIED:
+                    self._set_status(client.client_id, mcp_clients.ClientStatus.VERIFIED)
+                    mcp_clients.save_status(client.client_id, mcp_clients.ClientStatus.VERIFIED)
+            else:
+                # Not registered now — resolve the "verifying…" placeholder to a
+                # plain "press ↵ to connect", and forget any stale saved connection.
+                if current in (mcp_clients.ClientStatus.VERIFIED, mcp_clients.ClientStatus.CONNECTED):
+                    mcp_clients.forget_status(client.client_id)
+                self._set_status(client.client_id, mcp_clients.ClientStatus.NOT_CONFIGURED)
+        self._render_detail()
+
+    def _row_label(self, row: mcp_clients.ClientRow, status: mcp_clients.ClientStatus) -> Text:
+        # The "Other / copy config" row can never be verified (no read-back),
+        # so it stays grey regardless of state — green is only ever "connected".
+        is_manual = row.client.strategy is mcp_clients.AddStrategy.MANUAL_COPY
+        status_style = "dim" if is_manual else mcp_clients.status_style(status)
+        line = Text()
+        line.append(f"{row.client.icon} ", style="bold cyan")
+        line.append(f"{row.client.name:<20} ", style="bold")
+        # The dot and the label share the status colour, so the indicator always
+        # matches the words: green only when connected, amber added, red failed,
+        # grey otherwise. Shape (●/○) still marks installed vs not.
+        badge = "●  " if row.installed else "○  "
+        line.append(badge, style=status_style)
+        line.append(mcp_clients.status_label(status), style=status_style)
+        return line
+
+    def _selected_client(self) -> mcp_clients.McpClient | None:
+        listview = self.query_one("#client-list", ListView)
+        item = listview.highlighted_child
+        if not isinstance(item, _ClientItem):
+            return None
+        return self._client_by_id(item.client_id)
+
+    def _client_by_id(self, client_id: str) -> mcp_clients.McpClient | None:
+        return next((r.client for r in self._rows if r.client.client_id == client_id), None)
+
+    def _row_by_id(self, client_id: str) -> mcp_clients.ClientRow | None:
+        return next((r for r in self._rows if r.client.client_id == client_id), None)
+
+    def _render_detail(self) -> None:
+        client = self._selected_client()
+        if client is None:
+            return
+        row = self._row_by_id(client.client_id)
+        detail = Text()
+        detail.append(client.description)  # inherits the themed muted colour
+        if row is not None and not row.installed and client.strategy is not (
+            mcp_clients.AddStrategy.MANUAL_COPY
+        ):
+            detail.append(
+                "\nNot installed — install it, then press v to re-scan.", style="red"
+            )
+        if client.caveat:
+            detail.append(f"\n{client.caveat}", style="yellow")
+        self.query_one("#client-detail", Static).update(detail)
+
+    def _set_status(self, client_id: str, status: mcp_clients.ClientStatus) -> None:
+        self._status[client_id] = status
+        row = self._row_by_id(client_id)
+        listview = self.query_one("#client-list", ListView)
+        for item in listview.query(_ClientItem):
+            if item.client_id == client_id and row is not None:
+                item.set_text(self._row_label(row, status))
+
+    def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
+        self._render_detail()
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        self.action_connect()
+
+    # -- actions -----------------------------------------------------------
+
+    def action_connect(self) -> None:
+        client = self._selected_client()
+        if client is None:
+            return
+        cid = client.client_id
+        if client.strategy is mcp_clients.AddStrategy.MANUAL_COPY:
+            self._show_config(client)
+            return
+        # An "added — confirm" client: pressing ↵ asks the user what they found
+        # when they inspected it, rather than blindly re-adding.
+        if self._status.get(cid) is mcp_clients.ClientStatus.ADDED_UNVERIFIED:
+            self.run_worker(self._inspect_flow(client), exclusive=True)
+            return
+        row = self._row_by_id(cid)
+        if row is not None and not row.installed:
+            self.notify(f"{client.name} isn't installed — install it, then press v.", severity="warning")
+            return
+        self.run_worker(self._connect_flow(client), exclusive=True)
+
+    def action_recheck(self) -> None:
+        self.call_later(self._rescan)
+
+    async def _rescan(self) -> None:
+        await self._populate()
+        self.notify("Re-scanned installed clients.", severity="information")
+
+    def action_skip(self) -> None:
+        self.dismiss(None)
+
+    def action_show_config(self) -> None:
+        client = self._selected_client()
+        if client is None:
+            return
+        self._show_config(client)
+
+    def _load_block(self) -> mcp_clients.ServerBlock | None:
+        try:
+            return mcp_clients.load_server_block(self.app.root)
+        except (FileNotFoundError, KeyError, json.JSONDecodeError) as exc:
+            self.notify(f"Couldn't read the SpecFlow config: {exc}", severity="error")
+            return None
+
+    def _show_config(self, client: mcp_clients.McpClient) -> None:
+        block = self._load_block()
+        if block is None:
+            return
+        config = mcp_clients.render_config_file(block, client.config_shape)
+        body = f"Paste this into your MCP client's config:\n\n{config}"
+        # markup=False: the JSON body has literal [ ] arrays Rich must not parse.
+        self.app.push_screen(MessageScreen(f"{client.name} — MCP config", body, markup=False))
+
+    async def _connect_flow(self, client: mcp_clients.McpClient) -> None:
+        cid = client.client_id
+        if client.strategy is mcp_clients.AddStrategy.MANUAL_COPY:
+            self._show_config(client)
+            return
+        block = self._load_block()
+        if block is None:
+            return
+        self._set_status(cid, mcp_clients.ClientStatus.CONNECTING)
+        log = self.query_one("#client-log", RichLog)
+        log.display = True
+        log.clear()
+
+        if client.strategy is mcp_clients.AddStrategy.DEEPLINK:
+            status = await self._connect_cursor(client, block, log)
+        else:
+            status = await self._connect_cli(client, block, log)
+
+        self._set_status(cid, status)
+        # Persist the real outcome — including "added (unverified)" — so next time
+        # the screen shows actual state, never an assumed connection.
+        mcp_clients.save_status(cid, status)
+        if status in (
+            mcp_clients.ClientStatus.VERIFIED,
+            mcp_clients.ClientStatus.ADDED_UNVERIFIED,
+        ):
+            await self.app.push_screen_wait(
+                MessageScreen(f"Connected · {client.name}", mcp_clients.success_body(client, status))
+            )
+        elif status is mcp_clients.ClientStatus.FAILED:
+            self.notify(f"Couldn't connect {client.name} — see the log.", severity="error")
+
+    async def _inspect_flow(self, client: mcp_clients.McpClient) -> None:
+        """Ask the user what they found when they inspected an unverified client.
+
+        SpecFlow can't read Cursor/Gemini state back, so the user closes the loop:
+        confirm it works (→ connected) or report it doesn't (→ failed, re-addable).
+        """
+        choice = await self.app.push_screen_wait(VerifyChoiceScreen(client.name))
+        if choice is None:
+            return  # dismissed without deciding — leave the status untouched
+        new_status = (
+            mcp_clients.ClientStatus.CONNECTED if choice else mcp_clients.ClientStatus.FAILED
+        )
+        self._set_status(client.client_id, new_status)
+        mcp_clients.save_status(client.client_id, new_status)
+        if choice:
+            self.notify(f"{client.name} marked connected.", severity="information")
+        else:
+            self.notify(
+                f"{client.name} marked not working — press ↵ to add it again.",
+                severity="warning",
+            )
+
+    async def _connect_cli(
+        self, client: mcp_clients.McpClient, block: mcp_clients.ServerBlock, log: RichLog
+    ) -> mcp_clients.ClientStatus:
+        root = self.app.root
+        remove = mcp_clients.build_remove_argv(client)
+        if remove is not None:
+            # Idempotent upsert: clear any prior entry first (Claude errors on collision).
+            await local_env.run_command(remove, root, on_line=log.write, timeout=30)
+        add_res = await local_env.run_command(
+            mcp_clients.build_add_argv(client, block), root, on_line=log.write, timeout=30
+        )
+        verify_output: str | None = None
+        if add_res.ok and client.can_verify:
+            verify_argv = mcp_clients.build_verify_argv(client)
+            if verify_argv is not None:
+                verify_res = await local_env.run_command(
+                    verify_argv, root, on_line=log.write, timeout=30
+                )
+                verify_output = verify_res.output
+        return mcp_clients.status_after_add(
+            client, add_ok=add_res.ok, verify_output=verify_output
+        )
+
+    async def _connect_cursor(
+        self, client: mcp_clients.McpClient, block: mcp_clients.ServerBlock, log: RichLog
+    ) -> mcp_clients.ClientStatus:
+        target = client.file_target
+        if target is None or sys.platform not in target.platforms:
+            log.write("This client isn't supported on your platform.\n")
+            return mcp_clients.ClientStatus.FAILED
+        path = target.resolved_path()
+        existing, ok_to_write = await self._read_existing_config(path, log)
+        if not ok_to_write:
+            return mcp_clients.ClientStatus.FAILED
+        merged = mcp_clients.merge_block(existing, block, target.key)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(merged, indent=2))
+        except OSError as exc:
+            log.write(f"Couldn't write {path}: {exc}\n")
+            return mcp_clients.ClientStatus.FAILED
+        log.write(f"Wrote {path}\n")
+        # The write succeeded, so our server block is on disk (merge_block put it
+        # there). Cursor itself stays unverifiable — status_after_add caps it at
+        # ADDED_UNVERIFIED regardless, so there's nothing to read back.
+        # Fire the deeplink as a convenience so Cursor offers an approval prompt.
+        # Best-effort only: the file write above is the real registration, so a
+        # missing opener binary must never fail (or crash) the connect.
+        url = mcp_clients.build_deeplink(block, client)
+        opener = _platform_opener()
+        if opener is not None and shutil.which(opener) and not mcp_clients.deeplink_too_long(url):
+            try:
+                await local_env.run_command([opener, url], path.parent, on_line=log.write, timeout=10)
+            except OSError as exc:
+                log.write(f"(couldn't open Cursor automatically: {exc})\n")
+        return mcp_clients.status_after_add(client, add_ok=True)
+
+    async def _read_existing_config(
+        self, path: Path, log: RichLog
+    ) -> tuple[dict, bool]:
+        """Read an existing JSON config, refusing to clobber a malformed one.
+
+        Returns ``(existing, ok_to_write)``. A malformed file is never silently
+        overwritten — the user must approve a ``.bak`` backup first.
+        """
+        if not path.exists():
+            return {}, True
+        try:
+            return json.loads(path.read_text()), True
+        except json.JSONDecodeError:
+            approved = await self.app.push_screen_wait(
+                ConfirmScreen(
+                    f"{path} isn't valid JSON. Back it up to .bak and overwrite?",
+                    countdown=0,
+                )
+            )
+            if not approved:
+                log.write("Left your existing config untouched.\n")
+                return {}, False
+            # Never clobber a previous backup — pick the first free .bak name.
+            backup = path.parent / f"{path.name}.bak"
+            counter = 1
+            while backup.exists():
+                backup = path.parent / f"{path.name}.bak.{counter}"
+                counter += 1
+            backup.write_text(path.read_text())
+            log.write(f"Backed up your config to {backup}\n")
+            return {}, True
 
 
 class OnboardingScreen(_SpecFlowScreen):
@@ -1057,6 +1495,9 @@ class SpecFlowTUI(App):
     .onboard-why { padding: 1 2; }
     .onboard-howto { padding: 0 2 0 4; color: $text-muted; }
     #onboard-log, #docker-log { height: 1fr; border: round $primary; margin: 1 2; }
+    #client-setup-title { padding: 1 2; text-style: bold; }
+    #client-detail { padding: 1 2; color: $text-muted; }
+    #client-log { height: 1fr; border: round $primary; margin: 1 2; }
     .modal-panel {
         width: 64;
         height: auto;
@@ -1068,6 +1509,7 @@ class SpecFlowTUI(App):
     .modal-body { padding-bottom: 1; }
     .modal-hint { color: $text-muted; text-style: dim; }
     .modal-buttons { height: 3; align: center middle; }
+    #verify-choices { height: auto; margin-top: 1; }
     """
 
     TITLE = "SpecFlow"
@@ -1116,6 +1558,13 @@ class SpecFlowTUI(App):
             if not await self.push_screen_wait(StartContainersScreen()):
                 self.exit()
                 return
+
+        # (b2) First-run client setup — connect SpecFlow's MCP server to the
+        # user's AI tool instead of dropping them on the empty Sessions list.
+        # Only when not resuming a run and no client has been connected yet;
+        # the screen is skippable and re-openable later via `c`.
+        if not self.generation_id and not mcp_clients.is_any_client_connected():
+            await self.push_screen_wait(ClientSetupScreen())
 
         # (c) Proceed to the existing app.
         if self.generation_id:

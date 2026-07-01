@@ -983,3 +983,60 @@ class TestRunGenerationPreRunNotice:
 
         out = capsys.readouterr().out
         assert "outputs" in out.lower() or "archived" in out.lower() or "nothing is lost" in out.lower()
+
+
+# ---------------------------------------------------------------------------
+# cmd_init — IDE-registration hint is derived from the client registry
+# ---------------------------------------------------------------------------
+
+
+class TestCmdInitHint:
+    @pytest.mark.asyncio
+    async def test_prints_registry_derived_hint_on_success(self, tmp_path, capsys):
+        from cli import cmd_init
+
+        args = SimpleNamespace(
+            root_path=str(tmp_path),
+            max_parallel_runs=None,
+            skip_build=False,
+            reset_local_db=False,
+            provide_own_repos=None,
+            dry_run=False,
+        )
+        with patch("cli.local_env.repo_root", return_value=tmp_path), patch(
+            "cli.local_env.env_exists", return_value=True
+        ), patch(
+            "cli.local_env.run_init", new_callable=AsyncMock, return_value=0
+        ), patch(
+            "cli.local_env.mcp_config_path",
+            return_value=tmp_path / ".specflow-local" / "mcp-config.json",
+        ):
+            code = await cmd_init(args)
+
+        out = capsys.readouterr().out
+        assert code == 0
+        # Lines come from mcp_clients.render_cli_hint (single source of truth).
+        assert "claude mcp add-json specflow" in out
+        assert "gemini mcp add specflow" in out
+        assert "specflow tui" in out
+
+    @pytest.mark.asyncio
+    async def test_dry_run_skips_hint(self, tmp_path, capsys):
+        from cli import cmd_init
+
+        args = SimpleNamespace(
+            root_path=str(tmp_path),
+            max_parallel_runs=None,
+            skip_build=False,
+            reset_local_db=False,
+            provide_own_repos=None,
+            dry_run=True,
+        )
+        with patch("cli.local_env.repo_root", return_value=tmp_path), patch(
+            "cli.local_env.env_exists", return_value=True
+        ), patch("cli.local_env.run_init", new_callable=AsyncMock, return_value=0):
+            code = await cmd_init(args)
+
+        out = capsys.readouterr().out
+        assert code == 0
+        assert "claude mcp add-json" not in out
