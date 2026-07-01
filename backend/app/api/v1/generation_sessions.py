@@ -12,7 +12,7 @@ import asyncio
 import logging
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 from app.core.config import settings
@@ -44,7 +44,16 @@ from app.schemas.generation_workflow_enums import (
     parse_checkpoint,
     parse_status,
 )
-from app.schemas.llm_tier import build_llm_overrides
+from app.schemas.llm_tier import (
+    LLMTier,
+    WorkflowName,
+    WORKFLOW_TIER_MAP,
+    assign_model_to_workspace,
+    build_llm_overrides,
+    parse_model_list,
+    resolve_model,
+)
+from app.schemas.telemetry_workflow import PhaseKind
 from app.schemas.model_validation import TierValidation, TierValidationStatus
 from app.schemas.specification import GenerationWorkflowRequest
 from app.services.contract_validator import RejectionCode
@@ -74,11 +83,13 @@ from app.schemas.workflow_usage_metrics import (
 from app.utils.formatting import format_token_count
 from app.state.api_key_session_concurrency import (
     ApiKeyDocMissingError,
+    ApiKeySessionConcurrency,
     OperationKind,
     SessionAtCapacityError,
     SessionBeginOutcome,
 )
-from app.state.db_adapter import StateMachineDBAdapter
+from app.state.db_adapter import COL_GENERATION_SESSIONS, StateMachineDBAdapter
+from app.state.workspace_models import resolve_workspace_model
 from app.state.transitions import TriggeredBy
 from app.utils.file_utils import normalize_path_parameter
 from app.workflows.multi_workspace_estimation_p10y import (
@@ -125,6 +136,59 @@ class GenerationStatusResponse(BaseModel):
     result: Optional[Dict[str, Any]]
     error: Optional[str]
 
+
+class WorkspacePhaseSummary(BaseModel):
+    """Per-workspace phase progress, slimmed for the sessions list (no planning_data)."""
+    last_completed_phase: int = 0
+    phase_name: str = ""
+
+
+class GenerationSessionListItem(BaseModel):
+    """One row of the sessions list — active or completed."""
+    generation_id: str
+    status: str = "unknown"
+    checkpoint: str = ""
+    created_at: str = ""
+    current_phase: str = ""
+    workspace_phases: Dict[str, WorkspacePhaseSummary] = Field(default_factory=dict)
+
+
+def _format_timestamp(val: Any) -> str:
+    """ISO-format a Firestore timestamp/datetime; '' when absent."""
+    if val is None:
+        return ""
+    if hasattr(val, "isoformat"):
+        return val.isoformat()
+    return str(val)
+
+
+def _slim_workspace_phases(raw: Any) -> Dict[str, WorkspacePhaseSummary]:
+    """Project per-workspace phase progress down to the fields the list needs."""
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        ws_id: WorkspacePhaseSummary(
+            last_completed_phase=(data or {}).get("last_completed_phase", 0),
+            phase_name=(data or {}).get("phase_name", ""),
+        )
+        for ws_id, data in raw.items()
+    }
+
+
+def _session_list_item(session: Dict[str, Any]) -> GenerationSessionListItem:
+    """Build a list item from a raw ``generation_sessions`` document.
+
+    Single source of truth for both the ``key_uid`` query path and the
+    no-``key_uid`` fallback, so the two paths cannot drift in shape.
+    """
+    return GenerationSessionListItem(
+        generation_id=session.get("generation_id") or session.get("_id", ""),
+        status=session.get("status", "unknown"),
+        checkpoint=session.get("checkpoint", ""),
+        created_at=_format_timestamp(session.get("created_at")),
+        current_phase=session.get("current_phase", ""),
+        workspace_phases=_slim_workspace_phases(session.get("workspace_phases")),
+    )
 
 
 class RetryGenerationSessionResponse(BaseModel):
@@ -186,6 +250,64 @@ def get_generation_session_retry_service(
 # ============================================================
 # Endpoints
 # ============================================================
+
+
+@router.get(
+    "/",
+    response_model=list[GenerationSessionListItem],
+    summary="List recent generation sessions for the authenticated API key",
+)
+async def list_generation_sessions(
+    request: Request,
+    db: IDatabase = Depends(get_db),
+    limit: int = Query(50, ge=1, le=200),
+) -> list[GenerationSessionListItem]:
+    """Return up to ``limit`` recent sessions for the caller's API key, newest first.
+
+    Queries the ``generation_sessions`` collection by ``key_uid`` so completed and
+    failed sessions are included (the ``active_generation_sessions`` list on the API
+    key document only tracks in-flight leases and is cleared on completion).
+
+    Falls back to the active-sessions snapshot when the key has no ``key_uid``
+    (older keys created before that field was added). The fallback resolves each
+    active id's real status from its session document — never a flat "unknown".
+    """
+    api_key = getattr(request.state, "api_key", None)
+    if not api_key:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
+    doc = db.get("api_keys", api_key)
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
+
+    key_uid = doc.get("key_uid")
+    if key_uid:
+        sessions = db.query(
+            COL_GENERATION_SESSIONS,
+            filters=[("key_uid", "==", key_uid)],
+            order_by="-created_at",
+            limit=limit,
+        )
+        return [_session_list_item(s) for s in sessions]
+
+    # Fallback: key has no key_uid (created before that field existed). The lease
+    # snapshot only knows active generation ids, so resolve each one's real status
+    # from its session document and reuse the same builder as the primary path.
+    adapter = StateMachineDBAdapter(db)
+    session_concurrency = ApiKeySessionConcurrency(adapter)
+    try:
+        snap = await session_concurrency.snapshot(api_key_doc_id=api_key)
+    except ApiKeyDocMissingError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="API key not found")
+
+    items = [
+        _session_list_item(session)
+        for active in snap.active
+        if (session := db.get(COL_GENERATION_SESSIONS, active.generation_id))
+    ]
+    items.sort(key=lambda it: it.created_at, reverse=True)
+    return items[:limit]
+
 
 @router.get("/{generation_id}", response_model=GenerationStatusResponse)
 @track_event(event_name="get_generation_session_triggered")
@@ -317,23 +439,121 @@ def _current_phase_name(ws_data: dict, last_completed_phase: int) -> str:
     return ""
 
 
+def _llm_overrides_from_session_parameters(parameters: dict) -> Dict[str, str]:
+    """Rebuild per-tier overrides stored flat on the generation session parameters."""
+    return {
+        tier.value: parameters[tier.value]
+        for tier in LLMTier
+        if parameters.get(tier.value)
+    }
+
+
+_GENERATION_PHASE_PREFIX = f"{PhaseKind.GENERATION.value}_phase_"
+
+
+def _active_workflow_prefix(
+    ws_data: dict,
+    kb_init_in_progress: bool,
+) -> str:
+    """Workflow key prefix for the step currently active on a workspace.
+
+    Used to scope the model list in the TUI workspace drill-in. Usage tokens stay
+    on the full lifetime aggregate (see ``_ws_usage_and_models``).
+    """
+    if kb_init_in_progress:
+        return WorkflowName.KB_INIT.value
+    last = int(ws_data.get("last_completed_phase") or 0)
+    return f"{_GENERATION_PHASE_PREFIX}{last + 1}_"
+
+
+def _configured_model_for_active_step(
+    session_doc: dict,
+    ws_id: str,
+    workflow_prefix: str,
+) -> Optional[str]:
+    """Best-effort model configured for the active workflow on this workspace.
+
+    Fills the gap while an ``agent_query`` is still in flight (usage is only
+    flushed on the terminal SDK message, so the scoped metrics tree is empty).
+    """
+    parameters = session_doc.get("parameters") or {}
+    overrides = _llm_overrides_from_session_parameters(parameters)
+    ws_overrides = session_doc.get("workspace_model_overrides") or {}
+
+    if workflow_prefix == WorkflowName.KB_INIT.value:
+        base = resolve_model(
+            WORKFLOW_TIER_MAP[WorkflowName.KB_INIT],
+            settings,
+            overrides,
+            return_first=True,
+        )
+    elif workflow_prefix.startswith(_GENERATION_PHASE_PREFIX):
+        workspace_ids = session_doc.get("workspace_ids") or []
+        try:
+            ws_index = workspace_ids.index(ws_id)
+        except ValueError:
+            ws_index = 0
+        tier_value = resolve_model(
+            WORKFLOW_TIER_MAP[WorkflowName.GENERATE_APP],
+            settings,
+            overrides,
+            return_first=False,
+        )
+        try:
+            models = parse_model_list(tier_value)
+        except ValueError:
+            logger.warning("Could not parse model list for active step display (ws=%s): %r", ws_id, tier_value)
+            return None
+        base = assign_model_to_workspace(ws_index, models)
+    else:
+        return None
+
+    return resolve_workspace_model(ws_id, base, ws_overrides, logger)
+
+
+def _ws_models_for_view(
+    usage_tree: Optional[Dict[str, Any]],
+    ws_id: str,
+    session_doc: dict,
+    ws_data: dict,
+    kb_init_in_progress: bool,
+) -> list[str]:
+    """Model name(s) for the TUI workspace drill-in — active step only.
+
+    Scopes to the workflow currently running on the workspace so earlier steps do not leak.
+    When the active step has not finished an ``agent_query`` yet, falls back to
+    the configured tier model for that step (including per-workspace overrides).
+    """
+    prefix = _active_workflow_prefix(ws_data, kb_init_in_progress)
+    models = model_names_by_workspace(usage_tree, prefix).get(ws_id, [])
+    if models:
+        return models
+    configured = _configured_model_for_active_step(session_doc, ws_id, prefix)
+    return [configured] if configured else []
+
+
 def _ws_usage_and_models(
     usage_tree: Optional[Dict[str, Any]],
     ws_id: str,
+    session_doc: dict,
+    ws_data: dict,
+    kb_init_in_progress: bool,
 ) -> "tuple[Optional[ModelTokenUsage], list[str]]":
-    """Per-workspace usage + model names from the full lifetime aggregate.
+    """Per-workspace usage (lifetime) + model names (active step).
 
-    Shows the workspace's cumulative usage across every workflow that has run on
-    it — the markdown→JSON converters that run before KB init, KB init itself,
-    and each completed generation phase. Usage is only written to
-    ``workflow_usage_metrics`` when an ``agent_query`` returns its terminal
-    message, so this view updates step-by-step as each query finishes (not live
-    mid-query). Reporting the general workspace aggregate keeps data visible
-    throughout the run instead of leaving the panel empty while the current step
-    is still in flight.
+    Usage is the workspace's cumulative total across every workflow that has run
+    on it — converters, KB init, and each completed generation phase. Usage only
+    lands in ``workflow_usage_metrics`` when an ``agent_query`` returns its
+    terminal message, so the aggregate updates step-by-step and stays visible
+    while the current step is still in flight.
+
+    Models are scoped to the active workflow (with configured-model fallback) so
+    the TUI shows what is running now, not every model used earlier in the run.
     """
     usage = aggregate_model_usage_by_workspace(usage_tree).get(ws_id)
-    models = model_names_by_workspace(usage_tree).get(ws_id, [])
+    models = _ws_models_for_view(
+        usage_tree, ws_id, session_doc, ws_data, kb_init_in_progress
+    )
     return usage, models
 
 
@@ -411,14 +631,18 @@ async def get_generation_session_status(
         kb_init_in_progress = not GenerationCheckpoint.is_at_or_after(
             checkpoint, GenerationCheckpoint.KB_INIT_DONE
         )
-        # Per-workspace usage/model is the workspace's full lifetime aggregate
-        # across every workflow that ran on it (converters, KB init, each
-        # completed generation phase). Usage flushes only when an agent_query
-        # finishes, so this updates step-by-step rather than live mid-query —
-        # keeping cumulative data visible throughout the run.
+        # Per-workspace usage is the full lifetime aggregate; models are scoped to
+        # the active workflow (with configured-model fallback while a step is in
+        # flight). Usage flushes only when an agent_query finishes.
         workspace_phases_view: Dict[str, Any] = {}
         for ws_id, ws_data in workspace_phases.items():
-            ws_usage, ws_models = _ws_usage_and_models(usage_tree, ws_id)
+            ws_usage, ws_models = _ws_usage_and_models(
+                usage_tree,
+                ws_id,
+                session_doc,
+                ws_data,
+                kb_init_in_progress=kb_init_in_progress,
+            )
             workspace_phases_view[ws_id] = _ws_phase_view_entry(
                 ws_data,
                 ws_usage,

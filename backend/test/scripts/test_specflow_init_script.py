@@ -90,6 +90,11 @@ def test_makefile_test_stack_uses_separate_names_and_ports():
     assert "$(TEST_STACK_TARGETS): export SPECFLOW_FIRESTORE_PORT := 18080" in makefile_text
     assert "$(TEST_STACK_TARGETS): export BACKEND_URL := http://localhost:18000" in makefile_text
     assert "$(TEST_STACK_TARGETS): export FIRESTORE_EMULATOR_HOST := localhost:18080" in makefile_text
+    assert "$(TEST_STACK_TARGETS): export GCP_PROJECT_ID := $(GCP_PROJECT_ID)" in makefile_text
+    assert (
+        "$(TEST_STACK_TARGETS): export FIRESTORE_DATABASE_NAME := $(FIRESTORE_DATABASE_NAME)"
+        in makefile_text
+    )
 
 
 def test_specflow_init_defaults_local_firestore_database_name():

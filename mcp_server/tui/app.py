@@ -30,6 +30,7 @@ import asyncio
 import json
 import shutil
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -71,7 +72,7 @@ from tui.config import (
     save_env,
     save_env_secrets,
 )
-from tui.constants import DEFAULT_POLL_INTERVAL, TERMINAL_STATUSES
+from tui.constants import CHECKPOINT_STEPS, DEFAULT_POLL_INTERVAL, STATUS_PILLS, TERMINAL_STATUSES
 from tui.poller import MilestoneTracker, fire_milestones, poll_once
 from tui.render import format_tokens
 from tui.stream import workspace_message_events
@@ -167,10 +168,10 @@ def _estimate_panel(payload: dict[str, Any]) -> Panel | None:
     grid.add_row("Variance", f"{variance}" + (f"  (CV {cv:.2f})" if cv is not None else ""))
     if panel.min_hours is not None and panel.max_hours is not None:
         grid.add_row("Range", f"{panel.min_hours:.0f}–{panel.max_hours:.0f} h")
-    if panel.risk_status:
-        buf = f"  buffer +{panel.total_buffer_pct:.0f}%" if panel.total_buffer_pct else ""
-        final = f"  → {panel.final_estimate:.0f} h" if panel.final_estimate else ""
-        grid.add_row("Risk", f"{panel.risk_status}{buf}{final}")
+    if panel.total_buffer_pct is not None or panel.final_estimate is not None:
+        buf = f"+{panel.total_buffer_pct:.0f}%" if panel.total_buffer_pct is not None else ""
+        final = f"  → {panel.final_estimate:.0f} h" if panel.final_estimate is not None else ""
+        grid.add_row("Buffer", f"{buf}{final}".strip())
     if panel.per_workspace:
         variants = " · ".join(f"{n} {h:.0f}h" for n, h in panel.per_workspace)
         grid.add_row("Variants", variants)
@@ -667,8 +668,41 @@ class _SessionItem(ListItem):
         self.generation_id = generation_id
 
 
+def _session_label(s: dict) -> str:
+    """Format a session dict as a fixed-width sessions-list label.
+
+    Columns: status-symbol  generation-id  date  checkpoint-name
+    """
+    gid = s.get("generation_id", "")
+    status_key = (s.get("status") or "unknown").lower()
+    pill_text, _ = STATUS_PILLS.get(status_key, STATUS_PILLS["unknown"])
+    # pill_text is like "✓ COMPLETED" — take the leading symbol only
+    symbol = pill_text.split()[0] if pill_text else "?"
+
+    # Human-readable checkpoint label from the steps mirror
+    checkpoint_key = s.get("checkpoint", "")
+    checkpoint_label = next(
+        (label for key, label in CHECKPOINT_STEPS if key == checkpoint_key),
+        checkpoint_key,
+    )
+
+    # Date from ISO created_at ("2026-06-30T14:23:45+00:00" → "Jun 30 14:23")
+    created_at_raw = s.get("created_at", "")
+    date_str = ""
+    if created_at_raw:
+        try:
+            dt = datetime.fromisoformat(created_at_raw).astimezone(timezone.utc)
+            date_str = dt.strftime("%b %d %H:%M")
+        except ValueError:
+            date_str = created_at_raw[:16]
+
+    status_col = f"{symbol} {status_key.upper():<12}"
+    date_col = f"{date_str:<14}" if date_str else " " * 14
+    return f"{status_col}  {gid[:22]:<24}  {date_col}  {checkpoint_label}"
+
+
 class SessionsScreen(_SpecFlowScreen):
-    """Picker across active generation sessions."""
+    """Picker across all recent generation sessions (active and completed)."""
 
     BINDINGS = [
         Binding("r", "reload", "reload"),
@@ -677,7 +711,7 @@ class SessionsScreen(_SpecFlowScreen):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Static("SpecFlow · sessions   (↑/↓ select · ↵ open)", id="sessions-title")
+        yield Static("SpecFlow · sessions   (↑/↓ select · ↵ open · r reload)", id="sessions-title")
         yield ListView(id="sessions-list")
         yield Footer()
 
@@ -695,12 +729,13 @@ class SessionsScreen(_SpecFlowScreen):
             self.notify(f"Could not list sessions: {exc}", severity="warning")
             return
         if not sessions:
-            await listview.append(ListItem(Label("No active generation sessions.")))
+            await listview.append(ListItem(Label("No generation sessions found.")))
             return
         for s in sessions:
-            gid = s["generation_id"]
-            label = f"{gid[:18]:<20}  {s.get('status', '?'):<12}  {s.get('checkpoint', '')}"
-            await listview.append(_SessionItem(gid, label))
+            gid = s.get("generation_id", "")
+            if not gid:
+                continue
+            await listview.append(_SessionItem(gid, _session_label(s)))
 
     def action_reload(self) -> None:
         self.call_later(self.reload_sessions)
@@ -1585,16 +1620,21 @@ def _plain_status(payload: dict[str, Any] | None, generation_id: str) -> str:
 async def run_tui(args) -> int:
     """Resolve the session and launch the TUI (or print plain status if non-TTY)."""
     given = Path(getattr(args, "root_path", None) or Path.cwd()).resolve()
-    # For self-host the project dir is the repo; prefer the repo root when found
-    # so .env / .specflow-local / the init script all resolve consistently.
-    root = local_env.repo_root(given) or given
-    set_project_root(root)
-    generation_id = resolve_generation_id(getattr(args, "generation_id", None), root)
+    # Locate the self-host checkout from cwd or, failing that, from this install's
+    # own location — an editable `uv tool install` runs from the clone, so the
+    # TUI works from any folder with no init step. `.env` / `.specflow-local` /
+    # the init script all resolve against this root.
+    root = local_env.resolve_repo_root(given)
+    # Headless status doesn't need the checkout — fall back to the given dir so it
+    # still works from any project folder that has config.
+    effective_root = root or given
+    set_project_root(effective_root)
+    generation_id = resolve_generation_id(getattr(args, "generation_id", None), effective_root)
     poll_interval = getattr(args, "interval", None) or DEFAULT_POLL_INTERVAL
 
     # Non-interactive fallback: never construct the full-screen app.
     if not sys.stdout.isatty():
-        if not local_env.is_setup_complete(root):
+        if not local_env.is_setup_complete(effective_root):
             print("SpecFlow isn't set up yet. Run `specflow init` first.")
             return 1
         if not generation_id:
@@ -1605,6 +1645,25 @@ async def run_tui(args) -> int:
         payload = await poll_once(generation_id)
         print(_plain_status(payload, generation_id))
         return 0
+
+    # Interactive launch requires the SpecFlow checkout: the TUI is the local
+    # control surface for a self-hosted stack (onboarding runs the init script,
+    # the gate starts the docker-compose stack). Outside a checkout the in-app
+    # gate can only notify-and-exit, which tears the screen down before the
+    # toast paints — so the user sees the app flash open and close with no
+    # message. Refuse here with a visible, actionable line instead.
+    if root is None:
+        print(
+            "`specflow tui` is the local control surface for a self-hosted "
+            "SpecFlow stack, so it needs your SpecFlow checkout — none was found.\n"
+            "  • Self-hosting? Run this from inside your clone, pass --root-path "
+            "pointing at it, or install the CLI from the clone with "
+            "`uv tool install --editable ./mcp_server`.\n"
+            "  • Using a remote SpecFlow backend? The TUI doesn't apply — drive "
+            "generations through the MCP tools / CLI instead.",
+            file=sys.stderr,
+        )
+        return 1
 
     app = SpecFlowTUI(root=root, generation_id=generation_id, poll_interval=poll_interval)
     await app.run_async()

@@ -107,6 +107,40 @@ class TestRepoRoot:
         assert local_env.repo_root(tmp_path) is None
 
 
+class TestResolveRepoRoot:
+    def test_installed_repo_root_finds_real_checkout(self):
+        # The test suite runs from the clone, so the package's own location
+        # resolves to a checkout containing both sentinels.
+        root = local_env.installed_repo_root()
+        assert root is not None
+        for name in local_env.SENTINEL_FILES:
+            assert (root / name).exists()
+
+    def test_resolve_prefers_cwd_walk_up(self, tmp_path):
+        (tmp_path / "specflow-init.sh").write_text("#!/bin/bash\n")
+        (tmp_path / "docker-compose.yml").write_text("services: {}\n")
+        # cwd walk-up wins even though installed_repo_root would also return one.
+        assert local_env.resolve_repo_root(tmp_path) == tmp_path
+
+    def test_resolve_falls_back_to_installed(self, tmp_path):
+        nested = tmp_path / "not-a-checkout"
+        nested.mkdir()
+        with (
+            patch.object(local_env, "repo_root", return_value=None),
+            patch.object(local_env, "installed_repo_root", return_value=tmp_path),
+        ):
+            assert local_env.resolve_repo_root(nested) == tmp_path
+
+    def test_resolve_none_when_neither(self, tmp_path):
+        nested = tmp_path / "x"
+        nested.mkdir()
+        with (
+            patch.object(local_env, "repo_root", return_value=None),
+            patch.object(local_env, "installed_repo_root", return_value=None),
+        ):
+            assert local_env.resolve_repo_root(nested) is None
+
+
 class TestSetupDetection:
     def test_is_setup_complete_requires_both(self, tmp_path):
         assert not local_env.is_setup_complete(tmp_path)

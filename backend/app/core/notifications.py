@@ -486,15 +486,12 @@ class Notifications:
                     )
                 else:
                     try:
-                        status = result.summary.risk_assessment.status if result.summary.risk_assessment else "Unknown"
                         final_estimate = result.summary.risk_assessment.final_estimate if result.summary.risk_assessment else result.summary.average_hours
                     except (AttributeError, KeyError):
-                        status = "Unknown"
                         final_estimate = 0.0
 
                     message = (
                         f"Multi-workspace P10Y completed for {spec_path}. "
-                        f"Status: {status}, "
                         f"Final Estimate: {final_estimate:.1f}h"
                     )
                     notifier.notify(message, recipient_email=recipient_email)

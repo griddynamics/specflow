@@ -326,13 +326,14 @@ async def cmd_download_outputs(args: argparse.Namespace) -> int:
 def _render_sessions_table(sessions: list[dict]) -> None:
     """Print a sessions table to stdout."""
     if not sessions:
-        print("No active generation sessions.")
+        print("No generation sessions found.")
         return
-    header = f"{'GENERATION ID':<40}  {'STATUS':<16}  {'CHECKPOINT'}"
+    header = f"{'GENERATION ID':<40}  {'STATUS':<16}  {'CREATED':<20}  {'CHECKPOINT'}"
     print(header)
     print("-" * len(header))
     for s in sessions:
-        print(f"{s['generation_id']:<40}  {s['status']:<16}  {s.get('checkpoint', '')}")
+        created = s.get("created_at", "")[:16].replace("T", " ") if s.get("created_at") else ""
+        print(f"{s['generation_id']:<40}  {s['status']:<16}  {created:<20}  {s.get('checkpoint', '')}")
 
 
 async def cmd_sessions(args: argparse.Namespace) -> int:
@@ -434,14 +435,18 @@ async def cmd_tui(args: argparse.Namespace) -> int:
 async def cmd_init(args: argparse.Namespace) -> int:
     """init: one-shot local bootstrap — wraps specflow-init.sh end to end."""
     start = Path(args.root_path).expanduser().resolve() if args.root_path else None
-    root = local_env.repo_root(start)
+    # Resolve from cwd, else from this install's own checkout (editable installs
+    # run from the clone), so `specflow init` is reachable from any folder.
+    root = local_env.resolve_repo_root(start)
     if root is None:
         print(
-            "ERROR: Run `specflow init` from inside a SpecFlow checkout.\n"
-            f"  Couldn't find {' + '.join(local_env.SENTINEL_FILES)} walking up from "
-            f"{(start or Path.cwd())}.\n"
+            "ERROR: Couldn't locate a SpecFlow checkout.\n"
+            f"  No {' + '.join(local_env.SENTINEL_FILES)} found walking up from "
+            f"{(start or Path.cwd())}, and this CLI isn't installed editable from a "
+            "checkout.\n"
             "  The local bootstrap needs the repo (docker-compose.yml, the backend "
-            "Dockerfile, and scripts/).",
+            "Dockerfile, and scripts/) — run from your clone or `uv tool install "
+            "--editable ./mcp_server`.",
             file=sys.stderr,
         )
         return 1

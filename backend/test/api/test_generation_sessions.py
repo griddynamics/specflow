@@ -5,8 +5,10 @@ Tests session status, retry, cancel, run, and download endpoints.
 """
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 import pytest
 
@@ -15,8 +17,10 @@ from app.api.v1.generation_sessions import (
     get_generation_session_retry_service,
     get_generation_session_service,
     get_workspace_pool,
+    list_generation_sessions,
     router as generation_sessions_router,
 )
+from app.database.memory import InMemoryDatabase
 from app.services.contract_validator import ContractRejection
 from app.services.contract_validator import RejectionCode
 from app.schemas.generation_workflow_enums import GenerationCheckpoint, GenerationStatus
@@ -282,7 +286,7 @@ class TestGetGenerationStatus:
             "status": "running",
             "user_email": "u@example.com",
             "workspace_ids": ["ws-01-1", "ws-01-2"],
-            "parameters": {"workspace_count": 2},
+            "parameters": {"workspace_count": 2, "LLM_MEDIUM": "test/codegen-a,test/codegen-b"},
             "progress": {},
             "error": None,
             "workspace_phases": {
@@ -318,12 +322,14 @@ class TestGetGenerationStatus:
             "last_completed_phase": 2,
             "total_phases": 3,
             "phase_name": "Frontend",
+            "models": ["test/codegen-a"],
         }
-        # No planning data → empty phase name, counters still present.
+        # No planning data → empty phase name; configured codegen model still shown.
         assert wp["ws-01-2"] == {
             "last_completed_phase": 0,
             "total_phases": 3,
             "phase_name": "",
+            "models": ["test/codegen-b"],
         }
         # Heavy planning_data must not leak into the polled response.
         assert "planning_data" not in wp["ws-01-1"]
@@ -387,7 +393,7 @@ class TestGetGenerationStatus:
             "status": "running",
             "user_email": "u@example.com",
             "workspace_ids": ["ws-01-1", "ws-01-2"],
-            "parameters": {"workspace_count": 2},
+            "parameters": {"workspace_count": 2, "LLM_MEDIUM": "test/codegen-a,test/codegen-b"},
             "progress": {},
             "error": None,
             # Both at phase 0 → working on generation phase 1.
@@ -437,18 +443,15 @@ class TestGetGenerationStatus:
             "total_tokens": 1650,
         }
         assert wp["ws-01-1"]["models"] == ["claude-sonnet-4"]
-        # ws-01-2 has no usage yet → stays lean (phase counters only).
+        # ws-01-2 has no recorded usage yet → configured codegen model for index 1.
+        assert wp["ws-01-2"]["models"] == ["test/codegen-b"]
         assert "usage" not in wp["ws-01-2"]
-        assert "models" not in wp["ws-01-2"]
 
     def test_status_workspace_usage_uses_full_lifetime_aggregate(
         self, client, mock_generation_session_service
     ):
-        """The per-workspace usage/model view is the workspace's full lifetime
-        aggregate across every workflow that ran on it. Here the markdown→JSON
-        converter ran before KB init and KB init itself has recorded usage, so the
-        panel shows both combined (turns/tokens summed, both models listed) — the
-        general workspace usage, not a single active-step scope."""
+        """Per-workspace usage is the full lifetime aggregate; models are scoped to
+        the active step (KB init here) so earlier converter models do not leak."""
         generation_id = "est-scoped"
         doc = {
             "generation_id": generation_id,
@@ -511,9 +514,8 @@ class TestGetGenerationStatus:
 
         assert response.status_code == 200
         wp = response.json()["workspace_phases"]
-        # Full aggregate: the converter's Haiku and KB-init's Opus are both
-        # surfaced, with turns/tokens summed across the two workflows.
-        assert wp["ws-01-1"]["models"] == ["claude-haiku-4.5", "claude-opus-4.5"]
+        # Usage: full aggregate across converter + KB init.
+        assert wp["ws-01-1"]["models"] == ["claude-opus-4.5"]
         assert wp["ws-01-1"]["usage"]["num_turns"] == 4
         assert wp["ws-01-1"]["usage"]["total_tokens"] == 1305
         assert wp["ws-01-1"]["phase_name"] == "Knowledge Base Initialization with Rosetta"
@@ -531,7 +533,7 @@ class TestGetGenerationStatus:
             "status": "running",
             "user_email": "u@example.com",
             "workspace_ids": ["ws-01-1"],
-            "parameters": {"workspace_count": 1},
+            "parameters": {"workspace_count": 1, "LLM_MEDIUM": "test/codegen-a"},
             "progress": {},
             "error": None,
             # Past KB_INIT_DONE, working on generation phase 1 (nothing completed).
@@ -572,11 +574,63 @@ class TestGetGenerationStatus:
 
         assert response.status_code == 200
         wp = response.json()["workspace_phases"]
-        # Fallback surfaces the kb_init usage/model even though the active scope is
-        # generation phase 1 (which has no usage yet).
+        # Usage: still the kb_init aggregate; models: active generation phase (no
+        # recorded usage yet) → configured codegen model, not prior kb_init Opus.
         assert wp["ws-01-1"]["usage"]["num_turns"] == 4
         assert wp["ws-01-1"]["usage"]["total_tokens"] == 1290
-        assert wp["ws-01-1"]["models"] == ["claude-opus-4.5"]
+        assert wp["ws-01-1"]["models"] == ["test/codegen-a"]
+
+    def test_status_workspace_models_fallback_while_kb_init_in_flight(
+        self, client, mock_generation_session_service
+    ):
+        """During KB init (no usage flushed yet) the model row shows the configured
+        HIGH-tier model, not Haiku from the earlier plan converter."""
+        generation_id = "est-kb-model"
+        doc = {
+            "generation_id": generation_id,
+            "status": "running",
+            "user_email": "u@example.com",
+            "workspace_ids": ["ws-01-1"],
+            "parameters": {"workspace_count": 1, "LLM_HIGH": "test/planning-model"},
+            "progress": {},
+            "error": None,
+            "workspace_phases": {
+                "ws-01-1": {"last_completed_phase": 0, "total_phases": 3, "planning_data": {}},
+            },
+            "workflow_usage_metrics": {
+                "markdown_to_json_converter": {
+                    "workspaces": {
+                        "ws-01-1": {
+                            "models": {
+                                "claude-haiku-4.5": {
+                                    "model_name": "claude-haiku-4.5",
+                                    "num_turns": 1,
+                                    "input_tokens": 20,
+                                    "output_tokens": 10,
+                                    "cache_write_tokens": 0,
+                                    "cache_read_tokens": 0,
+                                }
+                            }
+                        }
+                    }
+                },
+            },
+        }
+        mock_generation_session_service.get_generation_session_status = AsyncMock(return_value=doc)
+        mock_generation_session_service.get_checkpoint = Mock(
+            return_value=GenerationCheckpoint.CONTRACT_VALIDATED
+        )
+        mock_generation_session_service.get_current_phase_name = Mock(return_value="kb_init")
+
+        response = client.get(
+            f"/api/v1/generation-sessions/{generation_id}/status",
+            headers={"X-API-Key": "test-key"},
+        )
+
+        assert response.status_code == 200
+        wp = response.json()["workspace_phases"]
+        assert wp["ws-01-1"]["models"] == ["test/planning-model"]
+        assert wp["ws-01-1"]["usage"]["num_turns"] == 1
 
     def test_status_workspace_usage_surfaces_pre_kb_converter_usage(
         self, client, mock_generation_session_service
@@ -591,7 +645,7 @@ class TestGetGenerationStatus:
             "status": "running",
             "user_email": "u@example.com",
             "workspace_ids": ["ws-01-1"],
-            "parameters": {"workspace_count": 1},
+            "parameters": {"workspace_count": 1, "LLM_MEDIUM": "test/codegen-a"},
             "progress": {},
             "error": None,
             "workspace_phases": {
@@ -629,8 +683,9 @@ class TestGetGenerationStatus:
 
         assert response.status_code == 200
         wp = response.json()["workspace_phases"]
-        # The pre-KB converter usage is part of the workspace aggregate and shows.
-        assert wp["ws-01-1"]["models"] == ["claude-haiku-4.5"]
+        # Converter usage is in the lifetime aggregate; models show the active codegen
+        # step (configured model), not the earlier converter Haiku.
+        assert wp["ws-01-1"]["models"] == ["test/codegen-a"]
         assert wp["ws-01-1"]["usage"]["num_turns"] == 1
         assert wp["ws-01-1"]["usage"]["total_tokens"] == 30
 
@@ -1759,3 +1814,103 @@ class TestStreamWorkspaceMessages:
             assert second.startswith("data: ")
         finally:
             await agen.aclose()
+
+
+class TestListGenerationSessions:
+    """GET /generation-sessions/ — list active + completed sessions for the caller's key."""
+
+    @staticmethod
+    def _request(api_key):
+        return SimpleNamespace(state=SimpleNamespace(api_key=api_key))
+
+    @pytest.mark.asyncio
+    async def test_lists_by_key_uid_newest_first_with_slimmed_phases(self):
+        """key_uid path: newest-first, completed/failed included, only own key, phases slimmed."""
+        db = InMemoryDatabase()
+        db.set("api_keys", "key-doc-1", {"key_uid": "uid-1"})
+        older = datetime(2026, 6, 29, 10, 0, tzinfo=timezone.utc)
+        newer = datetime(2026, 6, 30, 10, 0, tzinfo=timezone.utc)
+        db.set(COL_GENERATION_SESSIONS, "est-old", {
+            "generation_id": "est-old", "key_uid": "uid-1",
+            "status": GenerationStatus.COMPLETED.value, "checkpoint": "estimation_done",
+            "created_at": older,
+            "workspace_phases": {
+                "ws-01-1": {"last_completed_phase": 3, "phase_name": "Payments",
+                            "planning_data": {"big": "drop me"}},
+            },
+        })
+        db.set(COL_GENERATION_SESSIONS, "est-new", {
+            "generation_id": "est-new", "key_uid": "uid-1",
+            "status": GenerationStatus.FAILED.value, "checkpoint": "generation_started",
+            "created_at": newer, "current_phase": "Generating", "workspace_phases": {},
+        })
+        # A session belonging to a different key must not leak into the result.
+        db.set(COL_GENERATION_SESSIONS, "est-other", {
+            "generation_id": "est-other", "key_uid": "uid-2",
+            "status": GenerationStatus.RUNNING.value, "created_at": newer,
+        })
+
+        result = await list_generation_sessions(request=self._request("key-doc-1"), db=db, limit=50)
+
+        assert [s.generation_id for s in result] == ["est-new", "est-old"]
+        assert result[0].status == GenerationStatus.FAILED.value
+        assert result[0].current_phase == "Generating"
+        assert result[1].status == GenerationStatus.COMPLETED.value
+        assert result[1].created_at == older.isoformat()
+        # workspace_phases is slimmed: summary fields kept, planning_data dropped.
+        ws = result[1].workspace_phases["ws-01-1"]
+        assert ws.last_completed_phase == 3
+        assert ws.phase_name == "Payments"
+        assert not hasattr(ws, "planning_data")
+
+    @pytest.mark.asyncio
+    async def test_limit_caps_results_to_newest(self):
+        db = InMemoryDatabase()
+        db.set("api_keys", "key-doc-1", {"key_uid": "uid-1"})
+        for i, day in enumerate((28, 29, 30)):
+            db.set(COL_GENERATION_SESSIONS, f"est-{day}", {
+                "generation_id": f"est-{day}", "key_uid": "uid-1",
+                "status": GenerationStatus.COMPLETED.value,
+                "created_at": datetime(2026, 6, day, tzinfo=timezone.utc),
+            })
+
+        result = await list_generation_sessions(request=self._request("key-doc-1"), db=db, limit=1)
+
+        assert [s.generation_id for s in result] == ["est-30"]
+
+    @pytest.mark.asyncio
+    async def test_fallback_resolves_real_status_when_no_key_uid(self):
+        """No-key_uid keys hit the lease-snapshot fallback, which must resolve real status."""
+        db = InMemoryDatabase()
+        now = datetime.now(timezone.utc)
+        db.set("api_keys", "key-doc-legacy", {
+            "max_concurrent_sessions": 5,
+            "active_generation_sessions": [
+                {"generation_id": "est-active", "operation": "generation",
+                 "lease_started_at": now, "lease_ttl_minutes": 480},
+            ],
+        })
+        db.set(COL_GENERATION_SESSIONS, "est-active", {
+            "generation_id": "est-active", "status": GenerationStatus.RUNNING.value,
+            "checkpoint": "generation_started", "created_at": now, "current_phase": "Generating",
+        })
+
+        result = await list_generation_sessions(request=self._request("key-doc-legacy"), db=db, limit=50)
+
+        assert len(result) == 1
+        assert result[0].generation_id == "est-active"
+        # The whole point of finding #4: never a flat "unknown" — resolve the real doc status.
+        assert result[0].status == GenerationStatus.RUNNING.value
+        assert result[0].current_phase == "Generating"
+
+    @pytest.mark.asyncio
+    async def test_unauthenticated_returns_401(self):
+        with pytest.raises(HTTPException) as exc:
+            await list_generation_sessions(request=self._request(None), db=InMemoryDatabase(), limit=50)
+        assert exc.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_unknown_api_key_returns_404(self):
+        with pytest.raises(HTTPException) as exc:
+            await list_generation_sessions(request=self._request("nope"), db=InMemoryDatabase(), limit=50)
+        assert exc.value.status_code == 404

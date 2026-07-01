@@ -131,6 +131,8 @@ def resolve_api_credentials() -> tuple[str, str]:
         env={
             **os.environ,
             "FIRESTORE_EMULATOR_HOST": os.getenv("FIRESTORE_EMULATOR_HOST", "localhost:8080"),
+            "GCP_PROJECT_ID": os.getenv("GCP_PROJECT_ID", "local-dev"),
+            "FIRESTORE_DATABASE_NAME": os.getenv("FIRESTORE_DATABASE_NAME", "specflow"),
             "DATABASE_TYPE": "emulator",
         },
     )

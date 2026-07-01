@@ -236,8 +236,8 @@ class Settings(BaseSettings):
     # Values follow OpenRouter naming convention: provider/model (e.g., anthropic/claude-opus-4.5)
     # Can be comma-separated for multiple models (used in multi-workspace generation for variance reduction)
     # Set LLM_HIGH / LLM_MEDIUM / LLM_LOW env vars to override defaults.
-    LLM_HIGH: str = "anthropic/claude-opus-4.6"
-    LLM_MEDIUM: str = "anthropic/claude-sonnet-4.6,openai/gpt-5.3-codex,anthropic/claude-haiku-4.5"
+    LLM_HIGH: str = "anthropic/claude-opus-4.8"
+    LLM_MEDIUM: str = "anthropic/claude-sonnet-4.6,openai/gpt-5.5,z-ai/glm-5.2"
     LLM_LOW: str = LLM_LOW_DEFAULT_FIRST_MODEL
 
     # Workspace Count Configuration
