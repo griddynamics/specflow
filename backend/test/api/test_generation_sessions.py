@@ -5,8 +5,10 @@ Tests session status, retry, cancel, run, and download endpoints.
 """
 
 from datetime import datetime, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 import pytest
 
@@ -15,8 +17,10 @@ from app.api.v1.generation_sessions import (
     get_generation_session_retry_service,
     get_generation_session_service,
     get_workspace_pool,
+    list_generation_sessions,
     router as generation_sessions_router,
 )
+from app.database.memory import InMemoryDatabase
 from app.services.contract_validator import ContractRejection
 from app.services.contract_validator import RejectionCode
 from app.schemas.generation_workflow_enums import GenerationCheckpoint, GenerationStatus
@@ -1810,3 +1814,103 @@ class TestStreamWorkspaceMessages:
             assert second.startswith("data: ")
         finally:
             await agen.aclose()
+
+
+class TestListGenerationSessions:
+    """GET /generation-sessions/ — list active + completed sessions for the caller's key."""
+
+    @staticmethod
+    def _request(api_key):
+        return SimpleNamespace(state=SimpleNamespace(api_key=api_key))
+
+    @pytest.mark.asyncio
+    async def test_lists_by_key_uid_newest_first_with_slimmed_phases(self):
+        """key_uid path: newest-first, completed/failed included, only own key, phases slimmed."""
+        db = InMemoryDatabase()
+        db.set("api_keys", "key-doc-1", {"key_uid": "uid-1"})
+        older = datetime(2026, 6, 29, 10, 0, tzinfo=timezone.utc)
+        newer = datetime(2026, 6, 30, 10, 0, tzinfo=timezone.utc)
+        db.set(COL_GENERATION_SESSIONS, "est-old", {
+            "generation_id": "est-old", "key_uid": "uid-1",
+            "status": GenerationStatus.COMPLETED.value, "checkpoint": "estimation_done",
+            "created_at": older,
+            "workspace_phases": {
+                "ws-01-1": {"last_completed_phase": 3, "phase_name": "Payments",
+                            "planning_data": {"big": "drop me"}},
+            },
+        })
+        db.set(COL_GENERATION_SESSIONS, "est-new", {
+            "generation_id": "est-new", "key_uid": "uid-1",
+            "status": GenerationStatus.FAILED.value, "checkpoint": "generation_started",
+            "created_at": newer, "current_phase": "Generating", "workspace_phases": {},
+        })
+        # A session belonging to a different key must not leak into the result.
+        db.set(COL_GENERATION_SESSIONS, "est-other", {
+            "generation_id": "est-other", "key_uid": "uid-2",
+            "status": GenerationStatus.RUNNING.value, "created_at": newer,
+        })
+
+        result = await list_generation_sessions(request=self._request("key-doc-1"), db=db, limit=50)
+
+        assert [s.generation_id for s in result] == ["est-new", "est-old"]
+        assert result[0].status == GenerationStatus.FAILED.value
+        assert result[0].current_phase == "Generating"
+        assert result[1].status == GenerationStatus.COMPLETED.value
+        assert result[1].created_at == older.isoformat()
+        # workspace_phases is slimmed: summary fields kept, planning_data dropped.
+        ws = result[1].workspace_phases["ws-01-1"]
+        assert ws.last_completed_phase == 3
+        assert ws.phase_name == "Payments"
+        assert not hasattr(ws, "planning_data")
+
+    @pytest.mark.asyncio
+    async def test_limit_caps_results_to_newest(self):
+        db = InMemoryDatabase()
+        db.set("api_keys", "key-doc-1", {"key_uid": "uid-1"})
+        for i, day in enumerate((28, 29, 30)):
+            db.set(COL_GENERATION_SESSIONS, f"est-{day}", {
+                "generation_id": f"est-{day}", "key_uid": "uid-1",
+                "status": GenerationStatus.COMPLETED.value,
+                "created_at": datetime(2026, 6, day, tzinfo=timezone.utc),
+            })
+
+        result = await list_generation_sessions(request=self._request("key-doc-1"), db=db, limit=1)
+
+        assert [s.generation_id for s in result] == ["est-30"]
+
+    @pytest.mark.asyncio
+    async def test_fallback_resolves_real_status_when_no_key_uid(self):
+        """No-key_uid keys hit the lease-snapshot fallback, which must resolve real status."""
+        db = InMemoryDatabase()
+        now = datetime.now(timezone.utc)
+        db.set("api_keys", "key-doc-legacy", {
+            "max_concurrent_sessions": 5,
+            "active_generation_sessions": [
+                {"generation_id": "est-active", "operation": "generation",
+                 "lease_started_at": now, "lease_ttl_minutes": 480},
+            ],
+        })
+        db.set(COL_GENERATION_SESSIONS, "est-active", {
+            "generation_id": "est-active", "status": GenerationStatus.RUNNING.value,
+            "checkpoint": "generation_started", "created_at": now, "current_phase": "Generating",
+        })
+
+        result = await list_generation_sessions(request=self._request("key-doc-legacy"), db=db, limit=50)
+
+        assert len(result) == 1
+        assert result[0].generation_id == "est-active"
+        # The whole point of finding #4: never a flat "unknown" — resolve the real doc status.
+        assert result[0].status == GenerationStatus.RUNNING.value
+        assert result[0].current_phase == "Generating"
+
+    @pytest.mark.asyncio
+    async def test_unauthenticated_returns_401(self):
+        with pytest.raises(HTTPException) as exc:
+            await list_generation_sessions(request=self._request(None), db=InMemoryDatabase(), limit=50)
+        assert exc.value.status_code == 401
+
+    @pytest.mark.asyncio
+    async def test_unknown_api_key_returns_404(self):
+        with pytest.raises(HTTPException) as exc:
+            await list_generation_sessions(request=self._request("nope"), db=InMemoryDatabase(), limit=50)
+        assert exc.value.status_code == 404

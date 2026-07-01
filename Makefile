@@ -12,6 +12,10 @@ WORKSPACE_MOUNT_PATH ?= ./workspaces
 
 BACKEND_URL ?= http://localhost:8000
 FIRESTORE_EMULATOR_HOST ?= localhost:8080
+# Must match docker-compose.yml defaults so host-side seeding/tests see the same
+# named Firestore database as the backend container (quickstart sets these via specflow-init.sh).
+GCP_PROJECT_ID ?= local-dev
+FIRESTORE_DATABASE_NAME ?= specflow
 E2E_WORKSPACE_COUNT ?= 3
 
 # Workspace-pool repos used to prefill the test Firestore (init_firestore.py). REQUIRED: there are
@@ -53,6 +57,8 @@ $(TEST_STACK_TARGETS): export SPECFLOW_BACKEND_PORT := 18000
 $(TEST_STACK_TARGETS): export SPECFLOW_FIRESTORE_PORT := 18080
 $(TEST_STACK_TARGETS): export BACKEND_URL := http://localhost:18000
 $(TEST_STACK_TARGETS): export FIRESTORE_EMULATOR_HOST := localhost:18080
+$(TEST_STACK_TARGETS): export GCP_PROJECT_ID := $(GCP_PROJECT_ID)
+$(TEST_STACK_TARGETS): export FIRESTORE_DATABASE_NAME := $(FIRESTORE_DATABASE_NAME)
 
 # Guard reused by every e2e target: fail fast (before building/starting anything) with a clear,
 # actionable message when the user hasn't supplied their own test repos.
@@ -268,12 +274,10 @@ integration-tests:
 	@$(MAKE) run-detached
 	@echo "⏳ Waiting for services to be ready..."
 	@sleep 5
-	@echo "🧪 Running integration tests (Firestore Emulator)..."
+	@echo "🧪 Running integration tests (Firestore Emulator, database=$(FIRESTORE_DATABASE_NAME))..."
 	@cd backend && \
 		DATABASE_TYPE=emulator \
 		AUTH_MODE=api_key \
-		FIRESTORE_EMULATOR_HOST=$(FIRESTORE_EMULATOR_HOST) \
-		GCP_PROJECT_ID=local-dev \
 		RUN_GIT_INTEGRATION_TESTS=1 \
 		uv run pytest test/ -v --cov=app
 	@echo "✅ Integration tests passed"
@@ -298,14 +302,12 @@ e2e-setup:
 		echo "   Attempt $$i/10..."; \
 		sleep 2; \
 	done
-	@echo "🔧 Initializing Firestore database..."
+	@echo "🔧 Initializing Firestore database (database=$(FIRESTORE_DATABASE_NAME))..."
 	@cd backend && \
-		FIRESTORE_EMULATOR_HOST=$(FIRESTORE_EMULATOR_HOST) \
 		GITHUB_TOKEN=$${GITHUB_TOKEN:-} \
 		uv run scripts/init_firestore.py $(INIT_FIRESTORE_ARGS) || (echo "⚠️  Firestore initialization failed. Services may still be starting. Retry with: make init-firestore" && exit 1)
 	@echo "🔑 Fetching API key..."
 	@cd backend && \
-		FIRESTORE_EMULATOR_HOST=$(FIRESTORE_EMULATOR_HOST) \
 		uv run python ../scripts/get-api-key.py || (echo "⚠️  Could not fetch API key" && exit 1)
 	@echo "📝 Creating example specifications..."
 	@./scripts/create-example-specs.sh /tmp/specflow-e2e-specs

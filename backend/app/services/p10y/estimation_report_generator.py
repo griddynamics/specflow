@@ -334,17 +334,14 @@ def format_multi_workspace_report(
     # Risk Assessment Section
     if summary.risk_assessment:
         risk = summary.risk_assessment
-        status_emoji = "✅" if risk.status == "Approved" else "⚠️"
         report_sections.append(f"""
-### Risk Assessment {status_emoji}
+### Risk Assessment
 
-**Estimation Status**: {risk.status}  
 **Final Estimate**: {risk.final_estimate:.1f}h (with {risk.total_buffer_pct*100:.1f}% buffer)
 
 #### Gatekeeping Metrics
 - **Instability Ratio**: {risk.instability_ratio*100:.1f}%
 - **Rejection Threshold**: {risk.rejection_threshold*100:.1f}%
-- **Status**: {risk.status} ({'Within acceptable variance' if risk.status == 'Approved' else 'Variance exceeds threshold'})
 
 #### Buffer Breakdown
 - **Base Buffer**: {risk.base_component*100:.1f}%
@@ -371,7 +368,6 @@ def format_multi_workspace_report(
     report_sections.append(f"| Variance Assessment | {summary.variance_assessment.upper()} |\n")
     
     if summary.risk_assessment:
-        report_sections.append(f"| Estimation Status | {summary.risk_assessment.status} |\n")
         report_sections.append(f"| Total Buffer | {summary.risk_assessment.total_buffer_pct*100:.1f}% |\n")
         report_sections.append(f"| Final Estimate | {summary.risk_assessment.final_estimate:.1f}h |\n")
     
