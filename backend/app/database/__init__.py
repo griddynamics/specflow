@@ -2,9 +2,10 @@
 Database abstraction layer for SpecFlow backend.
 
 Provides a unified interface for database operations with support for:
-- Production: Cloud Firestore
-- Development: Firestore Emulator
+- Local / Docker dev (default): SQLite (single-writer, persistent)
+- Production, or connecting to an already-hosted GCP instance: Firestore
 - Testing: In-memory database
+- Manual Firestore-emulator use (not started by docker-compose): Emulator
 
 The factory pattern selects the appropriate implementation based on environment configuration.
 
@@ -34,6 +35,7 @@ from app.database.interface import (
 from app.database.memory import InMemoryDatabase
 from app.database.firestore import FirestoreDatabase
 from app.database.emulator import EmulatorDatabase
+from app.database.sqlite import SqliteDatabase
 from app.database.factory import get_database, reset_database, clear_test_data
 from app.database.dependencies import get_db
 
@@ -47,6 +49,7 @@ __all__ = [
     "InMemoryDatabase",
     "FirestoreDatabase",
     "EmulatorDatabase",
+    "SqliteDatabase",
     # Factory functions (recommended way to get database instance)
     "get_database",
     "reset_database",

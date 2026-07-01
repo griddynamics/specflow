@@ -13,9 +13,12 @@ from pathlib import Path
 # Add backend to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
-# Set DATABASE_TYPE early if FIRESTORE_EMULATOR_HOST is set
+# Set DATABASE_TYPE early: emulator auto-detect takes priority (manually-run emulator),
+# otherwise default to sqlite (the local/Docker-dev default).
 if os.getenv("FIRESTORE_EMULATOR_HOST") and not os.getenv("DATABASE_TYPE"):
     os.environ["DATABASE_TYPE"] = "emulator"
+elif not os.getenv("DATABASE_TYPE"):
+    os.environ["DATABASE_TYPE"] = "sqlite"
 
 from app.database.factory import get_database
 
@@ -29,7 +32,7 @@ def main():
         
         if not api_keys:
             print("⚠️  No API keys found in database")
-            print("   Run 'make init-firestore' to create one")
+            print("   Run 'make init-db' to create one")
             sys.exit(1)
         
         # Find active keys

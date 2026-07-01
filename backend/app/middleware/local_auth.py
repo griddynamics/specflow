@@ -1,7 +1,7 @@
 """
 Local authentication middleware for single-user self-hosted mode.
 
-Reads the sentinel api_keys document (doc-id "local") seeded by init_firestore.py
+Reads the sentinel api_keys document (doc-id "local") seeded by init_db.py
 and populates all 7 request.state identity fields without requiring any inbound
 API key header. Intended exclusively for AUTH_MODE=local.
 """
@@ -55,13 +55,13 @@ class LocalAuthMiddleware(BaseHTTPMiddleware):
         if not doc:
             logger.error(
                 "Local identity sentinel doc '%s' missing in api_keys — "
-                "run init_firestore.py to seed it.",
+                "run init_db.py to seed it.",
                 LOCAL_API_KEY_DOC_ID,
             )
             return JSONResponse(
                 content={
                     "detail": (
-                        "Local identity not seeded — run init_firestore.py "
+                        "Local identity not seeded — run init_db.py "
                         "to initialise the local user identity before starting the server."
                     )
                 },
@@ -73,13 +73,13 @@ class LocalAuthMiddleware(BaseHTTPMiddleware):
         if not user_id_raw or not user_name_raw:
             logger.error(
                 "Local sentinel doc '%s' is missing required fields (user_id/user_name) — "
-                "re-run init_firestore.py to re-seed it.",
+                "re-run init_db.py to re-seed it.",
                 LOCAL_API_KEY_DOC_ID,
             )
             return JSONResponse(
                 content={
                     "detail": (
-                        "Local identity is incomplete — re-run init_firestore.py "
+                        "Local identity is incomplete — re-run init_db.py "
                         "to re-seed the local user identity."
                     )
                 },

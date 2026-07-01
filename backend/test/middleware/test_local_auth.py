@@ -200,7 +200,7 @@ def test_missing_sentinel_returns_503(db_empty):
     response = client.get("/protected")
     assert response.status_code == 503
     detail = response.json()["detail"]
-    assert "init_firestore.py" in detail
+    assert "init_db.py" in detail
     assert "Local identity not seeded" in detail
 
 

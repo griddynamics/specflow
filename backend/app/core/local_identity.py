@@ -2,11 +2,11 @@
 Local identity constants for single-user local auth mode.
 
 Single source of truth for the sentinel api_keys document used by
-LocalAuthMiddleware (Phase 3) and init_firestore.py sentinel seeding (Phase 5).
+LocalAuthMiddleware (Phase 3) and init_db.py sentinel seeding (Phase 5).
 """
 
 LOCAL_API_KEY_DOC_ID: str = "local"
-"""Firestore document-id for the local sentinel api_keys doc."""
+"""Document-id for the local sentinel api_keys doc."""
 
 LOCAL_KEY_UID: str = "00000000-10ca-0000-0000-000000000001"
 """

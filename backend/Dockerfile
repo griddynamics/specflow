@@ -104,6 +104,9 @@ RUN uv sync --frozen --no-dev || uv sync --no-dev && \
 
 # Copy application code (preserve the app directory structure)
 COPY app ./app
+# scripts/ (init_db.py etc.) — needed at runtime via `docker compose exec backend
+# .venv/bin/python scripts/init_db.py` (sqlite has no exposed port for host-side seeding).
+COPY scripts ./scripts
 
 # Create .claude directory and copy settings to root's home directory
 RUN mkdir -p /root/.claude

@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
 """
-Firestore Initialization Script
+Database Initialization Script (DB-type aware)
 
 TO BE USED WITH LOCAL TESTING ONLY - `make e2e-setup`
 
-Initializes Firestore database with workspace pool and API keys.
+Seeds the active state backend (selected by DATABASE_TYPE) with the workspace pool,
+API keys, and the local-auth identity sentinel. The seeding body is backend-agnostic —
+it goes through the IDatabase abstraction (get_database()) — so the same script works
+for every backend. Only the per-type precheck differs:
+
+    DATABASE_TYPE=sqlite     -> single local file (no Docker); path = SQLITE_DB_PATH
+    DATABASE_TYPE=emulator   -> requires FIRESTORE_EMULATOR_HOST (manually-run emulator)
+    DATABASE_TYPE=firestore  -> requires GCP_PROJECT_ID (--prod; production, or an
+                                 already-hosted GCP-managed instance)
 
 This script:
 1. Creates a default API key if none exists (solves chicken-and-egg problem)
@@ -14,13 +22,16 @@ This script:
 5. Is idempotent (safe to run multiple times)
 
 Usage:
-    # With Firestore Emulator
+    # Local SQLite (default)
+    python scripts/init_db.py --workspace-config repos.json --yes
+
+    # Manually-run Firestore emulator
     export FIRESTORE_EMULATOR_HOST=localhost:8080
-    python scripts/init_firestore.py
-    
-    # With real Firestore (be careful!)
+    python scripts/init_db.py --workspace-config repos.json --yes
+
+    # Real / already-hosted GCP Firestore (be careful!)
     export GCP_PROJECT_ID=your-project-id
-    python scripts/init_firestore.py --prod
+    python scripts/init_db.py --prod --workspace-config repos.json
 """
 
 import sys
@@ -171,7 +182,7 @@ def initialize_api_key(db: IDatabase, dry_run: bool = False) -> None:
             "permissions": ["admin"],
             "workspace_pool": pool,
             "metadata": {
-                "created_by": "init_firestore.py",
+                "created_by": "init_db.py",
                 "purpose": "bootstrap_key"
             },
             "max_concurrent_sessions": 5,
@@ -620,19 +631,20 @@ def main():
             print("Aborted.")
             sys.exit(0)
     else:
-        # Ensure emulator is set
-        if not os.getenv("FIRESTORE_EMULATOR_HOST"):
+        db_type = os.getenv("DATABASE_TYPE", "memory").lower()
+
+        # Emulator mode needs a reachable host:port; sqlite/memory need no external process.
+        if db_type == "emulator" and not os.getenv("FIRESTORE_EMULATOR_HOST"):
             print("ERROR: FIRESTORE_EMULATOR_HOST not set")
             print("Run: export FIRESTORE_EMULATOR_HOST=localhost:8080")
             sys.exit(1)
 
-        # Check database type (should already be set at import time if FIRESTORE_EMULATOR_HOST was set)
-        db_type = os.getenv("DATABASE_TYPE", "memory").lower()
         print(f"✓ Database type: {db_type}")
         if db_type == "memory":
             print("⚠️  WARNING: DATABASE_TYPE=memory will not persist data!")
-            print("   The script auto-sets DATABASE_TYPE=emulator when FIRESTORE_EMULATOR_HOST is set")
-            print("   If you see this, something went wrong with auto-detection")
+            print("   Set DATABASE_TYPE=sqlite for a persistent local database")
+        elif db_type == "sqlite":
+            print(f"✓ Using SQLite at {settings.SQLITE_DB_PATH}")
         elif db_type == "emulator":
             emulator_host = os.getenv("FIRESTORE_EMULATOR_HOST")
             print(f"✓ Using Firestore Emulator at {emulator_host}")
@@ -675,8 +687,8 @@ def main():
     # Attach GitHub tokens to pool-specific keys
     attach_github_tokens(dry_run=args.dry_run)
 
-    # Reminder about indexes
-    if not args.dry_run and not os.getenv("FIRESTORE_EMULATOR_HOST"):
+    # Reminder about indexes (Firestore production/hosted only; sqlite/emulator need none)
+    if not args.dry_run and db_type == "firestore":
         print("\n" + "="*60)
         print("⚠️  IMPORTANT: Create Firestore Indexes")
         print("="*60)

@@ -3,7 +3,7 @@ Tests for backend/scripts/create_generation_session_repos.py — Phase 6.
 
 Coverage:
   (a) emit_workspace_config writes JSON whose entries each construct a WorkspaceConfig
-      without error, proving schema parity with init_firestore.py --workspace-config.
+      without error, proving schema parity with init_db.py --workspace-config.
   (b) get_repository_ids calls list_repositories WITHOUT project_ids (no filter).
   (c) No code path calls add_repositories_to_project — the function is absent from the
       module and the compiled AST contains no reference to it.
@@ -21,7 +21,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 import scripts.create_generation_session_repos as cgsr
-from scripts.init_firestore import WorkspaceConfig
+from scripts.init_db import WorkspaceConfig
 
 # ---------------------------------------------------------------------------
 # Path constants

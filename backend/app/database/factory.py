@@ -14,6 +14,7 @@ from app.database.interface import IDatabase
 from app.database.memory import InMemoryDatabase
 from app.database.emulator import EmulatorDatabase
 from app.database.firestore import FirestoreDatabase
+from app.database.sqlite import SqliteDatabase
 
 
 # Singleton instance
@@ -29,17 +30,19 @@ def get_database() -> IDatabase:
     
     The implementation is selected based on the DATABASE_TYPE setting:
     - "memory": InMemoryDatabase (for unit tests)
-    - "emulator": EmulatorDatabase (for local development with Firestore Emulator)
-    - "firestore": FirestoreDatabase (for production GCP Firestore)
-    
+    - "sqlite": SqliteDatabase (local/Docker-dev default; single-writer, persistent)
+    - "emulator": EmulatorDatabase (manual Firestore-emulator use; not started by docker-compose)
+    - "firestore": FirestoreDatabase (production, or connecting to an already-hosted GCP instance)
+
     Returns:
         IDatabase: Configured database instance
-        
+
     Raises:
         ValueError: If DATABASE_TYPE is invalid
-        
+
     Environment Variables:
-        DATABASE_TYPE: Type of database to use (memory|emulator|firestore)
+        DATABASE_TYPE: Type of database to use (memory|sqlite|emulator|firestore)
+        SQLITE_DB_PATH: SQLite file path (required for sqlite mode)
         FIRESTORE_EMULATOR_HOST: Emulator host:port (required for emulator mode)
         GCP_PROJECT_ID: GCP project ID (optional for firestore mode)
         
@@ -59,6 +62,8 @@ def get_database() -> IDatabase:
 
     if db_type == DatabaseType.MEMORY:
         _database_instance = InMemoryDatabase()
+    elif db_type == DatabaseType.SQLITE:
+        _database_instance = SqliteDatabase(db_path=settings.SQLITE_DB_PATH)
     elif db_type == DatabaseType.EMULATOR:
         if not settings.FIRESTORE_EMULATOR_HOST:
             raise ValueError(
@@ -79,7 +84,7 @@ def get_database() -> IDatabase:
     else:
         raise ValueError(
             f"Invalid DATABASE_TYPE: {db_type}. "
-            f"Must be one of: memory, emulator, firestore"
+            f"Must be one of: memory, sqlite, emulator, firestore"
         )
     
     return _database_instance
@@ -129,10 +134,10 @@ def clear_test_data(collections: Optional[list[str]] = None) -> None:
     
     # Check if we're in a safe environment
     db_type = settings.DATABASE_TYPE
-    if db_type not in (DatabaseType.MEMORY, DatabaseType.EMULATOR):
+    if db_type not in (DatabaseType.MEMORY, DatabaseType.EMULATOR, DatabaseType.SQLITE):
         raise RuntimeError(
-            f"clear_test_data() should only be used with 'memory' or 'emulator' databases. "
-            f"Current database type: {db_type}"
+            f"clear_test_data() should only be used with 'memory', 'emulator', or 'sqlite' "
+            f"databases. Current database type: {db_type}"
         )
     
     # Call clear_all if the database supports it

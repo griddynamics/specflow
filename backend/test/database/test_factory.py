@@ -9,10 +9,11 @@ import os
 import pytest
 from unittest.mock import patch
 
-from app.database.factory import get_database, reset_database
+from app.database.factory import clear_test_data, get_database, reset_database
 from app.database.memory import InMemoryDatabase
 from app.database.emulator import EmulatorDatabase
 from app.database.firestore import FirestoreDatabase
+from app.database.sqlite import SqliteDatabase
 
 
 @pytest.fixture(autouse=True)
@@ -36,6 +37,19 @@ class TestDatabaseFactory:
                 db = get_database()
                 assert isinstance(db, InMemoryDatabase)
     
+    def test_factory_returns_sqlite_database(self, tmp_path):
+        """Test factory returns SqliteDatabase when DATABASE_TYPE=sqlite."""
+        db_path = str(tmp_path / "specflow.db")
+        with patch.dict(os.environ, {
+            "DATABASE_TYPE": "sqlite",
+            "SQLITE_DB_PATH": db_path,
+        }, clear=True):
+            from app.core.config import Settings
+            with patch("app.database.factory.settings", Settings()):
+                reset_database()
+                db = get_database()
+                assert isinstance(db, SqliteDatabase)
+
     def test_factory_returns_emulator_database(self):
         """Test factory returns EmulatorDatabase when DATABASE_TYPE=emulator."""
         with patch.dict(os.environ, {
@@ -141,6 +155,33 @@ class TestDatabaseFactory:
                     assert isinstance(db, FirestoreDatabase)
                     # Verify Client was called with project=None and the normalized SDK database name
                     mock_client.assert_called_once_with(project=None, database='(default)')
+
+
+class TestClearTestData:
+    """clear_test_data() must accept sqlite (local/test-safe) and reject firestore."""
+
+    def test_clear_test_data_allows_sqlite(self, tmp_path):
+        db_path = str(tmp_path / "specflow.db")
+        with patch.dict(os.environ, {
+            "DATABASE_TYPE": "sqlite",
+            "SQLITE_DB_PATH": db_path,
+        }, clear=True):
+            from app.core.config import Settings
+            with patch("app.database.factory.settings", Settings()):
+                reset_database()
+                db = get_database()
+                db.set("api_keys", "k1", {"foo": "bar"})
+                clear_test_data(["api_keys"])
+                assert db.get("api_keys", "k1") is None
+
+    def test_clear_test_data_rejects_firestore(self):
+        with patch.dict(os.environ, {"DATABASE_TYPE": "firestore"}, clear=True):
+            from app.core.config import Settings
+            with patch("app.database.firestore.firestore.Client"):
+                with patch("app.database.factory.settings", Settings()):
+                    reset_database()
+                    with pytest.raises(RuntimeError, match="should only be used with"):
+                        clear_test_data()
 
 
 class TestDatabaseFactoryIntegration:

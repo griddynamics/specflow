@@ -12,7 +12,7 @@
 #   3. Create .specflow-local/ and write workspaces.json, init.log, mcp-config.json
 #   4. Start the backend stack only (emulator + backend; NOT mcp-server profile)
 #   5. Health-gate: poll /health/ready before seeding
-#   6. Seed Firestore via init_firestore.py
+#   6. Seed Firestore via init_db.py
 #   7. Write .specflow-local/mcp-config.json (keyless IDE MCP-client snippet)
 #   8. Install the local SpecFlow CLI entry point
 #   9. Print manual-install instruction for the user
@@ -500,17 +500,17 @@ if [[ "${RESET_LOCAL_DB}" == "true" ]]; then
 fi
 
 if [[ "${DRY_RUN}" == "true" ]]; then
-    info "[DRY RUN] Would run: FIRESTORE_EMULATOR_HOST=${_FIRESTORE_HOST} uv run scripts/init_firestore.py --dry-run ${_SEED_FLAGS[*]}"
-    log "INFO: [DRY RUN] init_firestore.py --dry-run ${_SEED_FLAGS[*]}"
+    info "[DRY RUN] Would run: FIRESTORE_EMULATOR_HOST=${_FIRESTORE_HOST} uv run scripts/init_db.py --dry-run ${_SEED_FLAGS[*]}"
+    log "INFO: [DRY RUN] init_db.py --dry-run ${_SEED_FLAGS[*]}"
 else
     info "Seeding Firestore emulator ..."
-    log "INFO: Running init_firestore.py ${_SEED_FLAGS[*]} against ${_FIRESTORE_HOST}"
+    log "INFO: Running init_db.py ${_SEED_FLAGS[*]} against ${_FIRESTORE_HOST}"
     (
         cd "${SCRIPT_DIR}/backend"
         FIRESTORE_EMULATOR_HOST="${_FIRESTORE_HOST}" \
-            uv run scripts/init_firestore.py "${_SEED_FLAGS[@]}"
+            uv run scripts/init_db.py "${_SEED_FLAGS[@]}"
     ) > >(log_stream) 2> >(log_stream) \
-        || error "init_firestore.py failed. Check ${LOG_FILE} for details."
+        || error "init_db.py failed. Check ${LOG_FILE} for details."
     info "Firestore seeded successfully."
 fi
 
