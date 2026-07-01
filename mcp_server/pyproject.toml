@@ -2,11 +2,13 @@
 name = "gd-specflow"
 version = "0.2.0"
 description = "SpecFlow MCP Server and CLI — spec-driven AI code generation"
+readme = "README.md"
 requires-python = "==3.13.*"
 license = { text = "MIT" }
 authors = [
     { name = "Adam Wrobel", email = "awrobel@griddynamics.com" },
     { name = "Artsiom Kozak", email = "akozak@griddynamics.com" },
+    { name = "Mateusz Konopelski", email = "mkonopelski@griddynamics.com"}
 ]
 keywords = ["mcp", "ai", "code-generation", "specflow", "llm", "claude"]
 classifiers = [
@@ -37,6 +39,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/griddynamics/specflow"
+Documentation = "https://github.com/griddynamics/specflow/blob/main/README.md"
 Repository = "https://github.com/griddynamics/specflow"
 
 [project.scripts]
