@@ -787,7 +787,7 @@ class ClientSetupScreen(_SpecFlowScreen):
         Binding("d", "show_config", "raw config"),
         Binding("v", "recheck", "re-check", show=False),
         Binding("s", "skip", "skip"),
-        Binding("escape", "skip", "back", show=False),
+        Binding("escape", "skip", "return", show=True),
     ]
 
     def __init__(self) -> None:
@@ -799,7 +799,7 @@ class ClientSetupScreen(_SpecFlowScreen):
         yield Header()
         yield Static(
             "[b]Connect SpecFlow to your AI tool[/b]   "
-            "[dim](↑/↓ select · ↵ connect · d raw config · v re-scan · s skip)[/dim]",
+            "[dim](↑/↓ select · ↵ connect · d raw config · v re-scan · esc return)[/dim]",
             id="client-setup-title",
         )
         yield ListView(id="client-list")
@@ -822,6 +822,16 @@ class ClientSetupScreen(_SpecFlowScreen):
             )
             for r in self._rows
         }
+        # Clients we can read back get probed on mount; show "verifying…" up front
+        # so the row never looks like an idle "press ↵ to connect" the user clicks.
+        for row in self._rows:
+            cid = row.client.client_id
+            if (
+                row.installed
+                and row.client.can_verify
+                and self._status[cid] is mcp_clients.ClientStatus.NOT_CONFIGURED
+            ):
+                self._status[cid] = mcp_clients.ClientStatus.VERIFYING
         listview = self.query_one("#client-list", ListView)
         await listview.clear()
         for row in self._rows:
@@ -855,16 +865,16 @@ class ClientSetupScreen(_SpecFlowScreen):
             result = await local_env.run_command(argv, self.app.root, timeout=15)
             present = result.ok and mcp_clients.verify_passed(result.output)
             current = self._status.get(client.client_id)
-            if present and current is not mcp_clients.ClientStatus.VERIFIED:
-                self._set_status(client.client_id, mcp_clients.ClientStatus.VERIFIED)
-                mcp_clients.save_status(client.client_id, mcp_clients.ClientStatus.VERIFIED)
-            elif not present and current in (
-                mcp_clients.ClientStatus.VERIFIED,
-                mcp_clients.ClientStatus.CONNECTED,
-            ):
-                # It was marked connected before but isn't registered now — forget it.
+            if present:
+                if current is not mcp_clients.ClientStatus.VERIFIED:
+                    self._set_status(client.client_id, mcp_clients.ClientStatus.VERIFIED)
+                    mcp_clients.save_status(client.client_id, mcp_clients.ClientStatus.VERIFIED)
+            else:
+                # Not registered now — resolve the "verifying…" placeholder to a
+                # plain "press ↵ to connect", and forget any stale saved connection.
+                if current in (mcp_clients.ClientStatus.VERIFIED, mcp_clients.ClientStatus.CONNECTED):
+                    mcp_clients.forget_status(client.client_id)
                 self._set_status(client.client_id, mcp_clients.ClientStatus.NOT_CONFIGURED)
-                mcp_clients.forget_status(client.client_id)
         self._render_detail()
 
     def _row_label(self, row: mcp_clients.ClientRow, status: mcp_clients.ClientStatus) -> Text:

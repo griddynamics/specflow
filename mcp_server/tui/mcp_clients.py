@@ -390,6 +390,7 @@ class ClientStatus(Enum):
     NOT_CONFIGURED = "not_configured"  # installed, not connected yet
     CONNECTED = "connected"  # connected in a previous session (from the marker)
     CONNECTING = "connecting"
+    VERIFYING = "verifying"  # background read-back probe in flight (Claude)
     VERIFIED = "verified"  # added and a read-back confirmed it
     ADDED_UNVERIFIED = "added_unverified"  # added but we can't confirm (Cursor/Gemini)
     FAILED = "failed"
@@ -400,6 +401,7 @@ _STATUS_LABELS: dict[ClientStatus, str] = {
     ClientStatus.NOT_CONFIGURED: "press ↵ to connect",
     ClientStatus.CONNECTED: "✓ connected",
     ClientStatus.CONNECTING: "connecting…",
+    ClientStatus.VERIFYING: "verifying connection…",
     ClientStatus.VERIFIED: "✓ connected & verified",
     ClientStatus.ADDED_UNVERIFIED: "added — confirm in your client",
     ClientStatus.FAILED: "failed — press ↵ to retry",
@@ -419,6 +421,7 @@ _STATUS_STYLES: dict[ClientStatus, str] = {
     ClientStatus.NOT_CONFIGURED: "default",
     ClientStatus.CONNECTED: "green",
     ClientStatus.CONNECTING: "yellow",
+    ClientStatus.VERIFYING: "yellow",
     ClientStatus.VERIFIED: "bold green",
     ClientStatus.ADDED_UNVERIFIED: "yellow",
     ClientStatus.FAILED: "bold red",

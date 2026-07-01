@@ -1220,6 +1220,22 @@ class TestClientSetupScreen:
         assert mc.saved_statuses(home=tmp_path)["cursor"] is mc.ClientStatus.ADDED_UNVERIFIED
 
     @pytest.mark.asyncio
+    async def test_verifiable_client_shows_verifying_while_probe_runs(self, tmp_path):
+        # Before the background probe resolves, a verifiable client reads
+        # "verifying…" — never an idle "press ↵ to connect" the user might click.
+        rows = [mc.ClientRow(mc.CLAUDE_CODE, installed=True, saved=None)]
+        app, (a, b, c) = _make_app(tmp_path)
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+            "tui.mcp_clients.client_rows", return_value=rows
+        ), patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                screen = await _push_client_screen(app)
+                await pilot.pause()
+                status = screen._status["claude_code"]
+        assert status is mc.ClientStatus.VERIFYING
+
+    @pytest.mark.asyncio
     async def test_probe_marks_already_registered_claude_verified(self, tmp_path):
         # A user who already added specflow to Claude sees it connected — no re-add.
         rows = [mc.ClientRow(mc.CLAUDE_CODE, installed=True, saved=None)]
