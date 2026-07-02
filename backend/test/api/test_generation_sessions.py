@@ -1754,6 +1754,42 @@ class TestDownloadGenerationSessionOutputs:
         assert body["status"] == "no_outputs"
 
 
+class TestDownloadGenerationSessionReportHtml:
+    """Test the report.html endpoint — lightweight alternative to /outputs.
+
+    The backend runs in a container while the TUI runs on the host, so the
+    TUI can't just stat ``artifact_path`` on its own filesystem; it fetches
+    the report over HTTP instead.
+    """
+
+    def test_returns_html_when_report_exists(self, client, tmp_path):
+        from app.core.artifact_files import MULTI_WORKSPACE_REPORT_HTML_FILE
+        from app.core.artifact_subdirs import REPORT_SUBDIR
+
+        report_dir = tmp_path / "est-test-123" / REPORT_SUBDIR
+        report_dir.mkdir(parents=True)
+        (report_dir / MULTI_WORKSPACE_REPORT_HTML_FILE).write_text("<html>report</html>")
+
+        with patch("app.api.v1.generation_sessions.ARTIFACTS_BASE", tmp_path):
+            response = client.get(
+                "/api/v1/generation-sessions/est-test-123/report.html",
+                headers={"X-API-Key": "test-key"},
+            )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/html")
+        assert response.text == "<html>report</html>"
+
+    def test_404_when_report_missing(self, client, tmp_path):
+        with patch("app.api.v1.generation_sessions.ARTIFACTS_BASE", tmp_path):
+            response = client.get(
+                "/api/v1/generation-sessions/est-test-123/report.html",
+                headers={"X-API-Key": "test-key"},
+            )
+
+        assert response.status_code == 404
+
+
 class TestStreamWorkspaceMessages:
     """Tests for GET /{generation_id}/workspaces/{workspace_id}/messages/stream (SSE)."""
 

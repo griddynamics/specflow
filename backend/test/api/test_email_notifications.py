@@ -545,6 +545,60 @@ class TestEmailNotificationGeneration:
         # But email should still be sent successfully
 
 
+class TestRenderGenerationSessionReportHtml:
+    """``render_generation_session_report_html`` is usable with no SMTP/EmailConfig —
+    this is the function the P10Y workflow calls to save the report to disk even
+    when no notifier is configured (local quickstart)."""
+
+    def test_builds_html_and_plain_without_any_email_config(
+        self, mock_db, sample_workspace_docs, sample_estimation_result
+    ):
+        from app.core.notifications import render_generation_session_report_html
+
+        workspace_ids, _ = sample_workspace_docs
+
+        html_content, plain_content = render_generation_session_report_html(
+            generation_id="est-test-123",
+            workspace_ids=workspace_ids,
+            result=sample_estimation_result,
+            spec_path="specs/test.md",
+            db=mock_db,
+        )
+
+        assert html_content.strip() != ""
+        assert plain_content.strip() != ""
+        assert "<html" in html_content.lower()
+        assert "auth" in html_content
+        assert "COMPONENT BREAKDOWN" in plain_content
+
+    def test_html_builder_is_the_single_source_used_by_email(
+        self, mock_db, sample_workspace_docs, sample_estimation_result, mock_email_config
+    ):
+        """EmailNotifier delegates to the shared function rather than duplicating it."""
+        from app.core.notifications import render_generation_session_report_html
+
+        workspace_ids, _ = sample_workspace_docs
+        email_notifier = EmailNotifier(mock_email_config)
+
+        direct_html, direct_plain = render_generation_session_report_html(
+            generation_id="est-test-123",
+            workspace_ids=workspace_ids,
+            result=sample_estimation_result,
+            spec_path="specs/test.md",
+            db=mock_db,
+        )
+        via_notifier_html, via_notifier_plain = email_notifier._build_generation_session_email(
+            generation_id="est-test-123",
+            workspace_ids=workspace_ids,
+            result=sample_estimation_result,
+            spec_path="specs/test.md",
+            db=mock_db,
+        )
+
+        assert direct_html == via_notifier_html
+        assert direct_plain == via_notifier_plain
+
+
 class TestMultiWorkspaceResultSerialization:
     """Stored Firestore result shape for email resend / P10Y metadata."""
 

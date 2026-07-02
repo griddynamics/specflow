@@ -618,5 +618,104 @@ class TestWriteStructuredReport:
         ), "Expected WARNING log on open() failure"
 
 
+# ---------------------------------------------------------------------------
+# Phase 5: the workflow saves the HTML report next to the markdown report,
+# regardless of whether any email/Slack notifier is configured (local
+# quickstart users have neither).
+# ---------------------------------------------------------------------------
+
+
+class TestWorkflowSavesHtmlReportRegardlessOfNotifierConfig:
+    @pytest.mark.asyncio
+    async def test_html_report_written_next_to_markdown_report(self, tmp_path):
+        import logging
+        from unittest.mock import AsyncMock, patch
+
+        from app.core.config import settings as global_settings
+        from app.schemas.model_token_usage import ModelTokenUsage
+        from app.schemas.specification import GenerationWorkflowRequest
+        from app.services.parallel_executor import ParallelGenerationResult
+        from app.schemas.workspace import WorkspaceSettings
+        from app.workflows.multi_workspace_estimation_p10y import (
+            multi_workspace_estimation_p10y_workflow,
+        )
+
+        workspace_estimation = WorkspaceEstimation(
+            workspace_name="ws-01-1",
+            workspace_path=str(tmp_path / "ws-01-1"),
+            total_hours=100.0,
+            total_effective_output=90.0,
+            component_breakdown={
+                "auth": ComponentEstimation(
+                    component_name="auth",
+                    hours=40.0,
+                    new_work=30.0,
+                    refactor=8.0,
+                    rework=2.0,
+                    quality_score=0.9,
+                ),
+            },
+            estimation_metrics=EstimationMetrics(
+                new_work=30.0,
+                refactor=8.0,
+                rework=2.0,
+                removed_work=0.0,
+                quality_score=0.9,
+                effective_output=90.0,
+                total_output=100.0,
+            ),
+            commits_count=5,
+            model_usage=ModelTokenUsage(model_name="anthropic/claude-sonnet-4.5", num_turns=3),
+        )
+        parallel_result = ParallelGenerationResult(
+            workspace_name="ws-01-1",
+            workspace_settings=WorkspaceSettings(
+                workspace_path=str(tmp_path / "ws-01-1"),
+                provider="anthropic",
+                model="claude-sonnet-4.5",
+            ),
+            estimation=workspace_estimation,
+            success=True,
+        )
+
+        request = GenerationWorkflowRequest(
+            spec_path="specs/test.md",
+            outputs_dir="outputs",
+            generation_id=None,  # skips Firestore-backed usage/archive branches
+        )
+        test_settings = global_settings.model_copy(
+            update={"WORKSPACE_BASE_PATH": str(tmp_path)}
+        )
+
+        with (
+            patch(
+                "app.workflows.multi_workspace_estimation_p10y.execute_generation_parallel",
+                new=AsyncMock(return_value=[parallel_result]),
+            ),
+            patch(
+                "app.workflows.multi_workspace_estimation_p10y._generate_ai_report",
+                new=AsyncMock(return_value="skipped in test"),
+            ),
+        ):
+            response = await multi_workspace_estimation_p10y_workflow(
+                request=request,
+                settings=test_settings,
+                logger=logging.getLogger("test"),
+                workspace_ids=["ws-01-1"],
+                db_adapter=None,
+            )
+
+        outputs_dir = tmp_path / "ws-01-1" / "outputs"
+        md_report = outputs_dir / "multi-workspace-estimation-report.md"
+        html_report = outputs_dir / "multi-workspace-estimation-report.html"
+
+        assert md_report.exists()
+        assert html_report.exists()
+        html_content = html_report.read_text()
+        assert "<html" in html_content.lower()
+        assert "auth" in html_content
+        assert response.workspace_estimations == [workspace_estimation]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
