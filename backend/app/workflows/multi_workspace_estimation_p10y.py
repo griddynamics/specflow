@@ -675,17 +675,27 @@ async def multi_workspace_estimation_p10y_workflow(
 
     # Save the same report as HTML, regardless of whether email/Slack notifiers
     # are configured — local quickstart users have neither, so this is the only
-    # place the HTML report is produced.
+    # place the HTML report is produced. Non-essential observability output: a
+    # failure here must never abort an estimation whose work is already done.
+    # The renderer needs the *synchronous* IDatabase (it does a plain
+    # db.get("workspaces", id)); db_adapter is the async wrapper, so pass its
+    # underlying sync db or the Variants section silently drops out.
     logger.info("Generating HTML report...")
-    html_content, _plain_content = render_generation_session_report_html(
-        generation_id=request.generation_id,
-        workspace_ids=workspace_ids,
-        result=response,
-        spec_path=request.spec_path,
-        db=db_adapter,
-    )
-    html_report_path = f"{full_outputs_dir}/{MULTI_WORKSPACE_REPORT_HTML_FILE}"
-    _write_structured_report(html_content, html_report_path, logger)
+    try:
+        html_content, _plain_content = render_generation_session_report_html(
+            generation_id=request.generation_id,
+            workspace_ids=workspace_ids,
+            result=response,
+            spec_path=request.spec_path,
+            db=db_adapter.sync_db if db_adapter else None,
+        )
+        html_report_path = f"{full_outputs_dir}/{MULTI_WORKSPACE_REPORT_HTML_FILE}"
+        _write_structured_report(html_content, html_report_path, logger)
+    except Exception as e:
+        logger.warning(
+            "Failed to render/write HTML report — continuing without it: %s",
+            e, exc_info=True,
+        )
 
     # Generate AI-powered comprehensive report (optional, additional analysis)
     logger.info("Generating AI-powered comprehensive report...")

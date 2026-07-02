@@ -45,6 +45,18 @@ class StateMachineDBAdapter:
     def __init__(self, db: "IDatabase") -> None:
         self._db = db
 
+    @property
+    def sync_db(self) -> "IDatabase":
+        """The underlying synchronous ``IDatabase``.
+
+        Exposed for read-only consumers that still use the sync ``IDatabase``
+        interface (e.g. the notifications report renderer, which does a plain
+        ``db.get("workspaces", id)``). State/checkpoint/workspace_phases writes
+        must still go through this adapter's async methods — never via this
+        accessor.
+        """
+        return self._db
+
     # ------------------------------------------------------------------
     # Generation methods
     # ------------------------------------------------------------------
