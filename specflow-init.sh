@@ -167,11 +167,11 @@ clear_local_sqlite_db() {
         error "Refusing to clear unexpected SpecFlow home path: ${SPECFLOW_HOME_PATH}"
     fi
 
-    info "Clearing local SQLite database at ${SPECFLOW_HOME_PATH}/specflow.db ..."
+    info "Clearing local SQLite database at ${SPECFLOW_HOME_PATH}/db/specflow.db ..."
     log "INFO: rm -f <sqlite db + wal/shm sidecars>"
-    rm -f "${SPECFLOW_HOME_PATH}/specflow.db" \
-          "${SPECFLOW_HOME_PATH}/specflow.db-wal" \
-          "${SPECFLOW_HOME_PATH}/specflow.db-shm"
+    rm -f "${SPECFLOW_HOME_PATH}/db/specflow.db" \
+          "${SPECFLOW_HOME_PATH}/db/specflow.db-wal" \
+          "${SPECFLOW_HOME_PATH}/db/specflow.db-shm"
 }
 
 set_env_value() {
@@ -352,7 +352,7 @@ if [[ "${DRY_RUN}" == "true" ]]; then
     info "[DRY RUN] Would start backend stack: docker compose up -d (backend)"
     info "[DRY RUN] Would skip mcp-server profile (IDE-side only)."
     if [[ "${RESET_LOCAL_DB}" == "true" ]]; then
-        info "[DRY RUN] Would clear the local SQLite database at ${SPECFLOW_HOME_PATH}/specflow.db"
+        info "[DRY RUN] Would clear the local SQLite database at ${SPECFLOW_HOME_PATH}/db/specflow.db"
     fi
 else
     BUILD_FLAG=""
@@ -484,7 +484,7 @@ fi
 # Step 6: Seed the active database from durable workspace config
 # ---------------------------------------------------------------------------
 _DATABASE_TYPE="${DATABASE_TYPE:-sqlite}"
-_SQLITE_DB_PATH="${SQLITE_DB_PATH:-${SPECFLOW_HOME_PATH}/specflow.db}"
+_SQLITE_DB_PATH="${SQLITE_DB_PATH:-${SPECFLOW_HOME_PATH}/db/specflow.db}"
 
 # Guard (H): the provisioning steps above always write workspaces.json. A missing file
 # here means an anomalous failure — refuse to seed an empty pool.

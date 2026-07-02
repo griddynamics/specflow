@@ -150,6 +150,10 @@ Legacy checkpoints (`planning_done`, `plan_synced`, `spec_check_done`) are not u
 **Local**: `make run` → Docker Compose (backend:8000, SQLite). The backend container
 bind-mounts the host's `~/.specflow/` directory — one central SQLite database shared
 across every local project/MCP session on the machine (the local-dev analogue of the
-old shared Firestore emulator); generated outputs use `./workspaces/artifacts/`.
+old shared Firestore emulator), with the db file itself nested at `~/.specflow/db/specflow.db`
+so it stays separate from other files (e.g. `config.json`) in that directory. Neither
+directory needs to pre-exist: Docker creates the host `~/.specflow/` bind-mount path on
+first `docker compose up` if missing, and `SqliteDatabase.__init__` creates the `db/`
+subdirectory on first backend connection. Generated outputs use `./workspaces/artifacts/`.
 `DATABASE_TYPE=firestore` connects to an already-hosted, GCP-managed Firestore instance
 instead — SpecFlow never deploys or manages Firestore itself locally.

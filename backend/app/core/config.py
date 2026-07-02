@@ -231,7 +231,7 @@ class Settings(BaseSettings):
     # Container-side path where docker-compose bind-mounts the host's ~/.specflow/ directory
     # (one central database shared across every local project/MCP session, like the Firestore
     # emulator used to be). MUST be on block storage, never NFS/Filestore.
-    SQLITE_DB_PATH: str = "/root/.specflow/specflow.db"
+    SQLITE_DB_PATH: str = "/root/.specflow/db/specflow.db"
 
     # LLM Provider Configuration
     # Active LLM provider: "openrouter" (default) or "anthropic".

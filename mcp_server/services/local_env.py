@@ -36,9 +36,7 @@ _ENV_FILENAME = ".env"
 _ENV_EXAMPLE_FILENAME = ".env.quickstart.example"
 _INIT_SCRIPT = "specflow-init.sh"
 
-# Mirror docker-compose.yml container-name env-var defaults. SQLite is the local/Docker
-# default and has no separate container (it's a bind-mounted file); the Firestore emulator
-# is no longer started by docker-compose, so only the backend container is checked.
+# Mirror docker-compose.yml container-name env-var defaults; sqlite has no separate container.
 _BACKEND_CONTAINER_DEFAULT = "specflow-backend"
 
 

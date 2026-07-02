@@ -133,7 +133,7 @@ def resolve_api_credentials() -> tuple[str, str]:
             **os.environ,
             "DATABASE_TYPE": os.getenv("DATABASE_TYPE", "sqlite"),
             "SQLITE_DB_PATH": os.getenv(
-                "SQLITE_DB_PATH", str(Path.home() / ".specflow" / "specflow.db")
+                "SQLITE_DB_PATH", str(Path.home() / ".specflow" / "db" / "specflow.db")
             ),
             "FIRESTORE_EMULATOR_HOST": os.getenv("FIRESTORE_EMULATOR_HOST", "localhost:8080"),
             "GCP_PROJECT_ID": os.getenv("GCP_PROJECT_ID", "local-dev"),

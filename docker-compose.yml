@@ -41,7 +41,7 @@ services:
       # GCP-managed Firestore instance (SpecFlow never deploys/manages Firestore itself),
       # or DATABASE_TYPE=emulator to connect to a manually-run Firestore emulator process.
       - DATABASE_TYPE=${DATABASE_TYPE:-sqlite}
-      - SQLITE_DB_PATH=${SQLITE_DB_PATH:-/root/.specflow/specflow.db}
+      - SQLITE_DB_PATH=${SQLITE_DB_PATH:-/root/.specflow/db/specflow.db}
       - FIRESTORE_EMULATOR_HOST=${FIRESTORE_EMULATOR_HOST}
       - GCP_PROJECT_ID=${GCP_PROJECT_ID:-local-dev}
       - FIRESTORE_DATABASE_NAME=${FIRESTORE_DATABASE_NAME:-specflow}

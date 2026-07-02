@@ -66,13 +66,13 @@ def test_compose_backend_bind_mounts_specflow_home_for_sqlite():
     text = _compose_text()
 
     assert "DATABASE_TYPE=${DATABASE_TYPE:-sqlite}" in text
-    assert "SQLITE_DB_PATH=${SQLITE_DB_PATH:-/root/.specflow/specflow.db}" in text
+    assert "SQLITE_DB_PATH=${SQLITE_DB_PATH:-/root/.specflow/db/specflow.db}" in text
     assert "${SPECFLOW_HOME_MOUNT_PATH:-${HOME}/.specflow}:/root/.specflow:rw" in text
 
 
 def test_makefile_test_stack_uses_separate_names_ports_and_isolated_sqlite_path():
     """Integration/E2E stacks must not collide with quickstart containers, host ports, or the
-    real central SQLite database at ~/.specflow/specflow.db."""
+    real central SQLite database at ~/.specflow/db/specflow.db."""
     makefile_text = (Path(__file__).resolve().parents[3] / "Makefile").read_text()
 
     assert "$(TEST_STACK_TARGETS): export SPECFLOW_BACKEND_PORT := 18000" in makefile_text
@@ -87,7 +87,7 @@ def test_makefile_test_stack_uses_separate_names_ports_and_isolated_sqlite_path(
         in makefile_text
     )
     assert (
-        "$(TEST_STACK_TARGETS): export SQLITE_DB_PATH := $(TEST_SPECFLOW_HOME_PATH)/specflow.db"
+        "$(TEST_STACK_TARGETS): export SQLITE_DB_PATH := $(TEST_SPECFLOW_HOME_PATH)/db/specflow.db"
         in makefile_text
     )
     # The isolated sqlite-home path must nest under the test workspace mount so `make stop`'s
@@ -113,4 +113,4 @@ def test_reset_local_db_clears_sqlite_file_not_a_directory():
     assert 'SPECFLOW_HOME_PATH="${SPECFLOW_HOME_MOUNT_PATH:-${HOME}/.specflow}"' in text
     assert 'basename "${SPECFLOW_HOME_PATH}"' in text
     assert '!= ".specflow"' in text
-    assert 'rm -f "${SPECFLOW_HOME_PATH}/specflow.db"' in text
+    assert 'rm -f "${SPECFLOW_HOME_PATH}/db/specflow.db"' in text

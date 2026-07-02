@@ -20,7 +20,7 @@ DATABASE_TYPE ?= sqlite
 # the old shared Firestore-emulator model. Host-side scripts (init_db.py, tests) read/write
 # the exact same file directly; no docker exec needed.
 SPECFLOW_HOME_PATH ?= $(HOME)/.specflow
-SQLITE_DB_PATH ?= $(SPECFLOW_HOME_PATH)/specflow.db
+SQLITE_DB_PATH ?= $(SPECFLOW_HOME_PATH)/db/specflow.db
 FIRESTORE_EMULATOR_HOST ?= localhost:8080
 # Must match docker-compose.yml defaults so host-side seeding/tests see the same
 # named Firestore database as the backend container (quickstart sets these via specflow-init.sh).
@@ -51,7 +51,7 @@ endif
 # (quickstart uses the default project + ./workspaces + ~/.specflow). So a test run never
 # clobbers a running quickstart OR the real central SQLite database: `make stop` tears down
 # the test stack and removes its ephemeral ./.specflow-test state (which nests its own
-# isolated specflow-home/specflow.db, cleaned up the same way).
+# isolated specflow-home/db/specflow.db, cleaned up the same way).
 #
 # Applied as target-specific *exported* vars so they also reach prerequisite targets
 # (run-detached / run-detached-skip) and sub-makes (`$(MAKE) stop`, `$(MAKE) e2e-setup`).
@@ -66,7 +66,7 @@ $(TEST_STACK_TARGETS): export SPECFLOW_MCP_CONTAINER := specflow-test-mcp-server
 $(TEST_STACK_TARGETS): export SPECFLOW_BACKEND_PORT := 18000
 $(TEST_STACK_TARGETS): export BACKEND_URL := http://localhost:18000
 $(TEST_STACK_TARGETS): export SPECFLOW_HOME_MOUNT_PATH := $(TEST_SPECFLOW_HOME_PATH)
-$(TEST_STACK_TARGETS): export SQLITE_DB_PATH := $(TEST_SPECFLOW_HOME_PATH)/specflow.db
+$(TEST_STACK_TARGETS): export SQLITE_DB_PATH := $(TEST_SPECFLOW_HOME_PATH)/db/specflow.db
 $(TEST_STACK_TARGETS): export GCP_PROJECT_ID := $(GCP_PROJECT_ID)
 $(TEST_STACK_TARGETS): export FIRESTORE_DATABASE_NAME := $(FIRESTORE_DATABASE_NAME)
 
@@ -487,7 +487,7 @@ help:
 	@echo "  make ops-retry-run generation_id=X BACKEND_URL=http://host:8000  - Override backend URL"
 	@echo ""
 	@echo "Database Modes:"
-	@echo "  DEV mode:    Uses SQLite (no GCP credentials needed, single central db at ~/.specflow/specflow.db)"
+	@echo "  DEV mode:    Uses SQLite (no GCP credentials needed, single central db at ~/.specflow/db/specflow.db)"
 	@echo "  Override:    DATABASE_TYPE=firestore to connect to an already-hosted GCP Firestore instance"
 	@echo "               DATABASE_TYPE=emulator to connect to a manually-run Firestore emulator process"
 	@echo ""
