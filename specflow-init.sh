@@ -484,7 +484,11 @@ fi
 # Step 6: Seed the active database from durable workspace config
 # ---------------------------------------------------------------------------
 _DATABASE_TYPE="${DATABASE_TYPE:-sqlite}"
-_SQLITE_DB_PATH="${SQLITE_DB_PATH:-${SPECFLOW_HOME_PATH}/db/specflow.db}"
+# Seeding runs HOST-side (uv run), so it must target the host bind-mount SOURCE
+# (${SPECFLOW_HOME_PATH}/db/specflow.db), NOT the container-internal SQLITE_DB_PATH from .env
+# (/root/.specflow/db/specflow.db) — that host path is unwritable for non-root and would seed a
+# file the container never reads. SPECFLOW_HOME_MOUNT_PATH is the single knob for both sides.
+_SQLITE_DB_PATH="${SPECFLOW_HOME_PATH}/db/specflow.db"
 
 # Guard (H): the provisioning steps above always write workspaces.json. A missing file
 # here means an anomalous failure — refuse to seed an empty pool.

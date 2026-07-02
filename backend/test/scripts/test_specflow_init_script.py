@@ -114,3 +114,17 @@ def test_reset_local_db_clears_sqlite_file_not_a_directory():
     assert 'basename "${SPECFLOW_HOME_PATH}"' in text
     assert '!= ".specflow"' in text
     assert 'rm -f "${SPECFLOW_HOME_PATH}/db/specflow.db"' in text
+
+
+def test_host_side_seed_targets_host_db_path_not_container_internal():
+    """Host-side seeding runs via `uv run` on the host, so it must target the host
+    bind-mount SOURCE derived from SPECFLOW_HOME_PATH — never the container-internal
+    SQLITE_DB_PATH from .env (/root/...), which is unwritable for non-root users and
+    would seed a file the container never reads. Regression guard for the quickstart
+    seeding-path bug."""
+    text = _script_text()
+
+    # The host seed path is derived from SPECFLOW_HOME_PATH, not inherited from the
+    # container-internal SQLITE_DB_PATH env var.
+    assert '_SQLITE_DB_PATH="${SPECFLOW_HOME_PATH}/db/specflow.db"' in text
+    assert '_SQLITE_DB_PATH="${SQLITE_DB_PATH:-' not in text
