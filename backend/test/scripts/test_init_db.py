@@ -19,6 +19,7 @@ import pytest
 
 from app.core.local_identity import LOCAL_API_KEY_DOC_ID, LOCAL_KEY_UID
 from app.database.memory import InMemoryDatabase
+from app.services.workspace_pool_seeding import WorkspacePoolEntry
 
 # ---------------------------------------------------------------------------
 # Import the functions under test directly.  The script sets DATABASE_TYPE
@@ -72,13 +73,13 @@ class TestWorkspaceConfigLoad:
         loaded = init_script.load_workspace_configs_from_file(path)
 
         assert len(loaded) == 2
-        assert loaded[0]["workspace_id"] == "ws-test-1"
-        assert loaded[0]["repo_url"] == "https://github.com/test-org/test-repo-1"
-        assert loaded[0]["p10y_id"] == 11111  # normalised key
-        assert loaded[0]["workspace_pool"] == "default"
-        assert loaded[1]["workspace_id"] == "ws-test-2"
-        assert loaded[1]["p10y_id"] == 22222
-        assert loaded[1]["workspace_pool"] == "testpool"
+        assert loaded[0].workspace_id == "ws-test-1"
+        assert loaded[0].repo_url == "https://github.com/test-org/test-repo-1"
+        assert loaded[0].p10y_repository_id == 11111
+        assert loaded[0].workspace_pool == "default"
+        assert loaded[1].workspace_id == "ws-test-2"
+        assert loaded[1].p10y_repository_id == 22222
+        assert loaded[1].workspace_pool == "testpool"
 
     def test_load_invalid_json_exits(self, tmp_path):
         path = str(tmp_path / "bad.json")
@@ -543,12 +544,12 @@ class TestExtraPoolKeySeeding:
         original_configs = init_script.WORKSPACE_CONFIGS
         try:
             init_script.WORKSPACE_CONFIGS = [
-                {
-                    "workspace_id": "ws-default-1",
-                    "repo_url": "https://github.com/test-org/default",
-                    "p10y_id": 11111,
-                    "workspace_pool": "default",
-                }
+                WorkspacePoolEntry(
+                    workspace_id="ws-default-1",
+                    repo_url="https://github.com/test-org/default",
+                    p10y_repository_id=11111,
+                    workspace_pool="default",
+                )
             ]
             init_script.initialize_api_key(db, dry_run=False)
         finally:
@@ -562,12 +563,12 @@ class TestExtraPoolKeySeeding:
         original_configs = init_script.WORKSPACE_CONFIGS
         try:
             init_script.WORKSPACE_CONFIGS = [
-                {
-                    "workspace_id": "ws-extra-1",
-                    "repo_url": "https://github.com/test-org/extra",
-                    "p10y_id": 22222,
-                    "workspace_pool": init_script.EXTRA_WORKSPACE_POOL,
-                }
+                WorkspacePoolEntry(
+                    workspace_id="ws-extra-1",
+                    repo_url="https://github.com/test-org/extra",
+                    p10y_repository_id=22222,
+                    workspace_pool=init_script.EXTRA_WORKSPACE_POOL,
+                )
             ]
             init_script.initialize_api_key(db, dry_run=False)
         finally:
@@ -583,12 +584,12 @@ class TestExtraPoolKeySeeding:
         original_configs = init_script.WORKSPACE_CONFIGS
         try:
             init_script.WORKSPACE_CONFIGS = [
-                {
-                    "workspace_id": "ws-default-1",
-                    "repo_url": "https://github.com/test-org/default",
-                    "p10y_id": 11111,
-                    "workspace_pool": "default",
-                }
+                WorkspacePoolEntry(
+                    workspace_id="ws-default-1",
+                    repo_url="https://github.com/test-org/default",
+                    p10y_repository_id=11111,
+                    workspace_pool="default",
+                )
             ]
             with patch.object(init_script.httpx, "put") as mock_put:
                 init_script.attach_github_tokens(dry_run=False)

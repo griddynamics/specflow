@@ -39,7 +39,6 @@ import os
 import argparse
 import json
 import traceback
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
@@ -61,6 +60,11 @@ import httpx
 from app.core.config import settings
 from app.core.local_identity import LOCAL_API_KEY_DOC_ID, LOCAL_KEY_UID
 from app.database.factory import get_database
+from app.services.workspace_pool_seeding import (
+    WorkspacePoolEntry,
+    parse_pool_entries,
+    seed_workspace_pool,
+)
 from app.database.interface import IDatabase
 
 
@@ -72,29 +76,9 @@ EXTRA_WORKSPACE_POOL = "testpool"
 EXTRA_POOL_KEY_UID = "00000000-e2e0-0000-0000-000000000002"
 
 
-@dataclass
-class WorkspaceConfig:
-    """Typed workspace configuration entry parsed from ``--workspace-config`` JSON."""
-
-    workspace_id: str
-    repo_url: str
-    p10y_repository_id: int
-    workspace_pool: str
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.p10y_repository_id, int) or isinstance(self.p10y_repository_id, bool):
-            raise ValueError(
-                f"'p10y_repository_id' must be an integer, got: {self.p10y_repository_id!r}"
-            )
-
-    def to_pool_entry(self) -> dict:
-        """Normalise to the dict shape ``initialize_workspace_pool`` consumes."""
-        return {
-            "workspace_id": self.workspace_id,
-            "repo_url": self.repo_url,
-            "p10y_id": self.p10y_repository_id,
-            "workspace_pool": self.workspace_pool,
-        }
+# The typed pool-entry model (WorkspacePoolEntry) and its validation now live in
+# app.services.workspace_pool_seeding — the single source shared with
+# create_generation_session_repos.py.
 
 
 # CONFIGURATION: Workspace Repository Mapping
@@ -108,7 +92,7 @@ class WorkspaceConfig:
 #   make skip-mode-e2e-tests E2E_WORKSPACE_CONFIG=my-test-repos.json
 #
 # Populated from --workspace-config in main(); empty otherwise.
-WORKSPACE_CONFIGS: List[dict] = []
+WORKSPACE_CONFIGS: List[WorkspacePoolEntry] = []
 
 
 def initialize_api_key(db: IDatabase, dry_run: bool = False) -> None:
@@ -269,9 +253,9 @@ def initialize_local_identity(db: IDatabase, dry_run: bool = False, replace: boo
     print(f"{'='*60}\n")
 
 
-def load_workspace_configs_from_file(path: str) -> List[dict]:
+def load_workspace_configs_from_file(path: str) -> List[WorkspacePoolEntry]:
     """
-    Load workspace configs from a JSON file.
+    Load and validate workspace pool entries from a JSON file.
 
     Expected JSON schema::
 
@@ -285,10 +269,8 @@ def load_workspace_configs_from_file(path: str) -> List[dict]:
           ...
         ]
 
-    Returns a list of dicts normalised so ``initialize_workspace_pool`` can
-    consume them (``workspace_id``, ``repo_url``, ``p10y_id``, ``workspace_pool``).
-
-    Raises SystemExit on malformed input.
+    Returns typed ``WorkspacePoolEntry`` objects. Raises SystemExit on malformed input
+    (validation itself lives in ``workspace_pool_seeding.parse_pool_entries``).
     """
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -301,75 +283,11 @@ def load_workspace_configs_from_file(path: str) -> List[dict]:
         print(f"ERROR: Workspace config file must contain a JSON array, got {type(data).__name__}")
         sys.exit(1)
 
-    normalised: List[dict] = []
-    for i, entry in enumerate(data):
-        if not isinstance(entry, dict):
-            print(f"ERROR: Entry {i} in workspace config is not an object: {entry!r}")
-            sys.exit(1)
-        try:
-            config = WorkspaceConfig(**entry)
-        except TypeError as exc:
-            # Missing required keys or unexpected keys in the JSON object.
-            print(f"ERROR: Entry {i} in workspace config has invalid fields: {exc}")
-            sys.exit(1)
-        except ValueError as exc:
-            print(f"ERROR: Entry {i} in workspace config: {exc}")
-            sys.exit(1)
-        normalised.append(config.to_pool_entry())
-
-    return normalised
-
-
-def create_workspace_document(
-    workspace_id: str,
-    set_number: int,
-    repo_url: str,
-    p10y_repository_id: int,
-    now: datetime,
-    workspace_pool: str = "default",
-) -> dict:
-    """
-    Create a workspace document following the schema from state-management.md.
-    
-    Schema fields:
-    - repo_url: GitHub repository URL
-    - p10y_repository_id: P10Y repository ID for tracking
-    - set_number: Which set this workspace belongs to (1-10)
-    - status: Workspace state (available, allocated, cleaning, stuck)
-    - locked_by: Which generation session is using this workspace
-    - locked_at: When workspace was allocated
-    - lease_expires_at: When lease expires (for crash detection)
-    - clean_verified: CRITICAL - must be true to allocate
-    - last_used_by: Previous generation session (for debugging)
-    - last_cleaned_at: Last cleanup timestamp
-    - allocation_history: Audit trail of allocations
-    - error: Error message if status is stuck
-    """
-    return {
-        # Core fields
-        "repo_url": repo_url,
-        "p10y_repository_id": p10y_repository_id,
-        "set_number": set_number,
-        "workspace_pool": workspace_pool,
-        
-        # Allocation state
-        "status": "available",
-        "locked_by": None,
-        "locked_at": None,
-        "lease_expires_at": None,
-        "cleaning_started_at": None,
-        
-        # Safety fields
-        "clean_verified": True,  # CRITICAL: must be true to allocate
-        "last_used_by": None,
-        "last_cleaned_at": now,
-        
-        # Audit trail
-        "allocation_history": [],
-        
-        # Error tracking
-        "error": None,
-    }
+    try:
+        return parse_pool_entries(data)
+    except ValueError as exc:
+        print(f"ERROR: Invalid workspace config in '{path}': {exc}")
+        sys.exit(1)
 
 
 def initialize_workspace_pool(
@@ -414,61 +332,23 @@ def initialize_workspace_pool(
             print("Aborted.")
             return
 
-    # Create workspaces
-    created = 0
-    updated = 0
-    skipped = 0
-
-    for i, config in enumerate(WORKSPACE_CONFIGS):
-        set_number = (i // 3) + 1  # Sets 1-10
-        # Prefer explicit workspace_id from config (JSON-loaded); derive otherwise.
-        workspace_id = config.get("workspace_id") or f"ws-{set_number:02d}-{(i % 3) + 1}"
-
-        workspace_doc = create_workspace_document(
-            workspace_id=workspace_id,
-            set_number=set_number,
-            repo_url=config["repo_url"],
-            p10y_repository_id=config["p10y_id"],
-            now=now,
-            workspace_pool=config.get("workspace_pool", "default"),
-        )
-
-        if dry_run:
-            print(f"[DRY RUN] Would create workspace: {workspace_id}")
-            print(f"  - Set: {set_number}")
-            print(f"  - Repo: {config['repo_url']}")
-            print(f"  - P10Y ID: {config['p10y_id']}")
-            created += 1
-        else:
-            # Check if workspace exists
-            existing = db.get("workspaces", workspace_id)
-
-            if existing:
-                if replace:
-                    db.update("workspaces", workspace_id, workspace_doc)
-                    print(f"✓ Updated workspace: {workspace_id} (set {set_number})")
-                    updated += 1
-                else:
-                    print(f"  Skipped workspace: {workspace_id} (already exists; use --replace to overwrite)")
-                    skipped += 1
-            else:
-                # Create new workspace
-                db.set("workspaces", workspace_id, workspace_doc)
-                print(f"✓ Created workspace: {workspace_id} (set {set_number})")
-                created += 1
+    # Upsert the pool via the shared seeding routine (idempotent; --replace overwrites).
+    result = seed_workspace_pool(
+        db, WORKSPACE_CONFIGS, replace=replace, dry_run=dry_run, now=now
+    )
 
     # Summary
     print(f"\n{'='*60}")
     print("SUMMARY")
     print(f"{'='*60}")
     if dry_run:
-        print(f"Would create: {created} workspaces")
+        print(f"Would create: {result.created} workspaces")
     else:
-        print(f"Created: {created} workspaces")
-        print(f"Updated: {updated} workspaces")
-        if skipped:
-            print(f"Skipped: {skipped} workspaces (already exist)")
-        print(f"Total: {created + updated + skipped} workspaces")
+        print(f"Created: {result.created} workspaces")
+        print(f"Updated: {result.updated} workspaces")
+        if result.skipped:
+            print(f"Skipped: {result.skipped} workspaces (already exist; use --replace to overwrite)")
+        print(f"Total: {result.total} workspaces")
         expected_sets = (len(WORKSPACE_CONFIGS) + 2) // 3
         print(f"Configured sets: {expected_sets} set(s) of up to 3 workspaces")
     print(f"{'='*60}\n")
@@ -509,7 +389,7 @@ def initialize_workspace_pool(
 
 def extra_pool_configured() -> bool:
     """Return True when the loaded workspace config declares the example extra pool."""
-    return any(config.get("workspace_pool") == EXTRA_WORKSPACE_POOL for config in WORKSPACE_CONFIGS)
+    return any(entry.workspace_pool == EXTRA_WORKSPACE_POOL for entry in WORKSPACE_CONFIGS)
 
 
 def attach_github_tokens(dry_run: bool = False) -> None:

@@ -40,7 +40,6 @@ Environment (optional defaults for flags):
 
 import argparse
 import asyncio
-from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -71,6 +70,10 @@ from app.database.factory import get_database  # noqa: E402
 from app.database.firestore import FirestoreDatabase  # noqa: E402
 from app.database.interface import IDatabase  # noqa: E402
 from app.services.p10y.p10y_api_client import P10YInternalAPIClient  # noqa: E402
+from app.services.workspace_pool_seeding import (  # noqa: E402
+    assign_pool_entries,
+    seed_workspace_pool,
+)
 
 LIVE_REPOSITORY_STATUS = "Live"
 LIVE_INTERNAL_STATUS = 1  # internal_status value P10Y sets after enable/metrics succeeds
@@ -603,57 +606,6 @@ async def poll_repository_status(
     return repo_statuses
 
 
-def create_workspace_document(
-    workspace_id: str,
-    set_number: int,
-    repo_url: str,
-    p10y_repository_id: int,
-    now: datetime,
-    workspace_pool: str = "default"
-) -> dict:
-    """
-    Create a workspace document following the schema from state-management.md.
-    
-    Schema fields:
-    - repo_url: GitHub repository URL
-    - p10y_repository_id: P10Y repository ID for tracking
-    - set_number: Which set this workspace belongs to (1-10)
-    - status: Workspace state (available, allocated, cleaning, stuck)
-    - locked_by: Which generation is using this workspace
-    - locked_at: When workspace was allocated
-    - lease_expires_at: When lease expires (for crash detection)
-    - clean_verified: CRITICAL - must be true to allocate
-    - last_used_by: Previous generation (for debugging)
-    - last_cleaned_at: Last cleanup timestamp
-    - allocation_history: Audit trail of allocations
-    - error: Error message if status is stuck
-    """
-    return {
-        # Core fields
-        "repo_url": repo_url,
-        "p10y_repository_id": p10y_repository_id,
-        "set_number": set_number,
-        "workspace_pool": workspace_pool,
-        
-        # Allocation state
-        "status": "available",
-        "locked_by": None,
-        "locked_at": None,
-        "lease_expires_at": None,
-        
-        # Safety fields
-        "clean_verified": True,  # CRITICAL: must be true to allocate
-        "last_used_by": None,
-        "last_cleaned_at": now,
-        
-        # Audit trail
-        "allocation_history": [],
-        
-        # Error tracking
-        "error": None,
-    }
-
-
 async def add_workspaces_to_firestore(
     repo_id_map: Dict[str, int],
     github_org: str,
@@ -664,16 +616,20 @@ async def add_workspaces_to_firestore(
     firestore_database_id: Optional[str] = None,
 ) -> None:
     """
-    Add workspace entries to Firestore database.
+    Add workspace entries to the active database.
 
-    If firestore_project_id and firestore_database_id are both set, use them only (no Settings /
-    get_database singleton). Otherwise use get_database() (DATABASE_TYPE must be firestore).
+    If firestore_project_id and firestore_database_id are both set, target that hosted Firestore
+    instance directly; otherwise use get_database() (honors DATABASE_TYPE — sqlite by default).
+
+    Id assignment and the upsert are delegated to app.services.workspace_pool_seeding, the single
+    source shared with init_db.py. ``start_num`` is unused (ids come from the repo names) and is
+    retained only for call-site stability.
     """
     if not repo_id_map:
-        print("\n⚠️  No repository IDs to add to Firestore")
+        print("\n⚠️  No repository IDs to add")
         return
-    
-    print(f"\n📝 Adding {len(repo_id_map)} workspaces to Firestore")
+
+    print(f"\n📝 Adding {len(repo_id_map)} workspaces to the database")
 
     try:
         if firestore_project_id is not None and firestore_database_id is not None:
@@ -687,60 +643,19 @@ async def add_workspaces_to_firestore(
             )
         else:
             db = get_database()
-        now = datetime.now(timezone.utc)
-        
-        created = 0
-        updated = 0
-        
-        for repo_name, p10y_id in repo_id_map.items():
-            try:
-                num = int(repo_name.split(prefix)[-1])
-            except (ValueError, IndexError):
-                print(f"⚠️  Could not extract number from repo name: {repo_name}")
-                continue
-            
-            # Calculate set number (groups of 3)
-            # For example: 1-3 = set 1, 4-6 = set 2, 7-9 = set 3
-            set_number = ((num - 1) // 3) + 1
-            workspace_index = ((num - 1) % 3) + 1
-            
-            # Create workspace ID (e.g., ws-03-1 for repo 7)
-            workspace_id = f"ws-{set_number:02d}-{workspace_index}"
-            
-            # Create repo URL
-            repo_url = f"https://github.com/{github_org}/{repo_name}"
-            
-            # Create workspace document
-            workspace_doc = create_workspace_document(
-                workspace_id=workspace_id,
-                set_number=set_number,
-                repo_url=repo_url,
-                p10y_repository_id=p10y_id,
-                now=now,
-                workspace_pool=workspace_pool
-            )
-            
-            # Check if workspace exists
-            existing = db.get("workspaces", workspace_id)
-            
-            if existing:
-                # Update existing workspace
-                db.update("workspaces", workspace_id, workspace_doc)
-                print(f"   ✓ Updated workspace: {workspace_id} -> {repo_name} (P10y ID: {p10y_id})")
-                updated += 1
-            else:
-                # Create new workspace
-                db.set("workspaces", workspace_id, workspace_doc)
-                print(f"   ✓ Created workspace: {workspace_id} -> {repo_name} (P10y ID: {p10y_id})")
-                created += 1
-        
-        print("\n✅ Firestore workspace sync complete:")
-        print(f"   Created: {created}")
-        print(f"   Updated: {updated}")
-        print(f"   Total: {created + updated}")
-        
+
+        entries = assign_pool_entries(
+            repo_id_map, github_org, workspace_pool, prefix=prefix
+        )
+        result = seed_workspace_pool(db, entries, replace=True)
+
+        print("\n✅ Database workspace sync complete:")
+        print(f"   Created: {result.created}")
+        print(f"   Updated: {result.updated}")
+        print(f"   Total: {result.total}")
+
     except Exception as e:
-        print(f"\n❌ Failed to add workspaces to Firestore: {e}")
+        print(f"\n❌ Failed to add workspaces to the database: {e}")
         import traceback
         traceback.print_exc()
         raise
@@ -761,46 +676,33 @@ def emit_workspace_config(
         [{"workspace_id": str, "repo_url": str,
           "p10y_repository_id": int, "workspace_pool": str}, ...]
 
-    All four fields are required (matching WorkspaceConfig dataclass).
-
-    Field sources:
-    - workspace_id: derived the same way as add_workspaces_to_firestore (ws-{set:02d}-{idx})
-    - repo_url: https://github.com/{github_org}/{repo_name}
-    - p10y_repository_id: integer value from repo_id_map[repo_name]
-    - workspace_pool: workspace_pool argument
-
-    When ordered_repos is provided (the --repos path), workspace IDs are assigned
-    by position in the list rather than extracted from the {prefix}{num} name pattern.
+    Id assignment is delegated to app.services.workspace_pool_seeding.assign_pool_entries (the
+    same routine that seeds the DB directly), so the file schema and the direct-seed path can
+    never drift. When ordered_repos is provided (the --repos path), ids follow list position;
+    otherwise they are derived from the {prefix}{num} repo names.
     """
-    def _make_entry(repo_name: str, idx: int) -> Dict[str, Any]:
-        set_number = (idx // 3) + 1
-        workspace_index = (idx % 3) + 1
-        return {
-            "workspace_id": f"ws-{set_number:02d}-{workspace_index}",
-            "repo_url": f"https://github.com/{github_org}/{repo_name}",
-            "p10y_repository_id": int(repo_id_map[repo_name]),
-            "workspace_pool": workspace_pool,
+    entries = assign_pool_entries(
+        repo_id_map,
+        github_org,
+        workspace_pool,
+        ordered_repos=ordered_repos,
+        prefix=prefix,
+    )
+    serialised = [
+        {
+            "workspace_id": e.workspace_id,
+            "repo_url": e.repo_url,
+            "p10y_repository_id": e.p10y_repository_id,
+            "workspace_pool": e.workspace_pool,
         }
-
-    entries: List[Dict[str, Any]] = []
-
-    if ordered_repos is not None:
-        for idx, repo_name in enumerate(ordered_repos):
-            entries.append(_make_entry(repo_name, idx))
-    else:
-        for repo_name in sorted(repo_id_map):
-            try:
-                num = int(repo_name.split(prefix)[-1])
-            except (ValueError, IndexError):
-                print(f"⚠️  Could not extract number from repo name: {repo_name} — skipping in config")
-                continue
-            entries.append(_make_entry(repo_name, num - 1))
+        for e in entries
+    ]
 
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", encoding="utf-8") as f:
-        json.dump(entries, f, indent=2)
-    print(f"\n✅ Workspace config written to: {output_path} ({len(entries)} entries)")
+        json.dump(serialised, f, indent=2)
+    print(f"\n✅ Workspace config written to: {output_path} ({len(serialised)} entries)")
 
 
 async def main():

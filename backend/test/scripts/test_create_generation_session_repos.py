@@ -2,7 +2,7 @@
 Tests for backend/scripts/create_generation_session_repos.py — Phase 6.
 
 Coverage:
-  (a) emit_workspace_config writes JSON whose entries each construct a WorkspaceConfig
+  (a) emit_workspace_config writes JSON whose entries each construct a WorkspacePoolEntry
       without error, proving schema parity with init_db.py --workspace-config.
   (b) get_repository_ids calls list_repositories WITHOUT project_ids (no filter).
   (c) No code path calls add_repositories_to_project — the function is absent from the
@@ -21,7 +21,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 import scripts.create_generation_session_repos as cgsr
-from scripts.init_db import WorkspaceConfig
+from app.services.workspace_pool_seeding import WorkspacePoolEntry
 
 # ---------------------------------------------------------------------------
 # Path constants
@@ -32,17 +32,17 @@ _MAKEFILE = _BACKEND_DIR.parent / "Makefile"
 
 
 # ===========================================================================
-# (a) emit_workspace_config — schema parity with WorkspaceConfig
+# (a) emit_workspace_config — schema parity with WorkspacePoolEntry
 # ===========================================================================
 
 class TestEmitWorkspaceConfig:
-    """emit_workspace_config emits JSON that round-trips through WorkspaceConfig."""
+    """emit_workspace_config emits JSON that round-trips through WorkspacePoolEntry."""
 
     def _make_repo_id_map(self, prefix: str = "specflow-workspace", start: int = 1, count: int = 3) -> dict:
         return {f"{prefix}{i}": 10000 + i for i in range(start, start + count)}
 
     def test_roundtrip_through_workspace_config(self, tmp_path):
-        """Each emitted entry must construct WorkspaceConfig without error."""
+        """Each emitted entry must construct WorkspacePoolEntry without error."""
         repo_id_map = self._make_repo_id_map(start=1, count=3)
         output = str(tmp_path / "workspaces.json")
 
@@ -61,7 +61,7 @@ class TestEmitWorkspaceConfig:
         assert len(data) == 3, "Should emit one entry per repo"
         for entry in data:
             # This will raise if any field is missing or p10y_repository_id is not an int
-            wc = WorkspaceConfig(**entry)
+            wc = WorkspacePoolEntry(**entry)
             assert isinstance(wc.p10y_repository_id, int)
             assert not isinstance(wc.p10y_repository_id, bool)
 
@@ -123,7 +123,7 @@ class TestEmitWorkspaceConfig:
         assert data[0]["repo_url"] == "https://github.com/my-org/specflow-workspace4"
 
     def test_p10y_repository_id_is_int_not_bool(self, tmp_path):
-        """p10y_repository_id must be a plain int (WorkspaceConfig rejects bool)."""
+        """p10y_repository_id must be a plain int (WorkspacePoolEntry rejects bool)."""
         repo_id_map = {"specflow-workspace1": 12345}
         output = str(tmp_path / "out.json")
 
