@@ -9,10 +9,11 @@
 # Responsibilities:
 #   1. Load .env (user must have copied .env.quickstart.example → .env)
 #   2. Generate TOKEN_ENCRYPTION_KEY if blank (via Fernet, never echoed)
-#   3. Create .specflow-local/ and write workspaces.json, init.log, mcp-config.json
+#   3. Create .specflow-local/ and write init.log, mcp-config.json
 #   4. Start the backend stack only (backend + sqlite; NOT mcp-server profile)
 #   5. Health-gate: poll /health/ready before seeding
-#   6. Seed the local SQLite database via init_db.py
+#   6. Provision repos + seed the workspace pool straight into the SQLite database, then
+#      seed the API key + local identity via init_db.py
 #   7. Write .specflow-local/mcp-config.json (keyless IDE MCP-client snippet)
 #   8. Install the local SpecFlow CLI entry point
 #   9. Print manual-install instruction for the user
@@ -29,7 +30,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOCAL_DIR="${SCRIPT_DIR}/.specflow-local"
 LOG_FILE="${LOCAL_DIR}/init.log"
-WORKSPACES_JSON="${LOCAL_DIR}/workspaces.json"
 MCP_CONFIG_JSON="${LOCAL_DIR}/mcp-config.json"
 BACKEND_HEALTH_URL="http://localhost:8000/health/ready"
 HEALTH_RETRIES=60
@@ -228,6 +228,14 @@ log "INFO: Loaded .env from ${ENV_FILE}"
 _WORKSPACE_MOUNT_PATH="${WORKSPACE_MOUNT_PATH:-./workspaces}"
 export SPECFLOW_HOME_PATH="${SPECFLOW_HOME_MOUNT_PATH:-${HOME}/.specflow}"
 export FIRESTORE_DATABASE_NAME="${FIRESTORE_DATABASE_NAME:-specflow}"
+
+# Host-side DB target for the provisioning + seeding subshells (uv run on the host). These
+# are plain (non-exported) vars so `docker compose up` still gives the CONTAINER its own
+# SQLITE_DB_PATH from .env — host writes must go to the bind-mount SOURCE
+# (${SPECFLOW_HOME_PATH}/db/specflow.db), never the container-internal /root/.specflow path.
+_DATABASE_TYPE="${DATABASE_TYPE:-sqlite}"
+_SQLITE_DB_PATH="${SPECFLOW_HOME_PATH}/db/specflow.db"
+
 log "INFO: SpecFlow home (central SQLite db) dir: ${SPECFLOW_HOME_PATH}"
 log "INFO: Firestore database name (hosted-connect mode only): ${FIRESTORE_DATABASE_NAME}"
 
@@ -440,64 +448,56 @@ if [[ -n "${OWN_REPOS}" ]]; then
     # back portably — BSD/macOS paste errors without the trailing '-'.
     _OWN_REPO_NAMES=$(echo "${OWN_REPOS}" | tr ',' '\n' | sed 's|.*/||' | paste -sd ',' -)
     if [[ "${DRY_RUN}" == "true" ]]; then
-        info "[DRY RUN] --provide-own-repos: would run create_generation_session_repos.py --repos ${_OWN_REPO_NAMES} --github-org ${_GH_ORG} --skip-metrics --skip-firestore --output-workspace-config ${WORKSPACES_JSON}"
+        info "[DRY RUN] --provide-own-repos: would run create_generation_session_repos.py --repos ${_OWN_REPO_NAMES} --github-org ${_GH_ORG} --skip-metrics (seeds the ${_DATABASE_TYPE} workspace pool directly)"
     else
-        info "Looking up P10Y IDs for provided repos and writing ${WORKSPACES_JSON} ..."
-        log "INFO: Running create_generation_session_repos.py --repos ${_OWN_REPO_NAMES} --github-org ${_GH_ORG} --skip-metrics --skip-firestore"
+        info "Looking up P10Y IDs for provided repos and seeding the workspace pool ..."
+        log "INFO: Running create_generation_session_repos.py --repos ${_OWN_REPO_NAMES} --github-org ${_GH_ORG} --skip-metrics (DATABASE_TYPE=${_DATABASE_TYPE})"
         (
             cd "${SCRIPT_DIR}/backend"
+            DATABASE_TYPE="${_DATABASE_TYPE}" \
+            SQLITE_DB_PATH="${_SQLITE_DB_PATH}" \
+            FIRESTORE_EMULATOR_HOST="${FIRESTORE_EMULATOR_HOST:-localhost:8080}" \
             uv run python scripts/create_generation_session_repos.py \
                 --repos "${_OWN_REPO_NAMES}" \
                 --github-org "${_GH_ORG}" \
-                --skip-metrics \
-                --skip-firestore \
-                --output-workspace-config "${WORKSPACES_JSON}"
+                --skip-metrics
         ) > >(log_stream) 2> >(log_stream) \
-            || error "Failed to look up P10Y IDs for provided repos. Check ${LOG_FILE}. Ensure the repos exist in GitHub and are synced in Compass."
-        info "Workspace config written at ${WORKSPACES_JSON}."
+            || error "Failed to look up P10Y IDs / seed provided repos. Check ${LOG_FILE}. Ensure the repos exist in GitHub and are synced in Compass."
+        info "Workspace pool seeded from provided repos."
     fi
 else
     _REPO_PREFIX="${WORKSPACE_REPO_PREFIX:-specflow-workspace}"
     if [[ "${DRY_RUN}" == "true" ]]; then
-        info "[DRY RUN] Would run create_generation_session_repos.py --start ${REPO_RANGE_START} --end ${REPO_RANGE_END} --prefix ${_REPO_PREFIX} --github-org ${_GH_ORG} --output-workspace-config ${WORKSPACES_JSON} --skip-firestore (${MAX_PARALLEL_RUNS} set(s) of 3 = ${REPO_RANGE_END} repos)"
+        info "[DRY RUN] Would run create_generation_session_repos.py --start ${REPO_RANGE_START} --end ${REPO_RANGE_END} --prefix ${_REPO_PREFIX} --github-org ${_GH_ORG} (seeds the ${_DATABASE_TYPE} workspace pool directly; ${MAX_PARALLEL_RUNS} set(s) of 3 = ${REPO_RANGE_END} repos)"
     else
         info "Ensuring ${MAX_PARALLEL_RUNS} set(s) of 3 workspace repos (${REPO_RANGE_END} total) and P10Y metrics ..."
-        log "INFO: Running create_generation_session_repos.py --start ${REPO_RANGE_START} --end ${REPO_RANGE_END} --prefix ${_REPO_PREFIX} --github-org ${_GH_ORG} --output-workspace-config <path> --skip-firestore"
+        log "INFO: Running create_generation_session_repos.py --start ${REPO_RANGE_START} --end ${REPO_RANGE_END} --prefix ${_REPO_PREFIX} --github-org ${_GH_ORG} (DATABASE_TYPE=${_DATABASE_TYPE})"
         # H (fail-loud): a provisioning failure is a hard error — never fall through to an
         # empty pool reported as success.
         (
             cd "${SCRIPT_DIR}/backend"
+            DATABASE_TYPE="${_DATABASE_TYPE}" \
+            SQLITE_DB_PATH="${_SQLITE_DB_PATH}" \
+            FIRESTORE_EMULATOR_HOST="${FIRESTORE_EMULATOR_HOST:-localhost:8080}" \
             uv run python scripts/create_generation_session_repos.py \
                 --start "${REPO_RANGE_START}" \
                 --end "${REPO_RANGE_END}" \
                 --prefix "${_REPO_PREFIX}" \
-                --github-org "${_GH_ORG}" \
-                --output-workspace-config "${WORKSPACES_JSON}" \
-                --skip-firestore
+                --github-org "${_GH_ORG}"
         ) > >(log_stream) 2> >(log_stream) \
             || error "Workspace provisioning failed (create_generation_session_repos.py). Check ${LOG_FILE}."
-        info "Workspace config refreshed at ${WORKSPACES_JSON}."
+        info "Workspace pool seeded (${REPO_RANGE_END} repos)."
     fi
 fi
 
 # ---------------------------------------------------------------------------
-# Step 6: Seed the active database from durable workspace config
+# Step 6: Seed the bootstrap API key + local-auth identity sentinel.
+# The workspace pool was already seeded straight into the database by the provisioning step
+# above (no flat-file handoff), so init_db.py runs without a workspace-config file here.
 # ---------------------------------------------------------------------------
-_DATABASE_TYPE="${DATABASE_TYPE:-sqlite}"
-# Seeding runs HOST-side (uv run), so it must target the host bind-mount SOURCE
-# (${SPECFLOW_HOME_PATH}/db/specflow.db), NOT the container-internal SQLITE_DB_PATH from .env
-# (/root/.specflow/db/specflow.db) — that host path is unwritable for non-root and would seed a
-# file the container never reads. SPECFLOW_HOME_MOUNT_PATH is the single knob for both sides.
-_SQLITE_DB_PATH="${SPECFLOW_HOME_PATH}/db/specflow.db"
-
-# Guard (H): the provisioning steps above always write workspaces.json. A missing file
-# here means an anomalous failure — refuse to seed an empty pool.
-if [[ "${DRY_RUN}" != "true" && ! -f "${WORKSPACES_JSON}" ]]; then
-    error "${WORKSPACES_JSON} not found after provisioning. Refusing to seed an empty pool. Check ${LOG_FILE}."
-fi
 
 # Array form (not a string) so paths containing spaces stay a single argument.
-_SEED_FLAGS=(--workspace-config "${WORKSPACES_JSON}" --yes)
+_SEED_FLAGS=(--yes)
 if [[ "${RESET_LOCAL_DB}" == "true" ]]; then
     _SEED_FLAGS+=(--replace)
 fi
@@ -506,7 +506,7 @@ if [[ "${DRY_RUN}" == "true" ]]; then
     info "[DRY RUN] Would run: DATABASE_TYPE=${_DATABASE_TYPE} uv run scripts/init_db.py --dry-run ${_SEED_FLAGS[*]}"
     log "INFO: [DRY RUN] init_db.py --dry-run ${_SEED_FLAGS[*]}"
 else
-    info "Seeding the ${_DATABASE_TYPE} database ..."
+    info "Seeding API key + local identity into the ${_DATABASE_TYPE} database ..."
     log "INFO: Running init_db.py ${_SEED_FLAGS[*]} (DATABASE_TYPE=${_DATABASE_TYPE})"
     (
         cd "${SCRIPT_DIR}/backend"

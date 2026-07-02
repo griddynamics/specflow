@@ -15,12 +15,21 @@ def _compose_text() -> str:
     return _COMPOSE.read_text()
 
 
-def test_workspace_config_generation_skips_firestore_write():
-    """The quickstart emits workspaces.json, then init_firestore.py seeds emulator state."""
+def test_quickstart_seeds_pool_directly_without_workspaces_json():
+    """The quickstart provisions repos straight into the DB — no workspaces.json handoff.
+
+    Regression guard for the flat-file removal: the provisioner must NOT be invoked with
+    --skip-firestore or --output-workspace-config, and .specflow-local/workspaces.json must
+    never be referenced.
+    """
     text = _script_text()
 
-    assert "--output-workspace-config" in text
-    assert "--skip-firestore" in text
+    assert "--output-workspace-config" not in text
+    assert "--skip-firestore" not in text
+    assert "workspaces.json" not in text
+    # init_db.py still runs (API key + identity), but without a --workspace-config file.
+    assert "uv run scripts/init_db.py" in text
+    assert "--workspace-config" not in text
 
 
 def test_docker_starts_before_workspace_config_generation():

@@ -614,6 +614,7 @@ async def add_workspaces_to_firestore(
     workspace_pool: str = "default",
     firestore_project_id: Optional[str] = None,
     firestore_database_id: Optional[str] = None,
+    ordered_repos: Optional[List[str]] = None,
 ) -> None:
     """
     Add workspace entries to the active database.
@@ -622,8 +623,10 @@ async def add_workspaces_to_firestore(
     instance directly; otherwise use get_database() (honors DATABASE_TYPE — sqlite by default).
 
     Id assignment and the upsert are delegated to app.services.workspace_pool_seeding, the single
-    source shared with init_db.py. ``start_num`` is unused (ids come from the repo names) and is
-    retained only for call-site stability.
+    source shared with init_db.py. When ``ordered_repos`` is given (the --provide-own-repos path),
+    ids follow list position; otherwise they are derived from the {prefix}{num} repo names.
+    ``start_num`` is unused (ids come from the repo names/positions) and is retained only for
+    call-site stability.
     """
     if not repo_id_map:
         print("\n⚠️  No repository IDs to add")
@@ -645,7 +648,11 @@ async def add_workspaces_to_firestore(
             db = get_database()
 
         entries = assign_pool_entries(
-            repo_id_map, github_org, workspace_pool, prefix=prefix
+            repo_id_map,
+            github_org,
+            workspace_pool,
+            ordered_repos=ordered_repos,
+            prefix=prefix,
         )
         result = seed_workspace_pool(db, entries, replace=True)
 
@@ -1089,11 +1096,11 @@ async def main():
         else:
             final_statuses = {}
         
-        # Step 6: Add workspaces to the active database
-        # --repos path: workspace-config JSON is written above; database seeding is done
-        # separately by init_db.py --workspace-config. add_workspaces_to_firestore
-        # extracts workspace IDs from {prefix}{num} names and cannot handle arbitrary names.
-        if not args.skip_firestore and own_repo_list is None:
+        # Step 6: Add workspaces to the active database.
+        # Both the {prefix}{num} path and the --provide-own-repos (arbitrary-name) path seed
+        # directly now: id assignment handles ordered repos via own_repo_list, so the local
+        # quickstart no longer needs a workspaces.json handoff to init_db.py.
+        if not args.skip_firestore:
             await add_workspaces_to_firestore(
                 repo_id_map,
                 github_org,
@@ -1102,9 +1109,10 @@ async def main():
                 workspace_pool,
                 firestore_project_id=gcp_cli if firestore_target_from_cli else None,
                 firestore_database_id=fsdb_cli if firestore_target_from_cli else None,
+                ordered_repos=own_repo_list,
             )
         else:
-            print("\n⏭️  Skipping Firestore workspace creation")
+            print("\n⏭️  Skipping database workspace creation (--skip-firestore)")
         
         # Print final summary
         print("\n" + "=" * 80)

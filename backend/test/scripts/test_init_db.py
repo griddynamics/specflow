@@ -144,24 +144,37 @@ class TestWorkspaceConfigLoad:
 # (a2) main() requires --workspace-config: there are no default repos
 # ---------------------------------------------------------------------------
 
-class TestWorkspaceConfigRequired:
-    def test_main_without_workspace_config_exits(self, capsys):
-        """main() refuses to run (exit 1) when --workspace-config is absent."""
-        with patch("sys.argv", ["init_db.py", "--yes"]):
-            with pytest.raises(SystemExit) as exc:
-                init_script.main()
-        assert exc.value.code == 1
-        out = capsys.readouterr().out
-        assert "No workspace config provided" in out
-        assert "e2e-workspace-config.example.json" in out
+class TestWorkspaceConfigOptional:
+    def test_main_without_workspace_config_seeds_identity_only(self, monkeypatch):
+        """Without --workspace-config, main() seeds the API key + local identity but NOT the
+        workspace pool (the pool is seeded directly into the DB by the provisioner)."""
+        monkeypatch.setenv("DATABASE_TYPE", "sqlite")
+        monkeypatch.delenv("FIRESTORE_EMULATOR_HOST", raising=False)
+        db = _make_db()
 
-    def test_main_without_workspace_config_does_not_touch_db(self):
-        """The gate fires before any database access."""
-        with patch("sys.argv", ["init_db.py"]):
-            with patch.object(init_script, "get_database") as mock_get_db:
-                with pytest.raises(SystemExit):
+        with patch("sys.argv", ["init_db.py", "--yes"]):
+            with patch.object(init_script, "get_database", return_value=db):
+                with patch.object(init_script, "attach_github_tokens"):
+                    init_script.main()  # must NOT raise SystemExit
+
+        # Local-auth sentinel seeded; workspace pool left untouched.
+        assert db.get("api_keys", LOCAL_API_KEY_DOC_ID) is not None
+        assert db.query("workspaces") == []
+
+    def test_main_without_workspace_config_skips_pool_message(self, capsys, monkeypatch):
+        """It announces that pool seeding is skipped rather than erroring out."""
+        monkeypatch.setenv("DATABASE_TYPE", "sqlite")
+        monkeypatch.delenv("FIRESTORE_EMULATOR_HOST", raising=False)
+        db = _make_db()
+
+        with patch("sys.argv", ["init_db.py", "--yes"]):
+            with patch.object(init_script, "get_database", return_value=db):
+                with patch.object(init_script, "attach_github_tokens"):
                     init_script.main()
-        mock_get_db.assert_not_called()
+
+        out = capsys.readouterr().out
+        assert "No --workspace-config provided" in out
+        assert "Skipping workspace pool seeding" in out
 
 
 # ---------------------------------------------------------------------------

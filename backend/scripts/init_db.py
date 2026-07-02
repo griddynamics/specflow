@@ -480,23 +480,19 @@ def main():
     )
     args = parser.parse_args()
 
-    # Workspace configs MUST come from --workspace-config. There are no default repos: workspace
-    # allocation clones every repo_url (even in SKIP_MODE), so the pool can only point at repos the
-    # user controls. Refuse to run otherwise rather than seeding a broken pool.
+    # --workspace-config is optional. When provided (e2e / bring-your-own repos), it is the
+    # source of the workspace pool. When omitted (local quickstart), the pool is seeded straight
+    # into the DB by create_generation_session_repos.py, and this script only seeds the bootstrap
+    # API key + local-auth identity sentinel. There are still no hardcoded default repos.
     global WORKSPACE_CONFIGS
-    if not args.workspace_config:
+    if args.workspace_config:
+        WORKSPACE_CONFIGS = load_workspace_configs_from_file(args.workspace_config)
+        print(f"✓ Loaded {len(WORKSPACE_CONFIGS)} workspace configs from {args.workspace_config}")
+    else:
         print(
-            "ERROR: No workspace config provided. There are no default test repos.\n"
-            "       Copy the template, point it at repos you control, then pass it via "
-            "--workspace-config:\n"
-            "         cp e2e-workspace-config.example.json my-test-repos.json\n"
-            "         # edit repo_url / p10y_repository_id in my-test-repos.json\n"
-            "       Then re-run, e.g.:\n"
-            "         make skip-mode-e2e-tests E2E_WORKSPACE_CONFIG=my-test-repos.json"
+            "ℹ️  No --workspace-config provided: seeding API key + local identity only "
+            "(the workspace pool is seeded separately, straight into the database)."
         )
-        sys.exit(1)
-    WORKSPACE_CONFIGS = load_workspace_configs_from_file(args.workspace_config)
-    print(f"✓ Loaded {len(WORKSPACE_CONFIGS)} workspace configs from {args.workspace_config}")
 
     # Safety check for production
     if args.prod:
@@ -559,13 +555,17 @@ def main():
         traceback.print_exc()
         sys.exit(1)
 
-    # Initialize workspace pool
-    try:
-        initialize_workspace_pool(db, dry_run=args.dry_run, yes=args.yes, replace=args.replace)
-    except Exception as e:
-        print(f"\nERROR: Initialization failed: {e}")
-        traceback.print_exc()
-        sys.exit(1)
+    # Initialize workspace pool (only when a config file was supplied; otherwise the pool is
+    # seeded directly into the DB by create_generation_session_repos.py).
+    if WORKSPACE_CONFIGS:
+        try:
+            initialize_workspace_pool(db, dry_run=args.dry_run, yes=args.yes, replace=args.replace)
+        except Exception as e:
+            print(f"\nERROR: Initialization failed: {e}")
+            traceback.print_exc()
+            sys.exit(1)
+    else:
+        print("⏭️  Skipping workspace pool seeding (no --workspace-config).")
 
     # Attach GitHub tokens to pool-specific keys
     attach_github_tokens(dry_run=args.dry_run)
