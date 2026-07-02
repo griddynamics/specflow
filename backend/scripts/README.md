@@ -1,18 +1,21 @@
 # Database Initialization Scripts
 
-This directory contains scripts for initializing and managing the Firestore database.
+This directory contains scripts for initializing and managing the SpecFlow database
+(SQLite locally by default, or Firestore for production / an already-hosted GCP instance).
 
 ## Overview
 
-The SpecFlow backend uses Firestore to manage:
+The SpecFlow backend manages:
 - **Workspace pool**: configured workspace sets for running generations
 - **Generations**: Generation jobs with state tracking and crash recovery
 
 ## Scripts
 
-### `init_firestore.py`
+### `init_db.py`
 
-Initializes the Firestore workspace pool from a required workspace-config JSON file.
+Initializes the active database's workspace pool from a required workspace-config JSON
+file. Backend-agnostic — it goes through the `IDatabase` abstraction, so the same script
+seeds sqlite, a manually-run emulator, or Firestore.
 
 **Usage:**
 
@@ -21,34 +24,37 @@ Initializes the Firestore workspace pool from a required workspace-config JSON f
 ```bash
 # IMPORTANT: Run from the backend/ directory (where pyproject.toml is located)
 
-# With Firestore Emulator (recommended for development)
+# SQLite (local/Docker default — no separate process needed)
 cd backend
-export FIRESTORE_EMULATOR_HOST=localhost:8080
-# DATABASE_TYPE=emulator is auto-set when FIRESTORE_EMULATOR_HOST is set
-uv run scripts/init_firestore.py --workspace-config ../my-test-repos.json
+export DATABASE_TYPE=sqlite
+uv run scripts/init_db.py --workspace-config ../my-test-repos.json
 
 # Dry run (show what would be done)
 cd backend
-export FIRESTORE_EMULATOR_HOST=localhost:8080
-uv run scripts/init_firestore.py --dry-run --workspace-config ../my-test-repos.json
+uv run scripts/init_db.py --dry-run --workspace-config ../my-test-repos.json
 
-# Production (BE CAREFUL!)
+# Manually-run Firestore emulator
+cd backend
+export FIRESTORE_EMULATOR_HOST=localhost:8080
+# DATABASE_TYPE=emulator is auto-set when FIRESTORE_EMULATOR_HOST is set
+uv run scripts/init_db.py --workspace-config ../my-test-repos.json
+
+# Production, or an already-hosted GCP instance (BE CAREFUL!)
 cd backend
 export GCP_PROJECT_ID=your-project-id
 export DATABASE_TYPE=firestore
-uv run scripts/init_firestore.py --prod --workspace-config ../my-test-repos.json
+uv run scripts/init_db.py --prod --workspace-config ../my-test-repos.json
 ```
 
 **Alternative (from project root):**
 ```bash
 # Using uv's --directory flag
-export FIRESTORE_EMULATOR_HOST=localhost:8080
-uv run --directory backend scripts/init_firestore.py --dry-run --workspace-config my-test-repos.json
+uv run --directory backend scripts/init_db.py --dry-run --workspace-config my-test-repos.json
 ```
 
 **Important Notes:**
-- The script automatically sets `DATABASE_TYPE=emulator` when `FIRESTORE_EMULATOR_HOST` is set
-- If `DATABASE_TYPE` is not set and `FIRESTORE_EMULATOR_HOST` is missing, it defaults to `memory` (data won't persist!)
+- Defaults to `sqlite` unless `DATABASE_TYPE` is set or `FIRESTORE_EMULATOR_HOST` triggers
+  emulator auto-detect
 - The script will show debug output about how many keys it finds in the database
 
 **What it does:**

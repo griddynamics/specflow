@@ -183,34 +183,36 @@ class DatabaseInterface(ABC):
 - No persistence
 - Thread-safe (asyncio locks)
 
-**2. EmulatorDatabase** - Firestore emulator
-- Local development
-- Realistic Firestore behavior
-- Fast startup
-- Data reset on restart
+**2. SqliteDatabase** - Local file, no separate process
+- Local/Docker-dev default
+- Single-writer, WAL mode, real ACID transactions
+- Persists across restarts (bind-mounted at `~/.specflow/db/specflow.db`)
+- Not a production replacement for Firestore — no cross-node distributed locking
 
-**3. FirestoreDatabase** - Google Cloud Firestore
-- Production
+**3. EmulatorDatabase** - Firestore emulator
+- Connects to a manually-run Firestore emulator process (docker-compose does not
+  start one)
+- Realistic Firestore behavior for anyone testing against real Firestore semantics
+
+**4. FirestoreDatabase** - Google Cloud Firestore
+- Production, or connecting to an already-hosted GCP-managed instance
 - Native transactions
 - Distributed locking
-- Persistent state
 
 ### Factory Pattern
 
 ```python
-# app/database/__init__.py
-def get_database(db_type: str = None) -> DatabaseInterface:
-    if db_type == "memory":
-        return MemoryDatabase()
-    elif db_type == "emulator":
-        return EmulatorDatabase()
-    elif db_type == "firestore":
-        return FirestoreDatabase()
-    else:
-        # Auto-detect from environment
-        if os.getenv("FIRESTORE_EMULATOR_HOST"):
-            return EmulatorDatabase()
-        return FirestoreDatabase()
+# app/database/factory.py
+def get_database() -> IDatabase:
+    db_type = settings.DATABASE_TYPE
+    if db_type == DatabaseType.MEMORY:
+        return InMemoryDatabase()
+    elif db_type == DatabaseType.SQLITE:
+        return SqliteDatabase(db_path=settings.SQLITE_DB_PATH)
+    elif db_type == DatabaseType.EMULATOR:
+        return EmulatorDatabase(...)
+    elif db_type == DatabaseType.FIRESTORE:
+        return FirestoreDatabase(...)
 ```
 
 ### Transaction Support

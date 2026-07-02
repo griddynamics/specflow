@@ -48,10 +48,13 @@ from typing import List
 # Add backend to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Set DATABASE_TYPE early if FIRESTORE_EMULATOR_HOST is set (before importing settings)
-# This ensures we use the emulator instead of in-memory database
+# Set DATABASE_TYPE early (before importing settings): emulator auto-detect takes
+# priority (manually-run emulator), otherwise default to sqlite (the local/Docker-dev
+# default) rather than the ephemeral in-memory fallback.
 if os.getenv("FIRESTORE_EMULATOR_HOST") and not os.getenv("DATABASE_TYPE"):
     os.environ["DATABASE_TYPE"] = "emulator"
+elif not os.getenv("DATABASE_TYPE"):
+    os.environ["DATABASE_TYPE"] = "sqlite"
 
 import httpx
 
