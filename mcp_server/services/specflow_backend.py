@@ -71,24 +71,36 @@ class SpecFlowBackendService:
         timeout_seconds: float = 600.0,
         connect_timeout_seconds: float = 10.0,
     ) -> str:
-        """Call backend; return response text. On HTTPError, returns an error string."""
+        """Call backend; return response text. Raises on HTTP errors (mirrors upload_file /
+        post_form_data) instead of returning a non-JSON error string — callers that blindly
+        json.loads() the return value would otherwise fail with a misleading
+        "Expecting value" error that hides the actual backend detail.
+        """
+        url = f"{self.base_url}{endpoint}"
+        headers = self._get_headers()
+        m = method.upper()
+        if m not in ("POST", "GET", "DELETE"):
+            raise ValueError(f"Unsupported HTTP method: {method}")
         try:
-            url = f"{self.base_url}{endpoint}"
-            headers = self._get_headers()
             async with self._client(timeout_seconds, connect_timeout_seconds) as client:
-                m = method.upper()
                 if m == "POST":
                     response = await client.post(url, json=json_data, headers=headers)
                 elif m == "GET":
                     response = await client.get(url, headers=headers)
-                elif m == "DELETE":
-                    response = await client.delete(url, headers=headers)
                 else:
-                    raise ValueError(f"Unsupported HTTP method: {method}")
+                    response = await client.delete(url, headers=headers)
                 response.raise_for_status()
                 return response.text
+        except httpx.HTTPStatusError as e:
+            rejection = _parse_contract_rejection(e.response)
+            if rejection is not None:
+                raise BackendContractRejection(rejection) from e
+            detail = f"HTTP {e.response.status_code}: {e.response.text[:500]}"
+            logger.error("HTTP error calling backend %s: %s", endpoint, detail)
+            raise Exception(f"Backend returned {detail}") from e
         except httpx.HTTPError as e:
-            return f"Error calling backend: {str(e)}"
+            logger.error("HTTP error calling backend %s: %s, type: %s", endpoint, e, type(e).__name__)
+            raise Exception(f"Failed to call backend: {e}") from e
 
     async def call_backend_bytes(
         self,
