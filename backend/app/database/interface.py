@@ -7,13 +7,29 @@ This allows the application to swap between different database backends
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
+from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, TypeVar, runtime_checkable
 
 # Type for query filter: (field, operator, value)
 FilterTuple = Tuple[str, str, Any]
 
 # Type variable for transaction callback return type
 T = TypeVar("T")
+
+
+@runtime_checkable
+class ReadOnlyDatabase(Protocol):
+    """Read-only view over a database — the narrow subset a document reader needs.
+
+    Consumers that must never write status/checkpoint/workspace_phases (e.g. the
+    notifications report renderer) depend on this protocol instead of the full
+    ``IDatabase``, so those writes are impossible through the handle they hold.
+    Any ``IDatabase`` satisfies it structurally; ``StateMachineDBAdapter`` hands
+    out a view that exposes *only* ``get`` — keeping Commandment VII enforced,
+    not merely documented.
+    """
+
+    def get(self, collection: str, doc_id: str) -> Optional[Dict[str, Any]]:
+        ...
 
 
 class ITransactionContext(ABC):

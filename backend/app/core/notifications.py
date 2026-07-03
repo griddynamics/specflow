@@ -11,7 +11,7 @@ import httpx
 
 from app.core.config import EmailConfig
 from app.core.config import settings
-from app.database.interface import IDatabase
+from app.database.interface import IDatabase, ReadOnlyDatabase
 from app.schemas.estimate import (
     ComparativeAnalysis,
     EstimationMetrics,
@@ -1060,412 +1060,438 @@ class EmailNotifier(Notifier):
         db: Optional[IDatabase],
         notification_kind: GenerationSessionNotificationKind = GenerationSessionNotificationKind.COMPLETE,
     ) -> Tuple[str, str]:
-        """
-        Build HTML and plain text email content for generation session completion.
-        
+        """Build HTML and plain text email content for generation session completion.
+
         Returns:
             Tuple of (html_content, plain_content)
         """
-        pre_deploy = notification_kind == GenerationSessionNotificationKind.CODING_COMPLETE_PRE_DEPLOY
-        variance = _p10y_variance_summary(result, pre_deploy=pre_deploy)
+        return render_generation_session_report_html(
+            generation_id=generation_id,
+            workspace_ids=workspace_ids,
+            result=result,
+            spec_path=spec_path,
+            db=db,
+            notification_kind=notification_kind,
+        )
 
-        try:
-            final_estimate = result.summary.risk_assessment.final_estimate if result.summary.risk_assessment else result.summary.average_hours
-        except (AttributeError, KeyError):
-            final_estimate = 0.0
-        
-        try:
-            average_hours = result.summary.average_hours
-        except (AttributeError, KeyError):
-            average_hours = 0.0
-        
-        try:
-            min_hours = result.summary.min_hours
-        except (AttributeError, KeyError):
-            min_hours = 0.0
-        
-        try:
-            max_hours = result.summary.max_hours
-        except (AttributeError, KeyError):
-            max_hours = 0.0
 
-        final_estimate_display = (
-            "Pending (reported after P10Y phase)" if pre_deploy else f"{final_estimate:.1f} hours"
+def render_generation_session_report_html(
+    generation_id: str,
+    workspace_ids: List[str],
+    result: Any,
+    spec_path: str,
+    db: Optional[ReadOnlyDatabase],
+    notification_kind: GenerationSessionNotificationKind = GenerationSessionNotificationKind.COMPLETE,
+) -> Tuple[str, str]:
+    """Build HTML and plain text P10Y report content, independent of any notifier.
+
+    Shared by ``EmailNotifier`` (sent as an email body) and the P10Y workflow
+    (saved to disk next to the markdown reports, regardless of whether email
+    or Slack are configured).
+
+    Returns:
+        Tuple of (html_content, plain_content)
+    """
+    pre_deploy = notification_kind == GenerationSessionNotificationKind.CODING_COMPLETE_PRE_DEPLOY
+    variance = _p10y_variance_summary(result, pre_deploy=pre_deploy)
+
+    try:
+        final_estimate = result.summary.risk_assessment.final_estimate if result.summary.risk_assessment else result.summary.average_hours
+    except (AttributeError, KeyError):
+        final_estimate = 0.0
+
+    try:
+        average_hours = result.summary.average_hours
+    except (AttributeError, KeyError):
+        average_hours = 0.0
+
+    try:
+        min_hours = result.summary.min_hours
+    except (AttributeError, KeyError):
+        min_hours = 0.0
+
+    try:
+        max_hours = result.summary.max_hours
+    except (AttributeError, KeyError):
+        max_hours = 0.0
+
+    final_estimate_display = (
+        "Pending (reported after P10Y phase)" if pre_deploy else f"{final_estimate:.1f} hours"
+    )
+    average_display = (
+        "Pending" if pre_deploy else f"{average_hours:.1f} hours"
+    )
+    range_display = (
+        "Pending (P10Y after deploy)" if pre_deploy else f"{min_hours:.1f} - {max_hours:.1f} hours"
+    )
+    cost_display = _session_llm_cost_display(result)
+
+    # Extract timestamp with safe fallback
+    try:
+        timestamp = result.timestamp if hasattr(result, 'timestamp') else "Unknown"
+    except (AttributeError, KeyError):
+        timestamp = "Unknown"
+
+    # Extract workspace generations
+    try:
+        workspace_estimations = result.workspace_estimations if hasattr(result, 'workspace_estimations') else None
+    except (AttributeError, KeyError):
+        workspace_estimations = None
+
+    # Build per-workspace model/token lookup from workspace_estimations
+    ws_est_by_name = {}
+    if workspace_estimations:
+        for ws_est in workspace_estimations:
+            try:
+                ws_name = getattr(ws_est, 'workspace_name', None)
+                if ws_name:
+                    ws_est_by_name[ws_name] = ws_est
+            except (AttributeError, TypeError):
+                continue
+
+    # Pre-compute codegen usage lines once per workspace (reused in HTML + plain-text)
+    ws_codegen_lines: dict[str, list[str]] = {
+        ws_id: _workspace_codegen_usage_lines(ws_est)
+        for ws_id, ws_est in ws_est_by_name.items()
+    }
+
+    # Build repository links
+    repo_links = []
+    if db:
+        for workspace_id in workspace_ids:
+            try:
+                ws_doc = db.get("workspaces", workspace_id)
+                if ws_doc and ws_doc.get("repo_url"):
+                    repo_url = ws_doc["repo_url"]
+                    # Remove .git suffix if present
+                    if repo_url.endswith(".git"):
+                        repo_url = repo_url[:-4]
+                    branch_name = GitArchiveService.branch_name(generation_id)
+                    branch_url = f"{repo_url}/tree/{branch_name}"
+
+                    # Get model/token info from matching WorkspaceEstimation
+                    ws_est = ws_est_by_name.get(workspace_id)
+                    mu_html = getattr(ws_est, "model_usage", None) if ws_est else None
+                    model_name = (mu_html.model_name if mu_html else None) or None
+                    input_tokens = mu_html.input_tokens if mu_html else None
+                    output_tokens = mu_html.output_tokens if mu_html else None
+                    agent_num_turns = mu_html.num_turns if mu_html else None
+                    cache_write = mu_html.cache_write_tokens if mu_html else None
+                    cache_read = mu_html.cache_read_tokens if mu_html else None
+                    llm_cost = getattr(ws_est, "total_usd_cost", None) if ws_est else None
+
+                    repo_links.append({
+                        "workspace_id": workspace_id,
+                        "repo_url": repo_url,
+                        "branch_url": branch_url,
+                        "model_name": model_name,
+                        "input_tokens": input_tokens,
+                        "output_tokens": output_tokens,
+                        "agent_num_turns": agent_num_turns,
+                        "cache_write_tokens": cache_write,
+                        "cache_read_tokens": cache_read,
+                        "total_usd_cost": llm_cost,
+                    })
+            except Exception as e:
+                logger.warning(f"Failed to retrieve workspace {workspace_id}: {e}")
+
+    # Extract component breakdown
+    component_breakdown = {}
+    if workspace_estimations:
+        # Collect all unique components across all workspaces
+        all_components = set()
+        for ws_est in workspace_estimations:
+            try:
+                if hasattr(ws_est, 'component_breakdown') and ws_est.component_breakdown:
+                    all_components.update(ws_est.component_breakdown.keys())
+            except (AttributeError, TypeError):
+                continue  # Skip this workspace if component_breakdown is missing or invalid
+
+        # Build component breakdown with hours per workspace
+        for component_name in sorted(all_components):
+            component_data = {
+                "name": component_name,
+                "workspaces": {}
+            }
+            for ws_est in workspace_estimations:
+                try:
+                    if (hasattr(ws_est, 'component_breakdown') and 
+                        component_name in ws_est.component_breakdown):
+                        comp = ws_est.component_breakdown[component_name]
+                        workspace_name = getattr(ws_est, 'workspace_name', 'unknown')
+                        component_data["workspaces"][workspace_name] = {
+                            "hours": getattr(comp, 'hours', 0.0),
+                            "new_work": getattr(comp, 'new_work', 0.0),
+                            "refactor": getattr(comp, 'refactor', 0.0),
+                            "rework": getattr(comp, 'rework', 0.0),
+                            "quality_score": getattr(comp, 'quality_score', 0.0)
+                        }
+                except (AttributeError, TypeError, KeyError):
+                    continue  # Skip this workspace/component if data is missing
+            component_breakdown[component_name] = component_data
+
+    # Build HTML content
+    html_parts = []
+    html_parts.append("""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .header { background-color: #4CAF50; color: white; padding: 20px; border-radius: 5px 5px 0 0; }
+            .content { padding: 20px; background-color: #f9f9f9; }
+            .section { background-color: white; padding: 15px; margin: 10px 0; border-radius: 5px; border-left: 4px solid #4CAF50; }
+            .section h2 { margin-top: 0; color: #4CAF50; }
+            .summary-item { margin: 10px 0; }
+            .summary-label { font-weight: bold; display: inline-block; width: 150px; }
+            .repo-links-row {
+                display: flex;
+                flex-direction: row;
+                flex-wrap: wrap;
+                gap: 12px;
+                align-items: stretch;
+            }
+            .repo-link {
+                flex: 1 1 200px;
+                min-width: 0;
+                margin: 0;
+                padding: 10px;
+                background-color: #f0f0f0;
+                border-radius: 3px;
+                box-sizing: border-box;
+            }
+            .repo-link a { color: #0066cc; text-decoration: none; font-weight: bold; }
+            .repo-link a:hover { text-decoration: underline; }
+            table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+            table th, table td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
+            table th { background-color: #4CAF50; color: white; }
+            table tr:hover { background-color: #f5f5f5; }
+            .footer { padding: 20px; text-align: center; color: #666; font-size: 12px; }
+        </style>
+    </head>
+    <body>
+    """)
+
+    html_parts.append('<div class="header">')
+    html_parts.append(
+        '<h1>🚀 SpecFlow — Coding complete, starting deployment & QA</h1>'
+        if pre_deploy
+        else '<h1>✅ SpecFlow Iteration Complete</h1>'
+    )
+    html_parts.append('</div>')
+
+    html_parts.append('<div class="content">')
+
+    # Summary section
+    html_parts.append('<div class="section">')
+    html_parts.append('<h2>Summary</h2>')
+    html_parts.append(f'<div class="summary-item"><span class="summary-label">Specification:</span> {spec_path}</div>')
+    html_parts.append(f'<div class="summary-item"><span class="summary-label">Run ID:</span> {generation_id}</div>')
+    html_parts.append(
+        f'<div class="summary-item"><span class="summary-label">{variance.label}:</span> '
+        f"<strong>{variance.value}</strong></div>"
+    )
+    html_parts.append(
+        f'<div class="summary-item"><span class="summary-label">Final Estimate:</span> '
+        f"<strong>{final_estimate_display}</strong></div>"
+    )
+    html_parts.append(
+        f'<div class="summary-item"><span class="summary-label">Average:</span> {average_display}</div>'
+    )
+    html_parts.append(
+        f'<div class="summary-item"><span class="summary-label">Range:</span> {range_display}</div>'
+    )
+    if cost_display:
+        html_parts.append(
+            '<div class="summary-item"><span class="summary-label">Total LLM cost (cumulative):</span> '
+            f"<strong>{cost_display}</strong></div>"
         )
-        average_display = (
-            "Pending" if pre_deploy else f"{average_hours:.1f} hours"
-        )
-        range_display = (
-            "Pending (P10Y after deploy)" if pre_deploy else f"{min_hours:.1f} - {max_hours:.1f} hours"
-        )
-        cost_display = _session_llm_cost_display(result)
-        
-        # Extract timestamp with safe fallback
-        try:
-            timestamp = result.timestamp if hasattr(result, 'timestamp') else "Unknown"
-        except (AttributeError, KeyError):
-            timestamp = "Unknown"
-        
-        # Extract workspace generations
-        try:
-            workspace_estimations = result.workspace_estimations if hasattr(result, 'workspace_estimations') else None
-        except (AttributeError, KeyError):
-            workspace_estimations = None
-        
-        # Build per-workspace model/token lookup from workspace_estimations
-        ws_est_by_name = {}
+    html_parts.append('</div>')
+
+    # Variants section
+    if repo_links:
+        html_parts.append('<div class="section">')
+        html_parts.append('<h2>Variants</h2>')
+        html_parts.append('<p>Click the links below to view the generation branches:</p>')
+        html_parts.append('<div class="repo-links-row">')
+        for repo_link in repo_links:
+            html_parts.append('<div class="repo-link">')
+            html_parts.append(f'<strong>{repo_link["workspace_id"]}:</strong> ')
+            html_parts.append(
+                f'<a href="{repo_link["branch_url"]}" target="_blank">Branch link</a>'
+            )
+            model = repo_link.get("model_name")
+            codegen_detail = ws_codegen_lines.get(repo_link["workspace_id"], [])
+            if codegen_detail:
+                html_parts.append('<br/><span style="color:#666;font-size:13px;">')
+                if model:
+                    html_parts.append(f"model: {model}<br/>")
+                html_parts.append("<br/>".join(codegen_detail))
+                html_parts.append("</span>")
+            else:
+                tokens_str = _format_tokens_millions(
+                    repo_link.get("input_tokens"), repo_link.get("output_tokens")
+                )
+                if model or tokens_str:
+                    detail_parts = []
+                    if model:
+                        detail_parts.append(f"model: {model}")
+                    if tokens_str:
+                        detail_parts.append(f"tokens used: {tokens_str}")
+                    html_parts.append(
+                        f'<br/><span style="color:#666;font-size:13px;">'
+                        f'{" | ".join(detail_parts)}</span>'
+                    )
+            llm_c = repo_link.get("total_usd_cost")
+            if llm_c is not None:
+                try:
+                    html_parts.append(
+                        f'<br/><span style="color:#666;font-size:13px;">'
+                        f"LLM API cost (cumulative): USD {float(llm_c):,.2f}</span>"
+                    )
+                except (TypeError, ValueError):
+                    pass
+            html_parts.append('</div>')
+        html_parts.append('</div>')
+        html_parts.append('</div>')
+
+    # Component breakdown section
+    if component_breakdown:
+        html_parts.append('<div class="section">')
+        html_parts.append('<h2>Component Complexity Metrics Breakdown</h2>')
+        html_parts.append('<table>')
+        html_parts.append('<thead><tr>')
+        html_parts.append('<th>Component</th>')
+        # Add workspace columns
         if workspace_estimations:
             for ws_est in workspace_estimations:
                 try:
-                    ws_name = getattr(ws_est, 'workspace_name', None)
-                    if ws_name:
-                        ws_est_by_name[ws_name] = ws_est
+                    ws_name = getattr(ws_est, 'workspace_name', 'unknown')
+                    html_parts.append(f'<th>{ws_name}<br/>(hours)</th>')
                 except (AttributeError, TypeError):
                     continue
+        html_parts.append('</tr></thead>')
+        html_parts.append('<tbody>')
 
-        # Pre-compute codegen usage lines once per workspace (reused in HTML + plain-text)
-        ws_codegen_lines: dict[str, list[str]] = {
-            ws_id: _workspace_codegen_usage_lines(ws_est)
-            for ws_id, ws_est in ws_est_by_name.items()
-        }
+        for component_name, component_data in component_breakdown.items():
+            html_parts.append('<tr>')
+            html_parts.append(f'<td><strong>{component_name}</strong></td>')
+            # Add hours for each workspace
+            if workspace_estimations:
+                for ws_est in workspace_estimations:
+                    try:
+                        ws_name = getattr(ws_est, 'workspace_name', 'unknown')
+                        if ws_name in component_data["workspaces"]:
+                            hours = component_data["workspaces"][ws_name]["hours"]
+                            html_parts.append(f'<td>{hours:.1f}</td>')
+                        else:
+                            html_parts.append('<td>-</td>')
+                    except (AttributeError, TypeError, KeyError):
+                        html_parts.append('<td>-</td>')
+            html_parts.append('</tr>')
 
-        # Build repository links
-        repo_links = []
-        if db:
-            for workspace_id in workspace_ids:
+        html_parts.append('</tbody>')
+        html_parts.append('</table>')
+        html_parts.append('</div>')
+
+    html_parts.append('</div>')
+
+    html_parts.append('<div class="footer">')
+    html_parts.append(f'<p>Run ID: {generation_id} | Generated at: {timestamp}</p>')
+    html_parts.append('</div>')
+
+    html_parts.append('</body></html>')
+
+    html_content = '\n'.join(html_parts)
+
+    # Build plain text content
+    plain_parts = []
+    plain_parts.append("=" * 60)
+    plain_parts.append(
+        "SpecFlow — CODING COMPLETE, STARTING DEPLOYMENT & QA"
+        if pre_deploy
+        else "SpecFlow ITERATION COMPLETE"
+    )
+    plain_parts.append("=" * 60)
+    plain_parts.append("")
+    plain_parts.append(f"Specification: {spec_path}")
+    plain_parts.append(f"Run ID: {generation_id}")
+    plain_parts.append(f"{variance.label}: {variance.value}")
+    plain_parts.append(f"Final Estimate: {final_estimate_display}")
+    plain_parts.append(f"Average: {average_display}")
+    plain_parts.append(f"Range: {range_display}")
+    if cost_display:
+        plain_parts.append(f"Total LLM cost (cumulative): {cost_display}")
+    plain_parts.append("")
+
+    if repo_links:
+        plain_parts.append("VARIANTS:")
+        plain_parts.append("-" * 60)
+        for repo_link in repo_links:
+            plain_parts.append(f"{repo_link['workspace_id']}: {repo_link['branch_url']}")
+            model = repo_link.get("model_name")
+            codegen_lines = ws_codegen_lines.get(repo_link["workspace_id"], [])
+            if codegen_lines:
+                if model:
+                    plain_parts.append(f"  model: {model}")
+                for ln in codegen_lines:
+                    plain_parts.append(f"  {ln}")
+            else:
+                tokens_str = _format_tokens_millions(
+                    repo_link.get("input_tokens"), repo_link.get("output_tokens")
+                )
+                if model or tokens_str:
+                    detail_parts = []
+                    if model:
+                        detail_parts.append(f"model: {model}")
+                    if tokens_str:
+                        detail_parts.append(f"tokens used: {tokens_str}")
+                    plain_parts.append(f"  {' | '.join(detail_parts)}")
+            llm_c = repo_link.get("total_usd_cost")
+            if llm_c is not None:
                 try:
-                    ws_doc = db.get("workspaces", workspace_id)
-                    if ws_doc and ws_doc.get("repo_url"):
-                        repo_url = ws_doc["repo_url"]
-                        # Remove .git suffix if present
-                        if repo_url.endswith(".git"):
-                            repo_url = repo_url[:-4]
-                        branch_name = GitArchiveService.branch_name(generation_id)
-                        branch_url = f"{repo_url}/tree/{branch_name}"
-                        
-                        # Get model/token info from matching WorkspaceEstimation
-                        ws_est = ws_est_by_name.get(workspace_id)
-                        mu_html = getattr(ws_est, "model_usage", None) if ws_est else None
-                        model_name = (mu_html.model_name if mu_html else None) or None
-                        input_tokens = mu_html.input_tokens if mu_html else None
-                        output_tokens = mu_html.output_tokens if mu_html else None
-                        agent_num_turns = mu_html.num_turns if mu_html else None
-                        cache_write = mu_html.cache_write_tokens if mu_html else None
-                        cache_read = mu_html.cache_read_tokens if mu_html else None
-                        llm_cost = getattr(ws_est, "total_usd_cost", None) if ws_est else None
+                    plain_parts.append(
+                        f"  LLM API cost (cumulative): USD {float(llm_c):,.2f}"
+                    )
+                except (TypeError, ValueError):
+                    pass
+        plain_parts.append("")
 
-                        repo_links.append({
-                            "workspace_id": workspace_id,
-                            "repo_url": repo_url,
-                            "branch_url": branch_url,
-                            "model_name": model_name,
-                            "input_tokens": input_tokens,
-                            "output_tokens": output_tokens,
-                            "agent_num_turns": agent_num_turns,
-                            "cache_write_tokens": cache_write,
-                            "cache_read_tokens": cache_read,
-                            "total_usd_cost": llm_cost,
-                        })
-                except Exception as e:
-                    self.logger.warning(f"Failed to retrieve workspace {workspace_id}: {e}")
-        
-        # Extract component breakdown
-        component_breakdown = {}
+    if component_breakdown:
+        plain_parts.append("COMPONENT BREAKDOWN:")
+        plain_parts.append("-" * 60)
+        # Build header
+        header = "Component"
         if workspace_estimations:
-            # Collect all unique components across all workspaces
-            all_components = set()
             for ws_est in workspace_estimations:
                 try:
-                    if hasattr(ws_est, 'component_breakdown') and ws_est.component_breakdown:
-                        all_components.update(ws_est.component_breakdown.keys())
+                    ws_name = getattr(ws_est, 'workspace_name', 'unknown')
+                    header += f" | {ws_name}"
                 except (AttributeError, TypeError):
-                    continue  # Skip this workspace if component_breakdown is missing or invalid
-            
-            # Build component breakdown with hours per workspace
-            for component_name in sorted(all_components):
-                component_data = {
-                    "name": component_name,
-                    "workspaces": {}
-                }
-                for ws_est in workspace_estimations:
-                    try:
-                        if (hasattr(ws_est, 'component_breakdown') and 
-                            component_name in ws_est.component_breakdown):
-                            comp = ws_est.component_breakdown[component_name]
-                            workspace_name = getattr(ws_est, 'workspace_name', 'unknown')
-                            component_data["workspaces"][workspace_name] = {
-                                "hours": getattr(comp, 'hours', 0.0),
-                                "new_work": getattr(comp, 'new_work', 0.0),
-                                "refactor": getattr(comp, 'refactor', 0.0),
-                                "rework": getattr(comp, 'rework', 0.0),
-                                "quality_score": getattr(comp, 'quality_score', 0.0)
-                            }
-                    except (AttributeError, TypeError, KeyError):
-                        continue  # Skip this workspace/component if data is missing
-                component_breakdown[component_name] = component_data
-        
-        # Build HTML content
-        html_parts = []
-        html_parts.append("""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <style>
-                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                .header { background-color: #4CAF50; color: white; padding: 20px; border-radius: 5px 5px 0 0; }
-                .content { padding: 20px; background-color: #f9f9f9; }
-                .section { background-color: white; padding: 15px; margin: 10px 0; border-radius: 5px; border-left: 4px solid #4CAF50; }
-                .section h2 { margin-top: 0; color: #4CAF50; }
-                .summary-item { margin: 10px 0; }
-                .summary-label { font-weight: bold; display: inline-block; width: 150px; }
-                .repo-links-row {
-                    display: flex;
-                    flex-direction: row;
-                    flex-wrap: wrap;
-                    gap: 12px;
-                    align-items: stretch;
-                }
-                .repo-link {
-                    flex: 1 1 200px;
-                    min-width: 0;
-                    margin: 0;
-                    padding: 10px;
-                    background-color: #f0f0f0;
-                    border-radius: 3px;
-                    box-sizing: border-box;
-                }
-                .repo-link a { color: #0066cc; text-decoration: none; font-weight: bold; }
-                .repo-link a:hover { text-decoration: underline; }
-                table { width: 100%; border-collapse: collapse; margin: 10px 0; }
-                table th, table td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
-                table th { background-color: #4CAF50; color: white; }
-                table tr:hover { background-color: #f5f5f5; }
-                .footer { padding: 20px; text-align: center; color: #666; font-size: 12px; }
-            </style>
-        </head>
-        <body>
-        """)
-        
-        html_parts.append('<div class="header">')
-        html_parts.append(
-            '<h1>🚀 SpecFlow — Coding complete, starting deployment & QA</h1>'
-            if pre_deploy
-            else '<h1>✅ SpecFlow Iteration Complete</h1>'
-        )
-        html_parts.append('</div>')
-        
-        html_parts.append('<div class="content">')
-        
-        # Summary section
-        html_parts.append('<div class="section">')
-        html_parts.append('<h2>Summary</h2>')
-        html_parts.append(f'<div class="summary-item"><span class="summary-label">Specification:</span> {spec_path}</div>')
-        html_parts.append(f'<div class="summary-item"><span class="summary-label">Run ID:</span> {generation_id}</div>')
-        html_parts.append(
-            f'<div class="summary-item"><span class="summary-label">{variance.label}:</span> '
-            f"<strong>{variance.value}</strong></div>"
-        )
-        html_parts.append(
-            f'<div class="summary-item"><span class="summary-label">Final Estimate:</span> '
-            f"<strong>{final_estimate_display}</strong></div>"
-        )
-        html_parts.append(
-            f'<div class="summary-item"><span class="summary-label">Average:</span> {average_display}</div>'
-        )
-        html_parts.append(
-            f'<div class="summary-item"><span class="summary-label">Range:</span> {range_display}</div>'
-        )
-        if cost_display:
-            html_parts.append(
-                '<div class="summary-item"><span class="summary-label">Total LLM cost (cumulative):</span> '
-                f"<strong>{cost_display}</strong></div>"
-            )
-        html_parts.append('</div>')
-        
-        # Variants section
-        if repo_links:
-            html_parts.append('<div class="section">')
-            html_parts.append('<h2>Variants</h2>')
-            html_parts.append('<p>Click the links below to view the generation branches:</p>')
-            html_parts.append('<div class="repo-links-row">')
-            for repo_link in repo_links:
-                html_parts.append('<div class="repo-link">')
-                html_parts.append(f'<strong>{repo_link["workspace_id"]}:</strong> ')
-                html_parts.append(
-                    f'<a href="{repo_link["branch_url"]}" target="_blank">Branch link</a>'
-                )
-                model = repo_link.get("model_name")
-                codegen_detail = ws_codegen_lines.get(repo_link["workspace_id"], [])
-                if codegen_detail:
-                    html_parts.append('<br/><span style="color:#666;font-size:13px;">')
-                    if model:
-                        html_parts.append(f"model: {model}<br/>")
-                    html_parts.append("<br/>".join(codegen_detail))
-                    html_parts.append("</span>")
-                else:
-                    tokens_str = _format_tokens_millions(
-                        repo_link.get("input_tokens"), repo_link.get("output_tokens")
-                    )
-                    if model or tokens_str:
-                        detail_parts = []
-                        if model:
-                            detail_parts.append(f"model: {model}")
-                        if tokens_str:
-                            detail_parts.append(f"tokens used: {tokens_str}")
-                        html_parts.append(
-                            f'<br/><span style="color:#666;font-size:13px;">'
-                            f'{" | ".join(detail_parts)}</span>'
-                        )
-                llm_c = repo_link.get("total_usd_cost")
-                if llm_c is not None:
-                    try:
-                        html_parts.append(
-                            f'<br/><span style="color:#666;font-size:13px;">'
-                            f"LLM API cost (cumulative): USD {float(llm_c):,.2f}</span>"
-                        )
-                    except (TypeError, ValueError):
-                        pass
-                html_parts.append('</div>')
-            html_parts.append('</div>')
-            html_parts.append('</div>')
-        
-        # Component breakdown section
-        if component_breakdown:
-            html_parts.append('<div class="section">')
-            html_parts.append('<h2>Component Complexity Metrics Breakdown</h2>')
-            html_parts.append('<table>')
-            html_parts.append('<thead><tr>')
-            html_parts.append('<th>Component</th>')
-            # Add workspace columns
+                    continue
+        plain_parts.append(header)
+        plain_parts.append("-" * len(header))
+
+        for component_name, component_data in component_breakdown.items():
+            row = component_name
             if workspace_estimations:
                 for ws_est in workspace_estimations:
                     try:
                         ws_name = getattr(ws_est, 'workspace_name', 'unknown')
-                        html_parts.append(f'<th>{ws_name}<br/>(hours)</th>')
-                    except (AttributeError, TypeError):
-                        continue
-            html_parts.append('</tr></thead>')
-            html_parts.append('<tbody>')
-            
-            for component_name, component_data in component_breakdown.items():
-                html_parts.append('<tr>')
-                html_parts.append(f'<td><strong>{component_name}</strong></td>')
-                # Add hours for each workspace
-                if workspace_estimations:
-                    for ws_est in workspace_estimations:
-                        try:
-                            ws_name = getattr(ws_est, 'workspace_name', 'unknown')
-                            if ws_name in component_data["workspaces"]:
-                                hours = component_data["workspaces"][ws_name]["hours"]
-                                html_parts.append(f'<td>{hours:.1f}</td>')
-                            else:
-                                html_parts.append('<td>-</td>')
-                        except (AttributeError, TypeError, KeyError):
-                            html_parts.append('<td>-</td>')
-                html_parts.append('</tr>')
-            
-            html_parts.append('</tbody>')
-            html_parts.append('</table>')
-            html_parts.append('</div>')
-        
-        html_parts.append('</div>')
-        
-        html_parts.append('<div class="footer">')
-        html_parts.append(f'<p>Run ID: {generation_id} | Generated at: {timestamp}</p>')
-        html_parts.append('</div>')
-        
-        html_parts.append('</body></html>')
-        
-        html_content = '\n'.join(html_parts)
-        
-        # Build plain text content
-        plain_parts = []
-        plain_parts.append("=" * 60)
-        plain_parts.append(
-            "SpecFlow — CODING COMPLETE, STARTING DEPLOYMENT & QA"
-            if pre_deploy
-            else "SpecFlow ITERATION COMPLETE"
-        )
-        plain_parts.append("=" * 60)
-        plain_parts.append("")
-        plain_parts.append(f"Specification: {spec_path}")
-        plain_parts.append(f"Run ID: {generation_id}")
-        plain_parts.append(f"{variance.label}: {variance.value}")
-        plain_parts.append(f"Final Estimate: {final_estimate_display}")
-        plain_parts.append(f"Average: {average_display}")
-        plain_parts.append(f"Range: {range_display}")
-        if cost_display:
-            plain_parts.append(f"Total LLM cost (cumulative): {cost_display}")
-        plain_parts.append("")
-        
-        if repo_links:
-            plain_parts.append("VARIANTS:")
-            plain_parts.append("-" * 60)
-            for repo_link in repo_links:
-                plain_parts.append(f"{repo_link['workspace_id']}: {repo_link['branch_url']}")
-                model = repo_link.get("model_name")
-                codegen_lines = ws_codegen_lines.get(repo_link["workspace_id"], [])
-                if codegen_lines:
-                    if model:
-                        plain_parts.append(f"  model: {model}")
-                    for ln in codegen_lines:
-                        plain_parts.append(f"  {ln}")
-                else:
-                    tokens_str = _format_tokens_millions(
-                        repo_link.get("input_tokens"), repo_link.get("output_tokens")
-                    )
-                    if model or tokens_str:
-                        detail_parts = []
-                        if model:
-                            detail_parts.append(f"model: {model}")
-                        if tokens_str:
-                            detail_parts.append(f"tokens used: {tokens_str}")
-                        plain_parts.append(f"  {' | '.join(detail_parts)}")
-                llm_c = repo_link.get("total_usd_cost")
-                if llm_c is not None:
-                    try:
-                        plain_parts.append(
-                            f"  LLM API cost (cumulative): USD {float(llm_c):,.2f}"
-                        )
-                    except (TypeError, ValueError):
-                        pass
-            plain_parts.append("")
-        
-        if component_breakdown:
-            plain_parts.append("COMPONENT BREAKDOWN:")
-            plain_parts.append("-" * 60)
-            # Build header
-            header = "Component"
-            if workspace_estimations:
-                for ws_est in workspace_estimations:
-                    try:
-                        ws_name = getattr(ws_est, 'workspace_name', 'unknown')
-                        header += f" | {ws_name}"
-                    except (AttributeError, TypeError):
-                        continue
-            plain_parts.append(header)
-            plain_parts.append("-" * len(header))
-            
-            for component_name, component_data in component_breakdown.items():
-                row = component_name
-                if workspace_estimations:
-                    for ws_est in workspace_estimations:
-                        try:
-                            ws_name = getattr(ws_est, 'workspace_name', 'unknown')
-                            if ws_name in component_data["workspaces"]:
-                                hours = component_data["workspaces"][ws_name]["hours"]
-                                row += f" | {hours:.1f}"
-                            else:
-                                row += " | -"
-                        except (AttributeError, TypeError, KeyError):
+                        if ws_name in component_data["workspaces"]:
+                            hours = component_data["workspaces"][ws_name]["hours"]
+                            row += f" | {hours:.1f}"
+                        else:
                             row += " | -"
-                plain_parts.append(row)
-            plain_parts.append("")
-        
-        plain_parts.append(f"Generated at: {timestamp}")
-        plain_content = '\n'.join(plain_parts)
-        
-        return html_content, plain_content
+                    except (AttributeError, TypeError, KeyError):
+                        row += " | -"
+            plain_parts.append(row)
+        plain_parts.append("")
+
+    plain_parts.append(f"Generated at: {timestamp}")
+    plain_content = '\n'.join(plain_parts)
+
+    return html_content, plain_content
 
 
 # Initialize Notifications

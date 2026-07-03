@@ -34,6 +34,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import httpx
 from rich.console import Group, RenderableType
 from rich.panel import Panel
 from rich.table import Table
@@ -62,6 +63,7 @@ from textual.widgets import (
 from cli import resolve_backend_config
 from services import local_env
 from services.session import resolve_generation_id, set_project_root
+from services.specflow_backend import call_backend_endpoint_bytes
 from tui import actions, activity, mcp_clients, onboarding, render
 from tui.config import (
     EDITABLE_KEYS,
@@ -152,7 +154,7 @@ def _workspaces_panel(payload: dict[str, Any], selected_ws_id: str | None = None
 
 
 def _estimate_panel(payload: dict[str, Any]) -> Panel | None:
-    panel = render.estimate_panel(payload.get("result"))
+    panel = render.estimate_panel(payload)
     if panel is None:
         return None
     grid = Table.grid(padding=(0, 2))
@@ -177,7 +179,23 @@ def _estimate_panel(payload: dict[str, Any]) -> Panel | None:
         grid.add_row("Variants", variants)
     if panel.total_usd_cost is not None:
         grid.add_row("Total spend", f"${panel.total_usd_cost:.2f}")
-    return Panel(grid, title="P10Y estimate", border_style="green")
+
+    renderables: list[RenderableType] = [grid]
+    if panel.component_comparison:
+        breakdown = Table(box=None, padding=(0, 2))
+        breakdown.add_column("Component", justify="left")
+        breakdown.add_column("Avg hours", justify="right")
+        breakdown.add_column("Variance", justify="right")
+        for row in panel.component_comparison:
+            breakdown.add_row(
+                row.component_name,
+                f"{row.average_hours:.0f} h",
+                f"{row.variance_percentage:.0f}%",
+            )
+        renderables.append(breakdown)
+    renderables.append(Text("HTML report available — press h to open", style="dim"))
+
+    return Panel(Group(*renderables), title="P10Y estimate", border_style="green")
 
 
 def _activity_panel(root: Path, payload: dict[str, Any]) -> Panel | None:
@@ -444,6 +462,7 @@ class DashboardScreen(_SpecFlowScreen):
         Binding("c", "connect_client", "Add MCP to AI tool"),
         Binding("o", "open_workspace", "open ws"),
         Binding("enter", "open_workspace", "open ws", show=False),
+        Binding("h", "open_report", "open report"),
         # Priority so the workspace selection wins over the scroll container's
         # own up/down handling (otherwise arrows just scroll the dashboard).
         # PageUp/PageDown/Home/End and the mouse wheel still scroll the body.
@@ -516,6 +535,8 @@ class DashboardScreen(_SpecFlowScreen):
         if action == "retry":
             status = ((self._payload or {}).get("status") or "").lower()
             return True if status == "failed" else None
+        if action == "open_report":
+            return True if render.estimate_panel(self._payload) is not None else None
         return True
 
     def _move_selection(self, delta: int) -> None:
@@ -536,6 +557,47 @@ class DashboardScreen(_SpecFlowScreen):
             self.notify("No workspace to open yet.", severity="information")
             return
         self.app.push_screen(WorkspaceMessagesScreen(self._generation_id, ws_id))
+
+    def action_open_report(self) -> None:
+        if render.estimate_panel(self._payload) is None:
+            self.notify("No HTML report available yet.", severity="information")
+            return
+        self.run_worker(self._open_report(), exclusive=True)
+
+    async def _open_report(self) -> None:
+        """Fetch the HTML report from the backend, cache it locally, then open it.
+
+        The backend runs in a container (local quickstart); its ``artifact_path``
+        is a container-internal filesystem path the TUI process can't read
+        directly, so the report is fetched over HTTP rather than opened in place.
+        """
+        try:
+            html_bytes = await call_backend_endpoint_bytes(
+                endpoint=f"/api/v1/generation-sessions/{self._generation_id}/report.html",
+                timeout_seconds=30,
+            )
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                self.notify("No HTML report available for this run.", severity="information")
+            else:
+                self.notify(f"Couldn't fetch report: {exc}", severity="warning")
+            return
+        except Exception as exc:
+            self.notify(f"Couldn't fetch report: {exc}", severity="warning")
+            return
+
+        cache_path = self.app.root / ".specflow-local" / "reports" / f"{self._generation_id}.html"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_bytes(html_bytes)
+
+        opener = _platform_opener()
+        if opener is None or not shutil.which(opener):
+            self.notify(f"Report saved at {cache_path}", severity="information")
+            return
+        try:
+            await local_env.run_command([opener, str(cache_path)], cache_path.parent, timeout=10)
+        except OSError as exc:
+            self.notify(f"Couldn't open report automatically: {exc}", severity="warning")
 
     async def _run_suspended(self, coro) -> None:
         """Run a CLI action with the TUI suspended, then refresh."""

@@ -183,17 +183,33 @@ class TestEstimatePanel:
             ],
             "total_usd_cost": 94.1,
         }
-        panel = render.estimate_panel(result)
+        panel = render.estimate_panel({"result": result})
         assert panel.average_hours == 318
         assert panel.risk_status == "Approved"
         assert panel.per_workspace == [("ws-01-1", 305.0), ("ws-01-2", 331.0)]
         assert panel.total_usd_cost == 94.1
+        assert panel.component_comparison == []
 
     def test_partial_result_is_tolerant(self):
-        panel = render.estimate_panel({"summary": {"average_hours": 100}})
+        panel = render.estimate_panel({"result": {"summary": {"average_hours": 100}}})
         assert panel.average_hours == 100
         assert panel.risk_status is None
         assert panel.per_workspace == []
+
+    def test_component_comparison_sorted_by_variance_descending(self):
+        result = {
+            "summary": {},
+            "comparative_analysis": {
+                "component_comparison": {
+                    "auth": {"component_name": "auth", "average": 40.0, "variance_percentage": 5.0},
+                    "billing": {"component_name": "billing", "average": 20.0, "variance_percentage": 25.0},
+                }
+            },
+        }
+        panel = render.estimate_panel({"result": result})
+        assert [row.component_name for row in panel.component_comparison] == ["billing", "auth"]
+        assert panel.component_comparison[0].average_hours == 20.0
+        assert panel.component_comparison[0].variance_percentage == 25.0
 
 
 class _Event:

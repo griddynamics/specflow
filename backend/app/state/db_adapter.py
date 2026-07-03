@@ -18,15 +18,33 @@ IDatabase (existing) provides synchronous methods:
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 if TYPE_CHECKING:
-    from app.database.interface import IDatabase
+    from app.database.interface import IDatabase, ReadOnlyDatabase
 
 # Firestore collection names — use these constants instead of repeating string literals
 COL_WORKSPACES = "workspaces"
 COL_GENERATION_SESSIONS = "generation_sessions"
 COL_API_KEYS = "api_keys"
+
+
+class _ReadOnlyDatabaseView:
+    """Read-only façade over ``IDatabase`` exposing only ``get``.
+
+    Handed to read-only consumers (the notifications report renderer) so they
+    physically cannot perform status/checkpoint/workspace_phases writes — the
+    encapsulation of Commandment VII is enforced by construction, not by a
+    docstring warning. Satisfies the ``ReadOnlyDatabase`` protocol structurally.
+    """
+
+    __slots__ = ("_db",)
+
+    def __init__(self, db: "IDatabase") -> None:
+        self._db = db
+
+    def get(self, collection: str, doc_id: str) -> Optional[Dict[str, Any]]:
+        return self._db.get(collection, doc_id)
 
 
 class StateMachineDBAdapter:
@@ -44,6 +62,18 @@ class StateMachineDBAdapter:
 
     def __init__(self, db: "IDatabase") -> None:
         self._db = db
+
+    @property
+    def read_only_db(self) -> "ReadOnlyDatabase":
+        """A read-only view over the underlying database.
+
+        For consumers that only read (e.g. the notifications report renderer,
+        which does a plain ``db.get("workspaces", id)``). The returned view
+        exposes *only* ``get`` — writes are unreachable through it, so
+        status/checkpoint/workspace_phases writes still have to go through this
+        adapter's async methods.
+        """
+        return _ReadOnlyDatabaseView(self._db)
 
     # ------------------------------------------------------------------
     # Generation methods
