@@ -11,7 +11,7 @@ import httpx
 
 from app.core.config import EmailConfig
 from app.core.config import settings
-from app.database.interface import IDatabase
+from app.database.interface import IDatabase, ReadOnlyDatabase
 from app.schemas.estimate import (
     ComparativeAnalysis,
     EstimationMetrics,
@@ -1080,7 +1080,7 @@ def render_generation_session_report_html(
     workspace_ids: List[str],
     result: Any,
     spec_path: str,
-    db: Optional[IDatabase],
+    db: Optional[ReadOnlyDatabase],
     notification_kind: GenerationSessionNotificationKind = GenerationSessionNotificationKind.COMPLETE,
 ) -> Tuple[str, str]:
     """Build HTML and plain text P10Y report content, independent of any notifier.
