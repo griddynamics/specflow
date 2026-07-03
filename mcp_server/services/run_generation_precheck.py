@@ -53,9 +53,27 @@ E2E_TEST_PLAN_FILE = "e2e-test-plan.md"
 
 # Part F section header pattern (case-insensitive, allows for variations in formatting).
 _PART_F_HEADER = re.compile(r"^#+\s*part\s*f\b", re.IGNORECASE | re.MULTILINE)
+# Any "Part <letter>" heading — used to bound Part F to its own section instead of
+# scanning to end-of-document (a later Part, or a summary line restating Part F,
+# must not be read as the readiness declaration).
+_PART_HEADER = re.compile(r"^#+\s*part\s*[a-z]\b", re.IGNORECASE | re.MULTILINE)
 _INTEGRATION_READY_TOKEN = re.compile(
     r"integration[_\s-]*tests?[_\s-]*ready", re.IGNORECASE
 )
+
+# The authoritative "**Integration Readiness:** <token>" declaration. Anchored to a
+# single line (^...$, MULTILINE) so a prose sentence that merely mentions the label
+# — before or after the real field — can never be captured instead of it.
+_READINESS_FIELD = re.compile(
+    r"^\s*\**\s*integration\s+readiness[\s*:]{1,12}"
+    r"(?:(?P<ready>integration[_\s-]*tests?[_\s-]*ready)"
+    r"|(?P<not_ready>local[_\s-]*only|not[_\s-]*ready))"
+    r"[\s*.]{0,6}$",
+    re.IGNORECASE | re.MULTILINE,
+)
+# Detects an attempted (but unparseable) declaration — present so callers can refuse
+# rather than guess, instead of silently falling back to a whole-section token scan.
+_READINESS_LABEL = re.compile(r"integration\s+readiness", re.IGNORECASE)
 
 
 def _normalize_stem(filename: str) -> str:
@@ -95,16 +113,33 @@ def _find_required_md(
 
 
 def _part_f_section(analysis_text: str) -> str | None:
+    """Return the text of the Part F section only, or None if absent.
+
+    Bounded at the next "Part <letter>" heading (or end of document if there is
+    none) so a later section — or a summary line elsewhere that merely restates
+    "Part F (Integration Readiness): ..." — is never scanned as part of Part F.
+    """
     match = _PART_F_HEADER.search(analysis_text)
     if match is None:
         return None
-    return analysis_text[match.start() :]
+    next_part = _PART_HEADER.search(analysis_text, match.end())
+    end = next_part.start() if next_part is not None else len(analysis_text)
+    return analysis_text[match.start():end]
+
+
+def _readiness_field_is_ambiguous(part_f: str) -> bool:
+    """True if Part F attempts an "Integration Readiness" declaration that doesn't
+    parse to a recognized token — refuse rather than guess (see `precheck`)."""
+    return _READINESS_LABEL.search(part_f) is not None and _READINESS_FIELD.search(part_f) is None
 
 
 def _is_integration_tests_ready(analysis_text: str) -> bool:
     part_f = _part_f_section(analysis_text)
     if part_f is None:
         return False
+    field_match = _READINESS_FIELD.search(part_f)
+    if field_match is not None:
+        return field_match.group("ready") is not None
     return bool(_INTEGRATION_READY_TOKEN.search(part_f))
 
 
@@ -193,6 +228,18 @@ def precheck(
             message=(
                 f"Couldn't read integration readiness from `{SPEC_COMPLETENESS_FILE}`. "
                 f"Re-run `check_specification_completeness` — the file is missing Part F."
+            ),
+        )
+
+    part_f = _part_f_section(analysis_text)
+    if part_f is not None and _readiness_field_is_ambiguous(part_f):
+        return Rejection(
+            code=RejectionCode.ANALYSIS_UNREADABLE,
+            message=(
+                f"Couldn't read integration readiness from `{SPEC_COMPLETENESS_FILE}`. "
+                f"Part F declares an Integration Readiness field, but its value isn't "
+                f"`INTEGRATION_TESTS_READY` or `LOCAL_ONLY`. Re-run "
+                f"`check_specification_completeness`."
             ),
         )
 

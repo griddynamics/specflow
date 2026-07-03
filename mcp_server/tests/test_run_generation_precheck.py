@@ -153,3 +153,63 @@ class TestPrecheckRejectionCodes:
         _write_analysis(tmp_path, content=analysis)
         _write_plan(tmp_path)
         assert precheck(tmp_path, "specs", "docs") is None
+
+    def test_integration_token_in_part_f_rationale_does_not_require_e2e(self, tmp_path):
+        """Real-world regression: Rationale names the other token while explaining
+        why it does NOT apply. The declared field (LOCAL_ONLY) must still win."""
+        _write_spec(tmp_path)
+        analysis = (
+            "## Part F: Integration & Deployment Readiness\n\n"
+            "**Integration Readiness:** **LOCAL_ONLY**\n\n"
+            "**Rationale:** No deploy workflow files or IaC, and no acceptance/e2e "
+            "test methodology. This meets neither criteria for `INTEGRATION_TESTS_READY`.\n"
+        )
+        _write_analysis(tmp_path, content=analysis)
+        _write_plan(tmp_path)
+        assert precheck(tmp_path, "specs", "docs") is None
+
+    def test_preamble_mention_does_not_hijack_the_declared_field(self, tmp_path):
+        """Regression: an earlier sentence naming 'integration readiness' (before the
+        real field) must not be captured in place of the actual declaration."""
+        _write_spec(tmp_path)
+        analysis = (
+            "## Part F: Integration & Deployment Readiness\n\n"
+            "Initial integration readiness: LOCAL_ONLY was assumed, but after "
+            "reviewing the CI workflows we upgraded the classification.\n\n"
+            "**Integration Readiness:** INTEGRATION_TESTS_READY\n\n"
+            "**Rationale:** All deploy workflows and e2e methodology confirmed working.\n"
+        )
+        _write_analysis(tmp_path, content=analysis)
+        _write_plan(tmp_path)
+        _write_e2e_plan(tmp_path)
+        assert precheck(tmp_path, "specs", "docs") is None
+
+    def test_summary_line_after_part_f_does_not_hijack_the_declared_field(self, tmp_path):
+        """Regression: a later '- Part F (Integration Readiness): ...' summary line
+        (emitted by the skill after Part F) must not be read as the declaration."""
+        _write_spec(tmp_path)
+        analysis = (
+            "## Part F: Integration & Deployment Readiness\n\n"
+            "**Integration Readiness:** **LOCAL_ONLY**\n\n"
+            "**Rationale:** No CI configured.\n\n"
+            "## DIMENSION STATUS\n"
+            "- Part F (Integration Readiness): INTEGRATION_TESTS_READY\n"
+        )
+        _write_analysis(tmp_path, content=analysis)
+        _write_plan(tmp_path)
+        assert precheck(tmp_path, "specs", "docs") is None
+
+    def test_analysis_unreadable_when_readiness_field_ambiguous(self, tmp_path):
+        """A Part F that attempts a declaration but doesn't parse must be refused,
+        not silently guessed via the whole-section fallback."""
+        _write_spec(tmp_path)
+        analysis = (
+            "## Part F: Integration & Deployment Readiness\n\n"
+            "**Integration Readiness:** Currently LOCAL_ONLY due to missing CI\n\n"
+            "**Rationale:** Meets neither criteria for INTEGRATION_TESTS_READY.\n"
+        )
+        _write_analysis(tmp_path, content=analysis)
+        _write_plan(tmp_path)
+        result = precheck(tmp_path, "specs", "docs")
+        assert result is not None
+        assert result.code == RejectionCode.ANALYSIS_UNREADABLE

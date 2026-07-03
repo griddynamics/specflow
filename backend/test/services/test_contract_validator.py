@@ -11,6 +11,7 @@ from app.services.contract_validator import (
     _find_candidates,
     _CanonicalFile,
     _normalize_for_match,
+    _readiness_field_is_ambiguous,
 )
 from app.core.artifact_files import (
     SPEC_COMPLETENESS_FILE,
@@ -205,6 +206,22 @@ class TestNormalizeContractFilesRejections:
             normalize_contract_files(tmp_path, "docs", _logger())
         assert "check_specification_completeness" in exc_info.value.message
 
+    def test_analysis_unreadable_when_readiness_field_ambiguous(self, tmp_path):
+        """A Part F that attempts a declaration but doesn't parse must be refused,
+        not silently guessed via the whole-section fallback."""
+        _setup_outputs(tmp_path)
+        analysis = (
+            "## Part F: Integration & Deployment Readiness\n\n"
+            "**Integration Readiness:** Currently LOCAL_ONLY due to missing CI\n\n"
+            "**Rationale:** Meets neither criteria for INTEGRATION_TESTS_READY.\n"
+        )
+        _write(tmp_path, "docs", ANALYSIS_SUBDIR, SPEC_COMPLETENESS_FILE, analysis)
+        _write(tmp_path, "docs", PLANNING_SUBDIR, IMPLEMENTATION_PLAN_FILE, _MINIMAL_PLAN)
+        with pytest.raises(ContractRejection) as exc_info:
+            normalize_contract_files(tmp_path, "docs", _logger())
+        assert exc_info.value.code == RejectionCode.ANALYSIS_UNREADABLE
+        assert "check_specification_completeness" in exc_info.value.message
+
 
 class TestGenerationContractPreflight:
     def test_rejects_plan_with_no_phase_headings(self, tmp_path):
@@ -317,3 +334,77 @@ class TestIsIntegrationTestsReady:
         # No Part F header at all → not ready here; the missing-Part-F case is
         # rejected separately by normalize_contract_files with ANALYSIS_UNREADABLE.
         assert is_integration_tests_ready("# Part A\n\nINTEGRATION_TESTS_READY\n") is False
+
+    def test_token_in_part_f_rationale_does_not_override_declared_field(self):
+        # Real-world regression: the field declares LOCAL_ONLY, but the Rationale
+        # prose explains the gap by naming the other token. Must not flip to ready.
+        analysis = (
+            "## Part F: Integration & Deployment Readiness\n\n"
+            "**Integration Readiness:** **LOCAL_ONLY**\n\n"
+            "**Rationale:** The deployment target is named, but there are no deploy "
+            "workflow files or IaC, and no acceptance/e2e test methodology. This meets "
+            "neither the deployment-methodology nor the acceptance-test criteria for "
+            "`INTEGRATION_TESTS_READY`.\n"
+        )
+        assert is_integration_tests_ready(analysis) is False
+
+    def test_declared_field_integration_ready_wins_over_rationale_wording(self):
+        analysis = (
+            "## Part F: Integration & Deployment Readiness\n\n"
+            "**Integration Readiness:** **INTEGRATION_TESTS_READY**\n\n"
+            "**Rationale:** All deploy workflows, IaC, and e2e methodology are present "
+            "and confirmed working, well beyond LOCAL_ONLY.\n"
+        )
+        assert is_integration_tests_ready(analysis) is True
+
+    def test_preamble_mention_does_not_hijack_the_declared_field(self):
+        # Regression: an earlier sentence naming "integration readiness" (before the
+        # real field) must not be captured in place of the actual declaration.
+        analysis = (
+            "## Part F: Integration & Deployment Readiness\n\n"
+            "Initial integration readiness: LOCAL_ONLY was assumed, but after "
+            "reviewing the CI workflows we upgraded the classification.\n\n"
+            "**Integration Readiness:** INTEGRATION_TESTS_READY\n\n"
+            "**Rationale:** All deploy workflows and e2e methodology confirmed working.\n"
+        )
+        assert is_integration_tests_ready(analysis) is True
+
+    def test_summary_line_after_part_f_does_not_hijack_the_declared_field(self):
+        # Regression: a later "- Part F (Integration Readiness): ..." summary line
+        # (emitted by the skill after Part F) must not be read as the declaration.
+        analysis = (
+            "## Part F: Integration & Deployment Readiness\n\n"
+            "**Integration Readiness:** **LOCAL_ONLY**\n\n"
+            "**Rationale:** No CI configured.\n\n"
+            "## DIMENSION STATUS\n"
+            "- Part F (Integration Readiness): INTEGRATION_TESTS_READY\n"
+        )
+        assert is_integration_tests_ready(analysis) is False
+
+
+class TestReadinessFieldIsAmbiguous:
+    """Malformed-but-attempted declarations must be flagged, not silently guessed."""
+
+    def test_paraphrased_value_is_ambiguous(self):
+        part_f = (
+            "## Part F: Integration & Deployment Readiness\n\n"
+            "**Integration Readiness:** Not ready yet\n\n"
+            "**Rationale:** Does not currently meet the bar for INTEGRATION_TESTS_READY.\n"
+        )
+        assert _readiness_field_is_ambiguous(part_f) is True
+
+    def test_qualifier_word_before_token_is_ambiguous(self):
+        part_f = (
+            "## Part F: Integration & Deployment Readiness\n\n"
+            "**Integration Readiness:** Currently LOCAL_ONLY due to missing CI\n\n"
+            "**Rationale:** Meets neither criteria for INTEGRATION_TESTS_READY.\n"
+        )
+        assert _readiness_field_is_ambiguous(part_f) is True
+
+    def test_no_label_at_all_is_not_ambiguous(self):
+        # Legitimate non-standard formatting (no labeled field at all) stays lenient.
+        assert _readiness_field_is_ambiguous("## Part F\n\nLOCAL_ONLY\n") is False
+
+    def test_well_formed_field_is_not_ambiguous(self):
+        part_f = "## Part F\n\n**Integration Readiness:** **LOCAL_ONLY**\n"
+        assert _readiness_field_is_ambiguous(part_f) is False
