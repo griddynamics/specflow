@@ -19,16 +19,6 @@ When `run_generation` is later called, it MUST be invoked with the same `spec_di
 
 This runs entirely locally — no backend, no SpecFlow generation session. Re-runnable as the plan evolves.
 
-## Execution constraints (local IDE — no backend tier enforcement)
-
-Backend planning ran on Opus with a large turn budget. Locally you must compensate:
-1. Produce **10–20+ small phases** for non-trivial projects — prefer more phases over fewer large ones. We plan to fit in 120k context window.
-2. Copy **all** locked dimensions from analysis into the plan's first section — no summarizing away Part D micro-locks.
-3. For brownfield: read `<<OUTPUTS_DIR>>/analysis/repo_summary.md` and `<<SRC_DIR>>/`; phases must **extend** existing code, not rebuild from scratch.
-4. Self-check before finishing: every feature in the spec has at least one phase; no phase exceeds the hard limits (2–3 tasks, 8–10 files).
-
-Inspect `<<OUTPUTS_DIR>>/` for context (`<<OUTPUTS_DIR>>/analysis/specification_index.md`, `<<OUTPUTS_DIR>>/analysis/specification_completeness.md`, etc.).
-
 ## Project Knowledge Base (if available)
 - Check `.claude/agents/` for specialized agent definitions with project-specific guidance
 - Check `<<OUTPUTS_DIR>>/` for project context (CONTEXT.md, ARCHITECTURE.md, CODEMAP.md)
@@ -37,11 +27,11 @@ Inspect `<<OUTPUTS_DIR>>/` for context (`<<OUTPUTS_DIR>>/analysis/specification_
 
 Note: full Knowledge Base initialization happens later on the backend, inside the generation phase — you don't need it to plan.
 
-Your task is to create a detailed implementation plan that breaks the work into phases. Each phase should be:
+Break the work into phases. Each phase should be:
 - Self-contained (can run independently)
 - Testable (has associated unit tests)
 - Committable (produces meaningful commits)
-- Focused on a logical unit of work
+- Focused on a single logical unit of work
 
 ## Workflow
 
@@ -55,7 +45,7 @@ Your task is to create a detailed implementation plan that breaks the work into 
 
 ### 2. Create Implementation Plan
 - Write the plan to **EXACTLY** `<<OUTPUTS_DIR>>/planning/IMPLEMENTATION_PLAN.md`. The backend contract validator expects this exact filename — any other name (e.g. `plan.md`, `implementation.md`) will cause `run_generation` to be rejected with `PLAN_MISSING`.
-- If the file would exceed ~300 lines, write it in parts and merge with `cat`.
+- **No length limit — completeness beats brevity.** Each phase is executed by a *fresh agent* that sees only this plan and the code committed so far; it never sees the reasoning of earlier phases. Give every phase enough pinned detail (contracts, deliverable files, dependencies, acceptance criteria) to execute without guessing. Write the file in parts and merge with `cat` if it grows large.
 
 **MANDATORY FIRST SECTION: "Architectural Decisions - Locked Values"**
 
@@ -120,6 +110,47 @@ Individual phases must reference these patterns (see the per-phase **Design patt
 than re-deciding architecture. Choose patterns that fit the locked technology stack — do not force a pattern
 where a plain function or module is clearer.
 
+**THIRD SECTION: "Shared Contracts"** — the single most important section for a multi-phase autonomous run.
+
+Because each phase agent runs with fresh context, any interface shared across phases MUST be pinned here so
+later phases *import* it instead of re-inventing it. Unpinned contracts are the #1 cause of code that doesn't
+compose (the API phase and the frontend phase invent different shapes and only collide at integration).
+Pin every cross-phase seam you can determine from the specs and locked values:
+
+```markdown
+## Shared Contracts
+
+- **Data model / DB schema**: entities, fields, types, relationships, keys — the schema every phase reads/writes
+- **API surface**: each endpoint's method, path, request shape, response shape, status codes, error body
+- **Shared types / DTOs**: named types used by more than one phase (with the module/file they live in)
+- **Error taxonomy**: the canonical error types/codes and how they surface (exception classes, HTTP mapping)
+- **Events / messages** (if any): event names and payload shapes
+- **Config / env contract**: env var names, config keys, and their meaning
+```
+
+Rules:
+- Derive contracts from the locked values and specs — do not invent requirements. If the spec leaves a
+  contract undetermined, decide it here **once** (see Assumptions below) so all phases agree.
+- **Front-load a foundational phase** (Phase 1 or 2) whose deliverable is exactly these contracts as code
+  (schema/migrations, type definitions, API stubs/OpenAPI, error classes, config). Every downstream phase
+  lists that phase as a dependency and imports from it — no phase redefines a shared type.
+
+**FOURTH SECTION: "Assumptions & Resolved Ambiguities"**
+
+There is no human in the loop for the 6–8 hour run, so every ambiguity you resolve during planning must be
+recorded here once — otherwise each phase agent resolves it differently and the app becomes internally
+inconsistent. Keep it short and only for things the specs left genuinely open.
+
+```markdown
+## Assumptions & Resolved Ambiguities
+
+| # | Ambiguity in the spec | Decision (what all phases must assume) | Basis |
+|---|-----------------------|----------------------------------------|-------|
+| 1 | [what was unclear]    | [the single resolution]                | [spec ref / locked value / convention] |
+```
+
+Do not use this section to override locked values or invent scope — only to fix under-specified details.
+
 ### Part F: Integration Environment — Locked Values
 (Only if `<<OUTPUTS_DIR>>/analysis/specification_completeness.md` Part F says INTEGRATION_TESTS_READY)
 
@@ -147,7 +178,7 @@ Planning guidance for INTEGRATION_TESTS_READY:
 
 ### CRITICAL: PHASE SIZING — SMALL, FOCUSED PHASES
 
-- **Prefer more phases over bigger phases.** Typical projects need 10-20+ phases.
+- **Prefer more phases over bigger phases.** Typical projects need 10-20+ phases — plan to fit each in a ~120k context window.
 - Each phase MUST focus on a **single component and a single concern** (e.g., "Backend: auth endpoints" not "Backend + Frontend auth").
 - **Hard limits per phase:**
   - Maximum 2-3 tasks per phase
@@ -174,18 +205,27 @@ Planning guidance for INTEGRATION_TESTS_READY:
 - Each phase should have:
   - A clear name and description
   - List of tasks to be completed (2-3 max)
-  - Dependencies on previous phases (if any)
-  - **Design patterns**: name the concrete design patterns the phase applies and where (e.g.,
-    Repository for data access, Factory/Builder for construction, Strategy for interchangeable
-    algorithms, Adapter for external integrations, Observer/pub-sub for events, Dependency Injection
-    for wiring, State machine for lifecycle). Favour OOP, SRP, and Open/Closed — model with classes,
-    dataclasses/Pydantic and Enums over raw dicts/strings, so the pattern enforces correctness at
-    compile time and in unit tests. Do not invent patterns where a plain function is clearer; only
-    name a pattern when it earns its place.
+  - **Deliverable files**: the explicit list of files this phase creates or modifies (paths). No two phases
+    may create the same file. This makes the 8–10 file limit checkable and, for brownfield, makes "extend,
+    don't rebuild" verifiable.
+  - **Dependencies**: the specific earlier phases this phase requires and *what* it consumes from each
+    (e.g. `Depends on Phase 2 — imports the DB schema; Phase 5 — imports the API client`). "None" if
+    foundational. Never depend on a phase that runs later.
+  - **Contracts**: which entries from the "Shared Contracts" section this phase produces or consumes. A
+    phase implementing an interface others use must produce exactly the pinned contract; a consumer imports
+    it — it does not redefine it.
+  - **Acceptance criteria (Definition of Done)**: concrete, verifiable exit conditions — which unit tests
+    pass, what observable behavior works, and an explicit scope fence (what this phase deliberately does
+    NOT do). This is how the autonomous agent knows when to stop; without it, it under- or over-builds.
+  - **Design patterns**: name which patterns from the "Design Patterns & Architecture" section this
+    phase applies, and where. Don't force a pattern where a plain function is clearer.
   - **ENFORCEMENT CHECKPOINT**: List which Part D conventions apply to this phase
 - Phases should follow a logical progression:
   - Phase 1: Project setup, dependencies, basic structure (following Part A and Part D conventions)
-  - Phase 2-N: Core functionality implementation (following Parts B, C, D conventions)
+  - Foundational phase (early): emit the **Shared Contracts** as code — schema/migrations, shared types,
+    API stubs/OpenAPI, error classes, config — so every later phase imports them
+  - Phase 2-N: Core functionality implementation (following Parts B, C, D conventions), each importing the
+    pinned contracts rather than redefining them
   - Final Phase: Testing, documentation, deployment configuration (following Part A and Part E)
 
 ### Per-phase optional agent MCPs (markdown annotation)
@@ -221,9 +261,6 @@ Example phase heading:
 - Phase 12: Infrastructure & Deployment - Docker, docker-compose, environment config
 - Phase 13: Integration Testing & Polish - E2E tests, final verification, documentation
 
-Notice: backend is 3 phases (layer-split), frontend is 7 phases (feature-split). This is intentional —
-frontend features are heavier and each one involves components, state, styling, and API integration.
-
 ### Important
 - Do NOT start implementation — only create the plan
 - Ensure phases are balanced (not one huge phase and many tiny ones)
@@ -243,6 +280,10 @@ review your own work inline. Give the subagent the plan file path(s), `<<SPEC_DI
   requirements or unsupported assumptions.
 - **Structural issues** — phases respect the hard sizing limits, dependencies are ordered correctly, and
   the named design patterns fit the locked technology stack.
+- **Contract & composition integrity** — every contract a phase consumes is produced by an earlier phase
+  and matches the "Shared Contracts" section (no shape drift); no two phases create the same deliverable
+  file; the dependency graph is acyclic with no forward references; every phase has concrete acceptance
+  criteria; every resolved ambiguity is recorded once in the Assumptions section.
 
 The subagent returns a list of concrete gaps and corrections. Apply the fixes to the plan file(s), then
 re-run the review if the changes were substantial. Only report the plan as done once the review is clean.
