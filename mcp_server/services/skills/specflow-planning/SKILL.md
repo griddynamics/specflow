@@ -151,7 +151,8 @@ inconsistent. Keep it short and only for things the specs left genuinely open.
 
 Do not use this section to override locked values or invent scope — only to fix under-specified details.
 
-### Part F: Integration Environment — Locked Values
+**FIFTH SECTION (only if Part F = INTEGRATION_TESTS_READY): "Part F: Integration Environment — Locked Values"**
+
 (Only if `<<OUTPUTS_DIR>>/analysis/specification_completeness.md` Part F says INTEGRATION_TESTS_READY)
 
 Copy all integration details from Part F's locked values table into `<<OUTPUTS_DIR>>/planning/IMPLEMENTATION_PLAN.md`
@@ -248,18 +249,21 @@ Example phase heading:
 
 ### Example Phase Breakdown for a task management app with 4 features (dashboard, projects, tasks, settings):
 - Phase 1: Project Setup - Initialize both backend and frontend projects, dependencies, config
-- Phase 2: Backend Data Models & Schema - Database schema, ORM models, migrations
-- Phase 3: Backend API & Services - Endpoints, business logic, auth middleware
-- Phase 4: Backend Error Handling & Tests - Error handling, validation, unit tests
-- Phase 5: Frontend Shell & Shared Components - Layout, routing, design system, API client
-- Phase 6: Frontend: Dashboard Feature - Dashboard page, widgets, data visualization
-- Phase 7: Frontend: Projects Feature - Project list, create/edit, project detail page
-- Phase 8: Frontend: Tasks Feature - Task board, task CRUD, drag-and-drop, filters
-- Phase 9: Frontend: Settings Feature - User settings, preferences, profile management
-- Phase 10: Frontend: Auth Flow & Error Handling - Login/signup pages, protected routes, error boundaries
-- Phase 11: Frontend Tests - Component and integration tests across features
-- Phase 12: Infrastructure & Deployment - Docker, docker-compose, environment config
-- Phase 13: Integration Testing & Polish - E2E tests, final verification, documentation
+- Phase 2: Shared Contracts Foundation - Emit the **Shared Contracts** as code: DB schema/migrations, shared
+  DTOs/types, API stubs (OpenAPI), error taxonomy, config contract. Every later phase depends on and imports
+  from this phase; no later phase redefines a shared type.
+- Phase 3: Backend Data Models & Persistence - ORM models and repositories implementing the Phase 2 schema
+- Phase 4: Backend API & Services - Endpoints, business logic, auth middleware (implements the Phase 2 API surface)
+- Phase 5: Backend Error Handling & Tests - Error handling, validation, unit tests
+- Phase 6: Frontend Shell & Shared Components - Layout, routing, design system, API client (typed from Phase 2 contracts)
+- Phase 7: Frontend: Dashboard Feature - Dashboard page, widgets, data visualization
+- Phase 8: Frontend: Projects Feature - Project list, create/edit, project detail page
+- Phase 9: Frontend: Tasks Feature - Task board, task CRUD, drag-and-drop, filters
+- Phase 10: Frontend: Settings Feature - User settings, preferences, profile management
+- Phase 11: Frontend: Auth Flow & Error Handling - Login/signup pages, protected routes, error boundaries
+- Phase 12: Frontend Tests - Component and integration tests across features
+- Phase 13: Infrastructure & Deployment - Docker, docker-compose, environment config
+- Phase 14: Integration Testing & Polish - E2E tests, final verification, documentation
 
 ### Important
 - Do NOT start implementation — only create the plan
