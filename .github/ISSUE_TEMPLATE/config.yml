@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: mailto:specflow@griddynamics.com?subject=%5BSECURITY%5D%20
+    about: Please report security vulnerabilities privately by email — see SECURITY.md. Do not open a public issue.
