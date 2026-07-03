@@ -68,7 +68,10 @@ class TestSettingsDefaultProvider:
     def test_default_is_openrouter(self):
         from app.core.config import Settings
 
-        s = Settings()
+        with pytest.MonkeyPatch.context() as mp:
+            mp.delenv("ANTHROPIC_API_KEY", raising=False)
+            mp.delenv("OPENROUTER_API_KEY", raising=False)
+            s = Settings()
         assert s.DEFAULT_PROVIDER == LLMProvider.OPENROUTER
         assert s.DEFAULT_PROVIDER == "openrouter"
 
@@ -87,3 +90,71 @@ class TestSettingsDefaultProvider:
             mp.setenv("DATABASE_TYPE", "bogus")
             with pytest.raises(ValidationError, match="Invalid DATABASE_TYPE"):
                 Settings()
+
+
+class TestDefaultProviderInference:
+    """DEFAULT_PROVIDER auto-detection from whichever API key is set (unset case).
+
+    Regression coverage for the bug where hand-editing .env to switch from
+    OPENROUTER_API_KEY to ANTHROPIC_API_KEY (without re-running specflow-init.sh)
+    left DEFAULT_PROVIDER unset, and docker-compose's hardcoded
+    ``${DEFAULT_PROVIDER:-openrouter}`` fallback silently forced openrouter,
+    failing startup validation despite a valid Anthropic key being present.
+    """
+
+    def _settings(self, mp, *, anthropic: str | None, openrouter: str | None):
+        from app.core.config import Settings
+
+        mp.delenv("DEFAULT_PROVIDER", raising=False)
+        if anthropic is None:
+            mp.delenv("ANTHROPIC_API_KEY", raising=False)
+        else:
+            mp.setenv("ANTHROPIC_API_KEY", anthropic)
+        if openrouter is None:
+            mp.delenv("OPENROUTER_API_KEY", raising=False)
+        else:
+            mp.setenv("OPENROUTER_API_KEY", openrouter)
+        return Settings()
+
+    def test_anthropic_only_infers_anthropic(self):
+        with pytest.MonkeyPatch.context() as mp:
+            s = self._settings(mp, anthropic="sk-ant-test", openrouter=None)
+        assert s.DEFAULT_PROVIDER == LLMProvider.ANTHROPIC
+
+    def test_openrouter_only_infers_openrouter(self):
+        with pytest.MonkeyPatch.context() as mp:
+            s = self._settings(mp, anthropic=None, openrouter="or-test")
+        assert s.DEFAULT_PROVIDER == LLMProvider.OPENROUTER
+
+    def test_both_keys_set_defaults_to_openrouter(self):
+        with pytest.MonkeyPatch.context() as mp:
+            s = self._settings(mp, anthropic="sk-ant-test", openrouter="or-test")
+        assert s.DEFAULT_PROVIDER == LLMProvider.OPENROUTER
+
+    def test_neither_key_set_defaults_to_openrouter(self):
+        with pytest.MonkeyPatch.context() as mp:
+            s = self._settings(mp, anthropic=None, openrouter=None)
+        assert s.DEFAULT_PROVIDER == LLMProvider.OPENROUTER
+
+    def test_explicit_default_provider_wins_over_inference(self):
+        """An explicit DEFAULT_PROVIDER always overrides key-based inference."""
+        from app.core.config import Settings
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+            mp.delenv("OPENROUTER_API_KEY", raising=False)
+            mp.setenv("DEFAULT_PROVIDER", "openrouter")
+            s = Settings()
+        assert s.DEFAULT_PROVIDER == LLMProvider.OPENROUTER
+
+    def test_blank_default_provider_still_infers(self):
+        """Mirrors docker-compose's ${DEFAULT_PROVIDER:-} passing an empty string
+        rather than omitting the var entirely — must be treated as unset."""
+        from app.core.config import Settings
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+            mp.delenv("OPENROUTER_API_KEY", raising=False)
+            mp.setenv("DEFAULT_PROVIDER", "")
+            s = Settings()
+        assert s.DEFAULT_PROVIDER == LLMProvider.ANTHROPIC

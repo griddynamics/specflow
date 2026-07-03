@@ -324,6 +324,29 @@ class TestProviderKeyValidation:
         assert result["passed"] is True
 
     @pytest.mark.asyncio
+    async def test_anthropic_only_passes_without_explicit_default_provider(self, validator):
+        """Regression: switching to Anthropic by only setting ANTHROPIC_API_KEY
+        (leaving DEFAULT_PROVIDER unset, as .env.quickstart.example documents)
+        must pass without also requiring DEFAULT_PROVIDER=anthropic.
+
+        Previously this failed because DEFAULT_PROVIDER defaulted to openrouter
+        unless a one-time init script had persisted the override — so switching
+        keys by hand later silently broke startup validation.
+        """
+        from app.core.config import Settings
+        from unittest.mock import patch as mpatch
+
+        with patch.dict(os.environ, {
+            "ANTHROPIC_API_KEY": "sk-ant-key",
+            "DATABASE_TYPE": "memory",
+        }, clear=True):
+            anthropic_settings = Settings()
+            assert anthropic_settings.DEFAULT_PROVIDER == "anthropic"
+            with mpatch("app.services.startup_validation.settings", anthropic_settings):
+                result = await validator._check_environment()
+        assert result["passed"] is True
+
+    @pytest.mark.asyncio
     async def test_both_provider_keys_missing_fails_with_provider_name(self, validator):
         """When no provider key set, message names both the variable and the active provider (FR-3)."""
         with patch.dict(os.environ, {

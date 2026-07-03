@@ -229,8 +229,33 @@ class Settings(BaseSettings):
     FIRESTORE_DATABASE_NAME: str = "default"  # Firestore database name (default: "(default)")
 
     # LLM Provider Configuration
-    # Active LLM provider: "openrouter" (default) or "anthropic".
+    # Active LLM provider: "openrouter" (default) or "anthropic". Auto-detected from
+    # whichever API key is set when left unset — see _infer_default_provider_from_keys.
+    # Set explicitly to override the auto-detection (e.g. both keys present but you
+    # want Anthropic).
     DEFAULT_PROVIDER: LLMProvider = LLMProvider.OPENROUTER
+
+    @model_validator(mode="before")
+    @classmethod
+    def _infer_default_provider_from_keys(cls, data: object) -> object:
+        """Infer DEFAULT_PROVIDER from whichever API key is set, when not explicit.
+
+        Single source of truth for the auto-detection documented in
+        .env.quickstart.example ("set ONE of the two keys ... if both are set,
+        OpenRouter is used by default"). Runs on every Settings() construction —
+        not only at `specflow-init.sh` time — so switching keys by hand later
+        (without re-running init) still resolves to the right provider instead
+        of silently falling back to OpenRouter and failing startup validation.
+        """
+        if not isinstance(data, dict):
+            return data
+        if not data.get("DEFAULT_PROVIDER"):
+            data.pop("DEFAULT_PROVIDER", None)
+            anthropic_key = data.get("ANTHROPIC_API_KEY")
+            openrouter_key = data.get("OPENROUTER_API_KEY")
+            if anthropic_key and not openrouter_key:
+                data["DEFAULT_PROVIDER"] = LLMProvider.ANTHROPIC.value
+        return data
 
     # LLM Model Tier Configuration
     # Values follow OpenRouter naming convention: provider/model (e.g., anthropic/claude-opus-4.5)

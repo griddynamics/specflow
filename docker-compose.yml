@@ -85,7 +85,10 @@ services:
       # Common environment variables
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - DEFAULT_PROVIDER=${DEFAULT_PROVIDER:-openrouter}
+      # Blank (not "openrouter") when unset: the backend infers the provider from
+      # whichever API key is set (Settings._infer_default_provider_from_keys). A
+      # hardcoded default here would mask that inference and always force openrouter.
+      - DEFAULT_PROVIDER=${DEFAULT_PROVIDER:-}
       - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
       - WORKSPACE_BASE_PATH=/workspaces
       - NOTIFY_EMAIL_USERNAME=${NOTIFY_EMAIL_USERNAME}
