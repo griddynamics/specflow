@@ -118,6 +118,35 @@ From your IDE chat:
 Steps 1 and 2 run locally in the IDE and are safe to repeat. Generation uses your
 local backend and workspace repos.
 
+## Agentic Deployment & Integration Tests (Optional)
+
+SpecFlow Harness contains two loops: coding loop to execute the plan, and optional deployment + integration tests loop.
+
+Code generation starts always. A live deploy + end-to-end test run against it is optional and
+gated by **Part F** of `analysis/specification_completeness.md` ("Integration & Deployment
+Readiness"):
+
+- **`LOCAL_ONLY`** (default) — no deploy step; you get generated code only.
+- **`INTEGRATION_TESTS_READY`** — after generation, agents build, deploy, and run E2E tests, then
+  report results back.
+
+`check_specification_completeness` assigns this label deterministically, based on whether your
+specs describe **all three** of: a deploy method/workflow, acceptance/E2E test methodology, and
+infrastructure targets (cluster, registry, namespace, or equivalent). Partial info keeps you at
+`LOCAL_ONLY`.
+
+To opt in, add a short deployment section to your specs — see
+[docs/examples/deployment-spec-example.md](docs/examples/deployment-spec-example.md) for a
+worked example you can adapt.
+
+If you opt in but don't fully specify **how** to deploy, SpecFlow still has a default: agent
+workspaces have no Docker daemon, `kubectl`, or cloud CLIs, so every deploy is always executed as
+a GitHub Actions workflow on a full-access runner (build → push → deploy → E2E). That default
+mechanism is documented in
+[`backend/app/standards/deployment_standards.md`](backend/app/standards/deployment_standards.md).
+Anything that needs a human (cloud resource provisioning, DNS, secrets, IAM) is flagged explicitly
+in the analysis output rather than assumed.
+
 ## Local CLI
 
 After bootstrap, you can also drive runs from the local CLI:
@@ -157,5 +186,6 @@ specflow init --reset-local-db
 ## More Guides
 
 - [Compass/P10Y setup](docs/quickstart-compass.md)
+- [Deployment spec example](docs/examples/deployment-spec-example.md)
 - [MCP usage](MCP_USER.md)
 - [MCP API reference](docs/mcp/API_REFERENCE.md)

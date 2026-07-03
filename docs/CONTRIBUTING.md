@@ -80,6 +80,8 @@ This project is licensed under [MIT](../LICENSE). By contributing, you agree tha
 
 Please treat every interaction with respect. No gatekeeping, no condescension.
 
+Questions or feedback that don't fit a GitHub issue: [specflow@griddynamics.com](mailto:specflow@griddynamics.com). Found a security vulnerability? Report it privately per [SECURITY.md](../SECURITY.md) — do not open a public issue.
+
 ---
 
 ## Related Docs
