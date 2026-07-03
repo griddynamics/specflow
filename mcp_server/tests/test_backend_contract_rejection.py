@@ -167,4 +167,8 @@ class TestCallBackendErrorHandling:
             svc = SpecFlowBackendService()
             with pytest.raises(Exception) as exc_info:
                 await svc.call_backend(endpoint="/api/v1/generation-sessions/est-1/status", method="GET")
+        # Must be caught and wrapped by call_backend's except httpx.HTTPError block, not
+        # leak out as the raw httpx.ConnectError — otherwise this assertion would pass
+        # even with the request call left outside the try/except (the bug being fixed).
+        assert not isinstance(exc_info.value, httpx.HTTPError)
         assert "connection refused" in str(exc_info.value)
