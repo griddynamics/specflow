@@ -100,6 +100,26 @@ These values are LOCKED from <<OUTPUTS_DIR>>/analysis/specification_completeness
 [List all features with their required sub-tasks]
 ```
 
+**SECOND SECTION: "Design Patterns & Architecture"**
+
+Right after the locked values, add a short section naming the architectural style and the cross-cutting
+design patterns the whole solution will follow, so every phase agent applies them consistently:
+
+```markdown
+## Design Patterns & Architecture
+
+- **Architectural style**: [e.g., layered / hexagonal / clean architecture; how modules depend on each other]
+- **Cross-cutting patterns**: [the patterns used repeatedly across phases and why — e.g., Repository for
+  persistence, Dependency Injection for wiring, Factory for object construction, Strategy for pluggable
+  behaviour, Adapter for external/mocked integrations, Observer/pub-sub for events, State machine for lifecycle]
+- **Modelling rules**: classes / dataclasses / Pydantic models and Enums over raw dicts and strings;
+  SRP and Open/Closed so changes are additive; patterns must enforce correctness at compile time and in unit tests
+```
+
+Individual phases must reference these patterns (see the per-phase **Design patterns** field below) rather
+than re-deciding architecture. Choose patterns that fit the locked technology stack — do not force a pattern
+where a plain function or module is clearer.
+
 ### Part F: Integration Environment — Locked Values
 (Only if `<<OUTPUTS_DIR>>/analysis/specification_completeness.md` Part F says INTEGRATION_TESTS_READY)
 
@@ -155,6 +175,13 @@ Planning guidance for INTEGRATION_TESTS_READY:
   - A clear name and description
   - List of tasks to be completed (2-3 max)
   - Dependencies on previous phases (if any)
+  - **Design patterns**: name the concrete design patterns the phase applies and where (e.g.,
+    Repository for data access, Factory/Builder for construction, Strategy for interchangeable
+    algorithms, Adapter for external integrations, Observer/pub-sub for events, Dependency Injection
+    for wiring, State machine for lifecycle). Favour OOP, SRP, and Open/Closed — model with classes,
+    dataclasses/Pydantic and Enums over raw dicts/strings, so the pattern enforces correctness at
+    compile time and in unit tests. Do not invent patterns where a plain function is clearer; only
+    name a pattern when it earns its place.
   - **ENFORCEMENT CHECKPOINT**: List which Part D conventions apply to this phase
 - Phases should follow a logical progression:
   - Phase 1: Project setup, dependencies, basic structure (following Part A and Part D conventions)
@@ -203,7 +230,25 @@ frontend features are heavier and each one involves components, state, styling, 
 - Each phase should represent 1-3 days of focused work
 - Create ONLY markdown files (`IMPLEMENTATION_PLAN.md` and optionally `e2e-test-plan.md`)
 
+### 3. Review the plan with a subagent
+
+After the plan file(s) are written, spawn a **fresh subagent** to review them with clean context — do not
+review your own work inline. Give the subagent the plan file path(s), `<<SPEC_DIR>>/`, and
+`<<OUTPUTS_DIR>>/analysis/specification_completeness.md`, and ask it to check for:
+
+- **Missing scope** — every feature, requirement, and locked dimension in the specs and
+  `specification_completeness.md` (Parts A–F) is covered by at least one phase; nothing silently dropped.
+- **Incorrect statements** — no claim in the plan contradicts the specs, the locked values, or the
+  existing `<<SRC_DIR>>/` code (for brownfield); no phase re-specifies what already exists; no invented
+  requirements or unsupported assumptions.
+- **Structural issues** — phases respect the hard sizing limits, dependencies are ordered correctly, and
+  the named design patterns fit the locked technology stack.
+
+The subagent returns a list of concrete gaps and corrections. Apply the fixes to the plan file(s), then
+re-run the review if the changes were substantial. Only report the plan as done once the review is clean.
+
 When done, state:
 - Path of plan file(s) written
 - Phase count
+- Summary of what the review subagent found and how it was resolved
 - Next step: run `run_generation` to start parallel codegen agents (2–8 hours).
