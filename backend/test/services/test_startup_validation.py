@@ -96,24 +96,31 @@ class TestEnvironmentValidation:
     
     @pytest.mark.asyncio
     async def test_environment_check_passes(self, validator):
-        """Environment check passes with OPENROUTER_API_KEY set (default provider)."""
+        """Environment check passes with OPENROUTER_API_KEY set (provider resolves to openrouter)."""
+        from app.core.config import Settings
+
         with patch.dict(os.environ, {
             "OPENROUTER_API_KEY": "test-key",
             "DATABASE_TYPE": "memory",
-        }):
-            result = await validator._check_environment()
+        }, clear=True):
+            with patch("app.services.startup_validation.settings", Settings(_env_file=None)):
+                result = await validator._check_environment()
 
         assert result["passed"] is True
         assert result["error"] is None
 
     @pytest.mark.asyncio
     async def test_environment_check_fails_missing_vars(self, validator):
-        """Environment check fails when the active provider key is missing."""
+        """With no provider key set, the check fails fast naming both provider keys."""
+        from app.core.config import Settings
+
         with patch.dict(os.environ, {}, clear=True):
-            result = await validator._check_environment()
+            with patch("app.services.startup_validation.settings", Settings(_env_file=None)):
+                result = await validator._check_environment()
 
         assert result["passed"] is False
         assert "OPENROUTER_API_KEY" in result["error"]
+        assert "ANTHROPIC_API_KEY" in result["error"]
 
     @pytest.mark.asyncio
     async def test_environment_check_firestore_requires_git_secrets(self, validator):
@@ -300,48 +307,55 @@ class TestProviderKeyValidation:
 
     @pytest.mark.asyncio
     async def test_openrouter_only_passes(self, validator):
-        """OpenRouter-only config passes (FR-1)."""
+        """OpenRouter key present → provider resolves to openrouter, check passes (FR-1)."""
+        from app.core.config import Settings
+
         with patch.dict(os.environ, {
             "OPENROUTER_API_KEY": "or-key",
             "DATABASE_TYPE": "memory",
         }, clear=True):
-            result = await validator._check_environment()
-        assert result["passed"] is True
-
-    @pytest.mark.asyncio
-    async def test_anthropic_only_passes(self, validator):
-        """Anthropic-only config passes when DEFAULT_PROVIDER=anthropic (FR-2)."""
-        from app.core.config import Settings
-        from unittest.mock import patch as mpatch
-
-        anthropic_settings = Settings(DEFAULT_PROVIDER="anthropic")
-        with mpatch("app.services.startup_validation.settings", anthropic_settings):
-            with patch.dict(os.environ, {
-                "ANTHROPIC_API_KEY": "sk-ant-key",
-                "DATABASE_TYPE": "memory",
-            }, clear=True):
+            with patch("app.services.startup_validation.settings", Settings(_env_file=None)):
                 result = await validator._check_environment()
         assert result["passed"] is True
 
     @pytest.mark.asyncio
-    async def test_both_provider_keys_missing_fails_with_provider_name(self, validator):
-        """When no provider key set, message names both the variable and the active provider (FR-3)."""
+    async def test_anthropic_only_passes(self, validator):
+        """Anthropic key only → provider resolves to anthropic, check passes (FR-2)."""
+        from app.core.config import Settings
+
+        with patch.dict(os.environ, {
+            "ANTHROPIC_API_KEY": "sk-ant-key",
+            "DATABASE_TYPE": "memory",
+        }, clear=True):
+            with patch("app.services.startup_validation.settings", Settings(_env_file=None)):
+                result = await validator._check_environment()
+        assert result["passed"] is True
+
+    @pytest.mark.asyncio
+    async def test_no_provider_key_fails_naming_both(self, validator):
+        """When neither key is set, the message names both provider keys (FR-3, fail fast)."""
+        from app.core.config import Settings
+
         with patch.dict(os.environ, {
             "DATABASE_TYPE": "memory",
         }, clear=True):
-            result = await validator._check_environment()
+            with patch("app.services.startup_validation.settings", Settings(_env_file=None)):
+                result = await validator._check_environment()
         assert result["passed"] is False
         assert "OPENROUTER_API_KEY" in result["error"]
-        assert "openrouter" in result["error"]
+        assert "ANTHROPIC_API_KEY" in result["error"]
 
     @pytest.mark.asyncio
     async def test_memory_skips_git_secrets(self, validator):
         """memory database mode does not require git/token secrets (FR-4)."""
+        from app.core.config import Settings
+
         with patch.dict(os.environ, {
             "OPENROUTER_API_KEY": "or-key",
             "DATABASE_TYPE": "memory",
         }, clear=True):
-            result = await validator._check_environment()
+            with patch("app.services.startup_validation.settings", Settings(_env_file=None)):
+                result = await validator._check_environment()
         assert result["passed"] is True
         # Confirm no git-secret keys were required
         assert result["error"] is None
@@ -441,3 +455,81 @@ class TestProviderKeyValidation:
         }, clear=True):
             with pytest.raises(ValidationError, match="AUTH_MODE=local is not allowed"):
                 Settings(_env_file=None)
+
+
+class TestProviderResolution:
+    """DEFAULT_PROVIDER is derived solely from which key is present — not configurable.
+
+    Mirrors the .env.quickstart.example "set ONE of the two keys" UX so an
+    Anthropic-only setup selects Anthropic instead of silently defaulting to
+    OpenRouter and failing the startup key check (backend stuck at 503).
+    """
+
+    def _settings(self, env: dict):
+        from app.core.config import Settings
+
+        with patch.dict(os.environ, {"DATABASE_TYPE": "memory", **env}, clear=True):
+            return Settings(_env_file=None)
+
+    def test_anthropic_only_resolves_anthropic(self):
+        from app.core.enums import LLMProvider
+
+        settings = self._settings({"ANTHROPIC_API_KEY": "sk-ant-key"})
+        assert settings.DEFAULT_PROVIDER == LLMProvider.ANTHROPIC
+
+    def test_openrouter_only_resolves_openrouter(self):
+        from app.core.enums import LLMProvider
+
+        settings = self._settings({"OPENROUTER_API_KEY": "or-key"})
+        assert settings.DEFAULT_PROVIDER == LLMProvider.OPENROUTER
+
+    def test_both_keys_resolve_openrouter(self):
+        from app.core.enums import LLMProvider
+
+        settings = self._settings(
+            {"ANTHROPIC_API_KEY": "sk-ant-key", "OPENROUTER_API_KEY": "or-key"}
+        )
+        assert settings.DEFAULT_PROVIDER == LLMProvider.OPENROUTER
+
+    def test_no_keys_resolve_openrouter(self):
+        from app.core.enums import LLMProvider
+
+        # Left at openrouter; startup validation then fails fast naming both keys.
+        settings = self._settings({})
+        assert settings.DEFAULT_PROVIDER == LLMProvider.OPENROUTER
+
+    def test_whitespace_key_is_treated_as_unset(self):
+        from app.core.enums import LLMProvider
+
+        # A blank/whitespace-only key must not count as "set": OpenRouter is
+        # whitespace, only Anthropic is real → provider resolves to anthropic.
+        settings = self._settings(
+            {"OPENROUTER_API_KEY": "   ", "ANTHROPIC_API_KEY": "sk-ant-key"}
+        )
+        assert settings.DEFAULT_PROVIDER == LLMProvider.ANTHROPIC
+
+    def test_explicit_default_provider_is_ignored(self):
+        from app.core.enums import LLMProvider
+
+        # There is no knob: an attempt to set DEFAULT_PROVIDER is overridden by
+        # the key-derived value (anthropic key only → anthropic, despite the env).
+        settings = self._settings(
+            {"ANTHROPIC_API_KEY": "sk-ant-key", "DEFAULT_PROVIDER": "openrouter"}
+        )
+        assert settings.DEFAULT_PROVIDER == LLMProvider.ANTHROPIC
+
+
+class TestIsKeyValid:
+    """is_key_valid — the shared blank/whitespace-safe key presence check."""
+
+    def test_non_blank_is_valid(self):
+        from app.core.config import is_key_valid
+
+        assert is_key_valid("sk-ant-key") is True
+
+    def test_none_blank_and_whitespace_are_invalid(self):
+        from app.core.config import is_key_valid
+
+        assert is_key_valid(None) is False
+        assert is_key_valid("") is False
+        assert is_key_valid("   ") is False
