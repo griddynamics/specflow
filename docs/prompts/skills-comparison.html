@@ -1,0 +1,917 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Skills Comparison — SpecFlow vs. CTO Marketplace</title>
+<style>
+  :root{
+    /* ---- surfaces & ink (documented palette — single source of truth) ---- */
+    --bg:            #EFE7D4;
+    --surface:       #F8F3E7;
+    --surface-raised:#FFFFFF;
+    --border:        #DED2B8;
+    --border-soft:   #E7DDC5;
+    --ink-primary:   #362C1F;
+    --ink-secondary: #6B5D48;
+    --ink-muted:     #8F8371;
+
+    /* ---- categorical (fixed order — Track A, Track B) ---- */
+    --track-a:       #B15A2B;   /* SpecFlow — terracotta */
+    --track-a-soft:  #F1DFCF;
+    --track-b:       #4650AF;   /* CTO Marketplace — slate indigo */
+    --track-b-soft:  #E1E2F3;
+
+    /* ---- reserved status scale (icon+label always; never color-alone) ---- */
+    --status-exclusive: #3F7A4A; /* sage — clean, no overlap */
+    --status-exclusive-soft: #E1EBDD;
+    --status-adjacent:  #8A6A0E; /* mustard — conceptually adjacent, not redundant */
+    --status-adjacent-soft: #F3E9CE;
+    --status-gap:       #9C3F5A; /* rose-brown — identified gap / no bridge */
+    --status-gap-soft:  #F3DFE3;
+    --status-neutral:   #6B6355; /* muted grey — external system, not a skill */
+    --status-neutral-soft: #E7E2D6;
+
+    --radius: 10px;
+    --shadow: 0 1px 2px rgba(54,44,31,0.06), 0 4px 14px rgba(54,44,31,0.07);
+    --font-head: Georgia, "Iowan Old Style", "Palatino Linotype", serif;
+    --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background: var(--bg);
+    background-image:
+      radial-gradient(circle at 12% 8%, rgba(177,90,43,0.05), transparent 40%),
+      radial-gradient(circle at 88% 92%, rgba(70,80,175,0.05), transparent 40%);
+    color: var(--ink-primary);
+    font-family: var(--font-body);
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  .page{ max-width: 1180px; margin: 0 auto; padding: 40px 28px 80px; }
+
+  header.hero{ margin-bottom: 28px; }
+  header.hero h1{
+    font-family: var(--font-head);
+    font-size: 30px;
+    margin: 0 0 6px;
+    color: var(--ink-primary);
+    letter-spacing: 0.2px;
+  }
+  header.hero p{
+    margin: 0;
+    color: var(--ink-secondary);
+    font-size: 15px;
+    max-width: 760px;
+  }
+
+  /* ---- tabs ---- */
+  .tabbar{
+    display:flex;
+    gap: 6px;
+    border-bottom: 2px solid var(--border);
+    margin: 28px 0 26px;
+  }
+  .tabbtn{
+    appearance:none; border:none; background:transparent; cursor:pointer;
+    font-family: var(--font-body); font-size: 15px; font-weight: 600;
+    color: var(--ink-muted);
+    padding: 12px 18px 14px;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+    transition: color .15s ease, border-color .15s ease;
+  }
+  .tabbtn:hover{ color: var(--ink-primary); }
+  .tabbtn.active{ color: var(--ink-primary); border-bottom-color: var(--track-a); }
+
+  .tabpanel{ display:none; }
+  .tabpanel.active{ display:block; animation: fadein .25s ease; }
+  @keyframes fadein{ from{ opacity:0; transform: translateY(4px);} to{opacity:1; transform:none;} }
+
+  /* ---- legend chips (shared) ---- */
+  .legend{
+    display:flex; flex-wrap:wrap; gap:10px 18px;
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    margin-bottom: 24px;
+    font-size: 13px;
+    color: var(--ink-secondary);
+  }
+  .legend .item{ display:flex; align-items:center; gap:7px; white-space:nowrap; }
+  .swatch{ width:12px; height:12px; border-radius:3px; flex:none; display:inline-block; }
+  .swatch.trackA{ background: var(--track-a); }
+  .swatch.trackB{ background: var(--track-b); }
+  .swatch.excl{ background: var(--status-exclusive); }
+  .swatch.adj{ background: var(--status-adjacent); border: none; }
+  .swatch.gap{ background: transparent; border: 2px dashed var(--status-gap); }
+  .swatch.neutral{ background: var(--status-neutral); }
+
+  /* ================= TAB 1 — PROCESS FLOW ================= */
+  .flow-grid{
+    display:grid;
+    grid-template-columns: 1fr 220px 1fr;
+    gap: 14px 18px;
+    align-items: stretch;
+  }
+  .track-head{
+    font-family: var(--font-head);
+    font-size: 17px;
+    padding: 10px 4px 12px;
+    border-bottom: 2px solid;
+    margin-bottom: 4px;
+  }
+  .track-head.a{ color: var(--track-a); border-color: var(--track-a); }
+  .track-head.b{ color: var(--track-b); border-color: var(--track-b); }
+  .track-head span{ color: var(--ink-muted); font-family: var(--font-body); font-size: 12px; display:block; font-weight:600; text-transform:uppercase; letter-spacing:.05em; margin-top:2px;}
+
+  .flow-col{ display:flex; flex-direction:column; }
+  .flow-mid{ display:flex; flex-direction:column; align-items:center; }
+
+  .connector{
+    display:flex; justify-content:center; align-items:center;
+    height: 26px; color: var(--ink-muted); font-size: 16px;
+  }
+
+  .node{
+    background: var(--surface-raised);
+    border: 1px solid var(--border-soft);
+    border-left-width: 5px;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+  }
+  .node:hover{ transform: translateY(-2px); box-shadow: 0 6px 18px rgba(54,44,31,0.12); }
+  .node.selected{ outline: 2px solid var(--ink-primary); outline-offset: 1px; }
+  .node.a{ border-left-color: var(--track-a); }
+  .node.b{ border-left-color: var(--track-b); }
+  .node.neutral{ border-left-color: var(--status-neutral); border-style: dashed; background: var(--status-neutral-soft); }
+  .node.empty{ visibility:hidden; }
+
+  .node h4{ margin:0 0 4px; font-size:15px; }
+  .node .tagline{ margin:0 0 8px; font-size:12.5px; color: var(--ink-secondary); }
+  .node .meta{ font-size:11px; color: var(--ink-muted); display:flex; flex-wrap:wrap; gap:4px 10px; }
+  .node .meta b{ color: var(--ink-secondary); font-weight:600; }
+
+  .annot{
+    font-size:12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    text-align:center;
+    line-height:1.35;
+    display:flex; flex-direction:column; align-items:center; gap:4px;
+  }
+  .annot .tag{
+    font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+    padding: 2px 8px; border-radius: 999px; display:inline-flex; align-items:center; gap:4px;
+  }
+  .annot.adjacent{ background: var(--status-adjacent-soft); color:#5c4709; }
+  .annot.adjacent .tag{ background: var(--status-adjacent); color:#fff; }
+  .annot.gap{ background: var(--status-gap-soft); color:#6e2d3f; border: 1px dashed var(--status-gap); }
+  .annot.gap .tag{ background: var(--status-gap); color:#fff; }
+  .annot.unique{ background: var(--status-exclusive-soft); color:#2c5432; }
+  .annot.unique .tag{ background: var(--status-exclusive); color:#fff; }
+  .annot.plain{ color: var(--ink-muted); font-style: italic; }
+
+  .midconnector{ font-size: 18px; color: var(--ink-muted); margin: 2px 0; }
+
+  .caption{
+    font-size: 12.5px; color: var(--ink-muted); margin-top: 18px; font-style: italic;
+  }
+
+  /* ---- detail drawer ---- */
+  .drawer{
+    position: sticky; bottom: 0;
+    margin-top: 26px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 18px 22px;
+    display:none;
+  }
+  .drawer.show{ display:block; animation: fadein .2s ease; }
+  .drawer h3{ margin: 0 0 6px; font-family: var(--font-head); font-size:19px; }
+  .drawer .drawer-track{ font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; padding:2px 9px; border-radius:999px; display:inline-block; margin-bottom:8px;}
+  .drawer p{ margin: 6px 0; font-size: 14px; color: var(--ink-secondary); }
+  .drawer .kv{ display:grid; grid-template-columns: 120px 1fr; gap:6px 12px; font-size:13px; margin-top:10px; }
+  .drawer .kv dt{ color: var(--ink-muted); font-weight:600; }
+  .drawer .kv dd{ margin:0; color: var(--ink-primary); }
+  .drawer .close{
+    float:right; appearance:none; border:none; background:var(--border-soft); color:var(--ink-secondary);
+    border-radius:999px; width:26px; height:26px; cursor:pointer; font-size:14px;
+  }
+
+  /* ================= TAB 2 — CAPABILITY MAP ================= */
+  .venn-wrap{ display:flex; justify-content:center; margin: 10px 0 22px; }
+  .venn-wrap svg{ max-width: 100%; height:auto; }
+  .venn-label{ font-family: var(--font-head); font-size:16px; font-weight:700; }
+  .chip{
+    font-size: 12px;
+    background: var(--surface-raised);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 5px 9px;
+    display:inline-flex; align-items:center; gap:6px;
+    box-shadow: 0 1px 2px rgba(54,44,31,0.05);
+  }
+  .chip .dot{ width:8px; height:8px; border-radius:50%; flex:none; }
+  .chip.a{ border-color: var(--track-a); }
+  .chip.a .dot{ background: var(--track-a); }
+  .chip.b{ border-color: var(--track-b); }
+  .chip.b .dot{ background: var(--track-b); }
+  .chip.adjacent{ border-color: var(--status-adjacent); border-style: dashed; background: var(--status-adjacent-soft); }
+  .chip.adjacent .dot{ background: var(--status-adjacent); }
+
+  .venn-zone{ position:relative; }
+  .venn-html{
+    display:grid;
+    grid-template-columns: 1fr 1.1fr 1fr;
+    gap: 14px;
+    align-items:start;
+  }
+  .zone-col{
+    background: var(--surface);
+    border: 1px solid var(--border-soft);
+    border-radius: 16px;
+    padding: 18px;
+    min-height: 300px;
+  }
+  .zone-col.left{ border-top: 4px solid var(--track-a); }
+  .zone-col.right{ border-top: 4px solid var(--track-b); }
+  .zone-col.mid{
+    border-top: 4px solid var(--status-adjacent);
+    background: var(--status-adjacent-soft);
+    display:flex; flex-direction:column; gap:12px; justify-content:center;
+  }
+  .zone-col h4{ margin:0 0 12px; font-size:14px; }
+  .zone-col.left h4{ color: var(--track-a); }
+  .zone-col.right h4{ color: var(--track-b); }
+  .zone-col.mid h4{ color:#5c4709; text-align:center; }
+  .chiplist{ display:flex; flex-direction:column; gap:8px; }
+
+  .gap-callout{
+    margin-top: 16px;
+    display:flex; align-items:center; gap:10px;
+    background: var(--status-gap-soft);
+    border: 1px dashed var(--status-gap);
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 13px;
+    color: #6e2d3f;
+  }
+  .gap-callout .tag{
+    font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+    background: var(--status-gap); color:#fff; padding:3px 9px; border-radius:999px; flex:none;
+  }
+
+  .view-toggle{
+    display:flex; gap:8px; margin: 6px 0 18px;
+  }
+  .view-toggle button{
+    appearance:none; cursor:pointer; font-family: var(--font-body); font-size:13px; font-weight:600;
+    padding: 7px 14px; border-radius: 999px; border:1px solid var(--border);
+    background: var(--surface-raised); color: var(--ink-secondary);
+  }
+  .view-toggle button.active{ background: var(--ink-primary); color: var(--surface-raised); border-color: var(--ink-primary); }
+
+  .tableview{ display:none; }
+  .tableview.show{ display:block; }
+  table.capstable{ width:100%; border-collapse: collapse; font-size:13px; background:var(--surface-raised); border-radius: var(--radius); overflow:hidden; box-shadow: var(--shadow); }
+  table.capstable th, table.capstable td{ text-align:left; padding: 9px 12px; border-bottom: 1px solid var(--border-soft); }
+  table.capstable th{ background: var(--surface); color: var(--ink-secondary); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+  table.capstable td .pill{ font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:999px; display:inline-block; }
+  .pill.excl{ background: var(--status-exclusive-soft); color:#2c5432; }
+  .pill.adj{ background: var(--status-adjacent-soft); color:#5c4709; }
+  .pill.gapp{ background: var(--status-gap-soft); color:#6e2d3f; }
+
+  .htmlview.hidden{ display:none; }
+
+  /* ---- accordions for steps/tasks ---- */
+  .accordions{ margin-top: 30px; }
+  .accordions > h3{ font-family: var(--font-head); font-size:19px; margin-bottom:4px;}
+  .accordions > p.sub{ color: var(--ink-muted); font-size:13px; margin-top:0; margin-bottom:16px; }
+  details.skillacc{
+    background: var(--surface-raised);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    margin-bottom: 10px;
+    box-shadow: var(--shadow);
+    overflow:hidden;
+  }
+  details.skillacc summary{
+    cursor:pointer; list-style:none; padding: 13px 16px;
+    display:flex; align-items:center; gap:10px; font-weight:700; font-size:14.5px;
+    border-left: 5px solid var(--border);
+  }
+  details.skillacc summary::-webkit-details-marker{ display:none; }
+  details.skillacc summary::before{ content:"▸"; color: var(--ink-muted); font-size:12px; transition: transform .15s ease; }
+  details.skillacc[open] summary::before{ transform: rotate(90deg); }
+  details.skillacc.a summary{ border-left-color: var(--track-a); }
+  details.skillacc.b summary{ border-left-color: var(--track-b); }
+  .stepslist{ padding: 4px 16px 16px 40px; }
+  .step{
+    display:flex; align-items:flex-start; gap:10px; padding: 8px 0; font-size:13.5px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .step:first-child{ border-top:none; }
+  .step .steptxt{ color: var(--ink-secondary); flex:1; }
+  .step .steptxt b{ color: var(--ink-primary); }
+  .stepstatus{
+    flex:none; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
+    padding:2px 8px; border-radius:999px; white-space:nowrap;
+  }
+  .stepstatus.excl{ background: var(--status-exclusive-soft); color:#2c5432; }
+  .stepstatus.adj{ background: var(--status-adjacent-soft); color:#5c4709; }
+  .stepstatus.gapp{ background: var(--status-gap-soft); color:#6e2d3f; }
+
+  /* ---- skill quality cards ---- */
+  .quality{ margin-top: 30px; }
+  .quality > h3{ font-family: var(--font-head); font-size:19px; margin-bottom:4px; }
+  .quality > p.sub{ color: var(--ink-muted); font-size:13px; margin-top:0; margin-bottom:16px; }
+  .qualitygrid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+  .qualitycard{
+    background: var(--surface-raised); border: 1px solid var(--border-soft); border-left-width:5px;
+    border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 16px;
+  }
+  .qualitycard.a{ border-left-color: var(--track-a); }
+  .qualitycard.b{ border-left-color: var(--track-b); }
+  .qualitycard h5{ margin:0 0 6px; font-size:14px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .qualitycard .qbadge{
+    font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
+    padding: 3px 9px; border-radius:999px; white-space:nowrap; flex:none;
+    background: var(--surface); color: var(--ink-secondary); border:1px solid var(--border);
+  }
+  .qualitycard p{ margin:0; font-size:12.5px; color: var(--ink-secondary); line-height:1.5; }
+
+  footer.note{ margin-top: 40px; font-size:12px; color: var(--ink-muted); border-top:1px solid var(--border-soft); padding-top:16px; }
+
+  /* ================= TAB 3 — COLLABORATION TIMELINE ================= */
+  .verdict-banner{
+    display:flex; align-items:flex-start; gap:12px;
+    background: var(--status-exclusive-soft);
+    border: 1px solid var(--status-exclusive);
+    border-radius: var(--radius);
+    padding: 14px 18px;
+    margin-bottom: 26px;
+    font-size: 14px;
+    color: #2c5432;
+  }
+  .verdict-banner .tag{
+    flex:none; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+    background: var(--status-exclusive); color:#fff; padding:4px 10px; border-radius:999px; margin-top:1px;
+  }
+  .verdict-banner strong{ color:#20401f; }
+
+  .timeline{ position:relative; padding-left: 46px; }
+  .timeline::before{
+    content:""; position:absolute; left:17px; top:8px; bottom:8px; width:2px;
+    background: repeating-linear-gradient(to bottom, var(--border) 0 6px, transparent 6px 12px);
+  }
+  .tl-row{ position:relative; margin-bottom: 14px; }
+  .tl-num{
+    position:absolute; left:-46px; top:2px; width:34px; height:34px; border-radius:50%;
+    display:flex; align-items:center; justify-content:center;
+    font-family: var(--font-head); font-weight:700; font-size:14px;
+    background: var(--surface-raised); border:2px solid var(--border); color: var(--ink-secondary);
+    z-index:1;
+  }
+  .tl-row.a .tl-num{ border-color: var(--track-a); color: var(--track-a); }
+  .tl-row.b .tl-num{ border-color: var(--track-b); color: var(--track-b); }
+  .tl-row.neutral .tl-num{ border-color: var(--status-neutral); color: var(--status-neutral); }
+  .tl-row.io .tl-num{ background: var(--ink-primary); border-color: var(--ink-primary); color: var(--surface-raised); }
+
+  .tl-io{
+    display:inline-block; background: var(--surface); border: 1px solid var(--border-soft);
+    border-radius: 8px; padding: 10px 16px; font-size: 13.5px; color: var(--ink-secondary); font-style: italic;
+  }
+  .tl-io b{ color: var(--ink-primary); font-style: normal; }
+
+  .tl-row .node{ max-width: 560px; }
+
+  .tl-phase-label{
+    font-size: 11px; font-weight:700; text-transform:uppercase; letter-spacing:.08em;
+    color: var(--ink-muted); margin: 26px 0 10px -46px; padding-left:46px;
+  }
+  .tl-phase-label:first-child{ margin-top:0; }
+
+  .decision{
+    display:inline-flex; align-items:center; gap:10px;
+    background: var(--surface-raised); border: 1.5px dashed var(--ink-secondary);
+    border-radius: 10px; padding: 10px 16px; font-size: 13.5px; font-weight:600; color: var(--ink-primary);
+  }
+  .branches{ display:flex; gap:22px; margin: 8px 0 0 2px; font-size: 12.5px; }
+  .branches .yes{ color:#2c5432; font-weight:600; }
+  .branches .no{ color: var(--ink-muted); }
+
+  .stopbox{
+    display:inline-block; background: var(--status-neutral-soft); border: 1px dashed var(--status-neutral);
+    border-radius: 8px; padding: 8px 14px; font-size: 12.5px; color: var(--ink-secondary);
+  }
+
+  .handoff-callout{
+    display:flex; align-items:flex-start; gap:10px;
+    background: var(--status-gap-soft); border: 1px dashed var(--status-gap);
+    border-radius: 10px; padding: 12px 16px; font-size: 13px; color:#6e2d3f; max-width: 620px;
+  }
+  .handoff-callout .tag{
+    flex:none; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+    background: var(--status-gap); color:#fff; padding:3px 9px; border-radius:999px;
+  }
+
+  @media (max-width: 860px){
+    .flow-grid{ grid-template-columns: 1fr; }
+    .flow-mid{ order:2; padding: 6px 0; }
+    .venn-html{ grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="hero">
+    <h1>Skills Comparison — SpecFlow vs. CTO Marketplace</h1>
+    <p>How the SpecFlow skill set (spec analysis, planning, variant reconciliation) relates to the
+    presales team's current CTO Marketplace tools (scope estimator, presales estimator) — where
+    they chain together today, and where capabilities genuinely overlap versus merely sit
+    side by side.</p>
+  </header>
+
+  <div class="tabbar">
+    <button class="tabbtn active" data-tab="tab1">① Process Relationships</button>
+    <button class="tabbtn" data-tab="tab2">② Capability Map &amp; Overlaps</button>
+    <button class="tabbtn" data-tab="tab3">③ Collaboration</button>
+  </div>
+
+  <!-- ================= TAB 1 ================= -->
+  <section id="tab1" class="tabpanel active">
+
+    <div class="legend">
+      <div class="item"><span class="swatch trackA"></span> SpecFlow (this repo) — feeds the autonomous coding harness</div>
+      <div class="item"><span class="swatch trackB"></span> CTO Marketplace — feeds human proposals / SOWs</div>
+      <div class="item"><span class="swatch adj"></span> Adjacent concept, not redundant</div>
+      <div class="item"><span class="swatch gap"></span> Identified gap — no bridge exists today</div>
+      <div class="item"><span class="swatch neutral"></span> External system step (not a skill)</div>
+    </div>
+
+    <div class="flow-grid" id="flowGrid">
+      <div class="track-head a">SpecFlow Skills<span>Gates autonomous codegen</span></div>
+      <div></div>
+      <div class="track-head b">CTO Marketplace<span>Gates a business decision</span></div>
+
+      <!-- ROW 1 -->
+      <div class="flow-col"><div class="node a" data-id="analysis"><h4>specflow-analysis</h4><p class="tagline">Gap detection across all architectural dimensions</p><div class="meta"><span><b>~489</b> lines</span><span><b>0</b> subagents</span><span><b>No</b> HITL</span></div></div></div>
+      <div class="flow-mid">
+        <div class="annot adjacent"><span class="tag">Adjacent</span> Both check "spec completeness" — different dimensions, different consumers</div>
+      </div>
+      <div class="flow-col"><div class="node b" data-id="scope"><h4>gd-scope-estimator</h4><p class="tagline">Scope → work breakdown → Work-Unit estimate</p><div class="meta"><span><b>~300</b> lines</span><span><b>0</b> subagents</span><span><b>Yes</b> HITL</span></div></div></div>
+
+      <!-- connectors -->
+      <div class="flow-col"><div class="connector">↓</div></div>
+      <div class="flow-mid"><div class="connector">&nbsp;</div></div>
+      <div class="flow-col"><div class="connector">↓</div></div>
+
+      <!-- ROW 2 -->
+      <div class="flow-col"><div class="node a" data-id="planning"><h4>specflow-planning</h4><p class="tagline">Phased implementation plan for autonomous coding agents</p><div class="meta"><span><b>~210</b> lines</span><span><b>0</b> subagents</span><span><b>No</b> HITL</span></div></div></div>
+      <div class="flow-mid">
+        <div class="annot gap"><span class="tag">Gap</span> No conversion exists from IMPLEMENTATION_PLAN.md phases → Work Units</div>
+      </div>
+      <div class="flow-col"><div class="node b" data-id="presales"><h4>gd-presales-estimator</h4><p class="tagline">WU estimate → man-months, team, timeline, proposal doc</p><div class="meta"><span><b>~194</b> lines</span><span><b>0</b> subagents</span><span><b>Yes</b> HITL</span></div></div></div>
+
+      <!-- connectors -->
+      <div class="flow-col"><div class="connector">↓</div></div>
+      <div class="flow-mid"><div class="connector">&nbsp;</div></div>
+      <div class="flow-col"><div class="connector">&nbsp;</div></div>
+
+      <!-- ROW 3 -->
+      <div class="flow-col"><div class="node neutral" data-id="rungen"><h4>run_generation <span style="font-weight:400">(backend)</span></h4><p class="tagline">Autonomous multi-hour codegen + deploy + E2E loop — not a skill</p><div class="meta"><span><b>2–8h</b> runtime</span><span><b>Locked</b> once started</span><span><b>No</b> mid-run HITL</span></div></div></div>
+      <div class="flow-mid">
+        <div class="annot plain">No marketplace equivalent — this is SpecFlow's execution core</div>
+      </div>
+      <div class="flow-col"><div class="node empty"><h4>—</h4></div></div>
+
+      <!-- connectors -->
+      <div class="flow-col"><div class="connector">↓</div></div>
+      <div class="flow-mid"><div class="connector">&nbsp;</div></div>
+      <div class="flow-col"><div class="connector">&nbsp;</div></div>
+
+      <!-- ROW 4 -->
+      <div class="flow-col"><div class="node a" data-id="compare"><h4>specflow-compare-variants</h4><p class="tagline">Compare &amp; assemble code from 1–3 generated workspace variants</p><div class="meta"><span><b>~256</b> lines</span><span><b>3</b> subagent stages</span><span><b>Yes</b> HITL</span></div></div></div>
+      <div class="flow-mid">
+        <div class="annot unique"><span class="tag">Unique</span> No CTO Marketplace analogue — post-generation reconciliation only</div>
+      </div>
+      <div class="flow-col"><div class="node empty"><h4>—</h4></div></div>
+    </div>
+
+    <p class="caption">Rows are positioned by rough conceptual correspondence, not literal shared execution — the
+      two tracks do not run together today. Click any card for full detail (output files, consumer, size).</p>
+
+    <div class="drawer" id="drawer">
+      <button class="close" id="drawerClose">✕</button>
+      <div id="drawerBody"></div>
+    </div>
+  </section>
+
+  <!-- ================= TAB 2 ================= -->
+  <section id="tab2" class="tabpanel">
+
+    <div class="legend">
+      <div class="item"><span class="swatch trackA"></span> SpecFlow-exclusive capability</div>
+      <div class="item"><span class="swatch trackB"></span> CTO Marketplace-exclusive capability</div>
+      <div class="item"><span class="chip adjacent" style="padding:2px 8px;"><span class="dot"></span></span> Overlap zone — adjacent, not redundant</div>
+      <div class="item"><span class="swatch gap"></span> Identified gap (outside the overlap — a missing bridge, not a shared capability)</div>
+    </div>
+
+    <div class="view-toggle">
+      <button id="btnVenn" class="active">Set view</button>
+      <button id="btnTable">Table view</button>
+    </div>
+
+    <div id="vennView" class="htmlview">
+      <div class="venn-html">
+        <div class="zone-col left">
+          <h4>SpecFlow — exclusive</h4>
+          <div class="chiplist" id="listA"></div>
+        </div>
+        <div class="zone-col mid">
+          <h4>Overlap zone</h4>
+          <div class="chiplist" id="listMid"></div>
+        </div>
+        <div class="zone-col right">
+          <h4>CTO Marketplace — exclusive</h4>
+          <div class="chiplist" id="listB"></div>
+        </div>
+      </div>
+      <div class="gap-callout">
+        <span class="tag">Gap</span>
+        Identified integration gap (not an overlap): nothing converts specflow-planning's phase
+        breakdown into Work-Unit-sized items gd-presales-estimator could consume — see Tab 1.
+      </div>
+    </div>
+
+    <div id="tableView" class="tableview">
+      <table class="capstable">
+        <thead><tr><th>Capability</th><th>Skill(s)</th><th>Track</th><th>Status</th><th>Note</th></tr></thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="accordions">
+      <h3>Steps &amp; tasks inside each skill</h3>
+      <p class="sub">Expand a skill to see its internal steps, tagged the same way — most steps are exclusive to their own skill; a few are flagged where the same underlying question is being asked from a different angle.</p>
+      <div id="accWrap"></div>
+    </div>
+
+    <div class="quality">
+      <h3>Skill quality — noise, redundancy, agent-readiness</h3>
+      <p class="sub">How well-prepared each skill is for an AI agent to execute unattended — concise, at a glance.</p>
+      <div class="qualitygrid" id="qualityGrid"></div>
+    </div>
+
+  </section>
+
+  <!-- ================= TAB 3 — COLLABORATION ================= -->
+  <section id="tab3" class="tabpanel">
+
+    <div class="verdict-banner">
+      <span class="tag">Yes, with one caveat</span>
+      <div><strong>Possible today — as a manual, human-sequenced relay across two moments in the deal
+      lifecycle, not an automated pipeline.</strong> A manager reads the same customer specification
+      twice, through two unrelated toolchains: first CTO Marketplace, to decide whether and how much
+      to bid; then SpecFlow, to prepare the same spec for autonomous code generation once the deal is
+      won. Nothing today carries data automatically between the two — see the manual handoff below.</div>
+    </div>
+
+    <div class="legend">
+      <div class="item"><span class="swatch trackB"></span> Presales phase — CTO Marketplace</div>
+      <div class="item"><span class="swatch trackA"></span> Delivery phase — SpecFlow</div>
+      <div class="item"><span class="swatch neutral"></span> System step / input-output, not a skill</div>
+      <div class="item"><span class="swatch gap"></span> Manual handoff — no automatic data transfer</div>
+    </div>
+
+    <div class="timeline">
+
+      <div class="tl-phase-label">Input</div>
+      <div class="tl-row io">
+        <div class="tl-num">0</div>
+        <div class="tl-io">📄 Customer sends a specification / brief / RFP</div>
+      </div>
+
+      <div class="tl-phase-label">Presales phase — "should we bid, and for how much?"</div>
+
+      <div class="tl-row b">
+        <div class="tl-num">1</div>
+        <div class="node b" data-id="scope"><h4>gd-scope-estimator</h4><p class="tagline">Scope the same customer spec into a validated breakdown and a Work-Unit estimate</p></div>
+      </div>
+
+      <div class="tl-row b">
+        <div class="tl-num">2</div>
+        <div class="node b" data-id="presales"><h4>gd-presales-estimator</h4><p class="tagline">Turn the estimate into man-months, team plan, timeline verdict, and a proposal document</p></div>
+      </div>
+
+      <div class="tl-row neutral">
+        <div class="tl-num">3</div>
+        <div class="decision">🤔 Decision: is the deal won?</div>
+        <div class="branches"><span class="no">No → engagement ends here</span><span class="yes">Yes ↓ continue to delivery</span></div>
+      </div>
+
+      <div class="tl-row">
+        <div class="tl-num" style="border-color:var(--status-gap); color:var(--status-gap);">⇄</div>
+        <div class="handoff-callout">
+          <span class="tag">Manual handoff</span>
+          <div>The manager re-supplies the <em>same</em> spec to SpecFlow — there is no automatic
+          conversion. Any in/out-of-scope calls already made in <code>scope.md</code> §6a/§6b should be
+          carried over by hand into specflow-analysis's Part&nbsp;A6 (Scope Boundaries), or architecture
+          locking may silently re-open decisions already agreed with the customer.</div>
+        </div>
+      </div>
+
+      <div class="tl-phase-label">Delivery phase — "prepare the same spec for autonomous codegen"</div>
+
+      <div class="tl-row a">
+        <div class="tl-num">4</div>
+        <div class="node a" data-id="analysis"><h4>specflow-analysis</h4><p class="tagline">Gap-check the same spec across all architectural dimensions — a different completeness question than gd-scope-estimator asked</p></div>
+      </div>
+
+      <div class="tl-row a">
+        <div class="tl-num">5</div>
+        <div class="node a" data-id="planning"><h4>specflow-planning</h4><p class="tagline">Turn the locked spec into a phased implementation plan for autonomous coding agents</p></div>
+      </div>
+
+      <div class="tl-row neutral">
+        <div class="tl-num">6</div>
+        <div class="node neutral" data-id="rungen"><h4>run_generation <span style="font-weight:400">(backend)</span></h4><p class="tagline">Autonomous multi-hour codegen + deploy + E2E loop</p></div>
+      </div>
+
+      <div class="tl-row a">
+        <div class="tl-num">7</div>
+        <div class="node a" data-id="compare" style="border-style:dashed;"><h4>specflow-compare-variants <span style="font-weight:400; font-size:11px; color:var(--ink-muted);">(optional)</span></h4><p class="tagline">Only if generation was run as several parallel variants — reconcile and assemble the best of each</p></div>
+      </div>
+
+      <div class="tl-phase-label">Output</div>
+      <div class="tl-row io">
+        <div class="tl-num">8</div>
+        <div class="tl-io">🚚 Delivered codebase → customer</div>
+      </div>
+
+    </div>
+
+    <p class="caption">Click any coloured step for its full detail (same data as Tab 1). The dashed
+      "optional" step and the manual-handoff callout are the two points a manager should double-check
+      manually — nothing else in this sequence is automatic between the two toolchains.</p>
+
+  </section>
+
+  <footer class="note">
+    Source: <code>docs/prompts/skills-comparison.md</code> (this repo). SpecFlow skills:
+    <code>mcp_server/services/skills/specflow-analysis</code>,
+    <code>specflow-planning</code>, <code>specflow-compare-variants</code>. CTO Marketplace skills:
+    <code>gd-scope-estimator</code>, <code>gd-presales-estimator</code>.
+  </footer>
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// Data
+// ---------------------------------------------------------------------------
+const NODES = {
+  analysis: {
+    name: "specflow-analysis", track:"a", trackLabel:"SpecFlow",
+    desc: "Checks specification completeness against six mandatory dimension groups (Parts A–F: universal, tech-specific, project-specific, micro-level naming/code conventions, feature-level completeness, and integration/deployment readiness). Classifies every issue as CONTRADICTION, AMBIGUITY, or GAP with a severity level.",
+    output: "analysis/specification_completeness.md (+ optional specification_index.md, repo_summary.md)",
+    consumer: "specflow-planning skill; backend contract validator (ANALYSIS_MISSING rejection)",
+    size: "~489 lines", subagents: "0", hitl: "None — fully autonomous single pass"
+  },
+  planning: {
+    name: "specflow-planning", track:"a", trackLabel:"SpecFlow",
+    desc: "Converts the locked dimensions from specflow-analysis into 10–20+ small, testable phases (hard limit: 2–3 tasks / 8–10 files per phase), assigning per-phase optional-MCP annotations (Playwright/Figma) for the coding agents that will execute them.",
+    output: "planning/IMPLEMENTATION_PLAN.md, planning/e2e-test-plan.md",
+    consumer: "run_generation's phase agents; backend contract validator (PLAN_MISSING / E2E_PLAN_MISSING)",
+    size: "~210 lines", subagents: "0", hitl: "None — fully autonomous single pass"
+  },
+  rungen: {
+    name: "run_generation (backend)", track:"neutral", trackLabel:"System, not a skill",
+    desc: "The backend's continuous, locked execution: Rosetta/KB init, parallel phase codegen across workspaces, then the deploy + E2E loop. Once started, the user cannot edit plans or intervene — this is the process the SpecFlow skills exist to prepare for.",
+    output: "Generated codebase committed incrementally on the workspace; archived to git",
+    consumer: "End user / production repo (after specflow-compare-variants, if run in parallel)",
+    size: "2–8 hours runtime", subagents: "Backend-orchestrated agent fleet", hitl: "None mid-run"
+  },
+  compare: {
+    name: "specflow-compare-variants", track:"a", trackLabel:"SpecFlow",
+    desc: "Compares and assembles code from 1–3 SpecFlow-generated workspace repos: parallel Haiku inventory scouts, a Sonnet comparison matrix, an interactive HITL component-selection step, then an Opus-authored assembly plan and executable migration script.",
+    output: "comparison.md, assembly-plan.md, assemble.sh",
+    consumer: "Engineer performing manual migration into a production repo",
+    size: "~256 lines", subagents: "3 stages — Haiku → Sonnet → Opus", hitl: "Selection gate + execute-or-not gate"
+  },
+  scope: {
+    name: "gd-scope-estimator", track:"b", trackLabel:"CTO Marketplace",
+    desc: "Resumable 3-phase workflow (+ a specialist-lens interrogation pass) that turns scope material into a validated, numbered requirement set, then a work breakdown sized against a maintained Work-Unit building-block catalog.",
+    output: "scope.md, context.md, breakdown.md, questions.md, estimate.md",
+    consumer: "Human delivery/presales team; gd-presales-estimator",
+    size: "~300 lines (+ external templates/references)", subagents: "0", hitl: "Validation gate at the end of every phase"
+  },
+  presales: {
+    name: "gd-presales-estimator", track:"b", trackLabel:"CTO Marketplace",
+    desc: "Converts a validated Work-Unit estimate into a proposal-ready document: man-months by AI-assistance tier, two-tier team composition (core + supplementary), critical-path timeline verdict (Safe / At-risk / Not achievable), and a mandatory confidence-and-blind-spots preamble.",
+    output: "project-planning.md",
+    consumer: "Proposal writer; ultimately client-facing (SOW / bid)",
+    size: "~194 lines (+ external references)", subagents: "0 (invokes gd-scope-estimator wholesale if prerequisites missing)", hitl: "Engagement-model clarification questions before calculating"
+  }
+};
+
+const CAPS_A = [
+  "Architecture dimension locking (Parts A–F framework)",
+  "EARS-format requirement enforcement",
+  "Per-phase file/task hard limits sized for agent working memory",
+  "Contract-file validation (exact filenames, backend rejection codes)",
+  "Per-phase optional MCP annotations (Playwright / Figma)",
+  "Multi-agent variant reconciliation (Haiku → Sonnet → Opus)",
+  "Deterministic deployment/integration-readiness classification (Part F)"
+];
+const CAPS_B = [
+  "Work-Unit sizing against a maintained building-block catalog",
+  "Cross-session resumable state (.estimation/ folder)",
+  "Specialist-lens interrogation (Architect / QA / DevOps / Integration)",
+  "Man-month conversion by AI-assistance tier",
+  "Two-tier team composition (core + supplementary)",
+  "Critical-path timeline verdict (Safe / At-risk / Not achievable)",
+  "Mandatory confidence &amp; blind-spots preamble",
+  "Shared, team-maintained catalogs (building-blocks, scope-checklist, velocity)"
+];
+const CAPS_MID = [
+  { text:"Spec/scope completeness checking", note:"Both ask “what’s missing” — but check entirely different dimensions (architectural determinism vs. business/ownership scope) and gate different systems (codegen vs. cost estimate)." }
+];
+
+const TABLE_ROWS = [
+  ...CAPS_A.map(c => ({cap:c, skill:"specflow-analysis / -planning / -compare-variants", track:"SpecFlow", status:"excl", note:"No CTO Marketplace equivalent"})),
+  ...CAPS_B.map(c => ({cap:c, skill:"gd-scope-estimator / gd-presales-estimator", track:"CTO Marketplace", status:"excl", note:"No SpecFlow equivalent"})),
+  ...CAPS_MID.map(c => ({cap:c.text, skill:"specflow-analysis + gd-scope-estimator", track:"Both", status:"adj", note:c.note})),
+  { cap:"Convert phase breakdown into Work-Unit-sized items", skill:"specflow-planning ⇢ gd-scope-estimator", track:"Both (missing link)", status:"gapp", note:"Identified integration gap — not built today, see Tab 1" }
+];
+
+const SKILL_STEPS = [
+  { id:"analysis", track:"a", name:"specflow-analysis", steps:[
+      {t:"Read all spec files (incl. read_document for PDF/DOCX/PPTX/XLSX/CSV)", s:null},
+      {t:"Build specification_index.md when spec tree &gt; 3 files", s:null},
+      {t:"Evaluate Parts A–F dimension checklist (persistence, infra, scale, stack, testing, scope, tech-specific, naming, feature completeness, deployment readiness)", s:{cls:"adj", label:"Adjacent"}},
+      {t:"Classify each issue: CONTRADICTION / AMBIGUITY / GAP + severity", s:null},
+      {t:"Write specification_completeness.md with dimension status + issues", s:null},
+  ]},
+  { id:"planning", track:"a", name:"specflow-planning", steps:[
+      {t:"Read spec + specification_completeness.md, extract locked dimensions", s:null},
+      {t:"Break work into 10–20+ small phases (2–3 tasks, 8–10 files each)", s:{cls:"gapp", label:"Gap-linked"}},
+      {t:"Annotate phases with per-phase Agent MCPs (Playwright/Figma)", s:null},
+      {t:"Write IMPLEMENTATION_PLAN.md (+ e2e-test-plan.md if integration-ready)", s:null},
+  ]},
+  { id:"compare", track:"a", name:"specflow-compare-variants", steps:[
+      {t:"Phase 1 — parallel Haiku inventory scouts per workspace", s:null},
+      {t:"Phase 2 — Sonnet comparison matrix (schema, API, architecture, tests, quality)", s:null},
+      {t:"Phase 3 — interactive HITL component selection", s:null},
+      {t:"Phase 4 — Opus assembly plan + executable assemble.sh", s:null},
+      {t:"Phase 5 — optional execution + post-migration checklist", s:null},
+  ]},
+  { id:"scope", track:"b", name:"gd-scope-estimator", steps:[
+      {t:"Step 0 — locate/resume effort state (.estimation/&lt;slug&gt;)", s:null},
+      {t:"Phase 1 — scope definition + scope-completeness checklist sweep", s:{cls:"adj", label:"Adjacent"}},
+      {t:"Phase 2 — work breakdown into building-block-sized items (no WU yet)", s:{cls:"gapp", label:"Gap-linked"}},
+      {t:"Phase 2e — specialist-lens interrogation (Architect/QA/DevOps/Integration)", s:null},
+      {t:"Phase 3 — attach Work Units, roll up point + range estimate", s:null},
+  ]},
+  { id:"presales", track:"b", name:"gd-presales-estimator", steps:[
+      {t:"Phase 0 — verify/invoke gd-scope-estimator if prerequisites missing", s:null},
+      {t:"Raise engagement-model clarification questions (QA ownership, hypercare, vendors)", s:null},
+      {t:"Man-month conversion by AI-assistance tier", s:null},
+      {t:"Critical-path timeline validation + Safe/At-risk/Not-achievable verdict", s:null},
+      {t:"Two-tier team composition + mandatory confidence preamble", s:null},
+  ]},
+];
+
+const QUALITY = [
+  { id:"analysis", track:"a", name:"specflow-analysis", badge:"Most verbose",
+    text:"Thorough to the point of heavy repetition — Parts A–F are restated three times across the file. Likely deliberate for a “BLOCKING REQUIREMENT” gate, but the least context-economical of the five at ~489 inlined lines." },
+  { id:"planning", track:"a", name:"specflow-planning", badge:"Low ambiguity",
+    text:"Concrete ❌/✅ anti-pattern examples and hard numeric limits keep agent interpretation narrow. Repeats some boilerplate already stated in specflow-analysis." },
+  { id:"compare", track:"a", name:"specflow-compare-variants", badge:"Cleanest templates",
+    text:"Subagent prompts are literal, copy-pasteable templates, minimizing dispatch ambiguity. One soft spot: the “no args → scan cwd” heuristic is a guess, not a deterministic check." },
+  { id:"scope", track:"b", name:"gd-scope-estimator", badge:"Best context economy",
+    text:"Only skill with an explicit “load only what this phase needs” table and a seeding protocol for shared catalogs. Repeats “never silently assume” as a deliberate guardrail, not sloppiness." },
+  { id:"presales", track:"b", name:"gd-presales-estimator", badge:"Tightest / DRY",
+    text:"Delegates to gd-scope-estimator instead of duplicating its logic, and fails loud with a specific missing-files message rather than guessing." },
+];
+document.getElementById("qualityGrid").innerHTML = QUALITY.map(q=>`
+  <div class="qualitycard ${q.track}">
+    <h5>${q.name} <span class="qbadge">${q.badge}</span></h5>
+    <p>${q.text}</p>
+  </div>
+`).join("");
+
+// ---------------------------------------------------------------------------
+// Tabs
+// ---------------------------------------------------------------------------
+document.querySelectorAll(".tabbtn").forEach(btn=>{
+  btn.addEventListener("click", ()=>{
+    document.querySelectorAll(".tabbtn").forEach(b=>b.classList.remove("active"));
+    document.querySelectorAll(".tabpanel").forEach(p=>p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById(btn.dataset.tab).classList.add("active");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tab 1 — node click -> drawer
+// ---------------------------------------------------------------------------
+const drawer = document.getElementById("drawer");
+const drawerBody = document.getElementById("drawerBody");
+document.querySelectorAll(".node[data-id]").forEach(node=>{
+  node.addEventListener("click", ()=>{
+    document.querySelectorAll(".node").forEach(n=>n.classList.remove("selected"));
+    node.classList.add("selected");
+    const d = NODES[node.dataset.id];
+    const trackColor = d.track === "a" ? "var(--track-a)" : d.track === "b" ? "var(--track-b)" : "var(--status-neutral)";
+    const trackBg = d.track === "a" ? "var(--track-a-soft)" : d.track === "b" ? "var(--track-b-soft)" : "var(--status-neutral-soft)";
+    drawerBody.innerHTML = `
+      <span class="drawer-track" style="background:${trackBg}; color:${trackColor};">${d.trackLabel}</span>
+      <h3>${d.name}</h3>
+      <p>${d.desc}</p>
+      <dl class="kv">
+        <dt>Output</dt><dd>${d.output}</dd>
+        <dt>Consumer</dt><dd>${d.consumer}</dd>
+        <dt>Size</dt><dd>${d.size}</dd>
+        <dt>Subagents</dt><dd>${d.subagents}</dd>
+        <dt>HITL</dt><dd>${d.hitl}</dd>
+      </dl>
+    `;
+    drawer.classList.add("show");
+    drawer.scrollIntoView({behavior:"smooth", block:"nearest"});
+  });
+});
+document.getElementById("drawerClose").addEventListener("click", ()=>{
+  drawer.classList.remove("show");
+  document.querySelectorAll(".node").forEach(n=>n.classList.remove("selected"));
+});
+
+// ---------------------------------------------------------------------------
+// Tab 2 — set view content
+// ---------------------------------------------------------------------------
+function chip(text, cls){
+  return `<div class="chip ${cls}"><span class="dot"></span>${text}</div>`;
+}
+document.getElementById("listA").innerHTML = CAPS_A.map(c=>chip(c,"a")).join("");
+document.getElementById("listB").innerHTML = CAPS_B.map(c=>chip(c,"b")).join("");
+document.getElementById("listMid").innerHTML = CAPS_MID.map(c=>`
+  <div class="chip adjacent"><span class="dot"></span>${c.text}</div>
+  <div style="font-size:11.5px; color:#5c4709; margin:-4px 0 4px 4px;">${c.note}</div>
+`).join("");
+
+document.getElementById("tableBody").innerHTML = TABLE_ROWS.map(r=>`
+  <tr>
+    <td>${r.cap}</td>
+    <td>${r.skill}</td>
+    <td>${r.track}</td>
+    <td><span class="pill ${r.status==='excl'?'excl':r.status==='adj'?'adj':'gapp'}">${r.status==='excl'?'Exclusive':r.status==='adj'?'Adjacent':'Gap'}</span></td>
+    <td style="color:var(--ink-secondary);">${r.note}</td>
+  </tr>
+`).join("");
+
+// view toggle
+const btnVenn = document.getElementById("btnVenn");
+const btnTable = document.getElementById("btnTable");
+const vennView = document.getElementById("vennView");
+const tableView = document.getElementById("tableView");
+btnVenn.addEventListener("click", ()=>{
+  btnVenn.classList.add("active"); btnTable.classList.remove("active");
+  vennView.classList.remove("hidden"); vennView.style.display="";
+  tableView.classList.remove("show");
+});
+btnTable.addEventListener("click", ()=>{
+  btnTable.classList.add("active"); btnVenn.classList.remove("active");
+  vennView.style.display="none";
+  tableView.classList.add("show");
+});
+
+// ---------------------------------------------------------------------------
+// Tab 2 — accordions
+// ---------------------------------------------------------------------------
+const accWrap = document.getElementById("accWrap");
+accWrap.innerHTML = SKILL_STEPS.map(sk=>`
+  <details class="skillacc ${sk.track}">
+    <summary>${sk.name} <span style="font-weight:400; color:var(--ink-muted); font-size:12px;">(${sk.track==='a'?'SpecFlow':'CTO Marketplace'})</span></summary>
+    <div class="stepslist">
+      ${sk.steps.map(st=>`
+        <div class="step">
+          <span class="steptxt">${st.t}</span>
+          ${st.s ? `<span class="stepstatus ${st.s.cls}">${st.s.label}</span>` : ``}
+        </div>
+      `).join("")}
+    </div>
+  </details>
+`).join("");
+</script>
+</body>
+</html>
