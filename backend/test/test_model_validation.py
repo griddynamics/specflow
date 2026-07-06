@@ -6,12 +6,12 @@ tier blocking only when at least one configured model is confidently INVALID
 (the chosen block-on-any-invalid policy).
 """
 import logging
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from app.core.config import Settings
-from app.core.enums import LLMProvider
 from app.schemas.llm_tier import LLMTier
 from app.schemas.model_validation import TierValidationStatus
 from app.services.model_validation import validate_models_config
@@ -20,6 +20,18 @@ from app.services.model_validation import validate_models_config
 @pytest.fixture
 def logger():
     return MagicMock(spec=logging.Logger)
+
+
+def _settings(env: dict) -> Settings:
+    """Build Settings with only ``env`` present, isolated from ambient env/.env.
+
+    DEFAULT_PROVIDER is derived from which key is set, so the intended provider
+    is selected by the key alone — passing a ``DEFAULT_PROVIDER`` kwarg is
+    silently dropped (``extra="ignore"``). ``clear=True`` also strips an ambient
+    OPENROUTER_API_KEY that would otherwise flip an Anthropic-intended test.
+    """
+    with patch.dict(os.environ, env, clear=True):
+        return Settings(_env_file=None)
 
 
 def _patch_catalog(models: set):
@@ -37,7 +49,7 @@ async def _validate(overrides, settings, logger):
 
 @pytest.mark.asyncio
 async def test_openrouter_all_valid(logger):
-    settings = Settings(OPENROUTER_API_KEY="k", DEFAULT_PROVIDER=LLMProvider.OPENROUTER)
+    settings = _settings({"OPENROUTER_API_KEY": "k"})
     overrides = {
         "LLM_HIGH": "anthropic/claude-opus-4.6",
         "LLM_MEDIUM": "anthropic/claude-sonnet-4.6",
@@ -61,7 +73,7 @@ async def test_openrouter_all_valid(logger):
 @pytest.mark.asyncio
 async def test_openrouter_transform_applied_for_short_name(logger):
     """A short internal name maps to OpenRouter format before catalog compare."""
-    settings = Settings(OPENROUTER_API_KEY="k", DEFAULT_PROVIDER=LLMProvider.OPENROUTER)
+    settings = _settings({"OPENROUTER_API_KEY": "k"})
     overrides = {
         "LLM_HIGH": "claude-opus-4-6",  # no slash; mapped via MODEL_MAPPING
         "LLM_MEDIUM": "anthropic/claude-sonnet-4.6",
@@ -83,7 +95,7 @@ async def test_openrouter_transform_applied_for_short_name(logger):
 
 @pytest.mark.asyncio
 async def test_invalid_model_with_suggestion_blocks(logger):
-    settings = Settings(OPENROUTER_API_KEY="k", DEFAULT_PROVIDER=LLMProvider.OPENROUTER)
+    settings = _settings({"OPENROUTER_API_KEY": "k"})
     overrides = {
         "LLM_HIGH": "anthropic/claude-opus-4.7",  # typo / not in catalog
         "LLM_MEDIUM": "anthropic/claude-sonnet-4.6",
@@ -108,7 +120,7 @@ async def test_invalid_model_with_suggestion_blocks(logger):
 @pytest.mark.asyncio
 async def test_mixed_tier_blocks_on_any_invalid(logger):
     """Per the block-on-any-invalid policy, one bad model blocks the tier."""
-    settings = Settings(OPENROUTER_API_KEY="k", DEFAULT_PROVIDER=LLMProvider.OPENROUTER)
+    settings = _settings({"OPENROUTER_API_KEY": "k"})
     overrides = {
         "LLM_HIGH": "anthropic/claude-opus-4.6",
         "LLM_MEDIUM": "anthropic/claude-sonnet-4.6,openai/does-not-exist",
@@ -131,7 +143,7 @@ async def test_mixed_tier_blocks_on_any_invalid(logger):
 
 @pytest.mark.asyncio
 async def test_empty_catalog_is_unverified_not_blocking(logger):
-    settings = Settings(OPENROUTER_API_KEY="k", DEFAULT_PROVIDER=LLMProvider.OPENROUTER)
+    settings = _settings({"OPENROUTER_API_KEY": "k"})
     overrides = {
         "LLM_HIGH": "anthropic/whatever",
         "LLM_MEDIUM": "x/y",
@@ -150,7 +162,7 @@ async def test_empty_catalog_is_unverified_not_blocking(logger):
 @pytest.mark.asyncio
 async def test_anthropic_bare_ids_validate_without_slash(logger):
     """Anthropic catalog ids are bare; the '/' requirement must not drop them."""
-    settings = Settings(ANTHROPIC_API_KEY="k", DEFAULT_PROVIDER=LLMProvider.ANTHROPIC)
+    settings = _settings({"ANTHROPIC_API_KEY": "k"})
     overrides = {
         "LLM_HIGH": "claude-opus-4-6-20260101",
         "LLM_MEDIUM": "claude-sonnet-4-6-20260101",
