@@ -1,0 +1,13 @@
+{
+  "name": "specflow-marketplace",
+  "owner": {
+    "name": "Grid Dynamics"
+  },
+  "plugins": [
+    {
+      "name": "specflow",
+      "source": "./plugins/specflow",
+      "description": "Grid Dynamics SpecFlow Marketplace plugin"
+    }
+  ]
+}
