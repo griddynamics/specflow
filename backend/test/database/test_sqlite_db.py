@@ -101,6 +101,95 @@ class TestSqliteDatetime:
         assert got["active_generation_sessions"][0]["lease_started_at"] == ts
 
 
+class TestSqliteRelationalSchema:
+    """Known collections are real relational tables — not JSON rows in one `documents` table."""
+
+    def _tables(self, db):
+        rows = db._conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+        return {r[0] for r in rows}
+
+    def test_known_collections_have_dedicated_tables(self, db):
+        tables = self._tables(db)
+        assert {"api_keys", "generation_sessions", "workspaces"} <= tables
+        # Generic fallback + subcollection tables still exist.
+        assert {"documents", "subdocuments"} <= tables
+
+    def test_promoted_columns_are_populated_on_write(self, db):
+        db.set("generation_sessions", "gen-1", {
+            "status": "running",
+            "key_uid": "uid-abc",
+            "note": "not a promoted column",
+        })
+
+        row = db._conn.execute(
+            "SELECT status, key_uid FROM generation_sessions WHERE doc_id = ?",
+            ("gen-1",),
+        ).fetchone()
+        assert row == ("running", "uid-abc")
+
+        # The full document (incl. non-promoted fields) round-trips from the JSON column.
+        assert db.get("generation_sessions", "gen-1")["note"] == "not a promoted column"
+
+    def test_workspace_promoted_columns_populated(self, db):
+        db.set("workspaces", "ws-1", {
+            "status": "available",
+            "workspace_pool": "standard",
+            "set_number": 3,
+        })
+        row = db._conn.execute(
+            "SELECT status, workspace_pool, set_number FROM workspaces WHERE doc_id = ?",
+            ("ws-1",),
+        ).fetchone()
+        assert row == ("available", "standard", 3)
+
+    def test_datetime_promoted_column_stored_as_iso_text(self, db):
+        ts = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+        db.set("generation_sessions", "gen-ts", {"last_activity_at": ts})
+
+        raw = db._conn.execute(
+            "SELECT last_activity_at FROM generation_sessions WHERE doc_id = ?",
+            ("gen-ts",),
+        ).fetchone()[0]
+        assert isinstance(raw, str)
+        assert raw == "2026-01-02T03:04:05.000000+00:00"
+
+    def test_unregistered_collection_falls_back_to_documents(self, db):
+        db.set("widgets", "w-1", {"color": "blue"})
+
+        # No dedicated table was created; the row lives in the generic documents table.
+        assert "widgets" not in self._tables(db)
+        count = db._conn.execute(
+            "SELECT COUNT(*) FROM documents WHERE collection = ?", ("widgets",)
+        ).fetchone()[0]
+        assert count == 1
+        assert db.get("widgets", "w-1") == {"color": "blue"}
+
+    def test_query_on_promoted_column_uses_index(self, db):
+        plan = db._conn.execute(
+            "EXPLAIN QUERY PLAN SELECT doc_id, data FROM generation_sessions "
+            "WHERE status = ? AND last_activity_at < ?",
+            ("running", "2026-01-01T00:00:00.000000+00:00"),
+        ).fetchall()
+        detail = " ".join(str(part) for row in plan for part in row)
+        # A real indexed search, not a full-table scan of a JSON blob column.
+        assert "USING INDEX" in detail
+        assert "SCAN" not in detail
+
+    def test_get_api_key_by_uid_returns_document(self, db):
+        db.set("api_keys", "secret-key", {
+            "key_uid": "uid-42",
+            "user_id": "alice@example.com",
+            "is_active": True,
+        })
+        got = db.get_api_key_by_uid("uid-42")
+        assert got is not None
+        assert got["_id"] == "secret-key"
+        assert got["user_id"] == "alice@example.com"
+        assert db.get_api_key_by_uid("missing") is None
+
+
 class TestSqlitePersistence:
     """A SQLite file persists across connections (the whole point vs in-memory)."""
 

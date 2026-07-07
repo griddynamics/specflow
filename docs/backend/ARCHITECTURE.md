@@ -188,6 +188,18 @@ class DatabaseInterface(ABC):
 - Single-writer, WAL mode, real ACID transactions
 - Persists across restarts (bind-mounted at `~/.specflow/db/specflow.db`)
 - Not a production replacement for Firestore — no cross-node distributed locking
+- **Relational storage.** Known collections (`api_keys`, `generation_sessions`,
+  `workspaces`) each get a dedicated table. The fields actually filtered/ordered by
+  services and background jobs (e.g. `status`, `key_uid`, `workspace_pool`,
+  `set_number`, `scheduled_for_wipe`, and the timestamp fields) are *promoted* to
+  typed, indexed columns; the full document also lives in a `data` JSON column, which
+  stays the source of truth on read. Timestamps are stored as fixed-width ISO-8601 UTC
+  text so lexical order equals chronological order in both the columns and the blob.
+  The layout is declared once in `app/database/sqlite_schema.py`, which drives both DDL
+  and query routing — adding a promoted table later is additive. Any *unregistered*
+  collection falls back to a generic `documents` table (`collection, doc_id, data`), and
+  Firestore-style subcollections use a `subdocuments` table, so the document-shaped
+  `IDatabase` interface stays fully generic.
 
 **3. EmulatorDatabase** - Firestore emulator
 - Connects to a manually-run Firestore emulator process (docker-compose does not

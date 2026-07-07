@@ -1,25 +1,30 @@
 """
 SQLite database implementation for local / single-node persistence.
 
-A SQL-native document store: it persists the same document-shaped model used by
+A SQL-native document store. It persists the same document-shaped model used by
 Firestore and the in-memory backend (``collection / doc_id / {JSON}`` plus
 subcollections), so services, state machines, and workflows are unchanged. This is
 the local/Docker-dev default backend. It is NOT a production replacement for
 Firestore (single-file, single-writer — no cross-node distributed locking).
 
 Design notes:
-- Two tables hold JSON blobs (``documents``, ``subdocuments``); queries push
-  filters/order/limit into SQL via ``json_extract`` so behavior matches the
-  in-memory reference (``app/database/memory.py``).
-- Transactions use a real ``BEGIN IMMEDIATE`` (genuine ACID), a strict upgrade
-  over the write-buffering bridge in ``app/state/db_adapter.py``.
-- Datetime contract: every datetime is stored as a fixed-width ISO-8601 UTC
-  string (lexical order == chronological order) and decoded back to a tz-aware
-  ``datetime`` on read, so background jobs (stuck detectors, lease recovery)
-  that compare against ``datetime.now(timezone.utc)`` behave identically to
-  production.
-- Concurrency: one writer process only (WAL mode). Multi-replica stays on
-  Firestore.
+- Known collections (``api_keys``, ``generation_sessions``, ``workspaces``) each get
+  their own real table with the frequently-queried fields promoted to typed, indexed
+  columns (see ``app/database/sqlite_schema.py``). The full document still lives in a
+  ``data`` JSON column (source of truth on read); promoted columns are mirrored out of
+  it on write so filters/ordering hit real indexes instead of ``json_extract``. Any
+  unregistered collection falls back to the generic ``documents`` table, keeping the
+  interface fully generic. Subcollections use a separate ``subdocuments`` table.
+- Queries push filters/order/limit into SQL (real column when promoted, ``json_extract``
+  otherwise) so behavior matches the in-memory reference (``app/database/memory.py``).
+- Transactions use a real ``BEGIN IMMEDIATE`` (genuine ACID), a strict upgrade over the
+  write-buffering bridge in ``app/state/db_adapter.py``.
+- Datetime contract: every datetime is stored as a fixed-width ISO-8601 UTC string
+  (lexical order == chronological order, in both the JSON blob and the promoted TEXT
+  columns) and decoded back to a tz-aware ``datetime`` on read, so background jobs
+  (stuck detectors, lease recovery) that compare against ``datetime.now(timezone.utc)``
+  behave identically to production.
+- Concurrency: one writer process only (WAL mode). Multi-replica stays on Firestore.
 """
 
 from __future__ import annotations
@@ -38,6 +43,12 @@ from app.database.interface import (
     FilterTuple,
     IDatabase,
     ITransactionContext,
+)
+from app.database.sqlite_schema import (
+    GENERIC_TABLE,
+    CollectionSchema,
+    all_schemas,
+    schema_for,
 )
 
 T = TypeVar("T")
@@ -90,7 +101,7 @@ def _decode_from_storage(value: Any) -> Any:
 
 
 def _to_sql_param(value: Any) -> Any:
-    """Coerce a Python filter value to a SQLite-bindable scalar."""
+    """Coerce a Python filter/column value to a SQLite-bindable scalar."""
     if isinstance(value, datetime):
         return _canonical_dt(value)
     if isinstance(value, Enum):
@@ -105,6 +116,182 @@ def _json_path(field: str) -> str:
     return "$." + field
 
 
+def _quote_ident(name: str) -> str:
+    """Quote a SQL identifier (column/table). Names come from the trusted registry."""
+    return '"' + name.replace('"', '""') + '"'
+
+
+# ----------------------------------------------------------------------------
+# Physical operations shared by SqliteDatabase and SqliteTransactionContext.
+# All take a live connection so the same routing (per-collection table vs generic
+# documents table) is used inside and outside a transaction — single source of truth.
+# ----------------------------------------------------------------------------
+
+
+def _column_values(schema: CollectionSchema, encoded: Dict[str, Any]) -> List[Any]:
+    """Extract the promoted-column values (in schema order) from an encoded document."""
+    return [_to_sql_param(encoded.get(name)) for name in schema.column_names]
+
+
+def _row_get(conn: sqlite3.Connection, collection: str, doc_id: str) -> Optional[Dict[str, Any]]:
+    schema = schema_for(collection)
+    if schema is not None:
+        row = conn.execute(
+            f"SELECT data FROM {schema.table} WHERE doc_id = ?", (doc_id,)
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT data FROM documents WHERE collection = ? AND doc_id = ?",
+            (collection, doc_id),
+        ).fetchone()
+    if row is None:
+        return None
+    return _decode_from_storage(json.loads(row[0]))
+
+
+def _row_set(conn: sqlite3.Connection, collection: str, doc_id: str, data: Dict[str, Any]) -> None:
+    encoded = _encode_for_storage(data)
+    payload = json.dumps(encoded)
+    schema = schema_for(collection)
+    if schema is None:
+        conn.execute(
+            "INSERT INTO documents (collection, doc_id, data) VALUES (?, ?, ?) "
+            "ON CONFLICT(collection, doc_id) DO UPDATE SET data = excluded.data",
+            (collection, doc_id, payload),
+        )
+        return
+
+    names = schema.column_names
+    col_list = ", ".join(_quote_ident(n) for n in names)
+    placeholders = ", ".join("?" for _ in names)
+    assignments = ", ".join(
+        f"{_quote_ident(n)} = excluded.{_quote_ident(n)}" for n in names
+    )
+    conn.execute(
+        f"INSERT INTO {schema.table} (doc_id, {col_list}, data) "
+        f"VALUES (?, {placeholders}, ?) "
+        f"ON CONFLICT(doc_id) DO UPDATE SET {assignments}, data = excluded.data",
+        [doc_id, *_column_values(schema, encoded), payload],
+    )
+
+
+def _row_update(conn: sqlite3.Connection, collection: str, doc_id: str, data: Dict[str, Any]) -> None:
+    existing = _row_get(conn, collection, doc_id)
+    if existing is None:
+        raise DocumentNotFoundError(collection, doc_id)
+    existing.update(data)
+    _row_set(conn, collection, doc_id, existing)
+
+
+def _row_delete(conn: sqlite3.Connection, collection: str, doc_id: str) -> None:
+    schema = schema_for(collection)
+    if schema is not None:
+        conn.execute(f"DELETE FROM {schema.table} WHERE doc_id = ?", (doc_id,))
+    else:
+        conn.execute(
+            "DELETE FROM documents WHERE collection = ? AND doc_id = ?",
+            (collection, doc_id),
+        )
+
+
+def _field_expr(schema: Optional[CollectionSchema], field: str) -> tuple[str, List[Any]]:
+    """SQL expression + bind params to read ``field`` — a real column or a JSON extract."""
+    column = schema.column_for(field) if schema is not None else None
+    if column is not None:
+        return _quote_ident(column), []
+    return "json_extract(data, ?)", [_json_path(field)]
+
+
+def _filter_clause(
+    schema: Optional[CollectionSchema], field: str, operator: str, value: Any
+) -> tuple[str, List[Any]]:
+    """Translate a (field, op, value) filter into a SQL clause + bind params.
+
+    Routes ``field`` to its promoted column when the collection has one, else to
+    ``json_extract(data, ...)`` — identical semantics either way.
+    """
+    expr, expr_params = _field_expr(schema, field)
+
+    match operator:
+        case "==":
+            if value is None:
+                return f"{expr} IS NULL", expr_params
+            return f"{expr} = ?", [*expr_params, _to_sql_param(value)]
+        case "!=":
+            if value is None:
+                return f"{expr} IS NOT NULL", expr_params
+            # Include docs missing the field (None != value is True in the reference impl).
+            return (
+                f"({expr} <> ? OR {expr} IS NULL)",
+                [*expr_params, _to_sql_param(value), *expr_params],
+            )
+        case "<" | "<=" | ">" | ">=":
+            return f"{expr} {operator} ?", [*expr_params, _to_sql_param(value)]
+        case "in":
+            values = list(value)
+            if not values:
+                return "0", []
+            placeholders = ", ".join("?" for _ in values)
+            return (
+                f"{expr} IN ({placeholders})",
+                [*expr_params, *(_to_sql_param(v) for v in values)],
+            )
+        case "array_contains":
+            # Arrays are never promoted to columns — always match against the JSON blob.
+            return (
+                "EXISTS (SELECT 1 FROM json_each(data, ?) WHERE value = ?)",
+                [_json_path(field), _to_sql_param(value)],
+            )
+        case _:
+            raise ValueError(f"Unsupported operator: {operator}")
+
+
+def _row_query(
+    conn: sqlite3.Connection,
+    collection: str,
+    filters: Optional[List[FilterTuple]],
+    order_by: Optional[str],
+    limit: Optional[int],
+) -> List[Dict[str, Any]]:
+    schema = schema_for(collection)
+    table = schema.table if schema is not None else GENERIC_TABLE
+
+    where: List[str] = []
+    params: List[Any] = []
+    if schema is None:
+        where.append("collection = ?")
+        params.append(collection)
+
+    for field, operator, value in filters or []:
+        clause, clause_params = _filter_clause(schema, field, operator, value)
+        where.append(clause)
+        params.extend(clause_params)
+
+    sql = f"SELECT doc_id, data FROM {table}"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+
+    if order_by:
+        descending = order_by.startswith("-")
+        field = order_by[1:] if descending else order_by
+        expr, expr_params = _field_expr(schema, field)
+        params.extend(expr_params)
+        sql += f" ORDER BY {expr} " + ("DESC" if descending else "ASC")
+
+    if limit:
+        sql += " LIMIT ?"
+        params.append(limit)
+
+    rows = conn.execute(sql, params).fetchall()
+
+    results: List[Dict[str, Any]] = []
+    for doc_id, data in rows:
+        doc = _decode_from_storage(json.loads(data))
+        doc["_id"] = doc_id
+        results.append(doc)
+    return results
+
+
 class SqliteTransactionContext(ITransactionContext):
     """Transaction context operating directly on a connection inside BEGIN IMMEDIATE.
 
@@ -116,34 +303,16 @@ class SqliteTransactionContext(ITransactionContext):
         self._conn = conn
 
     def get(self, collection: str, doc_id: str) -> Optional[Dict[str, Any]]:
-        row = self._conn.execute(
-            "SELECT data FROM documents WHERE collection = ? AND doc_id = ?",
-            (collection, doc_id),
-        ).fetchone()
-        if row is None:
-            return None
-        return _decode_from_storage(json.loads(row[0]))
+        return _row_get(self._conn, collection, doc_id)
 
     def set(self, collection: str, doc_id: str, data: Dict[str, Any]) -> None:
-        payload = json.dumps(_encode_for_storage(data))
-        self._conn.execute(
-            "INSERT INTO documents (collection, doc_id, data) VALUES (?, ?, ?) "
-            "ON CONFLICT(collection, doc_id) DO UPDATE SET data = excluded.data",
-            (collection, doc_id, payload),
-        )
+        _row_set(self._conn, collection, doc_id, data)
 
     def update(self, collection: str, doc_id: str, data: Dict[str, Any]) -> None:
-        existing = self.get(collection, doc_id)
-        if existing is None:
-            raise DocumentNotFoundError(collection, doc_id)
-        existing.update(data)
-        self.set(collection, doc_id, existing)
+        _row_update(self._conn, collection, doc_id, data)
 
     def delete(self, collection: str, doc_id: str) -> None:
-        self._conn.execute(
-            "DELETE FROM documents WHERE collection = ? AND doc_id = ?",
-            (collection, doc_id),
-        )
+        _row_delete(self._conn, collection, doc_id)
 
     def get_subdocument(
         self,
@@ -199,6 +368,7 @@ class SqliteDatabase(IDatabase):
 
     def _init_schema(self) -> None:
         with self._lock:
+            # Generic fallback table (unregistered/ad-hoc collections) + subcollections.
             self._conn.execute(
                 "CREATE TABLE IF NOT EXISTS documents ("
                 "collection TEXT NOT NULL, doc_id TEXT NOT NULL, data TEXT NOT NULL, "
@@ -210,6 +380,22 @@ class SqliteDatabase(IDatabase):
                 "subcollection TEXT NOT NULL, doc_id TEXT NOT NULL, data TEXT NOT NULL, "
                 "PRIMARY KEY (parent_collection, parent_doc_id, subcollection, doc_id))"
             )
+            # One real table per known collection: promoted typed columns + JSON `data`.
+            for schema in all_schemas():
+                col_defs = ", ".join(
+                    f"{_quote_ident(c.name)} {c.sql_type}" for c in schema.columns
+                )
+                self._conn.execute(
+                    f"CREATE TABLE IF NOT EXISTS {schema.table} "
+                    f"(doc_id TEXT PRIMARY KEY, {col_defs}, data TEXT NOT NULL)"
+                )
+                for index_cols in schema.indexes:
+                    index_name = f"idx_{schema.table}_{'_'.join(index_cols)}"
+                    cols_sql = ", ".join(_quote_ident(c) for c in index_cols)
+                    self._conn.execute(
+                        f"CREATE INDEX IF NOT EXISTS {index_name} "
+                        f"ON {schema.table} ({cols_sql})"
+                    )
 
     # ------------------------------------------------------------------
     # CRUD
@@ -217,37 +403,19 @@ class SqliteDatabase(IDatabase):
 
     def get(self, collection: str, doc_id: str) -> Optional[Dict[str, Any]]:
         with self._lock:
-            row = self._conn.execute(
-                "SELECT data FROM documents WHERE collection = ? AND doc_id = ?",
-                (collection, doc_id),
-            ).fetchone()
-            if row is None:
-                return None
-            return _decode_from_storage(json.loads(row[0]))
+            return _row_get(self._conn, collection, doc_id)
 
     def set(self, collection: str, doc_id: str, data: Dict[str, Any]) -> None:
-        payload = json.dumps(_encode_for_storage(data))
         with self._lock:
-            self._conn.execute(
-                "INSERT INTO documents (collection, doc_id, data) VALUES (?, ?, ?) "
-                "ON CONFLICT(collection, doc_id) DO UPDATE SET data = excluded.data",
-                (collection, doc_id, payload),
-            )
+            _row_set(self._conn, collection, doc_id, data)
 
     def update(self, collection: str, doc_id: str, data: Dict[str, Any]) -> None:
         with self._lock:
-            existing = self.get(collection, doc_id)
-            if existing is None:
-                raise DocumentNotFoundError(collection, doc_id)
-            existing.update(data)
-            self.set(collection, doc_id, existing)
+            _row_update(self._conn, collection, doc_id, data)
 
     def delete(self, collection: str, doc_id: str) -> None:
         with self._lock:
-            self._conn.execute(
-                "DELETE FROM documents WHERE collection = ? AND doc_id = ?",
-                (collection, doc_id),
-            )
+            _row_delete(self._conn, collection, doc_id)
 
     # ------------------------------------------------------------------
     # Query
@@ -260,70 +428,8 @@ class SqliteDatabase(IDatabase):
         order_by: Optional[str] = None,
         limit: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
-        sql = "SELECT doc_id, data FROM documents WHERE collection = ?"
-        params: List[Any] = [collection]
-
-        for field, operator, value in filters or []:
-            clause, clause_params = self._filter_clause(field, operator, value)
-            sql += f" AND {clause}"
-            params.extend(clause_params)
-
-        if order_by:
-            descending = order_by.startswith("-")
-            field = order_by[1:] if descending else order_by
-            sql += " ORDER BY json_extract(data, ?) " + ("DESC" if descending else "ASC")
-            params.append(_json_path(field))
-
-        if limit:
-            sql += " LIMIT ?"
-            params.append(limit)
-
         with self._lock:
-            rows = self._conn.execute(sql, params).fetchall()
-
-        results: List[Dict[str, Any]] = []
-        for doc_id, data in rows:
-            doc = _decode_from_storage(json.loads(data))
-            doc["_id"] = doc_id
-            results.append(doc)
-        return results
-
-    def _filter_clause(self, field: str, operator: str, value: Any) -> tuple[str, List[Any]]:
-        """Translate a (field, op, value) filter into a SQL clause + bind params."""
-        path = _json_path(field)
-        extract = "json_extract(data, ?)"
-
-        match operator:
-            case "==":
-                if value is None:
-                    return f"{extract} IS NULL", [path]
-                return f"{extract} = ?", [path, _to_sql_param(value)]
-            case "!=":
-                if value is None:
-                    return f"{extract} IS NOT NULL", [path]
-                # Include docs missing the field (None != value is True in the reference impl).
-                return f"({extract} <> ? OR {extract} IS NULL)", [
-                    path,
-                    _to_sql_param(value),
-                    path,
-                ]
-            case "<" | "<=" | ">" | ">=":
-                return f"{extract} {operator} ?", [path, _to_sql_param(value)]
-            case "in":
-                values = list(value)
-                if not values:
-                    return "0", []
-                placeholders = ", ".join("?" for _ in values)
-                return f"{extract} IN ({placeholders})", [path] + [
-                    _to_sql_param(v) for v in values
-                ]
-            case "array_contains":
-                return (
-                    "EXISTS (SELECT 1 FROM json_each(data, ?) WHERE value = ?)",
-                    [path, _to_sql_param(value)],
-                )
-            case _:
-                raise ValueError(f"Unsupported operator: {operator}")
+            return _row_query(self._conn, collection, filters, order_by, limit)
 
     # ------------------------------------------------------------------
     # Transactions
@@ -363,7 +469,7 @@ class SqliteDatabase(IDatabase):
         self, collection: str, doc_id: str, field: str, values: List[Any]
     ) -> None:
         with self._lock:
-            doc = self.get(collection, doc_id)
+            doc = _row_get(self._conn, collection, doc_id)
             if doc is None:
                 raise DocumentNotFoundError(collection, doc_id)
             current = doc.get(field)
@@ -372,7 +478,7 @@ class SqliteDatabase(IDatabase):
                 if value not in array:
                     array.append(value)
             doc[field] = array
-            self.set(collection, doc_id, doc)
+            _row_set(self._conn, collection, doc_id, doc)
 
     def list_subcollection(
         self,
@@ -397,10 +503,12 @@ class SqliteDatabase(IDatabase):
         return _ServerTimestamp()
 
     def get_api_key_by_uid(self, key_uid: str) -> Optional[Dict[str, Any]]:
+        # Indexed lookup on the promoted key_uid column of the api_keys table.
+        schema = schema_for("api_keys")
+        assert schema is not None  # api_keys is always registered
         with self._lock:
             row = self._conn.execute(
-                "SELECT doc_id, data FROM documents WHERE collection = 'api_keys' AND "
-                "json_extract(data, '$.key_uid') = ?",
+                f"SELECT doc_id, data FROM {schema.table} WHERE key_uid = ?",
                 (key_uid,),
             ).fetchone()
         if row is None:
@@ -419,18 +527,30 @@ class SqliteDatabase(IDatabase):
         with self._lock:
             if not targets:
                 return
+            generic_targets: List[str] = []
+            for collection in targets:
+                schema = schema_for(collection)
+                if schema is not None:
+                    self._conn.execute(f"DELETE FROM {schema.table}")
+                else:
+                    generic_targets.append(collection)
+            if generic_targets:
+                placeholders = ", ".join("?" for _ in generic_targets)
+                self._conn.execute(
+                    f"DELETE FROM documents WHERE collection IN ({placeholders})",
+                    generic_targets,
+                )
             placeholders = ", ".join("?" for _ in targets)
-            self._conn.execute(
-                f"DELETE FROM documents WHERE collection IN ({placeholders})", targets
-            )
             self._conn.execute(
                 f"DELETE FROM subdocuments WHERE parent_collection IN ({placeholders})",
                 targets,
             )
 
     def clear(self) -> None:
-        """Drop all rows from both tables (full reset)."""
+        """Drop all rows from every table (full reset)."""
         with self._lock:
+            for schema in all_schemas():
+                self._conn.execute(f"DELETE FROM {schema.table}")
             self._conn.execute("DELETE FROM documents")
             self._conn.execute("DELETE FROM subdocuments")
 
