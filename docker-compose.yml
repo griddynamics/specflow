@@ -20,9 +20,9 @@ services:
       - "${SPECFLOW_BACKEND_PORT:-8000}:8000"
     environment:
       # Common environment variables
+      # The active LLM provider is derived from whichever key is set (both -> openrouter).
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - DEFAULT_PROVIDER=${DEFAULT_PROVIDER:-openrouter}
       - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
       - WORKSPACE_BASE_PATH=/workspaces
       - NOTIFY_EMAIL_USERNAME=${NOTIFY_EMAIL_USERNAME}

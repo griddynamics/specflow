@@ -119,8 +119,6 @@ def _canonical_dt(value: datetime) -> str:
 
 
 def _encode_for_storage(value: Any) -> Any:
-    if isinstance(value, _ServerTimestamp):
-        return _canonical_dt(datetime.now(UTC))
     if isinstance(value, datetime):
         return _canonical_dt(value)
     if isinstance(value, Enum):
@@ -154,10 +152,6 @@ def _to_sql_param(value: Any) -> Any:
 
 def _json_path(field: str) -> str:
     return "$." + field
-
-
-class _ServerTimestamp:
-    """Sentinel for a server-assigned timestamp (resolved to now-UTC on write)."""
 
 
 class SqliteTransactionContext(ITransactionContext):
@@ -442,9 +436,6 @@ class SqliteDatabase(IDatabase):
     ) -> List[Dict[str, Any]]:
         with self._lock:
             return self._ops.list_subcollection(parent_collection, parent_doc_id, subcollection)
-
-    def server_timestamp(self) -> Any:
-        return _ServerTimestamp()
 
     def get_api_key_by_uid(self, key_uid: str) -> Optional[Dict[str, Any]]:
         with self._lock:

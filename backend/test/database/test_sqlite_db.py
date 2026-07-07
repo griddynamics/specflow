@@ -18,7 +18,6 @@ from test.database.db_contract import (
     TestBasicCRUD as _TestBasicCRUD,
     TestIsolation as _TestIsolation,
     TestQuery as _TestQuery,
-    TestServerTimestamp as _TestServerTimestamp,
     TestTransactions as _TestTransactions,
 )
 
@@ -69,10 +68,6 @@ class TestTransactions(_TestTransactions):
 
 
 class TestArrayOperations(_TestArrayOperations):
-    pass
-
-
-class TestServerTimestamp(_TestServerTimestamp):
     pass
 
 

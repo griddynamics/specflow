@@ -234,10 +234,6 @@ class FirestoreDatabase(IDatabase):
             out.append(row)
         return out
 
-    def server_timestamp(self) -> Any:
-        """Get server timestamp sentinel."""
-        return firestore.SERVER_TIMESTAMP
-
     def get_api_key_by_uid(self, key_uid: str) -> Optional[Dict[str, Any]]:
         """Return the api_keys document whose key_uid field matches."""
         results = self.query("api_keys", filters=[("key_uid", "==", key_uid)])

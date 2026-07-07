@@ -229,6 +229,32 @@ class TestPlainStatus:
         assert "unavailable" in out
 
 
+class TestSessionLabel:
+    def test_uses_pipeline_step_defs_for_checkpoint_label(self):
+        label = tui_app._session_label(
+            {
+                "generation_id": "est-d67dcac6cbe5",
+                "status": "running",
+                "checkpoint": "contract_validated",
+                "created_at": "2026-07-07T14:00:15.701099+00:00",
+            }
+        )
+
+        assert "Contract validated" in label
+        assert "est-d67dcac6cbe5" in label
+
+    def test_unknown_checkpoint_falls_back_to_key(self):
+        label = tui_app._session_label(
+            {
+                "generation_id": "est-d67dcac6cbe5",
+                "status": "running",
+                "checkpoint": "custom_checkpoint",
+            }
+        )
+
+        assert "custom_checkpoint" in label
+
+
 class TestRunTuiNonTty:
     @pytest.mark.asyncio
     async def test_non_tty_prints_plain_status_without_app(self, capsys):
@@ -384,6 +410,46 @@ class TestStartupGate:
                 await pilot.pause()
                 assert isinstance(app.screen, tui_app.SessionsScreen)
 
+    @pytest.mark.asyncio
+    async def test_containers_up_but_backend_not_ready_says_unhealthy_not_down(self):
+        # Containers running + backend not ready → the gate must not claim the
+        # containers aren't running; it shows the "backend isn't healthy" prompt.
+        with (
+            patch("tui.app.local_env.is_setup_complete", return_value=True),
+            patch("tui.app.local_env.containers_running", return_value=True),
+            patch("tui.app.local_env.backend_ready", new=AsyncMock(return_value=False)),
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.StartContainersScreen)
+                prompt = str(app.screen.query_one("#docker-prompt").render())
+                assert "aren't running" not in prompt
+                assert "isn't healthy" in prompt
+
+    @pytest.mark.asyncio
+    async def test_backend_not_ready_retry_skips_compose_up(self):
+        # In the up-but-not-ready path, retrying (y) re-polls readiness without
+        # re-running `docker compose up` (the containers are already up).
+        start = AsyncMock(return_value=0)
+        with (
+            patch("tui.app.local_env.is_setup_complete", return_value=True),
+            patch("tui.app.local_env.containers_running", return_value=True),
+            patch("tui.app.local_env.backend_ready", new=AsyncMock(return_value=False)),
+            patch("tui.app.local_env.start_containers", new=start),
+            patch("tui.app.local_env.wait_backend_ready", new=AsyncMock(return_value=True)),
+            patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])),
+            patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()),
+            patch("tui.app.mcp_clients.is_any_client_connected", return_value=True),
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("y")
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.SessionsScreen)
+                start.assert_not_awaited()
+
 
 class TestOnboarding:
     """Drive the step-by-step onboarding wizard via the pilot.
@@ -435,7 +501,11 @@ class TestOnboarding:
                 assert screen.current_step_id == "compass"
                 await self._set(screen, "P10Y_API_KEY", "p10y")
 
-                await pilot.press("ctrl+n")  # -> review
+                await pilot.press("ctrl+n")  # -> advanced (optional)
+                await pilot.pause()
+                assert screen.current_step_id == "advanced"
+
+                await pilot.press("ctrl+n")  # skip advanced -> review
                 await pilot.pause()
                 assert screen.current_step_id == "review"
 
@@ -448,6 +518,68 @@ class TestOnboarding:
         assert "P10Y_API_KEY=p10y" in env
         assert "OPENROUTER_API_KEY=or-key" in env
         assert "ANTHROPIC_API_KEY=" not in env
+
+    @pytest.mark.asyncio
+    async def test_langfuse_advanced_step_writes_all_three(self, tmp_path):
+        run_init = AsyncMock(return_value=0)
+        a, b, c, d, e, f = self._gate_patches(tmp_path, run_init)
+        with a, b, c, d, e, f:
+            app = tui_app.SpecFlowTUI(root=tmp_path, generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                screen = app.screen
+                await pilot.press("ctrl+n")  # -> provider
+                await pilot.pause()
+                await self._set(screen, "OPENROUTER_API_KEY", "or-key")
+                await pilot.press("ctrl+n")  # -> github
+                await pilot.pause()
+                await self._set(screen, "GITHUB_TOKEN", "tok")
+                await pilot.press("ctrl+n")  # -> compass
+                await pilot.pause()
+                await self._set(screen, "P10Y_API_KEY", "p10y")
+                await pilot.press("ctrl+n")  # -> advanced
+                await pilot.pause()
+                assert screen.current_step_id == "advanced"
+                await self._set(screen, "LANGFUSE_PUBLIC_KEY", "pk-1")
+                await self._set(screen, "LANGFUSE_SECRET_KEY", "sk-1")
+                await self._set(screen, "LANGFUSE_BASE_URL", "https://lf.example")
+                await pilot.press("ctrl+n")  # -> review
+                await pilot.pause()
+                assert screen.current_step_id == "review"
+                await pilot.press("ctrl+s")
+                await pilot.pause()
+        run_init.assert_awaited_once()
+        env = (tmp_path / ".env").read_text()
+        assert "LANGFUSE_PUBLIC_KEY=pk-1" in env
+        assert "LANGFUSE_SECRET_KEY=sk-1" in env
+        assert "LANGFUSE_BASE_URL=https://lf.example" in env
+
+    @pytest.mark.asyncio
+    async def test_partial_langfuse_blocks_advance(self, tmp_path):
+        run_init = AsyncMock(return_value=0)
+        a, b, c, d, e, f = self._gate_patches(tmp_path, run_init)
+        with a, b, c, d, e, f:
+            app = tui_app.SpecFlowTUI(root=tmp_path, generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                screen = app.screen
+                await pilot.press("ctrl+n")  # -> provider
+                await pilot.pause()
+                await self._set(screen, "OPENROUTER_API_KEY", "or-key")
+                await pilot.press("ctrl+n")  # -> github
+                await pilot.pause()
+                await self._set(screen, "GITHUB_TOKEN", "tok")
+                await pilot.press("ctrl+n")  # -> compass
+                await pilot.pause()
+                await self._set(screen, "P10Y_API_KEY", "p10y")
+                await pilot.press("ctrl+n")  # -> advanced
+                await pilot.pause()
+                # Only the public key: partial LangFuse must block advancing.
+                await self._set(screen, "LANGFUSE_PUBLIC_KEY", "pk-only")
+                await pilot.press("ctrl+n")
+                await pilot.pause()
+                assert screen.current_step_id == "advanced"
+        run_init.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_anthropic_path_writes_only_anthropic(self, tmp_path):
@@ -471,7 +603,9 @@ class TestOnboarding:
                 await pilot.press("ctrl+n")  # -> compass
                 await pilot.pause()
                 await self._set(screen, "P10Y_API_KEY", "p10y")
-                await pilot.press("ctrl+n")  # -> review
+                await pilot.press("ctrl+n")  # -> advanced (optional)
+                await pilot.pause()
+                await pilot.press("ctrl+n")  # skip advanced -> review
                 await pilot.pause()
                 await pilot.press("ctrl+s")
                 await pilot.pause()
@@ -582,6 +716,89 @@ class TestOnboarding:
                 await pilot.pause()
                 assert isinstance(app.screen, tui_app.OnboardingScreen)
         run_init.assert_not_awaited()
+
+
+class TestSettingsScreen:
+    """Settings is reachable from the Sessions landing screen and edits .env,
+    including the optional Advanced LangFuse section."""
+
+    @staticmethod
+    def _land_on_sessions(tmp_path):
+        a, b, c = _gate_ready()
+        return (
+            a,
+            b,
+            c,
+            patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])),
+            patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()),
+            patch("tui.app.mcp_clients.is_any_client_connected", return_value=True),
+        )
+
+    @pytest.mark.asyncio
+    async def test_s_from_sessions_opens_settings_with_langfuse(self, tmp_path):
+        a, b, c, d, e, f = self._land_on_sessions(tmp_path)
+        with a, b, c, d, e, f:
+            app = tui_app.SpecFlowTUI(root=tmp_path, generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.SessionsScreen)
+                await pilot.press("s")
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.SettingsScreen)
+                # The Advanced LangFuse rows are present.
+                for key in ("LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY", "LANGFUSE_BASE_URL"):
+                    assert app.screen.query_one(f"#secret-{key}", Input) is not None
+                # Secret key masked, public key + host plain.
+                assert app.screen.query_one("#secret-LANGFUSE_SECRET_KEY", Input).password is True
+                assert app.screen.query_one("#secret-LANGFUSE_PUBLIC_KEY", Input).password is False
+                # .env-backed sections warn that a restart is needed to take effect.
+                from textual.widgets import Static
+                section_text = " ".join(
+                    str(s.render()) for s in app.screen.query(".settings-section").results(Static)
+                )
+                assert "requires backend restart" in section_text
+
+    @pytest.mark.asyncio
+    async def test_saving_langfuse_writes_env(self, tmp_path):
+        a, b, c, d, e, f = self._land_on_sessions(tmp_path)
+        with a, b, c, d, e, f:
+            app = tui_app.SpecFlowTUI(root=tmp_path, generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("s")
+                await pilot.pause()
+                screen = app.screen
+                screen.query_one("#secret-LANGFUSE_PUBLIC_KEY", Input).value = "pk-x"
+                screen.query_one("#secret-LANGFUSE_SECRET_KEY", Input).value = "sk-x"
+                screen.query_one("#secret-LANGFUSE_BASE_URL", Input).value = "https://lf.x"
+                await pilot.press("ctrl+s")
+                await pilot.pause()
+                # Save pops back to sessions.
+                assert isinstance(app.screen, tui_app.SessionsScreen)
+        env = (tmp_path / ".env").read_text()
+        assert "LANGFUSE_PUBLIC_KEY=pk-x" in env
+        assert "LANGFUSE_SECRET_KEY=sk-x" in env
+        assert "LANGFUSE_BASE_URL=https://lf.x" in env
+
+    @pytest.mark.asyncio
+    async def test_partial_langfuse_save_is_blocked(self, tmp_path):
+        a, b, c, d, e, f = self._land_on_sessions(tmp_path)
+        with a, b, c, d, e, f:
+            app = tui_app.SpecFlowTUI(root=tmp_path, generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("s")
+                await pilot.pause()
+                screen = app.screen
+                # Only public key set → save must refuse and stay on Settings.
+                screen.query_one("#secret-LANGFUSE_PUBLIC_KEY", Input).value = "pk-only"
+                await pilot.press("ctrl+s")
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.SettingsScreen)
+        # Nothing written.
+        assert not (tmp_path / ".env").exists() or "LANGFUSE_PUBLIC_KEY=pk-only" not in (
+            tmp_path / ".env"
+        ).read_text()
 
 
 class TestQuitBinding:

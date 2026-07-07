@@ -40,7 +40,7 @@ def get_db() -> IDatabase:
             generation_id = str(uuid.uuid4())
             db.set(COL_GENERATION_SESSIONS, generation_id, {
                 "status": "pending",
-                "created_at": db.server_timestamp(),
+                "created_at": datetime.now(UTC),
                 **data.dict()
             })
             return {"id": generation_id}

@@ -63,22 +63,28 @@ class TestDatabaseType:
 
 
 class TestSettingsDefaultProvider:
-    """Verify DEFAULT_PROVIDER is a Settings field and env-overridable."""
+    """DEFAULT_PROVIDER is derived from the key present — not an env-settable knob."""
 
-    def test_default_is_openrouter(self):
-        from app.core.config import Settings
-
-        s = Settings()
-        assert s.DEFAULT_PROVIDER == LLMProvider.OPENROUTER
-        assert s.DEFAULT_PROVIDER == "openrouter"
-
-    def test_env_override_to_anthropic(self):
+    def test_no_keys_resolve_openrouter(self):
         from app.core.config import Settings
 
         with pytest.MonkeyPatch.context() as mp:
+            mp.delenv("ANTHROPIC_API_KEY", raising=False)
+            mp.delenv("OPENROUTER_API_KEY", raising=False)
+            s = Settings(_env_file=None)
+        assert s.DEFAULT_PROVIDER == LLMProvider.OPENROUTER
+        assert s.DEFAULT_PROVIDER == "openrouter"
+
+    def test_env_default_provider_is_ignored(self):
+        from app.core.config import Settings
+
+        # Setting DEFAULT_PROVIDER has no effect: the present key decides.
+        with pytest.MonkeyPatch.context() as mp:
+            mp.delenv("ANTHROPIC_API_KEY", raising=False)
+            mp.setenv("OPENROUTER_API_KEY", "or-key")
             mp.setenv("DEFAULT_PROVIDER", "anthropic")
-            s = Settings()
-        assert s.DEFAULT_PROVIDER == LLMProvider.ANTHROPIC
+            s = Settings(_env_file=None)
+        assert s.DEFAULT_PROVIDER == LLMProvider.OPENROUTER
 
     def test_database_type_bogus_raises(self):
         from app.core.config import Settings

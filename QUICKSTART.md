@@ -66,7 +66,8 @@ How to obtain P10Y_API_KEY:
 
 #### Prefer Anthropic?
 Set `ANTHROPIC_API_KEY` instead of `OPENROUTER_API_KEY`.
-`specflow init` will set `DEFAULT_PROVIDER=anthropic` automatically.
+The backend uses Anthropic automatically when it's the only provider key set
+(if both are set, OpenRouter is used).
 
 Everything else in `.env.quickstart.example` is already set for local mode or is
 optional. 

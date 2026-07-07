@@ -60,6 +60,40 @@ class TestSaveEnv:
         assert "USER_EMAIL" not in config.load_env(tmp_path)
 
 
+class TestLangfuse:
+    def test_secret_key_is_masked_but_public_and_host_are_not(self):
+        assert "LANGFUSE_SECRET_KEY" in config.MASKED_KEYS
+        assert "LANGFUSE_PUBLIC_KEY" not in config.MASKED_KEYS
+        assert "LANGFUSE_BASE_URL" not in config.MASKED_KEYS
+
+    def test_langfuse_keys_kept_out_of_core_secret_keys(self):
+        # Advanced/optional keys must not leak into the required-core set.
+        assert not (set(config.LANGFUSE_KEYS) & set(config.ENV_SECRET_KEYS))
+
+    def test_none_present_is_ok(self):
+        assert config.langfuse_partial_error({}) is None
+
+    def test_all_three_present_is_ok(self):
+        assert config.langfuse_partial_error(
+            {
+                "LANGFUSE_PUBLIC_KEY": "pk",
+                "LANGFUSE_SECRET_KEY": "sk",
+                "LANGFUSE_BASE_URL": "https://lf",
+            }
+        ) is None
+
+    def test_partial_is_rejected_and_names_missing(self):
+        error = config.langfuse_partial_error({"LANGFUSE_PUBLIC_KEY": "pk"})
+        assert error is not None
+        assert "LANGFUSE_SECRET_KEY" in error
+        assert "LANGFUSE_BASE_URL" in error
+
+    def test_whitespace_only_counts_as_absent(self):
+        assert config.langfuse_partial_error(
+            {"LANGFUSE_PUBLIC_KEY": "  ", "LANGFUSE_SECRET_KEY": "", "LANGFUSE_BASE_URL": ""}
+        ) is None
+
+
 class TestEnvSecrets:
     def test_round_trip(self, tmp_path):
         config.save_env_secrets(tmp_path, {"P10Y_API_KEY": "secret", "GITHUB_ORG": "acme"})

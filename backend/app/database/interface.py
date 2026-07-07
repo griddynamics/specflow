@@ -127,7 +127,6 @@ class IDatabase(ABC):
     - CRUD operations (get, set, update, delete)
     - Queries with filters and ordering
     - Atomic transactions
-    - Server timestamps
     - Array operations
     """
 
@@ -162,7 +161,7 @@ class IDatabase(ABC):
         Example:
             >>> db.set("generation_sessions", "est-123", {
             ...     "status": "pending",
-            ...     "created_at": db.server_timestamp()
+            ...     "created_at": datetime.now(UTC)
             ... })
         """
         pass
@@ -279,7 +278,7 @@ class IDatabase(ABC):
             ...     # 2. Then perform all writes
             ...     tx.update("workspaces", ws_id, {
             ...         "status": "allocated",
-            ...         "locked_at": db.server_timestamp()
+            ...         "locked_at": datetime.now(UTC)
             ...     })
             ...     
             ...     return ws_id
@@ -321,27 +320,6 @@ class IDatabase(ABC):
 
         Each returned dict includes ``_id`` with the child document id.
         """
-
-    @abstractmethod
-    def server_timestamp(self) -> Any:
-        """
-        Get a server timestamp value for use in set/update operations.
-        
-        When this value is written to the database, it will be replaced with
-        the actual server timestamp. This ensures consistent timestamps across
-        all clients regardless of clock skew.
-        
-        Returns:
-            A sentinel value representing server timestamp
-            
-        Example:
-            >>> db.set("generation_sessions", "est-123", {
-            ...     "created_at": db.server_timestamp(),
-            ...     "status": "pending"
-            ... })
-        """
-        pass
-
 
     @abstractmethod
     def get_api_key_by_uid(self, key_uid: str) -> Optional[Dict[str, Any]]:

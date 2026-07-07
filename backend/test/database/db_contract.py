@@ -7,8 +7,6 @@ concrete test modules (test_memory_db.py, test_sqlite_db.py) supply their own fi
 and subclass these classes so pytest collects them once per backend.
 """
 
-from datetime import datetime
-
 import pytest
 
 from app.database.interface import DocumentNotFoundError
@@ -346,43 +344,6 @@ class TestArrayOperations:
         """Test array_union fails on nonexistent document."""
         with pytest.raises(DocumentNotFoundError):
             db.array_union(_C1, "nonexistent", "tags", ["python"])
-
-
-class TestServerTimestamp:
-    """Test server timestamp functionality."""
-
-    def test_server_timestamp_on_set(self, db):
-        """Test server timestamp is replaced with actual time."""
-        db.set(_C1, "user-1", {
-            "name": "Alice",
-            "created_at": db.server_timestamp()
-        })
-
-        user = db.get(_C1, "user-1")
-        assert "created_at" in user
-        assert isinstance(user["created_at"], datetime)
-
-    def test_server_timestamp_on_update(self, db):
-        """Test server timestamp in update operation."""
-        db.set(_C1, "user-1", {"name": "Alice"})
-        db.update(_C1, "user-1", {"updated_at": db.server_timestamp()})
-
-        user = db.get(_C1, "user-1")
-        assert "updated_at" in user
-        assert isinstance(user["updated_at"], datetime)
-
-    def test_server_timestamp_in_transaction(self, db):
-        """Test server timestamp in transaction."""
-        def create_with_timestamp(tx):
-            tx.set(_C1, "user-1", {
-                "name": "Alice",
-                "created_at": db.server_timestamp()
-            })
-
-        db.run_transaction(create_with_timestamp)
-
-        user = db.get(_C1, "user-1")
-        assert isinstance(user["created_at"], datetime)
 
 
 class TestIsolation:

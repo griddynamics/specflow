@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import httpx
 
-from app.core.config import Settings
+from app.core.config import Settings, is_key_valid
 
 
 def base_url(settings: Settings) -> str:
@@ -16,8 +16,9 @@ def base_url(settings: Settings) -> str:
 
 
 def auth_headers(settings: Settings) -> dict[str, str]:
-    key = (settings.OPENROUTER_API_KEY or "").strip()
-    return {"Authorization": f"Bearer {key}"} if key else {}
+    if not is_key_valid(settings.OPENROUTER_API_KEY):
+        return {}
+    return {"Authorization": f"Bearer {settings.OPENROUTER_API_KEY.strip()}"}
 
 
 async def fetch_models(settings: Settings) -> list[dict]:

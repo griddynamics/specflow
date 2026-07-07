@@ -240,20 +240,6 @@ log "INFO: SpecFlow home (central SQLite db) dir: ${SPECFLOW_HOME_PATH}"
 log "INFO: Firestore database name (hosted-connect mode only): ${FIRESTORE_DATABASE_NAME}"
 
 # ---------------------------------------------------------------------------
-# Step 1b: Derive local LLM provider
-# ---------------------------------------------------------------------------
-if [[ -z "${DEFAULT_PROVIDER:-}" && -z "${OPENROUTER_API_KEY:-}" && -n "${ANTHROPIC_API_KEY:-}" ]]; then
-    if [[ "${DRY_RUN}" == "true" ]]; then
-        export DEFAULT_PROVIDER="anthropic"
-        info "[DRY RUN] DEFAULT_PROVIDER is blank and only ANTHROPIC_API_KEY is set - would persist DEFAULT_PROVIDER=anthropic to .env"
-    else
-        set_env_value "DEFAULT_PROVIDER" "anthropic"
-        info "DEFAULT_PROVIDER was blank and OPENROUTER_API_KEY was not set, so DEFAULT_PROVIDER=anthropic was written to .env."
-        log "INFO: DEFAULT_PROVIDER resolved to anthropic from available LLM key"
-    fi
-fi
-
-# ---------------------------------------------------------------------------
 # Step 1c: Derive local git identity
 # ---------------------------------------------------------------------------
 if [[ -z "${GIT_USER_NAME:-}" ]]; then

@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-from app.core.config import settings
+from app.core.config import is_key_valid, settings
 from app.core.enums import DatabaseType, LLMProvider
 from app.database.interface import IDatabase
 from app.state.db_adapter import COL_WORKSPACES
@@ -138,14 +138,20 @@ class StartupValidator:
         """
         missing: list[str] = []
 
-        # Check the key for whichever provider is active
+        # The provider is derived from whichever key is present (see
+        # Settings.DEFAULT_PROVIDER computed_field), so a provider/key mismatch is
+        # impossible: the anthropic branch always has its key. The only way the
+        # openrouter branch lacks a key is when NEITHER key was set — fail fast
+        # naming both so the user knows what to add.
+        # is_key_valid so a blank / whitespace-only env value counts as unset,
+        # matching how DEFAULT_PROVIDER derives the provider.
         if settings.DEFAULT_PROVIDER == LLMProvider.OPENROUTER:
-            if not os.environ.get("OPENROUTER_API_KEY"):
+            if not is_key_valid(os.environ.get("OPENROUTER_API_KEY")):
                 missing.append(
-                    "OPENROUTER_API_KEY (required for the active LLM provider: openrouter)"
+                    "OPENROUTER_API_KEY or ANTHROPIC_API_KEY (set one LLM provider key)"
                 )
         elif settings.DEFAULT_PROVIDER == LLMProvider.ANTHROPIC:
-            if not os.environ.get("ANTHROPIC_API_KEY"):
+            if not is_key_valid(os.environ.get("ANTHROPIC_API_KEY")):
                 missing.append(
                     "ANTHROPIC_API_KEY (required for the active LLM provider: anthropic)"
                 )

@@ -8,11 +8,17 @@ display-only: which steps are *done* is driven entirely by the ``checkpoint``
 and ``completed_phases`` fields the ``/status`` endpoint already returns, so a
 drift here only mislabels a step — it never changes behaviour.
 
-Keep this list in lockstep with the backend enum if checkpoints are added.
+The pipeline the user *sees* (``CHECKPOINT_STEPS``) is a curated, collapsed view
+of the raw backend checkpoints (``CHECKPOINT_ORDER``): several backend
+checkpoints can map to one displayed row. Progress is always computed against
+``CHECKPOINT_ORDER`` (the full mirror) so a step is DONE only once its backend
+completion checkpoint is reached. Keep ``CHECKPOINT_ORDER`` in lockstep with the
+backend enum if checkpoints are added.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from enum import Enum
 
 
@@ -22,26 +28,60 @@ class StepState(str, Enum):
     DONE = "done"
     ACTIVE = "active"
     PENDING = "pending"
+    # Known-not-applicable to this run (e.g. Deploy & E2E on a local-only run).
+    # Shown struck-through rather than hidden, so the user sees the full shape
+    # of the pipeline and understands *why* a stage was omitted.
+    SKIPPED = "skipped"
 
 
-# Mirror of backend CHECKPOINT_ORDER (string values of GenerationCheckpoint),
-# paired with the human label shown in the pipeline stepper.
-CHECKPOINT_STEPS: list[tuple[str, str]] = [
-    ("files_uploaded", "Files uploaded"),
-    ("contract_validated", "Contract validated"),
-    ("kb_init_done", "KB init"),
-    ("generation_started", "Generation started"),
-    ("generation_done", "Generating code"),
-    ("deploy_and_e2e_done", "Deploy & E2E"),
-    ("outputs_archived", "Outputs archived"),
-    ("estimation_done", "Estimation (P10Y)"),
+# Full mirror of backend CHECKPOINT_ORDER (string values of GenerationCheckpoint),
+# in order. Used to locate the current checkpoint's position — NOT rendered
+# directly. The poller also uses this to detect checkpoint advances, so it must
+# list every backend checkpoint, including ones the displayed pipeline collapses.
+CHECKPOINT_ORDER: list[str] = [
+    "files_uploaded",
+    "contract_validated",
+    "kb_init_done",
+    "generation_started",
+    "generation_done",
+    "deploy_and_e2e_done",
+    "outputs_archived",
+    "estimation_done",
 ]
 
-# Order-only view of the checkpoint keys (index → progress comparison).
-CHECKPOINT_ORDER: list[str] = [key for key, _ in CHECKPOINT_STEPS]
 
-# Checkpoint that only runs for integration-test (non-local) generations. It is
-# hidden from the pipeline for LOCAL_ONLY runs — the primary local-usage case.
+@dataclass(frozen=True)
+class PipelineStepDef:
+    """One row in the displayed pipeline stepper.
+
+    ``completed_at`` is the backend checkpoint (a value in ``CHECKPOINT_ORDER``)
+    that marks this row DONE. A row may span several backend checkpoints — e.g.
+    "Generating code" covers both ``generation_started`` and ``generation_done``
+    — in which case ``completed_at`` is the *last* of them. The live phase and
+    usage detail for the in-flight row is available by opening the workspace
+    drill-in (``o`` / ``↵``), so intermediate checkpoints need no separate row.
+    """
+
+    label: str
+    completed_at: str
+
+
+# The displayed pipeline: a collapsed, human-facing view of CHECKPOINT_ORDER.
+# "Generation started" and "Generating code" were adjacent rows that meant the
+# same thing to a user ("code is being generated"); they are now one row, with
+# the per-workspace phase/usage shown in the drill-in.
+CHECKPOINT_STEPS: list[PipelineStepDef] = [
+    PipelineStepDef("Files uploaded", "files_uploaded"),
+    PipelineStepDef("Contract validated", "contract_validated"),
+    PipelineStepDef("KB init", "kb_init_done"),
+    PipelineStepDef("Generating code", "generation_done"),
+    PipelineStepDef("Deploy & E2E", "deploy_and_e2e_done"),
+    PipelineStepDef("Outputs archived", "outputs_archived"),
+    PipelineStepDef("Estimation (P10Y)", "estimation_done"),
+]
+
+# Checkpoint that only runs for integration-test (non-local) generations. On a
+# LOCAL_ONLY run this row is rendered SKIPPED (struck-through) rather than hidden.
 DEPLOY_CHECKPOINT = "deploy_and_e2e_done"
 
 # ``last_spec_readiness`` value (case-insensitive) marking a local-only run with
@@ -53,6 +93,7 @@ STEP_SYMBOLS: dict[StepState, str] = {
     StepState.DONE: "✔",
     StepState.ACTIVE: "●",
     StepState.PENDING: "▱",
+    StepState.SKIPPED: "⊘",
 }
 
 # Terminal statuses — mirror of services.cli_service._TERMINAL_STATUSES.

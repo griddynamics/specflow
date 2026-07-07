@@ -27,12 +27,20 @@ class TestStepContent:
             "provider",
             "github",
             "compass",
+            "advanced",
             "review",
         ]
 
-    def test_every_field_key_is_a_known_secret(self):
+    def test_every_field_key_is_a_known_secret_or_langfuse(self):
+        allowed = set(config.ENV_SECRET_KEYS) | set(config.LANGFUSE_KEYS)
         for f in _all_fields():
-            assert f.key in config.ENV_SECRET_KEYS
+            assert f.key in allowed
+
+    def test_advanced_step_langfuse_fields_optional(self):
+        advanced = next(s for s in onboarding.STEPS if s.step_id == "advanced")
+        by_key = {f.key: f for f in advanced.fields}
+        assert set(by_key) == set(config.LANGFUSE_KEYS)
+        assert all(not f.required for f in advanced.fields)
 
     def test_masking_is_derived_from_config(self):
         for f in _all_fields():
@@ -88,6 +96,24 @@ class TestValidateStep:
         assert (
             onboarding.validate_step(step, {"GITHUB_TOKEN": "t"}, PROVIDER_OPENROUTER) is None
         )
+
+    def test_advanced_step_blank_langfuse_passes(self):
+        # All LangFuse fields blank → optional step advances cleanly (skip).
+        assert onboarding.validate_step(self._step("advanced"), {}, PROVIDER_OPENROUTER) is None
+
+    def test_advanced_step_all_three_langfuse_passes(self):
+        vals = {
+            "LANGFUSE_PUBLIC_KEY": "pk",
+            "LANGFUSE_SECRET_KEY": "sk",
+            "LANGFUSE_BASE_URL": "https://lf",
+        }
+        assert onboarding.validate_step(self._step("advanced"), vals, PROVIDER_OPENROUTER) is None
+
+    def test_advanced_step_partial_langfuse_blocks(self):
+        vals = {"LANGFUSE_PUBLIC_KEY": "pk"}  # secret + host missing
+        error = onboarding.validate_step(self._step("advanced"), vals, PROVIDER_OPENROUTER)
+        assert error is not None
+        assert "LangFuse" in error
 
 
 class TestValidateAll:

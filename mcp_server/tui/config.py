@@ -38,6 +38,17 @@ ENV_SECRET_KEYS: list[str] = [
     "ANTHROPIC_API_KEY",
 ]
 
+# Advanced/optional secrets, stored in .env. LangFuse captures LLM traces; it is
+# all-or-nothing (the backend enables tracing only when all three are set — see
+# backend `config.langfuse_enabled`). Kept separate from ENV_SECRET_KEYS so the
+# core setup never treats these as required. Names match .env.quickstart.example
+# and the docker-compose passthrough so write_dotenv fills them in place.
+LANGFUSE_KEYS: list[str] = [
+    "LANGFUSE_PUBLIC_KEY",
+    "LANGFUSE_SECRET_KEY",
+    "LANGFUSE_BASE_URL",
+]
+
 # Secret keys rendered masked; in Settings a blank masked field means "keep
 # the stored value" so editing never wipes a secret you didn't touch.
 MASKED_KEYS: frozenset[str] = frozenset(
@@ -46,8 +57,24 @@ MASKED_KEYS: frozenset[str] = frozenset(
         "P10Y_API_KEY",
         "OPENROUTER_API_KEY",
         "ANTHROPIC_API_KEY",
+        "LANGFUSE_SECRET_KEY",
     }
 )
+
+
+def langfuse_partial_error(values: dict[str, str]) -> str | None:
+    """Enforce LangFuse's all-or-nothing rule; return an error or None.
+
+    LangFuse tracing needs all three keys together (the backend enables it only
+    when public key, secret key and host are all set). A partially-filled set
+    would silently disable tracing, so we refuse it at the point of entry. This
+    is the single source of truth for the rule, reused by onboarding and Settings.
+    """
+    present = [key for key in LANGFUSE_KEYS if (values.get(key) or "").strip()]
+    if present and len(present) != len(LANGFUSE_KEYS):
+        missing = [key for key in LANGFUSE_KEYS if key not in present]
+        return "LangFuse needs all three values (or none). Missing: " + ", ".join(missing)
+    return None
 
 
 def config_path(root: Path) -> Path:

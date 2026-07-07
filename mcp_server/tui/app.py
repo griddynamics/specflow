@@ -68,7 +68,9 @@ from tui import actions, activity, mcp_clients, onboarding, render
 from tui.config import (
     EDITABLE_KEYS,
     ENV_SECRET_KEYS,
+    LANGFUSE_KEYS,
     MASKED_KEYS,
+    langfuse_partial_error,
     load_env,
     load_env_secrets,
     save_env,
@@ -115,8 +117,15 @@ def _pipeline_panel(payload: dict[str, Any]) -> Panel:
             "done": "green",
             "active": "bold yellow",
             "pending": "dim",
+            # Not applicable to this run — greyed out and struck through.
+            "skipped": "dim strike",
         }.get(step.state.value, "")
-        body.append(f"  {step.symbol} {step.label}\n", style=style)
+        body.append(f"  {step.symbol} ", style=style)
+        body.append(step.label, style=style)
+        if step.state.value == "skipped":
+            # Note stays dim but un-struck so the reason reads cleanly.
+            body.append("  (not needed for this run)", style="dim")
+        body.append("\n")
     return Panel(body, title="Pipeline", border_style="blue")
 
 
@@ -753,7 +762,7 @@ def _session_label(s: dict) -> str:
     # Human-readable checkpoint label from the steps mirror
     checkpoint_key = s.get("checkpoint", "")
     checkpoint_label = next(
-        (label for key, label in CHECKPOINT_STEPS if key == checkpoint_key),
+        (step.label for step in CHECKPOINT_STEPS if step.completed_at == checkpoint_key),
         checkpoint_key,
     )
 
@@ -778,11 +787,15 @@ class SessionsScreen(_SpecFlowScreen):
     BINDINGS = [
         Binding("r", "reload", "reload"),
         Binding("c", "connect_client", "Add MCP to AI tool"),
+        Binding("s", "settings", "settings"),
     ]
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Static("SpecFlow · sessions   (↑/↓ select · ↵ open · r reload)", id="sessions-title")
+        yield Static(
+            "SpecFlow · sessions   (↑/↓ select · ↵ open · r reload · s settings)",
+            id="sessions-title",
+        )
         yield ListView(id="sessions-list")
         yield Footer()
 
@@ -813,6 +826,9 @@ class SessionsScreen(_SpecFlowScreen):
 
     def action_connect_client(self) -> None:
         self.app.push_screen(ClientSetupScreen())
+
+    def action_settings(self) -> None:
+        self.app.push_screen(SettingsScreen())
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         item = event.item
@@ -1345,6 +1361,14 @@ class OnboardingScreen(_SpecFlowScreen):
             else:
                 shown = secrets.get(key) or "— (auto)"
             lines.append(f"  {f.label:<26} {shown}")
+        # Advanced/optional LangFuse — only recapped when the user provided it.
+        if any(secrets.get(key) for key in LANGFUSE_KEYS):
+            for key in LANGFUSE_KEYS:
+                f = field_by_key[key]
+                shown = ("•••• set" if secrets.get(key) else "— (missing)") if f.masked else (
+                    secrets.get(key) or "— (missing)"
+                )
+                lines.append(f"  {f.label:<26} {shown}")
         return Static("\n".join(lines), classes="onboard-howto")
 
     # -- navigation --------------------------------------------------------
@@ -1445,11 +1469,18 @@ class OnboardingScreen(_SpecFlowScreen):
 
 
 class StartContainersScreen(_SpecFlowScreen):
-    """Docker gate: offer to start the SpecFlow stack, or quit.
+    """Docker gate: start the stack (or wait out an unhealthy backend), or quit.
 
-    ``y`` runs ``docker compose up -d`` and waits for the backend to report
-    ready (streamed into a log pane), then dismisses ``True``; ``n`` dismisses
-    ``False`` so the gate exits the app.
+    Two modes, selected by ``containers_up``:
+      * ``False`` (default) — the containers aren't running. ``y`` runs
+        ``docker compose up -d`` then waits for the backend to report ready.
+      * ``True`` — the containers ARE running but ``/health/ready`` isn't 200
+        yet. ``y`` only re-polls readiness (no redundant ``compose up``); this is
+        typically a config problem (e.g. an LLM provider/key mismatch), not a
+        stopped container, so we must not claim "containers aren't running".
+
+    ``y`` dismisses ``True`` once the backend is ready; ``n`` dismisses ``False``
+    so the gate exits the app.
     """
 
     BINDINGS = [
@@ -1457,12 +1488,20 @@ class StartContainersScreen(_SpecFlowScreen):
         Binding("n", "no", "quit"),
     ]
 
+    def __init__(self, *, containers_up: bool = False) -> None:
+        super().__init__()
+        self._containers_up = containers_up
+
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Static(
-            "The SpecFlow containers aren't running.\n\n" "Start them now?   [y] start    [n] quit",
-            id="docker-prompt",
-        )
+        if self._containers_up:
+            prompt = (
+                "Containers are running but the backend isn't healthy yet.\n\n"
+                "Retry the health check?   [y] retry    [n] quit"
+            )
+        else:
+            prompt = "The SpecFlow containers aren't running.\n\n" "Start them now?   [y] start    [n] quit"
+        yield Static(prompt, id="docker-prompt")
         log = RichLog(id="docker-log", highlight=False, markup=False, wrap=True)
         log.display = False
         yield log
@@ -1477,7 +1516,9 @@ class StartContainersScreen(_SpecFlowScreen):
     async def _start(self) -> None:
         log = self.query_one("#docker-log", RichLog)
         log.display = True
-        await local_env.start_containers(self.app.root, on_line=log.write)
+        # Containers already up → skip the redundant `compose up` and just re-poll.
+        if not self._containers_up:
+            await local_env.start_containers(self.app.root, on_line=log.write)
         backend_url = self.app.backend_url
         ok = await local_env.wait_backend_ready(
             backend_url,
@@ -1487,7 +1528,8 @@ class StartContainersScreen(_SpecFlowScreen):
             self.dismiss(True)
         else:
             self.notify(
-                "Backend didn't become healthy — check `docker compose logs`.",
+                "Backend didn't become healthy — check `docker compose logs` "
+                "(e.g. an LLM provider/key mismatch).",
                 severity="error",
             )
 
@@ -1528,12 +1570,32 @@ class RunInitScreen(_SpecFlowScreen):
 
 
 class SettingsScreen(Screen):
-    """Editor for runtime settings (mcp-config.json) and secrets (.env)."""
+    """Editor for runtime settings (mcp-config.json) and secrets (.env).
+
+    Three sections: runtime settings (mcp-config.json), core secrets (.env), and
+    an Advanced section for optional LangFuse tracing (.env). All secret keys
+    share one row-builder and one save loop, so a new secret is added in exactly
+    one place (its key list) and inherits the masking + blank-means-keep rules.
+    """
 
     BINDINGS = [
         Binding("ctrl+s", "save", "save"),
         Binding("escape", "cancel", "cancel"),
     ]
+
+    def _secret_rows(self, keys: list[str], secrets: dict[str, str]) -> ComposeResult:
+        """Yield a labelled Input row per secret key (masked keys mount blank)."""
+        for key in keys:
+            masked = key in MASKED_KEYS
+            has = bool(secrets.get(key))
+            with Horizontal(classes="settings-row"):
+                yield Label(f"{key:<22}", classes="settings-label")
+                yield Input(
+                    value="" if masked else str(secrets.get(key, "")),
+                    password=masked,
+                    placeholder="•••• set (blank = keep)" if masked and has else "",
+                    id=f"secret-{key}",
+                )
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -1546,21 +1608,34 @@ class SettingsScreen(Screen):
                 with Horizontal(classes="settings-row"):
                     yield Label(f"{key:<22}", classes="settings-label")
                     yield Input(value=str(env.get(key, "")), id=f"field-{key}")
-            yield Static("Secrets (.env)", classes="settings-section")
-            for key in ENV_SECRET_KEYS:
-                masked = key in MASKED_KEYS
-                has = bool(secrets.get(key))
-                with Horizontal(classes="settings-row"):
-                    yield Label(f"{key:<22}", classes="settings-label")
-                    yield Input(
-                        value="" if masked else str(secrets.get(key, "")),
-                        password=masked,
-                        placeholder="•••• set (blank = keep)" if masked and has else "",
-                        id=f"secret-{key}",
-                    )
+            yield Static("Secrets (.env — requires backend restart)", classes="settings-section")
+            yield from self._secret_rows(ENV_SECRET_KEYS, secrets)
+            yield Static(
+                "Advanced · LangFuse tracing (optional, all three or none "
+                "— requires backend restart)",
+                classes="settings-section",
+            )
+            yield from self._secret_rows(LANGFUSE_KEYS, secrets)
         yield Footer()
 
+    def _secret_input(self, key: str) -> str:
+        return self.query_one(f"#secret-{key}", Input).value.strip()
+
     def action_save(self) -> None:
+        # Reject a partially-filled LangFuse set before writing anything. Uses the
+        # effective post-save state (a blank masked key keeps its stored value),
+        # so "all three already set, none edited" is not flagged as partial.
+        stored = load_env_secrets(self.app.root)
+        effective_langfuse = {
+            key: (stored.get(key, "") if (key in MASKED_KEYS and self._secret_input(key) == "")
+                  else self._secret_input(key))
+            for key in LANGFUSE_KEYS
+        }
+        partial = langfuse_partial_error(effective_langfuse)
+        if partial:
+            self.notify(partial, severity="error")
+            return
+
         new_env = {
             key: self.query_one(f"#field-{key}", Input).value.strip() for key in EDITABLE_KEYS
         }
@@ -1569,15 +1644,26 @@ class SettingsScreen(Screen):
         # Blank masked field means "keep stored" so a secret is never wiped by
         # editing the other fields.
         secret_updates: dict[str, str] = {}
-        for key in ENV_SECRET_KEYS:
-            value = self.query_one(f"#secret-{key}", Input).value.strip()
+        for key in ENV_SECRET_KEYS + LANGFUSE_KEYS:
+            value = self._secret_input(key)
             if key in MASKED_KEYS and value == "":
                 continue
             secret_updates[key] = value
         if secret_updates:
             save_env_secrets(self.app.root, secret_updates)
 
-        self.notify(f"Saved settings to {path}", severity="information")
+        # The backend reads .env only at startup, so a changed secret is not live
+        # until it restarts. Flag it explicitly rather than letting the user
+        # wonder why nothing changed (and never point them at the file by hand —
+        # this screen is the only place .env should be edited).
+        secret_changed = any(value != stored.get(key, "") for key, value in secret_updates.items())
+        if secret_changed:
+            self.notify(
+                f"Saved to {path}. Requires restart of the backend to take effect.",
+                severity="warning",
+            )
+        else:
+            self.notify(f"Saved settings to {path}", severity="information")
         self.app.pop_screen()
 
     def action_cancel(self) -> None:
@@ -1673,8 +1759,9 @@ class SpecFlowTUI(App):
                 self.exit()
                 return
         elif not await local_env.backend_ready(self.backend_url):
-            # Containers up but not ready yet — reuse the gate to wait it out.
-            if not await self.push_screen_wait(StartContainersScreen()):
+            # Containers up but not ready yet — wait it out with an accurate prompt
+            # (do not claim the containers aren't running; they are).
+            if not await self.push_screen_wait(StartContainersScreen(containers_up=True)):
                 self.exit()
                 return
 

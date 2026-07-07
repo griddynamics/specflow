@@ -44,14 +44,27 @@ class TestPipelineSteps:
     def test_running_marks_done_active_pending(self):
         steps = render.pipeline_steps(_running_payload())
         labels = {s.label: s.state for s in steps}
-        # checkpoint == generation_started → that step and earlier are DONE
-        assert labels["Generation started"] is StepState.DONE
+        # The two former "Generation started" / "Generating code" rows are one.
+        assert "Generation started" not in labels
+        # checkpoint == generation_started → earlier steps are DONE
         assert labels["KB init"] is StepState.DONE
-        # next step is the active one
+        # generation is in flight → the collapsed "Generating code" row is active
         assert labels["Generating code"] is StepState.ACTIVE
         # later steps pending
         assert labels["Deploy & E2E"] is StepState.PENDING
         assert labels["Estimation (P10Y)"] is StepState.PENDING
+
+    def test_generation_done_marks_generating_code_done(self):
+        # Once generation_done is reached, the collapsed row is DONE and the next
+        # real step (Deploy, for an integration run) becomes active.
+        payload = {
+            "status": "running",
+            "checkpoint": "generation_done",
+            "last_spec_readiness": "INTEGRATION_TESTS_READY",
+        }
+        labels = {s.label: s.state for s in render.pipeline_steps(payload)}
+        assert labels["Generating code"] is StepState.DONE
+        assert labels["Deploy & E2E"] is StepState.ACTIVE
 
     def test_completed_marks_all_done(self):
         steps = render.pipeline_steps({"status": "completed", "checkpoint": "estimation_done"})
@@ -67,7 +80,7 @@ class TestPipelineSteps:
         active = next(s for s in steps if s.state is StepState.ACTIVE)
         assert active.symbol == "●"
 
-    def test_local_only_hides_deploy_step(self):
+    def test_local_only_skips_deploy_step(self):
         payload = {
             "status": "running",
             "checkpoint": "generation_done",
@@ -75,9 +88,20 @@ class TestPipelineSteps:
         }
         steps = render.pipeline_steps(payload)
         labels = {s.label: s.state for s in steps}
-        assert "Deploy & E2E" not in labels
-        # The next real step after generation is active, not the (absent) deploy step.
+        # Deploy is shown (struck-through), not hidden, so the pipeline shape reads fully.
+        assert labels["Deploy & E2E"] is StepState.SKIPPED
+        # A skipped step never claims the active slot — the next real step is active.
         assert labels["Outputs archived"] is StepState.ACTIVE
+
+    def test_skipped_step_symbol(self):
+        payload = {
+            "status": "running",
+            "checkpoint": "generation_done",
+            "last_spec_readiness": "LOCAL_ONLY",
+        }
+        deploy = next(s for s in render.pipeline_steps(payload) if s.label == "Deploy & E2E")
+        assert deploy.state is StepState.SKIPPED
+        assert deploy.symbol == "⊘"
 
     def test_local_only_is_case_insensitive(self):
         payload = {
@@ -85,7 +109,8 @@ class TestPipelineSteps:
             "checkpoint": "kb_init_done",
             "last_spec_readiness": "local_only",
         }
-        assert all(s.label != "Deploy & E2E" for s in render.pipeline_steps(payload))
+        labels = {s.label: s.state for s in render.pipeline_steps(payload)}
+        assert labels["Deploy & E2E"] is StepState.SKIPPED
 
     def test_integration_run_keeps_deploy_step(self):
         payload = {
