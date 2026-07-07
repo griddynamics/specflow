@@ -188,10 +188,6 @@ def is_setup_complete(root: Path) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _container_name() -> str:
-    return os.getenv("SPECFLOW_BACKEND_CONTAINER", _BACKEND_CONTAINER_DEFAULT)
-
-
 def containers_running(root: Path | None = None) -> bool:
     """True iff the SpecFlow backend container is currently running.
 
@@ -199,7 +195,7 @@ def containers_running(root: Path | None = None) -> bool:
     CLI or any error is treated as "not running" (the caller then offers to
     start them, which surfaces the real failure with streamed output).
     """
-    backend = _container_name()
+    backend = os.getenv("SPECFLOW_BACKEND_CONTAINER", _BACKEND_CONTAINER_DEFAULT)
     try:
         completed = subprocess.run(
             [
