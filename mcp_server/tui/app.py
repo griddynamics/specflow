@@ -760,7 +760,7 @@ def _session_label(s: dict) -> str:
     # Human-readable checkpoint label from the steps mirror
     checkpoint_key = s.get("checkpoint", "")
     checkpoint_label = next(
-        (label for key, label in CHECKPOINT_STEPS if key == checkpoint_key),
+        (step.label for step in CHECKPOINT_STEPS if step.completed_at == checkpoint_key),
         checkpoint_key,
     )
 
