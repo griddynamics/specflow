@@ -23,6 +23,12 @@ MCP_SERVERS_ENABLED_DEFAULT = MCP_PLAYWRIGHT
 WORKSPACE_DEFAULT_BRANCH = "main"
 WORKSPACE_DEPLOY_WORKFLOW = "deploy.yml"
 
+# Fixed container-internal path to the SQLite file (DATABASE_TYPE=sqlite). It always lives
+# under the /root/.specflow bind mount, so it is NOT a user knob — relocate the db by pointing
+# SPECFLOW_HOME_MOUNT_PATH at a different host dir. Only host-side seeding and tests override
+# SQLITE_DB_PATH (via env) to address the same bind-mounted file by its real host path.
+CONTAINER_SQLITE_DB_PATH = "/root/.specflow/db/specflow.db"
+
 # Single source of truth for the P10Y/Compass endpoint.
 P10Y_DEFAULT_BASE_URL = "https://compass.p10y.com"
 
@@ -239,7 +245,7 @@ class Settings(BaseSettings):
     FIRESTORE_EMULATOR_HOST: Optional[str] = None  # e.g., localhost:8080 or firestore-emulator:8080
     GCP_PROJECT_ID: Optional[str] = None  # GCP project ID for Firestore
     FIRESTORE_DATABASE_NAME: str = "default"  # Firestore database name (default: "(default)")
-    SQLITE_DB_PATH: str = "/root/.specflow/db/specflow.db"  # container-side path bind-mounted to persistent host storage
+    SQLITE_DB_PATH: str = CONTAINER_SQLITE_DB_PATH  # container default; host seeding/tests override via env
 
     # LLM Provider Configuration
     # DEFAULT_PROVIDER is derived from the API keys below — see the computed_field.

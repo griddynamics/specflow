@@ -229,10 +229,10 @@ _WORKSPACE_MOUNT_PATH="${WORKSPACE_MOUNT_PATH:-./workspaces}"
 export SPECFLOW_HOME_PATH="${SPECFLOW_HOME_MOUNT_PATH:-${HOME}/.specflow}"
 export FIRESTORE_DATABASE_NAME="${FIRESTORE_DATABASE_NAME:-specflow}"
 
-# Host-side DB target for the provisioning + seeding subshells (uv run on the host). These
-# are plain (non-exported) vars so `docker compose up` still gives the CONTAINER its own
-# SQLITE_DB_PATH from .env — host writes must go to the bind-mount SOURCE
-# (${SPECFLOW_HOME_PATH}/db/specflow.db), never the container-internal /root/.specflow path.
+# Host-side DB target for the provisioning + seeding subshells (uv run on the host). The
+# container has a fixed internal path (/root/.specflow/db/specflow.db, pinned in
+# docker-compose); host-side writes must instead go to the bind-mount SOURCE
+# (${SPECFLOW_HOME_PATH}/db/specflow.db) so both address the same physical file.
 _DATABASE_TYPE="${DATABASE_TYPE:-sqlite}"
 _SQLITE_DB_PATH="${SPECFLOW_HOME_PATH}/db/specflow.db"
 
