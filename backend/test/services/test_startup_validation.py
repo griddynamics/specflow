@@ -151,6 +151,28 @@ class TestDatabaseConnectivity:
         assert result["passed"] is False
         assert "Connection failed" in result["error"]
 
+    @pytest.mark.asyncio
+    async def test_database_check_passes_on_sqlite(self, temp_workspace_dir):
+        """Regression: the connectivity probe must query a REGISTERED collection.
+
+        The SQLite backend rejects unknown table names, so the old sentinel
+        `query("_health_check")` raised KeyError and the sqlite default never passed
+        readiness. Exercise the real SqliteDatabase path (not the mocked memory db).
+        """
+        from app.database.sqlite import SqliteDatabase
+
+        db = SqliteDatabase(":memory:")
+        try:
+            validator = StartupValidator(
+                db, WorkspacePoolService(db, workspace_base_path=temp_workspace_dir)
+            )
+            result = await validator._check_database_connectivity()
+        finally:
+            db.close()
+
+        assert result["passed"] is True
+        assert result["error"] is None
+
 
 class TestWorkspacePoolValidation:
     """Test workspace pool validation."""

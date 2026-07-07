@@ -26,6 +26,7 @@ from typing import Dict, Any, Optional
 from app.core.config import settings
 from app.core.enums import DatabaseType, LLMProvider
 from app.database.interface import IDatabase
+from app.state.db_adapter import COL_WORKSPACES
 from app.services.workspace_pool import WorkspacePoolService
 
 logger = logging.getLogger("api.main")
@@ -259,12 +260,12 @@ class StartupValidator:
         
         for attempt in range(max_retries):
             try:
-                # Try to query a collection (doesn't need to exist)
-                # This validates connectivity and authentication
-                # Wrap in to_thread to avoid blocking the event loop
-                # Use asyncio.wait_for to add a timeout
+                # Query a real, always-present collection to validate connectivity/auth.
+                # (Must be a registered table: the SQLite backend rejects unknown names,
+                # so a sentinel collection would raise instead of returning empty.)
+                # Wrapped in to_thread to avoid blocking the event loop, with a timeout.
                 _ = await asyncio.wait_for(
-                    asyncio.to_thread(self._db.query, "_health_check", []),
+                    asyncio.to_thread(self._db.query, COL_WORKSPACES, []),
                     timeout=10.0  # 10 second timeout per attempt
                 )
 
