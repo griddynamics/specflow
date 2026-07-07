@@ -178,7 +178,7 @@ Full MCP config and usage: **[MCP_USER.md](MCP_USER.md)**
 Full MCP API reference: **[docs/mcp/API_REFERENCE.md](docs/mcp/API_REFERENCE.md)**
 
 
-Detailed SpecFlow harness instructions: [QUICKSTART.md](docs/QUICKSTART.md)
+Detailed SpecFlow harness instructions: [QUICKSTART.md](QUICKSTART.md)
 
 
 > [!Important]
@@ -193,7 +193,8 @@ Detailed SpecFlow harness instructions: [QUICKSTART.md](docs/QUICKSTART.md)
 
 | Document                                                                 | Description                                 |
 | ------------------------------------------------------------------------ | ------------------------------------------- |
-| [QUICKSTART.md](docs/QUICKSTART.md)                                      | Local setup and first run                   |
+| [QUICKSTART.md](QUICKSTART.md)                                           | Local setup and first run                   |
+| [CONTRIBUTING.md](docs/CONTRIBUTING.md)                                  | How to contribute — workflow and PR checklist |
 | [CLAUDE.md](CLAUDE.md)                                                   | Development protocol and STEEL commandments |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)                             | System design and data flow                 |
 | [docs/mcp/API_REFERENCE.md](docs/mcp/API_REFERENCE.md)                   | MCP tool reference                          |
@@ -201,7 +202,17 @@ Detailed SpecFlow harness instructions: [QUICKSTART.md](docs/QUICKSTART.md)
 | [docs/backend/API_REFERENCE.md](docs/backend/API_REFERENCE.md)           | REST API reference                          |
 | [docs/operations/TROUBLESHOOTING.md](docs/operations/TROUBLESHOOTING.md) | Troubleshooting guide                       |
 | [docs/IDE-SETUP.md](docs/IDE-SETUP.md)                                   | IDE configuration (Cursor + Claude Code)    |
+| [docs/examples/deployment-spec-example.md](docs/examples/deployment-spec-example.md) | Example spec for agentic deployment + E2E tests |
+| [SECURITY.md](SECURITY.md)                                               | Security policy and vulnerability reporting |
 
+
+
+<!-- CONTACT -->
+## Contact
+
+Questions, feedback, or anything that doesn't fit a GitHub issue: [specflow@griddynamics.com](mailto:specflow@griddynamics.com)
+
+Found a security vulnerability? Please report it privately per [SECURITY.md](SECURITY.md) rather than opening a public issue.
 
 
 <!-- LICENSE -->

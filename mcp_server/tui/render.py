@@ -67,6 +67,15 @@ class WorkspaceBar:
 
 
 @dataclass(frozen=True)
+class ComponentBreakdownRow:
+    """One row of the cross-workspace component comparison table."""
+
+    component_name: str
+    average_hours: float
+    variance_percentage: float
+
+
+@dataclass(frozen=True)
 class EstimatePanel:
     """Completed-run estimation summary, flattened for display."""
 
@@ -80,6 +89,7 @@ class EstimatePanel:
     final_estimate: float | None
     per_workspace: list[tuple[str, float]] = field(default_factory=list)
     total_usd_cost: float | None = None
+    component_comparison: list[ComponentBreakdownRow] = field(default_factory=list)
 
 
 def status_pill(status: str | None) -> tuple[str, str]:
@@ -229,13 +239,29 @@ def clear_ws_ineligible_message(payload: dict[str, Any] | None) -> str:
     return "Nothing to clear — these workspaces are not awaiting cleanup."
 
 
-def estimate_panel(result: dict[str, Any] | None) -> EstimatePanel | None:
-    """Flatten a ``MultiWorkspaceEstimationResponse`` dict for display.
+def _component_comparison_rows(result: dict[str, Any]) -> list[ComponentBreakdownRow]:
+    """Cross-workspace per-component breakdown, highest-variance first."""
+    comparison = (result.get("comparative_analysis") or {}).get("component_comparison") or {}
+    rows = [
+        ComponentBreakdownRow(
+            component_name=data.get("component_name") or name,
+            average_hours=float(data.get("average") or 0.0),
+            variance_percentage=float(data.get("variance_percentage") or 0.0),
+        )
+        for name, data in comparison.items()
+    ]
+    rows.sort(key=lambda row: row.variance_percentage, reverse=True)
+    return rows
+
+
+def estimate_panel(payload: dict[str, Any] | None) -> EstimatePanel | None:
+    """Flatten a completed-run status ``payload`` for display.
 
     Returns None when no result is present (run not COMPLETED). Tolerant of
     missing nested fields — every access is defensive so a partial result still
     renders what it has.
     """
+    result = (payload or {}).get("result")
     if not result:
         return None
 
@@ -260,6 +286,7 @@ def estimate_panel(result: dict[str, Any] | None) -> EstimatePanel | None:
         final_estimate=risk.get("final_estimate"),
         per_workspace=per_workspace,
         total_usd_cost=result.get("total_usd_cost"),
+        component_comparison=_component_comparison_rows(result),
     )
 
 

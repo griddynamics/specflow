@@ -34,6 +34,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import httpx
 from rich.console import Group, RenderableType
 from rich.panel import Panel
 from rich.table import Table
@@ -62,6 +63,7 @@ from textual.widgets import (
 from cli import resolve_backend_config
 from services import local_env
 from services.session import resolve_generation_id, set_project_root
+from services.specflow_backend import call_backend_endpoint_bytes
 from tui import actions, activity, mcp_clients, onboarding, render
 from tui.config import (
     EDITABLE_KEYS,
@@ -152,7 +154,7 @@ def _workspaces_panel(payload: dict[str, Any], selected_ws_id: str | None = None
 
 
 def _estimate_panel(payload: dict[str, Any]) -> Panel | None:
-    panel = render.estimate_panel(payload.get("result"))
+    panel = render.estimate_panel(payload)
     if panel is None:
         return None
     grid = Table.grid(padding=(0, 2))
@@ -177,7 +179,23 @@ def _estimate_panel(payload: dict[str, Any]) -> Panel | None:
         grid.add_row("Variants", variants)
     if panel.total_usd_cost is not None:
         grid.add_row("Total spend", f"${panel.total_usd_cost:.2f}")
-    return Panel(grid, title="P10Y estimate", border_style="green")
+
+    renderables: list[RenderableType] = [grid]
+    if panel.component_comparison:
+        breakdown = Table(box=None, padding=(0, 2))
+        breakdown.add_column("Component", justify="left")
+        breakdown.add_column("Avg hours", justify="right")
+        breakdown.add_column("Variance", justify="right")
+        for row in panel.component_comparison:
+            breakdown.add_row(
+                row.component_name,
+                f"{row.average_hours:.0f} h",
+                f"{row.variance_percentage:.0f}%",
+            )
+        renderables.append(breakdown)
+    renderables.append(Text("HTML report available — press h to open", style="dim"))
+
+    return Panel(Group(*renderables), title="P10Y estimate", border_style="green")
 
 
 def _activity_panel(root: Path, payload: dict[str, Any]) -> Panel | None:
@@ -444,6 +462,7 @@ class DashboardScreen(_SpecFlowScreen):
         Binding("c", "connect_client", "Add MCP to AI tool"),
         Binding("o", "open_workspace", "open ws"),
         Binding("enter", "open_workspace", "open ws", show=False),
+        Binding("h", "open_report", "open report"),
         # Priority so the workspace selection wins over the scroll container's
         # own up/down handling (otherwise arrows just scroll the dashboard).
         # PageUp/PageDown/Home/End and the mouse wheel still scroll the body.
@@ -516,6 +535,8 @@ class DashboardScreen(_SpecFlowScreen):
         if action == "retry":
             status = ((self._payload or {}).get("status") or "").lower()
             return True if status == "failed" else None
+        if action == "open_report":
+            return True if render.estimate_panel(self._payload) is not None else None
         return True
 
     def _move_selection(self, delta: int) -> None:
@@ -536,6 +557,47 @@ class DashboardScreen(_SpecFlowScreen):
             self.notify("No workspace to open yet.", severity="information")
             return
         self.app.push_screen(WorkspaceMessagesScreen(self._generation_id, ws_id))
+
+    def action_open_report(self) -> None:
+        if render.estimate_panel(self._payload) is None:
+            self.notify("No HTML report available yet.", severity="information")
+            return
+        self.run_worker(self._open_report(), exclusive=True)
+
+    async def _open_report(self) -> None:
+        """Fetch the HTML report from the backend, cache it locally, then open it.
+
+        The backend runs in a container (local quickstart); its ``artifact_path``
+        is a container-internal filesystem path the TUI process can't read
+        directly, so the report is fetched over HTTP rather than opened in place.
+        """
+        try:
+            html_bytes = await call_backend_endpoint_bytes(
+                endpoint=f"/api/v1/generation-sessions/{self._generation_id}/report.html",
+                timeout_seconds=30,
+            )
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                self.notify("No HTML report available for this run.", severity="information")
+            else:
+                self.notify(f"Couldn't fetch report: {exc}", severity="warning")
+            return
+        except Exception as exc:
+            self.notify(f"Couldn't fetch report: {exc}", severity="warning")
+            return
+
+        cache_path = self.app.root / ".specflow-local" / "reports" / f"{self._generation_id}.html"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_bytes(html_bytes)
+
+        opener = _platform_opener()
+        if opener is None or not shutil.which(opener):
+            self.notify(f"Report saved at {cache_path}", severity="information")
+            return
+        try:
+            await local_env.run_command([opener, str(cache_path)], cache_path.parent, timeout=10)
+        except OSError as exc:
+            self.notify(f"Couldn't open report automatically: {exc}", severity="warning")
 
     async def _run_suspended(self, coro) -> None:
         """Run a CLI action with the TUI suspended, then refresh."""
@@ -631,6 +693,10 @@ class WorkspaceMessagesScreen(_SpecFlowScreen):
         self._workspace_id = workspace_id
         self._got_event = False
 
+    @property
+    def generation_id(self) -> str:
+        return self._generation_id
+
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with Vertical():
@@ -648,6 +714,8 @@ class WorkspaceMessagesScreen(_SpecFlowScreen):
 
     async def refresh_stats(self) -> None:
         payload = await poll_once(self._generation_id)
+        if isinstance(self.app, SpecFlowTUI):
+            self.app.process_payload(self._generation_id, payload)
         self.query_one("#ws-stats", Static).update(
             build_workspace_stats(payload, self._workspace_id)
         )
@@ -750,6 +818,18 @@ class SessionsScreen(_SpecFlowScreen):
         item = event.item
         if isinstance(item, _SessionItem):
             self.app.push_screen(DashboardScreen(item.generation_id))
+
+
+async def _run_init_streamed(app: "SpecFlowTUI", log: RichLog) -> int:
+    """Resolve the repo root and run ``specflow-init.sh`` streaming into ``log``.
+
+    Shared by ``OnboardingScreen`` (wizard tail) and ``RunInitScreen`` (no-wizard
+    path when ``.env`` is already complete). Returns the init exit code; each
+    caller owns its own success/failure UI.
+    """
+    log.display = True
+    repo = local_env.repo_root(app.root) or app.root
+    return await local_env.run_init(repo, local_env.InitFlags(), on_line=log.write)
 
 
 def _platform_opener() -> str | None:
@@ -1356,9 +1436,7 @@ class OnboardingScreen(_SpecFlowScreen):
 
     async def _run_init(self) -> None:
         log = self.query_one("#onboard-log", RichLog)
-        log.display = True
-        repo = local_env.repo_root(self.app.root) or self.app.root
-        rc = await local_env.run_init(repo, local_env.InitFlags(), on_line=log.write)
+        rc = await _run_init_streamed(self.app, log)
         if rc == 0:
             self.dismiss(True)
         else:
@@ -1412,6 +1490,41 @@ class StartContainersScreen(_SpecFlowScreen):
                 "Backend didn't become healthy — check `docker compose logs`.",
                 severity="error",
             )
+
+
+class RunInitScreen(_SpecFlowScreen):
+    """Runs ``specflow init`` off an already-complete ``.env`` — no wizard.
+
+    Used when a fresh checkout has a hand-created ``.env`` with all required
+    secrets but no mcp-config yet: init still must write mcp-config and provision
+    workspace repos, but the onboarding wizard has nothing left to collect. Auto-
+    runs on mount, streams init output into a log pane, then dismisses ``True`` on
+    success so the startup gate proceeds; ``False`` on failure so the gate exits.
+    """
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Static(
+            "Found an existing .env — running `specflow init`…",
+            id="runinit-prompt",
+        )
+        yield RichLog(id="runinit-log", highlight=False, markup=False, wrap=True)
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.run_worker(self._run(), exclusive=True)
+
+    async def _run(self) -> None:
+        log = self.query_one("#runinit-log", RichLog)
+        rc = await _run_init_streamed(self.app, log)
+        if rc == 0:
+            self.dismiss(True)
+        else:
+            self.notify(
+                "Setup failed — review the log, fix .env, and try again.",
+                severity="error",
+            )
+            self.dismiss(False)
 
 
 class SettingsScreen(Screen):
@@ -1482,7 +1595,7 @@ class SpecFlowTUI(App):
     CSS = """
     #dashboard-body { padding: 0 1; }
     #sessions-title, #settings-title, #onboard-title { padding: 1 2; text-style: bold; }
-    #docker-prompt { padding: 2 3; }
+    #docker-prompt, #runinit-prompt { padding: 2 3; }
     .settings-section { padding: 1 2 0 2; text-style: bold; color: $accent; }
     .settings-row { height: 3; padding: 0 2; }
     .settings-label { width: 20; content-align: left middle; }
@@ -1494,7 +1607,7 @@ class SpecFlowTUI(App):
     #onboard-back, #onboard-next, #onboard-go { margin: 0 1 0 0; }
     .onboard-why { padding: 1 2; }
     .onboard-howto { padding: 0 2 0 4; color: $text-muted; }
-    #onboard-log, #docker-log { height: 1fr; border: round $primary; margin: 1 2; }
+    #onboard-log, #docker-log, #runinit-log { height: 1fr; border: round $primary; margin: 1 2; }
     #client-setup-title { padding: 1 2; text-style: bold; }
     #client-detail { padding: 1 2; color: $text-muted; }
     #client-log { height: 1fr; border: round $primary; margin: 1 2; }
@@ -1543,7 +1656,13 @@ class SpecFlowTUI(App):
                 )
                 self.exit()
                 return
-            if not await self.push_screen_wait(OnboardingScreen()):
+            # An already-complete .env means there's nothing to collect — run init
+            # directly (it still writes mcp-config + provisions) without the wizard.
+            if onboarding.env_satisfies_requirements(load_env_secrets(self.root)):
+                gate_screen: _SpecFlowScreen = RunInitScreen()
+            else:
+                gate_screen = OnboardingScreen()
+            if not await self.push_screen_wait(gate_screen):
                 self.exit()
                 return
 
@@ -1602,16 +1721,16 @@ class SpecFlowTUI(App):
             self._notification_trackers.pop(generation_id, None)
 
     def _displayed_generation_id(self) -> str | None:
-        """The run currently shown on the dashboard, which polls it itself."""
+        """The run currently shown on a screen that polls its own status."""
         try:
             screen = self.screen
         except Exception:
             return None
-        return screen.generation_id if isinstance(screen, DashboardScreen) else None
+        return screen.generation_id if isinstance(screen, (DashboardScreen, WorkspaceMessagesScreen)) else None
 
     async def notify_active_sessions(self) -> None:
-        # The visible dashboard polls its own run; exclude it here so it is not
-        # polled twice per interval.
+        # The visible dashboard/workspace screen polls its own run; exclude it
+        # here so list-shaped and status-shaped payloads cannot interleave.
         displayed = self._displayed_generation_id()
         exclude = {displayed} if displayed else set()
 

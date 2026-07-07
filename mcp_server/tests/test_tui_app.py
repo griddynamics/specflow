@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 from textual.widgets import Input
 
+import httpx
 import pytest
 
 pytest.importorskip("textual")
@@ -78,6 +79,52 @@ class TestBuildDashboard:
     def test_none_payload_renders_waiting(self):
         out = self._render(tui_app.build_dashboard(None, Path("/tmp/x"), "gen_x"))
         assert "Waiting for status" in out
+
+    def test_completed_renders_component_breakdown(self):
+        payload = {
+            "generation_id": "gen_x",
+            "status": "completed",
+            "checkpoint": "estimation_done",
+            "progress": {"workspace_phases": {}},
+            "result": {
+                "summary": {"average_hours": 318},
+                "workspace_estimations": [],
+                "comparative_analysis": {
+                    "component_comparison": {
+                        "auth": {
+                            "component_name": "auth",
+                            "average": 40.0,
+                            "variance_percentage": 12.0,
+                        }
+                    }
+                },
+            },
+        }
+        out = self._render(tui_app.build_dashboard(payload, Path("/tmp/acme"), "gen_x"))
+        assert "auth" in out
+        assert "40" in out
+        assert "12%" in out
+
+    def test_completed_renders_report_hint(self):
+        # The report file lives inside the backend container, not on the host
+        # filesystem the TUI runs on — so the hint is shown whenever a P10Y
+        # result exists, and fetched over HTTP on demand (see action_open_report).
+        payload = {
+            "generation_id": "gen_x",
+            "status": "completed",
+            "checkpoint": "estimation_done",
+            "progress": {"workspace_phases": {}},
+            "result": {"summary": {"average_hours": 318}, "workspace_estimations": []},
+        }
+        out = self._render(tui_app.build_dashboard(payload, Path("/tmp/acme"), "gen_x"))
+        assert "HTML report" in out
+        assert "press h to open" in out.lower()
+
+    def test_running_omits_report_hint(self):
+        out = self._render(
+            tui_app.build_dashboard(_running_payload(), Path("/tmp/acme"), "gen_8f3abc21")
+        )
+        assert "HTML report" not in out
 
 
 def _ws_usage_payload() -> dict:
@@ -493,6 +540,49 @@ class TestOnboarding:
                 assert screen.query_one("#onb-GITHUB_TOKEN", Input).password is True
                 assert screen.query_one("#onb-GIT_USER_NAME", Input).password is False
 
+    @pytest.mark.asyncio
+    async def test_complete_env_skips_wizard_runs_init(self, tmp_path):
+        # A pre-existing, complete .env means there is nothing to collect: the
+        # gate runs init directly (RunInitScreen) with no wizard step, so init is
+        # awaited without a single ctrl+n/ctrl+s press.
+        run_init = AsyncMock(return_value=0)
+        complete = {"OPENROUTER_API_KEY": "or", "GITHUB_TOKEN": "gh", "P10Y_API_KEY": "p1"}
+        with (
+            patch("tui.app.local_env.is_setup_complete", return_value=False),
+            patch("tui.app.local_env.repo_root", return_value=tmp_path),
+            patch("tui.app.load_env_secrets", return_value=complete),
+            patch("tui.app.local_env.run_init", new=run_init),
+            patch("tui.app.local_env.containers_running", return_value=True),
+            patch("tui.app.local_env.backend_ready", new=AsyncMock(return_value=True)),
+            patch("tui.app.mcp_clients.is_any_client_connected", return_value=True),
+            patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])),
+        ):
+            app = tui_app.SpecFlowTUI(root=tmp_path, generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.SessionsScreen)
+        run_init.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_incomplete_env_still_shows_wizard(self, tmp_path):
+        run_init = AsyncMock(return_value=0)
+        incomplete = {"GITHUB_TOKEN": "gh"}  # no LLM key, no P10Y key
+        with (
+            patch("tui.app.local_env.is_setup_complete", return_value=False),
+            patch("tui.app.local_env.repo_root", return_value=tmp_path),
+            patch("tui.app.load_env_secrets", return_value=incomplete),
+            patch("tui.app.local_env.run_init", new=run_init),
+            patch("tui.app.local_env.containers_running", return_value=True),
+            patch("tui.app.local_env.backend_ready", new=AsyncMock(return_value=True)),
+            patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])),
+        ):
+            app = tui_app.SpecFlowTUI(root=tmp_path, generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.OnboardingScreen)
+        run_init.assert_not_awaited()
+
 
 class TestQuitBinding:
     @pytest.mark.asyncio
@@ -654,6 +744,33 @@ class TestWorkspaceDrillIn:
                 assert isinstance(app.screen, tui_app.DashboardScreen)
 
     @pytest.mark.asyncio
+    async def test_workspace_screen_excludes_app_level_session_watcher(self):
+        # The workspace drill-in polls /status for its stats panel, so the
+        # app-wide session watcher must not also poll the same generation via
+        # the list endpoint. Mixing the two payload shapes can replay desktop
+        # "phase progressed" notifications.
+        a, b, c = _gate_ready()
+        fetch = AsyncMock(return_value=[])
+        with (
+            a,
+            b,
+            c,
+            patch("tui.app.fetch_sessions", new=fetch),
+            patch("tui.app.poll_once", new=AsyncMock(return_value=_ws_usage_payload())),
+            patch("tui.app.workspace_message_events", new=_events_iter([])),
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                app.push_screen(tui_app.WorkspaceMessagesScreen("gen_x", "ws-01-1"))
+                await pilot.pause()
+                fetch.reset_mock()
+
+                await app.notify_active_sessions()
+
+                fetch.assert_awaited_once_with(exclude={"gen_x"})
+
+    @pytest.mark.asyncio
     async def test_open_with_no_workspaces_notifies(self):
         # No workspace_phases → nothing to open; action must not crash.
         a, b, c = _gate_ready()
@@ -731,6 +848,16 @@ class TestDashboardCheckAction:
         screen = tui_app.DashboardScreen("gen_x")
         screen._payload = {"status": "running"}
         assert screen.check_action("clear", ()) is True
+
+    def test_open_report_greyed_out_without_result(self):
+        screen = tui_app.DashboardScreen("gen_x")
+        screen._payload = {"status": "running"}
+        assert screen.check_action("open_report", ()) is None
+
+    def test_open_report_enabled_when_result_present(self):
+        screen = tui_app.DashboardScreen("gen_x")
+        screen._payload = {"status": "completed", "result": {"summary": {}}}
+        assert screen.check_action("open_report", ()) is True
 
 
 class TestConfirmScreenCountdown:
@@ -929,6 +1056,100 @@ class TestDashboardActionFlows:
                 do_clear.assert_not_called()
                 run_susp.assert_not_awaited()
                 assert isinstance(psw.await_args.args[0], tui_app.MessageScreen)
+
+
+class TestDashboardOpenReport:
+    """``h`` fetches the HTML report over HTTP (the backend runs in a container,
+    so there's no shared filesystem path to open directly) and caches it locally
+    before opening; a missing opener or missing report must never crash."""
+
+    @pytest.mark.asyncio
+    async def test_opens_report_via_platform_opener(self, tmp_path):
+        a, b, c = _gate_ready()
+        with a, b, c, patch("tui.app.poll_once", new=AsyncMock(return_value=_running_payload())):
+            app = tui_app.SpecFlowTUI(root=tmp_path, generation_id="gen_x", poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                screen = app.screen
+                with (
+                    patch(
+                        "tui.app.call_backend_endpoint_bytes",
+                        new=AsyncMock(return_value=b"<html>report</html>"),
+                    ),
+                    patch("tui.app._platform_opener", return_value="open"),
+                    patch("tui.app.shutil.which", return_value="/usr/bin/open"),
+                    patch("tui.app.local_env.run_command", new=AsyncMock()) as run_cmd,
+                ):
+                    await screen._open_report()
+                cache_path = tmp_path / ".specflow-local" / "reports" / "gen_x.html"
+                assert cache_path.read_bytes() == b"<html>report</html>"
+                run_cmd.assert_awaited_once_with(
+                    ["open", str(cache_path)], cache_path.parent, timeout=10
+                )
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_notify_when_no_opener_available(self, tmp_path):
+        a, b, c = _gate_ready()
+        with a, b, c, patch("tui.app.poll_once", new=AsyncMock(return_value=_running_payload())):
+            app = tui_app.SpecFlowTUI(root=tmp_path, generation_id="gen_x", poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                screen = app.screen
+                with (
+                    patch(
+                        "tui.app.call_backend_endpoint_bytes",
+                        new=AsyncMock(return_value=b"<html></html>"),
+                    ),
+                    patch("tui.app._platform_opener", return_value=None),
+                    patch("tui.app.local_env.run_command", new=AsyncMock()) as run_cmd,
+                    patch.object(screen, "notify") as notify,
+                ):
+                    await screen._open_report()
+                run_cmd.assert_not_awaited()
+                notify.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_404_shows_no_report_available_message(self, tmp_path):
+        request = httpx.Request("GET", "http://backend/api/v1/generation-sessions/gen_x/report.html")
+        response = httpx.Response(404, request=request)
+        not_found = httpx.HTTPStatusError("Not Found", request=request, response=response)
+        a, b, c = _gate_ready()
+        with a, b, c, patch("tui.app.poll_once", new=AsyncMock(return_value=_running_payload())):
+            app = tui_app.SpecFlowTUI(root=tmp_path, generation_id="gen_x", poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                screen = app.screen
+                with (
+                    patch(
+                        "tui.app.call_backend_endpoint_bytes",
+                        new=AsyncMock(side_effect=not_found),
+                    ),
+                    patch("tui.app.local_env.run_command", new=AsyncMock()) as run_cmd,
+                    patch.object(screen, "notify") as notify,
+                ):
+                    await screen._open_report()
+                run_cmd.assert_not_awaited()
+                notify.assert_called_once()
+                assert "no html report" in notify.call_args.args[0].lower()
+
+    @pytest.mark.asyncio
+    async def test_open_report_no_op_when_no_result_yet(self, tmp_path):
+        a, b, c = _gate_ready()
+        with a, b, c, patch("tui.app.poll_once", new=AsyncMock(return_value=_running_payload())):
+            app = tui_app.SpecFlowTUI(root=tmp_path, generation_id="gen_x", poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                screen = app.screen
+                screen._payload = {"status": "running"}
+                with (
+                    patch(
+                        "tui.app.call_backend_endpoint_bytes", new=AsyncMock()
+                    ) as call_backend,
+                    patch.object(screen, "notify") as notify,
+                ):
+                    screen.action_open_report()
+                call_backend.assert_not_awaited()
+                notify.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

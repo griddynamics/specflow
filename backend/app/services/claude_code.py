@@ -1051,6 +1051,13 @@ async def process_query_stream(
 
     except Exception as e:
         error_msg = str(e)
+        if messages and messages[-1].is_error and messages[-1].result:
+            # The SDK's trailing ProcessError/synthesized exception text can be lossy: when its
+            # own `errors` list is empty it falls back to the bare result subtype (e.g. "success"),
+            # discarding the actual diagnostic already carried on the ResultMessage we collected
+            # above (e.g. "API returned an empty or malformed response"). Prefer that text so
+            # classify_error / model-routing-failure fallback downstream sees the real reason.
+            error_msg = messages[-1].result
         error_type = classify_error(error_msg)
         if error_type == AgentErrorType.TOOL_CALL_FAILURE:
             logger.error(
@@ -1062,7 +1069,7 @@ async def process_query_stream(
             )
         else:
             logger.error(f"Error during query execution: {error_msg}")
-        raise e
+        raise Exception(error_msg) from e
 
     return messages
 

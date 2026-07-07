@@ -282,6 +282,16 @@ def validate_all(values: dict[str, str], chosen_provider: str) -> str | None:
     return None
 
 
+def env_satisfies_requirements(secrets: dict[str, str]) -> bool:
+    """True if an existing ``.env`` already has every required key for a provider.
+
+    Reuses ``validate_all`` against each known provider so the "what's required"
+    contract stays defined in exactly one place (no second validator). A ``.env``
+    is sufficient when it satisfies either provider's requirements.
+    """
+    return any(validate_all(secrets, provider) is None for provider in PROVIDER_KEYS)
+
+
 def collected_secrets(values: dict[str, str], chosen_provider: str) -> dict[str, str]:
     """Non-empty values to write to ``.env``, omitting the non-chosen provider key."""
     drop = {k for k in PROVIDER_KEYS.values() if k != provider_field(chosen_provider).key}

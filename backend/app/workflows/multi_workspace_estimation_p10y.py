@@ -44,6 +44,8 @@ from app.schemas.llm_tier import (
 from app.schemas.specification import GenerationWorkflowRequest
 from app.schemas.telemetry_workflow import TelemetryWorkflowLabel
 from app.schemas.workspace import WorkspaceSettings
+from app.core.artifact_files import MULTI_WORKSPACE_REPORT_HTML_FILE, MULTI_WORKSPACE_REPORT_MD_FILE
+from app.core.notifications import render_generation_session_report_html
 from app.services.artifact_store import ArtifactStore
 from app.services.claude_code import agent_query
 from app.services.p10y.estimation_report_generator import format_multi_workspace_report
@@ -642,7 +644,19 @@ async def multi_workspace_estimation_p10y_workflow(
         f"buffer={risk_assessment.total_buffer_pct*100:.1f}%, "
         f"final_estimate={risk_assessment.final_estimate:.1f}h"
     )
-    
+
+    # Build response now — every field is resolved, and both the markdown and
+    # HTML reports below render from it.
+    response = MultiWorkspaceEstimationResponse(
+        summary=summary,
+        workspace_estimations=workspace_estimations,
+        comparative_analysis=comparative_analysis,
+        timestamp=datetime.now(timezone.utc).isoformat(),
+        skipped_workspaces=skipped_workspaces,
+        aggregate_p10y_commit_coverage_pct=aggregate_cov,
+        total_usd_cost=session_llm_cost_total,
+    )
+
     # Generate structured markdown report using report generator
     logger.info("Generating structured markdown report...")
     structured_report = format_multi_workspace_report(
@@ -652,13 +666,37 @@ async def multi_workspace_estimation_p10y_workflow(
         skipped_workspaces=skipped_workspaces,
         aggregate_p10y_commit_coverage_pct=aggregate_cov,
     )
-    
+
     # Save structured report to file in primary workspace
     primary_workspace_path = workspaces[0].workspace_path
     full_outputs_dir = f"{primary_workspace_path}/{request.outputs_dir}"
-    structured_report_path = f"{full_outputs_dir}/multi-workspace-estimation-report.md"
+    structured_report_path = f"{full_outputs_dir}/{MULTI_WORKSPACE_REPORT_MD_FILE}"
     _write_structured_report(structured_report, structured_report_path, logger)
-    
+
+    # Save the same report as HTML, regardless of whether email/Slack notifiers
+    # are configured — local quickstart users have neither, so this is the only
+    # place the HTML report is produced. Non-essential observability output: a
+    # failure here must never abort an estimation whose work is already done.
+    # The renderer only reads (a plain db.get("workspaces", id)); db_adapter is
+    # the async state-machine wrapper, so pass its read-only view — without a
+    # database handle the Variants section silently drops out.
+    logger.info("Generating HTML report...")
+    try:
+        html_content, _plain_content = render_generation_session_report_html(
+            generation_id=request.generation_id,
+            workspace_ids=workspace_ids,
+            result=response,
+            spec_path=request.spec_path,
+            db=db_adapter.read_only_db if db_adapter else None,
+        )
+        html_report_path = f"{full_outputs_dir}/{MULTI_WORKSPACE_REPORT_HTML_FILE}"
+        _write_structured_report(html_content, html_report_path, logger)
+    except Exception as e:
+        logger.warning(
+            "Failed to render/write HTML report — continuing without it: %s",
+            e, exc_info=True,
+        )
+
     # Generate AI-powered comprehensive report (optional, additional analysis)
     logger.info("Generating AI-powered comprehensive report...")
     report_summary = await _generate_ai_report(
@@ -691,18 +729,7 @@ async def multi_workspace_estimation_p10y_workflow(
                 f"Failed to archive combined report for estimation {generation_id}: {e}",
                 exc_info=True,
             )
-    
-    # Build response
-    response = MultiWorkspaceEstimationResponse(
-        summary=summary,
-        workspace_estimations=workspace_estimations,
-        comparative_analysis=comparative_analysis,
-        timestamp=datetime.now(timezone.utc).isoformat(),
-        skipped_workspaces=skipped_workspaces,
-        aggregate_p10y_commit_coverage_pct=aggregate_cov,
-        total_usd_cost=session_llm_cost_total,
-    )
-    
+
     logger.info("Multi-workspace estimation completed successfully")
-    
+
     return response

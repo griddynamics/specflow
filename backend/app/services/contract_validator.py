@@ -122,9 +122,26 @@ _E2E_PLAN_FILE = _CanonicalFile(
 
 # Part F section header pattern — same regex as MCP precheck for behavior parity.
 _PART_F_HEADER = re.compile(r"^#+\s*part\s*f\b", re.IGNORECASE | re.MULTILINE)
+# Any "Part <letter>" heading — used to bound Part F to its own section instead of
+# scanning to end-of-document (a later Part, or a summary line restating Part F,
+# must not be read as the readiness declaration).
+_PART_HEADER = re.compile(r"^#+\s*part\s*[a-z]\b", re.IGNORECASE | re.MULTILINE)
 _INTEGRATION_READY_TOKEN = re.compile(
     r"integration[_\s-]*tests?[_\s-]*ready", re.IGNORECASE
 )
+# The authoritative "**Integration Readiness:** <token>" declaration. Anchored to a
+# single line (^...$, MULTILINE) so a prose sentence that merely mentions the label
+# — before or after the real field — can never be captured instead of it.
+_READINESS_FIELD = re.compile(
+    r"^\s*\**\s*integration\s+readiness[\s*:]{1,12}"
+    r"(?:(?P<ready>integration[_\s-]*tests?[_\s-]*ready)"
+    r"|(?P<not_ready>local[_\s-]*only|not[_\s-]*ready))"
+    r"[\s*.]{0,6}$",
+    re.IGNORECASE | re.MULTILINE,
+)
+# Detects an attempted (but unparseable) declaration — present so callers can refuse
+# rather than guess, instead of silently falling back to a whole-section token scan.
+_READINESS_LABEL = re.compile(r"integration\s+readiness", re.IGNORECASE)
 # Heading match is intentionally lenient (any heading level h1–h6) so the
 # deterministic preflight never rejects a plan the downstream LLM conversion agent
 # would accept. The skill emits `## Phase N:`, but a hand-edited `# Phase N` must
@@ -286,6 +303,18 @@ def normalize_contract_files(
             ),
         )
 
+    part_f = _part_f_section(analysis_text)
+    if part_f is not None and _readiness_field_is_ambiguous(part_f):
+        raise ContractRejection(
+            code=RejectionCode.ANALYSIS_UNREADABLE,
+            message=(
+                f"Couldn't read integration readiness from `{SPEC_COMPLETENESS_FILE}`. "
+                f"Part F declares an Integration Readiness field, but its value isn't "
+                f"`INTEGRATION_TESTS_READY` or `LOCAL_ONLY`. Re-run "
+                f"`check_specification_completeness`."
+            ),
+        )
+
     result: dict[str, Path] = {"analysis": analysis_path, "plan": plan_path}
 
     if is_integration_tests_ready(analysis_text):
@@ -395,28 +424,54 @@ def validate_generation_contract_preflight(
 
 
 def _part_f_section(analysis_text: str) -> str | None:
-    """Return the text from the Part F header to end of document, or None if absent.
+    """Return the text of the Part F section only, or None if absent.
 
-    Readiness must be read from Part F only — the integration-readiness token may
-    legitimately appear elsewhere (a Part B summary table, a preamble note) without
-    meaning the spec is integration-ready.
+    Bounded at the next "Part <letter>" heading (or end of document if there is
+    none) so a later section — or a summary line elsewhere that merely restates
+    "Part F (Integration Readiness): ..." — is never scanned as part of Part F.
     """
     match = _PART_F_HEADER.search(analysis_text)
     if match is None:
         return None
-    return analysis_text[match.start():]
+    next_part = _PART_HEADER.search(analysis_text, match.end())
+    end = next_part.start() if next_part is not None else len(analysis_text)
+    return analysis_text[match.start():end]
+
+
+def _readiness_field_is_ambiguous(part_f: str) -> bool:
+    """True if Part F attempts an "Integration Readiness" declaration that doesn't
+    parse to a recognized token — e.g. a paraphrase or a value split across
+    decoration the field regex doesn't recognize.
+
+    Distinguishes "field missing entirely" (legitimate non-standard formatting,
+    left to the lenient fallback in ``is_integration_tests_ready``) from "field
+    present but unreadable" (refuse rather than guess, per callers below).
+    """
+    return _READINESS_LABEL.search(part_f) is not None and _READINESS_FIELD.search(part_f) is None
 
 
 def is_integration_tests_ready(analysis_text: str) -> bool:
     """Return True if the analysis file declares INTEGRATION_TESTS_READY in Part F.
 
-    Only the Part F section is scanned. A document with no Part F header is treated
-    as not-ready here; genuine "Part F missing" cases are rejected earlier in
-    ``normalize_contract_files`` with a clearer ANALYSIS_UNREADABLE error.
+    Only the Part F section is scanned. Within it, the "**Integration Readiness:**"
+    field — anchored to its own line — is checked first, so neither a preamble
+    sentence nor a Rationale sentence that merely mentions the other token can be
+    captured in its place. If no such field is found at all (non-standard
+    formatting with no labeled declaration), falls back to scanning the whole
+    Part F section for the token. If a field IS attempted but doesn't parse, the
+    caller is expected to have already rejected via ``_readiness_field_is_ambiguous``
+    rather than reach this fallback.
+
+    A document with no Part F header is treated as not-ready here; genuine "Part F
+    missing" cases are rejected earlier in ``normalize_contract_files`` with a
+    clearer ANALYSIS_UNREADABLE error.
     """
     part_f = _part_f_section(analysis_text)
     if part_f is None:
         return False
+    field_match = _READINESS_FIELD.search(part_f)
+    if field_match is not None:
+        return field_match.group("ready") is not None
     return bool(_INTEGRATION_READY_TOKEN.search(part_f))
 
 

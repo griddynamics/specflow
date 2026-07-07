@@ -71,8 +71,10 @@ from app.services.generation_workflow_runner import (
     _multi_workspace_result_to_store,
     _handle_workflow_exception,
 )
+from app.core.artifact_files import MULTI_WORKSPACE_REPORT_HTML_FILE
+from app.core.artifact_subdirs import REPORT_SUBDIR
 from app.services.workspace_pool import WorkspacePoolService
-from app.services.artifact_store import ArtifactStore
+from app.services.artifact_store import ARTIFACTS_BASE, ArtifactStore
 from app.services.agent_stream_broker import get_agent_stream_broker
 from app.services.mcp_prune import resolve_enabled_mcps_and_set_telemetry
 from app.schemas.model_token_usage import ModelTokenUsage
@@ -1661,4 +1663,30 @@ async def download_generation_session_outputs(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to build outputs tarball: {e}",
         )
+
+
+@router.get("/{generation_id}/report.html")
+@track_event(event_name="download_report_html_triggered")
+async def download_generation_session_report_html(
+    generation_id: str,
+    request: Request,
+    _: None = Depends(require_generation_session_owner),
+):
+    """
+    Serve the P10Y multi-workspace estimation report as raw HTML.
+
+    Lightweight alternative to ``/outputs`` — a few KB rather than a full
+    tarball of workspace code, so it's fast enough to fetch on a single local
+    TUI keypress. Raises 404 when the report hasn't been written yet (P10Y
+    estimation not complete, or this is an older run predating the report).
+    """
+    report_path = (
+        ARTIFACTS_BASE / generation_id / REPORT_SUBDIR / MULTI_WORKSPACE_REPORT_HTML_FILE
+    )
+    if not report_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No HTML report found for generation session {generation_id}.",
+        )
+    return Response(content=report_path.read_bytes(), media_type="text/html")
 
