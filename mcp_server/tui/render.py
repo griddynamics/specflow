@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Any
 
 from tui.constants import (
+    CHECKPOINT_ORDER,
     CHECKPOINT_STEPS,
     DEPLOY_CHECKPOINT,
     LOCAL_ONLY_READINESS,
@@ -98,52 +99,47 @@ def status_pill(status: str | None) -> tuple[str, str]:
     return STATUS_PILLS.get(key, STATUS_PILLS["unknown"])
 
 
-def _relevant_steps(payload: dict[str, Any]) -> list[tuple[str, str]]:
-    """Checkpoint steps relevant to this run.
-
-    Local-only runs (the primary TUI audience) never deploy or run E2E, so that
-    step is dropped — leaving it as a permanently-pending row is misleading.
-    """
-    readiness = (payload.get("last_spec_readiness") or "").upper()
-    if readiness == LOCAL_ONLY_READINESS:
-        return [step for step in CHECKPOINT_STEPS if step[0] != DEPLOY_CHECKPOINT]
-    return list(CHECKPOINT_STEPS)
+def _checkpoint_index(checkpoint: str) -> int:
+    """Position of a backend checkpoint in the full order; -1 when unknown."""
+    try:
+        return CHECKPOINT_ORDER.index(checkpoint)
+    except ValueError:
+        return -1
 
 
 def pipeline_steps(payload: dict[str, Any]) -> list[PipelineStep]:
-    """Build the checkpoint stepper from ``status`` + ``checkpoint``.
+    """Build the collapsed checkpoint stepper from ``status`` + ``checkpoint``.
 
-    Steps at or before the current checkpoint are DONE; the next step is ACTIVE
-    while the run is still in progress; the rest are PENDING. A COMPLETED run
-    marks every step DONE; an unknown checkpoint leaves the first step ACTIVE.
-    Deploy & E2E is omitted for local-only runs (see ``_relevant_steps``), and
-    done/active indices are computed within the relevant set so the next real
-    step is highlighted even when deploy is skipped.
+    Each displayed row is DONE once its backend completion checkpoint
+    (``PipelineStepDef.completed_at``) has been reached; the first not-yet-done
+    row is ACTIVE while the run is in progress; the rest are PENDING. A COMPLETED
+    run marks every row DONE; an unknown checkpoint leaves the first row ACTIVE.
+
+    Deploy & E2E is SKIPPED (rendered struck-through, not hidden) on local-only
+    runs — the readiness is known up front, so showing the omitted stage is
+    clearer than dropping it. A SKIPPED row never claims the ACTIVE slot, so the
+    next real step is highlighted even when deploy is skipped.
     """
-    steps_def = _relevant_steps(payload)
     status = (payload.get("status") or "").lower()
-    if status == "completed":
-        return [PipelineStep(label, StepState.DONE) for _, label in steps_def]
-
-    order = [key for key, _ in steps_def]
-    checkpoint = payload.get("checkpoint") or ""
-    try:
-        current_idx = order.index(checkpoint)
-    except ValueError:
-        current_idx = -1
-
+    completed = status == "completed"
     in_progress = status in _IN_PROGRESS_STATUSES
-    active_idx = current_idx + 1 if in_progress else -1
+    local_only = (payload.get("last_spec_readiness") or "").upper() == LOCAL_ONLY_READINESS
+
+    current_idx = _checkpoint_index(payload.get("checkpoint") or "")
 
     steps: list[PipelineStep] = []
-    for idx, (_, label) in enumerate(steps_def):
-        if idx <= current_idx:
+    active_assigned = False
+    for step in CHECKPOINT_STEPS:
+        if local_only and step.completed_at == DEPLOY_CHECKPOINT:
+            state = StepState.SKIPPED
+        elif completed or current_idx >= _checkpoint_index(step.completed_at):
             state = StepState.DONE
-        elif idx == active_idx:
+        elif in_progress and not active_assigned:
             state = StepState.ACTIVE
+            active_assigned = True
         else:
             state = StepState.PENDING
-        steps.append(PipelineStep(label, state))
+        steps.append(PipelineStep(step.label, state))
     return steps
 
 
