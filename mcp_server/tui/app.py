@@ -68,7 +68,9 @@ from tui import actions, activity, mcp_clients, onboarding, render
 from tui.config import (
     EDITABLE_KEYS,
     ENV_SECRET_KEYS,
+    LANGFUSE_KEYS,
     MASKED_KEYS,
+    langfuse_partial_error,
     load_env,
     load_env_secrets,
     save_env,
@@ -778,11 +780,15 @@ class SessionsScreen(_SpecFlowScreen):
     BINDINGS = [
         Binding("r", "reload", "reload"),
         Binding("c", "connect_client", "Add MCP to AI tool"),
+        Binding("s", "settings", "settings"),
     ]
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Static("SpecFlow · sessions   (↑/↓ select · ↵ open · r reload)", id="sessions-title")
+        yield Static(
+            "SpecFlow · sessions   (↑/↓ select · ↵ open · r reload · s settings)",
+            id="sessions-title",
+        )
         yield ListView(id="sessions-list")
         yield Footer()
 
@@ -813,6 +819,9 @@ class SessionsScreen(_SpecFlowScreen):
 
     def action_connect_client(self) -> None:
         self.app.push_screen(ClientSetupScreen())
+
+    def action_settings(self) -> None:
+        self.app.push_screen(SettingsScreen())
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         item = event.item
@@ -1345,6 +1354,14 @@ class OnboardingScreen(_SpecFlowScreen):
             else:
                 shown = secrets.get(key) or "— (auto)"
             lines.append(f"  {f.label:<26} {shown}")
+        # Advanced/optional LangFuse — only recapped when the user provided it.
+        if any(secrets.get(key) for key in LANGFUSE_KEYS):
+            for key in LANGFUSE_KEYS:
+                f = field_by_key[key]
+                shown = ("•••• set" if secrets.get(key) else "— (missing)") if f.masked else (
+                    secrets.get(key) or "— (missing)"
+                )
+                lines.append(f"  {f.label:<26} {shown}")
         return Static("\n".join(lines), classes="onboard-howto")
 
     # -- navigation --------------------------------------------------------
@@ -1528,12 +1545,32 @@ class RunInitScreen(_SpecFlowScreen):
 
 
 class SettingsScreen(Screen):
-    """Editor for runtime settings (mcp-config.json) and secrets (.env)."""
+    """Editor for runtime settings (mcp-config.json) and secrets (.env).
+
+    Three sections: runtime settings (mcp-config.json), core secrets (.env), and
+    an Advanced section for optional LangFuse tracing (.env). All secret keys
+    share one row-builder and one save loop, so a new secret is added in exactly
+    one place (its key list) and inherits the masking + blank-means-keep rules.
+    """
 
     BINDINGS = [
         Binding("ctrl+s", "save", "save"),
         Binding("escape", "cancel", "cancel"),
     ]
+
+    def _secret_rows(self, keys: list[str], secrets: dict[str, str]) -> ComposeResult:
+        """Yield a labelled Input row per secret key (masked keys mount blank)."""
+        for key in keys:
+            masked = key in MASKED_KEYS
+            has = bool(secrets.get(key))
+            with Horizontal(classes="settings-row"):
+                yield Label(f"{key:<22}", classes="settings-label")
+                yield Input(
+                    value="" if masked else str(secrets.get(key, "")),
+                    password=masked,
+                    placeholder="•••• set (blank = keep)" if masked and has else "",
+                    id=f"secret-{key}",
+                )
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -1547,20 +1584,32 @@ class SettingsScreen(Screen):
                     yield Label(f"{key:<22}", classes="settings-label")
                     yield Input(value=str(env.get(key, "")), id=f"field-{key}")
             yield Static("Secrets (.env)", classes="settings-section")
-            for key in ENV_SECRET_KEYS:
-                masked = key in MASKED_KEYS
-                has = bool(secrets.get(key))
-                with Horizontal(classes="settings-row"):
-                    yield Label(f"{key:<22}", classes="settings-label")
-                    yield Input(
-                        value="" if masked else str(secrets.get(key, "")),
-                        password=masked,
-                        placeholder="•••• set (blank = keep)" if masked and has else "",
-                        id=f"secret-{key}",
-                    )
+            yield from self._secret_rows(ENV_SECRET_KEYS, secrets)
+            yield Static(
+                "Advanced · LangFuse tracing (optional — all three or none)",
+                classes="settings-section",
+            )
+            yield from self._secret_rows(LANGFUSE_KEYS, secrets)
         yield Footer()
 
+    def _secret_input(self, key: str) -> str:
+        return self.query_one(f"#secret-{key}", Input).value.strip()
+
     def action_save(self) -> None:
+        # Reject a partially-filled LangFuse set before writing anything. Uses the
+        # effective post-save state (a blank masked key keeps its stored value),
+        # so "all three already set, none edited" is not flagged as partial.
+        stored = load_env_secrets(self.app.root)
+        effective_langfuse = {
+            key: (stored.get(key, "") if (key in MASKED_KEYS and self._secret_input(key) == "")
+                  else self._secret_input(key))
+            for key in LANGFUSE_KEYS
+        }
+        partial = langfuse_partial_error(effective_langfuse)
+        if partial:
+            self.notify(partial, severity="error")
+            return
+
         new_env = {
             key: self.query_one(f"#field-{key}", Input).value.strip() for key in EDITABLE_KEYS
         }
@@ -1569,8 +1618,8 @@ class SettingsScreen(Screen):
         # Blank masked field means "keep stored" so a secret is never wiped by
         # editing the other fields.
         secret_updates: dict[str, str] = {}
-        for key in ENV_SECRET_KEYS:
-            value = self.query_one(f"#secret-{key}", Input).value.strip()
+        for key in ENV_SECRET_KEYS + LANGFUSE_KEYS:
+            value = self._secret_input(key)
             if key in MASKED_KEYS and value == "":
                 continue
             secret_updates[key] = value

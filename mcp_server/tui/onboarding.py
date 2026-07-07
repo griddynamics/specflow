@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from tui.config import ENV_SECRET_KEYS, MASKED_KEYS
+from tui.config import ENV_SECRET_KEYS, LANGFUSE_KEYS, MASKED_KEYS, langfuse_partial_error
 
 # Provider option ids for the LLM-provider choice step.
 PROVIDER_OPENROUTER = "openrouter"
@@ -195,6 +195,27 @@ _COMPASS = Step(
     fields=(Field("P10Y_API_KEY", "P10Y / Compass API key", required=True),),
 )
 
+_ADVANCED = Step(
+    step_id="advanced",
+    title="Advanced settings (optional)",
+    kind=StepKind.FIELDS,
+    why=(
+        "Optional — leave blank to skip (you can add these later from Settings). "
+        "LangFuse captures LLM traces for debugging and cost analysis. All three "
+        "values are required together to enable tracing."
+    ),
+    how_to=(
+        "1. In your LangFuse project: Settings > API Keys > Create.",
+        "2. Paste the public key, secret key, and host URL below — or skip.",
+    ),
+    url="https://cloud.langfuse.com",
+    fields=(
+        Field("LANGFUSE_PUBLIC_KEY", "LangFuse public key", hint="pk-lf-…  (blank = skip)"),
+        Field("LANGFUSE_SECRET_KEY", "LangFuse secret key", hint="sk-lf-…  (blank = skip)"),
+        Field("LANGFUSE_BASE_URL", "LangFuse host URL", hint="https://cloud.langfuse.com"),
+    ),
+)
+
 _REVIEW = Step(
     step_id="review",
     title="Review & initialize",
@@ -205,7 +226,7 @@ _REVIEW = Step(
     ),
 )
 
-STEPS: tuple[Step, ...] = (_WELCOME, _PROVIDER, _GITHUB, _COMPASS, _REVIEW)
+STEPS: tuple[Step, ...] = (_WELCOME, _PROVIDER, _GITHUB, _COMPASS, _ADVANCED, _REVIEW)
 
 # The provider-choice step, exposed so the screen need not hardcode an index.
 PROVIDER_STEP: Step = _PROVIDER
@@ -225,9 +246,12 @@ def _all_field_keys() -> set[str]:
     return keys
 
 
-_UNKNOWN_KEYS = _all_field_keys() - set(ENV_SECRET_KEYS)
+# Fields may collect either a core secret or an advanced/optional one (LangFuse);
+# both are keys the .env writer knows about.
+_WRITABLE_KEYS = set(ENV_SECRET_KEYS) | set(LANGFUSE_KEYS)
+_UNKNOWN_KEYS = _all_field_keys() - _WRITABLE_KEYS
 assert not _UNKNOWN_KEYS, (
-    f"onboarding STEPS reference keys absent from config.ENV_SECRET_KEYS: {_UNKNOWN_KEYS}"
+    f"onboarding STEPS reference keys absent from config secret/LangFuse keys: {_UNKNOWN_KEYS}"
 )
 
 
@@ -261,6 +285,10 @@ def validate_step(step: Step, values: dict[str, str], chosen_provider: str) -> s
         missing = [f.label for f in step.fields if f.required and not values.get(f.key, "").strip()]
         if missing:
             return "Missing required field(s): " + ", ".join(missing)
+        # LangFuse fields are optional but all-or-nothing — enforce only on the
+        # step that actually carries them (the shared config rule, one place).
+        if any(f.key in LANGFUSE_KEYS for f in step.fields):
+            return langfuse_partial_error(values)
     return None
 
 
