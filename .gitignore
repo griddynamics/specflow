@@ -2,6 +2,7 @@
 .env
 .env.local
 .env.backup
+.env.test
 
 # SpecFlow session file — local to each project, not committed
 specflow_session.json
