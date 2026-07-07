@@ -102,6 +102,14 @@ Check new code against the mandatory patterns from `CLAUDE.md`:
 - **No raw collections as public API** — functions returning `dict`/`list` for structured data should return a typed model instead.
 - **Model with the right paradigm for clarity** — choose the tool that makes the domain intent obvious at the call site: pure functions for stateless transforms, magic methods for natural domain operations (`current + delta` via `__add__` instead of manual field construction), OOP for encapsulating state and invariants. Flag code that uses a weaker paradigm when a stronger one would eliminate boilerplate and make the intent self-evident.
 
+**14. Guards that defend against developer errors instead of runtime input**
+Classify every `if/else` and `try/except` by **what it guards against**. A guard is only legitimate when the value it checks can be wrong for reasons **outside our code's control**. This is the sibling of item #12 (`assert` forbidden outside tests) — same philosophy: internal invariants belong in unit tests, not hot-path branches.
+- **Decision heuristic:** "Can this value only be wrong if another part of OUR code is wrong? → delete the guard, add a unit test, let it raise. Can it be wrong from input or environment outside our control? → keep the guard and handle it gracefully."
+- **Keep** guards on real runtime/external conditions: user/API request bodies, network/HTTP responses, filesystem, DB availability, third-party payloads, parsing external/untrusted data, concurrency races. Validating a request field from a caller SHOULD be guarded and return a clear error.
+- **Flag** defensive branches on trusted internal values — an internal constant, an `Enum` member, a dict key that exists by construction, a field our own code sets, a registry entry. These add dead branches to the hot path and hide the bug. Prefer letting the operation raise naturally (`KeyError`/`AttributeError`/`TypeError`) per Python **EAFP** (Easier to Ask Forgiveness than Permission), and cover the invariant with a unit test — unit tests are the sanctioned place to assert internal invariants. A swallowed or re-wrapped developer error violates PEP 20 (Zen of Python): "Errors should never pass silently" and "Explicit is better than implicit" — it slips past the test suite.
+- **Concrete example:** an internal table-name registry lookup on an internal constant should be `table = _TABLE[name]` (raises `KeyError`; add a test asserting every collection constant is registered) — NOT `if name not in _TABLE: raise ValueError("register it")`.
+- Flag "just in case" guards on trusted internal inputs as **CHANGES REQUIRED** (or a nit if trivial).
+
 ## What NOT to flag
 
 - Minor inefficiencies (extra dict copy, redundant log line)
