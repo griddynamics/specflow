@@ -685,6 +685,12 @@ class TestSettingsScreen:
                 # Secret key masked, public key + host plain.
                 assert app.screen.query_one("#secret-LANGFUSE_SECRET_KEY", Input).password is True
                 assert app.screen.query_one("#secret-LANGFUSE_PUBLIC_KEY", Input).password is False
+                # .env-backed sections warn that a restart is needed to take effect.
+                from textual.widgets import Static
+                section_text = " ".join(
+                    str(s.render()) for s in app.screen.query(".settings-section").results(Static)
+                )
+                assert "requires backend restart" in section_text
 
     @pytest.mark.asyncio
     async def test_saving_langfuse_writes_env(self, tmp_path):

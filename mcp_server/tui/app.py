@@ -1583,10 +1583,11 @@ class SettingsScreen(Screen):
                 with Horizontal(classes="settings-row"):
                     yield Label(f"{key:<22}", classes="settings-label")
                     yield Input(value=str(env.get(key, "")), id=f"field-{key}")
-            yield Static("Secrets (.env)", classes="settings-section")
+            yield Static("Secrets (.env — requires backend restart)", classes="settings-section")
             yield from self._secret_rows(ENV_SECRET_KEYS, secrets)
             yield Static(
-                "Advanced · LangFuse tracing (optional — all three or none)",
+                "Advanced · LangFuse tracing (optional, all three or none "
+                "— requires backend restart)",
                 classes="settings-section",
             )
             yield from self._secret_rows(LANGFUSE_KEYS, secrets)
@@ -1626,7 +1627,18 @@ class SettingsScreen(Screen):
         if secret_updates:
             save_env_secrets(self.app.root, secret_updates)
 
-        self.notify(f"Saved settings to {path}", severity="information")
+        # The backend reads .env only at startup, so a changed secret is not live
+        # until it restarts. Flag it explicitly rather than letting the user
+        # wonder why nothing changed (and never point them at the file by hand —
+        # this screen is the only place .env should be edited).
+        secret_changed = any(value != stored.get(key, "") for key, value in secret_updates.items())
+        if secret_changed:
+            self.notify(
+                f"Saved to {path}. Requires restart of the backend to take effect.",
+                severity="warning",
+            )
+        else:
+            self.notify(f"Saved settings to {path}", severity="information")
         self.app.pop_screen()
 
     def action_cancel(self) -> None:
