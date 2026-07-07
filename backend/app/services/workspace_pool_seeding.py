@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from app.database.interface import IDatabase
+from app.services.git_provider import GitProvider, repository_url
 
 logger = logging.getLogger(__name__)
 
@@ -39,15 +40,19 @@ class WorkspacePoolEntry:
 
     workspace_id: str
     repo_url: str
-    p10y_repository_id: int
+    p10y_repository_id: Optional[int]
     workspace_pool: str  # required — the --workspace-config file schema mandates all four fields
     set_number: Optional[int] = None
 
     def __post_init__(self) -> None:
         # bool is an int subclass; reject it so a JSON `true` can't masquerade as an id.
-        if not isinstance(self.p10y_repository_id, int) or isinstance(self.p10y_repository_id, bool):
+        if self.p10y_repository_id is not None and (
+            not isinstance(self.p10y_repository_id, int)
+            or isinstance(self.p10y_repository_id, bool)
+        ):
             raise ValueError(
-                f"'p10y_repository_id' must be an integer, got: {self.p10y_repository_id!r}"
+                "'p10y_repository_id' must be an integer or null, "
+                f"got: {self.p10y_repository_id!r}"
             )
 
 
@@ -83,10 +88,11 @@ def parse_pool_entries(raw: List[Any]) -> List[WorkspacePoolEntry]:
 
 
 def assign_pool_entries(
-    repo_id_map: Dict[str, int],
-    github_org: str,
+    repo_id_map: Dict[str, Optional[int]],
+    owner: str,
     workspace_pool: str,
     *,
+    provider: GitProvider = GitProvider.GITHUB,
     ordered_repos: Optional[List[str]] = None,
     prefix: Optional[str] = None,
 ) -> List[WorkspacePoolEntry]:
@@ -102,8 +108,8 @@ def assign_pool_entries(
         workspace_index = (idx % 3) + 1
         return WorkspacePoolEntry(
             workspace_id=f"ws-{set_number:02d}-{workspace_index}",
-            repo_url=f"https://github.com/{github_org}/{repo_name}",
-            p10y_repository_id=int(repo_id_map[repo_name]),
+            repo_url=repository_url(provider, owner, repo_name),
+            p10y_repository_id=repo_id_map[repo_name],
             workspace_pool=workspace_pool,
             set_number=set_number,
         )

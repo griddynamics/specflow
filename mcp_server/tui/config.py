@@ -39,6 +39,8 @@ ENV_SECRET_KEYS: list[str] = [
     "GITHUB_TOKEN",
     "GIT_USER_NAME",
     "GITHUB_ORG",
+    "BITBUCKET_TOKEN",
+    "BITBUCKET_WORKSPACE",
     "P10Y_API_KEY",
     "OPENROUTER_API_KEY",
     "ANTHROPIC_API_KEY",
@@ -60,6 +62,7 @@ LANGFUSE_KEYS: list[str] = [
 MASKED_KEYS: frozenset[str] = frozenset(
     {
         "GITHUB_TOKEN",
+        "BITBUCKET_TOKEN",
         "P10Y_API_KEY",
         "OPENROUTER_API_KEY",
         "ANTHROPIC_API_KEY",

@@ -908,3 +908,27 @@ class TestOnDemandClearWorkspace:
         })
         with pytest.raises(WorkspacePoolError, match="expected 'cleaning'"):
             await workspace_pool.cleanup_workspace("ws-01-1")
+
+
+class TestSanitizeTokenInMessageMultiProvider:
+    """_sanitize_token_in_message scrubs every provider's patterns, not just GitHub's."""
+
+    def test_github_url_still_scrubbed(self):
+        msg = "fatal: https://x-access-token:ghp_abcDEF123@github.com/org/repo.git"
+        out = WorkspacePoolService._sanitize_token_in_message(msg)
+        assert "ghp_abcDEF123" not in out
+        assert "[REDACTED]" in out
+
+    def test_bitbucket_url_scrubbed(self):
+        msg = "fatal: https://x-token-auth:ATCTT3xFfGN0abc123@bitbucket.org/ws/repo.git"
+        out = WorkspacePoolService._sanitize_token_in_message(msg)
+        assert "ATCTT3xFfGN0abc123" not in out
+        assert "[REDACTED]" in out
+
+    def test_bitbucket_token_shape_scrubbed_standalone(self):
+        out = WorkspacePoolService._sanitize_token_in_message("token=ATCTT3xFfGN0abc_def-2")
+        assert "[REDACTED]" in out
+
+    def test_explicit_token_still_takes_priority(self):
+        out = WorkspacePoolService._sanitize_token_in_message("leaked my-secret-value here", token="my-secret-value")
+        assert "my-secret-value" not in out

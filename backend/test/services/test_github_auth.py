@@ -10,6 +10,7 @@ from app.core.github_platform_secrets import (
     reset_github_platform_secrets,
 )
 from app.core.workspace_pool_names import DEFAULT_WORKSPACE_POOL
+from app.services.git_provider import GitProvider
 from app.database.memory import InMemoryDatabase
 from app.services.github_auth import (
     GithubAuthResolutionError,
@@ -148,6 +149,49 @@ def test_generation_key_uid_lookup_uses_adapter(db, secrets):
     ctx = resolve_github_auth_for_generation_session_doc(db, est_doc)
     assert ctx.token == "mytoken"
     assert len(query_calls) == 0, "Should not use raw query for key_uid lookup"
+
+
+def test_default_pool_uses_bitbucket_token_and_user_when_active(db):
+    key = Fernet.generate_key()
+    init_github_platform_secrets_for_tests(
+        fernet_key=key,
+        github_token_default=None,
+        git_user_name_default="x-token-auth",
+        bitbucket_token_default="bb-platform-token",
+        active_provider=GitProvider.BITBUCKET_CLOUD,
+    )
+    try:
+        s = get_holder()
+        doc = {"workspace_pool": DEFAULT_WORKSPACE_POOL}
+        ctx = resolve_github_auth_for_api_key_document(doc, s)
+        assert ctx.token == "bb-platform-token"
+        assert ctx.git_user_name == "x-token-auth"
+    finally:
+        reset_github_platform_secrets()
+
+
+def test_per_key_ciphertext_defaults_git_user_from_active_provider_strategy(db):
+    """When active=BitBucket and no git_user_name is stored, default to x-token-auth."""
+    key = Fernet.generate_key()
+    init_github_platform_secrets_for_tests(
+        fernet_key=key,
+        github_token_default=None,
+        git_user_name_default=None,
+        bitbucket_token_default="bb-platform-token",
+        active_provider=GitProvider.BITBUCKET_CLOUD,
+    )
+    try:
+        s = get_holder()
+        ct = s.encrypt_token("per-key-bb-token")
+        doc = {
+            "workspace_pool": DEFAULT_WORKSPACE_POOL,
+            "github_token_ciphertext": ct,
+        }
+        ctx = resolve_github_auth_for_api_key_document(doc, s)
+        assert ctx.token == "per-key-bb-token"
+        assert ctx.git_user_name == "x-token-auth"
+    finally:
+        reset_github_platform_secrets()
 
 
 def test_github_cli_env_for_generation(db, secrets):

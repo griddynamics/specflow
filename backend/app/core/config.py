@@ -217,6 +217,15 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("GITHUB_TOKEN_DEFAULT", "GITHUB_TOKEN"),
     )
 
+    # BitBucket Cloud — mutually exclusive with GitHub (see git_provider.resolve_active_git_provider).
+    BITBUCKET_TOKEN_DEFAULT: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("BITBUCKET_TOKEN_DEFAULT", "BITBUCKET_TOKEN"),
+    )
+    BITBUCKET_WORKSPACE: Optional[str] = None
+    # Explicit active-provider override; else inferred from exactly one of the tokens above.
+    GIT_PROVIDER: Optional[str] = None
+
     # For cloning and https auth
     GIT_USER_NAME_DEFAULT: Optional[str] = Field(
         default=None,
@@ -239,6 +248,7 @@ class Settings(BaseSettings):
     K8S_SECRET_KEY_ENCRYPTION: str = "token-encryption-key"
     K8S_SECRET_KEY_GITHUB_DEFAULT: str = "github-token-default"
     K8S_SECRET_KEY_GIT_USER_DEFAULT: str = "git-user-default"
+    K8S_SECRET_KEY_BITBUCKET_DEFAULT: str = "bitbucket-token-default"
 
     # Database Configuration
     DATABASE_TYPE: DatabaseType = DatabaseType.MEMORY
