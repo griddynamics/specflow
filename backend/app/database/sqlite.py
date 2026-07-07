@@ -1,14 +1,16 @@
 """
 SQLite database implementation for local / single-node persistence.
 
-A SQL-native document store implementing ``IDatabase`` for local/Docker-dev. Known
-collections and subcollections each get their own real table (table name == collection
-name); the fields actually filtered/ordered are promoted to typed, indexed columns while
-the full document lives in a ``data`` JSON column (source of truth on read). An
-unregistered collection or subcollection is rejected — there is no generic blob table.
-Datetimes are stored as fixed-width ISO-8601 UTC text so lexical order == chronological
-order in both the columns and the blob. Single writer only (WAL); multi-replica stays on
-Firestore.
+A SQL-native document store implementing ``IDatabase`` for local/Docker-dev. Every
+collection is a real table (registered in ``_TABLES``); the fields actually filtered or
+ordered are promoted to typed, indexed columns while the full document lives in a ``data``
+JSON column (source of truth on read). What Firestore calls a "subcollection" is just a
+table with a compound primary key (e.g. ``workspace_model_usage`` keyed by
+``generation_id, workspace_id``) — the Firestore vocabulary survives only in the shared
+``IDatabase`` method names, not in the storage. An unregistered table is rejected — there
+is no generic blob table. Datetimes are stored as fixed-width ISO-8601 UTC text so lexical
+order == chronological order in both the columns and the blob. Single writer only (WAL);
+multi-replica stays on Firestore.
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ import json
 import re
 import sqlite3
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
@@ -32,34 +34,40 @@ from app.database.interface import (
 
 T = TypeVar("T")
 
-_DEFAULT_CLEAR_COLLECTIONS = ("api_keys", "generation_sessions", "workspaces")
-
 _ISO_DATETIME_RE = re.compile(
     r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$"
 )
 
 
 # ---------------------------------------------------------------------------
-# Physical layout registry (table name == collection / subcollection name).
-# Promote a field to a column only if it's actually filtered or ordered somewhere;
-# everything else stays in the `data` blob and is read via json_extract.
+# Physical layout registry. Everything is a table (there is no "subcollection" —
+# that is a Firestore word for what SQL calls a table with a compound primary key).
+# Promote a field to a column only if something filters/orders on it; the rest of the
+# document stays in the JSON `data` blob and is read via json_extract.
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
-class _Schema:
-    columns: Dict[str, str]  # promoted field -> SQLite type
+class _Table:
+    """A SQLite table.
+
+    ``primary_key`` is one column for a document store (``doc_id``) or several for a
+    child table (``generation_id, workspace_id``). ``indexed_columns`` are the fields
+    promoted out of the JSON ``data`` blob because something filters/orders on them.
+    ``parent`` links a child table to its owner (cascade-clear + subdocument addressing).
+    """
+
+    name: str
+    primary_key: tuple[str, ...]
+    indexed_columns: Dict[str, str] = field(default_factory=dict)
     indexes: tuple[tuple[str, ...], ...] = ()
+    parent: Optional[str] = None
 
 
-@dataclass(frozen=True)
-class _SubSchema:
-    parent_key: str
-    doc_key: str
-
-
-_SCHEMAS: Dict[str, _Schema] = {
-    "generation_sessions": _Schema(
+_TABLES: tuple[_Table, ...] = (
+    _Table(
+        "generation_sessions",
+        ("doc_id",),
         {
             "status": "TEXT",
             "status_changed_at": "TEXT",
@@ -75,7 +83,9 @@ _SCHEMAS: Dict[str, _Schema] = {
             ("key_uid", "created_at"),
         ),
     ),
-    "workspaces": _Schema(
+    _Table(
+        "workspaces",
+        ("doc_id",),
         {
             "status": "TEXT",
             "workspace_pool": "TEXT",
@@ -91,13 +101,15 @@ _SCHEMAS: Dict[str, _Schema] = {
             ("scheduled_for_wipe", "scheduled_for_wipe_at"),
         ),
     ),
-    "api_keys": _Schema({"key_uid": "TEXT"}, (("key_uid",),)),
-}
+    _Table("api_keys", ("doc_id",), {"key_uid": "TEXT"}, (("key_uid",),)),
+    _Table(
+        "workspace_model_usage",
+        ("generation_id", "workspace_id"),
+        parent="generation_sessions",
+    ),
+)
 
-# (parent_collection, subcollection) -> child-table key columns.
-_SUBSCHEMAS: Dict[tuple[str, str], _SubSchema] = {
-    ("generation_sessions", "workspace_model_usage"): _SubSchema("generation_id", "workspace_id"),
-}
+_TABLE: Dict[str, _Table] = {t.name: t for t in _TABLES}
 
 
 def _canonical_dt(value: datetime) -> str:
@@ -161,36 +173,34 @@ class SqliteTransactionContext(ITransactionContext):
         self._conn = conn
 
     @staticmethod
-    def _schema(collection: str) -> _Schema:
-        schema = _SCHEMAS.get(collection)
-        if schema is None:
+    def _table(name: str) -> _Table:
+        table = _TABLE.get(name)
+        if table is None:
             raise ValueError(
-                f"Unknown SQLite collection {collection!r}. "
+                f"Unknown SQLite table {name!r}. "
                 f"Register it in app/database/sqlite.py before using it."
             )
-        return schema
+        return table
 
-    @staticmethod
-    def _sub_schema(parent_collection: str, subcollection: str) -> _SubSchema:
-        sub = _SUBSCHEMAS.get((parent_collection, subcollection))
-        if sub is None:
+    def _child_table(self, parent_collection: str, subcollection: str) -> _Table:
+        table = self._table(subcollection)
+        if table.parent != parent_collection:
             raise ValueError(
-                f"Unknown SQLite subcollection {subcollection!r} under "
-                f"{parent_collection!r}. Register it in app/database/sqlite.py before using it."
+                f"{subcollection!r} is not a child table of {parent_collection!r}."
             )
-        return sub
+        return table
 
     def get(self, collection: str, doc_id: str) -> Optional[Dict[str, Any]]:
-        self._schema(collection)
+        self._table(collection)
         row = self._conn.execute(
             f"SELECT data FROM {collection} WHERE doc_id = ?", (doc_id,)
         ).fetchone()
         return None if row is None else _decode_from_storage(json.loads(row[0]))
 
     def set(self, collection: str, doc_id: str, data: Dict[str, Any]) -> None:
-        schema = self._schema(collection)
+        table = self._table(collection)
         encoded = _encode_for_storage(data)
-        names = list(schema.columns)
+        names = list(table.indexed_columns)
         col_list = ", ".join(names)
         placeholders = ", ".join("?" for _ in names)
         assignments = ", ".join(f"{n} = excluded.{n}" for n in names)
@@ -210,7 +220,7 @@ class SqliteTransactionContext(ITransactionContext):
         self.set(collection, doc_id, existing)
 
     def delete(self, collection: str, doc_id: str) -> None:
-        self._schema(collection)
+        self._table(collection)
         self._conn.execute(f"DELETE FROM {collection} WHERE doc_id = ?", (doc_id,))
 
     def query(
@@ -220,12 +230,12 @@ class SqliteTransactionContext(ITransactionContext):
         order_by: Optional[str] = None,
         limit: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
-        schema = self._schema(collection)
+        table = self._table(collection)
 
         where: List[str] = []
         params: List[Any] = []
         for f, operator, value in filters or []:
-            clause, clause_params = self._filter_clause(schema, f, operator, value)
+            clause, clause_params = self._filter_clause(table, f, operator, value)
             where.append(clause)
             params.extend(clause_params)
 
@@ -235,7 +245,7 @@ class SqliteTransactionContext(ITransactionContext):
 
         if order_by:
             descending = order_by.startswith("-")
-            expr, expr_params = self._field_expr(schema, order_by[1:] if descending else order_by)
+            expr, expr_params = self._field_expr(table, order_by[1:] if descending else order_by)
             params.extend(expr_params)
             sql += f" ORDER BY {expr} " + ("DESC" if descending else "ASC")
 
@@ -251,16 +261,16 @@ class SqliteTransactionContext(ITransactionContext):
         return results
 
     @staticmethod
-    def _field_expr(schema: _Schema, field: str) -> tuple[str, List[Any]]:
-        if field in schema.columns:
+    def _field_expr(table: _Table, field: str) -> tuple[str, List[Any]]:
+        if field in table.indexed_columns:
             return field, []
         return "json_extract(data, ?)", [_json_path(field)]
 
     @classmethod
     def _filter_clause(
-        cls, schema: _Schema, field: str, operator: str, value: Any
+        cls, table: _Table, field: str, operator: str, value: Any
     ) -> tuple[str, List[Any]]:
-        expr, expr_params = cls._field_expr(schema, field)
+        expr, expr_params = cls._field_expr(table, field)
         match operator:
             case "==":
                 if value is None:
@@ -305,9 +315,10 @@ class SqliteTransactionContext(ITransactionContext):
     def list_subcollection(
         self, parent_collection: str, parent_doc_id: str, subcollection: str
     ) -> List[Dict[str, Any]]:
-        sub = self._sub_schema(parent_collection, subcollection)
+        table = self._child_table(parent_collection, subcollection)
+        parent_key, doc_key = table.primary_key
         rows = self._conn.execute(
-            f"SELECT {sub.doc_key}, data FROM {subcollection} WHERE {sub.parent_key} = ?",
+            f"SELECT {doc_key}, data FROM {subcollection} WHERE {parent_key} = ?",
             (parent_doc_id,),
         ).fetchall()
         out: List[Dict[str, Any]] = []
@@ -320,9 +331,10 @@ class SqliteTransactionContext(ITransactionContext):
     def get_subdocument(
         self, parent_collection: str, parent_doc_id: str, subcollection: str, doc_id: str
     ) -> Optional[Dict[str, Any]]:
-        sub = self._sub_schema(parent_collection, subcollection)
+        table = self._child_table(parent_collection, subcollection)
+        parent_key, doc_key = table.primary_key
         row = self._conn.execute(
-            f"SELECT data FROM {subcollection} WHERE {sub.parent_key} = ? AND {sub.doc_key} = ?",
+            f"SELECT data FROM {subcollection} WHERE {parent_key} = ? AND {doc_key} = ?",
             (parent_doc_id, doc_id),
         ).fetchone()
         return None if row is None else _decode_from_storage(json.loads(row[0]))
@@ -335,11 +347,11 @@ class SqliteTransactionContext(ITransactionContext):
         doc_id: str,
         data: Dict[str, Any],
     ) -> None:
-        sub = self._sub_schema(parent_collection, subcollection)
-        pk, dk = sub.parent_key, sub.doc_key
+        table = self._child_table(parent_collection, subcollection)
+        parent_key, doc_key = table.primary_key
         self._conn.execute(
-            f"INSERT INTO {subcollection} ({pk}, {dk}, data) VALUES (?, ?, ?) "
-            f"ON CONFLICT({pk}, {dk}) DO UPDATE SET data = excluded.data",
+            f"INSERT INTO {subcollection} ({parent_key}, {doc_key}, data) VALUES (?, ?, ?) "
+            f"ON CONFLICT({parent_key}, {doc_key}) DO UPDATE SET data = excluded.data",
             (parent_doc_id, doc_id, json.dumps(_encode_for_storage(data))),
         )
 
@@ -377,24 +389,18 @@ class SqliteDatabase(IDatabase):
 
     def _init_schema(self) -> None:
         with self._lock:
-            for (_parent, subcollection), sub in _SUBSCHEMAS.items():
-                pk, dk = sub.parent_key, sub.doc_key
+            for table in _TABLES:
+                cols = [f"{k} TEXT NOT NULL" for k in table.primary_key]
+                cols += [f"{n} {t}" for n, t in table.indexed_columns.items()]
+                cols.append("data TEXT NOT NULL")
                 self._conn.execute(
-                    f"CREATE TABLE IF NOT EXISTS {subcollection} "
-                    f"({pk} TEXT NOT NULL, {dk} TEXT NOT NULL, data TEXT NOT NULL, "
-                    f"PRIMARY KEY ({pk}, {dk}))"
+                    f"CREATE TABLE IF NOT EXISTS {table.name} "
+                    f"({', '.join(cols)}, PRIMARY KEY ({', '.join(table.primary_key)}))"
                 )
-            for collection, schema in _SCHEMAS.items():
-                col_defs = ", ".join(f"{n} {t}" for n, t in schema.columns.items())
-                self._conn.execute(
-                    f"CREATE TABLE IF NOT EXISTS {collection} "
-                    f"(doc_id TEXT PRIMARY KEY, {col_defs}, data TEXT NOT NULL)"
-                )
-                for cols in schema.indexes:
-                    name = f"idx_{collection}_{'_'.join(cols)}"
-                    cols_sql = ", ".join(cols)
+                for index_cols in table.indexes:
+                    idx = f"idx_{table.name}_{'_'.join(index_cols)}"
                     self._conn.execute(
-                        f"CREATE INDEX IF NOT EXISTS {name} ON {collection} ({cols_sql})"
+                        f"CREATE INDEX IF NOT EXISTS {idx} ON {table.name} ({', '.join(index_cols)})"
                     )
 
     def get(self, collection: str, doc_id: str) -> Optional[Dict[str, Any]]:
@@ -466,26 +472,24 @@ class SqliteDatabase(IDatabase):
             return self._ops.get_api_key_by_uid(key_uid)
 
     def clear_all(self, collections: Optional[List[str]] = None) -> None:
-        """Delete documents (and their child subcollections). None clears the default test set."""
-        targets = list(collections) if collections is not None else list(_DEFAULT_CLEAR_COLLECTIONS)
+        """Delete rows from the named tables and their child tables. None clears every table."""
         with self._lock:
-            if not targets:
+            if collections is None:
+                self.clear()
                 return
-            for collection in targets:
-                SqliteTransactionContext._schema(collection)
+            targets = set(collections)
+            for collection in collections:
+                SqliteTransactionContext._table(collection)
                 self._conn.execute(f"DELETE FROM {collection}")
-            target_set = set(targets)
-            for (parent, subcollection) in _SUBSCHEMAS:
-                if parent in target_set:
-                    self._conn.execute(f"DELETE FROM {subcollection}")
+            for table in _TABLES:
+                if table.parent in targets:
+                    self._conn.execute(f"DELETE FROM {table.name}")
 
     def clear(self) -> None:
         """Drop all rows from every table (full reset)."""
         with self._lock:
-            for collection in _SCHEMAS:
-                self._conn.execute(f"DELETE FROM {collection}")
-            for _parent, subcollection in _SUBSCHEMAS:
-                self._conn.execute(f"DELETE FROM {subcollection}")
+            for table in _TABLES:
+                self._conn.execute(f"DELETE FROM {table.name}")
 
     def close(self) -> None:
         """Checkpoint the WAL back into the main file, then close the connection."""
