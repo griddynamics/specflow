@@ -115,8 +115,15 @@ def _pipeline_panel(payload: dict[str, Any]) -> Panel:
             "done": "green",
             "active": "bold yellow",
             "pending": "dim",
+            # Not applicable to this run — greyed out and struck through.
+            "skipped": "dim strike",
         }.get(step.state.value, "")
-        body.append(f"  {step.symbol} {step.label}\n", style=style)
+        body.append(f"  {step.symbol} ", style=style)
+        body.append(step.label, style=style)
+        if step.state.value == "skipped":
+            # Note stays dim but un-struck so the reason reads cleanly.
+            body.append("  (not needed for this run)", style="dim")
+        body.append("\n")
     return Panel(body, title="Pipeline", border_style="blue")
 
 
