@@ -15,7 +15,6 @@ if FIRESTORE_EMULATOR_HOST is not set.
 
 import os
 import pytest
-from datetime import datetime
 
 from app.database.emulator import EmulatorDatabase
 from app.database.interface import DocumentNotFoundError
@@ -213,31 +212,6 @@ class TestArrayOperations:
         # Firestore's ArrayUnion automatically prevents duplicates
         assert "python" in user["tags"]
         assert "vue" in user["tags"]
-
-
-class TestServerTimestamp:
-    """Test server timestamp functionality against Firestore emulator."""
-
-    def test_server_timestamp_on_set(self, db):
-        """Test server timestamp is replaced with actual time."""
-        db.set("users", "user-1", {
-            "name": "Alice",
-            "created_at": db.server_timestamp()
-        })
-        
-        user = db.get("users", "user-1")
-        assert "created_at" in user
-        # Firestore returns datetime objects
-        assert isinstance(user["created_at"], datetime)
-
-    def test_server_timestamp_on_update(self, db):
-        """Test server timestamp in update operation."""
-        db.set("users", "user-1", {"name": "Alice"})
-        db.update("users", "user-1", {"updated_at": db.server_timestamp()})
-        
-        user = db.get("users", "user-1")
-        assert "updated_at" in user
-        assert isinstance(user["updated_at"], datetime)
 
 
 class TestEmulatorConnection:

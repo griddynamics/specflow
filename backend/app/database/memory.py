@@ -6,7 +6,6 @@ external dependencies. Data is stored in Python dicts and cleared between tests.
 """
 
 import threading
-from datetime import UTC, datetime
 from typing import Any, Callable, Dict, List, Optional, TypeVar
 
 from app.database.interface import (
@@ -41,12 +40,6 @@ def _apply_dot_notation_update(doc: Dict[str, Any], key: str, value: Any) -> Non
             )
         target = target[part]
     target[parts[-1]] = value
-
-
-class _ServerTimestamp:
-    """Sentinel class for server timestamps in memory database."""
-
-    pass
 
 
 class InMemoryTransactionContext(ITransactionContext):
@@ -156,12 +149,10 @@ class InMemoryTransactionContext(ITransactionContext):
                 self._data[collection].pop(doc_id, None)
 
     def _process_timestamps(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Replace server timestamp sentinels with actual timestamps."""
+        """Deep-copy the payload, recursing into nested maps."""
         result = {}
         for key, value in data.items():
-            if isinstance(value, _ServerTimestamp):
-                result[key] = datetime.now(UTC).replace(tzinfo=None)
-            elif isinstance(value, dict):
+            if isinstance(value, dict):
                 result[key] = self._process_timestamps(value)
             else:
                 result[key] = value
@@ -351,10 +342,6 @@ class InMemoryDatabase(IDatabase):
                     out.append(row)
             return out
 
-    def server_timestamp(self) -> Any:
-        """Get server timestamp sentinel."""
-        return _ServerTimestamp()
-
     def get_api_key_by_uid(self, key_uid: str) -> Optional[Dict[str, Any]]:
         """Return the api_keys document whose key_uid field matches."""
         with self._lock:
@@ -366,12 +353,10 @@ class InMemoryDatabase(IDatabase):
         return None
 
     def _process_timestamps(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Replace server timestamp sentinels with actual timestamps."""
+        """Deep-copy the payload, recursing into nested maps."""
         result = {}
         for key, value in data.items():
-            if isinstance(value, _ServerTimestamp):
-                result[key] = datetime.now(UTC).replace(tzinfo=None)
-            elif isinstance(value, dict):
+            if isinstance(value, dict):
                 result[key] = self._process_timestamps(value)
             else:
                 result[key] = value
