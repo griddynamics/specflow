@@ -22,7 +22,7 @@ from typing import Dict, Set
 
 import httpx
 
-from app.core.config import Settings
+from app.core.config import Settings, is_key_valid
 from app.core.enums import LLMProvider
 from app.services.openrouter_models import ModelCacheManager, fetch_available_models
 
@@ -73,11 +73,11 @@ class AnthropicCatalogFetcher(ProviderCatalogFetcher):
     """Fetches the live Anthropic model catalog via GET /v1/models."""
 
     async def _fetch_uncached(self, settings: Settings) -> Set[str]:
-        api_key = (settings.ANTHROPIC_API_KEY or "").strip()
-        if not api_key:
+        if not is_key_valid(settings.ANTHROPIC_API_KEY):
             # Without a key we cannot verify — stay permissive (UNVERIFIED downstream).
             logger.debug("No ANTHROPIC_API_KEY set; skipping Anthropic catalog fetch")
             return set()
+        api_key = settings.ANTHROPIC_API_KEY.strip()
 
         base = (settings.ANTHROPIC_BASE_URL or _ANTHROPIC_DEFAULT_BASE_URL).rstrip("/")
         headers = {

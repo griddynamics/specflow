@@ -5,6 +5,7 @@ Anthropic live fetch (headers, pagination, permissive failure, caching), the
 OpenRouter delegation, and the provider registry routing.
 """
 import logging
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -33,7 +34,10 @@ def logger():
 
 
 def _anthropic_settings():
-    return Settings(ANTHROPIC_API_KEY="sk-ant-test", DEFAULT_PROVIDER=LLMProvider.ANTHROPIC)
+    # Anthropic-only, isolated from ambient env/.env: DEFAULT_PROVIDER is derived
+    # from the key present, so an ambient OPENROUTER_API_KEY must not leak in.
+    with patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-test"}, clear=True):
+        return Settings(_env_file=None)
 
 
 def _make_response(payload: dict) -> MagicMock:
@@ -117,7 +121,8 @@ async def test_anthropic_fetch_uses_cache_on_second_call():
 @pytest.mark.asyncio
 async def test_anthropic_fetch_no_key_returns_empty():
     """No API key → cannot verify → permissive empty set (no HTTP call)."""
-    settings = Settings(ANTHROPIC_API_KEY=None, DEFAULT_PROVIDER=LLMProvider.ANTHROPIC)
+    with patch.dict(os.environ, {}, clear=True):
+        settings = Settings(_env_file=None)
     fetcher = AnthropicCatalogFetcher()
     with patch("app.services.model_catalog.httpx.AsyncClient") as mock_client:
         models = await fetcher.fetch(settings)

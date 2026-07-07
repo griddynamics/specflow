@@ -1445,11 +1445,18 @@ class OnboardingScreen(_SpecFlowScreen):
 
 
 class StartContainersScreen(_SpecFlowScreen):
-    """Docker gate: offer to start the SpecFlow stack, or quit.
+    """Docker gate: start the stack (or wait out an unhealthy backend), or quit.
 
-    ``y`` runs ``docker compose up -d`` and waits for the backend to report
-    ready (streamed into a log pane), then dismisses ``True``; ``n`` dismisses
-    ``False`` so the gate exits the app.
+    Two modes, selected by ``containers_up``:
+      * ``False`` (default) — the containers aren't running. ``y`` runs
+        ``docker compose up -d`` then waits for the backend to report ready.
+      * ``True`` — the containers ARE running but ``/health/ready`` isn't 200
+        yet. ``y`` only re-polls readiness (no redundant ``compose up``); this is
+        typically a config problem (e.g. an LLM provider/key mismatch), not a
+        stopped container, so we must not claim "containers aren't running".
+
+    ``y`` dismisses ``True`` once the backend is ready; ``n`` dismisses ``False``
+    so the gate exits the app.
     """
 
     BINDINGS = [
@@ -1457,12 +1464,20 @@ class StartContainersScreen(_SpecFlowScreen):
         Binding("n", "no", "quit"),
     ]
 
+    def __init__(self, *, containers_up: bool = False) -> None:
+        super().__init__()
+        self._containers_up = containers_up
+
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Static(
-            "The SpecFlow containers aren't running.\n\n" "Start them now?   [y] start    [n] quit",
-            id="docker-prompt",
-        )
+        if self._containers_up:
+            prompt = (
+                "Containers are running but the backend isn't healthy yet.\n\n"
+                "Retry the health check?   [y] retry    [n] quit"
+            )
+        else:
+            prompt = "The SpecFlow containers aren't running.\n\n" "Start them now?   [y] start    [n] quit"
+        yield Static(prompt, id="docker-prompt")
         log = RichLog(id="docker-log", highlight=False, markup=False, wrap=True)
         log.display = False
         yield log
@@ -1477,7 +1492,9 @@ class StartContainersScreen(_SpecFlowScreen):
     async def _start(self) -> None:
         log = self.query_one("#docker-log", RichLog)
         log.display = True
-        await local_env.start_containers(self.app.root, on_line=log.write)
+        # Containers already up → skip the redundant `compose up` and just re-poll.
+        if not self._containers_up:
+            await local_env.start_containers(self.app.root, on_line=log.write)
         backend_url = self.app.backend_url
         ok = await local_env.wait_backend_ready(
             backend_url,
@@ -1487,7 +1504,8 @@ class StartContainersScreen(_SpecFlowScreen):
             self.dismiss(True)
         else:
             self.notify(
-                "Backend didn't become healthy — check `docker compose logs`.",
+                "Backend didn't become healthy — check `docker compose logs` "
+                "(e.g. an LLM provider/key mismatch).",
                 severity="error",
             )
 
@@ -1673,8 +1691,9 @@ class SpecFlowTUI(App):
                 self.exit()
                 return
         elif not await local_env.backend_ready(self.backend_url):
-            # Containers up but not ready yet — reuse the gate to wait it out.
-            if not await self.push_screen_wait(StartContainersScreen()):
+            # Containers up but not ready yet — wait it out with an accurate prompt
+            # (do not claim the containers aren't running; they are).
+            if not await self.push_screen_wait(StartContainersScreen(containers_up=True)):
                 self.exit()
                 return
 

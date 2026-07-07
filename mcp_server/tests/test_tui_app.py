@@ -384,6 +384,46 @@ class TestStartupGate:
                 await pilot.pause()
                 assert isinstance(app.screen, tui_app.SessionsScreen)
 
+    @pytest.mark.asyncio
+    async def test_containers_up_but_backend_not_ready_says_unhealthy_not_down(self):
+        # Containers running + backend not ready → the gate must not claim the
+        # containers aren't running; it shows the "backend isn't healthy" prompt.
+        with (
+            patch("tui.app.local_env.is_setup_complete", return_value=True),
+            patch("tui.app.local_env.containers_running", return_value=True),
+            patch("tui.app.local_env.backend_ready", new=AsyncMock(return_value=False)),
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.StartContainersScreen)
+                prompt = str(app.screen.query_one("#docker-prompt").render())
+                assert "aren't running" not in prompt
+                assert "isn't healthy" in prompt
+
+    @pytest.mark.asyncio
+    async def test_backend_not_ready_retry_skips_compose_up(self):
+        # In the up-but-not-ready path, retrying (y) re-polls readiness without
+        # re-running `docker compose up` (the containers are already up).
+        start = AsyncMock(return_value=0)
+        with (
+            patch("tui.app.local_env.is_setup_complete", return_value=True),
+            patch("tui.app.local_env.containers_running", return_value=True),
+            patch("tui.app.local_env.backend_ready", new=AsyncMock(return_value=False)),
+            patch("tui.app.local_env.start_containers", new=start),
+            patch("tui.app.local_env.wait_backend_ready", new=AsyncMock(return_value=True)),
+            patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])),
+            patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()),
+            patch("tui.app.mcp_clients.is_any_client_connected", return_value=True),
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("y")
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.SessionsScreen)
+                start.assert_not_awaited()
+
 
 class TestOnboarding:
     """Drive the step-by-step onboarding wizard via the pilot.

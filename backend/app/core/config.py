@@ -1,10 +1,11 @@
 import ast
 from dataclasses import dataclass
 from datetime import timedelta
+from functools import cached_property
 import os
 from typing import Annotated, FrozenSet, Optional
 
-from pydantic import AliasChoices, Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from app.core.enums import AuthMode, DatabaseType, LLMProvider
@@ -51,7 +52,18 @@ OPENROUTER_PRICING_REFRESH_INTERVAL_SECONDS = 45 * 60
 @dataclass
 class EmailConfig:
     username: str
-    password: str   
+    password: str
+
+
+def is_key_valid(raw_key: Optional[str]) -> bool:
+    """True only when ``raw_key`` is a non-blank string.
+
+    A whitespace-only value counts as unset, so callers can test key presence
+    without relying on bare truthiness (``if key`` == ``if bool(key)``, which
+    would treat ``"  "`` as set).
+    """
+    return bool(raw_key and str(raw_key).strip())
+
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "SpecFlow Backend"
@@ -229,8 +241,7 @@ class Settings(BaseSettings):
     FIRESTORE_DATABASE_NAME: str = "default"  # Firestore database name (default: "(default)")
 
     # LLM Provider Configuration
-    # Active LLM provider: "openrouter" (default) or "anthropic".
-    DEFAULT_PROVIDER: LLMProvider = LLMProvider.OPENROUTER
+    # DEFAULT_PROVIDER is derived from the API keys below — see the computed_field.
 
     # LLM Model Tier Configuration
     # Values follow OpenRouter naming convention: provider/model (e.g., anthropic/claude-opus-4.5)
@@ -360,6 +371,22 @@ class Settings(BaseSettings):
                 os.path.join(self.WORKSPACE_BASE_PATH, "claude_code_tmpdir"),
             )
         return self
+
+    @computed_field
+    @cached_property
+    def DEFAULT_PROVIDER(self) -> LLMProvider:
+        # Derived solely from which key is present — there is no configurable
+        # knob (see .env.quickstart.example: "set ONE of the two keys"), so a
+        # provider/key mismatch is impossible by construction: OpenRouter when
+        # its key is set (also the documented default when both are), Anthropic
+        # when only that key is set. Neither set → OpenRouter, and startup
+        # validation then fails fast naming both keys. is_key_valid ignores
+        # blank/whitespace-only values.
+        if is_key_valid(self.OPENROUTER_API_KEY):
+            return LLMProvider.OPENROUTER
+        if is_key_valid(self.ANTHROPIC_API_KEY):
+            return LLMProvider.ANTHROPIC
+        return LLMProvider.OPENROUTER
 
     @property
     def langfuse_enabled(self) -> bool:
