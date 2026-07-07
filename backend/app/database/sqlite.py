@@ -144,10 +144,6 @@ def _json_path(field: str) -> str:
     return "$." + field
 
 
-def _quote_ident(name: str) -> str:
-    return '"' + name.replace('"', '""') + '"'
-
-
 class _ServerTimestamp:
     """Sentinel for a server-assigned timestamp (resolved to now-UTC on write)."""
 
@@ -187,7 +183,7 @@ class SqliteTransactionContext(ITransactionContext):
     def get(self, collection: str, doc_id: str) -> Optional[Dict[str, Any]]:
         self._schema(collection)
         row = self._conn.execute(
-            f"SELECT data FROM {_quote_ident(collection)} WHERE doc_id = ?", (doc_id,)
+            f"SELECT data FROM {collection} WHERE doc_id = ?", (doc_id,)
         ).fetchone()
         return None if row is None else _decode_from_storage(json.loads(row[0]))
 
@@ -195,12 +191,12 @@ class SqliteTransactionContext(ITransactionContext):
         schema = self._schema(collection)
         encoded = _encode_for_storage(data)
         names = list(schema.columns)
-        col_list = ", ".join(_quote_ident(n) for n in names)
+        col_list = ", ".join(names)
         placeholders = ", ".join("?" for _ in names)
-        assignments = ", ".join(f"{_quote_ident(n)} = excluded.{_quote_ident(n)}" for n in names)
+        assignments = ", ".join(f"{n} = excluded.{n}" for n in names)
         values = [_to_sql_param(encoded.get(n)) for n in names]
         self._conn.execute(
-            f"INSERT INTO {_quote_ident(collection)} (doc_id, {col_list}, data) "
+            f"INSERT INTO {collection} (doc_id, {col_list}, data) "
             f"VALUES (?, {placeholders}, ?) "
             f"ON CONFLICT(doc_id) DO UPDATE SET {assignments}, data = excluded.data",
             [doc_id, *values, json.dumps(encoded)],
@@ -215,7 +211,7 @@ class SqliteTransactionContext(ITransactionContext):
 
     def delete(self, collection: str, doc_id: str) -> None:
         self._schema(collection)
-        self._conn.execute(f"DELETE FROM {_quote_ident(collection)} WHERE doc_id = ?", (doc_id,))
+        self._conn.execute(f"DELETE FROM {collection} WHERE doc_id = ?", (doc_id,))
 
     def query(
         self,
@@ -233,7 +229,7 @@ class SqliteTransactionContext(ITransactionContext):
             where.append(clause)
             params.extend(clause_params)
 
-        sql = f"SELECT doc_id, data FROM {_quote_ident(collection)}"
+        sql = f"SELECT doc_id, data FROM {collection}"
         if where:
             sql += " WHERE " + " AND ".join(where)
 
@@ -257,7 +253,7 @@ class SqliteTransactionContext(ITransactionContext):
     @staticmethod
     def _field_expr(schema: _Schema, field: str) -> tuple[str, List[Any]]:
         if field in schema.columns:
-            return _quote_ident(field), []
+            return field, []
         return "json_extract(data, ?)", [_json_path(field)]
 
     @classmethod
@@ -311,8 +307,7 @@ class SqliteTransactionContext(ITransactionContext):
     ) -> List[Dict[str, Any]]:
         sub = self._sub_schema(parent_collection, subcollection)
         rows = self._conn.execute(
-            f"SELECT {_quote_ident(sub.doc_key)}, data FROM {_quote_ident(subcollection)} "
-            f"WHERE {_quote_ident(sub.parent_key)} = ?",
+            f"SELECT {sub.doc_key}, data FROM {subcollection} WHERE {sub.parent_key} = ?",
             (parent_doc_id,),
         ).fetchall()
         out: List[Dict[str, Any]] = []
@@ -327,8 +322,7 @@ class SqliteTransactionContext(ITransactionContext):
     ) -> Optional[Dict[str, Any]]:
         sub = self._sub_schema(parent_collection, subcollection)
         row = self._conn.execute(
-            f"SELECT data FROM {_quote_ident(subcollection)} WHERE "
-            f"{_quote_ident(sub.parent_key)} = ? AND {_quote_ident(sub.doc_key)} = ?",
+            f"SELECT data FROM {subcollection} WHERE {sub.parent_key} = ? AND {sub.doc_key} = ?",
             (parent_doc_id, doc_id),
         ).fetchone()
         return None if row is None else _decode_from_storage(json.loads(row[0]))
@@ -342,9 +336,9 @@ class SqliteTransactionContext(ITransactionContext):
         data: Dict[str, Any],
     ) -> None:
         sub = self._sub_schema(parent_collection, subcollection)
-        pk, dk = _quote_ident(sub.parent_key), _quote_ident(sub.doc_key)
+        pk, dk = sub.parent_key, sub.doc_key
         self._conn.execute(
-            f"INSERT INTO {_quote_ident(subcollection)} ({pk}, {dk}, data) VALUES (?, ?, ?) "
+            f"INSERT INTO {subcollection} ({pk}, {dk}, data) VALUES (?, ?, ?) "
             f"ON CONFLICT({pk}, {dk}) DO UPDATE SET data = excluded.data",
             (parent_doc_id, doc_id, json.dumps(_encode_for_storage(data))),
         )
@@ -384,23 +378,23 @@ class SqliteDatabase(IDatabase):
     def _init_schema(self) -> None:
         with self._lock:
             for (_parent, subcollection), sub in _SUBSCHEMAS.items():
-                pk, dk = _quote_ident(sub.parent_key), _quote_ident(sub.doc_key)
+                pk, dk = sub.parent_key, sub.doc_key
                 self._conn.execute(
-                    f"CREATE TABLE IF NOT EXISTS {_quote_ident(subcollection)} "
+                    f"CREATE TABLE IF NOT EXISTS {subcollection} "
                     f"({pk} TEXT NOT NULL, {dk} TEXT NOT NULL, data TEXT NOT NULL, "
                     f"PRIMARY KEY ({pk}, {dk}))"
                 )
             for collection, schema in _SCHEMAS.items():
-                col_defs = ", ".join(f"{_quote_ident(n)} {t}" for n, t in schema.columns.items())
+                col_defs = ", ".join(f"{n} {t}" for n, t in schema.columns.items())
                 self._conn.execute(
-                    f"CREATE TABLE IF NOT EXISTS {_quote_ident(collection)} "
+                    f"CREATE TABLE IF NOT EXISTS {collection} "
                     f"(doc_id TEXT PRIMARY KEY, {col_defs}, data TEXT NOT NULL)"
                 )
                 for cols in schema.indexes:
                     name = f"idx_{collection}_{'_'.join(cols)}"
-                    cols_sql = ", ".join(_quote_ident(c) for c in cols)
+                    cols_sql = ", ".join(cols)
                     self._conn.execute(
-                        f"CREATE INDEX IF NOT EXISTS {name} ON {_quote_ident(collection)} ({cols_sql})"
+                        f"CREATE INDEX IF NOT EXISTS {name} ON {collection} ({cols_sql})"
                     )
 
     def get(self, collection: str, doc_id: str) -> Optional[Dict[str, Any]]:
@@ -479,19 +473,19 @@ class SqliteDatabase(IDatabase):
                 return
             for collection in targets:
                 SqliteTransactionContext._schema(collection)
-                self._conn.execute(f"DELETE FROM {_quote_ident(collection)}")
+                self._conn.execute(f"DELETE FROM {collection}")
             target_set = set(targets)
             for (parent, subcollection) in _SUBSCHEMAS:
                 if parent in target_set:
-                    self._conn.execute(f"DELETE FROM {_quote_ident(subcollection)}")
+                    self._conn.execute(f"DELETE FROM {subcollection}")
 
     def clear(self) -> None:
         """Drop all rows from every table (full reset)."""
         with self._lock:
             for collection in _SCHEMAS:
-                self._conn.execute(f"DELETE FROM {_quote_ident(collection)}")
+                self._conn.execute(f"DELETE FROM {collection}")
             for _parent, subcollection in _SUBSCHEMAS:
-                self._conn.execute(f"DELETE FROM {_quote_ident(subcollection)}")
+                self._conn.execute(f"DELETE FROM {subcollection}")
 
     def close(self) -> None:
         """Checkpoint the WAL back into the main file, then close the connection."""
