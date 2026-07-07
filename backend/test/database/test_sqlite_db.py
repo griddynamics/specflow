@@ -31,6 +31,31 @@ def db():
     database.close()
 
 
+def test_every_used_collection_is_registered():
+    """Every collection/subcollection the app addresses must map to a registered table.
+
+    The SQLite backend does not check this at runtime — an unregistered name is a
+    developer error (all names are internal constants), so this test is the guard: adding
+    a collection without a table fails here at CI, not with a KeyError in production.
+    """
+    from app.database.sqlite import _TABLE
+    from app.schemas.workspace_model_usage_store import WORKSPACE_MODEL_USAGE_SUBCOLLECTION
+    from app.state.db_adapter import (
+        COL_API_KEYS,
+        COL_GENERATION_SESSIONS,
+        COL_WORKSPACES,
+    )
+
+    used = {
+        COL_API_KEYS,
+        COL_GENERATION_SESSIONS,
+        COL_WORKSPACES,
+        WORKSPACE_MODEL_USAGE_SUBCOLLECTION,
+    }
+    missing = used - set(_TABLE)
+    assert not missing, f"collections used by the app but not registered in sqlite._TABLE: {missing}"
+
+
 class TestBasicCRUD(_TestBasicCRUD):
     pass
 
@@ -135,10 +160,13 @@ class TestSqliteRelationalSchema:
         assert listed[0]["_id"] == "ws-a"
         assert listed[0]["total_usd_cost"] == 1.5
 
-    def test_unregistered_subcollection_is_rejected(self, db):
-        with pytest.raises(ValueError, match="Register it"):
+    def test_unregistered_subcollection_fails_loudly(self, db):
+        # An unregistered name is a developer error (all names are internal constants),
+        # so it just fails loudly via KeyError — see test_every_used_collection_is_registered
+        # for the guard that catches it at test time rather than runtime.
+        with pytest.raises(KeyError):
             db.list_subcollection("generation_sessions", "gen-1", "unknown_sub")
-        with pytest.raises(ValueError, match="Register it"):
+        with pytest.raises(KeyError):
             db.run_transaction(
                 lambda tx: tx.set_subdocument("workspaces", "w", "nope", "d", {})
             )
@@ -182,14 +210,14 @@ class TestSqliteRelationalSchema:
         assert isinstance(raw, str)
         assert raw == "2026-01-02T03:04:05.000000+00:00"
 
-    def test_unregistered_collection_is_rejected(self, db):
-        # No generic catch-all: an unknown collection fails loudly instead of silently
-        # landing in an unindexed blob. The message points at the registry to fix it.
-        with pytest.raises(ValueError, match="Register it"):
+    def test_unregistered_collection_fails_loudly(self, db):
+        # No generic catch-all table: an unknown collection is a developer error, so it
+        # fails loudly (KeyError) rather than silently landing in an unindexed blob.
+        with pytest.raises(KeyError):
             db.set("widgets", "w-1", {"color": "blue"})
         assert "widgets" not in self._tables(db)
 
-        with pytest.raises(ValueError, match="Register it"):
+        with pytest.raises(KeyError):
             db.query("widgets")
 
     def test_query_on_promoted_column_uses_index(self, db):

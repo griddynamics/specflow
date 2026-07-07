@@ -172,33 +172,14 @@ class SqliteTransactionContext(ITransactionContext):
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
 
-    @staticmethod
-    def _table(name: str) -> _Table:
-        table = _TABLE.get(name)
-        if table is None:
-            raise ValueError(
-                f"Unknown SQLite table {name!r}. "
-                f"Register it in app/database/sqlite.py before using it."
-            )
-        return table
-
-    def _child_table(self, parent_collection: str, subcollection: str) -> _Table:
-        table = self._table(subcollection)
-        if table.parent != parent_collection:
-            raise ValueError(
-                f"{subcollection!r} is not a child table of {parent_collection!r}."
-            )
-        return table
-
     def get(self, collection: str, doc_id: str) -> Optional[Dict[str, Any]]:
-        self._table(collection)
         row = self._conn.execute(
             f"SELECT data FROM {collection} WHERE doc_id = ?", (doc_id,)
         ).fetchone()
         return None if row is None else _decode_from_storage(json.loads(row[0]))
 
     def set(self, collection: str, doc_id: str, data: Dict[str, Any]) -> None:
-        table = self._table(collection)
+        table = _TABLE[collection]
         encoded = _encode_for_storage(data)
         names = list(table.indexed_columns)
         col_list = ", ".join(names)
@@ -220,7 +201,6 @@ class SqliteTransactionContext(ITransactionContext):
         self.set(collection, doc_id, existing)
 
     def delete(self, collection: str, doc_id: str) -> None:
-        self._table(collection)
         self._conn.execute(f"DELETE FROM {collection} WHERE doc_id = ?", (doc_id,))
 
     def query(
@@ -230,7 +210,7 @@ class SqliteTransactionContext(ITransactionContext):
         order_by: Optional[str] = None,
         limit: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
-        table = self._table(collection)
+        table = _TABLE[collection]
 
         where: List[str] = []
         params: List[Any] = []
@@ -315,8 +295,9 @@ class SqliteTransactionContext(ITransactionContext):
     def list_subcollection(
         self, parent_collection: str, parent_doc_id: str, subcollection: str
     ) -> List[Dict[str, Any]]:
-        table = self._child_table(parent_collection, subcollection)
-        parent_key, doc_key = table.primary_key
+        # A child table is identified by its own name; the parent_collection arg is
+        # Firestore addressing that SQL doesn't need (kept only for the interface).
+        parent_key, doc_key = _TABLE[subcollection].primary_key
         rows = self._conn.execute(
             f"SELECT {doc_key}, data FROM {subcollection} WHERE {parent_key} = ?",
             (parent_doc_id,),
@@ -331,8 +312,7 @@ class SqliteTransactionContext(ITransactionContext):
     def get_subdocument(
         self, parent_collection: str, parent_doc_id: str, subcollection: str, doc_id: str
     ) -> Optional[Dict[str, Any]]:
-        table = self._child_table(parent_collection, subcollection)
-        parent_key, doc_key = table.primary_key
+        parent_key, doc_key = _TABLE[subcollection].primary_key
         row = self._conn.execute(
             f"SELECT data FROM {subcollection} WHERE {parent_key} = ? AND {doc_key} = ?",
             (parent_doc_id, doc_id),
@@ -347,8 +327,7 @@ class SqliteTransactionContext(ITransactionContext):
         doc_id: str,
         data: Dict[str, Any],
     ) -> None:
-        table = self._child_table(parent_collection, subcollection)
-        parent_key, doc_key = table.primary_key
+        parent_key, doc_key = _TABLE[subcollection].primary_key
         self._conn.execute(
             f"INSERT INTO {subcollection} ({parent_key}, {doc_key}, data) VALUES (?, ?, ?) "
             f"ON CONFLICT({parent_key}, {doc_key}) DO UPDATE SET data = excluded.data",
@@ -479,7 +458,6 @@ class SqliteDatabase(IDatabase):
                 return
             targets = set(collections)
             for collection in collections:
-                SqliteTransactionContext._table(collection)
                 self._conn.execute(f"DELETE FROM {collection}")
             for table in _TABLES:
                 if table.parent in targets:
