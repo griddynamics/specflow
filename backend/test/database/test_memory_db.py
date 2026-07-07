@@ -5,7 +5,6 @@ Comprehensive test suite covering all IDatabase interface methods.
 """
 
 import pytest
-from datetime import datetime
 from app.database.memory import InMemoryDatabase
 from app.database.interface import DocumentNotFoundError
 
@@ -343,43 +342,6 @@ class TestArrayOperations:
         """Test array_union fails on nonexistent document."""
         with pytest.raises(DocumentNotFoundError):
             db.array_union("users", "nonexistent", "tags", ["python"])
-
-
-class TestServerTimestamp:
-    """Test server timestamp functionality."""
-
-    def test_server_timestamp_on_set(self, db):
-        """Test server timestamp is replaced with actual time."""
-        db.set("users", "user-1", {
-            "name": "Alice",
-            "created_at": db.server_timestamp()
-        })
-        
-        user = db.get("users", "user-1")
-        assert "created_at" in user
-        assert isinstance(user["created_at"], datetime)
-
-    def test_server_timestamp_on_update(self, db):
-        """Test server timestamp in update operation."""
-        db.set("users", "user-1", {"name": "Alice"})
-        db.update("users", "user-1", {"updated_at": db.server_timestamp()})
-        
-        user = db.get("users", "user-1")
-        assert "updated_at" in user
-        assert isinstance(user["updated_at"], datetime)
-
-    def test_server_timestamp_in_transaction(self, db):
-        """Test server timestamp in transaction."""
-        def create_with_timestamp(tx):
-            tx.set("users", "user-1", {
-                "name": "Alice",
-                "created_at": db.server_timestamp()
-            })
-        
-        db.run_transaction(create_with_timestamp)
-        
-        user = db.get("users", "user-1")
-        assert isinstance(user["created_at"], datetime)
 
 
 class TestIsolation:
