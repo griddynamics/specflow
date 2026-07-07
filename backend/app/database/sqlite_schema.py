@@ -8,28 +8,33 @@ its own table with the fields that are actually filtered/ordered across the code
 column (the source of truth on read); promoted columns are mirrored out of it on write
 purely so SQL can filter/order on real, indexed columns instead of ``json_extract``.
 
-Any collection NOT registered here transparently falls back to the generic
-``documents`` table (``collection, doc_id, data``), so the interface stays fully generic
-and ad-hoc/test collections keep working. This registry drives both DDL (table + index
-creation) and query routing (promoted column vs JSON fallback) — no second list of
-column names exists anywhere (DRY). Adding a promoted table later is purely additive
-(Open/Closed): register a new schema, nothing else changes.
+There is no generic catch-all table: a collection that is not registered here is a
+programming error and is rejected loudly (see ``sqlite._require_schema``), so a new
+collection cannot silently land in an unindexed blob — you must register it. This
+registry drives both DDL (table + index creation) and query routing (promoted column vs
+``json_extract`` on the same table's ``data``) — no second list of column names exists
+anywhere (DRY). Adding a collection later is purely additive (Open/Closed): register a
+new schema, nothing else changes.
 
-Promoted columns are derived from the real query call sites:
-  - generation_sessions: stuck_running/initializing detectors, shutdown recovery/handler,
-    per-key session listing (``order_by="-created_at"``).
-  - workspaces: pool allocation, scheduled wipe, stuck-cleaning/initializing recovery.
-  - api_keys: ``get_api_key_by_uid`` and the auth routes.
+A field is promoted iff it actually appears in a query filter or ``order_by`` somewhere
+in the codebase — nothing is promoted "just in case" (a promoted column that nothing
+queries is pure write overhead). Every other field stays in the JSON ``data`` blob and is
+still queryable via ``json_extract`` on the same table if a rare filter needs it. The
+promoted set, by call site:
+  - generation_sessions: ``status``, ``last_activity_at``, ``status_changed_at``,
+    ``shutdown_interrupted``, ``key_uid`` (stuck_running/initializing detectors, shutdown
+    recovery/handler) and ``created_at`` (per-key listing ``order_by="-created_at"``).
+  - workspaces: ``status``, ``workspace_pool``, ``set_number``, ``scheduled_for_wipe``,
+    ``scheduled_for_wipe_at``, ``locked_by``, ``clean_verified`` (pool allocation,
+    scheduled wipe, stuck-cleaning/initializing recovery, allocation rollback).
+  - api_keys: ``key_uid`` (``get_api_key_by_uid``; the auth routes read the rest off the
+    document and never filter on it).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Dict, Optional, Tuple
-
-# Generic fallback table for any collection not registered below (keeps the interface
-# fully generic: unknown/ad-hoc/test collections still round-trip as JSON blobs).
-GENERIC_TABLE = "documents"
 
 
 @dataclass(frozen=True)
@@ -77,8 +82,6 @@ _SCHEMAS: Tuple[CollectionSchema, ...] = (
             Column("shutdown_interrupted", "INTEGER"),
             Column("key_uid"),
             Column("created_at"),
-            Column("failed_at"),
-            Column("outputs_archived", "INTEGER"),
         ),
         indexes=(
             ("status", "last_activity_at"),
@@ -97,8 +100,7 @@ _SCHEMAS: Tuple[CollectionSchema, ...] = (
             Column("scheduled_for_wipe", "INTEGER"),
             Column("scheduled_for_wipe_at"),
             Column("locked_by"),
-            Column("cleaning_started_at"),
-            Column("allocated_at"),
+            Column("clean_verified", "INTEGER"),
         ),
         indexes=(
             ("status",),
@@ -109,11 +111,7 @@ _SCHEMAS: Tuple[CollectionSchema, ...] = (
     CollectionSchema(
         collection="api_keys",
         table="api_keys",
-        columns=(
-            Column("key_uid"),
-            Column("is_active", "INTEGER"),
-            Column("user_id"),
-        ),
+        columns=(Column("key_uid"),),
         indexes=(("key_uid",),),
     ),
 )

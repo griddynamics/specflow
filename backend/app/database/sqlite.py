@@ -45,7 +45,6 @@ from app.database.interface import (
     ITransactionContext,
 )
 from app.database.sqlite_schema import (
-    GENERIC_TABLE,
     CollectionSchema,
     all_schemas,
     schema_for,
@@ -123,9 +122,25 @@ def _quote_ident(name: str) -> str:
 
 # ----------------------------------------------------------------------------
 # Physical operations shared by SqliteDatabase and SqliteTransactionContext.
-# All take a live connection so the same routing (per-collection table vs generic
-# documents table) is used inside and outside a transaction — single source of truth.
+# All take a live connection so the same per-collection table is used inside and
+# outside a transaction — single source of truth.
 # ----------------------------------------------------------------------------
+
+
+def _require_schema(collection: str) -> CollectionSchema:
+    """Resolve the relational schema for ``collection`` or fail loudly.
+
+    There is no generic catch-all table: an unregistered collection is a programming
+    error (a new collection must get its own table), not something to silently store
+    in an unindexed blob.
+    """
+    schema = schema_for(collection)
+    if schema is None:
+        raise ValueError(
+            f"Unknown SQLite collection {collection!r}. "
+            f"Register it in app/database/sqlite_schema.py before using it."
+        )
+    return schema
 
 
 def _column_values(schema: CollectionSchema, encoded: Dict[str, Any]) -> List[Any]:
@@ -134,32 +149,19 @@ def _column_values(schema: CollectionSchema, encoded: Dict[str, Any]) -> List[An
 
 
 def _row_get(conn: sqlite3.Connection, collection: str, doc_id: str) -> Optional[Dict[str, Any]]:
-    schema = schema_for(collection)
-    if schema is not None:
-        row = conn.execute(
-            f"SELECT data FROM {schema.table} WHERE doc_id = ?", (doc_id,)
-        ).fetchone()
-    else:
-        row = conn.execute(
-            "SELECT data FROM documents WHERE collection = ? AND doc_id = ?",
-            (collection, doc_id),
-        ).fetchone()
+    schema = _require_schema(collection)
+    row = conn.execute(
+        f"SELECT data FROM {schema.table} WHERE doc_id = ?", (doc_id,)
+    ).fetchone()
     if row is None:
         return None
     return _decode_from_storage(json.loads(row[0]))
 
 
 def _row_set(conn: sqlite3.Connection, collection: str, doc_id: str, data: Dict[str, Any]) -> None:
+    schema = _require_schema(collection)
     encoded = _encode_for_storage(data)
     payload = json.dumps(encoded)
-    schema = schema_for(collection)
-    if schema is None:
-        conn.execute(
-            "INSERT INTO documents (collection, doc_id, data) VALUES (?, ?, ?) "
-            "ON CONFLICT(collection, doc_id) DO UPDATE SET data = excluded.data",
-            (collection, doc_id, payload),
-        )
-        return
 
     names = schema.column_names
     col_list = ", ".join(_quote_ident(n) for n in names)
@@ -184,26 +186,24 @@ def _row_update(conn: sqlite3.Connection, collection: str, doc_id: str, data: Di
 
 
 def _row_delete(conn: sqlite3.Connection, collection: str, doc_id: str) -> None:
-    schema = schema_for(collection)
-    if schema is not None:
-        conn.execute(f"DELETE FROM {schema.table} WHERE doc_id = ?", (doc_id,))
-    else:
-        conn.execute(
-            "DELETE FROM documents WHERE collection = ? AND doc_id = ?",
-            (collection, doc_id),
-        )
+    schema = _require_schema(collection)
+    conn.execute(f"DELETE FROM {schema.table} WHERE doc_id = ?", (doc_id,))
 
 
-def _field_expr(schema: Optional[CollectionSchema], field: str) -> tuple[str, List[Any]]:
-    """SQL expression + bind params to read ``field`` — a real column or a JSON extract."""
-    column = schema.column_for(field) if schema is not None else None
+def _field_expr(schema: CollectionSchema, field: str) -> tuple[str, List[Any]]:
+    """SQL expression + bind params to read ``field`` — a promoted column or a JSON extract.
+
+    Fields not promoted to a column are still stored in the table's ``data`` blob and
+    remain queryable via ``json_extract`` on the same row.
+    """
+    column = schema.column_for(field)
     if column is not None:
         return _quote_ident(column), []
     return "json_extract(data, ?)", [_json_path(field)]
 
 
 def _filter_clause(
-    schema: Optional[CollectionSchema], field: str, operator: str, value: Any
+    schema: CollectionSchema, field: str, operator: str, value: Any
 ) -> tuple[str, List[Any]]:
     """Translate a (field, op, value) filter into a SQL clause + bind params.
 
@@ -253,21 +253,16 @@ def _row_query(
     order_by: Optional[str],
     limit: Optional[int],
 ) -> List[Dict[str, Any]]:
-    schema = schema_for(collection)
-    table = schema.table if schema is not None else GENERIC_TABLE
+    schema = _require_schema(collection)
 
     where: List[str] = []
     params: List[Any] = []
-    if schema is None:
-        where.append("collection = ?")
-        params.append(collection)
-
     for field, operator, value in filters or []:
         clause, clause_params = _filter_clause(schema, field, operator, value)
         where.append(clause)
         params.extend(clause_params)
 
-    sql = f"SELECT doc_id, data FROM {table}"
+    sql = f"SELECT doc_id, data FROM {schema.table}"
     if where:
         sql += " WHERE " + " AND ".join(where)
 
@@ -368,12 +363,7 @@ class SqliteDatabase(IDatabase):
 
     def _init_schema(self) -> None:
         with self._lock:
-            # Generic fallback table (unregistered/ad-hoc collections) + subcollections.
-            self._conn.execute(
-                "CREATE TABLE IF NOT EXISTS documents ("
-                "collection TEXT NOT NULL, doc_id TEXT NOT NULL, data TEXT NOT NULL, "
-                "PRIMARY KEY (collection, doc_id))"
-            )
+            # Firestore-style subcollections (e.g. per-workspace model usage).
             self._conn.execute(
                 "CREATE TABLE IF NOT EXISTS subdocuments ("
                 "parent_collection TEXT NOT NULL, parent_doc_id TEXT NOT NULL, "
@@ -504,8 +494,7 @@ class SqliteDatabase(IDatabase):
 
     def get_api_key_by_uid(self, key_uid: str) -> Optional[Dict[str, Any]]:
         # Indexed lookup on the promoted key_uid column of the api_keys table.
-        schema = schema_for("api_keys")
-        assert schema is not None  # api_keys is always registered
+        schema = _require_schema("api_keys")
         with self._lock:
             row = self._conn.execute(
                 f"SELECT doc_id, data FROM {schema.table} WHERE key_uid = ?",
@@ -527,19 +516,9 @@ class SqliteDatabase(IDatabase):
         with self._lock:
             if not targets:
                 return
-            generic_targets: List[str] = []
             for collection in targets:
-                schema = schema_for(collection)
-                if schema is not None:
-                    self._conn.execute(f"DELETE FROM {schema.table}")
-                else:
-                    generic_targets.append(collection)
-            if generic_targets:
-                placeholders = ", ".join("?" for _ in generic_targets)
-                self._conn.execute(
-                    f"DELETE FROM documents WHERE collection IN ({placeholders})",
-                    generic_targets,
-                )
+                schema = _require_schema(collection)
+                self._conn.execute(f"DELETE FROM {schema.table}")
             placeholders = ", ".join("?" for _ in targets)
             self._conn.execute(
                 f"DELETE FROM subdocuments WHERE parent_collection IN ({placeholders})",
@@ -551,7 +530,6 @@ class SqliteDatabase(IDatabase):
         with self._lock:
             for schema in all_schemas():
                 self._conn.execute(f"DELETE FROM {schema.table}")
-            self._conn.execute("DELETE FROM documents")
             self._conn.execute("DELETE FROM subdocuments")
 
     def close(self) -> None:

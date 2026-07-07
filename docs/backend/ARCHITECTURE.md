@@ -196,10 +196,10 @@ class DatabaseInterface(ABC):
   stays the source of truth on read. Timestamps are stored as fixed-width ISO-8601 UTC
   text so lexical order equals chronological order in both the columns and the blob.
   The layout is declared once in `app/database/sqlite_schema.py`, which drives both DDL
-  and query routing — adding a promoted table later is additive. Any *unregistered*
-  collection falls back to a generic `documents` table (`collection, doc_id, data`), and
-  Firestore-style subcollections use a `subdocuments` table, so the document-shaped
-  `IDatabase` interface stays fully generic.
+  and query routing — adding a collection later is additive. There is no generic
+  catch-all table: an unregistered collection is rejected loudly (register it first),
+  so a new collection can't silently land in an unindexed blob. Firestore-style
+  subcollections use a `subdocuments` table.
 
 **3. EmulatorDatabase** - Firestore emulator
 - Connects to a manually-run Firestore emulator process (docker-compose does not

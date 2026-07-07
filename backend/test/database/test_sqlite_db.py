@@ -60,35 +60,35 @@ class TestSqliteDatetime:
 
     def test_datetime_roundtrip_is_tz_aware(self, db):
         stored = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        db.set("c", "d", {"ts": stored})
+        db.set("generation_sessions", "d", {"ts": stored})
 
-        got = db.get("c", "d")["ts"]
+        got = db.get("generation_sessions", "d")["ts"]
         assert isinstance(got, datetime)
         assert got.tzinfo is not None
         assert got == stored
 
     def test_naive_datetime_assumed_utc(self, db):
-        db.set("c", "d", {"ts": datetime(2026, 1, 1, 12, 0, 0)})
+        db.set("generation_sessions", "d", {"ts": datetime(2026, 1, 1, 12, 0, 0)})
 
-        got = db.get("c", "d")["ts"]
+        got = db.get("generation_sessions", "d")["ts"]
         assert got == datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
 
     def test_datetime_filter_less_than(self, db):
         now = datetime.now(timezone.utc)
-        db.set("gen", "old", {"last_activity_at": now - timedelta(minutes=60)})
-        db.set("gen", "fresh", {"last_activity_at": now - timedelta(minutes=1)})
+        db.set("generation_sessions", "old", {"last_activity_at": now - timedelta(minutes=60)})
+        db.set("generation_sessions", "fresh", {"last_activity_at": now - timedelta(minutes=1)})
 
         cutoff = now - timedelta(minutes=30)
-        results = db.query("gen", filters=[("last_activity_at", "<", cutoff)])
+        results = db.query("generation_sessions", filters=[("last_activity_at", "<", cutoff)])
 
         assert {r["_id"] for r in results} == {"old"}
 
     def test_none_datetime_excluded_by_less_than(self, db):
         """None last_activity_at must be invisible to '<' (matches reference impl)."""
         now = datetime.now(timezone.utc)
-        db.set("gen", "none", {"last_activity_at": None})
+        db.set("generation_sessions", "none", {"last_activity_at": None})
 
-        results = db.query("gen", filters=[("last_activity_at", "<", now)])
+        results = db.query("generation_sessions", filters=[("last_activity_at", "<", now)])
         assert results == []
 
     def test_nested_datetime_in_list_roundtrips(self, db):
@@ -113,8 +113,9 @@ class TestSqliteRelationalSchema:
     def test_known_collections_have_dedicated_tables(self, db):
         tables = self._tables(db)
         assert {"api_keys", "generation_sessions", "workspaces"} <= tables
-        # Generic fallback + subcollection tables still exist.
-        assert {"documents", "subdocuments"} <= tables
+        # Subcollections live in their own table; there is no generic `documents` catch-all.
+        assert "subdocuments" in tables
+        assert "documents" not in tables
 
     def test_promoted_columns_are_populated_on_write(self, db):
         db.set("generation_sessions", "gen-1", {
@@ -155,16 +156,15 @@ class TestSqliteRelationalSchema:
         assert isinstance(raw, str)
         assert raw == "2026-01-02T03:04:05.000000+00:00"
 
-    def test_unregistered_collection_falls_back_to_documents(self, db):
-        db.set("widgets", "w-1", {"color": "blue"})
-
-        # No dedicated table was created; the row lives in the generic documents table.
+    def test_unregistered_collection_is_rejected(self, db):
+        # No generic catch-all: an unknown collection fails loudly instead of silently
+        # landing in an unindexed blob. The message points at the registry to fix it.
+        with pytest.raises(ValueError, match="Register it"):
+            db.set("widgets", "w-1", {"color": "blue"})
         assert "widgets" not in self._tables(db)
-        count = db._conn.execute(
-            "SELECT COUNT(*) FROM documents WHERE collection = ?", ("widgets",)
-        ).fetchone()[0]
-        assert count == 1
-        assert db.get("widgets", "w-1") == {"color": "blue"}
+
+        with pytest.raises(ValueError, match="Register it"):
+            db.query("widgets")
 
     def test_query_on_promoted_column_uses_index(self, db):
         plan = db._conn.execute(
