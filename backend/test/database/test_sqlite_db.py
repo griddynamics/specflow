@@ -113,9 +113,35 @@ class TestSqliteRelationalSchema:
     def test_known_collections_have_dedicated_tables(self, db):
         tables = self._tables(db)
         assert {"api_keys", "generation_sessions", "workspaces"} <= tables
-        # Subcollections live in their own table; there is no generic `documents` catch-all.
-        assert "subdocuments" in tables
+        # Subcollections get their own named child table too; no generic catch-all tables.
+        assert "workspace_model_usage" in tables
         assert "documents" not in tables
+        assert "subdocuments" not in tables
+
+    def test_subcollection_uses_named_table_with_key_columns(self, db):
+        db.run_transaction(
+            lambda tx: tx.set_subdocument(
+                "generation_sessions", "gen-1", "workspace_model_usage", "ws-a",
+                {"total_usd_cost": 1.5},
+            )
+        )
+        # Real, inspectable key columns — not opaque parent_collection/subcollection rows.
+        row = db._conn.execute(
+            "SELECT generation_id, workspace_id FROM workspace_model_usage"
+        ).fetchone()
+        assert row == ("gen-1", "ws-a")
+
+        listed = db.list_subcollection("generation_sessions", "gen-1", "workspace_model_usage")
+        assert listed[0]["_id"] == "ws-a"
+        assert listed[0]["total_usd_cost"] == 1.5
+
+    def test_unregistered_subcollection_is_rejected(self, db):
+        with pytest.raises(ValueError, match="Register it"):
+            db.list_subcollection("generation_sessions", "gen-1", "unknown_sub")
+        with pytest.raises(ValueError, match="Register it"):
+            db.run_transaction(
+                lambda tx: tx.set_subdocument("workspaces", "w", "nope", "d", {})
+            )
 
     def test_promoted_columns_are_populated_on_write(self, db):
         db.set("generation_sessions", "gen-1", {

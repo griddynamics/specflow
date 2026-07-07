@@ -120,10 +120,58 @@ _BY_COLLECTION: Dict[str, CollectionSchema] = {s.collection: s for s in _SCHEMAS
 
 
 def schema_for(collection: str) -> Optional[CollectionSchema]:
-    """Return the relational schema for ``collection``, or None to use the generic table."""
+    """Return the relational schema for ``collection``, or None if unregistered."""
     return _BY_COLLECTION.get(collection)
 
 
 def all_schemas() -> Tuple[CollectionSchema, ...]:
     """All registered per-collection schemas (used for DDL and full-reset)."""
     return _SCHEMAS
+
+
+@dataclass(frozen=True)
+class SubcollectionSchema:
+    """A known Firestore-style subcollection mapped to its own child table.
+
+    Subcollection documents are addressed only by their keys — the parent doc id and the
+    document id — and no payload field is ever filtered, so there are no promoted columns:
+    just the two composite-key columns and the JSON ``data`` blob. (Add promoted columns
+    here in the same way as ``CollectionSchema`` if a future subcollection ever needs to
+    filter on a field.) Same rule as top-level collections: an unregistered subcollection
+    is rejected, not stored in a generic blob.
+    """
+
+    parent_collection: str
+    subcollection: str
+    table: str
+    parent_key_column: str
+    doc_key_column: str
+
+
+# The one subcollection in use: per-workspace LLM usage under a generation session
+# (``generation_sessions/{generation_id}/workspace_model_usage/{workspace_id}``).
+_SUBSCHEMAS: Tuple[SubcollectionSchema, ...] = (
+    SubcollectionSchema(
+        parent_collection="generation_sessions",
+        subcollection="workspace_model_usage",
+        table="workspace_model_usage",
+        parent_key_column="generation_id",
+        doc_key_column="workspace_id",
+    ),
+)
+
+_SUB_BY_KEY: Dict[Tuple[str, str], SubcollectionSchema] = {
+    (s.parent_collection, s.subcollection): s for s in _SUBSCHEMAS
+}
+
+
+def subcollection_schema_for(
+    parent_collection: str, subcollection: str
+) -> Optional[SubcollectionSchema]:
+    """Return the child-table schema for a subcollection, or None if unregistered."""
+    return _SUB_BY_KEY.get((parent_collection, subcollection))
+
+
+def all_subcollection_schemas() -> Tuple[SubcollectionSchema, ...]:
+    """All registered subcollection schemas (used for DDL and full-reset)."""
+    return _SUBSCHEMAS

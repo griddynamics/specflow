@@ -14,7 +14,8 @@ Design notes:
   ``data`` JSON column (source of truth on read); promoted columns are mirrored out of
   it on write so filters/ordering hit real indexes instead of ``json_extract``. There is
   no generic catch-all table: an unregistered collection is rejected loudly. Firestore
-  subcollections use a separate ``subdocuments`` table.
+  subcollections follow the same rule — each known one gets its own child table (keyed by
+  parent id + doc id), and an unregistered subcollection is rejected too.
 - All connection-level SQL lives on ``SqliteTransactionContext``; ``SqliteDatabase``
   composes one over its own connection and just adds locking + lifecycle, so the SQL
   exists in exactly one place.
@@ -47,7 +48,14 @@ from app.database.interface import (
     IDatabase,
     ITransactionContext,
 )
-from app.database.sqlite_schema import CollectionSchema, all_schemas, schema_for
+from app.database.sqlite_schema import (
+    CollectionSchema,
+    SubcollectionSchema,
+    all_schemas,
+    all_subcollection_schemas,
+    schema_for,
+    subcollection_schema_for,
+)
 
 T = TypeVar("T")
 
@@ -310,16 +318,33 @@ class SqliteTransactionContext(ITransactionContext):
         doc[field] = array
         self.set(collection, doc_id, doc)
 
+    @staticmethod
+    def _sub_schema(parent_collection: str, subcollection: str) -> SubcollectionSchema:
+        """Resolve the child-table schema for a subcollection or fail loudly.
+
+        Same rule as ``_schema``: an unregistered subcollection is a programming error,
+        not something to store in a generic blob.
+        """
+        schema = subcollection_schema_for(parent_collection, subcollection)
+        if schema is None:
+            raise ValueError(
+                f"Unknown SQLite subcollection {subcollection!r} under "
+                f"{parent_collection!r}. Register it in app/database/sqlite_schema.py "
+                f"before using it."
+            )
+        return schema
+
     def list_subcollection(
         self,
         parent_collection: str,
         parent_doc_id: str,
         subcollection: str,
     ) -> List[Dict[str, Any]]:
+        sub = self._sub_schema(parent_collection, subcollection)
         rows = self._conn.execute(
-            "SELECT doc_id, data FROM subdocuments WHERE parent_collection = ? AND "
-            "parent_doc_id = ? AND subcollection = ?",
-            (parent_collection, parent_doc_id, subcollection),
+            f"SELECT {_quote_ident(sub.doc_key_column)}, data FROM {sub.table} "
+            f"WHERE {_quote_ident(sub.parent_key_column)} = ?",
+            (parent_doc_id,),
         ).fetchall()
         out: List[Dict[str, Any]] = []
         for doc_id, data in rows:
@@ -335,10 +360,11 @@ class SqliteTransactionContext(ITransactionContext):
         subcollection: str,
         doc_id: str,
     ) -> Optional[Dict[str, Any]]:
+        sub = self._sub_schema(parent_collection, subcollection)
         row = self._conn.execute(
-            "SELECT data FROM subdocuments WHERE parent_collection = ? AND "
-            "parent_doc_id = ? AND subcollection = ? AND doc_id = ?",
-            (parent_collection, parent_doc_id, subcollection, doc_id),
+            f"SELECT data FROM {sub.table} WHERE "
+            f"{_quote_ident(sub.parent_key_column)} = ? AND {_quote_ident(sub.doc_key_column)} = ?",
+            (parent_doc_id, doc_id),
         ).fetchone()
         if row is None:
             return None
@@ -352,14 +378,15 @@ class SqliteTransactionContext(ITransactionContext):
         doc_id: str,
         data: Dict[str, Any],
     ) -> None:
+        sub = self._sub_schema(parent_collection, subcollection)
+        parent_col = _quote_ident(sub.parent_key_column)
+        doc_col = _quote_ident(sub.doc_key_column)
         payload = json.dumps(_encode_for_storage(data))
         self._conn.execute(
-            "INSERT INTO subdocuments "
-            "(parent_collection, parent_doc_id, subcollection, doc_id, data) "
-            "VALUES (?, ?, ?, ?, ?) "
-            "ON CONFLICT(parent_collection, parent_doc_id, subcollection, doc_id) "
-            "DO UPDATE SET data = excluded.data",
-            (parent_collection, parent_doc_id, subcollection, doc_id, payload),
+            f"INSERT INTO {sub.table} ({parent_col}, {doc_col}, data) "
+            f"VALUES (?, ?, ?) "
+            f"ON CONFLICT({parent_col}, {doc_col}) DO UPDATE SET data = excluded.data",
+            (parent_doc_id, doc_id, payload),
         )
 
     def get_api_key_by_uid(self, key_uid: str) -> Optional[Dict[str, Any]]:
@@ -401,13 +428,15 @@ class SqliteDatabase(IDatabase):
 
     def _init_schema(self) -> None:
         with self._lock:
-            # Firestore-style subcollections (e.g. per-workspace model usage).
-            self._conn.execute(
-                "CREATE TABLE IF NOT EXISTS subdocuments ("
-                "parent_collection TEXT NOT NULL, parent_doc_id TEXT NOT NULL, "
-                "subcollection TEXT NOT NULL, doc_id TEXT NOT NULL, data TEXT NOT NULL, "
-                "PRIMARY KEY (parent_collection, parent_doc_id, subcollection, doc_id))"
-            )
+            # One child table per known subcollection: composite key columns + JSON `data`.
+            for sub in all_subcollection_schemas():
+                parent_col = _quote_ident(sub.parent_key_column)
+                doc_col = _quote_ident(sub.doc_key_column)
+                self._conn.execute(
+                    f"CREATE TABLE IF NOT EXISTS {sub.table} "
+                    f"({parent_col} TEXT NOT NULL, {doc_col} TEXT NOT NULL, "
+                    f"data TEXT NOT NULL, PRIMARY KEY ({parent_col}, {doc_col}))"
+                )
             # One real table per known collection: promoted typed columns + JSON `data`.
             for schema in all_schemas():
                 col_defs = ", ".join(
@@ -516,7 +545,7 @@ class SqliteDatabase(IDatabase):
     # ------------------------------------------------------------------
 
     def clear_all(self, collections: Optional[List[str]] = None) -> None:
-        """Delete documents (and parented subdocuments). None clears the default test set."""
+        """Delete documents (and their child subcollections). None clears the default test set."""
         targets = list(collections) if collections is not None else list(_DEFAULT_CLEAR_COLLECTIONS)
         with self._lock:
             if not targets:
@@ -524,18 +553,19 @@ class SqliteDatabase(IDatabase):
             for collection in targets:
                 schema = SqliteTransactionContext._schema(collection)
                 self._conn.execute(f"DELETE FROM {schema.table}")
-            placeholders = ", ".join("?" for _ in targets)
-            self._conn.execute(
-                f"DELETE FROM subdocuments WHERE parent_collection IN ({placeholders})",
-                targets,
-            )
+            # Also clear child tables of any target collection.
+            target_set = set(targets)
+            for sub in all_subcollection_schemas():
+                if sub.parent_collection in target_set:
+                    self._conn.execute(f"DELETE FROM {sub.table}")
 
     def clear(self) -> None:
         """Drop all rows from every table (full reset)."""
         with self._lock:
             for schema in all_schemas():
                 self._conn.execute(f"DELETE FROM {schema.table}")
-            self._conn.execute("DELETE FROM subdocuments")
+            for sub in all_subcollection_schemas():
+                self._conn.execute(f"DELETE FROM {sub.table}")
 
     def close(self) -> None:
         """Checkpoint the WAL back into the main file, then close the connection.

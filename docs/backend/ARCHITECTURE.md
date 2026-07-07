@@ -199,7 +199,9 @@ class DatabaseInterface(ABC):
   and query routing — adding a collection later is additive. There is no generic
   catch-all table: an unregistered collection is rejected loudly (register it first),
   so a new collection can't silently land in an unindexed blob. Firestore-style
-  subcollections use a `subdocuments` table.
+  subcollections follow the same rule — each known one gets its own named child table
+  (e.g. `workspace_model_usage`, keyed by `generation_id` + `workspace_id`), and an
+  unregistered subcollection is rejected too.
 
 **3. EmulatorDatabase** - Firestore emulator
 - Connects to a manually-run Firestore emulator process (docker-compose does not
