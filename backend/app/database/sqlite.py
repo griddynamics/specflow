@@ -412,7 +412,6 @@ class SqliteDatabase(IDatabase):
     """
 
     def __init__(self, db_path: str, busy_timeout_ms: int = 5000, max_retries: int = 5) -> None:
-        self._path = db_path
         self._max_retries = max_retries
         self._lock = threading.RLock()
 

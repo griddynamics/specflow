@@ -66,7 +66,7 @@ class CollectionSchema:
         return tuple(c.name for c in self.columns)
 
     def column_for(self, field: str) -> Optional[str]:
-        """Return the promoted column name for ``field``, or None to use the JSON fallback."""
+        """Return the promoted column name for ``field``, or None to read it from ``data``."""
         return field if field in self.column_names else None
 
 
