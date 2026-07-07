@@ -229,6 +229,32 @@ class TestPlainStatus:
         assert "unavailable" in out
 
 
+class TestSessionLabel:
+    def test_uses_pipeline_step_defs_for_checkpoint_label(self):
+        label = tui_app._session_label(
+            {
+                "generation_id": "est-d67dcac6cbe5",
+                "status": "running",
+                "checkpoint": "contract_validated",
+                "created_at": "2026-07-07T14:00:15.701099+00:00",
+            }
+        )
+
+        assert "Contract validated" in label
+        assert "est-d67dcac6cbe5" in label
+
+    def test_unknown_checkpoint_falls_back_to_key(self):
+        label = tui_app._session_label(
+            {
+                "generation_id": "est-d67dcac6cbe5",
+                "status": "running",
+                "checkpoint": "custom_checkpoint",
+            }
+        )
+
+        assert "custom_checkpoint" in label
+
+
 class TestRunTuiNonTty:
     @pytest.mark.asyncio
     async def test_non_tty_prints_plain_status_without_app(self, capsys):
