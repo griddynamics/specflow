@@ -195,7 +195,7 @@ class DatabaseInterface(ABC):
   typed, indexed columns; the full document also lives in a `data` JSON column, which
   stays the source of truth on read. Timestamps are stored as fixed-width ISO-8601 UTC
   text so lexical order equals chronological order in both the columns and the blob.
-  The layout is declared once in `app/database/sqlite_schema.py`, which drives both DDL
+  The layout is declared once in the registry at the top of `app/database/sqlite.py`, which drives both DDL
   and query routing — adding a collection later is additive. There is no generic
   catch-all table: an unregistered collection is rejected loudly (register it first),
   so a new collection can't silently land in an unindexed blob. Firestore-style
