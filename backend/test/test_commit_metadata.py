@@ -143,6 +143,7 @@ def test_subject_excluded_logs_debug_for_empty(caplog) -> None:
 @pytest.mark.parametrize("subject,expected_component", [
     ("backend_implement JWT", ["backend"]),
     ("frontend_add login form", ["frontend"]),
+    ("mobile_finalize app manifest", ["mobile"]),
     ("BACKEND_uppercase token", ["backend"]),     # component lowercased
     ("common_setup project", ["common"]),
     ("_no_component_before_underscore", ["common"]),  # empty token → common
@@ -173,14 +174,14 @@ def test_parse_component_unknown_token_logs_warning(caplog) -> None:
 def test_parse_component_known_token_no_warning(caplog) -> None:
     logger = logging.getLogger("test_parse_known")
     with caplog.at_level(logging.WARNING, logger="test_parse_known"):
-        _parse_component_from_subject("backend_add feature", logger)
+        _parse_component_from_subject("mobile_finalize app manifest", logger)
     assert "unknown component token" not in caplog.text
 
 
 def test_known_components_matches_standards() -> None:
     """KNOWN_COMPONENTS must include the tokens listed in commit_standards.md."""
     expected = {"backend", "frontend", "database", "api", "auth",
-                "infrastructure", "testing", "documentation", "pipeline", "ml", "common"}
+                "infrastructure", "testing", "documentation", "pipeline", "ml", "mobile", "common"}
     assert expected == set(KNOWN_COMPONENTS)
 
 
