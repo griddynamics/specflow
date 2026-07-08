@@ -238,6 +238,39 @@ class TestSqliteRelationalSchema:
         assert got["user_id"] == "alice@example.com"
         assert db.get_api_key_by_uid("missing") is None
 
+    def test_api_keys_full_scalar_core_promoted(self, db):
+        db.set("api_keys", "sk-full", {
+            "key_uid": "uid-full",
+            "workspace_pool": "standard",
+            "user_id": "dev@example.com",
+            "user_name": "Dev User",
+            "created_at": "2026-01-01T00:00:00.000000+00:00",
+            "last_used_at": "2026-01-02T00:00:00.000000+00:00",
+            "expires_at": None,
+            "is_active": True,
+            "github_token_ciphertext": "encrypted-blob",
+            "github_token_set_at": "2026-01-01T00:00:00.000000+00:00",
+            "git_user_name": "dev-gh",
+            "max_concurrent_sessions": 5,
+            "permissions": ["admin"],  # stays in the JSON blob
+            "metadata": {"note": "test"},  # stays in the JSON blob
+            "active_generation_sessions": [{"generation_id": "est-1"}],  # stays in the JSON blob
+        })
+        row = db._conn.execute(
+            "SELECT user_id, user_name, is_active, github_token_ciphertext, "
+            "max_concurrent_sessions FROM api_keys WHERE doc_id = ?",
+            ("sk-full",),
+        ).fetchone()
+        assert row == ("dev@example.com", "Dev User", 1, "encrypted-blob", 5)
+        # Arrays/dicts never get promoted — they stay queryable via the JSON blob only.
+        columns = [c[1] for c in db._conn.execute("PRAGMA table_info(api_keys)")]
+        assert "permissions" not in columns
+        assert "metadata" not in columns
+        assert "active_generation_sessions" not in columns
+        got = db.get("api_keys", "sk-full")
+        assert got["permissions"] == ["admin"]
+        assert got["active_generation_sessions"] == [{"generation_id": "est-1"}]
+
     def test_generation_sessions_full_scalar_core_promoted(self, db):
         """Not just queried fields — the whole stable scalar core is a real column."""
         db.set("generation_sessions", "gen-full", {

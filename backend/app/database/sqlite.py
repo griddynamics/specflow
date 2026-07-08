@@ -143,7 +143,27 @@ _TABLES: tuple[_Table, ...] = (
             ("scheduled_for_wipe", "scheduled_for_wipe_at"),
         ),
     ),
-    _Table("api_keys", ("doc_id",), {"key_uid": "TEXT"}, (("key_uid",),)),
+    _Table(
+        "api_keys",
+        ("doc_id",),
+        {
+            # Queried/ordered (see indexes below)
+            "key_uid": "TEXT",
+            # Rest of the stable scalar core (not queried, promoted for inspectability)
+            "workspace_pool": "TEXT",
+            "user_id": "TEXT",
+            "user_name": "TEXT",
+            "created_at": "TEXT",
+            "last_used_at": "TEXT",
+            "expires_at": "TEXT",
+            "is_active": "INTEGER",
+            "github_token_ciphertext": "TEXT",
+            "github_token_set_at": "TEXT",
+            "git_user_name": "TEXT",
+            "max_concurrent_sessions": "INTEGER",
+        },
+        (("key_uid",),),
+    ),
     _Table(
         "workspace_model_usage",
         ("generation_id", "workspace_id"),
