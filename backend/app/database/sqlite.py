@@ -412,14 +412,14 @@ class SqliteDatabase(IDatabase):
                     f"CREATE TABLE IF NOT EXISTS {table.name} "
                     f"({', '.join(cols)}, PRIMARY KEY ({', '.join(table.primary_key)}))"
                 )
-                self._reconcile_columns(table)
+                self._auto_migrate_columns(table)
                 for index_cols in table.indexes:
                     idx = f"idx_{table.name}_{'_'.join(index_cols)}"
                     self._conn.execute(
                         f"CREATE INDEX IF NOT EXISTS {idx} ON {table.name} ({', '.join(index_cols)})"
                     )
 
-    def _reconcile_columns(self, table: _Table) -> None:
+    def _auto_migrate_columns(self, table: _Table) -> None:
         """Add + backfill any registry column missing from an existing table file.
 
         Lets a db file created by an older version of the registry self-upgrade: a
