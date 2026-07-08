@@ -184,6 +184,13 @@ Reset the local SQLite database and reseed:
 specflow init --reset-local-db
 ```
 
+Inspect the database: install [DB Browser for SQLite](https://sqlitebrowser.org/)
+(`brew install --cask db-browser-for-sqlite`), then open it read-only against the live db:
+
+```bash
+open -a "DB Browser for SQLite" ~/.specflow/db/specflow.db
+```
+
 ## More Guides
 
 - [Compass/P10Y setup](docs/quickstart-compass.md)
