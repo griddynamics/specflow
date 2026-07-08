@@ -42,8 +42,15 @@ _ISO_DATETIME_RE = re.compile(
 # ---------------------------------------------------------------------------
 # Physical layout registry. Everything is a table (there is no "subcollection" —
 # that is a Firestore word for what SQL calls a table with a compound primary key).
-# Promote a field to a column only if something filters/orders on it; the rest of the
-# document stays in the JSON `data` blob and is read via json_extract.
+#
+# ``columns`` promotes the stable scalar core of each document to real, typed SQL
+# columns — every field that is a plain scalar (str/int/float/bool/datetime) written
+# by the app, so the table is genuinely inspectable in a SQL browser. Nested/open-ended
+# structures (arrays, dicts, per-workflow maps) stay in the JSON `data` blob, which
+# remains the source of truth on every read; promoted columns are write-through
+# mirrors. ``indexes`` lists only the column combinations something actually
+# filters/orders on — promotion for inspectability and indexing for query performance
+# are separate concerns.
 # ---------------------------------------------------------------------------
 
 
@@ -52,14 +59,15 @@ class _Table:
     """A SQLite table.
 
     ``primary_key`` is one column for a document store (``doc_id``) or several for a
-    child table (``generation_id, workspace_id``). ``indexed_columns`` are the fields
-    promoted out of the JSON ``data`` blob because something filters/orders on them.
-    ``parent`` links a child table to its owner (cascade-clear + subdocument addressing).
+    child table (``generation_id, workspace_id``). ``columns`` are the scalar fields
+    promoted out of the JSON ``data`` blob. ``indexes`` are the promoted-column
+    combinations worth a SQL index. ``parent`` links a child table to its owner
+    (cascade-clear + subdocument addressing).
     """
 
     name: str
     primary_key: tuple[str, ...]
-    indexed_columns: Dict[str, str] = field(default_factory=dict)
+    columns: Dict[str, str] = field(default_factory=dict)
     indexes: tuple[tuple[str, ...], ...] = ()
     parent: Optional[str] = None
 
@@ -69,12 +77,30 @@ _TABLES: tuple[_Table, ...] = (
         "generation_sessions",
         ("doc_id",),
         {
+            # Queried/ordered (see indexes below)
             "status": "TEXT",
             "status_changed_at": "TEXT",
             "last_activity_at": "TEXT",
             "shutdown_interrupted": "INTEGER",
             "key_uid": "TEXT",
             "created_at": "TEXT",
+            # Rest of the stable scalar core (not queried, promoted for inspectability)
+            "checkpoint": "TEXT",
+            "started_at": "TEXT",
+            "completed_at": "TEXT",
+            "failed_at": "TEXT",
+            "error": "TEXT",
+            "retry_count": "INTEGER",
+            "max_retries": "INTEGER",
+            "user_email": "TEXT",
+            "workspace_pool": "TEXT",
+            "specification_dir": "TEXT",
+            "outputs_archived": "INTEGER",
+            "code_archived": "INTEGER",
+            "archive_status": "TEXT",
+            "artifact_path": "TEXT",
+            "emergency_archived": "INTEGER",
+            "total_usd_cost": "REAL",
         },
         (
             ("status", "last_activity_at"),
@@ -87,6 +113,7 @@ _TABLES: tuple[_Table, ...] = (
         "workspaces",
         ("doc_id",),
         {
+            # Queried/ordered (see indexes below)
             "status": "TEXT",
             "workspace_pool": "TEXT",
             "set_number": "INTEGER",
@@ -94,6 +121,21 @@ _TABLES: tuple[_Table, ...] = (
             "scheduled_for_wipe_at": "TEXT",
             "locked_by": "TEXT",
             "clean_verified": "INTEGER",
+            # Rest of the stable scalar core (not queried, promoted for inspectability)
+            "repo_url": "TEXT",
+            "p10y_repository_id": "INTEGER",
+            "locked_at": "TEXT",
+            "lease_expires_at": "TEXT",
+            "cleaning_started_at": "TEXT",
+            "last_used_by": "TEXT",
+            "last_cleaned_at": "TEXT",
+            "error": "TEXT",
+            "stuck_reason": "TEXT",
+            "stuck_at": "TEXT",
+            "force_released": "INTEGER",
+            "force_release_reason": "TEXT",
+            "force_released_by": "TEXT",
+            "force_released_at": "TEXT",
         },
         (
             ("status",),
@@ -175,7 +217,7 @@ class SqliteTransactionContext(ITransactionContext):
     def set(self, collection: str, doc_id: str, data: Dict[str, Any]) -> None:
         table = _TABLE[collection]
         encoded = _encode_for_storage(data)
-        names = list(table.indexed_columns)
+        names = list(table.columns)
         col_list = ", ".join(names)
         placeholders = ", ".join("?" for _ in names)
         assignments = ", ".join(f"{n} = excluded.{n}" for n in names)
@@ -236,7 +278,7 @@ class SqliteTransactionContext(ITransactionContext):
 
     @staticmethod
     def _field_expr(table: _Table, field: str) -> tuple[str, List[Any]]:
-        if field in table.indexed_columns:
+        if field in table.columns:
             return field, []
         return "json_extract(data, ?)", [_json_path(field)]
 
@@ -364,17 +406,35 @@ class SqliteDatabase(IDatabase):
         with self._lock:
             for table in _TABLES:
                 cols = [f"{k} TEXT NOT NULL" for k in table.primary_key]
-                cols += [f"{n} {t}" for n, t in table.indexed_columns.items()]
+                cols += [f"{n} {t}" for n, t in table.columns.items()]
                 cols.append("data TEXT NOT NULL")
                 self._conn.execute(
                     f"CREATE TABLE IF NOT EXISTS {table.name} "
                     f"({', '.join(cols)}, PRIMARY KEY ({', '.join(table.primary_key)}))"
                 )
+                self._reconcile_columns(table)
                 for index_cols in table.indexes:
                     idx = f"idx_{table.name}_{'_'.join(index_cols)}"
                     self._conn.execute(
                         f"CREATE INDEX IF NOT EXISTS {idx} ON {table.name} ({', '.join(index_cols)})"
                     )
+
+    def _reconcile_columns(self, table: _Table) -> None:
+        """Add + backfill any registry column missing from an existing table file.
+
+        Lets a db file created by an older version of the registry self-upgrade: a
+        newly-promoted column is added via ALTER TABLE and backfilled from the JSON
+        `data` blob (the source of truth), so no manual reset/migration is needed.
+        """
+        existing = {row[1] for row in self._conn.execute(f"PRAGMA table_info({table.name})")}
+        missing = [n for n in table.columns if n not in existing]
+        for name in missing:
+            sql_type = table.columns[name]
+            self._conn.execute(f"ALTER TABLE {table.name} ADD COLUMN {name} {sql_type}")
+            self._conn.execute(
+                f"UPDATE {table.name} SET {name} = json_extract(data, ?)",
+                (_json_path(name),),
+            )
 
     def get(self, collection: str, doc_id: str) -> Optional[Dict[str, Any]]:
         with self._lock:

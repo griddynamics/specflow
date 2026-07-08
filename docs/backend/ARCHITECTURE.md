@@ -189,14 +189,21 @@ class DatabaseInterface(ABC):
 - Persists across restarts (bind-mounted at `~/.specflow/db/specflow.db`)
 - Not a production replacement for Firestore — no cross-node distributed locking
 - **Relational storage.** Known collections (`api_keys`, `generation_sessions`,
-  `workspaces`) each get a dedicated table. The fields actually filtered/ordered by
-  services and background jobs (e.g. `status`, `key_uid`, `workspace_pool`,
-  `set_number`, `scheduled_for_wipe`, and the timestamp fields) are *promoted* to
-  typed, indexed columns; the full document also lives in a `data` JSON column, which
-  stays the source of truth on read. Timestamps are stored as fixed-width ISO-8601 UTC
-  text so lexical order equals chronological order in both the columns and the blob.
-  The layout is declared once in the registry at the top of `app/database/sqlite.py`, which drives both DDL
-  and query routing — adding a collection later is additive. There is no generic
+  `workspaces`) each get a dedicated table. Every stable scalar field the app writes
+  (not just the ones filtered/ordered on — e.g. `status`, `key_uid`, `repo_url`,
+  `checkpoint`, `error`, `total_usd_cost`, timestamps, …) is *promoted* to a typed
+  column, so the table is genuinely inspectable in a SQL browser; only nested/open-ended
+  structures (`state_history`, `allocation_history`, `parameters`, …) stay JSON-only.
+  The full document also lives in a `data` JSON column, which stays the source of truth
+  on read and is what promoted columns mirror on write. A separate, smaller `indexes`
+  list on each table covers only the column combinations something actually
+  filters/orders on — promotion (inspectability) and indexing (query performance) are
+  independent concerns. Timestamps are stored as fixed-width ISO-8601 UTC text so
+  lexical order equals chronological order in both the columns and the blob. The layout
+  is declared once in the registry at the top of `app/database/sqlite.py`, which drives
+  DDL, query routing, *and* self-reconciliation — opening an older db file adds any new
+  registry column via `ALTER TABLE` and backfills it from `data`, so a schema change
+  never requires a manual reset. There is no generic
   catch-all table: an unregistered collection is rejected loudly (register it first),
   so a new collection can't silently land in an unindexed blob. Firestore-style
   subcollections follow the same rule — each known one gets its own named child table

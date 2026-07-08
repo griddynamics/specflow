@@ -238,6 +238,106 @@ class TestSqliteRelationalSchema:
         assert got["user_id"] == "alice@example.com"
         assert db.get_api_key_by_uid("missing") is None
 
+    def test_generation_sessions_full_scalar_core_promoted(self, db):
+        """Not just queried fields — the whole stable scalar core is a real column."""
+        db.set("generation_sessions", "gen-full", {
+            "status": "completed",
+            "checkpoint": "outputs_archived",
+            "started_at": "2026-01-01T00:00:00.000000+00:00",
+            "completed_at": "2026-01-02T00:00:00.000000+00:00",
+            "error": None,
+            "retry_count": 2,
+            "max_retries": 3,
+            "user_email": "dev@example.com",
+            "workspace_pool": "standard",
+            "specification_dir": "specs",
+            "outputs_archived": True,
+            "code_archived": True,
+            "archive_status": "confirmed",
+            "artifact_path": "/artifacts/gen-full",
+            "emergency_archived": False,
+            "total_usd_cost": 12.5,
+            "state_history": [{"status": "completed"}],  # stays in the JSON blob
+        })
+        row = db._conn.execute(
+            "SELECT checkpoint, retry_count, outputs_archived, code_archived, "
+            "emergency_archived, total_usd_cost FROM generation_sessions WHERE doc_id = ?",
+            ("gen-full",),
+        ).fetchone()
+        assert row == ("outputs_archived", 2, 1, 1, 0, 12.5)
+        # Arrays never get promoted — they stay queryable via the JSON blob only.
+        assert "state_history" not in [c[1] for c in db._conn.execute(
+            "PRAGMA table_info(generation_sessions)"
+        )]
+        assert db.get("generation_sessions", "gen-full")["state_history"] == [{"status": "completed"}]
+
+    def test_workspaces_full_scalar_core_promoted(self, db):
+        db.set("workspaces", "ws-full", {
+            "status": "allocated",
+            "repo_url": "https://github.com/org/ws-1",
+            "p10y_repository_id": 12345,
+            "locked_at": "2026-01-01T00:00:00.000000+00:00",
+            "lease_expires_at": "2026-01-01T01:00:00.000000+00:00",
+            "cleaning_started_at": None,
+            "last_used_by": "est-1",
+            "last_cleaned_at": "2026-01-01T00:00:00.000000+00:00",
+            "error": None,
+            "stuck_reason": None,
+            "force_released": True,
+            "force_release_reason": "operator override",
+            "force_released_by": "admin",
+            "force_released_at": "2026-01-01T00:00:00.000000+00:00",
+            "allocation_history": [{"generation_id": "est-1"}],  # stays in the JSON blob
+        })
+        row = db._conn.execute(
+            "SELECT repo_url, p10y_repository_id, last_used_by, force_released, "
+            "force_release_reason FROM workspaces WHERE doc_id = ?",
+            ("ws-full",),
+        ).fetchone()
+        assert row == ("https://github.com/org/ws-1", 12345, "est-1", 1, "operator override")
+        assert "allocation_history" not in [c[1] for c in db._conn.execute(
+            "PRAGMA table_info(workspaces)"
+        )]
+
+
+class TestSqliteSchemaReconciliation:
+    """A db file created by an older registry self-upgrades — no reset/migration needed."""
+
+    def test_new_registry_column_is_added_and_backfilled(self, tmp_path):
+        import sqlite3
+        import json as _json
+
+        db_path = str(tmp_path / "old.db")
+        # Hand-build a table with only the ORIGINAL (pre-expansion) workspace columns.
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "CREATE TABLE workspaces (doc_id TEXT NOT NULL, status TEXT, "
+            "workspace_pool TEXT, set_number INTEGER, scheduled_for_wipe INTEGER, "
+            "scheduled_for_wipe_at TEXT, locked_by TEXT, clean_verified INTEGER, "
+            "data TEXT NOT NULL, PRIMARY KEY (doc_id))"
+        )
+        doc = {"status": "available", "repo_url": "https://github.com/x/y", "force_released": True}
+        conn.execute(
+            "INSERT INTO workspaces (doc_id, status, data) VALUES (?, ?, ?)",
+            ("ws-old", "available", _json.dumps(doc)),
+        )
+        conn.commit()
+        conn.close()
+
+        db = SqliteDatabase(db_path)
+        try:
+            columns = [c[1] for c in db._conn.execute("PRAGMA table_info(workspaces)")]
+            assert "repo_url" in columns
+            assert "force_released" in columns
+
+            row = db._conn.execute(
+                "SELECT repo_url, force_released FROM workspaces WHERE doc_id = ?",
+                ("ws-old",),
+            ).fetchone()
+            assert row == ("https://github.com/x/y", 1)
+        finally:
+            db.close()
+
 
 class TestSqlitePersistence:
     """A SQLite file persists across connections (the whole point vs in-memory)."""
