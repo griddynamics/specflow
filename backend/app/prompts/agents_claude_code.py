@@ -4,7 +4,6 @@ from app.core.config import settings, WORKSPACE_DEPLOY_WORKFLOW
 from app.core.mcp_config import mcp_prompt_hints
 from app.core.tool_usage import BASH_DEFAULT_TIMEOUT_MS, BASH_MAX_TIMEOUT_MS
 from app.prompts.mcp_workflow_registry import format_mcp_prune_llm_rules_section
-from app.prompts.prompt_configs import base_awus, factors_markdown
 from app.schemas.agent import AgentResult
 from app.schemas.estimate import ComparativeAnalysis, EstimationSummary
 from app.schemas.planning import PhaseInfo
@@ -1131,6 +1130,8 @@ ALLOWED — commands that exit when their work is done:
 - Builds: npm run build, vite build, next build, tsc --noEmit, webpack (no --watch)
 - Tests: npm test -- --run, jest (no --watch), pytest, go test, cargo test — these exit when done
 - Installs, lints, formatters: npm install, eslint, prettier, ruff, mypy
+- Android SDK: raw `sdkmanager` is forbidden. If a local quickstart SDK package is missing,
+  run `ensure-android-sdk-package '<package-id>'` only; never install an SDK in the workspace.
 """
 
     # Prepend phase header

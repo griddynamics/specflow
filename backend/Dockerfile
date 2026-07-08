@@ -146,10 +146,10 @@ RUN CLAUDE_BIN="$(find /app/.venv -type f -path '*/claude_agent_sdk/_bundled/cla
 RUN mkdir -p /workspaces
 RUN mkdir -p /agent_logs
 
-# Add helper script to initialize ALL heavy mobile SDKs (Android + Flutter template) into the
-# persistent volume on demand. Run manually once per volume — one script to remember.
+# Add helper scripts for mobile SDKs on the persistent volume.
 COPY scripts/init-mobile-sdk.sh /usr/local/bin/init-mobile-sdk.sh
-RUN chmod +x /usr/local/bin/init-mobile-sdk.sh
+COPY scripts/ensure-android-sdk-package.sh /usr/local/bin/ensure-android-sdk-package
+RUN chmod +x /usr/local/bin/init-mobile-sdk.sh /usr/local/bin/ensure-android-sdk-package
 
 # Flutter/Dart PATH entrypoints: each lazily copies the shared template into the per-workspace
 # FLUTTER_ROOT on first invocation, then execs the real binary. Installed in /usr/local/bin so

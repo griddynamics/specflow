@@ -55,6 +55,11 @@ BLOCKED_COMMANDS = [
     ("tail --follow=name file.log", "tail -f"),
     ("while true; do echo hi; done", "infinite loop"),
     ("while :; do sleep 1; done", "infinite loop"),
+    ("sdkmanager --version", "operator-only"),
+    (
+        "JAVA_HOME=/usr/lib/jvm/java-21-openjdk-arm64 /workspace/android/cmdline-tools/bin/sdkmanager --licenses",
+        "operator-only",
+    ),
     # Compound commands — the offending verb anywhere in the chain trips
     ("cd app && npm start", "npm start"),
     ("npm install && npm run dev", "npm run dev"),
@@ -174,6 +179,9 @@ ALLOWED_COMMANDS = [
     'grep -rn "subprocess.run" .',
     "cat scripts/run.py | grep os.system",
     "rg child_process src/",
+    "grep -rn sdkmanager docs/",
+    "cat setup-sdk.sh | grep sdkmanager",
+    "ensure-android-sdk-package 'platforms;android-33'",
     #   - running a script file (not inline) is governed by the allowlist, not flagged here
     "python manage.py migrate",
     "node server-build.js",
@@ -228,6 +236,37 @@ def test_hook_passes_through_allowed_bash_call() -> None:
     }
     output = asyncio.run(_pre_tool_use_hook(input_data, "tu_1", {"signal": None}))  # type: ignore[arg-type]
     assert output == {}
+
+
+def test_blocks_shell_script_that_invokes_sdkmanager(tmp_path) -> None:
+    script = tmp_path / "setup-sdk.sh"
+    script.write_text("#!/bin/sh\nsdkmanager 'platforms;android-34'\n", encoding="utf-8")
+
+    blocked, reason = check_bash_command("chmod +x setup-sdk.sh && bash setup-sdk.sh", cwd=str(tmp_path))
+
+    assert blocked
+    assert reason is not None
+    assert "side-steps the command allowlist" in reason
+
+
+def test_allows_shell_script_without_sdkmanager(tmp_path) -> None:
+    script = tmp_path / "run-tests.sh"
+    script.write_text("#!/bin/sh\n./gradlew testDebugUnitTest\n", encoding="utf-8")
+
+    blocked, reason = check_bash_command("bash run-tests.sh", cwd=str(tmp_path))
+
+    assert not blocked
+    assert reason is None
+
+
+def test_allows_reading_shell_script_that_mentions_sdkmanager(tmp_path) -> None:
+    script = tmp_path / "setup-sdk.sh"
+    script.write_text("#!/bin/sh\nsdkmanager 'platforms;android-34'\n", encoding="utf-8")
+
+    blocked, reason = check_bash_command(f"cat {script}", cwd=str(tmp_path))
+
+    assert not blocked
+    assert reason is None
 
 
 def test_hook_ignores_non_bash_tools() -> None:

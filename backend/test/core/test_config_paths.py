@@ -62,6 +62,24 @@ class TestWorkspaceDirAlias:
         assert s.WORKSPACE_DIR == "/my/workdir2"
 
 
+class TestAgentSdkmanagerPolicy:
+    def test_hosted_default_disallows_agent_sdkmanager(self):
+        from app.core.config import Settings
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.delenv("ALLOW_AGENT_SDKMANAGER", raising=False)
+            s = Settings()
+        assert s.ALLOW_AGENT_SDKMANAGER is False
+
+    def test_env_can_enable_local_quickstart_agent_sdkmanager(self):
+        from app.core.config import Settings
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("ALLOW_AGENT_SDKMANAGER", "true")
+            s = Settings()
+        assert s.ALLOW_AGENT_SDKMANAGER is True
+
+
 class TestExcludedArtifactPatternsAlias:
     def test_legacy_env_name_still_populates_field(self):
         """Legacy CODE_ARCHIVE_EXCLUDE_PATTERNS env still populates EXCLUDED_ARTIFACT_PATTERNS."""
@@ -81,6 +99,23 @@ class TestExcludedArtifactPatternsAlias:
             mp.delenv("EXCLUDED_ARTIFACT_PATTERNS", raising=False)
             s = Settings()
         assert ".git" in s.EXCLUDED_ARTIFACT_PATTERNS
+
+    @pytest.mark.parametrize(
+        "pattern",
+        [
+            "android-sdk-local",
+            "cmdline-tools.zip",
+            "setup-sdk.sh",
+        ],
+    )
+    def test_default_excludes_workspace_local_android_sdk_artifacts(self, pattern):
+        from app.core.config import Settings
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.delenv("CODE_ARCHIVE_EXCLUDE_PATTERNS", raising=False)
+            mp.delenv("EXCLUDED_ARTIFACT_PATTERNS", raising=False)
+            s = Settings()
+        assert pattern in s.EXCLUDED_ARTIFACT_PATTERNS
 
 
 class TestWorkspaceExcludePatternsParsing:

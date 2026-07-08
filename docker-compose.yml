@@ -125,6 +125,9 @@ services:
       - LOCAL_USER_EMAIL=${LOCAL_USER_EMAIL}
       - LOCAL_USER_NAME=${LOCAL_USER_NAME}
       - POSTHOG_ENABLED=${POSTHOG_ENABLED:-true}
+      # Local quickstart may let agents add missing Android SDK packages through
+      # ensure-android-sdk-package. Hosted/default config keeps this disabled.
+      - ALLOW_AGENT_SDKMANAGER=${ALLOW_AGENT_SDKMANAGER:-true}
     volumes:
       # Isolated workspace mounts - each workspace at its own root
       - ${WORKSPACE_MOUNT_PATH:-./workspaces}:/workspaces:rw

@@ -248,7 +248,8 @@ bash_usage = [
     # Java / Kotlin / Android tooling.
     # Multiple gradlew spellings are listed because each is a distinct literal prefix —
     # `sh gradlew` and `./gradlew` are different strings to the allowlist matcher.
-    # adb/avdmanager/emulator are deploy/QA-only (ANDROID_SDK_BASH_USAGE); sdkmanager is operator-only.
+    # adb/avdmanager/emulator are deploy/QA-only (ANDROID_SDK_BASH_USAGE). Raw sdkmanager is
+    # operator-only; local quickstart exposes additive installs through the narrow wrapper.
     "Bash(java:*)",
     "Bash(javac:*)",
     "Bash(mvn:*)",
@@ -260,6 +261,7 @@ bash_usage = [
     "Bash(bash ./gradlew:*)",
     "Bash(kotlin:*)",
     "Bash(kotlinc:*)",
+    "Bash(ensure-android-sdk-package:*)",
     # Flutter / Dart tooling
     "Bash(flutter:*)",
     "Bash(dart:*)",

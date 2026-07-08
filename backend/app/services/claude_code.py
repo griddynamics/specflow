@@ -236,6 +236,7 @@ def setup_workspace_cache_directories(workspace_path: str) -> Dict[str, str]:
     }
     scalar_flags = {
         "MAVEN_OPTS": f"-Dmaven.repo.local={os.path.join(cache_base, 'maven', 'repository')}",
+        "ALLOW_AGENT_SDKMANAGER": "true" if settings.ALLOW_AGENT_SDKMANAGER else "false",
     }
     # Disable analytics for every CLI handed to agents: the sandbox has no egress (dead
     # latency + noisy errors), and analytics state written under $HOME can exhaust the pod rootfs.
