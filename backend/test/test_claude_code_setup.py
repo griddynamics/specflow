@@ -102,6 +102,7 @@ NON_PATH_KEYS = {
     "ASTRO_TELEMETRY_DISABLED",
     "STORYBOOK_DISABLE_TELEMETRY",
     "HOMEBREW_NO_ANALYTICS",
+    "ALLOW_AGENT_SDKMANAGER",
 }
 
 COMMON_PATH_KEYS = {"ANDROID_SDK_ROOT", "ANDROID_HOME"}
@@ -114,6 +115,7 @@ def _call_with_mock_base(workspace_path: str, caches_base: Path):
     """Call setup_workspace_cache_directories with settings.WORKSPACE_BASE_PATH mocked."""
     mock_settings = MagicMock()
     mock_settings.WORKSPACE_BASE_PATH = str(caches_base)
+    mock_settings.ALLOW_AGENT_SDKMANAGER = False
     with patch("app.services.claude_code.settings", mock_settings):
         return setup_workspace_cache_directories(workspace_path)
 
@@ -181,6 +183,19 @@ class TestSetupWorkspaceCacheDirectories:
         for key, value in expected.items():
             assert result.get(key) == value, f"{key} should be {value!r}, got {result.get(key)!r}"
             assert not os.path.exists(key), f"{key} must not be created as a directory"
+
+    def test_agent_sdkmanager_disabled_by_default_in_agent_env(self, tmp_path):
+        result = _call_with_mock_base(str(tmp_path / "ws-01-1"), tmp_path)
+        assert result["ALLOW_AGENT_SDKMANAGER"] == "false"
+
+    def test_agent_sdkmanager_opt_in_flows_to_agent_env(self, tmp_path):
+        mock_settings = MagicMock()
+        mock_settings.WORKSPACE_BASE_PATH = str(tmp_path)
+        mock_settings.ALLOW_AGENT_SDKMANAGER = True
+        with patch("app.services.claude_code.settings", mock_settings):
+            result = setup_workspace_cache_directories(str(tmp_path / "ws-01-1"))
+
+        assert result["ALLOW_AGENT_SDKMANAGER"] == "true"
 
     def test_idempotent_when_dirs_already_exist(self, tmp_path):
         _call_with_mock_base(str(tmp_path / "ws-01-1"), tmp_path)

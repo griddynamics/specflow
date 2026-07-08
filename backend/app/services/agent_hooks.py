@@ -1,5 +1,7 @@
 import logging
 import re
+import shlex
+from pathlib import Path
 from typing import Any, List, Pattern, Tuple
 
 from claude_agent_sdk import (
@@ -161,6 +163,17 @@ def _gradle_blocklist() -> List[Tuple[str, str]]:
     ]
 
 
+def _android_sdk_blocklist() -> List[Tuple[str, str]]:
+    """Android SDK package-management commands owned by operators, not agents."""
+    return [
+        (
+            r"(?:^|[;&|]\s*)(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:\S*/)?sdkmanager\b",
+            "`sdkmanager` is operator-only. The shared Android SDK is provisioned once "
+            "with `init-mobile-sdk.sh`; agents must not install SDK packages into a workspace.",
+        ),
+    ]
+
+
 def _shell_blocklist() -> List[Tuple[str, str]]:
     """Generic shell constructs that detach, follow, or loop forever."""
     return [
@@ -208,6 +221,7 @@ _BLOCKLIST: List[Tuple[str, str]] = (
     + _node_static_blocklist()
     + _watch_flag_blocklist()
     + _gradle_blocklist()
+    + _android_sdk_blocklist()
     + _shell_blocklist()
     + _ci_blocklist()
 )
@@ -239,12 +253,60 @@ _COMPILED_BLOCKLIST: List[Tuple[Pattern[str], str]] = [
     ),
 ]
 
+_SCRIPT_SDKMANAGER_REASON = (
+    "Running a workspace shell script that invokes `sdkmanager` side-steps the command "
+    "allowlist. The shared Android SDK is operator-provisioned with `init-mobile-sdk.sh`; "
+    "agents must report a missing SDK as an infrastructure blocker instead of installing one."
+)
+
+
+def _script_candidates(command: str) -> list[str]:
+    """Return shell script tokens that are being executed, not merely read or chmod'd."""
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return []
+
+    candidates: list[str] = []
+    for idx, token in enumerate(tokens):
+        previous = Path(tokens[idx - 1]).name if idx > 0 else ""
+        starts_command = idx == 0 or previous in {"&&", "||", ";", "|"}
+        if token.endswith(".sh") and (
+            previous in {"bash", "sh"} or token.startswith("./") or starts_command
+        ):
+            candidates.append(token)
+    return candidates
+
+
+def _script_path(token: str, cwd: str | None) -> Path | None:
+    if not cwd:
+        return None
+    path = Path(token)
+    if not path.is_absolute():
+        path = Path(cwd) / path
+    return path
+
+
+def _script_invokes_sdkmanager(command: str, cwd: str | None) -> bool:
+    for token in _script_candidates(command):
+        path = _script_path(token, cwd)
+        if path is None:
+            continue
+        try:
+            if path.is_file() and re.search(r"\bsdkmanager\b", path.read_text(encoding="utf-8")):
+                return True
+        except OSError:
+            continue
+        except UnicodeDecodeError:
+            continue
+    return False
+
 
 def _is_bash_tool_input(tool_name: str, tool_input: dict[str, Any]) -> bool:
     return tool_name == "Bash" and isinstance(tool_input.get("command"), str)
 
 
-def check_bash_command(command: str) -> Tuple[bool, str | None]:
+def check_bash_command(command: str, cwd: str | None = None) -> Tuple[bool, str | None]:
     """Inspect a Bash command string.
 
     Returns (is_blocked, reason_or_none). Side-effect-free — safe to unit-test
@@ -253,6 +315,8 @@ def check_bash_command(command: str) -> Tuple[bool, str | None]:
     for pattern, reason in _COMPILED_BLOCKLIST:
         if pattern.search(command):
             return True, reason
+    if _script_invokes_sdkmanager(command, cwd):
+        return True, _SCRIPT_SDKMANAGER_REASON
     return False, None
 
 
@@ -271,7 +335,8 @@ async def _pre_tool_use_hook(
         return {}
 
     command: str = tool_input["command"]
-    blocked, reason = check_bash_command(command)
+    cwd = input_data.get("cwd") if isinstance(input_data.get("cwd"), str) else None
+    blocked, reason = check_bash_command(command, cwd=cwd)
     if not blocked:
         return {}
 

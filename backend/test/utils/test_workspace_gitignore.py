@@ -36,6 +36,9 @@ def test_creates_gitignore_when_missing(tmp_path: Path) -> None:
     assert "SpecFlow workspace defaults" in content
     for entry in WORKSPACE_GITIGNORE_ENTRIES:
         assert entry in content
+    assert "android-sdk-local/" in content
+    assert "cmdline-tools.zip" in content
+    assert "setup-sdk.sh" in content
 
 
 def test_idempotent_when_all_patterns_present(tmp_path: Path) -> None:

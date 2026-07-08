@@ -97,6 +97,9 @@ class Settings(BaseSettings):
     # Isolated Workspace Model - Standards Configuration
     STANDARDS_SOURCE_PATH: str = "/standards_source"  # Build-time location of standards in Docker image
     STANDARDS_DIR_NAME: str = "standards"  # Directory name for standards in each workspace (becomes ./standards)
+    # Local quickstart escape hatch: agents may call ensure-android-sdk-package for
+    # additive-only installs into the shared Android SDK cache. Hosted/default stays false.
+    ALLOW_AGENT_SDKMANAGER: bool = False
 
     # Artifact Store Configuration
     # Archived generation outputs are stored at ARTIFACTS_BASE_PATH/{generation_id}/
@@ -131,6 +134,8 @@ class Settings(BaseSettings):
         "vendor",
         # Java / Maven
         "target", ".m2",
+        # Android SDK install artifacts must live in the shared cache, not workspace snapshots
+        "android-sdk-local", "cmdline-tools.zip", "setup-sdk.sh",
         # Build output (language-agnostic)
         "dist", "build", ".next", ".nuxt", ".output", "out", ".gradle", ".cache",
         # Standards directory copied during workspace prep — not user code

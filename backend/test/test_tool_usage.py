@@ -153,6 +153,11 @@ class TestBashUsage:
         assert "Bash(sdkmanager:*)" not in bash_usage
         assert "Bash(sdkmanager:*)" not in ANDROID_SDK_BASH_USAGE
 
+    def test_android_sdk_additive_wrapper_allowed(self):
+        """Agents may use only the narrow additive wrapper, gated by env at runtime."""
+        assert "Bash(ensure-android-sdk-package:*)" in bash_usage
+        assert "Bash(sdkmanager:*)" not in bash_usage
+
 
 _BASH_RULE_RE = re.compile(r"^Bash\((?P<prefix>.+):\*\)$")
 
@@ -184,6 +189,7 @@ class TestBashAllowlistCoversRealCommands:
         "dart pub get",
         "kotlinc Main.kt -include-runtime -d main.jar",
         "kotlin -version",
+        "ensure-android-sdk-package 'platforms;android-33'",
     ]
 
     # Sensitive look-alikes that must stay OUTSIDE the generation allowlist:
