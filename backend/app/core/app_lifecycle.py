@@ -190,7 +190,7 @@ async def lifespan(app: FastAPI):
     await run_shutdown_session_handling(db)
 
     if isinstance(raw_db, SqliteDatabase):
-        logger.info("Checkpointing SQLite WAL before shutdown...")
+        logger.info("Closing SQLite connection before shutdown...")
         raw_db.close()
 
     if not validation_task.done():

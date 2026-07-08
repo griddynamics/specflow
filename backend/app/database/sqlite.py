@@ -9,8 +9,9 @@ table with a compound primary key (e.g. ``workspace_model_usage`` keyed by
 ``generation_id, workspace_id``) — the Firestore vocabulary survives only in the shared
 ``IDatabase`` method names, not in the storage. An unregistered table is rejected — there
 is no generic blob table. Datetimes are stored as fixed-width ISO-8601 UTC text so lexical
-order == chronological order in both the columns and the blob. Single writer only (WAL);
-multi-replica stays on Firestore.
+order == chronological order in both the columns and the blob. Single writer only, using the
+rollback journal (``journal_mode=DELETE``, not WAL): the file is a host bind mount and WAL's
+``-shm`` mmap is not coherent across the container/host boundary. Multi-replica stays on Firestore.
 """
 
 from __future__ import annotations
@@ -402,7 +403,7 @@ class SqliteTransactionContext(ITransactionContext):
 
 
 class SqliteDatabase(IDatabase):
-    """Persistent document store backed by a single SQLite file (WAL, single-writer).
+    """Persistent document store backed by a single SQLite file (rollback-journal, single-writer).
 
     Holds the connection, a re-entrant lock, and one ``SqliteTransactionContext`` bound to
     it; every operation delegates under the lock. Only lifecycle lives here directly.
@@ -417,7 +418,8 @@ class SqliteDatabase(IDatabase):
 
         self._conn = sqlite3.connect(db_path, check_same_thread=False, isolation_level=None)
         if db_path != ":memory:":
-            self._conn.execute("PRAGMA journal_mode=WAL")
+            # Rollback journal, not WAL — see module docstring (bind-mount / -shm incoherence).
+            self._conn.execute("PRAGMA journal_mode=DELETE")
         self._conn.execute(f"PRAGMA busy_timeout={busy_timeout_ms}")
         self._ops = SqliteTransactionContext(self._conn)
         self._init_schema()
@@ -541,10 +543,7 @@ class SqliteDatabase(IDatabase):
                 self._conn.execute(f"DELETE FROM {table.name}")
 
     def close(self) -> None:
-        """Checkpoint the WAL back into the main file, then close the connection."""
+        """Close the connection. In rollback-journal (DELETE) mode every committed
+        transaction is already in the main ``.db`` file, so there is nothing to flush."""
         with self._lock:
-            try:
-                self._conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-            except sqlite3.OperationalError:
-                pass
             self._conn.close()
