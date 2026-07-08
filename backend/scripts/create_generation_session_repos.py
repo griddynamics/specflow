@@ -331,11 +331,20 @@ def _normalize_git_url(git_url: str) -> str:
     return s
 
 
+def _p10y_repository_search(prefix: str, github_org: Optional[str]) -> str:
+    """Build the narrowest P10Y repository search value available."""
+    clean_prefix = (prefix or "").strip()
+    clean_org = (github_org or "").strip().strip("/")
+    if clean_prefix and clean_org:
+        return f"{clean_org}/{clean_prefix}"
+    return clean_prefix
+
+
 async def get_repository_ids(
     p10y_client: P10YInternalAPIClient,
     org_id: int,
     repo_names: List[str],
-    prefix: str,
+    search: Optional[str] = None,
     github_org: Optional[str] = None,
 ) -> Dict[str, int]:
     """
@@ -345,7 +354,8 @@ async def get_repository_ids(
         p10y_client: Initialized P10y API client
         org_id: P10y organization ID
         repo_names: List of repository names to find
-        prefix: Search prefix for list_repositories
+        search: Search filter for list_repositories (e.g. the qualified
+            ``<github_org>/<prefix>`` string built by ``_p10y_repository_search``)
         github_org: GitHub org owning the repos. When set, matching is done on
             ``git_url`` (``<org>/<name>``) rather than the bare ``repository_name``.
     Returns:
@@ -353,12 +363,7 @@ async def get_repository_ids(
     """
     print("\n🔍 Looking up P10y repository IDs")
 
-    # Fetch all repositories
-    repos_response = await p10y_client.list_repositories(
-        organisation_id=org_id,
-        search=prefix,
-        page_size=1000,  # Should be enough for our case,
-    )
+    repos = await p10y_client.list_repositories_paginated(org_id, search=search)
 
     # P10Y `repository_name` is the BARE repo name and is NOT unique within a Compass
     # organisation — the same bare name can exist under several GitHub orgs, distinguished
@@ -373,7 +378,7 @@ async def get_repository_ids(
     repo_name_set = set(repo_names)
 
     repo_id_map: Dict[str, int] = {}
-    for repo_data in repos_response.get("data", []):
+    for repo_data in repos:
         if expected_by_git_url:
             matched_name = expected_by_git_url.get(
                 _normalize_git_url(repo_data.get("git_url", ""))
@@ -402,16 +407,24 @@ async def trigger_repository_refetch(
     p10y_client: P10YInternalAPIClient,
     org_id: int,
     github_org: Optional[str],
-    repo_names: List[str],
 ) -> None:
-    """Trigger Compass's 'Re-fetch' on the connection(s) owning the workspace repos; omitting connection_id may return 400 but the sync still completes."""
-    repos = (await p10y_client.list_repositories(organisation_id=org_id, page_size=1000)).get("data", [])
-    expected = (
-        {_normalize_git_url(f"{github_org}/{name}") for name in repo_names} if github_org else None
-    )
+    """Trigger Compass's re-fetch on the connection(s) owning ``github_org``.
+
+    A Compass connection is per GitHub org/account, not per repo, so any repo
+    already ingested under ``github_org`` reveals the right connection — the
+    brand-new repos being provisioned are never yet visible in P10Y (that's
+    why this is being called), so matching only their exact names would
+    always miss and force a broadcast re-fetch across every active GitHub
+    connection instead of just the one that actually owns them.
+    """
+    search = github_org.strip().strip("/") if github_org else None
+    repos = await p10y_client.list_repositories_paginated(org_id, search=search)
+    org_prefix = f"{_normalize_git_url(github_org)}/" if github_org else None
+
     conn_ids: set[int] = set()
     for repo_data in repos:
-        if expected is not None and _normalize_git_url(repo_data.get("git_url", "")) not in expected:
+        git_url = _normalize_git_url(repo_data.get("git_url", ""))
+        if org_prefix is not None and not git_url.startswith(org_prefix):
             continue
         cid = (repo_data.get("_embedded", {}).get("connection") or {}).get("id_connection")
         if cid:
@@ -450,19 +463,17 @@ async def get_repository_statuses(
     p10y_client: P10YInternalAPIClient,
     org_id: int,
     repo_ids: List[int],
+    search: Optional[str] = None,
 ) -> Dict[int, Dict[str, Any]]:
     """Fetch current P10Y statuses for the target repository IDs."""
     if not repo_ids:
         return {}
 
-    repos_response = await p10y_client.list_repositories(
-        organisation_id=org_id,
-        page_size=1000,
-    )
+    repos = await p10y_client.list_repositories_paginated(org_id, search=search)
 
     target_ids = set(repo_ids)
     statuses: Dict[int, Dict[str, Any]] = {}
-    for repo_data in repos_response.get("data", []):
+    for repo_data in repos:
         repo_id = _p10y_repository_id(repo_data)
         if repo_id in target_ids:
             statuses[repo_id] = {
@@ -521,7 +532,8 @@ async def poll_repository_status(
     org_id: int,
     repo_ids: List[int],
     timeout_minutes: int = 5,
-    poll_interval: int = 15
+    poll_interval: int = 15,
+    search: Optional[str] = None,
 ) -> Dict[int, Dict[str, Any]]:
     """
     Poll P10y to check when repositories become live with metrics.
@@ -555,13 +567,10 @@ async def poll_repository_status(
         
         try:
             # Fetch repository details
-            repos_response = await p10y_client.list_repositories(
-                organisation_id=org_id,
-                page_size=1000
-            )
+            repos = await p10y_client.list_repositories_paginated(org_id, search=search)
             
             # Update status for our repos
-            for repo_data in repos_response.get("data", []):
+            for repo_data in repos:
                 repo_id = _p10y_repository_id(repo_data)
                 if repo_id in repo_ids:
                     internal_status = repo_data.get("internal_status")
@@ -591,7 +600,11 @@ async def poll_repository_status(
             
             # Wait before next poll
             await asyncio.sleep(poll_interval)
-            
+
+        except RuntimeError:
+            # Structural failure (e.g. pagination cap exceeded) — not a transient
+            # polling error, so fail fast instead of retrying until timeout.
+            raise
         except Exception as e:
             print(f"⚠️  Error polling status: {e}")
             await asyncio.sleep(poll_interval)
@@ -953,7 +966,10 @@ async def main():
     firestore_target_from_cli = bool(gcp_cli and fsdb_cli)
 
     # Validate arguments
-    if args.start > args.end:
+    if args.repos is None and (args.start is None or args.end is None):
+        parser.error("--start and --end are required unless --repos is provided")
+
+    if args.start is not None and args.end is not None and args.start > args.end:
         print("❌ Error: start number must be less than or equal to end number")
         sys.exit(1)
 
@@ -1038,9 +1054,6 @@ async def main():
     elif not git_username:
         git_username = "(not resolved; set GIT_USER_NAME_DEFAULT or GITHUB_TOKEN_DEFAULT)"
 
-    if args.repos is None and (args.start is None or args.end is None):
-        parser.error("--start and --end are required unless --repos is provided")
-
     print("=" * 80)
     title = "🚀 Generation Workspace Repository Setup"
     if args.dry_run:
@@ -1113,8 +1126,12 @@ async def main():
             repo_names = [f"{args.prefix}{num}" for num in range(args.start, args.end + 1)]
 
         # Step 2: Get P10y repository IDs
-        # For --repos, search with empty prefix to match arbitrary names across the full org.
-        p10y_search_prefix = "" if own_repo_list is not None else args.prefix
+        # For --repos, search with an empty string to match arbitrary names across the full org.
+        # Computed once and reused verbatim (never re-qualified) by every lookup below —
+        # get_repository_ids no longer builds its own search string from a raw prefix.
+        p10y_search_prefix = (
+            "" if own_repo_list is not None else _p10y_repository_search(args.prefix, github_org)
+        )
         repo_id_map = await get_repository_ids(
             p10y_client, p10y_org_id, repo_names, p10y_search_prefix, github_org
         )
@@ -1126,7 +1143,7 @@ async def main():
         missing = [r for r in repo_names if r not in repo_id_map]
         if missing:
             print(f"\n🔄 {len(missing)} repo(s) not in P10Y yet: {', '.join(missing)} — triggering re-fetch ...")
-            await trigger_repository_refetch(p10y_client, p10y_org_id, github_org, repo_names)
+            await trigger_repository_refetch(p10y_client, p10y_org_id, github_org)
 
             deadline = time.time() + P10Y_REFETCH_TIMEOUT_SECONDS
             while missing and time.time() < deadline:
@@ -1157,7 +1174,12 @@ async def main():
         # Step 4: Start metrics calculation only for repos that are not already Live.
         # The --repos path skips metrics: those repos already have history in Compass.
         if not args.skip_metrics and own_repo_list is None:
-            current_statuses = await get_repository_statuses(p10y_client, p10y_org_id, repo_ids)
+            current_statuses = await get_repository_statuses(
+                p10y_client,
+                p10y_org_id,
+                repo_ids,
+                search=p10y_search_prefix,
+            )
             metrics_repo_ids = repository_ids_requiring_metrics(repo_ids, current_statuses)
 
             if metrics_repo_ids:
@@ -1172,7 +1194,8 @@ async def main():
                     p10y_org_id,
                     repo_ids,
                     args.poll_timeout,
-                    args.poll_interval
+                    args.poll_interval,
+                    search=p10y_search_prefix,
                 )
             else:
                 final_statuses = current_statuses

@@ -63,3 +63,64 @@ async def test_sync_repositories_includes_connection_id_when_provided() -> None:
     client._make_request.assert_awaited_once_with(
         "POST", "/api/organisation/42/repository/sync", json_data={"connection_id": 7}
     )
+
+
+class TestListRepositoriesPaginated:
+    """list_repositories_paginated() walks every page of list_repositories()."""
+
+    @pytest.mark.asyncio
+    async def test_single_page_via_total_pages(self) -> None:
+        """totalPages == 1 stops after the first request."""
+        client = P10YInternalAPIClient(base_url="https://p10y.test")
+        client.list_repositories = AsyncMock(
+            return_value={"data": [{"id": 1}, {"id": 2}], "totalPages": 1}
+        )
+
+        result = await client.list_repositories_paginated(42, search="myorg/prefix")
+
+        assert result == [{"id": 1}, {"id": 2}]
+        client.list_repositories.assert_awaited_once_with(
+            organisation_id=42, search="myorg/prefix", page=1, page_size=1000
+        )
+
+    @pytest.mark.asyncio
+    async def test_walks_multiple_pages_via_total_pages(self) -> None:
+        """Keeps requesting pages until page >= totalPages."""
+        client = P10YInternalAPIClient(base_url="https://p10y.test")
+        client.list_repositories = AsyncMock(
+            side_effect=[
+                {"data": [{"id": 1}], "totalPages": 2},
+                {"data": [{"id": 2}], "totalPages": 2},
+            ]
+        )
+
+        result = await client.list_repositories_paginated(42)
+
+        assert result == [{"id": 1}, {"id": 2}]
+        pages = [c.kwargs["page"] for c in client.list_repositories.await_args_list]
+        assert pages == [1, 2]
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_short_page_when_total_pages_missing(self) -> None:
+        """Without totalPages, a page shorter than page_size ends pagination."""
+        client = P10YInternalAPIClient(base_url="https://p10y.test")
+        client.list_repositories = AsyncMock(
+            side_effect=[
+                {"data": [{"id": 1}, {"id": 2}]},
+                {"data": [{"id": 3}]},
+            ]
+        )
+
+        result = await client.list_repositories_paginated(42, page_size=2)
+
+        assert result == [{"id": 1}, {"id": 2}, {"id": 3}]
+        assert client.list_repositories.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_raises_when_max_pages_exceeded(self) -> None:
+        """A runaway pagination loop (no totalPages, always a full page) fails loudly."""
+        client = P10YInternalAPIClient(base_url="https://p10y.test")
+        client.list_repositories = AsyncMock(return_value={"data": [{"id": 1}]})
+
+        with pytest.raises(RuntimeError, match="exceeded 2 pages"):
+            await client.list_repositories_paginated(42, page_size=1, max_pages=2)
