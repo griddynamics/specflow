@@ -29,11 +29,6 @@ class TestEditableKeys:
         # The tier entries must BE the shared list the MCP server/backend read.
         assert config.EDITABLE_KEYS[1:4] == list(LLM_TIER_KEYS)
 
-    def test_labels_cover_every_tier_key(self):
-        for key in LLM_TIER_KEYS:
-            assert key in config.EDITABLE_LABELS
-            assert config.EDITABLE_LABELS[key]
-
 
 class TestLoadEnv:
     def test_reads_env_block(self, tmp_path):

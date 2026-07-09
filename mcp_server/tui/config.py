@@ -28,14 +28,6 @@ EDITABLE_KEYS: list[str] = [
     "BACKEND_URL",
 ]
 
-# Friendly labels for the runtime keys (raw key shown when unmapped). Tier values
-# may be a comma-separated model list (multi-workspace variance / round-robin).
-EDITABLE_LABELS: dict[str, str] = {
-    "LLM_HIGH": "High tier model(s)",
-    "LLM_MEDIUM": "Medium tier model(s)",
-    "LLM_LOW": "Low tier model(s)",
-}
-
 # Superseded tier key names an earlier build wrote into the env block; nothing
 # reads them. Purged on save so they never linger or skew a config fingerprint.
 _LEGACY_EDITABLE_KEYS: list[str] = ["LLM_MODEL_HIGH", "LLM_MODEL_MEDIUM", "LLM_MODEL_LOW"]

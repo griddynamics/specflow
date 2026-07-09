@@ -67,7 +67,6 @@ from services.specflow_backend import call_backend_endpoint_bytes
 from tui import actions, activity, mcp_clients, onboarding, render
 from tui.config import (
     EDITABLE_KEYS,
-    EDITABLE_LABELS,
     ENV_SECRET_KEYS,
     LANGFUSE_KEYS,
     MASKED_KEYS,
@@ -1656,9 +1655,7 @@ class SettingsScreen(Screen):
             yield Static("Runtime (mcp-config.json)", classes="settings-section")
             for key in EDITABLE_KEYS:
                 with Horizontal(classes="settings-row"):
-                    # Show a friendly label but keep the input id on the real env
-                    # key so save reads/writes exactly what the MCP server reads.
-                    yield Label(f"{EDITABLE_LABELS.get(key, key):<22}", classes="settings-label")
+                    yield Label(f"{key:<22}", classes="settings-label")
                     yield Input(value=str(env.get(key, "")), id=f"field-{key}")
             yield Static("Secrets (.env — requires backend restart)", classes="settings-section")
             yield from self._secret_rows(ENV_SECRET_KEYS, secrets)
