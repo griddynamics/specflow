@@ -14,6 +14,7 @@ if FIRESTORE_EMULATOR_HOST is not set.
 """
 
 import os
+import socket
 import pytest
 
 from app.database.emulator import EmulatorDatabase
@@ -21,10 +22,30 @@ from app.database.interface import DocumentNotFoundError
 from app.state.db_adapter import COL_API_KEYS, COL_GENERATION_SESSIONS, COL_WORKSPACES
 
 
-# Skip all tests if emulator is not available
+def _emulator_reachable() -> bool:
+    """True only if a Firestore emulator actually accepts connections at
+    FIRESTORE_EMULATOR_HOST. The env var being set is not enough: since SQLite
+    became the default, no emulator container runs, yet the test runner may still
+    export a default host. Probing the socket keeps these tests skipping cleanly
+    instead of dialing a dead port and failing. Mirrors the reachability guard the
+    former test_firestore_emulator_persistence.py used.
+    """
+    host = os.getenv("FIRESTORE_EMULATOR_HOST")
+    if not host:
+        return False
+    hostname, _, port = host.partition(":")
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(1)
+            return sock.connect_ex((hostname or "localhost", int(port or "8080"))) == 0
+    except (OSError, ValueError):
+        return False
+
+
+# Skip all tests unless a Firestore emulator is actually reachable (not merely configured).
 pytestmark = pytest.mark.skipif(
-    not os.getenv("FIRESTORE_EMULATOR_HOST"),
-    reason="Firestore emulator not available (FIRESTORE_EMULATOR_HOST not set)"
+    not _emulator_reachable(),
+    reason="Firestore emulator not reachable (start one and set FIRESTORE_EMULATOR_HOST to run these)",
 )
 
 

@@ -21,7 +21,14 @@ DATABASE_TYPE ?= sqlite
 # the exact same file directly; no docker exec needed.
 SPECFLOW_HOME_PATH ?= $(HOME)/.specflow
 SQLITE_DB_PATH ?= $(SPECFLOW_HOME_PATH)/db/specflow.db
+# Only the emulator backend talks to a Firestore emulator. Default a host for it, but leave
+# it unset for the sqlite/firestore backends so the emulator-only tests skip (they probe this
+# host for a live process) instead of dialing a dead port — no emulator container runs anymore.
+ifeq ($(DATABASE_TYPE),emulator)
 FIRESTORE_EMULATOR_HOST ?= localhost:8080
+else
+FIRESTORE_EMULATOR_HOST ?=
+endif
 # Must match docker-compose.yml defaults so host-side seeding/tests see the same
 # named Firestore database as the backend container (quickstart sets these via specflow-init.sh).
 GCP_PROJECT_ID ?= local-dev
