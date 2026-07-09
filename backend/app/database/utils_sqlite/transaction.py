@@ -7,7 +7,7 @@ import sqlite3
 from typing import Any, Dict, List, Optional
 
 from app.database.interface import DocumentNotFoundError, FilterTuple, ITransactionContext
-from app.database.utils_sqlite.schemas import _Table
+from app.database.utils_sqlite.schemas import DOC_ID, _Table
 from app.database.utils_sqlite.ser_deser import (
     _decode_from_storage,
     _encode_for_storage,
@@ -31,7 +31,7 @@ class SqliteTransactionContext(ITransactionContext):
 
     def get(self, collection: str, doc_id: str) -> Optional[Dict[str, Any]]:
         row = self._conn.execute(
-            f"SELECT data FROM {collection} WHERE doc_id = ?", (doc_id,)
+            f"SELECT data FROM {collection} WHERE {DOC_ID} = ?", (doc_id,)
         ).fetchone()
         return None if row is None else _decode_from_storage(json.loads(row[0]))
 
@@ -44,9 +44,9 @@ class SqliteTransactionContext(ITransactionContext):
         assignments = ", ".join(f"{n} = excluded.{n}" for n in names)
         values = [_to_sql_param(encoded.get(n)) for n in names]
         self._conn.execute(
-            f"INSERT INTO {collection} (doc_id, {col_list}, data) "
+            f"INSERT INTO {collection} ({DOC_ID}, {col_list}, data) "
             f"VALUES (?, {placeholders}, ?) "
-            f"ON CONFLICT(doc_id) DO UPDATE SET {assignments}, data = excluded.data",
+            f"ON CONFLICT({DOC_ID}) DO UPDATE SET {assignments}, data = excluded.data",
             [doc_id, *values, json.dumps(encoded)],
         )
 
@@ -58,7 +58,7 @@ class SqliteTransactionContext(ITransactionContext):
         self.set(collection, doc_id, existing)
 
     def delete(self, collection: str, doc_id: str) -> None:
-        self._conn.execute(f"DELETE FROM {collection} WHERE doc_id = ?", (doc_id,))
+        self._conn.execute(f"DELETE FROM {collection} WHERE {DOC_ID} = ?", (doc_id,))
 
     def query(
         self,
@@ -76,7 +76,7 @@ class SqliteTransactionContext(ITransactionContext):
             where.append(clause)
             params.extend(clause_params)
 
-        sql = f"SELECT doc_id, data FROM {collection}"
+        sql = f"SELECT {DOC_ID}, data FROM {collection}"
         if where:
             sql += " WHERE " + " AND ".join(where)
 
@@ -193,7 +193,7 @@ class SqliteTransactionContext(ITransactionContext):
 
     def get_api_key_by_uid(self, key_uid: str) -> Optional[Dict[str, Any]]:
         row = self._conn.execute(
-            "SELECT doc_id, data FROM api_keys WHERE key_uid = ?", (key_uid,)
+            f"SELECT {DOC_ID}, data FROM api_keys WHERE key_uid = ?", (key_uid,)
         ).fetchone()
         if row is None:
             return None

@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, Optional
 
+DOC_ID = "doc_id"
+"""Canonical primary-key column name for top-level (non-child) tables."""
+
 
 @dataclass(frozen=True)
 class _Table:

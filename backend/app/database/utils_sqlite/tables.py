@@ -17,12 +17,12 @@ from __future__ import annotations
 
 from typing import Dict
 
-from app.database.utils_sqlite.schemas import _Table
+from app.database.utils_sqlite.schemas import DOC_ID, _Table
 
 _TABLES: tuple[_Table, ...] = (
     _Table(
         "generation_sessions",
-        ("doc_id",),
+        (DOC_ID,),
         {
             # Queried/ordered (see indexes below)
             "status": "TEXT",
@@ -58,7 +58,7 @@ _TABLES: tuple[_Table, ...] = (
     ),
     _Table(
         "workspaces",
-        ("doc_id",),
+        (DOC_ID,),
         {
             # Queried/ordered (see indexes below)
             "status": "TEXT",
@@ -92,7 +92,7 @@ _TABLES: tuple[_Table, ...] = (
     ),
     _Table(
         "api_keys",
-        ("doc_id",),
+        (DOC_ID,),
         {
             # Queried/ordered (see indexes below)
             "key_uid": "TEXT",
