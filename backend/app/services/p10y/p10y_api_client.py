@@ -19,6 +19,22 @@ from app.services.p10y.p10y_api_models import MetricsResponse, UserSelfResponse
 logging.getLogger("httpx").setLevel(logging.INFO)
 logging.getLogger("httpcore").setLevel(logging.INFO)
 
+_REPOSITORY_LIST_PAGE_SIZE = 1000
+_REPOSITORY_LIST_MAX_PAGES = 1000
+
+
+def _response_total_pages(response: Dict[str, Any]) -> Optional[int]:
+    """Extract a positive page count from a paginated P10Y response, if present."""
+    total_pages = response.get("totalPages") or response.get("total_pages")
+    if isinstance(total_pages, bool) or total_pages is None:
+        return None
+    try:
+        parsed = int(total_pages)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
 class P10YInternalAPIClient:
     """
     Client for interacting with the P10Y Internal API.
@@ -219,6 +235,40 @@ class P10YInternalAPIClient:
             params=params
         )
         return response.json()
+
+    async def list_repositories_paginated(
+        self,
+        organisation_id: int,
+        search: Optional[str] = None,
+        page_size: int = _REPOSITORY_LIST_PAGE_SIZE,
+        max_pages: int = _REPOSITORY_LIST_MAX_PAGES,
+    ) -> List[Dict[str, Any]]:
+        """Read all repository pages within an organization for the given search scope."""
+        repositories: List[Dict[str, Any]] = []
+        page = 1
+
+        while True:
+            repos_response = await self.list_repositories(
+                organisation_id=organisation_id,
+                search=search,
+                page=page,
+                page_size=page_size,
+            )
+            page_data = repos_response.get("data", [])
+            repositories.extend(page_data)
+
+            total_pages = _response_total_pages(repos_response)
+            if total_pages is not None:
+                if page >= total_pages:
+                    break
+            elif len(page_data) < page_size:
+                break
+
+            page += 1
+            if page > max_pages:
+                raise RuntimeError(f"P10Y repository listing exceeded {max_pages} pages")
+
+        return repositories
 
     async def update_repository(
         self,
