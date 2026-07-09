@@ -37,7 +37,7 @@ def test_every_used_collection_is_registered():
     developer error (all names are internal constants), so this test is the guard: adding
     a collection without a table fails here at CI, not with a KeyError in production.
     """
-    from app.database.sqlite import _TABLE
+    from app.database.utils_sqlite.tables import _TABLE
     from app.schemas.workspace_model_usage_store import WORKSPACE_MODEL_USAGE_SUBCOLLECTION
     from app.state.db_adapter import (
         COL_API_KEYS,
