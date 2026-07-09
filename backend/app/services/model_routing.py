@@ -32,10 +32,8 @@ _TOOL_CALL_ERROR_PATTERNS = [
     "tool result",
 ]
 
-# Routing failures (OpenRouter malformed 200) produce "api error" in the CLI prefix.
-# "malformed response" / "empty response" are specific message fragments for the same failure mode.
+# "malformed response" / "empty response" are specific message fragments for the model routing failure mode.
 _MODEL_ROUTING_FAILURE_PATTERNS = [
-    "api error",
     "malformed response",
     "empty response",
 ]
