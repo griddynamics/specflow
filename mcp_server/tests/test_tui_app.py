@@ -2066,3 +2066,29 @@ class TestModelValidationUI:
                 )
         assert "✗" in high and "unsupported" in high
         assert "✓" in medium and "available" in medium
+
+    @pytest.mark.asyncio
+    async def test_settings_tier_marker_stays_on_screen(self, tmp_path):
+        # Regression: the marker must render within the viewport, not be pushed
+        # off the right edge by a non-flexing input (it was, before the CSS fix).
+        resp = self._response(
+            [{"tier": t, "models": [{"configured": "x", "status": "invalid"}]}
+             for t in ("LLM_HIGH", "LLM_MEDIUM", "LLM_LOW")]
+        )
+        width = 100
+        a, b, c = _gate_ready()
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(
+            tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()
+        ), patch("tui.app.mcp_clients.is_any_client_connected", return_value=True), patch(
+            "tui.app.validate_models.request_model_validation_for", new=AsyncMock(return_value=resp)
+        ):
+            app = tui_app.SpecFlowTUI(root=tmp_path, generation_id=None, poll_interval=999)
+            async with app.run_test(size=(width, 40)) as pilot:
+                await pilot.pause()
+                await pilot.press("s")
+                await pilot.pause()
+                await pilot.pause()
+                marker = app.screen.query_one("#tierstatus-LLM_HIGH", tui_app.Static)
+                region = marker.region
+        assert region.width > 0
+        assert region.right <= width  # fully within the viewport

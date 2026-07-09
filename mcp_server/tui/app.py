@@ -1957,7 +1957,10 @@ class SpecFlowTUI(App):
     .settings-section { padding: 1 2 0 2; text-style: bold; color: $accent; }
     .settings-row { height: 3; padding: 0 2; }
     .settings-label { width: 20; content-align: left middle; }
-    .tier-status { width: auto; content-align: left middle; padding: 0 1; }
+    /* Tier rows also carry a validity marker; the input must flex (1fr) so the
+       fixed-width marker stays on-screen instead of being pushed off the right. */
+    .settings-row Input { width: 1fr; }
+    .tier-status { width: 16; content-align: left middle; padding: 0 1; }
     #ws-stream { height: 2fr; border: round $primary; padding: 0 1; }
     #ws-stats { height: 1fr; padding: 0 1; }
     #onboard-body { height: 1fr; padding: 0 2; }
