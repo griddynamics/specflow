@@ -62,6 +62,7 @@ from textual.widgets import (
 
 from cli import resolve_backend_config
 from services import local_env
+from services.llm_tiers import LLM_TIER_KEYS
 from services.session import resolve_generation_id, set_project_root
 from services.specflow_backend import call_backend_endpoint_bytes
 from tui import actions, activity, mcp_clients, onboarding, render
@@ -913,6 +914,9 @@ class ClientSetupScreen(_SpecFlowScreen):
         log = RichLog(id="client-log", highlight=False, markup=False, wrap=True)
         log.display = False
         yield log
+        # Persistent footer note: the tiers a connect would bake in, how to change
+        # them, and the standing caveat that a change only reaches the next run.
+        yield Static(id="client-tiers")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -926,12 +930,13 @@ class ClientSetupScreen(_SpecFlowScreen):
         # client's recorded one. A missing/malformed block disables the overlay
         # (fail-safe) rather than crashing the screen.
         try:
-            self._current_fp = mcp_clients.config_fingerprint(
-                mcp_clients.load_server_block(self.app.root)
-            )
+            block: mcp_clients.ServerBlock | None = mcp_clients.load_server_block(self.app.root)
+            self._current_fp = mcp_clients.config_fingerprint(block)
         except (FileNotFoundError, KeyError, json.JSONDecodeError):
+            block = None
             self._current_fp = None
         self._saved_fp = mcp_clients.saved_fingerprints()
+        self.query_one("#client-tiers", Static).update(self._tiers_note(block))
         self._status = {
             r.client.client_id: mcp_clients.initial_status(
                 r.client, installed=r.installed, saved=r.saved
@@ -1019,6 +1024,26 @@ class ClientSetupScreen(_SpecFlowScreen):
         line.append(badge, style=style)
         line.append(mcp_clients.row_label(status, stale=stale, is_manual=is_manual), style=style)
         return line
+
+    def _tiers_note(self, block: mcp_clients.ServerBlock | None) -> Text:
+        # Show the model tiers a connect would bake in (blank tier = backend
+        # default), the `m` affordance, and the standing caveat that a change
+        # reaches the harness sandbox only from the next run — an in-progress
+        # generation keeps the models it started with.
+        env = block.env if block is not None else {}
+        note = Text()
+        note.append("Model tiers  ", style="bold")
+        for key in LLM_TIER_KEYS:
+            note.append(f"{key.removeprefix('LLM_').lower()}: ", style="dim")
+            note.append(env.get(key) or "default")
+            note.append("   ")
+        note.append("· press m to change\n", style="dim")
+        note.append(
+            "Tier changes take effect from the next run — a generation already "
+            "in progress keeps its current models.",
+            style="dim",
+        )
+        return note
 
     def _selected_client(self) -> mcp_clients.McpClient | None:
         listview = self.query_one("#client-list", ListView)

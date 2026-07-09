@@ -1763,6 +1763,34 @@ class TestConfigDriftReconnect:
         label = screen._row_label(row, mc.ClientStatus.ADDED_UNVERIFIED)
         assert mc.STALE_LABEL not in label.plain
 
+    def test_tiers_note_shows_current_models_defaults_and_caveat(self):
+        screen = tui_app.ClientSetupScreen()
+        block = mc.ServerBlock("uvx", ("x",), {"LLM_HIGH": "anthropic/opus", "WORKSPACE_COUNT": "3"})
+        text = screen._tiers_note(block).plain
+        assert "high: anthropic/opus" in text
+        assert "medium: default" in text  # an unset tier reads as the backend default
+        assert "press m to change" in text
+        assert "next run" in text
+
+    def test_tiers_note_all_default_when_block_missing(self):
+        text = tui_app.ClientSetupScreen()._tiers_note(None).plain
+        assert "high: default" in text
+        assert "low: default" in text
+
+    @pytest.mark.asyncio
+    async def test_m_opens_tier_settings(self, tmp_path):
+        app, (a, b, c) = _make_app(tmp_path)
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(
+            tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()
+        ):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await _push_client_screen(app)
+                await pilot.pause()
+                await pilot.press("m")
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.SettingsScreen)
+
     @pytest.mark.asyncio
     async def test_connect_flow_records_config_fingerprint(self, tmp_path):
         app, (a, b, c) = _make_app(tmp_path)
