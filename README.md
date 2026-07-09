@@ -164,7 +164,15 @@ Let's say specification files are in `specs` directory, you can follow these ste
 
 <!-- IF YOU WANT TO GO DEEPER -->
 ## If you want to go deeper
+### Install only SpecFlow skills
 
+We have portable set of skills that is normally used as preparation phase for Human-In-The-Loop AI assisted specification checks and planning.
+
+Example for Claude Code:
+```bash
+/plugin marketplace add griddynamics/specflow
+/plugin install specflow
+```
 
 
 ### SpecFlow Detailed Overview
