@@ -1737,3 +1737,159 @@ class TestClientSetupScreen:
                 await pilot.pause()
         assert yes_result == [True]
         assert no_result == [False]
+
+
+class TestConfigDriftReconnect:
+    """Config-drift: connect records a fingerprint; the setup screen flags a
+    connected client whose baked config no longer matches; Settings routes there."""
+
+    def test_row_label_orange_when_connected_but_config_drifted(self):
+        from rich.text import Text
+
+        screen = tui_app.ClientSetupScreen()
+        screen._current_fp = "new"
+        screen._saved_fp = {"cursor": "old"}
+        row = mc.ClientRow(mc.CURSOR, installed=True, saved=mc.ClientStatus.ADDED_UNVERIFIED)
+        label = screen._row_label(row, mc.ClientStatus.ADDED_UNVERIFIED)
+        assert isinstance(label, Text)
+        assert mc.STALE_LABEL in label.plain
+        assert any("orange" in str(s.style) for s in label.spans)
+
+    def test_row_label_not_orange_when_fingerprint_matches(self):
+        screen = tui_app.ClientSetupScreen()
+        screen._current_fp = "same"
+        screen._saved_fp = {"cursor": "same"}
+        row = mc.ClientRow(mc.CURSOR, installed=True, saved=mc.ClientStatus.ADDED_UNVERIFIED)
+        label = screen._row_label(row, mc.ClientStatus.ADDED_UNVERIFIED)
+        assert mc.STALE_LABEL not in label.plain
+
+    @pytest.mark.asyncio
+    async def test_connect_flow_records_config_fingerprint(self, tmp_path):
+        app, (a, b, c) = _make_app(tmp_path)
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(
+            tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()
+        ), patch("pathlib.Path.home", return_value=tmp_path), patch(
+            "tui.app.mcp_clients.load_server_block", return_value=_BLOCK
+        ), patch(
+            "tui.app.local_env.run_command",
+            new=AsyncMock(return_value=local_env.CommandResult(0, "", False)),
+        ):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                screen = await _push_client_screen(app)
+                await pilot.pause()
+                with patch.object(app, "push_screen_wait", new=AsyncMock(return_value=None)):
+                    await screen._connect_flow(mc.CURSOR)
+        # The block just baked in is recorded as cursor's drift baseline.
+        assert mc.saved_fingerprints(home=tmp_path).get("cursor") == mc.config_fingerprint(_BLOCK)
+
+    @pytest.mark.asyncio
+    async def test_probe_present_does_not_touch_fingerprint(self, tmp_path):
+        # A present read-back confirms only presence, not env — the recorded
+        # fingerprint must be left as-is so drift can still surface.
+        with patch("pathlib.Path.home", return_value=tmp_path):
+            mc.save_status("claude_code", mc.ClientStatus.VERIFIED, home=tmp_path)
+            mc.save_fingerprint("claude_code", "old-fp", home=tmp_path)
+        rows = [mc.ClientRow(mc.CLAUDE_CODE, installed=True, saved=mc.ClientStatus.VERIFIED)]
+        app, (a, b, c) = _make_app(tmp_path)
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+            "tui.mcp_clients.client_rows", return_value=rows
+        ), patch("pathlib.Path.home", return_value=tmp_path), patch(
+            "tui.app.local_env.run_command",
+            new=AsyncMock(return_value=local_env.CommandResult(0, "specflow: uvx ✔", False)),
+        ):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await _push_client_screen(app)
+                await pilot.pause()
+                await pilot.pause()  # let the probe worker run
+        assert mc.saved_fingerprints(home=tmp_path).get("claude_code") == "old-fp"
+
+    @pytest.mark.asyncio
+    async def test_probe_absent_forgets_fingerprint(self, tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
+            mc.save_status("claude_code", mc.ClientStatus.VERIFIED, home=tmp_path)
+            mc.save_fingerprint("claude_code", "old-fp", home=tmp_path)
+        rows = [mc.ClientRow(mc.CLAUDE_CODE, installed=True, saved=mc.ClientStatus.VERIFIED)]
+        app, (a, b, c) = _make_app(tmp_path)
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+            "tui.mcp_clients.client_rows", return_value=rows
+        ), patch("pathlib.Path.home", return_value=tmp_path), patch(
+            "tui.app.local_env.run_command",
+            new=AsyncMock(return_value=local_env.CommandResult(1, "No such server", False)),
+        ):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await _push_client_screen(app)
+                await pilot.pause()
+                await pilot.pause()
+        assert "claude_code" not in mc.saved_fingerprints(home=tmp_path)
+
+    @staticmethod
+    def _write_block(tmp_path, workspace_count):
+        from tui import config as tui_config
+
+        path = tui_config.config_path(tmp_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "specflow": {
+                            "command": "uvx",
+                            "args": ["--from", "x", "specflow-mcp"],
+                            "env": {"WORKSPACE_COUNT": workspace_count},
+                        }
+                    }
+                }
+            )
+        )
+
+    @staticmethod
+    def _land_on_sessions():
+        a, b, c = _gate_ready()
+        return (
+            a,
+            b,
+            c,
+            patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])),
+            patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()),
+            patch("tui.app.mcp_clients.is_any_client_connected", return_value=True),
+        )
+
+    @pytest.mark.asyncio
+    async def test_settings_save_routes_to_connect_screen_on_drift(self, tmp_path):
+        # A connected client baked in the current block; editing a runtime field
+        # makes it stale, so save warns and routes to the connect screen.
+        self._write_block(tmp_path, "3")
+        with patch("pathlib.Path.home", return_value=tmp_path):
+            baseline = mc.config_fingerprint(mc.load_server_block(tmp_path))
+            mc.save_status("cursor", mc.ClientStatus.VERIFIED, home=tmp_path)
+            mc.save_fingerprint("cursor", baseline, home=tmp_path)
+        a, b, c, d, e, f = self._land_on_sessions()
+        with a, b, c, d, e, f, patch("pathlib.Path.home", return_value=tmp_path):
+            app = tui_app.SpecFlowTUI(root=tmp_path, generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("s")
+                await pilot.pause()
+                app.screen.query_one("#field-WORKSPACE_COUNT", Input).value = "5"
+                await pilot.press("ctrl+s")
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.ClientSetupScreen)
+
+    @pytest.mark.asyncio
+    async def test_settings_save_returns_to_sessions_when_no_connected_client(self, tmp_path):
+        # Same runtime edit, but nothing connected → no drift, plain pop to sessions.
+        self._write_block(tmp_path, "3")
+        a, b, c, d, e, f = self._land_on_sessions()
+        with a, b, c, d, e, f, patch("pathlib.Path.home", return_value=tmp_path):
+            app = tui_app.SpecFlowTUI(root=tmp_path, generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("s")
+                await pilot.pause()
+                app.screen.query_one("#field-WORKSPACE_COUNT", Input).value = "5"
+                await pilot.press("ctrl+s")
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.SessionsScreen)

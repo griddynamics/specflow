@@ -67,6 +67,7 @@ from services.specflow_backend import call_backend_endpoint_bytes
 from tui import actions, activity, mcp_clients, onboarding, render
 from tui.config import (
     EDITABLE_KEYS,
+    EDITABLE_LABELS,
     ENV_SECRET_KEYS,
     LANGFUSE_KEYS,
     MASKED_KEYS,
@@ -884,6 +885,7 @@ class ClientSetupScreen(_SpecFlowScreen):
         # keep them working but out of the footer. The footer carries navigation.
         Binding("d", "show_config", "raw config", show=False),
         Binding("v", "recheck", "re-scan", show=False),
+        Binding("m", "edit_tiers", "model tiers", show=False),
         Binding("s", "skip", "skip", show=False),
         Binding("escape", "skip", "return", show=True),
     ]
@@ -892,6 +894,11 @@ class ClientSetupScreen(_SpecFlowScreen):
         super().__init__()
         self._rows: list[mcp_clients.ClientRow] = []
         self._status: dict[str, mcp_clients.ClientStatus] = {}
+        # Baked-config drift: the live block's fingerprint vs the one recorded
+        # for each client at connect time. None disables the overlay (unreadable
+        # block); recomputed each _populate so a Settings edit is reflected.
+        self._current_fp: str | None = None
+        self._saved_fp: dict[str, str] = {}
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -899,7 +906,7 @@ class ClientSetupScreen(_SpecFlowScreen):
         # navigation (esc return) so the two don't duplicate each other.
         yield Static(
             "[b]Connect SpecFlow to your AI tool[/b]   "
-            "[dim]↑/↓ select · ↵ connect · d raw config · v re-scan[/dim]",
+            "[dim]↑/↓ select · ↵ connect · m model tiers · d raw config · v re-scan[/dim]",
             id="client-setup-title",
         )
         yield ListView(id="client-list")
@@ -916,6 +923,16 @@ class ClientSetupScreen(_SpecFlowScreen):
 
     async def _populate(self) -> None:
         self._rows = mcp_clients.client_rows()
+        # Recompute the drift baseline: the live block's fingerprint and each
+        # client's recorded one. A missing/malformed block disables the overlay
+        # (fail-safe) rather than crashing the screen.
+        try:
+            self._current_fp = mcp_clients.config_fingerprint(
+                mcp_clients.load_server_block(self.app.root)
+            )
+        except (FileNotFoundError, KeyError, json.JSONDecodeError):
+            self._current_fp = None
+        self._saved_fp = mcp_clients.saved_fingerprints()
         self._status = {
             r.client.client_id: mcp_clients.initial_status(
                 r.client, installed=r.installed, saved=r.saved
@@ -971,26 +988,37 @@ class ClientSetupScreen(_SpecFlowScreen):
                     mcp_clients.save_status(client.client_id, mcp_clients.ClientStatus.VERIFIED)
             else:
                 # Not registered now — resolve the "verifying…" placeholder to a
-                # plain "press ↵ to connect", and forget any stale saved connection.
+                # plain "press ↵ to connect", and forget any stale saved connection
+                # (status and its drift baseline) so a dropped client starts clean.
                 if current in (mcp_clients.ClientStatus.VERIFIED, mcp_clients.ClientStatus.CONNECTED):
                     mcp_clients.forget_status(client.client_id)
+                    mcp_clients.forget_fingerprint(client.client_id)
+                    self._saved_fp.pop(client.client_id, None)
                 self._set_status(client.client_id, mcp_clients.ClientStatus.NOT_CONFIGURED)
         self._render_detail()
 
+    def _is_stale(self, client_id: str, status: mcp_clients.ClientStatus) -> bool:
+        """True if this client is connected but its baked config has drifted."""
+        return (
+            self._current_fp is not None
+            and status in mcp_clients._ACTED_STATUSES
+            and mcp_clients.is_stale(self._saved_fp.get(client_id), self._current_fp)
+        )
+
     def _row_label(self, row: mcp_clients.ClientRow, status: mcp_clients.ClientStatus) -> Text:
-        # The "Other / copy config" row can never be verified (no read-back),
-        # so it stays grey regardless of state — green is only ever "connected".
+        # The "Other / copy config" row can never be verified (no read-back), so
+        # it stays grey; a connected client whose config drifted goes orange. Both
+        # rules live in mcp_clients.row_label/row_style so the colour and the words
+        # can never disagree. Shape (●/○) still marks installed vs not.
         is_manual = row.client.strategy is mcp_clients.AddStrategy.MANUAL_COPY
-        status_style = "dim" if is_manual else mcp_clients.status_style(status)
+        stale = self._is_stale(row.client.client_id, status)
+        style = mcp_clients.row_style(status, stale=stale, is_manual=is_manual)
         line = Text()
         line.append(f"{row.client.icon} ", style="bold cyan")
         line.append(f"{row.client.name:<20} ", style="bold")
-        # The dot and the label share the status colour, so the indicator always
-        # matches the words: green only when connected, amber added, red failed,
-        # grey otherwise. Shape (●/○) still marks installed vs not.
         badge = "●  " if row.installed else "○  "
-        line.append(badge, style=status_style)
-        line.append(mcp_clients.status_label(status), style=status_style)
+        line.append(badge, style=style)
+        line.append(mcp_clients.row_label(status, stale=stale, is_manual=is_manual), style=style)
         return line
 
     def _selected_client(self) -> mcp_clients.McpClient | None:
@@ -1048,8 +1076,11 @@ class ClientSetupScreen(_SpecFlowScreen):
             self._show_config(client)
             return
         # An "added — confirm" client: pressing ↵ asks the user what they found
-        # when they inspected it, rather than blindly re-adding.
-        if self._status.get(cid) is mcp_clients.ClientStatus.ADDED_UNVERIFIED:
+        # when they inspected it, rather than blindly re-adding — unless its
+        # config has drifted, in which case ↵ means "reconnect" (re-bake), so we
+        # fall through to the connect flow to rewrite it with the current block.
+        status = self._status.get(cid)
+        if status is mcp_clients.ClientStatus.ADDED_UNVERIFIED and not self._is_stale(cid, status):
             self.run_worker(self._inspect_flow(client), exclusive=True)
             return
         row = self._row_by_id(cid)
@@ -1060,6 +1091,17 @@ class ClientSetupScreen(_SpecFlowScreen):
 
     def action_recheck(self) -> None:
         self.call_later(self._rescan)
+
+    def action_edit_tiers(self) -> None:
+        # Let the user set LLM model tiers (and other runtime settings) *before*
+        # connecting, so tools bake the intended config rather than the defaults.
+        # Re-populate on return so any edit is reflected (and any resulting drift
+        # on already-connected clients shows immediately).
+        self.run_worker(self._edit_tiers_flow(), exclusive=True)
+
+    async def _edit_tiers_flow(self) -> None:
+        await self.app.push_screen_wait(SettingsScreen())
+        await self._populate()
 
     async def _rescan(self) -> None:
         await self._populate()
@@ -1108,14 +1150,22 @@ class ClientSetupScreen(_SpecFlowScreen):
         else:
             status = await self._connect_cli(client, block, log)
 
+        connected = status in (
+            mcp_clients.ClientStatus.VERIFIED,
+            mcp_clients.ClientStatus.ADDED_UNVERIFIED,
+        )
+        # Record the block we just baked in as this client's drift baseline before
+        # rendering, so a reconnect immediately clears the stale overlay (rather
+        # than staying orange until the next populate re-reads the same block).
+        if connected:
+            fingerprint = mcp_clients.config_fingerprint(block)
+            mcp_clients.save_fingerprint(cid, fingerprint)
+            self._saved_fp[cid] = fingerprint
         self._set_status(cid, status)
         # Persist the real outcome — including "added (unverified)" — so next time
         # the screen shows actual state, never an assumed connection.
         mcp_clients.save_status(cid, status)
-        if status in (
-            mcp_clients.ClientStatus.VERIFIED,
-            mcp_clients.ClientStatus.ADDED_UNVERIFIED,
-        ):
+        if connected:
             await self.app.push_screen_wait(
                 MessageScreen(f"Connected · {client.name}", mcp_clients.success_body(client, status))
             )
@@ -1606,7 +1656,9 @@ class SettingsScreen(Screen):
             yield Static("Runtime (mcp-config.json)", classes="settings-section")
             for key in EDITABLE_KEYS:
                 with Horizontal(classes="settings-row"):
-                    yield Label(f"{key:<22}", classes="settings-label")
+                    # Show a friendly label but keep the input id on the real env
+                    # key so save reads/writes exactly what the MCP server reads.
+                    yield Label(f"{EDITABLE_LABELS.get(key, key):<22}", classes="settings-label")
                     yield Input(value=str(env.get(key, "")), id=f"field-{key}")
             yield Static("Secrets (.env — requires backend restart)", classes="settings-section")
             yield from self._secret_rows(ENV_SECRET_KEYS, secrets)
@@ -1620,6 +1672,17 @@ class SettingsScreen(Screen):
 
     def _secret_input(self, key: str) -> str:
         return self.query_one(f"#secret-{key}", Input).value.strip()
+
+    def _block_fingerprint(self) -> str | None:
+        """Fingerprint of the live server block, or None if it can't be read.
+
+        Guarded so a first run (no config yet) or a malformed file disables the
+        drift warning rather than crashing the save.
+        """
+        try:
+            return mcp_clients.config_fingerprint(mcp_clients.load_server_block(self.app.root))
+        except (FileNotFoundError, KeyError, json.JSONDecodeError):
+            return None
 
     def action_save(self) -> None:
         # Reject a partially-filled LangFuse set before writing anything. Uses the
@@ -1636,6 +1699,9 @@ class SettingsScreen(Screen):
             self.notify(partial, severity="error")
             return
 
+        # Fingerprint the block before the write so we can tell whether the
+        # runtime config actually changed (and thus whether connected tools drift).
+        old_fp = self._block_fingerprint()
         new_env = {
             key: self.query_one(f"#field-{key}", Input).value.strip() for key in EDITABLE_KEYS
         }
@@ -1652,6 +1718,13 @@ class SettingsScreen(Screen):
         if secret_updates:
             save_env_secrets(self.app.root, secret_updates)
 
+        # A runtime (mcp-config.json) change does NOT reach an already-connected
+        # AI tool — its config was baked in at connect time. Find the connected
+        # tools now on stale config so we can steer the user to reconnect them.
+        new_fp = self._block_fingerprint()
+        env_changed = old_fp is not None and new_fp is not None and old_fp != new_fp
+        stale = mcp_clients.stale_connected_ids(new_fp) if env_changed and new_fp else []
+
         # The backend reads .env only at startup, so a changed secret is not live
         # until it restarts. Flag it explicitly rather than letting the user
         # wonder why nothing changed (and never point them at the file by hand —
@@ -1662,9 +1735,22 @@ class SettingsScreen(Screen):
                 f"Saved to {path}. Requires restart of the backend to take effect.",
                 severity="warning",
             )
-        else:
+        elif not stale:
             self.notify(f"Saved settings to {path}", severity="information")
+
         self.app.pop_screen()
+        if stale:
+            # Warn and route to the connect screen so the affected tools (shown
+            # orange there) can be reconnected. If we returned onto a connect
+            # screen (Settings was opened from it), it re-populates itself — don't
+            # stack a second one.
+            self.notify(
+                f"{len(stale)} connected AI tool(s) still use the old config — "
+                "reconnect them below.",
+                severity="warning",
+            )
+            if not isinstance(self.app.screen, ClientSetupScreen):
+                self.app.push_screen(ClientSetupScreen())
 
     def action_cancel(self) -> None:
         self.app.pop_screen()

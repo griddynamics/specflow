@@ -15,16 +15,30 @@ from typing import Any
 
 from cli import _MCP_CONFIG_FILENAME, _load_mcp_config
 from services import local_env
+from services.llm_tiers import LLM_TIER_KEYS
 
-# Runtime settings keys, stored in mcp-config.json, in display order.
+# Runtime settings keys, stored in mcp-config.json, in display order. The tier
+# keys come from ``services.llm_tiers.LLM_TIER_KEYS`` — the single source of
+# truth the MCP server and backend actually read (``LLM_HIGH/MEDIUM/LOW``) — so
+# the Settings screen can never again drift onto names nothing consumes.
 EDITABLE_KEYS: list[str] = [
     "WORKSPACE_COUNT",
-    "LLM_MODEL_HIGH",
-    "LLM_MODEL_MEDIUM",
-    "LLM_MODEL_LOW",
+    *LLM_TIER_KEYS,
     "USER_EMAIL",
     "BACKEND_URL",
 ]
+
+# Friendly labels for the runtime keys (raw key shown when unmapped). Tier values
+# may be a comma-separated model list (multi-workspace variance / round-robin).
+EDITABLE_LABELS: dict[str, str] = {
+    "LLM_HIGH": "High tier model(s)",
+    "LLM_MEDIUM": "Medium tier model(s)",
+    "LLM_LOW": "Low tier model(s)",
+}
+
+# Superseded tier key names an earlier build wrote into the env block; nothing
+# reads them. Purged on save so they never linger or skew a config fingerprint.
+_LEGACY_EDITABLE_KEYS: list[str] = ["LLM_MODEL_HIGH", "LLM_MODEL_MEDIUM", "LLM_MODEL_LOW"]
 
 # Secret/identity keys, stored in .env (consumed by docker-compose / the backend
 # / the init script). Names match .env.quickstart.example so write_dotenv fills
@@ -105,8 +119,9 @@ def save_env(root: Path, env: dict[str, str]) -> Path:
     specflow = servers.setdefault("specflow", {})
     existing_env = specflow.get("env")
     merged = existing_env if isinstance(existing_env, dict) else {}
-    # Replace only the editable keys; leave any other env entries untouched.
-    for key in EDITABLE_KEYS:
+    # Replace only the editable keys (and sweep away any dead legacy tier keys);
+    # leave every other env entry untouched.
+    for key in (*EDITABLE_KEYS, *_LEGACY_EDITABLE_KEYS):
         merged.pop(key, None)
     merged.update(cleaned)
     specflow["env"] = merged
