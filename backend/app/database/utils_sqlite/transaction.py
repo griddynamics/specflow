@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from app.database.interface import DocumentNotFoundError, FilterTuple, ITransactionContext
 from app.database.utils_sqlite.schemas import DOC_ID, _Table
@@ -29,9 +29,16 @@ class SqliteTransactionContext(ITransactionContext):
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
 
+    @staticmethod
+    def _select(table: str, columns: Sequence[str], where: Sequence[str] = ()) -> str:
+        sql = f"SELECT {', '.join(columns)} FROM {table}"
+        if where:
+            sql += " WHERE " + " AND ".join(f"{c} = ?" for c in where)
+        return sql
+
     def get(self, collection: str, doc_id: str) -> Optional[Dict[str, Any]]:
         row = self._conn.execute(
-            f"SELECT data FROM {collection} WHERE {DOC_ID} = ?", (doc_id,)
+            self._select(collection, ["data"], [DOC_ID]), (doc_id,)
         ).fetchone()
         return None if row is None else _decode_from_storage(json.loads(row[0]))
 
@@ -76,7 +83,7 @@ class SqliteTransactionContext(ITransactionContext):
             where.append(clause)
             params.extend(clause_params)
 
-        sql = f"SELECT {DOC_ID}, data FROM {collection}"
+        sql = self._select(collection, [DOC_ID, "data"])
         if where:
             sql += " WHERE " + " AND ".join(where)
 
@@ -156,7 +163,7 @@ class SqliteTransactionContext(ITransactionContext):
         # Firestore addressing that SQL doesn't need (kept only for the interface).
         parent_key, doc_key = _TABLE[subcollection].primary_key
         rows = self._conn.execute(
-            f"SELECT {doc_key}, data FROM {subcollection} WHERE {parent_key} = ?",
+            self._select(subcollection, [doc_key, "data"], [parent_key]),
             (parent_doc_id,),
         ).fetchall()
         out: List[Dict[str, Any]] = []
@@ -171,7 +178,7 @@ class SqliteTransactionContext(ITransactionContext):
     ) -> Optional[Dict[str, Any]]:
         parent_key, doc_key = _TABLE[subcollection].primary_key
         row = self._conn.execute(
-            f"SELECT data FROM {subcollection} WHERE {parent_key} = ? AND {doc_key} = ?",
+            self._select(subcollection, ["data"], [parent_key, doc_key]),
             (parent_doc_id, doc_id),
         ).fetchone()
         return None if row is None else _decode_from_storage(json.loads(row[0]))
@@ -193,7 +200,7 @@ class SqliteTransactionContext(ITransactionContext):
 
     def get_api_key_by_uid(self, key_uid: str) -> Optional[Dict[str, Any]]:
         row = self._conn.execute(
-            f"SELECT {DOC_ID}, data FROM api_keys WHERE key_uid = ?", (key_uid,)
+            self._select("api_keys", [DOC_ID, "data"], ["key_uid"]), (key_uid,)
         ).fetchone()
         if row is None:
             return None
