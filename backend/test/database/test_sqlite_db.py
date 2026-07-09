@@ -286,11 +286,11 @@ class TestSqliteRelationalSchema:
             "specification_dir": "specs",
             "outputs_archived": True,
             "code_archived": True,
-            "archive_status": "confirmed",
             "artifact_path": "/artifacts/gen-full",
             "emergency_archived": False,
             "total_usd_cost": 12.5,
             "state_history": [{"status": "completed"}],  # stays in the JSON blob
+            "archive_status": {"ws-1": "confirmed"},  # per-workspace map, stays in the JSON blob
         })
         row = db._conn.execute(
             "SELECT checkpoint, retry_count, outputs_archived, code_archived, "

@@ -44,7 +44,6 @@ _TABLES: tuple[_Table, ...] = (
             "specification_dir": "TEXT",
             "outputs_archived": "INTEGER",
             "code_archived": "INTEGER",
-            "archive_status": "TEXT",
             "artifact_path": "TEXT",
             "emergency_archived": "INTEGER",
             "total_usd_cost": "REAL",
