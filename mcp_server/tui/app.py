@@ -61,7 +61,7 @@ from textual.widgets import (
 )
 
 from cli import resolve_backend_config
-from services import local_env
+from services import local_env, validate_models
 from services.llm_tiers import LLM_TIER_KEYS
 from services.session import resolve_generation_id, set_project_root
 from services.specflow_backend import call_backend_endpoint_bytes
@@ -870,6 +870,49 @@ class _ClientItem(ListItem):
         self._label.update(text)
 
 
+# Per-model validation glyphs (shared by the connect-screen tiers box and
+# Settings). Symbol-first so state reads at a glance; green only for a model the
+# provider catalog confirms, red only for a confidently-absent one, neutral when
+# the catalog can't be checked. Maps the backend TierValidationStatus values.
+_MODEL_MARKS: dict[str, tuple[str, str]] = {
+    "valid": ("✓", "green"),
+    "invalid": ("✗", "red"),
+    "unverified": ("•", "dim"),
+}
+_NEUTRAL_MARK: tuple[str, str] = ("•", "dim")
+
+
+def _model_mark(status: str | None) -> tuple[str, str]:
+    """(symbol, style) for one model's validation status."""
+    return _MODEL_MARKS.get(status or "", _NEUTRAL_MARK)
+
+
+def _tier_mark(models: list[dict]) -> tuple[str, str]:
+    """(symbol, style) for a whole tier: red if any model is invalid, green if
+    all are valid, else neutral (some/all unverified — catalog unavailable)."""
+    statuses = [m.get("status") for m in models]
+    if "invalid" in statuses:
+        return _MODEL_MARKS["invalid"]
+    if statuses and all(s == "valid" for s in statuses):
+        return _MODEL_MARKS["valid"]
+    return _NEUTRAL_MARK
+
+
+def _tier_marker_text(models: list[dict]) -> Text:
+    """Short 'glyph + word' marker for a Settings tier field (blank when no models
+    or only unverified — we never assert availability we can't confirm)."""
+    if not models:
+        return Text("")
+    symbol, style = _tier_mark(models)
+    if any(m.get("status") == "invalid" for m in models):
+        word = "unsupported"
+    elif all(m.get("status") == "valid" for m in models):
+        word = "available"
+    else:
+        word = ""
+    return Text(f"{symbol} {word}".strip(), style=style)
+
+
 class ClientSetupScreen(_SpecFlowScreen):
     """Register the SpecFlow MCP server with the user's AI client(s).
 
@@ -899,6 +942,9 @@ class ClientSetupScreen(_SpecFlowScreen):
         # block); recomputed each _populate so a Settings edit is reflected.
         self._current_fp: str | None = None
         self._saved_fp: dict[str, str] = {}
+        # Last model-validation response (parsed) for the tiers box, or None
+        # before/without a result. Recomputed by a background worker each populate.
+        self._validation: dict | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -936,7 +982,11 @@ class ClientSetupScreen(_SpecFlowScreen):
             block = None
             self._current_fp = None
         self._saved_fp = mcp_clients.saved_fingerprints()
+        # Render the tiers box immediately (neutral glyphs), then validate the
+        # configured models against the provider catalog in the background.
+        self._validation = None
         self.query_one("#client-tiers", Static).update(self._tiers_panel(block))
+        self.run_worker(self._validate_models(block), group="validate")
         self._status = {
             r.client.client_id: mcp_clients.initial_status(
                 r.client, installed=r.installed, saved=r.saved
@@ -1033,33 +1083,99 @@ class ClientSetupScreen(_SpecFlowScreen):
         "LLM_LOW": "simple steps (md→JSON, spec indexing)",
     }
 
-    def _tiers_panel(self, block: mcp_clients.ServerBlock | None) -> Panel:
-        # A bordered box showing the model tiers a connect would bake in, what
-        # each drives, the `m` affordance, and the standing caveat that a change
-        # reaches the sandbox only from the next run — an in-progress generation
-        # keeps the models it started with.
+    def _model_cell(self, value: str | None, models: list[dict]) -> Text:
+        """The model(s) cell: raw config text, each model tinted by its validity.
+
+        A blank tier reads as the backend default. When validation is present,
+        each configured model is coloured green/red/dim per its catalog status.
+        """
+        if not value:
+            return Text("default", style="italic dim")
+        status_by_model = {m.get("configured"): m.get("status") for m in models}
+        cell = Text()
+        for i, token in enumerate([t.strip() for t in value.split(",") if t.strip()]):
+            if i:
+                cell.append(", ", style="dim")
+            status = status_by_model.get(token)
+            _, style = _model_mark(status) if status else ("", "")
+            cell.append(token, style=style)
+        return cell
+
+    def _invalid_notes(self, validation: dict | None) -> Text | None:
+        """One red line per confidently-invalid model, with a suggestion if any."""
+        if not validation:
+            return None
+        invalid = validate_models.invalid_models(validation)
+        if not invalid:
+            return None
+        provider = validation.get("provider", "the active provider")
+        note = Text()
+        for i, model in enumerate(invalid):
+            if i:
+                note.append("\n")
+            tier = str(model.get("tier", "")).removeprefix("LLM_").lower()
+            note.append("✗ ", style="red")
+            note.append(f"{tier}: ", style="bold red")
+            note.append(f"'{model.get('configured', '?')}' not available on {provider}", style="red")
+            if suggestion := model.get("suggestion"):
+                note.append(f" — did you mean '{suggestion}'?", style="red")
+        return note
+
+    def _tiers_panel(
+        self, block: mcp_clients.ServerBlock | None, validation: dict | None = None
+    ) -> Panel:
+        # A bordered box showing the model tiers a connect would bake in, a per-tier
+        # validity glyph (✓/✗/•), what each drives, the `m` affordance, and the
+        # standing caveat that a change reaches the sandbox only from the next run.
         env = block.env if block is not None else {}
-        table = Table.grid(padding=(0, 2))
+        by_tier = {t.get("tier"): t.get("models", []) for t in (validation or {}).get("tiers", [])}
+        table = Table.grid(padding=(0, 1))
+        table.add_column()  # validity glyph
         table.add_column(style="bold cyan")  # tier
         table.add_column()  # model(s)
         table.add_column(style="dim")  # purpose
         for key in LLM_TIER_KEYS:
-            tier = key.removeprefix("LLM_").lower()
-            value = env.get(key)
-            model = Text(value) if value else Text("default", style="italic dim")
-            table.add_row(tier, model, self._TIER_PURPOSE.get(key, ""))
+            models = by_tier.get(key, [])
+            symbol, sym_style = _tier_mark(models) if models else ("", "")
+            table.add_row(
+                Text(symbol, style=sym_style),
+                key.removeprefix("LLM_").lower(),
+                self._model_cell(env.get(key), models),
+                self._TIER_PURPOSE.get(key, ""),
+            )
         footer = Text(
             "press m to change · a change takes effect from the next run "
             "(a generation already in progress keeps its models)",
             style="dim italic",
         )
+        parts: list[RenderableType] = [table]
+        if (notes := self._invalid_notes(validation)) is not None:
+            parts += [Text(), notes]
+        parts += [Text(), footer]
         return Panel(
-            Group(table, Text(), footer),
+            Group(*parts),
             title="Model tiers",
             title_align="left",
             border_style="cyan",
             padding=(0, 1),
         )
+
+    async def _validate_models(self, block: mcp_clients.ServerBlock | None) -> None:
+        """Validate the configured tier models against the provider catalog, then
+        re-render the box with per-model glyphs. Fully best-effort: any failure
+        (no backend, unreachable catalog) leaves the box neutral — never red."""
+        if block is None:
+            return
+        tier_values = {key: block.env.get(key, "") for key in LLM_TIER_KEYS}
+        try:
+            response = await validate_models.request_model_validation_for(tier_values)
+        except Exception:  # noqa: BLE001 - infra failure must stay silent here
+            return
+        self._validation = response
+        try:
+            self.query_one("#client-tiers", Static).update(self._tiers_panel(block, response))
+        except NoMatches:
+            pass  # screen dismissed before validation returned
 
     def _selected_client(self) -> mcp_clients.McpClient | None:
         listview = self.query_one("#client-list", ListView)
@@ -1698,6 +1814,10 @@ class SettingsScreen(Screen):
                 with Horizontal(classes="settings-row"):
                     yield Label(f"{key:<22}", classes="settings-label")
                     yield Input(value=str(env.get(key, "")), id=f"field-{key}")
+                    # Tier fields carry a live validity marker (✓/✗) updated on
+                    # mount and when the field is submitted (Enter).
+                    if key in LLM_TIER_KEYS:
+                        yield Static(id=f"tierstatus-{key}", classes="tier-status")
             yield Static("Secrets (.env — requires backend restart)", classes="settings-section")
             yield from self._secret_rows(ENV_SECRET_KEYS, secrets)
             yield Static(
@@ -1710,6 +1830,34 @@ class SettingsScreen(Screen):
 
     def _secret_input(self, key: str) -> str:
         return self.query_one(f"#secret-{key}", Input).value.strip()
+
+    def on_mount(self) -> None:
+        # Validate the stored tier models once the fields exist, so their ✓/✗
+        # markers reflect reality the moment the screen opens.
+        self.run_worker(self._validate_tier_inputs(), group="tiervalidate", exclusive=True)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        # Re-validate when a tier field is submitted (Enter) — "when changing".
+        if event.input.id in {f"field-{key}" for key in LLM_TIER_KEYS}:
+            self.run_worker(self._validate_tier_inputs(), group="tiervalidate", exclusive=True)
+
+    async def _validate_tier_inputs(self) -> None:
+        """Validate the current tier-field values against the provider catalog and
+        update each field's marker. Best-effort: any failure clears to neutral."""
+        tier_values = {
+            key: self.query_one(f"#field-{key}", Input).value.strip() for key in LLM_TIER_KEYS
+        }
+        try:
+            response = await validate_models.request_model_validation_for(tier_values)
+        except Exception:  # noqa: BLE001 - infra failure must stay silent here
+            return
+        by_tier = {t.get("tier"): t.get("models", []) for t in response.get("tiers", [])}
+        for key in LLM_TIER_KEYS:
+            try:
+                marker = self.query_one(f"#tierstatus-{key}", Static)
+            except NoMatches:
+                continue
+            marker.update(_tier_marker_text(by_tier.get(key, [])))
 
     def _block_fingerprint(self) -> str | None:
         """Fingerprint of the live server block, or None if it can't be read.
@@ -1809,6 +1957,7 @@ class SpecFlowTUI(App):
     .settings-section { padding: 1 2 0 2; text-style: bold; color: $accent; }
     .settings-row { height: 3; padding: 0 2; }
     .settings-label { width: 20; content-align: left middle; }
+    .tier-status { width: auto; content-align: left middle; padding: 0 1; }
     #ws-stream { height: 2fr; border: round $primary; padding: 0 1; }
     #ws-stats { height: 1fr; padding: 0 1; }
     #onboard-body { height: 1fr; padding: 0 2; }

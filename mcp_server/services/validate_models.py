@@ -18,7 +18,7 @@ from typing import Any
 
 from fastmcp import Context
 
-from services.llm_tiers import apply_llm_tier_overrides
+from services.llm_tiers import LLM_TIER_KEYS, apply_llm_tier_overrides
 from services.run_generation_precheck import RejectionCode
 from services.specflow_backend import post_form_data_to_backend
 
@@ -27,18 +27,43 @@ logger = logging.getLogger(__name__)
 VALIDATE_MODELS_ENDPOINT = "/api/v1/models/validate"
 
 
-async def request_model_validation() -> dict[str, Any]:
-    """Call the backend validate-models endpoint with the configured LLM_* overrides.
+async def _post_validation(form_data: dict[str, str]) -> dict[str, Any]:
+    """POST ``form_data`` to the validate-models endpoint and parse the response.
 
-    Returns the parsed ValidateModelsResponse dict. Raises on transport/parse errors
-    so callers can stay permissive (connect/run gate) on infrastructure failures.
+    The single call site for the endpoint so URL/timeout/parsing live in one place.
     """
-    form_data: dict[str, str] = {}
-    apply_llm_tier_overrides(form_data)  # injects LLM_HIGH/MEDIUM/LOW from env when set
     raw = await post_form_data_to_backend(
         VALIDATE_MODELS_ENDPOINT, form_data, timeout_seconds=30.0
     )
     return json.loads(raw)
+
+
+async def request_model_validation() -> dict[str, Any]:
+    """Call the backend validate-models endpoint with the configured LLM_* overrides.
+
+    Reads LLM_HIGH/MEDIUM/LOW from the MCP *process env*. Returns the parsed
+    ValidateModelsResponse dict. Raises on transport/parse errors so callers can
+    stay permissive (connect/run gate) on infrastructure failures.
+    """
+    form_data: dict[str, str] = {}
+    apply_llm_tier_overrides(form_data)  # injects LLM_HIGH/MEDIUM/LOW from env when set
+    return await _post_validation(form_data)
+
+
+async def request_model_validation_for(tier_values: dict[str, str]) -> dict[str, Any]:
+    """Validate explicit LLM_* ``tier_values`` (e.g. from the local config block).
+
+    Unlike ``request_model_validation`` (which reads the process env), this takes
+    the values directly — the TUI edits ``mcp-config.json`` rather than its own
+    environment, so it must forward what the file holds. Blank tiers are omitted
+    so the backend falls back to its own default for that tier.
+    """
+    form_data = {
+        key: value.strip()
+        for key in LLM_TIER_KEYS
+        if (value := (tier_values.get(key) or "").strip())
+    }
+    return await _post_validation(form_data)
 
 
 def invalid_models(response: dict[str, Any]) -> list[dict[str, Any]]:

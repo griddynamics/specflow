@@ -1929,3 +1929,140 @@ class TestConfigDriftReconnect:
                 await pilot.press("ctrl+s")
                 await pilot.pause()
                 assert isinstance(app.screen, tui_app.SessionsScreen)
+
+
+class TestModelValidationUI:
+    """Model-tier validity feedback: pure glyph mapping, the validated tiers box,
+    and the live markers on the connect screen and in Settings."""
+
+    @staticmethod
+    def _render(renderable) -> str:
+        console = Console(width=100, record=True)
+        console.print(renderable)
+        return console.export_text()
+
+    @staticmethod
+    def _response(tiers):
+        return {
+            "provider": "openrouter",
+            "catalog_available": True,
+            "all_valid": all(m["status"] == "valid" for t in tiers for m in t["models"]),
+            "has_blocking_tier": any(m["status"] == "invalid" for t in tiers for m in t["models"]),
+            "tiers": tiers,
+        }
+
+    def test_model_mark_maps_statuses(self):
+        assert tui_app._model_mark("valid") == ("✓", "green")
+        assert tui_app._model_mark("invalid") == ("✗", "red")
+        assert tui_app._model_mark("unverified")[1] == "dim"
+        assert tui_app._model_mark(None) == tui_app._NEUTRAL_MARK
+
+    def test_tier_mark_aggregates_worst_first(self):
+        assert tui_app._tier_mark([{"status": "valid"}, {"status": "invalid"}]) == ("✗", "red")
+        assert tui_app._tier_mark([{"status": "valid"}, {"status": "valid"}]) == ("✓", "green")
+        assert tui_app._tier_mark([{"status": "valid"}, {"status": "unverified"}]) == (
+            tui_app._NEUTRAL_MARK
+        )
+        assert tui_app._tier_mark([]) == tui_app._NEUTRAL_MARK
+
+    def test_tier_marker_text_words(self):
+        assert tui_app._tier_marker_text([]).plain == ""
+        assert "unsupported" in tui_app._tier_marker_text([{"status": "invalid"}]).plain
+        assert "available" in tui_app._tier_marker_text([{"status": "valid"}]).plain
+        # Unverified-only: a glyph but no word we can't stand behind.
+        assert tui_app._tier_marker_text([{"status": "unverified"}]).plain == "•"
+
+    def test_tiers_panel_with_validation_shows_marks_and_notes(self):
+        block = mc.ServerBlock("uvx", ("x",), {"LLM_HIGH": "anthropic/bad"})
+        resp = self._response(
+            [
+                {
+                    "tier": "LLM_HIGH",
+                    "models": [
+                        {"configured": "anthropic/bad", "status": "invalid",
+                         "suggestion": "anthropic/good"}
+                    ],
+                }
+            ]
+        )
+        text = self._render(tui_app.ClientSetupScreen()._tiers_panel(block, resp))
+        assert "✗" in text
+        assert "not available on openrouter" in text
+        assert "did you mean" in text
+        assert "anthropic/good" in text
+
+    @pytest.mark.asyncio
+    async def test_connect_screen_marks_invalid_model(self, tmp_path):
+        block = mc.ServerBlock("uvx", ("x",), {"LLM_HIGH": "anthropic/bad"})
+        resp = self._response(
+            [{"tier": "LLM_HIGH", "models": [{"configured": "anthropic/bad", "status": "invalid",
+                                              "suggestion": "anthropic/good"}]}]
+        )
+        app, (a, b, c) = _make_app(tmp_path)
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(
+            tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()
+        ), patch("tui.app.mcp_clients.load_server_block", return_value=block), patch(
+            "tui.app.validate_models.request_model_validation_for",
+            new=AsyncMock(return_value=resp),
+        ):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                screen = await _push_client_screen(app)
+                await pilot.pause()
+                await pilot.pause()  # let the validation worker run + re-render
+        # The worker fetched and stored the result (the box re-render runs on the
+        # same path); the box built from it shows the ✗ and the suggestion.
+        assert screen._validation == resp
+        text = self._render(screen._tiers_panel(block, screen._validation))
+        assert "✗" in text
+        assert "anthropic/good" in text  # suggestion surfaced
+
+    @pytest.mark.asyncio
+    async def test_connect_screen_neutral_when_validation_fails(self, tmp_path):
+        # Backend unreachable → worker swallows the error, box stays free of ✓/✗.
+        block = mc.ServerBlock("uvx", ("x",), {"LLM_HIGH": "anthropic/x"})
+        app, (a, b, c) = _make_app(tmp_path)
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(
+            tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()
+        ), patch("tui.app.mcp_clients.load_server_block", return_value=block), patch(
+            "tui.app.validate_models.request_model_validation_for",
+            new=AsyncMock(side_effect=RuntimeError("no backend")),
+        ):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                screen = await _push_client_screen(app)
+                await pilot.pause()
+                await pilot.pause()
+        # Worker swallowed the failure: no validation stored, box stays neutral.
+        assert screen._validation is None
+        text = self._render(screen._tiers_panel(block, screen._validation))
+        assert "✗" not in text and "✓" not in text
+
+    @pytest.mark.asyncio
+    async def test_settings_tier_markers_reflect_validation(self, tmp_path):
+        resp = self._response(
+            [
+                {"tier": "LLM_HIGH", "models": [{"configured": "x/bad", "status": "invalid"}]},
+                {"tier": "LLM_MEDIUM", "models": [{"configured": "x/ok", "status": "valid"}]},
+                {"tier": "LLM_LOW", "models": [{"configured": "x/ok2", "status": "valid"}]},
+            ]
+        )
+        a, b, c = _gate_ready()
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(
+            tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()
+        ), patch("tui.app.mcp_clients.is_any_client_connected", return_value=True), patch(
+            "tui.app.validate_models.request_model_validation_for", new=AsyncMock(return_value=resp)
+        ):
+            app = tui_app.SpecFlowTUI(root=tmp_path, generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("s")
+                await pilot.pause()
+                await pilot.pause()  # on_mount validation worker runs
+                screen = app.screen
+                high = self._render(screen.query_one("#tierstatus-LLM_HIGH", tui_app.Static).render())
+                medium = self._render(
+                    screen.query_one("#tierstatus-LLM_MEDIUM", tui_app.Static).render()
+                )
+        assert "✗" in high and "unsupported" in high
+        assert "✓" in medium and "available" in medium
