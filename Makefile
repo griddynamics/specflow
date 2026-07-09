@@ -63,7 +63,12 @@ endif
 # Applied as target-specific *exported* vars so they also reach prerequisite targets
 # (run-detached / run-detached-skip) and sub-makes (`$(MAKE) stop`, `$(MAKE) e2e-setup`).
 SPECFLOW_BACKEND_CONTAINER ?= specflow-backend
-TEST_WORKSPACE_MOUNT_PATH := ./.specflow-test
+# Absolute (not repo-root-relative): several e2e targets do `cd backend &&` before using
+# vars derived from this (e.g. SQLITE_DB_PATH for init_db.py). A relative path would then
+# resolve against backend/ instead of the repo root, silently writing/reading a second,
+# never-cleaned sqlite file that diverges from the one docker-compose bind-mounts into the
+# container — the container sees an empty db while init_db.py reports data "already exists".
+TEST_WORKSPACE_MOUNT_PATH := $(CURDIR)/.specflow-test
 TEST_SPECFLOW_HOME_PATH := $(TEST_WORKSPACE_MOUNT_PATH)/specflow-home
 TEST_STACK_TARGETS := e2e-setup skip-mode-e2e-tests contract-validation-e2e-tests shutdown-recovery-e2e-tests real-e2e-tests integration-tests stop stop-test
 $(TEST_STACK_TARGETS): export COMPOSE_PROJECT_NAME := specflow-test
@@ -396,6 +401,14 @@ skip-mode-e2e-tests:
 	@cd mcp_server && WORKSPACE_COUNT=$(E2E_WORKSPACE_COUNT) \
 	  BACKEND_URL=$(BACKEND_URL) \
 	  uv run python -m tests.e2e.scenarios.skip_mode
+	# skip_mode leaves its workspace set in CLEANING (a completed generation only ever
+	# transitions ALLOCATED -> CLEANING; the sole reclaim path is the 2h stuck-cleaning
+	# job). With a single-set pool the next scenario would then find nothing AVAILABLE, so
+	# re-seed to reset the pool between scenarios. --replace overwrites the CLEANING rows
+	# back to available/clean_verified. Reuses the init-db target (single source of truth
+	# for the seeding invocation); it inherits the test-stack SQLITE_DB_PATH via the env.
+	@echo "♻️  Re-seeding workspace pool so contract-validation starts with a fresh set..."
+	@$(MAKE) init-db INIT_DB_ARGS="$(INIT_DB_ARGS) --replace"
 	@echo "🧪 Running contract-validation E2E tests (reject-before-allocate)..."
 	@cd mcp_server && WORKSPACE_COUNT=$(E2E_WORKSPACE_COUNT) \
 	  BACKEND_URL=$(BACKEND_URL) \
