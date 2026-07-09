@@ -1763,19 +1763,27 @@ class TestConfigDriftReconnect:
         label = screen._row_label(row, mc.ClientStatus.ADDED_UNVERIFIED)
         assert mc.STALE_LABEL not in label.plain
 
-    def test_tiers_note_shows_current_models_defaults_and_caveat(self):
+    @staticmethod
+    def _render(renderable) -> str:
+        console = Console(width=100, record=True)
+        console.print(renderable)
+        return console.export_text()
+
+    def test_tiers_panel_shows_models_defaults_purposes_and_caveat(self):
         screen = tui_app.ClientSetupScreen()
         block = mc.ServerBlock("uvx", ("x",), {"LLM_HIGH": "anthropic/opus", "WORKSPACE_COUNT": "3"})
-        text = screen._tiers_note(block).plain
-        assert "high: anthropic/opus" in text
-        assert "medium: default" in text  # an unset tier reads as the backend default
+        text = self._render(screen._tiers_panel(block))
+        assert "Model tiers" in text  # panel title
+        assert "anthropic/opus" in text  # configured high-tier model
+        assert "default" in text  # an unset tier reads as the backend default
+        assert "planning" in text  # high-tier purpose
+        assert "code generation" in text  # medium-tier purpose
         assert "press m to change" in text
         assert "next run" in text
 
-    def test_tiers_note_all_default_when_block_missing(self):
-        text = tui_app.ClientSetupScreen()._tiers_note(None).plain
-        assert "high: default" in text
-        assert "low: default" in text
+    def test_tiers_panel_all_default_when_block_missing(self):
+        text = self._render(tui_app.ClientSetupScreen()._tiers_panel(None))
+        assert text.count("default") >= 3  # every tier falls back to default
 
     @pytest.mark.asyncio
     async def test_m_opens_tier_settings(self, tmp_path):

@@ -914,8 +914,8 @@ class ClientSetupScreen(_SpecFlowScreen):
         log = RichLog(id="client-log", highlight=False, markup=False, wrap=True)
         log.display = False
         yield log
-        # Persistent footer note: the tiers a connect would bake in, how to change
-        # them, and the standing caveat that a change only reaches the next run.
+        # Persistent box: the tiers a connect would bake in, what each drives,
+        # how to change them, and the caveat that a change only reaches the next run.
         yield Static(id="client-tiers")
         yield Footer()
 
@@ -936,7 +936,7 @@ class ClientSetupScreen(_SpecFlowScreen):
             block = None
             self._current_fp = None
         self._saved_fp = mcp_clients.saved_fingerprints()
-        self.query_one("#client-tiers", Static).update(self._tiers_note(block))
+        self.query_one("#client-tiers", Static).update(self._tiers_panel(block))
         self._status = {
             r.client.client_id: mcp_clients.initial_status(
                 r.client, installed=r.installed, saved=r.saved
@@ -1025,25 +1025,41 @@ class ClientSetupScreen(_SpecFlowScreen):
         line.append(mcp_clients.row_label(status, stale=stale, is_manual=is_manual), style=style)
         return line
 
-    def _tiers_note(self, block: mcp_clients.ServerBlock | None) -> Text:
-        # Show the model tiers a connect would bake in (blank tier = backend
-        # default), the `m` affordance, and the standing caveat that a change
-        # reaches the harness sandbox only from the next run — an in-progress
-        # generation keeps the models it started with.
+    # What each tier drives (mirrors the backend WORKFLOW_TIER_MAP) so the user
+    # knows which model matters for which stage. A blank tier = backend default.
+    _TIER_PURPOSE: dict[str, str] = {
+        "LLM_HIGH": "planning & knowledge-base init",
+        "LLM_MEDIUM": "code generation",
+        "LLM_LOW": "simple steps (md→JSON, spec indexing)",
+    }
+
+    def _tiers_panel(self, block: mcp_clients.ServerBlock | None) -> Panel:
+        # A bordered box showing the model tiers a connect would bake in, what
+        # each drives, the `m` affordance, and the standing caveat that a change
+        # reaches the sandbox only from the next run — an in-progress generation
+        # keeps the models it started with.
         env = block.env if block is not None else {}
-        note = Text()
-        note.append("Model tiers  ", style="bold")
+        table = Table.grid(padding=(0, 2))
+        table.add_column(style="bold cyan")  # tier
+        table.add_column()  # model(s)
+        table.add_column(style="dim")  # purpose
         for key in LLM_TIER_KEYS:
-            note.append(f"{key.removeprefix('LLM_').lower()}: ", style="dim")
-            note.append(env.get(key) or "default")
-            note.append("   ")
-        note.append("· press m to change\n", style="dim")
-        note.append(
-            "Tier changes take effect from the next run — a generation already "
-            "in progress keeps its current models.",
-            style="dim",
+            tier = key.removeprefix("LLM_").lower()
+            value = env.get(key)
+            model = Text(value) if value else Text("default", style="italic dim")
+            table.add_row(tier, model, self._TIER_PURPOSE.get(key, ""))
+        footer = Text(
+            "press m to change · a change takes effect from the next run "
+            "(a generation already in progress keeps its models)",
+            style="dim italic",
         )
-        return note
+        return Panel(
+            Group(table, Text(), footer),
+            title="Model tiers",
+            title_align="left",
+            border_style="cyan",
+            padding=(0, 1),
+        )
 
     def _selected_client(self) -> mcp_clients.McpClient | None:
         listview = self.query_one("#client-list", ListView)
@@ -1805,6 +1821,7 @@ class SpecFlowTUI(App):
     #client-setup-title { padding: 1 2; text-style: bold; }
     #client-detail { padding: 1 2; color: $text-muted; }
     #client-log { height: 1fr; border: round $primary; margin: 1 2; }
+    #client-tiers { height: auto; margin: 0 2 1 2; }
     .modal-panel {
         width: 64;
         height: auto;
