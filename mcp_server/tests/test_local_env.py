@@ -305,6 +305,30 @@ class TestRunInit:
         ]
         assert exec_mock.call_args.kwargs["cwd"] == str(tmp_path)
 
+    @pytest.mark.asyncio
+    async def test_exec_in_backend_wraps_docker_exec(self, tmp_path, monkeypatch):
+        # docker exec <backend> <in-container argv...>, streamed, cwd = root.
+        monkeypatch.setenv("SPECFLOW_BACKEND_CONTAINER", "specflow-backend-test")
+        captured: list[str] = []
+        fake = _FakeProc([b"line 1\n"], code=0)
+        with patch(
+            "services.local_env.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=fake),
+        ) as exec_mock:
+            rc = await local_env.exec_in_backend(
+                tmp_path, ["sh", "/usr/local/bin/init-mobile-sdk.sh"], on_line=captured.append
+            )
+        assert rc == 0
+        assert captured == ["line 1\n"]
+        assert list(exec_mock.call_args.args) == [
+            "docker",
+            "exec",
+            "specflow-backend-test",
+            "sh",
+            "/usr/local/bin/init-mobile-sdk.sh",
+        ]
+        assert exec_mock.call_args.kwargs["cwd"] == str(tmp_path)
+
 
 class TestRunCommand:
     """run_command runs against real child processes — the point is to prove the

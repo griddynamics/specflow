@@ -32,11 +32,20 @@ RUN apt-get update && apt-get install -y \
     maven \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Go 1.23 (latest stable)
-RUN wget https://go.dev/dl/go1.23.5.linux-amd64.tar.gz \
-    && tar -C /usr/local -xzf go1.23.5.linux-amd64.tar.gz \
-    && rm go1.23.5.linux-amd64.tar.gz
-ENV JAVA_HOME="/usr/lib/jvm/java-21-openjdk-amd64"
+# Install Go 1.23 (latest stable). The tarball is arch-specific — `dpkg --print-architecture`
+# yields amd64/arm64, which matches Go's naming — so this builds on both x86_64 CI and
+# Apple-Silicon (arm64) hosts instead of installing an unrunnable amd64 binary on arm64.
+RUN GOARCH="$(dpkg --print-architecture)" \
+    && wget "https://go.dev/dl/go1.23.5.linux-${GOARCH}.tar.gz" \
+    && tar -C /usr/local -xzf "go1.23.5.linux-${GOARCH}.tar.gz" \
+    && rm "go1.23.5.linux-${GOARCH}.tar.gz"
+
+# JAVA_HOME must point at the JDK dir, which Debian names with an arch suffix
+# (java-21-openjdk-amd64 / -arm64). `java` on PATH works either way via update-alternatives,
+# but sdkmanager/gradle read JAVA_HOME directly and fail hard if it's wrong — so pin a stable,
+# arch-independent symlink and point JAVA_HOME at that (fixes sdkmanager on arm64 hosts).
+RUN ln -s "/usr/lib/jvm/java-21-openjdk-$(dpkg --print-architecture)" /usr/lib/jvm/java-21-openjdk
+ENV JAVA_HOME="/usr/lib/jvm/java-21-openjdk"
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
 # Gradle — small JVM build-tool binary, installed like the other runtimes (Go/Java).

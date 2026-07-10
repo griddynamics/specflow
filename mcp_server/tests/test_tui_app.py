@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
-from textual.widgets import Input
+from textual.widgets import Button, Input, RichLog
 
 import httpx
 import pytest
@@ -799,6 +799,93 @@ class TestSettingsScreen:
         assert not (tmp_path / ".env").exists() or "LANGFUSE_PUBLIC_KEY=pk-only" not in (
             tmp_path / ".env"
         ).read_text()
+
+
+class TestExtraDependencies:
+    """The Settings → Extra Dependencies section lists provisioning scripts and
+    installs them by `docker exec`-ing the in-image script."""
+
+    @staticmethod
+    def _land_on_sessions(tmp_path):
+        a, b, c = _gate_ready()
+        return (
+            a,
+            b,
+            c,
+            patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])),
+            patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()),
+            patch("tui.app.mcp_clients.is_any_client_connected", return_value=True),
+        )
+
+    @pytest.mark.asyncio
+    async def test_section_lists_script_with_versions_and_button(self, tmp_path):
+        a, b, c, d, e, f = self._land_on_sessions(tmp_path)
+        with a, b, c, d, e, f:
+            app = tui_app.SpecFlowTUI(root=tmp_path, generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("s")
+                await pilot.pause()
+                from tui.extra_deps import MOBILE_SDK_SCRIPT
+
+                button = app.screen.query_one(f"#extra-dep-{MOBILE_SDK_SCRIPT.key}", Button)
+                assert str(button.label) == "Install"
+                versions = " ".join(
+                    str(s.render()) for s in app.screen.query(".extra-dep-versions").results()
+                )
+                assert "Android SDK" in versions
+                assert "Flutter" in versions
+
+    @pytest.mark.asyncio
+    async def test_install_click_runs_docker_exec(self, tmp_path):
+        a, b, c, d, e, f = self._land_on_sessions(tmp_path)
+        exec_mock = AsyncMock(return_value=0)
+        with (
+            a,
+            b,
+            c,
+            d,
+            e,
+            f,
+            patch("tui.app.local_env.containers_running", return_value=True),
+            patch("tui.app.local_env.exec_in_backend", new=exec_mock),
+        ):
+            app = tui_app.SpecFlowTUI(root=tmp_path, generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("s")
+                await pilot.pause()
+                from tui.extra_deps import MOBILE_SDK_SCRIPT
+
+                # press() (not pilot.click) — the button sits below the fold of the
+                # scrolling settings form, so it isn't in the clickable viewport.
+                app.screen.query_one(f"#extra-dep-{MOBILE_SDK_SCRIPT.key}", Button).press()
+                await pilot.pause()
+                exec_mock.assert_awaited_once()
+                argv = exec_mock.await_args.args[1]
+                assert argv == MOBILE_SDK_SCRIPT.command()
+                log = app.screen.query_one("#extra-dep-log", RichLog)
+                assert log.display is True
+
+    @pytest.mark.asyncio
+    async def test_install_refuses_when_containers_down(self, tmp_path):
+        # The gate needs containers up to reach Settings; the refusal is checked
+        # by flipping `containers_running` to False only around the Install click.
+        a, b, c, d, e, f = self._land_on_sessions(tmp_path)
+        exec_mock = AsyncMock(return_value=0)
+        with a, b, c, d, e, f, patch("tui.app.local_env.exec_in_backend", new=exec_mock):
+            app = tui_app.SpecFlowTUI(root=tmp_path, generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("s")
+                await pilot.pause()
+                from tui.extra_deps import MOBILE_SDK_SCRIPT
+
+                with patch("tui.app.local_env.containers_running", return_value=False):
+                    app.screen.query_one(f"#extra-dep-{MOBILE_SDK_SCRIPT.key}", Button).press()
+                    await pilot.pause()
+                # Nothing exec'd because the stack is down.
+                exec_mock.assert_not_awaited()
 
 
 class TestQuitBinding:

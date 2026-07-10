@@ -195,6 +195,11 @@ def _container_names() -> tuple[str, str]:
     return backend, firestore
 
 
+def backend_container_name() -> str:
+    """Name of the backend container (env override or compose default)."""
+    return _container_names()[0]
+
+
 def containers_running(root: Path | None = None) -> bool:
     """True iff BOTH SpecFlow containers are currently running.
 
@@ -357,6 +362,24 @@ async def start_containers(root: Path, on_line: Callable[[str], None] | None = N
     process exit code; non-zero surfaces through the streamed output.
     """
     return await _stream_subprocess(["docker", "compose", "up", "-d", "--no-build"], root, on_line)
+
+
+async def exec_in_backend(
+    root: Path,
+    in_container_argv: list[str],
+    on_line: Callable[[str], None] | None = None,
+) -> int:
+    """Run ``in_container_argv`` inside the running backend container, streamed.
+
+    Wraps ``docker exec <backend> <argv...>``. Used to invoke provisioning
+    scripts already baked into the image (e.g. ``init-mobile-sdk.sh``) without
+    reimplementing them client-side — the in-image script stays the single source
+    of truth for what gets installed. Returns the process exit code; a stopped
+    container or missing docker CLI surfaces through the streamed output and a
+    non-zero code.
+    """
+    argv = ["docker", "exec", backend_container_name(), *in_container_argv]
+    return await _stream_subprocess(argv, root, on_line)
 
 
 # ---------------------------------------------------------------------------
