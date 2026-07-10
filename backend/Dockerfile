@@ -126,15 +126,21 @@ COPY claude-settings.json /root/.claude/settings.json
 # the codegen agents use). We invoke it by absolute path (it is not a uv/venv entry point).
 # The install path is read back from the CLI's own installed_plugins.json (via jq) and copied
 # to a stable /opt/rosetta-plugin so the runtime path never depends on the resolved version.
-# Plugin versions cannot be pinned via the CLI, so the build takes the marketplace's current version.
+#
+# The marketplace catalog is PINNED to a git tag via the `<git-url>#<ref>` syntax. `plugin install`
+# has no version flag, so pinning the marketplace ref is what pins the installed plugin version.
+# The ref is a build arg (ROSETTA_MARKETPLACE_REF); docker-compose supplies it from .env
+# (falling back to the default below), so it can be bumped without editing this Dockerfile:
+#   docker build --build-arg ROSETTA_MARKETPLACE_REF=v2.0.56 ...
 #
 # The guard asserts the staged plugin actually ships the offline toolset (manifest + skills +
 # workflows), failing the build if the marketplace ever serves an empty/MCP-only plugin.
 # ---------------------------------------------------------------------------
 ENV HOME=/root
+ARG ROSETTA_MARKETPLACE_REF=v2.0.55
 RUN CLAUDE_BIN="$(find /app/.venv -type f -path '*/claude_agent_sdk/_bundled/claude' | head -1)" \
  && test -n "$CLAUDE_BIN" \
- && "$CLAUDE_BIN" plugin marketplace add griddynamics/rosetta \
+ && "$CLAUDE_BIN" plugin marketplace add "https://github.com/griddynamics/rosetta.git#${ROSETTA_MARKETPLACE_REF}" \
  && "$CLAUDE_BIN" plugin install "rosetta@rosetta" --scope user \
  && installed="$(jq -r '.plugins["rosetta@rosetta"][] | select(.scope=="user") | .installPath' /root/.claude/plugins/installed_plugins.json | head -1)" \
  && test -n "$installed" && test -d "$installed" \

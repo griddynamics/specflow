@@ -14,6 +14,10 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      args:
+        # Git tag/branch/SHA of the griddynamics/rosetta marketplace to bake in.
+        # Sourced from .env; falls back to the Dockerfile's own pinned default.
+        ROSETTA_MARKETPLACE_REF: ${ROSETTA_MARKETPLACE_REF:-v2.0.55}
     image: specflow-backend:latest
     container_name: ${SPECFLOW_BACKEND_CONTAINER:-specflow-backend}
     ports:
