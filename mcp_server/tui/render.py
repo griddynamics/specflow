@@ -40,21 +40,55 @@ class PipelineStep:
         return STEP_SYMBOLS[self.state]
 
 
-@dataclass(frozen=True)
-class WorkspaceBar:
-    """Per-workspace progress row."""
+def _phase_fraction(last_completed: int, total: int | None) -> float:
+    """Completed fraction in [0, 1]; 0 when total is unknown/zero."""
+    if not total or total <= 0:
+        return 0.0
+    return max(0.0, min(1.0, last_completed / total))
 
-    workspace_id: str
+
+class _ActiveStageProgress:
+    """Stage-aware progress derivations shared by every per-workspace view.
+
+    A workspace runs code-generation phases and then, once the Deploy & E2E loop
+    starts, deploy phases. Deploy runs *after* code-gen finishes, so when deploy is
+    active the fraction/name reflect the deploy stage (the live work) while
+    ``phase_label`` shows both stages additively — e.g. "Phase 12/12 · Deploy 1/4"
+    (issue #38).
+
+    Concrete consumers (``WorkspaceBar``, ``WorkspaceStats``) declare the fields
+    below as dataclass fields; this mixin owns the derivations so the two views
+    can never drift apart.
+    """
+
+    # Declared as dataclass fields by each concrete subclass.
     phase_name: str
     last_completed_phase: int
     total_phases: int | None
+    deploy_phase_name: str
+    deploy_last_completed_phase: int | None
+    deploy_total_phases: int | None
+
+    @property
+    def deploy_active(self) -> bool:
+        """True once the deploy loop has reported a positive phase total.
+
+        A missing *or* zero total both mean "no live deploy stage to count
+        against", so they read identically (see ``_phase_fraction``).
+        """
+        return bool(self.deploy_total_phases and self.deploy_total_phases > 0)
+
+    @property
+    def active_phase_name(self) -> str:
+        """Name of the phase currently in flight (deploy stage takes precedence)."""
+        return self.deploy_phase_name if self.deploy_active else self.phase_name
 
     @property
     def fraction(self) -> float:
-        """Completed fraction in [0, 1]; 0 when total is unknown/zero."""
-        if not self.total_phases or self.total_phases <= 0:
-            return 0.0
-        return max(0.0, min(1.0, self.last_completed_phase / self.total_phases))
+        """Completed fraction of the active stage in [0, 1]."""
+        if self.deploy_active:
+            return _phase_fraction(self.deploy_last_completed_phase or 0, self.deploy_total_phases)
+        return _phase_fraction(self.last_completed_phase, self.total_phases)
 
     @property
     def percent(self) -> int:
@@ -62,9 +96,28 @@ class WorkspaceBar:
 
     @property
     def phase_label(self) -> str:
-        """e.g. 'Phase 6/9' — '?' for total when unknown."""
+        """e.g. 'Phase 6/9', or 'Phase 12/12 · Deploy 1/4' once deploy starts.
+
+        '?' stands in for a total that has not been reported yet.
+        """
         total = self.total_phases if self.total_phases else "?"
-        return f"Phase {self.last_completed_phase}/{total}"
+        label = f"Phase {self.last_completed_phase}/{total}"
+        if self.deploy_active:
+            label += f" · Deploy {self.deploy_last_completed_phase or 0}/{self.deploy_total_phases}"
+        return label
+
+
+@dataclass(frozen=True)
+class WorkspaceBar(_ActiveStageProgress):
+    """Per-workspace progress row (see ``_ActiveStageProgress`` for stage rules)."""
+
+    workspace_id: str
+    phase_name: str
+    last_completed_phase: int
+    total_phases: int | None
+    deploy_phase_name: str = ""
+    deploy_last_completed_phase: int | None = None
+    deploy_total_phases: int | None = None
 
 
 @dataclass(frozen=True)
@@ -155,20 +208,29 @@ def workspace_bars(payload: dict[str, Any]) -> list[WorkspaceBar]:
     """Build per-workspace progress rows from ``workspace_phases``.
 
     Reads the top-level ``workspace_phases`` the status endpoint returns, with a
-    fallback to the older ``progress.workspace_phases`` nesting. Returns an empty
-    list when the backend has not yet reported phases. Rows are ordered by
-    workspace id for stable rendering.
+    fallback to the older ``progress.workspace_phases`` nesting. Merges in the
+    ``workspace_phases_deployment`` map (present once the Deploy & E2E loop starts)
+    so each row can show deploy progress additively. Returns an empty list when
+    the backend has not yet reported phases. Rows are ordered by workspace id for
+    stable rendering.
     """
     workspace_phases = _workspace_phases(payload)
+    deployment = payload.get("workspace_phases_deployment") or {}
     bars: list[WorkspaceBar] = []
     for ws_id in sorted(workspace_phases):
         data = workspace_phases[ws_id] or {}
+        deploy = deployment.get(ws_id) or {}
         bars.append(
             WorkspaceBar(
                 workspace_id=ws_id,
                 phase_name=data.get("phase_name") or "",
                 last_completed_phase=int(data.get("last_completed_phase") or 0),
                 total_phases=data.get("total_phases"),
+                deploy_phase_name=deploy.get("phase_name") or "",
+                deploy_last_completed_phase=(
+                    int(deploy.get("last_completed_phase") or 0) if deploy else None
+                ),
+                deploy_total_phases=deploy.get("total_phases"),
             )
         )
     return bars
@@ -345,8 +407,12 @@ def stream_row(event: Any) -> StreamRow:
 
 
 @dataclass(frozen=True)
-class WorkspaceStats:
+class WorkspaceStats(_ActiveStageProgress):
     """Per-workspace stats for the drill-in panel, flattened for display.
+
+    Inherits the same stage-aware progress derivations as ``WorkspaceBar`` (see
+    ``_ActiveStageProgress``) so the drill-in never disagrees with the row it was
+    opened from once the deploy loop starts.
 
     Token/turn fields are optional: they come from the status payload's
     per-workspace ``usage`` block which is only present once the backend has
@@ -358,27 +424,15 @@ class WorkspaceStats:
     phase_name: str
     last_completed_phase: int
     total_phases: int | None
+    deploy_phase_name: str = ""
+    deploy_last_completed_phase: int | None = None
+    deploy_total_phases: int | None = None
     num_turns: int | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
     cache_write_tokens: int | None = None
     cache_read_tokens: int | None = None
     total_tokens: int | None = None
-
-    @property
-    def fraction(self) -> float:
-        if not self.total_phases or self.total_phases <= 0:
-            return 0.0
-        return max(0.0, min(1.0, self.last_completed_phase / self.total_phases))
-
-    @property
-    def percent(self) -> int:
-        return round(self.fraction * 100)
-
-    @property
-    def phase_label(self) -> str:
-        total = self.total_phases if self.total_phases else "?"
-        return f"Phase {self.last_completed_phase}/{total}"
 
     @property
     def has_usage(self) -> bool:
@@ -406,14 +460,17 @@ def workspace_stats(payload: dict[str, Any], workspace_id: str) -> WorkspaceStat
 
     Reads the same ``workspace_phases`` map the dashboard polls (no extra call),
     including the optional per-workspace ``usage`` token buckets and ``models``
-    list added to the status endpoint. Returns None when the workspace has not
-    been reported yet so the caller can show a placeholder.
+    list added to the status endpoint, plus the ``workspace_phases_deployment``
+    map (present once the Deploy & E2E loop starts) so the drill-in tracks the
+    same active stage as the dashboard row. Returns None when the workspace has
+    not been reported yet so the caller can show a placeholder.
     """
     phases = _workspace_phases(payload)
     data = phases.get(workspace_id)
     if data is None:
         return None
     data = data or {}
+    deploy = (payload.get("workspace_phases_deployment") or {}).get(workspace_id) or {}
     usage = data.get("usage") or {}
     models = [str(m) for m in (data.get("models") or [])]
 
@@ -427,6 +484,11 @@ def workspace_stats(payload: dict[str, Any], workspace_id: str) -> WorkspaceStat
         phase_name=data.get("phase_name") or "",
         last_completed_phase=int(data.get("last_completed_phase") or 0),
         total_phases=data.get("total_phases"),
+        deploy_phase_name=deploy.get("phase_name") or "",
+        deploy_last_completed_phase=(
+            int(deploy.get("last_completed_phase") or 0) if deploy else None
+        ),
+        deploy_total_phases=deploy.get("total_phases"),
         num_turns=_opt("num_turns"),
         input_tokens=_opt("input_tokens"),
         output_tokens=_opt("output_tokens"),

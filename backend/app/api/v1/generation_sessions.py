@@ -652,6 +652,13 @@ async def get_generation_session_status(
                 kb_init_in_progress=kb_init_in_progress,
             )
 
+        # Deploy & E2E loop progress.
+        workspace_phases_deployment = session_doc.get("workspace_phases_deployment", {})
+        workspace_phases_deployment_view: Dict[str, Any] = {
+            ws_id: _ws_phase_view_entry(ws_data or {}, usage=None, models=[])
+            for ws_id, ws_data in workspace_phases_deployment.items()
+        }
+
         usage = ModelTokenUsage.from_generation_session_doc(session_doc)
         tok_used = usage.total_tokens
         response = {
@@ -671,6 +678,8 @@ async def get_generation_session_status(
             "last_spec_summary": session_doc.get("last_spec_summary"),
             "workspace_phases": workspace_phases_view,
         }
+        if workspace_phases_deployment_view:
+            response["workspace_phases_deployment"] = workspace_phases_deployment_view
 
         # 2.5a: include result fields when COMPLETED (Gap 1 fix)
         if session_doc.get("status") == GenerationStatus.COMPLETED.value:

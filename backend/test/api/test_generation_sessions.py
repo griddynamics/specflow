@@ -334,6 +334,96 @@ class TestGetGenerationStatus:
         # Heavy planning_data must not leak into the polled response.
         assert "planning_data" not in wp["ws-01-1"]
 
+    def test_status_surfaces_deploy_phases_during_deploy_loop(
+        self, client, mock_generation_session_service
+    ):
+        """Once the deploy & E2E loop starts, its per-workspace progress is
+        surfaced under ``workspace_phases_deployment`` (same lean shape as the
+        code-gen view) so the TUI can show deploy progress additively (issue #38)."""
+        generation_id = "est-deploy-1"
+        doc = {
+            "generation_id": generation_id,
+            "status": "running",
+            "user_email": "u@example.com",
+            "workspace_ids": ["ws-01-1"],
+            "parameters": {"workspace_count": 1},
+            "progress": {},
+            "error": None,
+            "workspace_phases": {
+                "ws-01-1": {"last_completed_phase": 12, "total_phases": 12, "planning_data": {}},
+            },
+            "workspace_phases_deployment": {
+                "ws-01-1": {
+                    "last_completed_phase": 1,
+                    "total_phases": 4,
+                    "planning_data": {
+                        "phases": [
+                            {"number": 1, "name": "Smoke E2E"},
+                            {"number": 2, "name": "Auth E2E"},
+                            {"number": 3, "name": "Checkout E2E"},
+                            {"number": 4, "name": "Regression"},
+                        ]
+                    },
+                },
+            },
+        }
+        mock_generation_session_service.get_generation_session_status = AsyncMock(return_value=doc)
+        mock_generation_session_service.get_checkpoint = Mock(
+            return_value=GenerationCheckpoint.GENERATION_DONE
+        )
+        mock_generation_session_service.get_current_phase_name = Mock(return_value="Deploy & E2E")
+
+        response = client.get(
+            f"/api/v1/generation-sessions/{generation_id}/status",
+            headers={"X-API-Key": "test-key"},
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        wpd = body["workspace_phases_deployment"]
+        # 1 deploy phase done → currently on phase index 1 = "Auth E2E".
+        assert wpd["ws-01-1"] == {
+            "last_completed_phase": 1,
+            "total_phases": 4,
+            "phase_name": "Auth E2E",
+        }
+        # Deploy view carries no usage/models (no per-variant deploy drill-in).
+        assert "usage" not in wpd["ws-01-1"]
+        assert "models" not in wpd["ws-01-1"]
+        assert "planning_data" not in wpd["ws-01-1"]
+
+    def test_status_omits_deploy_phases_before_deploy_loop(
+        self, client, mock_generation_session_service
+    ):
+        """No ``workspace_phases_deployment`` key until the deploy loop starts —
+        keeps the polled payload lean and LOCAL_ONLY runs unaffected."""
+        generation_id = "est-no-deploy"
+        doc = {
+            "generation_id": generation_id,
+            "status": "running",
+            "user_email": "u@example.com",
+            "workspace_ids": ["ws-01-1"],
+            "parameters": {"workspace_count": 1},
+            "progress": {},
+            "error": None,
+            "workspace_phases": {
+                "ws-01-1": {"last_completed_phase": 3, "total_phases": 6, "planning_data": {}},
+            },
+        }
+        mock_generation_session_service.get_generation_session_status = AsyncMock(return_value=doc)
+        mock_generation_session_service.get_checkpoint = Mock(
+            return_value=GenerationCheckpoint.GENERATION_STARTED
+        )
+        mock_generation_session_service.get_current_phase_name = Mock(return_value="Generating")
+
+        response = client.get(
+            f"/api/v1/generation-sessions/{generation_id}/status",
+            headers={"X-API-Key": "test-key"},
+        )
+
+        assert response.status_code == 200
+        assert "workspace_phases_deployment" not in response.json()
+
     def test_status_phase_name_reports_kb_init_before_kb_init_done(
         self, client, mock_generation_session_service
     ):

@@ -164,6 +164,67 @@ class TestWorkspaceBars:
         assert bar.percent == 0
         assert bar.phase_label == "Phase 2/?"
 
+    def test_no_deploy_map_leaves_deploy_inactive(self):
+        bar = render.workspace_bars(_running_payload())[0]
+        assert bar.deploy_active is False
+        assert bar.active_phase_name == bar.phase_name
+
+    def test_deploy_progress_shown_additively(self):
+        # Code-gen complete (12/12), deploy loop on its first round (1/4).
+        payload = {
+            "workspace_phases": {
+                "ws-01-1": {"last_completed_phase": 12, "total_phases": 12, "phase_name": "Wrap-up"},
+            },
+            "workspace_phases_deployment": {
+                "ws-01-1": {"last_completed_phase": 1, "total_phases": 4, "phase_name": "Smoke E2E"},
+            },
+        }
+        bar = render.workspace_bars(payload)[0]
+        assert bar.deploy_active is True
+        assert bar.phase_label == "Phase 12/12 · Deploy 1/4"
+        # The active stage is deploy, so fraction/name reflect the deploy round.
+        assert abs(bar.fraction - 1 / 4) < 1e-9
+        assert bar.percent == 25
+        assert bar.active_phase_name == "Smoke E2E"
+
+    def test_deploy_not_started_for_workspace_stays_codegen(self):
+        # Deployment map present for another workspace but not this one.
+        payload = {
+            "workspace_phases": {
+                "ws-01-1": {"last_completed_phase": 12, "total_phases": 12, "phase_name": "Wrap-up"},
+                "ws-01-2": {"last_completed_phase": 12, "total_phases": 12, "phase_name": "Wrap-up"},
+            },
+            "workspace_phases_deployment": {
+                "ws-01-1": {"last_completed_phase": 2, "total_phases": 4, "phase_name": "Auth E2E"},
+            },
+        }
+        bars = {b.workspace_id: b for b in render.workspace_bars(payload)}
+        assert bars["ws-01-1"].deploy_active is True
+        assert bars["ws-01-2"].deploy_active is False
+        assert bars["ws-01-2"].phase_label == "Phase 12/12"
+
+    def test_deploy_unknown_total_is_safe(self):
+        payload = {
+            "workspace_phases": {"ws-1": {"last_completed_phase": 5, "total_phases": 5}},
+            "workspace_phases_deployment": {"ws-1": {"last_completed_phase": 1}},
+        }
+        bar = render.workspace_bars(payload)[0]
+        # total_phases absent → deploy not treated as active (nothing to count against).
+        assert bar.deploy_active is False
+        assert bar.phase_label == "Phase 5/5"
+
+    def test_deploy_zero_total_is_safe(self):
+        # A zero total is as meaningless as a missing one — both mean "no live
+        # deploy stage to count against", so they must read identically.
+        payload = {
+            "workspace_phases": {"ws-1": {"last_completed_phase": 5, "total_phases": 5}},
+            "workspace_phases_deployment": {"ws-1": {"last_completed_phase": 0, "total_phases": 0}},
+        }
+        bar = render.workspace_bars(payload)[0]
+        assert bar.deploy_active is False
+        assert bar.phase_label == "Phase 5/5"
+        assert bar.active_phase_name == bar.phase_name
+
 
 class TestProgressBar:
     def test_full_and_empty(self):
@@ -333,6 +394,29 @@ class TestWorkspaceStats:
         payload = {"progress": {"workspace_phases": {"ws-1": {"last_completed_phase": 1, "total_phases": 2}}}}
         stats = render.workspace_stats(payload, "ws-1")
         assert stats.percent == 50
+
+    def test_drill_in_tracks_active_deploy_stage(self):
+        # Once deploy starts, the drill-in must reflect the same active stage as
+        # the dashboard row (issue #38) — not the finished code-gen stage.
+        payload = {
+            "workspace_phases": {
+                "ws-01-1": {"last_completed_phase": 12, "total_phases": 12, "phase_name": "Wrap-up"},
+            },
+            "workspace_phases_deployment": {
+                "ws-01-1": {"last_completed_phase": 1, "total_phases": 4, "phase_name": "Auth E2E"},
+            },
+        }
+        stats = render.workspace_stats(payload, "ws-01-1")
+        assert stats.deploy_active is True
+        assert stats.active_phase_name == "Auth E2E"
+        assert stats.phase_label == "Phase 12/12 · Deploy 1/4"
+        assert stats.percent == 25
+
+    def test_drill_in_without_deploy_stays_codegen(self):
+        stats = render.workspace_stats(_usage_payload(), "ws-01-1")
+        assert stats.deploy_active is False
+        assert stats.active_phase_name == "Auth API"
+        assert stats.phase_label == "Phase 3/9"
 
 
 class TestFormatTokens:
