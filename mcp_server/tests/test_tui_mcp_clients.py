@@ -235,6 +235,151 @@ class TestGlobalConfig:
         assert mc.saved_statuses(home=tmp_path) == {}  # unknown value dropped, no crash
 
 
+class TestConfigFingerprint:
+    def test_equal_blocks_hash_equal(self):
+        assert mc.config_fingerprint(BLOCK) == mc.config_fingerprint(BLOCK)
+
+    def test_env_key_order_does_not_matter(self):
+        a = mc.ServerBlock("uvx", ("x",), {"A": "1", "B": "2"})
+        b = mc.ServerBlock("uvx", ("x",), {"B": "2", "A": "1"})
+        assert mc.config_fingerprint(a) == mc.config_fingerprint(b)
+
+    def test_changes_when_an_env_value_changes(self):
+        base = mc.ServerBlock("uvx", ("x",), {"LLM_HIGH": "a/b"})
+        changed = mc.ServerBlock("uvx", ("x",), {"LLM_HIGH": "c/d"})
+        assert mc.config_fingerprint(base) != mc.config_fingerprint(changed)
+
+    def test_changes_when_command_or_args_change(self):
+        assert mc.config_fingerprint(BLOCK) != mc.config_fingerprint(
+            mc.ServerBlock("uv", BLOCK.args, BLOCK.env)
+        )
+        assert mc.config_fingerprint(BLOCK) != mc.config_fingerprint(
+            mc.ServerBlock(BLOCK.command, BLOCK.args + ("--extra",), BLOCK.env)
+        )
+
+
+class TestFingerprintPersistence:
+    def test_empty_when_absent(self, tmp_path):
+        assert mc.saved_fingerprints(home=tmp_path) == {}
+
+    def test_round_trip(self, tmp_path):
+        mc.save_fingerprint("claude_code", "abc", home=tmp_path)
+        mc.save_fingerprint("cursor", "def", home=tmp_path)
+        assert mc.saved_fingerprints(home=tmp_path) == {"claude_code": "abc", "cursor": "def"}
+
+    def test_overwrites_prior_fingerprint(self, tmp_path):
+        mc.save_fingerprint("cursor", "old", home=tmp_path)
+        mc.save_fingerprint("cursor", "new", home=tmp_path)
+        assert mc.saved_fingerprints(home=tmp_path)["cursor"] == "new"
+
+    def test_keys_stored_sorted(self, tmp_path):
+        mc.save_fingerprint("cursor", "1", home=tmp_path)
+        mc.save_fingerprint("claude_code", "2", home=tmp_path)
+        section = json.loads(mc.config_path(home=tmp_path).read_text())["client_configs"]
+        assert list(section) == sorted(section)
+
+    def test_non_string_values_skipped(self, tmp_path):
+        path = mc.config_path(home=tmp_path)
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"client_configs": {"cursor": 5, "claude_code": "ok"}}))
+        assert mc.saved_fingerprints(home=tmp_path) == {"claude_code": "ok"}
+
+    def test_forget_removes_target_preserving_others(self, tmp_path):
+        mc.save_fingerprint("claude_code", "a", home=tmp_path)
+        mc.save_fingerprint("cursor", "b", home=tmp_path)
+        mc.forget_fingerprint("claude_code", home=tmp_path)
+        assert mc.saved_fingerprints(home=tmp_path) == {"cursor": "b"}
+        mc.forget_fingerprint("nope", home=tmp_path)  # absent → no-op
+        assert mc.saved_fingerprints(home=tmp_path) == {"cursor": "b"}
+
+    def test_fingerprint_and_status_sections_are_independent(self, tmp_path):
+        # The two sibling sections must not clobber each other.
+        mc.save_status("cursor", mc.ClientStatus.VERIFIED, home=tmp_path)
+        mc.save_fingerprint("cursor", "fp", home=tmp_path)
+        assert mc.saved_statuses(home=tmp_path) == {"cursor": mc.ClientStatus.VERIFIED}
+        assert mc.saved_fingerprints(home=tmp_path) == {"cursor": "fp"}
+        # And writing a status after a fingerprint preserves the fingerprint.
+        mc.save_status("claude_code", mc.ClientStatus.CONNECTED, home=tmp_path)
+        assert mc.saved_fingerprints(home=tmp_path) == {"cursor": "fp"}
+
+    def test_save_preserves_unrelated_top_level_keys(self, tmp_path):
+        path = mc.config_path(home=tmp_path)
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"theme": "dark", "clients": {"cursor": "verified"}}))
+        mc.save_fingerprint("cursor", "fp", home=tmp_path)
+        data = json.loads(path.read_text())
+        assert data["theme"] == "dark"
+        assert data["clients"] == {"cursor": "verified"}
+        assert data["client_configs"] == {"cursor": "fp"}
+
+
+class TestIsStale:
+    def test_missing_baseline_is_not_stale(self):
+        assert mc.is_stale(None, "x") is False
+
+    def test_matching_is_not_stale(self):
+        assert mc.is_stale("x", "x") is False
+
+    def test_differing_is_stale(self):
+        assert mc.is_stale("x", "y") is True
+
+
+class TestStaleConnectedIds:
+    def test_connected_with_differing_fingerprint_is_stale(self, tmp_path):
+        mc.save_status("cursor", mc.ClientStatus.VERIFIED, home=tmp_path)
+        mc.save_fingerprint("cursor", "old", home=tmp_path)
+        assert mc.stale_connected_ids("new", home=tmp_path) == ["cursor"]
+
+    def test_connected_with_matching_fingerprint_is_not_stale(self, tmp_path):
+        mc.save_status("cursor", mc.ClientStatus.VERIFIED, home=tmp_path)
+        mc.save_fingerprint("cursor", "same", home=tmp_path)
+        assert mc.stale_connected_ids("same", home=tmp_path) == []
+
+    def test_legacy_connection_without_fingerprint_is_not_stale(self, tmp_path):
+        mc.save_status("cursor", mc.ClientStatus.VERIFIED, home=tmp_path)  # no fingerprint recorded
+        assert mc.stale_connected_ids("anything", home=tmp_path) == []
+
+    def test_failed_client_is_never_stale(self, tmp_path):
+        mc.save_status("cursor", mc.ClientStatus.FAILED, home=tmp_path)
+        mc.save_fingerprint("cursor", "old", home=tmp_path)
+        assert mc.stale_connected_ids("new", home=tmp_path) == []
+
+    def test_result_is_sorted(self, tmp_path):
+        for cid in ("cursor", "claude_code", "gemini"):
+            mc.save_status(cid, mc.ClientStatus.VERIFIED, home=tmp_path)
+            mc.save_fingerprint(cid, "old", home=tmp_path)
+        assert mc.stale_connected_ids("new", home=tmp_path) == ["claude_code", "cursor", "gemini"]
+
+
+class TestRowOverlay:
+    def test_stale_connected_shows_orange_reconnect(self):
+        assert mc.row_label(mc.ClientStatus.VERIFIED, stale=True) == mc.STALE_LABEL
+        assert mc.row_style(mc.ClientStatus.VERIFIED, stale=True) == mc.STALE_STYLE
+
+    def test_non_stale_connected_renders_normally(self):
+        assert mc.row_label(mc.ClientStatus.VERIFIED) == mc.status_label(mc.ClientStatus.VERIFIED)
+        assert mc.row_style(mc.ClientStatus.VERIFIED) == mc.status_style(mc.ClientStatus.VERIFIED)
+
+    def test_manual_never_stale_stays_dim(self):
+        assert mc.row_style(mc.ClientStatus.CONNECTED, stale=True, is_manual=True) == "dim"
+        assert mc.row_label(mc.ClientStatus.CONNECTED, stale=True, is_manual=True) == (
+            mc.status_label(mc.ClientStatus.CONNECTED)
+        )
+
+    def test_failed_ignores_stale_flag(self):
+        assert mc.row_label(mc.ClientStatus.FAILED, stale=True) == (
+            mc.status_label(mc.ClientStatus.FAILED)
+        )
+        assert mc.row_style(mc.ClientStatus.FAILED, stale=True) == (
+            mc.status_style(mc.ClientStatus.FAILED)
+        )
+
+    def test_not_configured_ignores_stale_flag(self):
+        assert mc.row_label(mc.ClientStatus.NOT_CONFIGURED, stale=True) == (
+            mc.status_label(mc.ClientStatus.NOT_CONFIGURED)
+        )
+
+
 class TestRenderCliHint:
     def test_lists_registry_clients_from_one_source(self):
         hint = mc.render_cli_hint("/proj/.specflow-local/mcp-config.json")

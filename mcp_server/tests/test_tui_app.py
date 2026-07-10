@@ -1737,3 +1737,358 @@ class TestClientSetupScreen:
                 await pilot.pause()
         assert yes_result == [True]
         assert no_result == [False]
+
+
+class TestConfigDriftReconnect:
+    """Config-drift: connect records a fingerprint; the setup screen flags a
+    connected client whose baked config no longer matches; Settings routes there."""
+
+    def test_row_label_orange_when_connected_but_config_drifted(self):
+        from rich.text import Text
+
+        screen = tui_app.ClientSetupScreen()
+        screen._current_fp = "new"
+        screen._saved_fp = {"cursor": "old"}
+        row = mc.ClientRow(mc.CURSOR, installed=True, saved=mc.ClientStatus.ADDED_UNVERIFIED)
+        label = screen._row_label(row, mc.ClientStatus.ADDED_UNVERIFIED)
+        assert isinstance(label, Text)
+        assert mc.STALE_LABEL in label.plain
+        assert any("orange" in str(s.style) for s in label.spans)
+
+    def test_row_label_not_orange_when_fingerprint_matches(self):
+        screen = tui_app.ClientSetupScreen()
+        screen._current_fp = "same"
+        screen._saved_fp = {"cursor": "same"}
+        row = mc.ClientRow(mc.CURSOR, installed=True, saved=mc.ClientStatus.ADDED_UNVERIFIED)
+        label = screen._row_label(row, mc.ClientStatus.ADDED_UNVERIFIED)
+        assert mc.STALE_LABEL not in label.plain
+
+    @staticmethod
+    def _render(renderable) -> str:
+        console = Console(width=100, record=True)
+        console.print(renderable)
+        return console.export_text()
+
+    def test_tiers_panel_shows_models_defaults_purposes_and_caveat(self):
+        screen = tui_app.ClientSetupScreen()
+        block = mc.ServerBlock("uvx", ("x",), {"LLM_HIGH": "anthropic/opus", "WORKSPACE_COUNT": "3"})
+        text = self._render(screen._tiers_panel(block))
+        assert "Model tiers" in text  # panel title
+        assert "anthropic/opus" in text  # configured high-tier model
+        assert "default" in text  # an unset tier reads as the backend default
+        assert "planning" in text  # high-tier purpose
+        assert "code generation" in text  # medium-tier purpose
+        assert "press m to change" in text
+        assert "next run" in text
+
+    def test_tiers_panel_all_default_when_block_missing(self):
+        text = self._render(tui_app.ClientSetupScreen()._tiers_panel(None))
+        assert text.count("default") >= 3  # every tier falls back to default
+
+    @pytest.mark.asyncio
+    async def test_m_opens_tier_settings(self, tmp_path):
+        app, (a, b, c) = _make_app(tmp_path)
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(
+            tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()
+        ):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await _push_client_screen(app)
+                await pilot.pause()
+                await pilot.press("m")
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.SettingsScreen)
+
+    @pytest.mark.asyncio
+    async def test_connect_flow_records_config_fingerprint(self, tmp_path):
+        app, (a, b, c) = _make_app(tmp_path)
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(
+            tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()
+        ), patch("pathlib.Path.home", return_value=tmp_path), patch(
+            "tui.app.mcp_clients.load_server_block", return_value=_BLOCK
+        ), patch(
+            "tui.app.local_env.run_command",
+            new=AsyncMock(return_value=local_env.CommandResult(0, "", False)),
+        ):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                screen = await _push_client_screen(app)
+                await pilot.pause()
+                with patch.object(app, "push_screen_wait", new=AsyncMock(return_value=None)):
+                    await screen._connect_flow(mc.CURSOR)
+        # The block just baked in is recorded as cursor's drift baseline.
+        assert mc.saved_fingerprints(home=tmp_path).get("cursor") == mc.config_fingerprint(_BLOCK)
+
+    @pytest.mark.asyncio
+    async def test_probe_present_does_not_touch_fingerprint(self, tmp_path):
+        # A present read-back confirms only presence, not env — the recorded
+        # fingerprint must be left as-is so drift can still surface.
+        with patch("pathlib.Path.home", return_value=tmp_path):
+            mc.save_status("claude_code", mc.ClientStatus.VERIFIED, home=tmp_path)
+            mc.save_fingerprint("claude_code", "old-fp", home=tmp_path)
+        rows = [mc.ClientRow(mc.CLAUDE_CODE, installed=True, saved=mc.ClientStatus.VERIFIED)]
+        app, (a, b, c) = _make_app(tmp_path)
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+            "tui.mcp_clients.client_rows", return_value=rows
+        ), patch("pathlib.Path.home", return_value=tmp_path), patch(
+            "tui.app.local_env.run_command",
+            new=AsyncMock(return_value=local_env.CommandResult(0, "specflow: uvx ✔", False)),
+        ):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await _push_client_screen(app)
+                await pilot.pause()
+                await pilot.pause()  # let the probe worker run
+        assert mc.saved_fingerprints(home=tmp_path).get("claude_code") == "old-fp"
+
+    @pytest.mark.asyncio
+    async def test_probe_absent_forgets_fingerprint(self, tmp_path):
+        with patch("pathlib.Path.home", return_value=tmp_path):
+            mc.save_status("claude_code", mc.ClientStatus.VERIFIED, home=tmp_path)
+            mc.save_fingerprint("claude_code", "old-fp", home=tmp_path)
+        rows = [mc.ClientRow(mc.CLAUDE_CODE, installed=True, saved=mc.ClientStatus.VERIFIED)]
+        app, (a, b, c) = _make_app(tmp_path)
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch(
+            "tui.mcp_clients.client_rows", return_value=rows
+        ), patch("pathlib.Path.home", return_value=tmp_path), patch(
+            "tui.app.local_env.run_command",
+            new=AsyncMock(return_value=local_env.CommandResult(1, "No such server", False)),
+        ):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await _push_client_screen(app)
+                await pilot.pause()
+                await pilot.pause()
+        assert "claude_code" not in mc.saved_fingerprints(home=tmp_path)
+
+    @staticmethod
+    def _write_block(tmp_path, workspace_count):
+        from tui import config as tui_config
+
+        path = tui_config.config_path(tmp_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "specflow": {
+                            "command": "uvx",
+                            "args": ["--from", "x", "specflow-mcp"],
+                            "env": {"WORKSPACE_COUNT": workspace_count},
+                        }
+                    }
+                }
+            )
+        )
+
+    @staticmethod
+    def _land_on_sessions():
+        a, b, c = _gate_ready()
+        return (
+            a,
+            b,
+            c,
+            patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])),
+            patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()),
+            patch("tui.app.mcp_clients.is_any_client_connected", return_value=True),
+        )
+
+    @pytest.mark.asyncio
+    async def test_settings_save_routes_to_connect_screen_on_drift(self, tmp_path):
+        # A connected client baked in the current block; editing a runtime field
+        # makes it stale, so save warns and routes to the connect screen.
+        self._write_block(tmp_path, "3")
+        with patch("pathlib.Path.home", return_value=tmp_path):
+            baseline = mc.config_fingerprint(mc.load_server_block(tmp_path))
+            mc.save_status("cursor", mc.ClientStatus.VERIFIED, home=tmp_path)
+            mc.save_fingerprint("cursor", baseline, home=tmp_path)
+        a, b, c, d, e, f = self._land_on_sessions()
+        with a, b, c, d, e, f, patch("pathlib.Path.home", return_value=tmp_path):
+            app = tui_app.SpecFlowTUI(root=tmp_path, generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("s")
+                await pilot.pause()
+                app.screen.query_one("#field-WORKSPACE_COUNT", Input).value = "5"
+                await pilot.press("ctrl+s")
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.ClientSetupScreen)
+
+    @pytest.mark.asyncio
+    async def test_settings_save_returns_to_sessions_when_no_connected_client(self, tmp_path):
+        # Same runtime edit, but nothing connected → no drift, plain pop to sessions.
+        self._write_block(tmp_path, "3")
+        a, b, c, d, e, f = self._land_on_sessions()
+        with a, b, c, d, e, f, patch("pathlib.Path.home", return_value=tmp_path):
+            app = tui_app.SpecFlowTUI(root=tmp_path, generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("s")
+                await pilot.pause()
+                app.screen.query_one("#field-WORKSPACE_COUNT", Input).value = "5"
+                await pilot.press("ctrl+s")
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.SessionsScreen)
+
+
+class TestModelValidationUI:
+    """Model-tier validity feedback: pure glyph mapping, the validated tiers box,
+    and the live markers on the connect screen and in Settings."""
+
+    @staticmethod
+    def _render(renderable) -> str:
+        console = Console(width=100, record=True)
+        console.print(renderable)
+        return console.export_text()
+
+    @staticmethod
+    def _response(tiers):
+        return {
+            "provider": "openrouter",
+            "catalog_available": True,
+            "all_valid": all(m["status"] == "valid" for t in tiers for m in t["models"]),
+            "has_blocking_tier": any(m["status"] == "invalid" for t in tiers for m in t["models"]),
+            "tiers": tiers,
+        }
+
+    def test_model_mark_maps_statuses(self):
+        assert tui_app._model_mark("valid") == ("✓", "green")
+        assert tui_app._model_mark("invalid") == ("✗", "red")
+        assert tui_app._model_mark("unverified")[1] == "dim"
+        assert tui_app._model_mark(None) == tui_app._NEUTRAL_MARK
+
+    def test_tier_mark_aggregates_worst_first(self):
+        assert tui_app._tier_mark([{"status": "valid"}, {"status": "invalid"}]) == ("✗", "red")
+        assert tui_app._tier_mark([{"status": "valid"}, {"status": "valid"}]) == ("✓", "green")
+        assert tui_app._tier_mark([{"status": "valid"}, {"status": "unverified"}]) == (
+            tui_app._NEUTRAL_MARK
+        )
+        assert tui_app._tier_mark([]) == tui_app._NEUTRAL_MARK
+
+    def test_tier_marker_text_words(self):
+        assert tui_app._tier_marker_text([]).plain == ""
+        assert "unsupported" in tui_app._tier_marker_text([{"status": "invalid"}]).plain
+        assert "available" in tui_app._tier_marker_text([{"status": "valid"}]).plain
+        # Unverified-only: a glyph but no word we can't stand behind.
+        assert tui_app._tier_marker_text([{"status": "unverified"}]).plain == "•"
+
+    def test_tiers_panel_with_validation_shows_marks_and_notes(self):
+        block = mc.ServerBlock("uvx", ("x",), {"LLM_HIGH": "anthropic/bad"})
+        resp = self._response(
+            [
+                {
+                    "tier": "LLM_HIGH",
+                    "models": [
+                        {"configured": "anthropic/bad", "status": "invalid",
+                         "suggestion": "anthropic/good"}
+                    ],
+                }
+            ]
+        )
+        text = self._render(tui_app.ClientSetupScreen()._tiers_panel(block, resp))
+        assert "✗" in text
+        assert "not available on openrouter" in text
+        assert "did you mean" in text
+        assert "anthropic/good" in text
+
+    @pytest.mark.asyncio
+    async def test_connect_screen_marks_invalid_model(self, tmp_path):
+        block = mc.ServerBlock("uvx", ("x",), {"LLM_HIGH": "anthropic/bad"})
+        resp = self._response(
+            [{"tier": "LLM_HIGH", "models": [{"configured": "anthropic/bad", "status": "invalid",
+                                              "suggestion": "anthropic/good"}]}]
+        )
+        app, (a, b, c) = _make_app(tmp_path)
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(
+            tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()
+        ), patch("tui.app.mcp_clients.load_server_block", return_value=block), patch(
+            "tui.app.validate_models.request_model_validation_for",
+            new=AsyncMock(return_value=resp),
+        ):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                screen = await _push_client_screen(app)
+                await pilot.pause()
+                await pilot.pause()  # let the validation worker run + re-render
+        # The worker fetched and stored the result (the box re-render runs on the
+        # same path); the box built from it shows the ✗ and the suggestion.
+        assert screen._validation == resp
+        text = self._render(screen._tiers_panel(block, screen._validation))
+        assert "✗" in text
+        assert "anthropic/good" in text  # suggestion surfaced
+
+    @pytest.mark.asyncio
+    async def test_connect_screen_neutral_when_validation_fails(self, tmp_path):
+        # Backend unreachable → worker swallows the error, box stays free of ✓/✗.
+        block = mc.ServerBlock("uvx", ("x",), {"LLM_HIGH": "anthropic/x"})
+        app, (a, b, c) = _make_app(tmp_path)
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(
+            tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()
+        ), patch("tui.app.mcp_clients.load_server_block", return_value=block), patch(
+            "tui.app.validate_models.request_model_validation_for",
+            new=AsyncMock(side_effect=RuntimeError("no backend")),
+        ):
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                screen = await _push_client_screen(app)
+                await pilot.pause()
+                await pilot.pause()
+        # Worker swallowed the failure: no validation stored, box stays neutral.
+        assert screen._validation is None
+        text = self._render(screen._tiers_panel(block, screen._validation))
+        assert "✗" not in text and "✓" not in text
+
+    @pytest.mark.asyncio
+    async def test_settings_tier_markers_reflect_validation(self, tmp_path):
+        resp = self._response(
+            [
+                {"tier": "LLM_HIGH", "models": [{"configured": "x/bad", "status": "invalid"}]},
+                {"tier": "LLM_MEDIUM", "models": [{"configured": "x/ok", "status": "valid"}]},
+                {"tier": "LLM_LOW", "models": [{"configured": "x/ok2", "status": "valid"}]},
+            ]
+        )
+        a, b, c = _gate_ready()
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(
+            tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()
+        ), patch("tui.app.mcp_clients.is_any_client_connected", return_value=True), patch(
+            "tui.app.validate_models.request_model_validation_for", new=AsyncMock(return_value=resp)
+        ):
+            app = tui_app.SpecFlowTUI(root=tmp_path, generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("s")
+                await pilot.pause()
+                await pilot.pause()  # on_mount validation worker runs
+                screen = app.screen
+                high = self._render(screen.query_one("#tierstatus-LLM_HIGH", tui_app.Static).render())
+                medium = self._render(
+                    screen.query_one("#tierstatus-LLM_MEDIUM", tui_app.Static).render()
+                )
+        assert "✗" in high and "unsupported" in high
+        assert "✓" in medium and "available" in medium
+
+    @pytest.mark.asyncio
+    async def test_settings_tier_marker_stays_on_screen(self, tmp_path):
+        # Regression: the marker must render within the viewport, not be pushed
+        # off the right edge by a non-flexing input (it was, before the CSS fix).
+        resp = self._response(
+            [{"tier": t, "models": [{"configured": "x", "status": "invalid"}]}
+             for t in ("LLM_HIGH", "LLM_MEDIUM", "LLM_LOW")]
+        )
+        width = 100
+        a, b, c = _gate_ready()
+        with a, b, c, patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])), patch.object(
+            tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()
+        ), patch("tui.app.mcp_clients.is_any_client_connected", return_value=True), patch(
+            "tui.app.validate_models.request_model_validation_for", new=AsyncMock(return_value=resp)
+        ):
+            app = tui_app.SpecFlowTUI(root=tmp_path, generation_id=None, poll_interval=999)
+            async with app.run_test(size=(width, 40)) as pilot:
+                await pilot.pause()
+                await pilot.press("s")
+                await pilot.pause()
+                await pilot.pause()
+                marker = app.screen.query_one("#tierstatus-LLM_HIGH", tui_app.Static)
+                region = marker.region
+        assert region.width > 0
+        assert region.right <= width  # fully within the viewport

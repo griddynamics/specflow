@@ -23,15 +23,17 @@ def apply_mcp_servers_enabled_form(form_data: Dict[str, str]) -> None:
         form_data[MCP_SERVERS_ENABLED_ENV] = value.strip()
 
 
-def apply_llm_tier_overrides(form_data: Dict[str, str]) -> None:
-    """Inject LLM tier overrides from the MCP environment into form_data (in-place).
+def llm_tier_overrides_from_env() -> Dict[str, str]:
+    """Return the LLM tier overrides present in the process environment.
 
-    Reads LLM_HIGH, LLM_MEDIUM, LLM_LOW from the process environment (set via
-    mcp.json) and adds any that are present to the form_data dict that will be
-    sent to the backend API.  Keys not set in the environment are left out so
-    the backend falls back to its own defaults.
+    Reads LLM_HIGH, LLM_MEDIUM, LLM_LOW (set via mcp.json) and returns only the
+    ones actually set, so absent tiers let the backend fall back to its own
+    defaults. Pure — no mutation — so callers can pass the result directly.
     """
-    for key in LLM_TIER_KEYS:
-        value = os.environ.get(key)
-        if value:
-            form_data[key] = value
+    return {key: value for key in LLM_TIER_KEYS if (value := os.environ.get(key))}
+
+
+def apply_llm_tier_overrides(form_data: Dict[str, str]) -> None:
+    """In-place variant of :func:`llm_tier_overrides_from_env` for callers that
+    accumulate several groups of fields into one ``form_data`` dict."""
+    form_data.update(llm_tier_overrides_from_env())

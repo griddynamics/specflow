@@ -8,14 +8,17 @@ thin renderers over this module — so the per-client commands/paths/encodings
 live in exactly one place and cannot drift.
 
 The canonical input is always the *live* server block read from
-``.specflow-local/mcp-config.json`` (``load_server_block``) so a later edit to
-``USER_EMAIL`` / ``WORKSPACE_COUNT`` in Settings propagates to every client.
+``.specflow-local/mcp-config.json`` (``load_server_block``). Connecting *bakes*
+that block into each client's own config, so a later edit in Settings does NOT
+reach an already-connected client until it is reconnected — drift the setup
+screen surfaces via ``config_fingerprint`` / ``stale_connected_ids``.
 """
 
 from __future__ import annotations
 
 import base64
 import copy
+import hashlib
 import json
 import shutil
 import urllib.parse
@@ -433,6 +436,35 @@ def status_style(status: ClientStatus) -> str:
     return _STATUS_STYLES[status]
 
 
+# A client that is genuinely connected but whose baked-in config no longer
+# matches the live block is neither "connected" (green would hide the drift) nor
+# "failed" (red is wrong — it still works, just on stale config). It gets its own
+# amber/orange overlay so a glance says "reconnect me", not "done" or "broken".
+STALE_STYLE = "orange3"
+STALE_LABEL = "connected · old config (↵ to reconnect)"
+
+
+def row_style(status: ClientStatus, *, stale: bool = False, is_manual: bool = False) -> str:
+    """Row colour with the staleness overlay applied.
+
+    Manual copy has no baked config and can never be verified, so it stays dim.
+    The orange overlay only ever replaces a *connected* status; transient/failed
+    states render normally so drift never masks an in-flight or failed connect.
+    """
+    if is_manual:
+        return "dim"
+    if stale and status in _ACTED_STATUSES:
+        return STALE_STYLE
+    return status_style(status)
+
+
+def row_label(status: ClientStatus, *, stale: bool = False, is_manual: bool = False) -> str:
+    """Row label with the staleness overlay applied (see ``row_style``)."""
+    if stale and not is_manual and status in _ACTED_STATUSES:
+        return STALE_LABEL
+    return status_label(status)
+
+
 def initial_status(
     client: McpClient, *, installed: bool, saved: ClientStatus | None = None
 ) -> ClientStatus:
@@ -608,6 +640,89 @@ def is_any_client_connected(*, home: Path | None = None) -> bool:
     dropped on the empty Sessions list with nothing wired up.
     """
     return any(s in _ACTED_STATUSES for s in saved_statuses(home=home).values())
+
+
+# ---------------------------------------------------------------------------
+# Config-drift detection (~/.specflow/config.json → "client_configs" section)
+#
+# Connecting bakes the *entire* env block into each client's own config (Claude
+# add-json embeds it; Cursor's merge writes it to ~/.cursor/mcp.json). A later
+# edit to mcp-config.json therefore does NOT reach an already-connected client —
+# it must be reconnected. We record a fingerprint of the block baked into each
+# client at connect time in a sibling section (the "clients" status schema is
+# left untouched, so no migration), then flag drift when the live block differs.
+# ---------------------------------------------------------------------------
+
+
+def config_fingerprint(block: ServerBlock) -> str:
+    """Stable hash of the launch spec baked into a client at connect time.
+
+    Order-independent for ``env`` (sorted keys) and covers command/args/env, so
+    the fingerprint changes iff what a client would launch changes — any runtime
+    setting (tiers, WORKSPACE_COUNT, USER_EMAIL, BACKEND_URL), not just LLM tiers.
+    """
+    payload = json.dumps(
+        {"command": block.command, "args": list(block.args), "env": dict(block.env)},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def saved_fingerprints(*, home: Path | None = None) -> dict[str, str]:
+    """Per-client baked-config fingerprints (unknown/non-string values skipped)."""
+    section = _read_config(home).get("client_configs") or {}
+    return {cid: value for cid, value in section.items() if isinstance(value, str)}
+
+
+def save_fingerprint(client_id: str, fingerprint: str, *, home: Path | None = None) -> None:
+    """Record the config fingerprint baked into ``client_id`` at connect time.
+
+    Read-modify-write that preserves every other top-level config section (notably
+    the untouched ``clients`` status schema), mirroring ``save_status``.
+    """
+    data = _read_config(home)
+    section = data.get("client_configs")
+    if not isinstance(section, dict):
+        section = {}
+    section[client_id] = fingerprint
+    data["client_configs"] = {cid: section[cid] for cid in sorted(section)}
+    _write_config(data, home)
+
+
+def forget_fingerprint(client_id: str, *, home: Path | None = None) -> None:
+    """Drop ``client_id``'s baked-config fingerprint (e.g. it's no longer registered)."""
+    data = _read_config(home)
+    section = data.get("client_configs")
+    if isinstance(section, dict) and client_id in section:
+        del section[client_id]
+        data["client_configs"] = {cid: section[cid] for cid in sorted(section)}
+        _write_config(data, home)
+
+
+def is_stale(stored_fingerprint: str | None, current_fingerprint: str) -> bool:
+    """True iff we have a baseline that no longer matches the live block.
+
+    A missing baseline (a client connected before drift tracking existed, or one
+    reconciled by probe without a recorded fingerprint) is NOT stale — we never
+    nag without a real baseline; the next reconnect establishes one.
+    """
+    return stored_fingerprint is not None and stored_fingerprint != current_fingerprint
+
+
+def stale_connected_ids(current_fingerprint: str, *, home: Path | None = None) -> list[str]:
+    """Connected clients whose baked config no longer matches the live block.
+
+    The single source of truth for both the Settings save-time warning and the
+    setup-screen row overlay: a client counts only if it is genuinely connected
+    (``_ACTED_STATUSES``) and has a recorded fingerprint that now differs.
+    """
+    saved_fp = saved_fingerprints(home=home)
+    return sorted(
+        client_id
+        for client_id, status in saved_statuses(home=home).items()
+        if status in _ACTED_STATUSES and is_stale(saved_fp.get(client_id), current_fingerprint)
+    )
 
 
 # ---------------------------------------------------------------------------

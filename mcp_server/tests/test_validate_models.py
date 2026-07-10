@@ -1,6 +1,6 @@
 """Tests for the MCP-side model validation service."""
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -8,6 +8,7 @@ from services.validate_models import (
     blocking_rejection,
     invalid_models,
     request_model_validation,
+    request_model_validation_for,
 )
 
 
@@ -44,6 +45,25 @@ async def test_request_model_validation_injects_env_and_posts(monkeypatch):
     assert captured["endpoint"] == "/api/v1/models/validate"
     assert captured["form_data"]["LLM_HIGH"] == "anthropic/claude-opus-4.6"
     assert "LLM_MEDIUM" not in captured["form_data"]  # unset env not forwarded
+    assert result["all_valid"] is True
+
+
+@pytest.mark.asyncio
+async def test_request_model_validation_for_uses_explicit_values_and_omits_blanks():
+    captured = {}
+
+    async def fake_post(endpoint, form_data, timeout_seconds=30.0):
+        captured["endpoint"] = endpoint
+        captured["form_data"] = dict(form_data)
+        return json.dumps(_response())
+
+    with patch("services.validate_models.post_form_data_to_backend", new=fake_post):
+        result = await request_model_validation_for(
+            {"LLM_HIGH": "anthropic/opus", "LLM_MEDIUM": "  ", "LLM_LOW": ""}
+        )
+
+    assert captured["endpoint"] == "/api/v1/models/validate"
+    assert captured["form_data"] == {"LLM_HIGH": "anthropic/opus"}  # blanks dropped
     assert result["all_valid"] is True
 
 

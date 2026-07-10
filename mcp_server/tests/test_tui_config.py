@@ -2,6 +2,7 @@
 
 import json
 
+from services.llm_tiers import LLM_TIER_KEYS
 from tui import config
 
 
@@ -10,6 +11,23 @@ def _write_config(root, doc):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(doc))
     return path
+
+
+class TestEditableKeys:
+    def test_uses_the_real_tier_keys_not_the_dead_llm_model_names(self):
+        assert config.EDITABLE_KEYS == [
+            "WORKSPACE_COUNT",
+            "LLM_HIGH",
+            "LLM_MEDIUM",
+            "LLM_LOW",
+            "USER_EMAIL",
+            "BACKEND_URL",
+        ]
+        assert not any(k.startswith("LLM_MODEL_") for k in config.EDITABLE_KEYS)
+
+    def test_tier_slice_is_the_llm_tiers_ssot(self):
+        # The tier entries must BE the shared list the MCP server/backend read.
+        assert config.EDITABLE_KEYS[1:4] == list(LLM_TIER_KEYS)
 
 
 class TestLoadEnv:
@@ -58,6 +76,19 @@ class TestSaveEnv:
         config.save_env(tmp_path, {"USER_EMAIL": "a@b.c"})
         config.save_env(tmp_path, {"USER_EMAIL": ""})
         assert "USER_EMAIL" not in config.load_env(tmp_path)
+
+    def test_purges_dead_legacy_tier_keys(self, tmp_path):
+        # A block written by the buggy build carries LLM_MODEL_* nothing reads;
+        # saving must sweep them so they never linger or skew a fingerprint.
+        _write_config(
+            tmp_path,
+            {"mcpServers": {"specflow": {"env": {"LLM_MODEL_HIGH": "old/model", "KEEP": "yes"}}}},
+        )
+        config.save_env(tmp_path, {"LLM_HIGH": "new/model"})
+        env = config.load_env(tmp_path)
+        assert "LLM_MODEL_HIGH" not in env
+        assert env["LLM_HIGH"] == "new/model"
+        assert env["KEEP"] == "yes"  # unrelated entries still preserved
 
 
 class TestLangfuse:
