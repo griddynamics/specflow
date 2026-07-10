@@ -5,7 +5,33 @@ from services.llm_tiers import (
     MCP_SERVERS_ENABLED_ENV,
     apply_llm_tier_overrides,
     apply_mcp_servers_enabled_form,
+    llm_tier_overrides_from_env,
 )
+
+
+class TestLlmTierOverridesFromEnv:
+    def test_returns_only_keys_present_in_env(self, monkeypatch):
+        monkeypatch.setenv("LLM_HIGH", "claude-opus")
+        monkeypatch.setenv("LLM_LOW", "claude-haiku")
+        monkeypatch.delenv("LLM_MEDIUM", raising=False)
+        assert llm_tier_overrides_from_env() == {
+            "LLM_HIGH": "claude-opus",
+            "LLM_LOW": "claude-haiku",
+        }
+
+    def test_empty_when_no_env(self, monkeypatch):
+        for key in LLM_TIER_KEYS:
+            monkeypatch.delenv(key, raising=False)
+        assert llm_tier_overrides_from_env() == {}
+
+    def test_apply_is_the_in_place_form_of_the_pure_helper(self, monkeypatch):
+        monkeypatch.setenv("LLM_HIGH", "claude-opus")
+        monkeypatch.delenv("LLM_MEDIUM", raising=False)
+        monkeypatch.delenv("LLM_LOW", raising=False)
+        form: dict[str, str] = {"spec_path": "specs"}
+        apply_llm_tier_overrides(form)
+        # Wrapper merges the pure result, preserving unrelated keys.
+        assert form == {"spec_path": "specs", "LLM_HIGH": "claude-opus"}
 
 
 class TestApplyLlmTierOverrides:

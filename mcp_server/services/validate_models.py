@@ -18,7 +18,7 @@ from typing import Any
 
 from fastmcp import Context
 
-from services.llm_tiers import LLM_TIER_KEYS, apply_llm_tier_overrides
+from services.llm_tiers import LLM_TIER_KEYS, llm_tier_overrides_from_env
 from services.run_generation_precheck import RejectionCode
 from services.specflow_backend import post_form_data_to_backend
 
@@ -45,9 +45,7 @@ async def request_model_validation() -> dict[str, Any]:
     ValidateModelsResponse dict. Raises on transport/parse errors so callers can
     stay permissive (connect/run gate) on infrastructure failures.
     """
-    form_data: dict[str, str] = {}
-    apply_llm_tier_overrides(form_data)  # injects LLM_HIGH/MEDIUM/LOW from env when set
-    return await _post_validation(form_data)
+    return await _post_validation(llm_tier_overrides_from_env())
 
 
 async def request_model_validation_for(tier_values: dict[str, str]) -> dict[str, Any]:
