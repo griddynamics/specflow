@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
 """
-Firestore Initialization Script
+Database Initialization Script (DB-type aware)
 
 TO BE USED WITH LOCAL TESTING ONLY - `make e2e-setup`
 
-Initializes Firestore database with workspace pool and API keys.
+Seeds the active state backend (selected by DATABASE_TYPE) with the workspace pool,
+API keys, and the local-auth identity sentinel. The seeding body is backend-agnostic —
+it goes through the IDatabase abstraction (get_database()) — so the same script works
+for every backend. Only the per-type precheck differs:
+
+    DATABASE_TYPE=sqlite     -> single local file (no Docker); path = SQLITE_DB_PATH
+    DATABASE_TYPE=emulator   -> requires FIRESTORE_EMULATOR_HOST (manually-run emulator)
+    DATABASE_TYPE=firestore  -> requires GCP_PROJECT_ID (--prod; production, or an
+                                 already-hosted GCP-managed instance)
 
 This script:
 1. Creates a default API key if none exists (solves chicken-and-egg problem)
@@ -14,13 +22,16 @@ This script:
 5. Is idempotent (safe to run multiple times)
 
 Usage:
-    # With Firestore Emulator
+    # Local SQLite (default)
+    python scripts/init_db.py --workspace-config repos.json --yes
+
+    # Manually-run Firestore emulator
     export FIRESTORE_EMULATOR_HOST=localhost:8080
-    python scripts/init_firestore.py
-    
-    # With real Firestore (be careful!)
+    python scripts/init_db.py --workspace-config repos.json --yes
+
+    # Real / already-hosted GCP Firestore (be careful!)
     export GCP_PROJECT_ID=your-project-id
-    python scripts/init_firestore.py --prod
+    python scripts/init_db.py --prod --workspace-config repos.json
 """
 
 import sys
@@ -28,7 +39,6 @@ import os
 import argparse
 import json
 import traceback
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
@@ -37,16 +47,24 @@ from typing import List
 # Add backend to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Set DATABASE_TYPE early if FIRESTORE_EMULATOR_HOST is set (before importing settings)
-# This ensures we use the emulator instead of in-memory database
+# Set DATABASE_TYPE early (before importing settings): emulator auto-detect takes
+# priority (manually-run emulator), otherwise default to sqlite (the local/Docker-dev
+# default) rather than the ephemeral in-memory fallback.
 if os.getenv("FIRESTORE_EMULATOR_HOST") and not os.getenv("DATABASE_TYPE"):
     os.environ["DATABASE_TYPE"] = "emulator"
+elif not os.getenv("DATABASE_TYPE"):
+    os.environ["DATABASE_TYPE"] = "sqlite"
 
 import httpx
 
 from app.core.config import settings
 from app.core.local_identity import LOCAL_API_KEY_DOC_ID, LOCAL_KEY_UID
 from app.database.factory import get_database
+from app.services.workspace_pool_seeding import (
+    WorkspacePoolEntry,
+    parse_pool_entries,
+    seed_workspace_pool,
+)
 from app.database.interface import IDatabase
 
 
@@ -58,29 +76,9 @@ EXTRA_WORKSPACE_POOL = "testpool"
 EXTRA_POOL_KEY_UID = "00000000-e2e0-0000-0000-000000000002"
 
 
-@dataclass
-class WorkspaceConfig:
-    """Typed workspace configuration entry parsed from ``--workspace-config`` JSON."""
-
-    workspace_id: str
-    repo_url: str
-    p10y_repository_id: int
-    workspace_pool: str
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.p10y_repository_id, int) or isinstance(self.p10y_repository_id, bool):
-            raise ValueError(
-                f"'p10y_repository_id' must be an integer, got: {self.p10y_repository_id!r}"
-            )
-
-    def to_pool_entry(self) -> dict:
-        """Normalise to the dict shape ``initialize_workspace_pool`` consumes."""
-        return {
-            "workspace_id": self.workspace_id,
-            "repo_url": self.repo_url,
-            "p10y_id": self.p10y_repository_id,
-            "workspace_pool": self.workspace_pool,
-        }
+# The typed pool-entry model (WorkspacePoolEntry) and its validation now live in
+# app.services.workspace_pool_seeding — the single source shared with
+# create_generation_session_repos.py.
 
 
 # CONFIGURATION: Workspace Repository Mapping
@@ -94,7 +92,7 @@ class WorkspaceConfig:
 #   make skip-mode-e2e-tests E2E_WORKSPACE_CONFIG=my-test-repos.json
 #
 # Populated from --workspace-config in main(); empty otherwise.
-WORKSPACE_CONFIGS: List[dict] = []
+WORKSPACE_CONFIGS: List[WorkspacePoolEntry] = []
 
 
 def initialize_api_key(db: IDatabase, dry_run: bool = False) -> None:
@@ -171,7 +169,7 @@ def initialize_api_key(db: IDatabase, dry_run: bool = False) -> None:
             "permissions": ["admin"],
             "workspace_pool": pool,
             "metadata": {
-                "created_by": "init_firestore.py",
+                "created_by": "init_db.py",
                 "purpose": "bootstrap_key"
             },
             "max_concurrent_sessions": 5,
@@ -255,9 +253,9 @@ def initialize_local_identity(db: IDatabase, dry_run: bool = False, replace: boo
     print(f"{'='*60}\n")
 
 
-def load_workspace_configs_from_file(path: str) -> List[dict]:
+def load_workspace_configs_from_file(path: str) -> List[WorkspacePoolEntry]:
     """
-    Load workspace configs from a JSON file.
+    Load and validate workspace pool entries from a JSON file.
 
     Expected JSON schema::
 
@@ -271,10 +269,8 @@ def load_workspace_configs_from_file(path: str) -> List[dict]:
           ...
         ]
 
-    Returns a list of dicts normalised so ``initialize_workspace_pool`` can
-    consume them (``workspace_id``, ``repo_url``, ``p10y_id``, ``workspace_pool``).
-
-    Raises SystemExit on malformed input.
+    Returns typed ``WorkspacePoolEntry`` objects. Raises SystemExit on malformed input
+    (validation itself lives in ``workspace_pool_seeding.parse_pool_entries``).
     """
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -287,75 +283,11 @@ def load_workspace_configs_from_file(path: str) -> List[dict]:
         print(f"ERROR: Workspace config file must contain a JSON array, got {type(data).__name__}")
         sys.exit(1)
 
-    normalised: List[dict] = []
-    for i, entry in enumerate(data):
-        if not isinstance(entry, dict):
-            print(f"ERROR: Entry {i} in workspace config is not an object: {entry!r}")
-            sys.exit(1)
-        try:
-            config = WorkspaceConfig(**entry)
-        except TypeError as exc:
-            # Missing required keys or unexpected keys in the JSON object.
-            print(f"ERROR: Entry {i} in workspace config has invalid fields: {exc}")
-            sys.exit(1)
-        except ValueError as exc:
-            print(f"ERROR: Entry {i} in workspace config: {exc}")
-            sys.exit(1)
-        normalised.append(config.to_pool_entry())
-
-    return normalised
-
-
-def create_workspace_document(
-    workspace_id: str,
-    set_number: int,
-    repo_url: str,
-    p10y_repository_id: int,
-    now: datetime,
-    workspace_pool: str = "default",
-) -> dict:
-    """
-    Create a workspace document following the schema from state-management.md.
-    
-    Schema fields:
-    - repo_url: GitHub repository URL
-    - p10y_repository_id: P10Y repository ID for tracking
-    - set_number: Which set this workspace belongs to (1-10)
-    - status: Workspace state (available, allocated, cleaning, stuck)
-    - locked_by: Which generation session is using this workspace
-    - locked_at: When workspace was allocated
-    - lease_expires_at: When lease expires (for crash detection)
-    - clean_verified: CRITICAL - must be true to allocate
-    - last_used_by: Previous generation session (for debugging)
-    - last_cleaned_at: Last cleanup timestamp
-    - allocation_history: Audit trail of allocations
-    - error: Error message if status is stuck
-    """
-    return {
-        # Core fields
-        "repo_url": repo_url,
-        "p10y_repository_id": p10y_repository_id,
-        "set_number": set_number,
-        "workspace_pool": workspace_pool,
-        
-        # Allocation state
-        "status": "available",
-        "locked_by": None,
-        "locked_at": None,
-        "lease_expires_at": None,
-        "cleaning_started_at": None,
-        
-        # Safety fields
-        "clean_verified": True,  # CRITICAL: must be true to allocate
-        "last_used_by": None,
-        "last_cleaned_at": now,
-        
-        # Audit trail
-        "allocation_history": [],
-        
-        # Error tracking
-        "error": None,
-    }
+    try:
+        return parse_pool_entries(data)
+    except ValueError as exc:
+        print(f"ERROR: Invalid workspace config in '{path}': {exc}")
+        sys.exit(1)
 
 
 def initialize_workspace_pool(
@@ -400,61 +332,23 @@ def initialize_workspace_pool(
             print("Aborted.")
             return
 
-    # Create workspaces
-    created = 0
-    updated = 0
-    skipped = 0
-
-    for i, config in enumerate(WORKSPACE_CONFIGS):
-        set_number = (i // 3) + 1  # Sets 1-10
-        # Prefer explicit workspace_id from config (JSON-loaded); derive otherwise.
-        workspace_id = config.get("workspace_id") or f"ws-{set_number:02d}-{(i % 3) + 1}"
-
-        workspace_doc = create_workspace_document(
-            workspace_id=workspace_id,
-            set_number=set_number,
-            repo_url=config["repo_url"],
-            p10y_repository_id=config["p10y_id"],
-            now=now,
-            workspace_pool=config.get("workspace_pool", "default"),
-        )
-
-        if dry_run:
-            print(f"[DRY RUN] Would create workspace: {workspace_id}")
-            print(f"  - Set: {set_number}")
-            print(f"  - Repo: {config['repo_url']}")
-            print(f"  - P10Y ID: {config['p10y_id']}")
-            created += 1
-        else:
-            # Check if workspace exists
-            existing = db.get("workspaces", workspace_id)
-
-            if existing:
-                if replace:
-                    db.update("workspaces", workspace_id, workspace_doc)
-                    print(f"✓ Updated workspace: {workspace_id} (set {set_number})")
-                    updated += 1
-                else:
-                    print(f"  Skipped workspace: {workspace_id} (already exists; use --replace to overwrite)")
-                    skipped += 1
-            else:
-                # Create new workspace
-                db.set("workspaces", workspace_id, workspace_doc)
-                print(f"✓ Created workspace: {workspace_id} (set {set_number})")
-                created += 1
+    # Upsert the pool via the shared seeding routine (idempotent; --replace overwrites).
+    result = seed_workspace_pool(
+        db, WORKSPACE_CONFIGS, replace=replace, dry_run=dry_run, now=now
+    )
 
     # Summary
     print(f"\n{'='*60}")
     print("SUMMARY")
     print(f"{'='*60}")
     if dry_run:
-        print(f"Would create: {created} workspaces")
+        print(f"Would create: {result.created} workspaces")
     else:
-        print(f"Created: {created} workspaces")
-        print(f"Updated: {updated} workspaces")
-        if skipped:
-            print(f"Skipped: {skipped} workspaces (already exist)")
-        print(f"Total: {created + updated + skipped} workspaces")
+        print(f"Created: {result.created} workspaces")
+        print(f"Updated: {result.updated} workspaces")
+        if result.skipped:
+            print(f"Skipped: {result.skipped} workspaces (already exist; use --replace to overwrite)")
+        print(f"Total: {result.total} workspaces")
         expected_sets = (len(WORKSPACE_CONFIGS) + 2) // 3
         print(f"Configured sets: {expected_sets} set(s) of up to 3 workspaces")
     print(f"{'='*60}\n")
@@ -495,7 +389,7 @@ def initialize_workspace_pool(
 
 def extra_pool_configured() -> bool:
     """Return True when the loaded workspace config declares the example extra pool."""
-    return any(config.get("workspace_pool") == EXTRA_WORKSPACE_POOL for config in WORKSPACE_CONFIGS)
+    return any(entry.workspace_pool == EXTRA_WORKSPACE_POOL for entry in WORKSPACE_CONFIGS)
 
 
 def attach_github_tokens(dry_run: bool = False) -> None:
@@ -586,23 +480,19 @@ def main():
     )
     args = parser.parse_args()
 
-    # Workspace configs MUST come from --workspace-config. There are no default repos: workspace
-    # allocation clones every repo_url (even in SKIP_MODE), so the pool can only point at repos the
-    # user controls. Refuse to run otherwise rather than seeding a broken pool.
+    # --workspace-config is optional. When provided (e2e / bring-your-own repos), it is the
+    # source of the workspace pool. When omitted (local quickstart), the pool is seeded straight
+    # into the DB by create_generation_session_repos.py, and this script only seeds the bootstrap
+    # API key + local-auth identity sentinel. There are still no hardcoded default repos.
     global WORKSPACE_CONFIGS
-    if not args.workspace_config:
+    if args.workspace_config:
+        WORKSPACE_CONFIGS = load_workspace_configs_from_file(args.workspace_config)
+        print(f"✓ Loaded {len(WORKSPACE_CONFIGS)} workspace configs from {args.workspace_config}")
+    else:
         print(
-            "ERROR: No workspace config provided. There are no default test repos.\n"
-            "       Copy the template, point it at repos you control, then pass it via "
-            "--workspace-config:\n"
-            "         cp e2e-workspace-config.example.json my-test-repos.json\n"
-            "         # edit repo_url / p10y_repository_id in my-test-repos.json\n"
-            "       Then re-run, e.g.:\n"
-            "         make skip-mode-e2e-tests E2E_WORKSPACE_CONFIG=my-test-repos.json"
+            "ℹ️  No --workspace-config provided: seeding API key + local identity only "
+            "(the workspace pool is seeded separately, straight into the database)."
         )
-        sys.exit(1)
-    WORKSPACE_CONFIGS = load_workspace_configs_from_file(args.workspace_config)
-    print(f"✓ Loaded {len(WORKSPACE_CONFIGS)} workspace configs from {args.workspace_config}")
 
     # Safety check for production
     if args.prod:
@@ -620,19 +510,20 @@ def main():
             print("Aborted.")
             sys.exit(0)
     else:
-        # Ensure emulator is set
-        if not os.getenv("FIRESTORE_EMULATOR_HOST"):
+        db_type = os.getenv("DATABASE_TYPE", "memory").lower()
+
+        # Emulator mode needs a reachable host:port; sqlite/memory need no external process.
+        if db_type == "emulator" and not os.getenv("FIRESTORE_EMULATOR_HOST"):
             print("ERROR: FIRESTORE_EMULATOR_HOST not set")
             print("Run: export FIRESTORE_EMULATOR_HOST=localhost:8080")
             sys.exit(1)
 
-        # Check database type (should already be set at import time if FIRESTORE_EMULATOR_HOST was set)
-        db_type = os.getenv("DATABASE_TYPE", "memory").lower()
         print(f"✓ Database type: {db_type}")
         if db_type == "memory":
             print("⚠️  WARNING: DATABASE_TYPE=memory will not persist data!")
-            print("   The script auto-sets DATABASE_TYPE=emulator when FIRESTORE_EMULATOR_HOST is set")
-            print("   If you see this, something went wrong with auto-detection")
+            print("   Set DATABASE_TYPE=sqlite for a persistent local database")
+        elif db_type == "sqlite":
+            print(f"✓ Using SQLite at {settings.SQLITE_DB_PATH}")
         elif db_type == "emulator":
             emulator_host = os.getenv("FIRESTORE_EMULATOR_HOST")
             print(f"✓ Using Firestore Emulator at {emulator_host}")
@@ -664,19 +555,23 @@ def main():
         traceback.print_exc()
         sys.exit(1)
 
-    # Initialize workspace pool
-    try:
-        initialize_workspace_pool(db, dry_run=args.dry_run, yes=args.yes, replace=args.replace)
-    except Exception as e:
-        print(f"\nERROR: Initialization failed: {e}")
-        traceback.print_exc()
-        sys.exit(1)
+    # Initialize workspace pool (only when a config file was supplied; otherwise the pool is
+    # seeded directly into the DB by create_generation_session_repos.py).
+    if WORKSPACE_CONFIGS:
+        try:
+            initialize_workspace_pool(db, dry_run=args.dry_run, yes=args.yes, replace=args.replace)
+        except Exception as e:
+            print(f"\nERROR: Initialization failed: {e}")
+            traceback.print_exc()
+            sys.exit(1)
+    else:
+        print("⏭️  Skipping workspace pool seeding (no --workspace-config).")
 
     # Attach GitHub tokens to pool-specific keys
     attach_github_tokens(dry_run=args.dry_run)
 
-    # Reminder about indexes
-    if not args.dry_run and not os.getenv("FIRESTORE_EMULATOR_HOST"):
+    # Reminder about indexes (Firestore production/hosted only; sqlite/emulator need none)
+    if not args.dry_run and db_type == "firestore":
         print("\n" + "="*60)
         print("⚠️  IMPORTANT: Create Firestore Indexes")
         print("="*60)

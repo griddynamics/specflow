@@ -1,5 +1,5 @@
 """
-Tests for backend/scripts/init_firestore.py — Phase 5 (Config-driven Firestore seeding).
+Tests for backend/scripts/init_db.py — Phase 5 (Config-driven database seeding).
 
 Coverage:
   (a) --workspace-config load replaces the hardcoded WORKSPACE_CONFIGS list.
@@ -19,6 +19,7 @@ import pytest
 
 from app.core.local_identity import LOCAL_API_KEY_DOC_ID, LOCAL_KEY_UID
 from app.database.memory import InMemoryDatabase
+from app.services.workspace_pool_seeding import WorkspacePoolEntry
 
 # ---------------------------------------------------------------------------
 # Import the functions under test directly.  The script sets DATABASE_TYPE
@@ -26,7 +27,7 @@ from app.database.memory import InMemoryDatabase
 # get_database() returns the InMemoryDatabase.  We patch in our own db
 # instance rather than calling get_database() at all.
 # ---------------------------------------------------------------------------
-import scripts.init_firestore as init_script
+import scripts.init_db as init_script
 
 
 # ---------------------------------------------------------------------------
@@ -72,13 +73,13 @@ class TestWorkspaceConfigLoad:
         loaded = init_script.load_workspace_configs_from_file(path)
 
         assert len(loaded) == 2
-        assert loaded[0]["workspace_id"] == "ws-test-1"
-        assert loaded[0]["repo_url"] == "https://github.com/test-org/test-repo-1"
-        assert loaded[0]["p10y_id"] == 11111  # normalised key
-        assert loaded[0]["workspace_pool"] == "default"
-        assert loaded[1]["workspace_id"] == "ws-test-2"
-        assert loaded[1]["p10y_id"] == 22222
-        assert loaded[1]["workspace_pool"] == "testpool"
+        assert loaded[0].workspace_id == "ws-test-1"
+        assert loaded[0].repo_url == "https://github.com/test-org/test-repo-1"
+        assert loaded[0].p10y_repository_id == 11111
+        assert loaded[0].workspace_pool == "default"
+        assert loaded[1].workspace_id == "ws-test-2"
+        assert loaded[1].p10y_repository_id == 22222
+        assert loaded[1].workspace_pool == "testpool"
 
     def test_load_invalid_json_exits(self, tmp_path):
         path = str(tmp_path / "bad.json")
@@ -143,24 +144,73 @@ class TestWorkspaceConfigLoad:
 # (a2) main() requires --workspace-config: there are no default repos
 # ---------------------------------------------------------------------------
 
-class TestWorkspaceConfigRequired:
-    def test_main_without_workspace_config_exits(self, capsys):
-        """main() refuses to run (exit 1) when --workspace-config is absent."""
-        with patch("sys.argv", ["init_firestore.py", "--yes"]):
+class TestWorkspaceConfigOptional:
+    def test_main_without_workspace_config_seeds_identity_only(self, monkeypatch):
+        """Without --workspace-config, main() seeds the API key + local identity but NOT the
+        workspace pool (the pool is seeded directly into the DB by the provisioner)."""
+        monkeypatch.setenv("DATABASE_TYPE", "sqlite")
+        monkeypatch.delenv("FIRESTORE_EMULATOR_HOST", raising=False)
+        db = _make_db()
+
+        with patch("sys.argv", ["init_db.py", "--yes"]):
+            with patch.object(init_script, "get_database", return_value=db):
+                with patch.object(init_script, "attach_github_tokens"):
+                    init_script.main()  # must NOT raise SystemExit
+
+        # Local-auth sentinel seeded; workspace pool left untouched.
+        assert db.get("api_keys", LOCAL_API_KEY_DOC_ID) is not None
+        assert db.query("workspaces") == []
+
+    def test_main_without_workspace_config_skips_pool_message(self, capsys, monkeypatch):
+        """It announces that pool seeding is skipped rather than erroring out."""
+        monkeypatch.setenv("DATABASE_TYPE", "sqlite")
+        monkeypatch.delenv("FIRESTORE_EMULATOR_HOST", raising=False)
+        db = _make_db()
+
+        with patch("sys.argv", ["init_db.py", "--yes"]):
+            with patch.object(init_script, "get_database", return_value=db):
+                with patch.object(init_script, "attach_github_tokens"):
+                    init_script.main()
+
+        out = capsys.readouterr().out
+        assert "No --workspace-config provided" in out
+        assert "Skipping workspace pool seeding" in out
+
+
+# ---------------------------------------------------------------------------
+# (g) sqlite mode does not require FIRESTORE_EMULATOR_HOST (regression: the
+#     emulator-host gate must be conditional on DATABASE_TYPE, not unconditional).
+# ---------------------------------------------------------------------------
+
+class TestSqliteModeNoEmulatorRequired:
+    def test_sqlite_mode_does_not_require_emulator_host(self, tmp_path, monkeypatch):
+        """main() must not exit for a missing FIRESTORE_EMULATOR_HOST under sqlite mode."""
+        monkeypatch.delenv("FIRESTORE_EMULATOR_HOST", raising=False)
+        monkeypatch.setenv("DATABASE_TYPE", "sqlite")
+
+        path = _workspace_config_file(tmp_path, SAMPLE_WORKSPACE_ENTRIES)
+        db = _make_db()
+
+        with patch("sys.argv", ["init_db.py", "--yes", "--workspace-config", path]):
+            with patch.object(init_script, "get_database", return_value=db):
+                with patch.object(init_script, "attach_github_tokens"):
+                    # Should complete without SystemExit due to a missing emulator host.
+                    init_script.main()
+
+        assert db.get("workspaces", "ws-test-1") is not None
+
+    def test_emulator_mode_still_requires_emulator_host(self, tmp_path, monkeypatch, capsys):
+        """Regression guard: emulator mode keeps requiring FIRESTORE_EMULATOR_HOST."""
+        monkeypatch.delenv("FIRESTORE_EMULATOR_HOST", raising=False)
+        monkeypatch.setenv("DATABASE_TYPE", "emulator")
+
+        path = _workspace_config_file(tmp_path, SAMPLE_WORKSPACE_ENTRIES)
+
+        with patch("sys.argv", ["init_db.py", "--yes", "--workspace-config", path]):
             with pytest.raises(SystemExit) as exc:
                 init_script.main()
         assert exc.value.code == 1
-        out = capsys.readouterr().out
-        assert "No workspace config provided" in out
-        assert "e2e-workspace-config.example.json" in out
-
-    def test_main_without_workspace_config_does_not_touch_db(self):
-        """The gate fires before any database access."""
-        with patch("sys.argv", ["init_firestore.py"]):
-            with patch.object(init_script, "get_database") as mock_get_db:
-                with pytest.raises(SystemExit):
-                    init_script.main()
-        mock_get_db.assert_not_called()
+        assert "FIRESTORE_EMULATOR_HOST not set" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------
@@ -507,12 +557,12 @@ class TestExtraPoolKeySeeding:
         original_configs = init_script.WORKSPACE_CONFIGS
         try:
             init_script.WORKSPACE_CONFIGS = [
-                {
-                    "workspace_id": "ws-default-1",
-                    "repo_url": "https://github.com/test-org/default",
-                    "p10y_id": 11111,
-                    "workspace_pool": "default",
-                }
+                WorkspacePoolEntry(
+                    workspace_id="ws-default-1",
+                    repo_url="https://github.com/test-org/default",
+                    p10y_repository_id=11111,
+                    workspace_pool="default",
+                )
             ]
             init_script.initialize_api_key(db, dry_run=False)
         finally:
@@ -526,12 +576,12 @@ class TestExtraPoolKeySeeding:
         original_configs = init_script.WORKSPACE_CONFIGS
         try:
             init_script.WORKSPACE_CONFIGS = [
-                {
-                    "workspace_id": "ws-extra-1",
-                    "repo_url": "https://github.com/test-org/extra",
-                    "p10y_id": 22222,
-                    "workspace_pool": init_script.EXTRA_WORKSPACE_POOL,
-                }
+                WorkspacePoolEntry(
+                    workspace_id="ws-extra-1",
+                    repo_url="https://github.com/test-org/extra",
+                    p10y_repository_id=22222,
+                    workspace_pool=init_script.EXTRA_WORKSPACE_POOL,
+                )
             ]
             init_script.initialize_api_key(db, dry_run=False)
         finally:
@@ -547,12 +597,12 @@ class TestExtraPoolKeySeeding:
         original_configs = init_script.WORKSPACE_CONFIGS
         try:
             init_script.WORKSPACE_CONFIGS = [
-                {
-                    "workspace_id": "ws-default-1",
-                    "repo_url": "https://github.com/test-org/default",
-                    "p10y_id": 11111,
-                    "workspace_pool": "default",
-                }
+                WorkspacePoolEntry(
+                    workspace_id="ws-default-1",
+                    repo_url="https://github.com/test-org/default",
+                    p10y_repository_id=11111,
+                    workspace_pool="default",
+                )
             ]
             with patch.object(init_script.httpx, "put") as mock_put:
                 init_script.attach_github_tokens(dry_run=False)

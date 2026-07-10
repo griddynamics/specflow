@@ -116,7 +116,8 @@ def assert_files(base_dir: Path, required_globs: list[str]) -> None:
 def resolve_api_credentials() -> tuple[str, str]:
     """
     Return (SPECFLOW_API_KEY, USER_EMAIL): from env vars if both are set, otherwise
-    fetch from the local Firestore emulator by running scripts/get-api-key.py.
+    fetch from the active database backend (sqlite by default) by running
+    scripts/get-api-key.py.
     """
     key = os.environ.get("SPECFLOW_API_KEY", "").strip()
     email = os.environ.get("USER_EMAIL", "").strip()
@@ -130,10 +131,13 @@ def resolve_api_credentials() -> tuple[str, str]:
         cwd=str(REPO_ROOT / "backend"),
         env={
             **os.environ,
+            "DATABASE_TYPE": os.getenv("DATABASE_TYPE", "sqlite"),
+            "SQLITE_DB_PATH": os.getenv(
+                "SQLITE_DB_PATH", str(Path.home() / ".specflow" / "db" / "specflow.db")
+            ),
             "FIRESTORE_EMULATOR_HOST": os.getenv("FIRESTORE_EMULATOR_HOST", "localhost:8080"),
             "GCP_PROJECT_ID": os.getenv("GCP_PROJECT_ID", "local-dev"),
             "FIRESTORE_DATABASE_NAME": os.getenv("FIRESTORE_DATABASE_NAME", "specflow"),
-            "DATABASE_TYPE": "emulator",
         },
     )
     if result.returncode != 0:
@@ -158,7 +162,7 @@ def resolve_api_credentials() -> tuple[str, str]:
         return found_key, found_email
 
     raise RuntimeError(
-        "SPECFLOW_API_KEY/USER_EMAIL not set and could not be fetched from Firestore emulator.\n"
+        "SPECFLOW_API_KEY/USER_EMAIL not set and could not be fetched from the database.\n"
         f"get-api-key.py stdout:\n{result.stdout}\n"
         f"get-api-key.py stderr:\n{result.stderr}"
     )

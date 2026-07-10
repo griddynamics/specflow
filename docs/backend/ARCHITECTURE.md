@@ -183,34 +183,57 @@ class DatabaseInterface(ABC):
 - No persistence
 - Thread-safe (asyncio locks)
 
-**2. EmulatorDatabase** - Firestore emulator
-- Local development
-- Realistic Firestore behavior
-- Fast startup
-- Data reset on restart
+**2. SqliteDatabase** - Local file, no separate process
+- Local/Docker-dev default
+- Single-writer, WAL mode, real ACID transactions
+- Persists across restarts (bind-mounted at `~/.specflow/db/specflow.db`)
+- Not a production replacement for Firestore — no cross-node distributed locking
+- **Relational storage.** Known collections (`api_keys`, `generation_sessions`,
+  `workspaces`) each get a dedicated table. Every stable scalar field the app writes
+  (not just the ones filtered/ordered on — e.g. `status`, `key_uid`, `repo_url`,
+  `checkpoint`, `error`, `total_usd_cost`, timestamps, …) is *promoted* to a typed
+  column, so the table is genuinely inspectable in a SQL browser; only nested/open-ended
+  structures (`state_history`, `allocation_history`, `parameters`, …) stay JSON-only.
+  The full document also lives in a `data` JSON column, which stays the source of truth
+  on read and is what promoted columns mirror on write. A separate, smaller `indexes`
+  list on each table covers only the column combinations something actually
+  filters/orders on — promotion (inspectability) and indexing (query performance) are
+  independent concerns. Timestamps are stored as fixed-width ISO-8601 UTC text so
+  lexical order equals chronological order in both the columns and the blob. The layout
+  is declared once in the registry at the top of `app/database/sqlite.py`, which drives
+  DDL, query routing, *and* self-reconciliation — opening an older db file adds any new
+  registry column via `ALTER TABLE` and backfills it from `data`, so a schema change
+  never requires a manual reset. There is no generic
+  catch-all table: an unregistered collection is rejected loudly (register it first),
+  so a new collection can't silently land in an unindexed blob. Firestore-style
+  subcollections follow the same rule — each known one gets its own named child table
+  (e.g. `workspace_model_usage`, keyed by `generation_id` + `workspace_id`), and an
+  unregistered subcollection is rejected too.
 
-**3. FirestoreDatabase** - Google Cloud Firestore
-- Production
+**3. EmulatorDatabase** - Firestore emulator
+- Connects to a manually-run Firestore emulator process (docker-compose does not
+  start one)
+- Realistic Firestore behavior for anyone testing against real Firestore semantics
+
+**4. FirestoreDatabase** - Google Cloud Firestore
+- Production, or connecting to an already-hosted GCP-managed instance
 - Native transactions
 - Distributed locking
-- Persistent state
 
 ### Factory Pattern
 
 ```python
-# app/database/__init__.py
-def get_database(db_type: str = None) -> DatabaseInterface:
-    if db_type == "memory":
-        return MemoryDatabase()
-    elif db_type == "emulator":
-        return EmulatorDatabase()
-    elif db_type == "firestore":
-        return FirestoreDatabase()
-    else:
-        # Auto-detect from environment
-        if os.getenv("FIRESTORE_EMULATOR_HOST"):
-            return EmulatorDatabase()
-        return FirestoreDatabase()
+# app/database/factory.py
+def get_database() -> IDatabase:
+    db_type = settings.DATABASE_TYPE
+    if db_type == DatabaseType.MEMORY:
+        return InMemoryDatabase()
+    elif db_type == DatabaseType.SQLITE:
+        return SqliteDatabase(db_path=settings.SQLITE_DB_PATH)
+    elif db_type == DatabaseType.EMULATOR:
+        return EmulatorDatabase(...)
+    elif db_type == DatabaseType.FIRESTORE:
+        return FirestoreDatabase(...)
 ```
 
 ### Transaction Support

@@ -4,7 +4,7 @@
 >
 > **Just want to run SpecFlow locally, not develop it?** See the
 > [Local Self-Host Quickstart](../../QUICKSTART.md) — a one-command
-> bootstrap (`./specflow-init.sh`) that starts the stack and seeds the emulator without
+> bootstrap (`./specflow-init.sh`) that starts the stack and seeds the database without
 > the manual steps below. This guide is for contributors working on the backend itself.
 
 ## Table of Contents
@@ -26,7 +26,7 @@
 
 ### Required
 
-- **Docker** - For Firestore emulator and containerization
+- **Docker** - For running the backend container (SQLite is the local default; no separate database container needed)
 - **Make** - For command shortcuts
 - **Python 3.13+** - Latest Python version
 - **uv** - Fast Python package manager ([install](https://github.com/astral-sh/uv))
@@ -77,8 +77,8 @@ make run
 
 This starts:
 - **Backend API** on `http://localhost:8000`
-- **Firestore Emulator** on `http://localhost:8080`
-- **Firestore UI** on `http://localhost:4000` (optional)
+- **SQLite database** at `~/.specflow/db/specflow.db` on the host (bind-mounted into the
+  container) — no separate container or port
 
 ### 4. Verify Health
 
@@ -119,9 +119,10 @@ EMAIL_PASSWORD=<smtp-password>
 EMAIL_FROM=noreply@example.com
 
 # Database Configuration
-DATABASE_TYPE=emulator  # Options: emulator, firestore, memory
-FIRESTORE_EMULATOR_HOST=localhost:8080
-GCP_PROJECT_ID=local-dev
+DATABASE_TYPE=sqlite  # Options: sqlite, emulator, firestore, memory
+SQLITE_DB_PATH=/root/.specflow/db/specflow.db  # sqlite only
+FIRESTORE_EMULATOR_HOST=localhost:8080  # emulator only (manually-run process)
+GCP_PROJECT_ID=local-dev  # emulator/firestore only
 
 # Logging
 LOG_LEVEL=INFO  # Options: DEBUG, INFO, WARNING, ERROR
@@ -133,8 +134,11 @@ SKIP_AGENT_EXECUTION=false  # Set to true for fast workflow testing
 ### Database Type Options
 
 - **memory** - In-memory database (fast, for unit tests)
-- **emulator** - Firestore emulator (local development, integration tests)
-- **firestore** - Real Firestore backend for self-hosted deployments
+- **sqlite** - Local file, no separate process (local/Docker-dev default)
+- **emulator** - Connects to a manually-run Firestore emulator process (SpecFlow does
+  not start one for you)
+- **firestore** - Real Firestore backend for production, or an already-hosted GCP
+  instance you connect to directly
 
 ---
 
@@ -176,13 +180,9 @@ cd backend
 # Install dependencies
 uv sync
 
-# Start Firestore emulator (in separate terminal)
-docker run -p 8080:8080 google/cloud-sdk:latest \
-  gcloud beta emulators firestore start --host-port=0.0.0.0:8080
-
-# Set environment
-export DATABASE_TYPE=emulator
-export FIRESTORE_EMULATOR_HOST=localhost:8080
+# Set environment (sqlite needs no separate process)
+export DATABASE_TYPE=sqlite
+export SQLITE_DB_PATH=~/.specflow/db/specflow.db
 
 # Run backend
 uv run uvicorn app.main:app --reload --port 8000
@@ -216,7 +216,8 @@ In SKIP_MODE:
 ### Skip-mode E2E tests (workspace pool setup)
 
 `make skip-mode-e2e-tests` boots the isolated test stack in SKIP_MODE, prefills the test
-container's Firestore with a workspace pool, and drives the MCP tool sequence end to end.
+stack's database (its own isolated SQLite file, not the real central one) with a
+workspace pool, and drives the MCP tool sequence end to end.
 The test stack is ephemeral: every test setup starts by running `make stop`, which tears down
 the `specflow-test` compose project and removes `./.specflow-test` before starting again.
 
@@ -255,8 +256,8 @@ cp e2e-workspace-config.example.json my-test-repos.json
 make skip-mode-e2e-tests E2E_WORKSPACE_CONFIG=my-test-repos.json
 ```
 
-`E2E_WORKSPACE_CONFIG` is required by `make e2e-setup`, `make init-firestore`, and
-`make init-firestore-dry`. Schema:
+`E2E_WORKSPACE_CONFIG` is required by `make e2e-setup`, `make init-db`, and
+`make init-db-dry`. Schema:
 
 ```json
 [
@@ -286,7 +287,7 @@ make integration-tests
 ```
 
 **Characteristics:**
-- Uses Firestore emulator
+- Uses SQLite by default (override with `DATABASE_TYPE=emulator` or `firestore`)
 - Uses the isolated, ephemeral `specflow-test` Docker Compose project
 - Tests complete workflows
 - Validates database transactions
@@ -389,10 +390,11 @@ backend/
 │   │   │   └── workspaces.py    # Workspace management
 │   │   └── router.py        # API router configuration
 │   ├── database/            # Database abstraction layer
-│   │   ├── base.py          # Abstract database interface
+│   │   ├── interface.py     # Abstract database interface
 │   │   ├── memory.py        # In-memory implementation
+│   │   ├── sqlite.py        # SQLite implementation (local/Docker default)
 │   │   ├── firestore.py     # Firestore implementation
-│   │   └── emulator.py      # Emulator implementation
+│   │   └── emulator.py      # Emulator implementation (manually-run process)
 │   ├── middleware/          # FastAPI middleware
 │   │   ├── auth.py          # API key authentication
 │   │   └── logging.py       # Request/response logging
@@ -459,7 +461,7 @@ make test
 cd backend
 uv run pytest test/test_services/test_your_service.py -v
 
-# Test with Firestore emulator in the isolated ephemeral stack
+# Test against a real database (SQLite by default) in the isolated ephemeral stack
 make integration-tests
 ```
 
@@ -542,12 +544,17 @@ uv run uvicorn app.main:app --reload
 
 ### Database Inspection
 
-**Firestore UI** (when using emulator):
-- Open http://localhost:4000
-- Browse collections: `generations`, `workspaces`, `api_keys`
-- View documents, queries, indexes
+**SQLite** (local/Docker default) — the file is trivially inspectable, either from the
+host directly or via the running container:
+```bash
+sqlite3 ~/.specflow/db/specflow.db ".tables"
+sqlite3 ~/.specflow/db/specflow.db "SELECT doc_id, data FROM documents WHERE collection = 'workspaces' LIMIT 5;"
 
-**Firestore CLI queries:**
+# Or from inside the running container:
+docker compose exec backend sqlite3 /root/.specflow/db/specflow.db ".tables"
+```
+
+**Backend API queries** (works against any backend):
 ```bash
 # Get all generations
 curl http://localhost:8000/api/v1/generations \
@@ -605,7 +612,9 @@ curl http://localhost:8000/status \
 
 ### Add Database Migration
 
-SpecFlow uses Firestore (NoSQL), so migrations are schema-less. However, for data migrations:
+The `backend/scripts/migrations/migrate_*.py` scripts are one-time production data
+migrations against real GCP Firestore (NoSQL, so migrations are schema-less) — they call
+the Firestore SDK directly and don't apply to local SQLite. For data migrations:
 
 1. **Create migration script in `backend/scripts/migrate_xxx.py`**
 2. **Run manually via:**

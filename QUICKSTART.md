@@ -178,10 +178,17 @@ Stop the local stack:
 docker compose down --timeout 90
 ```
 
-Reset local Firestore state and reseed:
+Reset the local SQLite database and reseed:
 
 ```bash
 specflow init --reset-local-db
+```
+
+Inspect the database: install [DB Browser for SQLite](https://sqlitebrowser.org/)
+(`brew install --cask db-browser-for-sqlite`), then open it read-only against the live db:
+
+```bash
+open -a "DB Browser for SQLite" ~/.specflow/db/specflow.db
 ```
 
 ## More Guides

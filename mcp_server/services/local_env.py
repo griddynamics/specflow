@@ -36,9 +36,8 @@ _ENV_FILENAME = ".env"
 _ENV_EXAMPLE_FILENAME = ".env.quickstart.example"
 _INIT_SCRIPT = "specflow-init.sh"
 
-# Mirror docker-compose.yml container-name env-var defaults.
+# Mirror docker-compose.yml container-name env-var defaults; sqlite has no separate container.
 _BACKEND_CONTAINER_DEFAULT = "specflow-backend"
-_FIRESTORE_CONTAINER_DEFAULT = "specflow-firestore-emulator"
 
 
 # ---------------------------------------------------------------------------
@@ -189,20 +188,14 @@ def is_setup_complete(root: Path) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _container_names() -> tuple[str, str]:
-    backend = os.getenv("SPECFLOW_BACKEND_CONTAINER", _BACKEND_CONTAINER_DEFAULT)
-    firestore = os.getenv("SPECFLOW_FIRESTORE_CONTAINER", _FIRESTORE_CONTAINER_DEFAULT)
-    return backend, firestore
-
-
 def containers_running(root: Path | None = None) -> bool:
-    """True iff BOTH SpecFlow containers are currently running.
+    """True iff the SpecFlow backend container is currently running.
 
-    Uses ``docker ps`` filtered by the compose container names. A missing docker
+    Uses ``docker ps`` filtered by the compose container name. A missing docker
     CLI or any error is treated as "not running" (the caller then offers to
     start them, which surfaces the real failure with streamed output).
     """
-    backend, firestore = _container_names()
+    backend = os.getenv("SPECFLOW_BACKEND_CONTAINER", _BACKEND_CONTAINER_DEFAULT)
     try:
         completed = subprocess.run(
             [
@@ -210,8 +203,6 @@ def containers_running(root: Path | None = None) -> bool:
                 "ps",
                 "--filter",
                 f"name={backend}",
-                "--filter",
-                f"name={firestore}",
                 "--format",
                 "{{.Names}}",
             ],
@@ -224,7 +215,7 @@ def containers_running(root: Path | None = None) -> bool:
     if completed.returncode != 0:
         return False
     names = {line.strip() for line in completed.stdout.splitlines() if line.strip()}
-    return backend in names and firestore in names
+    return backend in names
 
 
 # ---------------------------------------------------------------------------
@@ -394,7 +385,7 @@ async def run_init(
 ) -> int:
     """Run ``bash ./specflow-init.sh <flags>`` from ``root``, streaming output.
 
-    The script owns all state mutation (docker up, repo provisioning, firestore
+    The script owns all state mutation (docker up, repo provisioning, database
     seed, mcp-config write); this only invokes and streams it. Returns the exit
     code.
     """

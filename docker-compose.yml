@@ -1,77 +1,14 @@
 # Docker Compose Configuration for SpecFlow Backend
 #
 # Profiles:
-#   - default (dev): Uses Firestore Emulator for local development (no GCP credentials needed)
-#   - test: Uses real GCP Firestore (requires GCP credentials and proper .env setup)
-#   - mcp: MCP Server for Cursor IDE integration (starts backend + mcp-server)
+#   - default: backend + SQLite (local dev — no GCP credentials, no separate DB container)
+#   - test: Connect to an already-hosted GCP Firestore instance (requires credentials)
 #
 # Usage:
-#   docker-compose up                                    # Dev mode: backend + emulator
-#   docker-compose --profile test up                     # Test mode: backend + real Firestore
+#   docker-compose up                                    # Dev mode: backend + sqlite
+#   docker-compose --profile test up                     # Test mode: connect to hosted Firestore
 
 services:
-  # Firestore Emulator - Only runs in dev mode (default)
-  firestore-emulator:
-    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
-    # Container name is parameterized so an isolated test stack (COMPOSE_PROJECT_NAME=specflow-test)
-    # can run its own containers without colliding with a self-hosted quickstart deployment.
-    container_name: ${SPECFLOW_FIRESTORE_CONTAINER:-specflow-firestore-emulator}
-    ports:
-      - "${SPECFLOW_FIRESTORE_PORT:-8080}:8080"
-    # gcloud wraps a JVM child; an init reaps zombies and forwards SIGTERM to it
-    # so --export-on-exit actually fires on `docker compose down`.
-    init: true
-    # Stop order is backend -> firestore-exporter -> firestore-emulator, so the
-    # exporter can take one final snapshot while the emulator is still alive.
-    stop_grace_period: 120s
-    environment:
-      - GCP_PROJECT_ID=${GCP_PROJECT_ID:-local-dev}
-      - FIRESTORE_DATABASE_NAME=${FIRESTORE_DATABASE_NAME:-specflow}
-    command:
-      - /bin/sh
-      - /specflow-scripts/firestore-emulator-entrypoint.sh
-    volumes:
-      - ${WORKSPACE_MOUNT_PATH:-./workspaces}/firestore_emulator:/firestore-data:rw
-      - ./scripts:/specflow-scripts:ro
-    networks:
-      - specflow-network
-    restart: unless-stopped
-    healthcheck:
-      # Check if emulator is responding (returns "OK" on HTTP)
-      # The emulator exposes an HTTP endpoint that returns "OK" when ready
-      test: ["CMD-SHELL", "curl -f http://localhost:8080 || exit 1"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 30s  # Give emulator more time to start (gRPC can take a while)
-    # Emulator only needed in dev mode, not in test profile
-    profiles: ["", "dev"]  # Empty string means default profile
-
-  # Firestore Emulator Exporter - Periodic local-only snapshots for quickstart durability.
-  # The emulator is in-memory; --export-on-exit is retained as a shutdown fallback, while
-  # this sidecar limits data loss when the emulator does not exit cleanly.
-  firestore-exporter:
-    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
-    container_name: ${SPECFLOW_FIRESTORE_EXPORTER_CONTAINER:-specflow-firestore-exporter}
-    depends_on:
-      firestore-emulator:
-        condition: service_healthy
-    environment:
-      - GCP_PROJECT_ID=${GCP_PROJECT_ID:-local-dev}
-      - FIRESTORE_DATABASE_NAME=${FIRESTORE_DATABASE_NAME:-specflow}
-      - FIRESTORE_EXPORT_INTERVAL_SECONDS=${FIRESTORE_EXPORT_INTERVAL_SECONDS:-60}
-    command:
-      - /bin/sh
-      - /specflow-scripts/firestore-emulator-exporter.sh
-    volumes:
-      - ${WORKSPACE_MOUNT_PATH:-./workspaces}/firestore_emulator:/firestore-data:rw
-      - ./scripts:/specflow-scripts:ro
-    networks:
-      - specflow-network
-    restart: unless-stopped
-    stop_grace_period: 120s
-    profiles: ["", "dev"]
-
   # Backend Service - Runs in both dev and test modes
   backend:
     build:
@@ -99,10 +36,16 @@ services:
       - P10Y_ORGANISATION_ID=${P10Y_ORGANISATION_ID}
       # Skip mode for testing workflows without agent execution
       - SKIP_AGENT_EXECUTION=${SKIP_AGENT_EXECUTION:-false}
-      # Database configuration - defaults to emulator mode
-      # Override via .env file for test mode
-      - DATABASE_TYPE=${DATABASE_TYPE:-emulator}
-      - FIRESTORE_EMULATOR_HOST=firestore-emulator:8080
+      # Database configuration - defaults to sqlite (local dev, no separate DB container).
+      # Override via .env for DATABASE_TYPE=firestore to connect to an already-hosted,
+      # GCP-managed Firestore instance (SpecFlow never deploys/manages Firestore itself),
+      # or DATABASE_TYPE=emulator to connect to a manually-run Firestore emulator process.
+      - DATABASE_TYPE=${DATABASE_TYPE:-sqlite}
+      # Container-internal, fixed. The db always lives under the /root/.specflow bind mount;
+      # relocate/isolate it by pointing SPECFLOW_HOME_MOUNT_PATH at a different host dir, not
+      # by changing this path (which the container interprets literally, off the mount).
+      - SQLITE_DB_PATH=/root/.specflow/db/specflow.db
+      - FIRESTORE_EMULATOR_HOST=${FIRESTORE_EMULATOR_HOST}
       - GCP_PROJECT_ID=${GCP_PROJECT_ID:-local-dev}
       - FIRESTORE_DATABASE_NAME=${FIRESTORE_DATABASE_NAME:-specflow}
       - POSTHOG_API_KEY=${POSTHOG_API_KEY}
@@ -131,7 +74,14 @@ services:
       - ${AGENT_LOGS_MOUNT_PATH:-./agent_logs}:/agent_logs:rw
       # Note: agent_logs are stored in dedicated mount at /agent_logs
       # For local development, this can be configured via AGENT_LOGS_MOUNT_PATH environment variable
-      # For test profile with real Firestore, optionally mount GCP credentials
+      # Bind mount (not a named volume) to the host's ~/.specflow/ directory — the SAME
+      # directory the host-side TUI/CLI writes config.json into, and the single central
+      # SQLite database shared across every local project/MCP session on this machine
+      # (the local-dev analogue of the old shared Firestore emulator). NEVER point
+      # SPECFLOW_HOME_MOUNT_PATH at NFS/Filestore-backed storage.
+      - ${SPECFLOW_HOME_MOUNT_PATH:-${HOME}/.specflow}:/root/.specflow:rw
+      # For test profile connecting to a hosted GCP Firestore instance, optionally mount
+      # GCP credentials
       # - ${GOOGLE_APPLICATION_CREDENTIALS:-}:/app/credentials.json:ro
     networks:
       - specflow-network
@@ -142,14 +92,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-    # In dev mode, wait for the exporter too. Compose stops services in reverse
-    # dependency order, so backend shutdown marks in-flight runs failed before
-    # the exporter performs its final snapshot and before the emulator exits.
-    depends_on:
-      firestore-emulator:
-        condition: service_healthy
-      firestore-exporter:
-        condition: service_started
     stop_grace_period: 120s
 
 networks:

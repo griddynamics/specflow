@@ -158,20 +158,22 @@ class TestSetupDetection:
 
 
 class TestContainersRunning:
+    """SQLite has no separate container (bind-mounted file); only the backend
+    container's presence determines readiness."""
+
     def _run(self, stdout: str, returncode: int = 0):
         from types import SimpleNamespace
 
         return SimpleNamespace(stdout=stdout, returncode=returncode)
 
-    def test_both_present(self):
-        out = "specflow-backend\nspecflow-firestore-emulator\n"
-        with patch("services.local_env.subprocess.run", return_value=self._run(out)):
-            assert local_env.containers_running() is True
-
-    def test_one_missing(self):
+    def test_backend_present(self):
         with patch(
             "services.local_env.subprocess.run", return_value=self._run("specflow-backend\n")
         ):
+            assert local_env.containers_running() is True
+
+    def test_backend_missing(self):
+        with patch("services.local_env.subprocess.run", return_value=self._run("")):
             assert local_env.containers_running() is False
 
     def test_nonzero_returncode(self):

@@ -28,6 +28,7 @@ from app.core.github_platform_secrets import (
 )
 from app.core.logging import _cleanup_queue_logging
 from app.database.factory import get_database
+from app.database.sqlite import SqliteDatabase
 from app.jobs.shutdown_interrupted_recovery import recover_interrupted_sessions
 from app.jobs.stuck_cleaning_recovery import recover_stuck_cleaning
 from app.jobs.stuck_initializing_detector import detect_stuck_initializing
@@ -187,6 +188,10 @@ async def lifespan(app: FastAPI):
             pass
 
     await run_shutdown_session_handling(db)
+
+    if isinstance(raw_db, SqliteDatabase):
+        logger.info("Closing SQLite connection before shutdown...")
+        raw_db.close()
 
     if not validation_task.done():
         logger.info("Cancelling startup validation task...")
