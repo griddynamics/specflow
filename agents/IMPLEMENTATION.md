@@ -1,6 +1,15 @@
 # Implementation Status
 
-**Updated**: June 23, 2026 | **Branch**: (current) | **Tests**: 1228+ passing (`make unit-tests`)
+**Updated**: July 15, 2026 | **Branch**: (current) | **Tests**: 1228+ passing (`make unit-tests`)
+
+## Current Work (July 2026)
+
+- **Rosetta plugin-only cleanup (implementation stage):** Runtime KB initialization now validates
+  only `ROSETTA_PLUGIN_PATH`, uses the ordinary empty KB-init MCP selection, and supplies the
+  provisioned plugin's `Skill` / `SlashCommand` tools directly. Prompts and runtime configuration
+  now describe one direct-to-final-location workflow. Production implementation validation:
+  changed-file Ruff, Python compilation, residual source/doc searches, and `git diff --check`
+  pass. Tests remain in the approved workflow.
 
 ## Core Systems (Production Ready)
 
@@ -11,7 +20,7 @@
 - **Database**: `backend/app/database/` — firestore, emulator, in_memory (IDatabase interface)
 - **Prompts**: `backend/app/prompts/agents_claude_code.py` — all agent templates
 - **Schemas**: `backend/app/schemas/` — estimation_enums (statuses/checkpoints), specification (SpecReadiness)
-- **Config**: `backend/app/core/config.py` — env vars including `TOKEN_ENCRYPTION_KEY`, `GITHUB_TOKEN_DEFAULT`, `GIT_USER_NAME_DEFAULT`, K8s secret key name settings; Rosetta `ims-mcp` via `uvx ims-mcp@latest` with `ROSETTA_SERVER_URL`, `ROSETTA_API_KEY`, `ROSETTA_USER_EMAIL`, `ROSETTA_IMS_VERSION` → subprocess `VERSION` (`build_rosetta_mcp_config`); `github_platform_secrets.py` loads Fernet + default PAT (K8s API or env); `workspace_pool_names.py` — pool allowlist; `artifact_subdirs.py` — `ANALYSIS_SUBDIR`, `PLANNING_SUBDIR`, `REPORT_SUBDIR` (SSOT for artifact/workspace output paths); `backend/app/prompts/mcp_workflow_registry.py` — matrix of optional agent MCPs per workflow + prune keyword field map
+- **Config**: `backend/app/core/config.py` — env vars including `TOKEN_ENCRYPTION_KEY`, `GITHUB_TOKEN_DEFAULT`, `GIT_USER_NAME_DEFAULT`, K8s secret key name settings; Rosetta KB via the bundled plugin at `ROSETTA_PLUGIN_PATH` (see `app/core/rosetta_kb.py` + `WorkspaceManager.provision_rosetta_plugin`); `github_platform_secrets.py` loads Fernet + default PAT (K8s API or env); `workspace_pool_names.py` — pool allowlist; `artifact_subdirs.py` — `ANALYSIS_SUBDIR`, `PLANNING_SUBDIR`, `REPORT_SUBDIR` (SSOT for artifact/workspace output paths); `backend/app/prompts/mcp_workflow_registry.py` — matrix of optional agent MCPs per workflow + prune keyword field map
 - **MCP**: `server.py` — tools: check_specification_completeness, run_planning, run_generation, check_status, retry_generation, download_estimation_outputs; workspace tools take `ctx: Context` and call `apply_mcp_project_root_from_context` so `resolve_path` / session file resolve before `gain_session.json` exists (MCP `list_roots()` → Pydantic `FileUrl` → `_project_root`).
 
 ## Key Decisions (PR83)
@@ -86,8 +95,6 @@
   `test_estimation` (`update_completed_estimation_result`), `test_report_generation` (skipped/coverage sections),
   `test_workflow_integration`, `test_model_selection`.
 
-- **Rosetta unpack in standalone planning + Rosetta MCP on codegen (Apr 9, ops v0.4.0 #3)**: `planning_workflow` calls `unpack_rosetta_artifacts` on the primary workspace after KB init (or KB_INIT_DONE resume) and before `run_planning_agent`, matching full-estimation behavior from `prepare_parallel_workspaces`. `coding_mcp_servers_and_tools` merges `_rosetta_pair` when `ROSETTA_MCP_ENABLED` so generation/deploy phase agents get KnowledgeBase MCP like planning/KB init. `unpack_rosetta_artifacts` also maps `rosetta/skills/` and `rosetta/commands/` to `.claude/skills/` and `.claude/commands/` (same pattern as `rosetta/agents/`). Tests: `test_agents_claude_code` (coding MCP + rosetta), `test_execute_all_phases_mcps` mocks set `ROSETTA_MCP_ENABLED=False` where isolating Playwright/Figma.
-
 - **Async spec analyze + usage counters + milestone notifications (Apr 3)**: `POST /specification/analyze` returns immediately; background task awaits `archive_analysis` before clearing `spec_analysis_in_progress` and sending email/Slack `notify_spec_check_complete`. `GET /specification/outputs/{ws}` → **410 Gone**; MCP uses short analyze timeout and `download_outputs` only. Cumulative `num_turns` / `total_tokens_used` on estimation docs via transactional `add_agent_query_totals` from successful `agent_query` (TelemetryContext handler from `build_workflow_context`, spec/planning bg tasks, estimation run/retry). `GET .../estimations/{id}/status` + MCP `check_status` expose counters and `total_tokens_used_display` (`format_token_count`). `notify_planning_complete` after `archive_planning` + `PLANNING_DONE` in `planning_workflow`. Edge-case tests: `test_specification_analyze_async_edges.py` (API key lock, `begin_analysis` failure, workflow/archive failures, archive-before-notify ordering, notify failure cleanup), `test_get_estimation_status_includes_usage_and_spec_analysis_fields`. **TODO**: crash recovery could clear stale `spec_analysis_in_progress` if the process dies mid-task.
 
 ## Recently Completed (March 2026)
@@ -104,7 +111,7 @@
   flows from MCP `server.py` / sync params → estimation `parameters` → workflows. Backend `SUPPORTED_MCPS`
   (`playwright`, `figma`) filters names; `FIGMA_ACCESS_TOKEN` / `FIGMA_API_KEY` + `FIGMA_MCP_*` / `PLAYWRIGHT_MCP_*`
   in backend env build stdio MCP configs. Playwright wired for generation + deploy/E2E phase agents; Figma for
-  spec analysis, planning (with Rosetta), generation, and deploy/E2E. PostHog event `mcp_servers_configuration`
+  spec analysis, planning, generation, and deploy/E2E. PostHog event `mcp_servers_configuration`
   records `mcp_configuration_source` (form / estimation_parameters / backend_settings / workspace_sync_params),
   `mcp_configuration_raw`, resolved enablement, and `mcp_supported_ids` at that moment. API form fields + tests in
   `test_mcp_config.py`, `test_mcp_configuration_telemetry.py`.
@@ -132,7 +139,7 @@
 - **Background jobs fix**: Removed PENDING/FAILED blocking from `cleanup_workspace()`. Fixed stuck_cleaning_recovery for missing timestamps.
 - **Multi-model**: Comma-separated model lists in `LLM_MEDIUM`/`LLM_HIGH`/`LLM_LOW`, round-robin assignment, OpenRouter validation.
 - **Integration readiness**: SpecReadiness enum, Part F, dual plans, DEPLOY_AND_E2E_DONE checkpoint, conditional workflow.
-- **KB Init**: `ROSETTA_MCP_ENABLED` flag, kb_init workflow step, rosetta artifact unpacking.
+- **KB Init**: `kb_init` workflow step (bundled Rosetta plugin — see **Config** above).
 - **Post-refactor audit**: State machine enforcement, rogue DB writes removed, CI guards.
 
 ## Gaps & Debt

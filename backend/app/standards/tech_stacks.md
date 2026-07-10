@@ -10,7 +10,8 @@ CRITICAL: if the specification does not specify a decision, flag it as a GAP. "M
 "team's choice" are not acceptable answers — every dimension below must have a concrete, named value.
 
 For detailed guidance on specific technologies, architecture patterns, or stack trade-offs, use the
-**Rosetta KnowledgeBase MCP** (`get_context_instructions` / `query_instructions` / `list_instructions`) to retrieve up-to-date recommendations.
+**Rosetta knowledge-base toolset** provisioned into this workspace's `.claude/` (its Skills and
+subagents) to retrieve up-to-date recommendations.
 
 ---
 

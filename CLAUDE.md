@@ -48,7 +48,7 @@ Spec analysis and implementation planning happen **locally in the user's IDE** v
 
 0. **Local (no backend)** — user calls `check_specification_completeness` and `run_planning` in their IDE; both produce markdown files in the user's project directory. Repeatable, free, no session created.
 1. **File upload + contract validation** — `run_generation` uploads the user's `specs/`, optional `src/`, and `outputs_dir/` to the primary workspace. The contract validator (`backend/app/services/contract_validator.py` + `run_contract_validator` in `workflow_steps.py`) fuzzy-matches required files, runs keyword-only MCP prune, converts plans markdown→JSON, and writes Firestore plan data. If any required file is missing or unparseable, `run_generation` fails immediately with a human-readable message. No spec/planning/KB agents in this step (plan conversion agent only).
-2. **KB init + Generation** — Rosetta unpacking and KB init run as the first generation step (not before). Then code generation runs across all workspaces in parallel, committing incrementally.
+2. **KB init + Generation** — the provisioned Rosetta plugin initializes the knowledge base as the first generation step (not before). Then code generation runs across all workspaces in parallel, committing incrementally.
 3. **Deploy & E2E** — deploy loop starts immediately after generation; no user pause in between.
 
 Consequences that must be upheld in code:

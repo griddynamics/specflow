@@ -31,7 +31,9 @@ from app.core.notifications import (
     build_coding_complete_pre_deploy_response,
     notifications,
 )
+from app.core.rosetta_kb import rosetta_plugin_root
 from app.core.telemetry_context import TelemetryContext
+from app.core.tool_usage import get_rosetta_plugin_tools
 from app.schemas.telemetry_workflow import TelemetryWorkflowLabel
 from app.services.langfuse import tracer
 from app.prompts.agents_claude_code import (
@@ -44,6 +46,7 @@ from app.prompts.agents_claude_code import (
 from app.prompts.knowledge_base_agent import kb_init_agent_template
 from app.prompts.plan_conversion_agent import plan_conversion_agent_template
 from app.schemas.deploy_context import DeployGithubContext
+from app.schemas.generation_workflow_enums import WorkflowStepName
 from app.schemas.llm_tier import (
     WORKFLOW_TIER_MAP,
     WorkflowName,
@@ -429,19 +432,6 @@ async def build_workflow_context(
     )
 
 
-def _collect_rosetta_file_manifest(workspace_root: str, rosetta_dir: str) -> list[str]:
-    """Walk rosetta/ directory and return a sorted list of relative file paths."""
-    workspace_root_path = Path(workspace_root)
-    rosetta_path = workspace_root_path / rosetta_dir
-    if not rosetta_path.exists():
-        return []
-    files: list[str] = []
-    for item in rosetta_path.rglob("*"):
-        if item.is_file():
-            files.append(str(item.relative_to(workspace_root_path)))
-    return sorted(files)
-
-
 # Root project-instructions file the provisioned-plugin KB-init agent writes (outside outputs_dir).
 _ROOT_CLAUDE_MD: Final[str] = "CLAUDE.md"
 
@@ -458,13 +448,13 @@ def _snapshot_outputs_dir_files(workspace_root: str, outputs_dir: str) -> set[st
 def _collect_provisioned_plugin_manifest(
     workspace_root: str, outputs_dir: str, pre_existing: set[str]
 ) -> list[str]:
-    """KB artifacts a provisioned-plugin KB-init run actually produced.
+    """KB artifacts the KB-init run actually produced.
 
-    Unlike MCP mode (which stages output under its own rosetta/ dir), the provisioned-plugin agent
-    writes ``CLAUDE.md`` at the workspace root and docs under ``outputs_dir`` — but ``outputs_dir``
-    was already populated with the user's uploaded specs/plans before KB init. Report only the
-    root ``CLAUDE.md`` plus files under ``outputs_dir`` that did NOT exist before the run, so the
-    manifest reflects KB output rather than pre-existing uploads.
+    The provisioned-plugin agent writes ``CLAUDE.md`` at the workspace root and docs under
+    ``outputs_dir`` — but ``outputs_dir`` was already populated with the user's uploaded
+    specs/plans before KB init. Report only the root ``CLAUDE.md`` plus files under
+    ``outputs_dir`` that did NOT exist before the run, so the manifest reflects KB output rather
+    than pre-existing uploads.
     """
     root = Path(workspace_root)
     new_under_outputs = _snapshot_outputs_dir_files(workspace_root, outputs_dir) - pre_existing
@@ -474,37 +464,33 @@ def _collect_provisioned_plugin_manifest(
     return sorted(files)
 
 
-def _generate_mock_rosetta_artifacts(
-    workspace_root: str, rosetta_dir: str, logger: logging.Logger
+def _generate_mock_kb_init_artifacts(
+    workspace_root: str, outputs_dir: str, logger: logging.Logger
 ) -> None:
-    """Create minimal mock rosetta/ artifacts for SKIP_MODE.
+    """Create minimal mock KB-init artifacts for SKIP_MODE.
 
-    Produces the same directory structure a real KB init agent would,
-    so the downstream unpack/sync flow is exercised end-to-end.
+    Mirrors what the real provisioned-plugin KB-init agent produces: ``CLAUDE.md`` at the
+    workspace root and project docs under ``outputs_dir/``. ``.claude/`` is left untouched —
+    the plugin's discovery trees are copied in separately by ``provision_rosetta_plugin``.
     """
-    root = Path(workspace_root) / rosetta_dir
-    agents_dir = root / "agents"
-    docs_dir = root / "docs"
-    agents_dir.mkdir(parents=True, exist_ok=True)
+    root = Path(workspace_root)
+    docs_dir = root / outputs_dir
     docs_dir.mkdir(parents=True, exist_ok=True)
 
-    (root / "CLAUDE.md").write_text(
+    (root / _ROOT_CLAUDE_MD).write_text(
         "# CLAUDE.md\n\n[SKIP_MODE] Mock project instructions.\n"
-    )
-    (agents_dir / "default.md").write_text(
-        "---\ndescription: Default agent\n---\n\n[SKIP_MODE] Mock subagent.\n"
     )
     (docs_dir / "CONTEXT.md").write_text(
         "# Context\n\n[SKIP_MODE] Mock project context.\n"
     )
-    logger.info(f"[SKIP_MODE] Created mock rosetta artifacts under {root}")
+    logger.info(f"[SKIP_MODE] Created mock KB-init artifacts (CLAUDE.md + {outputs_dir}/CONTEXT.md)")
 
 
 async def run_kb_init_and_sync_workspaces(ctx: WorkflowContext) -> None:
-    """Run KB init on the primary workspace, then sync specs/outputs/rosetta and src to all workspaces.
+    """Run KB init on the primary workspace, then sync specs/outputs and src to all workspaces.
 
-    MCP upload targets the primary workspace only (``sync_to_all=False``). Extra workspaces must
-    receive specs, plans, ``rosetta/``, and optional ``src/`` before parallel codegen.
+    KB init runs on the primary workspace only. Extra workspaces must receive specs, plans,
+    and optional ``src/`` before parallel codegen.
     """
     await run_kb_init_agent(ctx)
     await sync_specs_to_workspaces(ctx)
@@ -512,21 +498,23 @@ async def run_kb_init_and_sync_workspaces(ctx: WorkflowContext) -> None:
 
 
 async def run_kb_init_agent(ctx: WorkflowContext) -> None:
-    """Run KB initialization agent on primary workspace via Rosetta MCP.
+    """Run KB initialization agent on the primary workspace via the provisioned Rosetta plugin.
 
-    Writes output to rosetta/ folder in the primary workspace.
-    The sync step will later unpack these to SDK discovery paths.
+    The agent writes CLAUDE.md and project docs to their final locations directly.
     Non-fatal: if this fails, workflow continues without KB artifacts.
     Emits a kb_init_completed PostHog event with the generated file manifest.
     """
     generation_id = getattr(ctx.request, "generation_id", "unknown")
     workspace_name = ctx.primary_workspace.workspace_path.name
     ws_root = ctx.primary_workspace.get_isolated_root()
-    mcp = McpSelector(ctx.settings, ctx.enabled_mcps, ctx.logger).for_kb_init(ws_root)
-    if mcp.is_empty:
-        ctx.logger.info(
-            "KB init skipped: Rosetta MCP disabled and no ROSETTA_PLUGIN_PATH configured"
+    configured_plugin_path = (ctx.settings.ROSETTA_PLUGIN_PATH or "").strip()
+    if rosetta_plugin_root(ctx.settings) is None:
+        reason = (
+            "ROSETTA_PLUGIN_PATH is not configured"
+            if not configured_plugin_path
+            else f"ROSETTA_PLUGIN_PATH is not an existing directory: {configured_plugin_path}"
         )
+        ctx.logger.info(f"KB init skipped: {reason}")
         telemetry.capture_kb_init_event(
             generation_id=generation_id,
             workspace_name=workspace_name,
@@ -535,30 +523,29 @@ async def run_kb_init_agent(ctx: WorkflowContext) -> None:
         )
         return
 
-    rosetta_dir = ctx.settings.ROSETTA_OUTPUT_DIR
-    uses_provisioned_plugin = mcp.uses_provisioned_plugin
+    mcp = McpSelector(ctx.settings, ctx.enabled_mcps, ctx.logger).for_step(
+        WorkflowStepName.KB_INIT
+    )
+    plugin_tools = get_rosetta_plugin_tools()
     # Bind a manifest collector here (before the try) so both the success and except paths read it.
-    # MCP mode stages output under rosetta/, so the manifest is that whole tree. Provisioned-plugin
-    # mode writes docs to their FINAL locations (root CLAUDE.md + outputs_dir), where outputs_dir
-    # already holds the user's uploaded specs/plans — so snapshot it first and report only what KB
-    # init newly produced, otherwise the telemetry manifest is inflated with pre-existing uploads.
-    if uses_provisioned_plugin:
-        outputs_dir = ctx.request.outputs_dir
-        outputs_pre_existing = _snapshot_outputs_dir_files(ws_root, outputs_dir)
-        def collect_manifest() -> list[str]:
-            return _collect_provisioned_plugin_manifest(ws_root, outputs_dir, outputs_pre_existing)
-    else:
-        def collect_manifest() -> list[str]:
-            return _collect_rosetta_file_manifest(ws_root, rosetta_dir)
+    # The plugin agent writes docs to their FINAL locations (root CLAUDE.md + outputs_dir), where
+    # outputs_dir already holds the user's uploaded specs/plans — so snapshot it first and report
+    # only what KB init newly produced, otherwise the telemetry manifest is inflated with
+    # pre-existing uploads.
+    outputs_dir = ctx.request.outputs_dir
+    outputs_pre_existing = _snapshot_outputs_dir_files(ws_root, outputs_dir)
+    def collect_manifest() -> list[str]:
+        return _collect_provisioned_plugin_manifest(ws_root, outputs_dir, outputs_pre_existing)
 
     if is_skip_mode_enabled():
-        # SKIP_MODE exercises the rosetta/ staging path (mock + collect) regardless of mode; it
-        # does NOT run the real provision/unpack, so the mock manifest is always read from rosetta/.
-        _generate_mock_rosetta_artifacts(ws_root, rosetta_dir, ctx.logger)
-        generated_files = _collect_rosetta_file_manifest(ws_root, rosetta_dir)
+        # SKIP_MODE writes the same artifacts a real KB init would (root CLAUDE.md + a doc under
+        # outputs_dir) without running the agent, and reports them via the same collector — so the
+        # mock and the real path stay in lockstep. Plugin provisioning still happens later in
+        # prepare_parallel_workspaces, exactly as in the real path.
+        _generate_mock_kb_init_artifacts(ws_root, outputs_dir, ctx.logger)
+        generated_files = collect_manifest()
         ctx.logger.warning(
-            f"[SKIP_MODE] KB init agent skipped — created {len(generated_files)} "
-            f"mock artifacts under {rosetta_dir}/"
+            f"[SKIP_MODE] KB init agent skipped — created {len(generated_files)} mock KB artifacts"
         )
         TelemetryContext.set_workspace_name(workspace_name)
         TelemetryContext.set_workflow(TelemetryWorkflowLabel.plain(WorkflowName.KB_INIT))
@@ -597,15 +584,13 @@ async def run_kb_init_agent(ctx: WorkflowContext) -> None:
             return_first=True,
         )
         kb_init_prompt = kb_init_agent_template(
-            rosetta_output_dir=rosetta_dir,
             model=kb_init_model,
-            use_plugin=uses_provisioned_plugin,
             outputs_dir=ctx.request.outputs_dir,
         )
-        # Provisioned-plugin mode: copy the bundled Rosetta plugin into the primary workspace
-        # .claude/ so the KB init agent discovers init-workspace-flow (and the rest of the
-        # toolset) via setting_sources=["project"]. No-op in MCP mode. Extra workspaces are
-        # provisioned later in prepare_parallel_workspaces.
+        # Copy the bundled Rosetta plugin into the primary workspace .claude/ so the KB init
+        # agent discovers init-workspace-flow (and the rest of the toolset) via
+        # setting_sources=["project"]. Extra workspaces are provisioned later in
+        # prepare_parallel_workspaces.
         ctx.workspace_manager.provision_rosetta_plugin(ctx.primary_workspace)
         provider_instance = ctx.workspace_manager.get_provider(ctx.primary_workspace)
         # Required for the TUI live-message stream: the StreamPublisher keys events
@@ -624,7 +609,7 @@ async def run_kb_init_agent(ctx: WorkflowContext) -> None:
                 workspace_path=ws_root,
                 model=kb_init_model,
                 mcp_servers=mcp.servers,
-                allowed_tools=get_common_allowed_tools(ws_root) + mcp.allowed_tools,
+                allowed_tools=get_common_allowed_tools(ws_root) + plugin_tools,
                 max_turns=100,
                 logger=create_agent_logger(
                     f"{workspace_name}-kb-init", generation_id=generation_id,
