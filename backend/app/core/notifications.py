@@ -1285,7 +1285,7 @@ def render_generation_session_report_html(
     # Summary section
     html_parts.append('<div class="section">')
     html_parts.append('<h2>Summary</h2>')
-    html_parts.append(f'<div class="summary-item"><span class="summary-label">Specification:</span> {spec_path}</div>')
+    html_parts.append(f'<div class="summary-item"><span class="summary-label">Specification:</span> {html.escape(spec_path)}</div>')
     html_parts.append(f'<div class="summary-item"><span class="summary-label">Run ID:</span> {generation_id}</div>')
     html_parts.append(
         f'<div class="summary-item"><span class="summary-label">{variance.label}:</span> '

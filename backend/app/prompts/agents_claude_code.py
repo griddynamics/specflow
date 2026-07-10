@@ -4,7 +4,6 @@ from app.core.config import settings, WORKSPACE_DEPLOY_WORKFLOW
 from app.core.mcp_config import mcp_prompt_hints
 from app.core.tool_usage import BASH_DEFAULT_TIMEOUT_MS, BASH_MAX_TIMEOUT_MS
 from app.prompts.mcp_workflow_registry import format_mcp_prune_llm_rules_section
-from app.prompts.prompt_configs import base_awus, factors_markdown
 from app.schemas.agent import AgentResult
 from app.schemas.estimate import ComparativeAnalysis, EstimationSummary
 from app.schemas.planning import PhaseInfo
@@ -954,7 +953,7 @@ def generate_production_agent_template(
         - **MANDATORY**: Every commit subject encodes one primary component using this **strict first-line format**:
           `<component>_<action and subject>`
           - The **first** underscore separates the component token from the rest (e.g. `backend_implement user service`).
-          - Use a component token from {COMMIT_STANDARDS_FILE_REL} (`backend`, `frontend`, `testing`, `infrastructure`, …).
+          - Use a component token from {COMMIT_STANDARDS_FILE_REL} (`backend`, `frontend`, `mobile`, `testing`, `infrastructure`, …).
         - See {COMMIT_STANDARDS_FILE_REL} for component list, `SKIP_` rules for non-generation commits, and examples
         - **CRITICAL: COMMIT GRANULARITY IS STANDARDIZED**
           - **Target**: 40-50 commits for typical applications (scales with complexity)

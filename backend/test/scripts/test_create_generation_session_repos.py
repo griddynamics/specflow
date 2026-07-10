@@ -21,6 +21,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 import scripts.create_generation_session_repos as cgsr
+from app.services.p10y.p10y_api_client import P10YInternalAPIClient
 from app.services.workspace_pool_seeding import WorkspacePoolEntry
 
 # ---------------------------------------------------------------------------
@@ -29,6 +30,12 @@ from app.services.workspace_pool_seeding import WorkspacePoolEntry
 _BACKEND_DIR = Path(__file__).parent.parent.parent  # backend/
 _SCRIPT_FILE = _BACKEND_DIR / "scripts" / "create_generation_session_repos.py"
 _MAKEFILE = _BACKEND_DIR.parent / "Makefile"
+
+
+def _make_p10y_client() -> P10YInternalAPIClient:
+    """A real client so list_repositories_paginated runs its actual pagination loop
+    against a mocked list_repositories, instead of being auto-mocked away."""
+    return P10YInternalAPIClient(base_url="https://p10y.test")
 
 
 # ===========================================================================
@@ -181,14 +188,14 @@ class TestGetRepositoryIdsNoProjectFilter:
     @pytest.mark.asyncio
     async def test_list_repositories_called_without_project_ids(self):
         """get_repository_ids must not pass project_ids to list_repositories."""
-        mock_client = AsyncMock()
+        mock_client = _make_p10y_client()
         mock_client.list_repositories = AsyncMock(return_value={"data": []})
 
         await cgsr.get_repository_ids(
             p10y_client=mock_client,
             org_id=42,
             repo_names=["specflow-workspace1"],
-            prefix="specflow-workspace",
+            search="specflow-workspace",
         )
 
         mock_client.list_repositories.assert_called_once()
@@ -198,9 +205,58 @@ class TestGetRepositoryIdsNoProjectFilter:
         )
 
     @pytest.mark.asyncio
+    async def test_list_repositories_forwards_qualified_search_verbatim(self):
+        """get_repository_ids forwards the caller-supplied search string as-is (it must not
+        re-qualify it — that double-qualifies when a caller passes an already-qualified
+        value, e.g. main()'s post-refetch retry loop)."""
+        mock_client = _make_p10y_client()
+        mock_client.list_repositories = AsyncMock(return_value={"data": []})
+
+        qualified_search = cgsr._p10y_repository_search("specflow-workspace", "myorg")
+
+        await cgsr.get_repository_ids(
+            p10y_client=mock_client,
+            org_id=42,
+            repo_names=["specflow-workspace1"],
+            search=qualified_search,
+            github_org="myorg",
+        )
+
+        call_kwargs = mock_client.list_repositories.call_args.kwargs
+        assert call_kwargs["search"] == "myorg/specflow-workspace"
+
+    @pytest.mark.asyncio
+    async def test_repeated_calls_do_not_double_qualify_search(self):
+        """Calling get_repository_ids twice with the same pre-qualified search (as main()'s
+        initial lookup and its post-refetch retry loop both do) must send the identical
+        search string both times, not a progressively re-qualified one."""
+        mock_client = _make_p10y_client()
+        mock_client.list_repositories = AsyncMock(return_value={"data": []})
+
+        qualified_search = cgsr._p10y_repository_search("specflow-workspace", "myorg")
+
+        await cgsr.get_repository_ids(
+            p10y_client=mock_client,
+            org_id=42,
+            repo_names=["specflow-workspace1"],
+            search=qualified_search,
+            github_org="myorg",
+        )
+        await cgsr.get_repository_ids(
+            p10y_client=mock_client,
+            org_id=42,
+            repo_names=["specflow-workspace1"],
+            search=qualified_search,
+            github_org="myorg",
+        )
+
+        searches = [c.kwargs["search"] for c in mock_client.list_repositories.call_args_list]
+        assert searches == ["myorg/specflow-workspace", "myorg/specflow-workspace"]
+
+    @pytest.mark.asyncio
     async def test_list_repositories_returns_repo_mapping(self):
         """get_repository_ids returns a mapping of repo_name -> id."""
-        mock_client = AsyncMock()
+        mock_client = _make_p10y_client()
         mock_client.list_repositories = AsyncMock(return_value={
             "data": [
                 {"repository_name": "specflow-workspace1", "id": 55555},
@@ -212,10 +268,49 @@ class TestGetRepositoryIdsNoProjectFilter:
             p10y_client=mock_client,
             org_id=42,
             repo_names=["specflow-workspace1", "specflow-workspace2"],
-            prefix="specflow-workspace",
+            search="specflow-workspace",
         )
 
         assert result == {"specflow-workspace1": 55555, "specflow-workspace2": 55556}
+
+    @pytest.mark.asyncio
+    async def test_list_repositories_paginates_until_target_repo_found(self):
+        """Repository lookup must continue past the first P10Y page."""
+        mock_client = _make_p10y_client()
+        mock_client.list_repositories = AsyncMock(side_effect=[
+            {
+                "data": [
+                    {
+                        "repository_name": "specflow-workspace1",
+                        "git_url": "https://github.com/myorg/specflow-workspace1",
+                        "id": 55555,
+                    }
+                ],
+                "totalPages": 2,
+            },
+            {
+                "data": [
+                    {
+                        "repository_name": "specflow-workspace1001",
+                        "git_url": "https://github.com/myorg/specflow-workspace1001",
+                        "id": 56555,
+                    }
+                ],
+                "totalPages": 2,
+            },
+        ])
+
+        result = await cgsr.get_repository_ids(
+            p10y_client=mock_client,
+            org_id=42,
+            repo_names=["specflow-workspace1001"],
+            search="myorg/specflow-workspace",
+            github_org="myorg",
+        )
+
+        assert result == {"specflow-workspace1001": 56555}
+        pages = [call.kwargs["page"] for call in mock_client.list_repositories.await_args_list]
+        assert pages == [1, 2]
 
 
 # ===========================================================================
@@ -230,7 +325,7 @@ class TestTriggerRepositoryRefetch:
     @pytest.mark.asyncio
     async def test_uses_connection_id_of_matching_repo(self):
         """The connection id is taken from an already-ingested repo matched by git_url."""
-        mock_client = AsyncMock()
+        mock_client = _make_p10y_client()
         mock_client.list_repositories = AsyncMock(return_value={
             "data": [
                 {
@@ -240,21 +335,44 @@ class TestTriggerRepositoryRefetch:
                 },
             ]
         })
+        mock_client.list_connections = AsyncMock()
+        mock_client.sync_repositories = AsyncMock()
 
-        await cgsr.trigger_repository_refetch(
-            mock_client,
-            org_id=42,
-            github_org="myorg",
-            repo_names=["specflow-workspace1", "specflow-workspace2"],
-        )
+        await cgsr.trigger_repository_refetch(mock_client, org_id=42, github_org="myorg")
 
         mock_client.sync_repositories.assert_awaited_once_with(42, connection_id=555)
         mock_client.list_connections.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_matches_any_repo_under_same_org_not_just_the_new_ones(self):
+        """The brand-new repos being provisioned are never yet visible in P10Y — that's
+        why this is called — so the connection must be discoverable from ANY already
+        ingested repo under the same GitHub org/account, not just an exact match to the
+        new repo names, or every real-world call would fall through to broadcasting the
+        re-fetch across every active GitHub connection."""
+        mock_client = _make_p10y_client()
+        mock_client.list_repositories = AsyncMock(return_value={
+            "data": [
+                {
+                    "repository_name": "some-unrelated-older-repo",
+                    "git_url": "https://github.com/myorg/some-unrelated-older-repo",
+                    "_embedded": {"connection": {"id_connection": 555}},
+                },
+            ]
+        })
+        mock_client.list_connections = AsyncMock()
+        mock_client.sync_repositories = AsyncMock()
+
+        await cgsr.trigger_repository_refetch(mock_client, org_id=42, github_org="myorg")
+
+        mock_client.sync_repositories.assert_awaited_once_with(42, connection_id=555)
+        mock_client.list_connections.assert_not_called()
+        assert mock_client.list_repositories.call_args.kwargs["search"] == "myorg"
+
+    @pytest.mark.asyncio
     async def test_falls_back_to_active_github_connections(self):
         """When no repo matches, sync every active GitHub connection."""
-        mock_client = AsyncMock()
+        mock_client = _make_p10y_client()
         mock_client.list_repositories = AsyncMock(return_value={"data": []})
         mock_client.list_connections = AsyncMock(return_value={
             "data": [
@@ -263,20 +381,16 @@ class TestTriggerRepositoryRefetch:
                 {"connection_id": 999, "connection_type": "github", "connection_status": "inactive"},
             ]
         })
+        mock_client.sync_repositories = AsyncMock()
 
-        await cgsr.trigger_repository_refetch(
-            mock_client,
-            org_id=42,
-            github_org="myorg",
-            repo_names=["specflow-workspace1"],
-        )
+        await cgsr.trigger_repository_refetch(mock_client, org_id=42, github_org="myorg")
 
         mock_client.sync_repositories.assert_awaited_once_with(42, connection_id=777)
 
     @pytest.mark.asyncio
     async def test_no_op_when_no_active_github_connections(self):
         """When list_connections returns no active GitHub connections, skip sync and return."""
-        mock_client = AsyncMock()
+        mock_client = _make_p10y_client()
         mock_client.list_repositories = AsyncMock(return_value={"data": []})
         mock_client.list_connections = AsyncMock(return_value={
             "data": [
@@ -284,13 +398,9 @@ class TestTriggerRepositoryRefetch:
                 {"connection_id": 222, "connection_type": "github", "connection_status": "inactive"},
             ]
         })
+        mock_client.sync_repositories = AsyncMock()
 
-        await cgsr.trigger_repository_refetch(
-            mock_client,
-            org_id=42,
-            github_org="myorg",
-            repo_names=["specflow-workspace1"],
-        )
+        await cgsr.trigger_repository_refetch(mock_client, org_id=42, github_org="myorg")
 
         mock_client.sync_repositories.assert_not_called()
 
@@ -305,7 +415,7 @@ class TestP10YMetricsStatusGate:
     @pytest.mark.asyncio
     async def test_get_repository_statuses_accepts_id_field(self):
         """Status lookup accepts the list_repositories id field used by ID lookup."""
-        mock_client = AsyncMock()
+        mock_client = _make_p10y_client()
         mock_client.list_repositories = AsyncMock(return_value={
             "data": [
                 {
@@ -331,7 +441,7 @@ class TestP10YMetricsStatusGate:
     @pytest.mark.asyncio
     async def test_get_repository_statuses_accepts_id_repository_field(self):
         """Status lookup also accepts id_repository from P10Y status responses."""
-        mock_client = AsyncMock()
+        mock_client = _make_p10y_client()
         mock_client.list_repositories = AsyncMock(return_value={
             "data": [
                 {
@@ -348,6 +458,36 @@ class TestP10YMetricsStatusGate:
         assert result[201]["repo_name"] == "specflow-workspace1"
         assert result[201]["status"] == "Live"
 
+    @pytest.mark.asyncio
+    async def test_get_repository_statuses_paginates(self):
+        """Status lookup must not miss target repo IDs beyond the first P10Y page."""
+        mock_client = _make_p10y_client()
+        mock_client.list_repositories = AsyncMock(side_effect=[
+            {"data": [{"id": 101, "repository_name": "specflow-workspace1"}], "totalPages": 2},
+            {
+                "data": [
+                    {
+                        "id": 102,
+                        "repository_name": "specflow-workspace2",
+                        "status": "Live",
+                    }
+                ],
+                "totalPages": 2,
+            },
+        ])
+
+        result = await cgsr.get_repository_statuses(
+            mock_client,
+            42,
+            [102],
+            search="myorg/specflow-workspace",
+        )
+
+        assert result[102]["repo_name"] == "specflow-workspace2"
+        assert result[102]["status"] == "Live"
+        pages = [call.kwargs["page"] for call in mock_client.list_repositories.await_args_list]
+        assert pages == [1, 2]
+
     def test_repository_ids_requiring_metrics_skips_live_repos(self):
         """Only repositories not already Live should be passed to enable_metrics."""
         repo_statuses = {
@@ -359,6 +499,33 @@ class TestP10YMetricsStatusGate:
         result = cgsr.repository_ids_requiring_metrics([1, 2, 3, 4], repo_statuses)
 
         assert result == [2, 3, 4]
+
+
+# ===========================================================================
+# (c2) poll_repository_status — a pagination-cap RuntimeError must fail fast,
+# not be treated as a transient polling error and retried until timeout.
+# ===========================================================================
+
+class TestPollRepositoryStatusFailsFastOnRuntimeError:
+    @pytest.mark.asyncio
+    async def test_runtime_error_propagates_instead_of_being_retried(self):
+        """A RuntimeError from list_repositories_paginated (e.g. pagination cap exceeded)
+        must propagate immediately, not be swallowed by the generic transient-error handler."""
+        mock_client = _make_p10y_client()
+        mock_client.list_repositories_paginated = AsyncMock(
+            side_effect=RuntimeError("P10Y repository listing exceeded 1000 pages")
+        )
+
+        with pytest.raises(RuntimeError, match="exceeded 1000 pages"):
+            await cgsr.poll_repository_status(
+                mock_client,
+                org_id=42,
+                repo_ids=[101],
+                timeout_minutes=5,
+                poll_interval=0,
+            )
+
+        mock_client.list_repositories_paginated.assert_awaited_once()
 
 
 # ===========================================================================

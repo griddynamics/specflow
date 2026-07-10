@@ -16,7 +16,7 @@ SKIP_COMMIT_PREFIX = "SKIP_"
 # Valid component tokens — kept in sync with backend/app/standards/commit_standards.md.
 KNOWN_COMPONENTS = frozenset({
     "backend", "frontend", "database", "api", "auth",
-    "infrastructure", "testing", "documentation", "pipeline", "ml", "common",
+    "infrastructure", "testing", "documentation", "pipeline", "ml", "mobile", "common",
 })
 
 

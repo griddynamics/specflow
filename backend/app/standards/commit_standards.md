@@ -80,6 +80,7 @@ Valid component identifiers:
 - `documentation` - README, docs, comments
 - `pipeline` - data pipelines, orchestration of data projects
 - `ml` - machine learning and data science, features, model training, A/B tests, evaluation, notebooks
+- `mobile` - Mobile clients, native apps, cross-platform app manifests and build configuration
 - `common` - Cross-cutting concerns, project setup
 
 ### Actions
@@ -104,6 +105,7 @@ api_add REST endpoints for order management
 infrastructure_configure Docker Compose for local development
 testing_add unit tests for payment service
 common_setup project structure and dependencies
+mobile_configure app manifest and build settings
 frontend_refactor state management to use Redux Toolkit
 backend_fix validation error handling in user endpoints
 ```

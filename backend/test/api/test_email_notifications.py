@@ -598,6 +598,26 @@ class TestRenderGenerationSessionReportHtml:
         assert direct_html == via_notifier_html
         assert direct_plain == via_notifier_plain
 
+    def test_spec_path_is_html_escaped(
+        self, mock_db, sample_workspace_docs, sample_estimation_result
+    ):
+        """spec_path is a free-form, caller-suppliable string — it must not be
+        interpolated into the HTML report unescaped (XSS)."""
+        from app.core.notifications import render_generation_session_report_html
+
+        workspace_ids, _ = sample_workspace_docs
+
+        html_content, _ = render_generation_session_report_html(
+            generation_id="est-test-123",
+            workspace_ids=workspace_ids,
+            result=sample_estimation_result,
+            spec_path="<script>alert(1)</script>",
+            db=mock_db,
+        )
+
+        assert "<script>alert(1)</script>" not in html_content
+        assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html_content
+
 
 class TestMultiWorkspaceResultSerialization:
     """Stored Firestore result shape for email resend / P10Y metadata."""
