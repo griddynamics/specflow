@@ -77,6 +77,7 @@ from tui.config import (
     save_env_secrets,
 )
 from tui.constants import CHECKPOINT_STEPS, DEFAULT_POLL_INTERVAL, STATUS_PILLS, TERMINAL_STATUSES
+from tui.extra_deps import EXTRA_DEPENDENCY_SCRIPTS, ExtraDependencyScript, script_by_key
 from tui.poller import MilestoneTracker, fire_milestones, poll_once
 from tui.render import format_tokens
 from tui.stream import workspace_message_events
@@ -1572,10 +1573,14 @@ class RunInitScreen(_SpecFlowScreen):
 class SettingsScreen(Screen):
     """Editor for runtime settings (mcp-config.json) and secrets (.env).
 
-    Three sections: runtime settings (mcp-config.json), core secrets (.env), and
-    an Advanced section for optional LangFuse tracing (.env). All secret keys
+    Four sections: runtime settings (mcp-config.json), core secrets (.env), an
+    Advanced section for optional LangFuse tracing (.env), and Extra Dependencies
+    — one-click installers for heavy SDKs (e.g. mobile) that are provisioned into
+    the sandbox cache on demand rather than baked into the image. All secret keys
     share one row-builder and one save loop, so a new secret is added in exactly
-    one place (its key list) and inherits the masking + blank-means-keep rules.
+    one place (its key list) and inherits the masking + blank-means-keep rules;
+    each extra-dependency script is a single entry in ``EXTRA_DEPENDENCY_SCRIPTS``
+    and inherits the row layout and docker-exec install flow here.
     """
 
     BINDINGS = [
@@ -1616,6 +1621,19 @@ class SettingsScreen(Screen):
                 classes="settings-section",
             )
             yield from self._secret_rows(LANGFUSE_KEYS, secrets)
+            yield Static(
+                "Extra Dependencies (installed into the sandbox cache — "
+                "requires running containers)",
+                classes="settings-section",
+            )
+            for script in EXTRA_DEPENDENCY_SCRIPTS:
+                with Horizontal(classes="extra-dep-row"):
+                    yield Label(script.title, classes="extra-dep-title")
+                    yield Static(script.version_summary, classes="extra-dep-versions")
+                    yield Button("Install", id=f"extra-dep-{script.key}", variant="primary")
+            extra_log = RichLog(id="extra-dep-log", highlight=False, markup=False, wrap=True)
+            extra_log.display = False
+            yield extra_log
         yield Footer()
 
     def _secret_input(self, key: str) -> str:
@@ -1669,6 +1687,49 @@ class SettingsScreen(Screen):
     def action_cancel(self) -> None:
         self.app.pop_screen()
 
+    _EXTRA_DEP_PREFIX = "extra-dep-"
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Route an Extra Dependencies "Install" click to its provisioning run."""
+        button_id = event.button.id or ""
+        if not button_id.startswith(self._EXTRA_DEP_PREFIX):
+            return
+        script = script_by_key(button_id[len(self._EXTRA_DEP_PREFIX) :])
+        if script is None:
+            return
+        # Not exclusive: a second script can install alongside this one; the button
+        # is disabled for the duration so the SAME script can't be double-launched.
+        self.run_worker(self._install_extra_dep(script, event.button))
+
+    async def _install_extra_dep(self, script: ExtraDependencyScript, button: Button) -> None:
+        log = self.query_one("#extra-dep-log", RichLog)
+        log.display = True
+        # The script runs inside the backend container via `docker exec`; if the
+        # stack is down there is nothing to exec into, so refuse early with a clear
+        # message rather than surfacing a raw docker error.
+        if not local_env.containers_running(self.app.root):
+            log.write("The SpecFlow containers aren't running — start them first, then retry.\n")
+            self.notify(
+                "Start the SpecFlow containers before installing dependencies.",
+                severity="error",
+            )
+            return
+        button.disabled = True
+        log.write(f"Installing {script.title} ({script.version_summary})…\n")
+        log.write("Already-provisioned components are skipped; first run can take several minutes.\n")
+        try:
+            rc = await local_env.exec_in_backend(
+                self.app.root, script.command(), on_line=log.write
+            )
+        finally:
+            button.disabled = False
+        if rc == 0:
+            log.write(f"\n✔ {script.title} installed.\n")
+            self.notify(f"{script.title} installed.", severity="information")
+        else:
+            log.write(f"\n✗ {script.title} install failed (exit {rc}) — see the log above.\n")
+            self.notify(f"{script.title} install failed — see the log.", severity="error")
+
 
 # ---------------------------------------------------------------------------
 # App
@@ -1685,6 +1746,10 @@ class SpecFlowTUI(App):
     .settings-section { padding: 1 2 0 2; text-style: bold; color: $accent; }
     .settings-row { height: 3; padding: 0 2; }
     .settings-label { width: 20; content-align: left middle; }
+    .extra-dep-row { height: 3; padding: 0 2; }
+    .extra-dep-title { width: 20; content-align: left middle; text-style: bold; }
+    .extra-dep-versions { width: 1fr; content-align: left middle; color: $text-muted; }
+    #extra-dep-log { height: 10; border: round $primary; margin: 1 2; }
     #ws-stream { height: 2fr; border: round $primary; padding: 0 1; }
     #ws-stats { height: 1fr; padding: 0 1; }
     #onboard-body { height: 1fr; padding: 0 2; }
