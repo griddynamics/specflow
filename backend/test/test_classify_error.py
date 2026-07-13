@@ -31,8 +31,9 @@ class TestModelRoutingFailure:
         msg = "API Error: API returned an empty or malformed response (HTTP 200) — check for a proxy or gateway intercepting the request"
         assert classify_error(msg) == AgentErrorType.MODEL_ROUTING_FAILURE
 
-    def test_api_error_case_insensitive(self):
-        assert classify_error("api error: something went wrong") == AgentErrorType.MODEL_ROUTING_FAILURE
+    def test_api_error_alone_no_longer_classifies(self):
+        # "api error" was removed from the pattern list — too broad, matched genuine HTTP errors.
+        assert classify_error("api error: something went wrong") is None
 
     def test_malformed_response_pattern(self):
         assert classify_error("malformed response received from upstream") == AgentErrorType.MODEL_ROUTING_FAILURE
@@ -80,7 +81,7 @@ class TestApiErrorStatusExclusion:
         assert classify_error(msg, api_error_status=200) == AgentErrorType.MODEL_ROUTING_FAILURE
 
     def test_status_below_400_does_not_exclude(self):
-        msg = "API Error: redirect issue"
+        msg = "API Error: malformed response, redirect issue"
         assert classify_error(msg, api_error_status=301) == AgentErrorType.MODEL_ROUTING_FAILURE
 
 
