@@ -1271,10 +1271,6 @@ async def execute_all_phases(
                     f"Error: {phase_result.result}"
                 )
             if error_type == AgentErrorType.CONNECTION_ERROR:
-                # The Claude SDK's own retries were already exhausted, so the connection is down
-                # for more than a transient blip. Abort BEFORE the checkpoint write below so the
-                # phase is never falsely marked completed — a later retry_generation must re-run
-                # it, not skip it. Workspaces stay ALLOCATED; the run fails cleanly and resumes.
                 raise WorkspaceAbortedError(
                     f"[{workspace_name}] Phase {phase_num} lost connection to the API "
                     f"(model={workspace.model}). Aborting workspace — other workspaces continue. "
