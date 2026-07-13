@@ -5,7 +5,11 @@ import logging
 import os
 from pathlib import Path
 import shutil
+import subprocess
+import tempfile
 from typing import Any, Dict, FrozenSet, List, Optional
+
+from dotenv import dotenv_values
 
 from claude_agent_sdk import (
     AgentDefinition,
@@ -49,7 +53,7 @@ from app.services.model_routing import (
     get_fallback_model,
 )
 from app.schemas.deploy_context import DeployGithubContext
-from app.schemas.planning import PlanningResult
+from app.schemas.planning import PhaseInfo, PlanningResult
 from app.schemas.specification import GenerateAppRequest, SpecReadiness
 from app.schemas.workflow_stats import AgentQueryMetrics
 from app.schemas.workspace import WorkspaceSettings
@@ -87,6 +91,15 @@ _AGENT_CALL_TIMEOUT_SECONDS = GenerationLifecyclePolicy.AGENT_PHASE_TIMEOUT_SECO
 
 # tool_call_failure aborts immediately after 1; other errors tolerate 2 consecutive.
 _MAX_CONSECUTIVE_PHASE_ERRORS = 2
+
+# Claude Code CLI's own HTTP client resilience knobs, forwarded to the agent subprocess
+# env by setup_claude_code_resilience_env(). Verified locally: forcing a client-side
+# timeout well below any real response time reproduced exactly CLAUDE_CODE_MAX_RETRIES
+# `api_retry` attempts in the agent log before the CLI gave up, and OpenRouter's
+# Activity log showed matching request volume in the same window.
+CLAUDE_CODE_API_TIMEOUT_MS = "120000"  # 120 seconds per attempt before the CLI times out
+CLAUDE_CODE_MAX_RETRIES = "3"  # retry a failed/timed-out request up to 3 times before giving up
+CLAUDE_ASYNC_AGENT_STALL_TIMEOUT_MS = "120000"  # 120 seconds of no progress before an async subagent is considered stalled
 
 class WorkspaceAbortedError(Exception):
     """
@@ -343,6 +356,20 @@ def setup_claude_code_bash_timeouts() -> Dict[str, str]:
         "BASH_MAX_TIMEOUT_MS": str(BASH_MAX_TIMEOUT_MS),
     }
 
+
+def setup_claude_code_resilience_env() -> Dict[str, str]:
+    """Forward Claude Code CLI's own HTTP client retry/timeout tuning to the agent subprocess.
+
+    Without these, a transient network blip (DNS hiccup, provider connection drop) either
+    times out too slowly or gives up before Claude Code's own retry logic gets a chance to
+    recover — forcing the caller's phase-level resume loop (agent_query_with_resume) to
+    burn a resume attempt, or the whole phase, on something the CLI itself could retry past.
+    """
+    return {
+        "API_TIMEOUT_MS": CLAUDE_CODE_API_TIMEOUT_MS,
+        "CLAUDE_CODE_MAX_RETRIES": CLAUDE_CODE_MAX_RETRIES,
+        "CLAUDE_ASYNC_AGENT_STALL_TIMEOUT_MS": CLAUDE_ASYNC_AGENT_STALL_TIMEOUT_MS,
+    }
 
 
 async def simple_query():
@@ -760,6 +787,7 @@ async def agent_query(
     env_config.update(setup_claude_code_tmpdir())
     env_config.update(setup_claude_code_max_output_tokens())
     env_config.update(setup_claude_code_bash_timeouts())
+    env_config.update(setup_claude_code_resilience_env())
     if extra_env:
         env_config.update(extra_env)
 
@@ -1574,3 +1602,212 @@ async def planning_agent_fn(
     # Planning agent writes markdown only; conversion agent (REPARSE_PLAN step) produces JSON.
     logger.info("Planning agent complete — conversion agent will produce JSON from markdown")
     return None
+
+
+# ---------------------------------------------------------------------------
+# Debug entrypoint
+#
+# ---------------------------------------------------------------------------
+
+# Edit these to match your configured provider/key before running.
+_DEBUG_PROVIDER = settings.DEFAULT_PROVIDER.value
+_DEBUG_MODEL = "anthropic/claude-sonnet-4.6"
+
+# Retry experiment (see _debug_retry_experiment). These land in options.env exactly
+# as a hand-written ClaudeAgentOptions(env=...) would, but scoped to the experiment.
+# API_TIMEOUT_MS is deliberately LOW (not the production-like 120000) to force a
+# client-side request timeout on every attempt: the request still reaches OpenRouter
+# (so it shows in OpenRouter's Activity log) but the client abandons it before the
+# first token, producing a retryable timeout. The CLI then retries up to
+# CLAUDE_CODE_MAX_RETRIES, so OpenRouter should show 1 + CLAUDE_CODE_MAX_RETRIES hits.
+# Tuning: if the call succeeds (no retry) lower it; if OpenRouter shows nothing
+# (abandoned before receipt) raise it.
+_EXPERIMENT_API_TIMEOUT_MS = "500"
+_EXPERIMENT_ENV = {
+    "API_TIMEOUT_MS": _EXPERIMENT_API_TIMEOUT_MS,
+    "CLAUDE_CODE_MAX_RETRIES": "5",
+    "CLAUDE_ASYNC_AGENT_STALL_TIMEOUT_MS": "120000",
+}
+
+
+def _prepare_debug_settings(debug_root: Path) -> None:
+    """Redirect docker-mount-default settings paths into the throwaway debug root and
+    backfill provider keys from the repo-root .env.
+
+    docker-compose injects OPENROUTER_API_KEY/ANTHROPIC_API_KEY from the repo-root
+    .env into the container env before ``settings`` is constructed; running this module
+    directly (no docker) skips that, so backfill the provider keys if unset.
+
+    AGENT_LOGS_BASE_PATH / WORKSPACE_BASE_PATH default to "/agent_logs" / "/workspaces"
+    (docker-compose bind mounts); redirect them so create_agent_logger and
+    setup_workspace_cache_directories can write locally. CLAUDE_CODE_TMPDIR_PATH is
+    derived from WORKSPACE_BASE_PATH once at settings construction, so override it too.
+    """
+    settings.AGENT_LOGS_BASE_PATH = str(debug_root / "agent_logs")
+    settings.WORKSPACE_BASE_PATH = str(debug_root / "workspaces_base")
+    settings.CLAUDE_CODE_TMPDIR_PATH = str(debug_root / "workspaces_base" / "claude_code_tmpdir")
+
+    repo_root_env = Path(__file__).resolve().parents[3] / ".env"
+    if repo_root_env.exists():
+        env_values = dotenv_values(repo_root_env)
+        for key in ("OPENROUTER_API_KEY", "ANTHROPIC_API_KEY"):
+            if not getattr(settings, key, None) and env_values.get(key):
+                setattr(settings, key, env_values[key])
+
+
+def _build_debug_workspace() -> str:
+    """Create a throwaway git workspace with a local ``origin`` and a minimal spec.
+
+    A local *bare* repo is added as ``origin`` so the end-of-run commit/push
+    janitor in ``execute_all_phases`` succeeds offline (no GitHub required).
+
+    Returns:
+        Absolute path to the workspace root (used as ``workspace_path``).
+    """
+    root = Path(tempfile.mkdtemp(prefix="claude_code_debug_"))
+    workspace = root / "ws"
+    bare_origin = root / "origin.git"
+
+    (workspace / "specs").mkdir(parents=True)
+    (workspace / "src").mkdir()
+    (workspace / "docs" / "planning").mkdir(parents=True)
+
+    (workspace / "specs" / "SPECIFICATION.md").write_text(
+        "# Hello World Web App\n\n"
+        "Build a tiny web app with a single endpoint `GET /hello` that returns "
+        "the JSON `{\"message\": \"hello world\"}`. Keep it minimal.\n"
+    )
+
+    subprocess.run(["git", "init", "--bare", str(bare_origin)], check=True)
+    subprocess.run(["git", "init"], cwd=str(workspace), check=True)
+    subprocess.run(["git", "config", "user.name", "Debug Runner"], cwd=str(workspace), check=True)
+    subprocess.run(["git", "config", "user.email", "debug@example.com"], cwd=str(workspace), check=True)
+    subprocess.run(["git", "remote", "add", "origin", str(bare_origin)], cwd=str(workspace), check=True)
+    subprocess.run(["git", "add", "-A"], cwd=str(workspace), check=True)
+    subprocess.run(["git", "commit", "-m", "debug: seed workspace"], cwd=str(workspace), check=True)
+    subprocess.run(["git", "push", "-u", "origin", "HEAD"], cwd=str(workspace), check=True)
+
+    return str(workspace)
+
+
+async def _debug_main() -> None:
+    """Run two real phases against a throwaway workspace; log the outcome."""
+    logging.basicConfig(level=logging.INFO)
+    debug_logger = logging.getLogger("claude_code.debug")
+
+    workspace_path = _build_debug_workspace()
+    _prepare_debug_settings(Path(workspace_path).parent)
+    debug_logger.info("Debug workspace: %s", workspace_path)
+
+    workspace = WorkspaceSettings(
+        workspace_path=workspace_path,
+        provider=_DEBUG_PROVIDER,
+        model=_DEBUG_MODEL,
+        name="ws-debug-1",
+    )
+
+    planning_data = PlanningResult(
+        phase_count=2,
+        phases=[
+            PhaseInfo(
+                number=1,
+                name="Project Setup",
+                description="Initialize project structure, dependencies, and basic configuration.",
+                estimated_commits=2,
+                applicable_agent_mcps=None,
+            ),
+            PhaseInfo(
+                number=2,
+                name="Core Backend API",
+                description="Implement the GET /hello endpoint returning the hello-world JSON.",
+                estimated_commits=2,
+                applicable_agent_mcps=None,
+            ),
+        ],
+        plan_file_path=str(Path(workspace_path) / "docs" / "planning" / "IMPLEMENTATION_PLAN.md"),
+    )
+
+    request = GenerateAppRequest(
+        spec_path="specs",
+        outputs_dir="docs",
+        src_dir="src",
+        generation_id="est-debuglocal01",
+        workspace_count=1,
+    )
+
+    manager = WorkspaceManager(settings=settings, logger=debug_logger)
+
+    try:
+        results = await execute_all_phases(
+            planning_data=planning_data,
+            workspace=workspace,
+            manager=manager,
+            request=request,
+            logger=debug_logger,
+            start_phase=1,
+            end_phase=2,
+            integration_readiness=SpecReadiness.LOCAL_ONLY,
+            enabled_mcps=frozenset(),
+        )
+        debug_logger.info("Debug run finished: %d phase result(s)", len(results))
+    except Exception:
+        debug_logger.exception("Debug run failed")
+
+
+async def _debug_retry_experiment() -> None:
+    """Verify CLAUDE_CODE_MAX_RETRIES via a single agent_query forced to time out.
+
+    Runs ONE agent_query (no phase/resume loop) with a deliberately low
+    API_TIMEOUT_MS (_EXPERIMENT_ENV) so every attempt reaches OpenRouter but is
+    abandoned before the first token → retryable timeout → the CLI retries up to
+    CLAUDE_CODE_MAX_RETRIES. Expect, per single query, 1 + CLAUDE_CODE_MAX_RETRIES
+    hits on OpenRouter's Activity log, and `api_retry` attempts 1..5 with
+    'max_retries': 5 in the ws-* agent log. agent_query re-raises the final API
+    error after the retries, so the raise here is expected — the retries already
+    happened and were logged/sent before it.
+    """
+    # DEBUG so the SDK's `api_retry` SystemMessages (attempt N / max_retries) are visible —
+    # that is the direct proof CLAUDE_CODE_MAX_RETRIES took effect.
+    logging.basicConfig(level=logging.DEBUG)
+    debug_logger = logging.getLogger("claude_code.debug")
+
+    workspace_path = _build_debug_workspace()
+    _prepare_debug_settings(Path(workspace_path).parent)
+    debug_logger.info(
+        "Retry experiment workspace: %s (API_TIMEOUT_MS=%s, CLAUDE_CODE_MAX_RETRIES=%s)",
+        workspace_path, _EXPERIMENT_ENV["API_TIMEOUT_MS"], _EXPERIMENT_ENV["CLAUDE_CODE_MAX_RETRIES"],
+    )
+
+    workspace = WorkspaceSettings(
+        workspace_path=workspace_path,
+        provider=_DEBUG_PROVIDER,
+        model=_DEBUG_MODEL,
+        name="ws-retry-experiment",
+    )
+    manager = WorkspaceManager(settings=settings, logger=debug_logger)
+    provider = manager.get_provider(workspace)
+
+    try:
+        result = await agent_query(
+            system_prompt="Reply with the single word: hello.",
+            workspace_path=workspace_path,
+            model=workspace.model,
+            provider=provider,
+            logger=debug_logger,
+            max_turns=1,
+            extra_env=_EXPERIMENT_ENV,
+        )
+        debug_logger.info("Retry experiment finished without error: %s", result.result)
+    except Exception:
+        debug_logger.exception(
+            "Retry experiment query raised (expected after retries exhausted) — "
+            "check the ws-* agent log for `api_retry` attempts and OpenRouter Activity."
+        )
+
+
+if __name__ == '__main__':
+    # Set DEBUG_RETRY_EXPERIMENT=1 to run the retry experiment instead of the 2-phase run.
+    if os.getenv("DEBUG_RETRY_EXPERIMENT", "").lower() in ("1", "true", "yes"):
+        asyncio.run(_debug_retry_experiment())
+    else:
+        asyncio.run(_debug_main())
