@@ -38,11 +38,26 @@ _MODEL_ROUTING_FAILURE_PATTERNS = [
     "empty response",
 ]
 
+# Transient network/connection failures (laptop asleep, lost internet) — retryable, no HTTP status.
+_CONNECTION_ERROR_PATTERNS = [
+    "unable to connect to api",
+    "connectionrefused",
+    "connection refused",
+    "socket connection was closed",
+    "connection error",
+    "connection reset",
+    "server disconnected",
+    "network is unreachable",
+]
+
 def classify_error(error_msg: str, api_error_status: Optional[int] = None) -> Optional[AgentErrorType]:
     """Classify an agent error for targeted logging and telemetry."""
     msg_lower = error_msg.lower()
     if any(p.lower() in msg_lower for p in _TOOL_CALL_ERROR_PATTERNS):
         return AgentErrorType.TOOL_CALL_FAILURE
+    # Connection failure checked before the 4xx/5xx guard (there is no HTTP status) and before routing.
+    if any(p in msg_lower for p in _CONNECTION_ERROR_PATTERNS):
+        return AgentErrorType.CONNECTION_ERROR
     # 4xx/5xx = definitive HTTP error, not a routing failure. Routing failures return HTTP 200
     # with a malformed body, so api_error_status=200 (or None) must NOT be excluded here.
     if api_error_status is not None and api_error_status >= 400:

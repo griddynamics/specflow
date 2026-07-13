@@ -6,6 +6,7 @@ from typing import Optional
 class AgentErrorType(str, Enum):
     TOOL_CALL_FAILURE = "tool_call_failure"
     MODEL_ROUTING_FAILURE = "model_routing_failure"
+    CONNECTION_ERROR = "connection_error"
 
 
 @dataclass

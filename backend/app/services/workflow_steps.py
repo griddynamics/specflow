@@ -68,7 +68,9 @@ from app.services.claude_code import (
     get_common_allowed_tools,
 )
 from app.services.generation_session_output_protection import protect_workspace_after_generation
-from app.services.parallel_executor import ParallelAgentExecutor
+from app.services.parallel_executor import ParallelAgentExecutor, ParallelAgentResult
+from app.services.model_routing import classify_error
+from app.schemas.agent import AgentErrorType
 from app.services.planning_parser import (
     construct_planning_result,
     parse_applicable_agent_mcps,
@@ -968,6 +970,41 @@ async def run_contract_validator(ctx: WorkflowContext) -> None:
         await _update_plan_firestore(ctx, plan_type, new_plan)
 
 
+def _raise_if_all_workspaces_failed(
+    results: list,
+    *,
+    phase_label: str,
+    logger: logging.Logger,
+) -> None:
+    """Surface a swallowed all-workspace failure so the orchestrator marks the run FAILED.
+
+    ``ParallelAgentExecutor`` converts every per-workspace error into ``success=False`` and never
+    raises, so without this a total failure would let the orchestrator advance the checkpoint and
+    report success. Policy (D2): fail only when *every* workspace failed — if at least one
+    succeeded, log and continue with the survivors. When every failure is a lost API connection,
+    the message is friendly and actionable (the run resumes via ``retry_generation``).
+    """
+    parallel = [r for r in (results or []) if isinstance(r, ParallelAgentResult)]
+    failures = [r for r in parallel if not r.success]
+    if not failures:
+        return
+    detail = "; ".join(f"{r.workspace_name}: {r.error}" for r in failures)
+    if len(failures) < len(parallel):
+        logger.warning(
+            "%s: %d/%d workspaces failed but the rest succeeded — continuing with survivors. "
+            "Failed: %s",
+            phase_label, len(failures), len(parallel), detail,
+        )
+        return
+    if all(classify_error(r.error or "") == AgentErrorType.CONNECTION_ERROR for r in failures):
+        raise RuntimeError(
+            "Lost connection to the API — likely a network interruption (e.g. the machine went "
+            "offline). Your workspaces are preserved; run retry_generation once you're back online "
+            "to resume from the last completed phase."
+        )
+    raise RuntimeError(f"All workspaces failed during {phase_label}: {detail}")
+
+
 async def run_generation_phases(ctx: WorkflowContext) -> None:
     """
     Run parallel code generation phases across all workspaces.
@@ -1059,6 +1096,10 @@ async def run_generation_phases(ctx: WorkflowContext) -> None:
             exc,
             exc_info=True,
         )
+
+    _raise_if_all_workspaces_failed(
+        ctx.generation_result, phase_label="code generation", logger=ctx.logger
+    )
 
 
 async def _build_deploy_github_context(generation_session_service, workspace_id: str) -> DeployGithubContext:
@@ -1221,7 +1262,10 @@ async def run_deploy_and_e2e(ctx: WorkflowContext) -> None:
             enabled_mcps=ctx.enabled_mcps,
         )
 
-    await executor.execute_parallel(workspaces=ctx.workspaces, agent_fn=agent_fn)
+    deploy_results = await executor.execute_parallel(workspaces=ctx.workspaces, agent_fn=agent_fn)
+    _raise_if_all_workspaces_failed(
+        deploy_results, phase_label="deploy & E2E", logger=ctx.logger
+    )
 
 
 async def run_archive_outputs_step(ctx: WorkflowContext) -> None:

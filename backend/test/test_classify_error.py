@@ -48,7 +48,9 @@ class TestModelRoutingFailure:
         assert classify_error("EMPTY RESPONSE received") == AgentErrorType.MODEL_ROUTING_FAILURE
 
     def test_does_not_match_unrelated_errors(self):
-        assert classify_error("connection refused") is None
+        # "rate limit" and generic "timeout" are intentionally NOT connection errors (out of
+        # scope for the transient-connection retry). "connection refused" now classifies as
+        # CONNECTION_ERROR — see TestConnectionError.
         assert classify_error("rate limit exceeded") is None
         assert classify_error("timeout after 30s") is None
 
@@ -56,6 +58,40 @@ class TestModelRoutingFailure:
         # Both patterns present; tool_call_failure check runs first.
         msg = "tool_use failed: API Error: routing issue"
         assert classify_error(msg) == AgentErrorType.TOOL_CALL_FAILURE
+
+
+class TestConnectionError:
+    """Transient network/connection failures — retryable, HTTP-status-independent."""
+
+    def test_unable_to_connect_to_api(self):
+        # The exact string the SDK emits when the laptop has no internet.
+        assert classify_error("API Error: Unable to connect to API (ConnectionRefused)") == AgentErrorType.CONNECTION_ERROR
+
+    def test_socket_connection_closed(self):
+        assert classify_error("API Error: The socket connection was closed unexpectedly.") == AgentErrorType.CONNECTION_ERROR
+
+    def test_connection_refused(self):
+        assert classify_error("connection refused") == AgentErrorType.CONNECTION_ERROR
+
+    def test_connection_reset(self):
+        assert classify_error("Connection reset by peer") == AgentErrorType.CONNECTION_ERROR
+
+    def test_server_disconnected(self):
+        assert classify_error("Server disconnected without sending a response.") == AgentErrorType.CONNECTION_ERROR
+
+    def test_case_insensitive(self):
+        assert classify_error("UNABLE TO CONNECT TO API") == AgentErrorType.CONNECTION_ERROR
+
+    def test_connection_wins_over_spurious_status_in_message(self):
+        # A stray number must not demote a real connection error to unclassified.
+        msg = "Unable to connect to API (ConnectionRefused) after 500ms"
+        inferred = extract_http_status_from_message(msg)
+        assert inferred == 500  # extractor would pick this up...
+        assert classify_error(msg, api_error_status=inferred) == AgentErrorType.CONNECTION_ERROR  # ...but connection still wins
+
+    def test_tool_call_takes_priority_over_connection(self):
+        # tool-call incompatibility must abort immediately, never be retried as transient.
+        assert classify_error("tool_use failed: connection error") == AgentErrorType.TOOL_CALL_FAILURE
 
 
 class TestApiErrorStatusExclusion:
