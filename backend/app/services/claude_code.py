@@ -5,11 +5,7 @@ import logging
 import os
 from pathlib import Path
 import shutil
-import subprocess
-import tempfile
 from typing import Any, Dict, FrozenSet, List, Optional
-
-from dotenv import dotenv_values
 
 from claude_agent_sdk import (
     AgentDefinition,
@@ -53,7 +49,7 @@ from app.services.model_routing import (
     get_fallback_model,
 )
 from app.schemas.deploy_context import DeployGithubContext
-from app.schemas.planning import PhaseInfo, PlanningResult
+from app.schemas.planning import PlanningResult
 from app.schemas.specification import GenerateAppRequest, SpecReadiness
 from app.schemas.workflow_stats import AgentQueryMetrics
 from app.schemas.workspace import WorkspaceSettings
