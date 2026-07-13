@@ -92,15 +92,6 @@ _AGENT_CALL_TIMEOUT_SECONDS = GenerationLifecyclePolicy.AGENT_PHASE_TIMEOUT_SECO
 # tool_call_failure aborts immediately after 1; other errors tolerate 2 consecutive.
 _MAX_CONSECUTIVE_PHASE_ERRORS = 2
 
-# Claude Code CLI's own HTTP client resilience knobs, forwarded to the agent subprocess
-# env by setup_claude_code_resilience_env(). Verified locally: forcing a client-side
-# timeout well below any real response time reproduced exactly CLAUDE_CODE_MAX_RETRIES
-# `api_retry` attempts in the agent log before the CLI gave up, and OpenRouter's
-# Activity log showed matching request volume in the same window.
-CLAUDE_CODE_API_TIMEOUT_MS = "120000"  # 120 seconds per attempt before the CLI times out
-CLAUDE_CODE_MAX_RETRIES = "3"  # retry a failed/timed-out request up to 3 times before giving up
-CLAUDE_ASYNC_AGENT_STALL_TIMEOUT_MS = "120000"  # 120 seconds of no progress before an async subagent is considered stalled
-
 class WorkspaceAbortedError(Exception):
     """
     Raised by execute_all_phases when a workspace should be abandoned.
@@ -365,10 +356,11 @@ def setup_claude_code_resilience_env() -> Dict[str, str]:
     recover — forcing the caller's phase-level resume loop (agent_query_with_resume) to
     burn a resume attempt, or the whole phase, on something the CLI itself could retry past.
     """
+
     return {
-        "API_TIMEOUT_MS": CLAUDE_CODE_API_TIMEOUT_MS,
-        "CLAUDE_CODE_MAX_RETRIES": CLAUDE_CODE_MAX_RETRIES,
-        "CLAUDE_ASYNC_AGENT_STALL_TIMEOUT_MS": CLAUDE_ASYNC_AGENT_STALL_TIMEOUT_MS,
+        "API_TIMEOUT_MS": "120000",  # 120 seconds per attempt before the CLI times out
+        "CLAUDE_CODE_MAX_RETRIES": "3",  # retry a failed/timed-out request up to 3 times before giving up
+        "CLAUDE_ASYNC_AGENT_STALL_TIMEOUT_MS": "120000",  # 120 seconds of no progress before an async subagent is considered stalled
     }
 
 
