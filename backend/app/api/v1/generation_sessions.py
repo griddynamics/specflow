@@ -77,7 +77,7 @@ from app.services.workspace_pool import WorkspacePoolService
 from app.services.artifact_store import ARTIFACTS_BASE, ArtifactStore
 from app.services.agent_stream_broker import get_agent_stream_broker
 from app.services.mcp_prune import resolve_enabled_mcps_and_set_telemetry
-from app.services import generation_task_registry
+from app.services.generation_task_registry import GenerationTaskRegistry
 from app.schemas.model_token_usage import ModelTokenUsage
 from app.schemas.workflow_usage_metrics import (
     aggregate_model_usage_by_workspace,
@@ -248,6 +248,11 @@ def get_generation_session_retry_service(
 ) -> GenerationSessionRetryService:
     """Get generation session retry service instance."""
     return GenerationSessionRetryService(db, workspace_pool)
+
+
+def get_generation_task_registry(request: Request) -> GenerationTaskRegistry:
+    """Provide the process-local task registry created once at app startup."""
+    return request.app.state.generation_task_registry
 
 
 # ============================================================
@@ -776,7 +781,8 @@ async def retry_generation_session(
     _: None = Depends(require_generation_session_owner_or_admin),
     retry_service: GenerationSessionRetryService = Depends(get_generation_session_retry_service),
     generation_session_service: GenerationSessionService = Depends(get_generation_session_service),
-    workspace_pool: WorkspacePoolService = Depends(get_workspace_pool)
+    workspace_pool: WorkspacePoolService = Depends(get_workspace_pool),
+    task_registry: GenerationTaskRegistry = Depends(get_generation_task_registry),
 ):
     """
     Retry a failed generation session.
@@ -816,6 +822,7 @@ async def retry_generation_session(
                 generation_id,
                 generation_session_service=generation_session_service,
                 user_email=getattr(request.state, "user_email", None),
+                task_registry=task_registry,
             )
         )
 
@@ -851,7 +858,8 @@ async def cancel_generation_session(
     generation_id: str,
     request: Request,
     _: None = Depends(require_generation_session_owner),
-    generation_session_service: GenerationSessionService = Depends(get_generation_session_service)
+    generation_session_service: GenerationSessionService = Depends(get_generation_session_service),
+    task_registry: GenerationTaskRegistry = Depends(get_generation_task_registry),
 ):
     """
     Cancel a running generation session (user-initiated).
@@ -893,7 +901,7 @@ async def cancel_generation_session(
         # re-fails the session nor emits an error notification.
         await generation_session_service.cancel_generation_session(generation_id)
 
-        cancelled_locally = generation_task_registry.cancel_task(generation_id)
+        cancelled_locally = task_registry.cancel_task(generation_id)
 
         return CancelGenerationSessionResponse(
             generation_id=generation_id,
@@ -1076,6 +1084,7 @@ async def _run_generation_session_workflow(
     spec_path: str,
     session,
     generation_session_service,
+    task_registry: GenerationTaskRegistry | None = None,
 ) -> None:
     """Background task: run app generation + P10Y estimation, release session slot when done."""
     agent_logger = create_agent_logger(
@@ -1090,7 +1099,8 @@ async def _run_generation_session_workflow(
     normalized_src_dir = generation_session_params.get("src_dir", "src")
 
     try:
-        generation_task_registry.register_current_task(generation_id)
+        if task_registry is not None:
+            task_registry.register_current_task(generation_id)
         async with session.task_slot(generation_id=generation_id):
             logger.info("Starting app generation + P10Y workflow for %s", generation_id)
             agent_logger.info("Starting app generation + P10Y workflow for %s", generation_id)
@@ -1127,7 +1137,8 @@ async def _run_generation_session_workflow(
         # else → fail (FAILED). GenerationCancelledError is handled as a silent no-op there.
         await _handle_workflow_exception(e, generation_id, generation_session_service)
     finally:
-        generation_task_registry.deregister_task(generation_id)
+        if task_registry is not None:
+            task_registry.deregister_task(generation_id)
         TelemetryContext.set_agent_query_totals_handler(None)
 
 
@@ -1322,6 +1333,7 @@ async def run_generation_session(
     workspace_count: Optional[int] = Form(None, ge=1, le=3),
     workspace_pool: WorkspacePoolService = Depends(get_workspace_pool),
     generation_session_service: GenerationSessionService = Depends(get_generation_session_service),
+    task_registry: GenerationTaskRegistry = Depends(get_generation_task_registry),
     _owner: None = Depends(require_generation_session_owner_form),
 ):
     """
@@ -1515,6 +1527,7 @@ async def run_generation_session(
             spec_path=spec_path,
             session=session,
             generation_session_service=generation_session_service,
+            task_registry=task_registry,
         ))
 
         return RunGenerationSessionResponse(

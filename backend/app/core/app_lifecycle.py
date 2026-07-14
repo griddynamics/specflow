@@ -34,6 +34,7 @@ from app.jobs.stuck_cleaning_recovery import recover_stuck_cleaning
 from app.jobs.stuck_initializing_detector import detect_stuck_initializing
 from app.jobs.stuck_running_detector import detect_stuck_running
 from app.services.generation_session import GenerationSessionService
+from app.services.generation_task_registry import GenerationTaskRegistry
 from app.services.langfuse import tracer
 from app.services.openrouter_pricing import ensure_openrouter_pricing_cache
 from app.services.shutdown_handler import mark_active_sessions_interrupted
@@ -128,13 +129,16 @@ def build_background_jobs(db, workspace_pool) -> list:
     ]
 
 
-def start_boot_recovery(db, raw_db, workspace_pool) -> asyncio.Task:
+def start_boot_recovery(db, raw_db, workspace_pool, task_registry: GenerationTaskRegistry) -> asyncio.Task:
     """One-shot task: auto-retry sessions interrupted by a previous shutdown (pod eviction).
 
     Non-blocking so it never delays the port-open. See docs/backend/graceful-shutdown-recovery.md.
+    Recovered runs register with ``task_registry`` so they remain cancellable.
     """
     generation_session_service = GenerationSessionService(raw_db, workspace_pool)
-    return asyncio.create_task(recover_interrupted_sessions(db, generation_session_service))
+    return asyncio.create_task(
+        recover_interrupted_sessions(db, generation_session_service, task_registry=task_registry)
+    )
 
 
 async def run_shutdown_session_handling(db) -> None:
@@ -169,9 +173,13 @@ async def lifespan(app: FastAPI):
     workspace_pool = WorkspacePoolService(raw_db)
     job_tasks = build_background_jobs(db, workspace_pool)
 
+    # Process-local registry of running workflow tasks, shared by the run/retry/cancel
+    # endpoints (via dependency injection) and boot recovery.
+    app.state.generation_task_registry = GenerationTaskRegistry()
+
     tracer.init()
 
-    recovery_task = start_boot_recovery(db, raw_db, workspace_pool)
+    recovery_task = start_boot_recovery(db, raw_db, workspace_pool, app.state.generation_task_registry)
 
     # CRITICAL: Yield immediately so FastAPI starts listening (this is what Cloud Run checks).
     yield

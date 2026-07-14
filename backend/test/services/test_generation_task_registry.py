@@ -5,18 +5,13 @@ import asyncio
 
 import pytest
 
-from app.services import generation_task_registry as reg
-
-
-@pytest.fixture(autouse=True)
-def _clean_registry():
-    reg._ACTIVE_TASKS.clear()
-    yield
-    reg._ACTIVE_TASKS.clear()
+from app.services.generation_task_registry import GenerationTaskRegistry
 
 
 @pytest.mark.asyncio
 async def test_register_and_get_current_task():
+    reg = GenerationTaskRegistry()
+
     async def body():
         reg.register_current_task("est-1")
         assert reg.get_task("est-1") is asyncio.current_task()
@@ -26,6 +21,7 @@ async def test_register_and_get_current_task():
 
 @pytest.mark.asyncio
 async def test_cancel_task_cancels_running_task():
+    reg = GenerationTaskRegistry()
     started = asyncio.Event()
 
     async def body():
@@ -41,6 +37,7 @@ async def test_cancel_task_cancels_running_task():
 
 
 def test_cancel_task_returns_false_when_absent():
+    reg = GenerationTaskRegistry()
     assert reg.cancel_task("nope") is False
 
 
@@ -48,18 +45,21 @@ def test_cancel_task_returns_false_when_absent():
 async def test_deregister_only_removes_own_task():
     # A stale entry (a *different* task object) must not be clobbered by another
     # task's deregister — models a re-fired run that already re-registered itself.
+    reg = GenerationTaskRegistry()
     sentinel = object()
-    reg._ACTIVE_TASKS["est-1"] = sentinel  # type: ignore[assignment]
+    reg._tasks["est-1"] = sentinel  # type: ignore[assignment]
 
     async def body():
         reg.deregister_task("est-1")  # current task != sentinel → no-op
 
     await asyncio.create_task(body())
-    assert reg._ACTIVE_TASKS.get("est-1") is sentinel
+    assert reg.get_task("est-1") is sentinel
 
 
 @pytest.mark.asyncio
 async def test_deregister_removes_own_task():
+    reg = GenerationTaskRegistry()
+
     async def body():
         reg.register_current_task("est-1")
         assert reg.get_task("est-1") is not None
