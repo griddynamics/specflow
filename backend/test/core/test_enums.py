@@ -8,7 +8,7 @@ existing env-variable values and == comparisons remain valid without change.
 import pytest
 from pydantic import ValidationError
 
-from app.core.enums import AuthMode, DatabaseType, LLMProvider
+from app.core.enums import AuthMode, BackendRuntime, DatabaseType, LLMProvider
 
 
 class TestLLMProvider:
@@ -93,3 +93,39 @@ class TestSettingsDefaultProvider:
             mp.setenv("DATABASE_TYPE", "bogus")
             with pytest.raises(ValidationError, match="Invalid DATABASE_TYPE"):
                 Settings()
+
+
+class TestBackendRuntime:
+    def test_values(self):
+        assert BackendRuntime.DOCKER == "docker"
+        assert BackendRuntime.PROCESS == "process"
+
+    def test_invalid_raises(self):
+        with pytest.raises(ValueError):
+            BackendRuntime("vm")
+
+
+class TestSettingsBackendRuntime:
+    def test_defaults_to_docker(self):
+        from app.core.config import Settings
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.delenv("BACKEND_RUNTIME", raising=False)
+            s = Settings(_env_file=None)
+        assert s.BACKEND_RUNTIME == BackendRuntime.DOCKER
+
+    def test_process_accepted(self):
+        from app.core.config import Settings
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("BACKEND_RUNTIME", "process")
+            s = Settings(_env_file=None)
+        assert s.BACKEND_RUNTIME == BackendRuntime.PROCESS
+
+    def test_bogus_raises(self):
+        from app.core.config import Settings
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("BACKEND_RUNTIME", "vm")
+            with pytest.raises(ValidationError, match="Invalid BACKEND_RUNTIME"):
+                Settings(_env_file=None)

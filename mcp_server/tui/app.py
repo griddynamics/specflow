@@ -60,7 +60,7 @@ from textual.widgets import (
     Static,
 )
 
-from cli import resolve_backend_config
+from cli import resolve_backend_config, resolve_backend_runtime
 from services import local_env, validate_models
 from services.llm_tiers import LLM_TIER_KEYS
 from services.session import resolve_generation_id, set_project_root
@@ -1740,6 +1740,82 @@ class StartContainersScreen(_SpecFlowScreen):
             )
 
 
+class StartBackendProcessScreen(_SpecFlowScreen):
+    """Process gate (BACKEND_RUNTIME=process): start the backend on the bare host.
+
+    Unlike the docker gate this runs uvicorn directly on this machine, so it
+    first warns that the developer environment must already be installed, then
+    fails closed if the OS-level agent sandbox (bubblewrap / Seatbelt) can't run
+    here — we must not launch agents unconfined on the host. On ``y`` it starts
+    the detached backend and waits for readiness; ``n`` quits. When ``process_up``
+    is set the process is already running but unhealthy, so ``y`` only re-polls
+    readiness (no redundant relaunch), mirroring the docker gate.
+    """
+
+    BINDINGS = [
+        Binding("y", "yes", "start"),
+        Binding("n", "no", "quit"),
+    ]
+
+    def __init__(self, *, process_up: bool = False) -> None:
+        super().__init__()
+        self._process_up = process_up
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        if self._process_up:
+            prompt = (
+                "The backend process is running but isn't healthy yet.\n\n"
+                "Retry the health check?   [y] retry    [n] quit"
+            )
+        else:
+            prompt = (
+                "Backend runtime: process (no Docker).\n\n"
+                "The backend will run directly on THIS machine. Your developer environment "
+                "must already be installed: Python 3.14, `uv`, and the backend deps "
+                "(`cd backend && uv sync`).\n"
+                "Agents will be confined by the OS-level sandbox (bubblewrap on Linux, "
+                "Seatbelt on macOS).\n\n"
+                "Start the backend now?   [y] start    [n] quit"
+            )
+        yield Static(prompt, id="process-prompt")
+        log = RichLog(id="process-log", highlight=False, markup=False, wrap=True)
+        log.display = False
+        yield log
+        yield Footer()
+
+    def action_no(self) -> None:
+        self.dismiss(False)
+
+    def action_yes(self) -> None:
+        self.run_worker(self._start(), exclusive=True)
+
+    async def _start(self) -> None:
+        log = self.query_one("#process-log", RichLog)
+        log.display = True
+        # Process already up → skip the relaunch and just re-poll readiness.
+        if not self._process_up:
+            # Fail closed: refuse to start unless the OS sandbox can confine agents.
+            reason = local_env.agent_sandbox_unavailable_reason()
+            if reason is not None:
+                log.write(f"Cannot start in process mode — {reason}\n")
+                self.notify(reason, severity="error", timeout=15)
+                return
+            await local_env.start_backend_process(self.app.root, on_line=log.write)
+        ok = await local_env.wait_backend_ready(
+            self.app.backend_url,
+            on_attempt=lambda i: log.write(f"waiting for backend to become ready… ({i})\n"),
+        )
+        if ok:
+            self.dismiss(True)
+        else:
+            self.notify(
+                "Backend didn't become healthy — check .specflow-local/backend.log "
+                "(e.g. missing deps or an LLM provider/key mismatch).",
+                severity="error",
+            )
+
+
 class RunInitScreen(_SpecFlowScreen):
     """Runs ``specflow init`` off an already-complete ``.env`` — no wizard.
 
@@ -2029,18 +2105,33 @@ class SpecFlowTUI(App):
                 self.exit()
                 return
 
-        # (b) Docker check — offer to start the stack, or quit.
-        running = await asyncio.to_thread(local_env.containers_running, self.root)
-        if not running:
-            if not await self.push_screen_wait(StartContainersScreen()):
-                self.exit()
-                return
-        elif not await local_env.backend_ready(self.backend_url):
-            # Containers up but not ready yet — wait it out with an accurate prompt
-            # (do not claim the containers aren't running; they are).
-            if not await self.push_screen_wait(StartContainersScreen(containers_up=True)):
-                self.exit()
-                return
+        # (b) Backend check — branch on the launch runtime. In docker mode the
+        # container stack is the boundary; in process mode the backend runs
+        # bare-metal and agents are confined by the OS sandbox instead.
+        if resolve_backend_runtime(self.root) == local_env.BackendRuntime.PROCESS:
+            if not await local_env.backend_ready(self.backend_url):
+                # Process already up but not ready yet → just wait it out; not
+                # running → start it. Mirrors the docker path's containers_up handling.
+                process_up = await asyncio.to_thread(
+                    local_env.backend_process_running, self.root
+                )
+                if not await self.push_screen_wait(
+                    StartBackendProcessScreen(process_up=process_up)
+                ):
+                    self.exit()
+                    return
+        else:
+            running = await asyncio.to_thread(local_env.containers_running, self.root)
+            if not running:
+                if not await self.push_screen_wait(StartContainersScreen()):
+                    self.exit()
+                    return
+            elif not await local_env.backend_ready(self.backend_url):
+                # Containers up but not ready yet — wait it out with an accurate prompt
+                # (do not claim the containers aren't running; they are).
+                if not await self.push_screen_wait(StartContainersScreen(containers_up=True)):
+                    self.exit()
+                    return
 
         # (b2) First-run client setup — connect SpecFlow's MCP server to the
         # user's AI tool instead of dropping them on the empty Sessions list.

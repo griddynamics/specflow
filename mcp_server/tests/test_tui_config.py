@@ -22,6 +22,7 @@ class TestEditableKeys:
             "LLM_LOW",
             "USER_EMAIL",
             "BACKEND_URL",
+            "BACKEND_RUNTIME",
         ]
         assert not any(k.startswith("LLM_MODEL_") for k in config.EDITABLE_KEYS)
 

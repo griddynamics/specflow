@@ -97,6 +97,19 @@ def resolve_backend_config(
     return backend_url, user_email, workspace_count
 
 
+def resolve_backend_runtime(
+    root: Path, runtime_flag: str | None = None
+) -> local_env.BackendRuntime:
+    """Resolve how the backend is launched: docker (default) or process.
+
+    Same precedence as the other resolvers: CLI flag → env var → mcp-config.json
+    → default (``docker``). Unknown values fall back to ``docker`` (safe default).
+    """
+    mcp_env = _load_mcp_config(root)
+    raw = runtime_flag or os.getenv("BACKEND_RUNTIME") or mcp_env.get("BACKEND_RUNTIME")
+    return local_env.BackendRuntime.parse(raw)
+
+
 def _is_localhost(url: str) -> bool:
     """Return True if the URL host is localhost or 127.0.0.1."""
     try:

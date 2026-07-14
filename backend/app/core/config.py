@@ -8,7 +8,7 @@ from typing import Annotated, FrozenSet, Optional
 from pydantic import AliasChoices, Field, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
-from app.core.enums import AuthMode, DatabaseType, LLMProvider
+from app.core.enums import AuthMode, BackendRuntime, DatabaseType, LLMProvider
 
 # MCP server ids enabled for agent workflows when listed in MCP_SERVERS_ENABLED (comma-separated).
 # User-supplied names outside this set are ignored. See docs/agents/enabled-mcps.md.
@@ -341,6 +341,16 @@ class Settings(BaseSettings):
     GITHUB_TEAM_SLUG: Optional[str] = None
     WORKSPACE_REPO_PREFIX: str = "specflow-workspace"
 
+    # Backend runtime / agent OS-sandbox settings.
+    # DOCKER (default): the container is the isolation boundary; no in-process
+    # agent sandbox is engaged (decoupled — Docker behaviour is unchanged).
+    # PROCESS: the backend runs bare-metal, so agents are confined by the OS-level
+    # Bash sandbox. See app/agents_sandboxing/os_sandbox.py.
+    BACKEND_RUNTIME: BackendRuntime = BackendRuntime.DOCKER
+    # Optional comma-separated override for the agent sandbox network allowlist
+    # (see os_sandbox.DEFAULT_AGENT_SANDBOX_ALLOWED_DOMAINS). Empty → use default.
+    AGENT_SANDBOX_ALLOWED_DOMAINS: Optional[str] = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -356,6 +366,17 @@ class Settings(BaseSettings):
             if v not in allowed:
                 raise ValueError(
                     f"Invalid DATABASE_TYPE: {v!r}. Allowed values: {sorted(allowed)}"
+                )
+        return v
+
+    @field_validator("BACKEND_RUNTIME", mode="before")
+    @classmethod
+    def _validate_backend_runtime(cls, v: object) -> object:
+        if isinstance(v, str):
+            allowed = {member.value for member in BackendRuntime}
+            if v not in allowed:
+                raise ValueError(
+                    f"Invalid BACKEND_RUNTIME: {v!r}. Allowed values: {sorted(allowed)}"
                 )
         return v
 

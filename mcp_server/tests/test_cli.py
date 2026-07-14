@@ -122,6 +122,42 @@ class TestRenderCapacityMessage:
 # ---------------------------------------------------------------------------
 
 
+class TestResolveBackendRuntime:
+    def test_defaults_to_docker(self, tmp_path, monkeypatch):
+        from cli import resolve_backend_runtime
+        from services import local_env
+        monkeypatch.delenv("BACKEND_RUNTIME", raising=False)
+        assert resolve_backend_runtime(tmp_path) == local_env.BackendRuntime.DOCKER
+
+    def test_flag_takes_priority_over_env(self, tmp_path, monkeypatch):
+        from cli import resolve_backend_runtime
+        from services import local_env
+        monkeypatch.setenv("BACKEND_RUNTIME", "docker")
+        assert resolve_backend_runtime(tmp_path, "process") == local_env.BackendRuntime.PROCESS
+
+    def test_env_takes_priority_over_mcp_config(self, tmp_path, monkeypatch):
+        from cli import resolve_backend_runtime
+        from services import local_env
+        cfg_dir = tmp_path / ".specflow-local"
+        cfg_dir.mkdir()
+        (cfg_dir / "mcp-config.json").write_text(
+            json.dumps({"mcpServers": {"specflow": {"env": {"BACKEND_RUNTIME": "docker"}}}})
+        )
+        monkeypatch.setenv("BACKEND_RUNTIME", "process")
+        assert resolve_backend_runtime(tmp_path) == local_env.BackendRuntime.PROCESS
+
+    def test_mcp_config_fallback(self, tmp_path, monkeypatch):
+        from cli import resolve_backend_runtime
+        from services import local_env
+        monkeypatch.delenv("BACKEND_RUNTIME", raising=False)
+        cfg_dir = tmp_path / ".specflow-local"
+        cfg_dir.mkdir()
+        (cfg_dir / "mcp-config.json").write_text(
+            json.dumps({"mcpServers": {"specflow": {"env": {"BACKEND_RUNTIME": "process"}}}})
+        )
+        assert resolve_backend_runtime(tmp_path) == local_env.BackendRuntime.PROCESS
+
+
 class TestResolveBackendConfig:
     def test_flag_takes_priority_over_env(self, tmp_path, monkeypatch):
         from cli import resolve_backend_config

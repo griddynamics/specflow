@@ -18,6 +18,7 @@ from claude_agent_sdk import (
 )
 
 
+from app.agents_sandboxing.os_sandbox import get_agent_sandbox_settings
 from app.core.config import SUPPORTED_MCPS, settings
 from app.core.ttl_config import GenerationLifecyclePolicy
 from app.core.logging import create_agent_logger, format_json_to_log, log_agent_options
@@ -807,6 +808,12 @@ async def agent_query(
         # PreToolUse Bash guard — denies dev-server / watch-mode / backgrounded
         # commands before they ever spawn. See app/services/agent_hooks.py.
         hooks=get_bash_guard_hooks(),
+
+        # OS-level Bash sandbox (bubblewrap / Seatbelt) — engaged only in
+        # BACKEND_RUNTIME=process, where the container boundary is gone; None in
+        # docker mode (unchanged). Added layer on top of the allowlist + guard
+        # above, not a replacement. See app/agents_sandboxing/os_sandbox.py.
+        sandbox=get_agent_sandbox_settings(),
 
         # Capture subprocess stderr so startup errors (MCP failures, bad session, etc.)
         # are visible in logs instead of being swallowed as "Check stderr output for details"

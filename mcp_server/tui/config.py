@@ -26,6 +26,9 @@ EDITABLE_KEYS: list[str] = [
     *LLM_TIER_KEYS,
     "USER_EMAIL",
     "BACKEND_URL",
+    # docker (default) | process — how the local backend is launched. See
+    # docs/backend/backend-runtime.md; resolved by cli.resolve_backend_runtime.
+    "BACKEND_RUNTIME",
 ]
 
 # Superseded tier key names an earlier build wrote into the env block; nothing

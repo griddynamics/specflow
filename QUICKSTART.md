@@ -49,6 +49,12 @@ in spec_dir "my_specs", and outputs dir in "results"
 - `curl`
 - Cursor, Claude Code, Claude Desktop, Copilot, or another MCP-capable IDE
 
+> Docker is the default and what this guide assumes. To run the backend without
+> Docker (bare-metal, agents confined by the host OS sandbox), set
+> `BACKEND_RUNTIME=process` — you then need the developer environment installed
+> and, on Linux, `bubblewrap`+`socat`. See
+> [`docs/backend/backend-runtime.md`](docs/backend/backend-runtime.md).
+
 ## 3. Required `.env` Values
 
 Keep first setup focused. Fill only these values before running `specflow init`:
