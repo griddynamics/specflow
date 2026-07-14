@@ -721,7 +721,37 @@ class GenerationSessionService:
         except Exception as e:
             # Don't fail the session failure handling if notification fails
             logger.error(f"Failed to send Slack notification for generation session {generation_id}: {e}", exc_info=True)
-    
+
+    async def cancel_generation_session(
+        self,
+        generation_id: str,
+        *,
+        triggered_by: str = TriggeredBy.CANCEL,
+    ) -> None:
+        """
+        Mark the generation session CANCELLED (user-initiated). Notification-free.
+
+        Deliberately does NOT route through ``fail_generation_session`` — a user
+        cancellation must not emit the "❌ Run Failed" Slack/email notification, and
+        must land in the distinct terminal CANCELLED state (never resumed, never
+        retried). Workspaces stay ALLOCATED (Commandment II); the state machine is the
+        single writer of status.
+
+        Args:
+            generation_id: The session to cancel
+            triggered_by: TriggeredBy constant (defaults to CANCEL)
+
+        Raises:
+            GenerationSessionNotFoundError: Session doesn't exist
+            InvalidGenerationSessionStateError: Session is already terminal
+        """
+        session_doc = self._db.get(COL_GENERATION_SESSIONS, generation_id)
+        if not session_doc:
+            raise GenerationSessionNotFoundError(f"Generation session {generation_id} not found")
+
+        await self._esm.cancel(generation_id, triggered_by=triggered_by)
+        logger.info("Generation session %s cancelled by user", generation_id)
+
     async def get_generation_session_status(self, generation_id: str) -> Dict[str, Any]:
         """
         Get current generation session status.

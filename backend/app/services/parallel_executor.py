@@ -12,6 +12,7 @@ from app.schemas.workspace import WorkspaceSettings
 from app.services.claude_code import agent_query
 from app.services.model_routing import classify_error
 from app.services.workspace_manager import WorkspaceManager
+from app.state.exceptions import GenerationCancelledError
 
 
 @dataclass
@@ -86,7 +87,13 @@ class ParallelAgentExecutor:
             tasks.append(task)
         
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
+        # return_exceptions=True absorbs a cooperative cancellation into the results
+        # list — surface it so the entire generation aborts (session already CANCELLED).
+        for r in results:
+            if isinstance(r, GenerationCancelledError):
+                raise r
+
         # Count successes and failures
         successes = sum(1 for r in results if isinstance(r, ParallelAgentResult) and r.success)
         failures = len(results) - successes
@@ -146,7 +153,12 @@ class ParallelAgentExecutor:
                 success=True,
                 duration_ms=duration_ms
             )
-        
+
+        except GenerationCancelledError:
+            # User cancellation must abort the whole fan-out, not degrade to a
+            # per-workspace failure result. Re-raise so execute_parallel propagates it.
+            raise
+
         except Exception as e:
             duration_ms = (time.time() - start_time) * 1000
             error_msg = str(e)
@@ -363,7 +375,7 @@ async def execute_generation_parallel(
                 warning="Commit files not found - workspace may not have completed code generation",
                 duration_ms=duration_ms
             )
-            
+
         except Exception as e:
             # Handle other errors
             duration_ms = (time.time() - start_time) * 1000

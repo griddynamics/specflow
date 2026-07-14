@@ -64,7 +64,7 @@ from cli import resolve_backend_config
 from services import local_env, validate_models
 from services.llm_tiers import LLM_TIER_KEYS
 from services.session import resolve_generation_id, set_project_root
-from services.specflow_backend import call_backend_endpoint_bytes
+from services.specflow_backend import call_backend_endpoint, call_backend_endpoint_bytes
 from tui import actions, activity, mcp_clients, onboarding, render
 from tui.config import (
     EDITABLE_KEYS,
@@ -466,6 +466,7 @@ class DashboardScreen(_SpecFlowScreen):
 
     BINDINGS = [
         Binding("r", "retry", "retry"),
+        Binding("x", "cancel", "cancel"),
         Binding("w", "clear", "clear ws"),
         Binding("s", "settings", "settings"),
         Binding("b", "sessions", "sessions"),
@@ -545,6 +546,9 @@ class DashboardScreen(_SpecFlowScreen):
         if action == "retry":
             status = ((self._payload or {}).get("status") or "").lower()
             return True if status == "failed" else None
+        if action == "cancel":
+            status = ((self._payload or {}).get("status") or "").lower()
+            return True if status in {"pending", "initializing", "running"} else None
         if action == "open_report":
             return True if render.estimate_panel(self._payload) is not None else None
         return True
@@ -629,6 +633,45 @@ class DashboardScreen(_SpecFlowScreen):
         )
         if ok:
             await self._run_suspended(actions.do_retry(self.app.root, self._generation_id))
+
+    def action_cancel(self) -> None:
+        self.run_worker(self._cancel_flow(), exclusive=True)
+
+    async def _cancel_flow(self) -> None:
+        """Cancel this specific run via the backend DELETE, then refresh in place.
+
+        Targets ``self._generation_id`` directly (the dashboard may show any session
+        opened from the list). No terminal suspend — cancellation produces no output.
+        """
+        ok = await self.app.push_screen_wait(
+            ConfirmScreen(
+                "Cancel this generation? It stops all agents immediately and "
+                "cannot be resumed (the workspace is kept).",
+                countdown=0,
+            )
+        )
+        if not ok:
+            return
+        try:
+            await call_backend_endpoint(
+                endpoint=f"/api/v1/generation-sessions/{self._generation_id}",
+                method="DELETE",
+                timeout_seconds=30,
+            )
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 400:
+                self.notify(
+                    "Generation already finished — nothing to cancel.",
+                    severity="information",
+                )
+            else:
+                self.notify(f"Couldn't cancel: {exc}", severity="warning")
+            return
+        except Exception as exc:  # noqa: BLE001 - surface any failure to the user
+            self.notify(f"Couldn't cancel: {exc}", severity="warning")
+            return
+        self.notify("Generation cancelled.", severity="information")
+        await self.refresh_status()
 
     def action_clear(self) -> None:
         self.run_worker(self._clear_flow(), exclusive=True)
@@ -777,7 +820,9 @@ def _session_label(s: dict) -> str:
         except ValueError:
             date_str = created_at_raw[:16]
 
-    status_col = f"{symbol} {status_key.upper():<12}"
+    # Cancellations are always user-initiated; spell that out in the list.
+    status_word = "CANCELLED BY USER" if status_key == "cancelled" else status_key.upper()
+    status_col = f"{symbol} {status_word:<17}"
     date_col = f"{date_str:<14}" if date_str else " " * 14
     return f"{status_col}  {gid[:22]:<24}  {date_col}  {checkpoint_label}"
 

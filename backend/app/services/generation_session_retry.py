@@ -90,6 +90,12 @@ class GenerationSessionRetryService:
             raise GenerationSessionRetryError(f"Generation session {generation_id} not found")
 
         current_status = doc["status"]
+        if current_status == GenerationStatus.CANCELLED.value:
+            raise InvalidRetryStateError(
+                "Cannot retry a cancelled generation session. Cancellation is a "
+                "deliberate, terminal user action — create a new session from the same "
+                "spec to start again."
+            )
         if current_status not in (
             GenerationStatus.FAILED.value,
             GenerationStatus.PENDING.value,

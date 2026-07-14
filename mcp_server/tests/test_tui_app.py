@@ -254,6 +254,18 @@ class TestSessionLabel:
 
         assert "custom_checkpoint" in label
 
+    def test_cancelled_shows_by_user(self):
+        label = tui_app._session_label(
+            {
+                "generation_id": "est-d67dcac6cbe5",
+                "status": "cancelled",
+                "checkpoint": "generation_done",
+            }
+        )
+
+        assert "CANCELLED BY USER" in label
+        assert "⊘" in label
+
 
 class TestRunTuiNonTty:
     @pytest.mark.asyncio
@@ -830,6 +842,67 @@ class TestQuitBinding:
                 await pilot.press("q")
                 await pilot.pause()
                 assert not app.is_running
+
+
+class TestDashboardCancel:
+    def test_check_action_gates_cancel_by_status(self):
+        screen = tui_app.DashboardScreen("gen_x")
+        for active in ("pending", "initializing", "running"):
+            screen._payload = {"status": active}
+            assert screen.check_action("cancel", ()) is True
+        for terminal in ("completed", "failed", "cancelled"):
+            screen._payload = {"status": terminal}
+            assert screen.check_action("cancel", ()) is None
+
+    @pytest.mark.asyncio
+    async def test_cancel_flow_confirms_then_calls_delete(self):
+        a, b, c = _gate_ready()
+        delete_mock = AsyncMock(return_value='{"status": "cancelled"}')
+        with (
+            a,
+            b,
+            c,
+            patch("tui.app.poll_once", new=AsyncMock(return_value=_running_payload())),
+            patch("tui.app.call_backend_endpoint", new=delete_mock),
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.DashboardScreen)
+                await pilot.press("x")
+                await pilot.pause()
+                # Confirmation dialog appears before any backend call.
+                assert isinstance(app.screen, tui_app.ConfirmScreen)
+                delete_mock.assert_not_awaited()
+                await pilot.click("#confirm")  # confirm
+                await pilot.pause()
+
+        delete_mock.assert_awaited_once()
+        kwargs = delete_mock.await_args.kwargs
+        assert kwargs["endpoint"] == "/api/v1/generation-sessions/gen_x"
+        assert kwargs["method"] == "DELETE"
+
+    @pytest.mark.asyncio
+    async def test_cancel_flow_declined_does_not_call_delete(self):
+        a, b, c = _gate_ready()
+        delete_mock = AsyncMock()
+        with (
+            a,
+            b,
+            c,
+            patch("tui.app.poll_once", new=AsyncMock(return_value=_running_payload())),
+            patch("tui.app.call_backend_endpoint", new=delete_mock),
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("x")
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.ConfirmScreen)
+                await pilot.press("escape")  # decline
+                await pilot.pause()
+
+        delete_mock.assert_not_awaited()
 
 
 class TestAppNotifications:

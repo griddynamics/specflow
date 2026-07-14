@@ -350,6 +350,56 @@ class TestInterruptedByShutdown:
             await esm.interrupted_by_shutdown("est-1", triggered_by="system:server_shutdown")
 
 
+class TestCancel:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("start_status", [
+        GenerationStatus.RUNNING,
+        GenerationStatus.INITIALIZING,
+        GenerationStatus.PENDING,
+    ])
+    async def test_cancel_sets_cancelled_with_markers(self, db, start_status):
+        esm = make_esm(db)
+        db.seed_generation_session("est-1", {"status": start_status, "state_history": []})
+        await esm.cancel("est-1", triggered_by=TriggeredBy.CANCEL)
+        data = db.get_generation_session_data("est-1")
+        assert data["status"] == GenerationStatus.CANCELLED
+        assert data["cancelled_by_user"] is True
+        assert "cancelled_at" in data
+        # A user cancellation is NOT a failure — no failed_at, no error.
+        assert "failed_at" not in data
+        assert "error" not in data
+        entry = data["state_history"][-1]
+        assert entry["status"] == GenerationStatus.CANCELLED
+        assert entry["triggered_by"] == TriggeredBy.CANCEL
+
+    @pytest.mark.asyncio
+    async def test_cancel_does_not_touch_workspaces(self, db):
+        """Commandment II — workspaces stay ALLOCATED, generated code preserved."""
+        workspace_sm = make_workspace_sm_mock()
+        esm = make_esm(db, workspace_sm=workspace_sm)
+        db.seed_generation_session("est-1", {
+            "status": GenerationStatus.RUNNING,
+            "workspace_ids": ["ws-1", "ws-2"],
+            "state_history": [],
+        })
+        await esm.cancel("est-1", triggered_by=TriggeredBy.CANCEL)
+        workspace_sm.archive_and_release.assert_not_called()
+        workspace_sm.allocation_rollback.assert_not_called()
+        assert db.get_generation_session_data("est-1")["workspace_ids"] == ["ws-1", "ws-2"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("terminal", [
+        GenerationStatus.FAILED,
+        GenerationStatus.COMPLETED,
+        GenerationStatus.CANCELLED,
+    ])
+    async def test_cancel_rejects_terminal_states(self, db, terminal):
+        esm = make_esm(db)
+        db.seed_generation_session("est-1", {"status": terminal, "state_history": []})
+        with pytest.raises(InvalidGenerationSessionStateError):
+            await esm.cancel("est-1", triggered_by=TriggeredBy.CANCEL)
+
+
 class TestResetForRetry:
     @pytest.mark.asyncio
     async def test_reset_from_failed_to_pending(self, db):
