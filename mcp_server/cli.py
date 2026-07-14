@@ -266,7 +266,7 @@ async def cmd_retry_generation(args: argparse.Namespace) -> int:
     print(f"Using project root: {root}")
     set_project_root(root)
 
-    generation_id = resolve_generation_id(None, root)
+    generation_id = resolve_generation_id(args.generation_id, root)
     if not generation_id:
         print("No previous generation found. Run `specflow run-generation` to start one.")
         return 0
@@ -564,7 +564,13 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("check-status", help="Check progress of a running generation")
 
     # retry-generation
-    subparsers.add_parser("retry-generation", help="Retry a failed generation")
+    p_retry = subparsers.add_parser("retry-generation", help="Retry a failed generation")
+    p_retry.add_argument(
+        "--generation-id",
+        default=None,
+        dest="generation_id",
+        help="Generation ID (default: from specflow_session.json)",
+    )
 
     # download-outputs
     p_dl = subparsers.add_parser(

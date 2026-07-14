@@ -628,7 +628,7 @@ class DashboardScreen(_SpecFlowScreen):
             )
         )
         if ok:
-            await self._run_suspended(actions.do_retry(self.app.root))
+            await self._run_suspended(actions.do_retry(self.app.root, self._generation_id))
 
     def action_clear(self) -> None:
         self.run_worker(self._clear_flow(), exclusive=True)

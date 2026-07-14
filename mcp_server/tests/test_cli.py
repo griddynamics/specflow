@@ -283,7 +283,7 @@ class TestRetryGeneration:
         from services.session import write_session
         write_session("gen-xyz", tmp_project)
 
-        args = SimpleNamespace(root_path=str(tmp_project), command="retry-generation")
+        args = SimpleNamespace(root_path=str(tmp_project), command="retry-generation", generation_id=None)
 
         # check_status_safe returns failed → proceed to retry POST
         with patch(
@@ -308,7 +308,7 @@ class TestRetryGeneration:
         from services.session import write_session
         write_session("gen-running", tmp_project)
 
-        args = SimpleNamespace(root_path=str(tmp_project), command="retry-generation")
+        args = SimpleNamespace(root_path=str(tmp_project), command="retry-generation", generation_id=None)
 
         with patch(
             "services.tool_helpers.check_status_safe",

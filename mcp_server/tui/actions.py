@@ -44,9 +44,11 @@ def _ns(**overrides: object) -> SimpleNamespace:
     return SimpleNamespace(**base)
 
 
-async def do_retry(root: Path) -> int:
+async def do_retry(root: Path, generation_id: str | None = None) -> int:
     """Retry the current generation (reuses ``cmd_retry_generation`` guards)."""
-    return await cli.cmd_retry_generation(_ns(root_path=str(root)))
+    return await cli.cmd_retry_generation(
+        _ns(root_path=str(root), generation_id=generation_id)
+    )
 
 
 async def do_clear_set(set_number: int) -> int:

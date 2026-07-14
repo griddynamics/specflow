@@ -1136,13 +1136,13 @@ class TestDashboardActionFlows:
                     patch.object(app, "push_screen_wait", new=AsyncMock(return_value=True)),
                     patch.object(screen, "_run_suspended", new=AsyncMock()) as run_susp,
                     # do_retry is async; force a sync mock so the flow's
-                    # ``do_retry(root)`` yields a sentinel, not a live coroutine.
+                    # ``do_retry(root, generation_id)`` yields a sentinel, not a live coroutine.
                     patch(
                         "tui.app.actions.do_retry", new=MagicMock(return_value="retry-coro")
                     ) as do_retry,
                 ):
                     await screen._retry_flow()
-                do_retry.assert_called_once_with(app.root)
+                do_retry.assert_called_once_with(app.root, "gen_x")
                 run_susp.assert_awaited_once_with("retry-coro")
 
     @pytest.mark.asyncio
