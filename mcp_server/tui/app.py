@@ -63,14 +63,7 @@ from textual.widgets import (
 from cli import resolve_backend_config
 from services import local_env, validate_models
 from services.llm_tiers import LLM_TIER_KEYS
-from services.retry import (
-    AlreadyRunning,
-    BackendError,
-    PendingNotFailed,
-    PendingRejectedBeforeCodegen,
-    Queued,
-    retry_generation_core,
-)
+from services.retry import retry_generation_core
 from services.session import resolve_generation_id, set_project_root
 from services.specflow_backend import call_backend_endpoint, call_backend_endpoint_bytes
 from tui import actions, activity, mcp_clients, onboarding, render
@@ -646,27 +639,12 @@ class DashboardScreen(_SpecFlowScreen):
         if not ok:
             return
         self.notify("Retrying generation…", severity="information")
-        match await retry_generation_core(self._generation_id):
-            case Queued():
-                self.notify(
-                    "Retry queued. Resuming from the last checkpoint.",
-                    severity="information",
-                )
-            case AlreadyRunning():
-                self.notify("A generation is already running.", severity="warning")
-            case PendingRejectedBeforeCodegen(error=error):
-                await self.app.push_screen_wait(MessageScreen(
-                    "Retry",
-                    f"Last run was rejected before codegen: {error}\n"
-                    "Fix files locally and start a new generation — retry won't help.",
-                ))
-            case PendingNotFailed():
-                await self.app.push_screen_wait(MessageScreen(
-                    "Retry",
-                    "Session is pending but has not failed — nothing to retry yet.",
-                ))
-            case BackendError(error=error):
-                await self.app.push_screen_wait(MessageScreen("Retry failed", error))
+        try:
+            await retry_generation_core(self._generation_id)
+        except Exception as exc:  # noqa: BLE001 - surface the backend's reason to the user
+            await self.app.push_screen_wait(MessageScreen("Retry failed", str(exc)))
+            return
+        self.notify("Retry queued. Resuming from the last checkpoint.", severity="information")
         await self.refresh_status()
 
     def action_cancel(self) -> None:

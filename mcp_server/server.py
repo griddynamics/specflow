@@ -57,14 +57,7 @@ from services.tool_helpers import (
     resolve_workspace_count,
 )
 from services.user_response import brief_sentences, chat_json
-from services.retry import (
-    AlreadyRunning,
-    BackendError,
-    PendingNotFailed,
-    PendingRejectedBeforeCodegen,
-    Queued,
-    retry_generation_core,
-)
+from services.retry import retry_generation_core
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000")
 logger.info("MCP Server starting with Backend URL: %s", BACKEND_URL)
@@ -631,41 +624,21 @@ async def retry_generation(
             "No previous generation found. Run `run_generation` to start one.",
         )
 
-    match await retry_generation_core(generation_id):
-        case AlreadyRunning():
-            return _rejection_chat_payload({
-                "error": "A generation is already running. Wait for it to finish before retrying.",
-                "code": PrecheckRejectionCode.GENERATION_ALREADY_RUNNING,
-                "generation_id": generation_id,
-            })
-        case PendingRejectedBeforeCodegen(status_data=status_data, error=error):
-            return chat_json(
-                brief_sentences(
-                    f"Last run was rejected before codegen: {error} "
-                    "Fix files locally and call `run_generation` — not `retry_generation`."
-                ),
-                details=status_data,
-                generation_id=generation_id,
-            )
-        case PendingNotFailed(status_data=status_data):
-            return chat_json(
-                "Session is pending but has not failed. Use `run_generation`, not `retry_generation`.",
-                details=status_data,
-                generation_id=generation_id,
-            )
-        case Queued(backend_data=backend_data):
-            return chat_json(
-                "Retry queued. Generation will resume from the last checkpoint on the same workspaces.",
-                details=backend_data,
-                generation_id=generation_id,
-                status=backend_data.get("status"),
-                retry_count=backend_data.get("retry_count"),
-            )
-        case BackendError(error=error):
-            return chat_json(
-                "Couldn't retry. The SpecFlow server may be unreachable.",
-                details={"error": error},
-            )
+    try:
+        backend_data = await retry_generation_core(generation_id)
+    except Exception as e:  # noqa: BLE001 - backend validates state; surface its reason
+        return chat_json(
+            brief_sentences(f"Couldn't retry: {e}"),
+            details={"error": str(e)},
+            generation_id=generation_id,
+        )
+    return chat_json(
+        "Retry queued. Generation will resume from the last checkpoint on the same workspaces.",
+        details=backend_data,
+        generation_id=generation_id,
+        status=backend_data.get("status"),
+        retry_count=backend_data.get("retry_count"),
+    )
 
 
 def main():

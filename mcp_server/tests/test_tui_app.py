@@ -1209,7 +1209,7 @@ class TestDashboardActionFlows:
                     patch.object(app, "push_screen_wait", new=AsyncMock(return_value=True)),
                     patch(
                         "tui.app.retry_generation_core",
-                        new=AsyncMock(return_value=tui_app.Queued(backend_data={"status": "pending"})),
+                        new=AsyncMock(return_value={"status": "pending", "retry_count": 1}),
                     ) as core,
                     patch.object(screen, "refresh_status", new=AsyncMock()) as refresh,
                     patch.object(screen, "notify") as notify,
@@ -1234,9 +1234,9 @@ class TestDashboardActionFlows:
                     patch.object(app, "push_screen_wait", new=psw),
                     patch(
                         "tui.app.retry_generation_core",
-                        new=AsyncMock(return_value=tui_app.BackendError(error="unreachable")),
+                        new=AsyncMock(side_effect=Exception("Backend returned HTTP 400: Cannot retry")),
                     ),
-                    patch.object(screen, "refresh_status", new=AsyncMock()),
+                    patch.object(screen, "refresh_status", new=AsyncMock()) as refresh,
                     patch.object(app, "suspend") as suspend,
                 ):
                     await screen._retry_flow()
@@ -1244,6 +1244,7 @@ class TestDashboardActionFlows:
                 # push_screen_wait called twice: ConfirmScreen, then the error MessageScreen.
                 assert psw.await_count == 2
                 assert isinstance(psw.await_args_list[1].args[0], tui_app.MessageScreen)
+                refresh.assert_not_awaited()  # error returns before the refresh
 
     @pytest.mark.asyncio
     async def test_retry_skips_core_when_cancelled(self):
