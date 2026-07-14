@@ -259,8 +259,14 @@ async def cmd_check_status(args: argparse.Namespace) -> int:
 async def cmd_retry_generation(args: argparse.Namespace) -> int:
     """retry-generation: retry a failed generation."""
     from services.session import set_project_root, resolve_generation_id
-    from services.specflow_backend import call_backend_endpoint
-    from services.tool_helpers import check_status_safe, is_generation_in_progress
+    from services.retry import (
+        retry_generation_core,
+        AlreadyRunning,
+        PendingRejectedBeforeCodegen,
+        PendingNotFailed,
+        Queued,
+        BackendError,
+    )
 
     root = resolve_root(args.root_path)
     print(f"Using project root: {root}")
@@ -271,23 +277,29 @@ async def cmd_retry_generation(args: argparse.Namespace) -> int:
         print("No previous generation found. Run `specflow run-generation` to start one.")
         return 0
 
-    status_data = await check_status_safe(generation_id)
-    if is_generation_in_progress(status_data):
-        print(
-            "ERROR: A generation is already running. Wait for it to finish before retrying.",
-            file=sys.stderr,
-        )
-        return 1
-
-    response_text = await call_backend_endpoint(
-        endpoint=f"/api/v1/generation-sessions/{generation_id}/retry",
-        method="POST",
-        timeout_seconds=30,
-    )
-    data = json.loads(response_text)
-    print(json.dumps(data, indent=2))
-    print("\nRetry queued. Generation will resume from the last checkpoint on the same workspaces.")
-    return 0
+    match await retry_generation_core(generation_id):
+        case AlreadyRunning():
+            print(
+                "ERROR: A generation is already running. Wait for it to finish before retrying.",
+                file=sys.stderr,
+            )
+            return 1
+        case PendingRejectedBeforeCodegen(error=error):
+            print(
+                f"Last run was rejected before codegen: {error}\n"
+                "Fix files locally and run `specflow run-generation` — not retry."
+            )
+            return 0
+        case PendingNotFailed():
+            print("Session is pending but has not failed. Use `specflow run-generation`, not retry.")
+            return 0
+        case Queued(backend_data=backend_data):
+            print(json.dumps(backend_data, indent=2))
+            print("\nRetry queued. Generation will resume from the last checkpoint on the same workspaces.")
+            return 0
+        case BackendError(error=error):
+            print(f"ERROR: Couldn't retry: {error}", file=sys.stderr)
+            return 1
 
 
 async def cmd_download_outputs(args: argparse.Namespace) -> int:

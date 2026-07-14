@@ -285,12 +285,13 @@ class TestRetryGeneration:
 
         args = SimpleNamespace(root_path=str(tmp_project), command="retry-generation", generation_id=None)
 
-        # check_status_safe returns failed → proceed to retry POST
+        # check_status_safe returns failed → proceed to retry POST. Patched at
+        # services.retry.* where retry_generation_core binds these primitives.
         with patch(
-            "services.tool_helpers.check_status_safe",
+            "services.retry.check_status_safe",
             new_callable=AsyncMock,
         ) as mock_status, patch(
-            "services.specflow_backend.call_backend_endpoint",
+            "services.retry.call_backend_endpoint",
             new_callable=AsyncMock,
         ) as mock_ep:
             mock_status.return_value = {"status": "failed"}
@@ -311,10 +312,68 @@ class TestRetryGeneration:
         args = SimpleNamespace(root_path=str(tmp_project), command="retry-generation", generation_id=None)
 
         with patch(
-            "services.tool_helpers.check_status_safe",
+            "services.retry.check_status_safe",
             new_callable=AsyncMock,
         ) as mock_cs:
             mock_cs.return_value = {"status": "running"}
+            code = await cmd_retry_generation(args)
+
+        assert code == 1
+
+    @pytest.mark.asyncio
+    async def test_no_session_returns_zero_without_backend_call(self, tmp_project):
+        from cli import cmd_retry_generation
+
+        # No write_session → resolve_generation_id returns None.
+        args = SimpleNamespace(root_path=str(tmp_project), command="retry-generation", generation_id=None)
+
+        with patch(
+            "services.retry.check_status_safe",
+            new_callable=AsyncMock,
+        ) as mock_status:
+            code = await cmd_retry_generation(args)
+
+        assert code == 0
+        assert mock_status.call_count == 0  # core never called
+
+    @pytest.mark.asyncio
+    async def test_pending_not_failed_returns_zero_without_post(self, tmp_project):
+        from cli import cmd_retry_generation
+        from services.session import write_session
+        write_session("gen-pending", tmp_project)
+
+        args = SimpleNamespace(root_path=str(tmp_project), command="retry-generation", generation_id=None)
+
+        with patch(
+            "services.retry.check_status_safe",
+            new_callable=AsyncMock,
+        ) as mock_status, patch(
+            "services.retry.call_backend_endpoint",
+            new_callable=AsyncMock,
+        ) as mock_ep:
+            mock_status.return_value = {"status": "pending"}
+            code = await cmd_retry_generation(args)
+
+        assert code == 0
+        assert mock_ep.call_count == 0  # pending short-circuits before POST
+
+    @pytest.mark.asyncio
+    async def test_backend_error_returns_one(self, tmp_project):
+        from cli import cmd_retry_generation
+        from services.session import write_session
+        write_session("gen-err", tmp_project)
+
+        args = SimpleNamespace(root_path=str(tmp_project), command="retry-generation", generation_id=None)
+
+        with patch(
+            "services.retry.check_status_safe",
+            new_callable=AsyncMock,
+        ) as mock_status, patch(
+            "services.retry.call_backend_endpoint",
+            new_callable=AsyncMock,
+        ) as mock_ep:
+            mock_status.return_value = {"status": "failed"}
+            mock_ep.side_effect = Exception("Backend returned HTTP 500")
             code = await cmd_retry_generation(args)
 
         assert code == 1
