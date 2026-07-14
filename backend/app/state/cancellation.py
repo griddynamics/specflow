@@ -32,12 +32,17 @@ async def raise_if_cancelled(
 ) -> None:
     """Raise :class:`GenerationCancelledError` if the session is CANCELLED.
 
-    Throttled: if called again for the same ``generation_id`` within ``min_interval_s``
-    seconds, returns immediately without touching the DB. ``db_adapter`` is the async
-    state-machine DB adapter (``service.db_adapter`` / ``orchestrator._db``).
+    The first check for a generation always reads; thereafter, if called again for the
+    same ``generation_id`` within ``min_interval_s`` seconds, it returns immediately
+    without touching the DB. (``time.monotonic()`` has no fixed epoch, so a "never
+    checked" sentinel must be distinct from any real timestamp — not 0.0 — otherwise a
+    small monotonic value on a freshly-booted host would throttle the very first read.)
+    ``db_adapter`` is the async state-machine DB adapter (``service.db_adapter`` /
+    ``orchestrator._db``).
     """
     now = time.monotonic()
-    if now - _last_check.get(generation_id, 0.0) < min_interval_s:
+    last = _last_check.get(generation_id)
+    if last is not None and now - last < min_interval_s:
         return
     _last_check[generation_id] = now
 
