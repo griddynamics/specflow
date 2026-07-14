@@ -8,11 +8,18 @@ Exports:
     WorkflowOrchestrator
     InvalidGenerationSessionStateError
     InvalidWorkspaceStateError
+    GenerationCancelledError
+    raise_if_cancelled
 """
 from .generation_session_state_machine import GenerationSessionStateMachine
 from .workspace_state_machine import WorkspaceStateMachine
 from .workflow_orchestrator import WorkflowOrchestrator
-from .exceptions import InvalidGenerationSessionStateError, InvalidWorkspaceStateError
+from .exceptions import (
+    InvalidGenerationSessionStateError,
+    InvalidWorkspaceStateError,
+    GenerationCancelledError,
+)
+from .cancellation import raise_if_cancelled
 
 __all__ = [
     "GenerationSessionStateMachine",
@@ -20,4 +27,6 @@ __all__ = [
     "WorkflowOrchestrator",
     "InvalidGenerationSessionStateError",
     "InvalidWorkspaceStateError",
+    "GenerationCancelledError",
+    "raise_if_cancelled",
 ]

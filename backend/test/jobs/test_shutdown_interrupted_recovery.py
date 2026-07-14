@@ -120,6 +120,22 @@ async def test_ignores_marked_session_outside_window(db, gss, _patch_spawn):
 
 
 @pytest.mark.asyncio
+async def test_ignores_cancelled_session(db, gss, _patch_spawn):
+    """A user-cancelled session must never be resumed on boot recovery."""
+    rerun, _ = _patch_spawn
+    db.seed_generation_session("gen-cancelled", {
+        "status": GenerationStatus.CANCELLED,
+        "cancelled_by_user": True,
+        "cancelled_at": datetime.now(timezone.utc),
+        "state_history": [],
+    })
+    recovered = await recover_interrupted_sessions(db, gss)
+    assert recovered == []
+    rerun.assert_not_called()
+    assert db.get_generation_session_data("gen-cancelled")["status"] == GenerationStatus.CANCELLED
+
+
+@pytest.mark.asyncio
 async def test_non_failed_marked_session_ignored(db, gss, _patch_spawn):
     """A PENDING session carrying a stale marker must not be re-fired (only FAILED)."""
     rerun, _ = _patch_spawn

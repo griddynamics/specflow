@@ -51,6 +51,7 @@ class SessionEndReason(StrEnum):
     STUCK_DETECTED = "stuck_detected"
     FORCE_RELEASED = "force_released"
     BEGIN_ROLLBACK = "begin_rollback"
+    CANCELLED = "cancelled"
 
 
 _TTL_MINUTES: dict[OperationKind, int] = {

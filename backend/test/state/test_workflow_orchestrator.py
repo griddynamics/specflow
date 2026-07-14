@@ -170,6 +170,37 @@ class TestSkipLogic:
         esm.complete.assert_called_once()
 
 
+class TestCooperativeCancellation:
+    @pytest.mark.asyncio
+    async def test_cancelled_session_stops_without_fail(self, db):
+        """A CANCELLED session makes the step loop raise GenerationCancelledError and
+        must NOT call fail() (session is already terminal)."""
+        from app.state.cancellation import reset_cancellation_check
+        from app.state.exceptions import GenerationCancelledError
+
+        reset_cancellation_check("est-cancel-orch")
+        db.seed_generation_session("est-cancel-orch", {
+            "status": GenerationStatus.CANCELLED,
+            "checkpoint": None,
+        })
+        esm = AsyncMock(spec=GenerationSessionStateMachine)
+        esm.advance_checkpoint = AsyncMock(return_value={})
+        esm.fail = AsyncMock(return_value={})
+        esm.complete = AsyncMock(return_value={})
+        orch = WorkflowOrchestrator(db, esm)
+
+        ran = []
+        async def step():
+            ran.append("validate_contract")
+
+        with pytest.raises(GenerationCancelledError):
+            await orch.run("est-cancel-orch", {"validate_contract": step}, triggered_by="test")
+
+        # Cooperative check runs before the step impl and before fail().
+        esm.fail.assert_not_called()
+        assert ran == []
+
+
 class TestFailure:
     @pytest.mark.asyncio
     async def test_step_failure_calls_fail_with_step_name(self, db):

@@ -72,6 +72,7 @@ from app.services.skip_mode_mock import (
     is_skip_mode_enabled,
 )
 from app.services.workflow_stats import workflow_metrics
+from app.state.cancellation import raise_if_cancelled
 from app.state.workspace_models import load_workspace_model_overrides, resolve_workspace_model
 from app.services.workspace_manager import WorkspaceManager
 from app.state.db_adapter import COL_GENERATION_SESSIONS, StateMachineDBAdapter
@@ -83,6 +84,8 @@ async def _process_single_workspace(
     client: P10YInternalAPIClient,
     settings: Settings,
     logger: logging.Logger,
+    db_adapter=None,
+    generation_id: Optional[str] = None,
 ) -> WorkspaceEstimation | None:
     """
     Process estimation for a single workspace.
@@ -141,6 +144,8 @@ async def _process_single_workspace(
             organisation_id=settings.P10Y_ORGANISATION_ID,
             workspace_name=workspace.name,
             logger=logger,
+            db_adapter=db_adapter,
+            generation_id=generation_id,
         )
         
         # Fetch and filter commit stats
@@ -511,6 +516,12 @@ async def multi_workspace_estimation_p10y_workflow(
     # Create workspace manager (needed for parallel executor)
     workspace_manager = WorkspaceManager(settings, logger)
     
+    # Cooperative cancellation: skip the whole estimation phase if the user cancelled
+    # (cross-pod-safe fallback to the local task.cancel()). Code is already archived by
+    # this point (STEEL XI), so aborting here is safe.
+    if db_adapter is not None and request.generation_id:
+        await raise_if_cancelled(db_adapter, request.generation_id)
+
     # Process workspaces in parallel (data collection only, no AI agents)
     logger.info("Executing estimations in parallel...")
     parallel_results = await execute_generation_parallel(
@@ -522,6 +533,8 @@ async def multi_workspace_estimation_p10y_workflow(
             "client": client,
             "settings": settings,
             "logger": logger,
+            "db_adapter": db_adapter,
+            "generation_id": request.generation_id,
         },
         logger=logger,
     )

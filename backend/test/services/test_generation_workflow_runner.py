@@ -153,3 +153,29 @@ async def test_missing_parameters_fail_routed_not_raised():
     sessions.try_begin_for_generation.assert_not_awaited()
     gss.start_generation_session.assert_not_called()
     gss.fail_generation_session.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_workflow_exception_cancelled_is_silent_noop():
+    """GenerationCancelledError must NOT fail() or reject() — session already CANCELLED."""
+    from app.services.generation_workflow_runner import _handle_workflow_exception
+    from app.state.exceptions import GenerationCancelledError
+
+    gss = AsyncMock()
+    await _handle_workflow_exception(GenerationCancelledError("gen-1"), "gen-1", gss)
+
+    gss.fail_generation_session.assert_not_called()
+    gss.reject_generation_session.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cancellation_during_rerun_not_failed():
+    """A cooperative cancellation raised mid-workflow is a silent no-op, never fail()."""
+    from app.state.exceptions import GenerationCancelledError
+
+    gss, sessions = _make_gss(parameters={"spec_path": "specs/", "outputs_dir": "docs"})
+    gss.start_generation_session.side_effect = GenerationCancelledError("gen-cancel")
+
+    await rerun_generation_session("gen-cancel", generation_session_service=gss)
+
+    gss.fail_generation_session.assert_not_called()

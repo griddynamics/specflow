@@ -24,7 +24,8 @@ from app.schemas.generation_workflow_enums import (
     parse_checkpoint,
 )
 from app.services.contract_validator import ContractRejection
-from app.state.exceptions import InvalidGenerationSessionStateError
+from app.state.cancellation import raise_if_cancelled
+from app.state.exceptions import GenerationCancelledError, InvalidGenerationSessionStateError
 
 logger = logging.getLogger(__name__)
 
@@ -204,6 +205,10 @@ class WorkflowOrchestrator:
                 )
                 continue
 
+            # Cooperative cancellation: stop before starting the next step if the user
+            # cancelled (cross-pod-safe fallback to the local task.cancel()).
+            await raise_if_cancelled(self._db, generation_id)
+
             logger.info("generation %s running step '%s'", generation_id, step.name)
             try:
                 await impl()
@@ -212,6 +217,15 @@ class WorkflowOrchestrator:
                 # See CLAUDE.md: "A rejection is NOT a state-machine fail()".
                 logger.info(
                     "generation %s step '%s' raised ContractRejection — propagating without fail()",
+                    generation_id, step.name,
+                )
+                raise
+            except GenerationCancelledError:
+                # User cancellation — session is already CANCELLED. Propagate without
+                # fail() (mirrors the ContractRejection passthrough); the shared workflow
+                # exception handler treats it as a silent no-op.
+                logger.info(
+                    "generation %s step '%s' observed cancellation — propagating without fail()",
                     generation_id, step.name,
                 )
                 raise

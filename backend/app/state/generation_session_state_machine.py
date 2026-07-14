@@ -223,6 +223,38 @@ class GenerationSessionStateMachine:
         )
         return update
 
+    async def cancel(
+        self, generation_id: str, triggered_by: str, metadata: dict | None = None
+    ) -> dict:
+        """
+        PENDING | INITIALIZING | RUNNING → CANCELLED, on explicit user request.
+
+        Mirrors interrupted_by_shutdown()/stuck_detected() but is a deliberate,
+        terminal, user-initiated stop: notification-free (the user knows — no error
+        Slack/email), sets the queryable ``cancelled_by_user`` marker + ``cancelled_at``
+        so boot-recovery / retry / analytics can distinguish it from a genuine failure.
+
+        Side-effects: sets cancelled_at, cancelled_by_user=True; ends the API-key session
+        slot. Does NOT set failed_at. Workspaces remain ALLOCATED (Invariant 2) — the
+        generated code is preserved and reclaimed by scheduled_wipe; a CANCELLED session
+        is never resumed and never retried.
+        """
+        extra_fields = {
+            "cancelled_at": datetime.now(timezone.utc),
+            "cancelled_by_user": True,
+        }
+        update = await self._transition(
+            generation_id, "cancel",
+            triggered_by=triggered_by,
+            metadata=metadata or {},
+            extra_fields=extra_fields,
+        )
+        await self._api_sessions.end(
+            generation_id=generation_id,
+            reason=SessionEndReason.CANCELLED,
+        )
+        return update
+
     async def _record_phase_progress_for_field(
         self,
         generation_id: str,
@@ -669,8 +701,15 @@ class GenerationSessionStateMachine:
                 allowed_from=[GenerationStatus.RUNNING],
             )
 
-    _TERMINAL_STATUS_VALUES = {GenerationStatus.COMPLETED.value, GenerationStatus.FAILED.value}
-    _NON_TERMINAL_STATUSES = [s for s in GenerationStatus if s not in {GenerationStatus.COMPLETED, GenerationStatus.FAILED}]
+    _TERMINAL_STATUS_VALUES = {
+        GenerationStatus.COMPLETED.value,
+        GenerationStatus.FAILED.value,
+        GenerationStatus.CANCELLED.value,
+    }
+    _NON_TERMINAL_STATUSES = [
+        s for s in GenerationStatus
+        if s not in {GenerationStatus.COMPLETED, GenerationStatus.FAILED, GenerationStatus.CANCELLED}
+    ]
 
     def _require_non_terminal(self, doc: Optional[dict], action: str, generation_id: str) -> None:
         """Guard: raises if generation is missing or in a terminal state (COMPLETED/FAILED)."""

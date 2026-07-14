@@ -409,6 +409,43 @@ class TestGenerationCompletion:
             ws = generation_session_service._db.get("workspaces", ws_id)
             assert ws["status"] == "allocated"
 
+    @pytest.mark.asyncio
+    async def test_cancel_generation_session_is_terminal_and_silent(
+        self, generation_session_service, sample_workspaces
+    ):
+        """cancel_generation_session → CANCELLED with markers, workspaces retained, no notify."""
+        from unittest.mock import patch
+
+        est_id = await generation_session_service.create_generation_session(
+            user_email="user-123@example.com",
+            parameters={"spec_file": "spec.md"}
+        )
+        workspace_ids = await generation_session_service.start_generation_session(est_id)
+
+        with patch("app.services.generation_session.notifications") as mock_notifications:
+            await generation_session_service.cancel_generation_session(est_id)
+            mock_notifications.notify.assert_not_called()
+
+        est = generation_session_service._db.get(COL_GENERATION_SESSIONS, est_id)
+        assert est["status"] == "cancelled"
+        assert est["cancelled_by_user"] is True
+        assert est.get("cancelled_at") is not None
+        assert est.get("failed_at") is None
+
+        # Commandment II: workspaces stay ALLOCATED — generated code preserved.
+        for ws_id in workspace_ids:
+            ws = generation_session_service._db.get("workspaces", ws_id)
+            assert ws["status"] == "allocated"
+
+    @pytest.mark.asyncio
+    async def test_cancel_generation_session_not_found_raises(
+        self, generation_session_service
+    ):
+        from app.services.generation_session import GenerationSessionNotFoundError
+
+        with pytest.raises(GenerationSessionNotFoundError):
+            await generation_session_service.cancel_generation_session("est-missing")
+
 
 class TestProgressTracking:
     """Test progress tracking for retry continuity."""

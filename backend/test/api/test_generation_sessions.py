@@ -799,9 +799,10 @@ class TestCancelGenerationSession:
     def test_cancel_generation_success(
         self, client, mock_generation_session_service
     ):
-        """Test successful cancellation of running generation session."""
+        """Cancellation transitions to CANCELLED (not FAILED), stops the local task,
+        and never routes through the error-notifying fail path."""
         generation_id = "est-cancel-123"
-        
+
         running_doc = {
             "generation_id": generation_id,
             "status": "running",
@@ -819,29 +820,53 @@ class TestCancelGenerationSession:
             "error": None,
             "user_email": "test@example.com"
         }
-        
+
         mock_generation_session_service.get_generation_session_status = AsyncMock(
             return_value=running_doc
         )
+        mock_generation_session_service.cancel_generation_session = AsyncMock()
         mock_generation_session_service.fail_generation_session = AsyncMock()
-        
+
+        with patch(
+            "app.services.generation_task_registry.cancel_task", return_value=True
+        ) as mock_cancel_task:
+            response = client.delete(
+                f"/api/v1/generation-sessions/{generation_id}",
+                headers={"X-API-Key": "test-key"}
+            )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        assert data["generation_id"] == generation_id
+        assert data["status"] == "cancelled"
+
+        mock_generation_session_service.cancel_generation_session.assert_called_once_with(
+            generation_id
+        )
+        # The error-notifying failure path must NOT be used for a user cancellation.
+        mock_generation_session_service.fail_generation_session.assert_not_called()
+        mock_cancel_task.assert_called_once_with(generation_id)
+
+    def test_cancel_generation_already_cancelled(
+        self, client, mock_generation_session_service
+    ):
+        """Cannot cancel a session that is already CANCELLED (terminal)."""
+        generation_id = "est-already-cancelled"
+        mock_generation_session_service.get_generation_session_status = AsyncMock(
+            return_value={"generation_id": generation_id, "status": "cancelled"}
+        )
+        mock_generation_session_service.cancel_generation_session = AsyncMock()
+
         response = client.delete(
             f"/api/v1/generation-sessions/{generation_id}",
             headers={"X-API-Key": "test-key"}
         )
-        
-        assert response.status_code == 200
-        data = response.json()
-        
-        assert data["generation_id"] == generation_id
-        assert data["status"] == "failed"
-        assert "cancelled" in data["message"].lower()
-        
-        mock_generation_session_service.fail_generation_session.assert_called_once_with(
-            generation_id=generation_id,
-            error="Cancelled by user"
-        )
-    
+
+        assert response.status_code == 400
+        assert "Cannot cancel" in response.json()["detail"]
+        mock_generation_session_service.cancel_generation_session.assert_not_called()
+
     def test_cancel_generation_already_completed(
         self, client, mock_generation_session_service
     ):
