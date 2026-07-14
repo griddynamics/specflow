@@ -63,6 +63,7 @@ from textual.widgets import (
 from cli import resolve_backend_config
 from services import local_env, validate_models
 from services.llm_tiers import LLM_TIER_KEYS
+from services.retry import retry_generation_core
 from services.session import resolve_generation_id, set_project_root
 from services.specflow_backend import call_backend_endpoint, call_backend_endpoint_bytes
 from tui import actions, activity, mcp_clients, onboarding, render
@@ -536,11 +537,15 @@ class DashboardScreen(_SpecFlowScreen):
             build_dashboard(payload, self.app.root, self._generation_id, self._selected_ws_id)
         )
         self.refresh_bindings()
-        # A finished run will not change again — stop polling it.
+        # A finished run will not change again — stop polling it. Conversely, a
+        # run that left a terminal state (e.g. failed → retry → pending) must
+        # resume polling, so re-arm the timer if it was previously stopped.
         if payload and (payload.get("status") or "").lower() in TERMINAL_STATUSES:
             if self._poll_timer is not None:
                 self._poll_timer.stop()
                 self._poll_timer = None
+        elif self._poll_timer is None:
+            self._poll_timer = self.set_interval(self.app.poll_interval, self.refresh_status)
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         if action == "retry":
@@ -631,8 +636,16 @@ class DashboardScreen(_SpecFlowScreen):
                 countdown=0,
             )
         )
-        if ok:
-            await self._run_suspended(actions.do_retry(self.app.root, self._generation_id))
+        if not ok:
+            return
+        self.notify("Retrying generation…", severity="information")
+        try:
+            await retry_generation_core(self._generation_id)
+        except Exception as exc:  # noqa: BLE001 - surface the backend's reason to the user
+            await self.app.push_screen_wait(MessageScreen("Retry failed", str(exc)))
+            return
+        self.notify("Retry queued. Resuming from the last checkpoint.", severity="information")
+        await self.refresh_status()
 
     def action_cancel(self) -> None:
         self.run_worker(self._cancel_flow(), exclusive=True)
