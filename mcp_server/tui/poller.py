@@ -164,6 +164,11 @@ class MilestoneTracker:
                 milestones.append(
                     Milestone("Generation completed", f"{short}... completed")
                 )
+            elif status == "cancelled":
+                # User-initiated stop — announce neutrally, not as a failure.
+                milestones.append(
+                    Milestone("Generation cancelled", f"{short}... cancelled by user")
+                )
             else:
                 milestones.append(Milestone("Generation failed", f"{short}... failed"))
         self._last_status = status

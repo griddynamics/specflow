@@ -36,6 +36,7 @@ class TriggeredBy:
     MANUAL_RETRY        = "api:manual_retry"
     RUN_GENERATION      = "api:run_generation"
     RESEND_EMAIL        = "api:resend_email"
+    CANCEL              = "api:cancel_generation_session"
     FORCE_RELEASE       = "admin:force_release"
     VALIDATE_CONTRACT      = "api:validate_contract"
 
@@ -113,6 +114,16 @@ GENERATION_SESSION_TRANSITIONS: dict[str, GenerationSessionTransition] = {
         name="stuck_detected",
         from_states=frozenset([GenerationStatus.RUNNING]),
         to_state=GenerationStatus.FAILED,
+        required_fields=("triggered_by",),
+    ),
+    "cancel": GenerationSessionTransition(
+        name="cancel",
+        from_states=frozenset([
+            GenerationStatus.PENDING,
+            GenerationStatus.INITIALIZING,
+            GenerationStatus.RUNNING,
+        ]),
+        to_state=GenerationStatus.CANCELLED,
         required_fields=("triggered_by",),
     ),
     "reset_for_retry": GenerationSessionTransition(

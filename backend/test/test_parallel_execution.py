@@ -213,6 +213,27 @@ class TestParallelAgentExecutor:
         assert "Simulated failure" in results[1].error
     
     @pytest.mark.asyncio
+    async def test_execute_parallel_reraises_cancellation(self, mock_settings, workspaces):
+        """A cooperative cancellation must abort the whole fan-out, not degrade to a
+        per-workspace failure result absorbed by gather(return_exceptions=True)."""
+        from app.state.exceptions import GenerationCancelledError
+
+        logger = Mock()
+        workspace_manager = WorkspaceManager(mock_settings, logger)
+        executor = ParallelAgentExecutor(workspace_manager, logger)
+
+        async def mock_agent_function(workspace, manager, log):
+            if workspace.provider == "anthropic":
+                raise GenerationCancelledError("gen-1")
+            return AgentResult(result="ok", session_id="s")
+
+        with pytest.raises(GenerationCancelledError):
+            await executor.execute_parallel(
+                workspaces=workspaces,
+                agent_fn=mock_agent_function,
+            )
+
+    @pytest.mark.asyncio
     async def test_execute_parallel_workflow(self, mock_settings, workspaces):
         """Test parallel workflow execution."""
         logger = Mock()

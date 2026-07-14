@@ -27,8 +27,11 @@ class TestGenerationStatusValues:
     def test_failed(self):
         assert GenerationStatus.FAILED == "failed"
 
+    def test_cancelled(self):
+        assert GenerationStatus.CANCELLED == "cancelled"
+
     def test_no_extra_values(self):
-        expected = {"pending", "initializing", "running", "completed", "failed"}
+        expected = {"pending", "initializing", "running", "completed", "failed", "cancelled"}
         assert {s.value for s in GenerationStatus} == expected
 
 

@@ -16,6 +16,7 @@ from app.api.v1.generation_sessions import (
     _handle_workflow_exception,
     get_generation_session_retry_service,
     get_generation_session_service,
+    get_generation_task_registry,
     get_workspace_pool,
     list_generation_sessions,
     router as generation_sessions_router,
@@ -38,7 +39,17 @@ def mock_retry_service():
 
 
 @pytest.fixture
-def app(test_app, mock_workspace_pool, mock_generation_session_service, mock_retry_service):
+def mock_task_registry():
+    """Mock GenerationTaskRegistry injected in place of the app.state singleton."""
+    registry = Mock()
+    registry.register_current_task = Mock()
+    registry.deregister_task = Mock()
+    registry.cancel_task = Mock(return_value=True)
+    return registry
+
+
+@pytest.fixture
+def app(test_app, mock_workspace_pool, mock_generation_session_service, mock_retry_service, mock_task_registry):
     """Create FastAPI app with generation_sessions router and mocked dependencies."""
     # Include router
     test_app.include_router(generation_sessions_router, prefix="/api/v1")
@@ -52,7 +63,10 @@ def app(test_app, mock_workspace_pool, mock_generation_session_service, mock_ret
     
     def override_get_generation_session_retry_service():
         return mock_retry_service
-    
+
+    def override_get_generation_task_registry():
+        return mock_task_registry
+
     # Override authorization dependencies to skip ownership check in tests
     # Tests will use db fixture to create sessions with matching user_email
     from app.api.dependencies import (
@@ -67,6 +81,7 @@ def app(test_app, mock_workspace_pool, mock_generation_session_service, mock_ret
     test_app.dependency_overrides[get_workspace_pool] = override_get_workspace_pool
     test_app.dependency_overrides[get_generation_session_service] = override_get_generation_session_service
     test_app.dependency_overrides[get_generation_session_retry_service] = override_get_generation_session_retry_service
+    test_app.dependency_overrides[get_generation_task_registry] = override_get_generation_task_registry
     test_app.dependency_overrides[require_generation_session_owner] = override_require_generation_session_owner
     test_app.dependency_overrides[require_generation_session_owner_form] = override_require_generation_session_owner
     test_app.dependency_overrides[require_generation_session_owner_or_admin] = override_require_generation_session_owner
@@ -797,11 +812,12 @@ class TestCancelGenerationSession:
     """Tests for DELETE /generation-sessions/{generation_id} endpoint."""
     
     def test_cancel_generation_success(
-        self, client, mock_generation_session_service
+        self, client, mock_generation_session_service, mock_task_registry
     ):
-        """Test successful cancellation of running generation session."""
+        """Cancellation transitions to CANCELLED (not FAILED), stops the local task,
+        and never routes through the error-notifying fail path."""
         generation_id = "est-cancel-123"
-        
+
         running_doc = {
             "generation_id": generation_id,
             "status": "running",
@@ -819,29 +835,50 @@ class TestCancelGenerationSession:
             "error": None,
             "user_email": "test@example.com"
         }
-        
+
         mock_generation_session_service.get_generation_session_status = AsyncMock(
             return_value=running_doc
         )
+        mock_generation_session_service.cancel_generation_session = AsyncMock()
         mock_generation_session_service.fail_generation_session = AsyncMock()
-        
+
         response = client.delete(
             f"/api/v1/generation-sessions/{generation_id}",
             headers={"X-API-Key": "test-key"}
         )
-        
+
         assert response.status_code == 200
         data = response.json()
-        
+
         assert data["generation_id"] == generation_id
-        assert data["status"] == "failed"
-        assert "cancelled" in data["message"].lower()
-        
-        mock_generation_session_service.fail_generation_session.assert_called_once_with(
-            generation_id=generation_id,
-            error="Cancelled by user"
+        assert data["status"] == "cancelled"
+
+        mock_generation_session_service.cancel_generation_session.assert_called_once_with(
+            generation_id
         )
-    
+        # The error-notifying failure path must NOT be used for a user cancellation.
+        mock_generation_session_service.fail_generation_session.assert_not_called()
+        mock_task_registry.cancel_task.assert_called_once_with(generation_id)
+
+    def test_cancel_generation_already_cancelled(
+        self, client, mock_generation_session_service
+    ):
+        """Cannot cancel a session that is already CANCELLED (terminal)."""
+        generation_id = "est-already-cancelled"
+        mock_generation_session_service.get_generation_session_status = AsyncMock(
+            return_value={"generation_id": generation_id, "status": "cancelled"}
+        )
+        mock_generation_session_service.cancel_generation_session = AsyncMock()
+
+        response = client.delete(
+            f"/api/v1/generation-sessions/{generation_id}",
+            headers={"X-API-Key": "test-key"}
+        )
+
+        assert response.status_code == 400
+        assert "Cannot cancel" in response.json()["detail"]
+        mock_generation_session_service.cancel_generation_session.assert_not_called()
+
     def test_cancel_generation_already_completed(
         self, client, mock_generation_session_service
     ):
