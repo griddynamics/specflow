@@ -217,8 +217,8 @@ async def rerun_generation_session(
     generation_id: str,
     *,
     generation_session_service: GenerationSessionService,
+    task_registry: GenerationTaskRegistry,
     user_email: str | None = None,
-    task_registry: GenerationTaskRegistry | None = None,
 ) -> None:
     """Re-fire a generation session from its persisted parameters.
 
@@ -252,8 +252,7 @@ async def rerun_generation_session(
     }
 
     try:
-        if task_registry is not None:
-            task_registry.register_current_task(generation_id)
+        task_registry.register_current_task(generation_id)
         TelemetryContext.set_user_context(
             user_email=user_email,
             generation_id=generation_id,
@@ -312,6 +311,5 @@ async def rerun_generation_session(
         # GenerationCancelledError is handled as a silent no-op there.
         await _handle_workflow_exception(e, generation_id, generation_session_service)
     finally:
-        if task_registry is not None:
-            task_registry.deregister_task(generation_id)
+        task_registry.deregister_task(generation_id)
         TelemetryContext.set_agent_query_totals_handler(None)

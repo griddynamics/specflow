@@ -376,11 +376,6 @@ async def execute_generation_parallel(
                 duration_ms=duration_ms
             )
 
-        except GenerationCancelledError:
-            # User cancellation aborts the whole estimation fan-out (gather uses
-            # return_exceptions=False, so this propagates out immediately).
-            raise
-
         except Exception as e:
             # Handle other errors
             duration_ms = (time.time() - start_time) * 1000

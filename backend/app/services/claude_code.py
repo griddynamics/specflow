@@ -1200,9 +1200,10 @@ async def execute_all_phases(
     consecutive_errors = 0
     for phase_num in range(phase_start, phase_end + 1):
         # Cooperative cancellation: stop between phases if the user cancelled
-        # (cross-pod-safe fallback to the local task.cancel()).
-        if db_adapter is not None and request.generation_id:
-            await raise_if_cancelled(db_adapter, request.generation_id)
+        # (cross-pod-safe fallback to the local task.cancel()). raise_if_cancelled
+        # no-ops when db_adapter is None (only in DB-less unit tests; every real run
+        # wires a generation_session_service).
+        await raise_if_cancelled(db_adapter, request.generation_id)
 
         phase_info = planning_data.phases[phase_num - 1]
 

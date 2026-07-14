@@ -1084,7 +1084,7 @@ async def _run_generation_session_workflow(
     spec_path: str,
     session,
     generation_session_service,
-    task_registry: GenerationTaskRegistry | None = None,
+    task_registry: GenerationTaskRegistry,
 ) -> None:
     """Background task: run app generation + P10Y estimation, release session slot when done."""
     agent_logger = create_agent_logger(
@@ -1099,8 +1099,7 @@ async def _run_generation_session_workflow(
     normalized_src_dir = generation_session_params.get("src_dir", "src")
 
     try:
-        if task_registry is not None:
-            task_registry.register_current_task(generation_id)
+        task_registry.register_current_task(generation_id)
         async with session.task_slot(generation_id=generation_id):
             logger.info("Starting app generation + P10Y workflow for %s", generation_id)
             agent_logger.info("Starting app generation + P10Y workflow for %s", generation_id)
@@ -1137,8 +1136,7 @@ async def _run_generation_session_workflow(
         # else → fail (FAILED). GenerationCancelledError is handled as a silent no-op there.
         await _handle_workflow_exception(e, generation_id, generation_session_service)
     finally:
-        if task_registry is not None:
-            task_registry.deregister_task(generation_id)
+        task_registry.deregister_task(generation_id)
         TelemetryContext.set_agent_query_totals_handler(None)
 
 

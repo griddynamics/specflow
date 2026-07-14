@@ -51,6 +51,12 @@ async def test_noop_when_missing_doc():
 
 
 @pytest.mark.asyncio
+async def test_noop_when_db_adapter_is_none():
+    # No DB wired (DB-less unit-test path) — must be a silent no-op, never raise.
+    await raise_if_cancelled(None, "est-1", min_interval_s=0.0)
+
+
+@pytest.mark.asyncio
 async def test_throttles_repeated_reads():
     adapter = FakeAdapter(status=GenerationStatus.RUNNING.value)
     # First call hits the DB; the immediate second call is throttled (no DB read).

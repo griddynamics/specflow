@@ -8,7 +8,6 @@ import subprocess
 from typing import Any, Dict, List, Optional
 
 from app.services.p10y.p10y_api_client import P10YInternalAPIClient
-from app.state.cancellation import raise_if_cancelled
 
 # Commits whose first line starts with this prefix are excluded from P10Y / component breakdown
 # (e.g. user-provided initial seed: SKIP_initial_user_source, SKIP_generation_baseline).
@@ -371,8 +370,6 @@ async def trigger_and_poll_p10y_metrics(
     organisation_id: int,
     workspace_name: str,
     logger: logging.Logger,
-    db_adapter=None,
-    generation_id: Optional[str] = None,
 ) -> None:
     """
     Trigger P10Y metrics calculation and poll until processing is complete.
@@ -383,8 +380,6 @@ async def trigger_and_poll_p10y_metrics(
         organisation_id: P10Y organisation ID
         workspace_name: Workspace name for logging
         logger: Logger instance
-        db_adapter: Optional state-machine DB adapter for cooperative cancellation checks
-        generation_id: Optional generation id for cooperative cancellation checks
     """
     # Trigger P10Y metrics calculation
     logger.info(f"Triggering P10Y metrics for repository {repository_id}")
@@ -401,11 +396,6 @@ async def trigger_and_poll_p10y_metrics(
     poll_limit = 10
     
     while not all_commits_processed and poll_counter < poll_limit:
-        # Cooperative cancellation: stop polling if the user cancelled
-        # (cross-pod-safe fallback to the local task.cancel()).
-        if db_adapter is not None and generation_id:
-            await raise_if_cancelled(db_adapter, generation_id)
-
         logger.info(f"Polling attempt {poll_counter + 1} / {poll_limit}")
 
         commit_stats_polled = await client.get_commit_stats(
