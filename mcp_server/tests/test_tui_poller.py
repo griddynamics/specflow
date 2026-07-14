@@ -47,6 +47,18 @@ class TestMilestoneTracker:
         out = tracker.process({"status": "failed", "checkpoint": "generation_started"})
         assert any("failed" in m.message for m in out)
 
+    def test_cancelled_fires_neutrally_once(self):
+        # A user cancellation is announced as "cancelled", never as a failure.
+        tracker = MilestoneTracker("gen_abc123def456")
+        tracker.process({"status": "running", "checkpoint": "generation_started"})
+        out = tracker.process({"status": "cancelled", "checkpoint": "generation_started"})
+        assert len(out) == 1
+        assert "cancelled" in out[0].title.lower()
+        assert "cancelled" in out[0].message
+        assert not any("failed" in m.message for m in out)
+        # Terminal — fires exactly once.
+        assert tracker.process({"status": "cancelled", "checkpoint": "generation_started"}) == []
+
     def test_workspace_phase_progress_fires_once_per_change(self):
         tracker = MilestoneTracker("gen_abc123def456")
         tracker.process(

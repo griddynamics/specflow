@@ -97,7 +97,7 @@ STEP_SYMBOLS: dict[StepState, str] = {
 }
 
 # Terminal statuses — mirror of services.cli_service._TERMINAL_STATUSES.
-TERMINAL_STATUSES: frozenset[str] = frozenset({"completed", "failed"})
+TERMINAL_STATUSES: frozenset[str] = frozenset({"completed", "failed", "cancelled"})
 
 # Status pill text + Rich style per lifecycle status (lowercased).
 STATUS_PILLS: dict[str, tuple[str, str]] = {
@@ -106,6 +106,7 @@ STATUS_PILLS: dict[str, tuple[str, str]] = {
     "running": ("⬤ RUNNING", "green"),
     "completed": ("✓ COMPLETED", "bold green"),
     "failed": ("✗ FAILED", "bold red"),
+    "cancelled": ("⊘ CANCELLED", "dim"),
     "unknown": ("? UNKNOWN", "dim"),
 }
 
