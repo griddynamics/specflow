@@ -1286,6 +1286,12 @@ async def execute_all_phases(
                     f"(model={workspace.model}). Aborting workspace — other workspaces continue. "
                     f"Error: {phase_result.result}"
                 )
+            if error_type == AgentErrorType.CONNECTION_ERROR:
+                raise WorkspaceAbortedError(
+                    f"[{workspace_name}] Phase {phase_num} lost connection to the API "
+                    f"(model={workspace.model}). Aborting workspace — other workspaces continue. "
+                    f"Error: {phase_result.result}"
+                )
             consecutive_errors += 1
             logger.error(
                 f"[{workspace_name}] Phase {phase_num} reported is_error=True "
