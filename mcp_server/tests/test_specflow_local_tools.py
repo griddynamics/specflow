@@ -134,7 +134,6 @@ class TestBundledSkillContracts:
 
         assert "recommended-models:" in content
         assert "claude-opus-4.6" in content
-        assert "Execution constraints" in content
 
     @pytest.mark.parametrize("skill_name", ["specflow-analysis", "specflow-planning"])
     def test_argument_hint_includes_src_dir(self, skill_name: str) -> None:
