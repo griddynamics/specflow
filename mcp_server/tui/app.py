@@ -154,7 +154,7 @@ def _workspaces_panel(payload: dict[str, Any], selected_ws_id: str | None = None
             Text(marker, style="yellow"),
             Text(bar.workspace_id, style=id_style),
             Text(bar.phase_label, style="cyan"),
-            Text(bar.phase_name[:32], style="dim"),
+            Text(bar.active_phase_name[:32], style="dim"),
             Text(render.progress_bar(bar.fraction), style="green"),
             Text(f"{bar.percent}%"),
         )
@@ -284,8 +284,8 @@ def build_workspace_stats(payload: dict[str, Any] | None, workspace_id: str) -> 
     if stats.models:
         grid.add_row("Model(s)", ", ".join(stats.models))
     phase = f"{stats.phase_label}".strip()
-    if stats.phase_name:
-        phase += f"  {stats.phase_name}"
+    if stats.active_phase_name:
+        phase += f"  {stats.active_phase_name}"
     grid.add_row("Phase", phase)
     grid.add_row("Progress", f"{render.progress_bar(stats.fraction)}  {stats.percent}%")
     if stats.has_usage:
@@ -2195,7 +2195,7 @@ def _plain_status(payload: dict[str, Any] | None, generation_id: str) -> str:
     if tokens:
         lines.append(f"  Usage:    {tokens}")
     for bar in render.workspace_bars(payload):
-        lines.append(f"  {bar.workspace_id}  {bar.phase_label}  {bar.percent}%  {bar.phase_name}")
+        lines.append(f"  {bar.workspace_id}  {bar.phase_label}  {bar.percent}%  {bar.active_phase_name}")
     return "\n".join(lines)
 
 
