@@ -16,11 +16,13 @@ import ast
 import json
 import re
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 import scripts.create_generation_session_repos as cgsr
+from app.services.git_provider import GitProvider
 from app.services.p10y.p10y_api_client import P10YInternalAPIClient
 from app.services.workspace_pool_seeding import WorkspacePoolEntry
 
@@ -55,7 +57,7 @@ class TestEmitWorkspaceConfig:
 
         cgsr.emit_workspace_config(
             repo_id_map=repo_id_map,
-            github_org="test-org",
+            owner="test-org",
             prefix="specflow-workspace",
             workspace_pool="default",
             output_path=output,
@@ -79,7 +81,7 @@ class TestEmitWorkspaceConfig:
 
         cgsr.emit_workspace_config(
             repo_id_map=repo_id_map,
-            github_org="my-org",
+            owner="my-org",
             prefix="specflow-workspace",
             workspace_pool="testpool",
             output_path=output,
@@ -102,7 +104,7 @@ class TestEmitWorkspaceConfig:
 
         cgsr.emit_workspace_config(
             repo_id_map=repo_id_map,
-            github_org="org",
+            owner="org",
             prefix="specflow-workspace",
             workspace_pool="default",
             output_path=output,
@@ -120,7 +122,7 @@ class TestEmitWorkspaceConfig:
 
         cgsr.emit_workspace_config(
             repo_id_map=repo_id_map,
-            github_org="my-org",
+            owner="my-org",
             prefix="specflow-workspace",
             workspace_pool="default",
             output_path=output,
@@ -136,7 +138,7 @@ class TestEmitWorkspaceConfig:
 
         cgsr.emit_workspace_config(
             repo_id_map=repo_id_map,
-            github_org="org",
+            owner="org",
             prefix="specflow-workspace",
             workspace_pool="default",
             output_path=output,
@@ -154,7 +156,7 @@ class TestEmitWorkspaceConfig:
 
         cgsr.emit_workspace_config(
             repo_id_map=repo_id_map,
-            github_org="org",
+            owner="org",
             prefix="specflow-workspace",
             workspace_pool="custom-pool",
             output_path=output,
@@ -169,7 +171,7 @@ class TestEmitWorkspaceConfig:
 
         cgsr.emit_workspace_config(
             repo_id_map={"specflow-workspace1": 1},
-            github_org="org",
+            owner="org",
             prefix="specflow-workspace",
             workspace_pool="default",
             output_path=output,
@@ -611,3 +613,95 @@ class TestMakefileCreateReposTarget:
         assert _SCRIPT_FILE.exists(), (
             f"Script not found at expected path: {_SCRIPT_FILE}"
         )
+
+
+# ===========================================================================
+# (f) _repo_url — provider-generic URL construction
+# ===========================================================================
+
+class TestRepoUrl:
+    def test_github(self):
+        assert cgsr._repo_url(GitProvider.GITHUB, "my-org", "repo1") == "https://github.com/my-org/repo1"
+
+    def test_bitbucket(self):
+        assert cgsr._repo_url(GitProvider.BITBUCKET_CLOUD, "my-ws", "repo1") == "https://bitbucket.org/my-ws/repo1"
+
+
+# ===========================================================================
+# (g) emit_workspace_config — BitBucket owner/provider + null p10y id
+# ===========================================================================
+
+class TestEmitWorkspaceConfigBitbucket:
+    def test_bitbucket_repo_url_and_null_p10y_id(self, tmp_path):
+        output = str(tmp_path / "workspaces.json")
+
+        cgsr.emit_workspace_config(
+            repo_id_map={"specflow-workspace1": None},
+            owner="my-ws",
+            prefix="specflow-workspace",
+            workspace_pool="default",
+            output_path=output,
+            provider=GitProvider.BITBUCKET_CLOUD,
+        )
+
+        data = json.load(open(output, encoding="utf-8"))
+        assert data[0]["repo_url"] == "https://bitbucket.org/my-ws/specflow-workspace1"
+        assert data[0]["p10y_repository_id"] is None
+
+
+# ===========================================================================
+# (h) BitbucketCloudAPIClient — create/exists against mocked httpx
+# ===========================================================================
+
+class TestBitbucketCloudAPIClient:
+    @pytest.mark.asyncio
+    async def test_repository_exists_true(self):
+        client = cgsr.BitbucketCloudAPIClient("tok", "my-ws")
+        with patch.object(client.client, "get", new=AsyncMock(return_value=MagicMock(status_code=200))):
+            assert await client.repository_exists("repo1") is True
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_repository_exists_false(self):
+        client = cgsr.BitbucketCloudAPIClient("tok", "my-ws")
+        with patch.object(client.client, "get", new=AsyncMock(return_value=MagicMock(status_code=404))):
+            assert await client.repository_exists("repo1") is False
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_create_repository_success(self):
+        client = cgsr.BitbucketCloudAPIClient("tok", "my-ws")
+        response = MagicMock(status_code=201)
+        response.raise_for_status = MagicMock()
+        response.json.return_value = {"name": "repo1"}
+        with patch.object(client.client, "post", new=AsyncMock(return_value=response)):
+            result = await client.create_repository("repo1")
+        assert result == {"name": "repo1"}
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_create_repository_already_exists_is_idempotent(self):
+        client = cgsr.BitbucketCloudAPIClient("tok", "my-ws")
+        create_response = MagicMock(status_code=400, text="Repository already exists")
+        get_response = MagicMock(status_code=200)
+        get_response.raise_for_status = MagicMock()
+        get_response.json.return_value = {"name": "repo1", "already_existed": True}
+        with (
+            patch.object(client.client, "post", new=AsyncMock(return_value=create_response)),
+            patch.object(client.client, "get", new=AsyncMock(return_value=get_response)),
+        ):
+            result = await client.create_repository("repo1")
+        assert result["already_existed"] is True
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_create_repository_other_error_raises(self):
+        client = cgsr.BitbucketCloudAPIClient("tok", "my-ws")
+        response = MagicMock(status_code=403, text="Forbidden")
+        response.raise_for_status = MagicMock(
+            side_effect=httpx.HTTPStatusError("403", request=MagicMock(), response=response)
+        )
+        with patch.object(client.client, "post", new=AsyncMock(return_value=response)):
+            with pytest.raises(httpx.HTTPStatusError):
+                await client.create_repository("repo1")
+        await client.close()

@@ -10,10 +10,16 @@ The secret keys and masking referenced here are *derived* from ``tui.config``
 (``ENV_SECRET_KEYS`` / ``MASKED_KEYS``) — never restated — and a module-load
 assertion fails loudly if a step ever references a key that isn't a known
 secret, so this content cannot silently drift from the writer in ``config.py``.
+
+A wizard can have more than one ``CHOICE`` step (LLM provider, git host, ...).
+Each is independent: the "chosen option per step" state is a
+``dict[step_id, option_id]`` (see ``default_choices``), and every function
+below that used to take a single "chosen provider" string now takes that dict.
 """
 
 from __future__ import annotations
 
+import itertools
 from dataclasses import dataclass
 from enum import Enum
 
@@ -23,18 +29,17 @@ from tui.config import ENV_SECRET_KEYS, LANGFUSE_KEYS, MASKED_KEYS, langfuse_par
 PROVIDER_OPENROUTER = "openrouter"
 PROVIDER_ANTHROPIC = "anthropic"
 
-# Secret keys for the two LLM providers (exactly one is collected per run).
-PROVIDER_KEYS: dict[str, str] = {
-    PROVIDER_OPENROUTER: "OPENROUTER_API_KEY",
-    PROVIDER_ANTHROPIC: "ANTHROPIC_API_KEY",
-}
+# Provider option ids for the git-host choice step. A deployment is either
+# all-GitHub or all-BitBucket, never mixed — mirrors the backend's GitProvider.
+GIT_PROVIDER_GITHUB = "github"
+GIT_PROVIDER_BITBUCKET = "bitbucket_cloud"
 
 
 class StepKind(Enum):
     """What a wizard step renders/collects."""
 
     INFO = "info"  # explanatory only — no fields
-    CHOICE = "choice"  # provider pick — reveals one field for the choice
+    CHOICE = "choice"  # pick one option — reveals that option's field(s)
     FIELDS = "fields"  # one or more plain input rows
     REVIEW = "review"  # read-only recap + Save & Initialize
 
@@ -56,14 +61,14 @@ class Field:
 
 @dataclass(frozen=True)
 class Choice:
-    """One option in a ``CHOICE`` step, revealing a single field when picked."""
+    """One option in a ``CHOICE`` step, revealing its field(s) when picked."""
 
     option_id: str
     label: str
     why: str
     how_to: tuple[str, ...]
     url: str
-    field: Field
+    fields: tuple[Field, ...]
 
 
 @dataclass(frozen=True)
@@ -123,7 +128,7 @@ _PROVIDER = Step(
                 "2. Create a key and paste it below.",
             ),
             url="https://openrouter.ai/keys",
-            field=Field("OPENROUTER_API_KEY", "OpenRouter API key", required=True),
+            fields=(Field("OPENROUTER_API_KEY", "OpenRouter API key", required=True),),
         ),
         Choice(
             option_id=PROVIDER_ANTHROPIC,
@@ -134,41 +139,76 @@ _PROVIDER = Step(
                 "2. Create a key and paste it below.",
             ),
             url="https://console.anthropic.com/settings/keys",
-            field=Field("ANTHROPIC_API_KEY", "Anthropic API key", required=True),
+            fields=(Field("ANTHROPIC_API_KEY", "Anthropic API key", required=True),),
         ),
     ),
 )
 
-_GITHUB = Step(
-    step_id="github",
-    title="GitHub access",
-    kind=StepKind.FIELDS,
+_GIT = Step(
+    step_id="git",
+    title="Choose your git host",
+    kind=StepKind.CHOICE,
     why=(
-        "A GitHub Personal Access Token lets SpecFlow create and manage the "
-        "disposable workspace repos where agents commit generated code. Create "
-        "ONE token here and reuse it for the Compass integration in the next "
-        "step — no second GitHub key needed."
+        "SpecFlow needs exactly one git host to create and manage the disposable "
+        "workspace repos where agents commit generated code. A deployment is "
+        "either all-GitHub or all-BitBucket, never mixed."
     ),
-    how_to=(
-        "1. Open https://github.com/settings/tokens/new?scopes=repo,read:user,workflow,admin:repo_hook,user",
-        "2. Create a classic PAT. SpecFlow always uses `repo` + `read:user` (to create",
-        "   workspace repos and resolve your GitHub login), plus `workflow` for deploy/E2E",
-        "   runs; `admin:repo_hook` + full `user` are added so the SAME token also works",
-        "   for the Compass GitHub integration in the next step.",
-        "3. Paste it below.",
-    ),
-    url="https://github.com/settings/tokens/new?scopes=repo,read:user,workflow,admin:repo_hook,user",
-    fields=(
-        Field("GITHUB_TOKEN", "GitHub token", required=True),
-        Field(
-            "GITHUB_ORG",
-            "GitHub org (optional)",
-            hint="GH org for workspace repos; blank = your GitHub login",
+    default_choice=GIT_PROVIDER_GITHUB,
+    choices=(
+        Choice(
+            option_id=GIT_PROVIDER_GITHUB,
+            label="GitHub  (default)",
+            why=(
+                "A GitHub Personal Access Token lets SpecFlow create and manage the "
+                "disposable workspace repos. Create ONE token here and reuse it for "
+                "the Compass integration in the next step — no second GitHub key needed."
+            ),
+            how_to=(
+                "1. Open https://github.com/settings/tokens/new?scopes=repo,read:user,workflow,admin:repo_hook,user",
+                "2. Create a classic PAT. SpecFlow always uses `repo` + `read:user` (to create",
+                "   workspace repos and resolve your GitHub login), plus `workflow` for deploy/E2E",
+                "   runs; `admin:repo_hook` + full `user` are added so the SAME token also works",
+                "   for the Compass GitHub integration in the next step.",
+                "3. Paste it below.",
+            ),
+            url="https://github.com/settings/tokens/new?scopes=repo,read:user,workflow,admin:repo_hook,user",
+            fields=(
+                Field("GITHUB_TOKEN", "GitHub token", required=True),
+                Field(
+                    "GITHUB_ORG",
+                    "GitHub org (optional)",
+                    hint="GH org for workspace repos; blank = your GitHub login",
+                ),
+                Field(
+                    "GIT_USER_NAME",
+                    "GitHub username (optional)",
+                    hint="auto-resolved from your GitHub login (GET /user) when blank",
+                ),
+            ),
         ),
-        Field(
-            "GIT_USER_NAME",
-            "GitHub username (optional)",
-            hint="auto-resolved from your GitHub login (GET /user) when blank",
+        Choice(
+            option_id=GIT_PROVIDER_BITBUCKET,
+            label="BitBucket Cloud",
+            why=(
+                "A BitBucket Cloud Workspace access token lets SpecFlow create and "
+                "manage the disposable workspace repos. No username needed — access "
+                "tokens always authenticate as the fixed actor `x-token-auth`."
+            ),
+            how_to=(
+                "1. Open your BitBucket workspace > Settings > Access tokens > Create access token.",
+                "2. Grant it repository read, write, and admin scopes.",
+                "3. Paste the token and your workspace slug below.",
+            ),
+            url="https://bitbucket.org",
+            fields=(
+                Field("BITBUCKET_TOKEN", "BitBucket access token", required=True),
+                Field(
+                    "BITBUCKET_WORKSPACE",
+                    "BitBucket workspace",
+                    required=True,
+                    hint="workspace slug that owns the workspace repos",
+                ),
+            ),
         ),
     ),
 )
@@ -184,10 +224,9 @@ _COMPASS = Step(
     ),
     how_to=(
         "1. Create a Compass account at https://compass.p10y.com (enterprise required).",
-        "2. Connect your GitHub org: Settings > Integrations > New Integration > GitHub;",
-        "   add the GH username/org owning the workspace repos; paste the SAME GitHub",
-        "   PAT you created in the previous step (it already has the scopes Compass",
-        "   needs: admin:repo_hook, repo:*, user:*, workflow:*); enable auto-discovery; save.",
+        "2. Connect your git host: Settings > Integrations > New Integration;",
+        "   add the username/org/workspace owning the workspace repos; paste the SAME",
+        "   token you created in the previous step; enable auto-discovery; save.",
         "3. Generate an API token: Settings > API Tokens > Generate.",
         "Docs: docs/quickstart-compass.md. init auto-resolves P10Y_ORGANISATION_ID.",
     ),
@@ -226,10 +265,12 @@ _REVIEW = Step(
     ),
 )
 
-STEPS: tuple[Step, ...] = (_WELCOME, _PROVIDER, _GITHUB, _COMPASS, _ADVANCED, _REVIEW)
+STEPS: tuple[Step, ...] = (_WELCOME, _PROVIDER, _GIT, _COMPASS, _ADVANCED, _REVIEW)
 
-# The provider-choice step, exposed so the screen need not hardcode an index.
+# Choice steps, exposed so the screen need not hardcode which steps are CHOICE.
 PROVIDER_STEP: Step = _PROVIDER
+GIT_STEP: Step = _GIT
+CHOICE_STEPS: tuple[Step, ...] = tuple(s for s in STEPS if s.kind is StepKind.CHOICE)
 
 
 # ---------------------------------------------------------------------------
@@ -242,7 +283,8 @@ def _all_field_keys() -> set[str]:
     keys: set[str] = set()
     for step in STEPS:
         keys.update(f.key for f in step.fields)
-        keys.update(c.field.key for c in step.choices)
+        for choice in step.choices:
+            keys.update(f.key for f in choice.fields)
     return keys
 
 
@@ -257,29 +299,52 @@ assert not _UNKNOWN_KEYS, (
 
 # ---------------------------------------------------------------------------
 # Pure validation + collection
+#
+# ``chosen`` is a dict[step_id, option_id] — one entry per CHOICE step. Use
+# ``default_choices()`` to seed it.
 # ---------------------------------------------------------------------------
 
 
-def provider_field(chosen_provider: str) -> Field:
-    """The single LLM key field for the chosen provider."""
-    choice = next(c for c in _PROVIDER.choices if c.option_id == chosen_provider)
-    return choice.field
+def default_choices() -> dict[str, str]:
+    """The default option id for every CHOICE step, keyed by step_id."""
+    return {step.step_id: step.default_choice for step in CHOICE_STEPS}
 
 
-def required_keys(chosen_provider: str) -> list[str]:
+def choice_fields(step: Step, chosen_option: str) -> tuple[Field, ...]:
+    """The field(s) revealed by the chosen option of a CHOICE step."""
+    choice = next(c for c in step.choices if c.option_id == chosen_option)
+    return choice.fields
+
+
+def _field_by_key() -> dict[str, Field]:
+    field_by_key: dict[str, Field] = {f.key: f for step in STEPS for f in step.fields}
+    for step in CHOICE_STEPS:
+        for choice in step.choices:
+            field_by_key.update({f.key: f for f in choice.fields})
+    return field_by_key
+
+
+def required_keys(chosen: dict[str, str]) -> list[str]:
     """All keys that must be non-empty for a complete setup, in step order."""
-    keys: list[str] = [provider_field(chosen_provider).key]
+    keys: list[str] = []
     for step in STEPS:
-        keys.extend(f.key for f in step.fields if f.required)
+        if step.kind is StepKind.CHOICE:
+            keys.extend(f.key for f in choice_fields(step, chosen[step.step_id]) if f.required)
+        else:
+            keys.extend(f.key for f in step.fields if f.required)
     return keys
 
 
-def validate_step(step: Step, values: dict[str, str], chosen_provider: str) -> str | None:
+def validate_step(step: Step, values: dict[str, str], chosen: dict[str, str]) -> str | None:
     """Return an error string if the step's required inputs are unmet, else None."""
     if step.kind is StepKind.CHOICE:
-        f = provider_field(chosen_provider)
-        if not values.get(f.key, "").strip():
-            return f"{f.label} is required — paste it to continue."
+        missing = [
+            f.label
+            for f in choice_fields(step, chosen[step.step_id])
+            if f.required and not values.get(f.key, "").strip()
+        ]
+        if missing:
+            return "Missing required field(s): " + ", ".join(missing)
         return None
     if step.kind is StepKind.FIELDS:
         missing = [f.label for f in step.fields if f.required and not values.get(f.key, "").strip()]
@@ -292,17 +357,12 @@ def validate_step(step: Step, values: dict[str, str], chosen_provider: str) -> s
     return None
 
 
-def validate_all(values: dict[str, str], chosen_provider: str) -> str | None:
-    """Final gate before save — every required key must be present.
-
-    Reproduces the original ``_validation_error`` rule (GitHub token + P10Y key
-    + exactly the chosen LLM provider key) so the contract lives in one place.
-    """
-    field_by_key = {f.key: f for step in STEPS for f in step.fields}
-    field_by_key.update({c.field.key: c.field for c in _PROVIDER.choices})
+def validate_all(values: dict[str, str], chosen: dict[str, str]) -> str | None:
+    """Final gate before save — every required key (for the chosen options) must be present."""
+    field_by_key = _field_by_key()
     missing = [
         field_by_key[key].label
-        for key in required_keys(chosen_provider)
+        for key in required_keys(chosen)
         if not values.get(key, "").strip()
     ]
     if missing:
@@ -311,18 +371,28 @@ def validate_all(values: dict[str, str], chosen_provider: str) -> str | None:
 
 
 def env_satisfies_requirements(secrets: dict[str, str]) -> bool:
-    """True if an existing ``.env`` already has every required key for a provider.
+    """True if an existing ``.env`` already has every required key for some combination
+    of choices (e.g. some LLM provider AND some git host).
 
-    Reuses ``validate_all`` against each known provider so the "what's required"
-    contract stays defined in exactly one place (no second validator). A ``.env``
-    is sufficient when it satisfies either provider's requirements.
+    Reuses ``validate_all`` against every combination so the "what's required"
+    contract stays defined in exactly one place (no second validator).
     """
-    return any(validate_all(secrets, provider) is None for provider in PROVIDER_KEYS)
+    option_lists = [[c.option_id for c in step.choices] for step in CHOICE_STEPS]
+    for combo in itertools.product(*option_lists):
+        chosen = {step.step_id: option for step, option in zip(CHOICE_STEPS, combo)}
+        if validate_all(secrets, chosen) is None:
+            return True
+    return False
 
 
-def collected_secrets(values: dict[str, str], chosen_provider: str) -> dict[str, str]:
-    """Non-empty values to write to ``.env``, omitting the non-chosen provider key."""
-    drop = {k for k in PROVIDER_KEYS.values() if k != provider_field(chosen_provider).key}
+def collected_secrets(values: dict[str, str], chosen: dict[str, str]) -> dict[str, str]:
+    """Non-empty values to write to ``.env``, omitting fields for unchosen options."""
+    drop: set[str] = set()
+    for step in CHOICE_STEPS:
+        chosen_option = chosen[step.step_id]
+        for choice in step.choices:
+            if choice.option_id != chosen_option:
+                drop.update(f.key for f in choice.fields)
     return {
         key: value.strip()
         for key, value in values.items()

@@ -1521,7 +1521,7 @@ class OnboardingScreen(_SpecFlowScreen):
     def __init__(self) -> None:
         super().__init__()
         self._index = 0
-        self._chosen_provider = onboarding.PROVIDER_STEP.default_choice
+        self._chosen: dict[str, str] = onboarding.default_choices()
         self._values: dict[str, str] = {}
 
     @property
@@ -1601,24 +1601,31 @@ class OnboardingScreen(_SpecFlowScreen):
         return rows
 
     def _choice_widgets(self, step: onboarding.Step) -> list[Any]:
+        chosen_option = self._chosen[step.step_id]
         radio = RadioSet(
             *(
-                RadioButton(c.label, value=(c.option_id == self._chosen_provider))
+                RadioButton(c.label, value=(c.option_id == chosen_option))
                 for c in step.choices
             ),
-            id="onboard-provider",
+            id="onboard-choice",
         )
-        # The selected provider's how-to + key field are (re)built into the
+        # The selected option's how-to + field(s) are (re)built into the
         # detail container by _render_choice_detail on mount and on selection.
         return [radio, VerticalScroll(id="onboard-choice-detail")]
 
     def _review_widget(self) -> Any:
         lines: list[str] = []
-        chosen = onboarding.provider_field(self._chosen_provider)
-        secrets = onboarding.collected_secrets(self._values, self._chosen_provider)
-        field_by_key = {f.key: f for s in onboarding.STEPS for f in s.fields}
-        field_by_key[chosen.key] = chosen
-        for key in [chosen.key, "GITHUB_TOKEN", "GITHUB_ORG", "GIT_USER_NAME", "P10Y_API_KEY"]:
+        secrets = onboarding.collected_secrets(self._values, self._chosen)
+        field_by_key: dict[str, onboarding.Field] = {f.key: f for s in onboarding.STEPS for f in s.fields}
+        review_keys: list[str] = []
+        for step in onboarding.STEPS:
+            if step.kind is onboarding.StepKind.CHOICE:
+                fields = onboarding.choice_fields(step, self._chosen[step.step_id])
+                field_by_key.update({f.key: f for f in fields})
+                review_keys.extend(f.key for f in fields)
+            else:
+                review_keys.extend(f.key for f in step.fields)
+        for key in review_keys:
             f = field_by_key[key]
             if f.masked:
                 shown = "•••• set" if secrets.get(key) else "— (missing)"
@@ -1669,7 +1676,7 @@ class OnboardingScreen(_SpecFlowScreen):
 
     def action_next(self) -> None:
         self._capture()
-        error = onboarding.validate_step(self.current_step, self._values, self._chosen_provider)
+        error = onboarding.validate_step(self.current_step, self._values, self._chosen)
         if error:
             self.notify(error, severity="error")
             return
@@ -1692,7 +1699,8 @@ class OnboardingScreen(_SpecFlowScreen):
             self._save_and_init()
 
     def on_radio_set_changed(self, event: RadioSet.Changed) -> None:
-        self._chosen_provider = onboarding.PROVIDER_STEP.choices[event.index].option_id
+        step = self.current_step
+        self._chosen[step.step_id] = step.choices[event.index].option_id
         self.call_later(self._render_choice_detail)
 
     async def _render_choice_detail(self) -> None:
@@ -1701,23 +1709,22 @@ class OnboardingScreen(_SpecFlowScreen):
         except NoMatches:
             return
         await detail.remove_children()
-        choice = next(
-            c for c in onboarding.PROVIDER_STEP.choices if c.option_id == self._chosen_provider
-        )
+        step = self.current_step
+        choice = next(c for c in step.choices if c.option_id == self._chosen[step.step_id])
         widgets: list[Any] = [Static(choice.why, classes="onboard-why")]
         widgets.extend(self._howto_widgets(choice.how_to))
-        widgets.extend(self._field_rows((choice.field,)))
+        widgets.extend(self._field_rows(choice.fields))
         await detail.mount(*widgets)
 
     # -- save + init (unchanged behaviour) ---------------------------------
 
     def _save_and_init(self) -> None:
         self._capture()
-        error = onboarding.validate_all(self._values, self._chosen_provider)
+        error = onboarding.validate_all(self._values, self._chosen)
         if error:
             self.notify(error, severity="error")
             return
-        non_empty = onboarding.collected_secrets(self._values, self._chosen_provider)
+        non_empty = onboarding.collected_secrets(self._values, self._chosen)
         save_env_secrets(self.app.root, non_empty)
         self.query_one("#onboard-go", Button).disabled = True
         self.run_worker(self._run_init(), exclusive=True)
