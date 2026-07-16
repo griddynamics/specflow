@@ -29,6 +29,11 @@ WORKSPACE_DEPLOY_WORKFLOW = "deploy.yml"
 # SQLITE_DB_PATH (via env) to address the same bind-mounted file by its real host path.
 CONTAINER_SQLITE_DB_PATH = "/root/.specflow/db/specflow.db"
 
+# Subdirectory under WORKSPACE_BASE_PATH holding per-workspace + shared tool caches
+# (npm/pip/go/gradle/…). Single source of truth shared by claude_code's cache-dir
+# setup and the agent OS-sandbox write allowlist (os_sandbox), so the two never drift.
+WORKSPACE_CACHE_SUBDIR = "caches"
+
 # Single source of truth for the P10Y/Compass endpoint.
 P10Y_DEFAULT_BASE_URL = "https://compass.p10y.com"
 

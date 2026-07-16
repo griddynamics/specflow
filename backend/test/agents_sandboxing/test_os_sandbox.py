@@ -12,6 +12,7 @@ from app.agents_sandboxing.os_sandbox import (
     DEFAULT_AGENT_SANDBOX_ALLOWED_DOMAINS,
     check_agent_sandbox_available,
     get_agent_sandbox_settings,
+    get_agent_sandbox_write_allowlist,
 )
 from app.core.config import settings
 from app.core.enums import BackendRuntime
@@ -39,6 +40,35 @@ class TestGetAgentSandboxSettings:
         )
         cfg = get_agent_sandbox_settings()
         assert cfg["network"]["allowedDomains"] == ["example.com", "foo.test"]
+
+
+class TestGetAgentSandboxWriteAllowlist:
+    def test_empty_in_docker_mode(self, monkeypatch):
+        monkeypatch.setattr(settings, "BACKEND_RUNTIME", BackendRuntime.DOCKER)
+        assert get_agent_sandbox_write_allowlist() == []
+
+    def test_grants_cache_subtree_in_process_mode(self, monkeypatch):
+        monkeypatch.setattr(settings, "BACKEND_RUNTIME", BackendRuntime.PROCESS)
+        monkeypatch.setattr(settings, "WORKSPACE_BASE_PATH", "/workspaces")
+        # Must match claude_code.setup_workspace_cache_directories' caches root and
+        # workspace_usage()'s single-slash absolute glob form.
+        assert get_agent_sandbox_write_allowlist() == [
+            "Edit(/workspaces/caches/**)",
+            "Write(/workspaces/caches/**)",
+        ]
+
+    def test_allowlist_actually_covers_the_real_cache_dirs(self, monkeypatch, tmp_path):
+        """Lock the single-source contract: every dir setup_workspace_cache_directories
+        creates must fall under the granted caches subtree, or process-mode installs break."""
+        from app.services.claude_code import setup_workspace_cache_directories
+
+        monkeypatch.setattr(settings, "BACKEND_RUNTIME", BackendRuntime.PROCESS)
+        monkeypatch.setattr(settings, "WORKSPACE_BASE_PATH", str(tmp_path))
+        rule = get_agent_sandbox_write_allowlist()[0]  # "Edit(<root>/**)"
+        caches_root = rule[len("Edit(") : -len("/**)")]
+        cache_env = setup_workspace_cache_directories(str(tmp_path / "ws-01-1"))
+        managed = [cache_env[k] for k in ("XDG_CACHE_HOME", "PIP_CACHE_DIR", "npm_config_cache")]
+        assert all(path.startswith(caches_root) for path in managed)
 
 
 class TestCheckAgentSandboxAvailable:

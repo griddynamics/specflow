@@ -19,13 +19,14 @@ refuses synchronously rather than running agents unconfined on the host.
 
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 from dataclasses import dataclass
 
 from claude_agent_sdk import SandboxNetworkConfig, SandboxSettings
 
-from app.core.config import settings
+from app.core.config import WORKSPACE_CACHE_SUBDIR, settings
 from app.core.enums import BackendRuntime
 
 # Curated network allowlist for sandboxed agent Bash commands (allow-only). Kept
@@ -105,6 +106,27 @@ def get_agent_sandbox_settings() -> SandboxSettings | None:
         excludedCommands=list(_SANDBOX_EXCLUDED_COMMANDS),
         network=network,
     )
+
+
+def get_agent_sandbox_write_allowlist() -> list[str]:
+    """Extra ``Edit``/``Write`` tool rules that widen the sandbox writable set in
+    process mode; empty in docker mode (no sandbox engaged).
+
+    The OS Bash sandbox only allows writes to the query ``cwd`` (the workspace) and
+    the session temp dir. But SpecFlow redirects every tool cache
+    (``setup_workspace_cache_directories``) to ``{WORKSPACE_BASE_PATH}/caches/…``,
+    which sits OUTSIDE ``cwd`` — so ``npm install`` / ``pip install`` / ``go mod
+    download`` would be denied write access under the sandbox. The Claude Agent SDK
+    intentionally has no ``SandboxSettings.filesystem`` field and directs filesystem
+    write scope through ``Edit`` allow-rules (see ``SandboxSettings`` docstring),
+    which merge into the subprocess writable set. Granting the caches subtree here
+    is strictly tighter than docker mode (where bash writes are unrestricted).
+    """
+    if settings.BACKEND_RUNTIME != BackendRuntime.PROCESS:
+        return []
+    caches_root = os.path.join(settings.WORKSPACE_BASE_PATH, WORKSPACE_CACHE_SUBDIR)
+    # Same single-slash absolute glob form as workspace_usage() in claude_code.py.
+    return [f"Edit({caches_root}/**)", f"Write({caches_root}/**)"]
 
 
 def check_agent_sandbox_available() -> SandboxUnavailable | None:

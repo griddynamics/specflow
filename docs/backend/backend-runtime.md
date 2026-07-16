@@ -35,7 +35,12 @@ Claude Code's built-in Bash sandbox is enabled per agent query via
 
 - confines each agent's **Bash subprocesses and their children** to the query
   working directory (already the workspace) + the session temp dir, at the OS
-  level (bubblewrap namespaces on Linux, Seatbelt on macOS);
+  level (bubblewrap namespaces on Linux, Seatbelt on macOS). SpecFlow redirects
+  tool caches (npm/pip/go/…) to `{WORKSPACE_BASE_PATH}/caches/…`, which is outside
+  `cwd`, so `get_agent_sandbox_write_allowlist` grants that subtree write access
+  via `Edit`/`Write` rules (the SDK routes sandbox filesystem writes through
+  permission rules — `SandboxSettings` has no `filesystem` field) — otherwise
+  `npm install` / `pip install` would be denied;
 - restricts outbound network to an **allow-only** domain list
   (`DEFAULT_AGENT_SANDBOX_ALLOWED_DOMAINS`: package registries + the git host;
   override with `AGENT_SANDBOX_ALLOWED_DOMAINS`, comma-separated);
