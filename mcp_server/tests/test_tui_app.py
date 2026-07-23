@@ -538,6 +538,8 @@ class TestRuntimeChooser:
                 assert not isinstance(app.screen, tui_app.ChooseRuntimeScreen)
                 save.assert_not_called()
                 assert isinstance(app.screen, tui_app.SessionsScreen)
+                # Header shows the active runtime.
+                assert app.sub_title == "process runtime"
 
     @pytest.mark.asyncio
     async def test_infers_docker_when_containers_running_no_chooser(self):
@@ -558,6 +560,7 @@ class TestRuntimeChooser:
                 assert not isinstance(app.screen, tui_app.ChooseRuntimeScreen)
                 save.assert_not_called()
                 assert isinstance(app.screen, tui_app.SessionsScreen)
+                assert app.sub_title == "docker runtime"
 
 
 class TestOnboarding:
@@ -1706,6 +1709,8 @@ class TestSwitchRuntime:
                 assert isinstance(switch_screen, tui_app.SwitchRuntimeScreen)
                 assert switch_screen._current == tui_app.local_env.BackendRuntime.DOCKER
                 assert switch_screen._target == tui_app.local_env.BackendRuntime.PROCESS
+                # Header indicator follows the new runtime after a successful switch.
+                assert app.sub_title == "process runtime"
 
     @pytest.mark.asyncio
     async def test_switch_screen_cancels_then_teardown_then_start_in_order(self):

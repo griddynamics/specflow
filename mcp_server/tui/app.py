@@ -2314,6 +2314,14 @@ class SpecFlowTUI(App):
         """
         return resolve_backend_runtime(self.root) == local_env.BackendRuntime.PROCESS
 
+    def set_runtime_indicator(self, runtime: "local_env.BackendRuntime") -> None:
+        """Show the active runtime in the header sub-title (visible on every screen).
+
+        Passed the resolved runtime explicitly rather than re-resolving, because at
+        startup it may be inferred from what's already running and not yet saved.
+        """
+        self.sub_title = f"{runtime.value} runtime"
+
     async def _count_active_generations(self) -> int | None:
         """Number of non-terminal generations, or ``None`` if it can't be read.
 
@@ -2445,6 +2453,7 @@ class SpecFlowTUI(App):
             SwitchRuntimeScreen(current=current, target=target, cancel_ids=active)
         )
         if ok:
+            self.set_runtime_indicator(target)
             self.notify(f"Runtime switched to {target.value}.", severity="information")
 
     def on_mount(self) -> None:
@@ -2493,6 +2502,7 @@ class SpecFlowTUI(App):
                 await asyncio.to_thread(local_env.save_backend_runtime, self.root, choice)
                 runtime = choice
 
+        self.set_runtime_indicator(runtime)
         if runtime == local_env.BackendRuntime.PROCESS:
             if not await local_env.backend_ready(self.backend_url):
                 # Process already up but not ready yet → just wait it out; not
