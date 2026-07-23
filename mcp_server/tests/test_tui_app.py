@@ -2235,37 +2235,24 @@ def _crash_event(ws="ws-01-1", kind="agent_crash", message="Connection to the mo
     }
 
 
-class TestAgentWarningsPanel:
+class TestDashboardAgentSurfacing:
+    """The session view stays minimal: it must NOT list agent warnings. Per-workspace
+    state is conveyed only by bare row markers; detail lives in the drill-in / Events."""
+
     def _render(self, renderable) -> str:
         console = Console(width=110, record=True)
         console.print(renderable)
         return console.export_text()
 
-    def test_running_with_events_renders_warnings_panel(self):
+    def test_events_do_not_render_a_warnings_panel_on_the_dashboard(self):
         payload = _events_payload(events=[_crash_event()])
         out = self._render(
             tui_app.build_dashboard(payload, Path("/tmp/acme"), "gen_8f3abc21")
         )
-        assert "Agent warnings" in out
-        assert "ws-01-1" in out
-        assert "phase 12" in out
-        assert "Connection to the model API was lost" in out
-        assert "press e for all" in out
-
-    def test_no_events_renders_no_warnings_panel(self):
-        out = self._render(
-            tui_app.build_dashboard(_running_payload(), Path("/tmp/acme"), "gen_8f3abc21")
-        )
         assert "Agent warnings" not in out
-
-    def test_panel_caps_rows_and_reports_total(self):
-        events = [_crash_event(message=f"crash number {n}") for n in range(8)]
-        out = self._render(
-            tui_app.build_dashboard(_events_payload(events=events), Path("/tmp/acme"), "g")
-        )
-        assert "showing 5 of 8" in out
-        assert "crash number 7" in out  # newest kept
-        assert "crash number 0" not in out  # oldest dropped from the compact panel
+        # The full crash message belongs in the drill-in / Events screen, not here.
+        assert "Connection to the model API was lost" not in out
+        assert "press e for all" not in out
 
     def test_workspace_row_shows_retrying_badge(self):
         payload = _events_payload(agent_state="retrying")

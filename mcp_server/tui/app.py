@@ -234,12 +234,9 @@ def _activity_panel(root: Path, payload: dict[str, Any]) -> Panel | None:
     return Panel(body, title=title, border_style="grey50")
 
 
-# The dashboard shows only the newest few events; the full list lives on the
-# Events screen (`e`).
-_DASHBOARD_EVENT_ROWS = 5
-
-
 def _event_row_text(row: render.AgentErrorEventRow) -> Text:
+    """One agent error/warning event as a Rich line — used by the workspace
+    drill-in warnings block and the Events screen only (never the dashboard)."""
     line = Text()
     if row.time:
         line.append(f"{row.time} ", style="dim")
@@ -249,21 +246,6 @@ def _event_row_text(row: render.AgentErrorEventRow) -> Text:
     line.append(" — ")
     line.append(row.message, style="yellow")
     return line
-
-
-def _agent_events_panel(payload: dict[str, Any]) -> Panel | None:
-    """Yellow warnings panel mirroring the Error panel; shown whenever events exist."""
-    rows = render.agent_error_event_rows(payload)
-    if not rows:
-        return None
-    recent = rows[-_DASHBOARD_EVENT_ROWS:]
-    body = Text("\n").join(_event_row_text(row) for row in recent)
-    subtitle = (
-        f"showing {len(recent)} of {len(rows)} · press e for all"
-        if len(rows) > len(recent)
-        else "press e for all"
-    )
-    return Panel(body, title="Agent warnings", subtitle=subtitle, border_style="yellow")
 
 
 def build_dashboard(
@@ -294,9 +276,11 @@ def build_dashboard(
     # act = _activity_panel(root, payload)
     # if act is not None:
     #     panels.append(act)
-    warnings_panel = _agent_events_panel(payload)
-    if warnings_panel is not None:
-        panels.append(warnings_panel)
+    # Per-workspace agent warnings are deliberately NOT listed on the session view.
+    # The Workspaces panel already carries bare RETRYING/ABORTED/⚠ markers at a
+    # glance; full detail lives in the workspace drill-in + the Events screen (`e`).
+    # The dashboard stays minimal: pipeline, workspaces, and only the end result
+    # (estimate) or a fatal Error.
     if payload.get("error"):
         panels.append(
             Panel(Text(str(payload["error"]), style="red"), title="Error", border_style="red")
