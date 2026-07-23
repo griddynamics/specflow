@@ -49,6 +49,12 @@ _BACKEND_PID_FILENAME = ".specflow-local/backend.pid"
 _BACKEND_LOG_FILENAME = ".specflow-local/backend.log"
 _BACKEND_PORT_DEFAULT = "8000"
 
+# Launcher's remembered runtime choice (docker | process). A local-launcher fact,
+# NOT an MCP-server setting: the MCP server only calls backend_url and is
+# indifferent to how the backend is launched, so this lives beside the pidfile
+# under .specflow-local — never in mcp-config.json.
+_BACKEND_RUNTIME_FILENAME = ".specflow-local/backend-runtime"
+
 
 class BackendRuntime(StrEnum):
     """Where/how the backend service is launched (mcp_server view).
@@ -71,6 +77,45 @@ class BackendRuntime(StrEnum):
                 if member.value == value:
                     return member
         return cls.DOCKER
+
+    @classmethod
+    def parse_strict(cls, raw: str | None) -> "BackendRuntime | None":
+        """Like :meth:`parse` but returns ``None`` for unknown/empty instead of
+        defaulting to DOCKER — lets callers tell "never chosen" from "chose docker"."""
+        if raw:
+            value = raw.strip().lower()
+            for member in cls:
+                if member.value == value:
+                    return member
+        return None
+
+
+def backend_runtime_path(root: Path) -> Path:
+    return root / _BACKEND_RUNTIME_FILENAME
+
+
+def read_saved_runtime(root: Path | None = None) -> "BackendRuntime | None":
+    """The runtime the launcher's first-run chooser persisted, or ``None``.
+
+    ``None`` means "not chosen yet" (file absent or unrecognized) — deliberately
+    distinct from ``BackendRuntime.DOCKER`` so the startup gate can decide whether
+    to prompt.
+    """
+    root = root or Path.cwd()
+    try:
+        raw = backend_runtime_path(root).read_text()
+    except OSError:
+        return None
+    return BackendRuntime.parse_strict(raw)
+
+
+def save_backend_runtime(root: Path, runtime: "BackendRuntime") -> Path:
+    """Persist the launcher's runtime choice under ``.specflow-local/`` (beside the
+    pidfile/log). Not written to mcp-config.json — see ``_BACKEND_RUNTIME_FILENAME``."""
+    path = backend_runtime_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(runtime.value)
+    return path
 
 
 # ---------------------------------------------------------------------------

@@ -60,7 +60,11 @@ from textual.widgets import (
     Static,
 )
 
-from cli import resolve_backend_config, resolve_backend_runtime
+from cli import (
+    backend_runtime_is_configured,
+    resolve_backend_config,
+    resolve_backend_runtime,
+)
 from services import local_env, validate_models
 from services.llm_tiers import LLM_TIER_KEYS
 from services.retry import retry_generation_core
@@ -1758,6 +1762,45 @@ class OnboardingScreen(_SpecFlowScreen):
             self.query_one("#onboard-go", Button).disabled = False
 
 
+class ChooseRuntimeScreen(_SpecFlowScreen):
+    """First-run runtime picker: docker vs process.
+
+    Shown by the startup gate only when the runtime isn't pinned (no
+    ``BACKEND_RUNTIME`` env var, no saved choice) AND nothing is already up
+    (no containers, no bare process) — otherwise the gate infers/uses whatever is
+    running. The pick is remembered under ``.specflow-local/backend-runtime`` so
+    later launches skip this screen; it can be changed later from the dashboard.
+    Dismisses with the chosen ``BackendRuntime``; ``q``/``ctrl+c`` quits the app.
+    """
+
+    BINDINGS = [
+        Binding("d", "pick_docker", "docker"),
+        Binding("p", "pick_process", "process"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Static(
+            "How should the SpecFlow backend run on this machine?\n\n"
+            "[b]d[/b]  Docker   — run the backend in containers (docker compose). "
+            "The container is the isolation boundary. Requires Docker installed and running.\n\n"
+            "[b]p[/b]  Process  — run the backend directly on this host (no Docker). "
+            "Agents are confined by the OS sandbox (bubblewrap on Linux, Seatbelt on "
+            "macOS); your dev environment (Python 3.14, uv, `cd backend && uv sync`) must "
+            "already be installed.\n\n"
+            "[dim]Your choice is remembered. You can switch runtimes later from the "
+            "dashboard.[/dim]",
+            id="runtime-prompt",
+        )
+        yield Footer()
+
+    def action_pick_docker(self) -> None:
+        self.dismiss(local_env.BackendRuntime.DOCKER)
+
+    def action_pick_process(self) -> None:
+        self.dismiss(local_env.BackendRuntime.PROCESS)
+
+
 class StartContainersScreen(_SpecFlowScreen):
     """Docker gate: start the stack (or wait out an unhealthy backend), or quit.
 
@@ -2170,7 +2213,7 @@ class SpecFlowTUI(App):
 
         Only in this mode can the TUI stop the backend — in docker mode the
         container stack is the boundary. Resolved the same way as the startup gate
-        (flag → env → mcp-config → default) so the two never disagree.
+        (flag → env → saved choice → default) so the two never disagree.
         """
         return resolve_backend_runtime(self.root) == local_env.BackendRuntime.PROCESS
 
@@ -2258,7 +2301,25 @@ class SpecFlowTUI(App):
         # (b) Backend check — branch on the launch runtime. In docker mode the
         # container stack is the boundary; in process mode the backend runs
         # bare-metal and agents are confined by the OS sandbox instead.
-        if resolve_backend_runtime(self.root) == local_env.BackendRuntime.PROCESS:
+        runtime = resolve_backend_runtime(self.root)
+        if not backend_runtime_is_configured(self.root):
+            # Runtime not pinned (no env var, no saved choice): infer from whatever
+            # is already up; if nothing is running, ask once and remember the pick.
+            proc_up = await asyncio.to_thread(local_env.backend_process_running, self.root)
+            cont_up = await asyncio.to_thread(local_env.containers_running, self.root)
+            if proc_up:
+                runtime = local_env.BackendRuntime.PROCESS
+            elif cont_up:
+                runtime = local_env.BackendRuntime.DOCKER
+            else:
+                choice = await self.push_screen_wait(ChooseRuntimeScreen())
+                if not choice:
+                    self.exit()
+                    return
+                await asyncio.to_thread(local_env.save_backend_runtime, self.root, choice)
+                runtime = choice
+
+        if runtime == local_env.BackendRuntime.PROCESS:
             if not await local_env.backend_ready(self.backend_url):
                 # Process already up but not ready yet → just wait it out; not
                 # running → start it. Mirrors the docker path's containers_up handling.

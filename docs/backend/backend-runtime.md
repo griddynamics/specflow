@@ -13,6 +13,25 @@ agent protection layer, not any workflow, state-machine, or estimation logic.
 Supported host OSes for `process` mode: **macOS and Linux**. On Windows, use
 `docker`.
 
+## Selecting the runtime
+
+Which runtime to launch is a **local-launcher** decision, not an MCP-server
+setting (the MCP server only calls `backend_url` and is indifferent to how the
+backend is launched). It is resolved with this precedence:
+
+1. explicit CLI flag,
+2. `BACKEND_RUNTIME` environment variable (must be exported — a value sitting only
+   in `.env` is **not** read by the gate),
+3. the launcher's saved choice at `.specflow-local/backend-runtime`,
+4. default `docker`.
+
+The TUI drives (3): on first launch, when the runtime isn't pinned by (1)/(2)
+**and** nothing is already running (no containers, no bare process), it shows a
+one-time chooser and writes the pick to `.specflow-local/backend-runtime`. If
+something is already up, it infers the runtime from that instead of asking. This
+file lives beside the process pidfile/log — deliberately **not** in
+`mcp-config.json`.
+
 ## Why the agent sandbox matters in process mode
 
 In `docker` mode the container is the only OS-level boundary around the agents.

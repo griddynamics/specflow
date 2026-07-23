@@ -385,6 +385,7 @@ class TestStartupGate:
     async def test_containers_down_prompts_start(self):
         with (
             patch("tui.app.local_env.is_setup_complete", return_value=True),
+            patch("tui.app.backend_runtime_is_configured", return_value=True),
             patch("tui.app.local_env.containers_running", return_value=False),
         ):
             app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
@@ -396,6 +397,7 @@ class TestStartupGate:
     async def test_start_no_quits_app(self):
         with (
             patch("tui.app.local_env.is_setup_complete", return_value=True),
+            patch("tui.app.backend_runtime_is_configured", return_value=True),
             patch("tui.app.local_env.containers_running", return_value=False),
         ):
             app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
@@ -409,6 +411,7 @@ class TestStartupGate:
     async def test_start_yes_starts_then_proceeds(self):
         with (
             patch("tui.app.local_env.is_setup_complete", return_value=True),
+            patch("tui.app.backend_runtime_is_configured", return_value=True),
             patch("tui.app.local_env.containers_running", return_value=False),
             patch("tui.app.local_env.start_containers", new=AsyncMock(return_value=0)),
             patch("tui.app.local_env.wait_backend_ready", new=AsyncMock(return_value=True)),
@@ -461,6 +464,100 @@ class TestStartupGate:
                 await pilot.pause()
                 assert isinstance(app.screen, tui_app.SessionsScreen)
                 start.assert_not_awaited()
+
+
+class TestRuntimeChooser:
+    """First-run runtime chooser: shown only when unconfigured AND nothing is
+    running; otherwise the gate infers the runtime from what's already up. The
+    pick is persisted via local_env.save_backend_runtime."""
+
+    @staticmethod
+    def _unconfigured():
+        # Setup complete, runtime not pinned, nothing running yet.
+        return (
+            patch("tui.app.local_env.is_setup_complete", return_value=True),
+            patch("tui.app.backend_runtime_is_configured", return_value=False),
+            patch("tui.app.local_env.backend_process_running", return_value=False),
+            patch("tui.app.local_env.containers_running", return_value=False),
+        )
+
+    @pytest.mark.asyncio
+    async def test_chooser_shown_when_unconfigured_and_nothing_running(self):
+        a, b, c, d = self._unconfigured()
+        with a, b, c, d:
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.ChooseRuntimeScreen)
+
+    @pytest.mark.asyncio
+    async def test_pick_process_saves_and_proceeds_to_process_gate(self):
+        a, b, c, d = self._unconfigured()
+        save = MagicMock()
+        with a, b, c, d, (
+            patch("tui.app.local_env.backend_ready", new=AsyncMock(return_value=False))
+        ), patch("tui.app.local_env.save_backend_runtime", new=save):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.ChooseRuntimeScreen)
+                await pilot.press("p")
+                await pilot.pause()
+                save.assert_called_once_with(app.root, tui_app.local_env.BackendRuntime.PROCESS)
+                assert isinstance(app.screen, tui_app.StartBackendProcessScreen)
+
+    @pytest.mark.asyncio
+    async def test_pick_docker_saves_and_proceeds_to_docker_gate(self):
+        a, b, c, d = self._unconfigured()
+        save = MagicMock()
+        with a, b, c, d, patch("tui.app.local_env.save_backend_runtime", new=save):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("d")
+                await pilot.pause()
+                save.assert_called_once_with(app.root, tui_app.local_env.BackendRuntime.DOCKER)
+                assert isinstance(app.screen, tui_app.StartContainersScreen)
+
+    @pytest.mark.asyncio
+    async def test_infers_process_when_process_running_no_chooser(self):
+        save = MagicMock()
+        with (
+            patch("tui.app.local_env.is_setup_complete", return_value=True),
+            patch("tui.app.backend_runtime_is_configured", return_value=False),
+            patch("tui.app.local_env.backend_process_running", return_value=True),
+            patch("tui.app.local_env.containers_running", return_value=False),
+            patch("tui.app.local_env.backend_ready", new=AsyncMock(return_value=True)),
+            patch("tui.app.local_env.save_backend_runtime", new=save),
+            patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])),
+            patch("tui.app.mcp_clients.is_any_client_connected", return_value=True),
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert not isinstance(app.screen, tui_app.ChooseRuntimeScreen)
+                save.assert_not_called()
+                assert isinstance(app.screen, tui_app.SessionsScreen)
+
+    @pytest.mark.asyncio
+    async def test_infers_docker_when_containers_running_no_chooser(self):
+        save = MagicMock()
+        with (
+            patch("tui.app.local_env.is_setup_complete", return_value=True),
+            patch("tui.app.backend_runtime_is_configured", return_value=False),
+            patch("tui.app.local_env.backend_process_running", return_value=False),
+            patch("tui.app.local_env.containers_running", return_value=True),
+            patch("tui.app.local_env.backend_ready", new=AsyncMock(return_value=True)),
+            patch("tui.app.local_env.save_backend_runtime", new=save),
+            patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])),
+            patch("tui.app.mcp_clients.is_any_client_connected", return_value=True),
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert not isinstance(app.screen, tui_app.ChooseRuntimeScreen)
+                save.assert_not_called()
+                assert isinstance(app.screen, tui_app.SessionsScreen)
 
 
 class TestOnboarding:

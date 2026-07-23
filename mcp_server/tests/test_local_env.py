@@ -435,6 +435,34 @@ class TestProcessControl:
         assert local_env.stop_backend_process(tmp_path) is False
 
 
+class TestSavedBackendRuntime:
+    def test_read_none_when_absent(self, tmp_path):
+        assert local_env.read_saved_runtime(tmp_path) is None
+
+    def test_read_none_when_garbage(self, tmp_path):
+        p = local_env.backend_runtime_path(tmp_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("nonsense")
+        assert local_env.read_saved_runtime(tmp_path) is None
+
+    def test_save_then_read_roundtrip(self, tmp_path):
+        local_env.save_backend_runtime(tmp_path, local_env.BackendRuntime.PROCESS)
+        assert local_env.read_saved_runtime(tmp_path) == local_env.BackendRuntime.PROCESS
+        # Persisted under .specflow-local, never in mcp-config.json.
+        assert local_env.backend_runtime_path(tmp_path).parent.name == ".specflow-local"
+
+    def test_save_creates_dir_and_overwrites(self, tmp_path):
+        local_env.save_backend_runtime(tmp_path, local_env.BackendRuntime.DOCKER)
+        local_env.save_backend_runtime(tmp_path, local_env.BackendRuntime.PROCESS)
+        assert local_env.read_saved_runtime(tmp_path) == local_env.BackendRuntime.PROCESS
+
+    def test_parse_strict_returns_none_for_unknown(self):
+        assert local_env.BackendRuntime.parse_strict(None) is None
+        assert local_env.BackendRuntime.parse_strict("") is None
+        assert local_env.BackendRuntime.parse_strict("vm") is None
+        assert local_env.BackendRuntime.parse_strict("  PROCESS ") == local_env.BackendRuntime.PROCESS
+
+
 class TestAgentSandboxUnavailableReason:
     def test_macos_ok_when_present(self, monkeypatch):
         monkeypatch.setattr(local_env.sys, "platform", "darwin")

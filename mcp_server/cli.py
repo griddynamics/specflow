@@ -102,12 +102,25 @@ def resolve_backend_runtime(
 ) -> local_env.BackendRuntime:
     """Resolve how the backend is launched: docker (default) or process.
 
-    Same precedence as the other resolvers: CLI flag → env var → mcp-config.json
-    → default (``docker``). Unknown values fall back to ``docker`` (safe default).
+    Precedence: CLI flag → ``BACKEND_RUNTIME`` env var → the launcher's saved
+    choice (``.specflow-local/backend-runtime``, written by the TUI first-run
+    chooser) → default ``docker``. Unknown values fall back to ``docker``.
+
+    mcp-config.json is deliberately NOT consulted: how the backend is launched is
+    a local-launcher concern, whereas mcp-config configures the MCP server, which
+    merely calls ``backend_url`` and is indifferent to the backend's runtime.
     """
-    mcp_env = _load_mcp_config(root)
-    raw = runtime_flag or os.getenv("BACKEND_RUNTIME") or mcp_env.get("BACKEND_RUNTIME")
-    return local_env.BackendRuntime.parse(raw)
+    raw = runtime_flag or os.getenv("BACKEND_RUNTIME")
+    if raw:
+        return local_env.BackendRuntime.parse(raw)
+    saved = local_env.read_saved_runtime(root)
+    return saved if saved is not None else local_env.BackendRuntime.DOCKER
+
+
+def backend_runtime_is_configured(root: Path) -> bool:
+    """True when the runtime is explicitly pinned (``BACKEND_RUNTIME`` env var or a
+    saved choice), so the TUI's first-run chooser should be skipped."""
+    return bool(os.getenv("BACKEND_RUNTIME")) or local_env.read_saved_runtime(root) is not None
 
 
 def _is_localhost(url: str) -> bool:
