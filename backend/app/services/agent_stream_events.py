@@ -62,6 +62,7 @@ EventKind = Literal[
     "tool_result",
     "result",
     "system",
+    "error",
     "unknown",
 ]
 
@@ -238,6 +239,29 @@ def _user_events(
                 )
             )
     return events
+
+
+def synthetic_event(
+    kind: EventKind,
+    message: str,
+    *,
+    generation_id: str,
+    workspace_id: str,
+    workflow: Optional[str] = None,
+) -> AgentStreamEvent:
+    """Build a backend-authored event (crash/retry narrative), not from an SDK message.
+
+    Used by the resume loop to surface errors and retry waits inline in the
+    live message feed; same truncation contract as converted SDK messages.
+    """
+    return AgentStreamEvent(
+        timestamp=_now_iso(),
+        generation_id=generation_id,
+        workspace_id=workspace_id,
+        workflow=workflow,
+        kind=kind,
+        message=_truncate(_collapse_whitespace(message)),
+    )
 
 
 def message_to_ui_events(

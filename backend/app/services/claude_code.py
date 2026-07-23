@@ -1,7 +1,9 @@
 import asyncio
 from collections.abc import AsyncIterator
 import contextlib
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from enum import Enum
 import logging
 import os
 from pathlib import Path
@@ -43,7 +45,18 @@ from app.prompts.agents_claude_code import (
     resume_prompt,
     todo_validator_prompt,
 )
-from app.schemas.agent import AgentErrorType, AgentResult
+from app.schemas.agent import (
+    AgentErrorType,
+    AgentQueryError,
+    AgentQueryProgress,
+    AgentResult,
+)
+from app.schemas.agent_error_events import AgentErrorEventKind, WorkspaceAgentState
+from app.services.agent_error_event_recorder import (
+    record_agent_error_event_safe,
+    set_workspace_retry_state_safe,
+)
+from app.services.git_utils import run_git
 from app.services.model_routing import (
     apply_model_fallback_if_routing_failure,
     classify_error,
@@ -94,7 +107,12 @@ class WorkspaceAbortedError(Exception):
     """
     Raised by execute_all_phases when a workspace should be abandoned.
     Caught by ParallelAgentExecutor per-workspace; other workspaces continue.
+    ``phase`` carries the phase number the abort happened in, when known.
     """
+
+    def __init__(self, message: str, phase: Optional[int] = None):
+        super().__init__(message)
+        self.phase = phase
 
 def get_system_context_allowed_tools(workspace_path: str) -> List[str]:
     """
@@ -363,13 +381,101 @@ async def simple_query():
 # There can be still TODOs not finalized by the agent, but still it can exit. We need to at least once resume with another call and add a message on top to check TODOs, and continue or decide to end the session.
 NO_RESUMING_RESULT = "Original run only, no resuming happened"
 
+# Uniform wait schedule before every crash retry (the first retry always waits a
+# minute). The zero-progress budget IS the schedule: each consecutive zero-progress
+# crash consumes the next wait; once all six are spent the phase gives up
+# (~1h49m of waits rides out a real outage). An attempt with saved progress
+# resets the schedule to the start.
+_CRASH_BACKOFF_MINUTES = (1, 3, 5, 10, 30, 60)
+
+# An attempt "saved progress" when it advanced git HEAD (committed work) or used
+# at least this many tools — long legitimate pre-commit stretches (reading,
+# planning, running tests) must not be misclassified as dead attempts.
+RESUME_PROGRESS_MIN_TOOL_USES = 20
 
 
+class ResumeStopReason(str, Enum):
+    COMPLETED = "completed"
+    NO_PROGRESS_BUDGET = "no_progress_budget"
+    VALIDATOR_BUDGET = "validator_budget"
+    TOOL_CALL_FAILURE = "tool_call_failure"
 
-async def _resume_iteration(
-    resume_count: int,
-    max_resume_attempts: int,
-    current_session_id: Optional[str],
+
+class IterationOutcome(str, Enum):
+    COMPLETE = "complete"
+    INCOMPLETE = "incomplete"
+    VALIDATOR_UNAVAILABLE = "validator_unavailable"
+
+
+@dataclass
+class ResumeGeneration:
+    """Retry state for one phase's agent attempts within a generation workspace.
+
+    Single source of truth for the loop condition, the log lines, the durable
+    agent_error_events, and the TUI RETRYING badge — they must never disagree.
+
+    Two independent budgets:
+      - crash schedule: consecutive zero-progress crashes each consume the next
+        `_CRASH_BACKOFF_MINUTES` wait; saved progress resets the schedule; no
+        total cap — a phase that keeps saving work may retry indefinitely.
+      - validator budget: clean-but-incomplete attempts (the anti-stuck contract),
+        unchanged at 2 resumes.
+    """
+
+    max_validator_resumes: int = 2
+    backoff_minutes: tuple[int, ...] = _CRASH_BACKOFF_MINUTES
+    validator_resumes: int = 0
+    crash_streak: int = 0  # consecutive zero-progress crashes
+
+    def saved_progress(self, tool_uses: int, head_advanced: bool) -> bool:
+        return head_advanced or tool_uses >= RESUME_PROGRESS_MIN_TOOL_USES
+
+    def record_crash(self, tool_uses: int, head_advanced: bool) -> Optional[timedelta]:
+        """Count one crashed attempt; return the wait before the next try.
+
+        None means the zero-progress schedule is exhausted — give up.
+        """
+        if self.saved_progress(tool_uses, head_advanced):
+            self.crash_streak = 0
+            return timedelta(minutes=self.backoff_minutes[0])
+        self.crash_streak += 1
+        if self.crash_streak > len(self.backoff_minutes):
+            return None
+        return timedelta(minutes=self.backoff_minutes[self.crash_streak - 1])
+
+    def record_incomplete(self) -> bool:
+        """Count one clean-but-incomplete attempt; True while a resume is allowed."""
+        self.validator_resumes += 1
+        self.crash_streak = 0  # a clean run proved the connection is alive
+        return self.validator_resumes <= self.max_validator_resumes
+
+    def crash_backoff_label(self) -> str:
+        """The "n/6" shown in events and the log line for the current streak."""
+        return f"{min(self.crash_streak, len(self.backoff_minutes))}/{len(self.backoff_minutes)}"
+
+    def describe(self) -> str:
+        return (
+            f"crash backoff {self.crash_backoff_label()}, "
+            f"validator resumes {self.validator_resumes}/{self.max_validator_resumes}"
+        )
+
+
+def _format_wait(wait: timedelta) -> str:
+    minutes = int(wait.total_seconds() // 60)
+    return f"{minutes}m" if minutes else f"{int(wait.total_seconds())}s"
+
+
+async def _read_workspace_head(workspace_path: str, logger: logging.Logger) -> Optional[str]:
+    """Current git HEAD of the workspace, or None when unreadable (never raises)."""
+    try:
+        return await run_git(Path(workspace_path), ["rev-parse", "HEAD"])
+    except Exception:
+        logger.debug("Could not read workspace HEAD for progress detection", exc_info=True)
+        return None
+
+
+async def _run_attempt(
+    is_first: bool,
     outputs_dir: str,
     spec_path: str,
     system_prompt: str,
@@ -382,63 +488,37 @@ async def _resume_iteration(
     logger: logging.Logger,
     max_buffer_size: int,
     provider: Optional[BaseProvider],
-    qa_results: str,
+    session_id: Optional[str],
     phase_number: Optional[int] = None,
     mcp_servers: Optional[Dict] = None,
     phase_kind: PhaseKind = PhaseKind.GENERATION,
     phase_num: int = 0,
     extra_env: Optional[Dict[str, str]] = None,
-) -> tuple[Optional[AgentResult], str, bool]:
+) -> tuple[AgentResult, IterationOutcome]:
+    """One attempt = coding query + validator query.
+
+    The first attempt runs the phase prompt (optionally resuming session_id);
+    later attempts run the resume prompt with a deliberately fresh session —
+    this is a very long horizon task and agents tend to cheat and finish early.
     """
-    Execute a single resume iteration.
-    
-    Returns:
-        Tuple of (resumed_result, qa_results, should_break)
-        - resumed_result: The result from the resume attempt, or None if failed
-        - qa_results: DISABLED - Updated QA results string
-        - should_break: True if the loop should break (completion or failure)
-    """
-    # DISABLING QA AGENT DUE TO VERBOSITY AND TOKEN CONSUMPTION
-    qa_results = ""
-
-    # logger.info(f"Running QA agent with session_id: {current_session_id}")
-    # qa_result: AgentResult = await agent_query(
-    #     system_prompt=qa_agent_prompt(outputs_dir=outputs_dir),
-    #     workspace_path=workspace_path,
-    #     # Deliberately not resuming session, we want fresh context
-    #     session_id=None,
-    #     max_turns=max_turns,
-    #     allowed_tools=allowed_tools,
-    #     disallowed_tools=disallowed_tools,
-    #     model=model,
-    #     logger=logger,
-    #     max_buffer_size=max_buffer_size,
-    #     provider=provider,
-    # )
-
-    # if qa_result.result is None or qa_result.session_id is None:
-    #     logger.warning(f"QA attempt {resume_count} returned None result or session_id, ignoring")
-    # else:
-    #     qa_results = qa_result.result
-
-    # logger.info(f"QA attempt {resume_count} returned session_id: {qa_result.session_id}")
-    # current_session_id = qa_result.session_id if qa_result.session_id else current_session_id
-
-    logger.info(f"Attempting resume {resume_count}/{max_resume_attempts}")
-    TelemetryContext.set_workflow(TelemetryWorkflowLabel.phase(phase_kind, phase_num, "resume"))
-    resumed_result: AgentResult = await agent_query(
-        system_prompt=resume_prompt(
+    if is_first:
+        TelemetryContext.set_workflow(TelemetryWorkflowLabel.phase(phase_kind, phase_num, "coding"))
+        coding_prompt = system_prompt
+    else:
+        TelemetryContext.set_workflow(TelemetryWorkflowLabel.phase(phase_kind, phase_num, "resume"))
+        coding_prompt = resume_prompt(
             dev_system_prompt=system_prompt,
             workspace_root=workspace_path,
             outputs_dir=outputs_dir,
             spec_path=spec_path,
-            qa_results=qa_results,
+            qa_results="",
             phase_number=phase_number,
-        ),
+        )
+    result: AgentResult = await agent_query(
+        system_prompt=coding_prompt,
         workspace_path=workspace_path,
         subagents=subagents,
-        # SUPER IMPORTANT: we want fresh context as this is very long horizon task and agents tend to cheat and finish early
-        session_id=None,
+        session_id=session_id if is_first else None,
         max_turns=max_turns,
         allowed_tools=allowed_tools,
         disallowed_tools=disallowed_tools,
@@ -449,12 +529,9 @@ async def _resume_iteration(
         mcp_servers=mcp_servers,
         extra_env=extra_env,
     )
-    
-    if resumed_result.result is None or resumed_result.session_id is None:
-        logger.error(f"Resume attempt {resume_count} returned None result or session_id, stopping")
+    if result.result is None or result.session_id is None:
+        logger.error("Coding query returned None result or session_id: %s", result)
 
-    # Check if the agent indicates completion
-    # Look for indicators that work is complete
     TelemetryContext.set_workflow(TelemetryWorkflowLabel.phase(phase_kind, phase_num, "validator"))
     validator_result: AgentResult = await agent_query(
         system_prompt=todo_validator_prompt(
@@ -475,26 +552,136 @@ async def _resume_iteration(
         provider=provider,
         extra_env=extra_env,
     )
-    
     if validator_result.result is None or validator_result.session_id is None:
-        logger.warning(f"Validator attempt {resume_count} returned None result or session_id, exiting resume loop")
-        return AgentResult(result=None, session_id=None), qa_results, True
+        logger.warning("Validator returned None result — completion cannot be verified")
+        return result, IterationOutcome.VALIDATOR_UNAVAILABLE
 
-    # Log validator result for debugging
-    validator_result_preview = (validator_result.result[:200] + "...") if validator_result.result and len(validator_result.result) > 200 else validator_result.result
-    logger.info(f"Validator result (attempt {resume_count}): {validator_result_preview}")
-
-    if is_agent_complete(validator_result):
-        logger.info(f"Agent indicates completion after {resume_count} resume(s)")
-        return resumed_result, qa_results, True
-    
-    logger.warning(
-        f"Validator indicates work is still incomplete after resume attempt {resume_count}. "
-        f"Validator said: {validator_result_preview}. "
-        f"This may cause additional resume iterations."
+    preview = (
+        (validator_result.result[:200] + "...")
+        if validator_result.result and len(validator_result.result) > 200
+        else validator_result.result
     )
-    logger.info(f"Resume attempt {resume_count} completed, returned session_id: {resumed_result.session_id}")
-    return resumed_result, qa_results, False
+    logger.info(f"Validator result: {preview}")
+    if is_agent_complete(validator_result):
+        return result, IterationOutcome.COMPLETE
+    logger.warning(f"Validator indicates work is still incomplete. Validator said: {preview}.")
+    return result, IterationOutcome.INCOMPLETE
+
+
+async def _crash_backoff_and_wait(
+    resume: ResumeGeneration,
+    error_message: str,
+    error_type: Optional[AgentErrorType],
+    tool_uses: int,
+    head_before: Optional[str],
+    workspace_path: str,
+    publisher,
+    logger: logging.Logger,
+    phase_number: Optional[int],
+    active_model: str,
+) -> bool:
+    """Record one crashed/unverifiable attempt, surface it, and wait out the backoff.
+
+    True → wait done, the loop should retry; False → the zero-progress schedule
+    is exhausted, give up. The event, the log line, the live-stream narrative and
+    the RETRYING badge all derive from the same ResumeGeneration state.
+    """
+    head_after = await _read_workspace_head(workspace_path, logger)
+    head_advanced = bool(head_before and head_after and head_before != head_after)
+    made_progress = resume.saved_progress(tool_uses, head_advanced)
+    wait = resume.record_crash(tool_uses=tool_uses, head_advanced=head_advanced)
+    if wait is None:
+        return False
+
+    next_attempt_at = datetime.now(timezone.utc) + wait
+    if made_progress:
+        saved = "a new commit" if head_advanced else f"{tool_uses} tool uses"
+        human = (
+            f"Phase agent stopped after saved work ({saved}): {error_message[:150]} — "
+            f"retrying in {_format_wait(wait)} (backoff reset)."
+        )
+    else:
+        human = (
+            f"Phase agent failed before saving any work: {error_message[:150]} — "
+            f"retry {resume.crash_backoff_label()} in {_format_wait(wait)}."
+        )
+    logger.warning(
+        f"{human} ({resume.describe()}, next retry at {next_attempt_at:%H:%M:%S} UTC)"
+    )
+
+    await record_agent_error_event_safe(
+        AgentErrorEventKind.AGENT_CRASH,
+        human,
+        phase=phase_number,
+        error_type=error_type,
+        crash_backoff=resume.crash_backoff_label(),
+        next_attempt_at=next_attempt_at.isoformat(),
+        model=active_model,
+    )
+    if publisher is not None:
+        publisher.publish_line_nowait("error", error_message)
+        publisher.publish_line_nowait(
+            "system",
+            f"waiting {_format_wait(wait)} before retry ({resume.describe()}), "
+            f"next attempt at {next_attempt_at:%H:%M} UTC",
+        )
+    await set_workspace_retry_state_safe(WorkspaceAgentState.RETRYING)
+    await asyncio.sleep(wait.total_seconds())
+    await set_workspace_retry_state_safe(None)
+    if publisher is not None:
+        publisher.publish_line_nowait("system", f"retrying now ({resume.describe()})")
+    return True
+
+
+async def _report_gave_up(
+    stop_reason: ResumeStopReason,
+    resume: ResumeGeneration,
+    attempt: int,
+    phase_number: Optional[int],
+    last_error: Optional[str],
+    active_model: str,
+    publisher,
+    logger: logging.Logger,
+) -> None:
+    """Log + record the give-up; the message derives from the stop reason so the
+    warning can never contradict the outcome (it no longer fires on success)."""
+    phase_label = f"Phase {phase_number}" if phase_number is not None else "The phase"
+    error_type = classify_error(last_error) if last_error else None
+    if stop_reason is ResumeStopReason.VALIDATOR_BUDGET:
+        kind = AgentErrorEventKind.PHASE_INCOMPLETE
+        human = (
+            f"{phase_label} used all {resume.max_validator_resumes} resume attempts but the "
+            f"completion check is still unsatisfied (the agent may be stuck or the check too "
+            f"strict). The run continues; check PROGRESS.md and TODOs.md for what remains."
+        )
+    elif stop_reason is ResumeStopReason.TOOL_CALL_FAILURE:
+        kind = AgentErrorEventKind.PHASE_GAVE_UP
+        human = f"{phase_label} stopped on a tool failure: {(last_error or 'unknown error')[:150]}"
+    else:  # NO_PROGRESS_BUDGET
+        kind = AgentErrorEventKind.PHASE_GAVE_UP
+        cause = (last_error or "no result")[:150]
+        if error_type is AgentErrorType.MODEL_ROUTING_FAILURE:
+            remedy = (
+                f"Model {active_model} keeps returning unusable responses — "
+                f"change the model in Settings, then retry."
+            )
+        else:
+            remedy = "The workspace is paused; already-generated code is preserved."
+        human = (
+            f"{phase_label} stopped after {len(resume.backoff_minutes)} zero-progress "
+            f"retries ({cause}). {remedy}"
+        )
+    logger.warning(f"{human} [{stop_reason.value}, attempts={attempt}, {resume.describe()}]")
+    await record_agent_error_event_safe(
+        kind,
+        human,
+        phase=phase_number,
+        error_type=error_type,
+        crash_backoff=resume.crash_backoff_label(),
+        model=active_model,
+    )
+    if publisher is not None:
+        publisher.publish_line_nowait("error", human)
 
 async def agent_query_with_resume(
     system_prompt: str,
@@ -549,97 +736,25 @@ async def agent_query_with_resume(
         logger = logging.getLogger(__name__)
 
     phase_num = phase_number if phase_number is not None else 0
-    qa_results = ""
-    result: Optional[AgentResult] = None
-
     active_model = model
     _fallback_candidate = get_fallback_model(active_model)
+    publisher = build_stream_publisher_from_context()
+    resume = ResumeGeneration(max_validator_resumes=max_resume_attempts)
 
-    # Initial query
-    logger.info("Starting initial agent query with validator follow-up")
-    try:
-        TelemetryContext.set_workflow(TelemetryWorkflowLabel.phase(phase_kind, phase_num, "coding"))
-        result = await agent_query(
-            system_prompt=system_prompt,
-            workspace_path=workspace_path,
-            subagents=subagents,
-            session_id=session_id if session_id else None,
-            max_turns=max_turns,
-            allowed_tools=allowed_tools,
-            disallowed_tools=disallowed_tools,
-            model=active_model,
-            logger=logger,
-            max_buffer_size=max_buffer_size,
-            provider=provider,
-            mcp_servers=mcp_servers,
-            extra_env=extra_env,
-        )
-        
-        if result.result is None or result.session_id is None:
-            logger.error(f"Initial agent query returned None or session_id is None: {result}")
-        
-        TelemetryContext.set_workflow(TelemetryWorkflowLabel.phase(phase_kind, phase_num, "validator"))
-        validator_result: AgentResult = await agent_query(
-            system_prompt=todo_validator_prompt(
-                workspace_root=workspace_path,
-                outputs_dir=outputs_dir,
-                spec_path=spec_path,
-                phase_number=phase_number,
-            ),
-            workspace_path=workspace_path,
-            # Deliberately not resuming session, we want fresh context
-            session_id=None,
-            max_turns=max_turns,
-            allowed_tools=allowed_tools,
-            disallowed_tools=disallowed_tools,
-            model=active_model,
-            logger=logger,
-            max_buffer_size=max_buffer_size,
-            provider=provider,
-            extra_env=extra_env,
-        )
-        
-        if validator_result.result is None or validator_result.session_id is None:
-            logger.warning("Initial validator attempt returned None result, we have to continue to at least one resume iteration")
-        else:
-            # Log validator result for debugging
-            validator_result_preview = (validator_result.result[:200] + "...") if validator_result.result and len(validator_result.result) > 200 else validator_result.result
-            logger.info(f"Initial validator result: {validator_result_preview}")
-            
-            if is_agent_complete(validator_result):
-                logger.info("Agent indicates completion after initial query, no need to resume")
-                return result
-            else:
-                logger.warning(
-                    f"Agent indicates incomplete after initial query. Validator said: {validator_result_preview}. "
-                    f"This will trigger resume loop (max {max_resume_attempts} attempts)."
-                )
-        
-    except Exception as e:
-        logger.error(f"[AGENT CRASH] Initial agent query failed with exception: {e}", exc_info=True)
-        err_str = str(e)
-        result = AgentResult(result=err_str, session_id=None, is_error=True)
-        active_model, _fallback_candidate = apply_model_fallback_if_routing_failure(
-            err_str, active_model, _fallback_candidate, logger, active_model
-        )
-    
-    resume_count = 0
-    current_session_id = result.session_id if result else None
-    logger.info(f"Initial agent query returned session_id: {current_session_id}")
-    
-    # Initialize with the initial result; will be updated in the loop
-    resumed_result: Optional[AgentResult] = result
-    
-    # Attempt to resume if needed
-    while resume_count < max_resume_attempts:
-        resume_count += 1
-        logger.info(f"Starting resume iteration {resume_count}/{max_resume_attempts} for phase {phase_number}")
+    attempt = 0
+    last_returned: Optional[AgentResult] = None
+    last_error: Optional[str] = None
+    stop_reason = ResumeStopReason.COMPLETED
 
+    while True:
+        attempt += 1
+        logger.info(
+            f"Starting agent attempt {attempt} for phase {phase_number} ({resume.describe()})"
+        )
+        head_before = await _read_workspace_head(workspace_path, logger)
         try:
-            resumed_result, qa_results, should_break = await _resume_iteration(
-                resume_count=resume_count,
-                max_resume_attempts=max_resume_attempts,
-                current_session_id=current_session_id,
+            result, outcome = await _run_attempt(
+                is_first=attempt == 1,
                 outputs_dir=outputs_dir,
                 spec_path=spec_path,
                 system_prompt=system_prompt,
@@ -652,32 +767,113 @@ async def agent_query_with_resume(
                 logger=logger,
                 max_buffer_size=max_buffer_size,
                 provider=provider,
-                qa_results=qa_results,
+                session_id=session_id,
                 phase_number=phase_number,
                 mcp_servers=mcp_servers,
                 phase_kind=phase_kind,
                 phase_num=phase_num,
                 extra_env=extra_env,
             )
-            
-            if should_break:
-                logger.info(f"Resume loop breaking after {resume_count} iteration(s) - work marked as complete")
+            last_returned = result
+
+            if outcome is IterationOutcome.COMPLETE:
+                logger.info(f"Agent indicates completion after {attempt} attempt(s)")
+                break
+            if outcome is IterationOutcome.INCOMPLETE:
+                if resume.record_incomplete():
+                    logger.warning(
+                        f"Work incomplete after attempt {attempt}; resuming ({resume.describe()})."
+                    )
+                    continue
+                stop_reason = ResumeStopReason.VALIDATOR_BUDGET
+                break
+            # VALIDATOR_UNAVAILABLE: completion cannot be verified — treated as a
+            # crashed attempt, but progress from the coding query (commits) counts.
+            if not await _crash_backoff_and_wait(
+                resume=resume,
+                error_message="Completion check did not return a result; retrying the phase attempt.",
+                error_type=None,
+                tool_uses=0,
+                head_before=head_before,
+                workspace_path=workspace_path,
+                publisher=publisher,
+                logger=logger,
+                phase_number=phase_number,
+                active_model=active_model,
+            ):
+                stop_reason = ResumeStopReason.NO_PROGRESS_BUDGET
+                last_error = "Completion check repeatedly returned no result"
                 break
         except Exception as e:
-            logger.error(f"[AGENT CRASH] Resume iteration {resume_count} failed with exception: {e}", exc_info=True)
             err_str = str(e)
-            active_model, _fallback_candidate = apply_model_fallback_if_routing_failure(
-                err_str, active_model, _fallback_candidate, logger, f"resume {resume_count}"
+            error_type = classify_error(err_str)
+            progress: Optional[AgentQueryProgress] = getattr(e, "progress", None)
+            logger.error(
+                f"[AGENT CRASH] Attempt {attempt} failed with exception: {e}", exc_info=True
             )
+            if last_returned is None:
+                # Nothing ever returned — carry the error text so execute_all_phases
+                # can classify it (connection errors abort the workspace, #47).
+                last_returned = AgentResult(result=err_str, session_id=None, is_error=True)
+            last_error = err_str
 
-    if resume_count >= max_resume_attempts:
-        logger.warning(
-            f"Reached maximum resume attempts ({max_resume_attempts}) for phase {phase_number}. "
-            f"This may indicate the agent is stuck or the validator is too strict. "
-            f"Check PROGRESS.md and TODOs.md to verify actual completion status."
+            previous_model = active_model
+            active_model, _fallback_candidate = apply_model_fallback_if_routing_failure(
+                err_str, active_model, _fallback_candidate, logger, f"attempt {attempt}"
+            )
+            if active_model != previous_model:
+                fallback_msg = (
+                    f"Model {previous_model} returned an unusable response "
+                    f"({err_str[:120]}); switching this workspace to {active_model}."
+                )
+                await record_agent_error_event_safe(
+                    AgentErrorEventKind.MODEL_FALLBACK,
+                    fallback_msg,
+                    phase=phase_number,
+                    error_type=error_type,
+                    model=active_model,
+                    previous_model=previous_model,
+                )
+                if publisher is not None:
+                    publisher.publish_line_nowait("system", fallback_msg)
+
+            if error_type is AgentErrorType.TOOL_CALL_FAILURE:
+                # Not retryable in-loop — preserve the phase-level abort machinery.
+                stop_reason = ResumeStopReason.TOOL_CALL_FAILURE
+                break
+
+            if not await _crash_backoff_and_wait(
+                resume=resume,
+                error_message=err_str,
+                error_type=error_type,
+                tool_uses=progress.num_tool_uses if progress else 0,
+                head_before=head_before,
+                workspace_path=workspace_path,
+                publisher=publisher,
+                logger=logger,
+                phase_number=phase_number,
+                active_model=active_model,
+            ):
+                stop_reason = ResumeStopReason.NO_PROGRESS_BUDGET
+                break
+
+    if stop_reason is not ResumeStopReason.COMPLETED:
+        await _report_gave_up(
+            stop_reason=stop_reason,
+            resume=resume,
+            attempt=attempt,
+            phase_number=phase_number,
+            last_error=last_error,
+            active_model=active_model,
+            publisher=publisher,
+            logger=logger,
         )
-    
-    final = resumed_result if resumed_result else AgentResult(result=None, session_id=None, is_error=True)
+
+    final = (
+        last_returned
+        if last_returned
+        else AgentResult(result=last_error, session_id=None, is_error=True)
+    )
     if active_model != model:
         final.active_model = active_model
     return final
@@ -827,7 +1023,9 @@ async def agent_query(
 
     query_stream: AsyncIterator[Message] = query(prompt=system_prompt, options=options)
 
-    stream_metrics = ClaudeCodeSdkAgentMetrics() if telemetry.is_enabled() else None
+    # Always constructed (cheap in-process counters): progress_snapshot() must be
+    # available on the crash path even when telemetry capture is disabled.
+    stream_metrics = ClaudeCodeSdkAgentMetrics()
 
     # Best-effort live message tap for the TUI workspace drill-in. Derived from
     # TelemetryContext (generation_id + workspace name + workflow); None when that
@@ -892,11 +1090,19 @@ async def agent_query(
             is_error=True, error_type="timeout",
             tool_usage_breakdown=stream_metrics.get_metrics() if stream_metrics is not None else None,
         )
+        await record_agent_error_event_safe(
+            AgentErrorEventKind.AGENT_CRASH,
+            f"An agent step hit the {_AGENT_CALL_TIMEOUT_SECONDS // 3600}-hour time limit "
+            f"(likely a hanging subprocess); checking progress and retrying.",
+            model=final_model,
+        )
         return AgentResult(result=None, session_id=None)
-    except Exception:
+    except Exception as e:
         lf_tracer.finalize_pending()
         lf_tracer.end_generation_on_error("exception")
-        raise
+        # Carry the observed progress so the resume loop can tell a crash after
+        # hours of saved work apart from one that never got started.
+        raise AgentQueryError(str(e), progress=stream_metrics.progress_snapshot()) from e
     finally:
         # Guarantee the SDK query generator — and its Claude Code CLI subprocess — is
         # torn down on every exit path, including task.cancel() (CancelledError) during a
@@ -1284,13 +1490,15 @@ async def execute_all_phases(
                 raise WorkspaceAbortedError(
                     f"[{workspace_name}] Phase {phase_num} failed with tool-call incompatibility "
                     f"(model={workspace.model}). Aborting workspace — other workspaces continue. "
-                    f"Error: {phase_result.result}"
+                    f"Error: {phase_result.result}",
+                    phase=phase_num,
                 )
             if error_type == AgentErrorType.CONNECTION_ERROR:
                 raise WorkspaceAbortedError(
                     f"[{workspace_name}] Phase {phase_num} lost connection to the API "
                     f"(model={workspace.model}). Aborting workspace — other workspaces continue. "
-                    f"Error: {phase_result.result}"
+                    f"Error: {phase_result.result}",
+                    phase=phase_num,
                 )
             consecutive_errors += 1
             logger.error(
@@ -1301,7 +1509,8 @@ async def execute_all_phases(
             if consecutive_errors >= _MAX_CONSECUTIVE_PHASE_ERRORS:
                 raise WorkspaceAbortedError(
                     f"[{workspace_name}] Aborting after {consecutive_errors} consecutive phase errors "
-                    f"(last at phase {phase_num}, model={workspace.model})."
+                    f"(last at phase {phase_num}, model={workspace.model}).",
+                    phase=phase_num,
                 )
         else:
             consecutive_errors = 0
@@ -1332,7 +1541,8 @@ async def execute_all_phases(
             except Exception as e:
                 raise WorkspaceAbortedError(
                     f"[{workspace_name}] Failed to write {phase_kind} {phase_num} checkpoint to Firestore: {e}. "
-                    f"Aborting workspace — cannot track progress, retry would resume from wrong phase."
+                    f"Aborting workspace — cannot track progress, retry would resume from wrong phase.",
+                    phase=phase_num,
                 ) from e
         else:
             logger.warning(

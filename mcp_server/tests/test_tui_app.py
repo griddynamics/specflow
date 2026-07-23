@@ -2214,3 +2214,140 @@ class TestModelValidationUI:
                 region = marker.region
         assert region.width > 0
         assert region.right <= width  # fully within the viewport
+
+
+def _events_payload(events=None, agent_state=None) -> dict:
+    payload = _running_payload()
+    if events is not None:
+        payload["agent_error_events"] = events
+    if agent_state is not None:
+        payload["progress"]["workspace_phases"]["ws-01-1"]["agent_state"] = agent_state
+    return payload
+
+
+def _crash_event(ws="ws-01-1", kind="agent_crash", message="Connection to the model API was lost"):
+    return {
+        "at": "2026-07-23T18:28:40+00:00",
+        "workspace_id": ws,
+        "kind": kind,
+        "message": message,
+        "phase": 12,
+    }
+
+
+class TestAgentWarningsPanel:
+    def _render(self, renderable) -> str:
+        console = Console(width=110, record=True)
+        console.print(renderable)
+        return console.export_text()
+
+    def test_running_with_events_renders_warnings_panel(self):
+        payload = _events_payload(events=[_crash_event()])
+        out = self._render(
+            tui_app.build_dashboard(payload, Path("/tmp/acme"), "gen_8f3abc21")
+        )
+        assert "Agent warnings" in out
+        assert "ws-01-1" in out
+        assert "phase 12" in out
+        assert "Connection to the model API was lost" in out
+        assert "press e for all" in out
+
+    def test_no_events_renders_no_warnings_panel(self):
+        out = self._render(
+            tui_app.build_dashboard(_running_payload(), Path("/tmp/acme"), "gen_8f3abc21")
+        )
+        assert "Agent warnings" not in out
+
+    def test_panel_caps_rows_and_reports_total(self):
+        events = [_crash_event(message=f"crash number {n}") for n in range(8)]
+        out = self._render(
+            tui_app.build_dashboard(_events_payload(events=events), Path("/tmp/acme"), "g")
+        )
+        assert "showing 5 of 8" in out
+        assert "crash number 7" in out  # newest kept
+        assert "crash number 0" not in out  # oldest dropped from the compact panel
+
+    def test_workspace_row_shows_retrying_badge(self):
+        payload = _events_payload(agent_state="retrying")
+        out = self._render(
+            tui_app.build_dashboard(payload, Path("/tmp/acme"), "gen_8f3abc21")
+        )
+        assert "RETRYING" in out
+
+    def test_workspace_row_shows_aborted_badge(self):
+        payload = _events_payload(agent_state="aborted")
+        out = self._render(
+            tui_app.build_dashboard(payload, Path("/tmp/acme"), "gen_8f3abc21")
+        )
+        assert "ABORTED" in out
+
+    def test_workspace_row_shows_warning_marker_for_flagged_workspace(self):
+        payload = _events_payload(events=[_crash_event(ws="ws-01-1")])
+        out = self._render(
+            tui_app.build_dashboard(payload, Path("/tmp/acme"), "gen_8f3abc21")
+        )
+        assert "⚠" in out
+
+
+class TestWorkspaceWarningsBlock:
+    def _render(self, renderable) -> str:
+        console = Console(width=110, record=True)
+        console.print(renderable)
+        return console.export_text()
+
+    def test_hidden_without_events(self):
+        assert tui_app.build_workspace_warnings(_running_payload(), "ws-01-1") is None
+
+    def test_lists_only_this_workspace_with_model_fallback_pinned(self):
+        payload = _events_payload(
+            events=[
+                _crash_event(ws="ws-01-1", message="crash first"),
+                _crash_event(ws="ws-01-2", message="other workspace crash"),
+                _crash_event(
+                    ws="ws-01-1",
+                    kind="model_fallback",
+                    message="Model opus kept failing; switching to sonnet",
+                ),
+            ]
+        )
+        panel = tui_app.build_workspace_warnings(payload, "ws-01-1")
+        out = self._render(panel)
+        assert "Warnings · ws-01-1" in out
+        assert "other workspace crash" not in out
+        # Model switch pinned before the earlier crash.
+        assert out.index("switching to sonnet") < out.index("crash first")
+
+
+class TestEventsScreen:
+    @pytest.mark.asyncio
+    async def test_e_opens_events_screen_and_renders_rows(self):
+        a, b, c = _gate_ready()
+        payload = _events_payload(events=[_crash_event(message="socket closed at 18:28")])
+        with a, b, c, patch("tui.app.poll_once", new=AsyncMock(return_value=payload)):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.DashboardScreen)
+                await pilot.press("e")
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.EventsScreen)
+                log = app.screen.query_one("#events-log")
+                text = "\n".join(str(line) for line in log.lines)
+                assert "socket closed at 18:28" in text
+                await pilot.press("escape")
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.DashboardScreen)
+
+    @pytest.mark.asyncio
+    async def test_events_screen_empty_state(self):
+        a, b, c = _gate_ready()
+        with a, b, c, patch("tui.app.poll_once", new=AsyncMock(return_value=_running_payload())):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("e")
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.EventsScreen)
+                log = app.screen.query_one("#events-log")
+                text = "\n".join(str(line) for line in log.lines)
+                assert "No agent errors or warnings recorded." in text

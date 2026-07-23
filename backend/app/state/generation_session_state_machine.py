@@ -27,6 +27,10 @@ from app.state.transitions import GENERATION_SESSION_TRANSITIONS
 
 logger = logging.getLogger(__name__)
 
+# Bounded per-session log of agent error/warning events (newest kept).
+# ~400 bytes/event worst case -> well under the 1 MB Firestore doc limit.
+_MAX_AGENT_ERROR_EVENTS = 200
+
 
 class GenerationSessionStateMachine:
     """
@@ -335,6 +339,79 @@ class GenerationSessionStateMachine:
             generation_id, workspace_id, completed_phase, triggered_by,
             field_name="workspace_phases_deployment", phase_label="deploy phase",
         )
+
+    async def record_agent_error_event(
+        self,
+        generation_id: str,
+        event: dict,
+        triggered_by: str,
+    ) -> dict:
+        """
+        RUNNING → RUNNING: append one agent error/warning event (bounded log).
+
+        Side-effects:
+          - Appends to agent_error_events, keeping the newest _MAX_AGENT_ERROR_EVENTS
+          - Updates last_activity_at (a crash-retrying workspace is alive — keeps
+            stuck_running_detector honest during backoff waits)
+
+        Not a state transition: status, checkpoint, and state_history are untouched
+        (Commandment IX governs transitions; events carry their own bounded audit).
+        This is the ONLY correct way to write agent_error_events (Commandment VII).
+
+        Concurrency: the append is read-modify-write in the same consistency
+        envelope as state_history appends in _record_phase_progress_for_field —
+        a concurrent append may be lost under contention; acceptable for
+        advisory data.
+        """
+        doc = await self._db.get_generation_session(generation_id)
+        self._require_running(doc, "record_agent_error_event", generation_id)
+
+        events = list(doc.get("agent_error_events") or [])
+        events.append(event)
+        update = {
+            "agent_error_events": events[-_MAX_AGENT_ERROR_EVENTS:],
+            "last_activity_at": datetime.now(timezone.utc),
+        }
+        await self._db.update_generation_session(generation_id, update)
+        logger.info(
+            "generation %s agent event %s recorded for workspace %s (by %s)",
+            generation_id, event.get("kind"), event.get("workspace_id"), triggered_by,
+        )
+        return update
+
+    async def set_workspace_agent_state(
+        self,
+        generation_id: str,
+        workspace_id: str,
+        state: Optional[str],
+        triggered_by: str,
+    ) -> dict:
+        """
+        RUNNING → RUNNING: set or clear the transient per-workspace agent badge.
+
+        ``state`` is a WorkspaceAgentState value ("retrying"/"aborted"); None
+        removes the key (workspace running normally). Stored on
+        workspace_phases[workspace_id]["agent_state"] so the /status per-workspace
+        view ships it without a new top-level field. Only writer: this method
+        (Commandment VII).
+        """
+        doc = await self._db.get_generation_session(generation_id)
+        self._require_running(doc, "set_workspace_agent_state", generation_id)
+
+        phases_dict = dict(doc.get("workspace_phases") or {})
+        entry = dict(phases_dict.get(workspace_id) or {})
+        if state is None:
+            entry.pop("agent_state", None)
+        else:
+            entry["agent_state"] = state
+        phases_dict[workspace_id] = entry
+        update = {"workspace_phases": phases_dict}
+        await self._db.update_generation_session(generation_id, update)
+        logger.info(
+            "generation %s workspace %s agent_state=%s (by %s)",
+            generation_id, workspace_id, state, triggered_by,
+        )
+        return update
 
     async def save_generation_plan(
         self,

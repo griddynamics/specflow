@@ -26,18 +26,21 @@ def logs_dir(root: Path) -> Path:
 def find_log_for_workspace(directory: Path, workspace_id: str | None) -> Path | None:
     """Pick the log file for a workspace, or the most recently modified one.
 
-    Prefers a file whose name contains ``workspace_id``; falls back to the
-    newest file in the directory. Returns None when the directory is missing or
+    Logs are written NESTED (``agent_logs/<generation>/<workspace>-…phase<N>/<ts>.log``),
+    so the search is recursive over ``*.log`` only — a stray top-level binary file
+    (e.g. macOS ``.DS_Store``) must never be tailed into the activity panel.
+    Prefers files whose path (relative to the logs dir) contains ``workspace_id``;
+    falls back to the newest log. Returns None when the directory is missing or
     empty, or on any access error.
     """
     try:
         if not directory.is_dir():
             return None
-        files = [p for p in directory.iterdir() if p.is_file()]
+        files = [p for p in directory.rglob("*.log") if p.is_file()]
         if not files:
             return None
         if workspace_id:
-            matches = [p for p in files if workspace_id in p.name]
+            matches = [p for p in files if workspace_id in str(p.relative_to(directory))]
             if matches:
                 return max(matches, key=lambda p: p.stat().st_mtime)
         return max(files, key=lambda p: p.stat().st_mtime)

@@ -17,6 +17,7 @@ from claude_agent_sdk.types import (
 )
 
 from app.core.tool_usage import MCP_TOOL_PREFIX
+from app.schemas.agent import AgentQueryProgress
 from app.schemas.agent_metrics import AgentUsage, ToolUsage
 
 logger = logging.getLogger(__name__)
@@ -179,8 +180,10 @@ class ClaudeCodeSdkAgentMetrics(AgentMetrics):
             _BUCKET_SUB_MCP: {},
         }
         self._unknown_result_ids: set[str] = set()
+        self._messages_seen = 0
 
     def push(self, message: Any) -> None:
+        self._messages_seen += 1
         try:
             if isinstance(message, AssistantMessage):
                 self._push_assistant(message)
@@ -309,6 +312,21 @@ class ClaudeCodeSdkAgentMetrics(AgentMetrics):
             is_subagent_context = meta["assistant_parent"] is not None
             bucket_key = self._bucket_key(name, is_subagent_context)
             self._increment_bucket(bucket_key, name, tokens=None)
+
+    def progress_snapshot(self) -> AgentQueryProgress:
+        """Side-effect-free snapshot of observed progress (messages + tool uses).
+
+        Unlike get_metrics(), does NOT flush the pending registry — safe to call
+        mid-stream or from an exception handler. Pending (unmatched) tool calls
+        count as tool uses: a crash mid-tool is still observed work.
+        """
+        completed = sum(
+            entry.count for bucket in self._buckets.values() for entry in bucket.values()
+        )
+        return AgentQueryProgress(
+            num_messages=self._messages_seen,
+            num_tool_uses=completed + len(self._registry),
+        )
 
     def get_metrics(self) -> dict[str, Any]:
         """Return JSON-friendly metrics for logs and telemetry.

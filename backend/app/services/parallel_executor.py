@@ -8,7 +8,12 @@ import logging
 from typing import Awaitable, Callable, List, Optional
 
 from app.schemas.agent import AgentErrorType, AgentResult
+from app.schemas.agent_error_events import AgentErrorEventKind, WorkspaceAgentState
 from app.schemas.workspace import WorkspaceSettings
+from app.services.agent_error_event_recorder import (
+    record_agent_error_event_safe,
+    set_workspace_retry_state_safe,
+)
 from app.services.claude_code import agent_query
 from app.services.model_routing import classify_error
 from app.services.workspace_manager import WorkspaceManager
@@ -177,6 +182,24 @@ class ParallelAgentExecutor:
                     f"[{name}] Execution failed after {duration_ms:.0f}ms: {error_msg}",
                     exc_info=True,
                 )
+
+            # The single recording site for workspace aborts: every abort path
+            # (classified aborts, checkpoint-write failure, deploy failures)
+            # funnels through this except-branch exactly once. Use the settings
+            # name (the workspace_phases key, e.g. "ws-03-1"), not the executor's
+            # positional logging label ("workspace-1").
+            event_workspace_id = workspace.name or name
+            await record_agent_error_event_safe(
+                AgentErrorEventKind.WORKSPACE_ABORTED,
+                error_msg,
+                workspace_id=event_workspace_id,
+                phase=getattr(e, "phase", None),
+                error_type=error_type,
+                model=workspace.model,
+            )
+            await set_workspace_retry_state_safe(
+                WorkspaceAgentState.ABORTED, workspace_id=event_workspace_id
+            )
 
             return ParallelAgentResult(
                 workspace_name=name,

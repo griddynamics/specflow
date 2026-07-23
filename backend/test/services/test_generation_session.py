@@ -18,6 +18,11 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.database.memory import InMemoryDatabase
+from app.schemas.agent_error_events import (
+    AgentErrorEvent,
+    AgentErrorEventKind,
+    WorkspaceAgentState,
+)
 from app.schemas.generation_workflow_enums import (
     GenerationCheckpoint,
     GenerationStatus,
@@ -1449,3 +1454,45 @@ class TestAddAgentQueryTotals:
         doc = db.get(COL_GENERATION_SESSIONS, est_id)
         assert "model_usage" not in doc
         assert WORKFLOW_USAGE_METRICS_FIELD not in doc
+
+
+class TestAgentErrorEventDelegation:
+    """Service methods are thin delegates to the state machine (Commandment VII)."""
+
+    @pytest.mark.asyncio
+    async def test_record_agent_error_event_delegates_to_state_machine(
+        self, generation_session_service
+    ):
+        generation_session_service._esm.record_agent_error_event = AsyncMock()
+        event = AgentErrorEvent(
+            at="2026-07-23T10:00:00+00:00",
+            workspace_id="ws-1",
+            kind=AgentErrorEventKind.AGENT_CRASH,
+            message="boom",
+        )
+        await generation_session_service.record_agent_error_event("est-1", event)
+
+        call = generation_session_service._esm.record_agent_error_event.await_args
+        assert call.args[0] == "est-1"
+        payload = call.args[1]
+        assert payload["kind"] == "agent_crash"
+        assert payload["workspace_id"] == "ws-1"
+        # exclude_none keeps the stored doc compact
+        assert "phase" not in payload
+
+    @pytest.mark.asyncio
+    async def test_set_workspace_agent_state_delegates_and_serializes(
+        self, generation_session_service
+    ):
+        generation_session_service._esm.set_workspace_agent_state = AsyncMock()
+
+        await generation_session_service.set_workspace_agent_state(
+            "est-1", "ws-1", WorkspaceAgentState.RETRYING
+        )
+        kwargs = generation_session_service._esm.set_workspace_agent_state.await_args.kwargs
+        assert kwargs["workspace_id"] == "ws-1"
+        assert kwargs["state"] == "retrying"
+
+        await generation_session_service.set_workspace_agent_state("est-1", "ws-1", None)
+        kwargs = generation_session_service._esm.set_workspace_agent_state.await_args.kwargs
+        assert kwargs["state"] is None

@@ -68,7 +68,9 @@ from app.services.claude_code import (
     get_common_allowed_tools,
 )
 from app.services.generation_session_output_protection import protect_workspace_after_generation
-from app.services.parallel_executor import ParallelAgentExecutor
+from app.schemas.agent import AgentErrorType
+from app.services.model_routing import classify_error
+from app.services.parallel_executor import ParallelAgentExecutor, ParallelAgentResult
 from app.services.planning_parser import (
     construct_planning_result,
     parse_applicable_agent_mcps,
@@ -407,6 +409,12 @@ async def build_workflow_context(
         TelemetryContext.merge_generation_id(eid_for_usage)
         TelemetryContext.set_agent_query_totals_handler(
             generation_session_service.add_agent_query_token_usage
+        )
+        TelemetryContext.set_agent_error_event_handler(
+            generation_session_service.record_agent_error_event
+        )
+        TelemetryContext.set_workspace_agent_state_handler(
+            generation_session_service.set_workspace_agent_state
         )
 
     return WorkflowContext(
@@ -968,6 +976,87 @@ async def run_contract_validator(ctx: WorkflowContext) -> None:
         await _update_plan_firestore(ctx, plan_type, new_plan)
 
 
+# Variance-reduced estimates need at least two samples — a run that ends with a
+# single surviving workspace is red + retry-able, not silently degraded.
+MIN_WORKSPACES_FOR_VARIANCE = 2
+
+
+class InsufficientWorkspacesError(RuntimeError):
+    """Too few workspaces survived a fan-out step for the run to be useful."""
+
+
+def _friendly_workspace_failure(error: Optional[str]) -> str:
+    """One human phrase per workspace failure, derived from classify_error (SSOT)."""
+    error_type = classify_error(error or "")
+    if error_type == AgentErrorType.CONNECTION_ERROR:
+        return "connection to the model API was lost"
+    if error_type == AgentErrorType.MODEL_ROUTING_FAILURE:
+        return "the model kept returning unusable responses"
+    if error_type == AgentErrorType.TOOL_CALL_FAILURE:
+        return "the model does not support the required tools"
+    return (error or "unknown error")[:160]
+
+
+def _raise_if_insufficient_workspaces(
+    results: list,
+    *,
+    step_label: str,
+    logger: logging.Logger,
+    min_survivors: int,
+    requirement_reason: str,
+) -> None:
+    """Fail the run when fewer than ``min(min_survivors, total)`` workspaces survived.
+
+    ``ParallelAgentExecutor`` converts every per-workspace error into
+    ``success=False`` and never raises, so without this check a total (or
+    near-total) failure lets the orchestrator advance the checkpoint and report
+    success with an empty estimate. ``min(..., total)`` keeps legitimate
+    single-workspace runs green; partial failure above the bar continues with
+    the survivors (PR #47 intent: never fail a run that still has usable
+    samples). Raising here never touches workspaces (they stay ALLOCATED with
+    code intact — Commandment II) and the generation checkpoint was not
+    advanced, so retry_generation resumes each failed workspace mid-plan.
+    """
+    parallel = [r for r in (results or []) if isinstance(r, ParallelAgentResult)]
+    if not parallel:
+        return
+    failures = [r for r in parallel if not r.success]
+    if not failures:
+        return
+    survivors = len(parallel) - len(failures)
+    required = min(min_survivors, len(parallel))
+    detail = "; ".join(
+        f"{r.workspace_name}: {_friendly_workspace_failure(r.error)}" for r in failures
+    )
+    if survivors >= required:
+        logger.warning(
+            "%s: %d/%d workspaces failed but %d survived — continuing with survivors. Failed: %s",
+            step_label, len(failures), len(parallel), survivors, detail,
+        )
+        return
+
+    failure_types = {classify_error(r.error or "") for r in failures}
+    if failure_types == {AgentErrorType.CONNECTION_ERROR}:
+        hint = (
+            "Lost connection to the model API — likely a network interruption "
+            "(e.g. the machine went offline). "
+        )
+    elif failure_types == {AgentErrorType.MODEL_ROUTING_FAILURE}:
+        hint = (
+            "The model kept returning unusable responses — change the model in "
+            "Settings before retrying. "
+        )
+    else:
+        hint = ""
+    raise InsufficientWorkspacesError(
+        f"Only {survivors} of {len(parallel)} workspaces completed {step_label} — "
+        f"at least {required} {'is' if required == 1 else 'are'} required "
+        f"{requirement_reason}. Failed: {detail}. {hint}"
+        f"Your generated code is saved — run retry_generation to resume the failed "
+        f"workspaces from their last completed phase."
+    )
+
+
 async def run_generation_phases(ctx: WorkflowContext) -> None:
     """
     Run parallel code generation phases across all workspaces.
@@ -1059,6 +1148,14 @@ async def run_generation_phases(ctx: WorkflowContext) -> None:
             exc,
             exc_info=True,
         )
+
+    _raise_if_insufficient_workspaces(
+        ctx.generation_result,
+        step_label="code generation",
+        logger=ctx.logger,
+        min_survivors=MIN_WORKSPACES_FOR_VARIANCE,
+        requirement_reason="to compute variance-reduced estimates",
+    )
 
 
 async def _build_deploy_github_context(generation_session_service, workspace_id: str) -> DeployGithubContext:
@@ -1221,7 +1318,19 @@ async def run_deploy_and_e2e(ctx: WorkflowContext) -> None:
             enabled_mcps=ctx.enabled_mcps,
         )
 
-    await executor.execute_parallel(workspaces=ctx.workspaces, agent_fn=agent_fn)
+    deploy_results = await executor.execute_parallel(
+        workspaces=ctx.workspaces, agent_fn=agent_fn
+    )
+    # Deploy keeps the all-failed rule (min 1 survivor): failed deploys don't
+    # invalidate estimation of already-committed code, but zero successful
+    # deploys when E2E was requested is still a failed run.
+    _raise_if_insufficient_workspaces(
+        deploy_results,
+        step_label="deploy & E2E",
+        logger=ctx.logger,
+        min_survivors=1,
+        requirement_reason="for a usable deployment",
+    )
 
 
 async def run_archive_outputs_step(ctx: WorkflowContext) -> None:
