@@ -346,6 +346,21 @@ def setup_claude_code_bash_timeouts() -> Dict[str, str]:
     }
 
 
+def setup_claude_code_resilience_env() -> Dict[str, str]:
+    """Forward Claude Code CLI's own HTTP client retry/timeout tuning to the agent subprocess.
+
+    Without these, a transient network blip (DNS hiccup, provider connection drop) either
+    times out too slowly or gives up before Claude Code's own retry logic gets a chance to
+    recover — forcing the caller's phase-level resume loop (agent_query_with_resume) to
+    burn a resume attempt, or the whole phase, on something the CLI itself could retry past.
+    """
+
+    return {
+        "API_TIMEOUT_MS": "120000",  # 120 seconds per attempt before the CLI times out
+        "CLAUDE_CODE_MAX_RETRIES": "3",  # retry a failed/timed-out request up to 3 times before giving up
+        "CLAUDE_ASYNC_AGENT_STALL_TIMEOUT_MS": "120000",  # 120 seconds of no progress before an async subagent is considered stalled
+    }
+
 
 async def simple_query():
     options = ClaudeAgentOptions(
@@ -762,6 +777,7 @@ async def agent_query(
     env_config.update(setup_claude_code_tmpdir())
     env_config.update(setup_claude_code_max_output_tokens())
     env_config.update(setup_claude_code_bash_timeouts())
+    env_config.update(setup_claude_code_resilience_env())
     if extra_env:
         env_config.update(extra_env)
 
@@ -1596,3 +1612,5 @@ async def planning_agent_fn(
     # Planning agent writes markdown only; conversion agent (REPARSE_PLAN step) produces JSON.
     logger.info("Planning agent complete — conversion agent will produce JSON from markdown")
     return None
+
+
