@@ -307,6 +307,24 @@ class TestRunInit:
         ]
         assert exec_mock.call_args.kwargs["cwd"] == str(tmp_path)
 
+    @pytest.mark.asyncio
+    async def test_stop_containers_argv(self, tmp_path):
+        fake = _FakeProc([], code=0)
+        with patch(
+            "services.local_env.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=fake),
+        ) as exec_mock:
+            rc = await local_env.stop_containers(tmp_path)
+        assert rc == 0
+        assert list(exec_mock.call_args.args) == ["docker", "compose", "down"]
+        assert exec_mock.call_args.kwargs["cwd"] == str(tmp_path)
+
+    def test_docker_cli_available(self, monkeypatch):
+        monkeypatch.setattr(local_env.shutil, "which", lambda name: "/usr/bin/docker")
+        assert local_env.docker_cli_available() is True
+        monkeypatch.setattr(local_env.shutil, "which", lambda name: None)
+        assert local_env.docker_cli_available() is False
+
 
 class TestRunCommand:
     """run_command runs against real child processes — the point is to prove the

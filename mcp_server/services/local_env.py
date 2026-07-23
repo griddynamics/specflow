@@ -607,6 +607,23 @@ async def start_containers(root: Path, on_line: Callable[[str], None] | None = N
     return await _stream_subprocess(["docker", "compose", "up", "-d", "--no-build"], root, on_line)
 
 
+async def stop_containers(root: Path, on_line: Callable[[str], None] | None = None) -> int:
+    """Stop the SpecFlow stack (``docker compose down``), streamed.
+
+    The counterpart to :func:`start_containers`, used when switching away from the
+    docker runtime. Returns the process exit code; non-zero surfaces through the
+    streamed output.
+    """
+    return await _stream_subprocess(["docker", "compose", "down"], root, on_line)
+
+
+def docker_cli_available() -> bool:
+    """True iff the ``docker`` CLI is on PATH — a cheap preflight before trying to
+    start the docker stack (distinct from :func:`containers_running`, which asks
+    whether the stack is already up)."""
+    return shutil.which("docker") is not None
+
+
 # ---------------------------------------------------------------------------
 # specflow-init.sh wrapper
 # ---------------------------------------------------------------------------

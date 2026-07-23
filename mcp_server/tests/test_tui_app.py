@@ -1618,6 +1618,127 @@ class TestStopBackendFlow:
                 assert screen.check_action("stop_backend", ()) is True
 
 
+class TestSwitchRuntime:
+    """``R`` switch runtime: fail-fast target preflight, confirm wording, and the
+    cancel→teardown→persist→start ordering performed by SwitchRuntimeScreen."""
+
+    @staticmethod
+    def _runtime(value):
+        return patch("tui.app.resolve_backend_runtime", return_value=value)
+
+    @pytest.mark.asyncio
+    async def test_process_target_aborts_when_sandbox_unavailable(self):
+        # Currently docker → target process; sandbox missing → refuse, no confirm.
+        a, b, c = _gate_ready()
+        with a, b, c, self._runtime(tui_app.local_env.BackendRuntime.DOCKER), patch(
+            "tui.app.poll_once", new=AsyncMock(return_value=_running_payload())
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                with (
+                    patch("tui.app.local_env.agent_sandbox_unavailable_reason", return_value="no bwrap"),
+                    patch.object(app, "push_screen_wait", new=AsyncMock()) as psw,
+                ):
+                    await app.switch_runtime_flow()
+                psw.assert_not_awaited()  # never reached the confirm dialog
+
+    @pytest.mark.asyncio
+    async def test_docker_target_aborts_when_docker_cli_missing(self):
+        # Currently process → target docker; docker CLI absent → refuse.
+        a, b, c = _gate_ready()
+        with a, b, c, self._runtime(tui_app.local_env.BackendRuntime.PROCESS), patch(
+            "tui.app.poll_once", new=AsyncMock(return_value=_running_payload())
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                with (
+                    patch("tui.app.local_env.docker_cli_available", return_value=False),
+                    patch.object(app, "push_screen_wait", new=AsyncMock()) as psw,
+                ):
+                    await app.switch_runtime_flow()
+                psw.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_confirm_names_active_runs_and_cancelled_when_declined(self):
+        a, b, c = _gate_ready()
+        with a, b, c, self._runtime(tui_app.local_env.BackendRuntime.DOCKER), patch(
+            "tui.app.poll_once", new=AsyncMock(return_value=_running_payload())
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                with (
+                    patch("tui.app.local_env.agent_sandbox_unavailable_reason", return_value=None),
+                    patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[
+                        {"generation_id": "g1", "status": "running"},
+                        {"generation_id": "g2", "status": "completed"},
+                    ])),
+                    patch.object(app, "push_screen_wait", new=AsyncMock(return_value=False)) as psw,
+                ):
+                    await app.switch_runtime_flow()
+                # Only the running one is counted; user declined → single dialog, no switch.
+                assert psw.await_count == 1
+                msg = psw.await_args.args[0]._message
+                assert "docker → process" in msg
+                assert "1 in-progress generation" in msg
+
+    @pytest.mark.asyncio
+    async def test_confirmed_runs_switch_screen(self):
+        a, b, c = _gate_ready()
+        with a, b, c, self._runtime(tui_app.local_env.BackendRuntime.DOCKER), patch(
+            "tui.app.poll_once", new=AsyncMock(return_value=_running_payload())
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                # First push_screen_wait = confirm (True); second = SwitchRuntimeScreen (True).
+                psw = AsyncMock(side_effect=[True, True])
+                with (
+                    patch("tui.app.local_env.agent_sandbox_unavailable_reason", return_value=None),
+                    patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])),
+                    patch.object(app, "push_screen_wait", new=psw),
+                ):
+                    await app.switch_runtime_flow()
+                assert psw.await_count == 2
+                switch_screen = psw.await_args_list[1].args[0]
+                assert isinstance(switch_screen, tui_app.SwitchRuntimeScreen)
+                assert switch_screen._current == tui_app.local_env.BackendRuntime.DOCKER
+                assert switch_screen._target == tui_app.local_env.BackendRuntime.PROCESS
+
+    @pytest.mark.asyncio
+    async def test_switch_screen_cancels_then_teardown_then_start_in_order(self):
+        # SwitchRuntimeScreen must cancel the run, THEN tear down, THEN start.
+        a, b, c = _gate_ready()
+        with a, b, c, patch("tui.app.poll_once", new=AsyncMock(return_value=_running_payload())):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                calls: list[str] = []
+                cancel = AsyncMock(side_effect=lambda **k: calls.append(f"cancel:{k['endpoint'].rsplit('/', 1)[-1]}"))
+                stop_c = AsyncMock(side_effect=lambda *a, **k: calls.append("stop_containers"))
+                start_p = AsyncMock(side_effect=lambda *a, **k: calls.append("start_process"))
+                save = MagicMock(side_effect=lambda *a, **k: calls.append("save"))
+                with (
+                    patch("tui.app.call_backend_endpoint", new=cancel),
+                    patch("tui.app.local_env.stop_containers", new=stop_c),
+                    patch("tui.app.local_env.save_backend_runtime", new=save),
+                    patch("tui.app.local_env.start_backend_process", new=start_p),
+                    patch("tui.app.local_env.wait_backend_ready", new=AsyncMock(return_value=True)),
+                ):
+                    screen = tui_app.SwitchRuntimeScreen(
+                        current=tui_app.local_env.BackendRuntime.DOCKER,
+                        target=tui_app.local_env.BackendRuntime.PROCESS,
+                        cancel_ids=["gen_abc"],
+                    )
+                    app.push_screen(screen)
+                    await pilot.pause()
+                    await pilot.pause()
+                assert calls == ["cancel:gen_abc", "stop_containers", "save", "start_process"]
+                save.assert_called_once_with(app.root, tui_app.local_env.BackendRuntime.PROCESS)
+
+
 class TestDashboardOpenReport:
     """``h`` fetches the HTML report over HTTP (the backend runs in a container,
     so there's no shared filesystem path to open directly) and caches it locally

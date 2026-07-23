@@ -105,6 +105,26 @@ stop it:
 - **From the shell** — `make stop-process` (SIGTERMs the process group and
   clears the pidfile). Equivalent to what the TUI's `k` does.
 
+## Switching runtime from the TUI
+
+Press `R` (*switch runtime*) on the dashboard or sessions screen to move
+docker↔process without leaving the app. The switch:
+
+1. **Preflights the target first** (before touching the running backend): a
+   fail-closed sandbox check for →process, a `docker` CLI check for →docker.
+   If the target can't run, it refuses and leaves the current backend untouched.
+2. **Confirms**, naming how many in-flight generations will be cancelled.
+3. **Cancels those generations on the current backend** (they are marked
+   `CANCELLED`; workspaces and generated code are preserved per the STEEL
+   COMMANDMENTS) — this must happen before teardown, while the API is still up.
+4. **Tears down** the current backend (`stop_backend_process` / `docker compose
+   down`), **persists** the new choice to `.specflow-local/backend-runtime`, and
+   **starts** the target backend, waiting for it to become healthy.
+
+Because both runtimes bind the same host:port and (in the default `sqlite` setup)
+share `~/.specflow/db/specflow.db`, the cancelled runs remain visible after the
+switch and the TUI keeps polling the new backend automatically.
+
 ## Dependencies
 
 - **macOS**: nothing to install — `sandbox-exec` (Seatbelt) ships with the OS.
