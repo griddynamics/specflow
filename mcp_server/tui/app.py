@@ -287,9 +287,13 @@ def build_dashboard(
     estimate = _estimate_panel(payload)
     if estimate is not None:
         panels.append(estimate)
-    act = _activity_panel(root, payload)
-    if act is not None:
-        panels.append(act)
+    # "Recent activity" is hidden for now: a raw tail of the DEBUG agent log is too
+    # noisy to be useful in the dashboard. `_activity_panel` / `tui.activity` are
+    # kept (and now point at the correct nested log dir) so this can be revived with
+    # a proper filtered/prettified view later — just re-append here.
+    # act = _activity_panel(root, payload)
+    # if act is not None:
+    #     panels.append(act)
     warnings_panel = _agent_events_panel(payload)
     if warnings_panel is not None:
         panels.append(warnings_panel)
