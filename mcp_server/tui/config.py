@@ -26,14 +26,21 @@ EDITABLE_KEYS: list[str] = [
     *LLM_TIER_KEYS,
     "USER_EMAIL",
     "BACKEND_URL",
-    # docker (default) | process — how the local backend is launched. See
-    # docs/backend/backend-runtime.md; resolved by cli.resolve_backend_runtime.
-    "BACKEND_RUNTIME",
 ]
 
-# Superseded tier key names an earlier build wrote into the env block; nothing
-# reads them. Purged on save so they never linger or skew a config fingerprint.
-_LEGACY_EDITABLE_KEYS: list[str] = ["LLM_MODEL_HIGH", "LLM_MODEL_MEDIUM", "LLM_MODEL_LOW"]
+# Keys an earlier build wrote into the env block that nothing reads any more,
+# purged on save so they never linger or skew a config fingerprint:
+#   - LLM_MODEL_* — superseded by the LLM_HIGH/MEDIUM/LOW tier keys.
+#   - BACKEND_RUNTIME — the runtime is a local-launcher fact resolved from the
+#     env var / .specflow-local/backend-runtime, never from mcp-config.json (the
+#     MCP server just calls the backend and is indifferent to how it is launched),
+#     so it must not be editable here. See cli.resolve_backend_runtime.
+_LEGACY_EDITABLE_KEYS: list[str] = [
+    "LLM_MODEL_HIGH",
+    "LLM_MODEL_MEDIUM",
+    "LLM_MODEL_LOW",
+    "BACKEND_RUNTIME",
+]
 
 # Secret/identity keys, stored in .env (consumed by docker-compose / the backend
 # / the init script). Names match .env.quickstart.example so write_dotenv fills
