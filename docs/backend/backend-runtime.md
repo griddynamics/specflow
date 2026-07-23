@@ -107,8 +107,10 @@ stop it:
 
 ## Switching runtime from the TUI
 
-Press `R` (*switch runtime*) on the dashboard or sessions screen to move
-docker↔process without leaving the app. The switch:
+Press `R` (*switch runtime*) on the **sessions** screen to move docker↔process
+without leaving the app. (It lives on the sessions overview, not the
+single-generation dashboard, because it cancels *all* in-flight runs and restarts
+the backend.) The switch:
 
 1. **Preflights the target first** (before touching the running backend): a
    fail-closed sandbox check for →process, a `docker` CLI check for →docker.

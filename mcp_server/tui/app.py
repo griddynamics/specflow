@@ -467,23 +467,19 @@ class VerifyChoiceScreen(ModalScreen[bool | None]):
 
 
 class _BackendControlScreen(_SpecFlowScreen):
-    """Base for the screens that manage the backend runtime (dashboard + sessions).
+    """Base for the screens that may stop the bare-metal backend (dashboard + sessions).
 
-    Two actions, both implemented once on the app so the two screens share one
-    implementation:
+    ``k`` stop backend — process runtime only (in ``BACKEND_RUNTIME=process`` the
+    backend is a detached host process that outlives the TUI; in docker mode the
+    container stack is the boundary, so ``check_action`` hides it). Implemented once
+    on the app (``SpecFlowTUI.stop_backend_flow``) so both screens share it.
 
-    * ``k`` stop backend — process runtime only (in ``BACKEND_RUNTIME=process`` the
-      backend is a detached host process that outlives the TUI; in docker mode the
-      container stack is the boundary, so ``check_action`` hides it).
-    * ``R`` switch runtime — always available: tears down the current backend and
-      brings up the other (docker↔process), cancelling any in-flight generation
-      first (``SpecFlowTUI.switch_runtime_flow``).
+    Switching runtime lives on the sessions list only (see ``SessionsScreen``), not
+    here: it cancels ALL in-flight runs and restarts the backend, so it belongs on
+    the overview screen rather than while viewing a single generation.
     """
 
-    BINDINGS = [
-        Binding("k", "stop_backend", "stop backend"),
-        Binding("R", "switch_runtime", "switch runtime"),
-    ]
+    BINDINGS = [Binding("k", "stop_backend", "stop backend")]
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         if action == "stop_backend":
@@ -494,9 +490,6 @@ class _BackendControlScreen(_SpecFlowScreen):
         if not getattr(self.app, "is_process_runtime", False):
             return
         self.run_worker(self.app.stop_backend_flow(), exclusive=True)
-
-    def action_switch_runtime(self) -> None:
-        self.run_worker(self.app.switch_runtime_flow(), exclusive=True)
 
 
 class DashboardScreen(_BackendControlScreen):
@@ -885,12 +878,15 @@ class SessionsScreen(_BackendControlScreen):
         Binding("r", "reload", "reload"),
         Binding("c", "connect_client", "Add MCP to AI tool"),
         Binding("s", "settings", "settings"),
+        # Switching runtime cancels ALL in-flight runs and restarts the backend, so
+        # it lives on this overview screen — not the single-generation dashboard.
+        Binding("R", "switch_runtime", "switch runtime"),
     ]
 
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static(
-            "SpecFlow · sessions   (↑/↓ select · ↵ open · r reload · s settings)",
+            "SpecFlow · sessions   (↑/↓ select · ↵ open · r reload · s settings · R switch runtime)",
             id="sessions-title",
         )
         yield ListView(id="sessions-list")
@@ -926,6 +922,9 @@ class SessionsScreen(_BackendControlScreen):
 
     def action_settings(self) -> None:
         self.app.push_screen(SettingsScreen())
+
+    def action_switch_runtime(self) -> None:
+        self.run_worker(self.app.switch_runtime_flow(), exclusive=True)
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         item = event.item

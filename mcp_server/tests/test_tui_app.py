@@ -1738,6 +1738,15 @@ class TestSwitchRuntime:
                 assert calls == ["cancel:gen_abc", "stop_containers", "save", "start_process"]
                 save.assert_called_once_with(app.root, tui_app.local_env.BackendRuntime.PROCESS)
 
+    def test_switch_binding_lives_on_sessions_not_dashboard(self):
+        # Switching cancels ALL runs + restarts the backend, so it belongs on the
+        # sessions overview, not the single-generation dashboard. Stop-backend
+        # stays shared (both screens).
+        assert hasattr(tui_app.SessionsScreen, "action_switch_runtime")
+        assert not hasattr(tui_app.DashboardScreen, "action_switch_runtime")
+        assert hasattr(tui_app.DashboardScreen, "action_stop_backend")
+        assert hasattr(tui_app.SessionsScreen, "action_stop_backend")
+
 
 class TestDashboardOpenReport:
     """``h`` fetches the HTML report over HTTP (the backend runs in a container,
