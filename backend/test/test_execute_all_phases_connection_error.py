@@ -53,6 +53,10 @@ async def test_connection_error_aborts_without_checkpoint(tmp_path: Path) -> Non
     svc = Mock()
     svc.update_workspace_phase = AsyncMock()
     svc.update_deployment_workspace_phase = AsyncMock()
+    # No live DB in this unit test: execute_all_phases derives db_adapter from the
+    # service for the per-phase cancellation check; None makes raise_if_cancelled a
+    # no-op (its documented DB-less path) so the connection-error abort is reached.
+    svc.db_adapter = None
 
     async def fake_phase_fn(**kwargs):
         return AgentResult(
