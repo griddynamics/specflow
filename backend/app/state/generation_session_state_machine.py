@@ -601,10 +601,23 @@ class GenerationSessionStateMachine:
         if retry_count >= max_retries:
             raise MaxRetriesExceededError(generation_id, retry_count, max_retries)
 
+        # A retry restarts every allocated workspace, so wipe the transient
+        # per-workspace agent_state badge (retrying/aborted) left by the previous
+        # run — otherwise stale ABORTED/RETRYING markers linger on any workspace
+        # that doesn't happen to re-enter the crash/backoff path this run. All
+        # other workspace_phases fields (last_completed_phase, planning_data) are
+        # preserved so the retry still resumes from the right phase.
+        phases = doc.get("workspace_phases") or {}
+        cleaned_phases = {
+            ws: {k: v for k, v in (entry or {}).items() if k != "agent_state"}
+            for ws, entry in phases.items()
+        }
+
         extra_fields = {
             "retry_count": retry_count + 1,
             "error": None,
             "shutdown_interrupted": False,
+            "workspace_phases": cleaned_phases,
         }
         return await self._transition(
             generation_id, "reset_for_retry",

@@ -476,6 +476,34 @@ class TestResetForRetry:
         await esm.reset_for_retry("est-1", triggered_by="system:server_boot_recovery")
         assert db.get_generation_session_data("est-1")["shutdown_interrupted"] is False
 
+    @pytest.mark.asyncio
+    async def test_reset_clears_agent_state_on_all_workspaces_preserving_phase(self, db):
+        """A retry must wipe the transient RETRYING/ABORTED badge from EVERY workspace
+        (regression: stale badges lingered on workspaces that didn't re-enter the
+        crash/backoff path), while preserving last_completed_phase so the retry
+        resumes from the right place."""
+        esm = make_esm(db)
+        db.seed_generation_session("est-1", {
+            "status": GenerationStatus.FAILED,
+            "retry_count": 0,
+            "max_retries": 3,
+            "workspace_ids": ["ws-01-1", "ws-01-2", "ws-01-3"],
+            "workspace_phases": {
+                "ws-01-1": {"last_completed_phase": 2, "total_phases": 24, "agent_state": "aborted"},
+                "ws-01-2": {"last_completed_phase": 0, "total_phases": 24, "agent_state": "aborted"},
+                "ws-01-3": {"last_completed_phase": 1, "total_phases": 24},
+            },
+            "state_history": [],
+        })
+        await esm.reset_for_retry("est-1", triggered_by="api:manual_retry")
+        phases = db.get_generation_session_data("est-1")["workspace_phases"]
+        # No workspace keeps a stale agent_state badge...
+        assert all("agent_state" not in entry for entry in phases.values())
+        # ...and phase progress is untouched.
+        assert phases["ws-01-1"]["last_completed_phase"] == 2
+        assert phases["ws-01-2"]["last_completed_phase"] == 0
+        assert phases["ws-01-3"]["total_phases"] == 24
+
 
 class TestComplete:
     @pytest.mark.asyncio
