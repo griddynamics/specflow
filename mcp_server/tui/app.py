@@ -470,7 +470,7 @@ class DashboardScreen(_SpecFlowScreen):
         Binding("x", "cancel", "cancel"),
         Binding("w", "clear", "clear ws"),
         Binding("s", "settings", "settings"),
-        Binding("b", "sessions", "sessions"),
+        Binding("escape", "back", "back"),
         Binding("c", "connect_client", "Add MCP to AI tool"),
         Binding("o", "open_workspace", "open ws"),
         Binding("enter", "open_workspace", "open ws", show=False),
@@ -732,7 +732,7 @@ class DashboardScreen(_SpecFlowScreen):
     def action_settings(self) -> None:
         self.app.push_screen(SettingsScreen())
 
-    def action_sessions(self) -> None:
+    def action_back(self) -> None:
         self.app.push_screen(SessionsScreen())
 
     def action_connect_client(self) -> None:
