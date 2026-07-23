@@ -69,6 +69,23 @@ at two points (mirroring the `MODEL_UNAVAILABLE` two-gate pattern):
    rejections this is **not** a state-machine `fail()`: no `failed_at`, workspaces
    stay allocated — install the dependency and call `run_generation` again.
 
+## Stopping the backend (process mode)
+
+Unlike docker mode (where the container stack is the lifecycle boundary), a
+process-mode backend is a **detached host process that outlives the TUI** — it
+keeps running after you quit the TUI, along with any in-flight generation. To
+stop it:
+
+- **From the TUI** — press `k` (*stop backend*) on the dashboard or sessions
+  screen. The binding is shown **only in process mode**. It confirms first,
+  naming how many generations are in flight (a stop interrupts them). Per the
+  STEEL COMMANDMENTS a stop never releases workspaces: the generated code is
+  preserved and `retry_generation` resumes from the last checkpoint. On success
+  the TUI exits; relaunching re-runs the startup gate, which detects the backend
+  is down and offers to start it again.
+- **From the shell** — `make stop-process` (SIGTERMs the process group and
+  clears the pidfile). Equivalent to what the TUI's `k` does.
+
 ## Dependencies
 
 - **macOS**: nothing to install — `sandbox-exec` (Seatbelt) ships with the OS.

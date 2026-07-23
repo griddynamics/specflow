@@ -461,7 +461,32 @@ class VerifyChoiceScreen(ModalScreen[bool | None]):
         self.dismiss(None)
 
 
-class DashboardScreen(_SpecFlowScreen):
+class _BackendControlScreen(_SpecFlowScreen):
+    """Base for the screens that may stop the bare-metal backend.
+
+    In ``BACKEND_RUNTIME=process`` the backend is a detached host process that
+    outlives the TUI (see ``local_env.start_backend_process``), so there must be
+    an in-app way to stop it. The ``k`` binding is shown only in process mode —
+    in docker mode the container stack is the boundary and this action is hidden
+    (``check_action`` returns ``None``). The confirm-and-stop flow itself lives on
+    the app (``SpecFlowTUI.stop_backend_flow``) so both the dashboard and the
+    sessions list reuse exactly one implementation.
+    """
+
+    BINDINGS = [Binding("k", "stop_backend", "stop backend")]
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action == "stop_backend":
+            return True if getattr(self.app, "is_process_runtime", False) else None
+        return True
+
+    def action_stop_backend(self) -> None:
+        if not getattr(self.app, "is_process_runtime", False):
+            return
+        self.run_worker(self.app.stop_backend_flow(), exclusive=True)
+
+
+class DashboardScreen(_BackendControlScreen):
     """Live dashboard for a single generation."""
 
     BINDINGS = [
@@ -547,7 +572,8 @@ class DashboardScreen(_SpecFlowScreen):
             return True if status == "failed" else None
         if action == "open_report":
             return True if render.estimate_panel(self._payload) is not None else None
-        return True
+        # stop_backend (process-mode only) + default → the shared mixin decides.
+        return super().check_action(action, parameters)
 
     def _move_selection(self, delta: int) -> None:
         if not self._workspace_ids:
@@ -782,7 +808,7 @@ def _session_label(s: dict) -> str:
     return f"{status_col}  {gid[:22]:<24}  {date_col}  {checkpoint_label}"
 
 
-class SessionsScreen(_SpecFlowScreen):
+class SessionsScreen(_BackendControlScreen):
     """Picker across all recent generation sessions (active and completed)."""
 
     BINDINGS = [
@@ -2079,6 +2105,72 @@ class SpecFlowTUI(App):
     def backend_url(self) -> str:
         """Resolved backend URL (flag → env → mcp-config → default)."""
         return resolve_backend_config(None, None, None, self.root)[0]
+
+    @property
+    def is_process_runtime(self) -> bool:
+        """True when the backend runs as a bare-metal host process (not Docker).
+
+        Only in this mode can the TUI stop the backend — in docker mode the
+        container stack is the boundary. Resolved the same way as the startup gate
+        (flag → env → mcp-config → default) so the two never disagree.
+        """
+        return resolve_backend_runtime(self.root) == local_env.BackendRuntime.PROCESS
+
+    async def _count_active_generations(self) -> int | None:
+        """Number of non-terminal generations, or ``None`` if it can't be read.
+
+        Used only to word the stop confirmation; a ``None`` (backend unreachable /
+        service unavailable) is treated conservatively as "maybe active" by the
+        caller rather than silently claiming nothing is running.
+        """
+        if fetch_sessions is None:
+            return None
+        try:
+            sessions = await fetch_sessions()
+        except Exception:  # noqa: BLE001 - confirmation wording is best-effort
+            return None
+        return sum(
+            1
+            for s in sessions
+            if (s.get("status") or "").lower() not in TERMINAL_STATUSES
+        )
+
+    async def stop_backend_flow(self) -> None:
+        """Confirm, then stop the detached bare-metal backend (process runtime).
+
+        A hard stop (SIGTERM to the process group) interrupts any in-flight
+        generation, so the confirmation names how many runs are affected. Per the
+        STEEL COMMANDMENTS a stop never releases workspaces: the code is preserved
+        and ``retry_generation`` resumes from the last checkpoint. On success the
+        TUI exits with a message — relaunching re-runs the startup gate, which
+        detects the backend is down and offers to start it again.
+        """
+        active = await self._count_active_generations()
+        if active is None:
+            detail = "Any in-progress generation will be interrupted"
+        elif active > 0:
+            plural = "s" if active != 1 else ""
+            detail = f"This interrupts {active} in-progress generation{plural}"
+        else:
+            detail = "No generation is currently running"
+        confirmed = await self.push_screen_wait(
+            ConfirmScreen(
+                f"Stop the backend?\n\n{detail} — its workspaces and generated code "
+                "are preserved (retry resumes from the last checkpoint). Relaunch "
+                "SpecFlow to start the backend again.",
+                countdown=10 if (active is None or active > 0) else 0,
+            )
+        )
+        if not confirmed:
+            return
+        stopped = await asyncio.to_thread(local_env.stop_backend_process, self.root)
+        if stopped:
+            self.exit(message="Backend stopped. Relaunch SpecFlow to start it again.")
+        else:
+            self.notify(
+                "No running backend process was found to stop.",
+                severity="warning",
+            )
 
     def on_mount(self) -> None:
         # Run the gating sequence in an exclusive worker so blocking subprocess

@@ -1275,6 +1275,130 @@ class TestDashboardActionFlows:
                 assert isinstance(psw.await_args.args[0], tui_app.MessageScreen)
 
 
+class TestStopBackendFlow:
+    """``k`` (process runtime only): confirm wording, hard-stop, exit-on-success,
+    and the docker-mode gating that hides the binding entirely."""
+
+    @staticmethod
+    def _process_runtime():
+        return patch(
+            "tui.app.resolve_backend_runtime",
+            return_value=tui_app.local_env.BackendRuntime.PROCESS,
+        )
+
+    @pytest.mark.asyncio
+    async def test_confirmed_stops_process_and_exits(self):
+        a, b, c = _gate_ready()
+        with a, b, c, self._process_runtime(), patch(
+            "tui.app.poll_once", new=AsyncMock(return_value=_running_payload())
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                stop = MagicMock(return_value=True)
+                with (
+                    patch.object(app, "push_screen_wait", new=AsyncMock(return_value=True)) as psw,
+                    patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[{"status": "running"}])),
+                    patch("tui.app.local_env.stop_backend_process", new=stop),
+                ):
+                    await app.stop_backend_flow()
+                    await pilot.pause()
+                stop.assert_called_once_with(app.root)
+                # The one active run is named in the confirmation prompt.
+                assert "1 in-progress generation" in psw.await_args.args[0]._message
+                assert not app.is_running
+
+    @pytest.mark.asyncio
+    async def test_cancelled_leaves_backend_running(self):
+        a, b, c = _gate_ready()
+        with a, b, c, self._process_runtime(), patch(
+            "tui.app.poll_once", new=AsyncMock(return_value=_running_payload())
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                stop = MagicMock(return_value=True)
+                with (
+                    patch.object(app, "push_screen_wait", new=AsyncMock(return_value=False)),
+                    patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])),
+                    patch("tui.app.local_env.stop_backend_process", new=stop),
+                ):
+                    await app.stop_backend_flow()
+                stop.assert_not_called()
+                assert app.is_running
+
+    @pytest.mark.asyncio
+    async def test_no_process_found_warns_and_stays(self):
+        # stop returns False (nothing was running) → warn, do NOT exit the TUI.
+        a, b, c = _gate_ready()
+        with a, b, c, self._process_runtime(), patch(
+            "tui.app.poll_once", new=AsyncMock(return_value=_running_payload())
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                stop = MagicMock(return_value=False)
+                with (
+                    patch.object(app, "push_screen_wait", new=AsyncMock(return_value=True)),
+                    patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])),
+                    patch("tui.app.local_env.stop_backend_process", new=stop),
+                ):
+                    await app.stop_backend_flow()
+                    await pilot.pause()
+                stop.assert_called_once_with(app.root)
+                assert app.is_running
+
+    @pytest.mark.asyncio
+    async def test_unreadable_sessions_use_conservative_wording(self):
+        # Backend unreachable → don't claim "nothing running"; warn generically.
+        a, b, c = _gate_ready()
+        with a, b, c, self._process_runtime(), patch(
+            "tui.app.poll_once", new=AsyncMock(return_value=_running_payload())
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                with (
+                    patch.object(app, "push_screen_wait", new=AsyncMock(return_value=False)) as psw,
+                    patch("tui.app.fetch_sessions", new=AsyncMock(side_effect=RuntimeError("down"))),
+                ):
+                    await app.stop_backend_flow()
+                assert "Any in-progress generation" in psw.await_args.args[0]._message
+
+    @pytest.mark.asyncio
+    async def test_binding_hidden_in_docker_mode(self):
+        a, b, c = _gate_ready()
+        with a, b, c, patch(
+            "tui.app.resolve_backend_runtime",
+            return_value=tui_app.local_env.BackendRuntime.DOCKER,
+        ), patch("tui.app.poll_once", new=AsyncMock(return_value=_running_payload())):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                screen = app.screen
+                assert isinstance(screen, tui_app.DashboardScreen)
+                assert app.is_process_runtime is False
+                assert screen.check_action("stop_backend", ()) is None
+                # Docker-mode action is a no-op even if invoked directly.
+                with patch("tui.app.local_env.stop_backend_process") as stop:
+                    screen.action_stop_backend()
+                    await pilot.pause()
+                    stop.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_binding_shown_in_process_mode(self):
+        a, b, c = _gate_ready()
+        with a, b, c, self._process_runtime(), patch(
+            "tui.app.poll_once", new=AsyncMock(return_value=_running_payload())
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                screen = app.screen
+                assert app.is_process_runtime is True
+                assert screen.check_action("stop_backend", ()) is True
+
+
 class TestDashboardOpenReport:
     """``h`` fetches the HTML report over HTTP (the backend runs in a container,
     so there's no shared filesystem path to open directly) and caches it locally
