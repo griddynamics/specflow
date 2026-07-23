@@ -3,23 +3,15 @@
 The wrappers must delegate to the existing cli.cmd_* handlers (single source of
 truth for guards/precheck/backend calls), passing the namespace fields each
 handler reads. We patch the handlers and assert delegation + key arguments.
+(Retry no longer goes through here — it calls the retry core directly; see
+test_tui_app.TestDashboardActionFlows.)
 """
 
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from tui import actions
-
-
-@pytest.mark.asyncio
-async def test_do_retry_delegates_with_root():
-    with patch("cli.cmd_retry_generation", new=AsyncMock(return_value=0)) as m:
-        rc = await actions.do_retry(Path("/proj"))
-    assert rc == 0
-    ns = m.await_args.args[0]
-    assert ns.root_path == "/proj"
 
 
 @pytest.mark.asyncio

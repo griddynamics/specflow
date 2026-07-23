@@ -21,8 +21,10 @@ from app.schemas.specification import GenerateAppRequest, GenerationWorkflowRequ
 from app.services.claude_code import clear_workspace_caches
 from app.services.contract_validator import ContractRejection
 from app.services.generation_session import GenerationSessionService
+from app.services.generation_task_registry import GenerationTaskRegistry
 from app.state.api_key_session_concurrency import OperationKind, SessionBeginOutcome
 from app.state.exceptions import (
+    GenerationCancelledError,
     InvalidGenerationSessionStateError as SMInvalidGenerationSessionStateError,
 )
 from app.state.transitions import TriggeredBy
@@ -79,8 +81,18 @@ async def _handle_workflow_exception(
     released cleanly) so the user can fix their uploaded files and retry. Any other
     exception is a real failure → ``fail_generation_session``.
 
+    A ``GenerationCancelledError`` (raised by cooperative cancellation checks) is NOT a
+    failure: the session has already been transitioned to CANCELLED by the cancel endpoint,
+    so this is a silent no-op — no fail(), no reject(), no notification (the user knows).
+
     Centralizing here is the structural fix — entry points can no longer diverge when a new exception type is introduced.
     """
+    if isinstance(exc, GenerationCancelledError):
+        logger.info(
+            "Generation session %s cancelled by user — workflow stopped (no-op)", generation_id
+        )
+        return
+
     if isinstance(exc, ContractRejection):
         logger.info(
             "Generation session %s rejected by contract validator: %s", generation_id, exc
@@ -205,6 +217,7 @@ async def rerun_generation_session(
     generation_id: str,
     *,
     generation_session_service: GenerationSessionService,
+    task_registry: GenerationTaskRegistry,
     user_email: str | None = None,
 ) -> None:
     """Re-fire a generation session from its persisted parameters.
@@ -239,6 +252,7 @@ async def rerun_generation_session(
     }
 
     try:
+        task_registry.register_current_task(generation_id)
         TelemetryContext.set_user_context(
             user_email=user_email,
             generation_id=generation_id,
@@ -294,6 +308,8 @@ async def rerun_generation_session(
 
     except Exception as e:
         # Single exit path — ContractRejection → reject (PENDING), else → fail (FAILED).
+        # GenerationCancelledError is handled as a silent no-op there.
         await _handle_workflow_exception(e, generation_id, generation_session_service)
     finally:
+        task_registry.deregister_task(generation_id)
         TelemetryContext.set_agent_query_totals_handler(None)

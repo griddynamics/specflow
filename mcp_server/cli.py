@@ -272,33 +272,23 @@ async def cmd_check_status(args: argparse.Namespace) -> int:
 async def cmd_retry_generation(args: argparse.Namespace) -> int:
     """retry-generation: retry a failed generation."""
     from services.session import set_project_root, resolve_generation_id
-    from services.specflow_backend import call_backend_endpoint
-    from services.tool_helpers import check_status_safe, is_generation_in_progress
+    from services.retry import retry_generation_core
 
     root = resolve_root(args.root_path)
     print(f"Using project root: {root}")
     set_project_root(root)
 
-    generation_id = resolve_generation_id(None, root)
+    generation_id = resolve_generation_id(args.generation_id, root)
     if not generation_id:
         print("No previous generation found. Run `specflow run-generation` to start one.")
         return 0
 
-    status_data = await check_status_safe(generation_id)
-    if is_generation_in_progress(status_data):
-        print(
-            "ERROR: A generation is already running. Wait for it to finish before retrying.",
-            file=sys.stderr,
-        )
+    try:
+        backend_data = await retry_generation_core(generation_id)
+    except Exception as exc:  # noqa: BLE001 - backend validates state; surface its reason
+        print(f"ERROR: Couldn't retry: {exc}", file=sys.stderr)
         return 1
-
-    response_text = await call_backend_endpoint(
-        endpoint=f"/api/v1/generation-sessions/{generation_id}/retry",
-        method="POST",
-        timeout_seconds=30,
-    )
-    data = json.loads(response_text)
-    print(json.dumps(data, indent=2))
+    print(json.dumps(backend_data, indent=2))
     print("\nRetry queued. Generation will resume from the last checkpoint on the same workspaces.")
     return 0
 
@@ -577,7 +567,13 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("check-status", help="Check progress of a running generation")
 
     # retry-generation
-    subparsers.add_parser("retry-generation", help="Retry a failed generation")
+    p_retry = subparsers.add_parser("retry-generation", help="Retry a failed generation")
+    p_retry.add_argument(
+        "--generation-id",
+        default=None,
+        dest="generation_id",
+        help="Generation ID (default: from specflow_session.json)",
+    )
 
     # download-outputs
     p_dl = subparsers.add_parser(

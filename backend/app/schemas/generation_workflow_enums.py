@@ -17,14 +17,19 @@ class GenerationStatus(str, Enum):
 
     Lifecycle:
       PENDING → INITIALIZING → RUNNING → COMPLETED | FAILED
+      (any of PENDING | INITIALIZING | RUNNING) → CANCELLED (user-initiated)
 
     Spec analysis and planning run locally in the IDE before ``run_generation``.
+
+    CANCELLED is terminal and, unlike FAILED, is never resumed by boot recovery
+    and never retryable — the user deliberately stopped the run.
     """
     PENDING = "pending"
     INITIALIZING = "initializing"
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class GenerationCheckpoint(str, Enum):

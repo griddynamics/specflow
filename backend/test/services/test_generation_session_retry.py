@@ -235,6 +235,21 @@ class TestRetryValidation:
         assert est["retry_count"] == 1
 
     @pytest.mark.asyncio
+    async def test_cannot_retry_cancelled(self, retry_service, sample_workspaces):
+        """A user-cancelled session is terminal and must never be retried."""
+        db = retry_service._db
+        db.set(COL_GENERATION_SESSIONS, "est-cancelled", {
+            "status": GenerationStatus.CANCELLED.value,
+            "workspace_ids": [],
+            "code_archived": False,
+            "retry_count": 0,
+            "state_history": [],
+        })
+
+        with pytest.raises(InvalidRetryStateError, match="cancelled"):
+            await retry_service.retry_generation_session("est-cancelled")
+
+    @pytest.mark.asyncio
     async def test_cannot_retry_initializing(self, retry_service, sample_workspaces):
         """Cannot retry generation that is actively INITIALIZING (allocation in progress)."""
         db = retry_service._db

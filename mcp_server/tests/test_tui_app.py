@@ -254,6 +254,18 @@ class TestSessionLabel:
 
         assert "custom_checkpoint" in label
 
+    def test_cancelled_shows_by_user(self):
+        label = tui_app._session_label(
+            {
+                "generation_id": "est-d67dcac6cbe5",
+                "status": "cancelled",
+                "checkpoint": "generation_done",
+            }
+        )
+
+        assert "CANCELLED BY USER" in label
+        assert "⊘" in label
+
 
 class TestRunTuiNonTty:
     @pytest.mark.asyncio
@@ -832,6 +844,67 @@ class TestQuitBinding:
                 assert not app.is_running
 
 
+class TestDashboardCancel:
+    def test_check_action_gates_cancel_by_status(self):
+        screen = tui_app.DashboardScreen("gen_x")
+        for active in ("pending", "initializing", "running"):
+            screen._payload = {"status": active}
+            assert screen.check_action("cancel", ()) is True
+        for terminal in ("completed", "failed", "cancelled"):
+            screen._payload = {"status": terminal}
+            assert screen.check_action("cancel", ()) is None
+
+    @pytest.mark.asyncio
+    async def test_cancel_flow_confirms_then_calls_delete(self):
+        a, b, c = _gate_ready()
+        delete_mock = AsyncMock(return_value='{"status": "cancelled"}')
+        with (
+            a,
+            b,
+            c,
+            patch("tui.app.poll_once", new=AsyncMock(return_value=_running_payload())),
+            patch("tui.app.call_backend_endpoint", new=delete_mock),
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.DashboardScreen)
+                await pilot.press("x")
+                await pilot.pause()
+                # Confirmation dialog appears before any backend call.
+                assert isinstance(app.screen, tui_app.ConfirmScreen)
+                delete_mock.assert_not_awaited()
+                await pilot.click("#confirm")  # confirm
+                await pilot.pause()
+
+        delete_mock.assert_awaited_once()
+        kwargs = delete_mock.await_args.kwargs
+        assert kwargs["endpoint"] == "/api/v1/generation-sessions/gen_x"
+        assert kwargs["method"] == "DELETE"
+
+    @pytest.mark.asyncio
+    async def test_cancel_flow_declined_does_not_call_delete(self):
+        a, b, c = _gate_ready()
+        delete_mock = AsyncMock()
+        with (
+            a,
+            b,
+            c,
+            patch("tui.app.poll_once", new=AsyncMock(return_value=_running_payload())),
+            patch("tui.app.call_backend_endpoint", new=delete_mock),
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("x")
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.ConfirmScreen)
+                await pilot.press("escape")  # decline
+                await pilot.pause()
+
+        delete_mock.assert_not_awaited()
+
+
 class TestAppNotifications:
     @pytest.mark.asyncio
     async def test_notifies_for_active_sessions_independent_of_screen(self):
@@ -1117,15 +1190,15 @@ class TestConfirmScreenCountdown:
 
 
 class TestDashboardActionFlows:
-    """Retry/clear worker flows: confirmation gating and clear eligibility.
+    """Retry/clear worker flows: confirmation gating and in-app feedback.
 
-    ``_run_suspended`` (which suspends the app and blocks on ``input()``) is
-    patched out so we exercise only the decision logic; ``actions.do_*`` are
-    patched to assert which CLI handler the flow ultimately reaches.
+    Retry now calls ``retry_generation_core`` directly and renders results via
+    ``notify``/``MessageScreen`` — it must never suspend the app. We patch the
+    core to force each outcome and assert the flow's response.
     """
 
     @pytest.mark.asyncio
-    async def test_retry_runs_action_when_confirmed(self):
+    async def test_retry_calls_core_and_refreshes_without_suspending(self):
         a, b, c = _gate_ready()
         with a, b, c, patch("tui.app.poll_once", new=AsyncMock(return_value=_running_payload())):
             app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
@@ -1134,19 +1207,47 @@ class TestDashboardActionFlows:
                 screen = app.screen
                 with (
                     patch.object(app, "push_screen_wait", new=AsyncMock(return_value=True)),
-                    patch.object(screen, "_run_suspended", new=AsyncMock()) as run_susp,
-                    # do_retry is async; force a sync mock so the flow's
-                    # ``do_retry(root)`` yields a sentinel, not a live coroutine.
                     patch(
-                        "tui.app.actions.do_retry", new=MagicMock(return_value="retry-coro")
-                    ) as do_retry,
+                        "tui.app.retry_generation_core",
+                        new=AsyncMock(return_value={"status": "pending", "retry_count": 1}),
+                    ) as core,
+                    patch.object(screen, "refresh_status", new=AsyncMock()) as refresh,
+                    patch.object(screen, "notify") as notify,
+                    patch.object(app, "suspend") as suspend,
                 ):
                     await screen._retry_flow()
-                do_retry.assert_called_once_with(app.root)
-                run_susp.assert_awaited_once_with("retry-coro")
+                core.assert_awaited_once_with("gen_x")
+                refresh.assert_awaited_once()
+                suspend.assert_not_called()  # never drops to the terminal
+                assert any("queued" in str(c.args[0]).lower() for c in notify.call_args_list)
 
     @pytest.mark.asyncio
-    async def test_retry_skips_action_when_cancelled(self):
+    async def test_retry_backend_error_shows_message_screen(self):
+        a, b, c = _gate_ready()
+        with a, b, c, patch("tui.app.poll_once", new=AsyncMock(return_value=_running_payload())):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                screen = app.screen
+                psw = AsyncMock(return_value=True)
+                with (
+                    patch.object(app, "push_screen_wait", new=psw),
+                    patch(
+                        "tui.app.retry_generation_core",
+                        new=AsyncMock(side_effect=Exception("Backend returned HTTP 400: Cannot retry")),
+                    ),
+                    patch.object(screen, "refresh_status", new=AsyncMock()) as refresh,
+                    patch.object(app, "suspend") as suspend,
+                ):
+                    await screen._retry_flow()
+                suspend.assert_not_called()
+                # push_screen_wait called twice: ConfirmScreen, then the error MessageScreen.
+                assert psw.await_count == 2
+                assert isinstance(psw.await_args_list[1].args[0], tui_app.MessageScreen)
+                refresh.assert_not_awaited()  # error returns before the refresh
+
+    @pytest.mark.asyncio
+    async def test_retry_skips_core_when_cancelled(self):
         a, b, c = _gate_ready()
         with a, b, c, patch("tui.app.poll_once", new=AsyncMock(return_value=_running_payload())):
             app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
@@ -1155,12 +1256,33 @@ class TestDashboardActionFlows:
                 screen = app.screen
                 with (
                     patch.object(app, "push_screen_wait", new=AsyncMock(return_value=False)),
-                    patch.object(screen, "_run_suspended", new=AsyncMock()) as run_susp,
-                    patch("tui.app.actions.do_retry") as do_retry,
+                    patch("tui.app.retry_generation_core", new=AsyncMock()) as core,
+                    patch.object(screen, "refresh_status", new=AsyncMock()) as refresh,
                 ):
                     await screen._retry_flow()
-                do_retry.assert_not_called()
-                run_susp.assert_not_awaited()
+                core.assert_not_awaited()
+                refresh.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_poll_timer_self_heals_after_terminal(self):
+        a, b, c = _gate_ready()
+        with a, b, c, patch("tui.app.poll_once", new=AsyncMock(return_value=_running_payload())):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                screen = app.screen
+                # Terminal payload stops the poll timer.
+                with patch("tui.app.poll_once", new=AsyncMock(return_value={"status": "failed"})):
+                    await screen.refresh_status()
+                assert screen._poll_timer is None
+                # A subsequent non-terminal payload re-arms exactly one timer...
+                with patch("tui.app.poll_once", new=AsyncMock(return_value={"status": "pending"})):
+                    await screen.refresh_status()
+                    assert screen._poll_timer is not None
+                    armed = screen._poll_timer
+                    # ...and refreshing again while non-terminal does not create a second.
+                    await screen.refresh_status()
+                    assert screen._poll_timer is armed
 
     @pytest.mark.asyncio
     async def test_clear_runs_for_eligible_set_when_confirmed(self):

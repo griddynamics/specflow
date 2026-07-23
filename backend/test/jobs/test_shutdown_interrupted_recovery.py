@@ -11,7 +11,11 @@ import pytest
 from app.jobs import shutdown_interrupted_recovery as job_mod
 from app.jobs.shutdown_interrupted_recovery import recover_interrupted_sessions
 from app.schemas.generation_workflow_enums import GenerationStatus, WorkspaceStatus
+from app.services.generation_task_registry import GenerationTaskRegistry
 from app.state.transitions import TriggeredBy
+
+# rerun is mocked in every test here, so the registry is only forwarded, never used.
+_REGISTRY = GenerationTaskRegistry()
 
 
 def _seed_interrupted(db, gid, *, failed_minutes_ago=5, workspace_ids=None, code_archived=False):
@@ -62,7 +66,7 @@ async def test_recovers_marked_session_within_window(db, gss, _patch_spawn, noti
     _seed_interrupted(db, "gen-1", workspace_ids=["ws-1"])
     _seed_allocated_ws(db, "gen-1", ["ws-1"])
 
-    recovered = await recover_interrupted_sessions(db, gss)
+    recovered = await recover_interrupted_sessions(db, gss, _REGISTRY)
 
     assert recovered == ["gen-1"]
     # atomic reset happened: FAILED → PENDING, marker cleared, retry_count incremented
@@ -86,7 +90,7 @@ async def test_no_notification_when_nothing_recovered(db, gss, notify_mock):
         "failed_at": datetime.now(timezone.utc),
         "state_history": [],
     })
-    recovered = await recover_interrupted_sessions(db, gss)
+    recovered = await recover_interrupted_sessions(db, gss, _REGISTRY)
     assert recovered == []
     notify_mock.assert_not_called()
 
@@ -99,7 +103,7 @@ async def test_ignores_genuine_failure_without_marker(db, gss, _patch_spawn):
         "failed_at": datetime.now(timezone.utc),
         "state_history": [],
     })
-    recovered = await recover_interrupted_sessions(db, gss)
+    recovered = await recover_interrupted_sessions(db, gss, _REGISTRY)
     assert recovered == []
     rerun.assert_not_called()
     # untouched — still FAILED
@@ -112,11 +116,27 @@ async def test_ignores_marked_session_outside_window(db, gss, _patch_spawn):
     _seed_interrupted(db, "gen-old", failed_minutes_ago=120, workspace_ids=["ws-1"])
     _seed_allocated_ws(db, "gen-old", ["ws-1"])
 
-    recovered = await recover_interrupted_sessions(db, gss, window_minutes=30)
+    recovered = await recover_interrupted_sessions(db, gss, _REGISTRY, window_minutes=30)
 
     assert recovered == []
     rerun.assert_not_called()
     assert db.get_generation_session_data("gen-old")["status"] == GenerationStatus.FAILED
+
+
+@pytest.mark.asyncio
+async def test_ignores_cancelled_session(db, gss, _patch_spawn):
+    """A user-cancelled session must never be resumed on boot recovery."""
+    rerun, _ = _patch_spawn
+    db.seed_generation_session("gen-cancelled", {
+        "status": GenerationStatus.CANCELLED,
+        "cancelled_by_user": True,
+        "cancelled_at": datetime.now(timezone.utc),
+        "state_history": [],
+    })
+    recovered = await recover_interrupted_sessions(db, gss, _REGISTRY)
+    assert recovered == []
+    rerun.assert_not_called()
+    assert db.get_generation_session_data("gen-cancelled")["status"] == GenerationStatus.CANCELLED
 
 
 @pytest.mark.asyncio
@@ -129,7 +149,7 @@ async def test_non_failed_marked_session_ignored(db, gss, _patch_spawn):
         "failed_at": datetime.now(timezone.utc),
         "state_history": [],
     })
-    recovered = await recover_interrupted_sessions(db, gss)
+    recovered = await recover_interrupted_sessions(db, gss, _REGISTRY)
     assert recovered == []
     rerun.assert_not_called()
 
@@ -142,7 +162,7 @@ async def test_max_retries_exhausted_left_failed(db, gss, _patch_spawn):
     # already at the limit
     db.update("generation_sessions", "gen-max", {"retry_count": 3, "max_retries": 3})
 
-    recovered = await recover_interrupted_sessions(db, gss)
+    recovered = await recover_interrupted_sessions(db, gss, _REGISTRY)
 
     assert recovered == []
     rerun.assert_not_called()
@@ -157,7 +177,7 @@ async def test_non_reusable_workspaces_skipped(db, gss, _patch_spawn):
     # workspace is CLEANING, not ALLOCATED → not reusable
     db.seed_workspace("ws-1", {"status": WorkspaceStatus.CLEANING.value, "locked_by": "gen-ws"})
 
-    recovered = await recover_interrupted_sessions(db, gss)
+    recovered = await recover_interrupted_sessions(db, gss, _REGISTRY)
 
     assert recovered == []
     rerun.assert_not_called()
@@ -172,7 +192,7 @@ async def test_disabled_by_config(db, gss, _patch_spawn):
     _seed_allocated_ws(db, "gen-1", ["ws-1"])
 
     with patch.object(job_mod.settings, "AUTO_RECOVER_INTERRUPTED_SESSIONS", False):
-        recovered = await recover_interrupted_sessions(db, gss)
+        recovered = await recover_interrupted_sessions(db, gss, _REGISTRY)
 
     assert recovered == []
     rerun.assert_not_called()
@@ -184,7 +204,7 @@ async def test_uses_shutdown_recovery_triggered_by(db, gss, _patch_spawn):
     _seed_interrupted(db, "gen-1", workspace_ids=["ws-1"])
     _seed_allocated_ws(db, "gen-1", ["ws-1"])
 
-    await recover_interrupted_sessions(db, gss)
+    await recover_interrupted_sessions(db, gss, _REGISTRY)
 
     history = db.get_generation_session_data("gen-1")["state_history"]
     assert history[-1]["triggered_by"] == TriggeredBy.SHUTDOWN_RECOVERY

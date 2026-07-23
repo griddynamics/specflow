@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.services import generation_workflow_runner as runner
+from app.services.generation_task_registry import GenerationTaskRegistry
 from app.services.generation_workflow_runner import rerun_generation_session
 from app.state.api_key_session_concurrency import OperationKind, SessionBeginOutcome
 
@@ -57,7 +58,7 @@ def _patch_workflow_steps():
 async def test_happy_path_registers_and_completes():
     gss, sessions = _make_gss(parameters={"spec_path": "specs/", "outputs_dir": "docs"})
 
-    await rerun_generation_session("gen-1", generation_session_service=gss, user_email="u@x.io")
+    await rerun_generation_session("gen-1", generation_session_service=gss, user_email="u@x.io", task_registry=GenerationTaskRegistry())
 
     # Session re-registered in active_generation_sessions so the TUI shows the resumed run.
     sessions.try_begin_for_generation.assert_awaited_once_with(
@@ -75,7 +76,7 @@ async def test_already_held_refreshes_lease():
         begin_outcome=SessionBeginOutcome.ALREADY_HELD,
     )
 
-    await rerun_generation_session("gen-held", generation_session_service=gss)
+    await rerun_generation_session("gen-held", generation_session_service=gss, task_registry=GenerationTaskRegistry())
 
     sessions.refresh_lease.assert_awaited_once_with(
         generation_id="gen-held", operation=OperationKind.GENERATION
@@ -92,7 +93,7 @@ async def test_refresh_lease_failure_still_completes():
     )
     sessions.refresh_lease = AsyncMock(side_effect=RuntimeError("firestore blip"))
 
-    await rerun_generation_session("gen-held", generation_session_service=gss)
+    await rerun_generation_session("gen-held", generation_session_service=gss, task_registry=GenerationTaskRegistry())
 
     sessions.refresh_lease.assert_awaited_once()
     gss.complete_generation_session.assert_awaited_once()
@@ -107,7 +108,7 @@ async def test_at_capacity_still_runs_workflow():
         begin_outcome=SessionBeginOutcome.AT_CAPACITY,
     )
 
-    await rerun_generation_session("gen-cap", generation_session_service=gss)
+    await rerun_generation_session("gen-cap", generation_session_service=gss, task_registry=GenerationTaskRegistry())
 
     sessions.try_begin_for_generation.assert_awaited_once()
     sessions.task_slot.assert_called_once_with(generation_id="gen-cap")
@@ -123,7 +124,7 @@ async def test_unresolvable_registration_still_runs_workflow():
         begin_outcome=None,
     )
 
-    await rerun_generation_session("gen-none", generation_session_service=gss)
+    await rerun_generation_session("gen-none", generation_session_service=gss, task_registry=GenerationTaskRegistry())
 
     sessions.try_begin_for_generation.assert_awaited_once()
     sessions.task_slot.assert_called_once_with(generation_id="gen-none")
@@ -136,7 +137,7 @@ async def test_failure_routed_not_raised():
     gss.start_generation_session.side_effect = RuntimeError("boom")
 
     # failure routes through _handle_workflow_exception (fail_generation_session), never propagates
-    await rerun_generation_session("gen-err", generation_session_service=gss)
+    await rerun_generation_session("gen-err", generation_session_service=gss, task_registry=GenerationTaskRegistry())
 
     sessions.try_begin_for_generation.assert_awaited_once()
     sessions.task_slot.assert_called_once_with(generation_id="gen-err")
@@ -147,9 +148,35 @@ async def test_failure_routed_not_raised():
 async def test_missing_parameters_fail_routed_not_raised():
     gss, sessions = _make_gss(parameters={})  # no spec_path
 
-    await rerun_generation_session("gen-bad", generation_session_service=gss)
+    await rerun_generation_session("gen-bad", generation_session_service=gss, task_registry=GenerationTaskRegistry())
 
     # registration + start_generation_session never reached; failure handled, not raised
     sessions.try_begin_for_generation.assert_not_awaited()
     gss.start_generation_session.assert_not_called()
     gss.fail_generation_session.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_workflow_exception_cancelled_is_silent_noop():
+    """GenerationCancelledError must NOT fail() or reject() — session already CANCELLED."""
+    from app.services.generation_workflow_runner import _handle_workflow_exception
+    from app.state.exceptions import GenerationCancelledError
+
+    gss = AsyncMock()
+    await _handle_workflow_exception(GenerationCancelledError("gen-1"), "gen-1", gss)
+
+    gss.fail_generation_session.assert_not_called()
+    gss.reject_generation_session.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cancellation_during_rerun_not_failed():
+    """A cooperative cancellation raised mid-workflow is a silent no-op, never fail()."""
+    from app.state.exceptions import GenerationCancelledError
+
+    gss, sessions = _make_gss(parameters={"spec_path": "specs/", "outputs_dir": "docs"})
+    gss.start_generation_session.side_effect = GenerationCancelledError("gen-cancel")
+
+    await rerun_generation_session("gen-cancel", generation_session_service=gss, task_registry=GenerationTaskRegistry())
+
+    gss.fail_generation_session.assert_not_called()

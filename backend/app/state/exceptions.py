@@ -61,6 +61,21 @@ class CleanupTargetError(Exception):
 
 
 
+class GenerationCancelledError(Exception):
+    """
+    Raised by cooperative cancellation checks (``raise_if_cancelled``) when the
+    session has been transitioned to CANCELLED while its workflow is still running.
+
+    Deliberately an ``Exception`` (not ``BaseException``) so it propagates through the
+    existing ``except Exception`` layers up to the shared workflow exception handler,
+    where it is intercepted and routed to a silent no-op (no fail(), no notification —
+    the session is already terminal).
+    """
+    def __init__(self, generation_id: str):
+        self.generation_id = generation_id
+        super().__init__(f"Generation {generation_id} was cancelled by user")
+
+
 class MaxRetriesExceededError(Exception):
     """
     Raised by reset_for_retry when retry_count >= max_retries.

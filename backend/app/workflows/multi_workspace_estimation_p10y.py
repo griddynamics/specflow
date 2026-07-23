@@ -511,7 +511,12 @@ async def multi_workspace_estimation_p10y_workflow(
     # Create workspace manager (needed for parallel executor)
     workspace_manager = WorkspaceManager(settings, logger)
     
-    # Process workspaces in parallel (data collection only, no AI agents)
+    # Process workspaces in parallel (data collection only, no AI agents).
+    # No cancellation check here: by the time P10Y runs, code generation is done and
+    # OUTPUTS_ARCHIVED (STEEL XI) has preserved the outputs, and task.cancel() still
+    # interrupts this phase's sleeps on the owning pod. A cross-pod cancel during P10Y
+    # simply lets this bounded, read-only phase finish and lands the session in CANCELLED
+    # without a spurious failure notification (fail() rejects the terminal state).
     logger.info("Executing estimations in parallel...")
     parallel_results = await execute_generation_parallel(
         workspaces=workspaces,

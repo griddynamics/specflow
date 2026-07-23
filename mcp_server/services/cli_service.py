@@ -29,7 +29,7 @@ from services.session import resolve_path
 
 logger = logging.getLogger(__name__)
 
-_TERMINAL_STATUSES = frozenset({"completed", "failed"})
+_TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
 _NO_SUITABLE_IMPLEMENTATION = "no suitable implementation"
 _MACOS_BUNDLE_ID = "com.griddynamics.specflow"
 _MACOS_BUNDLE_NAME = "SpecFlow"

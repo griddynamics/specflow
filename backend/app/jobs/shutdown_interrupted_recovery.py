@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.notifications import notifications
 from app.schemas.generation_workflow_enums import GenerationStatus, WorkspaceStatus
 from app.services.generation_session import GenerationSessionService
+from app.services.generation_task_registry import GenerationTaskRegistry
 from app.services.generation_workflow_runner import rerun_generation_session
 from app.state import GenerationSessionStateMachine
 from app.state.exceptions import (
@@ -60,13 +61,15 @@ async def _workspaces_reusable(db, workspace_ids: list, generation_id: str) -> b
 async def recover_interrupted_sessions(
     db,
     generation_session_service: GenerationSessionService,
+    task_registry: GenerationTaskRegistry,
     *,
     window_minutes: int | None = None,
 ) -> list[str]:
     """Auto-retry shutdown-interrupted sessions found within the recovery window.
 
     One-shot (not a loop). Returns the generation IDs it re-fired. Each candidate is
-    independently guarded; one failure never blocks the others.
+    independently guarded; one failure never blocks the others. ``task_registry`` is
+    threaded into each re-fired run so it stays cancellable.
     """
     if not settings.AUTO_RECOVER_INTERRUPTED_SESSIONS:
         logger.info("shutdown_interrupted_recovery: disabled by config — skipping")
@@ -132,6 +135,7 @@ async def recover_interrupted_sessions(
                 gid,
                 generation_session_service=generation_session_service,
                 user_email=session.get("user_email"),
+                task_registry=task_registry,
             )
         )
         recovered.append(gid)

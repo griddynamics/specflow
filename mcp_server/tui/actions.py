@@ -1,19 +1,20 @@
 """In-app actions — thin wrappers over the existing CLI command handlers.
 
 These deliberately call the same ``cmd_*`` coroutines the standalone
-subcommands use (``cli.cmd_retry_generation`` etc.), so every guard, capacity
+subcommands use (``cli.cmd_clear_workspace`` etc.), so every guard, capacity
 message, precheck, and backend call stays in exactly one place. The TUI never
 re-implements those flows; it suspends its screen (see ``app.py``) and runs the
 real handler, which prints its familiar output to the terminal.
 
 Each wrapper builds the ``argparse.Namespace`` the handler expects and returns
 its integer exit code. ``--yes`` is forced on for the workspace clear because
-the TUI gathers confirmation through its own dialog before calling.
+the TUI gathers confirmation through its own dialog before calling. (Retry does
+not go through here — it calls ``services.retry.retry_generation_core`` directly
+so it can render feedback in-app instead of suspending.)
 """
 
 from __future__ import annotations
 
-from pathlib import Path
 from types import SimpleNamespace
 
 import cli
@@ -42,11 +43,6 @@ def _ns(**overrides: object) -> SimpleNamespace:
     }
     base.update(overrides)
     return SimpleNamespace(**base)
-
-
-async def do_retry(root: Path) -> int:
-    """Retry the current generation (reuses ``cmd_retry_generation`` guards)."""
-    return await cli.cmd_retry_generation(_ns(root_path=str(root)))
 
 
 async def do_clear_set(set_number: int) -> int:

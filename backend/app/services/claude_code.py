@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import AsyncIterator
+import contextlib
 from datetime import datetime, timezone
 import logging
 import os
@@ -69,6 +70,7 @@ from app.services.skip_mode_mock import (
 )
 from app.agents_sandboxing.claude_env_vars import build_redacted_env_overlay
 from app.database.factory import get_database
+from app.state.cancellation import raise_if_cancelled
 from app.state.db_adapter import StateMachineDBAdapter
 from app.state.transitions import TriggeredBy
 from app.state.workspace_models import set_workspace_model_override
@@ -909,6 +911,14 @@ async def agent_query(
         lf_tracer.finalize_pending()
         lf_tracer.end_generation_on_error("exception")
         raise
+    finally:
+        # Guarantee the SDK query generator — and its Claude Code CLI subprocess — is
+        # torn down on every exit path, including task.cancel() (CancelledError) during a
+        # user cancellation, where the stream would otherwise linger until GC. aclose()
+        # on an already-exhausted stream is a harmless no-op.
+        if hasattr(query_stream, "aclose"):
+            with contextlib.suppress(Exception):
+                await query_stream.aclose()
 
     if messages:
         logger.info(f"Agent returned {len(messages)} messages.")
@@ -1203,6 +1213,12 @@ async def execute_all_phases(
 
     consecutive_errors = 0
     for phase_num in range(phase_start, phase_end + 1):
+        # Cooperative cancellation: stop between phases if the user cancelled
+        # (cross-pod-safe fallback to the local task.cancel()). raise_if_cancelled
+        # no-ops when db_adapter is None (only in DB-less unit tests; every real run
+        # wires a generation_session_service).
+        await raise_if_cancelled(db_adapter, request.generation_id)
+
         phase_info = planning_data.phases[phase_num - 1]
 
         if phase_info.applicable_agent_mcps is None:
@@ -1281,6 +1297,12 @@ async def execute_all_phases(
             if error_type == AgentErrorType.TOOL_CALL_FAILURE:
                 raise WorkspaceAbortedError(
                     f"[{workspace_name}] Phase {phase_num} failed with tool-call incompatibility "
+                    f"(model={workspace.model}). Aborting workspace — other workspaces continue. "
+                    f"Error: {phase_result.result}"
+                )
+            if error_type == AgentErrorType.CONNECTION_ERROR:
+                raise WorkspaceAbortedError(
+                    f"[{workspace_name}] Phase {phase_num} lost connection to the API "
                     f"(model={workspace.model}). Aborting workspace — other workspaces continue. "
                     f"Error: {phase_result.result}"
                 )

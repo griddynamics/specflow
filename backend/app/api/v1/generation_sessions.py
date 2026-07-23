@@ -78,6 +78,7 @@ from app.services.workspace_pool import WorkspacePoolService
 from app.services.artifact_store import ARTIFACTS_BASE, ArtifactStore
 from app.services.agent_stream_broker import get_agent_stream_broker
 from app.services.mcp_prune import resolve_enabled_mcps_and_set_telemetry
+from app.services.generation_task_registry import GenerationTaskRegistry
 from app.schemas.model_token_usage import ModelTokenUsage
 from app.schemas.workflow_usage_metrics import (
     aggregate_model_usage_by_workspace,
@@ -248,6 +249,11 @@ def get_generation_session_retry_service(
 ) -> GenerationSessionRetryService:
     """Get generation session retry service instance."""
     return GenerationSessionRetryService(db, workspace_pool)
+
+
+def get_generation_task_registry(request: Request) -> GenerationTaskRegistry:
+    """Provide the process-local task registry created once at app startup."""
+    return request.app.state.generation_task_registry
 
 
 # ============================================================
@@ -776,7 +782,8 @@ async def retry_generation_session(
     _: None = Depends(require_generation_session_owner_or_admin),
     retry_service: GenerationSessionRetryService = Depends(get_generation_session_retry_service),
     generation_session_service: GenerationSessionService = Depends(get_generation_session_service),
-    workspace_pool: WorkspacePoolService = Depends(get_workspace_pool)
+    workspace_pool: WorkspacePoolService = Depends(get_workspace_pool),
+    task_registry: GenerationTaskRegistry = Depends(get_generation_task_registry),
 ):
     """
     Retry a failed generation session.
@@ -816,6 +823,7 @@ async def retry_generation_session(
                 generation_id,
                 generation_session_service=generation_session_service,
                 user_email=getattr(request.state, "user_email", None),
+                task_registry=task_registry,
             )
         )
 
@@ -851,14 +859,21 @@ async def cancel_generation_session(
     generation_id: str,
     request: Request,
     _: None = Depends(require_generation_session_owner),
-    generation_session_service: GenerationSessionService = Depends(get_generation_session_service)
+    generation_session_service: GenerationSessionService = Depends(get_generation_session_service),
+    task_registry: GenerationTaskRegistry = Depends(get_generation_task_registry),
 ):
     """
-    Cancel a running generation session.
+    Cancel a running generation session (user-initiated).
 
-    Marks the session as failed with reason "cancelled" and releases workspaces.
+    Transitions the session to the terminal CANCELLED state and stops the in-flight
+    workflow: on the pod that owns the run, the workflow task is cancelled immediately;
+    on other pods the workflow stops cooperatively at the next checkpoint. No failure
+    notification is sent (the user requested the stop). Generated code is preserved —
+    workspaces stay ALLOCATED (Commandment II) and are reclaimed by scheduled_wipe. A
+    CANCELLED session is never resumed on restart and cannot be retried.
+
     Can only cancel sessions in 'pending', 'initializing', or 'running' state.
-    
+
     Example:
         ```
         DELETE /api/v1/generation-sessions/est-abc123
@@ -867,37 +882,54 @@ async def cancel_generation_session(
     try:
         # Get current session document
         session_doc = await generation_session_service.get_generation_session_status(generation_id)
-        
+
         current_status = session_doc["status"]
-        
-        # Can only cancel if not already completed/failed
-        if current_status in (GenerationStatus.COMPLETED.value, GenerationStatus.FAILED.value):
+
+        # Can only cancel if not already terminal.
+        if current_status in (
+            GenerationStatus.COMPLETED.value,
+            GenerationStatus.FAILED.value,
+            GenerationStatus.CANCELLED.value,
+        ):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Cannot cancel generation session in '{current_status}' state"
             )
-        
-        # Mark as failed with cancellation reason
-        await generation_session_service.fail_generation_session(
-            generation_id=generation_id,
-            error="Cancelled by user"
-        )
-        
+
+        # Ordering matters: set CANCELLED FIRST (state machine + slot release, no notify),
+        # THEN tear down the running task. Because the state is already terminal when the
+        # injected CancelledError / cooperative GenerationCancelledError unwind, neither
+        # re-fails the session nor emits an error notification.
+        await generation_session_service.cancel_generation_session(generation_id)
+
+        cancelled_locally = task_registry.cancel_task(generation_id)
+
         return CancelGenerationSessionResponse(
             generation_id=generation_id,
-            status="failed",
-            message="Generation session cancelled successfully"
+            status=GenerationStatus.CANCELLED.value,
+            message=(
+                "Generation session cancelled"
+                if cancelled_locally
+                else "Generation session cancelled; in-flight work will stop shortly"
+            ),
         )
-    
+
     except GenerationSessionNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e)
         )
-    
+
+    except InvalidGenerationSessionStateError as e:
+        # Race: session became terminal between the status read and the transition.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e)
+        )
+
     except HTTPException:
         raise
-    
+
     except Exception as e:
         logger.error(f"Failed to cancel generation session {generation_id}: {e}", exc_info=True)
         raise HTTPException(
@@ -1053,6 +1085,7 @@ async def _run_generation_session_workflow(
     spec_path: str,
     session,
     generation_session_service,
+    task_registry: GenerationTaskRegistry,
 ) -> None:
     """Background task: run app generation + P10Y estimation, release session slot when done."""
     agent_logger = create_agent_logger(
@@ -1067,6 +1100,7 @@ async def _run_generation_session_workflow(
     normalized_src_dir = generation_session_params.get("src_dir", "src")
 
     try:
+        task_registry.register_current_task(generation_id)
         async with session.task_slot(generation_id=generation_id):
             logger.info("Starting app generation + P10Y workflow for %s", generation_id)
             agent_logger.info("Starting app generation + P10Y workflow for %s", generation_id)
@@ -1100,9 +1134,10 @@ async def _run_generation_session_workflow(
 
     except Exception as e:
         # Single exit path — routes ContractRejection → reject (PENDING) and everything
-        # else → fail (FAILED).
+        # else → fail (FAILED). GenerationCancelledError is handled as a silent no-op there.
         await _handle_workflow_exception(e, generation_id, generation_session_service)
     finally:
+        task_registry.deregister_task(generation_id)
         TelemetryContext.set_agent_query_totals_handler(None)
 
 
@@ -1297,6 +1332,7 @@ async def run_generation_session(
     workspace_count: Optional[int] = Form(None, ge=1, le=3),
     workspace_pool: WorkspacePoolService = Depends(get_workspace_pool),
     generation_session_service: GenerationSessionService = Depends(get_generation_session_service),
+    task_registry: GenerationTaskRegistry = Depends(get_generation_task_registry),
     _owner: None = Depends(require_generation_session_owner_form),
 ):
     """
@@ -1509,6 +1545,7 @@ async def run_generation_session(
             spec_path=spec_path,
             session=session,
             generation_session_service=generation_session_service,
+            task_registry=task_registry,
         ))
 
         return RunGenerationSessionResponse(
@@ -1582,6 +1619,8 @@ async def download_generation_session_outputs(
     if not outputs_archived and not emergency_archived:
         est_status = session_doc.get("status")
         workspace_ids = session_doc.get("workspace_ids", [])
+        # CANCELLED is intentionally excluded: a user-cancelled run is not emergency-archived
+        # for download. Its workspaces stay ALLOCATED and are reclaimed by scheduled_wipe.
         recoverable_statuses = {GenerationStatus.FAILED.value, GenerationStatus.RUNNING.value}
 
         if est_status in recoverable_statuses and workspace_ids:

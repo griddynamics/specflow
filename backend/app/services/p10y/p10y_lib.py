@@ -373,7 +373,7 @@ async def trigger_and_poll_p10y_metrics(
 ) -> None:
     """
     Trigger P10Y metrics calculation and poll until processing is complete.
-    
+
     Args:
         client: P10Y API client
         repository_id: P10Y repository ID
@@ -397,7 +397,7 @@ async def trigger_and_poll_p10y_metrics(
     
     while not all_commits_processed and poll_counter < poll_limit:
         logger.info(f"Polling attempt {poll_counter + 1} / {poll_limit}")
-        
+
         commit_stats_polled = await client.get_commit_stats(
             organisation_id=organisation_id,
             repository_ids=[repository_id],

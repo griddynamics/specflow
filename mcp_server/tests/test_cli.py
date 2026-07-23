@@ -319,41 +319,52 @@ class TestRetryGeneration:
         from services.session import write_session
         write_session("gen-xyz", tmp_project)
 
-        args = SimpleNamespace(root_path=str(tmp_project), command="retry-generation")
+        args = SimpleNamespace(root_path=str(tmp_project), command="retry-generation", generation_id=None)
 
-        # check_status_safe returns failed → proceed to retry POST
+        # POST succeeds → exit 0. Patched at services.retry.* where the helper binds it.
         with patch(
-            "services.tool_helpers.check_status_safe",
-            new_callable=AsyncMock,
-        ) as mock_status, patch(
-            "services.specflow_backend.call_backend_endpoint",
+            "services.retry.call_backend_endpoint",
             new_callable=AsyncMock,
         ) as mock_ep:
-            mock_status.return_value = {"status": "failed"}
-            mock_ep.return_value = json.dumps({"status": "running", "retry_count": 1})
+            mock_ep.return_value = json.dumps({"status": "pending", "retry_count": 1})
             code = await cmd_retry_generation(args)
 
         assert code == 0
-        # Exactly one backend call: the retry POST
-        assert mock_ep.call_count == 1
-        assert mock_status.call_count == 1
+        assert mock_ep.call_count == 1  # single POST; backend validates state
 
     @pytest.mark.asyncio
-    async def test_blocks_when_already_running(self, tmp_project, capsys):
+    async def test_backend_rejection_returns_one(self, tmp_project):
         from cli import cmd_retry_generation
         from services.session import write_session
         write_session("gen-running", tmp_project)
 
-        args = SimpleNamespace(root_path=str(tmp_project), command="retry-generation")
+        args = SimpleNamespace(root_path=str(tmp_project), command="retry-generation", generation_id=None)
 
+        # Wrong-state / unreachable both raise from the helper → exit 1.
         with patch(
-            "services.tool_helpers.check_status_safe",
+            "services.retry.call_backend_endpoint",
             new_callable=AsyncMock,
-        ) as mock_cs:
-            mock_cs.return_value = {"status": "running"}
+        ) as mock_ep:
+            mock_ep.side_effect = Exception("Backend returned HTTP 400: Cannot retry in 'running' state")
             code = await cmd_retry_generation(args)
 
         assert code == 1
+
+    @pytest.mark.asyncio
+    async def test_no_session_returns_zero_without_backend_call(self, tmp_project):
+        from cli import cmd_retry_generation
+
+        # No write_session → resolve_generation_id returns None.
+        args = SimpleNamespace(root_path=str(tmp_project), command="retry-generation", generation_id=None)
+
+        with patch(
+            "services.retry.call_backend_endpoint",
+            new_callable=AsyncMock,
+        ) as mock_ep:
+            code = await cmd_retry_generation(args)
+
+        assert code == 0
+        assert mock_ep.call_count == 0  # helper never called
 
 
 # ---------------------------------------------------------------------------

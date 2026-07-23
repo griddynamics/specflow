@@ -63,8 +63,9 @@ from textual.widgets import (
 from cli import resolve_backend_config, resolve_backend_runtime
 from services import local_env, validate_models
 from services.llm_tiers import LLM_TIER_KEYS
+from services.retry import retry_generation_core
 from services.session import resolve_generation_id, set_project_root
-from services.specflow_backend import call_backend_endpoint_bytes
+from services.specflow_backend import call_backend_endpoint, call_backend_endpoint_bytes
 from tui import actions, activity, mcp_clients, onboarding, render
 from tui.config import (
     EDITABLE_KEYS,
@@ -491,6 +492,7 @@ class DashboardScreen(_BackendControlScreen):
 
     BINDINGS = [
         Binding("r", "retry", "retry"),
+        Binding("x", "cancel", "cancel"),
         Binding("w", "clear", "clear ws"),
         Binding("s", "settings", "settings"),
         Binding("b", "sessions", "sessions"),
@@ -560,16 +562,23 @@ class DashboardScreen(_BackendControlScreen):
             build_dashboard(payload, self.app.root, self._generation_id, self._selected_ws_id)
         )
         self.refresh_bindings()
-        # A finished run will not change again — stop polling it.
+        # A finished run will not change again — stop polling it. Conversely, a
+        # run that left a terminal state (e.g. failed → retry → pending) must
+        # resume polling, so re-arm the timer if it was previously stopped.
         if payload and (payload.get("status") or "").lower() in TERMINAL_STATUSES:
             if self._poll_timer is not None:
                 self._poll_timer.stop()
                 self._poll_timer = None
+        elif self._poll_timer is None:
+            self._poll_timer = self.set_interval(self.app.poll_interval, self.refresh_status)
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         if action == "retry":
             status = ((self._payload or {}).get("status") or "").lower()
             return True if status == "failed" else None
+        if action == "cancel":
+            status = ((self._payload or {}).get("status") or "").lower()
+            return True if status in {"pending", "initializing", "running"} else None
         if action == "open_report":
             return True if render.estimate_panel(self._payload) is not None else None
         # stop_backend (process-mode only) + default → the shared mixin decides.
@@ -653,8 +662,55 @@ class DashboardScreen(_BackendControlScreen):
                 countdown=0,
             )
         )
-        if ok:
-            await self._run_suspended(actions.do_retry(self.app.root))
+        if not ok:
+            return
+        self.notify("Retrying generation…", severity="information")
+        try:
+            await retry_generation_core(self._generation_id)
+        except Exception as exc:  # noqa: BLE001 - surface the backend's reason to the user
+            await self.app.push_screen_wait(MessageScreen("Retry failed", str(exc)))
+            return
+        self.notify("Retry queued. Resuming from the last checkpoint.", severity="information")
+        await self.refresh_status()
+
+    def action_cancel(self) -> None:
+        self.run_worker(self._cancel_flow(), exclusive=True)
+
+    async def _cancel_flow(self) -> None:
+        """Cancel this specific run via the backend DELETE, then refresh in place.
+
+        Targets ``self._generation_id`` directly (the dashboard may show any session
+        opened from the list). No terminal suspend — cancellation produces no output.
+        """
+        ok = await self.app.push_screen_wait(
+            ConfirmScreen(
+                "Cancel this generation? It stops all agents immediately and "
+                "cannot be resumed (the workspace is kept).",
+                countdown=0,
+            )
+        )
+        if not ok:
+            return
+        try:
+            await call_backend_endpoint(
+                endpoint=f"/api/v1/generation-sessions/{self._generation_id}",
+                method="DELETE",
+                timeout_seconds=30,
+            )
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 400:
+                self.notify(
+                    "Generation already finished — nothing to cancel.",
+                    severity="information",
+                )
+            else:
+                self.notify(f"Couldn't cancel: {exc}", severity="warning")
+            return
+        except Exception as exc:  # noqa: BLE001 - surface any failure to the user
+            self.notify(f"Couldn't cancel: {exc}", severity="warning")
+            return
+        self.notify("Generation cancelled.", severity="information")
+        await self.refresh_status()
 
     def action_clear(self) -> None:
         self.run_worker(self._clear_flow(), exclusive=True)
@@ -803,7 +859,9 @@ def _session_label(s: dict) -> str:
         except ValueError:
             date_str = created_at_raw[:16]
 
-    status_col = f"{symbol} {status_key.upper():<12}"
+    # Cancellations are always user-initiated; spell that out in the list.
+    status_word = "CANCELLED BY USER" if status_key == "cancelled" else status_key.upper()
+    status_col = f"{symbol} {status_word:<17}"
     date_col = f"{date_str:<14}" if date_str else " " * 14
     return f"{status_col}  {gid[:22]:<24}  {date_col}  {checkpoint_label}"
 
