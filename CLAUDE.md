@@ -117,8 +117,11 @@ Both layers return the same error shape so the user experience is identical rega
 | `E2E_PLAN_UNPARSEABLE` | JSON conversion of the e2e plan fails | "Couldn't parse `e2e-test-plan.md` into rounds. Re-run `run_planning` — check that each round has a heading and verification steps." |
 | `GENERATION_ALREADY_RUNNING` | A generation for this project is already in progress | "A generation is already running. Wait for the email notification before starting another one." |
 | `MODEL_UNAVAILABLE` | A configured LLM tier has a model that isn't available on the active provider (OpenRouter/Anthropic per `DEFAULT_PROVIDER`) | "The model(s) configured for {tier} aren't available on {provider}: {models}. Did you mean '{suggestion}'? Fix {tier} in your MCP config and try again." |
+| `SANDBOX_UNAVAILABLE` | `BACKEND_RUNTIME=process` but the host OS agent sandbox (bubblewrap+socat on Linux / Seatbelt on macOS) can't initialize | "Linux sandbox dependencies missing: {deps}. Install with `sudo apt-get install bubblewrap socat` … " (macOS/platform variants per `os_sandbox.check_agent_sandbox_available`). |
 
 `MODEL_UNAVAILABLE` semantics (catalog fetch, block-on-any-invalid policy, the two gate locations, and why it doesn't release workspaces) are documented in `docs/backend/model-validation.md`.
+
+`SANDBOX_UNAVAILABLE` semantics (the `BACKEND_RUNTIME` docker/process split, the fail-closed OS agent sandbox, the two gate locations, supported platforms, and residual risks) are documented in `docs/backend/backend-runtime.md`.
 
 **Rules for implementers:**
 - Return shape from MCP tool: `{"error": "<message>", "code": "<CODE>", "missing_files": [...], "ambiguous": [...]}`. The IDE displays the message; the structured fields exist for tooling.

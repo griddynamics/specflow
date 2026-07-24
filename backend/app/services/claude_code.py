@@ -19,7 +19,11 @@ from claude_agent_sdk import (
 )
 
 
-from app.core.config import SUPPORTED_MCPS, settings
+from app.agents_sandboxing.os_sandbox import (
+    get_agent_sandbox_settings,
+    get_agent_sandbox_write_allowlist,
+)
+from app.core.config import SUPPORTED_MCPS, WORKSPACE_CACHE_SUBDIR, settings
 from app.core.ttl_config import GenerationLifecyclePolicy
 from app.core.logging import create_agent_logger, format_json_to_log, log_agent_options
 from app.core.mcp_selection import McpSelector
@@ -176,11 +180,13 @@ def setup_workspace_cache_directories(workspace_path: str) -> Dict[str, str]:
         Dictionary of environment variables ready to merge into the agent env.
     """
     workspace_name = Path(workspace_path).name
-    cache_root = os.path.join(settings.WORKSPACE_BASE_PATH, "caches", workspace_name)
+    cache_root = os.path.join(settings.WORKSPACE_BASE_PATH, WORKSPACE_CACHE_SUBDIR, workspace_name)
     cache_base = os.path.join(cache_root, ".cache")
     data_base = os.path.join(cache_root, ".local", "share")
     config_base = os.path.join(cache_root, ".config")
-    android_sdk_root = os.path.join(settings.WORKSPACE_BASE_PATH, "caches", "common", "android")
+    android_sdk_root = os.path.join(
+        settings.WORKSPACE_BASE_PATH, WORKSPACE_CACHE_SUBDIR, "common", "android"
+    )
 
     # Directories this function owns and creates via makedirs.
     managed_cache_dirs = {
@@ -781,8 +787,10 @@ async def agent_query(
         cwd=workspace_path,
 
         # Constraints on tool usage
-        # Important - limit paths to specific workspace to avoid jailbreaking to external file system
-        allowed_tools=allowed_tools,
+        # Important - limit paths to specific workspace to avoid jailbreaking to external file system.
+        # In process mode, extend the write scope to the workspace tool-cache dirs (outside cwd) so the
+        # OS Bash sandbox permits package installs there; empty in docker mode. See os_sandbox.
+        allowed_tools=[*allowed_tools, *get_agent_sandbox_write_allowlist()],
         disallowed_tools=disallowed_tools,
 
         # Sources
@@ -809,6 +817,12 @@ async def agent_query(
         # PreToolUse Bash guard — denies dev-server / watch-mode / backgrounded
         # commands before they ever spawn. See app/services/agent_hooks.py.
         hooks=get_bash_guard_hooks(),
+
+        # OS-level Bash sandbox (bubblewrap / Seatbelt) — engaged only in
+        # BACKEND_RUNTIME=process, where the container boundary is gone; None in
+        # docker mode (unchanged). Added layer on top of the allowlist + guard
+        # above, not a replacement. See app/agents_sandboxing/os_sandbox.py.
+        sandbox=get_agent_sandbox_settings(),
 
         # Capture subprocess stderr so startup errors (MCP failures, bad session, etc.)
         # are visible in logs instead of being swallowed as "Check stderr output for details"

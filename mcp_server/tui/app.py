@@ -60,7 +60,11 @@ from textual.widgets import (
     Static,
 )
 
-from cli import resolve_backend_config
+from cli import (
+    backend_runtime_is_configured,
+    resolve_backend_config,
+    resolve_backend_runtime,
+)
 from services import local_env, validate_models
 from services.llm_tiers import LLM_TIER_KEYS
 from services.retry import retry_generation_core
@@ -462,7 +466,33 @@ class VerifyChoiceScreen(ModalScreen[bool | None]):
         self.dismiss(None)
 
 
-class DashboardScreen(_SpecFlowScreen):
+class _BackendControlScreen(_SpecFlowScreen):
+    """Base for the screens that may stop the bare-metal backend (dashboard + sessions).
+
+    ``k`` stop backend — process runtime only (in ``BACKEND_RUNTIME=process`` the
+    backend is a detached host process that outlives the TUI; in docker mode the
+    container stack is the boundary, so ``check_action`` hides it). Implemented once
+    on the app (``SpecFlowTUI.stop_backend_flow``) so both screens share it.
+
+    Switching runtime lives on the sessions list only (see ``SessionsScreen``), not
+    here: it cancels ALL in-flight runs and restarts the backend, so it belongs on
+    the overview screen rather than while viewing a single generation.
+    """
+
+    BINDINGS = [Binding("k", "stop_backend", "stop backend")]
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        if action == "stop_backend":
+            return True if getattr(self.app, "is_process_runtime", False) else None
+        return True
+
+    def action_stop_backend(self) -> None:
+        if not getattr(self.app, "is_process_runtime", False):
+            return
+        self.run_worker(self.app.stop_backend_flow(), exclusive=True)
+
+
+class DashboardScreen(_BackendControlScreen):
     """Live dashboard for a single generation."""
 
     BINDINGS = [
@@ -556,7 +586,8 @@ class DashboardScreen(_SpecFlowScreen):
             return True if status in {"pending", "initializing", "running"} else None
         if action == "open_report":
             return True if render.estimate_panel(self._payload) is not None else None
-        return True
+        # stop_backend (process-mode only) + default → the shared mixin decides.
+        return super().check_action(action, parameters)
 
     def _move_selection(self, delta: int) -> None:
         if not self._workspace_ids:
@@ -840,19 +871,22 @@ def _session_label(s: dict) -> str:
     return f"{status_col}  {gid[:22]:<24}  {date_col}  {checkpoint_label}"
 
 
-class SessionsScreen(_SpecFlowScreen):
+class SessionsScreen(_BackendControlScreen):
     """Picker across all recent generation sessions (active and completed)."""
 
     BINDINGS = [
         Binding("r", "reload", "reload"),
         Binding("c", "connect_client", "Add MCP to AI tool"),
         Binding("s", "settings", "settings"),
+        # Switching runtime cancels ALL in-flight runs and restarts the backend, so
+        # it lives on this overview screen — not the single-generation dashboard.
+        Binding("R", "switch_runtime", "switch runtime"),
     ]
 
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static(
-            "SpecFlow · sessions   (↑/↓ select · ↵ open · r reload · s settings)",
+            "SpecFlow · sessions   (↑/↓ select · ↵ open · r reload · s settings · R switch runtime)",
             id="sessions-title",
         )
         yield ListView(id="sessions-list")
@@ -888,6 +922,9 @@ class SessionsScreen(_SpecFlowScreen):
 
     def action_settings(self) -> None:
         self.app.push_screen(SettingsScreen())
+
+    def action_switch_runtime(self) -> None:
+        self.run_worker(self.app.switch_runtime_flow(), exclusive=True)
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         item = event.item
@@ -1732,6 +1769,134 @@ class OnboardingScreen(_SpecFlowScreen):
             self.query_one("#onboard-go", Button).disabled = False
 
 
+class ChooseRuntimeScreen(_SpecFlowScreen):
+    """First-run runtime picker: docker vs process.
+
+    Shown by the startup gate only when the runtime isn't pinned (no
+    ``BACKEND_RUNTIME`` env var, no saved choice) AND nothing is already up
+    (no containers, no bare process) — otherwise the gate infers/uses whatever is
+    running. The pick is remembered under ``.specflow-local/backend-runtime`` so
+    later launches skip this screen; it can be changed later from the dashboard.
+    Dismisses with the chosen ``BackendRuntime``; ``q``/``ctrl+c`` quits the app.
+    """
+
+    BINDINGS = [
+        Binding("d", "pick_docker", "docker"),
+        Binding("p", "pick_process", "process"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Static(
+            "How should the SpecFlow backend run on this machine?\n\n"
+            "[b]d[/b]  Docker   — run the backend in containers (docker compose). "
+            "The container is the isolation boundary. Requires Docker installed and running.\n\n"
+            "[b]p[/b]  Process  — run the backend directly on this host (no Docker). "
+            "Agents are confined by the OS sandbox (bubblewrap on Linux, Seatbelt on "
+            "macOS); your dev environment (Python 3.14, uv, `cd backend && uv sync`) must "
+            "already be installed.\n\n"
+            "[dim]Your choice is remembered. You can switch runtimes later from the "
+            "dashboard.[/dim]",
+            id="runtime-prompt",
+        )
+        yield Footer()
+
+    def action_pick_docker(self) -> None:
+        self.dismiss(local_env.BackendRuntime.DOCKER)
+
+    def action_pick_process(self) -> None:
+        self.dismiss(local_env.BackendRuntime.PROCESS)
+
+
+class SwitchRuntimeScreen(_SpecFlowScreen):
+    """Executes a runtime switch, streaming each step into a log.
+
+    The caller (``SpecFlowTUI.switch_runtime_flow``) has already preflighted the
+    target and taken confirmation; this screen just performs the switch, auto-run
+    on mount. Step order is load-bearing:
+
+      1. cancel each in-flight generation via the CURRENT backend's DELETE — must
+         happen *before* teardown, since the API is unreachable once it is down;
+      2. tear down the current backend (``stop_backend_process`` / ``compose down``);
+      3. persist the new runtime choice;
+      4. start the target backend and wait for readiness.
+
+    Dismisses ``True`` on success, ``False`` if the new backend never came up.
+    """
+
+    def __init__(
+        self,
+        *,
+        current: "local_env.BackendRuntime",
+        target: "local_env.BackendRuntime",
+        cancel_ids: list[str],
+    ) -> None:
+        super().__init__()
+        self._current = current
+        self._target = target
+        self._cancel_ids = list(cancel_ids)
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Static(
+            f"Switching backend runtime: {self._current.value} → {self._target.value}…",
+            id="switch-prompt",
+        )
+        yield RichLog(id="switch-log", highlight=False, markup=False, wrap=True)
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.run_worker(self._run(), exclusive=True)
+
+    async def _run(self) -> None:
+        log = self.query_one("#switch-log", RichLog)
+        root = self.app.root
+
+        # 1. Cancel in-flight generations on the still-running current backend.
+        for gid in self._cancel_ids:
+            try:
+                await call_backend_endpoint(
+                    endpoint=f"/api/v1/generation-sessions/{gid}",
+                    method="DELETE",
+                    timeout_seconds=30,
+                )
+                log.write(f"cancelled generation {gid[:18]}…\n")
+            except Exception as exc:  # noqa: BLE001 - best-effort (e.g. already finished)
+                log.write(f"cancel {gid[:18]}… skipped: {exc}\n")
+
+        # 2. Tear down the current backend.
+        if self._current == local_env.BackendRuntime.PROCESS:
+            log.write("stopping bare-metal backend…\n")
+            await asyncio.to_thread(local_env.stop_backend_process, root)
+        else:
+            log.write("stopping docker stack (compose down)…\n")
+            await local_env.stop_containers(root, on_line=log.write)
+
+        # 3. Persist the new choice so the next launch (and this session) agree.
+        await asyncio.to_thread(local_env.save_backend_runtime, root, self._target)
+
+        # 4. Start the target backend and wait for readiness.
+        if self._target == local_env.BackendRuntime.PROCESS:
+            log.write("starting bare-metal backend…\n")
+            await local_env.start_backend_process(root, on_line=log.write)
+        else:
+            log.write("starting docker stack (compose up)…\n")
+            await local_env.start_containers(root, on_line=log.write)
+        ok = await local_env.wait_backend_ready(
+            self.app.backend_url,
+            on_attempt=lambda i: log.write(f"waiting for backend to become ready… ({i})\n"),
+        )
+        if ok:
+            self.dismiss(True)
+        else:
+            self.notify(
+                "Switched runtime, but the new backend didn't become healthy — check "
+                ".specflow-local/backend.log (process) or `docker compose logs` (docker).",
+                severity="error",
+            )
+            self.dismiss(False)
+
+
 class StartContainersScreen(_SpecFlowScreen):
     """Docker gate: start the stack (or wait out an unhealthy backend), or quit.
 
@@ -1794,6 +1959,82 @@ class StartContainersScreen(_SpecFlowScreen):
             self.notify(
                 "Backend didn't become healthy — check `docker compose logs` "
                 "(e.g. an LLM provider/key mismatch).",
+                severity="error",
+            )
+
+
+class StartBackendProcessScreen(_SpecFlowScreen):
+    """Process gate (BACKEND_RUNTIME=process): start the backend on the bare host.
+
+    Unlike the docker gate this runs uvicorn directly on this machine, so it
+    first warns that the developer environment must already be installed, then
+    fails closed if the OS-level agent sandbox (bubblewrap / Seatbelt) can't run
+    here — we must not launch agents unconfined on the host. On ``y`` it starts
+    the detached backend and waits for readiness; ``n`` quits. When ``process_up``
+    is set the process is already running but unhealthy, so ``y`` only re-polls
+    readiness (no redundant relaunch), mirroring the docker gate.
+    """
+
+    BINDINGS = [
+        Binding("y", "yes", "start"),
+        Binding("n", "no", "quit"),
+    ]
+
+    def __init__(self, *, process_up: bool = False) -> None:
+        super().__init__()
+        self._process_up = process_up
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        if self._process_up:
+            prompt = (
+                "The backend process is running but isn't healthy yet.\n\n"
+                "Retry the health check?   [y] retry    [n] quit"
+            )
+        else:
+            prompt = (
+                "Backend runtime: process (no Docker).\n\n"
+                "The backend will run directly on THIS machine. Your developer environment "
+                "must already be installed: Python 3.14, `uv`, and the backend deps "
+                "(`cd backend && uv sync`).\n"
+                "Agents will be confined by the OS-level sandbox (bubblewrap on Linux, "
+                "Seatbelt on macOS).\n\n"
+                "Start the backend now?   [y] start    [n] quit"
+            )
+        yield Static(prompt, id="process-prompt")
+        log = RichLog(id="process-log", highlight=False, markup=False, wrap=True)
+        log.display = False
+        yield log
+        yield Footer()
+
+    def action_no(self) -> None:
+        self.dismiss(False)
+
+    def action_yes(self) -> None:
+        self.run_worker(self._start(), exclusive=True)
+
+    async def _start(self) -> None:
+        log = self.query_one("#process-log", RichLog)
+        log.display = True
+        # Process already up → skip the relaunch and just re-poll readiness.
+        if not self._process_up:
+            # Fail closed: refuse to start unless the OS sandbox can confine agents.
+            reason = local_env.agent_sandbox_unavailable_reason()
+            if reason is not None:
+                log.write(f"Cannot start in process mode — {reason}\n")
+                self.notify(reason, severity="error", timeout=15)
+                return
+            await local_env.start_backend_process(self.app.root, on_line=log.write)
+        ok = await local_env.wait_backend_ready(
+            self.app.backend_url,
+            on_attempt=lambda i: log.write(f"waiting for backend to become ready… ({i})\n"),
+        )
+        if ok:
+            self.dismiss(True)
+        else:
+            self.notify(
+                "Backend didn't become healthy — check .specflow-local/backend.log "
+                "(e.g. missing deps or an LLM provider/key mismatch).",
                 severity="error",
             )
 
@@ -2011,7 +2252,8 @@ class SpecFlowTUI(App):
     CSS = """
     #dashboard-body { padding: 0 1; }
     #sessions-title, #settings-title, #onboard-title { padding: 1 2; text-style: bold; }
-    #docker-prompt, #runinit-prompt { padding: 2 3; }
+    #docker-prompt, #runinit-prompt, #runtime-prompt, #switch-prompt { padding: 2 3; }
+    #switch-log { height: 1fr; border: round $primary; margin: 1 2; }
     .settings-section { padding: 1 2 0 2; text-style: bold; color: $accent; }
     .settings-row { height: 3; padding: 0 2; }
     .settings-label { width: 20; content-align: left middle; }
@@ -2062,6 +2304,158 @@ class SpecFlowTUI(App):
         """Resolved backend URL (flag → env → mcp-config → default)."""
         return resolve_backend_config(None, None, None, self.root)[0]
 
+    @property
+    def is_process_runtime(self) -> bool:
+        """True when the backend runs as a bare-metal host process (not Docker).
+
+        Only in this mode can the TUI stop the backend — in docker mode the
+        container stack is the boundary. Resolved the same way as the startup gate
+        (flag → env → saved choice → default) so the two never disagree.
+        """
+        return resolve_backend_runtime(self.root) == local_env.BackendRuntime.PROCESS
+
+    def set_runtime_indicator(self, runtime: "local_env.BackendRuntime") -> None:
+        """Show the active runtime in the header sub-title (visible on every screen).
+
+        Passed the resolved runtime explicitly rather than re-resolving, because at
+        startup it may be inferred from what's already running and not yet saved.
+        """
+        self.sub_title = f"{runtime.value} runtime"
+
+    async def _count_active_generations(self) -> int | None:
+        """Number of non-terminal generations, or ``None`` if it can't be read.
+
+        Used only to word the stop confirmation; a ``None`` (backend unreachable /
+        service unavailable) is treated conservatively as "maybe active" by the
+        caller rather than silently claiming nothing is running.
+        """
+        if fetch_sessions is None:
+            return None
+        try:
+            sessions = await fetch_sessions()
+        except Exception:  # noqa: BLE001 - confirmation wording is best-effort
+            return None
+        return sum(
+            1
+            for s in sessions
+            if (s.get("status") or "").lower() not in TERMINAL_STATUSES
+        )
+
+    async def stop_backend_flow(self) -> None:
+        """Confirm, then stop the detached bare-metal backend (process runtime).
+
+        A hard stop (SIGTERM to the process group) interrupts any in-flight
+        generation, so the confirmation names how many runs are affected. Per the
+        STEEL COMMANDMENTS a stop never releases workspaces: the code is preserved
+        and ``retry_generation`` resumes from the last checkpoint. On success the
+        TUI exits with a message — relaunching re-runs the startup gate, which
+        detects the backend is down and offers to start it again.
+        """
+        active = await self._count_active_generations()
+        if active is None:
+            detail = "Any in-progress generation will be interrupted"
+        elif active > 0:
+            plural = "s" if active != 1 else ""
+            detail = f"This interrupts {active} in-progress generation{plural}"
+        else:
+            detail = "No generation is currently running"
+        confirmed = await self.push_screen_wait(
+            ConfirmScreen(
+                f"Stop the backend?\n\n{detail} — its workspaces and generated code "
+                "are preserved (retry resumes from the last checkpoint). Relaunch "
+                "SpecFlow to start the backend again.",
+                countdown=10 if (active is None or active > 0) else 0,
+            )
+        )
+        if not confirmed:
+            return
+        stopped = await asyncio.to_thread(local_env.stop_backend_process, self.root)
+        if stopped:
+            self.exit(message="Backend stopped. Relaunch SpecFlow to start it again.")
+        else:
+            self.notify(
+                "No running backend process was found to stop.",
+                severity="warning",
+            )
+
+    async def _active_generation_ids(self) -> list[str]:
+        """Ids of non-terminal generations (empty on none or unreadable).
+
+        Used by the runtime switch to cancel in-flight runs on the current backend
+        before tearing it down.
+        """
+        if fetch_sessions is None:
+            return []
+        try:
+            sessions = await fetch_sessions()
+        except Exception:  # noqa: BLE001 - best-effort
+            return []
+        return [
+            s["generation_id"]
+            for s in sessions
+            if s.get("generation_id")
+            and (s.get("status") or "").lower() not in TERMINAL_STATUSES
+        ]
+
+    async def switch_runtime_flow(self) -> None:
+        """Switch the backend runtime docker↔process from inside the TUI.
+
+        Fail-fast preflight of the target (fail-closed sandbox for →process, docker
+        CLI present for →docker) BEFORE touching the running backend, then confirm
+        (naming in-flight runs that will be cancelled), then hand off to
+        ``SwitchRuntimeScreen`` which cancels those runs, tears down the current
+        backend, persists the choice, and starts the target. backend_url is the
+        same host:port for both runtimes, so the visible screen keeps polling the
+        new backend once it is up.
+        """
+        current = resolve_backend_runtime(self.root)
+        target = (
+            local_env.BackendRuntime.DOCKER
+            if current == local_env.BackendRuntime.PROCESS
+            else local_env.BackendRuntime.PROCESS
+        )
+
+        # Preflight the target; refuse without disturbing the running backend.
+        if target == local_env.BackendRuntime.PROCESS:
+            reason = local_env.agent_sandbox_unavailable_reason()
+            if reason is not None:
+                self.notify(f"Can't switch to process mode — {reason}", severity="error", timeout=15)
+                return
+        elif not await asyncio.to_thread(local_env.docker_cli_available):
+            self.notify(
+                "Can't switch to docker mode — the `docker` CLI isn't installed or on PATH.",
+                severity="error",
+                timeout=15,
+            )
+            return
+
+        active = await self._active_generation_ids()
+        n = len(active)
+        if n:
+            plural = "s" if n != 1 else ""
+            detail = (
+                f"{n} in-progress generation{plural} will be cancelled (cannot be "
+                "resumed; workspaces and generated code are preserved)"
+            )
+        else:
+            detail = "No generation is currently running"
+        confirmed = await self.push_screen_wait(
+            ConfirmScreen(
+                f"Switch backend runtime: {current.value} → {target.value}?\n\n"
+                f"This stops the {current.value} backend and starts a {target.value} "
+                f"one. {detail}.",
+                countdown=10 if n else 0,
+            )
+        )
+        if not confirmed:
+            return
+        ok = await self.push_screen_wait(
+            SwitchRuntimeScreen(current=current, target=target, cancel_ids=active)
+        )
+        if ok:
+            self.set_runtime_indicator(target)
+            self.notify(f"Runtime switched to {target.value}.", severity="information")
+
     def on_mount(self) -> None:
         # Run the gating sequence in an exclusive worker so blocking subprocess
         # work inside the gate screens never freezes the render loop.
@@ -2087,18 +2481,52 @@ class SpecFlowTUI(App):
                 self.exit()
                 return
 
-        # (b) Docker check — offer to start the stack, or quit.
-        running = await asyncio.to_thread(local_env.containers_running, self.root)
-        if not running:
-            if not await self.push_screen_wait(StartContainersScreen()):
-                self.exit()
-                return
-        elif not await local_env.backend_ready(self.backend_url):
-            # Containers up but not ready yet — wait it out with an accurate prompt
-            # (do not claim the containers aren't running; they are).
-            if not await self.push_screen_wait(StartContainersScreen(containers_up=True)):
-                self.exit()
-                return
+        # (b) Backend check — branch on the launch runtime. In docker mode the
+        # container stack is the boundary; in process mode the backend runs
+        # bare-metal and agents are confined by the OS sandbox instead.
+        runtime = resolve_backend_runtime(self.root)
+        if not backend_runtime_is_configured(self.root):
+            # Runtime not pinned (no env var, no saved choice): infer from whatever
+            # is already up; if nothing is running, ask once and remember the pick.
+            proc_up = await asyncio.to_thread(local_env.backend_process_running, self.root)
+            cont_up = await asyncio.to_thread(local_env.containers_running, self.root)
+            if proc_up:
+                runtime = local_env.BackendRuntime.PROCESS
+            elif cont_up:
+                runtime = local_env.BackendRuntime.DOCKER
+            else:
+                choice = await self.push_screen_wait(ChooseRuntimeScreen())
+                if not choice:
+                    self.exit()
+                    return
+                await asyncio.to_thread(local_env.save_backend_runtime, self.root, choice)
+                runtime = choice
+
+        self.set_runtime_indicator(runtime)
+        if runtime == local_env.BackendRuntime.PROCESS:
+            if not await local_env.backend_ready(self.backend_url):
+                # Process already up but not ready yet → just wait it out; not
+                # running → start it. Mirrors the docker path's containers_up handling.
+                process_up = await asyncio.to_thread(
+                    local_env.backend_process_running, self.root
+                )
+                if not await self.push_screen_wait(
+                    StartBackendProcessScreen(process_up=process_up)
+                ):
+                    self.exit()
+                    return
+        else:
+            running = await asyncio.to_thread(local_env.containers_running, self.root)
+            if not running:
+                if not await self.push_screen_wait(StartContainersScreen()):
+                    self.exit()
+                    return
+            elif not await local_env.backend_ready(self.backend_url):
+                # Containers up but not ready yet — wait it out with an accurate prompt
+                # (do not claim the containers aren't running; they are).
+                if not await self.push_screen_wait(StartContainersScreen(containers_up=True)):
+                    self.exit()
+                    return
 
         # (b2) First-run client setup — connect SpecFlow's MCP server to the
         # user's AI tool instead of dropping them on the empty Sessions list.

@@ -1,4 +1,4 @@
-.PHONY: run stop stop-test clean help base build ops-retry-run ops-cancel-run check-complexity check-complexity-diff check-complexity-cc check-complexity-mi secret-scan secret-scan-history secret-scan-gitleaks secret-scan-trufflehog skip-mode-e2e-tests contract-validation-e2e-tests shutdown-recovery-e2e-tests real-e2e-tests quickstart require-e2e-workspace-config
+.PHONY: run run-process stop-process stop stop-test clean help base build ops-retry-run ops-cancel-run check-complexity check-complexity-diff check-complexity-cc check-complexity-mi secret-scan secret-scan-history secret-scan-gitleaks secret-scan-trufflehog skip-mode-e2e-tests contract-validation-e2e-tests shutdown-recovery-e2e-tests real-e2e-tests quickstart require-e2e-workspace-config
 
 # Default target
 .DEFAULT_GOAL := build
@@ -136,6 +136,18 @@ run-detached-skip: build
 	@echo "💾 Database: SQLite at $(SQLITE_DB_PATH)"
 	@echo "⏭️  Agent execution: SKIPPED (testing mode)"
 	WORKSPACE_MOUNT_PATH=$(WORKSPACE_MOUNT_PATH) SKIP_AGENT_EXECUTION=true docker-compose up -d --no-build
+
+# Bare-metal backend (BACKEND_RUNTIME=process) — no Docker. Requires the developer
+# environment already installed (Python 3.14, uv, `cd backend && uv sync`) and the
+# host OS sandbox (bubblewrap on Linux / Seatbelt on macOS). Starts detached with a
+# fail-closed sandbox preflight; see docs/backend/backend-runtime.md.
+run-process:
+	@echo "🚀 Starting backend bare-metal (BACKEND_RUNTIME=process)..."
+	@cd mcp_server && uv run python -c "import asyncio, sys; from pathlib import Path; from services import local_env; sys.exit(asyncio.run(local_env.run_backend_process_cli(Path('$(CURDIR)'))))"
+
+# Stop a detached bare-metal backend started by run-process (or the TUI).
+stop-process:
+	@cd mcp_server && uv run python -c "from pathlib import Path; from services import local_env; print('🛑 stopped' if local_env.stop_backend_process(Path('$(CURDIR)')) else 'ℹ️  no running backend process')"
 
 # Stop ONLY the isolated local-testing stack (project: specflow-test) and wipe its ephemeral
 # workspace/database state. Quickstart is stopped outside this Make target.

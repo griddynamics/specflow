@@ -56,6 +56,7 @@ from app.schemas.llm_tier import (
 from app.schemas.telemetry_workflow import PhaseKind
 from app.schemas.model_validation import TierValidation, TierValidationStatus
 from app.schemas.specification import GenerationWorkflowRequest
+from app.agents_sandboxing.os_sandbox import check_agent_sandbox_available
 from app.services.contract_validator import RejectionCode
 from app.services.model_validation import validate_models_config
 from app.services.generation_session import (
@@ -1463,6 +1464,25 @@ async def run_generation_session(
         # Build overrides once: persisted in generation_session_params (for retry) and used directly below.
         workflow_llm_overrides = build_llm_overrides(LLM_HIGH=LLM_HIGH, LLM_MEDIUM=LLM_MEDIUM, LLM_LOW=LLM_LOW)
         generation_session_params.update(workflow_llm_overrides)
+
+        # Authoritative agent-sandbox gate (BACKEND_RUNTIME=process only). With no
+        # container boundary, agents must be confined by the OS-level Bash sandbox;
+        # if it can't initialise we refuse here rather than run agents unconfined on
+        # the host (fail closed). Like the model gate this is a synchronous rejection,
+        # not a state-machine fail() — workspaces stay allocated; the user installs the
+        # dependency and calls run_generation again. See docs/backend/backend-runtime.md.
+        sandbox_unavailable = check_agent_sandbox_available()
+        if sandbox_unavailable is not None:
+            logger.warning(
+                f"run_generation rejected (SANDBOX_UNAVAILABLE): {sandbox_unavailable.message}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "error": sandbox_unavailable.message,
+                    "code": RejectionCode.SANDBOX_UNAVAILABLE.value,
+                },
+            )
 
         # Authoritative model gate (defense-in-depth; the MCP server also pre-flights this).
         # A 2–8h run must not start against a model the active provider doesn't offer.
