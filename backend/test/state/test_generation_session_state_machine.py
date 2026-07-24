@@ -476,6 +476,34 @@ class TestResetForRetry:
         await esm.reset_for_retry("est-1", triggered_by="system:server_boot_recovery")
         assert db.get_generation_session_data("est-1")["shutdown_interrupted"] is False
 
+    @pytest.mark.asyncio
+    async def test_reset_clears_agent_state_on_all_workspaces_preserving_phase(self, db):
+        """A retry must wipe the transient RETRYING/ABORTED badge from EVERY workspace
+        (regression: stale badges lingered on workspaces that didn't re-enter the
+        crash/backoff path), while preserving last_completed_phase so the retry
+        resumes from the right place."""
+        esm = make_esm(db)
+        db.seed_generation_session("est-1", {
+            "status": GenerationStatus.FAILED,
+            "retry_count": 0,
+            "max_retries": 3,
+            "workspace_ids": ["ws-01-1", "ws-01-2", "ws-01-3"],
+            "workspace_phases": {
+                "ws-01-1": {"last_completed_phase": 2, "total_phases": 24, "agent_state": "aborted"},
+                "ws-01-2": {"last_completed_phase": 0, "total_phases": 24, "agent_state": "aborted"},
+                "ws-01-3": {"last_completed_phase": 1, "total_phases": 24},
+            },
+            "state_history": [],
+        })
+        await esm.reset_for_retry("est-1", triggered_by="api:manual_retry")
+        phases = db.get_generation_session_data("est-1")["workspace_phases"]
+        # No workspace keeps a stale agent_state badge...
+        assert all("agent_state" not in entry for entry in phases.values())
+        # ...and phase progress is untouched.
+        assert phases["ws-01-1"]["last_completed_phase"] == 2
+        assert phases["ws-01-2"]["last_completed_phase"] == 0
+        assert phases["ws-01-3"]["total_phases"] == 24
+
 
 class TestComplete:
     @pytest.mark.asyncio
@@ -1201,3 +1229,136 @@ class TestSetWorkspaceModelOverride:
             await set_workspace_model_override(
                 "gen-1", "ws-a", "haiku", triggered_by="test", db=db
             )
+
+
+class TestRecordAgentErrorEvent:
+    def _event(self, n=0):
+        return {
+            "at": f"2026-07-23T10:00:{n:02d}+00:00",
+            "workspace_id": "ws-1",
+            "kind": "agent_crash",
+            "message": f"crash {n}",
+        }
+
+    @pytest.mark.asyncio
+    async def test_appends_event(self, db):
+        esm = make_esm(db)
+        db.seed_generation_session("est-1", {
+            "status": GenerationStatus.RUNNING,
+            "state_history": [],
+        })
+        await esm.record_agent_error_event("est-1", self._event(), triggered_by="test")
+        data = db.get_generation_session_data("est-1")
+        assert len(data["agent_error_events"]) == 1
+        assert data["agent_error_events"][0]["kind"] == "agent_crash"
+
+    @pytest.mark.asyncio
+    async def test_bounds_to_max_events_keeping_newest(self, db):
+        from app.state.generation_session_state_machine import _MAX_AGENT_ERROR_EVENTS
+
+        esm = make_esm(db)
+        db.seed_generation_session("est-1", {
+            "status": GenerationStatus.RUNNING,
+            "agent_error_events": [self._event(n) for n in range(_MAX_AGENT_ERROR_EVENTS)],
+            "state_history": [],
+        })
+        await esm.record_agent_error_event(
+            "est-1", {**self._event(), "message": "newest"}, triggered_by="test"
+        )
+        data = db.get_generation_session_data("est-1")
+        assert len(data["agent_error_events"]) == _MAX_AGENT_ERROR_EVENTS
+        assert data["agent_error_events"][-1]["message"] == "newest"
+        # Oldest entry (n=0) fell off the front.
+        assert data["agent_error_events"][0]["message"] == "crash 1"
+
+    @pytest.mark.asyncio
+    async def test_updates_last_activity_at(self, db):
+        esm = make_esm(db)
+        db.seed_generation_session("est-1", {
+            "status": GenerationStatus.RUNNING,
+            "state_history": [],
+        })
+        await esm.record_agent_error_event("est-1", self._event(), triggered_by="test")
+        data = db.get_generation_session_data("est-1")
+        assert "last_activity_at" in data
+
+    @pytest.mark.asyncio
+    async def test_requires_running(self, db):
+        esm = make_esm(db)
+        db.seed_generation_session("est-1", {
+            "status": GenerationStatus.FAILED,
+            "state_history": [],
+        })
+        with pytest.raises(InvalidGenerationSessionStateError):
+            await esm.record_agent_error_event("est-1", self._event(), triggered_by="test")
+
+    @pytest.mark.asyncio
+    async def test_does_not_touch_status_checkpoint_or_state_history(self, db):
+        """Events are not state transitions (Commandment IX applies to transitions)."""
+        esm = make_esm(db)
+        db.seed_generation_session("est-1", {
+            "status": GenerationStatus.RUNNING,
+            "checkpoint": "generating_code",
+            "state_history": [{"status": "running"}],
+        })
+        await esm.record_agent_error_event("est-1", self._event(), triggered_by="test")
+        data = db.get_generation_session_data("est-1")
+        assert data["status"] == GenerationStatus.RUNNING
+        assert data["checkpoint"] == "generating_code"
+        assert data["state_history"] == [{"status": "running"}]
+
+
+class TestSetWorkspaceAgentState:
+    @pytest.mark.asyncio
+    async def test_sets_and_clears_agent_state(self, db):
+        esm = make_esm(db)
+        db.seed_generation_session("est-1", {
+            "status": GenerationStatus.RUNNING,
+            "workspace_phases": {"ws-1": {"last_completed_phase": 3, "total_phases": 5}},
+            "state_history": [],
+        })
+        await esm.set_workspace_agent_state("est-1", "ws-1", "retrying", triggered_by="test")
+        data = db.get_generation_session_data("est-1")
+        assert data["workspace_phases"]["ws-1"]["agent_state"] == "retrying"
+
+        await esm.set_workspace_agent_state("est-1", "ws-1", None, triggered_by="test")
+        data = db.get_generation_session_data("est-1")
+        assert "agent_state" not in data["workspace_phases"]["ws-1"]
+
+    @pytest.mark.asyncio
+    async def test_preserves_other_workspace_phase_fields(self, db):
+        esm = make_esm(db)
+        db.seed_generation_session("est-1", {
+            "status": GenerationStatus.RUNNING,
+            "workspace_phases": {
+                "ws-1": {"last_completed_phase": 3, "total_phases": 5},
+                "ws-2": {"last_completed_phase": 1, "total_phases": 5},
+            },
+            "state_history": [],
+        })
+        await esm.set_workspace_agent_state("est-1", "ws-1", "aborted", triggered_by="test")
+        data = db.get_generation_session_data("est-1")
+        assert data["workspace_phases"]["ws-1"]["last_completed_phase"] == 3
+        assert data["workspace_phases"]["ws-2"] == {"last_completed_phase": 1, "total_phases": 5}
+
+    @pytest.mark.asyncio
+    async def test_creates_entry_for_unknown_workspace(self, db):
+        esm = make_esm(db)
+        db.seed_generation_session("est-1", {
+            "status": GenerationStatus.RUNNING,
+            "workspace_phases": {},
+            "state_history": [],
+        })
+        await esm.set_workspace_agent_state("est-1", "ws-9", "retrying", triggered_by="test")
+        data = db.get_generation_session_data("est-1")
+        assert data["workspace_phases"]["ws-9"]["agent_state"] == "retrying"
+
+    @pytest.mark.asyncio
+    async def test_requires_running(self, db):
+        esm = make_esm(db)
+        db.seed_generation_session("est-1", {
+            "status": GenerationStatus.FAILED,
+            "state_history": [],
+        })
+        with pytest.raises(InvalidGenerationSessionStateError):
+            await esm.set_workspace_agent_state("est-1", "ws-1", "retrying", triggered_by="test")

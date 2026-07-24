@@ -28,6 +28,7 @@ from app.schemas.generation_workflow_enums import (
     parse_checkpoint,
     parse_status,
 )
+from app.schemas.agent_error_events import AgentErrorEvent, WorkspaceAgentState
 from app.schemas.model_token_usage import ModelTokenUsage
 from app.schemas.workflow_usage_metrics import (
     WORKFLOW_USAGE_METRICS_FIELD,
@@ -939,6 +940,28 @@ class GenerationSessionService:
         logger.info(
             f"Updated workspace phase for generation session {generation_id}, "
             f"workspace {workspace_id}: phase {completed_phase}"
+        )
+
+    async def record_agent_error_event(self, generation_id: str, event: AgentErrorEvent) -> None:
+        """Append one durable agent error/warning event (bounded; see state machine)."""
+        await self._esm.record_agent_error_event(
+            generation_id,
+            event.model_dump(mode="json", exclude_none=True),
+            triggered_by=TriggeredBy.orchestrator_step("record_agent_error_event"),
+        )
+
+    async def set_workspace_agent_state(
+        self,
+        generation_id: str,
+        workspace_id: str,
+        state: Optional[WorkspaceAgentState],
+    ) -> None:
+        """Set or clear the per-workspace agent-state badge (retrying/aborted)."""
+        await self._esm.set_workspace_agent_state(
+            generation_id,
+            workspace_id=workspace_id,
+            state=state.value if state is not None else None,
+            triggered_by=TriggeredBy.orchestrator_step("set_workspace_agent_state"),
         )
 
     async def save_e2e_plan(

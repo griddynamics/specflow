@@ -131,6 +131,17 @@ def _pipeline_panel(payload: dict[str, Any]) -> Panel:
     return Panel(body, title="Pipeline", border_style="blue")
 
 
+def _workspace_badge(bar: render.WorkspaceBar, flagged: set[str]) -> Text:
+    """Bare state word for the workspace list; details live in the drill-in."""
+    badge = render.agent_state_badge(bar.agent_state)
+    if badge is not None:
+        text, style = badge
+        return Text(text, style=style)
+    if bar.workspace_id in flagged:
+        return Text("⚠", style="yellow")
+    return Text("")
+
+
 def _workspaces_panel(payload: dict[str, Any], selected_ws_id: str | None = None) -> Panel:
     bars = render.workspace_bars(payload)
     if not bars:
@@ -139,6 +150,7 @@ def _workspaces_panel(payload: dict[str, Any], selected_ws_id: str | None = None
             title="Workspaces",
             border_style="blue",
         )
+    flagged = render.workspaces_with_events(payload)
     table = Table.grid(padding=(0, 1))
     table.add_column()  # selection marker
     table.add_column()  # ws id
@@ -146,6 +158,7 @@ def _workspaces_panel(payload: dict[str, Any], selected_ws_id: str | None = None
     table.add_column()  # phase name
     table.add_column()  # bar
     table.add_column(justify="right")  # pct
+    table.add_column()  # agent-state badge / warning marker
     for bar in bars:
         selected = bar.workspace_id == selected_ws_id
         marker = "▶" if selected else " "
@@ -157,6 +170,7 @@ def _workspaces_panel(payload: dict[str, Any], selected_ws_id: str | None = None
             Text(bar.phase_name[:32], style="dim"),
             Text(render.progress_bar(bar.fraction), style="green"),
             Text(f"{bar.percent}%"),
+            _workspace_badge(bar, flagged),
         )
     count = payload.get("workspace_count")
     title = f"Workspaces · {count} variants" if count else "Workspaces"
@@ -220,6 +234,20 @@ def _activity_panel(root: Path, payload: dict[str, Any]) -> Panel | None:
     return Panel(body, title=title, border_style="grey50")
 
 
+def _event_row_text(row: render.AgentErrorEventRow) -> Text:
+    """One agent error/warning event as a Rich line — used by the workspace
+    drill-in warnings block and the Events screen only (never the dashboard)."""
+    line = Text()
+    if row.time:
+        line.append(f"{row.time} ", style="dim")
+    line.append(row.workspace_id, style="bold")
+    if row.phase_label:
+        line.append(f" {row.phase_label}", style="cyan")
+    line.append(" — ")
+    line.append(row.message, style="yellow")
+    return line
+
+
 def build_dashboard(
     payload: dict[str, Any] | None,
     root: Path,
@@ -241,9 +269,18 @@ def build_dashboard(
     estimate = _estimate_panel(payload)
     if estimate is not None:
         panels.append(estimate)
-    act = _activity_panel(root, payload)
-    if act is not None:
-        panels.append(act)
+    # "Recent activity" is hidden for now: a raw tail of the DEBUG agent log is too
+    # noisy to be useful in the dashboard. `_activity_panel` / `tui.activity` are
+    # kept (and now point at the correct nested log dir) so this can be revived with
+    # a proper filtered/prettified view later — just re-append here.
+    # act = _activity_panel(root, payload)
+    # if act is not None:
+    #     panels.append(act)
+    # Per-workspace agent warnings are deliberately NOT listed on the session view.
+    # The Workspaces panel already carries bare RETRYING/ABORTED/⚠ markers at a
+    # glance; full detail lives in the workspace drill-in + the Events screen (`e`).
+    # The dashboard stays minimal: pipeline, workspaces, and only the end result
+    # (estimate) or a fatal Error.
     if payload.get("error"):
         panels.append(
             Panel(Text(str(payload["error"]), style="red"), title="Error", border_style="red")
@@ -266,6 +303,20 @@ def stream_row_text(row: render.StreamRow) -> Text:
     if row.message:
         line.append(f"  {row.message}")
     return line
+
+
+def build_workspace_warnings(payload: dict[str, Any] | None, workspace_id: str) -> Panel | None:
+    """Yellow per-workspace warnings block for the drill-in screen.
+
+    Lists THIS workspace's agent error/warning events with model switches
+    pinned first (a silently swapped model is the one thing the user must not
+    miss). None when the workspace has no events — the widget stays hidden.
+    """
+    rows = render.workspace_warning_rows(payload or {}, workspace_id)
+    if not rows:
+        return None
+    body = Text("\n").join(_event_row_text(row) for row in rows)
+    return Panel(body, title=f"Warnings · {workspace_id}", border_style="yellow")
 
 
 def build_workspace_stats(payload: dict[str, Any] | None, workspace_id: str) -> Panel:
@@ -474,6 +525,7 @@ class DashboardScreen(_SpecFlowScreen):
         Binding("c", "connect_client", "Add MCP to AI tool"),
         Binding("o", "open_workspace", "open ws"),
         Binding("enter", "open_workspace", "open ws", show=False),
+        Binding("e", "open_events", "events"),
         Binding("h", "open_report", "open report"),
         # Priority so the workspace selection wins over the scroll container's
         # own up/down handling (otherwise arrows just scroll the dashboard).
@@ -576,6 +628,9 @@ class DashboardScreen(_SpecFlowScreen):
             self.notify("No workspace to open yet.", severity="information")
             return
         self.app.push_screen(WorkspaceMessagesScreen(self._generation_id, ws_id))
+
+    def action_open_events(self) -> None:
+        self.app.push_screen(EventsScreen(self._generation_id))
 
     def action_open_report(self) -> None:
         if render.estimate_panel(self._payload) is None:
@@ -767,6 +822,7 @@ class WorkspaceMessagesScreen(_SpecFlowScreen):
         yield Header(show_clock=True)
         with Vertical():
             yield RichLog(id="ws-stream", wrap=True, markup=False, highlight=False, max_lines=2000)
+            yield Static(id="ws-warnings")
             yield Static(id="ws-stats")
         yield Footer()
 
@@ -774,6 +830,7 @@ class WorkspaceMessagesScreen(_SpecFlowScreen):
         log = self.query_one("#ws-stream", RichLog)
         log.border_title = f"Live messages · {self._workspace_id}"
         log.write(Text("Waiting for live messages…", style="dim"))
+        self.query_one("#ws-warnings", Static).display = False
         self.call_later(self.refresh_stats)
         self.set_interval(self.app.poll_interval, self.refresh_stats)
         self.run_worker(self._stream_worker(), exclusive=True, group="ws-stream")
@@ -782,6 +839,11 @@ class WorkspaceMessagesScreen(_SpecFlowScreen):
         payload = await poll_once(self._generation_id)
         if isinstance(self.app, SpecFlowTUI):
             self.app.process_payload(self._generation_id, payload)
+        warnings_widget = self.query_one("#ws-warnings", Static)
+        warnings_panel = build_workspace_warnings(payload, self._workspace_id)
+        warnings_widget.display = warnings_panel is not None
+        if warnings_panel is not None:
+            warnings_widget.update(warnings_panel)
         self.query_one("#ws-stats", Static).update(
             build_workspace_stats(payload, self._workspace_id)
         )
@@ -792,6 +854,63 @@ class WorkspaceMessagesScreen(_SpecFlowScreen):
             self._got_event = True
             log.write(stream_row_text(render.stream_row(event)))
         log.write(Text("— live message stream ended —", style="dim"))
+
+    def action_back(self) -> None:
+        self.app.pop_screen()
+
+
+class EventsScreen(_SpecFlowScreen):
+    """Full scrollable log of agent error/warning events for one generation.
+
+    The dashboard's "Agent warnings" panel shows only the newest few; this
+    screen lists everything the /status payload carries, refreshed on the same
+    poll cadence as the dashboard.
+    """
+
+    BINDINGS = [
+        Binding("escape", "back", "back"),
+        Binding("b", "back", "back"),
+    ]
+
+    def __init__(self, generation_id: str) -> None:
+        super().__init__()
+        self._generation_id = generation_id
+        self._rendered_count = 0
+
+    @property
+    def generation_id(self) -> str:
+        return self._generation_id
+
+    def compose(self) -> ComposeResult:
+        yield Header(show_clock=True)
+        yield RichLog(id="events-log", wrap=True, markup=False, highlight=False, max_lines=2000)
+        yield Footer()
+
+    def on_mount(self) -> None:
+        log = self.query_one("#events-log", RichLog)
+        log.border_title = f"Agent events · {self._generation_id[:18]}…"
+        log.write(Text("Loading events…", style="dim"))
+        self.call_later(self.refresh_events)
+        self.set_interval(self.app.poll_interval, self.refresh_events)
+
+    async def refresh_events(self) -> None:
+        payload = await poll_once(self._generation_id)
+        if isinstance(self.app, SpecFlowTUI):
+            self.app.process_payload(self._generation_id, payload)
+        rows = render.agent_error_event_rows(payload)
+        log = self.query_one("#events-log", RichLog)
+        if not rows:
+            if self._rendered_count == 0:
+                log.clear()
+                log.write(Text("No agent errors or warnings recorded.", style="dim"))
+                self._rendered_count = -1  # placeholder written; skip rewrites
+            return
+        if len(rows) == self._rendered_count:
+            return  # nothing new — avoid churning the scroll position
+        log.clear()
+        for row in rows:
+            log.write(_event_row_text(row))
+        self._rendered_count = len(rows)
 
     def action_back(self) -> None:
         self.app.pop_screen()
