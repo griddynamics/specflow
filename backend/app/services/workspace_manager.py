@@ -15,18 +15,12 @@ from app.utils.workspace_gitignore import ensure_workspace_gitignore, read_gitig
 from app.services.git_utils import GitCommandError, run_git
 
 from app.core.config import DEFAULT_MODEL, Settings, WORKSPACE_DEFAULT_BRANCH, settings as global_settings
-from app.core.rosetta_kb import RosettaKbMode, resolve_rosetta_kb_mode, rosetta_plugin_root
+from app.core.rosetta_kb import rosetta_plugin_root
 from app.schemas.workspace import WorkspaceSettings
 from app.services.providers import BaseProvider, ProviderFactory
 from app.services.providers.credentials import (
     resolve_provider_api_key,
     resolve_provider_base_url,
-)
-
-# KB init writes under rosetta/<name>/ (not `.claude/`) to avoid the SDK sensitive-path guard.
-# unpack_rosetta_artifacts maps these into `.claude/<name>/` for Claude Code discovery.
-_ROSETTA_DOT_CLAUDE_SUBDIRS: Final[frozenset[str]] = frozenset(
-    {"agents", "skills", "commands"}
 )
 
 # Conventional fallback (plugin source dir, workspace `.claude/` destination) pairs, used when
@@ -43,9 +37,9 @@ _ROSETTA_PLUGIN_CLAUDE_MAP: Final[Tuple[Tuple[str, str], ...]] = (
     ("workflows", "commands"),
 )
 
-# Project-level instructions file the KB-init agent produces at the workspace root. Propagated
-# from the primary to each extra workspace (in provisioned-plugin mode the agent writes it there
-# directly; in MCP mode unpack also recreates it per-workspace, so re-syncing it is harmless).
+# Project-level instructions file the KB-init agent produces at the workspace root. The agent
+# writes it on the primary; it is propagated from there to each extra workspace (harmless no-op
+# when KB init was skipped and the file is absent).
 _ROSETTA_ROOT_CLAUDE_MD: Final[str] = "CLAUDE.md"
 
 # Names that must NEVER be copied between workspaces or removed when clearing the workspace
@@ -285,12 +279,10 @@ class WorkspaceManager:
         # Prepare primary workspace
         self.prepare_single_workspace(primary_workspace, spec_path, outputs_dir, standards_source)
 
-        # Provision the bundled Rosetta plugin (plugin mode) and unpack KB artifacts on the
-        # primary. Provisioning is idempotent — run_kb_init_agent already provisioned the
-        # primary before KB init so its agent could discover the Rosetta skills.
+        # Provision the bundled Rosetta plugin on the primary. Provisioning is idempotent —
+        # run_kb_init_agent already provisioned the primary before KB init so its agent could
+        # discover the Rosetta skills.
         self.provision_rosetta_plugin(primary_workspace)
-        rosetta_dir = self.settings.ROSETTA_OUTPUT_DIR
-        self.unpack_rosetta_artifacts(primary_workspace, rosetta_dir)
 
         # Prepare each extra workspace
         for i, extra_ws in enumerate(extra_workspaces, start=1):
@@ -299,24 +291,23 @@ class WorkspaceManager:
             # Clear src directory to avoid copying partial work
             self.clear_src_directory(extra_ws, src_dir=src_dir)
 
-            # Sync directories from primary to extra workspace. rosetta/ carries the KB in MCP
-            # mode; in plugin mode the agent wrote docs to outputs_dir and CLAUDE.md to the root
-            # directly, so both must propagate too (sync_directories handles the CLAUDE.md file
-            # and skips it harmlessly when KB init was disabled).
+            # Sync directories from primary to extra workspace. The KB init agent wrote docs to
+            # outputs_dir and CLAUDE.md to the root directly, so both must propagate
+            # (sync_directories handles the CLAUDE.md file and skips it harmlessly when KB init
+            # was disabled).
             self.sync_directories(
                 source_ws=primary_workspace,
                 target_ws=extra_ws,
-                directories=[spec_path, outputs_dir, rosetta_dir, _ROSETTA_ROOT_CLAUDE_MD],
+                directories=[spec_path, outputs_dir, _ROSETTA_ROOT_CLAUDE_MD],
             )
 
             # Copy standards files
             if standards_source:
                 self.copy_standards_to_workspace(extra_ws, standards_source)
 
-            # Provision the bundled Rosetta plugin and unpack KB artifacts on each extra
-            # workspace so parallel codegen agents discover the same Rosetta toolset.
+            # Provision the bundled Rosetta plugin on each extra workspace so parallel codegen
+            # agents discover the same Rosetta toolset.
             self.provision_rosetta_plugin(extra_ws)
-            self.unpack_rosetta_artifacts(extra_ws, rosetta_dir)
 
             ensure_workspace_gitignore(Path(extra_ws.get_isolated_root()))
 
@@ -681,85 +672,12 @@ class WorkspaceManager:
             f"Pushed to origin/{WORKSPACE_DEFAULT_BRANCH} for {ws_path}"
         )
 
-    def unpack_rosetta_artifacts(
-        self,
-        workspace: WorkspaceSettings,
-        rosetta_dir: str = "rosetta",
-    ) -> None:
-        """Unpack rosetta/ output into workspace root for Claude Code SDK discovery.
-
-        Copies contents of rosetta/ into the workspace root, preserving structure:
-          rosetta/CLAUDE.md   -> workspace_root/CLAUDE.md
-          rosetta/agents/     -> workspace_root/.claude/agents/
-          rosetta/skills/     -> workspace_root/.claude/skills/
-          rosetta/commands/   -> workspace_root/.claude/commands/
-          rosetta/docs/       -> workspace_root/docs/
-
-        The agents/, skills/, and commands/ remappings exist because the SDK's
-        sensitive-file guard blocks agent writes under `.claude/` — so the KB init
-        agent stages those trees under rosetta/ and we remap here during unpack.
-
-        No-op if rosetta/ doesn't exist (KB init was skipped or failed).
-
-        Unpack is an **MCP-mode** operation: the KB-init agent stages everything under rosetta/
-        because it cannot write `.claude/` directly. In plugin mode the plugin trees are copied
-        into `.claude/` by ``provision_rosetta_plugin`` and the agent writes its docs to their
-        final locations directly, so there is nothing to unpack — this returns early.
-        """
-        if self._plugin_mode_active():
-            self.logger.debug(
-                "Plugin mode active — skipping rosetta/ unpack "
-                f"({workspace.get_isolated_root()}); plugin provisions .claude/ directly"
-            )
-            return
-
-        rosetta_path = Path(workspace.resolve_path_in_workspace(rosetta_dir))
-        if not rosetta_path.exists():
-            self.logger.debug(
-                f"No {rosetta_dir}/ directory in "
-                f"{workspace.get_isolated_root()}, skipping unpack"
-            )
-            return
-
-        ws_root = Path(workspace.get_isolated_root())
-
-        for item in rosetta_path.iterdir():
-            if item.is_dir() and item.name in _ROSETTA_DOT_CLAUDE_SUBDIRS:
-                target = ws_root / ".claude" / item.name
-            else:
-                target = ws_root / item.name
-            if item.is_dir():
-                # Merge into existing directory (dirs_exist_ok) rather than replacing.
-                # Planning files written before this call (e.g. IMPLEMENTATION_PLAN.md,
-                # e2e-test-plan.md in docs/) are preserved; rosetta files are added/updated
-                # alongside them. Replacing via rmtree would wipe planning outputs when
-                # rosetta/docs/ and the outputs_dir share the same name ("docs").
-                target.mkdir(parents=True, exist_ok=True)
-                shutil.copytree(item, target, dirs_exist_ok=True)
-            else:
-                shutil.copy2(item, target)
-
-        self.logger.info(f"Unpacked rosetta/ artifacts to {ws_root}")
-
-    def _plugin_mode_active(self) -> bool:
-        """True when the provisioned Rosetta plugin (not the live MCP) supplies the KB.
-
-        Delegates to the single mode resolver in ``app.core.rosetta_kb`` so this and every other
-        site keyed on the mode agree. In provisioned-plugin mode ``provision_rosetta_plugin``
-        copies the plugin trees into ``.claude/`` and the KB-init agent writes its docs to final
-        locations directly, so the MCP-mode ``unpack_rosetta_artifacts`` staging remap must not
-        run. With KB DISABLED this is False — unpack then runs but no-ops because rosetta/ was
-        never created.
-        """
-        return resolve_rosetta_kb_mode(self.settings) is RosettaKbMode.PROVISIONED_PLUGIN
-
     def provision_rosetta_plugin(self, workspace: WorkspaceSettings) -> bool:
         """Copy the bundled Rosetta plugin's discovery trees into a workspace.
 
-        Provisioned-plugin mode (the default) ships the Rosetta agents/skills/commands/hooks with
-        the image at ``settings.ROSETTA_PLUGIN_PATH`` instead of fetching them from the live
-        ims-mcp service. Only the discovery-shaped trees are copied into the workspace (project
-        scope cannot read ``/opt`` or ``~/.claude``):
+        The Rosetta agents/skills/commands/hooks ship with the image at
+        ``settings.ROSETTA_PLUGIN_PATH``. Only the discovery-shaped trees are copied into the
+        workspace (project scope cannot read ``/opt`` or ``~/.claude``):
 
             <plugin>/agents/    -> .claude/agents/
             <plugin>/skills/    -> .claude/skills/
@@ -772,13 +690,12 @@ class WorkspaceManager:
         commands, so they run as CLI subprocesses without needing an in-workspace plugin copy.
 
         Idempotent: re-copy merges (``dirs_exist_ok``) and hook merge de-duplicates. Returns
-        False (no-op) when the mode resolver reports anything other than PROVISIONED_PLUGIN — i.e.
-        the live MCP is enabled (it supplies the KB instead), or ``ROSETTA_PLUGIN_PATH`` is unset
-        or missing on disk (e.g. an image without the plugin).
+        False (no-op) when ``ROSETTA_PLUGIN_PATH`` is unset or missing on disk (e.g. an image
+        without the plugin).
         """
         plugin_root = rosetta_plugin_root(self.settings)
         if plugin_root is None:
-            if not self.settings.ROSETTA_MCP_ENABLED and (self.settings.ROSETTA_PLUGIN_PATH or "").strip():
+            if (self.settings.ROSETTA_PLUGIN_PATH or "").strip():
                 # Configured to use the plugin but the path isn't a directory — surface it.
                 self.logger.warning(
                     "ROSETTA_PLUGIN_PATH not found, skipping plugin provisioning: "

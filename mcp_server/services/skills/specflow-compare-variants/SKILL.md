@@ -190,7 +190,7 @@ Launch **1 subagent** (`subagent_type: "Plan"`, `model: "opus"`).
 >
 > ### Files to exclude
 > [List of files/dirs from the base workspace that should NOT be in the production repo]
-> Examples: CLAUDE.md, rosetta/, agents/, specs/ (or move to docs/), .specflow-compare-variants/
+> Examples: CLAUDE.md, agents/, specs/ (or move to docs/), .specflow-compare-variants/
 >
 > ### Config changes needed after assembly
 > [List of files that need edits: env URLs, secret names, service names, repo-specific values]

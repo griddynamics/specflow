@@ -34,7 +34,7 @@ async def generate_app_workflow(
          canonical paths, then convert markdown to JSON. Hard-fails the run with
          ContractRejection if required files are missing or unparseable.
       2. kb_init — Rosetta KB initialization on the primary workspace, then sync specs,
-         outputs (including rosetta/), and src to all allocated workspaces.
+         outputs, and src to all allocated workspaces.
       3. generation — parallel codegen across all allocated workspaces.
       4. deploy_and_e2e — only when integration_readiness == INTEGRATION_TESTS_READY.
       5. archive_outputs — Steel Commandment XI: persist before P10Y.

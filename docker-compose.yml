@@ -55,16 +55,7 @@ services:
       - POSTHOG_API_KEY=${POSTHOG_API_KEY}
       - POSTHOG_HOST=${POSTHOG_HOST:-https://eu.i.posthog.com}
       - FIGMA_ACCESS_TOKEN=${FIGMA_ACCESS_TOKEN}
-      # Rosetta KB. The live ims-mcp server is OFF by default — KB init runs against the Rosetta
-      # plugin baked into the image (generic KB, no service/key needed). Set ROSETTA_MCP_ENABLED=true
-      # (+ ROSETTA_API_KEY / ROSETTA_SERVER_URL) to opt into the live, project-tailored KB; the live
-      # MCP then takes precedence over the bundled plugin. Passed through explicitly so the value
-      # tracks your .env rather than the image default.
-      - ROSETTA_MCP_ENABLED=${ROSETTA_MCP_ENABLED:-false}
-      - ROSETTA_SERVER_URL=${ROSETTA_SERVER_URL}
-      - ROSETTA_API_KEY=${ROSETTA_API_KEY}
-      - ROSETTA_USER_EMAIL=${ROSETTA_USER_EMAIL}
-      - ROSETTA_IMS_VERSION=${ROSETTA_IMS_VERSION}
+      # Rosetta KB runs against the Rosetta plugin baked into the image (no service/key needed).
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - LANGFUSE_BASE_URL=${LANGFUSE_BASE_URL}

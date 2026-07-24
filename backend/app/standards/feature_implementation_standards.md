@@ -10,7 +10,7 @@ validation rules, size limits, and access control is not a complete feature desc
 topic heading. Flag every such underspecified feature as a GAP.
 
 For implementation patterns and detailed sub-task checklists for specific feature types, use the
-**Rosetta KnowledgeBase MCP** (`get_context_instructions` / `query_instructions` / `list_instructions`).
+**Rosetta knowledge-base toolset** provisioned into this workspace's `.claude/` (its Skills and subagents).
 
 ---
 

@@ -281,21 +281,19 @@ async def clear_workspace_caches(workspace_ids: List[str]) -> None:
 
 
 def setup_rosetta_plugin_env() -> Dict[str, str]:
-    """Return ``CLAUDE_PLUGIN_ROOT`` for the bundled Rosetta plugin in provisioned-plugin mode.
+    """Return ``CLAUDE_PLUGIN_ROOT`` for the bundled Rosetta plugin.
 
-    In provisioned-plugin mode ``WorkspaceManager.provision_rosetta_plugin`` copies the plugin's
-    agents/skills/commands into each workspace ``.claude/`` and merges its hooks into
-    ``.claude/settings.json``. The plugin's own files (hook scripts, rules/, templates/) stay in
-    the read-only image at ``ROSETTA_PLUGIN_PATH``; pointing ``CLAUDE_PLUGIN_ROOT`` there lets the
-    merged hooks' ``${CLAUDE_PLUGIN_ROOT}`` resolve. Hooks run as CLI subprocesses (not the
-    agent's sandboxed tools), so the read-only ``/opt`` path is reachable; this env var is just a
-    string and does not widen the agent's file-tool sandbox.
+    ``WorkspaceManager.provision_rosetta_plugin`` copies the plugin's agents/skills/commands into
+    each workspace ``.claude/`` and merges its hooks into ``.claude/settings.json``. The plugin's
+    own files (hook scripts, rules/, templates/) stay in the read-only image at
+    ``ROSETTA_PLUGIN_PATH``; pointing ``CLAUDE_PLUGIN_ROOT`` there lets the merged hooks'
+    ``${CLAUDE_PLUGIN_ROOT}`` resolve.
 
-    Returns an empty dict in any other mode (live MCP, or no usable plugin on disk), so the env
-    var is simply not set. The path is resolved through ``app.core.rosetta_kb`` — the same single
-    source of truth that gates provisioning — so the env var is set exactly when the plugin was
-    provisioned. The ``is_dir`` stat is intentionally not cached: it is cheap, the path can be
-    mounted lazily, and a stale cache would desync this from provisioning.
+    Returns an empty dict when there is no usable plugin on disk, so the env var is simply not
+    set. The path is resolved through ``app.core.rosetta_kb`` — the same single source of truth
+    that gates provisioning — so the env var is set exactly when the plugin was provisioned. The
+    ``is_dir`` stat is intentionally not cached: it is cheap, the path can be mounted lazily, and
+    a stale cache would desync this from provisioning.
     """
     plugin_root = rosetta_plugin_root(settings)
     return {"CLAUDE_PLUGIN_ROOT": plugin_root} if plugin_root else {}
@@ -756,7 +754,7 @@ async def agent_query(
     cache_env = setup_workspace_cache_directories(workspace_path)
     env_config.update(cache_env)
 
-    # CLAUDE_PLUGIN_ROOT for the bundled Rosetta plugin (plugin mode); empty otherwise.
+    # CLAUDE_PLUGIN_ROOT for the bundled Rosetta plugin; empty when no plugin is on disk.
     env_config.update(setup_rosetta_plugin_env())
 
     env_config.update(setup_claude_code_tmpdir())
@@ -1462,14 +1460,14 @@ async def phase_agent_fn(
                 mcp_tool_list = phase_mcp_tools or []
                 common_tools = get_common_allowed_tools(isolated_root)
                 base_phase_tools = common_tools + (extra_allowed_tools or []) + mcp_tool_list
-                # By design there is no programmatic coding subagent: Rosetta is always-on
-                # (the plugin is baked into the image and provisioned into every workspace, or
-                # the live MCP is enabled), so the phase agent delegates to the Rosetta agents
-                # (engineer/architect/reviewer/...) in .claude/agents/, discovered via
-                # setting_sources=["project"]. See WorkspaceManager.provision_rosetta_plugin and
-                # the coding-flow guidance in generate_production_agent_template. If Rosetta is
-                # unavailable (KB DISABLED, or a non-fatal KB-init failure), the phase prompt's
-                # explicit fallback has the agent implement the phase directly.
+                # By design there is no programmatic coding subagent: the Rosetta plugin is baked
+                # into the image and provisioned into every workspace, so the phase agent
+                # delegates to the Rosetta agents (engineer/architect/reviewer/...) in
+                # .claude/agents/, discovered via setting_sources=["project"]. See
+                # WorkspaceManager.provision_rosetta_plugin and the coding-flow guidance in
+                # generate_production_agent_template. If Rosetta is unavailable (KB DISABLED, or a
+                # non-fatal KB-init failure), the phase prompt's explicit fallback has the agent
+                # implement the phase directly.
                 result: AgentResult = await agent_query_with_resume(
                     system_prompt=phase_prompt,
                     phase_number=phase_num,

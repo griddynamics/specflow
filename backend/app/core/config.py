@@ -15,7 +15,6 @@ from app.core.enums import AuthMode, DatabaseType, LLMProvider
 MCP_PLAYWRIGHT = "playwright"
 MCP_FIGMA = "figma"
 MCP_FIGMA_SERVER_KEY = "Figma"  # figma-developer-mcp registers under this server name
-ROSETTA_SERVER_KEY = "KnowledgeBase"  # ims-mcp registers under this server name
 SUPPORTED_MCPS: FrozenSet[str] = frozenset({MCP_PLAYWRIGHT, MCP_FIGMA})
 MCP_SERVERS_ENABLED_ENV = "MCP_SERVERS_ENABLED"
 MCP_SERVERS_ENABLED_DEFAULT = MCP_PLAYWRIGHT
@@ -295,28 +294,14 @@ class Settings(BaseSettings):
     FIGMA_ACCESS_TOKEN: Optional[str] = None
     FIGMA_API_KEY: Optional[str] = None
 
-    # KnowledgeBase/Rosetta MCP — matches `claude mcp add ... -- uvx ims-mcp@latest` env surface.
-    ROSETTA_MCP_COMMAND: str = "uvx"
-    ROSETTA_MCP_ARGS: str = "ims-mcp@latest"
-    ROSETTA_SERVER_URL: Optional[str] = "https://ims.evergreen.gcp.griddynamics.net/"
-    ROSETTA_API_KEY: Optional[str] = None
-    ROSETTA_USER_EMAIL: Optional[str] = None
-    # Passed to ims-mcp subprocess as env VERSION (e.g. r2).
-    ROSETTA_IMS_VERSION: str = "r2"
-    # Plugin mode is the DEFAULT for every environment (quickstart AND hosted): KB init
-    # runs against the bundled Rosetta plugin, no ims-mcp service / ROSETTA_API_KEY needed.
-    # Set ROSETTA_MCP_ENABLED=true only to opt back into the live ims-mcp server (it then
-    # wins over the plugin). See app/core/mcp_selection.py:for_kb_init.
-    ROSETTA_MCP_ENABLED: bool = False
-    ROSETTA_OUTPUT_DIR: str = "rosetta"
-    # Path to the Rosetta plugin bundled into the image at build time (backend/Dockerfile
-    # stages it here). When ROSETTA_MCP_ENABLED is False, WorkspaceManager.provision_rosetta_plugin
-    # copies this plugin's agents/skills/commands into each workspace's .claude/ and merges its
-    # hooks into .claude/settings.json so setting_sources=["project"] discovers them (no
-    # ~/.claude, no SDK plugins= loader). This same path is also exported as CLAUDE_PLUGIN_ROOT
-    # per agent (claude_code.setup_rosetta_plugin_env) so the merged hooks' ${CLAUDE_PLUGIN_ROOT}
-    # resolves to the read-only image plugin. Set to None / empty to disable plugin provisioning
-    # (KB init then no-ops unless MCP is enabled).
+    # Path to the Rosetta plugin bundled into the image at build time.
+    # WorkspaceManager.provision_rosetta_plugin copies this plugin's agents/skills/commands into
+    # each workspace's .claude/ and merges its hooks into .claude/settings.json so
+    # setting_sources=["project"] discovers them. This same path is exported as
+    # CLAUDE_PLUGIN_ROOT per agent
+    # (claude_code.setup_rosetta_plugin_env) so the merged hooks' ${CLAUDE_PLUGIN_ROOT}
+    # resolves to the read-only image plugin. Set to None / empty to disable plugin
+    # provisioning (KB init then no-ops).
     ROSETTA_PLUGIN_PATH: Optional[str] = "/opt/rosetta-plugin"
 
     # PostHog Telemetry Configuration
