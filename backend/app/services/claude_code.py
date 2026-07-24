@@ -869,11 +869,17 @@ async def agent_query_with_resume(
             logger=logger,
         )
 
-    final = (
-        last_returned
-        if last_returned
-        else AgentResult(result=last_error, session_id=None, is_error=True)
-    )
+    # A crash-based give-up MUST surface is_error=True so execute_all_phases can
+    # classify it (connection errors abort the workspace, #47) and never checkpoint
+    # the phase as complete. Otherwise a single clean-but-incomplete attempt before
+    # an outage leaves last_returned holding that stale success (is_error=False),
+    # masking the crash: the phase is checkpointed and silently skipped on retry.
+    # Only COMPLETED and VALIDATOR_BUDGET (clean-but-incomplete, the anti-stuck
+    # contract) return the last coding result as-is.
+    if stop_reason in (ResumeStopReason.NO_PROGRESS_BUDGET, ResumeStopReason.TOOL_CALL_FAILURE):
+        final = AgentResult(result=last_error, session_id=None, is_error=True)
+    else:
+        final = last_returned or AgentResult(result=last_error, session_id=None, is_error=True)
     if active_model != model:
         final.active_model = active_model
     return final

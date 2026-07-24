@@ -298,3 +298,53 @@ async def test_connection_give_up_does_not_recommend_model_change(recorders):
     assert gave_up.kind == AgentErrorEventKind.PHASE_GAVE_UP
     assert "change the model" not in gave_up.message
     assert "code is preserved" in gave_up.message
+
+
+@pytest.mark.asyncio
+async def test_clean_incomplete_then_outage_surfaces_error_not_stale_success(recorders):
+    """Regression: a clean-but-incomplete attempt must not let its success mask a
+    later sustained outage.
+
+    Before the fix, ``last_returned`` held attempt 1's non-error coding result and
+    ``final`` returned it verbatim on a NO_PROGRESS_BUDGET give-up (is_error=False).
+    execute_all_phases then checkpointed the incomplete phase as complete and the
+    connection-abort path (#47) never fired — the phase was silently skipped on
+    retry. The give-up must instead surface is_error=True carrying the crash text.
+    """
+    events, _ = recorders
+    # attempt 1: clean coding + validator INCOMPLETE (resets the crash streak);
+    # attempts 2-8: sustained zero-progress outage that exhausts the schedule.
+    effects = [_CODING_OK, _INCOMPLETE] + [_crash(tool_uses=0)] * 7
+    patches, agent_query, sleep, _ = _patch_loop(effects)
+    with patches[0], patches[1], patches[2]:
+        result = await _run()
+
+    assert result.is_error is True
+    assert result.result == _SOCKET_ERR  # crash text, NOT the stale "did some work"
+    assert agent_query.await_count == 9  # 1 coding + 1 validator + 7 coding crashes
+    # The clean-incomplete run reset the streak, so the full schedule still runs.
+    assert [c.args[0] for c in sleep.await_args_list] == [60.0, 180.0, 300.0, 600.0, 1800.0, 3600.0]
+    kinds = _recorded_kinds(events)
+    assert kinds.count(AgentErrorEventKind.AGENT_CRASH) == 6
+    assert kinds[-1] == AgentErrorEventKind.PHASE_GAVE_UP
+
+
+@pytest.mark.asyncio
+async def test_tool_call_failure_after_incomplete_still_surfaces_error(recorders):
+    """A tool-call give-up after a prior clean-incomplete attempt still returns
+    is_error=True so the workspace aborts (model incompatible), rather than
+    returning the stale success from the earlier attempt."""
+    events, _ = recorders
+    effects = [
+        _CODING_OK, _INCOMPLETE,
+        AgentQueryError("model does not support tools", progress=AgentQueryProgress(0, 0)),
+    ]
+    patches, agent_query, sleep, _ = _patch_loop(effects)
+    with patches[0], patches[1], patches[2]:
+        result = await _run()
+
+    assert result.is_error is True
+    assert "model does not support tools" in (result.result or "")
+    assert agent_query.await_count == 3  # coding + validator + one crashing coding call
+    sleep.assert_not_awaited()  # tool-call failure is not retried in-loop
+    assert _recorded_kinds(events)[-1] == AgentErrorEventKind.PHASE_GAVE_UP
