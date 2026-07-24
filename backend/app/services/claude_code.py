@@ -474,7 +474,7 @@ async def _read_workspace_head(workspace_path: str, logger: logging.Logger) -> O
         return None
 
 
-async def _run_attempt(
+async def _code_and_validate(
     is_first: bool,
     outputs_dir: str,
     spec_path: str,
@@ -753,7 +753,7 @@ async def agent_query_with_resume(
         )
         head_before = await _read_workspace_head(workspace_path, logger)
         try:
-            result, outcome = await _run_attempt(
+            result, outcome = await _code_and_validate(
                 is_first=attempt == 1,
                 outputs_dir=outputs_dir,
                 spec_path=spec_path,
