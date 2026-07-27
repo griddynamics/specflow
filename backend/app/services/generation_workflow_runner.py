@@ -313,3 +313,5 @@ async def rerun_generation_session(
     finally:
         task_registry.deregister_task(generation_id)
         TelemetryContext.set_agent_query_totals_handler(None)
+        TelemetryContext.set_agent_error_event_handler(None)
+        TelemetryContext.set_workspace_agent_state_handler(None)

@@ -1987,3 +1987,81 @@ class TestListGenerationSessions:
         with pytest.raises(HTTPException) as exc:
             await list_generation_sessions(request=self._request("nope"), db=InMemoryDatabase(), limit=50)
         assert exc.value.status_code == 404
+
+
+class TestStatusAgentErrorEvents:
+    """The /status payload carries the durable agent error/warning events."""
+
+    def _get_status(self, client, mock_generation_session_service, doc):
+        from app.schemas.generation_workflow_enums import GenerationCheckpoint
+
+        mock_generation_session_service.get_generation_session_status = AsyncMock(return_value=doc)
+        mock_generation_session_service.get_checkpoint = Mock(
+            return_value=GenerationCheckpoint.CONTRACT_VALIDATED
+        )
+        mock_generation_session_service.get_current_phase_name = Mock(return_value="x")
+        response = client.get(
+            f"/api/v1/generation-sessions/{doc['generation_id']}/status",
+            headers={"X-API-Key": "test-key"},
+        )
+        assert response.status_code == 200
+        return response.json()
+
+    def _doc(self, **extra):
+        return {
+            "generation_id": "est-ev-1",
+            "status": "running",
+            "user_email": "u@example.com",
+            "workspace_ids": ["ws-1"],
+            "parameters": {"workspace_count": 1},
+            "progress": {},
+            "error": None,
+            **extra,
+        }
+
+    def _event(self, n):
+        return {
+            "at": f"2026-07-23T10:00:{n:02d}+00:00",
+            "workspace_id": "ws-1",
+            "kind": "agent_crash",
+            "message": f"crash {n}",
+        }
+
+    def test_status_includes_recent_events_newest_kept(
+        self, client, mock_generation_session_service
+    ):
+        doc = self._doc(agent_error_events=[self._event(n) for n in range(3)])
+        data = self._get_status(client, mock_generation_session_service, doc)
+        assert [e["message"] for e in data["agent_error_events"]] == [
+            "crash 0", "crash 1", "crash 2",
+        ]
+
+    def test_status_caps_events_to_limit(self, client, mock_generation_session_service):
+        from app.api.v1.generation_sessions import _AGENT_ERROR_EVENTS_STATUS_LIMIT
+
+        doc = self._doc(
+            agent_error_events=[self._event(n % 60) for n in range(_AGENT_ERROR_EVENTS_STATUS_LIMIT + 10)]
+        )
+        data = self._get_status(client, mock_generation_session_service, doc)
+        assert len(data["agent_error_events"]) == _AGENT_ERROR_EVENTS_STATUS_LIMIT
+
+    def test_status_omits_key_for_docs_without_events(
+        self, client, mock_generation_session_service
+    ):
+        """Old docs keep their exact response shape (compat)."""
+        data = self._get_status(client, mock_generation_session_service, self._doc())
+        assert "agent_error_events" not in data
+
+    def test_workspace_view_passes_through_agent_state(
+        self, client, mock_generation_session_service
+    ):
+        doc = self._doc(
+            workspace_phases={
+                "ws-1": {"last_completed_phase": 3, "total_phases": 5, "agent_state": "retrying"},
+                "ws-2": {"last_completed_phase": 2, "total_phases": 5},
+            },
+            workspace_ids=["ws-1", "ws-2"],
+        )
+        data = self._get_status(client, mock_generation_session_service, doc)
+        assert data["workspace_phases"]["ws-1"]["agent_state"] == "retrying"
+        assert "agent_state" not in data["workspace_phases"]["ws-2"]

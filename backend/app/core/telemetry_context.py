@@ -16,6 +16,7 @@ import contextvars
 from typing import Any, Awaitable, Callable, Dict, Optional, Union
 
 from app.core.mcp_config import EnabledMcpsResolution, enabled_mcps_to_parameter_string
+from app.schemas.agent_error_events import AgentErrorEvent, WorkspaceAgentState
 from app.schemas.model_token_usage import ModelTokenUsage
 from app.schemas.telemetry_workflow import TelemetryWorkflowLabel
 
@@ -30,6 +31,19 @@ AgentQueryTotalsHandler = Callable[
 ]
 _agent_query_totals_handler: contextvars.ContextVar[Optional[AgentQueryTotalsHandler]] = (
     contextvars.ContextVar("agent_query_totals_handler", default=None)
+)
+
+AgentErrorEventHandler = Callable[[str, AgentErrorEvent], Awaitable[None]]
+_agent_error_event_handler: contextvars.ContextVar[Optional[AgentErrorEventHandler]] = (
+    contextvars.ContextVar("agent_error_event_handler", default=None)
+)
+
+WorkspaceAgentStateHandler = Callable[
+    [str, str, Optional[WorkspaceAgentState]],
+    Awaitable[None],
+]
+_workspace_agent_state_handler: contextvars.ContextVar[Optional[WorkspaceAgentStateHandler]] = (
+    contextvars.ContextVar("workspace_agent_state_handler", default=None)
 )
 
 
@@ -177,6 +191,30 @@ class TelemetryContext:
         return _agent_query_totals_handler.get()
 
     @staticmethod
+    def set_agent_error_event_handler(handler: Optional[AgentErrorEventHandler]) -> None:
+        """Register async callback for durable agent error/warning events.
+
+        Signature: ``(generation_id, event: AgentErrorEvent) -> Awaitable[None]``
+        """
+        _agent_error_event_handler.set(handler)
+
+    @staticmethod
+    def get_agent_error_event_handler() -> Optional[AgentErrorEventHandler]:
+        return _agent_error_event_handler.get()
+
+    @staticmethod
+    def set_workspace_agent_state_handler(handler: Optional[WorkspaceAgentStateHandler]) -> None:
+        """Register async callback for the per-workspace agent-state badge.
+
+        Signature: ``(generation_id, workspace_id, state: WorkspaceAgentState | None) -> Awaitable[None]``
+        """
+        _workspace_agent_state_handler.set(handler)
+
+    @staticmethod
+    def get_workspace_agent_state_handler() -> Optional[WorkspaceAgentStateHandler]:
+        return _workspace_agent_state_handler.get()
+
+    @staticmethod
     def set_workspace_name(workspace_name: str) -> None:
         """
         Set workspace name for current async context.
@@ -293,3 +331,5 @@ class TelemetryContext:
         """Clear user context (called after request completes)."""
         _user_context.set(None)
         _agent_query_totals_handler.set(None)
+        _agent_error_event_handler.set(None)
+        _workspace_agent_state_handler.set(None)
