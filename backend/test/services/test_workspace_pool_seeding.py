@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 import pytest
 
 from app.database.memory import InMemoryDatabase
+from app.services.git_provider import GitProvider
 from app.services.workspace_pool_seeding import (
     WORKSPACES_COLLECTION,
     SeedResult,
@@ -50,6 +51,12 @@ class TestWorkspacePoolEntry:
                 workspace_id="x", repo_url="y", p10y_repository_id="12", workspace_pool="default"
             )
 
+    def test_allows_missing_p10y_id(self):
+        entry = WorkspacePoolEntry(
+            workspace_id="x", repo_url="y", p10y_repository_id=None, workspace_pool="default"
+        )
+        assert entry.p10y_repository_id is None
+
     def test_set_number_optional(self):
         e = WorkspacePoolEntry(
             workspace_id="x", repo_url="y", p10y_repository_id=1, workspace_pool="default"
@@ -68,6 +75,17 @@ class TestParsePoolEntries:
         entries = parse_pool_entries(raw)
         assert len(entries) == 1
         assert entries[0].p10y_repository_id == 5
+
+    def test_null_p10y_id_is_valid(self):
+        raw = [
+            {
+                "workspace_id": "ws-01-1",
+                "repo_url": "u",
+                "p10y_repository_id": None,
+                "workspace_pool": "default",
+            }
+        ]
+        assert parse_pool_entries(raw)[0].p10y_repository_id is None
 
     def test_non_dict_entry_raises_with_index(self):
         with pytest.raises(ValueError, match="Entry 0"):
@@ -95,6 +113,17 @@ class TestAssignPoolEntries:
         )
         assert [e.workspace_id for e in entries] == ["ws-01-1", "ws-01-2", "ws-01-3", "ws-02-1"]
         assert entries[3].set_number == 2
+
+    def test_bitbucket_path_uses_provider_url_and_allows_missing_p10y_id(self):
+        entries = assign_pool_entries(
+            {"ws-1": None},
+            "workspace",
+            "default",
+            provider=GitProvider.BITBUCKET_CLOUD,
+            prefix="ws-",
+        )
+        assert entries[0].repo_url == "https://bitbucket.org/workspace/ws-1"
+        assert entries[0].p10y_repository_id is None
 
     def test_prefix_required_without_ordered(self):
         with pytest.raises(ValueError, match="prefix is required"):

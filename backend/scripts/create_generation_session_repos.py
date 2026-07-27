@@ -45,7 +45,7 @@ import os
 from pathlib import Path
 import sys
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from dotenv import load_dotenv
 import httpx
@@ -69,6 +69,13 @@ from app.core.enums import DatabaseType  # noqa: E402
 from app.database.factory import get_database  # noqa: E402
 from app.database.firestore import FirestoreDatabase  # noqa: E402
 from app.database.interface import IDatabase  # noqa: E402
+from app.services.git_provider import (  # noqa: E402
+    GitProvider,
+    GitProviderResolutionError,
+    repository_url,
+    resolve_active_git_provider_from_flags,
+    strategy_for,
+)
 from app.services.p10y.p10y_api_client import P10YInternalAPIClient  # noqa: E402
 from app.services.workspace_pool_seeding import (  # noqa: E402
     assign_pool_entries,
@@ -209,6 +216,122 @@ class GitHubAPIClient:
         await self.client.aclose()
 
 
+class BitbucketCloudAPIClient:
+    """Client for BitBucket Cloud REST API repository operations."""
+
+    def __init__(self, access_token: str, workspace: str):
+        """
+        Args:
+            access_token: BitBucket Cloud Repository/Workspace access token
+            workspace: BitBucket workspace slug (owner of repos)
+        """
+        self.workspace = workspace
+        self.base_url = "https://api.bitbucket.org/2.0"
+        self.headers = {"Authorization": f"Bearer {access_token}"}
+        self.client = httpx.AsyncClient(timeout=30.0)
+
+    async def create_repository(self, repo_slug: str) -> Dict[str, Any]:
+        """Create a private repo. Treats an already-exists 400 as idempotent success."""
+        url = f"{self.base_url}/repositories/{self.workspace}/{repo_slug}"
+        response = await self.client.post(
+            url, json={"scm": "git", "is_private": True}, headers=self.headers
+        )
+        if response.status_code == 400 and "already exists" in response.text.lower():
+            return await self.get_repository(repo_slug)
+        response.raise_for_status()
+        return response.json()
+
+    async def get_repository(self, repo_slug: str) -> Dict[str, Any]:
+        url = f"{self.base_url}/repositories/{self.workspace}/{repo_slug}"
+        response = await self.client.get(url, headers=self.headers)
+        response.raise_for_status()
+        return response.json()
+
+    async def repository_exists(self, repo_slug: str) -> bool:
+        url = f"{self.base_url}/repositories/{self.workspace}/{repo_slug}"
+        response = await self.client.get(url, headers=self.headers)
+        return response.status_code == 200
+
+    async def close(self):
+        """Close the HTTP client."""
+        await self.client.aclose()
+
+
+def _repo_url(provider: GitProvider, owner: str, repo_name: str) -> str:
+    return repository_url(provider, owner, repo_name)
+
+
+async def _create_repositories(
+    client: "GitHubAPIClient | BitbucketCloudAPIClient",
+    provider: GitProvider,
+    owner: str,
+    prefix: str,
+    start_num: int,
+    end_num: int,
+    delay: float,
+    on_created: Optional[Callable[[str], Awaitable[None]]] = None,
+) -> List[Dict[str, Any]]:
+    """Shared create-or-skip-if-exists loop for both providers.
+
+    ``on_created`` runs after each repo (create or already-exists) — used for
+    GitHub's per-repo team-grant step; BitBucket has no equivalent.
+    """
+    created_repos: List[Dict[str, Any]] = []
+
+    for num in range(start_num, end_num + 1):
+        repo_name = f"{prefix}{num}"
+
+        if await client.repository_exists(repo_name):
+            print(f"⚠️  Repository '{repo_name}' already exists, skipping creation")
+            created_repos.append({
+                "name": repo_name,
+                "full_name": f"{owner}/{repo_name}",
+                "html_url": _repo_url(provider, owner, repo_name),
+                "already_existed": True,
+            })
+        else:
+            try:
+                print(f"📦 Creating repository: {owner}/{repo_name}")
+                repo_data = await client.create_repository(repo_name)
+                created_repos.append(repo_data)
+                print(f"✅ Created: {_repo_url(provider, owner, repo_name)}")
+            except httpx.HTTPStatusError as e:
+                print(f"❌ Failed to create {repo_name}: {e}")
+                print(f"   Response: {e.response.text}")
+                raise
+
+        if on_created is not None:
+            await on_created(repo_name)
+
+        if num < end_num:
+            await asyncio.sleep(delay)
+
+    return created_repos
+
+
+async def create_bitbucket_repositories(
+    bitbucket_client: BitbucketCloudAPIClient,
+    prefix: str,
+    start_num: int,
+    end_num: int,
+    delay: float = 0.1,
+) -> List[Dict[str, Any]]:
+    """Create multiple BitBucket Cloud repositories with sequential numbering.
+
+    No team-grant step: the access token's owner already has write access to
+    repos it creates in the workspace.
+    """
+    return await _create_repositories(
+        bitbucket_client,
+        GitProvider.BITBUCKET_CLOUD,
+        bitbucket_client.workspace,
+        prefix,
+        start_num,
+        end_num,
+        delay,
+    )
+
+
 async def create_github_repositories(
     github_client: GitHubAPIClient,
     prefix: str,
@@ -231,71 +354,57 @@ async def create_github_repositories(
     Returns:
         List of created repository data
     """
-    created_repos = []
-    org = github_client.org
-
-    for num in range(start_num, end_num + 1):
-        repo_name = f"{prefix}{num}"
-
-        # Check if repo already exists
-        if await github_client.repository_exists(repo_name):
-            print(f"⚠️  Repository '{repo_name}' already exists, skipping creation")
-            # Still add to list for P10y sync
-            created_repos.append({
-                "name": repo_name,
-                "full_name": f"{org}/{repo_name}",
-                "html_url": f"https://github.com/{org}/{repo_name}",
-                "already_existed": True,
-            })
-        else:
+    def _team_grant_hook(slug: str) -> Callable[[str], Awaitable[None]]:
+        async def _grant_team(repo_name: str) -> None:
             try:
-                print(f"📦 Creating repository: {org}/{repo_name}")
-                repo_data = await github_client.create_repository(repo_name)
-                created_repos.append(repo_data)
-                print(f"✅ Created: {repo_data['html_url']}")
+                await github_client.add_team_repository_write(slug, repo_name)
+                print(f"   👥 Team '{slug}' granted Write on {repo_name}")
             except httpx.HTTPStatusError as e:
-                print(f"❌ Failed to create {repo_name}: {e}")
+                print(f"❌ Failed to add team {slug} to {repo_name}: {e}")
                 print(f"   Response: {e.response.text}")
                 raise
 
-        if team_slug:
-            try:
-                await github_client.add_team_repository_write(team_slug, repo_name)
-                print(f"   👥 Team '{team_slug}' granted Write on {repo_name}")
-            except httpx.HTTPStatusError as e:
-                print(f"❌ Failed to add team {team_slug} to {repo_name}: {e}")
-                print(f"   Response: {e.response.text}")
-                raise
+        return _grant_team
 
-        # Add delay to avoid rate limiting
-        if num < end_num:
-            await asyncio.sleep(delay)
-
-    return created_repos
+    return await _create_repositories(
+        github_client,
+        GitProvider.GITHUB,
+        github_client.org,
+        prefix,
+        start_num,
+        end_num,
+        delay,
+        on_created=_team_grant_hook(team_slug) if team_slug else None,
+    )
 
 
 def print_dry_run_plan(
     *,
+    provider: GitProvider,
     token_login: str,
-    github_org: str,
-    team_slug: str | None,
+    owner: str,
+    team_slug: Optional[str],
     skip_team: bool,
     skip_github: bool,
     prefix: str,
     start_num: int,
     end_num: int,
 ) -> None:
-    """Print planned GitHub org, team, token actor, and full repo URLs (no API calls)."""
+    """Print planned provider owner, team (GitHub only), token actor, and full repo URLs (no API calls)."""
+    is_github = provider == GitProvider.GITHUB
     print("\n" + "=" * 80)
-    print("🔍 DRY RUN — GitHub stage only (no repos created, no team grants, no P10y/Firestore)")
+    print(f"🔍 DRY RUN — {provider.value} stage only (no repos created, no team grants, no P10y/Firestore)")
     print("=" * 80)
     print(
         "   Token authenticates as: "
         f"{token_login}\n"
-        "   (This identity must have permission to create repos in the org and manage team access.)"
+        "   (This identity must have permission to create repos in the org/workspace"
+        + (" and manage team access." if is_github else ".")
     )
-    print(f"   Organization (repo owner): {github_org}")
-    if skip_github:
+    print(f"   Organization/workspace (repo owner): {owner}")
+    if not is_github:
+        print("   Team Write (push): — (n/a for BitBucket; token owner already has write)")
+    elif skip_github:
         print("   Team Write (push): — (--skip-github; would not run GitHub API)")
     elif skip_team:
         print("   Team Write (push): — (--skip-team)")
@@ -307,19 +416,24 @@ def print_dry_run_plan(
     print("   Repository full URLs (same as Firestore repo_url):")
     for num in range(start_num, end_num + 1):
         repo_name = f"{prefix}{num}"
-        print(f"      https://github.com/{github_org}/{repo_name}")
+        print(f"      {_repo_url(provider, owner, repo_name)}")
     print()
     if skip_github:
-        print("   Would skip: POST /orgs/{org}/repos (no new repositories)")
-    else:
-        print(f"   Would create {end_num - start_num + 1} private repos: POST /orgs/{github_org}/repos")
+        print("   Would skip: repository creation API call (no new repositories)")
+    elif is_github:
+        print(f"   Would create {end_num - start_num + 1} private repos: POST /orgs/{owner}/repos")
         if not skip_team and team_slug:
             print(
                 f"   Would grant team '{team_slug}' Write on each: "
-                f"PUT /orgs/{github_org}/teams/{team_slug}/repos/{github_org}/<repo>"
+                f"PUT /orgs/{owner}/teams/{team_slug}/repos/{owner}/<repo>"
             )
         elif skip_team:
             print("   Would skip: team repository permission updates (--skip-team)")
+    else:
+        print(
+            f"   Would create {end_num - start_num + 1} private repos: "
+            f"POST /repositories/{owner}/<repo> (BitBucket Cloud)"
+        )
     print("=" * 80)
 
 
@@ -620,14 +734,15 @@ async def poll_repository_status(
 
 
 async def add_workspaces_to_firestore(
-    repo_id_map: Dict[str, int],
-    github_org: str,
+    repo_id_map: Dict[str, Optional[int]],
+    owner: str,
     prefix: str,
     start_num: int,
     workspace_pool: str = "default",
     firestore_project_id: Optional[str] = None,
     firestore_database_id: Optional[str] = None,
     ordered_repos: Optional[List[str]] = None,
+    provider: GitProvider = GitProvider.GITHUB,
 ) -> None:
     """
     Add workspace entries to the active database.
@@ -662,8 +777,9 @@ async def add_workspaces_to_firestore(
 
         entries = assign_pool_entries(
             repo_id_map,
-            github_org,
+            owner,
             workspace_pool,
+            provider=provider,
             ordered_repos=ordered_repos,
             prefix=prefix,
         )
@@ -673,7 +789,6 @@ async def add_workspaces_to_firestore(
         print(f"   Created: {result.created}")
         print(f"   Updated: {result.updated}")
         print(f"   Total: {result.total}")
-
     except Exception as e:
         print(f"\n❌ Failed to add workspaces to the database: {e}")
         import traceback
@@ -682,29 +797,32 @@ async def add_workspaces_to_firestore(
 
 
 def emit_workspace_config(
-    repo_id_map: Dict[str, int],
-    github_org: str,
+    repo_id_map: Dict[str, Optional[int]],
+    owner: str,
     prefix: str,
     workspace_pool: str,
     output_path: str,
     ordered_repos: Optional[List[str]] = None,
+    provider: GitProvider = GitProvider.GITHUB,
 ) -> None:
     """
     Write a JSON workspace-config file in the exact schema consumed by
     ``init_db.py --workspace-config``:
 
         [{"workspace_id": str, "repo_url": str,
-          "p10y_repository_id": int, "workspace_pool": str}, ...]
+          "p10y_repository_id": int | None, "workspace_pool": str}, ...]
 
     Id assignment is delegated to app.services.workspace_pool_seeding.assign_pool_entries (the
     same routine that seeds the DB directly), so the file schema and the direct-seed path can
     never drift. When ordered_repos is provided (the --repos path), ids follow list position;
-    otherwise they are derived from the {prefix}{num} repo names.
+    otherwise they are derived from the {prefix}{num} repo names. Repository URLs are built for
+    the selected provider; BitBucket entries may have a null P10Y id until Compass connects them.
     """
     entries = assign_pool_entries(
         repo_id_map,
-        github_org,
+        owner,
         workspace_pool,
+        provider=provider,
         ordered_repos=ordered_repos,
         prefix=prefix,
     )
@@ -776,6 +894,24 @@ async def main():
         default=os.getenv("GITHUB_ORG") or os.getenv("GITHUB_ORG_DEFAULT"),
         metavar="ORG",
         help="GitHub organization login; repos are ORG/{PREFIX}N. Env: GITHUB_ORG, GITHUB_ORG_DEFAULT",
+    )
+    parser.add_argument(
+        "--git-provider",
+        type=str,
+        choices=[p.value for p in GitProvider],
+        default=None,
+        help=(
+            "Active git host. Default: inferred from whichever of GITHUB_TOKEN / "
+            "BITBUCKET_TOKEN is configured (error if both or neither, unless GIT_PROVIDER "
+            "is set in the environment)."
+        ),
+    )
+    parser.add_argument(
+        "--bitbucket-workspace",
+        type=str,
+        default=os.getenv("BITBUCKET_WORKSPACE"),
+        metavar="WORKSPACE",
+        help="BitBucket Cloud workspace slug; repos are WORKSPACE/{PREFIX}N. Env: BITBUCKET_WORKSPACE",
     )
     parser.add_argument(
         "--team",
@@ -872,11 +1008,30 @@ async def main():
 
     workspace_pool = args.workspace_pool.lower() if args.workspace_pool else "default"
     github_org = (args.github_org or "").strip() or None
+    bitbucket_workspace = (args.bitbucket_workspace or "").strip() or None
     team_slug = None if args.skip_team else ((args.team or "").strip() or None)
 
     gcp_cli = (args.gcp_project or "").strip() or None
     fsdb_cli = (args.firestore_database or "").strip() or None
     firestore_target_from_cli = bool(gcp_cli and fsdb_cli)
+
+    try:
+        provider = resolve_active_git_provider_from_flags(
+            override=args.git_provider or cfg.GIT_PROVIDER,
+            has_github_token=bool(cfg.GITHUB_TOKEN_DEFAULT),
+            has_bitbucket_token=bool(cfg.BITBUCKET_TOKEN_DEFAULT),
+        )
+    except GitProviderResolutionError as e:
+        print(f"❌ Error: {e}")
+        sys.exit(1)
+
+    is_bitbucket = provider == GitProvider.BITBUCKET_CLOUD
+    if is_bitbucket:
+        # No Compass/GitHub registration step for BitBucket in this PR (see plan doc);
+        # p10y_repository_id is set externally once Compass connects the repo.
+        args.skip_metrics = True
+    owner = bitbucket_workspace if is_bitbucket else github_org
+    owner_flag = "--bitbucket-workspace (or BITBUCKET_WORKSPACE)" if is_bitbucket else "--github-org (or GITHUB_ORG / GITHUB_ORG_DEFAULT)"
 
     # Validate arguments
     if args.repos is None and (args.start is None or args.end is None):
@@ -886,33 +1041,24 @@ async def main():
         print("❌ Error: start number must be less than or equal to end number")
         sys.exit(1)
 
-    if args.dry_run and not github_org:
-        print(
-            "❌ Error: --dry-run requires --github-org (or GITHUB_ORG / GITHUB_ORG_DEFAULT) "
-            "to list repository URLs"
-        )
+    if args.dry_run and not owner:
+        print(f"❌ Error: --dry-run requires {owner_flag} to list repository URLs")
         sys.exit(1)
 
     if not args.skip_github:
-        if not github_org:
-            print(
-                "❌ Error: --github-org is required to create repositories "
-                "(or set GITHUB_ORG / GITHUB_ORG_DEFAULT)"
-            )
+        if not owner:
+            print(f"❌ Error: {owner_flag} is required to create repositories")
             sys.exit(1)
 
-    if not args.dry_run and not args.skip_firestore and not github_org:
-        print(
-            "❌ Error: --github-org is required to record workspace repo URLs "
-            "(or set GITHUB_ORG / GITHUB_ORG_DEFAULT)"
-        )
+    if not args.dry_run and not args.skip_firestore and not owner:
+        print(f"❌ Error: {owner_flag} is required for workspace repo URLs")
         sys.exit(1)
 
     if not args.skip_firestore and not args.dry_run:
         if firestore_target_from_cli:
             pass
         else:
-            # These write real GitHub-backed workspace repos into the active database — reject
+            # These write real provider-backed workspace repos into the active database — reject
             # only DatabaseType.MEMORY (throwaway, non-persistent). sqlite (local default) and
             # firestore (production / hosted-GCP) are both valid persistent targets.
             if cfg.DATABASE_TYPE == DatabaseType.MEMORY:
@@ -931,16 +1077,19 @@ async def main():
 
     # Check required environment variables
     github_token = cfg.GITHUB_TOKEN_DEFAULT
+    bitbucket_token = cfg.BITBUCKET_TOKEN_DEFAULT
+    token = bitbucket_token if is_bitbucket else github_token
+    token_env_flag = "BITBUCKET_TOKEN" if is_bitbucket else "GITHUB_TOKEN_DEFAULT (or legacy GITHUB_TOKEN)"
     p10y_api_key = cfg.P10Y_API_KEY  # gitleaks:allow - variable assignment, not a literal
     p10y_base_url = cfg.P10Y_BASE_URL
     p10y_org_id = cfg.P10Y_ORGANISATION_ID
     git_username = cfg.GIT_USER_NAME_DEFAULT
 
-    if not args.dry_run and not github_token:
-        print("❌ Error: GITHUB_TOKEN_DEFAULT (or legacy GITHUB_TOKEN) not set in environment")
+    if not args.dry_run and not token:
+        print(f"❌ Error: {token_env_flag} not set in environment")
         sys.exit(1)
 
-    if not args.dry_run:
+    if not args.dry_run and not is_bitbucket:
         if not p10y_api_key:
             print("❌ Error: P10Y_API_KEY not set in environment")
             sys.exit(1)
@@ -949,14 +1098,14 @@ async def main():
             print("❌ Error: P10Y_ORGANISATION_ID not set in environment")
             sys.exit(1)
 
-    if args.dry_run and not github_token:
-        print(
-            "⚠️  GITHUB_TOKEN_DEFAULT not set — resolve token actor via "
-            "GIT_USER_NAME_DEFAULT or add a token for GET /user"
-        )
+    if args.dry_run and not token:
+        print(f"⚠️  {token_env_flag} not set — resolve token actor via GIT_USER_NAME_DEFAULT or add a token")
 
+    if is_bitbucket:
+        # BitBucket access tokens always authenticate as a fixed actor — no username to resolve.
+        git_username = strategy_for(provider).default_git_user
     # Optional: resolve token owner's login for logging (org repos do not use this as owner)
-    if not git_username and github_token:
+    elif not git_username and github_token:
         print("⚠️  GIT_USER_NAME_DEFAULT not set, fetching token owner from GitHub API...")
         try:
             temp_client = GitHubAPIClient(github_token, "_")
@@ -986,10 +1135,12 @@ async def main():
         print(f"   Prefix: {args.prefix}")
         print(f"   Range: {args.start} to {args.end}")
         print(f"   Count: {args.end - args.start + 1} repositories")
-    print(f"   GitHub org (repo owner): {github_org or '—'}")
-    print(f"   Team Write (slug): {team_slug or '—'}")
+    print(f"   Git provider: {provider.value}")
+    print(f"   Organization/workspace (repo owner): {owner or '—'}")
+    if not is_bitbucket:
+        print(f"   Team Write (slug): {team_slug or '—'}")
     print(f"   Token login (info): {git_username}")
-    if not args.dry_run:
+    if not args.dry_run and not is_bitbucket:
         print(f"   P10y Org ID: {p10y_org_id}")
     print(f"   Workspace Pool: {workspace_pool}")
     if firestore_target_from_cli:
@@ -1004,8 +1155,9 @@ async def main():
 
     if args.dry_run:
         print_dry_run_plan(
+            provider=provider,
             token_login=git_username,
-            github_org=github_org or "",
+            owner=owner or "",
             team_slug=team_slug,
             skip_team=args.skip_team,
             skip_github=args.skip_github,
@@ -1013,84 +1165,104 @@ async def main():
             start_num=args.start,
             end_num=args.end,
         )
-        print("\n✅ Dry run finished — exited before GitHub API calls, P10y, and Firestore.")
+        print("\n✅ Dry run finished — exited before any provider API calls, P10y, and Firestore.")
         return
 
-    github_client = GitHubAPIClient(github_token, github_org or "_")
+    provider_client: GitHubAPIClient | BitbucketCloudAPIClient
+    if is_bitbucket:
+        provider_client = BitbucketCloudAPIClient(token, owner or "_")
+    else:
+        provider_client = GitHubAPIClient(token, owner or "_")
     p10y_client = P10YInternalAPIClient(base_url=p10y_base_url, api_key=p10y_api_key)
-    
+
     try:
-        # Step 1: Create GitHub repositories
+        # Step 1: Create repositories
         if own_repo_list is not None:
             # --repos path: repos already exist, skip creation entirely
-            print("\n⏭️  Skipping GitHub repository creation (--repos provided)")
+            print("\n⏭️  Skipping repository creation (--repos provided)")
             created_repos = []
             repo_names = own_repo_list
-        elif not args.skip_github:
-            created_repos = await create_github_repositories(
-                github_client,
-                args.prefix,
-                args.start,
-                args.end,
-                team_slug,
-                args.delay,
-            )
-            print(f"\n✅ Created/found {len(created_repos)} repositories")
-            repo_names = [f"{args.prefix}{num}" for num in range(args.start, args.end + 1)]
         else:
-            print("\n⏭️  Skipping GitHub repository creation")
-            created_repos = []
             repo_names = [f"{args.prefix}{num}" for num in range(args.start, args.end + 1)]
+            if not args.skip_github:
+                if is_bitbucket:
+                    created_repos = await create_bitbucket_repositories(
+                        provider_client,
+                        args.prefix,
+                        args.start,
+                        args.end,
+                        args.delay,
+                    )
+                else:
+                    created_repos = await create_github_repositories(
+                        provider_client,
+                        args.prefix,
+                        args.start,
+                        args.end,
+                        team_slug,
+                        args.delay,
+                    )
+                print(f"\n✅ Created/found {len(created_repos)} repositories")
+            else:
+                print("\n⏭️  Skipping repository creation")
+                created_repos = []
 
-        # Step 2: Get P10y repository IDs
-        # For --repos, search with an empty string to match arbitrary names across the full org.
-        # Computed once and reused verbatim (never re-qualified) by every lookup below —
-        # get_repository_ids no longer builds its own search string from a raw prefix.
-        p10y_search_prefix = (
-            "" if own_repo_list is not None else _p10y_repository_search(args.prefix, github_org)
-        )
-        repo_id_map = await get_repository_ids(
-            p10y_client, p10y_org_id, repo_names, p10y_search_prefix, github_org
-        )
+        if is_bitbucket:
+            # No Compass/P10Y registration in this PR — external setup connects the repo
+            # later, and p10y_repository_id stays null until it does.
+            print("\n⏭️  Skipping P10Y repository ID lookup (BitBucket provisioning)")
+            repo_id_map: Dict[str, Optional[int]] = {name: None for name in repo_names}
+            p10y_search_prefix = None
+        else:
+            # Step 2: Get P10y repository IDs
+            # Reuse one qualified search value for lookup, status checks, and polling.
+            p10y_search_prefix = (
+                ""
+                if own_repo_list is not None
+                else _p10y_repository_search(args.prefix, github_org)
+            )
+            repo_id_map = await get_repository_ids(
+                p10y_client, p10y_org_id, repo_names, p10y_search_prefix, github_org
+            )
 
-        # Newly created GitHub repos are invisible to P10Y until Compass re-fetches the
-        # connection that owns them. When some are missing, trigger a re-fetch, wait, and
-        # look up again (twice). Failing to do this is what let an expansion run (K=1 → K=3)
-        # silently write a too-small workspaces.json and under-seed Firestore.
-        missing = [r for r in repo_names if r not in repo_id_map]
-        if missing:
-            print(f"\n🔄 {len(missing)} repo(s) not in P10Y yet: {', '.join(missing)} — triggering re-fetch ...")
-            await trigger_repository_refetch(p10y_client, p10y_org_id, github_org)
-
-            deadline = time.time() + P10Y_REFETCH_TIMEOUT_SECONDS
-            while missing and time.time() < deadline:
-                print(f"   ⏱️  {len(missing)} still missing; re-checking in {P10Y_REFETCH_POLL_SECONDS}s ...")
-                await asyncio.sleep(P10Y_REFETCH_POLL_SECONDS)
-                repo_id_map = await get_repository_ids(
-                    p10y_client, p10y_org_id, repo_names, p10y_search_prefix, github_org
-                )
-                missing = [r for r in repo_names if r not in repo_id_map]
-
+            # Newly created GitHub repos are invisible to P10Y until Compass re-fetches the
+            # connection that owns them. When some are missing, trigger a re-fetch, wait, and
+            # look up again. This prevents under-seeding the database after pool expansion.
+            missing = [r for r in repo_names if r not in repo_id_map]
             if missing:
-                print(f"\n❌ Could not resolve P10Y IDs for {len(missing)} repo(s): {', '.join(missing)}.\nExiting the script after {P10Y_REFETCH_TIMEOUT_SECONDS} seconds. Potential debugging: Verify if on P10Y UI repo list, try re-fetching them manually, verify Integration to Github")
-                sys.exit(1)
+                print(f"\n🔄 {len(missing)} repo(s) not in P10Y yet: {', '.join(missing)} — triggering re-fetch ...")
+                await trigger_repository_refetch(p10y_client, p10y_org_id, github_org)
 
-        repo_ids = list(repo_id_map.values())
+                deadline = time.time() + P10Y_REFETCH_TIMEOUT_SECONDS
+                while missing and time.time() < deadline:
+                    print(f"   ⏱️  {len(missing)} still missing; re-checking in {P10Y_REFETCH_POLL_SECONDS}s ...")
+                    await asyncio.sleep(P10Y_REFETCH_POLL_SECONDS)
+                    repo_id_map = await get_repository_ids(
+                        p10y_client, p10y_org_id, repo_names, p10y_search_prefix, github_org
+                    )
+                    missing = [r for r in repo_names if r not in repo_id_map]
+
+                if missing:
+                    print(f"\n❌ Could not resolve P10Y IDs for {len(missing)} repo(s): {', '.join(missing)}.\nExiting the script after {P10Y_REFETCH_TIMEOUT_SECONDS} seconds. Potential debugging: Verify if on P10Y UI repo list, try re-fetching them manually, verify Integration to Github")
+                    sys.exit(1)
+
+        repo_ids = [rid for rid in repo_id_map.values() if rid is not None]
 
         # Emit workspace config JSON if requested (schema matches init_db.py --workspace-config)
         if args.output_workspace_config:
             emit_workspace_config(
                 repo_id_map=repo_id_map,
-                github_org=github_org or "",
+                owner=owner or "",
                 prefix=args.prefix,
                 workspace_pool=workspace_pool,
                 output_path=args.output_workspace_config,
                 ordered_repos=own_repo_list,
+                provider=provider,
             )
 
         # Step 4: Start metrics calculation only for repos that are not already Live.
         # The --repos path skips metrics: those repos already have history in Compass.
-        if not args.skip_metrics and own_repo_list is None:
+        if not is_bitbucket and not args.skip_metrics and own_repo_list is None:
             current_statuses = await get_repository_statuses(
                 p10y_client,
                 p10y_org_id,
@@ -1126,13 +1298,14 @@ async def main():
         if not args.skip_firestore:
             await add_workspaces_to_firestore(
                 repo_id_map,
-                github_org,
+                owner,
                 args.prefix,
                 args.start,
                 workspace_pool,
                 firestore_project_id=gcp_cli if firestore_target_from_cli else None,
                 firestore_database_id=fsdb_cli if firestore_target_from_cli else None,
                 ordered_repos=own_repo_list,
+                provider=provider,
             )
         else:
             print("\n⏭️  Skipping database workspace creation (--skip-firestore)")
@@ -1157,7 +1330,7 @@ async def main():
         traceback.print_exc()
         sys.exit(1)
     finally:
-        await github_client.close()
+        await provider_client.close()
         await p10y_client.close()
     
     print("\n✅ Script completed successfully!")

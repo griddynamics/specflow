@@ -16,7 +16,6 @@ from datetime import datetime, timezone
 import logging
 import os
 from pathlib import Path
-import re
 import shutil
 from typing import Any, Dict, List, Optional
 
@@ -32,6 +31,7 @@ from app.services.github_auth import (
     GithubAuthResolutionError,
     resolve_github_auth_for_generation_id,
 )
+from app.services.git_provider import all_strategies
 from app.database.interface import IDatabase
 from app.state import WorkspaceStateMachine
 from app.state.db_adapter import StateMachineDBAdapter
@@ -173,31 +173,17 @@ class WorkspacePoolService:
             return message
         
         sanitized = message
-        
+
         # If specific token provided, replace it
         if token:
             sanitized = sanitized.replace(token, "[REDACTED]")
-        
-        # Also sanitize common patterns for GitHub tokens in URLs
-        # Pattern: https://username:token@github.com/...
-        sanitized = re.sub(
-            r'(https?://[^:]+:)[^@]+(@github\.com)',
-            r'\1[REDACTED]\2',
-            sanitized
-        )
-        
-        # Pattern: ghp_XXXX or github_pat_XXXX tokens (GitHub personal access tokens)
-        sanitized = re.sub(
-            r'gh[ps]_[A-Za-z0-9_]+',
-            '[REDACTED]',
-            sanitized
-        )
-        sanitized = re.sub(
-            r'github_pat_[A-Za-z0-9_]+',
-            '[REDACTED]',
-            sanitized
-        )
-        
+
+        # Sanitize known token/URL patterns for every provider, not just the active one —
+        # cheap, and defends even if a token from another provider leaks into these logs.
+        for strategy in all_strategies():
+            for pattern, replacement in strategy.sanitization_patterns:
+                sanitized = pattern.sub(replacement, sanitized)
+
         return sanitized
     
     def __init__(self, db: IDatabase, workspace_base_path: Optional[str | Path] = None):

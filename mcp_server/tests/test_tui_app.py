@@ -503,9 +503,9 @@ class TestOnboarding:
                 assert screen.current_step_id == "provider"
                 await self._set(screen, "OPENROUTER_API_KEY", "or-key")
 
-                await pilot.press("ctrl+n")  # -> github
+                await pilot.press("ctrl+n")  # -> git (default choice: GitHub)
                 await pilot.pause()
-                assert screen.current_step_id == "github"
+                assert screen.current_step_id == "git"
                 await self._set(screen, "GITHUB_TOKEN", "tok")
 
                 await pilot.press("ctrl+n")  # -> compass
@@ -605,11 +605,11 @@ class TestOnboarding:
                 await pilot.press("ctrl+n")  # -> provider
                 await pilot.pause()
                 # Select the Anthropic radio (second option) and fill its key.
-                buttons = list(screen.query("#onboard-provider RadioButton").results())
+                buttons = list(screen.query("#onboard-choice RadioButton").results())
                 buttons[1].value = True  # toggles selection, fires RadioSet.Changed
                 await pilot.pause()
                 await self._set(screen, "ANTHROPIC_API_KEY", "ant-key")
-                await pilot.press("ctrl+n")  # -> github
+                await pilot.press("ctrl+n")  # -> git (default choice: GitHub)
                 await pilot.pause()
                 await self._set(screen, "GITHUB_TOKEN", "tok")
                 await pilot.press("ctrl+n")  # -> compass
@@ -625,6 +625,42 @@ class TestOnboarding:
         env = (tmp_path / ".env").read_text()
         assert "ANTHROPIC_API_KEY=ant-key" in env
         assert "OPENROUTER_API_KEY=" not in env
+
+    @pytest.mark.asyncio
+    async def test_bitbucket_path_writes_only_bitbucket_fields(self, tmp_path):
+        run_init = AsyncMock(return_value=0)
+        a, b, c, d, e, f = self._gate_patches(tmp_path, run_init)
+        with a, b, c, d, e, f:
+            app = tui_app.SpecFlowTUI(root=tmp_path, generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                screen = app.screen
+                await pilot.press("ctrl+n")  # -> provider
+                await pilot.pause()
+                await self._set(screen, "OPENROUTER_API_KEY", "or-key")
+                await pilot.press("ctrl+n")  # -> git
+                await pilot.pause()
+                assert screen.current_step_id == "git"
+                # Select the BitBucket radio (second option) and fill its fields.
+                buttons = list(screen.query("#onboard-choice RadioButton").results())
+                buttons[1].value = True  # toggles selection, fires RadioSet.Changed
+                await pilot.pause()
+                await self._set(screen, "BITBUCKET_TOKEN", "bb-tok")
+                await self._set(screen, "BITBUCKET_WORKSPACE", "my-ws")
+                await pilot.press("ctrl+n")  # -> compass
+                await pilot.pause()
+                await self._set(screen, "P10Y_API_KEY", "p10y")
+                await pilot.press("ctrl+n")  # -> advanced (optional)
+                await pilot.pause()
+                await pilot.press("ctrl+n")  # skip advanced -> review
+                await pilot.pause()
+                await pilot.press("ctrl+s")
+                await pilot.pause()
+        run_init.assert_awaited_once()
+        env = (tmp_path / ".env").read_text()
+        assert "BITBUCKET_TOKEN=bb-tok" in env
+        assert "BITBUCKET_WORKSPACE=my-ws" in env
+        assert "GITHUB_TOKEN=" not in env
 
     @pytest.mark.asyncio
     async def test_validation_blocks_advance_without_required(self, tmp_path):
@@ -659,12 +695,12 @@ class TestOnboarding:
                 await pilot.press("ctrl+n")  # -> provider
                 await pilot.pause()
                 await self._set(screen, "OPENROUTER_API_KEY", "or-key")
-                await pilot.press("ctrl+n")  # -> github
+                await pilot.press("ctrl+n")  # -> git
                 await pilot.pause()
                 await self._set(screen, "GITHUB_ORG", "my-org")
                 await pilot.press("ctrl+b")  # back -> provider
                 await pilot.pause()
-                await pilot.press("ctrl+n")  # forward -> github
+                await pilot.press("ctrl+n")  # forward -> git
                 await pilot.pause()
                 assert screen.query_one("#onb-GITHUB_ORG", Input).value == "my-org"
 
@@ -677,11 +713,11 @@ class TestOnboarding:
             async with app.run_test() as pilot:
                 await pilot.pause()
                 screen = app.screen
-                # Advance to the GitHub step which carries a masked + a plain field.
+                # Advance to the git step (default GitHub choice) which carries a masked + a plain field.
                 await pilot.press("ctrl+n")  # provider
                 await pilot.pause()
                 await self._set(screen, "OPENROUTER_API_KEY", "or-key")
-                await pilot.press("ctrl+n")  # github
+                await pilot.press("ctrl+n")  # git
                 await pilot.pause()
                 assert screen.query_one("#onb-GITHUB_TOKEN", Input).password is True
                 assert screen.query_one("#onb-GIT_USER_NAME", Input).password is False

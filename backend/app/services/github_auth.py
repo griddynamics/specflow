@@ -44,22 +44,23 @@ def resolve_github_auth_for_api_key_document(
             token = secrets.decrypt_token(str(ciphertext))
         except ValueError as e:
             raise GithubAuthResolutionError("Stored GitHub token could not be decrypted") from e
-        user = (per_key_user or secrets.git_user_name_default or "x-access-token").strip()
+        user = (per_key_user or secrets.active_git_user_default).strip()
         return GithubAuthContext(git_user_name=user, token=token)
 
     if pool == DEFAULT_WORKSPACE_POOL:
-        if not secrets.github_token_default or not secrets.git_user_name_default:
+        if not secrets.active_default_token or not secrets.git_user_name_default:
             raise GithubAuthResolutionError(
-                "Default workspace pool requires GITHUB_TOKEN_DEFAULT and GIT_USER_NAME_DEFAULT "
-                "(platform secrets) when no per-key token is stored"
+                f"Default workspace pool requires a default token and GIT_USER_NAME_DEFAULT "
+                f"(platform secrets) for the active provider ({secrets.active_provider.value}) "
+                f"when no per-key token is stored"
             )
         return GithubAuthContext(
             git_user_name=secrets.git_user_name_default,
-            token=secrets.github_token_default,
+            token=secrets.active_default_token,
         )
 
     raise GithubAuthResolutionError(
-        f"Workspace pool {pool!r} requires a GitHub PAT: call PUT /api/v1/auth/github-token "
+        f"Workspace pool {pool!r} requires a git PAT: call PUT /api/v1/auth/github-token "
         f"with this API key before running git operations"
     )
 
