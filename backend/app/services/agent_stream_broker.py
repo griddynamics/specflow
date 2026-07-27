@@ -25,7 +25,12 @@ import logging
 from typing import Dict, Optional, Set, Tuple
 
 from app.core.telemetry_context import TelemetryContext
-from app.services.agent_stream_events import AgentStreamEvent, message_to_ui_events
+from app.services.agent_stream_events import (
+    AgentStreamEvent,
+    EventKind,
+    message_to_ui_events,
+    synthetic_event,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -142,6 +147,22 @@ class StreamPublisher:
             # Contract: the publisher path must swallow its own errors so a bad
             # event can never escape into the agent stream loop.
             logger.debug("StreamPublisher: publish_nowait failed", exc_info=True)
+
+    def publish_line_nowait(self, kind: EventKind, message: str) -> None:
+        """Publish one backend-authored line (crash/retry narrative). Never raises."""
+        try:
+            if not self._broker.has_subscribers(self._generation_id, self._workspace_id):
+                return
+            event = synthetic_event(
+                kind,
+                message,
+                generation_id=self._generation_id,
+                workspace_id=self._workspace_id,
+                workflow=self._workflow,
+            )
+            self._broker.publish(self._generation_id, self._workspace_id, event)
+        except Exception:
+            logger.debug("StreamPublisher: publish_line_nowait failed", exc_info=True)
 
 
 def build_stream_publisher_from_context() -> Optional[StreamPublisher]:

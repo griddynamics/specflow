@@ -69,3 +69,39 @@ class TestFallbacks:
 
     def test_unknown_status_fallback(self):
         assert _phase_label("some_future_status", "some_checkpoint") == "Status: some_future_status"
+
+
+class TestStatusChatMessageAgentWarnings:
+    """RUNNING message mentions agent warnings when the payload carries events."""
+
+    def _event(self, ws="ws-01-1", phase=12):
+        return {"workspace_id": ws, "phase": phase, "kind": "agent_crash", "message": "x"}
+
+    def test_running_with_events_mentions_count_and_latest(self):
+        from server import _status_chat_message
+
+        msg = _status_chat_message(
+            {
+                "status": "running",
+                "checkpoint": "generation_started",
+                "agent_error_events": [self._event(), self._event(ws="ws-01-2", phase=3)],
+            }
+        )
+        assert "2 agent warning(s)" in msg
+        assert "ws-01-2, phase 3" in msg
+        assert "retrying automatically" in msg
+
+    def test_running_without_events_unchanged(self):
+        from server import _status_chat_message
+
+        msg = _status_chat_message({"status": "running", "checkpoint": "generation_started"})
+        assert "warning" not in msg.lower()
+        assert "in progress" in msg
+
+    def test_failed_message_does_not_add_warning_clause(self):
+        from server import _status_chat_message
+
+        msg = _status_chat_message(
+            {"status": "failed", "error": "boom", "agent_error_events": [self._event()]}
+        )
+        assert "warning" not in msg.lower()

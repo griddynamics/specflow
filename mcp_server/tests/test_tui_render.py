@@ -390,3 +390,75 @@ class TestClearWsEligibility:
     def test_ineligible_message_terminal(self):
         msg = render.clear_ws_ineligible_message({"status": "completed"})
         assert "Nothing to clear" in msg
+
+
+def _event(ws="ws-01-1", kind="agent_crash", message="connection lost", phase=12, at="2026-07-23T18:28:40+00:00"):
+    return {"at": at, "workspace_id": ws, "kind": kind, "message": message, "phase": phase}
+
+
+class TestAgentErrorEventRows:
+    def test_parses_events_into_rows(self):
+        payload = {"agent_error_events": [_event()]}
+        rows = render.agent_error_event_rows(payload)
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.time == "18:28:40"
+        assert row.workspace_id == "ws-01-1"
+        assert row.phase_label == "phase 12"
+        assert row.kind == "agent_crash"
+        assert row.message == "connection lost"
+
+    def test_missing_phase_gives_empty_label(self):
+        payload = {"agent_error_events": [{**_event(), "phase": None}]}
+        assert render.agent_error_event_rows(payload)[0].phase_label == ""
+
+    def test_empty_or_missing_key_returns_empty(self):
+        assert render.agent_error_event_rows({}) == []
+        assert render.agent_error_event_rows({"agent_error_events": []}) == []
+        assert render.agent_error_event_rows(None) == []
+
+    def test_non_dict_entries_are_skipped(self):
+        payload = {"agent_error_events": ["garbage", _event()]}
+        assert len(render.agent_error_event_rows(payload)) == 1
+
+    def test_workspaces_with_events(self):
+        payload = {"agent_error_events": [_event(ws="ws-01-1"), _event(ws="ws-01-3")]}
+        assert render.workspaces_with_events(payload) == {"ws-01-1", "ws-01-3"}
+
+    def test_workspace_warning_rows_filters_and_pins_model_fallback_first(self):
+        payload = {
+            "agent_error_events": [
+                _event(ws="ws-01-1", kind="agent_crash", message="crash 1"),
+                _event(ws="ws-01-2", kind="agent_crash", message="other ws"),
+                _event(ws="ws-01-1", kind="model_fallback", message="switched to sonnet"),
+            ]
+        }
+        rows = render.workspace_warning_rows(payload, "ws-01-1")
+        assert [r.message for r in rows] == ["switched to sonnet", "crash 1"]
+
+
+class TestAgentStateBadge:
+    def test_known_states(self):
+        assert render.agent_state_badge("retrying") == ("RETRYING", "bold yellow")
+        assert render.agent_state_badge("aborted") == ("ABORTED", "bold red")
+
+    def test_none_and_unknown(self):
+        assert render.agent_state_badge(None) is None
+        assert render.agent_state_badge("") is None
+        assert render.agent_state_badge("weird") is None
+
+    def test_workspace_bars_carry_agent_state(self):
+        payload = {
+            "workspace_phases": {
+                "ws-01-1": {"last_completed_phase": 3, "total_phases": 9, "agent_state": "retrying"},
+                "ws-01-2": {"last_completed_phase": 4, "total_phases": 9},
+            }
+        }
+        bars = render.workspace_bars(payload)
+        assert bars[0].agent_state == "retrying"
+        assert bars[1].agent_state is None
+
+
+class TestErrorKindStyle:
+    def test_error_stream_kind_has_style(self):
+        assert render.kind_style("error") == "bold red"

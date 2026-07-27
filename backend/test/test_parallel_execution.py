@@ -620,3 +620,86 @@ class TestParallelGenerationExecution:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestWorkspaceAbortEvents:
+    """The executor's except-branch is the single workspace_aborted recording site."""
+
+    @pytest.fixture
+    def mock_settings(self):
+        settings = Mock(spec=Settings)
+        settings.AGENT_BASE_PATH = "/agent"
+        settings.ANTHROPIC_API_KEY = "test-key"
+        settings.OPENROUTER_API_KEY = "test-or-key"
+        settings.OPENROUTER_BASE_URL = "https://openrouter.ai/api"
+        return settings
+
+    @pytest.fixture
+    def workspace(self):
+        return [
+            WorkspaceSettings(
+                name="ws-1",
+                workspace_path="/agent/workspace1",
+                provider="anthropic",
+                model="claude-sonnet-4-0",
+            )
+        ]
+
+    @pytest.fixture
+    def recorders(self):
+        from unittest.mock import AsyncMock
+
+        from app.core.telemetry_context import TelemetryContext
+
+        TelemetryContext.clear_context()
+        events = AsyncMock()
+        states = AsyncMock()
+        TelemetryContext.set_agent_error_event_handler(events)
+        TelemetryContext.set_workspace_agent_state_handler(states)
+        TelemetryContext.set_user_context(generation_id="est-1")
+        yield events, states
+        TelemetryContext.clear_context()
+
+    @pytest.mark.asyncio
+    async def test_failure_records_aborted_event_with_error_type_and_phase(
+        self, mock_settings, workspace, recorders
+    ):
+        from app.schemas.agent_error_events import AgentErrorEventKind, WorkspaceAgentState
+        from app.services.claude_code import WorkspaceAbortedError
+
+        events, states = recorders
+        executor = ParallelAgentExecutor(WorkspaceManager(mock_settings, Mock()), Mock())
+
+        async def aborting_agent(ws, manager, log):
+            raise WorkspaceAbortedError(
+                "[ws-1] Phase 12 lost connection to the API. Error: socket connection was closed",
+                phase=12,
+            )
+
+        results = await executor.execute_parallel(workspaces=workspace, agent_fn=aborting_agent)
+
+        assert results[0].success is False
+        events.assert_awaited_once()
+        _, event = events.await_args.args
+        assert event.kind == AgentErrorEventKind.WORKSPACE_ABORTED
+        assert event.workspace_id == "ws-1"
+        assert event.phase == 12
+        assert event.error_type is not None  # classified connection error
+        states.assert_awaited_once()
+        assert states.await_args.args[1:] == ("ws-1", WorkspaceAgentState.ABORTED)
+
+    @pytest.mark.asyncio
+    async def test_cancellation_records_no_event(self, mock_settings, workspace, recorders):
+        from app.state.exceptions import GenerationCancelledError
+
+        events, states = recorders
+        executor = ParallelAgentExecutor(WorkspaceManager(mock_settings, Mock()), Mock())
+
+        async def cancelled_agent(ws, manager, log):
+            raise GenerationCancelledError("est-1")
+
+        with pytest.raises(GenerationCancelledError):
+            await executor.execute_parallel(workspaces=workspace, agent_fn=cancelled_agent)
+
+        events.assert_not_awaited()
+        states.assert_not_awaited()

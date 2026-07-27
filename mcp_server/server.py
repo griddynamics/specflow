@@ -129,6 +129,21 @@ def _phase_label(status: str, checkpoint: str | None) -> str:
     return f"Status: {status}"
 
 
+def _agent_warnings_clause(response_data: dict) -> str:
+    """Short clause summarizing agent error/warning events for a running generation."""
+    events = response_data.get("agent_error_events") or []
+    if not events:
+        return ""
+    latest = events[-1] if isinstance(events[-1], dict) else {}
+    where = latest.get("workspace_id") or "a workspace"
+    phase = latest.get("phase")
+    where_full = f"{where}, phase {phase}" if phase is not None else where
+    return (
+        f" {len(events)} agent warning(s) so far (latest: {where_full}) — "
+        f"the run is retrying automatically."
+    )
+
+
 def _status_chat_message(response_data: dict) -> str:
     """One or two sentences for check_status chat display."""
     status = (response_data.get("status") or "").lower()
@@ -152,7 +167,10 @@ def _status_chat_message(response_data: dict) -> str:
             )
         return "Generation failed. Use `retry_generation` if you want to resume from the last checkpoint."
     if status in (GenerationStatus.RUNNING, GenerationStatus.INITIALIZING):
-        return brief_sentences(f"Generation is in progress ({phase}). You'll get an email when it finishes.")
+        return brief_sentences(
+            f"Generation is in progress ({phase}).{_agent_warnings_clause(response_data)} "
+            f"You'll get an email when it finishes."
+        )
     return brief_sentences(f"Status is {status or 'unknown'} ({phase}).")
 
 
