@@ -1622,7 +1622,7 @@ class TestStopBackendFlow:
 
 
 class TestSwitchRuntime:
-    """``R`` switch runtime: fail-fast target preflight, confirm wording, and the
+    """``t`` switch runtime: fail-fast target preflight, confirm wording, and the
     cancel→teardown→persist→start ordering performed by SwitchRuntimeScreen."""
 
     @staticmethod

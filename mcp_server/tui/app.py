@@ -999,13 +999,15 @@ class SessionsScreen(_BackendControlScreen):
         Binding("s", "settings", "settings"),
         # Switching runtime cancels ALL in-flight runs and restarts the backend, so
         # it lives on this overview screen — not the single-generation dashboard.
-        Binding("R", "switch_runtime", "switch runtime"),
+        # Bound to "t" (toggle) rather than "R": a shift-of-"reload" is too easy to
+        # mistype for so destructive an action.
+        Binding("t", "switch_runtime", "switch runtime"),
     ]
 
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static(
-            "SpecFlow · sessions   (↑/↓ select · ↵ open · r reload · s settings · R switch runtime)",
+            "SpecFlow · sessions   (↑/↓ select · ↵ open · r reload · s settings · t switch runtime)",
             id="sessions-title",
         )
         yield ListView(id="sessions-list")
