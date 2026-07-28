@@ -403,7 +403,7 @@ class TestStartupGate:
             app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
             async with app.run_test() as pilot:
                 await pilot.pause()
-                await pilot.press("n")
+                await pilot.press("q")
                 await pilot.pause()
                 assert not app.is_running
 
@@ -421,7 +421,7 @@ class TestStartupGate:
             app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
             async with app.run_test() as pilot:
                 await pilot.pause()
-                await pilot.press("y")
+                await pilot.press("s")
                 await pilot.pause()
                 assert isinstance(app.screen, tui_app.SessionsScreen)
 
@@ -460,7 +460,7 @@ class TestStartupGate:
             app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
             async with app.run_test() as pilot:
                 await pilot.pause()
-                await pilot.press("y")
+                await pilot.press("s")
                 await pilot.pause()
                 assert isinstance(app.screen, tui_app.SessionsScreen)
                 start.assert_not_awaited()
@@ -1587,18 +1587,32 @@ class TestStopBackendFlow:
                     await app.stop_backend_flow()
                 assert "Any in-progress generation" in psw.await_args.args[0]._message
 
+    @staticmethod
+    def _land_on_sessions():
+        # stop_backend lives on the sessions overview only, so land there
+        # (generation_id=None) rather than on a single-generation dashboard.
+        a, b, c = _gate_ready()
+        return (
+            a,
+            b,
+            c,
+            patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])),
+            patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()),
+            patch("tui.app.mcp_clients.is_any_client_connected", return_value=True),
+        )
+
     @pytest.mark.asyncio
     async def test_binding_hidden_in_docker_mode(self):
-        a, b, c = _gate_ready()
-        with a, b, c, patch(
+        a, b, c, d, e, f = self._land_on_sessions()
+        with a, b, c, d, e, f, patch(
             "tui.app.resolve_backend_runtime",
             return_value=tui_app.local_env.BackendRuntime.DOCKER,
-        ), patch("tui.app.poll_once", new=AsyncMock(return_value=_running_payload())):
-            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
             async with app.run_test() as pilot:
                 await pilot.pause()
                 screen = app.screen
-                assert isinstance(screen, tui_app.DashboardScreen)
+                assert isinstance(screen, tui_app.SessionsScreen)
                 assert app.is_process_runtime is False
                 assert screen.check_action("stop_backend", ()) is None
                 # Docker-mode action is a no-op even if invoked directly.
@@ -1609,14 +1623,13 @@ class TestStopBackendFlow:
 
     @pytest.mark.asyncio
     async def test_binding_shown_in_process_mode(self):
-        a, b, c = _gate_ready()
-        with a, b, c, self._process_runtime(), patch(
-            "tui.app.poll_once", new=AsyncMock(return_value=_running_payload())
-        ):
-            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
+        a, b, c, d, e, f = self._land_on_sessions()
+        with a, b, c, d, e, f, self._process_runtime():
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
             async with app.run_test() as pilot:
                 await pilot.pause()
                 screen = app.screen
+                assert isinstance(screen, tui_app.SessionsScreen)
                 assert app.is_process_runtime is True
                 assert screen.check_action("stop_backend", ()) is True
 
@@ -1743,14 +1756,18 @@ class TestSwitchRuntime:
                 assert calls == ["cancel:gen_abc", "stop_containers", "save", "start_process"]
                 save.assert_called_once_with(tui_app.local_env.BackendRuntime.PROCESS)
 
-    def test_switch_binding_lives_on_sessions_not_dashboard(self):
-        # Switching cancels ALL runs + restarts the backend, so it belongs on the
-        # sessions overview, not the single-generation dashboard. Stop-backend
-        # stays shared (both screens).
-        assert hasattr(tui_app.SessionsScreen, "action_switch_runtime")
-        assert not hasattr(tui_app.DashboardScreen, "action_switch_runtime")
-        assert hasattr(tui_app.DashboardScreen, "action_stop_backend")
-        assert hasattr(tui_app.SessionsScreen, "action_stop_backend")
+    def test_app_wide_controls_live_on_sessions_not_dashboard(self):
+        # App-wide controls (switch runtime, stop backend, settings, connect
+        # client) act on the whole app, so they belong on the sessions overview
+        # only. The single-generation dashboard carries only that generation's
+        # controls (retry, cancel, clear ws, open ws, events, report).
+        app_wide = ("switch_runtime", "stop_backend", "settings", "connect_client")
+        for action in app_wide:
+            assert hasattr(tui_app.SessionsScreen, f"action_{action}"), action
+            assert not hasattr(tui_app.DashboardScreen, f"action_{action}"), action
+        # Generation-scoped controls remain on the dashboard.
+        for action in ("retry", "cancel", "clear", "open_workspace"):
+            assert hasattr(tui_app.DashboardScreen, f"action_{action}"), action
 
 
 class TestDashboardOpenReport:

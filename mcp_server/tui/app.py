@@ -518,16 +518,18 @@ class VerifyChoiceScreen(ModalScreen[bool | None]):
 
 
 class _BackendControlScreen(_SpecFlowScreen):
-    """Base for the screens that may stop the bare-metal backend (dashboard + sessions).
+    """Base for the sessions overview — the ONLY screen with app-wide backend controls.
 
     ``k`` stop backend — process runtime only (in ``BACKEND_RUNTIME=process`` the
     backend is a detached host process that outlives the TUI; in docker mode the
     container stack is the boundary, so ``check_action`` hides it). Implemented once
-    on the app (``SpecFlowTUI.stop_backend_flow``) so both screens share it.
+    on the app (``SpecFlowTUI.stop_backend_flow``).
 
-    Switching runtime lives on the sessions list only (see ``SessionsScreen``), not
-    here: it cancels ALL in-flight runs and restarts the backend, so it belongs on
-    the overview screen rather than while viewing a single generation.
+    App-wide controls (stop backend, switch runtime, settings, connect client) act on
+    the whole app, so they live on the sessions overview only — never on the
+    single-generation dashboard (``DashboardScreen``), which carries only the controls
+    for the generation being viewed. Switching runtime additionally cancels ALL
+    in-flight runs, another reason it belongs on the overview.
     """
 
     BINDINGS = [Binding("k", "stop_backend", "stop backend")]
@@ -543,16 +545,20 @@ class _BackendControlScreen(_SpecFlowScreen):
         self.run_worker(self.app.stop_backend_flow(), exclusive=True)
 
 
-class DashboardScreen(_BackendControlScreen):
-    """Live dashboard for a single generation."""
+class DashboardScreen(_SpecFlowScreen):
+    """Live dashboard for a single generation.
+
+    Carries ONLY controls scoped to the generation being viewed (retry, cancel,
+    clear its workspaces, open a workspace, events, report). App-wide controls
+    (settings, connect client, stop backend, switch runtime) live on the sessions
+    overview (``SessionsScreen``), not here.
+    """
 
     BINDINGS = [
         Binding("r", "retry", "retry"),
         Binding("x", "cancel", "cancel"),
         Binding("w", "clear", "clear ws"),
-        Binding("s", "settings", "settings"),
         Binding("escape", "back", "back"),
-        Binding("c", "connect_client", "Add MCP to AI tool"),
         Binding("o", "open_workspace", "open ws"),
         Binding("enter", "open_workspace", "open ws", show=False),
         Binding("e", "open_events", "events"),
@@ -815,14 +821,8 @@ class DashboardScreen(_BackendControlScreen):
         if ok:
             await self._run_suspended(actions.do_clear_set(set_no))
 
-    def action_settings(self) -> None:
-        self.app.push_screen(SettingsScreen())
-
     def action_back(self) -> None:
         self.app.push_screen(SessionsScreen())
-
-    def action_connect_client(self) -> None:
-        self.app.push_screen(ClientSetupScreen())
 
 
 class WorkspaceMessagesScreen(_SpecFlowScreen):
@@ -2034,8 +2034,10 @@ class StartContainersScreen(_SpecFlowScreen):
     """
 
     BINDINGS = [
-        Binding("y", "yes", "start"),
-        Binding("n", "no", "quit"),
+        # Key matches the visible label (start→s, quit→q), consistent with the
+        # runtime picker's docker→d / process→p.
+        Binding("s", "yes", "start"),
+        Binding("q", "no", "quit"),
     ]
 
     def __init__(self, *, containers_up: bool = False) -> None:
@@ -2047,10 +2049,10 @@ class StartContainersScreen(_SpecFlowScreen):
         if self._containers_up:
             prompt = (
                 "Containers are running but the backend isn't healthy yet.\n\n"
-                "Retry the health check?   [y] retry    [n] quit"
+                "Retry the health check?   [s] retry    [q] quit"
             )
         else:
-            prompt = "The SpecFlow containers aren't running.\n\n" "Start them now?   [y] start    [n] quit"
+            prompt = "The SpecFlow containers aren't running.\n\n" "Start them now?   [s] start    [q] quit"
         yield Static(prompt, id="docker-prompt")
         log = RichLog(id="docker-log", highlight=False, markup=False, wrap=True)
         log.display = False
@@ -2097,8 +2099,10 @@ class StartBackendProcessScreen(_SpecFlowScreen):
     """
 
     BINDINGS = [
-        Binding("y", "yes", "start"),
-        Binding("n", "no", "quit"),
+        # Key matches the visible label (start→s, quit→q), consistent with the
+        # runtime picker's docker→d / process→p.
+        Binding("s", "yes", "start"),
+        Binding("q", "no", "quit"),
     ]
 
     def __init__(self, *, process_up: bool = False) -> None:
@@ -2110,7 +2114,7 @@ class StartBackendProcessScreen(_SpecFlowScreen):
         if self._process_up:
             prompt = (
                 "The backend process is running but isn't healthy yet.\n\n"
-                "Retry the health check?   [y] retry    [n] quit"
+                "Retry the health check?   [s] retry    [q] quit"
             )
         else:
             prompt = (
@@ -2120,7 +2124,7 @@ class StartBackendProcessScreen(_SpecFlowScreen):
                 "(`cd backend && uv sync`).\n"
                 "Agents will be confined by the OS-level sandbox (bubblewrap on Linux, "
                 "Seatbelt on macOS).\n\n"
-                "Start the backend now?   [y] start    [n] quit"
+                "Start the backend now?   [s] start    [q] quit"
             )
         yield Static(prompt, id="process-prompt")
         log = RichLog(id="process-log", highlight=False, markup=False, wrap=True)
