@@ -10,11 +10,7 @@ import pytest
 
 @contextmanager
 def _pinned_timezone(name: str) -> Iterator[None]:
-    """Run the block with the process timezone pinned to ``name``.
-
-    ``datetime.astimezone()`` reads the process timezone, so local-time
-    assertions are only deterministic while it is pinned.
-    """
+    """Run the block with the process timezone pinned, so local-time assertions are stable."""
     previous = os.environ.get("TZ")
     os.environ["TZ"] = name
     time.tzset()

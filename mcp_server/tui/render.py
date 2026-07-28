@@ -328,13 +328,7 @@ LOCAL_DATE_TIME_FORMAT = "%b %d %H:%M"
 
 
 def format_local(timestamp: str | None, fmt: str = LOCAL_TIME_FORMAT) -> str:
-    """Format a backend ISO timestamp in the viewer's local timezone.
-
-    Backend timestamps are UTC; an offset-naive value is therefore read as UTC
-    rather than local, so a clock time is never shifted twice. Returns "" when
-    the value is missing or unparseable — the single place the TUI turns a
-    timestamp into a displayable clock time.
-    """
+    """Format a backend ISO timestamp (UTC, naive or aware) in local time; "" when unusable."""
     if not timestamp:
         return ""
     try:
