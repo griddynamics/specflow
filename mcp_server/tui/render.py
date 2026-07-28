@@ -12,7 +12,7 @@ Field names match the payload built by
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from tui.constants import (
@@ -323,14 +323,27 @@ class StreamRow:
     message: str
 
 
-def _hhmmss(timestamp: str | None) -> str:
-    """Format an ISO timestamp as HH:MM:SS; "" when missing/unparseable."""
+LOCAL_TIME_FORMAT = "%H:%M:%S"
+LOCAL_DATE_TIME_FORMAT = "%b %d %H:%M"
+
+
+def format_local(timestamp: str | None, fmt: str = LOCAL_TIME_FORMAT) -> str:
+    """Format a backend ISO timestamp in the viewer's local timezone.
+
+    Backend timestamps are UTC; an offset-naive value is therefore read as UTC
+    rather than local, so a clock time is never shifted twice. Returns "" when
+    the value is missing or unparseable — the single place the TUI turns a
+    timestamp into a displayable clock time.
+    """
     if not timestamp:
         return ""
     try:
-        return datetime.fromisoformat(timestamp).strftime("%H:%M:%S")
+        parsed = datetime.fromisoformat(timestamp)
     except ValueError:
         return ""
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone().strftime(fmt)
 
 
 def stream_row(event: Any) -> StreamRow:
@@ -341,7 +354,7 @@ def stream_row(event: Any) -> StreamRow:
     """
     label = getattr(event, "subagent_name", None) or getattr(event, "tool_name", None) or ""
     return StreamRow(
-        time=_hhmmss(getattr(event, "timestamp", None)),
+        time=format_local(getattr(event, "timestamp", None)),
         kind=str(getattr(event, "kind", None) or "unknown"),
         label=str(label),
         message=str(getattr(event, "message", None) or ""),
@@ -487,7 +500,7 @@ def agent_error_event_rows(payload: dict[str, Any] | None) -> list[AgentErrorEve
         phase = event.get("phase")
         rows.append(
             AgentErrorEventRow(
-                time=_hhmmss(event.get("at")),
+                time=format_local(event.get("at")),
                 workspace_id=str(event.get("workspace_id") or ""),
                 phase_label=f"phase {phase}" if phase is not None else "",
                 kind=str(event.get("kind") or ""),

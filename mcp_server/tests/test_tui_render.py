@@ -248,12 +248,45 @@ class _Event:
         self.subagent_name = kw.get("subagent_name")
 
 
+class TestFormatLocal:
+    """Backend timestamps are UTC; the TUI must show them on the viewer's clock."""
+
+    def test_utc_timestamp_shown_in_local_time(self, local_timezone):
+        with local_timezone("Europe/Warsaw"):  # UTC+2 in July
+            assert render.format_local("2026-07-28T15:24:05+00:00") == "17:24:05"
+
+    def test_offset_naive_timestamp_read_as_utc(self, local_timezone):
+        with local_timezone("Europe/Warsaw"):
+            assert render.format_local("2026-07-28T15:24:05") == "17:24:05"
+
+    def test_non_utc_offset_converted_to_local(self, local_timezone):
+        with local_timezone("Europe/Warsaw"):  # 15:24+05:00 is 10:24 UTC is 12:24 local
+            assert render.format_local("2026-07-28T15:24:05+05:00") == "12:24:05"
+
+    def test_date_format_rolls_over_with_local_day(self, local_timezone):
+        with local_timezone("Europe/Warsaw"):
+            formatted = render.format_local(
+                "2026-06-30T23:30:00+00:00", render.LOCAL_DATE_TIME_FORMAT
+            )
+        assert formatted == "Jul 01 01:30"
+
+    def test_missing_and_unparseable_are_blank(self):
+        assert render.format_local(None) == ""
+        assert render.format_local("") == ""
+        assert render.format_local("not-a-date") == ""
+
+
 class TestStreamRow:
-    def test_formats_time_kind_and_message(self):
-        row = render.stream_row(
-            _Event(timestamp="2026-06-26T14:02:31.123456+00:00", kind="assistant_text", message="hi")
-        )
-        assert row.time == "14:02:31"
+    def test_formats_time_kind_and_message(self, local_timezone):
+        with local_timezone("Europe/Warsaw"):  # UTC+2 in June
+            row = render.stream_row(
+                _Event(
+                    timestamp="2026-06-26T14:02:31.123456+00:00",
+                    kind="assistant_text",
+                    message="hi",
+                )
+            )
+        assert row.time == "16:02:31"
         assert row.kind == "assistant_text"
         assert row.message == "hi"
         assert row.label == ""
@@ -397,12 +430,13 @@ def _event(ws="ws-01-1", kind="agent_crash", message="connection lost", phase=12
 
 
 class TestAgentErrorEventRows:
-    def test_parses_events_into_rows(self):
+    def test_parses_events_into_rows(self, local_timezone):
         payload = {"agent_error_events": [_event()]}
-        rows = render.agent_error_event_rows(payload)
+        with local_timezone("Europe/Warsaw"):  # UTC+2 in July
+            rows = render.agent_error_event_rows(payload)
         assert len(rows) == 1
         row = rows[0]
-        assert row.time == "18:28:40"
+        assert row.time == "20:28:40"
         assert row.workspace_id == "ws-01-1"
         assert row.phase_label == "phase 12"
         assert row.kind == "agent_crash"

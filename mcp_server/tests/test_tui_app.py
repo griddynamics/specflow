@@ -243,6 +243,31 @@ class TestSessionLabel:
         assert "Contract validated" in label
         assert "est-d67dcac6cbe5" in label
 
+    def test_created_at_shown_in_local_time(self, local_timezone):
+        with local_timezone("Europe/Warsaw"):  # UTC+2 in July
+            label = tui_app._session_label(
+                {
+                    "generation_id": "est-d67dcac6cbe5",
+                    "status": "running",
+                    "checkpoint": "contract_validated",
+                    "created_at": "2026-07-07T14:00:15.701099+00:00",
+                }
+            )
+
+        assert "Jul 07 16:00" in label
+
+    def test_unparseable_created_at_falls_back_to_raw_prefix(self):
+        label = tui_app._session_label(
+            {
+                "generation_id": "est-d67dcac6cbe5",
+                "status": "running",
+                "checkpoint": "contract_validated",
+                "created_at": "not-a-timestamp-value",
+            }
+        )
+
+        assert "not-a-timestamp" in label
+
     def test_unknown_checkpoint_falls_back_to_key(self):
         label = tui_app._session_label(
             {
