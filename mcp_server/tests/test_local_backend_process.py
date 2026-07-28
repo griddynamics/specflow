@@ -14,20 +14,48 @@ from services import local_backend_process
 class TestBuildProcessBackendEnv:
     def test_forces_process_and_fills_host_paths(self, tmp_path, monkeypatch):
         monkeypatch.setattr(local_backend_process, "read_dotenv", lambda root: {"OPENROUTER_API_KEY": "k"})
-        for var in ("DATABASE_TYPE", "SQLITE_DB_PATH", "WORKSPACE_BASE_PATH"):
+        for var in ("DATABASE_TYPE", "SQLITE_DB_PATH", "WORKSPACE_BASE_PATH", "AGENT_LOGS_BASE_PATH"):
             monkeypatch.delenv(var, raising=False)
         env = local_backend_process.build_process_backend_env(tmp_path)
         assert env["BACKEND_RUNTIME"] == "process"
         assert env["OPENROUTER_API_KEY"] == "k"
         assert env["DATABASE_TYPE"] == "sqlite"
         assert env["WORKSPACE_BASE_PATH"] == str(tmp_path / "workspaces")
+        assert env["AGENT_LOGS_BASE_PATH"] == str(tmp_path / "agent_logs")
+        assert env["SQLITE_DB_PATH"] == str(
+            local_backend_process.specflow_home_dir() / "db" / "specflow.db"
+        )
 
-    def test_respects_user_overrides(self, tmp_path, monkeypatch):
+    def test_respects_non_mount_user_choices(self, tmp_path, monkeypatch):
+        # DATABASE_TYPE is a genuine user choice (not a container mount target) and
+        # is respected; the mount paths are handled by the override test below.
         monkeypatch.setattr(local_backend_process, "read_dotenv", lambda root: {"DATABASE_TYPE": "firestore"})
-        monkeypatch.setenv("WORKSPACE_BASE_PATH", "/custom/ws")
         env = local_backend_process.build_process_backend_env(tmp_path)
         assert env["DATABASE_TYPE"] == "firestore"  # from .env, not overwritten
-        assert env["WORKSPACE_BASE_PATH"] == "/custom/ws"  # from env, not overwritten
+
+    def test_container_mount_paths_are_overridden_not_respected(self, tmp_path, monkeypatch):
+        # Regression: the quickstart .env ships container mount targets
+        # (WORKSPACE_BASE_PATH=/workspaces, AGENT_LOGS_BASE_PATH=/agent_logs); in
+        # process mode these MUST be overridden with host paths, else the backend
+        # crashes creating a dir under read-only "/" (Errno 30). See PR #51.
+        monkeypatch.setattr(
+            local_backend_process,
+            "read_dotenv",
+            lambda root: {
+                "WORKSPACE_BASE_PATH": "/workspaces",
+                "AGENT_LOGS_BASE_PATH": "/agent_logs",
+                "SQLITE_DB_PATH": "/root/.specflow/db/specflow.db",
+            },
+        )
+        # Even an exported shell value for a mount target must not win.
+        monkeypatch.setenv("WORKSPACE_BASE_PATH", "/workspaces")
+        env = local_backend_process.build_process_backend_env(tmp_path)
+        assert env["WORKSPACE_BASE_PATH"] == str(tmp_path / "workspaces")
+        assert env["AGENT_LOGS_BASE_PATH"] == str(tmp_path / "agent_logs")
+        assert env["SQLITE_DB_PATH"] == str(
+            local_backend_process.specflow_home_dir() / "db" / "specflow.db"
+        )
+        assert not env["WORKSPACE_BASE_PATH"].startswith("/workspaces")
 
 
 class TestProcessControl:

@@ -83,20 +83,27 @@ def build_process_backend_env(root: Path) -> dict[str, str]:
     """Environment for the bare-metal backend — the host equivalent of the
     docker-compose passthrough.
 
-    docker-compose injects ``.env`` and then overrides a few paths with
-    *container* locations (``/workspaces``, ``/root/.specflow/...``) that don't
-    exist on the bare host. Here we merge the repo-root ``.env`` and substitute
-    host-appropriate defaults for those paths (only when the user hasn't already
-    set them), then force ``BACKEND_RUNTIME=process`` so the backend engages the
-    agent OS-sandbox and its own fail-closed gate.
+    docker-compose bind-mounts host dirs onto fixed *container* mount points and
+    passes those container paths to the backend (``/workspaces``, ``/agent_logs``,
+    ``/root/.specflow/...``). Those paths don't exist on the bare host and ``/`` is
+    read-only, so in process mode we **override** them with the host equivalents of
+    compose's host-side bind mounts — never ``setdefault``. A container path shipped
+    in ``.env`` (the quickstart sets ``WORKSPACE_BASE_PATH=/workspaces``) would
+    otherwise shadow the host path and the backend would crash creating a dir under
+    ``/`` (Errno 30, read-only file system). Genuine user choices that are *not*
+    mount targets (e.g. ``DATABASE_TYPE=firestore``) are still respected.
+    ``BACKEND_RUNTIME`` is forced to ``process`` so the backend engages the agent
+    OS-sandbox and its own fail-closed gate.
     """
     env = dict(os.environ)
     env.update(read_dotenv(root))  # API keys, provider, git identity, etc.
-    # Host equivalents of the compose container paths (setdefault → respect any
-    # value the user already exported or put in .env).
-    env.setdefault("DATABASE_TYPE", "sqlite")
-    env.setdefault("SQLITE_DB_PATH", str(specflow_home_dir() / "db" / "specflow.db"))
-    env.setdefault("WORKSPACE_BASE_PATH", str(root / "workspaces"))
+    env.setdefault("DATABASE_TYPE", "sqlite")  # a real user choice, not a mount target
+    # Container mount points → host equivalents of compose's bind-mount defaults
+    # (./workspaces, ./agent_logs, ${HOME}/.specflow). Overridden unconditionally:
+    # the container values are never valid on the bare host.
+    env["WORKSPACE_BASE_PATH"] = str(root / "workspaces")
+    env["AGENT_LOGS_BASE_PATH"] = str(root / "agent_logs")
+    env["SQLITE_DB_PATH"] = str(specflow_home_dir() / "db" / "specflow.db")
     env["BACKEND_RUNTIME"] = BackendRuntime.PROCESS.value  # always forced
     return env
 
