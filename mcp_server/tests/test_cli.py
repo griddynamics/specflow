@@ -127,27 +127,27 @@ class TestResolveBackendRuntime:
         from cli import resolve_backend_runtime
         from services import local_env
         monkeypatch.delenv("BACKEND_RUNTIME", raising=False)
-        assert resolve_backend_runtime(tmp_path) == local_env.BackendRuntime.DOCKER
+        assert resolve_backend_runtime(home=tmp_path) == local_env.BackendRuntime.DOCKER
 
     def test_flag_takes_priority_over_env(self, tmp_path, monkeypatch):
         from cli import resolve_backend_runtime
         from services import local_env
         monkeypatch.setenv("BACKEND_RUNTIME", "docker")
-        assert resolve_backend_runtime(tmp_path, "process") == local_env.BackendRuntime.PROCESS
+        assert resolve_backend_runtime("process", home=tmp_path) == local_env.BackendRuntime.PROCESS
 
     def test_env_takes_priority_over_saved_choice(self, tmp_path, monkeypatch):
         from cli import resolve_backend_runtime
         from services import local_env
-        local_env.save_backend_runtime(tmp_path, local_env.BackendRuntime.DOCKER)
+        local_env.save_backend_runtime(local_env.BackendRuntime.DOCKER, home=tmp_path)
         monkeypatch.setenv("BACKEND_RUNTIME", "process")
-        assert resolve_backend_runtime(tmp_path) == local_env.BackendRuntime.PROCESS
+        assert resolve_backend_runtime(home=tmp_path) == local_env.BackendRuntime.PROCESS
 
     def test_saved_choice_fallback(self, tmp_path, monkeypatch):
         from cli import resolve_backend_runtime
         from services import local_env
         monkeypatch.delenv("BACKEND_RUNTIME", raising=False)
-        local_env.save_backend_runtime(tmp_path, local_env.BackendRuntime.PROCESS)
-        assert resolve_backend_runtime(tmp_path) == local_env.BackendRuntime.PROCESS
+        local_env.save_backend_runtime(local_env.BackendRuntime.PROCESS, home=tmp_path)
+        assert resolve_backend_runtime(home=tmp_path) == local_env.BackendRuntime.PROCESS
 
     def test_mcp_config_runtime_is_ignored(self, tmp_path, monkeypatch):
         # Runtime is a launcher concern, not an MCP-server setting: a stray
@@ -160,24 +160,24 @@ class TestResolveBackendRuntime:
         (cfg_dir / "mcp-config.json").write_text(
             json.dumps({"mcpServers": {"specflow": {"env": {"BACKEND_RUNTIME": "process"}}}})
         )
-        assert resolve_backend_runtime(tmp_path) == local_env.BackendRuntime.DOCKER
+        assert resolve_backend_runtime(home=tmp_path) == local_env.BackendRuntime.DOCKER
 
     def test_is_configured_false_when_unset(self, tmp_path, monkeypatch):
         from cli import backend_runtime_is_configured
         monkeypatch.delenv("BACKEND_RUNTIME", raising=False)
-        assert backend_runtime_is_configured(tmp_path) is False
+        assert backend_runtime_is_configured(home=tmp_path) is False
 
     def test_is_configured_true_from_env(self, tmp_path, monkeypatch):
         from cli import backend_runtime_is_configured
         monkeypatch.setenv("BACKEND_RUNTIME", "process")
-        assert backend_runtime_is_configured(tmp_path) is True
+        assert backend_runtime_is_configured(home=tmp_path) is True
 
     def test_is_configured_true_from_saved_choice(self, tmp_path, monkeypatch):
         from cli import backend_runtime_is_configured
         from services import local_env
         monkeypatch.delenv("BACKEND_RUNTIME", raising=False)
-        local_env.save_backend_runtime(tmp_path, local_env.BackendRuntime.DOCKER)
-        assert backend_runtime_is_configured(tmp_path) is True
+        local_env.save_backend_runtime(local_env.BackendRuntime.DOCKER, home=tmp_path)
+        assert backend_runtime_is_configured(home=tmp_path) is True
 
 
 class TestResolveBackendConfig:

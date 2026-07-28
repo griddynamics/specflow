@@ -1988,13 +1988,13 @@ class SwitchRuntimeScreen(_SpecFlowScreen):
         # 2. Tear down the current backend.
         if self._current == local_env.BackendRuntime.PROCESS:
             log.write("stopping bare-metal backend…\n")
-            await asyncio.to_thread(local_env.stop_backend_process, root)
+            await asyncio.to_thread(local_env.stop_backend_process)
         else:
             log.write("stopping docker stack (compose down)…\n")
             await local_env.stop_containers(root, on_line=log.write)
 
         # 3. Persist the new choice so the next launch (and this session) agree.
-        await asyncio.to_thread(local_env.save_backend_runtime, root, self._target)
+        await asyncio.to_thread(local_env.save_backend_runtime, self._target)
 
         # 4. Start the target backend and wait for readiness.
         if self._target == local_env.BackendRuntime.PROCESS:
@@ -2433,7 +2433,7 @@ class SpecFlowTUI(App):
         container stack is the boundary. Resolved the same way as the startup gate
         (flag → env → saved choice → default) so the two never disagree.
         """
-        return resolve_backend_runtime(self.root) == local_env.BackendRuntime.PROCESS
+        return resolve_backend_runtime() == local_env.BackendRuntime.PROCESS
 
     def set_runtime_indicator(self, runtime: "local_env.BackendRuntime") -> None:
         """Show the active runtime in the header sub-title (visible on every screen).
@@ -2490,7 +2490,7 @@ class SpecFlowTUI(App):
         )
         if not confirmed:
             return
-        stopped = await asyncio.to_thread(local_env.stop_backend_process, self.root)
+        stopped = await asyncio.to_thread(local_env.stop_backend_process)
         if stopped:
             self.exit(message="Backend stopped. Relaunch SpecFlow to start it again.")
         else:
@@ -2529,7 +2529,7 @@ class SpecFlowTUI(App):
         same host:port for both runtimes, so the visible screen keeps polling the
         new backend once it is up.
         """
-        current = resolve_backend_runtime(self.root)
+        current = resolve_backend_runtime()
         target = (
             local_env.BackendRuntime.DOCKER
             if current == local_env.BackendRuntime.PROCESS
@@ -2605,11 +2605,11 @@ class SpecFlowTUI(App):
         # (b) Backend check — branch on the launch runtime. In docker mode the
         # container stack is the boundary; in process mode the backend runs
         # bare-metal and agents are confined by the OS sandbox instead.
-        runtime = resolve_backend_runtime(self.root)
-        if not backend_runtime_is_configured(self.root):
+        runtime = resolve_backend_runtime()
+        if not backend_runtime_is_configured():
             # Runtime not pinned (no env var, no saved choice): infer from whatever
             # is already up; if nothing is running, ask once and remember the pick.
-            proc_up = await asyncio.to_thread(local_env.backend_process_running, self.root)
+            proc_up = await asyncio.to_thread(local_env.backend_process_running)
             cont_up = await asyncio.to_thread(local_env.containers_running, self.root)
             if proc_up:
                 runtime = local_env.BackendRuntime.PROCESS
@@ -2620,7 +2620,7 @@ class SpecFlowTUI(App):
                 if not choice:
                     self.exit()
                     return
-                await asyncio.to_thread(local_env.save_backend_runtime, self.root, choice)
+                await asyncio.to_thread(local_env.save_backend_runtime, choice)
                 runtime = choice
 
         self.set_runtime_indicator(runtime)
@@ -2629,7 +2629,7 @@ class SpecFlowTUI(App):
                 # Process already up but not ready yet → just wait it out; not
                 # running → start it. Mirrors the docker path's containers_up handling.
                 process_up = await asyncio.to_thread(
-                    local_env.backend_process_running, self.root
+                    local_env.backend_process_running
                 )
                 if not await self.push_screen_wait(
                     StartBackendProcessScreen(process_up=process_up)

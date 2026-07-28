@@ -503,7 +503,7 @@ class TestRuntimeChooser:
                 assert isinstance(app.screen, tui_app.ChooseRuntimeScreen)
                 await pilot.press("p")
                 await pilot.pause()
-                save.assert_called_once_with(app.root, tui_app.local_env.BackendRuntime.PROCESS)
+                save.assert_called_once_with(tui_app.local_env.BackendRuntime.PROCESS)
                 assert isinstance(app.screen, tui_app.StartBackendProcessScreen)
 
     @pytest.mark.asyncio
@@ -516,7 +516,7 @@ class TestRuntimeChooser:
                 await pilot.pause()
                 await pilot.press("d")
                 await pilot.pause()
-                save.assert_called_once_with(app.root, tui_app.local_env.BackendRuntime.DOCKER)
+                save.assert_called_once_with(tui_app.local_env.BackendRuntime.DOCKER)
                 assert isinstance(app.screen, tui_app.StartContainersScreen)
 
     @pytest.mark.asyncio
@@ -1525,7 +1525,7 @@ class TestStopBackendFlow:
                 ):
                     await app.stop_backend_flow()
                     await pilot.pause()
-                stop.assert_called_once_with(app.root)
+                stop.assert_called_once_with()
                 # The one active run is named in the confirmation prompt.
                 assert "1 in-progress generation" in psw.await_args.args[0]._message
                 assert not app.is_running
@@ -1567,7 +1567,7 @@ class TestStopBackendFlow:
                 ):
                     await app.stop_backend_flow()
                     await pilot.pause()
-                stop.assert_called_once_with(app.root)
+                stop.assert_called_once_with()
                 assert app.is_running
 
     @pytest.mark.asyncio
@@ -1741,7 +1741,7 @@ class TestSwitchRuntime:
                     await pilot.pause()
                     await pilot.pause()
                 assert calls == ["cancel:gen_abc", "stop_containers", "save", "start_process"]
-                save.assert_called_once_with(app.root, tui_app.local_env.BackendRuntime.PROCESS)
+                save.assert_called_once_with(tui_app.local_env.BackendRuntime.PROCESS)
 
     def test_switch_binding_lives_on_sessions_not_dashboard(self):
         # Switching cancels ALL runs + restarts the backend, so it belongs on the

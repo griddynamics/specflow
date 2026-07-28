@@ -420,7 +420,7 @@ class TestProcessControl:
                 _FakePopen.kwargs = kwargs
 
         monkeypatch.setattr(local_env.subprocess, "Popen", _FakePopen)
-        pid = await local_env.start_backend_process(tmp_path)
+        pid = await local_env.start_backend_process(tmp_path, home=tmp_path)
         assert pid == 4321
         assert local_env._read_backend_pid(tmp_path) == 4321
         # Detached from the terminal + bound to localhost uvicorn from backend/.
@@ -464,14 +464,14 @@ class TestSavedBackendRuntime:
         assert local_env.read_saved_runtime(tmp_path) is None
 
     def test_save_then_read_roundtrip(self, tmp_path):
-        local_env.save_backend_runtime(tmp_path, local_env.BackendRuntime.PROCESS)
+        local_env.save_backend_runtime(local_env.BackendRuntime.PROCESS, home=tmp_path)
         assert local_env.read_saved_runtime(tmp_path) == local_env.BackendRuntime.PROCESS
-        # Persisted under .specflow-local, never in mcp-config.json.
-        assert local_env.backend_runtime_path(tmp_path).parent.name == ".specflow-local"
+        # Persisted under ~/.specflow (machine-wide), never in mcp-config.json.
+        assert local_env.backend_runtime_path(tmp_path).parent.name == ".specflow"
 
     def test_save_creates_dir_and_overwrites(self, tmp_path):
-        local_env.save_backend_runtime(tmp_path, local_env.BackendRuntime.DOCKER)
-        local_env.save_backend_runtime(tmp_path, local_env.BackendRuntime.PROCESS)
+        local_env.save_backend_runtime(local_env.BackendRuntime.DOCKER, home=tmp_path)
+        local_env.save_backend_runtime(local_env.BackendRuntime.PROCESS, home=tmp_path)
         assert local_env.read_saved_runtime(tmp_path) == local_env.BackendRuntime.PROCESS
 
     def test_parse_strict_returns_none_for_unknown(self):

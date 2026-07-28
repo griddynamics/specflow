@@ -22,15 +22,19 @@ backend is launched). It is resolved with this precedence:
 1. explicit CLI flag,
 2. `BACKEND_RUNTIME` environment variable (must be exported — a value sitting only
    in `.env` is **not** read by the gate),
-3. the launcher's saved choice at `.specflow-local/backend-runtime`,
+3. the launcher's saved choice at `~/.specflow/backend-runtime`,
 4. default `docker`.
 
 The TUI drives (3): on first launch, when the runtime isn't pinned by (1)/(2)
 **and** nothing is already running (no containers, no bare process), it shows a
-one-time chooser and writes the pick to `.specflow-local/backend-runtime`. If
-something is already up, it infers the runtime from that instead of asking. This
-file lives beside the process pidfile/log — deliberately **not** in
-`mcp-config.json`.
+one-time chooser and writes the pick to `~/.specflow/backend-runtime`. If
+something is already up, it infers the runtime from that instead of asking. The
+runtime choice and the process pidfile (`~/.specflow/backend.pid`) are
+machine-wide — the bare-metal backend is a singleton (one uvicorn on one port,
+backed by the shared `~/.specflow/db/specflow.db`), so `stop` / `switch runtime`
+from any checkout find the one running backend instead of spawning a duplicate.
+Only the launch **log** stays per-project, at `.specflow-local/backend.log`. This
+choice is deliberately **not** in `mcp-config.json`.
 
 ## Why the agent sandbox matters in process mode
 
@@ -120,7 +124,7 @@ the backend.) The switch:
    `CANCELLED`; workspaces and generated code are preserved per the STEEL
    COMMANDMENTS) — this must happen before teardown, while the API is still up.
 4. **Tears down** the current backend (`stop_backend_process` / `docker compose
-   down`), **persists** the new choice to `.specflow-local/backend-runtime`, and
+   down`), **persists** the new choice to `~/.specflow/backend-runtime`, and
    **starts** the target backend, waiting for it to become healthy.
 
 Because both runtimes bind the same host:port and (in the default `sqlite` setup)

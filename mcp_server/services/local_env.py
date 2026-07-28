@@ -43,17 +43,31 @@ _INIT_SCRIPT = "specflow-init.sh"
 # Mirror docker-compose.yml container-name env-var defaults; sqlite has no separate container.
 _BACKEND_CONTAINER_DEFAULT = "specflow-backend"
 
-# Bare-metal ("process") backend launch — pidfile + log live under .specflow-local
-# (already the runtime-config home), port mirrors docker-compose's SPECFLOW_BACKEND_PORT.
-_BACKEND_PID_FILENAME = ".specflow-local/backend.pid"
+# Per-user SpecFlow home (``~/.specflow``) — the machine-wide state dir already
+# shared by the central SQLite db and the connected-AI-tools config
+# (``tui.mcp_clients`` reuses this same constant for ~/.specflow/config.json). This
+# is the single source of truth for the directory name.
+SPECFLOW_HOME_DIRNAME = ".specflow"
+
+# The bare-metal backend is a machine-wide singleton (one uvicorn on one port,
+# backed by the shared ~/.specflow db), so its PID and the launcher's remembered
+# runtime choice live under ~/.specflow — NOT per-checkout. This lets `stop` /
+# `switch runtime` from any clone find the one running backend instead of spawning
+# a duplicate on the same port. The runtime choice is a launcher fact, NOT an
+# MCP-server setting (the MCP server only calls backend_url and is indifferent to
+# how the backend is launched), so it is never written to mcp-config.json.
+_BACKEND_PID_BASENAME = "backend.pid"
+_BACKEND_RUNTIME_BASENAME = "backend-runtime"
+
+# The log stays per-project (under the repo's .specflow-local, beside
+# mcp-config.json) so each checkout's launch output is inspectable next to it.
 _BACKEND_LOG_FILENAME = ".specflow-local/backend.log"
 _BACKEND_PORT_DEFAULT = "8000"
 
-# Launcher's remembered runtime choice (docker | process). A local-launcher fact,
-# NOT an MCP-server setting: the MCP server only calls backend_url and is
-# indifferent to how the backend is launched, so this lives beside the pidfile
-# under .specflow-local — never in mcp-config.json.
-_BACKEND_RUNTIME_FILENAME = ".specflow-local/backend-runtime"
+
+def specflow_home_dir(home: Path | None = None) -> Path:
+    """The per-user SpecFlow home (``~/.specflow``); ``home`` injectable for tests."""
+    return (home or Path.home()) / SPECFLOW_HOME_DIRNAME
 
 
 class BackendRuntime(StrEnum):
@@ -90,29 +104,28 @@ class BackendRuntime(StrEnum):
         return None
 
 
-def backend_runtime_path(root: Path) -> Path:
-    return root / _BACKEND_RUNTIME_FILENAME
+def backend_runtime_path(home: Path | None = None) -> Path:
+    return specflow_home_dir(home) / _BACKEND_RUNTIME_BASENAME
 
 
-def read_saved_runtime(root: Path | None = None) -> "BackendRuntime | None":
+def read_saved_runtime(home: Path | None = None) -> "BackendRuntime | None":
     """The runtime the launcher's first-run chooser persisted, or ``None``.
 
     ``None`` means "not chosen yet" (file absent or unrecognized) — deliberately
     distinct from ``BackendRuntime.DOCKER`` so the startup gate can decide whether
     to prompt.
     """
-    root = root or Path.cwd()
     try:
-        raw = backend_runtime_path(root).read_text()
+        raw = backend_runtime_path(home).read_text()
     except OSError:
         return None
     return BackendRuntime.parse_strict(raw)
 
 
-def save_backend_runtime(root: Path, runtime: "BackendRuntime") -> Path:
-    """Persist the launcher's runtime choice under ``.specflow-local/`` (beside the
-    pidfile/log). Not written to mcp-config.json — see ``_BACKEND_RUNTIME_FILENAME``."""
-    path = backend_runtime_path(root)
+def save_backend_runtime(runtime: "BackendRuntime", home: Path | None = None) -> Path:
+    """Persist the launcher's runtime choice under ``~/.specflow`` (beside the
+    pidfile). Not written to mcp-config.json — see the module constants."""
+    path = backend_runtime_path(home)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(runtime.value)
     return path
@@ -307,8 +320,8 @@ def containers_running(root: Path | None = None) -> bool:
 # process and preflights the host sandbox dependencies.
 
 
-def backend_pid_path(root: Path) -> Path:
-    return root / _BACKEND_PID_FILENAME
+def backend_pid_path(home: Path | None = None) -> Path:
+    return specflow_home_dir(home) / _BACKEND_PID_BASENAME
 
 
 def backend_log_path(root: Path) -> Path:
@@ -320,10 +333,10 @@ def _backend_port() -> str:
     return os.getenv("SPECFLOW_BACKEND_PORT", _BACKEND_PORT_DEFAULT)
 
 
-def _read_backend_pid(root: Path) -> int | None:
+def _read_backend_pid(home: Path | None = None) -> int | None:
     """PID recorded by the last ``start_backend_process``; ``None`` if absent/garbage."""
     try:
-        return int(backend_pid_path(root).read_text().strip())
+        return int(backend_pid_path(home).read_text().strip())
     except (OSError, ValueError):
         return None
 
@@ -339,10 +352,9 @@ def _pid_alive(pid: int) -> bool:
     return True
 
 
-def backend_process_running(root: Path | None = None) -> bool:
+def backend_process_running(home: Path | None = None) -> bool:
     """True iff a previously-started bare-metal backend process is still alive."""
-    root = root or Path.cwd()
-    pid = _read_backend_pid(root)
+    pid = _read_backend_pid(home)
     return pid is not None and _pid_alive(pid)
 
 
@@ -369,15 +381,18 @@ def build_process_backend_env(root: Path) -> dict[str, str]:
 
 
 async def start_backend_process(
-    root: Path, on_line: Callable[[str], None] | None = None
+    root: Path,
+    on_line: Callable[[str], None] | None = None,
+    home: Path | None = None,
 ) -> int:
     """Launch the backend as a detached bare-metal ``uvicorn`` process.
 
     Mirrors the Dockerfile CMD on the host: ``uv run uvicorn app.main:app`` from
     ``root/backend`` bound to localhost. Detaches from the terminal via a new
     session (``start_new_session=True``) so it survives the TUI, redirecting
-    output to ``.specflow-local/backend.log`` and recording the PID. Returns the
-    spawned PID; readiness is confirmed separately via ``wait_backend_ready``.
+    output to the per-project ``.specflow-local/backend.log`` and recording the
+    PID under the machine-wide ``~/.specflow/backend.pid``. Returns the spawned
+    PID; readiness is confirmed separately via ``wait_backend_ready``.
     """
     backend_dir = root / "backend"
     log_path = backend_log_path(root)
@@ -400,21 +415,22 @@ async def start_backend_process(
         )
     finally:
         log_file.close()
-    backend_pid_path(root).write_text(str(proc.pid))
+    pid_path = backend_pid_path(home)
+    pid_path.parent.mkdir(parents=True, exist_ok=True)
+    pid_path.write_text(str(proc.pid))
     if on_line is not None:
         on_line(f"backend started detached (pid {proc.pid}); logs → {log_path}\n")
     return proc.pid
 
 
-def stop_backend_process(root: Path | None = None) -> bool:
+def stop_backend_process(home: Path | None = None) -> bool:
     """SIGTERM the detached backend's process group and clear the pidfile.
 
     Returns ``True`` if a live process was signalled, ``False`` if none was
     recorded/alive. Signals the whole session group (the process is a group
     leader from ``start_new_session``) so uvicorn workers are torn down too.
     """
-    root = root or Path.cwd()
-    pid = _read_backend_pid(root)
+    pid = _read_backend_pid(home)
     signalled = False
     if pid is not None and _pid_alive(pid):
         try:
@@ -422,7 +438,7 @@ def stop_backend_process(root: Path | None = None) -> bool:
             signalled = True
         except (ProcessLookupError, PermissionError, OSError):
             signalled = False
-    backend_pid_path(root).unlink(missing_ok=True)
+    backend_pid_path(home).unlink(missing_ok=True)
     return signalled
 
 
