@@ -620,10 +620,13 @@ async def _crash_backoff_and_wait(
     )
     if publisher is not None:
         publisher.publish_line_nowait("error", error_message)
+        # Relative wait only: this line is rendered in the TUI feed next to a
+        # local-clock timestamp, and the backend clock (a container, usually UTC)
+        # is not the viewer's. The absolute instant stays on the event's
+        # ``next_attempt_at`` field, which the TUI can format locally.
         publisher.publish_line_nowait(
             "system",
-            f"waiting {_format_wait(wait)} before retry ({resume.describe()}), "
-            f"next attempt at {next_attempt_at:%H:%M} UTC",
+            f"waiting {_format_wait(wait)} before retry ({resume.describe()})",
         )
     await set_workspace_retry_state_safe(WorkspaceAgentState.RETRYING)
     await asyncio.sleep(wait.total_seconds())
