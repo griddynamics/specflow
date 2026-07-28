@@ -40,6 +40,37 @@ class TestClaudeCodeTmpdirDerivation:
         assert s.CLAUDE_CODE_TMPDIR_PATH == "/custom/tmp"
 
 
+class TestArtifactsBasePathDerivation:
+    def test_default_artifacts_base(self):
+        """Default artifacts base = /workspaces/artifacts (unchanged from the old
+        hardcoded default, so docker behaviour and existing paths are identical)."""
+        from app.core.config import Settings
+
+        s = Settings()
+        assert s.ARTIFACTS_BASE_PATH == "/workspaces/artifacts"
+
+    def test_custom_workspace_base_derives_artifacts(self):
+        """Custom WORKSPACE_BASE_PATH → artifacts follow the new base. This is the
+        process-mode fix: a host workspace base keeps archival off read-only ``/``."""
+        from app.core.config import Settings
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("WORKSPACE_BASE_PATH", "/home/u/proj/workspaces")
+            mp.delenv("ARTIFACTS_BASE_PATH", raising=False)
+            s = Settings()
+        assert s.ARTIFACTS_BASE_PATH == "/home/u/proj/workspaces/artifacts"
+
+    def test_explicit_artifacts_base_wins(self):
+        """Explicit ARTIFACTS_BASE_PATH overrides the derivation."""
+        from app.core.config import Settings
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setenv("WORKSPACE_BASE_PATH", "/ws")
+            mp.setenv("ARTIFACTS_BASE_PATH", "/custom/artifacts")
+            s = Settings()
+        assert s.ARTIFACTS_BASE_PATH == "/custom/artifacts"
+
+
 class TestWorkspaceDirAlias:
     def test_workspace_path_env_sets_workspace_dir(self):
         """WORKSPACE_PATH env var populates WORKSPACE_DIR (AliasChoices)."""

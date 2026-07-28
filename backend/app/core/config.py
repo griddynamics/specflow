@@ -110,8 +110,13 @@ class Settings(BaseSettings):
     STANDARDS_DIR_NAME: str = "standards"  # Directory name for standards in each workspace (becomes ./standards)
 
     # Artifact Store Configuration
-    # Archived generation outputs are stored at ARTIFACTS_BASE_PATH/{generation_id}/
-    ARTIFACTS_BASE_PATH: str = Field(default="/workspaces/artifacts")
+    # Archived generation outputs are stored at ARTIFACTS_BASE_PATH/{generation_id}/.
+    # Defaults to {WORKSPACE_BASE_PATH}/artifacts (derived via model_validator below,
+    # same as CLAUDE_CODE_TMPDIR_PATH) so it follows the workspace base instead of being
+    # a second hardcoded container path. Critical in BACKEND_RUNTIME=process, where the
+    # workspace base is a host path: a fixed /workspaces/artifacts would be created under
+    # the read-only filesystem root and crash archival. Set explicitly to override.
+    ARTIFACTS_BASE_PATH: Optional[str] = None
 
     # Claude Code temp directory — passed to every agent as CLAUDE_CODE_TMPDIR so that
     # Claude Code writes its internal temp files to the persistent NFS volume instead of
@@ -396,12 +401,21 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def _derive_claude_code_tmpdir(self) -> "Settings":
+    def _derive_workspace_relative_paths(self) -> "Settings":
+        # Paths that nest under the workspace base share a single source of truth:
+        # overriding WORKSPACE_BASE_PATH (e.g. host paths in BACKEND_RUNTIME=process)
+        # cascades to both, so neither can drift back to a container-only default.
         if self.CLAUDE_CODE_TMPDIR_PATH is None:
             object.__setattr__(
                 self,
                 "CLAUDE_CODE_TMPDIR_PATH",
                 os.path.join(self.WORKSPACE_BASE_PATH, "claude_code_tmpdir"),
+            )
+        if self.ARTIFACTS_BASE_PATH is None:
+            object.__setattr__(
+                self,
+                "ARTIFACTS_BASE_PATH",
+                os.path.join(self.WORKSPACE_BASE_PATH, "artifacts"),
             )
         return self
 
