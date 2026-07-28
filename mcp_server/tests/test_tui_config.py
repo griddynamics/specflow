@@ -25,11 +25,10 @@ class TestEditableKeys:
         ]
         assert not any(k.startswith("LLM_MODEL_") for k in config.EDITABLE_KEYS)
 
-    def test_backend_runtime_is_not_editable_and_is_purged(self):
-        # Runtime isn't an mcp-config setting (see cli.resolve_backend_runtime), so
-        # it must not be shown in Settings, and a stale value is swept on save.
+    def test_backend_runtime_is_not_editable(self):
+        # Runtime isn't an mcp-config setting (see cli.resolve_backend_runtime),
+        # so it must not be shown in / written by the Settings screen.
         assert "BACKEND_RUNTIME" not in config.EDITABLE_KEYS
-        assert "BACKEND_RUNTIME" in config._LEGACY_EDITABLE_KEYS
 
     def test_tier_slice_is_the_llm_tiers_ssot(self):
         # The tier entries must BE the shared list the MCP server/backend read.
@@ -83,30 +82,6 @@ class TestSaveEnv:
         config.save_env(tmp_path, {"USER_EMAIL": ""})
         assert "USER_EMAIL" not in config.load_env(tmp_path)
 
-    def test_purges_dead_legacy_tier_keys(self, tmp_path):
-        # A block written by the buggy build carries LLM_MODEL_* nothing reads;
-        # saving must sweep them so they never linger or skew a fingerprint.
-        _write_config(
-            tmp_path,
-            {"mcpServers": {"specflow": {"env": {"LLM_MODEL_HIGH": "old/model", "KEEP": "yes"}}}},
-        )
-        config.save_env(tmp_path, {"LLM_HIGH": "new/model"})
-        env = config.load_env(tmp_path)
-        assert "LLM_MODEL_HIGH" not in env
-        assert env["LLM_HIGH"] == "new/model"
-        assert env["KEEP"] == "yes"  # unrelated entries still preserved
-
-    def test_purges_stale_backend_runtime(self, tmp_path):
-        # A BACKEND_RUNTIME left in the env block by an older build is dead (the
-        # runtime is resolved elsewhere); saving must sweep it out.
-        _write_config(
-            tmp_path,
-            {"mcpServers": {"specflow": {"env": {"BACKEND_RUNTIME": "process", "KEEP": "yes"}}}},
-        )
-        config.save_env(tmp_path, {"WORKSPACE_COUNT": "2"})
-        env = config.load_env(tmp_path)
-        assert "BACKEND_RUNTIME" not in env
-        assert env["KEEP"] == "yes"
 
 
 class TestLangfuse:

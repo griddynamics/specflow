@@ -28,20 +28,6 @@ EDITABLE_KEYS: list[str] = [
     "BACKEND_URL",
 ]
 
-# Keys an earlier build wrote into the env block that nothing reads any more,
-# purged on save so they never linger or skew a config fingerprint:
-#   - LLM_MODEL_* — superseded by the LLM_HIGH/MEDIUM/LOW tier keys.
-#   - BACKEND_RUNTIME — the runtime is a local-launcher fact resolved from the
-#     env var / .specflow-local/backend-runtime, never from mcp-config.json (the
-#     MCP server just calls the backend and is indifferent to how it is launched),
-#     so it must not be editable here. See cli.resolve_backend_runtime.
-_LEGACY_EDITABLE_KEYS: list[str] = [
-    "LLM_MODEL_HIGH",
-    "LLM_MODEL_MEDIUM",
-    "LLM_MODEL_LOW",
-    "BACKEND_RUNTIME",
-]
-
 # Secret/identity keys, stored in .env (consumed by docker-compose / the backend
 # / the init script). Names match .env.quickstart.example so write_dotenv fills
 # the template entries in place rather than appending duplicates.
@@ -121,9 +107,8 @@ def save_env(root: Path, env: dict[str, str]) -> Path:
     specflow = servers.setdefault("specflow", {})
     existing_env = specflow.get("env")
     merged = existing_env if isinstance(existing_env, dict) else {}
-    # Replace only the editable keys (and sweep away any dead legacy tier keys);
-    # leave every other env entry untouched.
-    for key in (*EDITABLE_KEYS, *_LEGACY_EDITABLE_KEYS):
+    # Replace only the editable keys; leave every other env entry untouched.
+    for key in EDITABLE_KEYS:
         merged.pop(key, None)
     merged.update(cleaned)
     specflow["env"] = merged
