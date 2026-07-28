@@ -65,7 +65,7 @@ from cli import (
     resolve_backend_config,
     resolve_backend_runtime,
 )
-from services import local_env, validate_models
+from services import local_backend_process, local_env, validate_models
 from services.llm_tiers import LLM_TIER_KEYS
 from services.retry import retry_generation_core
 from services.session import resolve_generation_id, set_project_root
@@ -1988,7 +1988,7 @@ class SwitchRuntimeScreen(_SpecFlowScreen):
         # 2. Tear down the current backend.
         if self._current == local_env.BackendRuntime.PROCESS:
             log.write("stopping bare-metal backend…\n")
-            await asyncio.to_thread(local_env.stop_backend_process)
+            await asyncio.to_thread(local_backend_process.stop_backend_process)
         else:
             log.write("stopping docker stack (compose down)…\n")
             await local_env.stop_containers(root, on_line=log.write)
@@ -1999,7 +1999,7 @@ class SwitchRuntimeScreen(_SpecFlowScreen):
         # 4. Start the target backend and wait for readiness.
         if self._target == local_env.BackendRuntime.PROCESS:
             log.write("starting bare-metal backend…\n")
-            await local_env.start_backend_process(root, on_line=log.write)
+            await local_backend_process.start_backend_process(root, on_line=log.write)
         else:
             log.write("starting docker stack (compose up)…\n")
             await local_env.start_containers(root, on_line=log.write)
@@ -2140,12 +2140,12 @@ class StartBackendProcessScreen(_SpecFlowScreen):
         # Process already up → skip the relaunch and just re-poll readiness.
         if not self._process_up:
             # Fail closed: refuse to start unless the OS sandbox can confine agents.
-            reason = local_env.agent_sandbox_unavailable_reason()
+            reason = local_backend_process.agent_sandbox_unavailable_reason()
             if reason is not None:
                 log.write(f"Cannot start in process mode — {reason}\n")
                 self.notify(reason, severity="error", timeout=15)
                 return
-            await local_env.start_backend_process(self.app.root, on_line=log.write)
+            await local_backend_process.start_backend_process(self.app.root, on_line=log.write)
         ok = await local_env.wait_backend_ready(
             self.app.backend_url,
             on_attempt=lambda i: log.write(f"waiting for backend to become ready… ({i})\n"),
@@ -2490,7 +2490,7 @@ class SpecFlowTUI(App):
         )
         if not confirmed:
             return
-        stopped = await asyncio.to_thread(local_env.stop_backend_process)
+        stopped = await asyncio.to_thread(local_backend_process.stop_backend_process)
         if stopped:
             self.exit(message="Backend stopped. Relaunch SpecFlow to start it again.")
         else:
@@ -2538,7 +2538,7 @@ class SpecFlowTUI(App):
 
         # Preflight the target; refuse without disturbing the running backend.
         if target == local_env.BackendRuntime.PROCESS:
-            reason = local_env.agent_sandbox_unavailable_reason()
+            reason = local_backend_process.agent_sandbox_unavailable_reason()
             if reason is not None:
                 self.notify(f"Can't switch to process mode — {reason}", severity="error", timeout=15)
                 return
@@ -2609,7 +2609,7 @@ class SpecFlowTUI(App):
         if not backend_runtime_is_configured():
             # Runtime not pinned (no env var, no saved choice): infer from whatever
             # is already up; if nothing is running, ask once and remember the pick.
-            proc_up = await asyncio.to_thread(local_env.backend_process_running)
+            proc_up = await asyncio.to_thread(local_backend_process.backend_process_running)
             cont_up = await asyncio.to_thread(local_env.containers_running, self.root)
             if proc_up:
                 runtime = local_env.BackendRuntime.PROCESS
@@ -2629,7 +2629,7 @@ class SpecFlowTUI(App):
                 # Process already up but not ready yet → just wait it out; not
                 # running → start it. Mirrors the docker path's containers_up handling.
                 process_up = await asyncio.to_thread(
-                    local_env.backend_process_running
+                    local_backend_process.backend_process_running
                 )
                 if not await self.push_screen_wait(
                     StartBackendProcessScreen(process_up=process_up)

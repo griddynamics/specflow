@@ -477,7 +477,7 @@ class TestRuntimeChooser:
         return (
             patch("tui.app.local_env.is_setup_complete", return_value=True),
             patch("tui.app.backend_runtime_is_configured", return_value=False),
-            patch("tui.app.local_env.backend_process_running", return_value=False),
+            patch("tui.app.local_backend_process.backend_process_running", return_value=False),
             patch("tui.app.local_env.containers_running", return_value=False),
         )
 
@@ -525,7 +525,7 @@ class TestRuntimeChooser:
         with (
             patch("tui.app.local_env.is_setup_complete", return_value=True),
             patch("tui.app.backend_runtime_is_configured", return_value=False),
-            patch("tui.app.local_env.backend_process_running", return_value=True),
+            patch("tui.app.local_backend_process.backend_process_running", return_value=True),
             patch("tui.app.local_env.containers_running", return_value=False),
             patch("tui.app.local_env.backend_ready", new=AsyncMock(return_value=True)),
             patch("tui.app.local_env.save_backend_runtime", new=save),
@@ -547,7 +547,7 @@ class TestRuntimeChooser:
         with (
             patch("tui.app.local_env.is_setup_complete", return_value=True),
             patch("tui.app.backend_runtime_is_configured", return_value=False),
-            patch("tui.app.local_env.backend_process_running", return_value=False),
+            patch("tui.app.local_backend_process.backend_process_running", return_value=False),
             patch("tui.app.local_env.containers_running", return_value=True),
             patch("tui.app.local_env.backend_ready", new=AsyncMock(return_value=True)),
             patch("tui.app.local_env.save_backend_runtime", new=save),
@@ -1521,7 +1521,7 @@ class TestStopBackendFlow:
                 with (
                     patch.object(app, "push_screen_wait", new=AsyncMock(return_value=True)) as psw,
                     patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[{"status": "running"}])),
-                    patch("tui.app.local_env.stop_backend_process", new=stop),
+                    patch("tui.app.local_backend_process.stop_backend_process", new=stop),
                 ):
                     await app.stop_backend_flow()
                     await pilot.pause()
@@ -1543,7 +1543,7 @@ class TestStopBackendFlow:
                 with (
                     patch.object(app, "push_screen_wait", new=AsyncMock(return_value=False)),
                     patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])),
-                    patch("tui.app.local_env.stop_backend_process", new=stop),
+                    patch("tui.app.local_backend_process.stop_backend_process", new=stop),
                 ):
                     await app.stop_backend_flow()
                 stop.assert_not_called()
@@ -1563,7 +1563,7 @@ class TestStopBackendFlow:
                 with (
                     patch.object(app, "push_screen_wait", new=AsyncMock(return_value=True)),
                     patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])),
-                    patch("tui.app.local_env.stop_backend_process", new=stop),
+                    patch("tui.app.local_backend_process.stop_backend_process", new=stop),
                 ):
                     await app.stop_backend_flow()
                     await pilot.pause()
@@ -1602,7 +1602,7 @@ class TestStopBackendFlow:
                 assert app.is_process_runtime is False
                 assert screen.check_action("stop_backend", ()) is None
                 # Docker-mode action is a no-op even if invoked directly.
-                with patch("tui.app.local_env.stop_backend_process") as stop:
+                with patch("tui.app.local_backend_process.stop_backend_process") as stop:
                     screen.action_stop_backend()
                     await pilot.pause()
                     stop.assert_not_called()
@@ -1640,7 +1640,7 @@ class TestSwitchRuntime:
             async with app.run_test() as pilot:
                 await pilot.pause()
                 with (
-                    patch("tui.app.local_env.agent_sandbox_unavailable_reason", return_value="no bwrap"),
+                    patch("tui.app.local_backend_process.agent_sandbox_unavailable_reason", return_value="no bwrap"),
                     patch.object(app, "push_screen_wait", new=AsyncMock()) as psw,
                 ):
                     await app.switch_runtime_flow()
@@ -1673,7 +1673,7 @@ class TestSwitchRuntime:
             async with app.run_test() as pilot:
                 await pilot.pause()
                 with (
-                    patch("tui.app.local_env.agent_sandbox_unavailable_reason", return_value=None),
+                    patch("tui.app.local_backend_process.agent_sandbox_unavailable_reason", return_value=None),
                     patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[
                         {"generation_id": "g1", "status": "running"},
                         {"generation_id": "g2", "status": "completed"},
@@ -1699,7 +1699,7 @@ class TestSwitchRuntime:
                 # First push_screen_wait = confirm (True); second = SwitchRuntimeScreen (True).
                 psw = AsyncMock(side_effect=[True, True])
                 with (
-                    patch("tui.app.local_env.agent_sandbox_unavailable_reason", return_value=None),
+                    patch("tui.app.local_backend_process.agent_sandbox_unavailable_reason", return_value=None),
                     patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])),
                     patch.object(app, "push_screen_wait", new=psw),
                 ):
@@ -1729,7 +1729,7 @@ class TestSwitchRuntime:
                     patch("tui.app.call_backend_endpoint", new=cancel),
                     patch("tui.app.local_env.stop_containers", new=stop_c),
                     patch("tui.app.local_env.save_backend_runtime", new=save),
-                    patch("tui.app.local_env.start_backend_process", new=start_p),
+                    patch("tui.app.local_backend_process.start_backend_process", new=start_p),
                     patch("tui.app.local_env.wait_backend_ready", new=AsyncMock(return_value=True)),
                 ):
                     screen = tui_app.SwitchRuntimeScreen(

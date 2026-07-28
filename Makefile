@@ -143,11 +143,12 @@ run-detached-skip: build
 # fail-closed sandbox preflight; see docs/backend/backend-runtime.md.
 run-process:
 	@echo "🚀 Starting backend bare-metal (BACKEND_RUNTIME=process)..."
-	@cd mcp_server && uv run python -c "import asyncio, sys; from pathlib import Path; from services import local_env; sys.exit(asyncio.run(local_env.run_backend_process_cli(Path('$(CURDIR)'))))"
+	@cd mcp_server && uv run python -c "import asyncio, sys; from pathlib import Path; from services import local_backend_process; sys.exit(asyncio.run(local_backend_process.run_backend_process_cli(Path('$(CURDIR)'))))"
 
-# Stop a detached bare-metal backend started by run-process (or the TUI).
+# Stop a detached bare-metal backend started by run-process (or the TUI). The
+# pidfile is machine-wide (~/.specflow), so no path is passed.
 stop-process:
-	@cd mcp_server && uv run python -c "from pathlib import Path; from services import local_env; print('🛑 stopped' if local_env.stop_backend_process(Path('$(CURDIR)')) else 'ℹ️  no running backend process')"
+	@cd mcp_server && uv run python -c "from services import local_backend_process; print('🛑 stopped' if local_backend_process.stop_backend_process() else 'ℹ️  no running backend process')"
 
 # Stop ONLY the isolated local-testing stack (project: specflow-test) and wipe its ephemeral
 # workspace/database state. Quickstart is stopped outside this Make target.
