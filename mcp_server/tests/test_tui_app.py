@@ -441,6 +441,10 @@ class TestStartupGate:
                 prompt = str(app.screen.query_one("#docker-prompt").render())
                 assert "aren't running" not in prompt
                 assert "isn't healthy" in prompt
+                # Key hints live in the Footer, not the prompt. A `[s]`/`[q]` tail
+                # here would be parsed as Rich markup (`[s]` = strikethrough),
+                # crossing out the labels — so the prompt must carry no brackets.
+                assert "[" not in prompt
 
     @pytest.mark.asyncio
     async def test_backend_not_ready_retry_skips_compose_up(self):

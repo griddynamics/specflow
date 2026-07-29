@@ -2049,10 +2049,10 @@ class StartContainersScreen(_SpecFlowScreen):
         if self._containers_up:
             prompt = (
                 "Containers are running but the backend isn't healthy yet.\n\n"
-                "Retry the health check?   [s] retry    [q] quit"
+                "Retry the health check?"
             )
         else:
-            prompt = "The SpecFlow containers aren't running.\n\n" "Start them now?   [s] start    [q] quit"
+            prompt = "The SpecFlow containers aren't running.\n\n" "Start them now?"
         yield Static(prompt, id="docker-prompt")
         log = RichLog(id="docker-log", highlight=False, markup=False, wrap=True)
         log.display = False
@@ -2114,7 +2114,7 @@ class StartBackendProcessScreen(_SpecFlowScreen):
         if self._process_up:
             prompt = (
                 "The backend process is running but isn't healthy yet.\n\n"
-                "Retry the health check?   [s] retry    [q] quit"
+                "Retry the health check?"
             )
         else:
             prompt = (
@@ -2124,7 +2124,7 @@ class StartBackendProcessScreen(_SpecFlowScreen):
                 "(`cd backend && uv sync`).\n"
                 "Agents will be confined by the OS-level sandbox (bubblewrap on Linux, "
                 "Seatbelt on macOS).\n\n"
-                "Start the backend now?   [s] start    [q] quit"
+                "Start the backend now?"
             )
         yield Static(prompt, id="process-prompt")
         log = RichLog(id="process-log", highlight=False, markup=False, wrap=True)
