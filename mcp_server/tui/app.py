@@ -30,7 +30,6 @@ import asyncio
 import json
 import shutil
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -942,15 +941,11 @@ def _session_label(s: dict) -> str:
         checkpoint_key,
     )
 
-    # Date from ISO created_at ("2026-06-30T14:23:45+00:00" → "Jun 30 14:23")
+    # Local-time date from ISO created_at ("2026-06-30T14:23:45+00:00" → "Jun 30 16:23" in CEST)
     created_at_raw = s.get("created_at", "")
-    date_str = ""
-    if created_at_raw:
-        try:
-            dt = datetime.fromisoformat(created_at_raw).astimezone(timezone.utc)
-            date_str = dt.strftime("%b %d %H:%M")
-        except ValueError:
-            date_str = created_at_raw[:16]
+    date_str = render.format_local(created_at_raw, render.LOCAL_DATE_TIME_FORMAT)
+    if created_at_raw and not date_str:
+        date_str = created_at_raw[:16]
 
     # Cancellations are always user-initiated; spell that out in the list.
     status_word = "CANCELLED BY USER" if status_key == "cancelled" else status_key.upper()
