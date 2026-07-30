@@ -793,3 +793,54 @@ def test_capture_agent_query_event_none_breakdown_no_tool_props(mock_ctx: Mock) 
     props = t._client.capture.call_args.kwargs["properties"]
     assert "main_agent_tool_tokens" not in props
     assert "main_agent_tool_usage_json" not in props
+
+
+# ---------------------------------------------------------------------------
+# progress_snapshot (resume-loop progress signal)
+# ---------------------------------------------------------------------------
+
+class TestProgressSnapshot:
+    def test_empty_stream_reports_zero(self):
+        m = ClaudeCodeSdkAgentMetrics()
+        snap = m.progress_snapshot()
+        assert snap.num_messages == 0
+        assert snap.num_tool_uses == 0
+
+    def test_counts_messages_and_matched_tool_uses(self):
+        m = ClaudeCodeSdkAgentMetrics()
+        m.push(_assistant([_tool_use("t1", "Bash")]))
+        m.push(_user([_tool_result("t1")]))
+        snap = m.progress_snapshot()
+        assert snap.num_messages == 2
+        assert snap.num_tool_uses == 1
+
+    def test_counts_pending_unmatched_tool_uses(self):
+        """A crash mid-tool (no ToolResultBlock yet) is still observed work."""
+        m = ClaudeCodeSdkAgentMetrics()
+        m.push(_assistant([_tool_use("t1", "Bash"), _tool_use("t2", "Edit")]))
+        snap = m.progress_snapshot()
+        assert snap.num_tool_uses == 2
+
+    def test_snapshot_is_side_effect_free(self):
+        """Unlike get_metrics(), snapshot must not flush the pending registry."""
+        m = ClaudeCodeSdkAgentMetrics()
+        m.push(_assistant([_tool_use("t1", "Bash")]))
+        m.progress_snapshot()
+        m.push(_user([_tool_result("t1")]))
+        # The late result still matches: exactly one Bash use counted, not two.
+        snap = m.progress_snapshot()
+        assert snap.num_tool_uses == 1
+        metrics = m.get_metrics()
+        bash = metrics["main_agent_tool_usage"]["tools_usage_count"]
+        assert bash == [{"name": "Bash", "count": 1, "tokens": None}]
+
+    def test_non_tool_messages_count_as_messages_only(self):
+        m = ClaudeCodeSdkAgentMetrics()
+        m.push(_assistant([TextBlock(text="thinking about it")]))
+        m.push(ResultMessage(
+            subtype="success", duration_ms=1, duration_api_ms=1, is_error=False,
+            num_turns=1, session_id="s", total_cost_usd=0.0,
+        ))
+        snap = m.progress_snapshot()
+        assert snap.num_messages == 2
+        assert snap.num_tool_uses == 0

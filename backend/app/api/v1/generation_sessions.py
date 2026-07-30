@@ -396,6 +396,10 @@ def _ws_usage_view(usage: Optional[ModelTokenUsage]) -> Optional[Dict[str, int]]
 # here would mislabel the KB-init step as "Phase 1".
 KB_INIT_PHASE_NAME = "Knowledge Base Initialization with Rosetta"
 
+# The /status payload ships only the newest agent error/warning events; the doc
+# itself retains more (see _MAX_AGENT_ERROR_EVENTS in the state machine).
+_AGENT_ERROR_EVENTS_STATUS_LIMIT = 50
+
 
 def _ws_phase_view_entry(
     ws_data: dict,
@@ -426,6 +430,9 @@ def _ws_phase_view_entry(
         entry["usage"] = usage_view
     if models:
         entry["models"] = models
+    agent_state = ws_data.get("agent_state")
+    if agent_state:
+        entry["agent_state"] = agent_state
     return entry
 
 
@@ -677,6 +684,12 @@ async def get_generation_session_status(
             "last_spec_summary": session_doc.get("last_spec_summary"),
             "workspace_phases": workspace_phases_view,
         }
+
+        # Agent error/warning events: newest tail only, key omitted when empty
+        # (old docs without the field keep their exact response shape).
+        agent_error_events = session_doc.get("agent_error_events") or []
+        if agent_error_events:
+            response["agent_error_events"] = agent_error_events[-_AGENT_ERROR_EVENTS_STATUS_LIMIT:]
 
         # 2.5a: include result fields when COMPLETED (Gap 1 fix)
         if session_doc.get("status") == GenerationStatus.COMPLETED.value:
@@ -1138,6 +1151,8 @@ async def _run_generation_session_workflow(
     finally:
         task_registry.deregister_task(generation_id)
         TelemetryContext.set_agent_query_totals_handler(None)
+        TelemetryContext.set_agent_error_event_handler(None)
+        TelemetryContext.set_workspace_agent_state_handler(None)
 
 
 @router.post("/{generation_id}/resend-email", response_model=ResendEmailResponse)

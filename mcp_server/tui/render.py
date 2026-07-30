@@ -12,7 +12,7 @@ Field names match the payload built by
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from tui.constants import (
@@ -54,6 +54,8 @@ class WorkspaceBar:
     phase_name: str
     last_completed_phase: int
     total_phases: int | None
+    # "retrying"/"aborted" badge from the backend; None = running normally.
+    agent_state: str | None = None
 
     @property
     def fraction(self) -> float:
@@ -176,6 +178,7 @@ def workspace_bars(payload: dict[str, Any]) -> list[WorkspaceBar]:
                 phase_name=data.get("phase_name") or "",
                 last_completed_phase=int(data.get("last_completed_phase") or 0),
                 total_phases=data.get("total_phases"),
+                agent_state=data.get("agent_state"),
             )
         )
     return bars
@@ -309,6 +312,7 @@ KIND_STYLES: dict[str, str] = {
     "tool_result": "green",
     "result": "bold green",
     "system": "dim",
+    "error": "bold red",
     "unknown": "dim",
 }
 
@@ -328,14 +332,21 @@ class StreamRow:
     message: str
 
 
-def _hhmmss(timestamp: str | None) -> str:
-    """Format an ISO timestamp as HH:MM:SS; "" when missing/unparseable."""
+LOCAL_TIME_FORMAT = "%H:%M:%S"
+LOCAL_DATE_TIME_FORMAT = "%b %d %H:%M"
+
+
+def format_local(timestamp: str | None, fmt: str = LOCAL_TIME_FORMAT) -> str:
+    """Format a backend ISO timestamp (UTC, naive or aware) in local time; "" when unusable."""
     if not timestamp:
         return ""
     try:
-        return datetime.fromisoformat(timestamp).strftime("%H:%M:%S")
+        parsed = datetime.fromisoformat(timestamp)
     except ValueError:
         return ""
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone().strftime(fmt)
 
 
 def stream_row(event: Any) -> StreamRow:
@@ -346,7 +357,7 @@ def stream_row(event: Any) -> StreamRow:
     """
     label = getattr(event, "subagent_name", None) or getattr(event, "tool_name", None) or ""
     return StreamRow(
-        time=_hhmmss(getattr(event, "timestamp", None)),
+        time=format_local(getattr(event, "timestamp", None)),
         kind=str(getattr(event, "kind", None) or "unknown"),
         label=str(label),
         message=str(getattr(event, "message", None) or ""),
@@ -454,3 +465,71 @@ def format_tokens(value: int | None) -> str:
     if value < 1_000_000:
         return f"{value / 1000:.1f}K"
     return f"{value / 1_000_000:.1f}M"
+
+
+# ---------------------------------------------------------------------------
+# Agent error/warning events (durable `agent_error_events` from /status)
+# ---------------------------------------------------------------------------
+
+# Event kind whose entries are pinned first in per-workspace warning views —
+# a silent mid-run model switch is the one thing users must not miss.
+MODEL_FALLBACK_KIND = "model_fallback"
+
+# Rich style per agent_state badge shown on the workspace list.
+AGENT_STATE_BADGES: dict[str, tuple[str, str]] = {
+    "retrying": ("RETRYING", "bold yellow"),
+    "aborted": ("ABORTED", "bold red"),
+}
+
+
+@dataclass(frozen=True)
+class AgentErrorEventRow:
+    """One agent error/warning event, display-ready."""
+
+    time: str
+    workspace_id: str
+    phase_label: str  # "phase 12" or ""
+    kind: str
+    message: str
+
+
+def agent_error_event_rows(payload: dict[str, Any] | None) -> list[AgentErrorEventRow]:
+    """Flatten ``agent_error_events`` into display rows (oldest first, as sent)."""
+    events = (payload or {}).get("agent_error_events") or []
+    rows: list[AgentErrorEventRow] = []
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        phase = event.get("phase")
+        rows.append(
+            AgentErrorEventRow(
+                time=format_local(event.get("at")),
+                workspace_id=str(event.get("workspace_id") or ""),
+                phase_label=f"phase {phase}" if phase is not None else "",
+                kind=str(event.get("kind") or ""),
+                message=str(event.get("message") or ""),
+            )
+        )
+    return rows
+
+
+def workspaces_with_events(payload: dict[str, Any] | None) -> set[str]:
+    """Workspace ids that reported at least one error/warning event."""
+    return {row.workspace_id for row in agent_error_event_rows(payload) if row.workspace_id}
+
+
+def workspace_warning_rows(
+    payload: dict[str, Any] | None, workspace_id: str
+) -> list[AgentErrorEventRow]:
+    """This workspace's events for the drill-in block, model switches pinned first."""
+    rows = [r for r in agent_error_event_rows(payload) if r.workspace_id == workspace_id]
+    pinned = [r for r in rows if r.kind == MODEL_FALLBACK_KIND]
+    others = [r for r in rows if r.kind != MODEL_FALLBACK_KIND]
+    return pinned + others
+
+
+def agent_state_badge(agent_state: str | None) -> tuple[str, str] | None:
+    """(text, style) badge for a workspace agent_state; None when running normally."""
+    if not agent_state:
+        return None
+    return AGENT_STATE_BADGES.get(str(agent_state).lower())

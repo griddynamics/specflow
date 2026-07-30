@@ -51,11 +51,9 @@ async def test_connection_error_aborts_without_checkpoint(tmp_path: Path) -> Non
     request = GenerateAppRequest(spec_path="specs", outputs_dir="specflow", generation_id="e1")
 
     svc = Mock()
+    svc.db_adapter = None  # DB-less unit test: raise_if_cancelled no-ops without an adapter
     svc.update_workspace_phase = AsyncMock()
     svc.update_deployment_workspace_phase = AsyncMock()
-    # No cross-pod cancellation adapter in this unit test — raise_if_cancelled no-ops when None
-    # (a bare Mock here is not awaitable and would mask the behaviour under test).
-    svc.db_adapter = None
 
     async def fake_phase_fn(**kwargs):
         return AgentResult(
@@ -78,6 +76,8 @@ async def test_connection_error_aborts_without_checkpoint(tmp_path: Path) -> Non
             )
 
     assert "lost connection" in str(exc_info.value).lower()
+    # The abort carries the phase it happened in (surfaced in workspace_aborted events).
+    assert exc_info.value.phase == 1
     # The linchpin assertion: the errored phase was NOT checkpointed as completed.
     svc.update_workspace_phase.assert_not_called()
     svc.update_deployment_workspace_phase.assert_not_called()
