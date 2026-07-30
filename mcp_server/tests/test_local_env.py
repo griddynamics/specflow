@@ -307,6 +307,24 @@ class TestRunInit:
         ]
         assert exec_mock.call_args.kwargs["cwd"] == str(tmp_path)
 
+    @pytest.mark.asyncio
+    async def test_stop_containers_argv(self, tmp_path):
+        fake = _FakeProc([], code=0)
+        with patch(
+            "services.local_env.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=fake),
+        ) as exec_mock:
+            rc = await local_env.stop_containers(tmp_path)
+        assert rc == 0
+        assert list(exec_mock.call_args.args) == ["docker", "compose", "down"]
+        assert exec_mock.call_args.kwargs["cwd"] == str(tmp_path)
+
+    def test_docker_cli_available(self, monkeypatch):
+        monkeypatch.setattr(local_env.shutil, "which", lambda name: "/usr/bin/docker")
+        assert local_env.docker_cli_available() is True
+        monkeypatch.setattr(local_env.shutil, "which", lambda name: None)
+        assert local_env.docker_cli_available() is False
+
 
 class TestRunCommand:
     """run_command runs against real child processes — the point is to prove the
@@ -352,3 +370,48 @@ class TestRunCommand:
         # Returned promptly after the timeout — the child was killed and reaped,
         # not waited out for the full 60s (which would hang the caller).
         assert elapsed < 10
+
+
+# ---------------------------------------------------------------------------
+# BACKEND_RUNTIME — enum + bare-metal ("process") backend control
+# ---------------------------------------------------------------------------
+
+
+class TestBackendRuntimeEnum:
+    def test_parse_none_defaults_docker(self):
+        assert local_env.BackendRuntime.parse(None) == local_env.BackendRuntime.DOCKER
+
+    def test_parse_is_case_insensitive(self):
+        assert local_env.BackendRuntime.parse("PROCESS") == local_env.BackendRuntime.PROCESS
+        assert local_env.BackendRuntime.parse(" Docker ") == local_env.BackendRuntime.DOCKER
+
+    def test_parse_unknown_falls_back_to_docker(self):
+        assert local_env.BackendRuntime.parse("vm") == local_env.BackendRuntime.DOCKER
+
+
+class TestSavedBackendRuntime:
+    def test_read_none_when_absent(self, tmp_path):
+        assert local_env.read_saved_runtime(tmp_path) is None
+
+    def test_read_none_when_garbage(self, tmp_path):
+        p = local_env.backend_runtime_path(tmp_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("nonsense")
+        assert local_env.read_saved_runtime(tmp_path) is None
+
+    def test_save_then_read_roundtrip(self, tmp_path):
+        local_env.save_backend_runtime(local_env.BackendRuntime.PROCESS, home=tmp_path)
+        assert local_env.read_saved_runtime(tmp_path) == local_env.BackendRuntime.PROCESS
+        # Persisted under ~/.specflow (machine-wide), never in mcp-config.json.
+        assert local_env.backend_runtime_path(tmp_path).parent.name == ".specflow"
+
+    def test_save_creates_dir_and_overwrites(self, tmp_path):
+        local_env.save_backend_runtime(local_env.BackendRuntime.DOCKER, home=tmp_path)
+        local_env.save_backend_runtime(local_env.BackendRuntime.PROCESS, home=tmp_path)
+        assert local_env.read_saved_runtime(tmp_path) == local_env.BackendRuntime.PROCESS
+
+    def test_parse_strict_returns_none_for_unknown(self):
+        assert local_env.BackendRuntime.parse_strict(None) is None
+        assert local_env.BackendRuntime.parse_strict("") is None
+        assert local_env.BackendRuntime.parse_strict("vm") is None
+        assert local_env.BackendRuntime.parse_strict("  PROCESS ") == local_env.BackendRuntime.PROCESS

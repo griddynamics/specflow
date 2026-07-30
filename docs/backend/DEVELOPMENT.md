@@ -172,21 +172,38 @@ make test
 make check
 ```
 
-### Manual Startup (without Docker)
+### Running without Docker (`BACKEND_RUNTIME=process`)
+
+The backend can run directly on the host instead of in a container. This is the
+supported **process** runtime — set `BACKEND_RUNTIME=process` (in `.env` or the
+environment). In this mode the container isolation boundary is gone, so agents
+are confined by the host OS sandbox (bubblewrap on Linux, Seatbelt on macOS) and
+the backend **refuses to start a generation if that sandbox is unavailable**
+(fail closed). See [`backend-runtime.md`](backend-runtime.md) for the full model,
+supported platforms, and the residual-risk list.
+
+You are responsible for having the developer environment installed
+(Python 3.14, `uv`, backend deps). Two ways to start it:
 
 ```bash
+# Convenience wrapper — detached, with the fail-closed sandbox preflight,
+# host paths, and a readiness wait (stop with `make stop-process`):
+make run-process
+
+# …or manually (foreground):
 cd backend
-
-# Install dependencies
 uv sync
-
-# Set environment (sqlite needs no separate process)
+export BACKEND_RUNTIME=process
 export DATABASE_TYPE=sqlite
 export SQLITE_DB_PATH=~/.specflow/db/specflow.db
-
-# Run backend
-uv run uvicorn app.main:app --reload --port 8000
+export WORKSPACE_BASE_PATH=$(git rev-parse --show-toplevel)/workspaces
+uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
+
+The TUI (`specflow tui`) also uses this path automatically when
+`BACKEND_RUNTIME=process` is set (via the Settings screen or `.env`): it warns
+about the prerequisites, runs the sandbox preflight, and starts the backend
+detached.
 
 ### SKIP_MODE for Fast Testing
 

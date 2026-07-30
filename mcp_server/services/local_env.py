@@ -19,9 +19,11 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
+from enum import StrEnum
 from pathlib import Path
 
 import httpx
@@ -38,6 +40,87 @@ _INIT_SCRIPT = "specflow-init.sh"
 
 # Mirror docker-compose.yml container-name env-var defaults; sqlite has no separate container.
 _BACKEND_CONTAINER_DEFAULT = "specflow-backend"
+
+# Per-user SpecFlow home (``~/.specflow``) — the machine-wide state dir already
+# shared by the central SQLite db and the connected-AI-tools config
+# (``tui.mcp_clients`` reuses this same constant for ~/.specflow/config.json). This
+# is the single source of truth for the directory name.
+SPECFLOW_HOME_DIRNAME = ".specflow"
+
+# The launcher's remembered runtime choice (docker | process) is machine-wide (the
+# backend is a singleton), so it lives under ~/.specflow — NOT per-checkout — which
+# lets `switch runtime` from any clone agree on one backend. It is a launcher fact,
+# NOT an MCP-server setting (the MCP server only calls backend_url and is
+# indifferent to how the backend is launched), so it is never written to
+# mcp-config.json. The process-mode control surface (pidfile, log, start/stop)
+# lives in ``services.local_backend_process``.
+_BACKEND_RUNTIME_BASENAME = "backend-runtime"
+
+
+def specflow_home_dir(home: Path | None = None) -> Path:
+    """The per-user SpecFlow home (``~/.specflow``); ``home`` injectable for tests."""
+    return (home or Path.home()) / SPECFLOW_HOME_DIRNAME
+
+
+class BackendRuntime(StrEnum):
+    """Where/how the backend service is launched (mcp_server view).
+
+    Byte-identical to the backend's ``app.core.enums.BackendRuntime``; the two
+    packages can't import each other, so — like the MCP-side run_generation
+    precheck mirroring the backend contract validator — this is a deliberate,
+    minimal duplication of the shared string contract.
+    """
+
+    DOCKER = "docker"
+    PROCESS = "process"
+
+    @classmethod
+    def parse(cls, raw: str | None) -> "BackendRuntime":
+        """Case-insensitive parse; unknown/empty → DOCKER (the safe default)."""
+        if raw:
+            value = raw.strip().lower()
+            for member in cls:
+                if member.value == value:
+                    return member
+        return cls.DOCKER
+
+    @classmethod
+    def parse_strict(cls, raw: str | None) -> "BackendRuntime | None":
+        """Like :meth:`parse` but returns ``None`` for unknown/empty instead of
+        defaulting to DOCKER — lets callers tell "never chosen" from "chose docker"."""
+        if raw:
+            value = raw.strip().lower()
+            for member in cls:
+                if member.value == value:
+                    return member
+        return None
+
+
+def backend_runtime_path(home: Path | None = None) -> Path:
+    return specflow_home_dir(home) / _BACKEND_RUNTIME_BASENAME
+
+
+def read_saved_runtime(home: Path | None = None) -> "BackendRuntime | None":
+    """The runtime the launcher's first-run chooser persisted, or ``None``.
+
+    ``None`` means "not chosen yet" (file absent or unrecognized) — deliberately
+    distinct from ``BackendRuntime.DOCKER`` so the startup gate can decide whether
+    to prompt.
+    """
+    try:
+        raw = backend_runtime_path(home).read_text()
+    except OSError:
+        return None
+    return BackendRuntime.parse_strict(raw)
+
+
+def save_backend_runtime(runtime: "BackendRuntime", home: Path | None = None) -> Path:
+    """Persist the launcher's runtime choice under ``~/.specflow`` (beside the
+    pidfile). Not written to mcp-config.json — see the module constants."""
+    path = backend_runtime_path(home)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(runtime.value)
+    return path
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +431,23 @@ async def start_containers(root: Path, on_line: Callable[[str], None] | None = N
     process exit code; non-zero surfaces through the streamed output.
     """
     return await _stream_subprocess(["docker", "compose", "up", "-d", "--no-build"], root, on_line)
+
+
+async def stop_containers(root: Path, on_line: Callable[[str], None] | None = None) -> int:
+    """Stop the SpecFlow stack (``docker compose down``), streamed.
+
+    The counterpart to :func:`start_containers`, used when switching away from the
+    docker runtime. Returns the process exit code; non-zero surfaces through the
+    streamed output.
+    """
+    return await _stream_subprocess(["docker", "compose", "down"], root, on_line)
+
+
+def docker_cli_available() -> bool:
+    """True iff the ``docker`` CLI is on PATH — a cheap preflight before trying to
+    start the docker stack (distinct from :func:`containers_running`, which asks
+    whether the stack is already up)."""
+    return shutil.which("docker") is not None
 
 
 # ---------------------------------------------------------------------------
