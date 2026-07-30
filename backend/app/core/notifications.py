@@ -387,7 +387,7 @@ def build_coding_complete_pre_deploy_response(
                 workspace_path="",
                 total_hours=0.0,
                 total_effective_output=0.0,
-                component_breakdown={},
+                phase_breakdown={},
                 estimation_metrics=zero_metrics,
                 commits_count=0,
                 p10y_scored_commits=0,
@@ -414,10 +414,10 @@ def build_coding_complete_pre_deploy_response(
         ),
     )
     comparative_analysis = ComparativeAnalysis(
-        component_comparison={},
-        high_variance_components=[],
+        phase_comparison={},
+        high_variance_phases=[],
         insights=[
-            "P10Y hour estimates and component breakdown are not available yet; "
+            "P10Y hour estimates and phase breakdown are not available yet; "
             "they will be included in the final notification after deployment and the P10Y phase.",
         ],
     )
@@ -821,20 +821,20 @@ class SlackNotifier(Notifier):
                     if cost_ln:
                         lines.append(cost_ln)
 
-                    # Component breakdown: show top components by hours
-                    component_breakdown = getattr(ws_est, "component_breakdown", None)
-                    if component_breakdown:
-                        sorted_comps = sorted(
-                            component_breakdown.items(),
+                    # Phase breakdown: show phases by hours (highest first)
+                    phase_breakdown = getattr(ws_est, "phase_breakdown", None)
+                    if phase_breakdown:
+                        sorted_phases = sorted(
+                            phase_breakdown.items(),
                             key=lambda kv: getattr(kv[1], "hours", 0.0),
                             reverse=True,
                         )
-                        comp_parts = [
-                            f"{name}: {getattr(comp, 'hours', 0.0):.1f}h"
-                            for name, comp in sorted_comps
+                        phase_parts = [
+                            f"{getattr(ph, 'phase_name', key)}: {getattr(ph, 'hours', 0.0):.1f}h"
+                            for key, ph in sorted_phases
                         ]
-                        if comp_parts:
-                            lines.append("  " + " | ".join(comp_parts))
+                        if phase_parts:
+                            lines.append("  " + " | ".join(phase_parts))
 
                     blocks.append({
                         "type": "section",
@@ -1195,40 +1195,44 @@ def render_generation_session_report_html(
             except Exception as e:
                 logger.warning(f"Failed to retrieve workspace {workspace_id}: {e}")
 
-    # Extract component breakdown
-    component_breakdown = {}
+    # Extract per-phase breakdown (phase key "NN"/"unphased" -> number, name, per-workspace hours)
+    phase_breakdown = {}
     if workspace_estimations:
-        # Collect all unique components across all workspaces
-        all_components = set()
+        # Collect all unique phase keys across all workspaces
+        all_keys = set()
         for ws_est in workspace_estimations:
             try:
-                if hasattr(ws_est, 'component_breakdown') and ws_est.component_breakdown:
-                    all_components.update(ws_est.component_breakdown.keys())
+                if hasattr(ws_est, 'phase_breakdown') and ws_est.phase_breakdown:
+                    all_keys.update(ws_est.phase_breakdown.keys())
             except (AttributeError, TypeError):
-                continue  # Skip this workspace if component_breakdown is missing or invalid
+                continue  # Skip this workspace if phase_breakdown is missing or invalid
 
-        # Build component breakdown with hours per workspace
-        for component_name in sorted(all_components):
-            component_data = {
-                "name": component_name,
+        # Build phase breakdown with hours per workspace (plan order; unphased sorts last)
+        for phase_key in sorted(all_keys):
+            phase_data = {
+                "key": phase_key,
+                "number": None,
+                "name": phase_key,
                 "workspaces": {}
             }
             for ws_est in workspace_estimations:
                 try:
-                    if (hasattr(ws_est, 'component_breakdown') and 
-                        component_name in ws_est.component_breakdown):
-                        comp = ws_est.component_breakdown[component_name]
+                    if (hasattr(ws_est, 'phase_breakdown') and
+                        phase_key in ws_est.phase_breakdown):
+                        ph = ws_est.phase_breakdown[phase_key]
+                        phase_data["number"] = getattr(ph, 'phase_number', None)
+                        phase_data["name"] = getattr(ph, 'phase_name', phase_key)
                         workspace_name = getattr(ws_est, 'workspace_name', 'unknown')
-                        component_data["workspaces"][workspace_name] = {
-                            "hours": getattr(comp, 'hours', 0.0),
-                            "new_work": getattr(comp, 'new_work', 0.0),
-                            "refactor": getattr(comp, 'refactor', 0.0),
-                            "rework": getattr(comp, 'rework', 0.0),
-                            "quality_score": getattr(comp, 'quality_score', 0.0)
+                        phase_data["workspaces"][workspace_name] = {
+                            "hours": getattr(ph, 'hours', 0.0),
+                            "new_work": getattr(ph, 'new_work', 0.0),
+                            "refactor": getattr(ph, 'refactor', 0.0),
+                            "rework": getattr(ph, 'rework', 0.0),
+                            "quality_score": getattr(ph, 'quality_score', 0.0)
                         }
                 except (AttributeError, TypeError, KeyError):
-                    continue  # Skip this workspace/component if data is missing
-            component_breakdown[component_name] = component_data
+                    continue  # Skip this workspace/phase if data is missing
+            phase_breakdown[phase_key] = phase_data
 
     # Build HTML content
     html_parts = []
@@ -1355,13 +1359,14 @@ def render_generation_session_report_html(
         html_parts.append('</div>')
         html_parts.append('</div>')
 
-    # Component breakdown section
-    if component_breakdown:
+    # Phase breakdown section
+    if phase_breakdown:
         html_parts.append('<div class="section">')
-        html_parts.append('<h2>Component Complexity Metrics Breakdown</h2>')
+        html_parts.append('<h2>Phase Breakdown</h2>')
         html_parts.append('<table>')
         html_parts.append('<thead><tr>')
-        html_parts.append('<th>Component</th>')
+        html_parts.append('<th>Phase #</th>')
+        html_parts.append('<th>Phase</th>')
         # Add workspace columns
         if workspace_estimations:
             for ws_est in workspace_estimations:
@@ -1373,16 +1378,18 @@ def render_generation_session_report_html(
         html_parts.append('</tr></thead>')
         html_parts.append('<tbody>')
 
-        for component_name, component_data in component_breakdown.items():
+        for _phase_key, phase_data in phase_breakdown.items():
+            num = f'{phase_data["number"]:02d}' if phase_data["number"] is not None else '—'
             html_parts.append('<tr>')
-            html_parts.append(f'<td><strong>{component_name}</strong></td>')
+            html_parts.append(f'<td>{num}</td>')
+            html_parts.append(f'<td><strong>{phase_data["name"]}</strong></td>')
             # Add hours for each workspace
             if workspace_estimations:
                 for ws_est in workspace_estimations:
                     try:
                         ws_name = getattr(ws_est, 'workspace_name', 'unknown')
-                        if ws_name in component_data["workspaces"]:
-                            hours = component_data["workspaces"][ws_name]["hours"]
+                        if ws_name in phase_data["workspaces"]:
+                            hours = phase_data["workspaces"][ws_name]["hours"]
                             html_parts.append(f'<td>{hours:.1f}</td>')
                         else:
                             html_parts.append('<td>-</td>')
@@ -1457,11 +1464,11 @@ def render_generation_session_report_html(
                     pass
         plain_parts.append("")
 
-    if component_breakdown:
-        plain_parts.append("COMPONENT BREAKDOWN:")
+    if phase_breakdown:
+        plain_parts.append("PHASE BREAKDOWN:")
         plain_parts.append("-" * 60)
         # Build header
-        header = "Component"
+        header = "Phase"
         if workspace_estimations:
             for ws_est in workspace_estimations:
                 try:
@@ -1472,14 +1479,15 @@ def render_generation_session_report_html(
         plain_parts.append(header)
         plain_parts.append("-" * len(header))
 
-        for component_name, component_data in component_breakdown.items():
-            row = component_name
+        for _phase_key, phase_data in phase_breakdown.items():
+            num = f'{phase_data["number"]:02d}' if phase_data["number"] is not None else '—'
+            row = f'{num} {phase_data["name"]}'
             if workspace_estimations:
                 for ws_est in workspace_estimations:
                     try:
                         ws_name = getattr(ws_est, 'workspace_name', 'unknown')
-                        if ws_name in component_data["workspaces"]:
-                            hours = component_data["workspaces"][ws_name]["hours"]
+                        if ws_name in phase_data["workspaces"]:
+                            hours = phase_data["workspaces"][ws_name]["hours"]
                             row += f" | {hours:.1f}"
                         else:
                             row += " | -"

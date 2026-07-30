@@ -29,7 +29,7 @@ from typing import Dict, Optional
 from app.core.artifact_subdirs import ANALYSIS_SUBDIR, PLANNING_SUBDIR
 from app.core.telemetry_context import TelemetryContext
 from app.prompts.agents_claude_code import E2E_PHASES_FILE, PLANNING_PHASES_FILE
-from app.schemas.estimate import ComponentEstimation, EstimationMetrics, WorkspaceEstimation
+from app.schemas.estimate import PhaseEstimation, EstimationMetrics, WorkspaceEstimation
 from app.schemas.model_token_usage import ModelTokenUsage
 from app.schemas.planning import PhaseInfo, PlanningResult, PlanType
 from app.schemas.specification import SpecReadiness, SpecificationCompletenessResult
@@ -906,10 +906,11 @@ def create_mock_workspace_estimation(
     effective_output = new_work + refactor
     total_output = new_work + refactor + rework + removed_work
 
-    # Single component that covers the mock code
-    component_breakdown: Dict[str, ComponentEstimation] = {
-        "specifications": ComponentEstimation(
-            component_name="specifications",
+    # Single phase that covers the mock code
+    phase_breakdown: Dict[str, PhaseEstimation] = {
+        "01": PhaseEstimation(
+            phase_number=1,
+            phase_name="Phase 1",
             hours=total_hours,
             new_work=new_work,
             refactor=refactor,
@@ -938,10 +939,11 @@ def create_mock_workspace_estimation(
         workspace_path=str(workspace.workspace_path),
         total_hours=total_hours,
         total_effective_output=effective_output,
-        component_breakdown=component_breakdown,
+        phase_breakdown=phase_breakdown,
         estimation_metrics=estimation_metrics,
         commits_count=1,
         p10y_scored_commits=1,
+        p10y_returned_commits=1,
         model_usage=ModelTokenUsage(model_name=workspace.model or ""),
     )
 

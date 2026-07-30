@@ -52,9 +52,9 @@ from app.services.p10y.estimation_report_generator import format_multi_workspace
 from app.services.p10y.multi_workspace_estimation import (
     calculate_estimation_statistics,
     estimate_single_workspace,
-    generate_component_comparison,
+    generate_phase_comparison,
     generate_insights,
-    identify_high_variance_components,
+    identify_high_variance_phases,
 )
 from app.services.p10y.p10y_api_client import P10YInternalAPIClient
 from app.services.p10y.p10y_lib import (
@@ -83,6 +83,7 @@ async def _process_single_workspace(
     client: P10YInternalAPIClient,
     settings: Settings,
     logger: logging.Logger,
+    phase_names: Optional[Dict[int, str]] = None,
 ) -> WorkspaceEstimation | None:
     """
     Process estimation for a single workspace.
@@ -144,7 +145,7 @@ async def _process_single_workspace(
         )
         
         # Fetch and filter commit stats
-        filtered_commit_stats_data = await fetch_and_filter_commit_stats(
+        filtered = await fetch_and_filter_commit_stats(
             client=client,
             repository_id=workspace.p10y_repository_id,
             organisation_id=settings.P10Y_ORGANISATION_ID,
@@ -157,10 +158,12 @@ async def _process_single_workspace(
         # uses the same snapshot that was used to build the P10Y allowlist)
         workspace_estimation = await estimate_single_workspace(
             workspace=workspace,
-            filtered_commit_stats_data=filtered_commit_stats_data,
+            filtered_commit_stats_data=filtered.rows,
             code_generation_metadata=code_generation_metadata,
             logger=logger,
             multiplier=2.0,  # Standard productivity multiplier
+            phase_names=phase_names,
+            p10y_returned_commits=filtered.returned_count,
         )
         
         if workspace_estimation:
@@ -204,6 +207,33 @@ def _aggregate_p10y_commit_coverage_pct(
     return (scored / eligible) * 100.0
 
 
+async def _load_phase_names(
+    generation_id: Optional[str],
+    db_adapter: Optional[StateMachineDBAdapter],
+    logger: logging.Logger,
+) -> Dict[int, str]:
+    """Map phase number -> name from the shared implementation plan (Firestore planning_data).
+
+    The phase number is the cross-variant join key; names come from the single shared plan,
+    so every variant labels the same phase identically. Returns {} when unavailable (labels
+    then fall back to "Phase N").
+    """
+    if not generation_id or not db_adapter:
+        return {}
+    try:
+        doc = await db_adapter.get_generation_session(generation_id)
+    except Exception as e:
+        logger.warning("Could not load planning_data for phase names: %s", e)
+        return {}
+    phases = ((doc or {}).get("planning_data") or {}).get("phases") or []
+    names: Dict[int, str] = {}
+    for p in phases:
+        num = p.get("number")
+        if isinstance(num, int):
+            names[num] = p.get("name") or f"Phase {num}"
+    return names
+
+
 def _skipped_workspaces_from_parallel(
     parallel_results: List[ParallelGenerationResult],
 ) -> List[SkippedWorkspaceP10Y]:
@@ -240,8 +270,8 @@ def _build_comparative_analysis(
             variance_assessment="high",
         )
         comparative_analysis = ComparativeAnalysis(
-            component_comparison={},
-            high_variance_components=[],
+            phase_comparison={},
+            high_variance_phases=[],
             insights=[
                 "No workspace produced hour estimates from P10Y in this run; "
                 "check skipped workspaces and P10Y service availability.",
@@ -260,26 +290,26 @@ def _build_comparative_analysis(
         f"variance={summary.variance_assessment}"
     )
     
-    # Generate component comparison
-    component_comparison = generate_component_comparison(workspace_estimations)
+    # Generate per-phase comparison
+    phase_comparison = generate_phase_comparison(workspace_estimations)
     
-    # Identify high variance components
-    high_variance_components = identify_high_variance_components(component_comparison)
+    # Identify high variance phases
+    high_variance_phases = identify_high_variance_phases(phase_comparison)
     
-    if high_variance_components:
+    if high_variance_phases:
         logger.info(
-            f"High variance components: {', '.join(high_variance_components)}"
+            f"High variance phases: {', '.join(high_variance_phases)}"
         )
     
     # Generate insights
     insights = generate_insights(
-        workspace_estimations, summary, high_variance_components
+        workspace_estimations, summary, high_variance_phases
     )
     
     # Build comparative analysis
     comparative_analysis = ComparativeAnalysis(
-        component_comparison=component_comparison,
-        high_variance_components=high_variance_components,
+        phase_comparison=phase_comparison,
+        high_variance_phases=high_variance_phases,
         insights=insights,
     )
     
@@ -343,19 +373,19 @@ async def _generate_ai_report(
             f"### {ws_est.workspace_name}\n"
             f"- Total Hours: {ws_est.total_hours:.1f}\n"
             f"- Commits: {ws_est.commits_count}\n"
-            f"- Components: {len(ws_est.component_breakdown)}\n"
+            f"- Phases: {len(ws_est.phase_breakdown)}\n"
             f"- New Work: {ws_est.estimation_metrics.new_work:.1f}\n"
             f"- Refactor: {ws_est.estimation_metrics.refactor:.1f}\n"
             f"- Quality Score: {ws_est.estimation_metrics.quality_score:.2f}\n"
         )
     
-    # Format component comparison
-    component_comparison_text = []
-    for comp_name, comp_comp in sorted(comparative_analysis.component_comparison.items()):
-        component_comparison_text.append(
-            f"**{comp_name}**: avg={comp_comp.average:.1f}h, "
-            f"std={comp_comp.std_deviation:.1f}h, "
-            f"variance={comp_comp.variance_percentage:.1f}%"
+    # Format per-phase comparison
+    phase_comparison_text = []
+    for _key, comp in sorted(comparative_analysis.phase_comparison.items()):
+        phase_comparison_text.append(
+            f"**{comp.phase_name}**: avg={comp.average:.1f}h, "
+            f"std={comp.std_deviation:.1f}h, "
+            f"variance={comp.variance_percentage:.1f}%"
         )
     
     # Construct full output path using primary workspace (first in list)
@@ -401,7 +431,7 @@ async def _generate_ai_report(
             system_prompt=estimation_report_agent_template(
                 summary=summary,
                 workspace_summaries=workspace_summaries,
-                component_comparison_text=component_comparison_text,
+                phase_comparison_text=phase_comparison_text,
                 comparative_analysis=comparative_analysis,
                 full_outputs_dir=full_outputs_dir,
                 model=final_model,
@@ -517,6 +547,10 @@ async def multi_workspace_estimation_p10y_workflow(
     # interrupts this phase's sleeps on the owning pod. A cross-pod cancel during P10Y
     # simply lets this bounded, read-only phase finish and lands the session in CANCELLED
     # without a spurious failure notification (fail() rejects the terminal state).
+    # Phase names come from the shared implementation plan (Firestore planning_data); the phase
+    # number is the cross-variant join key, so names are identical across workspaces.
+    phase_names = await _load_phase_names(request.generation_id, db_adapter, logger)
+
     logger.info("Executing estimations in parallel...")
     parallel_results = await execute_generation_parallel(
         workspaces=workspaces,
@@ -527,6 +561,7 @@ async def multi_workspace_estimation_p10y_workflow(
             "client": client,
             "settings": settings,
             "logger": logger,
+            "phase_names": phase_names,
         },
         logger=logger,
     )

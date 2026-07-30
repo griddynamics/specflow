@@ -369,14 +369,14 @@ class TestGenerateAiReport:
             variance_assessment="low",
         )
         comparative = ComparativeAnalysis(
-            component_comparison={}, high_variance_components=[], insights=[],
+            phase_comparison={}, high_variance_phases=[], insights=[],
         )
         ws_est = WorkspaceEstimation(
             workspace_name="ws-1",
             workspace_path=str(tmp_path),
             total_hours=100.0,
             total_effective_output=50.0,
-            component_breakdown={},
+            phase_breakdown={},
             estimation_metrics=EstimationMetrics(
                 new_work=10.0,
                 refactor=0.0,
@@ -433,14 +433,14 @@ class TestGenerateAiReport:
             variance_assessment="low",
         )
         comparative = ComparativeAnalysis(
-            component_comparison={}, high_variance_components=[], insights=[],
+            phase_comparison={}, high_variance_phases=[], insights=[],
         )
         ws_est = WorkspaceEstimation(
             workspace_name="ws-1",
             workspace_path=str(tmp_path),
             total_hours=100.0,
             total_effective_output=50.0,
-            component_breakdown={},
+            phase_breakdown={},
             estimation_metrics=EstimationMetrics(
                 new_work=10.0,
                 refactor=0.0,

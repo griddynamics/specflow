@@ -844,9 +844,10 @@ def phase_workflow_instructions(outputs_dir: str, phase_number: int):
           - Write the code following all engineering standards above
           - Write unit tests for the functionality
           - Verify code integrity (run linters/tests if the environment allows)
-          - **COMMIT** the changes with proper component attribution (see {COMMIT_STANDARDS_FILE_REL})
-            * **Strict subject line**: `<component>_<action and subject>` (underscore after component name, rest is free text)
-            * Example: `backend_implement JWT token generation and validation`
+          - **COMMIT** the changes with a clear, descriptive message (see {COMMIT_STANDARDS_FILE_REL})
+            * **Subject line**: a plain `<action> <subject>` — do NOT add any component or phase prefix
+            * The implementation-plan phase prefix (`pNN_`) is added automatically by a git hook
+            * Example: `implement JWT token generation and validation`
             * Do not mention contributors or coauthors
             * **IMPORTANT — only your phase commits**:
               - After each commit, optionally run `git log -1 --oneline` to confirm the message matches the schema
@@ -948,13 +949,11 @@ def generate_production_agent_template(
         - **CRITICAL:** Whenever a logical component (e.g., a specific service, a feature, a module, or a set of related tests) is finished and stable, you must run `git add` and `git commit` with a descriptive message.
         - This commit history represents the "human" progress timeline.
     
-    4.  **Commit Strategy & Component Tracking (LOCKED GRANULARITY):**
+    4.  **Commit Strategy (LOCKED GRANULARITY):**
         - **REQUIRED**: Follow commit standards defined in {COMMIT_STANDARDS_FILE_REL}
-        - **MANDATORY**: Every commit subject encodes one primary component using this **strict first-line format**:
-          `<component>_<action and subject>`
-          - The **first** underscore separates the component token from the rest (e.g. `backend_implement user service`).
-          - Use a component token from {COMMIT_STANDARDS_FILE_REL} (`backend`, `frontend`, `mobile`, `testing`, `infrastructure`, …).
-        - See {COMMIT_STANDARDS_FILE_REL} for component list, `SKIP_` rules for non-generation commits, and examples
+        - Write a plain, descriptive `<action> <subject>` first line — do NOT add any component or phase prefix yourself.
+        - The implementation-plan phase prefix (`pNN_`) is added automatically by a git hook, so P10Y attribution never depends on your commit hygiene.
+        - See {COMMIT_STANDARDS_FILE_REL} for the `SKIP_` rule for non-generation commits, and examples
         - **CRITICAL: COMMIT GRANULARITY IS STANDARDIZED**
           - **Target**: 40-50 commits for typical applications (scales with complexity)
         - Commit when completing a logical unit within a single component or a phase
@@ -1431,7 +1430,7 @@ Please review your previous work:
 def estimation_report_agent_template(
     summary: EstimationSummary,
     workspace_summaries: List[str],
-    component_comparison_text: str,
+    phase_comparison_text: str,
     comparative_analysis: ComparativeAnalysis,
     full_outputs_dir: str,
     model: str,
@@ -1452,11 +1451,11 @@ def estimation_report_agent_template(
     ### Workspace Results:
     {chr(10).join(workspace_summaries)}
 
-    ### Component Comparison:
-    {chr(10).join(component_comparison_text)}
+    ### Phase Comparison:
+    {chr(10).join(phase_comparison_text)}
 
-    ### High Variance Components:
-    {', '.join(comparative_analysis.high_variance_components) if comparative_analysis.high_variance_components else 'None'}
+    ### High Variance Phases:
+    {', '.join(comparative_analysis.high_variance_phases) if comparative_analysis.high_variance_phases else 'None'}
 
     ### Key Insights:
     {chr(10).join(f"- {insight}" for insight in comparative_analysis.insights)}

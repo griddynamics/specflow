@@ -80,7 +80,7 @@ class TestBuildDashboard:
         out = self._render(tui_app.build_dashboard(None, Path("/tmp/x"), "gen_x"))
         assert "Waiting for status" in out
 
-    def test_completed_renders_component_breakdown(self):
+    def test_completed_renders_phase_breakdown(self):
         payload = {
             "generation_id": "gen_x",
             "status": "completed",
@@ -90,9 +90,10 @@ class TestBuildDashboard:
                 "summary": {"average_hours": 318},
                 "workspace_estimations": [],
                 "comparative_analysis": {
-                    "component_comparison": {
-                        "auth": {
-                            "component_name": "auth",
+                    "phase_comparison": {
+                        "07": {
+                            "phase_number": 7,
+                            "phase_name": "Auth API",
                             "average": 40.0,
                             "variance_percentage": 12.0,
                         }
@@ -101,9 +102,33 @@ class TestBuildDashboard:
             },
         }
         out = self._render(tui_app.build_dashboard(payload, Path("/tmp/acme"), "gen_x"))
-        assert "auth" in out
+        assert "Auth API" in out
         assert "40" in out
         assert "12%" in out
+        assert "07" in out
+
+    def test_buffer_percentage_is_scaled_to_percent(self):
+        # total_buffer_pct is a fraction (0.83); the panel must render +83%, not +1%.
+        payload = {
+            "generation_id": "gen_x",
+            "status": "completed",
+            "checkpoint": "estimation_done",
+            "progress": {"workspace_phases": {}},
+            "result": {
+                "summary": {
+                    "average_hours": 151,
+                    "risk_assessment": {
+                        "status": "Approved",
+                        "total_buffer_pct": 0.83,
+                        "final_estimate": 277,
+                    },
+                },
+                "workspace_estimations": [],
+            },
+        }
+        out = self._render(tui_app.build_dashboard(payload, Path("/tmp/acme"), "gen_x"))
+        assert "+83%" in out
+        assert "+1%" not in out
 
     def test_completed_renders_report_hint(self):
         # The report file lives inside the backend container, not on the host

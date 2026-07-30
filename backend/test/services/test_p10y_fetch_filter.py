@@ -53,8 +53,9 @@ async def test_fetch_and_filter_only_exact_local_shas() -> None:
         logger=logger,
     )
 
-    assert len(out) == 1
-    assert out[0]["sha"] == current
+    assert len(out.rows) == 1
+    assert out.rows[0]["sha"] == current
+    assert out.returned_count == 1
 
 
 @pytest.mark.asyncio
@@ -80,4 +81,4 @@ async def test_fetch_and_filter_case_insensitive_and_dedupes() -> None:
         logger=logger,
     )
 
-    assert len(out) == 1
+    assert len(out.rows) == 1

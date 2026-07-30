@@ -213,7 +213,7 @@ class TestEstimatePanel:
         assert panel.risk_status == "Approved"
         assert panel.per_workspace == [("ws-01-1", 305.0), ("ws-01-2", 331.0)]
         assert panel.total_usd_cost == 94.1
-        assert panel.component_comparison == []
+        assert panel.phase_comparison == []
 
     def test_partial_result_is_tolerant(self):
         panel = render.estimate_panel({"result": {"summary": {"average_hours": 100}}})
@@ -221,20 +221,47 @@ class TestEstimatePanel:
         assert panel.risk_status is None
         assert panel.per_workspace == []
 
-    def test_component_comparison_sorted_by_variance_descending(self):
+    def test_phase_comparison_sorted_by_phase_number(self):
         result = {
             "summary": {},
             "comparative_analysis": {
-                "component_comparison": {
-                    "auth": {"component_name": "auth", "average": 40.0, "variance_percentage": 5.0},
-                    "billing": {"component_name": "billing", "average": 20.0, "variance_percentage": 25.0},
+                "phase_comparison": {
+                    "13": {"phase_number": 13, "phase_name": "Frontend", "average": 20.0, "variance_percentage": 25.0},
+                    "06": {"phase_number": 6, "phase_name": "Backend", "average": 40.0, "variance_percentage": 5.0},
                 }
             },
         }
         panel = render.estimate_panel({"result": result})
-        assert [row.component_name for row in panel.component_comparison] == ["billing", "auth"]
-        assert panel.component_comparison[0].average_hours == 20.0
-        assert panel.component_comparison[0].variance_percentage == 25.0
+        # Plan/timeline order (ascending by phase number), not variance order.
+        assert [row.phase_number for row in panel.phase_comparison] == [6, 13]
+        assert [row.phase_name for row in panel.phase_comparison] == ["Backend", "Frontend"]
+        assert panel.phase_comparison[0].average_hours == 40.0
+
+    def test_unphased_row_sorts_last(self):
+        result = {
+            "summary": {},
+            "comparative_analysis": {
+                "phase_comparison": {
+                    "unphased": {"phase_number": None, "phase_name": "unphased", "average": 5.0, "variance_percentage": 0.0},
+                    "06": {"phase_number": 6, "phase_name": "Backend", "average": 40.0, "variance_percentage": 5.0},
+                }
+            },
+        }
+        panel = render.estimate_panel({"result": result})
+        assert [row.phase_number for row in panel.phase_comparison] == [6, None]
+
+
+class TestTruncate:
+    def test_short_string_unchanged(self):
+        assert render.truncate("Backend", 32) == "Backend"
+
+    def test_long_string_gets_ellipsis(self):
+        result = render.truncate("A very long phase description name", 10)
+        assert result == "A very lo…"
+        assert len(result) == 10
+
+    def test_none_is_safe(self):
+        assert render.truncate(None, 5) == ""
 
 
 class _Event:

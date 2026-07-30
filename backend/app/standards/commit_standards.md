@@ -3,7 +3,7 @@
 ## Purpose
 This document defines commit hygiene standards for code generation workflows to ensure:
 - Accurate P10Y metrics tracking
-- Clear component attribution
+- Clear phase attribution (which implementation-plan phase produced the work)
 - Proper granularity for generation breakdowns
 - Consistent commit history
 
@@ -15,7 +15,7 @@ CRITICAL: add to .gitignore folders like .venv, node_modules, package-lock.json 
 ### Ideal Commit Size
 - **50-300 lines of code changed** (optimal range)
 - Single logical unit of work
-- One component or closely related components
+- One feature or closely related change
 - Atomic: can be reverted without breaking unrelated features
 - Complete with tests (when applicable)
 
@@ -30,13 +30,13 @@ CRITICAL: add to .gitignore folders like .venv, node_modules, package-lock.json 
 - After setting up infrastructure or configuration that works end-to-end
 - After writing a batch of related tests for a feature
 
-**Examples of good commits:**
-- `backend_implement JWT token generation and validation`
-- `frontend_add user profile form with validation`
-- `database_create users and roles tables with migrations`
-- `api_add REST endpoints for product catalog`
-- `infrastructure_setup Docker compose with PostgreSQL and Redis`
-- `testing_add integration tests for authentication flow`
+**Examples of good commits** (you write the plain subject; the hook adds the phase prefix):
+- `implement JWT token generation and validation`
+- `add user profile form with validation`
+- `create users and roles tables with migrations`
+- `add REST endpoints for product catalog`
+- `setup Docker compose with PostgreSQL and Redis`
+- `add integration tests for authentication flow`
 
 ### When NOT to Commit ❌
 
@@ -47,7 +47,7 @@ CRITICAL: add to .gitignore folders like .venv, node_modules, package-lock.json 
 - When code doesn't compile or has obvious errors
 
 **Examples of bad commits:**
-- `Update everything` (too broad, no clear component)
+- `Update everything` (too broad)
 - `Fix typo` (too small, should be bundled with feature work)
 - `WIP` (incomplete work, not atomic)
 - `Add all files` (too large, no clear scope)
@@ -57,31 +57,23 @@ CRITICAL: add to .gitignore folders like .venv, node_modules, package-lock.json 
 
 ### Standard Format (first line of commit message)
 
-Use an **underscore** after the component token (metadata is parsed from `git log`, not from a JSON file):
+Write a plain, descriptive first line:
 
 ```
-<component>_<action> <subject>
+<action> <subject>
 ```
 
-Example: `backend_implement JWT token generation`
+Example: `implement JWT token generation`
 
-Commits whose subject starts with **`SKIP_`** (case-insensitive) are **excluded** from P10Y / generation (e.g. `SKIP_initial_user_source` for user-provided seed code).
+**Do NOT add a component or phase prefix yourself.** During generation a `prepare-commit-msg` git
+hook automatically prepends the current implementation-plan phase as `p<NN>_` (for example
+`p07_implement JWT token generation`). P10Y groups commits by that phase prefix, so attribution is
+deterministic and does not depend on your commit hygiene. Metadata is parsed from `git log`, not
+from a JSON file.
 
-### Components
-Stick to already known component names, choose the closest matching name.
-Valid component identifiers:
-- `frontend` - UI/client-side code
-- `backend` - Server-side application logic
-- `api` - API endpoints and contracts
-- `database` - Database schemas, migrations, models
-- `auth` - Authentication and authorization
-- `infrastructure` - Docker, deployment, CI/CD
-- `testing` - Test code, test infrastructure
-- `documentation` - README, docs, comments
-- `pipeline` - data pipelines, orchestration of data projects
-- `ml` - machine learning and data science, features, model training, A/B tests, evaluation, notebooks
-- `mobile` - Mobile clients, native apps, cross-platform app manifests and build configuration
-- `common` - Cross-cutting concerns, project setup
+Commits whose subject starts with **`SKIP_`** (case-insensitive) are **excluded** from P10Y /
+generation (e.g. `SKIP_initial_user_source` for user-provided seed code). The hook never adds a
+phase prefix to `SKIP_` commits.
 
 ### Actions
 Common action verbs:
@@ -98,16 +90,13 @@ Common action verbs:
 
 **Good commit messages:**
 ```
-backend_implement JWT token generation
-frontend_add user profile form component
-database_create initial schema with users table
-api_add REST endpoints for order management
-infrastructure_configure Docker Compose for local development
-testing_add unit tests for payment service
-common_setup project structure and dependencies
-mobile_configure app manifest and build settings
-frontend_refactor state management to use Redux Toolkit
-backend_fix validation error handling in user endpoints
+implement JWT token generation
+add user profile form component
+create initial schema with users table
+add REST endpoints for order management
+configure Docker Compose for local development
+add unit tests for payment service
+setup project structure and dependencies
 ```
 
 **Bad commit messages:**
@@ -116,37 +105,20 @@ update stuff
 fix
 changes
 wip
-backend do things (missing underscore after component)
 implement everything (too broad)
 ```
 
-## Component Attribution Rules
+## Phase Attribution (automatic)
 
-### Single Component Changes
-When changes affect only one component:
-- Single commit with single component identifier
-- Example: `backend_implement password hashing`
+Generation runs phase-by-phase from the implementation plan. Before each phase the harness records
+the active phase number, and the `prepare-commit-msg` hook stamps every commit you make during that
+phase with `p<NN>_`. Each included commit's subject is split on the **first** underscore for phase
+grouping.
 
-### Multi-Component Changes
-When a feature requires changes across multiple components:
-- **Sequential commits per component** (preferred)
-- Each commit focuses on one component's changes
-- Maintains clear attribution for generation
-
-**Example sequence for a user registration feature:**
-1. `database_create users table and migration`
-2. `backend_implement user registration service`
-3. `api_add user registration endpoint`
-4. `frontend_add registration form component`
-5. `testing_add integration tests for user registration`
-
-### Cross-Cutting Changes
-For changes that truly affect multiple components simultaneously:
-- Prefer several single-component commits; if one commit must cover everything, use `common_<description>`
-
-## Metadata for P10Y (no JSON sidecar)
-
-Generation reads **`git log`** (oldest first, no merges). Each included commit’s subject is split on the **first** underscore for component grouping.
+- One commit belongs to exactly one phase — the phase active when you committed.
+- Prefer several small commits within a phase over one big commit.
+- Commits made outside a codegen phase (initial seed, deployment) are left unphased and reported
+  separately; you never need to manage the prefix yourself.
 
 ## Commit Workflow
 
@@ -160,12 +132,12 @@ Generation reads **`git log`** (oldest first, no merges). Each included commit�
 
 2. **Stage relevant files**
    ```bash
-   git add <files related to this component>
+   git add <files related to this change>
    ```
 
-3. **Create commit with proper message**
+3. **Create commit with a plain descriptive message** (the hook adds the phase prefix)
    ```bash
-   git commit -m "component_action and subject"
+   git commit -m "implement user registration service"
    ```
 
 4. **Push commit**
@@ -182,7 +154,7 @@ Generation reads **`git log`** (oldest first, no merges). Each included commit�
 
 ### The "Big Bang" Commit
 ❌ **Problem**: One massive commit with entire application
-- Impossible to attribute to specific components
+- Impossible to attribute to specific phases
 - Can't track granular progress
 - Difficult to review or debug
 
@@ -197,12 +169,11 @@ Generation reads **`git log`** (oldest first, no merges). Each included commit�
 ✅ **Solution**: Bundle related small changes into logical commits
 
 ### The "Mixed Bag" Commit
-❌ **Problem**: One commit touching frontend, backend, database, tests, docs
-- Can't attribute to specific component
+❌ **Problem**: One commit touching many unrelated areas at once
 - Breaks atomicity principle
 - Difficult to revert if needed
 
-✅ **Solution**: Split into sequential commits per component
+✅ **Solution**: Split into sequential, focused commits
 
 ### The "Vague Message" Commit
 ❌ **Problem**: Messages like "update", "fix", "changes"
@@ -210,5 +181,4 @@ Generation reads **`git log`** (oldest first, no merges). Each included commit�
 - Can't correlate with requirements
 - Poor documentation for future reference
 
-✅ **Solution**: Use descriptive format: `component_action and subject`
-
+✅ **Solution**: Use a descriptive `<action> <subject>` first line

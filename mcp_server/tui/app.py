@@ -154,7 +154,7 @@ def _workspaces_panel(payload: dict[str, Any], selected_ws_id: str | None = None
             Text(marker, style="yellow"),
             Text(bar.workspace_id, style=id_style),
             Text(bar.phase_label, style="cyan"),
-            Text(bar.phase_name[:32], style="dim"),
+            Text(render.truncate(bar.phase_name, 32), style="dim"),
             Text(render.progress_bar(bar.fraction), style="green"),
             Text(f"{bar.percent}%"),
         )
@@ -182,7 +182,7 @@ def _estimate_panel(payload: dict[str, Any]) -> Panel | None:
     if panel.min_hours is not None and panel.max_hours is not None:
         grid.add_row("Range", f"{panel.min_hours:.0f}–{panel.max_hours:.0f} h")
     if panel.total_buffer_pct is not None or panel.final_estimate is not None:
-        buf = f"+{panel.total_buffer_pct:.0f}%" if panel.total_buffer_pct is not None else ""
+        buf = f"+{panel.total_buffer_pct*100:.0f}%" if panel.total_buffer_pct is not None else ""
         final = f"  → {panel.final_estimate:.0f} h" if panel.final_estimate is not None else ""
         grid.add_row("Buffer", f"{buf}{final}".strip())
     if panel.per_workspace:
@@ -192,14 +192,17 @@ def _estimate_panel(payload: dict[str, Any]) -> Panel | None:
         grid.add_row("Total spend", f"${panel.total_usd_cost:.2f}")
 
     renderables: list[RenderableType] = [grid]
-    if panel.component_comparison:
+    if panel.phase_comparison:
         breakdown = Table(box=None, padding=(0, 2))
-        breakdown.add_column("Component", justify="left")
+        breakdown.add_column("Phase #", justify="right")
+        breakdown.add_column("Phase", justify="left")
         breakdown.add_column("Avg hours", justify="right")
         breakdown.add_column("Variance", justify="right")
-        for row in panel.component_comparison:
+        for row in panel.phase_comparison:
+            num = f"{row.phase_number:02d}" if row.phase_number is not None else "—"
             breakdown.add_row(
-                row.component_name,
+                num,
+                render.truncate(row.phase_name, 32),
                 f"{row.average_hours:.0f} h",
                 f"{row.variance_percentage:.0f}%",
             )

@@ -28,6 +28,12 @@ from tui.constants import (
 _IN_PROGRESS_STATUSES = frozenset({"running", "initializing", "pending"})
 
 
+def truncate(text: str, limit: int) -> str:
+    """Truncate to `limit` characters with a trailing ellipsis when it overflows."""
+    text = text or ""
+    return text if len(text) <= limit else text[: max(0, limit - 1)] + "…"
+
+
 @dataclass(frozen=True)
 class PipelineStep:
     """One step in the checkpoint stepper."""
@@ -68,10 +74,11 @@ class WorkspaceBar:
 
 
 @dataclass(frozen=True)
-class ComponentBreakdownRow:
-    """One row of the cross-workspace component comparison table."""
+class PhaseBreakdownRow:
+    """One row of the cross-workspace per-phase comparison table."""
 
-    component_name: str
+    phase_number: int | None
+    phase_name: str
     average_hours: float
     variance_percentage: float
 
@@ -90,7 +97,7 @@ class EstimatePanel:
     final_estimate: float | None
     per_workspace: list[tuple[str, float]] = field(default_factory=list)
     total_usd_cost: float | None = None
-    component_comparison: list[ComponentBreakdownRow] = field(default_factory=list)
+    phase_comparison: list[PhaseBreakdownRow] = field(default_factory=list)
 
 
 def status_pill(status: str | None) -> tuple[str, str]:
@@ -235,18 +242,20 @@ def clear_ws_ineligible_message(payload: dict[str, Any] | None) -> str:
     return "Nothing to clear — these workspaces are not awaiting cleanup."
 
 
-def _component_comparison_rows(result: dict[str, Any]) -> list[ComponentBreakdownRow]:
-    """Cross-workspace per-component breakdown, highest-variance first."""
-    comparison = (result.get("comparative_analysis") or {}).get("component_comparison") or {}
+def _phase_comparison_rows(result: dict[str, Any]) -> list[PhaseBreakdownRow]:
+    """Cross-workspace per-phase breakdown, in plan order (unphased last)."""
+    comparison = (result.get("comparative_analysis") or {}).get("phase_comparison") or {}
     rows = [
-        ComponentBreakdownRow(
-            component_name=data.get("component_name") or name,
+        PhaseBreakdownRow(
+            phase_number=data.get("phase_number"),
+            phase_name=data.get("phase_name") or name,
             average_hours=float(data.get("average") or 0.0),
             variance_percentage=float(data.get("variance_percentage") or 0.0),
         )
         for name, data in comparison.items()
     ]
-    rows.sort(key=lambda row: row.variance_percentage, reverse=True)
+    # Plan order (timeline); unphased (no number) sorts last.
+    rows.sort(key=lambda row: (row.phase_number is None, row.phase_number or 0))
     return rows
 
 
@@ -282,7 +291,7 @@ def estimate_panel(payload: dict[str, Any] | None) -> EstimatePanel | None:
         final_estimate=risk.get("final_estimate"),
         per_workspace=per_workspace,
         total_usd_cost=result.get("total_usd_cost"),
-        component_comparison=_component_comparison_rows(result),
+        phase_comparison=_phase_comparison_rows(result),
     )
 
 

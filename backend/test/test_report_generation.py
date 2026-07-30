@@ -6,8 +6,8 @@ import pytest
 
 from app.schemas.estimate import (
     ComparativeAnalysis,
-    ComponentComparison,
-    ComponentEstimation,
+    PhaseComparison,
+    PhaseEstimation,
     EstimationMetrics,
     EstimationSummary,
     SkippedWorkspaceP10Y,
@@ -15,7 +15,7 @@ from app.schemas.estimate import (
 )
 from app.services.p10y.estimation_report_generator import (
     create_comparison_table,
-    format_high_variance_components,
+    format_high_variance_phases,
     format_multi_workspace_report,
     format_workspace_breakdown,
     visualize_variance,
@@ -32,17 +32,19 @@ def sample_workspace_estimations():
             total_hours=150.0,
             total_effective_output=75.0,
             commits_count=15,
-            component_breakdown={
-                "backend": ComponentEstimation(
-                    component_name="backend",
+            phase_breakdown={
+                "06": PhaseEstimation(
+                    phase_number=6,
+                    phase_name="Backend Domain",
                     hours=80.0,
                     new_work=60.0,
                     refactor=15.0,
                     rework=5.0,
                     quality_score=0.85
                 ),
-                "frontend": ComponentEstimation(
-                    component_name="frontend",
+                "13": PhaseEstimation(
+                    phase_number=13,
+                    phase_name="Frontend Shell",
                     hours=70.0,
                     new_work=55.0,
                     refactor=12.0,
@@ -66,17 +68,19 @@ def sample_workspace_estimations():
             total_hours=180.0,
             total_effective_output=90.0,
             commits_count=18,
-            component_breakdown={
-                "backend": ComponentEstimation(
-                    component_name="backend",
+            phase_breakdown={
+                "06": PhaseEstimation(
+                    phase_number=6,
+                    phase_name="Backend Domain",
                     hours=100.0,
                     new_work=75.0,
                     refactor=20.0,
                     rework=5.0,
                     quality_score=0.80
                 ),
-                "frontend": ComponentEstimation(
-                    component_name="frontend",
+                "13": PhaseEstimation(
+                    phase_number=13,
+                    phase_name="Frontend Shell",
                     hours=80.0,
                     new_work=60.0,
                     refactor=15.0,
@@ -100,17 +104,19 @@ def sample_workspace_estimations():
             total_hours=165.0,
             total_effective_output=82.5,
             commits_count=16,
-            component_breakdown={
-                "backend": ComponentEstimation(
-                    component_name="backend",
+            phase_breakdown={
+                "06": PhaseEstimation(
+                    phase_number=6,
+                    phase_name="Backend Domain",
                     hours=90.0,
                     new_work=68.0,
                     refactor=18.0,
                     rework=4.0,
                     quality_score=0.83
                 ),
-                "frontend": ComponentEstimation(
-                    component_name="frontend",
+                "13": PhaseEstimation(
+                    phase_number=13,
+                    phase_name="Frontend Shell",
                     hours=75.0,
                     new_work=58.0,
                     refactor=14.0,
@@ -145,11 +151,12 @@ def sample_summary():
 
 
 @pytest.fixture
-def sample_component_comparison():
-    """Create sample component comparison."""
+def sample_phase_comparison():
+    """Create sample phase comparison."""
     return {
-        "backend": ComponentComparison(
-            component_name="backend",
+        "06": PhaseComparison(
+            phase_number=6,
+            phase_name="Backend Domain",
             hours_by_workspace={
                 "workspace-1": 80.0,
                 "workspace-2": 100.0,
@@ -159,8 +166,9 @@ def sample_component_comparison():
             std_deviation=10.0,
             variance_percentage=11.1
         ),
-        "frontend": ComponentComparison(
-            component_name="frontend",
+        "13": PhaseComparison(
+            phase_number=13,
+            phase_name="Frontend Shell",
             hours_by_workspace={
                 "workspace-1": 70.0,
                 "workspace-2": 80.0,
@@ -174,11 +182,11 @@ def sample_component_comparison():
 
 
 @pytest.fixture
-def sample_comparative_analysis(sample_component_comparison):
+def sample_comparative_analysis(sample_phase_comparison):
     """Create sample comparative analysis."""
     return ComparativeAnalysis(
-        component_comparison=sample_component_comparison,
-        high_variance_components=[],
+        phase_comparison=sample_phase_comparison,
+        high_variance_phases=[],
         insights=[
             "All workspaces show consistent estimates (CV < 15%)",
             "Quality scores are uniformly high across workspaces (0.82-0.87)",
@@ -191,42 +199,43 @@ class TestCreateComparisonTable:
     """Tests for create_comparison_table function."""
     
     def test_creates_valid_markdown_table(
-        self, sample_workspace_estimations, sample_component_comparison
+        self, sample_workspace_estimations, sample_phase_comparison
     ):
         """Test that a valid markdown table is created."""
         table = create_comparison_table(
             sample_workspace_estimations,
-            sample_component_comparison
+            sample_phase_comparison
         )
-        
+
         # Check table structure
-        assert "| Component |" in table
+        assert "| Phase # | Phase |" in table
         assert "workspace-1" in table
         assert "workspace-2" in table
         assert "workspace-3" in table
         assert "Average" in table
         assert "Std Dev" in table
         assert "Variance %" in table
-        
-        # Check component data
-        assert "backend" in table
-        assert "frontend" in table
-        assert "80.0h" in table  # workspace-1 backend
-        assert "100.0h" in table  # workspace-2 backend
-    
+
+        # Check phase data
+        assert "Backend Domain" in table
+        assert "Frontend Shell" in table
+        assert "80.0h" in table  # workspace-1 backend phase
+        assert "100.0h" in table  # workspace-2 backend phase
+
     def test_handles_empty_comparison(self, sample_workspace_estimations):
-        """Test handling of empty component comparison."""
+        """Test handling of empty phase comparison."""
         table = create_comparison_table(sample_workspace_estimations, {})
-        assert "No components to compare" in table
-    
+        assert "No phases to compare" in table
+
     def test_handles_missing_components(self, sample_workspace_estimations):
-        """Test handling when some workspaces don't have a component."""
-        component_comparison = {
-            "backend": ComponentComparison(
-                component_name="backend",
+        """Test handling when some workspaces don't have a phase."""
+        phase_comparison = {
+            "06": PhaseComparison(
+                phase_number=6,
+                phase_name="Backend Domain",
                 hours_by_workspace={
                     "workspace-1": 80.0,
-                    # workspace-2 missing backend
+                    # workspace-2 missing backend phase
                     "workspace-3": 90.0,
                 },
                 average=85.0,
@@ -234,13 +243,13 @@ class TestCreateComparisonTable:
                 variance_percentage=8.3
             ),
         }
-        
+
         table = create_comparison_table(
             sample_workspace_estimations,
-            component_comparison
+            phase_comparison
         )
-        
-        # Should show "-" for missing component
+
+        # Should show "-" for missing phase
         assert "-" in table
 
 
@@ -323,16 +332,16 @@ class TestFormatWorkspaceBreakdown:
         assert "Total Effective Output Points" in breakdown
         assert "Commits Analyzed" in breakdown
         assert "Work Type Breakdown" in breakdown
-        assert "Component Complexity Metrics Breakdown" in breakdown
+        assert "Phase Breakdown" in breakdown
         assert "Quality Score" in breakdown
-    
+
     def test_component_sorting(self, sample_workspace_estimations):
-        """Test that components are sorted by hours (descending)."""
+        """Test that phases are sorted in plan order (by phase number)."""
         breakdown = format_workspace_breakdown(sample_workspace_estimations)
-        
-        # For workspace-1, backend (80h) should appear before frontend (70h)
-        backend_pos = breakdown.find("**backend**")
-        frontend_pos = breakdown.find("**frontend**")
+
+        # Phase 06 (Backend Domain) should appear before phase 13 (Frontend Shell)
+        backend_pos = breakdown.find("**06 Backend Domain**")
+        frontend_pos = breakdown.find("**13 Frontend Shell**")
         assert backend_pos < frontend_pos
 
     def test_zero_total_effective_output_omits_share_percentages(self):
@@ -343,7 +352,7 @@ class TestFormatWorkspaceBreakdown:
             total_hours=0.0,
             total_effective_output=0.0,
             commits_count=0,
-            component_breakdown={},
+            phase_breakdown={},
             estimation_metrics=EstimationMetrics(
                 new_work=0.0,
                 refactor=0.0,
@@ -362,34 +371,34 @@ class TestFormatWorkspaceBreakdown:
 
 
 class TestFormatHighVarianceComponents:
-    """Tests for format_high_variance_components function."""
-    
-    def test_no_high_variance_components(self, sample_comparative_analysis, sample_component_comparison):
-        """Test when there are no high variance components."""
-        result = format_high_variance_components(
+    """Tests for format_high_variance_phases function."""
+
+    def test_no_high_variance_components(self, sample_comparative_analysis, sample_phase_comparison):
+        """Test when there are no high variance phases."""
+        result = format_high_variance_phases(
             sample_comparative_analysis,
-            sample_component_comparison
+            sample_phase_comparison
         )
-        
-        assert "No high variance components detected" in result
+
+        assert "No high variance phases detected" in result
         assert "✅" in result
-    
-    def test_with_high_variance_components(self, sample_component_comparison):
-        """Test when there are high variance components."""
+
+    def test_with_high_variance_components(self, sample_phase_comparison):
+        """Test when there are high variance phases."""
         analysis = ComparativeAnalysis(
-            component_comparison=sample_component_comparison,
-            high_variance_components=["backend"],
+            phase_comparison=sample_phase_comparison,
+            high_variance_phases=["06"],
             insights=[]
         )
-        
-        result = format_high_variance_components(
+
+        result = format_high_variance_phases(
             analysis,
-            sample_component_comparison
+            sample_phase_comparison
         )
-        
-        assert "High Variance Component(s) Detected" in result
+
+        assert "High Variance Phase(s) Detected" in result
         assert "⚠️" in result
-        assert "backend" in result
+        assert "Backend Domain" in result
         assert "Average:" in result
         assert "Variance:" in result
 
@@ -414,8 +423,8 @@ class TestFormatMultiWorkspaceReport:
         assert "# Multi-Workspace Estimation Report" in report
         assert "## Executive Summary" in report
         assert "## Per-Workspace Breakdown" in report
-        assert "## Component Comparison" in report
-        assert "## High Variance Components" in report
+        assert "## Phase Comparison" in report
+        assert "## High Variance Phases" in report
         assert "## Key Insights" in report
         assert "## Recommendations" in report
 
@@ -645,9 +654,10 @@ class TestWorkflowSavesHtmlReportRegardlessOfNotifierConfig:
             workspace_path=str(tmp_path / "ws-01-1"),
             total_hours=100.0,
             total_effective_output=90.0,
-            component_breakdown={
-                "auth": ComponentEstimation(
-                    component_name="auth",
+            phase_breakdown={
+                "07": PhaseEstimation(
+                    phase_number=7,
+                    phase_name="Auth",
                     hours=40.0,
                     new_work=30.0,
                     refactor=8.0,
@@ -713,7 +723,7 @@ class TestWorkflowSavesHtmlReportRegardlessOfNotifierConfig:
         assert html_report.exists()
         html_content = html_report.read_text()
         assert "<html" in html_content.lower()
-        assert "auth" in html_content
+        assert "Auth" in html_content
         assert response.workspace_estimations == [workspace_estimation]
 
     @pytest.mark.asyncio
@@ -745,9 +755,10 @@ class TestWorkflowSavesHtmlReportRegardlessOfNotifierConfig:
             workspace_path=str(tmp_path / "ws-01-1"),
             total_hours=100.0,
             total_effective_output=90.0,
-            component_breakdown={
-                "auth": ComponentEstimation(
-                    component_name="auth",
+            phase_breakdown={
+                "07": PhaseEstimation(
+                    phase_number=7,
+                    phase_name="Auth",
                     hours=40.0,
                     new_work=30.0,
                     refactor=8.0,
