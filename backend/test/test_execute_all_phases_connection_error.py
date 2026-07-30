@@ -53,6 +53,9 @@ async def test_connection_error_aborts_without_checkpoint(tmp_path: Path) -> Non
     svc = Mock()
     svc.update_workspace_phase = AsyncMock()
     svc.update_deployment_workspace_phase = AsyncMock()
+    # No cross-pod cancellation adapter in this unit test — raise_if_cancelled no-ops when None
+    # (a bare Mock here is not awaitable and would mask the behaviour under test).
+    svc.db_adapter = None
 
     async def fake_phase_fn(**kwargs):
         return AgentResult(
