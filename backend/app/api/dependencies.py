@@ -19,8 +19,16 @@ logger = logging.getLogger(__name__)
 
 
 def _has_admin_permission(request: Request) -> bool:
+    """Whether the caller holds the explicit admin role.
+
+    The single admin predicate — ``require_admin`` delegates here so an ownership bypass and
+    an admin-only route can never disagree about who counts as an admin. ``"*"`` is *not*
+    accepted: wildcard permissions are rejected at key creation (see
+    ``test_wildcard_permission_rejected``), so honouring one here would grant admin through a
+    value the API refuses to issue.
+    """
     permissions = getattr(request.state, "permissions", [])
-    return "admin" in permissions or "*" in permissions
+    return "admin" in permissions
 
 
 async def verify_generation_session_owner(
@@ -249,8 +257,8 @@ async def require_admin(request: Request) -> None:
     """
     FastAPI dependency: Verify the authenticated user has admin permissions.
 
-    Admin access is granted if the user's permissions list contains either
-    "*" (wildcard / all permissions) or "admin" (explicit admin role).
+    Admin access requires the explicit "admin" role in the key's permissions list. Wildcard
+    ("*") is not accepted — key creation rejects it, so it can never be a legitimate grant.
 
     Usage:
         @router.post("/keys")
@@ -262,12 +270,11 @@ async def require_admin(request: Request) -> None:
     Raises:
         HTTPException: 403 if user lacks admin permissions
     """
-    permissions = getattr(request.state, "permissions", [])
-    if "admin" in permissions:
+    if _has_admin_permission(request):
         return
     logger.warning(
         f"Admin access denied for user {getattr(request.state, 'user_email', 'unknown')} "
-        f"with permissions {permissions}"
+        f"with permissions {getattr(request.state, 'permissions', [])}"
     )
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,

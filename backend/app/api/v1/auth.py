@@ -278,7 +278,7 @@ async def create_api_key(
             "user_id": "john.doe@company.com",
             "user_name": "John Doe",
             "expires_days": 365,
-            "permissions": ["*"]
+            "permissions": ["admin"]
           }'
         ```
 
