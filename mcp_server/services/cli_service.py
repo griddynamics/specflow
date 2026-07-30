@@ -163,6 +163,20 @@ async def fetch_pool_status() -> dict[str, Any]:
     return json.loads(text)
 
 
+async def fetch_pool_sets() -> dict[str, Any]:
+    """Fetch GET /api/v1/workspace/pool/sets — per-set listing for the management screen.
+
+    Unlike :func:`fetch_pool_status` this returns the individual workspaces (repo URL, lock
+    owner, reclaim verdict), and is admin-gated on the backend.
+    """
+    text = await call_backend_endpoint(
+        endpoint="/api/v1/workspace/pool/sets",
+        method="GET",
+        timeout_seconds=20,
+    )
+    return json.loads(text)
+
+
 def format_grace(seconds: int) -> str:
     """Format a grace-period duration as 'Hh Mmin' (e.g. '1h 30min', '26min', '0min').
 
@@ -246,45 +260,100 @@ async def download_and_extract_outputs(
 
 
 # ---------------------------------------------------------------------------
-# Workspace clear (set of 3)
+# Workspace reclaim (single workspaces or whole sets)
 # ---------------------------------------------------------------------------
 
-_SET_MEMBER_COUNT = 3
 
+async def reclaim_workspaces(
+    workspace_ids: list[str] | None = None,
+    set_numbers: list[int] | None = None,
+    reason: str = "manual_reclaim",
+) -> dict[str, Any]:
+    """Return workspaces to AVAILABLE via POST /api/v1/workspace/pool/reclaim.
 
-def workspace_ids_for_set(set_number: int, prefix: str = "ws") -> list[str]:
-    """Return the 3 workspace IDs for a given set number.
+    One request for the whole batch: the backend owns set membership and decides what each
+    member's state requires (finish cleaning, force-clean, recover stuck, or release a
+    finished generation). It always answers 200 with per-member ``details``, so a partial
+    failure is reported rather than lost.
 
-    Uses the same ws-{set:02d}-{idx} convention as provisioning.
+    The audit trail's ``confirmed_by`` is the authenticated caller, resolved server-side —
+    it is deliberately not a client argument.
     """
-    return [f"{prefix}-{set_number:02d}-{i}" for i in range(1, _SET_MEMBER_COUNT + 1)]
+    text = await call_backend_endpoint(
+        endpoint="/api/v1/workspace/pool/reclaim",
+        method="POST",
+        json_data={
+            "workspace_ids": list(workspace_ids or []),
+            "set_numbers": list(set_numbers or []),
+            "reason": reason,
+        },
+        # Cleanup archives and pushes each member's tree before wiping, so a full set can
+        # legitimately take minutes.
+        timeout_seconds=300,
+    )
+    return json.loads(text)
 
 
-async def clear_workspace_set(
-    set_number: int,
-    backend_service: SpecFlowBackendService | None = None,
-) -> list[dict[str, Any]]:
-    """Call POST /api/v1/workspace/{id}/clear for each of the 3 members of a set.
+async def expand_pool(
+    sets: int,
+    github_org: str | None = None,
+    repo_prefix: str | None = None,
+    team_slug: str | None = None,
+) -> dict[str, Any]:
+    """Start a pool expansion via POST /api/v1/workspace/pool/expand.
 
-    Returns a list of result dicts (one per workspace member), each with
-    'workspace_id', 'success' (bool), and 'message' (str).
+    Returns immediately with a ``job_id``; the GitHub + P10Y work continues in the backend.
+    Poll :func:`fetch_pool_expansion` until ``done`` is true.
     """
-    if backend_service is None:
-        backend_service = SpecFlowBackendService()
+    payload: dict[str, Any] = {"sets": sets}
+    for key, value in (
+        ("github_org", github_org),
+        ("repo_prefix", repo_prefix),
+        ("team_slug", team_slug),
+    ):
+        if value:
+            payload[key] = value
 
-    ws_ids = workspace_ids_for_set(set_number)
-    results: list[dict[str, Any]] = []
-    for ws_id in ws_ids:
-        try:
-            text = await backend_service.call_backend(
-                endpoint=f"/api/v1/workspace/{ws_id}/clear",
-                method="POST",
-                timeout_seconds=30,
-            )
-            results.append({"workspace_id": ws_id, "success": True, "message": text})
-        except Exception as exc:
-            results.append({"workspace_id": ws_id, "success": False, "message": str(exc)})
-    return results
+    text = await call_backend_endpoint(
+        endpoint="/api/v1/workspace/pool/expand",
+        method="POST",
+        json_data=payload,
+        timeout_seconds=60,
+    )
+    return json.loads(text)
+
+
+async def shrink_pool(
+    workspace_ids: list[str] | None = None,
+    set_numbers: list[int] | None = None,
+    reason: str = "manual_shrink",
+) -> dict[str, Any]:
+    """Remove workspace slots from the pool via POST /api/v1/workspace/pool/shrink.
+
+    GitHub repositories are left intact — only the pool rows go, so archived generation
+    branches survive and expansion can re-adopt the same repos later.
+    """
+    text = await call_backend_endpoint(
+        endpoint="/api/v1/workspace/pool/shrink",
+        method="POST",
+        json_data={
+            "workspace_ids": list(workspace_ids or []),
+            "set_numbers": list(set_numbers or []),
+            "reason": reason,
+        },
+        timeout_seconds=60,
+    )
+    return json.loads(text)
+
+
+async def fetch_pool_expansion(job_id: str) -> dict[str, Any]:
+    """Fetch progress of an expansion job."""
+    text = await call_backend_endpoint(
+        endpoint=f"/api/v1/workspace/pool/expand/{job_id}",
+        method="GET",
+        timeout_seconds=20,
+    )
+    return json.loads(text)
 
 
 # ---------------------------------------------------------------------------

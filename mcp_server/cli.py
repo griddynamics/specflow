@@ -398,29 +398,39 @@ async def cmd_sessions(args: argparse.Namespace) -> int:
 
 
 async def cmd_clear_workspace(args: argparse.Namespace) -> int:
-    """clear-workspace --set N: clear all 3 members of a CLEANING workspace set."""
-    from services.cli_service import clear_workspace_set
+    """clear-workspace --set N: return every member of a workspace set to AVAILABLE.
+
+    The backend resolves the set's real membership and picks the right action per member.
+    Members held by a still-running generation are refused and reported, not forced.
+    """
+    from services.cli_service import reclaim_workspaces
 
     set_number = args.set
     if not args.yes:
-        answer = input(f"Clear all 3 workspaces in set {set_number}? This cannot be undone. [y/N] ")
+        answer = input(f"Reclaim all workspaces in set {set_number}? This cannot be undone. [y/N] ")
         if answer.strip().lower() not in ("y", "yes"):
             print("Aborted.")
             return 0
 
-    results = await clear_workspace_set(set_number)
-    all_ok = True
-    for r in results:
-        status = "OK" if r["success"] else "FAIL"
-        print(f"  {r['workspace_id']}: {status} — {r['message']}")
-        if not r["success"]:
-            all_ok = False
-
-    if all_ok:
-        print(f"\nSet {set_number} cleared. Workspaces are available for the next generation.")
-    else:
-        print("\nSome workspaces failed to clear. See errors above.", file=sys.stderr)
+    try:
+        result = await reclaim_workspaces(set_numbers=[set_number])
+    except Exception as exc:  # noqa: BLE001 - surface the backend's reason verbatim
+        print(f"Could not reclaim set {set_number}: {exc}", file=sys.stderr)
         return 1
+
+    details = result.get("details") or []
+    if not details:
+        print(f"No workspaces found in set {set_number}.", file=sys.stderr)
+        return 1
+
+    for r in details:
+        state = "OK" if r.get("success") else "FAIL"
+        print(f"  {r.get('workspace_id')}: {state} [{r.get('action')}] — {r.get('message')}")
+
+    if result.get("failed"):
+        print("\nSome workspaces were not reclaimed. See above.", file=sys.stderr)
+        return 1
+    print(f"\nSet {set_number} reclaimed. Workspaces are available for the next generation.")
     return 0
 
 

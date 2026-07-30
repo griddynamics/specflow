@@ -87,9 +87,23 @@ from tui.render import format_tokens
 from tui.stream import workspace_message_events
 
 try:
-    from services.cli_service import fetch_pool_status, fetch_sessions
+    from services.cli_service import (
+        expand_pool,
+        fetch_pool_expansion,
+        fetch_pool_sets,
+        fetch_pool_status,
+        fetch_sessions,
+        reclaim_workspaces,
+        shrink_pool,
+    )
 except Exception:  # pragma: no cover - service import is always present in practice
-    fetch_pool_status = fetch_sessions = None  # type: ignore[assignment]
+    fetch_pool_sets = fetch_pool_status = fetch_sessions = None  # type: ignore[assignment]
+    reclaim_workspaces = expand_pool = fetch_pool_expansion = None  # type: ignore[assignment]
+    shrink_pool = None  # type: ignore[assignment]
+
+# Cadence for following a pool-expansion job. The backend phases take tens of seconds each
+# (GitHub creation, Compass re-fetch, metrics), so a slow poll is plenty.
+EXPANSION_POLL_SECONDS = 3
 
 
 # ---------------------------------------------------------------------------
@@ -513,6 +527,45 @@ class VerifyChoiceScreen(ModalScreen[bool | None]):
         self.dismiss(event.item.id == "opt-yes")
 
     def action_decide_later(self) -> None:
+        self.dismiss(None)
+
+
+class SetCountScreen(ModalScreen[int | None]):
+    """Ask how many sets of 3 to add. Returns the count, or None if cancelled."""
+
+    BINDINGS = [Binding("escape", "cancel", "ESC to close", show=False)]
+
+    CHOICES = (1, 2, 3, 5)
+
+    def __init__(self, current_sets: int) -> None:
+        super().__init__()
+        self._current_sets = current_sets
+
+    def compose(self) -> ComposeResult:
+        with Vertical(classes="modal-panel"):
+            yield Static("Add workspace sets", classes="modal-title")
+            yield Static(
+                f"The pool has {self._current_sets} set(s). Each new set is 3 GitHub "
+                "repositories, created and registered with P10Y. This takes a few minutes.",
+                classes="modal-body",
+            )
+            yield ListView(
+                *[
+                    ListItem(Label(f"Add {n} set(s)  (+{n * 3} repos)"), id=f"sets-{n}")
+                    for n in self.CHOICES
+                ],
+                id="setcount-choices",
+            )
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.query_one("#setcount-choices", ListView).focus()
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        item_id = event.item.id or ""
+        self.dismiss(int(item_id.removeprefix("sets-")) if item_id.startswith("sets-") else None)
+
+    def action_cancel(self) -> None:
         self.dismiss(None)
 
 
@@ -997,12 +1050,15 @@ class SessionsScreen(_BackendControlScreen):
         # Bound to "t" (toggle) rather than "R": a shift-of-"reload" is too easy to
         # mistype for so destructive an action.
         Binding("t", "switch_runtime", "switch runtime"),
+        # Pool management spans every generation, so it belongs on this overview screen.
+        Binding("w", "workspaces", "workspaces"),
     ]
 
     def compose(self) -> ComposeResult:
         yield Header()
         yield Static(
-            "SpecFlow · sessions   (↑/↓ select · ↵ open · r reload · s settings · t switch runtime)",
+            "SpecFlow · sessions   (↑/↓ select · ↵ open · r reload · w workspaces · "
+            "s settings · t switch runtime)",
             id="sessions-title",
         )
         yield ListView(id="sessions-list")
@@ -1046,6 +1102,357 @@ class SessionsScreen(_BackendControlScreen):
         item = event.item
         if isinstance(item, _SessionItem):
             self.app.push_screen(DashboardScreen(item.generation_id))
+
+    def action_workspaces(self) -> None:
+        self.app.push_screen(WorkspacesScreen())
+
+
+class _PoolSetItem(ListItem):
+    """A set header row carrying its set number and pool."""
+
+    def __init__(self, row: render.PoolSetRow, text: Text) -> None:
+        super().__init__(Label(text))
+        self.set_number = row.set_number
+        self.workspace_pool = row.workspace_pool
+        self.row = row
+
+
+class _PoolWorkspaceItem(ListItem):
+    """A workspace row carrying its id and the parent set number."""
+
+    def __init__(self, row: render.PoolWorkspaceRow, set_number: int | None, text: Text) -> None:
+        super().__init__(Label(text))
+        self.workspace_id = row.workspace_id
+        self.set_number = set_number
+        self.row = row
+
+
+def _pool_set_header_text(row: render.PoolSetRow) -> Text:
+    """Set header line: label, allocatability, and why not."""
+    text = Text()
+    text.append(f"{row.label:<16}", style="bold")
+    if row.allocatable:
+        text.append("READY", style="bold green")
+    else:
+        text.append("BLOCKED", style="yellow")
+        if row.blocked_reason:
+            text.append(f"  {row.blocked_reason}", style="grey50")
+    return text
+
+
+def _pool_workspace_text(row: render.PoolWorkspaceRow) -> Text:
+    """Workspace line: id, status pill, repo, context."""
+    text = Text("  ")
+    text.append(f"{row.workspace_id:<10}", style="bold" if row.reclaimable else "")
+    text.append(f"{row.status_text:<14}", style=row.status_style)
+    text.append(f"{row.repo_name:<38}", style="cyan")
+    text.append(row.detail, style="bold yellow" if row.retry_lost else "grey50")
+    return text
+
+
+def build_pool_detail(row: render.PoolSetRow | render.PoolWorkspaceRow | None) -> RenderableType:
+    """Detail panel for the highlighted list row."""
+    if row is None:
+        return Panel("Select a set or workspace.", border_style="grey50")
+
+    if isinstance(row, render.PoolSetRow):
+        grid = Table.grid(padding=(0, 2))
+        grid.add_column(style="grey50")
+        grid.add_column()
+        grid.add_row("pool", row.workspace_pool)
+        grid.add_row("members", str(len(row.members)))
+        grid.add_row("allocatable", "yes" if row.allocatable else f"no — {row.blocked_reason}")
+        reclaimable = row.reclaimable_member_ids
+        grid.add_row("reclaimable", ", ".join(reclaimable) if reclaimable else "nothing to reclaim")
+        return Panel(grid, title=row.label, border_style="blue")
+
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style="grey50")
+    grid.add_column()
+    grid.add_row("status", Text(row.status_text, style=row.status_style))
+    grid.add_row("repo", row.repo_url or "—")
+    grid.add_row("context", row.detail)
+    if row.retry_lost:
+        grid.add_row(
+            "warning",
+            Text("reclaiming ends a still-retryable failed run", style="bold yellow"),
+        )
+    return Panel(grid, title=row.workspace_id, border_style="blue")
+
+
+class WorkspacesScreen(_SpecFlowScreen):
+    """Operator view of the workspace pool: every set, its members, and their state.
+
+    App-wide (not scoped to one generation), so it hangs off ``SessionsScreen``.
+    """
+
+    BINDINGS = [
+        Binding("r", "reload", "reload"),
+        Binding("o", "open_repo", "open repo"),
+        Binding("c", "reclaim", "reclaim"),
+        Binding("x", "expand", "add sets"),
+        Binding("d", "shrink", "remove set"),
+        Binding("escape", "back", "back"),
+    ]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._rows: list[render.PoolSetRow] = []
+
+    def compose(self) -> ComposeResult:
+        yield Header(show_clock=True)
+        yield Static(
+            "SpecFlow · workspaces   (↑/↓ select · o open repo · c reclaim · x add sets · "
+            "d remove set · r reload · esc back)",
+            id="workspaces-title",
+        )
+        yield Static(id="workspaces-summary")
+        yield ListView(id="workspaces-list")
+        yield Static(id="workspaces-detail")
+        yield RichLog(id="workspaces-log", markup=True, wrap=True)
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.query_one("#workspaces-log", RichLog).display = False
+        self.call_later(self.reload_pool)
+
+    async def reload_pool(self) -> None:
+        """Fetch the pool listing and rebuild the list, preserving the cursor position."""
+        listview = self.query_one("#workspaces-list", ListView)
+        summary = self.query_one("#workspaces-summary", Static)
+
+        if fetch_pool_sets is None:
+            summary.update("Workspace listing unavailable.")
+            return
+        try:
+            payload = await fetch_pool_sets()
+        except Exception as exc:  # noqa: BLE001 - listing is best-effort
+            summary.update(Text(f"Could not list workspaces: {exc}", style="red"))
+            self.notify(f"Could not list workspaces: {exc}", severity="warning")
+            return
+
+        self._rows = render.pool_set_rows(payload)
+        summary.update(render.pool_summary_line(payload))
+
+        previous = listview.index
+        await listview.clear()
+        if not self._rows:
+            await listview.append(ListItem(Label("No workspaces in the pool. Press x to expand.")))
+            self._update_detail(None)
+            return
+
+        for row in self._rows:
+            await listview.append(_PoolSetItem(row, _pool_set_header_text(row)))
+            for member in row.members:
+                await listview.append(
+                    _PoolWorkspaceItem(member, row.set_number, _pool_workspace_text(member))
+                )
+
+        if previous is not None:
+            listview.index = min(previous, len(listview.children) - 1)
+        self._update_detail(self._highlighted_row())
+
+    def _highlighted_row(self) -> render.PoolSetRow | render.PoolWorkspaceRow | None:
+        listview = self.query_one("#workspaces-list", ListView)
+        item = listview.highlighted_child
+        if isinstance(item, (_PoolSetItem, _PoolWorkspaceItem)):
+            return item.row
+        return None
+
+    def _update_detail(self, row: render.PoolSetRow | render.PoolWorkspaceRow | None) -> None:
+        self.query_one("#workspaces-detail", Static).update(build_pool_detail(row))
+
+    def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
+        item = event.item
+        if isinstance(item, (_PoolSetItem, _PoolWorkspaceItem)):
+            self._update_detail(item.row)
+        else:
+            self._update_detail(None)
+
+    def action_reload(self) -> None:
+        self.call_later(self.reload_pool)
+
+    def action_open_repo(self) -> None:
+        """Open the highlighted workspace's GitHub repo in the browser."""
+        row = self._highlighted_row()
+        if not isinstance(row, render.PoolWorkspaceRow) or not row.repo_url:
+            self.notify("Select a workspace with a repository first.", severity="warning")
+            return
+        opener = _platform_opener()
+        if opener is None:
+            self.notify(row.repo_url, severity="information")
+            return
+        self.run_worker(self._open_url(opener, row.repo_url), exclusive=False)
+
+    async def _open_url(self, opener: str, url: str) -> None:
+        try:
+            await local_env.run_command([opener, url], self.app.root, timeout=10)
+        except OSError as exc:
+            self.notify(f"Couldn't open {url}: {exc}", severity="warning")
+
+    def action_reclaim(self) -> None:
+        self.run_worker(self._reclaim_flow(), exclusive=True)
+
+    async def _reclaim_flow(self) -> None:
+        """Return the highlighted set or workspace to AVAILABLE.
+
+        The backend decides what each member's state requires and refuses anything a live
+        generation still owns, so this only has to confirm intent and report the outcome.
+        """
+        if reclaim_workspaces is None:
+            await self.app.push_screen_wait(
+                MessageScreen("Reclaim", "Workspace reclaim is unavailable.")
+            )
+            return
+
+        row = self._highlighted_row()
+        if row is None:
+            self.notify("Select a set or workspace first.", severity="warning")
+            return
+
+        if isinstance(row, render.PoolSetRow):
+            if not row.reclaimable_member_ids:
+                await self.app.push_screen_wait(
+                    MessageScreen(
+                        "Reclaim",
+                        f"Nothing to reclaim in {row.label}.\n\n{row.blocked_reason}"
+                        if row.blocked_reason
+                        else f"Nothing to reclaim in {row.label} — it is already available.",
+                    )
+                )
+                return
+            kwargs = {"set_numbers": [row.set_number]}
+        else:
+            if not row.reclaimable:
+                await self.app.push_screen_wait(
+                    MessageScreen(
+                        "Reclaim",
+                        f"{row.workspace_id} cannot be reclaimed.\n\n{row.detail}",
+                    )
+                )
+                return
+            kwargs = {"workspace_ids": [row.workspace_id]}
+
+        ok = await self.app.push_screen_wait(
+            ConfirmScreen(render.reclaim_confirm_message(row), countdown=10)
+        )
+        if not ok:
+            return
+
+        self.notify("Reclaiming — archiving and wiping workspaces…", severity="information")
+        try:
+            result = await reclaim_workspaces(reason="tui_reclaim", **kwargs)
+        except Exception as exc:  # noqa: BLE001 - surface the backend's reason to the operator
+            await self.app.push_screen_wait(MessageScreen("Reclaim failed", str(exc)))
+            return
+
+        await self.app.push_screen_wait(
+            MessageScreen("Reclaim result", render.reclaim_result_summary(result), markup=False)
+        )
+        await self.reload_pool()
+
+    def action_expand(self) -> None:
+        self.run_worker(self._expand_flow(), exclusive=True)
+
+    async def _expand_flow(self) -> None:
+        """Add N sets of 3 workspaces, streaming backend progress into the log pane."""
+        if expand_pool is None or fetch_pool_expansion is None:
+            await self.app.push_screen_wait(
+                MessageScreen("Add sets", "Pool expansion is unavailable.")
+            )
+            return
+
+        sets = await self.app.push_screen_wait(SetCountScreen(len(self._rows)))
+        if not sets:
+            return
+
+        log = self.query_one("#workspaces-log", RichLog)
+        log.display = True
+        log.clear()
+        log.write(f"Requesting {sets} new set(s)…")
+
+        try:
+            job = await expand_pool(sets)
+        except Exception as exc:  # noqa: BLE001 - surface the backend's reason verbatim
+            log.write(f"[red]Could not start expansion: {exc}[/red]")
+            await self.app.push_screen_wait(MessageScreen("Add sets failed", str(exc)))
+            return
+
+        await self._follow_expansion(job, log)
+        await self.reload_pool()
+
+    async def _follow_expansion(self, job: dict, log: RichLog) -> None:
+        """Poll an expansion job until it finishes, echoing new messages as they appear."""
+        job_id = job.get("job_id")
+        if not job_id:
+            log.write("[red]Backend did not return a job id.[/red]")
+            return
+
+        seen = 0
+        while True:
+            for message in (job.get("messages") or [])[seen:]:
+                log.write(message)
+            seen = len(job.get("messages") or [])
+
+            if job.get("done"):
+                break
+
+            await asyncio.sleep(EXPANSION_POLL_SECONDS)
+            try:
+                job = await fetch_pool_expansion(job_id)
+            except Exception as exc:  # noqa: BLE001 - keep the log, stop following
+                log.write(f"[yellow]Lost track of the expansion job: {exc}[/yellow]")
+                return
+
+        if job.get("error"):
+            log.write(f"[red]Failed: {job['error']}[/red]")
+            self.notify("Expansion failed — see the log.", severity="error")
+            return
+
+        created = job.get("workspaces_created") or 0
+        log.write(f"[green]Done — {created} workspace(s) added.[/green]")
+        self.notify(f"Added {created} workspace(s).", severity="information")
+
+    def action_shrink(self) -> None:
+        self.run_worker(self._shrink_flow(), exclusive=True)
+
+    async def _shrink_flow(self) -> None:
+        """Remove the highlighted set from the pool, leaving its GitHub repos intact."""
+        if shrink_pool is None:
+            await self.app.push_screen_wait(
+                MessageScreen("Remove set", "Pool shrink is unavailable.")
+            )
+            return
+
+        row = self._highlighted_row()
+        if not isinstance(row, render.PoolSetRow):
+            self.notify("Select a set header to remove the whole set.", severity="warning")
+            return
+        if not row.removable:
+            await self.app.push_screen_wait(
+                MessageScreen("Remove set", render.shrink_blocked_message(row))
+            )
+            return
+
+        ok = await self.app.push_screen_wait(
+            ConfirmScreen(render.shrink_confirm_message(row), countdown=10)
+        )
+        if not ok:
+            return
+
+        try:
+            result = await shrink_pool(set_numbers=[row.set_number], reason="tui_shrink")
+        except Exception as exc:  # noqa: BLE001 - surface the backend's reason to the operator
+            await self.app.push_screen_wait(MessageScreen("Remove set failed", str(exc)))
+            return
+
+        await self.app.push_screen_wait(
+            MessageScreen("Remove set result", render.shrink_result_summary(result), markup=False)
+        )
+        await self.reload_pool()
+
+    def action_back(self) -> None:
+        self.app.pop_screen()
 
 
 async def _run_init_streamed(app: "SpecFlowTUI", log: RichLog) -> int:
@@ -2371,7 +2778,12 @@ class SpecFlowTUI(App):
 
     CSS = """
     #dashboard-body { padding: 0 1; }
-    #sessions-title, #settings-title, #onboard-title { padding: 1 2; text-style: bold; }
+    #sessions-title, #settings-title, #onboard-title,
+    #workspaces-title { padding: 1 2; text-style: bold; }
+    #workspaces-summary { padding: 0 2 1 2; color: $text-muted; }
+    #workspaces-list { height: 1fr; }
+    #workspaces-detail { height: auto; padding: 0 2; }
+    #workspaces-log { height: 1fr; border: round $primary; margin: 1 2; }
     #docker-prompt, #runinit-prompt, #runtime-prompt, #switch-prompt { padding: 2 3; }
     #switch-log { height: 1fr; border: round $primary; margin: 1 2; }
     .settings-section { padding: 1 2 0 2; text-style: bold; color: $accent; }

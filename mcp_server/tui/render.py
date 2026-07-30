@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
+from services.cli_service import format_grace
 from tui.constants import (
     CHECKPOINT_ORDER,
     CHECKPOINT_STEPS,
@@ -22,6 +23,7 @@ from tui.constants import (
     LOCAL_ONLY_READINESS,
     STATUS_PILLS,
     STEP_SYMBOLS,
+    WORKSPACE_STATUS_PILLS,
     StepState,
 )
 
@@ -524,3 +526,264 @@ def agent_state_badge(agent_state: str | None) -> tuple[str, str] | None:
     if not agent_state:
         return None
     return AGENT_STATE_BADGES.get(str(agent_state).lower())
+
+
+# ---------------------------------------------------------------------------
+# Workspace-pool management (GET /api/v1/workspace/pool/sets)
+# ---------------------------------------------------------------------------
+
+
+def workspace_status_pill(status: str | None) -> tuple[str, str]:
+    """Return (text, Rich style) for a workspace-pool status string."""
+    key = (status or "unknown").lower()
+    return WORKSPACE_STATUS_PILLS.get(key, WORKSPACE_STATUS_PILLS["unknown"])
+
+
+@dataclass(frozen=True)
+class PoolWorkspaceRow:
+    """One workspace line on the management screen."""
+
+    workspace_id: str
+    status: str
+    status_text: str
+    status_style: str
+    repo_url: str
+    repo_name: str
+    detail: str
+    reclaimable: bool
+    retry_lost: bool
+    # Shrink eligibility is decided by the backend (classify_removal) and carried here, so the
+    # UI cannot offer a removal the server would refuse.
+    removable: bool
+    not_removable_reason: str
+
+
+@dataclass(frozen=True)
+class PoolSetRow:
+    """One set header line, plus its members."""
+
+    set_number: int | None
+    workspace_pool: str
+    label: str
+    allocatable: bool
+    blocked_reason: str
+    members: list[PoolWorkspaceRow] = field(default_factory=list)
+
+    @property
+    def reclaimable_member_ids(self) -> list[str]:
+        """Members that reclaiming would actually act on."""
+        return [m.workspace_id for m in self.members if m.reclaimable]
+
+    @property
+    def retry_lost(self) -> bool:
+        """True when reclaiming this set would end a still-retryable run."""
+        return any(m.retry_lost for m in self.members)
+
+    @property
+    def removable(self) -> bool:
+        """Whether every member is clean and idle, so the set can leave the pool."""
+        return bool(self.members) and all(m.removable for m in self.members)
+
+
+def repo_name(repo_url: str | None) -> str:
+    """``https://github.com/acme/specflow-workspace1`` → ``acme/specflow-workspace1``."""
+    if not repo_url:
+        return "—"
+    trimmed = repo_url.rstrip("/").removesuffix(".git")
+    parts = trimmed.split("/")
+    if len(parts) >= 2:
+        return "/".join(parts[-2:])
+    return trimmed
+
+
+def workspace_detail(ws: dict[str, Any]) -> str:
+    """The trailing context column: who holds it, or why it is not usable.
+
+    Ordered by what an operator needs first — a live owner outranks a grace countdown,
+    which outranks a stale-clean flag.
+    """
+    status = (ws.get("status") or "").lower()
+    if status == "allocated":
+        owner = ws.get("locked_by") or "unknown generation"
+        owner_status = ws.get("owner_generation_status") or "unknown"
+        suffix = " — retry would be lost" if ws.get("retry_lost_on_reclaim") else ""
+        return f"{owner} ({owner_status}){suffix}"
+    if status == "cleaning":
+        remaining = ws.get("remaining_grace_seconds")
+        if remaining is None:
+            return "cleaning"
+        return f"cleaning, {format_grace(int(remaining))} of grace left"
+    if status == "stuck":
+        return str(ws.get("stuck_reason") or ws.get("error") or "needs operator attention")
+    if status == "available" and ws.get("clean_verified") is not True:
+        return "not clean-verified — cannot be allocated"
+    last = ws.get("last_used_by")
+    return f"last run {last}" if last else "never used"
+
+
+def pool_workspace_rows(members: list[dict[str, Any]]) -> list[PoolWorkspaceRow]:
+    """Build display rows for one set's members."""
+    rows: list[PoolWorkspaceRow] = []
+    for ws in members:
+        text, style = workspace_status_pill(ws.get("status"))
+        url = str(ws.get("repo_url") or "")
+        rows.append(
+            PoolWorkspaceRow(
+                workspace_id=str(ws.get("workspace_id") or "?"),
+                status=str(ws.get("status") or "unknown"),
+                status_text=text,
+                status_style=style,
+                repo_url=url,
+                repo_name=repo_name(url),
+                detail=workspace_detail(ws),
+                reclaimable=bool(ws.get("reclaimable")),
+                retry_lost=bool(ws.get("retry_lost_on_reclaim")),
+                removable=bool(ws.get("removable")),
+                not_removable_reason=str(ws.get("not_removable_reason") or ""),
+            )
+        )
+    return rows
+
+
+def pool_set_rows(payload: dict[str, Any] | None) -> list[PoolSetRow]:
+    """Turn a ``/pool/sets`` response into set rows with their members."""
+    if not payload:
+        return []
+    rows: list[PoolSetRow] = []
+    for entry in payload.get("sets") or []:
+        set_number = entry.get("set_number")
+        pool = str(entry.get("workspace_pool") or "default")
+        label = f"Set {set_number:02d}" if isinstance(set_number, int) else "Unassigned"
+        if pool != "default":
+            label = f"{label} [{pool}]"
+        rows.append(
+            PoolSetRow(
+                set_number=set_number,
+                workspace_pool=pool,
+                label=label,
+                allocatable=bool(entry.get("allocatable")),
+                blocked_reason=str(entry.get("blocked_reason") or ""),
+                members=pool_workspace_rows(entry.get("members") or []),
+            )
+        )
+    return rows
+
+
+def reclaim_confirm_message(row: PoolSetRow | PoolWorkspaceRow) -> str:
+    """Confirmation text for a reclaim, naming exactly what will be acted on.
+
+    Always states that work is archived first, because "cannot be undone" alone reads as
+    "your code is about to be deleted" — which is not what happens.
+    """
+    if isinstance(row, PoolSetRow):
+        targets = row.reclaimable_member_ids
+        what = f"{row.label} ({len(targets)} workspace(s): {', '.join(targets)})"
+        retry_lost = row.retry_lost
+    else:
+        what = row.workspace_id
+        retry_lost = row.retry_lost
+
+    lines = [
+        f"Reclaim {what}?",
+        "",
+        "Each workspace is archived to its generation branch and pushed before being wiped,",
+        "so generated code is preserved on GitHub.",
+    ]
+    if retry_lost:
+        lines += [
+            "",
+            "WARNING: this ends a failed run that could still be retried from its checkpoint.",
+        ]
+    return "\n".join(lines)
+
+
+def shrink_confirm_message(row: PoolSetRow) -> str:
+    """Confirmation text for removing a set from the pool.
+
+    States plainly that the GitHub repos survive — otherwise "remove" reads as "delete my
+    archived generations", which is the opposite of what happens.
+    """
+    ids = [m.workspace_id for m in row.members]
+    return "\n".join(
+        [
+            f"Remove {row.label} from the pool ({len(ids)} workspace(s): {', '.join(ids)})?",
+            "",
+            "The GitHub repositories are NOT deleted — every archived generation branch stays",
+            "intact, and adding sets later can re-adopt these same repositories.",
+            "",
+            "The set stops being available for new generations.",
+        ]
+    )
+
+
+def shrink_blocked_message(row: PoolSetRow) -> str:
+    """Why a set cannot be removed yet, naming the members in the way."""
+    blockers = [m.not_removable_reason for m in row.members if not m.removable]
+    return "\n".join(
+        [
+            f"{row.label} cannot be removed yet:",
+            "",
+            *(f"  • {b}" for b in blockers),
+            "",
+            "Reclaim it first (c), then remove it.",
+        ]
+    )
+
+
+def shrink_result_summary(result: dict[str, Any] | None) -> str:
+    """Human summary of a shrink response."""
+    if not result:
+        return "No response from the server."
+    details = result.get("details") or []
+    if not details:
+        return "Nothing was removed — no matching workspaces."
+
+    lines = [
+        f"{result.get('success', 0)} removed, {result.get('failed', 0)} not removed.",
+        "",
+    ]
+    for entry in details:
+        mark = "OK  " if entry.get("success") else "FAIL"
+        lines.append(f"{mark} {entry.get('workspace_id')} — {entry.get('message')}")
+    return "\n".join(lines)
+
+
+def reclaim_result_summary(result: dict[str, Any] | None) -> str:
+    """Human summary of a reclaim response, listing every per-member outcome."""
+    if not result:
+        return "No response from the server."
+    details = result.get("details") or []
+    if not details:
+        return "Nothing was reclaimed — no matching workspaces."
+
+    lines = [
+        f"{result.get('success', 0)} reclaimed, {result.get('failed', 0)} not reclaimed.",
+        "",
+    ]
+    for entry in details:
+        mark = "OK  " if entry.get("success") else "FAIL"
+        lines.append(
+            f"{mark} {entry.get('workspace_id')} [{entry.get('action')}] "
+            f"— {entry.get('message')}"
+        )
+    return "\n".join(lines)
+
+
+def pool_summary_line(payload: dict[str, Any] | None) -> str:
+    """One-line pool total for the header, derived from the same listing as the rows."""
+    rows = pool_set_rows(payload)
+    if not rows:
+        return "No workspaces in the pool."
+    total = sum(len(r.members) for r in rows)
+    allocatable = sum(1 for r in rows if r.allocatable)
+    counts: dict[str, int] = {}
+    for row in rows:
+        for member in row.members:
+            counts[member.status] = counts.get(member.status, 0) + 1
+    breakdown = "  ".join(
+        f"{name} {counts[name]}" for name in sorted(counts) if counts.get(name)
+    )
+    return (
+        f"{len(rows)} set(s), {total} workspace(s) — "
+        f"{allocatable} ready to allocate   {breakdown}"
+    )

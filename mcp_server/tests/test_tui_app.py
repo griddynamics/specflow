@@ -1790,7 +1790,7 @@ class TestSwitchRuntime:
         # client) act on the whole app, so they belong on the sessions overview
         # only. The single-generation dashboard carries only that generation's
         # controls (retry, cancel, clear ws, open ws, events, report).
-        app_wide = ("switch_runtime", "stop_backend", "settings", "connect_client")
+        app_wide = ("switch_runtime", "stop_backend", "settings", "connect_client", "workspaces")
         for action in app_wide:
             assert hasattr(tui_app.SessionsScreen, f"action_{action}"), action
             assert not hasattr(tui_app.DashboardScreen, f"action_{action}"), action
@@ -2740,3 +2740,628 @@ class TestEventsScreen:
                 log = app.screen.query_one("#events-log")
                 text = "\n".join(str(line) for line in log.lines)
                 assert "No agent errors or warnings recorded." in text
+
+
+def _pool_sets_payload() -> dict:
+    """Two sets: one ready, one blocked by a live generation."""
+    def member(ws_id, **kw):
+        row = {
+            "workspace_id": ws_id,
+            "set_number": int(ws_id.split("-")[1]),
+            "workspace_pool": "default",
+            "status": "available",
+            "repo_url": f"https://github.com/acme/{ws_id}",
+            "p10y_repository_id": 74901,
+            "clean_verified": True,
+            "locked_by": None,
+            "locked_at": None,
+            "last_used_by": None,
+            "last_cleaned_at": None,
+            "cleaning_started_at": None,
+            "remaining_grace_seconds": None,
+            "scheduled_for_wipe_at": None,
+            "stuck_reason": None,
+            "error": None,
+            "owner_generation_status": None,
+            "owner_code_archived": None,
+            "reclaim_action": "already_available",
+            "reclaimable": False,
+            "reclaim_blocked_reason": None,
+            "retry_lost_on_reclaim": False,
+            "removable": True,
+            "not_removable_reason": None,
+        }
+        row.update(kw)
+        return row
+
+    return {
+        "sets": [
+            {
+                "workspace_pool": "default",
+                "set_number": 1,
+                "allocatable": True,
+                "blocked_reason": None,
+                "members": [member("ws-01-1"), member("ws-01-2"), member("ws-01-3")],
+            },
+            {
+                "workspace_pool": "default",
+                "set_number": 2,
+                "allocatable": False,
+                "blocked_reason": "ws-02-1 is allocated",
+                "members": [
+                    member(
+                        "ws-02-1",
+                        status="allocated",
+                        locked_by="gen_live",
+                        owner_generation_status="running",
+                        clean_verified=False,
+                        reclaim_action="blocked",
+                        reclaim_blocked_reason="Generation gen_live is running — still using this workspace.",
+                        removable=False,
+                        not_removable_reason="ws-02-1 is allocated",
+                    ),
+                    member("ws-02-2"),
+                    member("ws-02-3"),
+                ],
+            },
+        ],
+        "total_workspaces": 6,
+        "allocatable_sets": 1,
+    }
+
+
+def _sessions_ready():
+    """Gate patches that land the app on SessionsScreen with no sessions."""
+    a, b, c = _gate_ready()
+    return (
+        a,
+        b,
+        c,
+        patch("tui.app.fetch_sessions", new=AsyncMock(return_value=[])),
+        patch.object(tui_app.ClientSetupScreen, "_probe_verifiable", new=AsyncMock()),
+        patch("tui.app.mcp_clients.is_any_client_connected", return_value=True),
+    )
+
+
+class TestWorkspacesScreen:
+    """The pool-management screen: reachable from sessions, lists sets and members."""
+
+    @pytest.mark.asyncio
+    async def test_w_opens_screen_and_lists_sets_and_members(self):
+        a, b, c, d, e, f = _sessions_ready()
+        with a, b, c, d, e, f, patch(
+            "tui.app.fetch_pool_sets", new=AsyncMock(return_value=_pool_sets_payload())
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.SessionsScreen)
+                await pilot.press("w")
+                await pilot.pause()
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.WorkspacesScreen)
+
+                listview = app.screen.query_one("#workspaces-list")
+                labels = "\n".join(str(item.row) for item in listview.children if hasattr(item, "row"))
+                # 2 set headers + 6 members
+                assert len(listview.children) == 8
+                assert "ws-01-1" in labels and "ws-02-1" in labels
+
+                summary = str(app.screen.query_one("#workspaces-summary").render())
+                assert "2 set(s), 6 workspace(s)" in summary
+                assert "1 ready to allocate" in summary
+
+                await pilot.press("escape")
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.SessionsScreen)
+
+    @pytest.mark.asyncio
+    async def test_blocked_set_shows_why(self):
+        a, b, c, d, e, f = _sessions_ready()
+        with a, b, c, d, e, f, patch(
+            "tui.app.fetch_pool_sets", new=AsyncMock(return_value=_pool_sets_payload())
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("w")
+                await pilot.pause()
+                await pilot.pause()
+                rows = app.screen._rows
+                assert rows[0].allocatable is True
+                assert rows[1].allocatable is False
+                assert rows[1].blocked_reason == "ws-02-1 is allocated"
+
+    @pytest.mark.asyncio
+    async def test_empty_pool_shows_placeholder_not_a_crash(self):
+        a, b, c, d, e, f = _sessions_ready()
+        empty = {"sets": [], "total_workspaces": 0, "allocatable_sets": 0}
+        with a, b, c, d, e, f, patch(
+            "tui.app.fetch_pool_sets", new=AsyncMock(return_value=empty)
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("w")
+                await pilot.pause()
+                await pilot.pause()
+                listview = app.screen.query_one("#workspaces-list")
+                assert len(listview.children) == 1
+                summary = str(app.screen.query_one("#workspaces-summary").render())
+                assert summary == "No workspaces in the pool."
+
+    @pytest.mark.asyncio
+    async def test_backend_error_is_surfaced_not_swallowed(self):
+        a, b, c, d, e, f = _sessions_ready()
+        with a, b, c, d, e, f, patch(
+            "tui.app.fetch_pool_sets", new=AsyncMock(side_effect=RuntimeError("backend down"))
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("w")
+                await pilot.pause()
+                await pilot.pause()
+                summary = str(app.screen.query_one("#workspaces-summary").render())
+                assert "backend down" in summary
+
+    @pytest.mark.asyncio
+    async def test_missing_client_function_degrades_gracefully(self):
+        """fetch_pool_sets is None when the service import failed; must not crash."""
+        a, b, c, d, e, f = _sessions_ready()
+        with a, b, c, d, e, f, patch("tui.app.fetch_pool_sets", None):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("w")
+                await pilot.pause()
+                await pilot.pause()
+                assert isinstance(app.screen, tui_app.WorkspacesScreen)
+                summary = str(app.screen.query_one("#workspaces-summary").render())
+                assert summary == "Workspace listing unavailable."
+
+    @pytest.mark.asyncio
+    async def test_o_opens_the_highlighted_workspace_repo(self):
+        a, b, c, d, e, f = _sessions_ready()
+        with a, b, c, d, e, f, patch(
+            "tui.app.fetch_pool_sets", new=AsyncMock(return_value=_pool_sets_payload())
+        ), patch("tui.app._platform_opener", return_value="open"), patch(
+            "tui.app.local_env.run_command", new=AsyncMock()
+        ) as run_cmd:
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("w")
+                await pilot.pause()
+                await pilot.pause()
+                # Row 0 is a set header; move to the first member.
+                app.screen.query_one("#workspaces-list").index = 1
+                await pilot.pause()
+                await pilot.press("o")
+                await pilot.pause()
+                await pilot.pause()
+                run_cmd.assert_awaited_once()
+                assert run_cmd.await_args.args[0] == [
+                    "open",
+                    "https://github.com/acme/ws-01-1",
+                ]
+
+    @pytest.mark.asyncio
+    async def test_o_on_a_set_header_warns_instead_of_opening(self):
+        a, b, c, d, e, f = _sessions_ready()
+        with a, b, c, d, e, f, patch(
+            "tui.app.fetch_pool_sets", new=AsyncMock(return_value=_pool_sets_payload())
+        ), patch("tui.app._platform_opener", return_value="open"), patch(
+            "tui.app.local_env.run_command", new=AsyncMock()
+        ) as run_cmd:
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                await pilot.pause()
+                await pilot.press("w")
+                await pilot.pause()
+                await pilot.pause()
+                app.screen.query_one("#workspaces-list").index = 0
+                await pilot.pause()
+                await pilot.press("o")
+                await pilot.pause()
+                run_cmd.assert_not_awaited()
+
+
+class TestWorkspacesReclaimFlow:
+    """``c`` reclaims the highlighted set or workspace, after an explicit confirm."""
+
+    async def _open_screen(self, pilot, app):
+        await pilot.pause()
+        await pilot.press("w")
+        await pilot.pause()
+        await pilot.pause()
+        return app.screen
+
+    @pytest.mark.asyncio
+    async def test_reclaims_whole_set_when_header_highlighted(self):
+        a, b, c, d, e, f = _sessions_ready()
+        payload = _pool_sets_payload()
+        # Make set 2 reclaimable: its allocated member's owner has finished.
+        payload["sets"][1]["members"][0].update(
+            owner_generation_status="failed",
+            reclaim_action="release_and_clean",
+            reclaimable=True,
+            reclaim_blocked_reason=None,
+        )
+        reclaim = AsyncMock(
+            return_value={
+                "total": 1,
+                "success": 1,
+                "failed": 0,
+                "details": [
+                    {
+                        "workspace_id": "ws-02-1",
+                        "action": "release_and_clean",
+                        "success": True,
+                        "message": "done",
+                    }
+                ],
+            }
+        )
+        with a, b, c, d, e, f, patch(
+            "tui.app.fetch_pool_sets", new=AsyncMock(return_value=payload)
+        ), patch("tui.app.reclaim_workspaces", new=reclaim):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                screen = await self._open_screen(pilot, app)
+                # Index 4 is set 2's header (2 headers + 3 members of set 1 precede it).
+                screen.query_one("#workspaces-list").index = 4
+                await pilot.pause()
+                with patch.object(app, "push_screen_wait", new=AsyncMock(return_value=True)) as psw:
+                    await screen._reclaim_flow()
+                reclaim.assert_awaited_once_with(reason="tui_reclaim", set_numbers=[2])
+                # First modal is the countdown confirm; the second reports the result.
+                assert isinstance(psw.await_args_list[0].args[0], tui_app.ConfirmScreen)
+                assert isinstance(psw.await_args_list[1].args[0], tui_app.MessageScreen)
+
+    @pytest.mark.asyncio
+    async def test_reclaims_single_workspace_when_member_highlighted(self):
+        a, b, c, d, e, f = _sessions_ready()
+        payload = _pool_sets_payload()
+        payload["sets"][0]["members"][0].update(
+            status="cleaning", reclaim_action="finish_cleaning", reclaimable=True
+        )
+        reclaim = AsyncMock(return_value={"total": 1, "success": 1, "failed": 0, "details": [{}]})
+        with a, b, c, d, e, f, patch(
+            "tui.app.fetch_pool_sets", new=AsyncMock(return_value=payload)
+        ), patch("tui.app.reclaim_workspaces", new=reclaim):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                screen = await self._open_screen(pilot, app)
+                screen.query_one("#workspaces-list").index = 1
+                await pilot.pause()
+                with patch.object(app, "push_screen_wait", new=AsyncMock(return_value=True)):
+                    await screen._reclaim_flow()
+                reclaim.assert_awaited_once_with(reason="tui_reclaim", workspace_ids=["ws-01-1"])
+
+    @pytest.mark.asyncio
+    async def test_cancelling_the_confirm_does_nothing(self):
+        a, b, c, d, e, f = _sessions_ready()
+        payload = _pool_sets_payload()
+        payload["sets"][0]["members"][0].update(status="stuck", reclaimable=True)
+        reclaim = AsyncMock()
+        with a, b, c, d, e, f, patch(
+            "tui.app.fetch_pool_sets", new=AsyncMock(return_value=payload)
+        ), patch("tui.app.reclaim_workspaces", new=reclaim):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                screen = await self._open_screen(pilot, app)
+                screen.query_one("#workspaces-list").index = 1
+                await pilot.pause()
+                with patch.object(app, "push_screen_wait", new=AsyncMock(return_value=False)):
+                    await screen._reclaim_flow()
+                reclaim.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_non_reclaimable_workspace_explains_instead_of_calling_backend(self):
+        """A workspace held by a live generation must never reach the reclaim endpoint."""
+        a, b, c, d, e, f = _sessions_ready()
+        reclaim = AsyncMock()
+        with a, b, c, d, e, f, patch(
+            "tui.app.fetch_pool_sets", new=AsyncMock(return_value=_pool_sets_payload())
+        ), patch("tui.app.reclaim_workspaces", new=reclaim):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                screen = await self._open_screen(pilot, app)
+                # Set 2's first member is allocated to a running generation.
+                screen.query_one("#workspaces-list").index = 5
+                await pilot.pause()
+                with patch.object(app, "push_screen_wait", new=AsyncMock()) as psw:
+                    await screen._reclaim_flow()
+                reclaim.assert_not_awaited()
+                assert isinstance(psw.await_args.args[0], tui_app.MessageScreen)
+
+    @pytest.mark.asyncio
+    async def test_fully_available_set_reports_nothing_to_do(self):
+        a, b, c, d, e, f = _sessions_ready()
+        reclaim = AsyncMock()
+        with a, b, c, d, e, f, patch(
+            "tui.app.fetch_pool_sets", new=AsyncMock(return_value=_pool_sets_payload())
+        ), patch("tui.app.reclaim_workspaces", new=reclaim):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                screen = await self._open_screen(pilot, app)
+                screen.query_one("#workspaces-list").index = 0
+                await pilot.pause()
+                with patch.object(app, "push_screen_wait", new=AsyncMock()) as psw:
+                    await screen._reclaim_flow()
+                reclaim.assert_not_awaited()
+                assert isinstance(psw.await_args.args[0], tui_app.MessageScreen)
+
+    @pytest.mark.asyncio
+    async def test_backend_failure_is_reported_in_a_modal(self):
+        a, b, c, d, e, f = _sessions_ready()
+        payload = _pool_sets_payload()
+        payload["sets"][0]["members"][0].update(status="stuck", reclaimable=True)
+        with a, b, c, d, e, f, patch(
+            "tui.app.fetch_pool_sets", new=AsyncMock(return_value=payload)
+        ), patch(
+            "tui.app.reclaim_workspaces", new=AsyncMock(side_effect=RuntimeError("boom"))
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                screen = await self._open_screen(pilot, app)
+                screen.query_one("#workspaces-list").index = 1
+                await pilot.pause()
+                with patch.object(app, "push_screen_wait", new=AsyncMock(return_value=True)) as psw:
+                    await screen._reclaim_flow()
+                last = psw.await_args.args[0]
+                assert isinstance(last, tui_app.MessageScreen)
+
+
+class TestWorkspacesExpandFlow:
+    """``x`` adds sets, streaming backend job progress into the log pane."""
+
+    async def _open_screen(self, pilot, app):
+        await pilot.pause()
+        await pilot.press("w")
+        await pilot.pause()
+        await pilot.pause()
+        return app.screen
+
+    def _log_text(self, screen) -> str:
+        log = screen.query_one("#workspaces-log")
+        return "\n".join(str(line) for line in log.lines)
+
+    @pytest.mark.asyncio
+    async def test_polls_until_done_and_echoes_progress(self):
+        a, b, c, d, e, f = _sessions_ready()
+        start = AsyncMock(
+            return_value={
+                "job_id": "exp_1",
+                "done": False,
+                "messages": ["Adding 2 set(s) to pool 'default'"],
+            }
+        )
+        follow = AsyncMock(
+            side_effect=[
+                {"job_id": "exp_1", "done": False, "messages": [
+                    "Adding 2 set(s) to pool 'default'",
+                    "Creating repository acme/specflow-workspace10",
+                ]},
+                {"job_id": "exp_1", "done": True, "workspaces_created": 6, "messages": [
+                    "Adding 2 set(s) to pool 'default'",
+                    "Creating repository acme/specflow-workspace10",
+                    "Seeded 6 workspace(s); pool is ready",
+                ]},
+            ]
+        )
+        with a, b, c, d, e, f, patch(
+            "tui.app.fetch_pool_sets", new=AsyncMock(return_value=_pool_sets_payload())
+        ), patch("tui.app.expand_pool", new=start), patch(
+            "tui.app.fetch_pool_expansion", new=follow
+        ), patch("tui.app.EXPANSION_POLL_SECONDS", 0):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                screen = await self._open_screen(pilot, app)
+                with patch.object(app, "push_screen_wait", new=AsyncMock(return_value=2)):
+                    await screen._expand_flow()
+
+                start.assert_awaited_once_with(2)
+                assert follow.await_count == 2
+                text = self._log_text(screen)
+                # Each message appears exactly once despite the cumulative payloads.
+                assert text.count("Creating repository acme/specflow-workspace10") == 1
+                assert "Seeded 6 workspace(s); pool is ready" in text
+                assert "6 workspace(s) added" in text
+
+    @pytest.mark.asyncio
+    async def test_cancelling_the_set_picker_does_nothing(self):
+        a, b, c, d, e, f = _sessions_ready()
+        start = AsyncMock()
+        with a, b, c, d, e, f, patch(
+            "tui.app.fetch_pool_sets", new=AsyncMock(return_value=_pool_sets_payload())
+        ), patch("tui.app.expand_pool", new=start):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                screen = await self._open_screen(pilot, app)
+                with patch.object(app, "push_screen_wait", new=AsyncMock(return_value=None)):
+                    await screen._expand_flow()
+                start.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_rejected_request_surfaces_the_backend_reason(self):
+        """A 400 like 'GITHUB_ORG is not set' must reach the operator verbatim."""
+        a, b, c, d, e, f = _sessions_ready()
+        with a, b, c, d, e, f, patch(
+            "tui.app.fetch_pool_sets", new=AsyncMock(return_value=_pool_sets_payload())
+        ), patch(
+            "tui.app.expand_pool",
+            new=AsyncMock(side_effect=RuntimeError("GITHUB_ORG is not set")),
+        ):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                screen = await self._open_screen(pilot, app)
+                with patch.object(app, "push_screen_wait", new=AsyncMock(return_value=1)) as psw:
+                    await screen._expand_flow()
+                await pilot.pause()
+                assert "GITHUB_ORG is not set" in self._log_text(screen)
+                assert isinstance(psw.await_args.args[0], tui_app.MessageScreen)
+
+    @pytest.mark.asyncio
+    async def test_failed_job_is_reported_as_failed(self):
+        a, b, c, d, e, f = _sessions_ready()
+        start = AsyncMock(
+            return_value={
+                "job_id": "exp_2",
+                "done": True,
+                "error": "P10Y never surfaced these repositories",
+                "messages": ["Creating repository acme/ws10"],
+            }
+        )
+        with a, b, c, d, e, f, patch(
+            "tui.app.fetch_pool_sets", new=AsyncMock(return_value=_pool_sets_payload())
+        ), patch("tui.app.expand_pool", new=start), patch(
+            "tui.app.fetch_pool_expansion", new=AsyncMock()
+        ) as follow, patch("tui.app.EXPANSION_POLL_SECONDS", 0):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                screen = await self._open_screen(pilot, app)
+                with patch.object(app, "push_screen_wait", new=AsyncMock(return_value=1)):
+                    await screen._expand_flow()
+                # Already terminal on the first response — no polling needed.
+                follow.assert_not_awaited()
+                assert "P10Y never surfaced these repositories" in self._log_text(screen)
+
+    @pytest.mark.asyncio
+    async def test_polling_failure_stops_following_without_crashing(self):
+        a, b, c, d, e, f = _sessions_ready()
+        with a, b, c, d, e, f, patch(
+            "tui.app.fetch_pool_sets", new=AsyncMock(return_value=_pool_sets_payload())
+        ), patch(
+            "tui.app.expand_pool",
+            new=AsyncMock(return_value={"job_id": "exp_3", "done": False, "messages": []}),
+        ), patch(
+            "tui.app.fetch_pool_expansion", new=AsyncMock(side_effect=RuntimeError("gone"))
+        ), patch("tui.app.EXPANSION_POLL_SECONDS", 0):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                screen = await self._open_screen(pilot, app)
+                with patch.object(app, "push_screen_wait", new=AsyncMock(return_value=1)):
+                    await screen._expand_flow()
+                assert "Lost track of the expansion job" in self._log_text(screen)
+
+    @pytest.mark.asyncio
+    async def test_unavailable_client_degrades_gracefully(self):
+        a, b, c, d, e, f = _sessions_ready()
+        with a, b, c, d, e, f, patch(
+            "tui.app.fetch_pool_sets", new=AsyncMock(return_value=_pool_sets_payload())
+        ), patch("tui.app.expand_pool", None):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                screen = await self._open_screen(pilot, app)
+                with patch.object(app, "push_screen_wait", new=AsyncMock()) as psw:
+                    await screen._expand_flow()
+                assert isinstance(psw.await_args.args[0], tui_app.MessageScreen)
+
+
+class TestSetCountScreen:
+    def test_offers_set_counts_and_returns_the_chosen_one(self):
+        assert tui_app.SetCountScreen.CHOICES == (1, 2, 3, 5)
+
+
+class TestWorkspacesShrinkFlow:
+    """``d`` removes a set from the pool, leaving its GitHub repos intact."""
+
+    async def _open_screen(self, pilot, app):
+        await pilot.pause()
+        await pilot.press("w")
+        await pilot.pause()
+        await pilot.pause()
+        return app.screen
+
+    @pytest.mark.asyncio
+    async def test_removes_the_highlighted_set(self):
+        a, b, c, d, e, f = _sessions_ready()
+        shrink = AsyncMock(
+            return_value={
+                "total": 3,
+                "success": 3,
+                "failed": 0,
+                "details": [
+                    {"workspace_id": f"ws-01-{i}", "success": True, "message": "Removed"}
+                    for i in (1, 2, 3)
+                ],
+            }
+        )
+        with a, b, c, d, e, f, patch(
+            "tui.app.fetch_pool_sets", new=AsyncMock(return_value=_pool_sets_payload())
+        ), patch("tui.app.shrink_pool", new=shrink):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                screen = await self._open_screen(pilot, app)
+                screen.query_one("#workspaces-list").index = 0  # set 1 header, fully available
+                await pilot.pause()
+                with patch.object(app, "push_screen_wait", new=AsyncMock(return_value=True)) as psw:
+                    await screen._shrink_flow()
+                shrink.assert_awaited_once_with(set_numbers=[1], reason="tui_shrink")
+                assert isinstance(psw.await_args_list[0].args[0], tui_app.ConfirmScreen)
+
+    @pytest.mark.asyncio
+    async def test_refuses_a_set_with_a_busy_member(self):
+        """Set 2 holds an allocated workspace — shrink must explain, not call the backend."""
+        a, b, c, d, e, f = _sessions_ready()
+        shrink = AsyncMock()
+        with a, b, c, d, e, f, patch(
+            "tui.app.fetch_pool_sets", new=AsyncMock(return_value=_pool_sets_payload())
+        ), patch("tui.app.shrink_pool", new=shrink):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                screen = await self._open_screen(pilot, app)
+                screen.query_one("#workspaces-list").index = 4  # set 2 header
+                await pilot.pause()
+                with patch.object(app, "push_screen_wait", new=AsyncMock()) as psw:
+                    await screen._shrink_flow()
+                shrink.assert_not_awaited()
+                assert isinstance(psw.await_args.args[0], tui_app.MessageScreen)
+
+    @pytest.mark.asyncio
+    async def test_requires_a_set_header_not_a_member(self):
+        a, b, c, d, e, f = _sessions_ready()
+        shrink = AsyncMock()
+        with a, b, c, d, e, f, patch(
+            "tui.app.fetch_pool_sets", new=AsyncMock(return_value=_pool_sets_payload())
+        ), patch("tui.app.shrink_pool", new=shrink):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                screen = await self._open_screen(pilot, app)
+                screen.query_one("#workspaces-list").index = 1  # a member row
+                await pilot.pause()
+                await screen._shrink_flow()
+                shrink.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_cancelling_the_confirm_does_nothing(self):
+        a, b, c, d, e, f = _sessions_ready()
+        shrink = AsyncMock()
+        with a, b, c, d, e, f, patch(
+            "tui.app.fetch_pool_sets", new=AsyncMock(return_value=_pool_sets_payload())
+        ), patch("tui.app.shrink_pool", new=shrink):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                screen = await self._open_screen(pilot, app)
+                screen.query_one("#workspaces-list").index = 0
+                await pilot.pause()
+                with patch.object(app, "push_screen_wait", new=AsyncMock(return_value=False)):
+                    await screen._shrink_flow()
+                shrink.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_backend_failure_is_reported(self):
+        a, b, c, d, e, f = _sessions_ready()
+        with a, b, c, d, e, f, patch(
+            "tui.app.fetch_pool_sets", new=AsyncMock(return_value=_pool_sets_payload())
+        ), patch("tui.app.shrink_pool", new=AsyncMock(side_effect=RuntimeError("nope"))):
+            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
+            async with app.run_test() as pilot:
+                screen = await self._open_screen(pilot, app)
+                screen.query_one("#workspaces-list").index = 0
+                await pilot.pause()
+                with patch.object(app, "push_screen_wait", new=AsyncMock(return_value=True)) as psw:
+                    await screen._shrink_flow()
+                assert isinstance(psw.await_args.args[0], tui_app.MessageScreen)
