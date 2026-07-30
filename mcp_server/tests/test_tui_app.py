@@ -385,6 +385,24 @@ def _gate_ready():
     )
 
 
+def _docker_runtime():
+    """Pin the launch runtime to docker, explicitly configured rather than inferred.
+
+    The gate branches on the runtime (docker → StartContainersScreen, process →
+    StartBackendProcessScreen), so container-path tests must pin it: otherwise they read
+    the developer's own BACKEND_RUNTIME/saved choice and assert the wrong branch. Marking
+    it configured also skips the infer-from-what's-running block, which would consult the
+    real host for a backend process.
+    """
+    return (
+        patch("tui.app.backend_runtime_is_configured", return_value=True),
+        patch(
+            "tui.app.resolve_backend_runtime",
+            return_value=tui_app.local_env.BackendRuntime.DOCKER,
+        ),
+    )
+
+
 class TestStartupGate:
     @pytest.mark.asyncio
     async def test_ready_gen_lands_on_dashboard(self):
@@ -433,9 +451,11 @@ class TestStartupGate:
 
     @pytest.mark.asyncio
     async def test_containers_down_prompts_start(self):
+        cfg, rt = _docker_runtime()
         with (
+            cfg,
+            rt,
             patch("tui.app.local_env.is_setup_complete", return_value=True),
-            patch("tui.app.backend_runtime_is_configured", return_value=True),
             patch("tui.app.local_env.containers_running", return_value=False),
         ):
             app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
@@ -445,9 +465,11 @@ class TestStartupGate:
 
     @pytest.mark.asyncio
     async def test_start_no_quits_app(self):
+        cfg, rt = _docker_runtime()
         with (
+            cfg,
+            rt,
             patch("tui.app.local_env.is_setup_complete", return_value=True),
-            patch("tui.app.backend_runtime_is_configured", return_value=True),
             patch("tui.app.local_env.containers_running", return_value=False),
         ):
             app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id=None, poll_interval=999)
@@ -459,9 +481,11 @@ class TestStartupGate:
 
     @pytest.mark.asyncio
     async def test_start_yes_starts_then_proceeds(self):
+        cfg, rt = _docker_runtime()
         with (
+            cfg,
+            rt,
             patch("tui.app.local_env.is_setup_complete", return_value=True),
-            patch("tui.app.backend_runtime_is_configured", return_value=True),
             patch("tui.app.local_env.containers_running", return_value=False),
             patch("tui.app.local_env.start_containers", new=AsyncMock(return_value=0)),
             patch("tui.app.local_env.wait_backend_ready", new=AsyncMock(return_value=True)),
@@ -479,7 +503,10 @@ class TestStartupGate:
     async def test_containers_up_but_backend_not_ready_says_unhealthy_not_down(self):
         # Containers running + backend not ready → the gate must not claim the
         # containers aren't running; it shows the "backend isn't healthy" prompt.
+        cfg, rt = _docker_runtime()
         with (
+            cfg,
+            rt,
             patch("tui.app.local_env.is_setup_complete", return_value=True),
             patch("tui.app.local_env.containers_running", return_value=True),
             patch("tui.app.local_env.backend_ready", new=AsyncMock(return_value=False)),
@@ -501,7 +528,10 @@ class TestStartupGate:
         # In the up-but-not-ready path, retrying (y) re-polls readiness without
         # re-running `docker compose up` (the containers are already up).
         start = AsyncMock(return_value=0)
+        cfg, rt = _docker_runtime()
         with (
+            cfg,
+            rt,
             patch("tui.app.local_env.is_setup_complete", return_value=True),
             patch("tui.app.local_env.containers_running", return_value=True),
             patch("tui.app.local_env.backend_ready", new=AsyncMock(return_value=False)),
