@@ -8,7 +8,7 @@ from typing import Annotated, FrozenSet, Optional
 from pydantic import AliasChoices, Field, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
-from app.core.enums import AuthMode, DatabaseType, LLMProvider
+from app.core.enums import AuthMode, BackendRuntime, DatabaseType, LLMProvider
 
 # MCP server ids enabled for agent workflows when listed in MCP_SERVERS_ENABLED (comma-separated).
 # User-supplied names outside this set are ignored. See docs/agents/enabled-mcps.md.
@@ -28,6 +28,11 @@ WORKSPACE_DEPLOY_WORKFLOW = "deploy.yml"
 # SPECFLOW_HOME_MOUNT_PATH at a different host dir. Only host-side seeding and tests override
 # SQLITE_DB_PATH (via env) to address the same bind-mounted file by its real host path.
 CONTAINER_SQLITE_DB_PATH = "/root/.specflow/db/specflow.db"
+
+# Subdirectory under WORKSPACE_BASE_PATH holding per-workspace + shared tool caches
+# (npm/pip/go/gradle/…). Single source of truth shared by claude_code's cache-dir
+# setup and the agent OS-sandbox write allowlist (os_sandbox), so the two never drift.
+WORKSPACE_CACHE_SUBDIR = "caches"
 
 # Single source of truth for the P10Y/Compass endpoint.
 P10Y_DEFAULT_BASE_URL = "https://compass.p10y.com"
@@ -105,8 +110,13 @@ class Settings(BaseSettings):
     STANDARDS_DIR_NAME: str = "standards"  # Directory name for standards in each workspace (becomes ./standards)
 
     # Artifact Store Configuration
-    # Archived generation outputs are stored at ARTIFACTS_BASE_PATH/{generation_id}/
-    ARTIFACTS_BASE_PATH: str = Field(default="/workspaces/artifacts")
+    # Archived generation outputs are stored at ARTIFACTS_BASE_PATH/{generation_id}/.
+    # Defaults to {WORKSPACE_BASE_PATH}/artifacts (derived via model_validator below,
+    # same as CLAUDE_CODE_TMPDIR_PATH) so it follows the workspace base instead of being
+    # a second hardcoded container path. Critical in BACKEND_RUNTIME=process, where the
+    # workspace base is a host path: a fixed /workspaces/artifacts would be created under
+    # the read-only filesystem root and crash archival. Set explicitly to override.
+    ARTIFACTS_BASE_PATH: Optional[str] = None
 
     # Claude Code temp directory — passed to every agent as CLAUDE_CODE_TMPDIR so that
     # Claude Code writes its internal temp files to the persistent NFS volume instead of
@@ -341,6 +351,16 @@ class Settings(BaseSettings):
     GITHUB_TEAM_SLUG: Optional[str] = None
     WORKSPACE_REPO_PREFIX: str = "specflow-workspace"
 
+    # Backend runtime / agent OS-sandbox settings.
+    # DOCKER (default): the container is the isolation boundary; no in-process
+    # agent sandbox is engaged (decoupled — Docker behaviour is unchanged).
+    # PROCESS: the backend runs bare-metal, so agents are confined by the OS-level
+    # Bash sandbox. See app/agents_sandboxing/os_sandbox.py.
+    BACKEND_RUNTIME: BackendRuntime = BackendRuntime.DOCKER
+    # Optional comma-separated override for the agent sandbox network allowlist
+    # (see os_sandbox.DEFAULT_AGENT_SANDBOX_ALLOWED_DOMAINS). Empty → use default.
+    AGENT_SANDBOX_ALLOWED_DOMAINS: Optional[str] = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -359,6 +379,17 @@ class Settings(BaseSettings):
                 )
         return v
 
+    @field_validator("BACKEND_RUNTIME", mode="before")
+    @classmethod
+    def _validate_backend_runtime(cls, v: object) -> object:
+        if isinstance(v, str):
+            allowed = {member.value for member in BackendRuntime}
+            if v not in allowed:
+                raise ValueError(
+                    f"Invalid BACKEND_RUNTIME: {v!r}. Allowed values: {sorted(allowed)}"
+                )
+        return v
+
     @model_validator(mode="after")
     def _reject_local_auth_in_protected_environments(self) -> "Settings":
         if self.AUTH_MODE != AuthMode.LOCAL:
@@ -370,12 +401,21 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
-    def _derive_claude_code_tmpdir(self) -> "Settings":
+    def _derive_workspace_relative_paths(self) -> "Settings":
+        # Paths that nest under the workspace base share a single source of truth:
+        # overriding WORKSPACE_BASE_PATH (e.g. host paths in BACKEND_RUNTIME=process)
+        # cascades to both, so neither can drift back to a container-only default.
         if self.CLAUDE_CODE_TMPDIR_PATH is None:
             object.__setattr__(
                 self,
                 "CLAUDE_CODE_TMPDIR_PATH",
                 os.path.join(self.WORKSPACE_BASE_PATH, "claude_code_tmpdir"),
+            )
+        if self.ARTIFACTS_BASE_PATH is None:
+            object.__setattr__(
+                self,
+                "ARTIFACTS_BASE_PATH",
+                os.path.join(self.WORKSPACE_BASE_PATH, "artifacts"),
             )
         return self
 

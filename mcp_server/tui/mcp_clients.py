@@ -39,7 +39,9 @@ MAX_DEEPLINK_URL_LENGTH = 8000
 # the user's HOME (not the project) because connecting a client is a machine-wide
 # action (claude/gemini `-s user`, Cursor `~/.cursor/mcp.json`) and the TUI must
 # reach it from any project. Future global settings get their own top-level key.
-CONFIG_DIRNAME = ".specflow"
+# Same ~/.specflow home as the backend pidfile/runtime and the central SQLite db —
+# sourced from local_env so the dir name has a single definition.
+CONFIG_DIRNAME = local_env.SPECFLOW_HOME_DIRNAME
 CONFIG_FILENAME = "config.json"
 
 

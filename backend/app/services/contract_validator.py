@@ -49,6 +49,8 @@ class RejectionCode(StrEnum):
     E2E_PLAN_MISSING, AMBIGUOUS_FILE, ANALYSIS_UNREADABLE, PLAN_NO_PHASES,
     PLAN_UNPARSEABLE, E2E_PLAN_UNPARSEABLE.
     Both layers share this enum to keep the full catalog in one place.
+    The run_generation entrance additionally raises MODEL_UNAVAILABLE and
+    SANDBOX_UNAVAILABLE (the latter only when BACKEND_RUNTIME=process).
     """
 
     SPEC_DIR_MISSING = "SPEC_DIR_MISSING"
@@ -63,6 +65,7 @@ class RejectionCode(StrEnum):
     E2E_PLAN_UNPARSEABLE = "E2E_PLAN_UNPARSEABLE"
     GENERATION_ALREADY_RUNNING = "GENERATION_ALREADY_RUNNING"
     MODEL_UNAVAILABLE = "MODEL_UNAVAILABLE"
+    SANDBOX_UNAVAILABLE = "SANDBOX_UNAVAILABLE"
 
 
 @dataclass

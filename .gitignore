@@ -79,6 +79,7 @@ agents/plans/*/
 # Documentation archive
 docs/archive
 scripts/archive
+docs/internal
 
 # Contributor-local E2E workspace pool config (may hold private repo URLs).
 # The committed template is e2e-workspace-config.example.json.
