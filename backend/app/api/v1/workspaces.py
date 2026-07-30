@@ -4,6 +4,7 @@ Workspace Pool API endpoints.
 Provides REST API for monitoring workspace pool status and file sync.
 """
 
+from datetime import datetime
 import io
 import json
 import logging
@@ -26,7 +27,14 @@ from app.core.telemetry_context import TelemetryContext
 from app.schemas.generation_workflow_enums import GenerationStatus, WorkspaceStatus, parse_status
 from app.state.exceptions import InvalidGenerationSessionStateError
 from app.services.contract_validator import ContractRejection, validate_generation_contract_preflight
+from app.core.workspace_pool_names import DEFAULT_WORKSPACE_POOL
 from app.services.workspace_pool import NoAvailableWorkspacesError, WorkspacePoolService, WorkspaceNotFoundError, WorkspacePoolError
+from app.services.workspace_pool_expansion import (
+    PoolExpansionRegistry,
+    WorkspacePoolExpansionError,
+    shrink_pool,
+    start_expansion,
+)
 from app.state.api_key_session_concurrency import ApiKeySessionConcurrency
 from app.utils.file_utils import extract_workspace_sync_archive
 
@@ -59,6 +67,139 @@ class WorkspacePoolStatusResponse(BaseModel):
         default_factory=list,
         description="Per-set grace-period info for sets currently in CLEANING state",
     )
+
+
+class PoolWorkspaceInfo(BaseModel):
+    """One workspace as shown on the operator management screen.
+
+    Superset of what ``/pool/status`` reports: identity (``repo_url``), lock ownership, and
+    the reclaim verdict from ``classify_reclaim`` so the UI never has to re-derive the rule.
+    """
+    workspace_id: str = Field(..., description="Workspace ID (e.g. ws-01-1)")
+    set_number: Optional[int] = Field(None, description="Set number this workspace belongs to")
+    workspace_pool: str = Field(..., description="Pool name this workspace belongs to")
+    status: str = Field(..., description="available | allocated | cleaning | stuck")
+    repo_url: Optional[str] = Field(None, description="GitHub repository backing this workspace")
+    p10y_repository_id: Optional[int] = Field(None, description="P10Y/Compass repository ID")
+    clean_verified: Optional[bool] = Field(
+        None, description="Whether cleanliness was verified — allocation requires True"
+    )
+    locked_by: Optional[str] = Field(None, description="Generation ID currently holding the lock")
+    locked_at: Optional[datetime] = Field(None, description="When the lock was taken")
+    last_used_by: Optional[str] = Field(
+        None, description="Generation ID of the last run; its work is on branch <generation_id>"
+    )
+    last_cleaned_at: Optional[datetime] = Field(None, description="When cleanup last completed")
+    cleaning_started_at: Optional[datetime] = Field(None, description="When CLEANING began")
+    remaining_grace_seconds: Optional[int] = Field(
+        None, description="Seconds left in the CLEANING grace window (CLEANING only)"
+    )
+    scheduled_for_wipe_at: Optional[datetime] = Field(
+        None, description="Scheduled 7-day wipe time, if scheduled"
+    )
+    stuck_reason: Optional[str] = Field(None, description="Why the workspace became STUCK")
+    error: Optional[str] = Field(None, description="Last recorded error")
+    owner_generation_status: Optional[str] = Field(
+        None, description="Status of the generation named by locked_by"
+    )
+    owner_code_archived: Optional[bool] = Field(
+        None, description="Whether the owning generation's code was archived"
+    )
+    reclaim_action: str = Field(..., description="What reclaiming this workspace would do")
+    reclaimable: bool = Field(..., description="Whether reclaim would change anything and is allowed")
+    reclaim_blocked_reason: Optional[str] = Field(
+        None, description="Why reclaim is refused, when it is"
+    )
+    retry_lost_on_reclaim: bool = Field(
+        ..., description="True when reclaiming ends a still-retryable FAILED generation"
+    )
+    removable: bool = Field(
+        ..., description="Whether shrink would accept this workspace (available + clean-verified)"
+    )
+    not_removable_reason: Optional[str] = Field(
+        None, description="Why shrink would refuse it, when it would"
+    )
+
+
+class PoolSetInfo(BaseModel):
+    """One workspace set (normally 3 members) and whether it can be allocated."""
+    workspace_pool: str = Field(..., description="Pool name")
+    set_number: Optional[int] = Field(None, description="Set number, None for unnumbered rows")
+    members: list[PoolWorkspaceInfo] = Field(..., description="Workspaces in this set, by ID")
+    allocatable: bool = Field(..., description="Whether allocation could take this set right now")
+    blocked_reason: Optional[str] = Field(None, description="Why the set is not allocatable")
+
+
+class PoolSetsResponse(BaseModel):
+    """Per-set pool listing for the operator management screen."""
+    sets: list[PoolSetInfo] = Field(..., description="Sets ordered by (pool, set_number)")
+    total_workspaces: int = Field(..., description="Total workspaces listed")
+    allocatable_sets: int = Field(..., description="Number of sets allocatable right now")
+
+
+class ReclaimPoolRequest(BaseModel):
+    """Request to return workspaces to AVAILABLE.
+
+    Supply ``workspace_ids``, ``set_numbers``, or both. Set numbers are resolved to their
+    real members server-side rather than rebuilt from the id convention.
+    """
+    workspace_ids: list[str] = Field(default_factory=list, description="Workspace IDs to reclaim")
+    set_numbers: list[int] = Field(default_factory=list, description="Whole sets to reclaim")
+    reason: str = Field(default="manual_reclaim", description="Audit-trail reason")
+
+
+class ReclaimPoolResponse(BaseModel):
+    """Per-workspace outcome of a reclaim. Always 200; read ``details``."""
+    total: int = Field(..., description="Workspaces processed")
+    success: int = Field(..., description="Successfully reclaimed (or already available)")
+    failed: int = Field(..., description="Refused or errored")
+    details: list[dict] = Field(..., description="Per-workspace {workspace_id, action, success, message}")
+
+
+class ExpandPoolRequest(BaseModel):
+    """Request to grow the pool by whole sets."""
+    sets: int = Field(..., ge=1, description="Number of sets of 3 workspaces to add")
+    github_org: Optional[str] = Field(
+        None, description="Override the org new repos are created in (default: inferred from pool)"
+    )
+    repo_prefix: Optional[str] = Field(
+        None, description="Override the repo name prefix (default: inferred from pool)"
+    )
+    team_slug: Optional[str] = Field(
+        None, description="Grant this GitHub team push access (default: GITHUB_TEAM_SLUG)"
+    )
+
+
+class ExpandPoolResponse(BaseModel):
+    """Progress of one expansion job. Poll until ``done`` is true."""
+    job_id: str = Field(..., description="Poll GET /pool/expand/{job_id} with this")
+    workspace_pool: str = Field(..., description="Pool being expanded")
+    sets_requested: int = Field(..., description="Sets requested")
+    phase: str = Field(..., description="queued|creating_repos|awaiting_p10y|enabling_metrics|seeding|done|failed")
+    done: bool = Field(..., description="Whether the job reached a terminal phase")
+    repo_names: list[str] = Field(default_factory=list, description="Repositories being provisioned")
+    repos_ready: int = Field(0, description="Repositories created or already present")
+    workspaces_created: int = Field(0, description="Workspace slots seeded")
+    set_numbers: list[int] = Field(default_factory=list, description="Set numbers being added")
+    messages: list[str] = Field(default_factory=list, description="Human-readable progress log")
+    error: Optional[str] = Field(None, description="Failure reason when phase is failed")
+    started_at: Optional[datetime] = Field(None, description="When the job started")
+    finished_at: Optional[datetime] = Field(None, description="When the job reached a terminal phase")
+
+
+class ShrinkPoolRequest(BaseModel):
+    """Request to remove workspace slots from the pool."""
+    workspace_ids: list[str] = Field(default_factory=list, description="Workspace IDs to remove")
+    set_numbers: list[int] = Field(default_factory=list, description="Whole sets to remove")
+    reason: str = Field(default="manual_shrink", description="Audit-trail reason")
+
+
+class ShrinkPoolResponse(BaseModel):
+    """Per-workspace outcome of a shrink. Always 200; read ``details``."""
+    total: int = Field(..., description="Workspaces processed")
+    success: int = Field(..., description="Removed from the pool")
+    failed: int = Field(..., description="Refused or errored")
+    details: list[dict] = Field(..., description="Per-workspace {workspace_id, success, message}")
 
 
 class SyncWorkspaceResponse(BaseModel):
@@ -205,6 +346,249 @@ async def get_pool_status(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get pool status: {str(e)}"
         )
+
+
+@router.get("/pool/sets", response_model=PoolSetsResponse, dependencies=[Depends(require_admin)])
+@track_event(event_name="list_pool_sets_triggered")
+async def list_pool_sets(
+    request: Request,
+    workspace_pool: WorkspacePoolService = Depends(get_workspace_pool),
+):
+    """
+    List every workspace grouped by set, for the operator management screen.
+
+    ``/pool/status`` returns counters; this returns the individual workspaces with their
+    GitHub repo, lock owner, and reclaim verdict. Scoped to the caller's own pool.
+
+    Example:
+        ```
+        GET /api/v1/workspace/pool/sets
+
+        Response:
+        {
+            "sets": [
+                {
+                    "workspace_pool": "default",
+                    "set_number": 1,
+                    "allocatable": false,
+                    "blocked_reason": "ws-01-2 is allocated",
+                    "members": [
+                        {
+                            "workspace_id": "ws-01-1",
+                            "status": "available",
+                            "repo_url": "https://github.com/acme/specflow-workspace1",
+                            "reclaim_action": "already_available",
+                            "reclaimable": false,
+                            ...
+                        }
+                    ]
+                }
+            ],
+            "total_workspaces": 9,
+            "allocatable_sets": 2
+        }
+        ```
+    """
+    pool = getattr(request.state, "workspace_pool", None)
+    try:
+        sets = await workspace_pool.list_pool_sets(workspace_pool=pool)
+    except Exception as e:
+        logger.error(f"Failed to list pool sets: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list pool sets: {str(e)}",
+        )
+
+    # The service returns plain dicts; let Pydantic validate them into the response models.
+    return PoolSetsResponse.model_validate(
+        {
+            "sets": sets,
+            "total_workspaces": sum(len(s["members"]) for s in sets),
+            "allocatable_sets": sum(1 for s in sets if s["allocatable"]),
+        }
+    )
+
+
+@router.post(
+    "/pool/reclaim", response_model=ReclaimPoolResponse, dependencies=[Depends(require_admin)]
+)
+@track_event(event_name="reclaim_pool_triggered")
+async def reclaim_pool(
+    request: Request,
+    body: ReclaimPoolRequest,
+    workspace_pool: WorkspacePoolService = Depends(get_workspace_pool),
+):
+    """
+    Return workspaces to AVAILABLE, whatever state they are in now.
+
+    One workspace, several, or whole sets. The action taken per workspace depends on its
+    state — finish an interrupted cleaning, force-clean a stale AVAILABLE one, recover a
+    STUCK one, or release an ALLOCATED one whose generation has finished. ALLOCATED
+    workspaces whose generation is still live are refused and reported as such.
+
+    Reclaiming never loses generated code: cleanup archives the tree to branch
+    ``{generation_id}`` and verifies the push before wiping.
+
+    Always returns 200 — inspect ``details`` for per-workspace outcomes.
+    """
+    pool = getattr(request.state, "workspace_pool", None)
+    # The audit trail records the authenticated caller, not a client-supplied name: the
+    # request already carries a verified identity, and a self-declared one proves nothing.
+    confirmed_by = getattr(request.state, "user_email", None) or "operator"
+
+    target_ids = list(body.workspace_ids)
+    if body.set_numbers:
+        target_ids += await workspace_pool.workspace_ids_in_sets(
+            body.set_numbers, workspace_pool=pool
+        )
+    # Preserve order while removing duplicates (a set and one of its members both listed).
+    target_ids = list(dict.fromkeys(target_ids))
+
+    if not target_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Specify at least one workspace_id or set_number to reclaim.",
+        )
+
+    try:
+        result = await workspace_pool.reclaim_workspaces(
+            target_ids, reason=body.reason, confirmed_by=confirmed_by
+        )
+    except Exception as e:
+        logger.error(f"Failed to reclaim workspaces: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to reclaim workspaces: {str(e)}",
+        )
+
+    return ReclaimPoolResponse(**result)
+
+
+def get_pool_expansion_registry(request: Request) -> PoolExpansionRegistry:
+    """The process-local expansion-job registry created at app startup."""
+    return request.app.state.pool_expansion_registry
+
+
+@router.post(
+    "/pool/expand",
+    response_model=ExpandPoolResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_admin)],
+)
+@track_event(event_name="expand_pool_triggered")
+async def expand_pool(
+    request: Request,
+    body: ExpandPoolRequest,
+    db: IDatabase = Depends(get_db),
+    registry: PoolExpansionRegistry = Depends(get_pool_expansion_registry),
+):
+    """
+    Grow the workspace pool by ``sets`` sets of 3.
+
+    Returns 202 immediately with a ``job_id``; the work runs in the background because P10Y
+    has no create-repository API — a new repo only becomes usable after Compass re-fetches the
+    GitHub connection and metrics are enabled, which takes minutes. Poll
+    ``GET /pool/expand/{job_id}`` for progress.
+
+    New repos continue the pool's existing naming and set numbering, so existing sets are
+    never renumbered and workspace slots are only published once their repo exists on GitHub
+    and has a P10Y id.
+    """
+    pool = getattr(request.state, "workspace_pool", None) or DEFAULT_WORKSPACE_POOL
+    try:
+        job = start_expansion(
+            db,
+            registry,
+            sets=body.sets,
+            workspace_pool=pool,
+            github_org=body.github_org,
+            repo_prefix=body.repo_prefix,
+            team_slug=body.team_slug,
+        )
+    except WorkspacePoolExpansionError as e:
+        # Configuration or concurrency problem the operator can act on directly.
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    return ExpandPoolResponse(**job.as_dict())
+
+
+@router.get(
+    "/pool/expand/{job_id}",
+    response_model=ExpandPoolResponse,
+    dependencies=[Depends(require_admin)],
+)
+async def get_pool_expansion(
+    job_id: str,
+    registry: PoolExpansionRegistry = Depends(get_pool_expansion_registry),
+):
+    """
+    Progress of a pool expansion.
+
+    Job state is process-local, so a backend restart mid-expansion loses it (404). Expansion
+    is idempotent — re-run it and it completes whatever is outstanding.
+    """
+    job = registry.get(job_id)
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"No expansion job {job_id}. If the backend restarted, its progress was lost — "
+                f"re-run the expansion; it will finish whatever is outstanding."
+            ),
+        )
+    return ExpandPoolResponse(**job.as_dict())
+
+
+@router.post(
+    "/pool/shrink", response_model=ShrinkPoolResponse, dependencies=[Depends(require_admin)]
+)
+@track_event(event_name="shrink_pool_triggered")
+async def shrink_pool_endpoint(
+    request: Request,
+    body: ShrinkPoolRequest,
+    db: IDatabase = Depends(get_db),
+    workspace_pool: WorkspacePoolService = Depends(get_workspace_pool),
+):
+    """
+    Remove workspace slots from the pool. **GitHub repositories are not deleted.**
+
+    Each workspace repo holds the ``archive/{generation_id}`` branches of every run that ever
+    used it — the only remote copy of that code — so shrinking only stops the slots being
+    allocated. Re-running expansion re-adopts the same repositories.
+
+    Only clean, idle (AVAILABLE + clean-verified) workspaces are removed; anything allocated,
+    cleaning, or stuck is refused with an instruction to reclaim it first.
+
+    Always returns 200 — inspect ``details`` for per-workspace outcomes.
+    """
+    pool = getattr(request.state, "workspace_pool", None)
+    confirmed_by = getattr(request.state, "user_email", None) or "operator"
+
+    target_ids = list(body.workspace_ids)
+    if body.set_numbers:
+        target_ids += await workspace_pool.workspace_ids_in_sets(
+            body.set_numbers, workspace_pool=pool
+        )
+    target_ids = list(dict.fromkeys(target_ids))
+
+    if not target_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Specify at least one workspace_id or set_number to remove.",
+        )
+
+    try:
+        result = await shrink_pool(
+            db, target_ids, reason=body.reason, confirmed_by=confirmed_by
+        )
+    except Exception as e:
+        logger.error(f"Failed to shrink pool: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to shrink pool: {str(e)}",
+        )
+
+    return ShrinkPoolResponse(**result)
 
 
 @router.post("/sync", response_model=SyncWorkspaceResponse, status_code=status.HTTP_201_CREATED)

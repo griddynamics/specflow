@@ -35,6 +35,7 @@ from app.jobs.stuck_initializing_detector import detect_stuck_initializing
 from app.jobs.stuck_running_detector import detect_stuck_running
 from app.services.generation_session import GenerationSessionService
 from app.services.generation_task_registry import GenerationTaskRegistry
+from app.services.workspace_pool_expansion import PoolExpansionRegistry
 from app.services.langfuse import tracer
 from app.services.openrouter_pricing import ensure_openrouter_pricing_cache
 from app.services.shutdown_handler import mark_active_sessions_interrupted
@@ -176,6 +177,10 @@ async def lifespan(app: FastAPI):
     # Process-local registry of running workflow tasks, shared by the run/retry/cancel
     # endpoints (via dependency injection) and boot recovery.
     app.state.generation_task_registry = GenerationTaskRegistry()
+
+    # Process-local registry of pool-expansion jobs, polled by the workspaces endpoints.
+    # In-memory is sufficient because expansion is idempotent — see workspace_pool_expansion.
+    app.state.pool_expansion_registry = PoolExpansionRegistry()
 
     tracer.init()
 

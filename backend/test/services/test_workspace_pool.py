@@ -467,6 +467,370 @@ class TestPoolStatus:
         assert status["available_sets"] == 1
 
 
+class TestListPoolSets:
+    """Per-set listing for the operator management screen."""
+
+    @pytest.mark.asyncio
+    async def test_groups_members_by_set_with_repo_url(self, workspace_pool, sample_workspaces):
+        """Every set carries its members, in ID order, each with its GitHub repo."""
+        sets = await workspace_pool.list_pool_sets()
+
+        assert [s["set_number"] for s in sets] == [1, 2]
+        assert all(s["workspace_pool"] == "default" for s in sets)
+
+        first = sets[0]
+        assert [m["workspace_id"] for m in first["members"]] == ["ws-01-1", "ws-01-2", "ws-01-3"]
+        assert first["members"][0]["repo_url"] == "https://github.com/org/workspace-1-1"
+        assert first["members"][0]["p10y_repository_id"] == 74911
+
+    @pytest.mark.asyncio
+    async def test_fresh_pool_is_allocatable(self, workspace_pool, sample_workspaces):
+        sets = await workspace_pool.list_pool_sets()
+        assert all(s["allocatable"] is True for s in sets)
+        assert all(s["blocked_reason"] is None for s in sets)
+
+    @pytest.mark.asyncio
+    async def test_allocation_makes_the_set_unallocatable_and_names_why(
+        self, workspace_pool, sample_workspaces
+    ):
+        """The blocked reason must name the offending workspace, not just say 'busy'."""
+        await workspace_pool.allocate_workspace_set("est-123")
+
+        sets = {s["set_number"]: s for s in await workspace_pool.list_pool_sets()}
+        assert sets[1]["allocatable"] is False
+        assert "ws-01-1 is allocated" in sets[1]["blocked_reason"]
+        assert sets[2]["allocatable"] is True
+
+    @pytest.mark.asyncio
+    async def test_unverified_member_blocks_the_set(self, workspace_pool, sample_workspaces, db):
+        db.update("workspaces", "ws-02-3", {"clean_verified": False})
+
+        sets = {s["set_number"]: s for s in await workspace_pool.list_pool_sets()}
+        assert sets[2]["allocatable"] is False
+        assert "ws-02-3 is not clean-verified" in sets[2]["blocked_reason"]
+
+    @pytest.mark.asyncio
+    async def test_partial_set_reports_member_count(self, workspace_pool, sample_workspaces, db):
+        db.delete("workspaces", "ws-02-3")
+
+        sets = {s["set_number"]: s for s in await workspace_pool.list_pool_sets()}
+        assert sets[2]["allocatable"] is False
+        assert "2 workspace(s)" in sets[2]["blocked_reason"]
+
+    @pytest.mark.asyncio
+    async def test_pool_filter_excludes_other_pools(self, workspace_pool, sample_workspaces, db):
+        db.set(
+            "workspaces",
+            "ws-09-1",
+            {
+                "repo_url": "https://github.com/org/other",
+                "workspace_pool": "testpool",
+                "set_number": 9,
+                "status": "available",
+                "clean_verified": True,
+            },
+        )
+
+        default_only = await workspace_pool.list_pool_sets(workspace_pool="default")
+        assert 9 not in {s["set_number"] for s in default_only}
+
+        everything = await workspace_pool.list_pool_sets()
+        assert {s["workspace_pool"] for s in everything} == {"default", "testpool"}
+
+    @pytest.mark.asyncio
+    async def test_allocated_member_carries_owner_status_and_reclaim_verdict(
+        self, workspace_pool, sample_workspaces, db
+    ):
+        """A live owner must render as non-reclaimable with the generation named."""
+        await workspace_pool.allocate_workspace_set("est-123")
+        db.update(COL_GENERATION_SESSIONS, "est-123", {"status": "running", "code_archived": False})
+
+        sets = {s["set_number"]: s for s in await workspace_pool.list_pool_sets()}
+        member = sets[1]["members"][0]
+        assert member["locked_by"] == "est-123"
+        assert member["owner_generation_status"] == "running"
+        assert member["reclaimable"] is False
+        assert "est-123" in member["reclaim_blocked_reason"]
+
+    @pytest.mark.asyncio
+    async def test_terminal_owner_is_reclaimable_and_flags_lost_retry(
+        self, workspace_pool, sample_workspaces, db
+    ):
+        await workspace_pool.allocate_workspace_set("est-123")
+        db.update(COL_GENERATION_SESSIONS, "est-123", {"status": "failed", "code_archived": False})
+
+        sets = {s["set_number"]: s for s in await workspace_pool.list_pool_sets()}
+        member = sets[1]["members"][0]
+        assert member["reclaimable"] is True
+        assert member["reclaim_action"] == "release_and_clean"
+        assert member["retry_lost_on_reclaim"] is True
+
+    @pytest.mark.asyncio
+    async def test_cleaning_member_reports_grace_countdown(
+        self, workspace_pool, sample_workspaces, db
+    ):
+        """Grace seconds come from the shared helper, so they match /pool/status."""
+        db.update(
+            "workspaces",
+            "ws-01-1",
+            {
+                "status": "cleaning",
+                "clean_verified": False,
+                "cleaning_started_at": datetime.now(timezone.utc),
+            },
+        )
+
+        sets = {s["set_number"]: s for s in await workspace_pool.list_pool_sets()}
+        member = next(m for m in sets[1]["members"] if m["workspace_id"] == "ws-01-1")
+        assert member["reclaim_action"] == "finish_cleaning"
+        assert 0 < member["remaining_grace_seconds"] <= 2 * 3600
+
+        # Non-CLEANING members have no countdown at all rather than a misleading zero.
+        other = next(m for m in sets[1]["members"] if m["workspace_id"] == "ws-01-2")
+        assert other["remaining_grace_seconds"] is None
+
+    @pytest.mark.asyncio
+    async def test_owning_generation_fetched_once_per_generation(
+        self, workspace_pool, sample_workspaces, db
+    ):
+        """3 allocated members of one generation must not cost 3 generation reads."""
+        await workspace_pool.allocate_workspace_set("est-123")
+
+        calls: list[str] = []
+        original = workspace_pool._db_adapter.get_generation_session
+
+        async def counting(generation_id):
+            calls.append(generation_id)
+            return await original(generation_id)
+
+        workspace_pool._db_adapter.get_generation_session = counting
+        await workspace_pool.list_pool_sets()
+
+        assert calls == ["est-123"]
+
+    @pytest.mark.asyncio
+    async def test_members_carry_shrink_eligibility(self, workspace_pool, sample_workspaces, db):
+        """The listing decides removability server-side so the UI cannot offer a bad shrink."""
+        db.update("workspaces", "ws-01-2", {"clean_verified": False})
+        await workspace_pool.allocate_workspace_set("est-456")  # takes set 2
+
+        sets = {s["set_number"]: s for s in await workspace_pool.list_pool_sets()}
+        by_id = {m["workspace_id"]: m for m in sets[1]["members"] + sets[2]["members"]}
+
+        assert by_id["ws-01-1"]["removable"] is True
+        assert by_id["ws-01-1"]["not_removable_reason"] is None
+        assert by_id["ws-01-2"]["removable"] is False
+        assert by_id["ws-01-2"]["not_removable_reason"] == "ws-01-2 is not clean-verified"
+        assert by_id["ws-02-1"]["removable"] is False
+        assert by_id["ws-02-1"]["not_removable_reason"] == "ws-02-1 is allocated"
+
+    @pytest.mark.asyncio
+    async def test_empty_pool_returns_no_sets(self, workspace_pool, db):
+        assert await workspace_pool.list_pool_sets() == []
+
+
+class TestReclaimWorkspace:
+    """Reclaim dispatches on state; one row of this matrix per workspace state."""
+
+    @pytest.fixture
+    def spied(self, workspace_pool):
+        """Stub the four primitives so dispatch is observable without real git work."""
+        calls: list[tuple] = []
+
+        async def cleanup(ws_id):
+            calls.append(("cleanup_workspace", ws_id))
+
+        async def force_clean(ws_id, reason="manual_cleanup"):
+            calls.append(("force_clean_available_workspace", ws_id))
+            return {"workspace_id": ws_id, "success": True, "message": "cleaned", "error": None}
+
+        async def release_stuck(ws_id, reason="manual_release_stuck", verify_clean=True):
+            calls.append(("force_release_stuck_workspace", ws_id))
+
+        async def force_release(workspace_id, reason, confirmed_by):
+            calls.append(("force_release", workspace_id, reason, confirmed_by))
+            return {}
+
+        workspace_pool.cleanup_workspace = cleanup
+        workspace_pool.force_clean_available_workspace = force_clean
+        workspace_pool.force_release_stuck_workspace = release_stuck
+        workspace_pool._workspace_sm.force_release = force_release
+        return calls
+
+    @pytest.mark.asyncio
+    async def test_cleaning_finishes_cleaning(self, workspace_pool, sample_workspaces, db, spied):
+        db.update("workspaces", "ws-01-1", {"status": "cleaning", "clean_verified": False})
+
+        result = await workspace_pool.reclaim_workspace("ws-01-1")
+
+        assert result["success"] is True
+        assert result["action"] == "finish_cleaning"
+        assert spied == [("cleanup_workspace", "ws-01-1")]
+
+    @pytest.mark.asyncio
+    async def test_dirty_available_is_force_cleaned(
+        self, workspace_pool, sample_workspaces, db, spied
+    ):
+        db.update("workspaces", "ws-01-1", {"clean_verified": False})
+
+        result = await workspace_pool.reclaim_workspace("ws-01-1")
+
+        assert result["success"] is True
+        assert result["action"] == "force_clean"
+        assert spied == [("force_clean_available_workspace", "ws-01-1")]
+
+    @pytest.mark.asyncio
+    async def test_stuck_is_released(self, workspace_pool, sample_workspaces, db, spied):
+        db.update("workspaces", "ws-01-1", {"status": "stuck", "clean_verified": False})
+
+        result = await workspace_pool.reclaim_workspace("ws-01-1")
+
+        assert result["success"] is True
+        assert result["action"] == "release_stuck"
+        assert spied == [("force_release_stuck_workspace", "ws-01-1")]
+
+    @pytest.mark.asyncio
+    async def test_clean_available_is_a_reported_no_op(
+        self, workspace_pool, sample_workspaces, spied
+    ):
+        result = await workspace_pool.reclaim_workspace("ws-01-1")
+
+        assert result["success"] is True
+        assert result["action"] == "already_available"
+        assert "nothing to do" in result["message"]
+        assert spied == []
+
+    @pytest.mark.asyncio
+    async def test_allocated_with_live_owner_is_refused(
+        self, workspace_pool, sample_workspaces, db, spied
+    ):
+        """The generated code of a running job must never be touched."""
+        await workspace_pool.allocate_workspace_set("est-123")
+        db.update(COL_GENERATION_SESSIONS, "est-123", {"status": "running"})
+
+        result = await workspace_pool.reclaim_workspace("ws-01-1")
+
+        assert result["success"] is False
+        assert result["action"] == "blocked"
+        assert "est-123" in result["message"] and "running" in result["message"]
+        assert spied == []
+
+    @pytest.mark.asyncio
+    async def test_allocated_with_terminal_owner_is_released_then_cleaned(
+        self, workspace_pool, sample_workspaces, db, spied
+    ):
+        await workspace_pool.allocate_workspace_set("est-123")
+        db.update(COL_GENERATION_SESSIONS, "est-123", {"status": "cancelled", "code_archived": True})
+
+        result = await workspace_pool.reclaim_workspace(
+            "ws-01-1", reason="operator cleanup", confirmed_by="akozak"
+        )
+
+        assert result["success"] is True
+        assert result["action"] == "release_and_clean"
+        # Order matters: release out of ALLOCATED first, then run the archive+wipe.
+        assert spied == [
+            ("force_release", "ws-01-1", "operator cleanup", "akozak"),
+            ("cleanup_workspace", "ws-01-1"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_reclaiming_a_retryable_failed_run_warns_in_the_message(
+        self, workspace_pool, sample_workspaces, db, spied
+    ):
+        await workspace_pool.allocate_workspace_set("est-123")
+        db.update(COL_GENERATION_SESSIONS, "est-123", {"status": "failed", "code_archived": False})
+
+        result = await workspace_pool.reclaim_workspace("ws-01-1")
+
+        assert result["success"] is True
+        assert "Retry-from-checkpoint is no longer possible" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_missing_workspace_is_reported_not_raised(self, workspace_pool, spied):
+        result = await workspace_pool.reclaim_workspace("ws-99-9")
+
+        assert result["success"] is False
+        assert result["message"] == "Workspace not found."
+
+    @pytest.mark.asyncio
+    async def test_primitive_failure_is_captured_as_a_result(
+        self, workspace_pool, sample_workspaces, db
+    ):
+        """A git failure mid-reclaim must be reported, not propagated to abort a batch."""
+        db.update("workspaces", "ws-01-1", {"status": "cleaning", "clean_verified": False})
+
+        async def boom(ws_id):
+            raise WorkspacePoolError("archive push failed")
+
+        workspace_pool.cleanup_workspace = boom
+
+        result = await workspace_pool.reclaim_workspace("ws-01-1")
+
+        assert result["success"] is False
+        assert result["action"] == "finish_cleaning"
+        assert "archive push failed" in result["message"]
+
+
+class TestReclaimBatchAndSetResolution:
+    @pytest.mark.asyncio
+    async def test_batch_reports_each_member_independently(
+        self, workspace_pool, sample_workspaces, db
+    ):
+        """One refused member must not hide the successes, or vice versa."""
+        db.update("workspaces", "ws-01-1", {"status": "cleaning", "clean_verified": False})
+        await workspace_pool.allocate_workspace_set("est-456")
+        db.update(COL_GENERATION_SESSIONS, "est-456", {"status": "running"})
+
+        async def cleanup(ws_id):
+            return None
+
+        workspace_pool.cleanup_workspace = cleanup
+
+        result = await workspace_pool.reclaim_workspaces(["ws-01-1", "ws-02-1", "ws-01-2"])
+
+        assert result["total"] == 3
+        assert result["success"] == 2  # cleaning → cleaned, ws-01-2 already available
+        assert result["failed"] == 1  # ws-02-1 held by the running generation
+        by_id = {d["workspace_id"]: d for d in result["details"]}
+        assert by_id["ws-02-1"]["action"] == "blocked"
+
+    @pytest.mark.asyncio
+    async def test_set_resolution_reads_real_membership(
+        self, workspace_pool, sample_workspaces, db
+    ):
+        ids = await workspace_pool.workspace_ids_in_sets([1])
+        assert ids == ["ws-01-1", "ws-01-2", "ws-01-3"]
+
+    @pytest.mark.asyncio
+    async def test_set_resolution_reflects_a_partial_set(
+        self, workspace_pool, sample_workspaces, db
+    ):
+        """Resolving from the DB, not the id convention, so a deleted member is not addressed."""
+        db.delete("workspaces", "ws-01-3")
+
+        ids = await workspace_pool.workspace_ids_in_sets([1])
+
+        assert ids == ["ws-01-1", "ws-01-2"]
+
+    @pytest.mark.asyncio
+    async def test_set_resolution_is_pool_scoped(self, workspace_pool, sample_workspaces, db):
+        db.set(
+            "workspaces",
+            "ws-01-9",
+            {"workspace_pool": "testpool", "set_number": 1, "status": "available"},
+        )
+
+        assert await workspace_pool.workspace_ids_in_sets([1], workspace_pool="default") == [
+            "ws-01-1",
+            "ws-01-2",
+            "ws-01-3",
+        ]
+        assert await workspace_pool.workspace_ids_in_sets([1], workspace_pool="testpool") == [
+            "ws-01-9"
+        ]
+
+
 class TestWorkspaceCountConfig:
     """
     Tests for workspace_count parameter (configurable workspace count feature).
