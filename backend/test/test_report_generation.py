@@ -208,7 +208,7 @@ class TestCreateComparisonTable:
         )
 
         # Check table structure
-        assert "| Phase # | Phase |" in table
+        assert "| Phase # | Description |" in table
         assert "workspace-1" in table
         assert "workspace-2" in table
         assert "workspace-3" in table

@@ -910,7 +910,7 @@ def create_mock_workspace_estimation(
     phase_breakdown: Dict[str, PhaseEstimation] = {
         "01": PhaseEstimation(
             phase_number=1,
-            phase_name="Phase 1",
+            phase_name="Project Setup",
             hours=total_hours,
             new_work=new_work,
             refactor=refactor,

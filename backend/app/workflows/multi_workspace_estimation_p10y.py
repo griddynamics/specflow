@@ -212,11 +212,15 @@ async def _load_phase_names(
     db_adapter: Optional[StateMachineDBAdapter],
     logger: logging.Logger,
 ) -> Dict[int, str]:
-    """Map phase number -> name from the shared implementation plan (Firestore planning_data).
+    """Map phase number -> name from the shared implementation plan.
 
-    The phase number is the cross-variant join key; names come from the single shared plan,
-    so every variant labels the same phase identically. Returns {} when unavailable (labels
-    then fall back to "Phase N").
+    The plan is persisted per workspace under ``workspace_phases[ws_id]["planning_data"]``
+    (there is no top-level ``planning_data``); every entry carries the same plan, so the
+    first one with phases wins. The phase number is the cross-variant join key, so the
+    names resolved here label the same phase identically in every variant.
+
+    Returns {} when unavailable — the breakdown then shows the phase number alone rather
+    than a label that just repeats it.
     """
     if not generation_id or not db_adapter:
         return {}
@@ -225,13 +229,21 @@ async def _load_phase_names(
     except Exception as e:
         logger.warning("Could not load planning_data for phase names: %s", e)
         return {}
-    phases = ((doc or {}).get("planning_data") or {}).get("phases") or []
-    names: Dict[int, str] = {}
-    for p in phases:
-        num = p.get("number")
-        if isinstance(num, int):
-            names[num] = p.get("name") or f"Phase {num}"
-    return names
+    for entry in ((doc or {}).get("workspace_phases") or {}).values():
+        phases = ((entry or {}).get("planning_data") or {}).get("phases") or []
+        names: Dict[int, str] = {
+            p["number"]: p["name"]
+            for p in phases
+            if isinstance(p.get("number"), int) and p.get("name")
+        }
+        if names:
+            return names
+    logger.warning(
+        "No implementation-plan phase names found for %s — the phase breakdown will show "
+        "numbers without descriptions.",
+        generation_id,
+    )
+    return {}
 
 
 def _skipped_workspaces_from_parallel(

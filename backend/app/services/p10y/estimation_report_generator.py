@@ -43,7 +43,7 @@ def create_comparison_table(
 
     # Build table header (Phase # + Phase name + one column per workspace + stats)
     header = (
-        "| Phase # | Phase | "
+        "| Phase # | Description | "
         + " | ".join(workspace_names)
         + " | Average | Std Dev | Variance % |\n"
     )

@@ -212,7 +212,7 @@ def _estimate_panel(payload: dict[str, Any]) -> Panel | None:
     if panel.phase_comparison:
         breakdown = Table(box=None, padding=(0, 2))
         breakdown.add_column("Phase #", justify="right")
-        breakdown.add_column("Phase", justify="left")
+        breakdown.add_column("Description", justify="left")
         breakdown.add_column("Avg hours", justify="right")
         breakdown.add_column("Variance", justify="right")
         for row in panel.phase_comparison:

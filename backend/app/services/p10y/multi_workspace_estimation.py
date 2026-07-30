@@ -31,6 +31,10 @@ CV_MEDIUM = 0.30  # 15-30% variance - moderate
 # Sentinel bucket for commits with no implementation-plan phase prefix.
 UNPHASED_KEY = "unphased"
 
+# Shown when a phase carries no name in the plan. Deliberately not "Phase N": the number
+# already has its own column, so repeating it would say nothing.
+UNNAMED_PHASE = "—"
+
 
 def _phase_key(phase_number: Optional[int]) -> str:
     """Stable, sort-friendly dict key for a phase (zero-padded number, or the unphased sentinel)."""
@@ -121,7 +125,7 @@ async def estimate_single_workspace(
             if phase_number is None:
                 name = UNPHASED_KEY
             else:
-                name = phase_names.get(phase_number, f"Phase {phase_number}")
+                name = phase_names.get(phase_number) or UNNAMED_PHASE
             phase_breakdown[_phase_key(phase_number)] = estimation_to_phase_estimation(
                 phase_number, name, phase_est, multiplier
             )

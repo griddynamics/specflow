@@ -1366,7 +1366,7 @@ def render_generation_session_report_html(
         html_parts.append('<table>')
         html_parts.append('<thead><tr>')
         html_parts.append('<th>Phase #</th>')
-        html_parts.append('<th>Phase</th>')
+        html_parts.append('<th>Description</th>')
         # Add workspace columns
         if workspace_estimations:
             for ws_est in workspace_estimations:
