@@ -35,9 +35,10 @@ class EstimateGenerateResponse(BaseModel):
 
 
 # Multi-workspace P10Y estimation models
-class ComponentEstimation(BaseModel):
-    """Estimation metrics for a single component."""
-    component_name: str
+class PhaseEstimation(BaseModel):
+    """Estimation metrics for a single implementation-plan phase."""
+    phase_number: Optional[int]  # None for the "unphased" bucket
+    phase_name: str
     hours: float
     new_work: float
     refactor: float
@@ -64,10 +65,15 @@ class WorkspaceEstimation(BaseModel):
     workspace_path: str
     total_hours: float
     total_effective_output: float
-    component_breakdown: Dict[str, ComponentEstimation]
+    phase_breakdown: Dict[str, PhaseEstimation]
     estimation_metrics: EstimationMetrics
     commits_count: int
     p10y_scored_commits: Optional[int] = None
+    p10y_returned_commits: Optional[int] = Field(
+        default=None,
+        description="Eligible commits P10Y returned a row for, before the valid-technology "
+        "filter. Lets coverage be split into service-gap vs non-code (docs/config) causes.",
+    )
     model_usage: Optional[ModelTokenUsage] = None
     total_usd_cost: Optional[float] = Field(
         default=None,
@@ -88,9 +94,10 @@ class WorkspaceEstimation(BaseModel):
         return None if v is None else v.to_dict()
 
 
-class ComponentComparison(BaseModel):
-    """Comparison of a component across workspaces."""
-    component_name: str
+class PhaseComparison(BaseModel):
+    """Comparison of one implementation-plan phase across workspaces."""
+    phase_number: Optional[int]  # None for the "unphased" bucket
+    phase_name: str
     hours_by_workspace: Dict[str, float]  # workspace_name -> hours
     average: float
     std_deviation: float
@@ -99,8 +106,8 @@ class ComponentComparison(BaseModel):
 
 class ComparativeAnalysis(BaseModel):
     """Comparative analysis across all workspaces."""
-    component_comparison: Dict[str, ComponentComparison]
-    high_variance_components: List[str]
+    phase_comparison: Dict[str, PhaseComparison]
+    high_variance_phases: List[str]
     insights: List[str]
 
 

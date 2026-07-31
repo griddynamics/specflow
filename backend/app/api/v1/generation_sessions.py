@@ -34,7 +34,7 @@ from app.schemas.estimate import (
     EstimationSummary,
     WorkspaceEstimation,
     ComparativeAnalysis,
-    ComponentComparison,
+    PhaseComparison,
     RiskAssessment,
     SkippedWorkspaceP10Y,
 )
@@ -992,17 +992,17 @@ def _reconstruct_generation_session_response(
             continue
 
     comp_analysis_data = stored_result.get("comparative_analysis") or {}
-    component_comparison = {}
-    if "component_comparison" in comp_analysis_data:
-        for comp_name, comp_comp_data in comp_analysis_data["component_comparison"].items():
+    phase_comparison = {}
+    if "phase_comparison" in comp_analysis_data:
+        for phase_key, phase_comp_data in comp_analysis_data["phase_comparison"].items():
             try:
-                component_comparison[comp_name] = ComponentComparison(**comp_comp_data)
+                phase_comparison[phase_key] = PhaseComparison(**phase_comp_data)
             except Exception:
                 continue
 
     comparative_analysis = ComparativeAnalysis(
-        component_comparison=component_comparison,
-        high_variance_components=comp_analysis_data.get("high_variance_components", []),
+        phase_comparison=phase_comparison,
+        high_variance_phases=comp_analysis_data.get("high_variance_phases", []),
         insights=comp_analysis_data.get("insights", []),
     )
 

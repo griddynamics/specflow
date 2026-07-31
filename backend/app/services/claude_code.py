@@ -66,6 +66,8 @@ from app.services.model_routing import (
     classify_error,
     get_fallback_model,
 )
+from app.services.git_utils import run_git
+from app.utils.workspace_git_hooks import ensure_workspace_git_hooks
 from app.schemas.deploy_context import DeployGithubContext
 from app.schemas.planning import PlanningResult
 from app.schemas.specification import GenerateAppRequest, SpecReadiness
@@ -1404,6 +1406,19 @@ async def execute_all_phases(
         f"(out of {planning_data.phase_count} total phases)"
     )
 
+    # Deterministic phase attribution: install the prepare-commit-msg hook that stamps
+    # each commit subject with pNN_. Done here (not in a setup path) so it is guaranteed
+    # present before any commit regardless of how .git was created (init/clone/reset).
+    # The hook reads `specflow.phase`, set per codegen phase in the loop below; for the
+    # deploy loop we clear it so deploy commits stay unphased.
+    hook_root = Path(workspace.get_isolated_root())
+    ensure_workspace_git_hooks(hook_root)
+    if is_deployment:
+        try:
+            await run_git(hook_root, ["config", "specflow.phase", ""])
+        except Exception as exc:
+            logger.warning(f"[{workspace_name}] could not clear phase marker (non-fatal): {exc}")
+
     step = WorkflowStepName.DEPLOY_AND_E2E if is_deployment else WorkflowStepName.GENERATION
     selector = McpSelector(manager.settings, enabled_mcps, logger)
 
@@ -1446,6 +1461,14 @@ async def execute_all_phases(
         TelemetryContext.set_phase_name(phase_info.name or "")
 
         workspace_root = workspace.get_isolated_root()
+        if not is_deployment:
+            # Stamp commits made during this phase with pNN_ (consumed by the hook above).
+            try:
+                await run_git(Path(workspace_root), ["config", "specflow.phase", str(phase_num)])
+            except Exception as exc:
+                logger.warning(
+                    f"[{workspace_name}] could not set phase marker {phase_num} (non-fatal): {exc}"
+                )
         if is_deployment:
             phase_prompt = generate_deploy_phase_agent_template(
                 model=workspace.model,

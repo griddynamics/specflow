@@ -10,7 +10,7 @@ import pytest
 
 from app.core.config import Settings
 from app.schemas.agent import AgentResult
-from app.schemas.estimate import ComponentEstimation, EstimationMetrics, WorkspaceEstimation
+from app.schemas.estimate import PhaseEstimation, EstimationMetrics, WorkspaceEstimation
 from app.schemas.workspace import WorkspaceSettings
 from app.services.parallel_executor import ParallelAgentExecutor, execute_generation_parallel
 from app.services.workspace_config_loader import WorkspaceConfigLoader
@@ -368,17 +368,19 @@ class TestParallelGenerationExecution:
                 total_hours=100.0 + workspace.p10y_repository_id,  # Unique value per workspace
                 total_effective_output=50.0,
                 commits_count=10,
-                component_breakdown={
-                    "backend": ComponentEstimation(
-                        component_name="backend",
+                phase_breakdown={
+                    "06": PhaseEstimation(
+                        phase_number=6,
+                        phase_name="Backend Domain",
                         hours=50.0,
                         new_work=40.0,
                         refactor=8.0,
                         rework=2.0,
                         quality_score=0.85
                     ),
-                    "frontend": ComponentEstimation(
-                        component_name="frontend",
+                    "13": PhaseEstimation(
+                        phase_number=13,
+                        phase_name="Frontend Shell",
                         hours=50.0,
                         new_work=40.0,
                         refactor=8.0,
@@ -435,7 +437,7 @@ class TestParallelGenerationExecution:
                 total_hours=100.0,
                 total_effective_output=50.0,
                 commits_count=10,
-                component_breakdown={},
+                phase_breakdown={},
                 estimation_metrics=EstimationMetrics(
                     new_work=80.0,
                     refactor=16.0,
@@ -476,7 +478,7 @@ class TestParallelGenerationExecution:
                 total_hours=100.0,
                 total_effective_output=50.0,
                 commits_count=10,
-                component_breakdown={},
+                phase_breakdown={},
                 estimation_metrics=EstimationMetrics(
                     new_work=80.0,
                     refactor=16.0,
@@ -519,7 +521,7 @@ class TestParallelGenerationExecution:
                     total_hours=150.0,
                     total_effective_output=75.0,
                     commits_count=15,
-                    component_breakdown={},
+                    phase_breakdown={},
                     estimation_metrics=EstimationMetrics(
                         new_work=120.0,
                         refactor=24.0,
@@ -583,7 +585,7 @@ class TestParallelGenerationExecution:
                 total_hours=100.0 * workspace_num,
                 total_effective_output=50.0 * workspace_num,
                 commits_count=workspace_num * 5,
-                component_breakdown={},
+                phase_breakdown={},
                 estimation_metrics=EstimationMetrics(
                     new_work=80.0,
                     refactor=16.0,

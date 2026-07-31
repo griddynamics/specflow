@@ -28,9 +28,9 @@ from app.schemas.estimate import (
     EstimationSummary,
     WorkspaceEstimation,
     ComparativeAnalysis,
-    ComponentEstimation,
+    PhaseEstimation,
     EstimationMetrics,
-    ComponentComparison,
+    PhaseComparison,
     RiskAssessment,
     SimplifiedEstimationResponse,
     SkippedWorkspaceP10Y,
@@ -184,17 +184,19 @@ def sample_estimation_result():
         "anthropic/claude-sonnet-4.5",
     ]
     for i, ws_name in enumerate(["ws-01-1", "ws-01-2", "ws-01-3"], 1):
-        component_breakdown = {
-            "auth": ComponentEstimation(
-                component_name="auth",
+        phase_breakdown = {
+            "07": PhaseEstimation(
+                phase_number=7,
+                phase_name="Auth",
                 hours=20.0 + i,
                 new_work=15.0,
                 refactor=3.0,
                 rework=2.0 + i,
                 quality_score=0.85,
             ),
-            "api": ComponentEstimation(
-                component_name="api",
+            "08": PhaseEstimation(
+                phase_number=8,
+                phase_name="API",
                 hours=30.0 + i,
                 new_work=25.0,
                 refactor=4.0,
@@ -218,7 +220,7 @@ def sample_estimation_result():
             workspace_path=f"/workspaces/{ws_name}",
             total_hours=50.0 + i,
             total_effective_output=47.0,
-            component_breakdown=component_breakdown,
+            phase_breakdown=phase_breakdown,
             estimation_metrics=estimation_metrics,
             commits_count=10 + i,
             model_usage=ModelTokenUsage(
@@ -233,9 +235,10 @@ def sample_estimation_result():
         workspace_estimations.append(ws_est)
     
     # Create comparative analysis
-    component_comparison = {
-        "auth": ComponentComparison(
-            component_name="auth",
+    phase_comparison = {
+        "07": PhaseComparison(
+            phase_number=7,
+            phase_name="Auth",
             hours_by_workspace={
                 "ws-01-1": 21.0,
                 "ws-01-2": 22.0,
@@ -245,8 +248,9 @@ def sample_estimation_result():
             std_deviation=0.82,
             variance_percentage=3.7,
         ),
-        "api": ComponentComparison(
-            component_name="api",
+        "08": PhaseComparison(
+            phase_number=8,
+            phase_name="API",
             hours_by_workspace={
                 "ws-01-1": 31.0,
                 "ws-01-2": 32.0,
@@ -257,10 +261,10 @@ def sample_estimation_result():
             variance_percentage=2.6,
         ),
     }
-    
+
     comparative_analysis = ComparativeAnalysis(
-        component_comparison=component_comparison,
-        high_variance_components=[],
+        phase_comparison=phase_comparison,
+        high_variance_phases=[],
         insights=["Low variance across workspaces", "Consistent estimates"],
     )
     
@@ -355,10 +359,10 @@ class TestEmailNotificationGeneration:
         assert "input:" in html_content
         assert "cache write:" in html_content
         
-        # Check that component breakdown is included
-        assert "Component Complexity Metrics Breakdown" in html_content
-        assert "auth" in html_content
-        assert "api" in html_content
+        # Check that phase breakdown is included
+        assert "Phase Breakdown" in html_content
+        assert "Auth" in html_content
+        assert "API" in html_content
         
         # Check summary information (P10Y variance — not approval/rejection labels)
         assert "115.0" in html_content  # Final estimate
@@ -372,7 +376,7 @@ class TestEmailNotificationGeneration:
         assert "est-test-123" in plain_content
         assert "VARIANTS:" in plain_content
         assert "SpecFlow ITERATION COMPLETE" in plain_content
-        assert "COMPONENT BREAKDOWN" in plain_content
+        assert "PHASE BREAKDOWN" in plain_content
         assert "model: anthropic/claude-sonnet-4.5" in plain_content
 
     @patch("app.core.notifications.smtplib.SMTP_SSL")
@@ -453,17 +457,17 @@ class TestEmailNotificationGeneration:
             workspace_path="/workspaces/workspace-1",
             total_hours=50.0,
             total_effective_output=47.0,
-            component_breakdown={},  # Empty breakdown
+            phase_breakdown={},  # Empty breakdown
             estimation_metrics=estimation_metrics,
             commits_count=10,
         )
-        
+
         result = MultiWorkspaceEstimationResponse(
             summary=summary,
             workspace_estimations=[workspace_est],
             comparative_analysis=ComparativeAnalysis(
-                component_comparison={},
-                high_variance_components=[],
+                phase_comparison={},
+                high_variance_phases=[],
                 insights=[],
             ),
             timestamp=datetime.now(timezone.utc).isoformat(),
@@ -498,9 +502,9 @@ class TestEmailNotificationGeneration:
                     assert html_content.strip() != ""
                     break
         
-        # Component breakdown section should not be present
+        # Phase breakdown section should not be present
         # (it should be omitted when empty)
-        assert "Component Complexity Metrics Breakdown" not in html_content
+        assert "Phase Breakdown" not in html_content
     
     @patch('app.core.notifications.smtplib.SMTP_SSL')
     def test_notify_generation_session_complete_with_missing_workspace(
@@ -568,8 +572,8 @@ class TestRenderGenerationSessionReportHtml:
         assert html_content.strip() != ""
         assert plain_content.strip() != ""
         assert "<html" in html_content.lower()
-        assert "auth" in html_content
-        assert "COMPONENT BREAKDOWN" in plain_content
+        assert "Auth" in html_content
+        assert "PHASE BREAKDOWN" in plain_content
 
     def test_html_builder_is_the_single_source_used_by_email(
         self, mock_db, sample_workspace_docs, sample_estimation_result, mock_email_config
@@ -672,11 +676,11 @@ class TestReconstructGenerationResponse:
         assert reconstructed.summary.average_hours == 100.0
         assert reconstructed.summary.risk_assessment.status == "Approved"
         assert len(reconstructed.workspace_estimations) == 3
-        assert len(reconstructed.comparative_analysis.component_comparison) == 2
-        
-        # Verify component breakdown
-        assert "auth" in reconstructed.workspace_estimations[0].component_breakdown
-        assert "api" in reconstructed.workspace_estimations[0].component_breakdown
+        assert len(reconstructed.comparative_analysis.phase_comparison) == 2
+
+        # Verify phase breakdown
+        assert "07" in reconstructed.workspace_estimations[0].phase_breakdown
+        assert "08" in reconstructed.workspace_estimations[0].phase_breakdown
 
     def test_reconstruct_includes_skipped_workspaces_and_p10y_coverage(
         self, sample_estimation_result
@@ -722,7 +726,7 @@ class TestReconstructGenerationResponse:
         result = _reconstruct_generation_session_response(stored_result)
         assert result.summary.average_hours == 100.0
         assert result.workspace_estimations == []
-        assert result.comparative_analysis.component_comparison == {}
+        assert result.comparative_analysis.phase_comparison == {}
 
 
 class TestResendEmailEndpoint:
