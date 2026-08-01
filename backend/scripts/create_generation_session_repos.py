@@ -48,7 +48,6 @@ import time
 from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
-import httpx
 
 
 # Add backend to path
@@ -75,22 +74,67 @@ from app.services.workspace_pool_seeding import (  # noqa: E402
     seed_workspace_pool,
 )
 
-LIVE_REPOSITORY_STATUS = "Live"
-LIVE_INTERNAL_STATUS = 1  # internal_status value P10Y sets after enable/metrics succeeds
+# Provisioning and P10Y-discovery logic now lives in app/services so the pool-expansion
+# endpoint and this bootstrap script share one implementation. These names are re-exported
+# (rather than reimplemented) so the script body and its tests keep working unchanged.
+from app.services.github_repo_provisioner import (  # noqa: E402
+    GitHubAPIClient,
+    provision_repositories,
+)
+from app.services.p10y_repository_discovery import (  # noqa: E402
+    P10Y_REFETCH_POLL_SECONDS,
+    P10Y_REFETCH_TIMEOUT_SECONDS,
+    discover_repository_ids as get_repository_ids,
+    get_repository_statuses,
+    poll_repository_status,
+    repo_is_ready as _repo_is_ready,
+    repository_ids_requiring_metrics,
+    repository_search as _p10y_repository_search,
+    trigger_repository_refetch,
+)
 
-P10Y_REFETCH_POLL_SECONDS = 5
-P10Y_REFETCH_TIMEOUT_SECONDS = 60
 
-def _repo_is_ready(status_dict: Dict[str, Any]) -> bool:
-    """Return True when a repo is ready for estimation.
+async def create_github_repositories(
+    github_client: GitHubAPIClient,
+    prefix: str,
+    start_num: int,
+    end_num: int,
+    team_slug: str | None,
+    delay: float = 0.1,
+) -> List[Dict[str, Any]]:
+    """Create repositories ``{prefix}{start_num}``..``{prefix}{end_num}`` under the owner.
 
-    P10Y sets status='Live' once metrics have fully processed, but internal_status=1
-    is set immediately after enable/metrics and is sufficient for provisioning.
+    Thin adapter over ``provision_repositories`` keeping this script's numeric-range interface
+    and its dict-shaped return value.
     """
-    return (
-        status_dict.get("status") == LIVE_REPOSITORY_STATUS
-        or (status_dict.get("internal_status") or 0) >= LIVE_INTERNAL_STATUS
+    repo_names = [f"{prefix}{num}" for num in range(start_num, end_num + 1)]
+    provisioned = await provision_repositories(
+        github_client, repo_names, team_slug=team_slug, delay=delay, on_progress=print
     )
+    return [
+        {
+            "name": repo.name,
+            "full_name": repo.full_name,
+            "html_url": repo.html_url,
+            "already_existed": repo.already_existed,
+        }
+        for repo in provisioned
+    ]
+
+
+async def start_metrics_calculation(
+    p10y_client: P10YInternalAPIClient,
+    org_id: int,
+    repo_ids: List[int],
+) -> None:
+    """Enable P10Y metrics for the given repository IDs."""
+    if not repo_ids:
+        print("\n⚠️  No repository IDs to start metrics for")
+        return
+    print(f"\n📊 Starting metrics calculation for {len(repo_ids)} repositories")
+    await p10y_client.enable_metrics(org_id, repo_ids)
+    print("✅ Metrics calculation started successfully")
+
 
 # Set DATABASE_TYPE early if FIRESTORE_EMULATOR_HOST is set
 if os.getenv("FIRESTORE_EMULATOR_HOST") and not os.getenv("DATABASE_TYPE"):
@@ -104,174 +148,6 @@ def refresh_settings_singleton() -> None:
 
     config_module.settings = config_module.Settings()
     db_factory.settings = config_module.settings
-
-
-class GitHubAPIClient:
-    """Client for GitHub API operations (organization or personal-account repositories)."""
-
-    def __init__(self, token: str, org: str):
-        """
-        Initialize GitHub API client.
-
-        Args:
-            token: GitHub personal access token (needs repo + org/team scopes as appropriate)
-            org: GitHub organization login or personal account login (repository owner / namespace)
-        """
-        self.token = token
-        self.org = org
-        self.base_url = "https://api.github.com"
-        self.headers = {
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28"
-        }
-        self.client = httpx.AsyncClient(timeout=30.0)
-        self._is_user_account: Optional[bool] = None
-
-    async def get_authenticated_user(self) -> Dict[str, Any]:
-        """
-        Get the authenticated user's information.
-
-        Returns:
-            User data from GitHub API
-        """
-        url = f"{self.base_url}/user"
-        response = await self.client.get(url, headers=self.headers)
-        response.raise_for_status()
-        return response.json()
-
-    async def _resolve_owner_type(self) -> bool:
-        """Return True if self.org is a personal user account (not an org)."""
-        if self._is_user_account is None:
-            url = f"{self.base_url}/users/{self.org}"
-            response = await self.client.get(url, headers=self.headers)
-            response.raise_for_status()
-            self._is_user_account = response.json().get("type") == "User"
-        assert self._is_user_account is not None
-        return self._is_user_account
-
-    async def create_repository(self, repo_name: str) -> Dict[str, Any]:
-        """
-        Create a private repository under the configured owner (org or personal account).
-
-        Args:
-            repo_name: Name of the repository to create
-
-        Returns:
-            Repository data from GitHub API
-        """
-        is_user = await self._resolve_owner_type()
-        if is_user:
-            url = f"{self.base_url}/user/repos"
-        else:
-            url = f"{self.base_url}/orgs/{self.org}/repos"
-        data = {
-            "name": repo_name,
-            "private": True,
-            "auto_init": True,
-            "description": f"Generation workspace repository: {repo_name}",
-        }
-
-        response = await self.client.post(url, json=data, headers=self.headers)
-        response.raise_for_status()
-        return response.json()
-
-    async def repository_exists(self, repo_name: str) -> bool:
-        """
-        Check if a repository already exists under the organization.
-
-        Args:
-            repo_name: Name of the repository
-
-        Returns:
-            True if repository exists, False otherwise
-        """
-        url = f"{self.base_url}/repos/{self.org}/{repo_name}"
-        response = await self.client.get(url, headers=self.headers)
-        return response.status_code == 200
-
-    async def add_team_repository_write(self, team_slug: str, repo_name: str) -> None:
-        """
-        Grant a team Write access on a repository (GitHub REST permission 'push').
-
-        PUT /orgs/{org}/teams/{team_slug}/repos/{org}/{repo_name}
-        """
-        url = (
-            f"{self.base_url}/orgs/{self.org}/teams/{team_slug}/repos/"
-            f"{self.org}/{repo_name}"
-        )
-        data = {"permission": "push"}
-        response = await self.client.put(url, json=data, headers=self.headers)
-        response.raise_for_status()
-
-    async def close(self):
-        """Close the HTTP client."""
-        await self.client.aclose()
-
-
-async def create_github_repositories(
-    github_client: GitHubAPIClient,
-    prefix: str,
-    start_num: int,
-    end_num: int,
-    team_slug: str | None,
-    delay: float = 0.1,
-) -> List[Dict[str, Any]]:
-    """
-    Create multiple GitHub repositories with sequential numbering under the client's org.
-
-    Args:
-        github_client: Initialized GitHub API client (org is github_client.org)
-        prefix: Repository name prefix (e.g., "generation-workspace")
-        start_num: Starting number (inclusive)
-        end_num: Ending number (inclusive)
-        team_slug: If set, grant this team Write access (push) on each repo
-        delay: Delay between requests in seconds (default: 0.1)
-
-    Returns:
-        List of created repository data
-    """
-    created_repos = []
-    org = github_client.org
-
-    for num in range(start_num, end_num + 1):
-        repo_name = f"{prefix}{num}"
-
-        # Check if repo already exists
-        if await github_client.repository_exists(repo_name):
-            print(f"⚠️  Repository '{repo_name}' already exists, skipping creation")
-            # Still add to list for P10y sync
-            created_repos.append({
-                "name": repo_name,
-                "full_name": f"{org}/{repo_name}",
-                "html_url": f"https://github.com/{org}/{repo_name}",
-                "already_existed": True,
-            })
-        else:
-            try:
-                print(f"📦 Creating repository: {org}/{repo_name}")
-                repo_data = await github_client.create_repository(repo_name)
-                created_repos.append(repo_data)
-                print(f"✅ Created: {repo_data['html_url']}")
-            except httpx.HTTPStatusError as e:
-                print(f"❌ Failed to create {repo_name}: {e}")
-                print(f"   Response: {e.response.text}")
-                raise
-
-        if team_slug:
-            try:
-                await github_client.add_team_repository_write(team_slug, repo_name)
-                print(f"   👥 Team '{team_slug}' granted Write on {repo_name}")
-            except httpx.HTTPStatusError as e:
-                print(f"❌ Failed to add team {team_slug} to {repo_name}: {e}")
-                print(f"   Response: {e.response.text}")
-                raise
-
-        # Add delay to avoid rate limiting
-        if num < end_num:
-            await asyncio.sleep(delay)
-
-    return created_repos
 
 
 def print_dry_run_plan(
@@ -321,302 +197,6 @@ def print_dry_run_plan(
         elif skip_team:
             print("   Would skip: team repository permission updates (--skip-team)")
     print("=" * 80)
-
-
-def _normalize_git_url(git_url: str) -> str:
-    """Reduce a P10Y ``git_url`` to a lowercase ``<org>/<name>`` tail for matching.
-
-    Strips any scheme/host (``https://github.com/org/name``) and a trailing
-    ``.git`` so comparison is provider-format agnostic.
-    """
-    s = (git_url or "").strip().lower()
-    if s.endswith(".git"):
-        s = s[:-4]
-    if "://" in s:
-        s = s.split("://", 1)[1]
-        s = s.split("/", 1)[1] if "/" in s else s
-    return s
-
-
-def _p10y_repository_search(prefix: str, github_org: Optional[str]) -> str:
-    """Build the narrowest P10Y repository search value available."""
-    clean_prefix = (prefix or "").strip()
-    clean_org = (github_org or "").strip().strip("/")
-    if clean_prefix and clean_org:
-        return f"{clean_org}/{clean_prefix}"
-    return clean_prefix
-
-
-async def get_repository_ids(
-    p10y_client: P10YInternalAPIClient,
-    org_id: int,
-    repo_names: List[str],
-    search: Optional[str] = None,
-    github_org: Optional[str] = None,
-) -> Dict[str, int]:
-    """
-    Get P10y repository IDs for the given repository names.
-
-    Args:
-        p10y_client: Initialized P10y API client
-        org_id: P10y organization ID
-        repo_names: List of repository names to find
-        search: Search filter for list_repositories (e.g. the qualified
-            ``<github_org>/<prefix>`` string built by ``_p10y_repository_search``)
-        github_org: GitHub org owning the repos. When set, matching is done on
-            ``git_url`` (``<org>/<name>``) rather than the bare ``repository_name``.
-    Returns:
-        Dictionary mapping repository names to their P10y IDs
-    """
-    print("\n🔍 Looking up P10y repository IDs")
-
-    repos = await p10y_client.list_repositories_paginated(org_id, search=search)
-
-    # P10Y `repository_name` is the BARE repo name and is NOT unique within a Compass
-    # organisation — the same bare name can exist under several GitHub orgs, distinguished
-    # only by `git_url` (`<org>/<name>`). Matching on the bare name lets a same-named repo
-    # from a different org overwrite the correct ID (last-write-wins). When the owning org
-    # is known, match on the fully-qualified git_url instead.
-    expected_by_git_url = (
-        {_normalize_git_url(f"{github_org}/{name}"): name for name in repo_names}
-        if github_org
-        else {}
-    )
-    repo_name_set = set(repo_names)
-
-    repo_id_map: Dict[str, int] = {}
-    for repo_data in repos:
-        if expected_by_git_url:
-            matched_name = expected_by_git_url.get(
-                _normalize_git_url(repo_data.get("git_url", ""))
-            )
-            if matched_name is None:
-                continue
-        else:
-            repo_name = repo_data.get("repository_name", "")
-            if repo_name not in repo_name_set:
-                continue
-            matched_name = repo_name
-
-        repo_id = repo_data.get("id")
-        repo_id_map[matched_name] = repo_id
-        print(f"   {matched_name} -> ID {repo_id} ({repo_data.get('git_url', '?')})")
-
-    # Check if we found all repos
-    missing_repos = set(repo_names) - set(repo_id_map.keys())
-    if missing_repos:
-        print(f"⚠️  Could not find P10y IDs for: {', '.join(missing_repos)}")
-
-    return repo_id_map
-
-
-async def trigger_repository_refetch(
-    p10y_client: P10YInternalAPIClient,
-    org_id: int,
-    github_org: Optional[str],
-) -> None:
-    """Trigger Compass's re-fetch on the connection(s) owning ``github_org``.
-
-    A Compass connection is per GitHub org/account, not per repo, so any repo
-    already ingested under ``github_org`` reveals the right connection — the
-    brand-new repos being provisioned are never yet visible in P10Y (that's
-    why this is being called), so matching only their exact names would
-    always miss and force a broadcast re-fetch across every active GitHub
-    connection instead of just the one that actually owns them.
-    """
-    search = github_org.strip().strip("/") if github_org else None
-    repos = await p10y_client.list_repositories_paginated(org_id, search=search)
-    org_prefix = f"{_normalize_git_url(github_org)}/" if github_org else None
-
-    conn_ids: set[int] = set()
-    for repo_data in repos:
-        git_url = _normalize_git_url(repo_data.get("git_url", ""))
-        if org_prefix is not None and not git_url.startswith(org_prefix):
-            continue
-        cid = (repo_data.get("_embedded", {}).get("connection") or {}).get("id_connection")
-        if cid:
-            conn_ids.add(cid)
-
-    if not conn_ids:
-        conns = (await p10y_client.list_connections(org_id)).get("data", [])
-        conn_ids = {
-            c["connection_id"]
-            for c in conns
-            if c.get("connection_type") == "github"
-            and c.get("connection_status") == "active"
-            and c.get("connection_id")
-        }
-
-    if not conn_ids:
-        print("   ⚠️  No active GitHub connection found to re-fetch.")
-        return
-
-    for cid in sorted(conn_ids):
-        await p10y_client.sync_repositories(org_id, connection_id=cid)
-        print(f"   ✅ Re-fetch triggered for connection {cid}.")
-
-
-def _p10y_repository_id(repo_data: Dict[str, Any]) -> Optional[int]:
-    repo_id = repo_data.get("id_repository", repo_data.get("id"))
-    if isinstance(repo_id, bool) or repo_id is None:
-        return None
-    try:
-        return int(repo_id)
-    except (TypeError, ValueError):
-        return None
-
-
-async def get_repository_statuses(
-    p10y_client: P10YInternalAPIClient,
-    org_id: int,
-    repo_ids: List[int],
-    search: Optional[str] = None,
-) -> Dict[int, Dict[str, Any]]:
-    """Fetch current P10Y statuses for the target repository IDs."""
-    if not repo_ids:
-        return {}
-
-    repos = await p10y_client.list_repositories_paginated(org_id, search=search)
-
-    target_ids = set(repo_ids)
-    statuses: Dict[int, Dict[str, Any]] = {}
-    for repo_data in repos:
-        repo_id = _p10y_repository_id(repo_data)
-        if repo_id in target_ids:
-            statuses[repo_id] = {
-                "status": repo_data.get("status"),
-                "internal_status": repo_data.get("internal_status"),
-                "last_checked": time.time(),
-                "repo_name": repo_data.get("repository_name", f"ID:{repo_id}"),
-            }
-    return statuses
-
-
-def repository_ids_requiring_metrics(
-    repo_ids: List[int],
-    repo_statuses: Dict[int, Dict[str, Any]],
-) -> List[int]:
-    """Return repo IDs that are not yet ready in P10Y."""
-    return [
-        repo_id
-        for repo_id in repo_ids
-        if not _repo_is_ready(repo_statuses.get(repo_id, {}))
-    ]
-
-
-async def start_metrics_calculation(
-    p10y_client: P10YInternalAPIClient,
-    org_id: int,
-    repo_ids: List[int]
-) -> None:
-    """
-    Start metric calculation for repositories.
-    
-    Args:
-        p10y_client: Initialized P10y API client
-        org_id: P10y organization ID
-        repo_ids: List of P10y repository IDs
-    """
-    if not repo_ids:
-        print("\n⚠️  No repository IDs to start metrics for")
-        return
-    
-    print(f"\n📊 Starting metrics calculation for {len(repo_ids)} repositories")
-    print(f"   Repository IDs: {repo_ids}")
-    
-    try:
-        result = await p10y_client.enable_metrics(org_id, repo_ids)
-        print("✅ Metrics calculation started successfully")
-        if result:
-            print(f"   Response: {result}")
-    except Exception as e:
-        print(f"❌ Failed to start metrics calculation: {e}")
-        raise
-
-
-async def poll_repository_status(
-    p10y_client: P10YInternalAPIClient,
-    org_id: int,
-    repo_ids: List[int],
-    timeout_minutes: int = 5,
-    poll_interval: int = 15,
-    search: Optional[str] = None,
-) -> Dict[int, Dict[str, Any]]:
-    """
-    Poll P10y to check when repositories become live with metrics.
-    
-    Args:
-        p10y_client: Initialized P10y API client
-        org_id: P10y organization ID
-        repo_ids: List of P10y repository IDs to monitor
-        timeout_minutes: Maximum time to poll in minutes (default: 5)
-        poll_interval: Seconds between polls (default: 15)
-        
-    Returns:
-        Dictionary mapping repository IDs to their status information
-    """
-    if not repo_ids:
-        print("\n⚠️  No repository IDs to poll")
-        return {}
-    
-    print(f"\n⏱️  Polling repository status (timeout: {timeout_minutes} minutes)")
-    print(f"   Checking every {poll_interval} seconds")
-    
-    start_time = time.time()
-    timeout_seconds = timeout_minutes * 60
-    repo_statuses = {repo_id: {"status": "pending", "last_checked": None} for repo_id in repo_ids}
-    
-    while True:
-        elapsed = time.time() - start_time
-        if elapsed > timeout_seconds:
-            print(f"\n⏱️  Timeout reached ({timeout_minutes} minutes)")
-            break
-        
-        try:
-            # Fetch repository details
-            repos = await p10y_client.list_repositories_paginated(org_id, search=search)
-            
-            # Update status for our repos
-            for repo_data in repos:
-                repo_id = _p10y_repository_id(repo_data)
-                if repo_id in repo_ids:
-                    internal_status = repo_data.get("internal_status")
-                    status_name = repo_data.get("status")
-                    repo_name = repo_data.get("repository_name", f"ID:{repo_id}")
-                    
-                    # Update status
-                    old_status = repo_statuses[repo_id].get("status")
-                    repo_statuses[repo_id] = {
-                        "status": status_name,
-                        "internal_status": internal_status,
-                        "last_checked": time.time(),
-                        "repo_name": repo_name
-                    }
-                    
-                    # Print status change
-                    if old_status != status_name:
-                        status_emoji = "🟢" if _repo_is_ready(repo_statuses[repo_id]) else "🟡"
-                        print(f"   {status_emoji} {repo_name}: {old_status} -> {status_name} (internal: {internal_status})")
-
-            # Check if all repos are ready
-            all_live = all(_repo_is_ready(s) for s in repo_statuses.values())
-
-            if all_live:
-                print("\n✅ All repositories are ready!")
-                break
-            
-            # Wait before next poll
-            await asyncio.sleep(poll_interval)
-
-        except RuntimeError:
-            # Structural failure (e.g. pagination cap exceeded) — not a transient
-            # polling error, so fail fast instead of retrying until timeout.
-            raise
-        except Exception as e:
-            print(f"⚠️  Error polling status: {e}")
-            await asyncio.sleep(poll_interval)
-    
-    return repo_statuses
 
 
 async def add_workspaces_to_firestore(

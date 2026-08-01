@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from app.core.workspace_pool_names import WORKSPACES_PER_SET
 from app.database.interface import IDatabase
 
 logger = logging.getLogger(__name__)
@@ -98,8 +99,8 @@ def assign_pool_entries(
     """
 
     def _entry(repo_name: str, idx: int) -> WorkspacePoolEntry:
-        set_number = (idx // 3) + 1
-        workspace_index = (idx % 3) + 1
+        set_number = (idx // WORKSPACES_PER_SET) + 1
+        workspace_index = (idx % WORKSPACES_PER_SET) + 1
         return WorkspacePoolEntry(
             workspace_id=f"ws-{set_number:02d}-{workspace_index}",
             repo_url=f"https://github.com/{github_org}/{repo_name}",
@@ -123,6 +124,125 @@ def assign_pool_entries(
             logger.warning("Could not extract number from repo name: %s — skipping", repo_name)
             continue
         entries.append(_entry(repo_name, num - 1))
+    return entries
+
+
+@dataclass(frozen=True)
+class PoolNamingScheme:
+    """How an existing pool names its repositories, so expansion can extend it.
+
+    Derived from the pool's current ``repo_url`` values rather than from a configured
+    default: the provisioning script's default prefix (``generation-workspace``) and
+    ``settings.WORKSPACE_REPO_PREFIX`` (``specflow-workspace``) disagree, so trusting a
+    default would create a second, differently-named family of repos alongside the first.
+    """
+
+    github_org: str
+    prefix: str
+    highest_repo_number: int
+    highest_set_number: int
+
+    @property
+    def next_set_number(self) -> int:
+        return self.highest_set_number + 1
+
+    def repo_names_for_sets(self, set_count: int) -> List[str]:
+        """Names for ``set_count`` new sets, continuing the existing numbering."""
+        start = self.highest_repo_number + 1
+        total = set_count * WORKSPACES_PER_SET
+        return [f"{self.prefix}{num}" for num in range(start, start + total)]
+
+
+def split_repo_url(repo_url: str) -> Optional[tuple[str, str]]:
+    """``https://github.com/acme/specflow-workspace7`` → ``("acme", "specflow-workspace7")``."""
+    trimmed = (repo_url or "").strip().rstrip("/")
+    if trimmed.endswith(".git"):
+        trimmed = trimmed[:-4]
+    parts = [p for p in trimmed.split("/") if p]
+    if len(parts) < 2:
+        return None
+    return parts[-2], parts[-1]
+
+
+def split_repo_name(repo_name: str) -> Optional[tuple[str, int]]:
+    """``specflow-workspace7`` → ``("specflow-workspace", 7)``; None when unnumbered.
+
+    The trailing number is what fixes a repo's position, and therefore its workspace id — see
+    :func:`assign_pool_entries`.
+    """
+    digits = ""
+    for char in reversed(repo_name or ""):
+        if char.isdigit():
+            digits = char + digits
+        else:
+            break
+    if not digits:
+        return None
+    return repo_name[: len(repo_name) - len(digits)], int(digits)
+
+
+def derive_naming_scheme(
+    workspaces: List[Dict[str, Any]],
+    default_github_org: Optional[str] = None,
+    default_prefix: Optional[str] = None,
+) -> Optional[PoolNamingScheme]:
+    """Infer a pool's naming scheme from its existing workspaces.
+
+    Uses the most common (org, prefix) pair so one hand-added oddity cannot redirect where new
+    repos are created. Returns None for an empty pool unless defaults are supplied, in which
+    case numbering starts from scratch.
+    """
+    combos: Dict[tuple[str, str], int] = {}
+    highest_repo = 0
+    highest_set = 0
+
+    for ws in workspaces:
+        highest_set = max(highest_set, int(ws.get("set_number") or 0))
+        parsed_url = split_repo_url(str(ws.get("repo_url") or ""))
+        if not parsed_url:
+            continue
+        org, repo = parsed_url
+        parsed_name = split_repo_name(repo)
+        if not parsed_name:
+            continue
+        prefix, number = parsed_name
+        combos[(org, prefix)] = combos.get((org, prefix), 0) + 1
+        highest_repo = max(highest_repo, number)
+
+    if not combos:
+        if not default_github_org or not default_prefix:
+            return None
+        return PoolNamingScheme(default_github_org, default_prefix, highest_repo, highest_set)
+
+    # Most frequent wins; ties broken alphabetically so the result is deterministic.
+    (org, prefix), _ = sorted(combos.items(), key=lambda kv: (-kv[1], kv[0]))[0]
+    return PoolNamingScheme(org, prefix, highest_repo, highest_set)
+
+
+def build_expansion_entries(
+    scheme: PoolNamingScheme,
+    repo_id_map: Dict[str, int],
+    repo_names: List[str],
+    workspace_pool: str,
+) -> List[WorkspacePoolEntry]:
+    """Build pool entries for newly provisioned repos, continuing existing set numbering.
+
+    Set/index assignment mirrors :func:`assign_pool_entries` (3 per set, position-derived),
+    but offset past the sets that already exist so nothing is renumbered.
+    """
+    entries: List[WorkspacePoolEntry] = []
+    for offset, repo_name in enumerate(repo_names):
+        set_number = scheme.next_set_number + (offset // WORKSPACES_PER_SET)
+        workspace_index = (offset % WORKSPACES_PER_SET) + 1
+        entries.append(
+            WorkspacePoolEntry(
+                workspace_id=f"ws-{set_number:02d}-{workspace_index}",
+                repo_url=f"https://github.com/{scheme.github_org}/{repo_name}",
+                p10y_repository_id=int(repo_id_map[repo_name]),
+                workspace_pool=workspace_pool,
+                set_number=set_number,
+            )
+        )
     return entries
 
 
@@ -178,7 +298,9 @@ def seed_workspace_pool(
     for i, entry in enumerate(entries):
         # Prefer the entry's assigned set (kept consistent with its workspace_id); fall back to
         # position for file-loaded entries, matching the historical init_db.py layout.
-        set_number = entry.set_number if entry.set_number is not None else (i // 3) + 1
+        set_number = (
+            entry.set_number if entry.set_number is not None else (i // WORKSPACES_PER_SET) + 1
+        )
         doc = build_workspace_document(entry, set_number, now)
 
         if dry_run:

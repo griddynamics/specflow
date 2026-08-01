@@ -2,14 +2,16 @@
 Workspace Pool Service
 
 Manages allocation, release, and cleanup of workspace sets for generation sessions.
-Uses Firestore transactions for distributed locking to prevent concurrent allocation conflicts.
+Allocation runs inside an ``IDatabase`` transaction so two callers cannot claim the same set.
 
 Key Features:
 - Atomic workspace set allocation (3 repos per session)
-- Distributed locking via Firestore transactions
+- Transactional locking via the configured database backend (SQLite by default; see
+  ``app.database.factory``). Under SQLite this is single-writer serialization —
+  ``BEGIN IMMEDIATE`` plus a process-level lock — not optimistic concurrency.
 - Workspace cleanup and verification
 - Lease-based auto-expiry for crash recovery
-- Pool status monitoring
+- Pool status monitoring and operator management (listing, reclaim, expand, shrink)
 """
 
 from datetime import datetime, timezone
@@ -25,7 +27,14 @@ from app.services.git_utils import GitCommandError, run_git
 
 from app.core.config import WORKSPACE_DEFAULT_BRANCH, GIT_COMMITTER_USER_NAME, GIT_COMMITTER_USER_EMAIL
 from app.core.ttl_config import GenerationLifecyclePolicy
-from app.schemas.generation_workflow_enums import WorkspaceStatus
+from app.schemas.generation_workflow_enums import WorkspaceStatus, status_str
+from app.schemas.workspace_pool_management import (
+    ReclaimAction,
+    ReclaimPlan,
+    classify_reclaim,
+    classify_removal,
+)
+from app.core import workspace_pool_names
 from app.core.workspace_pool_names import DEFAULT_WORKSPACE_POOL
 from app.services.github_auth import (
     GithubAuthContext,
@@ -39,6 +48,25 @@ from app.state.exceptions import InvalidWorkspaceStateError as SMInvalidWorkspac
 from app.state.transitions import TriggeredBy
 
 logger = logging.getLogger(__name__)
+
+
+def remaining_grace_seconds(
+    cleaning_started_at: Optional[datetime], now: Optional[datetime] = None
+) -> int:
+    """Seconds left before the stuck-cleaning job treats a CLEANING workspace as stuck.
+
+    Shared by the pool-status aggregate and the per-workspace listing so both report the
+    same countdown. A missing ``cleaning_started_at`` means the grace window cannot be
+    established, so it is already expired (0) — matching the legacy-document handling in
+    ``app.jobs.stuck_cleaning_recovery``.
+    """
+    if cleaning_started_at is None:
+        return 0
+    now = now or datetime.now(timezone.utc)
+    if cleaning_started_at.tzinfo is None:
+        cleaning_started_at = cleaning_started_at.replace(tzinfo=timezone.utc)
+    elapsed = int((now - cleaning_started_at).total_seconds())
+    return max(0, GenerationLifecyclePolicy.STUCK_CLEANING_HOURS * 3600 - elapsed)
 
 
 class WorkspacePoolError(Exception):
@@ -151,7 +179,8 @@ class WorkspacePoolService:
     - Pool status monitoring
     """
     
-    WORKSPACES_PER_SET = 3
+    # Shared with seeding/expansion — see app.core.workspace_pool_names.
+    WORKSPACES_PER_SET = workspace_pool_names.WORKSPACES_PER_SET
     
     @staticmethod
     def _sanitize_token_in_message(message: str, token: Optional[str] = None) -> str:
@@ -240,7 +269,7 @@ class WorkspacePoolService:
         ALLOCATED (blocking the set) and are released as orphans via
         GenerationSessionStateMachine.complete() once the active workspaces are done.
 
-        Uses Firestore transaction to prevent concurrent allocation conflicts.
+        Runs inside a database transaction to prevent concurrent allocation conflicts.
         Only allocates workspaces that are:
         - Status: "available"
         - clean_verified: True
@@ -939,7 +968,6 @@ class WorkspacePoolService:
         # Compute per-set grace countdown for workspaces currently in CLEANING state.
         # Group by set_number; for each set use the minimum remaining_grace_seconds across
         # all members (i.e. the workspace that has been cleaning longest determines the set).
-        grace_seconds_total = GenerationLifecyclePolicy.STUCK_CLEANING_HOURS * 3600
         now = datetime.now(timezone.utc)
         # Map set_number → minimum remaining_grace_seconds seen so far
         cleaning_set_grace: Dict[int, int] = {}
@@ -949,15 +977,7 @@ class WorkspacePoolService:
             set_num = ws.get("set_number")
             if set_num is None:
                 continue
-            cleaning_started_at = ws.get("cleaning_started_at")
-            if cleaning_started_at is None:
-                remaining = 0
-            else:
-                # Ensure timezone-aware comparison
-                if cleaning_started_at.tzinfo is None:
-                    cleaning_started_at = cleaning_started_at.replace(tzinfo=timezone.utc)
-                elapsed = int((now - cleaning_started_at).total_seconds())
-                remaining = max(0, grace_seconds_total - elapsed)
+            remaining = remaining_grace_seconds(ws.get("cleaning_started_at"), now)
             current = cleaning_set_grace.get(set_num)
             if current is None or remaining < current:
                 cleaning_set_grace[set_num] = remaining
@@ -976,7 +996,298 @@ class WorkspacePoolService:
             "available_sets": available_sets,
             "cleaning_sets": cleaning_sets,
         }
-    
+
+    async def list_pool_sets(
+        self, workspace_pool: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """List every workspace grouped into its set, for the operator management screen.
+
+        Unlike :meth:`get_pool_status` (counters only) this returns the individual
+        workspaces — id, ``repo_url``, status, lock owner — plus the reclaim classification
+        from :func:`classify_reclaim` so the UI badge and the reclaim endpoint agree.
+
+        Owning generations are fetched once per distinct ``locked_by``, not once per
+        workspace, so a full pool costs one workspace query plus one lookup per active
+        generation.
+
+        Args:
+            workspace_pool: Restrict to a single pool. None returns every pool (each set
+                is keyed by pool, so sets from different pools never merge).
+
+        Returns:
+            Sets ordered by (workspace_pool, set_number), each with a ``members`` list
+            ordered by workspace id.
+        """
+        filters: List[tuple] = []
+        if workspace_pool is not None:
+            filters.append(("workspace_pool", "==", workspace_pool))
+        workspaces = await self._db_adapter.query_workspaces(filters)
+
+        owners = await self._load_owning_generations(workspaces)
+        now = datetime.now(timezone.utc)
+
+        grouped: Dict[tuple[str, Optional[int]], List[Dict[str, Any]]] = {}
+        for ws in workspaces:
+            pool = ws.get("workspace_pool") or DEFAULT_WORKSPACE_POOL
+            grouped.setdefault((pool, ws.get("set_number")), []).append(
+                self._workspace_row(ws, owners, now)
+            )
+
+        sets: List[Dict[str, Any]] = []
+        for (pool, set_number), members in grouped.items():
+            members.sort(key=lambda row: row["workspace_id"])
+            sets.append(
+                {
+                    "workspace_pool": pool,
+                    "set_number": set_number,
+                    "members": members,
+                    **self._set_allocatability(members),
+                }
+            )
+        # Unnumbered sets (set_number None) sort last rather than raising on the comparison.
+        sets.sort(key=lambda s: (s["workspace_pool"], s["set_number"] is None, s["set_number"] or 0))
+        return sets
+
+    async def _load_owning_generations(
+        self, workspaces: List[Dict[str, Any]]
+    ) -> Dict[str, Dict[str, Any]]:
+        """Fetch each distinct ``locked_by`` generation once. Missing docs are omitted."""
+        owner_ids = {
+            ws.get("locked_by")
+            for ws in workspaces
+            if ws.get("status") == WorkspaceStatus.ALLOCATED and ws.get("locked_by")
+        }
+        owners: Dict[str, Dict[str, Any]] = {}
+        for generation_id in owner_ids:
+            doc = await self._db_adapter.get_generation_session(generation_id)
+            if doc:
+                owners[generation_id] = doc
+        return owners
+
+    def _workspace_row(
+        self,
+        ws: Dict[str, Any],
+        owners: Dict[str, Dict[str, Any]],
+        now: datetime,
+    ) -> Dict[str, Any]:
+        """Project one workspace document into the operator listing shape."""
+        owner = owners.get(ws.get("locked_by") or "")
+        owner_status = status_str(owner.get("status")) if owner else None
+        owner_code_archived = owner.get("code_archived") if owner else None
+        plan = classify_reclaim(ws, owner_status, owner_code_archived)
+        removal = classify_removal(ws)
+
+        cleaning = ws.get("status") == WorkspaceStatus.CLEANING
+        return {
+            "workspace_id": ws.get("id") or ws.get("_id"),
+            "set_number": ws.get("set_number"),
+            "workspace_pool": ws.get("workspace_pool") or DEFAULT_WORKSPACE_POOL,
+            "status": status_str(ws.get("status")),
+            "repo_url": ws.get("repo_url"),
+            "p10y_repository_id": ws.get("p10y_repository_id"),
+            "clean_verified": ws.get("clean_verified"),
+            "locked_by": ws.get("locked_by"),
+            "locked_at": ws.get("locked_at"),
+            "last_used_by": ws.get("last_used_by"),
+            "last_cleaned_at": ws.get("last_cleaned_at"),
+            "cleaning_started_at": ws.get("cleaning_started_at"),
+            "remaining_grace_seconds": (
+                remaining_grace_seconds(ws.get("cleaning_started_at"), now) if cleaning else None
+            ),
+            "scheduled_for_wipe_at": ws.get("scheduled_for_wipe_at"),
+            "stuck_reason": ws.get("stuck_reason"),
+            "error": ws.get("error"),
+            "owner_generation_status": owner_status,
+            "owner_code_archived": owner_code_archived,
+            "reclaim_action": plan.action.value,
+            "reclaimable": plan.reclaimable,
+            "reclaim_blocked_reason": plan.blocked_reason,
+            "retry_lost_on_reclaim": plan.retry_lost,
+            "removable": removal.removable,
+            "not_removable_reason": removal.reason,
+        }
+
+    def _set_allocatability(self, members: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Explain whether a set can be allocated — the same predicate allocation uses.
+
+        ``allocate_workspace_set`` requires exactly ``WORKSPACES_PER_SET`` members that are
+        AVAILABLE with ``clean_verified is True``; this reports that verdict and, when it
+        fails, which condition failed.
+        """
+        ready = [
+            m
+            for m in members
+            if m["status"] == WorkspaceStatus.AVAILABLE and m["clean_verified"] is True
+        ]
+        if len(ready) == self.WORKSPACES_PER_SET and len(members) == self.WORKSPACES_PER_SET:
+            return {"allocatable": True, "blocked_reason": None}
+
+        if len(members) != self.WORKSPACES_PER_SET:
+            reason = (
+                f"Set has {len(members)} workspace(s); allocation needs exactly "
+                f"{self.WORKSPACES_PER_SET}."
+            )
+        else:
+            busy = sorted(
+                f"{m['workspace_id']} is {m['status']}"
+                for m in members
+                if m["status"] != WorkspaceStatus.AVAILABLE
+            )
+            unverified = sorted(
+                f"{m['workspace_id']} is not clean-verified"
+                for m in members
+                if m["status"] == WorkspaceStatus.AVAILABLE and m["clean_verified"] is not True
+            )
+            reason = "; ".join(busy + unverified)
+        return {"allocatable": False, "blocked_reason": reason}
+
+
+    async def reclaim_workspace(
+        self,
+        workspace_id: str,
+        reason: str = "manual_reclaim",
+        confirmed_by: str = "operator",
+    ) -> Dict[str, Any]:
+        """Return one workspace to AVAILABLE, dispatching on its current state.
+
+        The operator intent is always the same ("give me this workspace back"); which
+        primitive achieves it depends on where the workspace currently sits. The decision
+        comes from :func:`classify_reclaim`, the same function the listing endpoint uses to
+        render the reclaim badge, so what the UI offers and what happens here cannot drift.
+
+        ALLOCATED workspaces are only touched when the owning generation has reached a
+        terminal state. ``cleanup_workspace`` archives the working tree to branch
+        ``{generation_id}`` and verifies the push before wiping, so reclaiming never
+        destroys generated code — it only ends the ability to retry in place.
+
+        Never raises for an individual workspace: every outcome is reported in the returned
+        dict so a set-wide reclaim reports per-member results instead of aborting halfway.
+
+        Returns:
+            ``{workspace_id, action, success, message}``.
+        """
+        ws_doc = await self._db_adapter.get_workspace(workspace_id)
+        if not ws_doc:
+            return self._reclaim_result(
+                workspace_id, ReclaimAction.BLOCKED, False, "Workspace not found."
+            )
+
+        owner_id = ws_doc.get("locked_by")
+        owner = await self._db_adapter.get_generation_session(owner_id) if owner_id else None
+        plan = classify_reclaim(
+            ws_doc,
+            status_str(owner.get("status")) if owner else None,
+            owner.get("code_archived") if owner else None,
+        )
+
+        if plan.action is ReclaimAction.BLOCKED:
+            return self._reclaim_result(
+                workspace_id, plan.action, False, plan.blocked_reason or "Not reclaimable."
+            )
+        if plan.action is ReclaimAction.ALREADY_AVAILABLE:
+            return self._reclaim_result(
+                workspace_id, plan.action, True, "Already available — nothing to do."
+            )
+
+        try:
+            return await self._run_reclaim(workspace_id, plan, reason, confirmed_by)
+        except Exception as exc:  # noqa: BLE001 - per-member failure must not abort the batch
+            logger.error(
+                "Reclaim of workspace %s (%s) failed: %s",
+                workspace_id,
+                plan.action.value,
+                exc,
+                exc_info=True,
+            )
+            return self._reclaim_result(workspace_id, plan.action, False, str(exc))
+
+    async def _run_reclaim(
+        self,
+        workspace_id: str,
+        plan: ReclaimPlan,
+        reason: str,
+        confirmed_by: str,
+    ) -> Dict[str, Any]:
+        """Execute a classified reclaim. Raises; the caller converts to a result dict."""
+        if plan.action is ReclaimAction.FINISH_CLEANING:
+            await self.cleanup_workspace(workspace_id)
+            return self._reclaim_result(
+                workspace_id, plan.action, True, "Cleaning finished; workspace is available."
+            )
+
+        if plan.action is ReclaimAction.FORCE_CLEAN:
+            result = await self.force_clean_available_workspace(workspace_id, reason)
+            return self._reclaim_result(
+                workspace_id,
+                plan.action,
+                bool(result.get("success")),
+                str(result.get("message") or result.get("error") or ""),
+            )
+
+        if plan.action is ReclaimAction.RELEASE_STUCK:
+            await self.force_release_stuck_workspace(workspace_id, reason)
+            return self._reclaim_result(
+                workspace_id, plan.action, True, "Stuck workspace released; now available."
+            )
+
+        # RELEASE_AND_CLEAN — ALLOCATED with a terminal (or absent) owner.
+        await self._workspace_sm.force_release(
+            workspace_id=workspace_id, reason=reason, confirmed_by=confirmed_by
+        )
+        await self.cleanup_workspace(workspace_id)
+        message = "Released and cleaned; workspace is available."
+        if plan.retry_lost:
+            message += " Retry-from-checkpoint is no longer possible for the previous run."
+        return self._reclaim_result(workspace_id, plan.action, True, message)
+
+    @staticmethod
+    def _reclaim_result(
+        workspace_id: str, action: ReclaimAction, success: bool, message: str
+    ) -> Dict[str, Any]:
+        return {
+            "workspace_id": workspace_id,
+            "action": action.value,
+            "success": success,
+            "message": message,
+        }
+
+    async def reclaim_workspaces(
+        self,
+        workspace_ids: List[str],
+        reason: str = "manual_reclaim",
+        confirmed_by: str = "operator",
+    ) -> Dict[str, Any]:
+        """Reclaim several workspaces, reporting each independently.
+
+        Sequential on purpose: each member runs git archive/push against the same remote
+        family, and cleanup is IO-heavy.
+        """
+        details = [
+            await self.reclaim_workspace(ws_id, reason, confirmed_by) for ws_id in workspace_ids
+        ]
+        succeeded = sum(1 for d in details if d["success"])
+        return {
+            "total": len(details),
+            "success": succeeded,
+            "failed": len(details) - succeeded,
+            "details": details,
+        }
+
+    async def workspace_ids_in_sets(
+        self, set_numbers: List[int], workspace_pool: Optional[str] = None
+    ) -> List[str]:
+        """Resolve set numbers to their actual member ids.
+
+        Reads real membership from the database rather than rebuilding ids from the
+        ``ws-{set:02d}-{idx}`` convention, so a set with unexpected members is handled
+        correctly instead of silently addressing ids that may not exist.
+        """
+        filters: List[tuple] = [("set_number", "in", list(set_numbers))]
+        if workspace_pool is not None:
+            filters.append(("workspace_pool", "==", workspace_pool))
+        workspaces = await self._db_adapter.query_workspaces(filters)
+        return sorted(ws.get("id") or ws.get("_id") for ws in workspaces)
+
     async def force_deallocate_workspace(
         self,
         workspace_id: str,
@@ -1012,7 +1323,7 @@ class WorkspacePoolService:
 
         # Refuse if there is anything on the filesystem — skipping CLEANING here means no archive
         # step runs. If code was written, the next allocation will find it on the NFS volume.
-        # Run POST /api/v1/workspaces/{id}/force-clean first to archive and wipe the workspace.
+        # Run POST /api/v1/workspace/pool/reclaim first to archive and wipe the workspace.
         workspace_path = self._get_workspace_path(workspace_id)
         if workspace_path.exists():
             is_clean = await self.verify_workspace_clean(workspace_path)
@@ -1020,7 +1331,7 @@ class WorkspacePoolService:
                 raise WorkspacePoolError(
                     f"Workspace {workspace_id} filesystem is not clean — refusing admin_deallocate "
                     f"to prevent data leakage to the next tenant. "
-                    f"Call POST /api/v1/workspaces/{workspace_id}/force-clean first."
+                    f"Call POST /api/v1/workspace/pool/reclaim with workspace_ids=['{workspace_id}'] first."
                 )
 
         logger.warning(

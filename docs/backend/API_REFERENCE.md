@@ -67,11 +67,20 @@ Public (no API key): `/health`, `/health/live`, `/health/ready`, `/docs`, `/redo
 | GET | `/api/v1/generation-sessions/{generation_id}/outputs` | Download outputs tarball (`tar.gz`) |
 | **Workspace** | | |
 | GET | `/api/v1/workspace/pool/status` | Pool counts |
+| GET | `/api/v1/workspace/pool/sets` | Per-set listing: members, repo URL, lock owner, reclaim verdict (**admin**) |
+| POST | `/api/v1/workspace/pool/reclaim` | Return workspaces/sets to AVAILABLE, dispatching per state (**admin**) |
+| POST | `/api/v1/workspace/pool/expand` | Add N sets — creates repos, registers with P10Y, seeds; `202` + `job_id` (**admin**) |
+| GET | `/api/v1/workspace/pool/expand/{job_id}` | Expansion progress (**admin**) |
+| POST | `/api/v1/workspace/pool/shrink` | Remove slots from the pool; GitHub repos kept (**admin**) |
 | POST | `/api/v1/workspace/sync` | Upload `tar.gz` + JSON `params`; allocate/reuse workspaces; create/reuse session |
 | POST | `/api/v1/workspace/force-deallocate` | Batch force-deallocate (**admin**) |
 | GET | `/api/v1/workspace/cleanup/check` | Inspect available workspaces for stale disk/git |
 | POST | `/api/v1/workspace/cleanup/clean` | Clean one workspace (**admin**) |
 | POST | `/api/v1/workspace/{workspace_id}/force-release` | Operator force-release (**admin**) |
+
+Pool management (`/pool/sets`, `/pool/reclaim`, `/pool/expand`, `/pool/shrink`) is documented in
+`docs/backend/workspace-pool-management.md` — including the per-state reclaim dispatch, why
+expansion is a background job, and why shrink never deletes GitHub repositories.
 
 **Removed in PR255:** `POST /api/v1/specification/analyze`, `POST /api/v1/generation/plan`, `POST /api/v1/generation/run`.
 

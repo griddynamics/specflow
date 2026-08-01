@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 if TYPE_CHECKING:
     from app.database.interface import IDatabase, ReadOnlyDatabase
 
-# Firestore collection names — use these constants instead of repeating string literals
+# Collection (SQLite table) names — use these constants instead of repeating string literals
 COL_WORKSPACES = "workspaces"
 COL_GENERATION_SESSIONS = "generation_sessions"
 COL_API_KEYS = "api_keys"
@@ -53,11 +53,10 @@ class StateMachineDBAdapter:
     expected by GenerationSessionStateMachine and WorkspaceStateMachine.
 
     Transaction semantics: writes within run_transaction are buffered and
-    applied atomically after the async callback completes. For the
-    InMemoryDatabase (used in tests) this is equivalent to the full
-    IDatabase.run_transaction guarantee. For Firestore production this
-    adapter is sufficient for Phase 2; a native async Firestore client
-    is planned for a later phase.
+    applied atomically after the async callback completes. This matches the
+    full IDatabase.run_transaction guarantee for both InMemoryDatabase (tests)
+    and SqliteDatabase (the default runtime backend), whose run_transaction
+    wraps the callback in BEGIN IMMEDIATE under a process-level lock.
     """
 
     def __init__(self, db: "IDatabase") -> None:

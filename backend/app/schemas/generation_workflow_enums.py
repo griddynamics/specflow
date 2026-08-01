@@ -31,6 +31,24 @@ class GenerationStatus(str, Enum):
     FAILED = "failed"
     CANCELLED = "cancelled"
 
+    @classmethod
+    def terminal(cls) -> frozenset["GenerationStatus"]:
+        """The statuses from which no further work happens on this generation."""
+        return frozenset({cls.COMPLETED, cls.FAILED, cls.CANCELLED})
+
+    @classmethod
+    def is_terminal(cls, status: object) -> bool:
+        """True if ``status`` is a terminal generation status.
+
+        Accepts the raw DB string as well as the enum, because callers read it straight
+        off a workspace/generation document. Unknown values are not terminal — an
+        unrecognised status must never be mistaken for "safe to reclaim".
+        """
+        try:
+            return cls(status) in cls.terminal()
+        except ValueError:
+            return False
+
 
 class GenerationCheckpoint(str, Enum):
     """Generation workflow checkpoint values.
@@ -122,6 +140,21 @@ def parse_checkpoint(value: GenerationCheckpoint | str | None) -> GenerationChec
     except ValueError:
         logger.warning("Unknown generation checkpoint value %r", value)
         return None
+
+
+def status_str(value: object) -> Optional[str]:
+    """Normalise a stored status field to its plain string value.
+
+    Status fields come back from the database either as the raw string or as a
+    ``str``-Enum member, depending on the backend. ``str(WorkspaceStatus.ALLOCATED)``
+    yields ``"WorkspaceStatus.ALLOCATED"``, so any value that reaches an API response or
+    an operator-facing message must be normalised first or it leaks the enum repr.
+    """
+    if value is None:
+        return None
+    if isinstance(value, Enum):
+        return str(value.value)
+    return str(value)
 
 
 def parse_status(value: GenerationStatus | str | None) -> GenerationStatus | None:

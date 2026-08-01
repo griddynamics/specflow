@@ -523,3 +523,361 @@ class TestAgentStateBadge:
 class TestErrorKindStyle:
     def test_error_stream_kind_has_style(self):
         assert render.kind_style("error") == "bold red"
+
+
+# ---------------------------------------------------------------------------
+# Workspace-pool management formatters
+# ---------------------------------------------------------------------------
+
+
+def _pool_member(ws_id: str, **overrides) -> dict:
+    row = {
+        "workspace_id": ws_id,
+        "status": "available",
+        "repo_url": f"https://github.com/acme/{ws_id}",
+        "clean_verified": True,
+        "locked_by": None,
+        "owner_generation_status": None,
+        "remaining_grace_seconds": None,
+        "stuck_reason": None,
+        "error": None,
+        "last_used_by": None,
+        "reclaimable": False,
+        "retry_lost_on_reclaim": False,
+        "removable": True,
+        "not_removable_reason": None,
+    }
+    row.update(overrides)
+    return row
+
+
+def _pool_payload(**set_overrides) -> dict:
+    entry = {
+        "workspace_pool": "default",
+        "set_number": 1,
+        "allocatable": True,
+        "blocked_reason": None,
+        "members": [_pool_member("ws-01-1"), _pool_member("ws-01-2"), _pool_member("ws-01-3")],
+    }
+    entry.update(set_overrides)
+    return {"sets": [entry]}
+
+
+class TestRepoName:
+    def test_strips_host_and_git_suffix(self):
+        assert render.repo_name("https://github.com/acme/specflow-workspace1") == "acme/specflow-workspace1"
+        assert render.repo_name("https://github.com/acme/ws.git") == "acme/ws"
+
+    def test_trailing_slash_and_missing(self):
+        assert render.repo_name("https://github.com/acme/ws/") == "acme/ws"
+        assert render.repo_name(None) == "—"
+        assert render.repo_name("") == "—"
+
+
+class TestWorkspaceStatusPill:
+    def test_known_statuses(self):
+        assert render.workspace_status_pill("available")[0] == "○ AVAILABLE"
+        assert render.workspace_status_pill("allocated")[0] == "● ALLOCATED"
+        assert render.workspace_status_pill("cleaning")[0] == "◐ CLEANING"
+        assert render.workspace_status_pill("stuck")[1] == "bold red"
+
+    def test_unknown_and_none_fall_back(self):
+        assert render.workspace_status_pill(None)[0] == "? UNKNOWN"
+        assert render.workspace_status_pill("weird")[0] == "? UNKNOWN"
+
+
+class TestWorkspaceDetail:
+    """The trailing column must answer 'why can't I use this?' at a glance."""
+
+    def test_allocated_names_owner_and_status(self):
+        detail = render.workspace_detail(
+            _pool_member("ws-01-1", status="allocated", locked_by="gen_x", owner_generation_status="running")
+        )
+        assert detail == "gen_x (running)"
+
+    def test_allocated_flags_lost_retry(self):
+        detail = render.workspace_detail(
+            _pool_member(
+                "ws-01-1",
+                status="allocated",
+                locked_by="gen_f",
+                owner_generation_status="failed",
+                retry_lost_on_reclaim=True,
+            )
+        )
+        assert "retry would be lost" in detail
+
+    def test_cleaning_shows_grace_countdown(self):
+        detail = render.workspace_detail(
+            _pool_member("ws-01-1", status="cleaning", remaining_grace_seconds=90 * 60)
+        )
+        assert detail == "cleaning, 1h 30min of grace left"
+
+    def test_stuck_prefers_reason_then_error(self):
+        assert "disk full" in render.workspace_detail(
+            _pool_member("ws-01-1", status="stuck", stuck_reason="disk full")
+        )
+        assert "push failed" in render.workspace_detail(
+            _pool_member("ws-01-1", status="stuck", stuck_reason=None, error="push failed")
+        )
+
+    def test_available_but_unverified_says_it_cannot_allocate(self):
+        detail = render.workspace_detail(_pool_member("ws-01-1", clean_verified=False))
+        assert detail == "not clean-verified — cannot be allocated"
+
+    def test_available_falls_back_to_last_run(self):
+        assert render.workspace_detail(_pool_member("ws-01-1", last_used_by="gen_old")) == "last run gen_old"
+        assert render.workspace_detail(_pool_member("ws-01-1")) == "never used"
+
+
+class TestPoolSetRows:
+    def test_labels_and_members(self):
+        rows = render.pool_set_rows(_pool_payload())
+        assert len(rows) == 1
+        assert rows[0].label == "Set 01"
+        assert rows[0].allocatable is True
+        assert [m.workspace_id for m in rows[0].members] == ["ws-01-1", "ws-01-2", "ws-01-3"]
+
+    def test_non_default_pool_is_marked_in_the_label(self):
+        rows = render.pool_set_rows(_pool_payload(workspace_pool="testpool"))
+        assert rows[0].label == "Set 01 [testpool]"
+
+    def test_unnumbered_set_is_labelled_not_crashed(self):
+        rows = render.pool_set_rows(_pool_payload(set_number=None))
+        assert rows[0].label == "Unassigned"
+
+    def test_blocked_reason_carried_through(self):
+        rows = render.pool_set_rows(
+            _pool_payload(allocatable=False, blocked_reason="ws-01-2 is allocated")
+        )
+        assert rows[0].allocatable is False
+        assert rows[0].blocked_reason == "ws-01-2 is allocated"
+
+    def test_reclaimable_member_ids_and_retry_flag(self):
+        rows = render.pool_set_rows(
+            _pool_payload(
+                members=[
+                    _pool_member("ws-01-1"),
+                    _pool_member("ws-01-2", status="cleaning", reclaimable=True),
+                    _pool_member(
+                        "ws-01-3", status="allocated", reclaimable=True, retry_lost_on_reclaim=True
+                    ),
+                ]
+            )
+        )
+        assert rows[0].reclaimable_member_ids == ["ws-01-2", "ws-01-3"]
+        assert rows[0].retry_lost is True
+
+    def test_set_with_nothing_reclaimable(self):
+        rows = render.pool_set_rows(_pool_payload())
+        assert rows[0].reclaimable_member_ids == []
+        assert rows[0].retry_lost is False
+
+    def test_empty_and_missing_payload(self):
+        assert render.pool_set_rows(None) == []
+        assert render.pool_set_rows({}) == []
+        assert render.pool_set_rows({"sets": []}) == []
+
+
+class TestPoolSummaryLine:
+    def test_counts_sets_workspaces_and_statuses(self):
+        line = render.pool_summary_line(
+            _pool_payload(
+                allocatable=False,
+                members=[
+                    _pool_member("ws-01-1"),
+                    _pool_member("ws-01-2", status="allocated"),
+                    _pool_member("ws-01-3", status="stuck"),
+                ],
+            )
+        )
+        assert "1 set(s), 3 workspace(s)" in line
+        assert "0 ready to allocate" in line
+        assert "allocated 1" in line
+        assert "available 1" in line
+        assert "stuck 1" in line
+
+    def test_empty_pool_message(self):
+        assert render.pool_summary_line(None) == "No workspaces in the pool."
+        assert render.pool_summary_line({"sets": []}) == "No workspaces in the pool."
+
+
+class TestReclaimConfirmMessage:
+    """The confirm dialog must be accurate about what is and is not destroyed."""
+
+    def test_workspace_message_names_the_workspace(self):
+        rows = render.pool_set_rows(
+            _pool_payload(members=[_pool_member("ws-01-1", status="cleaning", reclaimable=True)])
+        )
+        msg = render.reclaim_confirm_message(rows[0].members[0])
+        assert "Reclaim ws-01-1?" in msg
+        # Reassurance is part of the contract: code is archived, not lost.
+        assert "archived to its generation branch" in msg
+        assert "WARNING" not in msg
+
+    def test_set_message_lists_only_reclaimable_members(self):
+        rows = render.pool_set_rows(
+            _pool_payload(
+                members=[
+                    _pool_member("ws-01-1"),
+                    _pool_member("ws-01-2", status="cleaning", reclaimable=True),
+                    _pool_member("ws-01-3", status="stuck", reclaimable=True),
+                ]
+            )
+        )
+        msg = render.reclaim_confirm_message(rows[0])
+        assert "2 workspace(s): ws-01-2, ws-01-3" in msg
+        assert "ws-01-1" not in msg
+
+    def test_retry_loss_is_warned_about(self):
+        rows = render.pool_set_rows(
+            _pool_payload(
+                members=[
+                    _pool_member(
+                        "ws-01-1", status="allocated", reclaimable=True, retry_lost_on_reclaim=True
+                    )
+                ]
+            )
+        )
+        assert "could still be retried" in render.reclaim_confirm_message(rows[0])
+        assert "could still be retried" in render.reclaim_confirm_message(rows[0].members[0])
+
+
+class TestReclaimResultSummary:
+    def test_lists_every_member_outcome(self):
+        summary = render.reclaim_result_summary(
+            {
+                "total": 2,
+                "success": 1,
+                "failed": 1,
+                "details": [
+                    {"workspace_id": "ws-01-1", "action": "force_clean", "success": True, "message": "ok"},
+                    {
+                        "workspace_id": "ws-01-2",
+                        "action": "blocked",
+                        "success": False,
+                        "message": "gen_x is running",
+                    },
+                ],
+            }
+        )
+        assert "1 reclaimed, 1 not reclaimed." in summary
+        assert "OK   ws-01-1 [force_clean] — ok" in summary
+        assert "FAIL ws-01-2 [blocked] — gen_x is running" in summary
+
+    def test_empty_and_missing(self):
+        assert render.reclaim_result_summary(None) == "No response from the server."
+        assert (
+            render.reclaim_result_summary({"total": 0, "success": 0, "failed": 0, "details": []})
+            == "Nothing was reclaimed — no matching workspaces."
+        )
+
+
+class TestRemovability:
+    """Shrink eligibility must mirror the backend precondition exactly."""
+
+    def test_clean_available_is_removable(self):
+        rows = render.pool_set_rows(_pool_payload())
+        assert rows[0].removable is True
+        assert all(m.removable for m in rows[0].members)
+
+    def test_unverified_available_is_not_removable(self):
+        """The verdict and its wording both come from the backend."""
+        rows = render.pool_set_rows(
+            _pool_payload(
+                members=[
+                    _pool_member(
+                        "ws-01-1",
+                        clean_verified=False,
+                        removable=False,
+                        not_removable_reason="ws-01-1 is not clean-verified",
+                    )
+                ]
+            )
+        )
+        assert rows[0].members[0].removable is False
+        assert rows[0].members[0].not_removable_reason == "ws-01-1 is not clean-verified"
+        assert rows[0].removable is False
+
+    def test_busy_member_blocks_the_set(self):
+        rows = render.pool_set_rows(
+            _pool_payload(
+                members=[
+                    _pool_member("ws-01-1"),
+                    _pool_member(
+                        "ws-01-2",
+                        status="allocated",
+                        clean_verified=False,
+                        removable=False,
+                        not_removable_reason="ws-01-2 is allocated",
+                    ),
+                ]
+            )
+        )
+        assert rows[0].removable is False
+        assert rows[0].members[1].not_removable_reason == "ws-01-2 is allocated"
+
+    def test_empty_set_is_not_removable(self):
+        rows = render.pool_set_rows(_pool_payload(members=[]))
+        assert rows[0].removable is False
+
+
+class TestShrinkMessages:
+    def test_confirm_message_promises_the_repos_survive(self):
+        """The single most important reassurance — 'remove' must not read as 'delete'."""
+        rows = render.pool_set_rows(_pool_payload())
+        msg = render.shrink_confirm_message(rows[0])
+        assert "Remove Set 01 from the pool" in msg
+        assert "NOT deleted" in msg
+        assert "archived generation branch stays" in msg
+        assert "ws-01-1, ws-01-2, ws-01-3" in msg
+
+    def test_blocked_message_lists_each_blocker_and_the_remedy(self):
+        rows = render.pool_set_rows(
+            _pool_payload(
+                members=[
+                    _pool_member("ws-01-1"),
+                    _pool_member(
+                        "ws-01-2",
+                        status="cleaning",
+                        clean_verified=False,
+                        removable=False,
+                        not_removable_reason="ws-01-2 is cleaning",
+                    ),
+                    _pool_member(
+                        "ws-01-3",
+                        clean_verified=False,
+                        removable=False,
+                        not_removable_reason="ws-01-3 is not clean-verified",
+                    ),
+                ]
+            )
+        )
+        msg = render.shrink_blocked_message(rows[0])
+        assert "ws-01-2 is cleaning" in msg
+        assert "ws-01-3 is not clean-verified" in msg
+        assert "ws-01-1" not in msg
+        assert "Reclaim it first (c)" in msg
+
+    def test_result_summary(self):
+        summary = render.shrink_result_summary(
+            {
+                "total": 2,
+                "success": 1,
+                "failed": 1,
+                "details": [
+                    {"workspace_id": "ws-01-1", "success": True, "message": "Removed"},
+                    {"workspace_id": "ws-01-2", "success": False, "message": "reclaim it first"},
+                ],
+            }
+        )
+        assert "1 removed, 1 not removed." in summary
+        assert "OK   ws-01-1 — Removed" in summary
+        assert "FAIL ws-01-2 — reclaim it first" in summary
+
+    def test_empty_and_missing(self):
+        assert render.shrink_result_summary(None) == "No response from the server."
+        assert (
+            render.shrink_result_summary({"total": 0, "success": 0, "failed": 0, "details": []})
+            == "Nothing was removed — no matching workspaces."
+        )

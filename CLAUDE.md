@@ -9,7 +9,7 @@ MCP server: mcp_server
 
 **Business constraints**: All external deps mocked. Sandboxed agents, no credentials. No infra provisioning, no customer system access, no deploys during generation.
 
-**Key technical decisions**: K8s over Cloud Run (8+ hr tasks). Firestore (distributed locking, crash recovery). NFS/Filestore (git perf, persistence). State machines (workspace safety). Workspace pool (isolation, P10Y per-repo).
+**Key technical decisions**: K8s over Cloud Run (8+ hr tasks). Pluggable persistence behind `IDatabase` — SQLite by default locally/in Docker (`DATABASE_TYPE=sqlite`, one file at `~/.specflow/db/specflow.db` shared across projects), Firestore only when pointing at a hosted GCP instance; transactional locking + crash recovery either way. NFS/Filestore (git perf, persistence). State machines (workspace safety). Workspace pool (isolation, P10Y per-repo).
 
 **Coding patterns**: TDD. Small functions. Do Not Repeat Yourself. Maximize code reuse. Patterns should enforce compile time and unit tests validation. Use Pydantic, dataclasses, OOP over simple Python collections and raw strings. Always use Enums, SRP and Open/Close principle to have precise changes.
 Imports always on top of file! No lazy imports.
@@ -26,6 +26,8 @@ Imports always on top of file! No lazy imports.
 `make check-complexity-diff` (default `METRIC=cc`) or `make check-complexity-diff METRIC=mi` / `METRIC=hal`. This surfaces average metrics and per-item deltas (cc: by line/symbol; mi: by file; hal: file total + per function).
 - **While editing a specific file or package:** `make check-complexity-cc FILE=app/...` and `make check-complexity-mi FILE=app/...`.
 - **Quick local average only** (no diff to `main`): `make check-complexity`.
+
+**Workspace pool operator management** (listing sets, reclaiming workspaces, expanding/shrinking the pool, and the TUI workspaces screen) is documented in `docs/backend/workspace-pool-management.md`. Two rules to uphold when touching it: `classify_reclaim` (`backend/app/schemas/workspace_pool_management.py`) is the **only** definition of what reclaiming a workspace does — the listing badge and the reclaim dispatch both read it; and pool expansion seeds workspace rows **last** and with `replace=False`, so a slot is never published before its repo has a P10Y id and a live document is never reset.
 
 **Key paths:**
 - `backend/app/services/` — business logic (estimation, workspace_pool, crash_recovery, retry)
@@ -47,7 +49,7 @@ Imports always on top of file! No lazy imports.
 Spec analysis and implementation planning happen **locally in the user's IDE** via MCP tools (`check_specification_completeness`, `run_planning`) — the backend is not involved until `run_generation` is called. Once invoked, the backend runs as one continuous, locked execution — the user cannot edit plans or intervene while the workflow is active:
 
 0. **Local (no backend)** — user calls `check_specification_completeness` and `run_planning` in their IDE; both produce markdown files in the user's project directory. Repeatable, free, no session created.
-1. **File upload + contract validation** — `run_generation` uploads the user's `specs/`, optional `src/`, and `outputs_dir/` to the primary workspace. The contract validator (`backend/app/services/contract_validator.py` + `run_contract_validator` in `workflow_steps.py`) fuzzy-matches required files, runs keyword-only MCP prune, converts plans markdown→JSON, and writes Firestore plan data. If any required file is missing or unparseable, `run_generation` fails immediately with a human-readable message. No spec/planning/KB agents in this step (plan conversion agent only).
+1. **File upload + contract validation** — `run_generation` uploads the user's `specs/`, optional `src/`, and `outputs_dir/` to the primary workspace. The contract validator (`backend/app/services/contract_validator.py` + `run_contract_validator` in `workflow_steps.py`) fuzzy-matches required files, runs keyword-only MCP prune, converts plans markdown→JSON, and persists the plan data. If any required file is missing or unparseable, `run_generation` fails immediately with a human-readable message. No spec/planning/KB agents in this step (plan conversion agent only).
 2. **KB init + Generation** — Rosetta unpacking and KB init run as the first generation step (not before). Then code generation runs across all workspaces in parallel, committing incrementally.
 3. **Deploy & E2E** — deploy loop starts immediately after generation; no user pause in between.
 
@@ -83,7 +85,7 @@ The local MCP tools (`check_specification_completeness`, `run_planning`) and the
 - Files found in wrong subdirectory (e.g. `IMPLEMENTATION_PLAN.md` at outputs_dir root, or under `analysis/`) are moved to the canonical location.
 - Multiple candidate files matching the same canonical name → error (ambiguous, refuse to guess).
 - Missing required file → `run_generation` returns short error: "Missing required files: ... — run the relevant MCP tool (`check_specification_completeness` or `run_planning`) to produce them."
-- After normalization, the validator runs markdown→JSON conversion and writes `planning_data` / `e2e_planning_data` to Firestore. If conversion fails, return a short error referencing the offending file.
+- After normalization, the validator runs markdown→JSON conversion and persists `planning_data` / `e2e_planning_data`. If conversion fails, return a short error referencing the offending file.
 
 **Skill ↔ MCP-tool argument parity:** Skills are drop-in replacements for backend tools. They MUST accept the same arguments (`spec_path`, `outputs_dir`) and write to paths derived from those arguments. No hardcoded `docs/...` in skill instructions.
 
@@ -161,7 +163,7 @@ Retry with unarchived code reuses exact same `workspace_ids`. If inaccessible, r
 Background jobs call `stuck_detected()` on estimation only. Workspace stays ALLOCATED with code intact.
 
 ### VII — State machine is only writer of status/checkpoint/workspace_phases
-Nothing outside `backend/app/state/` may write these to Firestore. CI guard enforces. Direct write outside `state/` = bug.
+Nothing outside `backend/app/state/` may write these to the database. CI guard enforces. Direct write outside `state/` = bug.
 
 ### VIII — Checkpoints never go backward
 `advance_checkpoint()` validates strictly forward. Retry resumes from saved checkpoint.

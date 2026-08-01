@@ -925,15 +925,31 @@ class TestNotifyDesktop:
 
 
 # ---------------------------------------------------------------------------
-# cmd_clear_workspace (set-integral, 3 members)
+# cmd_clear_workspace — one reclaim request per set
 # ---------------------------------------------------------------------------
 
 
+def _reclaim_ok(*workspace_ids: str) -> str:
+    details = [
+        {"workspace_id": ws, "action": "finish_cleaning", "success": True, "message": "cleaned"}
+        for ws in workspace_ids
+    ]
+    return json.dumps(
+        {"total": len(details), "success": len(details), "failed": 0, "details": details}
+    )
+
+
 class TestClearWorkspace:
+    """The backend owns set membership and per-state dispatch.
+
+    Contract: exactly ONE request to /pool/reclaim carrying the set number. The client must
+    not enumerate member ids from the ws-NN-N convention — a set's real membership is only
+    known server-side, so a client-built id list can address workspaces that do not exist.
+    """
+
     @pytest.mark.asyncio
-    async def test_issues_3_clears_for_set(self):
+    async def test_issues_one_reclaim_request_for_the_set(self):
         from cli import cmd_clear_workspace
-        from services.cli_service import workspace_ids_for_set
 
         args = SimpleNamespace(command="clear-workspace", set=1, yes=True)
 
@@ -941,19 +957,20 @@ class TestClearWorkspace:
             "services.cli_service.SpecFlowBackendService.call_backend",
             new_callable=AsyncMock,
         ) as mock_call:
-            mock_call.return_value = '{"status": "ok"}'
+            mock_call.return_value = _reclaim_ok("ws-01-1", "ws-01-2", "ws-01-3")
             code = await cmd_clear_workspace(args)
 
         assert code == 0
-        assert mock_call.call_count == 3
-        called_ids = [call.kwargs.get("endpoint", "") for call in mock_call.call_args_list]
-        for ws_id in workspace_ids_for_set(1):
-            assert f"/api/v1/workspace/{ws_id}/clear" in called_ids
+        assert mock_call.call_count == 1
+        kwargs = mock_call.call_args.kwargs
+        assert kwargs["endpoint"] == "/api/v1/workspace/pool/reclaim"
+        assert kwargs["method"] == "POST"
+        assert kwargs["json_data"]["set_numbers"] == [1]
+        assert kwargs["json_data"]["workspace_ids"] == []
 
     @pytest.mark.asyncio
-    async def test_set_2_uses_correct_ids(self):
+    async def test_set_2_sends_set_2(self):
         from cli import cmd_clear_workspace
-        from services.cli_service import workspace_ids_for_set
 
         args = SimpleNamespace(command="clear-workspace", set=2, yes=True)
 
@@ -961,12 +978,10 @@ class TestClearWorkspace:
             "services.cli_service.SpecFlowBackendService.call_backend",
             new_callable=AsyncMock,
         ) as mock_call:
-            mock_call.return_value = '{"status": "ok"}'
+            mock_call.return_value = _reclaim_ok("ws-02-1", "ws-02-2", "ws-02-3")
             await cmd_clear_workspace(args)
 
-        called_ids = [call.kwargs.get("endpoint", "") for call in mock_call.call_args_list]
-        for ws_id in workspace_ids_for_set(2):
-            assert f"/api/v1/workspace/{ws_id}/clear" in called_ids
+        assert mock_call.call_args.kwargs["json_data"]["set_numbers"] == [2]
 
     @pytest.mark.asyncio
     async def test_backend_error_returns_nonzero(self):
@@ -984,42 +999,74 @@ class TestClearWorkspace:
         assert code == 1
 
     @pytest.mark.asyncio
+    async def test_refused_member_returns_nonzero_and_prints_the_reason(self, capsys):
+        """A workspace held by a running generation must fail loudly, not look like success."""
+        from cli import cmd_clear_workspace
+
+        args = SimpleNamespace(command="clear-workspace", set=1, yes=True)
+        payload = json.dumps(
+            {
+                "total": 2,
+                "success": 1,
+                "failed": 1,
+                "details": [
+                    {"workspace_id": "ws-01-1", "action": "force_clean", "success": True, "message": "ok"},
+                    {
+                        "workspace_id": "ws-01-2",
+                        "action": "blocked",
+                        "success": False,
+                        "message": "Generation gen_x is running — still using this workspace.",
+                    },
+                ],
+            }
+        )
+
+        with patch(
+            "services.cli_service.SpecFlowBackendService.call_backend",
+            new_callable=AsyncMock,
+        ) as mock_call:
+            mock_call.return_value = payload
+            code = await cmd_clear_workspace(args)
+
+        assert code == 1
+        out = capsys.readouterr()
+        assert "gen_x is running" in out.out
+        assert "not reclaimed" in out.err
+
+    @pytest.mark.asyncio
+    async def test_unknown_set_returns_nonzero(self):
+        """An empty details list means the set does not exist — not a silent success."""
+        from cli import cmd_clear_workspace
+
+        args = SimpleNamespace(command="clear-workspace", set=42, yes=True)
+
+        with patch(
+            "services.cli_service.SpecFlowBackendService.call_backend",
+            new_callable=AsyncMock,
+        ) as mock_call:
+            mock_call.return_value = json.dumps(
+                {"total": 0, "success": 0, "failed": 0, "details": []}
+            )
+            code = await cmd_clear_workspace(args)
+
+        assert code == 1
+
+    @pytest.mark.asyncio
     async def test_yes_flag_skips_confirmation(self):
         from cli import cmd_clear_workspace
+
         args = SimpleNamespace(command="clear-workspace", set=1, yes=True)
 
         with patch(
             "services.cli_service.SpecFlowBackendService.call_backend",
             new_callable=AsyncMock,
         ) as mock_call:
-            mock_call.return_value = '{"status": "ok"}'
+            mock_call.return_value = _reclaim_ok("ws-01-1")
             # Should not prompt — if input() were called it would raise EOFError
             with patch("builtins.input", side_effect=EOFError("should not prompt")):
                 code = await cmd_clear_workspace(args)
 
         assert code == 0
-
-
-# ---------------------------------------------------------------------------
-# workspace_ids_for_set convention
-# ---------------------------------------------------------------------------
-
-
-class TestWorkspaceIdsForSet:
-    def test_set_1_has_3_members(self):
-        from services.cli_service import workspace_ids_for_set
-        ids = workspace_ids_for_set(1)
-        assert len(ids) == 3
-
-    def test_set_1_names(self):
-        from services.cli_service import workspace_ids_for_set
-        ids = workspace_ids_for_set(1)
-        assert ids == ["ws-01-1", "ws-01-2", "ws-01-3"]
-
-    def test_set_2_names(self):
-        from services.cli_service import workspace_ids_for_set
-        ids = workspace_ids_for_set(2)
-        assert ids == ["ws-02-1", "ws-02-2", "ws-02-3"]
 
 
 # ---------------------------------------------------------------------------

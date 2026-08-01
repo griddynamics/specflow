@@ -73,6 +73,548 @@ def sample_tar_archive():
     return archive_buffer.read()
 
 
+def _member(workspace_id: str, **overrides) -> dict:
+    """A pool-listing member row as list_pool_sets returns it."""
+    row = {
+        "workspace_id": workspace_id,
+        "set_number": 1,
+        "workspace_pool": "default",
+        "status": "available",
+        "repo_url": f"https://github.com/acme/{workspace_id}",
+        "p10y_repository_id": 74901,
+        "clean_verified": True,
+        "locked_by": None,
+        "locked_at": None,
+        "last_used_by": None,
+        "last_cleaned_at": None,
+        "cleaning_started_at": None,
+        "remaining_grace_seconds": None,
+        "scheduled_for_wipe_at": None,
+        "stuck_reason": None,
+        "error": None,
+        "owner_generation_status": None,
+        "owner_code_archived": None,
+        "reclaim_action": "already_available",
+        "reclaimable": False,
+        "reclaim_blocked_reason": None,
+        "retry_lost_on_reclaim": False,
+        "removable": True,
+        "not_removable_reason": None,
+    }
+    row.update(overrides)
+    return row
+
+
+class TestListPoolSets:
+    """Tests for GET /workspace/pool/sets endpoint."""
+
+    def test_returns_sets_with_repo_urls_and_totals(self, client, mock_workspace_pool):
+        mock_workspace_pool.list_pool_sets = AsyncMock(
+            return_value=[
+                {
+                    "workspace_pool": "default",
+                    "set_number": 1,
+                    "members": [_member("ws-01-1"), _member("ws-01-2"), _member("ws-01-3")],
+                    "allocatable": True,
+                    "blocked_reason": None,
+                },
+                {
+                    "workspace_pool": "default",
+                    "set_number": 2,
+                    "members": [
+                        _member("ws-02-1", set_number=2, status="allocated", locked_by="gen_1")
+                    ],
+                    "allocatable": False,
+                    "blocked_reason": "Set has 1 workspace(s); allocation needs exactly 3.",
+                },
+            ]
+        )
+
+        response = client.get(
+            "/api/v1/workspace/pool/sets", headers={"X-API-Key": "test-key"}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total_workspaces"] == 4
+        assert data["allocatable_sets"] == 1
+        assert len(data["sets"]) == 2
+        assert data["sets"][0]["members"][0]["repo_url"] == "https://github.com/acme/ws-01-1"
+        assert data["sets"][1]["blocked_reason"].startswith("Set has 1 workspace(s)")
+
+    def test_empty_pool_returns_zeroes_not_an_error(self, client, mock_workspace_pool):
+        mock_workspace_pool.list_pool_sets = AsyncMock(return_value=[])
+
+        response = client.get(
+            "/api/v1/workspace/pool/sets", headers={"X-API-Key": "test-key"}
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"sets": [], "total_workspaces": 0, "allocatable_sets": 0}
+
+    def test_scopes_to_the_callers_pool(self, app, mock_workspace_pool):
+        """The caller's pool from auth middleware must be passed through, not ignored."""
+        mock_workspace_pool.list_pool_sets = AsyncMock(return_value=[])
+
+        @app.middleware("http")
+        async def _set_pool(request, call_next):
+            request.state.workspace_pool = "testpool"
+            return await call_next(request)
+
+        local_client = TestClient(app)
+        response = local_client.get(
+            "/api/v1/workspace/pool/sets", headers={"X-API-Key": "test-key"}
+        )
+
+        assert response.status_code == 200
+        mock_workspace_pool.list_pool_sets.assert_awaited_once_with(workspace_pool="testpool")
+
+    def test_service_failure_is_a_500_with_reason(self, client, mock_workspace_pool):
+        mock_workspace_pool.list_pool_sets = AsyncMock(side_effect=RuntimeError("db down"))
+
+        response = client.get(
+            "/api/v1/workspace/pool/sets", headers={"X-API-Key": "test-key"}
+        )
+
+        assert response.status_code == 500
+        assert "Failed to list pool sets" in response.json()["detail"]
+
+    def test_requires_admin(self, test_app, mock_workspace_pool):
+        """Listing exposes repo URLs and lock owners, so it is admin-gated."""
+        test_app.include_router(workspaces_router, prefix="/api/v1")
+
+        async def override_get_workspace_pool():
+            return mock_workspace_pool
+
+        test_app.dependency_overrides[get_workspace_pool] = override_get_workspace_pool
+        # NOTE: require_admin is NOT overridden here
+        mock_workspace_pool.list_pool_sets = AsyncMock(return_value=[])
+
+        local_client = TestClient(test_app, raise_server_exceptions=False)
+        response = local_client.get(
+            "/api/v1/workspace/pool/sets", headers={"X-API-Key": "test-key"}
+        )
+
+        assert response.status_code == 403
+        test_app.dependency_overrides.clear()
+
+
+class TestReclaimPool:
+    """Tests for POST /workspace/pool/reclaim endpoint."""
+
+    def test_reclaims_explicit_workspace_ids(self, client, mock_workspace_pool):
+        mock_workspace_pool.reclaim_workspaces = AsyncMock(
+            return_value={
+                "total": 1,
+                "success": 1,
+                "failed": 0,
+                "details": [
+                    {
+                        "workspace_id": "ws-01-1",
+                        "action": "finish_cleaning",
+                        "success": True,
+                        "message": "Cleaning finished; workspace is available.",
+                    }
+                ],
+            }
+        )
+
+        response = client.post(
+            "/api/v1/workspace/pool/reclaim",
+            json={"workspace_ids": ["ws-01-1"], "reason": "freeing capacity"},
+            headers={"X-API-Key": "test-key"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["success"] == 1
+        mock_workspace_pool.reclaim_workspaces.assert_awaited_once_with(
+            ["ws-01-1"], reason="freeing capacity", confirmed_by="operator"
+        )
+
+    def test_audit_identity_comes_from_auth_not_the_body(self, app, mock_workspace_pool):
+        """confirmed_by must be the authenticated caller — a client cannot assert its own."""
+        mock_workspace_pool.reclaim_workspaces = AsyncMock(
+            return_value={"total": 1, "success": 1, "failed": 0, "details": []}
+        )
+
+        @app.middleware("http")
+        async def _set_user(request, call_next):
+            request.state.user_email = "akozak@griddynamics.com"
+            return await call_next(request)
+
+        local_client = TestClient(app)
+        response = local_client.post(
+            "/api/v1/workspace/pool/reclaim",
+            # A forged identity in the body must be ignored entirely.
+            json={"workspace_ids": ["ws-01-1"], "confirmed_by": "somebody-else"},
+            headers={"X-API-Key": "test-key"},
+        )
+
+        assert response.status_code == 200
+        assert (
+            mock_workspace_pool.reclaim_workspaces.await_args.kwargs["confirmed_by"]
+            == "akozak@griddynamics.com"
+        )
+
+    def test_set_numbers_are_resolved_to_real_members(self, client, mock_workspace_pool):
+        """Membership comes from the DB, not from rebuilding the ws-NN-N convention."""
+        mock_workspace_pool.workspace_ids_in_sets = AsyncMock(
+            return_value=["ws-02-1", "ws-02-2", "ws-02-3"]
+        )
+        mock_workspace_pool.reclaim_workspaces = AsyncMock(
+            return_value={"total": 3, "success": 3, "failed": 0, "details": []}
+        )
+
+        response = client.post(
+            "/api/v1/workspace/pool/reclaim",
+            json={"set_numbers": [2]},
+            headers={"X-API-Key": "test-key"},
+        )
+
+        assert response.status_code == 200
+        mock_workspace_pool.workspace_ids_in_sets.assert_awaited_once_with(
+            [2], workspace_pool=None
+        )
+        assert mock_workspace_pool.reclaim_workspaces.await_args.args[0] == [
+            "ws-02-1",
+            "ws-02-2",
+            "ws-02-3",
+        ]
+
+    def test_duplicate_targets_are_collapsed(self, client, mock_workspace_pool):
+        """Listing a set and one of its members must not reclaim that member twice."""
+        mock_workspace_pool.workspace_ids_in_sets = AsyncMock(
+            return_value=["ws-01-1", "ws-01-2", "ws-01-3"]
+        )
+        mock_workspace_pool.reclaim_workspaces = AsyncMock(
+            return_value={"total": 3, "success": 3, "failed": 0, "details": []}
+        )
+
+        response = client.post(
+            "/api/v1/workspace/pool/reclaim",
+            json={"workspace_ids": ["ws-01-2"], "set_numbers": [1]},
+            headers={"X-API-Key": "test-key"},
+        )
+
+        assert response.status_code == 200
+        assert mock_workspace_pool.reclaim_workspaces.await_args.args[0] == [
+            "ws-01-2",
+            "ws-01-1",
+            "ws-01-3",
+        ]
+
+    def test_empty_request_is_rejected(self, client, mock_workspace_pool):
+        response = client.post(
+            "/api/v1/workspace/pool/reclaim",
+            json={},
+            headers={"X-API-Key": "test-key"},
+        )
+
+        assert response.status_code == 400
+        assert "at least one workspace_id or set_number" in response.json()["detail"]
+
+    def test_refused_members_still_return_200_with_details(self, client, mock_workspace_pool):
+        """A blocked member is data, not an HTTP error — the batch reports per member."""
+        mock_workspace_pool.reclaim_workspaces = AsyncMock(
+            return_value={
+                "total": 2,
+                "success": 1,
+                "failed": 1,
+                "details": [
+                    {"workspace_id": "ws-01-1", "action": "force_clean", "success": True, "message": "ok"},
+                    {
+                        "workspace_id": "ws-01-2",
+                        "action": "blocked",
+                        "success": False,
+                        "message": "Generation gen_x is running — still using this workspace.",
+                    },
+                ],
+            }
+        )
+
+        response = client.post(
+            "/api/v1/workspace/pool/reclaim",
+            json={"workspace_ids": ["ws-01-1", "ws-01-2"]},
+            headers={"X-API-Key": "test-key"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert (data["success"], data["failed"]) == (1, 1)
+        assert data["details"][1]["action"] == "blocked"
+
+    def test_service_failure_is_a_500(self, client, mock_workspace_pool):
+        mock_workspace_pool.reclaim_workspaces = AsyncMock(side_effect=RuntimeError("db down"))
+
+        response = client.post(
+            "/api/v1/workspace/pool/reclaim",
+            json={"workspace_ids": ["ws-01-1"]},
+            headers={"X-API-Key": "test-key"},
+        )
+
+        assert response.status_code == 500
+        assert "Failed to reclaim workspaces" in response.json()["detail"]
+
+    def test_requires_admin(self, test_app, mock_workspace_pool):
+        test_app.include_router(workspaces_router, prefix="/api/v1")
+
+        async def override_get_workspace_pool():
+            return mock_workspace_pool
+
+        test_app.dependency_overrides[get_workspace_pool] = override_get_workspace_pool
+        # NOTE: require_admin is NOT overridden here
+        mock_workspace_pool.reclaim_workspaces = AsyncMock(
+            return_value={"total": 0, "success": 0, "failed": 0, "details": []}
+        )
+
+        local_client = TestClient(test_app, raise_server_exceptions=False)
+        response = local_client.post(
+            "/api/v1/workspace/pool/reclaim",
+            json={"workspace_ids": ["ws-01-1"]},
+            headers={"X-API-Key": "test-key"},
+        )
+
+        assert response.status_code == 403
+        test_app.dependency_overrides.clear()
+
+
+class TestExpandPool:
+    """Tests for POST /workspace/pool/expand and its progress endpoint."""
+
+    @pytest.fixture
+    def expand_app(self, app):
+        """Attach a real registry plus a stubbed start_expansion to the app."""
+        from app.services.workspace_pool_expansion import PoolExpansionRegistry
+
+        app.state.pool_expansion_registry = PoolExpansionRegistry()
+        return app
+
+    def test_returns_202_with_a_job_id(self, expand_app, monkeypatch):
+        from app.services.workspace_pool_expansion import ExpansionJob, ExpansionPhase
+
+        job = ExpansionJob(job_id="exp_abc123", workspace_pool="default", sets_requested=3)
+        job.phase = ExpansionPhase.CREATING_REPOS
+        job.repo_names = ["specflow-workspace10", "specflow-workspace11"]
+        job.set_numbers = [4, 5, 6]
+        monkeypatch.setattr(
+            "app.api.v1.workspaces.start_expansion", lambda *a, **k: job
+        )
+
+        client = TestClient(expand_app)
+        response = client.post(
+            "/api/v1/workspace/pool/expand",
+            json={"sets": 3},
+            headers={"X-API-Key": "test-key"},
+        )
+
+        assert response.status_code == 202
+        data = response.json()
+        assert data["job_id"] == "exp_abc123"
+        assert data["phase"] == "creating_repos"
+        assert data["done"] is False
+        assert data["set_numbers"] == [4, 5, 6]
+
+    def test_passes_overrides_and_the_callers_pool_through(self, expand_app, monkeypatch):
+        from app.services.workspace_pool_expansion import ExpansionJob
+
+        captured = {}
+
+        def fake_start(db, registry, **kwargs):
+            captured.update(kwargs)
+            return ExpansionJob(job_id="exp_x", workspace_pool="testpool", sets_requested=1)
+
+        monkeypatch.setattr("app.api.v1.workspaces.start_expansion", fake_start)
+
+        @expand_app.middleware("http")
+        async def _set_pool(request, call_next):
+            request.state.workspace_pool = "testpool"
+            return await call_next(request)
+
+        client = TestClient(expand_app)
+        response = client.post(
+            "/api/v1/workspace/pool/expand",
+            json={"sets": 2, "github_org": "acme", "repo_prefix": "ws-", "team_slug": "devs"},
+            headers={"X-API-Key": "test-key"},
+        )
+
+        assert response.status_code == 202
+        assert captured["workspace_pool"] == "testpool"
+        assert captured["sets"] == 2
+        assert captured["github_org"] == "acme"
+        assert captured["repo_prefix"] == "ws-"
+        assert captured["team_slug"] == "devs"
+
+    def test_zero_sets_rejected_by_schema(self, expand_app):
+        client = TestClient(expand_app)
+        response = client.post(
+            "/api/v1/workspace/pool/expand",
+            json={"sets": 0},
+            headers={"X-API-Key": "test-key"},
+        )
+        assert response.status_code == 422
+
+    def test_configuration_problem_is_a_400_with_the_reason(self, expand_app, monkeypatch):
+        """An operator must see 'GITHUB_ORG is not set', not a 500."""
+        from app.services.workspace_pool_expansion import WorkspacePoolExpansionError
+
+        def fake_start(*a, **k):
+            raise WorkspacePoolExpansionError("GITHUB_ORG is not set")
+
+        monkeypatch.setattr("app.api.v1.workspaces.start_expansion", fake_start)
+
+        client = TestClient(expand_app)
+        response = client.post(
+            "/api/v1/workspace/pool/expand",
+            json={"sets": 1},
+            headers={"X-API-Key": "test-key"},
+        )
+
+        assert response.status_code == 400
+        assert "GITHUB_ORG is not set" in response.json()["detail"]
+
+    def test_progress_endpoint_returns_the_job(self, expand_app):
+        from app.services.workspace_pool_expansion import ExpansionJob, ExpansionPhase
+
+        job = ExpansionJob(job_id="exp_live", workspace_pool="default", sets_requested=1)
+        job.phase = ExpansionPhase.DONE
+        job.workspaces_created = 3
+        job.messages = ["Seeded 3 workspace(s); pool is ready"]
+        expand_app.state.pool_expansion_registry.register(job, task=None)
+
+        client = TestClient(expand_app)
+        response = client.get(
+            "/api/v1/workspace/pool/expand/exp_live", headers={"X-API-Key": "test-key"}
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["done"] is True
+        assert data["workspaces_created"] == 3
+        assert "pool is ready" in data["messages"][0]
+
+    def test_unknown_job_explains_the_restart_case(self, expand_app):
+        client = TestClient(expand_app)
+        response = client.get(
+            "/api/v1/workspace/pool/expand/exp_missing", headers={"X-API-Key": "test-key"}
+        )
+
+        assert response.status_code == 404
+        # In-memory job state is lost on restart; the message must say what to do about it.
+        assert "re-run the expansion" in response.json()["detail"]
+
+    def test_expand_requires_admin(self, test_app, mock_workspace_pool):
+        from app.services.workspace_pool_expansion import PoolExpansionRegistry
+
+        test_app.include_router(workspaces_router, prefix="/api/v1")
+        test_app.state.pool_expansion_registry = PoolExpansionRegistry()
+
+        async def override_get_workspace_pool():
+            return mock_workspace_pool
+
+        test_app.dependency_overrides[get_workspace_pool] = override_get_workspace_pool
+        # NOTE: require_admin is NOT overridden here
+
+        local_client = TestClient(test_app, raise_server_exceptions=False)
+        assert (
+            local_client.post(
+                "/api/v1/workspace/pool/expand",
+                json={"sets": 1},
+                headers={"X-API-Key": "test-key"},
+            ).status_code
+            == 403
+        )
+        assert (
+            local_client.get(
+                "/api/v1/workspace/pool/expand/exp_1", headers={"X-API-Key": "test-key"}
+            ).status_code
+            == 403
+        )
+        test_app.dependency_overrides.clear()
+
+
+class TestShrinkPool:
+    """Tests for POST /workspace/pool/shrink endpoint."""
+
+    def test_removes_a_whole_set(self, client, mock_workspace_pool, monkeypatch):
+        mock_workspace_pool.workspace_ids_in_sets = AsyncMock(
+            return_value=["ws-03-1", "ws-03-2", "ws-03-3"]
+        )
+        captured = {}
+
+        async def fake_shrink(db, ids, reason="manual_shrink", confirmed_by="operator"):
+            captured["ids"] = ids
+            captured["reason"] = reason
+            return {"total": 3, "success": 3, "failed": 0, "details": []}
+
+        monkeypatch.setattr("app.api.v1.workspaces.shrink_pool", fake_shrink)
+
+        response = client.post(
+            "/api/v1/workspace/pool/shrink",
+            json={"set_numbers": [3], "reason": "decommission"},
+            headers={"X-API-Key": "test-key"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["success"] == 3
+        assert captured["ids"] == ["ws-03-1", "ws-03-2", "ws-03-3"]
+        assert captured["reason"] == "decommission"
+
+    def test_empty_request_is_rejected(self, client, mock_workspace_pool):
+        response = client.post(
+            "/api/v1/workspace/pool/shrink",
+            json={},
+            headers={"X-API-Key": "test-key"},
+        )
+        assert response.status_code == 400
+        assert "at least one workspace_id or set_number" in response.json()["detail"]
+
+    def test_refusals_return_200_with_details(self, client, mock_workspace_pool, monkeypatch):
+        async def fake_shrink(db, ids, **kwargs):
+            return {
+                "total": 1,
+                "success": 0,
+                "failed": 1,
+                "details": [
+                    {
+                        "workspace_id": "ws-01-1",
+                        "success": False,
+                        "message": "Workspace is allocated, not available — reclaim it first, then shrink.",
+                    }
+                ],
+            }
+
+        monkeypatch.setattr("app.api.v1.workspaces.shrink_pool", fake_shrink)
+
+        response = client.post(
+            "/api/v1/workspace/pool/shrink",
+            json={"workspace_ids": ["ws-01-1"]},
+            headers={"X-API-Key": "test-key"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["failed"] == 1
+        assert "reclaim it first" in response.json()["details"][0]["message"]
+
+    def test_requires_admin(self, test_app, mock_workspace_pool):
+        test_app.include_router(workspaces_router, prefix="/api/v1")
+
+        async def override_get_workspace_pool():
+            return mock_workspace_pool
+
+        test_app.dependency_overrides[get_workspace_pool] = override_get_workspace_pool
+        # NOTE: require_admin is NOT overridden here
+
+        local_client = TestClient(test_app, raise_server_exceptions=False)
+        response = local_client.post(
+            "/api/v1/workspace/pool/shrink",
+            json={"workspace_ids": ["ws-01-1"]},
+            headers={"X-API-Key": "test-key"},
+        )
+
+        assert response.status_code == 403
+        test_app.dependency_overrides.clear()
+
+
 class TestGetPoolStatus:
     """Tests for GET /workspace/pool/status endpoint."""
     

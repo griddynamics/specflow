@@ -110,5 +110,16 @@ STATUS_PILLS: dict[str, tuple[str, str]] = {
     "unknown": ("? UNKNOWN", "dim"),
 }
 
+# Pill text + Rich style per workspace-pool status. Separate from STATUS_PILLS because a
+# workspace has its own lifecycle (see backend WorkspaceStatus) — "available" is good news
+# for a workspace and meaningless for a generation.
+WORKSPACE_STATUS_PILLS: dict[str, tuple[str, str]] = {
+    "available": ("○ AVAILABLE", "green"),
+    "allocated": ("● ALLOCATED", "yellow"),
+    "cleaning": ("◐ CLEANING", "cyan"),
+    "stuck": ("✗ STUCK", "bold red"),
+    "unknown": ("? UNKNOWN", "dim"),
+}
+
 # Default poll cadence (seconds). The backend recommends 2–5s for /status.
 DEFAULT_POLL_INTERVAL = 3

@@ -791,14 +791,11 @@ class GenerationSessionStateMachine:
                 allowed_from=[GenerationStatus.RUNNING],
             )
 
-    _TERMINAL_STATUS_VALUES = {
-        GenerationStatus.COMPLETED.value,
-        GenerationStatus.FAILED.value,
-        GenerationStatus.CANCELLED.value,
-    }
+    # Derived from GenerationStatus.terminal() so the pool reclaim path and the 7-day wipe
+    # job share one definition of "no longer running" with the state machine.
+    _TERMINAL_STATUS_VALUES = {s.value for s in GenerationStatus.terminal()}
     _NON_TERMINAL_STATUSES = [
-        s for s in GenerationStatus
-        if s not in {GenerationStatus.COMPLETED, GenerationStatus.FAILED, GenerationStatus.CANCELLED}
+        s for s in GenerationStatus if s not in GenerationStatus.terminal()
     ]
 
     def _require_non_terminal(self, doc: Optional[dict], action: str, generation_id: str) -> None:
