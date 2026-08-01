@@ -8,8 +8,8 @@ import logging
 import shlex
 from typing import FrozenSet, List, Literal, Optional
 
-from app.core.config import MCP_FIGMA, MCP_FIGMA_SERVER_KEY, MCP_PLAYWRIGHT, ROSETTA_SERVER_KEY, SUPPORTED_MCPS, Settings
-from app.core.tool_usage import get_figma_mcp_tools, get_playwright_mcp_tools, get_rosetta_kb_tools
+from app.core.config import MCP_FIGMA, MCP_FIGMA_SERVER_KEY, MCP_PLAYWRIGHT, SUPPORTED_MCPS, Settings
+from app.core.tool_usage import get_figma_mcp_tools, get_playwright_mcp_tools
 from app.prompts.mcp_workflow_registry import (
     CODE_GENERATION_AND_DEPLOY_OPTIONAL_MCPS,
     PLANNING_OPTIONAL_AGENT_MCPS,
@@ -205,12 +205,6 @@ def _figma_pair(settings: Settings, enabled_mcps: FrozenSet[str]) -> tuple[dict,
     return config, (get_figma_mcp_tools() if config else [])
 
 
-def _rosetta_pair(settings: Settings) -> tuple[dict, List[str]]:
-    """Rosetta MCP config + tools (enablement controlled by settings.ROSETTA_MCP_ENABLED)."""
-    config = build_rosetta_mcp_config(settings)
-    return config, (get_rosetta_kb_tools() if config else [])
-
-
 def _combine_pairs(*pairs: tuple[dict, List[str]]) -> tuple[dict, List[str]]:
     """Merge N (config_dict, tools_list) pairs into one."""
     servers: dict = {}
@@ -246,14 +240,9 @@ def coding_mcp_servers_and_tools(
     settings: Settings,
     enabled_mcps: FrozenSet[str],
 ) -> tuple[dict, List[str]]:
-    """Playwright + Figma + optional Rosetta — used by generation and deploy/QA phase agents.
-
-    Rosetta is appended when ``ROSETTA_MCP_ENABLED`` (same as planning/KB init); not part of
-    ``SUPPORTED_MCPS`` / prune candidates.
-    """
+    """Playwright + Figma — used by generation and deploy/QA phase agents."""
     allowed = enabled_mcps & CODE_GENERATION_AND_DEPLOY_OPTIONAL_MCPS
     return _combine_pairs(
-        _rosetta_pair(settings),
         _playwright_pair(settings, allowed),
         _figma_pair(settings, allowed),
     )
@@ -263,7 +252,7 @@ def planning_mcp_servers_and_tools(
     settings: Settings,
     enabled_mcps: FrozenSet[str],
 ) -> tuple[dict, List[str]]:
-    """Figma only — used by planning agents. Rosetta is intentionally excluded from planning."""
+    """Figma only — used by planning agents."""
     allowed = enabled_mcps & PLANNING_OPTIONAL_AGENT_MCPS
     return _combine_pairs(
         _figma_pair(settings, allowed),
@@ -287,35 +276,3 @@ def mcp_prompt_hints(enabled_mcps: FrozenSet[str]) -> str:
     if not lines:
         return ""
     return "\n## Available MCP Tools\n" + "\n".join(f"- {line}" for line in lines) + "\n"
-
-
-def build_rosetta_mcp_config(settings: Settings) -> dict[str, dict]:
-    """Build MCP server config dict for ClaudeAgentOptions.mcp_servers.
-
-    Returns an empty dict when the feature is disabled, which signals
-    callers to skip KB init entirely.
-    """
-    if not settings.ROSETTA_MCP_ENABLED:
-        return {}
-
-    env: dict[str, str] = {}
-    server_url = (settings.ROSETTA_SERVER_URL or "").strip()
-    if server_url:
-        env["ROSETTA_SERVER_URL"] = server_url
-    rosetta_api_key = (settings.ROSETTA_API_KEY or "").strip()
-    if rosetta_api_key:
-        env["ROSETTA_API_KEY"] = rosetta_api_key
-    user_email = (settings.ROSETTA_USER_EMAIL or "").strip()
-    if user_email:
-        env["ROSETTA_USER_EMAIL"] = user_email
-    ims_version = settings.ROSETTA_IMS_VERSION.strip()
-    if ims_version:
-        env["VERSION"] = ims_version
-
-    return {
-        ROSETTA_SERVER_KEY: {
-            "command": settings.ROSETTA_MCP_COMMAND,
-            "args": settings.ROSETTA_MCP_ARGS.split(),
-            "env": env,
-        }
-    }

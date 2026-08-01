@@ -22,27 +22,17 @@ from app.services.claude_code import (
 # setup_rosetta_plugin_env
 # ---------------------------------------------------------------------------
 
-def test_rosetta_plugin_env_points_at_plugin_path_in_plugin_mode(tmp_path: Path) -> None:
-    """Plugin mode (MCP off) + existing ROSETTA_PLUGIN_PATH -> CLAUDE_PLUGIN_ROOT = that path."""
-    with patch.object(cc.settings, "ROSETTA_MCP_ENABLED", False), \
-         patch.object(cc.settings, "ROSETTA_PLUGIN_PATH", str(tmp_path)):
+def test_rosetta_plugin_env_points_at_plugin_path(tmp_path: Path) -> None:
+    """Existing ROSETTA_PLUGIN_PATH -> CLAUDE_PLUGIN_ROOT = that path."""
+    with patch.object(cc.settings, "ROSETTA_PLUGIN_PATH", str(tmp_path)):
         assert setup_rosetta_plugin_env() == {"CLAUDE_PLUGIN_ROOT": str(tmp_path)}
 
 
-def test_rosetta_plugin_env_empty_when_mcp_enabled(tmp_path: Path) -> None:
-    """Live MCP mode -> no CLAUDE_PLUGIN_ROOT (the plugin is not used)."""
-    with patch.object(cc.settings, "ROSETTA_MCP_ENABLED", True), \
-         patch.object(cc.settings, "ROSETTA_PLUGIN_PATH", str(tmp_path)):
-        assert setup_rosetta_plugin_env() == {}
-
-
 def test_rosetta_plugin_env_empty_when_path_unset_or_missing(tmp_path: Path) -> None:
-    """Plugin mode but path unset / missing on disk -> no env var set."""
-    with patch.object(cc.settings, "ROSETTA_MCP_ENABLED", False), \
-         patch.object(cc.settings, "ROSETTA_PLUGIN_PATH", None):
+    """Path unset / missing on disk -> no env var set."""
+    with patch.object(cc.settings, "ROSETTA_PLUGIN_PATH", None):
         assert setup_rosetta_plugin_env() == {}
-    with patch.object(cc.settings, "ROSETTA_MCP_ENABLED", False), \
-         patch.object(cc.settings, "ROSETTA_PLUGIN_PATH", str(tmp_path / "does-not-exist")):
+    with patch.object(cc.settings, "ROSETTA_PLUGIN_PATH", str(tmp_path / "does-not-exist")):
         assert setup_rosetta_plugin_env() == {}
 
 
@@ -53,8 +43,7 @@ def test_rosetta_plugin_env_reevaluates_disk_state_each_call(tmp_path: Path) -> 
     desync CLAUDE_PLUGIN_ROOT from a lazily-mounted (or removed) plugin dir.
     """
     plugin = tmp_path / "plugin-probe"
-    with patch.object(cc.settings, "ROSETTA_MCP_ENABLED", False), \
-         patch.object(cc.settings, "ROSETTA_PLUGIN_PATH", str(plugin)):
+    with patch.object(cc.settings, "ROSETTA_PLUGIN_PATH", str(plugin)):
         # Not yet on disk -> no env var.
         assert setup_rosetta_plugin_env() == {}
         # Appears later (e.g. lazy mount) -> picked up without any cache clear.
@@ -459,7 +448,6 @@ class TestBuildRedactedEnvOverlay:
             "P10Y_API_KEY",
             "FIGMA_API_KEY",
             "FIGMA_ACCESS_TOKEN",
-            "ROSETTA_API_KEY",
             "POSTHOG_API_KEY",
             "GITHUB_TOKEN_DEFAULT",
             "TOKEN_ENCRYPTION_KEY",

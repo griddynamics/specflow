@@ -6,7 +6,7 @@ from app.core.tool_usage import (
     ANDROID_SDK_BASH_USAGE,
     bash_usage,
     get_disallowed_tools,
-    get_rosetta_allowed_tools,
+    get_rosetta_plugin_tools,
     get_workspace_rm_bash_allowlist,
     GH_CLI_USAGE,
 )
@@ -58,49 +58,9 @@ class TestGetDisallowedTools:
         assert "Bash(rm:*)" not in tools
 
 
-class TestGetRosettaAllowedTools:
-    """Tests for get_rosetta_allowed_tools function."""
-
-    def test_generates_all_operations(self):
-        """Scenario: Generates Read, Write, Edit, StrReplace, Glob operations for rosetta/ directory."""
-        workspace_path = "/workspaces/test-ws"
-        rosetta_dir = "rosetta"
-        rosetta_path = f"{workspace_path}/{rosetta_dir}"
-
-        result = get_rosetta_allowed_tools(workspace_path, rosetta_dir)
-
-        assert f"Read({rosetta_path}/**)" in result
-        assert f"Write({rosetta_path}/**)" in result
-        assert f"Edit({rosetta_path}/**)" in result
-        assert f"StrReplace({rosetta_path}/**)" in result
-        assert f"Glob({rosetta_path}/**)" in result
-        # No .claude/ entries — agent writes to rosetta/agents/ (no sensitive path)
-        assert not any(".claude" in t for t in result)
-
-    def test_handles_different_workspace_paths(self):
-        """Scenario: Works with different workspace paths."""
-        workspace_path = "/workspaces/another-workspace"
-        rosetta_dir = "kb_output"
-        rosetta_path = f"{workspace_path}/{rosetta_dir}"
-
-        result = get_rosetta_allowed_tools(workspace_path, rosetta_dir)
-
-        assert f"Read({rosetta_path}/**)" in result
-        assert f"Write({rosetta_path}/**)" in result
-
-    def test_includes_write_operations_for_claude_directories(self):
-        """Scenario: KB init agent can write to rosetta/agents/ (remapped to .claude/agents/ on unpack)."""
-        workspace_path = "/workspaces/test"
-        rosetta_dir = "rosetta"
-        rosetta_path = f"{workspace_path}/{rosetta_dir}"
-
-        result = get_rosetta_allowed_tools(workspace_path, rosetta_dir)
-
-        # Recursive wildcard covers all nested paths including rosetta/agents/
-        assert f"Write({rosetta_path}/**)" in result
-        assert f"StrReplace({rosetta_path}/**)" in result
-        # No .claude/ paths — agent stages to rosetta/agents/, unpack remaps to .claude/agents/
-        assert not any(".claude" in t for t in result)
+def test_rosetta_plugin_tools_drive_the_provisioned_workflow() -> None:
+    """KB init exposes both supported entry points from the provisioned plugin."""
+    assert get_rosetta_plugin_tools() == ["Skill", "SlashCommand"]
 
 
 class TestBashUsage:

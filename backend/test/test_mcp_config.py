@@ -3,11 +3,10 @@
 import pytest
 from unittest.mock import Mock
 
-from app.core.config import ROSETTA_SERVER_KEY, Settings
+from app.core.config import Settings
 from app.core.mcp_config import (
     build_figma_mcp_config,
     build_playwright_mcp_config,
-    build_rosetta_mcp_config,
     enabled_mcps_to_parameter_string,
     merge_mcp_server_dicts,
     mcp_resolution_from_workspace_sync_parameters,
@@ -15,72 +14,6 @@ from app.core.mcp_config import (
     resolve_enabled_mcps,
     resolve_enabled_mcps_detailed,
 )
-
-
-class TestBuildRosettaMcpConfig:
-    """Tests for build_rosetta_mcp_config() — parity with `uvx ims-mcp@latest` + ROSETTA_* / VERSION env."""
-
-    @pytest.fixture
-    def mock_settings(self) -> Mock:
-        settings = Mock(spec=Settings)
-        settings.ROSETTA_MCP_ENABLED = True
-        settings.ROSETTA_MCP_COMMAND = "uvx"
-        settings.ROSETTA_MCP_ARGS = "ims-mcp@latest"
-        settings.ROSETTA_SERVER_URL = "https://ims.example.com/"
-        settings.ROSETTA_API_KEY = "key"
-        settings.ROSETTA_USER_EMAIL = "user@example.com"
-        settings.ROSETTA_IMS_VERSION = "r2"
-        return settings
-
-    def test_returns_empty_when_disabled(self, mock_settings: Mock) -> None:
-        """Scenario: feature flag off -> returns empty dict, KB init is skipped."""
-        mock_settings.ROSETTA_MCP_ENABLED = False
-        result = build_rosetta_mcp_config(mock_settings)
-        assert result == {}
-
-    def test_returns_full_config_when_enabled(self, mock_settings: Mock) -> None:
-        """Scenario: ims-mcp env surface set -> MCP stdio config returned."""
-        result = build_rosetta_mcp_config(mock_settings)
-
-        assert ROSETTA_SERVER_KEY in result
-        kb = result[ROSETTA_SERVER_KEY]
-        assert kb["command"] == "uvx"
-        assert kb["args"] == ["ims-mcp@latest"]
-        assert kb["env"]["ROSETTA_SERVER_URL"] == "https://ims.example.com/"
-        assert kb["env"]["ROSETTA_API_KEY"] == "key"
-        assert kb["env"]["ROSETTA_USER_EMAIL"] == "user@example.com"
-        assert kb["env"]["VERSION"] == "r2"
-
-    def test_strips_secrets(self, mock_settings: Mock) -> None:
-        """Scenario: ROSETTA_API_KEY has surrounding whitespace -> stripped in env."""
-        mock_settings.ROSETTA_API_KEY = "  rk-secret  "
-        result = build_rosetta_mcp_config(mock_settings)
-        assert result[ROSETTA_SERVER_KEY]["env"]["ROSETTA_API_KEY"] == "rk-secret"
-
-    def test_handles_partial_env_vars(self, mock_settings: Mock) -> None:
-        """Scenario: only server URL set -> env has only that key (+ VERSION if set)."""
-        mock_settings.ROSETTA_SERVER_URL = "https://only-url/"
-        mock_settings.ROSETTA_API_KEY = None
-        mock_settings.ROSETTA_USER_EMAIL = None
-        mock_settings.ROSETTA_IMS_VERSION = ""
-
-        result = build_rosetta_mcp_config(mock_settings)
-
-        env = result[ROSETTA_SERVER_KEY]["env"]
-        assert env == {"ROSETTA_SERVER_URL": "https://only-url/"}
-
-    def test_all_optional_cleared(self, mock_settings: Mock) -> None:
-        """Scenario: all optional strings empty -> env dict is empty; command still ims-mcp@latest."""
-        mock_settings.ROSETTA_SERVER_URL = None
-        mock_settings.ROSETTA_API_KEY = None
-        mock_settings.ROSETTA_USER_EMAIL = None
-        mock_settings.ROSETTA_IMS_VERSION = ""
-
-        result = build_rosetta_mcp_config(mock_settings)
-
-        assert result[ROSETTA_SERVER_KEY]["env"] == {}
-        assert result[ROSETTA_SERVER_KEY]["command"] == "uvx"
-        assert result[ROSETTA_SERVER_KEY]["args"] == ["ims-mcp@latest"]
 
 
 class TestParseMcpServersEnabled:
@@ -275,36 +208,6 @@ def test_enabled_mcps_to_parameter_string() -> None:
 # ---------------------------------------------------------------------------
 # Blank-config no-op regression tests (FR-10 / S4.1 insurance)
 # ---------------------------------------------------------------------------
-
-class TestRosettaBlankConfigNoOp:
-    """ROSETTA_MCP_ENABLED=False with blank credentials → empty dict, no error."""
-
-    def test_disabled_flag_returns_empty_no_error(self) -> None:
-        """Scenario: ROSETTA_MCP_ENABLED=False → build_rosetta_mcp_config returns {} without raising."""
-        m = Mock(spec=Settings)
-        m.ROSETTA_MCP_ENABLED = False
-        m.ROSETTA_MCP_COMMAND = "uvx"
-        m.ROSETTA_MCP_ARGS = "ims-mcp@latest"
-        m.ROSETTA_SERVER_URL = None
-        m.ROSETTA_API_KEY = None
-        m.ROSETTA_USER_EMAIL = None
-        m.ROSETTA_IMS_VERSION = ""
-        result = build_rosetta_mcp_config(m)
-        assert result == {}
-
-    def test_disabled_flag_with_blank_creds_returns_empty(self) -> None:
-        """Scenario: flag off AND all creds blank → still returns {}, no KeyError or AttributeError."""
-        m = Mock(spec=Settings)
-        m.ROSETTA_MCP_ENABLED = False
-        m.ROSETTA_MCP_COMMAND = ""
-        m.ROSETTA_MCP_ARGS = ""
-        m.ROSETTA_SERVER_URL = ""
-        m.ROSETTA_API_KEY = ""
-        m.ROSETTA_USER_EMAIL = ""
-        m.ROSETTA_IMS_VERSION = ""
-        result = build_rosetta_mcp_config(m)
-        assert result == {}
-
 
 class TestFigmaBlankConfigNoOp:
     """Blank FIGMA_ACCESS_TOKEN and FIGMA_API_KEY → empty dict, no error (FR-10)."""

@@ -255,7 +255,7 @@ class PostHogTelemetry:
             generation_id: Current generation ID.
             workspace_name: Workspace where KB init ran.
             status: "success", "skipped", or "failed".
-            generated_files: List of relative paths under rosetta/ that were created.
+            generated_files: List of relative paths (CLAUDE.md + outputs_dir docs) created by KB init.
             duration_seconds: Wall-clock time the agent ran.
             error_message: Error string when status == "failed".
         """

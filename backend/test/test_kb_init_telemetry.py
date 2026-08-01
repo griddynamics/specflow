@@ -27,7 +27,7 @@ class TestCaptureKbInitEvent:
             generation_id="est-1",
             workspace_name="ws1",
             status="success",
-            generated_files=["rosetta/CLAUDE.md", "rosetta/docs/CONTEXT.md"],
+            generated_files=["CLAUDE.md", "docs/CONTEXT.md"],
             duration_seconds=45.3,
         )
 
@@ -41,7 +41,7 @@ class TestCaptureKbInitEvent:
         assert props["generation_id"] == "est-1"
         assert props["generated_files_count"] == 2
         assert props["duration_seconds"] == 45.3
-        assert "rosetta/CLAUDE.md" in props["generated_files"]
+        assert "CLAUDE.md" in props["generated_files"]
         assert "error_message" not in props
 
     @patch("app.services.telemetry.TelemetryContext")
@@ -95,5 +95,5 @@ class TestCaptureKbInitEvent:
             generation_id="est-4",
             workspace_name="ws4",
             status="success",
-            generated_files=["rosetta/CLAUDE.md"],
+            generated_files=["CLAUDE.md"],
         )

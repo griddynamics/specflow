@@ -37,7 +37,7 @@ Set in the MCP client config (e.g. `mcp.json`):
 | `MCP_SERVERS_ENABLED` | Comma-separated optional **agent** MCPs (`playwright`, `figma`); keyword-pruned after upload from spec index. |
 | `LOG_LEVEL` | MCP process logging. |
 
-Figma tokens and Rosetta/KB MCP are configured on the **backend**, not in the SpecFlow MCP `env` block. See repository `README.md` and `mcp_server/services/server_instructions.py` for policy text.
+Figma tokens are configured on the **backend**, not in the SpecFlow MCP `env` block. The Rosetta knowledge base ships as a plugin baked into the backend image — it needs no config or credentials. See repository `README.md` and `mcp_server/services/server_instructions.py` for policy text.
 
 **Local self-host (keyless).** When the backend runs in `AUTH_MODE=local`, omit
 `SPECFLOW_API_KEY` entirely — the backend authorises requests with a fixed internal

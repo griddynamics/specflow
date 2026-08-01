@@ -112,13 +112,11 @@ RUN mkdir -p /root/.claude
 COPY claude-settings.json /root/.claude/settings.json
 
 # ---------------------------------------------------------------------------
-# Rosetta knowledge-base plugin — bundled so KB init runs WITHOUT the ims-mcp service /
-# ROSETTA_API_KEY. Plugin mode is the DEFAULT in every environment (ROSETTA_MCP_ENABLED=false,
-# ROSETTA_PLUGIN_PATH=/opt/rosetta-plugin). At workspace prep time the backend copies this
-# plugin's agents/skills/commands/hooks into each workspace's .claude/ (see
-# WorkspaceManager.provision_rosetta_plugin); the agents discover them via
-# setting_sources=["project"]. Set ROSETTA_MCP_ENABLED=true to opt back into the live MCP,
-# which then ignores this path.
+# Rosetta knowledge-base plugin used by KB initialization.
+# The plugin lives at ROSETTA_PLUGIN_PATH=/opt/rosetta-plugin in every environment. At workspace
+# prep time the backend copies this plugin's agents/skills/commands/hooks into each workspace's
+# .claude/ (see WorkspaceManager.provision_rosetta_plugin); the agents discover them via
+# setting_sources=["project"].
 #
 # Installed from the public griddynamics/rosetta marketplace via the `claude` CLI that ships
 # bundled inside claude-agent-sdk (a self-contained native binary at
@@ -133,8 +131,7 @@ COPY claude-settings.json /root/.claude/settings.json
 # (falling back to the default below), so it can be bumped without editing this Dockerfile:
 #   docker build --build-arg ROSETTA_MARKETPLACE_REF=v2.0.56 ...
 #
-# The guard asserts the staged plugin actually ships the offline toolset (manifest + skills +
-# workflows), failing the build if the marketplace ever serves an empty/MCP-only plugin.
+# The guard asserts the installed plugin ships the required manifest, skills, and workflows.
 # ---------------------------------------------------------------------------
 ENV HOME=/root
 ARG ROSETTA_MARKETPLACE_REF=v2.0.55

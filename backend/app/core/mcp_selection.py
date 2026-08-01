@@ -5,10 +5,9 @@ Enforces the policy of which steps attach which MCPs and logs every selection de
 Instances may be short-lived (one per step or phase call) or held across a phase loop;
 settings and enabled_mcps are fixed per instance.
 
-Policy (Rosetta always on when ROSETTA_MCP_ENABLED; Playwright/Figma from enabled_mcps):
-  KB_INIT            — Rosetta servers + kb_tools + rosetta write-allowed tools
-  GENERATION         — Rosetta + Playwright + Figma (per-phase intersection)
-  DEPLOY_AND_E2E     — Rosetta + Playwright + Figma (per-phase intersection)
+Policy (Playwright/Figma from enabled_mcps):
+  GENERATION         — Playwright + Figma (per-phase intersection)
+  DEPLOY_AND_E2E     — Playwright + Figma (per-phase intersection)
   all other steps    — no MCP servers
 """
 
@@ -17,17 +16,8 @@ from dataclasses import dataclass
 from typing import FrozenSet, List
 
 from app.core.config import Settings
-from app.core.mcp_config import (
-    build_rosetta_mcp_config,
-    coding_mcp_servers_and_tools,
-)
-from app.core.rosetta_kb import RosettaKbMode, resolve_rosetta_kb_mode
+from app.core.mcp_config import coding_mcp_servers_and_tools
 from app.core.telemetry_context import TelemetryContext
-from app.core.tool_usage import (
-    get_rosetta_allowed_tools,
-    get_rosetta_kb_tools,
-    get_rosetta_plugin_tools,
-)
 from app.schemas.generation_workflow_enums import WorkflowStepName
 
 
@@ -43,33 +33,18 @@ class McpSelection:
 
     servers: dict[str, dict]
     allowed_tools: List[str]
-    # Which Rosetta KB source this selection represents. Only meaningful for KB_INIT;
-    # every other step leaves it DISABLED. PROVISIONED_PLUGIN means the bundled plugin
-    # is vendored into the workspace ``.claude/`` (WorkspaceManager.provision_rosetta_plugin)
-    # and discovered via setting_sources=["project"] — no MCP server, no SDK ``plugins=``
-    # loader. Mutually exclusive with ``servers`` (live MCP wins over the bundled plugin).
-    kb_mode: RosettaKbMode = RosettaKbMode.DISABLED
-
-    @property
-    def uses_provisioned_plugin(self) -> bool:
-        """True when the KB comes from the provisioned (vendored) Rosetta plugin."""
-        return self.kb_mode is RosettaKbMode.PROVISIONED_PLUGIN
 
     @property
     def is_empty(self) -> bool:
-        """True when there is nothing to attach — no MCP servers and no provisioned plugin."""
-        return not self.servers and not self.uses_provisioned_plugin
+        """True when there are no MCP servers or tools to attach."""
+        return not self.servers and not self.allowed_tools
 
 
 class McpSelector:
     """Dispatch MCP selection per workflow step with structured logging.
 
-    ``for_step`` covers PLANNING, GENERATION, DEPLOY_AND_E2E, and all no-MCP
-    steps. ``for_kb_init`` handles the special case where the agent also needs
-    write-access tools scoped to the rosetta output directory.
-
-    Usage: create one instance per phase loop (e.g. ``execute_all_phases``) or
-    per individual step call (e.g. ``run_kb_init_agent``).
+    Usage: create one instance per phase loop (e.g. ``execute_all_phases``) or per
+    individual workflow step.
     Both patterns are valid — the selector is stateless between calls.
     """
 
@@ -95,14 +70,7 @@ class McpSelector:
         intersection of ``plan.applicable_agent_mcps ∩ enabled_mcps ∩ SUPPORTED_MCPS``.
         When ``phase_mcps`` is None it falls back to ``enabled_mcps``.
 
-        Raises ValueError for KB_INIT — use ``for_kb_init`` instead.
         """
-        if step == WorkflowStepName.KB_INIT:
-            raise ValueError(
-                "Use for_kb_init(workspace_root, rosetta_dir) for the kb_init step — "
-                "it needs workspace paths to scope rosetta write-allowed tools."
-            )
-
         if step in (WorkflowStepName.GENERATION, WorkflowStepName.DEPLOY_AND_E2E):
             mcps = phase_mcps if phase_mcps is not None else self._enabled_mcps
             servers, tools = coding_mcp_servers_and_tools(self._settings, mcps)
@@ -111,40 +79,6 @@ class McpSelector:
 
         selection = McpSelection(servers=servers, allowed_tools=tools)
         self._log(step, selection, phase_mcps=phase_mcps)
-        return selection
-
-    def for_kb_init(self, workspace_root: str) -> McpSelection:
-        """Return MCP selection for the kb_init step, dispatched on ``RosettaKbMode``.
-
-        The mode is resolved once in ``app.core.rosetta_kb`` (the single source of truth)
-        so this selection and the actions keyed on it — provisioning, ``CLAUDE_PLUGIN_ROOT``
-        injection, unpack-skip, KB prompt shape — can never disagree:
-
-          - ``LIVE_MCP``           -> attach the live Rosetta ``KnowledgeBase`` MCP server.
-          - ``PROVISIONED_PLUGIN`` -> the default: the bundled plugin is vendored into the
-            workspace ``.claude/`` (WorkspaceManager.provision_rosetta_plugin) and discovered
-            via setting_sources=["project"]; the agent drives init via its Skills/commands.
-            No MCP server, no SDK ``plugins=`` loader.
-          - ``DISABLED``           -> empty selection; callers check ``is_empty`` and skip.
-
-        Both non-empty modes need the rosetta write-scoped tools so the agent can populate
-        the output dir. Callers prepend ``get_common_allowed_tools(workspace_root)`` for
-        general file access. ``settings.ROSETTA_OUTPUT_DIR`` is only read when a mode is
-        active, so it need not exist on the settings mock when KB is DISABLED.
-        """
-        mode = resolve_rosetta_kb_mode(self._settings)
-        if mode is RosettaKbMode.LIVE_MCP:
-            rosetta_dir = self._settings.ROSETTA_OUTPUT_DIR
-            servers = build_rosetta_mcp_config(self._settings)
-            tools = get_rosetta_kb_tools() + get_rosetta_allowed_tools(workspace_root, rosetta_dir)
-            selection = McpSelection(servers=servers, allowed_tools=tools, kb_mode=mode)
-        elif mode is RosettaKbMode.PROVISIONED_PLUGIN:
-            rosetta_dir = self._settings.ROSETTA_OUTPUT_DIR
-            tools = get_rosetta_plugin_tools() + get_rosetta_allowed_tools(workspace_root, rosetta_dir)
-            selection = McpSelection(servers={}, allowed_tools=tools, kb_mode=mode)
-        else:
-            selection = McpSelection(servers={}, allowed_tools=[], kb_mode=mode)
-        self._log(WorkflowStepName.KB_INIT, selection)
         return selection
 
     def _log(

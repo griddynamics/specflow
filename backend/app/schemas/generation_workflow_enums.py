@@ -41,7 +41,7 @@ class GenerationCheckpoint(str, Enum):
 
     1. FILES_UPLOADED - Specs/src/outputs uploaded to primary workspace
     2. CONTRACT_VALIDATED - Required files at canonical paths, plans converted to JSON
-    3. KB_INIT_DONE - Knowledge base context fetched (Rosetta MCP)
+    3. KB_INIT_DONE - Knowledge base context fetched (Rosetta plugin)
     4. GENERATION_STARTED - Code generation started (telemetry continuity)
     5. GENERATION_DONE - All execution phases completed for all workspaces
     6. DEPLOY_AND_E2E_DONE - Deploy + e2e loop (INTEGRATION_TESTS_READY only)

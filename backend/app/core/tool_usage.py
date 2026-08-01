@@ -7,7 +7,7 @@ dynamic generation of disallowed patterns for common dependency and build direct
 
 from typing import List
 
-from app.core.config import MCP_FIGMA_SERVER_KEY, MCP_PLAYWRIGHT, ROSETTA_SERVER_KEY
+from app.core.config import MCP_FIGMA_SERVER_KEY, MCP_PLAYWRIGHT
 from app.core.ttl_config import GenerationLifecyclePolicy
 
 
@@ -324,10 +324,6 @@ class McpToolSet:
         return [t + _MCP_TOOL_WILDCARD for t in cls._tools]
 
 
-class _RosettaKbMcpTools(McpToolSet):
-    _tools = [f"{MCP_TOOL_PREFIX}{ROSETTA_SERVER_KEY}"]
-
-
 # Microsoft @playwright/mcp — server key MCP_PLAYWRIGHT.
 class _PlaywrightMcpTools(McpToolSet):
     _tools = [f"{MCP_TOOL_PREFIX}{MCP_PLAYWRIGHT}"]
@@ -338,18 +334,13 @@ class _FigmaMcpTools(McpToolSet):
     _tools = [f"{MCP_TOOL_PREFIX}{MCP_FIGMA_SERVER_KEY}"]
 
 
-def get_rosetta_kb_tools() -> List[str]:
-    return _RosettaKbMcpTools.get_tools()
-
-
 def get_rosetta_plugin_tools() -> List[str]:
-    """Tools the KB init agent needs in plugin mode (no MCP server).
+    """Tools the KB init agent needs to drive the provisioned Rosetta plugin.
 
     The Rosetta plugin ships its init-workspace flow as Agent Skills / slash-commands,
-    so the agent drives initialization via ``Skill`` / ``SlashCommand`` instead of the
-    ``mcp__KnowledgeBase__*`` tools used in MCP mode. ``Skill`` is also in
-    ``skill_usage`` (folded into ``get_common_allowed_tools``); listed here so the
-    plugin-mode allowlist is self-describing.
+    so the agent drives initialization via ``Skill`` / ``SlashCommand``. ``Skill`` is also
+    in ``skill_usage`` (folded into ``get_common_allowed_tools``); listed here so the
+    KB-init allowlist is self-describing.
     """
     return ["Skill", "SlashCommand"]
 
@@ -361,31 +352,6 @@ def get_playwright_mcp_tools() -> List[str]:
 def get_figma_mcp_tools() -> List[str]:
     return _FigmaMcpTools.get_tools()
 
-
-def get_rosetta_allowed_tools(workspace_path: str, rosetta_dir: str) -> List[str]:
-    """
-    Get allowed tools for KB init agent to write to rosetta/ output directory.
-
-    The agent stages all output under rosetta/ (no .claude/ in any path) to avoid
-    the SDK's hardcoded sensitive-file guard. Unpack remaps rosetta/agents/,
-    rosetta/skills/, and rosetta/commands/ to .claude/agents/, .claude/skills/, and
-    .claude/commands/ after the agent finishes.
-
-    Args:
-        workspace_path: The workspace root path (e.g., "/workspaces/workspaceName")
-        rosetta_dir: The rosetta output directory name (e.g., "rosetta")
-
-    Returns:
-        List of allowed tool strings for rosetta/ directory access
-    """
-    rosetta_path = f"{workspace_path}/{rosetta_dir}"
-    return [
-        f"Read({rosetta_path}/**)",
-        f"Write({rosetta_path}/**)",
-        f"Edit({rosetta_path}/**)",
-        f"StrReplace({rosetta_path}/**)",
-        f"Glob({rosetta_path}/**)",
-    ]
 
 def get_workspace_rm_bash_allowlist(workspace_path: str) -> List[str]:
     """

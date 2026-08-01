@@ -1,5 +1,5 @@
 """
-Central matrix: optional agent MCPs (playwright, figma) and Rosetta per harness workflow.
+Central matrix: optional agent MCPs (playwright, figma) per harness workflow.
 
 SSOT for "which user-toggleable MCP ids can attach where" and where prune keywords are read from.
 Runtime enablement: resolve_enabled_mcps* → intersection with these allowlists → stdio builders in mcp_config.
@@ -26,11 +26,6 @@ CODE_GENERATION_AND_DEPLOY_OPTIONAL_MCPS: Final[FrozenSet[str]] = SUPPORTED_MCPS
 
 # MCP prune (optional LLM after keyword grep): no MCP servers attached to that agent session.
 MCP_PRUNE_AGENT_ATTACHED_OPTIONAL_MCPS: Final[FrozenSet[str]] = frozenset()
-
-# --- Rosetta (KnowledgeBase MCP): deployment-controlled, not user-selectable ---
-# Gate: settings.ROSETTA_MCP_ENABLED. When True, attached to kb_init, generation,
-# and deploy_and_e2e (see mcp_config.coding_mcp_servers_and_tools).
-# NOT attached to: planning, sync_*, baseline, archive_outputs, generation (p10y).
 
 # Keyword scan before / instead of LLM prune: same files as mcp_prune.scan_mcp_keyword_evidence
 MCP_PRUNE_SCANS_SPEC_INDEX_AND_SPEC_TREE: Final[bool] = True

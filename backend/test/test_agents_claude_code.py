@@ -10,11 +10,10 @@ from app.core.config import (
     MCP_FIGMA,
     MCP_FIGMA_SERVER_KEY,
     MCP_PLAYWRIGHT,
-    ROSETTA_SERVER_KEY,
     Settings,
 )
 from app.core.mcp_config import coding_mcp_servers_and_tools
-from app.core.tool_usage import get_figma_mcp_tools, get_playwright_mcp_tools, get_rosetta_kb_tools
+from app.core.tool_usage import get_figma_mcp_tools, get_playwright_mcp_tools
 from app.prompts.agents_claude_code import is_agent_complete
 from app.schemas.agent import AgentResult
 
@@ -257,7 +256,7 @@ class TestPlanningAgentFallback:
 
 
 class TestCodingMcpServersAndTools:
-    """Tests for coding_mcp_servers_and_tools() — Playwright + Figma + optional Rosetta."""
+    """Tests for coding_mcp_servers_and_tools() — Playwright + Figma (Rosetta is a plugin)."""
 
     def _settings(self, *, pw_cmd="npx", figma_token="tok"):
         s = Mock(spec=Settings)
@@ -267,7 +266,6 @@ class TestCodingMcpServersAndTools:
         s.FIGMA_MCP_ARGS = "-y figma-developer-mcp --stdio"
         s.FIGMA_ACCESS_TOKEN = figma_token
         s.FIGMA_API_KEY = None
-        s.ROSETTA_MCP_ENABLED = False
         return s
 
     def test_neither_enabled_returns_empty(self):
@@ -308,21 +306,6 @@ class TestCodingMcpServersAndTools:
         )
         assert servers == {}
         assert tools == []
-
-    def test_rosetta_enabled_merges_with_playwright(self):
-        s = self._settings()
-        s.ROSETTA_MCP_ENABLED = True
-        s.ROSETTA_MCP_COMMAND = "uvx"
-        s.ROSETTA_MCP_ARGS = "ims-mcp@latest"
-        s.ROSETTA_SERVER_URL = None
-        s.ROSETTA_USER_EMAIL = None
-        s.ROSETTA_IMS_VERSION = ""
-        s.ROSETTA_API_KEY = None
-
-        servers, tools = coding_mcp_servers_and_tools(s, frozenset({MCP_PLAYWRIGHT}))
-        assert ROSETTA_SERVER_KEY in servers
-        assert MCP_PLAYWRIGHT in servers
-        assert set(tools) == set(get_rosetta_kb_tools() + get_playwright_mcp_tools())
 
 
 if __name__ == "__main__":

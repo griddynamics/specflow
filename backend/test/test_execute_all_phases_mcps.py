@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from app.core.config import ROSETTA_SERVER_KEY
 from app.schemas.agent import AgentResult
 from app.schemas.planning import PhaseInfo, PlanningResult
 from app.schemas.specification import GenerateAppRequest, SpecReadiness
@@ -25,7 +24,7 @@ def _mock_workspace(tmp_path: Path) -> Mock:
     return ws
 
 
-def _mock_manager(*, rosetta_enabled: bool = False) -> Mock:
+def _mock_manager() -> Mock:
     mgr = Mock()
     mgr.settings = Mock()
     mgr.settings.PLAYWRIGHT_MCP_COMMAND = "npx"
@@ -33,7 +32,6 @@ def _mock_manager(*, rosetta_enabled: bool = False) -> Mock:
     mgr.settings.FIGMA_MCP_COMMAND = "npx"
     mgr.settings.FIGMA_MCP_ARGS = "-y figma-developer-mcp --stdio"
     mgr.settings.FIGMA_ACCESS_TOKEN = "tok"
-    mgr.settings.ROSETTA_MCP_ENABLED = rosetta_enabled
     mgr.commit_and_push_outstanding = AsyncMock(return_value=True)
     return mgr
 
@@ -245,21 +243,15 @@ async def test_execute_all_phases_deploy_mode_passes_intersected_mcps_to_templat
 
 
 @pytest.mark.asyncio
-async def test_execute_all_phases_rosetta_present_when_enabled(tmp_path: Path) -> None:
-    """ROSETTA_MCP_ENABLED=True — Rosetta server key appears in phase_mcp_servers for every phase."""
+async def test_execute_all_phases_rosetta_not_attached_as_mcp(tmp_path: Path) -> None:
+    """The Rosetta KB is a provisioned plugin, not an MCP — it never appears in phase_mcp_servers."""
     from app.services.claude_code import execute_all_phases
 
     planning = _planning_two_phases(p1_mcp=None, p2_mcp=None)
     enabled = frozenset({"playwright"})
 
     mock_ws = _mock_workspace(tmp_path)
-    mock_mgr = _mock_manager(rosetta_enabled=True)
-    mock_mgr.settings.ROSETTA_MCP_COMMAND = "uvx"
-    mock_mgr.settings.ROSETTA_MCP_ARGS = "ims-mcp@latest"
-    mock_mgr.settings.ROSETTA_SERVER_URL = None
-    mock_mgr.settings.ROSETTA_USER_EMAIL = None
-    mock_mgr.settings.ROSETTA_IMS_VERSION = ""
-    mock_mgr.settings.ROSETTA_API_KEY = None
+    mock_mgr = _mock_manager()
 
     request = GenerateAppRequest(spec_path="specs", outputs_dir="specflow", generation_id="e1")
 
@@ -282,6 +274,6 @@ async def test_execute_all_phases_rosetta_present_when_enabled(tmp_path: Path) -
 
     assert len(captured_servers) == 2
     for phase_servers in captured_servers:
-        assert ROSETTA_SERVER_KEY in phase_servers, (
-            f"Rosetta server key '{ROSETTA_SERVER_KEY}' missing from phase MCP servers: {list(phase_servers)}"
-        )
+        assert "KnowledgeBase" not in phase_servers
+        # Only the user-selectable Playwright MCP is wired here.
+        assert set(phase_servers) <= {"playwright"}

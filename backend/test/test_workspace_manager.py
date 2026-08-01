@@ -236,15 +236,13 @@ class TestWorkspacePreparation:
         settings.AGENT_BASE_PATH = "/agent"
         settings.ANTHROPIC_API_KEY = "test-key"
         settings.STANDARDS_DIR_NAME = "standards"
-        settings.ROSETTA_OUTPUT_DIR = "rosetta"
         # Exclude set used by sync_directories / clear_src_directory (must be a real list).
         settings.EXCLUDED_ARTIFACT_PATTERNS = [
             ".git", ".venv", "venv", "__pycache__", "*.pyc", "node_modules",
             "dist", "build", "standards",
         ]
         settings.WORKSPACE_EXCLUDE_PATTERNS = []
-        # Plugin provisioning is a no-op here (no plugin path); MCP gate not taken.
-        settings.ROSETTA_MCP_ENABLED = False
+        # Plugin provisioning is a no-op here (no plugin path).
         settings.ROSETTA_PLUGIN_PATH = None
         return settings
 
@@ -554,14 +552,12 @@ class TestWorkspacePreparation:
 
     def test_prepare_parallel_workspaces_creates_outputs_on_all(self, mock_settings, temp_workspace_dir):
         """prepare_parallel_workspaces ensures specflow/ exists on primary and extra workspaces."""
-        mock_settings.ROSETTA_OUTPUT_DIR = "rosetta"
         manager = WorkspaceManager(mock_settings)
 
         primary_path = Path(temp_workspace_dir) / "primary"
         primary_path.mkdir()
         (primary_path / "specifications").mkdir()
         (primary_path / "specflow").mkdir()
-        (primary_path / "rosetta").mkdir()
 
         extra1_path = Path(temp_workspace_dir) / "extra1"
         extra1_path.mkdir()

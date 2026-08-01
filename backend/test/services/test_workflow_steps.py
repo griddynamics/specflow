@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.core.config import ROSETTA_SERVER_KEY
 from app.schemas.specification import SpecReadiness
 
 
@@ -365,9 +364,9 @@ class TestRunDeployAndE2eResume:
 # ---------------------------------------------------------------------------
 
 class TestPlanningMcpServersAndTools:
-    """Tests for planning_mcp_servers_and_tools(): Rosetta + optional Figma."""
+    """Tests for planning_mcp_servers_and_tools(): optional Figma only."""
 
-    def _ctx(self, *, enabled_mcps=frozenset(), rosetta_enabled=False, figma_token=None):
+    def _ctx(self, *, enabled_mcps=frozenset(), figma_token=None):
         from unittest.mock import Mock
         from app.services.workflow_steps import WorkflowContext
 
@@ -375,13 +374,6 @@ class TestPlanningMcpServersAndTools:
         ctx.enabled_mcps = frozenset(enabled_mcps)
 
         s = Mock()
-        s.ROSETTA_MCP_ENABLED = rosetta_enabled
-        s.ROSETTA_MCP_COMMAND = "uvx"
-        s.ROSETTA_MCP_ARGS = "ims-mcp@latest"
-        s.ROSETTA_SERVER_URL = None
-        s.ROSETTA_USER_EMAIL = None
-        s.ROSETTA_IMS_VERSION = ""
-        s.ROSETTA_API_KEY = None
         s.FIGMA_MCP_COMMAND = "npx"
         s.FIGMA_MCP_ARGS = "-y figma-developer-mcp --stdio"
         s.FIGMA_ACCESS_TOKEN = figma_token
@@ -397,32 +389,12 @@ class TestPlanningMcpServersAndTools:
         assert servers == {}
         assert tools == []
 
-    def test_rosetta_excluded_from_planning(self):
-        from app.core.mcp_config import planning_mcp_servers_and_tools as _planning_mcp_servers_and_tools
-
-        ctx = self._ctx(rosetta_enabled=True)
-        servers, tools = _planning_mcp_servers_and_tools(ctx.settings, ctx.enabled_mcps)
-        assert ROSETTA_SERVER_KEY not in servers
-        assert servers == {}
-        assert tools == []
-
     def test_figma_only_with_token(self):
         from app.core.mcp_config import planning_mcp_servers_and_tools as _planning_mcp_servers_and_tools
         from app.core.tool_usage import get_figma_mcp_tools
 
         ctx = self._ctx(enabled_mcps={"figma"}, figma_token="secret")
         servers, tools = _planning_mcp_servers_and_tools(ctx.settings, ctx.enabled_mcps)
-        assert "Figma" in servers
-        assert ROSETTA_SERVER_KEY not in servers
-        assert tools == get_figma_mcp_tools()
-
-    def test_rosetta_excluded_figma_present_when_rosetta_and_figma_both_enabled(self):
-        from app.core.mcp_config import planning_mcp_servers_and_tools as _planning_mcp_servers_and_tools
-        from app.core.tool_usage import get_figma_mcp_tools
-
-        ctx = self._ctx(enabled_mcps={"figma"}, rosetta_enabled=True, figma_token="secret")
-        servers, tools = _planning_mcp_servers_and_tools(ctx.settings, ctx.enabled_mcps)
-        assert ROSETTA_SERVER_KEY not in servers
         assert "Figma" in servers
         assert tools == get_figma_mcp_tools()
 
