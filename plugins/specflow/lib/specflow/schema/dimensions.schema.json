@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "specflow/dimensions",
+  "title": "Architectural dimensions (Parts A-D)",
+  "description": "Machine-readable form of the dimensions framework in specflow-analysis. Single source of truth: every dimension listed here must be filled with exactly one value. A blank or multi-valued dimension is a totality failure, not a warning.",
+  "type": "object",
+  "required": ["part_a", "part_d"],
+  "properties": {
+    "part_a": {
+      "description": "Universal dimensions. Mandatory for every project. Pick exactly ONE value each.",
+      "type": "object",
+      "required": [
+        "persistence",
+        "infrastructure_complexity",
+        "scale_target",
+        "technology_stack",
+        "quality_level",
+        "scope_boundaries"
+      ],
+      "properties": {
+        "persistence": {
+          "type": "object",
+          "required": ["value", "spec_anchor"],
+          "properties": {
+            "value": {
+              "type": "string",
+              "enum": [
+                "in_memory",
+                "embedded_file",
+                "relational",
+                "document",
+                "key_value",
+                "event_sourced",
+                "external_service_only"
+              ]
+            },
+            "spec_anchor": { "$ref": "#/$defs/anchor" },
+            "note": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "infrastructure_complexity": {
+          "type": "object",
+          "required": ["value", "spec_anchor"],
+          "properties": {
+            "value": {
+              "type": "string",
+              "enum": ["single_process", "single_host_multi_service", "orchestrated", "serverless", "managed_paas"]
+            },
+            "spec_anchor": { "$ref": "#/$defs/anchor" },
+            "note": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "scale_target": {
+          "type": "object",
+          "required": ["value", "spec_anchor"],
+          "properties": {
+            "value": {
+              "type": "string",
+              "enum": ["single_user", "small_team", "single_tenant_org", "multi_tenant", "public_internet_scale"]
+            },
+            "spec_anchor": { "$ref": "#/$defs/anchor" },
+            "note": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "technology_stack": {
+          "type": "object",
+          "required": ["value", "spec_anchor"],
+          "properties": {
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Concrete stack, e.g. 'Python 3.12 / FastAPI / Postgres 16 / React 19'. Vague values such as 'a web stack' are a totality failure."
+            },
+            "spec_anchor": { "$ref": "#/$defs/anchor" },
+            "note": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "quality_level": {
+          "type": "object",
+          "required": ["value", "spec_anchor"],
+          "properties": {
+            "value": {
+              "type": "string",
+              "enum": ["prototype", "internal_tool", "production", "regulated"]
+            },
+            "spec_anchor": { "$ref": "#/$defs/anchor" },
+            "note": { "type": "string" }
+          },
+          "additionalProperties": false
+        },
+        "scope_boundaries": {
+          "type": "object",
+          "required": ["in_scope", "out_of_scope", "spec_anchor"],
+          "properties": {
+            "in_scope": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+            "out_of_scope": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+            "spec_anchor": { "$ref": "#/$defs/anchor" },
+            "note": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+
+    "part_b": {
+      "description": "Technology-specific dimensions. Only the sections matching this project's type are required, but a claimed section must be complete.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["value", "spec_anchor"],
+        "properties": {
+          "value": { "type": "string", "minLength": 1 },
+          "spec_anchor": { "$ref": "#/$defs/anchor" },
+          "note": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+
+    "part_c": {
+      "description": "Project-specific dimensions the lens discovered. These are the variance sources the framework did not anticipate.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "question", "value", "spec_anchor"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "question": { "type": "string", "minLength": 1 },
+          "value": { "type": "string", "minLength": 1 },
+          "spec_anchor": { "$ref": "#/$defs/anchor" },
+          "note": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+
+    "part_d": {
+      "description": "Micro-level consistency locks. All fields required. These are the values that silently diverge between independent implementations.",
+      "type": "object",
+      "required": ["naming", "patterns"],
+      "properties": {
+        "naming": {
+          "type": "object",
+          "required": ["files", "identifiers", "database", "api_paths"],
+          "properties": {
+            "files": { "type": "string", "minLength": 1 },
+            "identifiers": { "type": "string", "minLength": 1 },
+            "database": { "type": "string", "minLength": 1 },
+            "api_paths": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        },
+        "patterns": {
+          "type": "object",
+          "required": ["error_handling", "validation_boundary", "async_style", "config_source"],
+          "properties": {
+            "error_handling": { "type": "string", "minLength": 1 },
+            "validation_boundary": { "type": "string", "minLength": 1 },
+            "async_style": { "type": "string", "minLength": 1 },
+            "config_source": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+
+  "$defs": {
+    "anchor": {
+      "description": "Where in the spec this value came from. 'inferred' means the spec did not determine it -- which is itself a blocker.",
+      "type": "object",
+      "required": ["file"],
+      "properties": {
+        "file": { "type": "string", "minLength": 1 },
+        "section": { "type": "string" },
+        "line": { "type": "integer", "minimum": 1 },
+        "inferred": {
+          "type": "boolean",
+          "description": "True when no spec text determined this value. Every inferred dimension must have a matching blocker."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

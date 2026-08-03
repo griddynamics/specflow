@@ -1,12 +1,19 @@
 {
   "name": "specflow",
-  "description": "Grid Dynamics SpecFlow Marketplace plugin",
-  "version": "0.1.0",
+  "description": "Refine specifications before you build. Independent subagents simulate building your spec under different adversarial lenses; deterministic checks rank what they disagree about; you resolve the decisions that matter and the answers are written back into the spec. Runs entirely locally — no backend, no third party, nothing leaves your machine.",
+  "version": "0.2.0",
   "author": {
     "name": "Grid Dynamics"
   },
   "homepage": "https://github.com/griddynamics/specflow",
   "repository": "https://github.com/griddynamics/specflow",
   "license": "MIT",
-  "keywords": ["specflow", "spec-analysis", "implementation-planning"]
+  "keywords": [
+    "specflow",
+    "spec-analysis",
+    "spec-refinement",
+    "blocker-detection",
+    "requirements",
+    "implementation-planning"
+  ]
 }

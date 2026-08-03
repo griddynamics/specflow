@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "specflow/blocker",
+  "title": "Blocker",
+  "description": "One thing the spec does not determine, found by simulating the build. A blocker is not a complaint -- it is a decision the implementer would be forced to make, with the options they would be choosing between.",
+  "type": "object",
+  "required": ["id", "title", "spec_anchor", "question", "options", "recommended", "impact", "reversible"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "description": "Stable slug derived from the requirement and the decision, so the same blocker found by two lenses collides on the same id."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "description": "One line, stated as the missing decision. Not 'the spec is unclear'."
+    },
+    "spec_anchor": {
+      "type": "object",
+      "required": ["file"],
+      "properties": {
+        "file": { "type": "string", "minLength": 1 },
+        "section": { "type": "string" },
+        "line": { "type": "integer", "minimum": 1 },
+        "requirement_id": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "scenario": {
+      "type": "string",
+      "description": "The concrete situation that forces the decision. This is what makes a blocker checkable rather than abstract."
+    },
+    "question": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Answerable in one line. If it needs a paragraph of setup, the lens has not finished its own work."
+    },
+    "options": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["label", "consequence"],
+        "properties": {
+          "label": { "type": "string", "minLength": 1 },
+          "consequence": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "recommended": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Must match one option label. The default applied if the user does not object."
+    },
+    "impact": {
+      "type": "string",
+      "enum": ["blocks_build", "changes_architecture", "changes_behaviour", "cosmetic"],
+      "description": "How far the wrong choice propagates."
+    },
+    "reversible": {
+      "type": "boolean",
+      "description": "Whether a wrong choice is cheap to undo later. Drives whether we ask or assume."
+    },
+    "found_by": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Lens names. Populated by concordance, not by the lens itself."
+    }
+  },
+  "additionalProperties": false
+}
