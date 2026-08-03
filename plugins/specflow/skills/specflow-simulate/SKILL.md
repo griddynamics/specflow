@@ -34,7 +34,7 @@ SF="${CLAUDE_PLUGIN_ROOT:-$(pwd)/plugins/specflow}/lib/specflow_cli.py"
 2. **Allocate a round.**
 
    ```bash
-   python3 "$SF" new-round --outputs docs --lens <lens>
+   python3 "$SF" new-round --outputs <outputs_dir> --lens <lens>
    ```
 
 3. **Simulate the build yourself** — no subagent needed for a single lens. Read
@@ -53,7 +53,7 @@ SF="${CLAUDE_PLUGIN_ROOT:-$(pwd)/plugins/specflow}/lib/specflow_cli.py"
 4. **Check it.**
 
    ```bash
-   python3 "$SF" round --outputs docs
+   python3 "$SF" round --outputs <outputs_dir>
    ```
 
    Non-zero exit means your artifact is not total. It prints exactly what is

@@ -85,18 +85,15 @@ merely readable.
 ### 4. Check your own work
 
 ```bash
-python3 - <<PY
-import json, sys
-sys.path.insert(0, "${CLAUDE_PLUGIN_ROOT:-$(pwd)/plugins/specflow}/lib")
-from specflow.jsonschema_mini import validate_as
-result = validate_as(json.load(open("docs/analysis/dimensions.json")), "specflow/dimensions")
-print("\n".join(str(p) for p in result.problems) or "dimensions OK")
-sys.exit(0 if result.ok else 1)
-PY
+python3 "$SF" check-dimensions --outputs <outputs_dir>
 ```
 
-Fix whatever it reports before finishing. Do not describe the analysis as
-complete while the check fails.
+This runs the schema and the evasion rule from step 2 — the same check the
+refinement loop applies to a lens artifact, so an analysis cannot pass here and
+fail there.
+
+Non-zero exit means it did not pass. Fix whatever it reports before finishing;
+do not describe the analysis as complete while the check fails.
 
 ## Report honestly
 

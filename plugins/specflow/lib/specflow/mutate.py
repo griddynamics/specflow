@@ -52,7 +52,11 @@ MUTATIONS = ("drop_constraint", "contradict", "vague_quantity", "drop_error_case
 
 @dataclass
 class Mutation:
-    """One deliberate defect, with everything needed to check for it later."""
+    """One deliberate defect, with everything needed to check for it later.
+
+    Serialized by ``asdict``: the manifest on disk is this shape, so a new field
+    is persisted without a second edit to keep in sync.
+    """
 
     kind: str
     file: str
@@ -61,29 +65,12 @@ class Mutation:
     replacement: str
     expect_anchor_file: str
 
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "kind": self.kind,
-            "file": self.file,
-            "line": self.line,
-            "original": self.original,
-            "replacement": self.replacement,
-            "expect_anchor_file": self.expect_anchor_file,
-        }
-
 
 @dataclass
 class Manifest:
     spec_dir: str
     mutated_dir: str
     mutations: list[Mutation] = field(default_factory=list)
-
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "spec_dir": self.spec_dir,
-            "mutated_dir": self.mutated_dir,
-            "mutations": [m.as_dict() for m in self.mutations],
-        }
 
 
 def _spec_files(spec_dir: Path) -> list[Path]:
@@ -207,9 +194,10 @@ def verify(manifest: dict[str, Any], blockers: list[dict[str, Any]]) -> dict[str
     results = []
     for mutation in manifest.get("mutations", []):
         expected = mutation["expect_anchor_file"]
+        expected_name = Path(expected).name
         anchored = [
             b for b in blockers
-            if (b.get("spec_anchor") or {}).get("file", "").endswith(Path(expected).name)
+            if (b.get("spec_anchor") or {}).get("file", "").endswith(expected_name)
         ]
         results.append({
             "kind": mutation["kind"],

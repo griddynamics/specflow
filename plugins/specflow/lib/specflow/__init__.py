@@ -14,11 +14,12 @@ the package stays a pure library and the script owns the path bootstrap.
 """
 
 from . import jsonschema_mini
+from . import tree
 from . import artifacts
+from . import rank
 from . import totality
 from . import contracts
 from . import concordance
-from . import rank
 from . import saturation
 from . import mutate
 
@@ -31,6 +32,7 @@ __all__ = [
     "rank",
     "saturation",
     "totality",
+    "tree",
 ]
 
 __version__ = "0.2.0"

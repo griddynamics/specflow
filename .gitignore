@@ -10,7 +10,7 @@ gain.json
 
 # Python
 __pycache__/
-*.py[cod
+*.py[cod]
 *$py.class
 *.so
 .Python
@@ -20,8 +20,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -30,13 +30,6 @@ wheels/
 .installed.cfg
 *.egg
 venv/
-
-# The SpecFlow plugin ships its oracle library at plugins/specflow/lib. The
-# generic `lib/` rule above targets Python build output and would silently
-# exclude it — the plugin would then publish with skills referencing scripts
-# that are not in the repo.
-!plugins/specflow/lib/
-!plugins/specflow/lib/**
 ENV/
 env/
 .venv

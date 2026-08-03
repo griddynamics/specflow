@@ -59,7 +59,7 @@ Three things restore the compulsion. Do not weaken any of them:
 ### Step 1 — allocate a round
 
 ```bash
-python3 "$SF" new-round --outputs docs --lens concurrency partial-failure data-lifecycle auth-boundaries idempotency ordering
+python3 "$SF" new-round --outputs <outputs_dir> --lens concurrency partial-failure data-lifecycle auth-boundaries idempotency ordering
 ```
 
 Note the round number and directory it prints.
@@ -87,7 +87,7 @@ proportionally. This is the cost dial.
 ### Step 3 — validate, merge, rank, decide
 
 ```bash
-python3 "$SF" round --outputs docs
+python3 "$SF" round --outputs <outputs_dir>
 ```
 
 This validates every artifact, merges them, finds located disagreements, ranks

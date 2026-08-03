@@ -12,7 +12,7 @@ round of six independent readings surfaced nothing new."
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from . import rank
@@ -20,20 +20,15 @@ from . import rank
 
 @dataclass
 class RoundRecord:
+    """One round's history entry. Serialized by ``asdict`` — this *is* the
+    on-disk shape of ``state.json``'s ``rounds`` entries, so a new field is
+    persisted without a second edit."""
+
     number: int
     lens_count: int
     ask_ids: list[str] = field(default_factory=list)
     new_ask_ids: list[str] = field(default_factory=list)
     dry: bool = False
-
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "number": self.number,
-            "lens_count": self.lens_count,
-            "ask_ids": self.ask_ids,
-            "new_ask_ids": self.new_ask_ids,
-            "dry": self.dry,
-        }
 
 
 @dataclass
@@ -45,12 +40,13 @@ class SaturationVerdict:
     record: RoundRecord
 
     def as_dict(self) -> dict[str, Any]:
+        # Not asdict(self): the record is published under "round".
         return {
             "converged": self.converged,
             "dry_streak": self.dry_streak,
             "required_streak": self.required_streak,
             "reason": self.reason,
-            "round": self.record.as_dict(),
+            "round": asdict(self.record),
         }
 
 
@@ -136,7 +132,7 @@ def updated_state(
 ) -> dict[str, Any]:
     """Append this round to the state, replacing any record with the same number."""
     rounds = [r for r in state.get("rounds", []) if r.get("number") != verdict.record.number]
-    rounds.append(verdict.record.as_dict())
+    rounds.append(asdict(verdict.record))
     rounds.sort(key=lambda r: r["number"])
     return {
         **state,

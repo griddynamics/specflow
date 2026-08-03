@@ -32,7 +32,7 @@ skill validates a model, it does not invent one.
 ### 2. Check the model for contradictions
 
 ```bash
-python3 "$SF" contracts --outputs docs
+python3 "$SF" contracts --outputs <outputs_dir>
 ```
 
 This needs no emitted files. It reports:
@@ -71,10 +71,11 @@ this skill needs no `pip install`.
 ### 4. Cross-check what you emitted
 
 ```bash
-python3 "$SF" contracts --outputs docs \
-  --sql docs/refine/contracts/schema.sql \
-  --api docs/refine/contracts/api.json
+python3 "$SF" contracts --outputs <outputs_dir>
 ```
+
+The same command as step 2. It picks the emitted files up from the layout once
+they exist, so there are no paths to keep in sync here.
 
 This catches drift between the model and the artifacts — a missing table, a
 dangling foreign key, a table with no primary key, an unresolvable `$ref`, an

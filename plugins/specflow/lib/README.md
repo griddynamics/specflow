@@ -28,7 +28,12 @@ path bootstrap. It works from any working directory.
 | `resolve` | record a decision so later rounds stop asking |
 | `status` | current state, for reporting |
 | `contracts` | model contradictions, and emitted SQL/API cross-checks |
+| `check-dimensions` | schema + evasion check on the analysis artifact |
 | `mutate` | inject a known defect and verify it gets caught (internal QA) |
+
+Every path a command touches is derived from `--outputs` through
+`artifacts.Layout`. A skill passes the user's `outputs_dir` and nothing else, so
+there is no path for prose and code to disagree about.
 
 Exit codes: `0` success, `1` checks failed, `2` bad usage. The non-zero on
 failure is the point — a skill cannot quietly proceed past a gate that did not
@@ -39,6 +44,7 @@ pass.
 | Module | Responsibility |
 |---|---|
 | `jsonschema_mini.py` | JSON Schema validation, stdlib only |
+| `tree.py` | the one depth-first walk over a JSON tree |
 | `artifacts.py` | on-disk layout and IO |
 | `totality.py` | the forcing function — see below |
 | `contracts.py` | structural contradictions in the model, and emitted-artifact checks |

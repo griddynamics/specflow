@@ -21,7 +21,7 @@ SF="${CLAUDE_PLUGIN_ROOT:-$(pwd)/plugins/specflow}/lib/specflow_cli.py"
 ### 1. Read the open decisions
 
 ```bash
-python3 "$SF" status --outputs docs --json
+python3 "$SF" status --outputs <outputs_dir> --json
 ```
 
 The `ask` list is what needs a human. If it is empty, say so and stop — do not
@@ -37,7 +37,7 @@ recommendation, record it, and mention it in your summary as a batch. Do not put
 these to the user one by one.
 
 ```bash
-python3 "$SF" resolve --outputs docs --id <blocker-id> --choice "<option label>" --source assumed
+python3 "$SF" resolve --outputs <outputs_dir> --id <blocker-id> --choice "<option label>" --source assumed
 ```
 
 ### 3. Ask about the rest
@@ -79,7 +79,7 @@ This is the step that changes something. For each resolved decision:
 Then record it, listing the files you actually changed:
 
 ```bash
-python3 "$SF" resolve --outputs docs --id <blocker-id> --choice "<option label>" \
+python3 "$SF" resolve --outputs <outputs_dir> --id <blocker-id> --choice "<option label>" \
   --applied-to specs/orders.md --source user
 ```
 

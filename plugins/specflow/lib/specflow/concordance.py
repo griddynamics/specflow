@@ -22,6 +22,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
+from .rank import Impact
+
 # Dropped before comparing labels within an anchor's scope.
 _STOPWORDS = frozenset({
     "a", "an", "the", "of", "for", "to", "in", "on", "at", "by", "with",
@@ -60,29 +62,12 @@ class Divergence:
     detail: str
     lenses: dict[str, str] = field(default_factory=dict)
 
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "kind": self.kind,
-            "where": self.where,
-            "detail": self.detail,
-            "lenses": self.lenses,
-        }
-
 
 @dataclass
 class ConcordanceResult:
     lens_count: int
     blockers: list[dict[str, Any]] = field(default_factory=list)
     divergences: list[Divergence] = field(default_factory=list)
-    coverage: dict[str, list[str]] = field(default_factory=dict)
-
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "lens_count": self.lens_count,
-            "blockers": self.blockers,
-            "divergences": [d.as_dict() for d in self.divergences],
-            "coverage": self.coverage,
-        }
 
 
 def _merge_blockers(
@@ -118,17 +103,22 @@ def _merge_blockers(
     for blocker in by_id.values():
         grouped[_anchor_key(blocker.get("spec_anchor"))].append(blocker)
 
+    # Tokenized once per blocker, not once per candidate pair.
+    words = {b["id"]: normalize(b.get("title", "")) for b in by_id.values()}
+
     absorbed: set[str] = set()
     for peers in grouped.values():
         for i, left in enumerate(peers):
             if left["id"] in absorbed:
                 continue
-            left_words = normalize(left.get("title", ""))
+            left_words = words[left["id"]]
+            if not left_words:
+                continue
             for right in peers[i + 1:]:
                 if right["id"] in absorbed:
                     continue
-                right_words = normalize(right.get("title", ""))
-                if not left_words or not right_words:
+                right_words = words[right["id"]]
+                if not right_words:
                     continue
                 overlap = len(left_words & right_words) / len(left_words | right_words)
                 if overlap >= 0.6:
@@ -218,23 +208,6 @@ def _phase_divergences(interpretations: list[dict[str, Any]]) -> list[Divergence
     return []
 
 
-def _coverage(interpretations: list[dict[str, Any]]) -> dict[str, list[str]]:
-    """Which lenses addressed each spec anchor.
-
-    A requirement only some lenses engaged with is either unclear or hard to
-    find — both worth knowing.
-    """
-    seen: dict[str, set[str]] = defaultdict(set)
-    for interpretation in interpretations:
-        lens = interpretation.get("lens", "?")
-        for collection in ("entities", "operations", "state_machines", "failure_modes", "blockers"):
-            for item in interpretation.get(collection, []):
-                key = _anchor_key(item.get("spec_anchor"))
-                if key:
-                    seen[key].add(lens)
-    return {anchor: sorted(lenses) for anchor, lenses in sorted(seen.items())}
-
-
 def compute(interpretations: list[dict[str, Any]]) -> ConcordanceResult:
     """Merge a round's lens artifacts into one ranked, attributed view."""
     if not interpretations:
@@ -243,16 +216,17 @@ def compute(interpretations: list[dict[str, Any]]) -> ConcordanceResult:
     result = ConcordanceResult(lens_count=len(interpretations))
     result.blockers = _merge_blockers(interpretations)
     result.divergences = _dimension_divergences(interpretations) + _phase_divergences(interpretations)
-    result.coverage = _coverage(interpretations)
 
     # A diverged dimension is a concrete, located gap. Surface it as a blocker
     # so it flows into the same ranking and resolution path as everything else.
+    known_ids = {b["id"] for b in result.blockers}
     for divergence in result.divergences:
         if divergence.kind != "dimension":
             continue
         blocker_id = f"divergent-{divergence.where.replace('.', '-').replace('_', '-')}"
-        if any(b["id"] == blocker_id for b in result.blockers):
+        if blocker_id in known_ids:
             continue
+        known_ids.add(blocker_id)
         options = [
             {"label": value, "consequence": f"chosen independently by: {lens}"}
             for lens, value in sorted(
@@ -267,7 +241,7 @@ def compute(interpretations: list[dict[str, Any]]) -> ConcordanceResult:
             "question": f"Which value should {divergence.where} lock to?",
             "options": options,
             "recommended": options[0]["label"] if options else "",
-            "impact": "changes_architecture",
+            "impact": Impact.CHANGES_ARCHITECTURE.value,
             "reversible": False,
             "found_by": sorted(divergence.lenses),
         })

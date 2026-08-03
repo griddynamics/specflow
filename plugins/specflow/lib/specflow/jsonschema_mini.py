@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -100,6 +101,17 @@ class SchemaStore:
         return self.get(ref)
 
 
+@lru_cache(maxsize=1)
+def default_store() -> SchemaStore:
+    """The bundled schemas, read once per process.
+
+    Every lens artifact in a round is validated against the same three files;
+    building a store per call re-read and re-parsed all of them each time. The
+    store is never mutated, so sharing it is safe.
+    """
+    return SchemaStore()
+
+
 def _type_name(value: Any) -> str:
     for name, py in _TYPE_MAP.items():
         # bool is a subclass of int; check it before number/integer.
@@ -128,7 +140,7 @@ def validate(
     path: str = "",
 ) -> Result:
     """Validate ``instance`` against ``schema``. Returns every problem found."""
-    store = store or SchemaStore()
+    store = store or default_store()
     root = root if root is not None else schema
     result = Result()
 
@@ -215,6 +227,6 @@ def validate(
 
 def validate_as(instance: Any, schema_id: str) -> Result:
     """Validate against a bundled schema by ``$id``."""
-    store = SchemaStore()
+    store = default_store()
     schema = store.get(schema_id)
     return validate(instance, schema, store=store, root=schema)

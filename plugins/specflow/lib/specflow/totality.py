@@ -24,7 +24,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from itertools import product
-from typing import Any
+from typing import Any, Iterable, NamedTuple
+
+from . import tree
 
 # Values that look filled but say nothing. An agent that cannot determine a
 # value must raise a blocker, not shrug in the cell.
@@ -34,6 +36,10 @@ EVASIONS = frozenset({
     "undefined", "any", "either", "varies", "depends", "flexible",
     "to be determined", "to be decided", "open question", "see spec",
 })
+
+# Blocker text is allowed to discuss uncertainty; the rest of an artifact is not.
+# ``_path`` is bookkeeping added on load, not spec content.
+_EVASION_EXEMPT = frozenset({"blockers", "_path"})
 
 
 @dataclass
@@ -62,6 +68,69 @@ def _is_evasion(value: Any) -> bool:
     return isinstance(value, str) and value.strip().lower() in EVASIONS
 
 
+def evasion_findings(
+    document: dict[str, Any], *, exempt: Iterable[str] = ()
+) -> list[Finding]:
+    """Every cell in ``document`` that looks filled but says nothing.
+
+    Public because the same rule applies wherever dimensions are recorded — once
+    embedded in a lens artifact, once standalone as ``analysis/dimensions.json``.
+    Two implementations of "TBD is not an answer" would drift.
+    """
+    exempt = frozenset(exempt)
+    findings: list[Finding] = []
+    for key, value in document.items():
+        if key in exempt:
+            continue
+        for node in tree.walk(value, key):
+            if node.is_leaf and _is_evasion(node.value):
+                findings.append(
+                    Finding(
+                        node.path,
+                        f"{node.value!r} is an evasion, not a decision — raise a blocker instead",
+                    )
+                )
+    return findings
+
+
+class DanglingRef(NamedTuple):
+    """A foreign key pointing at an entity the interpretation never defines."""
+
+    path: str
+    entity: str
+    field: str
+    target: str
+
+
+def entity_names(interpretation: dict[str, Any]) -> set[str]:
+    """The entity names an artifact defines. Every reference must land in here."""
+    return {e.get("name") for e in interpretation.get("entities", [])}
+
+
+def dangling_field_references(interpretation: dict[str, Any]) -> list[DanglingRef]:
+    """Foreign keys with no target.
+
+    Public because both oracles report this — totality as an unresolved
+    reference, contracts as a structural defect. They word it differently on
+    purpose; the predicate must not be written twice.
+    """
+    known = entity_names(interpretation)
+    dangling = []
+    for i, entity in enumerate(interpretation.get("entities", [])):
+        for j, field_def in enumerate(entity.get("fields", [])):
+            target = field_def.get("references")
+            if target and target not in known:
+                dangling.append(
+                    DanglingRef(
+                        path=f"entities[{i}].fields[{j}]",
+                        entity=entity.get("name", "?"),
+                        field=field_def.get("name", "?"),
+                        target=target,
+                    )
+                )
+    return dangling
+
+
 def _blocker_anchors(interpretation: dict[str, Any]) -> set[tuple[str, str]]:
     """(file, section) pairs that have at least one blocker raised against them."""
     anchors = set()
@@ -71,18 +140,11 @@ def _blocker_anchors(interpretation: dict[str, Any]) -> set[tuple[str, str]]:
     return anchors
 
 
-def _walk_anchors(node: Any, path: str = ""):
-    """Yield (path, anchor) for every spec_anchor in the tree."""
-    if isinstance(node, dict):
-        for key, value in node.items():
-            child = f"{path}.{key}" if path else key
-            if key == "spec_anchor" and isinstance(value, dict):
-                yield path or "<root>", value
-            else:
-                yield from _walk_anchors(value, child)
-    elif isinstance(node, list):
-        for i, item in enumerate(node):
-            yield from _walk_anchors(item, f"{path}[{i}]")
+def _walk_anchors(interpretation: dict[str, Any]):
+    """Yield (owning element's path, anchor) for every spec_anchor in the tree."""
+    for node in tree.walk(interpretation):
+        if node.key == "spec_anchor" and isinstance(node.value, dict):
+            yield node.owner or "<root>", node.value
 
 
 def check(interpretation: dict[str, Any]) -> TotalityReport:
@@ -100,22 +162,7 @@ def check(interpretation: dict[str, Any]) -> TotalityReport:
 
 def _check_no_evasions(interpretation: dict[str, Any], report: TotalityReport) -> None:
     """A filled-looking cell that says nothing is not filled."""
-
-    def walk(node: Any, path: str) -> None:
-        if isinstance(node, dict):
-            for key, value in node.items():
-                walk(value, f"{path}.{key}" if path else key)
-        elif isinstance(node, list):
-            for i, item in enumerate(node):
-                walk(item, f"{path}[{i}]")
-        elif _is_evasion(node):
-            report.add(path, f"{node!r} is an evasion, not a decision — raise a blocker instead")
-
-    # Blocker text is allowed to discuss uncertainty; the rest of the artifact is not.
-    for key, value in interpretation.items():
-        if key in ("blockers", "_path"):
-            continue
-        walk(value, key)
+    report.findings.extend(evasion_findings(interpretation, exempt=_EVASION_EXEMPT))
 
 
 def _check_state_matrices(interpretation: dict[str, Any], report: TotalityReport) -> None:
@@ -124,10 +171,17 @@ def _check_state_matrices(interpretation: dict[str, Any], report: TotalityReport
         path = f"state_machines[{i}]"
         states = machine.get("states") or []
         events = machine.get("events") or []
-        covered = {
-            (row.get("state"), row.get("event"))
-            for row in machine.get("matrix", [])
-        }
+
+        covered: set[tuple[Any, Any]] = set()
+        for row in machine.get("matrix", []):
+            pair = (row.get("state"), row.get("event"))
+            covered.add(pair)
+            if pair[0] not in states or pair[1] not in events:
+                report.add(
+                    path,
+                    f"matrix row references undeclared state/event: {pair[0]} x {pair[1]}",
+                )
+
         missing = [pair for pair in product(states, events) if pair not in covered]
         if missing:
             shown = ", ".join(f"{s} x {e}" for s, e in missing[:6])
@@ -137,18 +191,11 @@ def _check_state_matrices(interpretation: dict[str, Any], report: TotalityReport
                 f"{machine.get('entity', '?')} matrix is partial — "
                 f"{len(missing)} uncovered pair(s): {shown}{more}",
             )
-        unknown = [
-            (row.get("state"), row.get("event"))
-            for row in machine.get("matrix", [])
-            if row.get("state") not in states or row.get("event") not in events
-        ]
-        for state, event in unknown:
-            report.add(path, f"matrix row references undeclared state/event: {state} x {event}")
 
 
 def _check_references(interpretation: dict[str, Any], report: TotalityReport) -> None:
     """Operations and foreign keys must point at entities that exist."""
-    entities = {e.get("name") for e in interpretation.get("entities", [])}
+    entities = entity_names(interpretation)
 
     for i, operation in enumerate(interpretation.get("operations", [])):
         target = operation.get("entity")
@@ -158,14 +205,8 @@ def _check_references(interpretation: dict[str, Any], report: TotalityReport) ->
                 f"'{operation.get('name')}' acts on unknown entity '{target}'",
             )
 
-    for i, entity in enumerate(interpretation.get("entities", [])):
-        for j, field_def in enumerate(entity.get("fields", [])):
-            target = field_def.get("references")
-            if target and target not in entities:
-                report.add(
-                    f"entities[{i}].fields[{j}]",
-                    f"'{field_def.get('name')}' references unknown entity '{target}'",
-                )
+    for ref in dangling_field_references(interpretation):
+        report.add(ref.path, f"'{ref.field}' references unknown entity '{ref.target}'")
 
     for i, machine in enumerate(interpretation.get("state_machines", [])):
         target = machine.get("entity")
@@ -180,11 +221,15 @@ def _check_escape_hatches(interpretation: dict[str, Any], report: TotalityReport
     quiet way to skip the hard cells while still passing every other check.
     """
     raised = _blocker_anchors(interpretation)
+    # Indexed, not scanned: is_raised runs once per anchor in the artifact, which
+    # is every entity, field, operation, machine and failure mode.
+    raised_files = {file for file, _ in raised}
 
     def is_raised(anchor: dict[str, Any]) -> bool:
-        key = (anchor.get("file", ""), anchor.get("section", ""))
         # Match on file+section, or fall back to file alone.
-        return key in raised or any(f == key[0] for f, _ in raised)
+        return (anchor.get("file", ""), anchor.get("section", "")) in raised or (
+            anchor.get("file", "") in raised_files
+        )
 
     for path, anchor in _walk_anchors(interpretation):
         if anchor.get("inferred") and not is_raised(anchor):

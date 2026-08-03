@@ -29,7 +29,7 @@ So the order matters:
 Before you start, check the refinement state:
 
 ```bash
-python3 "$SF" status --outputs docs
+python3 "$SF" status --outputs <outputs_dir>
 ```
 
 - **Converged** — good. Build the plan; the spec's ambiguities have been settled
@@ -41,8 +41,8 @@ python3 "$SF" status --outputs docs
 - **No refinement at all** — proceed if asked, and be explicit that this plan
   rests on your own reading of an unrefined spec.
 
-Read `<outputs_dir>/refine/resolutions.json` if it exists. Those decisions are
-now part of what the spec means, and the plan must honour them.
+The `resolutions` in that payload are now part of what the spec means, and the
+plan must honour them.
 
 ## What to produce
 

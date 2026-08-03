@@ -11,11 +11,12 @@ changes nothing.
 
 ```bash
 SF="${CLAUDE_PLUGIN_ROOT:-$(pwd)/plugins/specflow}/lib/specflow_cli.py"
-python3 "$SF" status --outputs docs --json
+python3 "$SF" status --outputs <outputs_dir> --json
 ```
 
-Also read `<outputs_dir>/refine/blockers.json` for the located disagreements and
-contract issues from the latest round.
+That payload carries everything below — the `ask` and `assume` lists, the located
+disagreements, and the contract issues from the latest round. Read it rather than
+the state files behind it.
 
 ## What to show
 

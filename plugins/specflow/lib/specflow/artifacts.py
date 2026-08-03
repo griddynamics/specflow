@@ -25,22 +25,36 @@ from pathlib import Path
 from typing import Any
 
 REFINE_SUBDIR = "refine"
+ANALYSIS_SUBDIR = "analysis"
 STATE_FILE = "state.json"
 RESOLUTIONS_FILE = "resolutions.json"
 BLOCKERS_FILE = "blockers.json"
+DIMENSIONS_FILE = "dimensions.json"
 CONTRACTS_SUBDIR = "contracts"
+SCHEMA_SQL_FILE = "schema.sql"
+API_CONTRACT_FILE = "api.json"
 INTERPRETATION_PREFIX = "interpretation."
 
 
 @dataclass(frozen=True)
 class Layout:
-    """Resolved paths for one project's refinement run."""
+    """Resolved paths for one project's refinement run.
+
+    Every path the loop reads or writes is derived here, so a skill never has to
+    spell one out. A hardcoded ``docs/refine/...`` in prose is a path that stops
+    honouring ``outputs_dir`` the moment a user overrides it.
+    """
 
     outputs_dir: Path
 
     @property
     def root(self) -> Path:
         return self.outputs_dir / REFINE_SUBDIR
+
+    @property
+    def dimensions_path(self) -> Path:
+        """Written by ``/specflow-analysis``, outside the refine tree."""
+        return self.outputs_dir / ANALYSIS_SUBDIR / DIMENSIONS_FILE
 
     @property
     def state_path(self) -> Path:
@@ -57,6 +71,14 @@ class Layout:
     @property
     def contracts_dir(self) -> Path:
         return self.root / CONTRACTS_SUBDIR
+
+    @property
+    def schema_sql_path(self) -> Path:
+        return self.contracts_dir / SCHEMA_SQL_FILE
+
+    @property
+    def api_contract_path(self) -> Path:
+        return self.contracts_dir / API_CONTRACT_FILE
 
     def round_dir(self, number: int) -> Path:
         return self.root / f"round-{number:02d}"
@@ -126,6 +148,13 @@ def load_state(layout: Layout) -> dict[str, Any]:
     if not layout.state_path.exists():
         return {"rounds": [], "converged": False}
     return read_json(layout.state_path)
+
+
+def load_blockers(layout: Layout) -> dict[str, Any]:
+    """The current ranked list, or an empty document before the first round."""
+    if not layout.blockers_path.exists():
+        return {}
+    return read_json(layout.blockers_path)
 
 
 def load_resolutions(layout: Layout) -> list[dict[str, Any]]:

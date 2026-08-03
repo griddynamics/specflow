@@ -27,6 +27,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from . import totality, tree
+
 _CREATE_TABLE = re.compile(
     r"create\s+table\s+(?:if\s+not\s+exists\s+)?[\"`\[]?(\w+)[\"`\]]?\s*\((.*?)\)\s*;",
     re.IGNORECASE | re.DOTALL,
@@ -73,12 +75,14 @@ def check_model(interpretation: dict[str, Any]) -> ContractReport:
                     "(system computes it) — the spec does not say which",
                 )
 
-            target = field_def.get("references")
-            if target and target not in entities:
-                report.add("dangling-reference", f"{fname} references undefined entity '{target}'")
-
         if not entity.get("identity"):
             report.add("no-identity", f"{name} has no primary key — rows cannot be addressed")
+
+    for ref in totality.dangling_field_references(interpretation):
+        report.add(
+            "dangling-reference",
+            f"{ref.entity}.{ref.field} references undefined entity '{ref.target}'",
+        )
 
     _check_circular_requirements(entities, report)
     _check_operation_fields(interpretation, entities, report)
@@ -161,43 +165,81 @@ def parse_ddl(sql: str) -> dict[str, dict[str, Any]]:
     return tables
 
 
+@dataclass(frozen=True)
+class Emitted:
+    """Emitted artifacts, parsed once.
+
+    The DDL regex scan and the API JSON parse depend on the files, not on the
+    interpretation, but every lens in a round is checked against the same files.
+    Parsing inside the loop re-did all of it once per lens.
+    """
+
+    tables: dict[str, dict[str, Any]] | None = None
+    api_document: Any = None
+    api_error: str | None = None
+
+    @classmethod
+    def parse(cls, *, sql: str | None = None, api: str | None = None) -> "Emitted":
+        document: Any = None
+        error: str | None = None
+        if api is not None:
+            try:
+                document = json.loads(api)
+            except json.JSONDecodeError as exc:
+                error = f"emitted API contract is not valid JSON: {exc}"
+        return cls(
+            tables=parse_ddl(sql) if sql is not None else None,
+            api_document=document,
+            api_error=error,
+        )
+
+    @property
+    def empty(self) -> bool:
+        return self.tables is None and self.api_document is None and self.api_error is None
+
+    def check(self, interpretation: dict[str, Any]) -> ContractReport:
+        """Cross-check the model against the artifacts claiming to implement it."""
+        report = ContractReport()
+
+        if self.tables is not None:
+            _check_ddl(self.tables, interpretation, report)
+
+        if self.api_error is not None:
+            report.add("invalid-api-json", self.api_error)
+        elif self.api_document is not None:
+            _check_api(self.api_document, interpretation, report)
+
+        return report
+
+
 def check_emitted(
     interpretation: dict[str, Any],
     *,
     sql: str | None = None,
     api: str | None = None,
 ) -> ContractReport:
-    """Cross-check emitted artifacts against the model they claim to implement."""
-    report = ContractReport()
-    entities = {e.get("name") for e in interpretation.get("entities", [])}
+    """Parse and check in one call, for a single-interpretation caller."""
+    return Emitted.parse(sql=sql, api=api).check(interpretation)
 
-    if sql is not None:
-        tables = parse_ddl(sql)
-        if not tables:
-            report.add("empty-ddl", "no CREATE TABLE statements found in the emitted SQL")
-        lowered = {t.lower() for t in tables}
-        for name in entities:
-            if name and name.lower() not in lowered and f"{name.lower()}s" not in lowered:
-                report.add("missing-table", f"entity '{name}' has no table in the emitted DDL")
-        for table, meta in tables.items():
-            if not meta["has_primary_key"]:
-                report.add("no-primary-key", f"table '{table}' declares no primary key")
-            for target in meta["references"]:
-                if target.lower() not in lowered:
-                    report.add(
-                        "dangling-fk",
-                        f"table '{table}' references '{target}', which is not created",
-                    )
 
-    if api is not None:
-        try:
-            document = json.loads(api)
-        except json.JSONDecodeError as exc:
-            report.add("invalid-api-json", f"emitted API contract is not valid JSON: {exc}")
-            return report
-        _check_api(document, interpretation, report)
-
-    return report
+def _check_ddl(
+    tables: dict[str, dict[str, Any]], interpretation: dict[str, Any], report: ContractReport
+) -> None:
+    if not tables:
+        report.add("empty-ddl", "no CREATE TABLE statements found in the emitted SQL")
+    lowered = {t.lower() for t in tables}
+    for name in totality.entity_names(interpretation):
+        if name and name.lower() not in lowered and f"{name.lower()}s" not in lowered:
+            report.add("missing-table", f"entity '{name}' has no table in the emitted DDL")
+    for table, meta in tables.items():
+        if not meta["has_primary_key"]:
+            report.add("no-primary-key", f"table '{table}' declares no primary key")
+        for target in meta["references"]:
+            if target.lower() not in lowered:
+                report.add(
+                    "dangling-fk",
+                    f"table '{table}' references '{target}', which is not created",
+                )
 
 
 def _check_api(
@@ -217,18 +259,12 @@ def _check_api(
 
     # Every $ref must resolve — a dangling ref means the contract describes a
     # shape it never defines.
-    def refs(node: Any):
-        if isinstance(node, dict):
-            for key, value in node.items():
-                if key == "$ref" and isinstance(value, str):
-                    yield value
-                else:
-                    yield from refs(value)
-        elif isinstance(node, list):
-            for item in node:
-                yield from refs(item)
-
-    for ref in set(refs(document)):
+    declared_refs = {
+        node.value
+        for node in tree.walk(document)
+        if node.key == "$ref" and isinstance(node.value, str)
+    }
+    for ref in declared_refs:
         if ref.startswith("#/components/schemas/"):
             if ref.rsplit("/", 1)[-1] not in schemas:
                 report.add("dangling-ref", f"{ref} does not resolve")

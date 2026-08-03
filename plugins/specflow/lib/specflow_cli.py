@@ -8,12 +8,13 @@ Python resolves its own siblings from __file__ regardless of how it was called.
 
 Commands the refinement loop actually uses:
 
-    new-round   allocate the next round directory
-    round       validate, merge, rank, and decide whether to stop  <- the workhorse
-    resolve     record a decision so later rounds stop asking
-    status      render current state
-    contracts   check emitted SQL/API against the model
-    mutate      inject a known defect and verify it gets caught (internal)
+    new-round         allocate the next round directory
+    round             validate, merge, rank, decide whether to stop  <- the workhorse
+    resolve           record a decision so later rounds stop asking
+    status            render current state
+    contracts         check emitted SQL/API against the model
+    check-dimensions  gate the analysis artifact before the loop starts
+    mutate            inject a known defect and verify it gets caught (internal)
 
 Exit codes: 0 success, 1 checks failed, 2 bad usage. The non-zero on failure is
 the point — a skill cannot quietly proceed past a gate that did not pass.
@@ -24,6 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +52,20 @@ def _emit(payload: dict[str, Any], as_json: bool, human: str) -> None:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
         print(human)
+
+
+def _round_context(args: argparse.Namespace) -> tuple[artifacts.Layout, int]:
+    """Resolve --outputs/--round for the commands that operate on a round.
+
+    Raises rather than emitting: ``main`` already turns a ValueError into the
+    same JSON-or-stderr message with EXIT_USAGE, so three copies of the guard
+    (which had already drifted into two different wordings) collapse to one.
+    """
+    layout = artifacts.layout_for(args.outputs)
+    number = args.round or layout.latest_round()
+    if number is None:
+        raise ValueError("no rounds found — run new-round first")
+    return layout, number
 
 
 # ---------------------------------------------------------------- new-round
@@ -96,8 +112,8 @@ def _validate_one(interpretation: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _validate_round(layout: artifacts.Layout, number: int) -> dict[str, Any]:
-    loaded = artifacts.load_interpretations(layout, number)
+def _validate_round(number: int, loaded: list[dict[str, Any]]) -> dict[str, Any]:
+    """Validate already-loaded artifacts — the caller owns the (single) read."""
     if not loaded:
         return {"round": number, "lenses": [], "ok": False, "error": "no interpretation files found"}
     reports = [_validate_one(item) for item in loaded]
@@ -109,13 +125,8 @@ def _validate_round(layout: artifacts.Layout, number: int) -> dict[str, Any]:
 
 
 def cmd_validate(args: argparse.Namespace) -> int:
-    layout = artifacts.layout_for(args.outputs)
-    number = args.round or layout.latest_round()
-    if number is None:
-        _emit({"error": "no rounds found"}, args.json, "No rounds found. Run new-round first.")
-        return EXIT_USAGE
-
-    result = _validate_round(layout, number)
+    layout, number = _round_context(args)
+    result = _validate_round(number, artifacts.load_interpretations(layout, number))
     _emit(result, args.json, _render_validation(result))
     return EXIT_OK if result["ok"] else EXIT_FAILED
 
@@ -141,13 +152,10 @@ def _render_validation(result: dict[str, Any]) -> str:
 
 def cmd_round(args: argparse.Namespace) -> int:
     """Validate, merge, rank, and decide whether to stop. One call per round."""
-    layout = artifacts.layout_for(args.outputs)
-    number = args.round or layout.latest_round()
-    if number is None:
-        _emit({"error": "no rounds found"}, args.json, "No rounds found. Run new-round first.")
-        return EXIT_USAGE
+    layout, number = _round_context(args)
 
-    validation = _validate_round(layout, number)
+    interpretations = artifacts.load_interpretations(layout, number)
+    validation = _validate_round(number, interpretations)
     if not validation["ok"]:
         _emit(
             {"stage": "validate", "validation": validation},
@@ -156,7 +164,6 @@ def cmd_round(args: argparse.Namespace) -> int:
         )
         return EXIT_FAILED
 
-    interpretations = artifacts.load_interpretations(layout, number)
     merged = concordance.compute(interpretations)
 
     model_issues: list[str] = []
@@ -167,7 +174,7 @@ def cmd_round(args: argparse.Namespace) -> int:
     resolved = artifacts.resolved_ids(layout)
     ranked = rank.rank(merged.blockers, lens_count=merged.lens_count, already_resolved=resolved)
     buckets = rank.partition(ranked)
-    summary = rank.summarize(ranked)
+    summary = rank.summarize(buckets)
 
     state = artifacts.load_state(layout)
     verdict = saturation.evaluate(
@@ -179,6 +186,9 @@ def cmd_round(args: argparse.Namespace) -> int:
         required_streak=args.consecutive,
     )
 
+    divergences = [asdict(d) for d in merged.divergences]
+    by_disposition = {d.value: buckets[d] for d in rank.Disposition}
+
     artifacts.write_json(layout.state_path, saturation.updated_state(state, verdict))
     artifacts.write_json(
         layout.blockers_path,
@@ -186,10 +196,8 @@ def cmd_round(args: argparse.Namespace) -> int:
             "round": number,
             "lens_count": merged.lens_count,
             "summary": summary,
-            "ask": buckets[rank.ASK],
-            "assume": buckets[rank.ASSUME],
-            "note": buckets[rank.NOTE],
-            "divergences": [d.as_dict() for d in merged.divergences],
+            **by_disposition,
+            "divergences": divergences,
             "contract_issues": model_issues,
         },
     )
@@ -203,7 +211,7 @@ def cmd_round(args: argparse.Namespace) -> int:
         "saturation": verdict.as_dict(),
         "ask": buckets[rank.ASK],
         "assume": buckets[rank.ASSUME],
-        "divergences": [d.as_dict() for d in merged.divergences],
+        "divergences": divergences,
         "contract_issues": model_issues,
         "blockers_path": str(layout.blockers_path),
     }
@@ -291,29 +299,31 @@ def cmd_status(args: argparse.Namespace) -> int:
     layout = artifacts.layout_for(args.outputs)
     state = artifacts.load_state(layout)
     resolutions = artifacts.load_resolutions(layout)
-    blockers: dict[str, Any] = {}
-    if layout.blockers_path.exists():
-        blockers = artifacts.read_json(layout.blockers_path)
+    blockers = artifacts.load_blockers(layout)
+    counts = {d.value: len(blockers.get(d.value, [])) for d in rank.Disposition}
 
     payload = {
         "rounds_run": len(state.get("rounds", [])),
         "converged": state.get("converged", False),
         "dry_streak": state.get("dry_streak", 0),
         "resolved": len(resolutions),
-        "open_ask": len(blockers.get("ask", [])),
-        "assumed": len(blockers.get("assume", [])),
-        "noted": len(blockers.get("note", [])),
+        "counts": counts,
         "resolutions": resolutions,
-        "ask": blockers.get("ask", []),
+        "ask": blockers.get(rank.ASK.value, []),
+        "assume": blockers.get(rank.ASSUME.value, []),
+        # Carried through so a reporting skill does not have to re-read
+        # blockers.json behind the CLI — and hardcode its path to do it.
+        "divergences": blockers.get("divergences", []),
+        "contract_issues": blockers.get("contract_issues", []),
     }
 
     lines = [
         f"Rounds run       {payload['rounds_run']}",
         f"Converged        {'yes' if payload['converged'] else 'no'}",
         f"Resolved         {payload['resolved']}",
-        f"Open decisions   {payload['open_ask']}",
-        f"Assumed          {payload['assumed']}",
-        f"Noted            {payload['noted']}",
+        f"Open decisions   {counts[rank.ASK.value]}",
+        f"Assumed          {counts[rank.ASSUME.value]}",
+        f"Noted            {counts[rank.NOTE.value]}",
     ]
     if payload["ask"]:
         lines.append("")
@@ -325,27 +335,40 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 # ---------------------------------------------------------------- contracts
 
+def _read_emitted(layout: artifacts.Layout, args: argparse.Namespace) -> contracts.Emitted:
+    """Read and parse the emitted artifacts once, for every lens in the round.
+
+    Paths default to the layout, so the skill that emits them and the check that
+    reads them cannot disagree about where they live.
+    """
+    def read(override: str | None, default: Path) -> str | None:
+        # An explicit path that does not exist is an error worth reporting; the
+        # layout default is simply absent until the emit step has run.
+        if override:
+            return Path(override).read_text(encoding="utf-8")
+        return default.read_text(encoding="utf-8") if default.is_file() else None
+
+    return contracts.Emitted.parse(
+        sql=read(args.sql, layout.schema_sql_path),
+        api=read(args.api, layout.api_contract_path),
+    )
+
+
 def cmd_contracts(args: argparse.Namespace) -> int:
-    layout = artifacts.layout_for(args.outputs)
-    number = args.round or layout.latest_round()
-    if number is None:
-        _emit({"error": "no rounds found"}, args.json, "No rounds found.")
-        return EXIT_USAGE
+    layout, number = _round_context(args)
 
     interpretations = artifacts.load_interpretations(layout, number)
     if not interpretations:
         _emit({"error": "no interpretations"}, args.json, f"No lens artifacts in round {number}.")
         return EXIT_USAGE
 
-    sql = Path(args.sql).read_text(encoding="utf-8") if args.sql else None
-    api = Path(args.api).read_text(encoding="utf-8") if args.api else None
+    emitted = _read_emitted(layout, args)
 
     findings = []
     for interpretation in interpretations:
         report = contracts.check_model(interpretation)
-        if sql or api:
-            emitted = contracts.check_emitted(interpretation, sql=sql, api=api)
-            report.issues.extend(emitted.issues)
+        if not emitted.empty:
+            report.issues.extend(emitted.check(interpretation).issues)
         findings.append({
             "lens": interpretation.get("lens"),
             "issues": [str(issue) for issue in report.issues],
@@ -363,33 +386,36 @@ def cmd_contracts(args: argparse.Namespace) -> int:
 
 # ---------------------------------------------------------------- mutate
 
-def cmd_mutate(args: argparse.Namespace) -> int:
-    if args.mutate_command == "apply":
-        manifest = mutate.apply_mutation(
-            Path(args.spec_dir),
-            Path(args.into),
-            kind=args.kind,
-            index=args.index,
-        )
-        out = Path(args.into) / "mutation-manifest.json"
-        artifacts.write_json(out, manifest.as_dict())
-        first = manifest.mutations[0]
-        _emit(
-            {"manifest": manifest.as_dict(), "manifest_path": str(out)},
-            args.json,
-            f"Applied {first.kind} to {first.file}:{first.line}\n"
-            f"  was: {first.original}\n"
-            f"  now: {first.replacement or '<deleted>'}\n"
-            f"Manifest: {out}",
-        )
-        return EXIT_OK
-
-    manifest = artifacts.read_json(Path(args.manifest))
-    layout = artifacts.layout_for(args.outputs)
-    blockers_doc = artifacts.read_json(layout.blockers_path) if layout.blockers_path.exists() else {}
-    all_blockers = (
-        blockers_doc.get("ask", []) + blockers_doc.get("assume", []) + blockers_doc.get("note", [])
+def cmd_mutate_apply(args: argparse.Namespace) -> int:
+    manifest = mutate.apply_mutation(
+        Path(args.spec_dir),
+        Path(args.into),
+        kind=args.kind,
+        index=args.index,
     )
+    out = Path(args.into) / "mutation-manifest.json"
+    payload = asdict(manifest)
+    artifacts.write_json(out, payload)
+    first = manifest.mutations[0]
+    _emit(
+        {"manifest": payload, "manifest_path": str(out)},
+        args.json,
+        f"Applied {first.kind} to {first.file}:{first.line}\n"
+        f"  was: {first.original}\n"
+        f"  now: {first.replacement or '<deleted>'}\n"
+        f"Manifest: {out}",
+    )
+    return EXIT_OK
+
+
+def cmd_mutate_verify(args: argparse.Namespace) -> int:
+    manifest = artifacts.read_json(Path(args.manifest))
+    blockers_doc = artifacts.load_blockers(artifacts.layout_for(args.outputs))
+    all_blockers = [
+        blocker
+        for disposition in rank.Disposition
+        for blocker in blockers_doc.get(disposition.value, [])
+    ]
     result = mutate.verify(manifest, all_blockers)
 
     lines = [f"Mutations: {result['mutations']}   localized: {result['localized']}"]
@@ -403,6 +429,43 @@ def cmd_mutate(args: argparse.Namespace) -> int:
                  else "FAIL — an injected defect was not localized. This is a real bug.")
     _emit(result, args.json, "\n".join(lines))
     return EXIT_OK if result["passed"] else EXIT_FAILED
+
+
+# ---------------------------------------------------------- check-dimensions
+
+def cmd_check_dimensions(args: argparse.Namespace) -> int:
+    """Gate the analysis artifact with the same rules the loop applies later.
+
+    Schema conformance plus the evasion walk. The schema alone accepts
+    ``{"value": "TBD"}`` — and an evasion is exactly what the analysis skill
+    promises is "rejected mechanically", so the promise has to be a check.
+    """
+    layout = artifacts.layout_for(args.outputs)
+    path = layout.dimensions_path
+    document = artifacts.read_json(path)
+
+    schema_result = validate_as(document, "specflow/dimensions")
+    problems = [str(p) for p in schema_result.problems]
+    gaps = (
+        [str(f) for f in totality.evasion_findings(document)]
+        if schema_result.ok and isinstance(document, dict)
+        else []
+    )
+
+    ok = not problems and not gaps
+    lines = [f"{path} — {'ok' if ok else 'FAIL'}"]
+    lines += [f"  schema: {problem}" for problem in problems]
+    lines += [f"  evasion: {gap}" for gap in gaps]
+    if not ok:
+        lines.append("")
+        lines.append("Fix these before describing the analysis as complete.")
+
+    _emit(
+        {"path": str(path), "schema_problems": problems, "evasions": gaps, "ok": ok},
+        args.json,
+        "\n".join(lines),
+    )
+    return EXIT_OK if ok else EXIT_FAILED
 
 
 # ---------------------------------------------------------------- parser
@@ -450,9 +513,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     contracts_cmd = with_outputs(subparsers.add_parser("contracts", help="check the model and emitted artifacts"))
     contracts_cmd.add_argument("--round", type=int)
-    contracts_cmd.add_argument("--sql", help="emitted DDL file")
-    contracts_cmd.add_argument("--api", help="emitted API contract (JSON)")
+    contracts_cmd.add_argument("--sql", help="emitted DDL file (default: the layout's schema.sql)")
+    contracts_cmd.add_argument("--api", help="emitted API contract JSON (default: the layout's api.json)")
     contracts_cmd.set_defaults(func=cmd_contracts)
+
+    check_dimensions = with_outputs(
+        subparsers.add_parser("check-dimensions", help="schema + evasion check on the analysis artifact")
+    )
+    check_dimensions.set_defaults(func=cmd_check_dimensions)
 
     mutate_cmd = subparsers.add_parser("mutate", help="inject a defect and verify detection")
     mutate_subs = mutate_cmd.add_subparsers(dest="mutate_command", required=True)
@@ -462,11 +530,11 @@ def build_parser() -> argparse.ArgumentParser:
     apply_cmd.add_argument("--into", required=True, help="destination for the mutated copy")
     apply_cmd.add_argument("--kind", required=True, choices=list(mutate.MUTATIONS))
     apply_cmd.add_argument("--index", type=int, default=0, help="which eligible line (deterministic)")
-    apply_cmd.set_defaults(func=cmd_mutate)
+    apply_cmd.set_defaults(func=cmd_mutate_apply)
 
     verify_cmd = with_outputs(mutate_subs.add_parser("verify"))
     verify_cmd.add_argument("--manifest", required=True)
-    verify_cmd.set_defaults(func=cmd_mutate)
+    verify_cmd.set_defaults(func=cmd_mutate_verify)
 
     return parser
 
