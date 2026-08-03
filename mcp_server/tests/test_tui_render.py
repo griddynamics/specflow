@@ -382,49 +382,6 @@ class TestFormatTokens:
         assert render.format_tokens(1_445_800) == "1.4M"
 
 
-class TestSetNumberHelpers:
-    def test_set_number_from_workspace_id(self):
-        assert render.set_number_from_workspace_id("ws-01-1") == 1
-        assert render.set_number_from_workspace_id("ws-12-3") == 12
-        assert render.set_number_from_workspace_id("bad") is None
-        assert render.set_number_from_workspace_id("ws-xx-1") is None
-
-    def test_run_set_number_typical_payload(self):
-        assert render.run_set_number(_running_payload()) == 1
-
-    def test_run_set_number_empty_or_missing(self):
-        assert render.run_set_number({}) is None
-        assert render.run_set_number(None) is None
-
-    def test_run_set_number_inconsistent_sets(self):
-        payload = {
-            "progress": {
-                "workspace_phases": {
-                    "ws-01-1": {"last_completed_phase": 1},
-                    "ws-02-1": {"last_completed_phase": 1},
-                }
-            }
-        }
-        assert render.run_set_number(payload) is None
-
-
-class TestClearWsEligibility:
-    def test_eligible_when_set_in_cleaning(self):
-        assert render.clear_ws_eligible(1, {1, 2}) is True
-
-    def test_ineligible_when_set_missing_or_unknown(self):
-        assert render.clear_ws_eligible(None, {1}) is False
-        assert render.clear_ws_eligible(3, {1, 2}) is False
-
-    def test_ineligible_message_running(self):
-        msg = render.clear_ws_ineligible_message({"status": "running"})
-        assert "still running" in msg
-
-    def test_ineligible_message_terminal(self):
-        msg = render.clear_ws_ineligible_message({"status": "completed"})
-        assert "Nothing to clear" in msg
-
-
 def _event(ws="ws-01-1", kind="agent_crash", message="connection lost", phase=12, at="2026-07-23T18:28:40+00:00"):
     return {"at": at, "workspace_id": ws, "kind": kind, "message": message, "phase": phase}
 

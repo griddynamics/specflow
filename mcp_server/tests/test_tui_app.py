@@ -1090,7 +1090,7 @@ class TestWorkspaceDrillIn:
             app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
             async with app.run_test() as pilot:
                 await pilot.pause()  # first refresh populates workspace ids
-                await pilot.press("o")
+                await pilot.press("enter")
                 await pilot.pause()
                 assert isinstance(app.screen, tui_app.WorkspaceMessagesScreen)
                 assert app.screen._workspace_id == "ws-01-1"
@@ -1123,7 +1123,7 @@ class TestWorkspaceDrillIn:
                 await pilot.pause()  # first refresh populates workspace ids
                 await pilot.press("down")
                 await pilot.pause()
-                await pilot.press("o")
+                await pilot.press("enter")
                 await pilot.pause()
                 assert isinstance(app.screen, tui_app.WorkspaceMessagesScreen)
                 assert app.screen._workspace_id == "ws-01-2"
@@ -1132,7 +1132,7 @@ class TestWorkspaceDrillIn:
                 # ↑ from the second wraps back to the first.
                 await pilot.press("up")
                 await pilot.pause()
-                await pilot.press("o")
+                await pilot.press("enter")
                 await pilot.pause()
                 assert app.screen._workspace_id == "ws-01-1"
 
@@ -1203,7 +1203,7 @@ class TestWorkspaceDrillIn:
             app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
             async with app.run_test() as pilot:
                 await pilot.pause()
-                await pilot.press("o")
+                await pilot.press("enter")
                 await pilot.pause()
                 assert isinstance(app.screen, tui_app.DashboardScreen)
 
@@ -1412,119 +1412,6 @@ class TestDashboardActionFlows:
                     # ...and refreshing again while non-terminal does not create a second.
                     await screen.refresh_status()
                     assert screen._poll_timer is armed
-
-    @pytest.mark.asyncio
-    async def test_clear_runs_for_eligible_set_when_confirmed(self):
-        a, b, c = _gate_ready()
-        with a, b, c, patch("tui.app.poll_once", new=AsyncMock(return_value=_running_payload())):
-            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
-            async with app.run_test() as pilot:
-                await pilot.pause()
-                screen = app.screen
-                screen._payload = _running_payload()  # workspace ws-01-1 → set 1
-                with (
-                    patch.object(app, "push_screen_wait", new=AsyncMock(return_value=True)) as psw,
-                    patch.object(screen, "_run_suspended", new=AsyncMock()) as run_susp,
-                    patch(
-                        "tui.app.actions.do_clear_set", new=MagicMock(return_value="clear-coro")
-                    ) as do_clear,
-                    patch(
-                        "tui.app.fetch_pool_status",
-                        new=AsyncMock(return_value={"cleaning_sets": [{"set_number": 1}]}),
-                    ),
-                ):
-                    await screen._clear_flow()
-                do_clear.assert_called_once_with(1)
-                run_susp.assert_awaited_once_with("clear-coro")
-                assert isinstance(psw.await_args.args[0], tui_app.ConfirmScreen)
-
-    @pytest.mark.asyncio
-    async def test_clear_cancelled_does_not_run(self):
-        a, b, c = _gate_ready()
-        with a, b, c, patch("tui.app.poll_once", new=AsyncMock(return_value=_running_payload())):
-            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
-            async with app.run_test() as pilot:
-                await pilot.pause()
-                screen = app.screen
-                screen._payload = _running_payload()
-                with (
-                    patch.object(app, "push_screen_wait", new=AsyncMock(return_value=False)),
-                    patch.object(screen, "_run_suspended", new=AsyncMock()) as run_susp,
-                    patch("tui.app.actions.do_clear_set") as do_clear,
-                    patch(
-                        "tui.app.fetch_pool_status",
-                        new=AsyncMock(return_value={"cleaning_sets": [{"set_number": 1}]}),
-                    ),
-                ):
-                    await screen._clear_flow()
-                do_clear.assert_not_called()
-                run_susp.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_clear_ineligible_set_shows_message_and_skips(self):
-        a, b, c = _gate_ready()
-        with a, b, c, patch("tui.app.poll_once", new=AsyncMock(return_value=_running_payload())):
-            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
-            async with app.run_test() as pilot:
-                await pilot.pause()
-                screen = app.screen
-                screen._payload = _running_payload()  # set 1, not in cleaning_sets
-                with (
-                    patch.object(app, "push_screen_wait", new=AsyncMock(return_value=None)) as psw,
-                    patch.object(screen, "_run_suspended", new=AsyncMock()) as run_susp,
-                    patch("tui.app.actions.do_clear_set") as do_clear,
-                    patch(
-                        "tui.app.fetch_pool_status",
-                        new=AsyncMock(return_value={"cleaning_sets": []}),
-                    ),
-                ):
-                    await screen._clear_flow()
-                do_clear.assert_not_called()
-                run_susp.assert_not_awaited()
-                assert isinstance(psw.await_args.args[0], tui_app.MessageScreen)
-
-    @pytest.mark.asyncio
-    async def test_clear_pool_fetch_error_shows_message_and_skips(self):
-        a, b, c = _gate_ready()
-        with a, b, c, patch("tui.app.poll_once", new=AsyncMock(return_value=_running_payload())):
-            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
-            async with app.run_test() as pilot:
-                await pilot.pause()
-                screen = app.screen
-                screen._payload = _running_payload()
-                with (
-                    patch.object(app, "push_screen_wait", new=AsyncMock(return_value=None)) as psw,
-                    patch.object(screen, "_run_suspended", new=AsyncMock()) as run_susp,
-                    patch("tui.app.actions.do_clear_set") as do_clear,
-                    patch(
-                        "tui.app.fetch_pool_status",
-                        new=AsyncMock(side_effect=RuntimeError("backend down")),
-                    ),
-                ):
-                    await screen._clear_flow()
-                do_clear.assert_not_called()
-                run_susp.assert_not_awaited()
-                assert isinstance(psw.await_args.args[0], tui_app.MessageScreen)
-
-    @pytest.mark.asyncio
-    async def test_clear_unavailable_when_pool_status_missing(self):
-        a, b, c = _gate_ready()
-        with a, b, c, patch("tui.app.poll_once", new=AsyncMock(return_value=_running_payload())):
-            app = tui_app.SpecFlowTUI(root=Path("/tmp/x"), generation_id="gen_x", poll_interval=999)
-            async with app.run_test() as pilot:
-                await pilot.pause()
-                screen = app.screen
-                with (
-                    patch.object(app, "push_screen_wait", new=AsyncMock(return_value=None)) as psw,
-                    patch.object(screen, "_run_suspended", new=AsyncMock()) as run_susp,
-                    patch("tui.app.actions.do_clear_set") as do_clear,
-                    patch("tui.app.fetch_pool_status", None),
-                ):
-                    await screen._clear_flow()
-                do_clear.assert_not_called()
-                run_susp.assert_not_awaited()
-                assert isinstance(psw.await_args.args[0], tui_app.MessageScreen)
-
 
 class TestStopBackendFlow:
     """``k`` (process runtime only): confirm wording, hard-stop, exit-on-success,
@@ -1795,8 +1682,10 @@ class TestSwitchRuntime:
             assert hasattr(tui_app.SessionsScreen, f"action_{action}"), action
             assert not hasattr(tui_app.DashboardScreen, f"action_{action}"), action
         # Generation-scoped controls remain on the dashboard.
-        for action in ("retry", "cancel", "clear", "open_workspace"):
+        for action in ("retry", "cancel", "open_workspace"):
             assert hasattr(tui_app.DashboardScreen, f"action_{action}"), action
+        # Reclaiming spans the whole pool, so it is not a dashboard control.
+        assert not hasattr(tui_app.DashboardScreen, "action_clear")
 
 
 class TestDashboardOpenReport:

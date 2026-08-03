@@ -69,7 +69,7 @@ from services.llm_tiers import LLM_TIER_KEYS
 from services.retry import retry_generation_core
 from services.session import resolve_generation_id, set_project_root
 from services.specflow_backend import call_backend_endpoint, call_backend_endpoint_bytes
-from tui import actions, activity, mcp_clients, onboarding, render
+from tui import activity, mcp_clients, onboarding, render
 from tui.config import (
     EDITABLE_KEYS,
     ENV_SECRET_KEYS,
@@ -91,13 +91,12 @@ try:
         expand_pool,
         fetch_pool_expansion,
         fetch_pool_sets,
-        fetch_pool_status,
         fetch_sessions,
         reclaim_workspaces,
         shrink_pool,
     )
 except Exception:  # pragma: no cover - service import is always present in practice
-    fetch_pool_sets = fetch_pool_status = fetch_sessions = None  # type: ignore[assignment]
+    fetch_pool_sets = fetch_sessions = None  # type: ignore[assignment]
     reclaim_workspaces = expand_pool = fetch_pool_expansion = None  # type: ignore[assignment]
     shrink_pool = None  # type: ignore[assignment]
 
@@ -601,18 +600,19 @@ class DashboardScreen(_SpecFlowScreen):
     """Live dashboard for a single generation.
 
     Carries ONLY controls scoped to the generation being viewed (retry, cancel,
-    clear its workspaces, open a workspace, events, report). App-wide controls
-    (settings, connect client, stop backend, switch runtime) live on the sessions
-    overview (``SessionsScreen``), not here.
+    open a workspace, events, report). App-wide controls (settings, connect client,
+    stop backend, switch runtime) and pool management live on the sessions overview
+    (``SessionsScreen``), not here.
+
+    Reclaiming workspaces is deliberately absent: it is a pool operation spanning every
+    generation, so it lives on ``WorkspacesScreen`` where the whole pool is visible.
     """
 
     BINDINGS = [
         Binding("r", "retry", "retry"),
         Binding("x", "cancel", "cancel"),
-        Binding("w", "clear", "clear ws"),
         Binding("escape", "back", "back"),
-        Binding("o", "open_workspace", "open ws"),
-        Binding("enter", "open_workspace", "open ws", show=False),
+        Binding("enter", "open_workspace", "open ws"),
         Binding("e", "open_events", "events"),
         Binding("h", "open_report", "open report"),
         # Priority so the workspace selection wins over the scroll container's
@@ -829,49 +829,6 @@ class DashboardScreen(_SpecFlowScreen):
             return
         self.notify("Generation cancelled.", severity="information")
         await self.refresh_status()
-
-    def action_clear(self) -> None:
-        self.run_worker(self._clear_flow(), exclusive=True)
-
-    async def _clear_flow(self) -> None:
-        if fetch_pool_status is None:
-            await self.app.push_screen_wait(
-                MessageScreen("Clear workspace", "Workspace status unavailable.")
-            )
-            return
-        set_no = render.run_set_number(self._payload)
-        try:
-            pool = await fetch_pool_status()
-        except Exception:  # noqa: BLE001 - clear eligibility is best-effort
-            await self.app.push_screen_wait(
-                MessageScreen(
-                    "Clear workspace",
-                    "Couldn't reach the server to check workspace state.",
-                )
-            )
-            return
-        cleaning = {
-            entry.get("set_number")
-            for entry in pool.get("cleaning_sets") or []
-            if entry.get("set_number") is not None
-        }
-        if not render.clear_ws_eligible(set_no, cleaning):
-            await self.app.push_screen_wait(
-                MessageScreen(
-                    "Clear workspace",
-                    render.clear_ws_ineligible_message(self._payload),
-                )
-            )
-            return
-        ok = await self.app.push_screen_wait(
-            ConfirmScreen(
-                f"Clear workspace set {set_no}? This permanently resets the "
-                "workspaces and cannot be undone.",
-                countdown=10,
-            )
-        )
-        if ok:
-            await self._run_suspended(actions.do_clear_set(set_no))
 
     def action_back(self) -> None:
         self.app.push_screen(SessionsScreen())

@@ -198,48 +198,6 @@ def tokens_summary(payload: dict[str, Any]) -> str:
     return "   ".join(parts)
 
 
-def set_number_from_workspace_id(ws_id: str) -> int | None:
-    """Parse set number from a workspace id like ``ws-01-1`` → ``1``."""
-    parts = ws_id.split("-")
-    if len(parts) < 3 or parts[0] != "ws":
-        return None
-    try:
-        return int(parts[1], 10)
-    except ValueError:
-        return None
-
-
-def run_set_number(payload: dict[str, Any] | None) -> int | None:
-    """Derive the workspace set number for a run from its workspace phase keys."""
-    if not payload:
-        return None
-    set_numbers: set[int] = set()
-    for bar in workspace_bars(payload):
-        set_no = set_number_from_workspace_id(bar.workspace_id)
-        if set_no is None:
-            return None
-        set_numbers.add(set_no)
-    if len(set_numbers) != 1:
-        return None
-    return next(iter(set_numbers))
-
-
-def clear_ws_eligible(set_no: int | None, cleaning_set_numbers: set[int]) -> bool:
-    """True when the run's set is present in the pool's ``cleaning_sets``."""
-    return set_no is not None and set_no in cleaning_set_numbers
-
-
-def clear_ws_ineligible_message(payload: dict[str, Any] | None) -> str:
-    """Explanatory text when clear-ws is pressed but the set is not in CLEANING."""
-    status = ((payload or {}).get("status") or "").lower()
-    if status in _IN_PROGRESS_STATUSES:
-        return (
-            "This generation is still running and its workspaces are "
-            "allocated. They cannot be cleared until the run is complete."
-        )
-    return "Nothing to clear — these workspaces are not awaiting cleanup."
-
-
 def _component_comparison_rows(result: dict[str, Any]) -> list[ComponentBreakdownRow]:
     """Cross-workspace per-component breakdown, highest-variance first."""
     comparison = (result.get("comparative_analysis") or {}).get("component_comparison") or {}
