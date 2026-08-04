@@ -45,7 +45,8 @@ lenses independently raised each, and diffs this round against every previous on
 That is list work over more items than you can track reliably by eye — you *will*
 lose the fourteenth of twenty.
 
-**You judge.** Is this spec good enough to build from? Is this architecture
+**You judge.** Run this skill on a best-in-class model — the calls below are
+yours, not the CLI's. Is this spec good enough to build from? Is this architecture
 coherent? Is this decision worth interrupting the user over? Has the loop found
 everything worth finding? None of that is checkable by a script, and there is
 deliberately no gate, no score, and no completeness check pretending otherwise.
@@ -89,6 +90,12 @@ Give each subagent:
 one reads the spec cold. If a previous round produced resolutions, pass
 `<outputs_dir>/refine/resolutions.json` — those are now part of the spec's
 meaning, so all lenses may see them equally.
+
+**Which model runs a lens.** SpecFlow does not choose — a subagent inherits
+whatever your harness gives it. A lens needs a general-purpose model or better;
+small and cheap under-reports, agreeing with the spec it was sent to attack. If
+your harness can give different subagents different models, spread the lenses
+across model families — one model disagrees with itself less than several do.
 
 ### Step 3 — compare
 

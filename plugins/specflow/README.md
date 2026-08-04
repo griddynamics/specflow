@@ -52,6 +52,28 @@ not as skills. Nobody types "run the idempotency lens", `/specflow-simulate`
 reads the same files so the two paths cannot drift, and a seventh lens is one
 markdown file. Lens count is the cost dial.
 
+## Models
+
+SpecFlow never calls a model. The skills run in your coding agent and every
+subagent inherits that agent's model, so the choice is yours and you make it
+where you already make it. Any model your agent can run, SpecFlow runs on.
+
+| Job | Needs |
+|---|---|
+| the `/specflow-refine` orchestrator — decides what reaches you | best-in-class model |
+| lenses, `/specflow-analysis`, `/specflow-simulate`, `/specflow-planning` | general purpose |
+| `/specflow-report` | small and cheap |
+
+Small and cheap under-reports as a lens: sent to attack a spec, it agrees with
+it, and a lens that finds nothing still costs a round.
+
+If your harness can give different subagents different models, spread the lenses
+across model families — disagreement between readings is the signal, and one
+model disagrees with itself less than several do.
+
+(The 1.0 backend flow is unchanged: OpenRouter, configured per tier with
+`LLM_HIGH` / `LLM_MEDIUM` / `LLM_LOW` in your MCP client.)
+
 ## The commands the skills call
 
 Four, and each exists only because a model doing the same job by eye would be
