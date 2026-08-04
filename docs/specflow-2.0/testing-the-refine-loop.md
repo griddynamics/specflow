@@ -33,6 +33,19 @@ That runs the backend suite and then the MCP-server suite. For just this feature
 cd mcp_server && uv run pytest tests/test_refine.py tests/test_refine_commands.py -v
 ```
 
+Before the branch is released to PyPI/default branch, exercise its install path
+from the checkout:
+
+```bash
+cd mcp_server
+uv tool install --force .
+specflow plugin install --target claude \
+  --marketplace "$(git rev-parse --show-toplevel)" --dry-run
+```
+
+The dry run must point the marketplace-add command at this checkout. The released
+default continues to use `griddynamics/specflow`.
+
 - `tests/test_refine.py` — comparison: what counts as a disagreement, how blockers
   merge, grid coverage, coherence attribution, and how malformed readings are
   handled.
@@ -146,7 +159,8 @@ cat > "$R/reading.ordering.json" <<'EOF'
 {
   "lens": "ordering",
   "cells": [
-    {"id": "hold.timeout", "value": "seat stays held until payment resolves", "guessed": true}
+    {"id": "hold.timeout", "value": "seat stays held until payment resolves", "guessed": true},
+    {"id": "hold.contended", "value": "rejected with 409", "guessed": true}
   ],
   "decisions": [
     {"question": "does a hold expire before payment settles", "value": "no",
@@ -157,8 +171,10 @@ cat > "$R/reading.ordering.json" <<'EOF'
 EOF
 ```
 
-Note the two readings word the same question differently and answer it opposite
-ways. That is the signal the whole design rests on.
+Note that the free-form `decisions` word the same question differently. The CLI
+does not guess that they are equivalent; deterministic comparison uses the shared
+`hold.timeout` cell id. The orchestrating model may still use `decisions` as
+evidence when judging the round.
 
 ### Optionally, the coherence pass
 
@@ -197,11 +213,12 @@ been wrong at some point:
 3. **`spec cannot say  seat hold × timer expiry`** with the reason attached — the
    payoff. That question exists only because the axes forced it, and it is listed
    apart from `never filled`, which marks cells the lens enumerated and abandoned.
-4. **The differently worded question is one disagreement**, not two, and the
-   answer from each lens carries its own phrasing (`asked as: …`).
-5. **Three open blockers, not one** — the cell disagreement attaches to the
-   blocker at the same location as evidence; the prose disagreement, which has no
-   blocker of its own there, becomes one. N gaps at one location stay N items.
+4. **`hold.timeout` is one disagreement keyed by its grid id.** Case and
+   surrounding-whitespace-only answer differences would not count; semantic
+   equivalence remains for the model to judge.
+5. **Three open blockers** — the lens-authored contention blocker, the grid
+   disagreement, and the coherence blocker. Sharing the same `where` never merges
+   unrelated findings.
 6. **`hold.timeout.paid` is listed as answered by nobody.** A cell no reading
    reached never shows up as a disagreement — this is the only place it appears.
 7. **`hold.contended` is listed as agreed-but-guessed.** Consensus over a silent
@@ -231,7 +248,8 @@ sf --root-path "$DEMO" refine status --outputs docs
 ```
 
 `Open blockers` drops to 2 immediately, without re-running the round. Running the
-same `resolve` twice is refused with exit code 2.
+same `resolve` twice, resolving an unknown id, or choosing a label outside the
+blocker's options is refused with exit code 2.
 
 ### Check the failure paths
 
@@ -251,13 +269,14 @@ echo '{"cells": 1}' > "$R/grid.json"
 sf --root-path "$DEMO" refine round --outputs docs; echo "exit=$?"
 ```
 
-The asymmetry is deliberate. A malformed **reading** — bad JSON or the wrong
-container shape — is reported under `Readings that could not be compared` and the
-round continues, because six subagents write those concurrently and one bad file
-must not throw away five good ones. Only a round where *nothing* is comparable
-refuses. A malformed **grid** refuses outright, because the grid is the exam every
-lens sat: quietly treating a broken one as absent would report a round with no
-coverage as a round with nothing to cover.
+The asymmetry is deliberate. A missing or malformed **reading** — bad JSON or the
+wrong container shape — is reported under `Readings that could not be compared`
+and the round continues, because six subagents write those concurrently and one
+bad file must not throw away five good ones. Only a round where *nothing* is
+comparable refuses. A missing, empty, or malformed **grid** refuses outright for
+manifested rounds, because its ids are the exam every lens sat: quietly treating a
+broken one as absent would report a round with no comparison identity as a round
+with no disagreement.
 
 ### Tear down
 

@@ -513,21 +513,24 @@ _DEFAULT_PLUGIN_TARGET = "claude"
 _PLUGIN_TARGETS = {_DEFAULT_PLUGIN_TARGET}
 
 
-def _plugin_install_steps(target: str) -> list[list[str]]:
-    """The commands that install the published plugin into ``target``."""
+def _plugin_install_steps(
+    target: str,
+    marketplace_source: str = _PLUGIN_MARKETPLACE_REPO,
+) -> list[list[str]]:
+    """Commands that install the plugin from a marketplace source into ``target``."""
     if target != "claude":  # pragma: no cover - argparse restricts the choices
         raise ValueError(f"Unsupported plugin target: {target!r}")
     return [
-        [target, "plugin", "marketplace", "add", _PLUGIN_MARKETPLACE_REPO],
+        [target, "plugin", "marketplace", "add", marketplace_source],
         # Qualified: the user may well have other marketplaces installed.
         [target, "plugin", "install", f"{_PLUGIN_NAME}@{_PLUGIN_MARKETPLACE_NAME}"],
     ]
 
 
 def cmd_plugin_install(args: argparse.Namespace) -> int:
-    """Install the published SpecFlow plugin by driving the target tool's own CLI."""
+    """Install SpecFlow by driving the target tool's own plugin CLI."""
     target = args.target
-    steps = _plugin_install_steps(target)
+    steps = _plugin_install_steps(target, args.marketplace)
 
     if args.dry_run:
         for step in steps:
@@ -741,7 +744,7 @@ def _build_parser() -> argparse.ArgumentParser:
     plugin_actions = p_plugin.add_subparsers(dest="plugin_command", metavar="ACTION")
     plugin_actions.required = True
     p_plugin_install = plugin_actions.add_parser(
-        "install", help=f"Install the published {_PLUGIN_NAME} plugin"
+        "install", help=f"Install the {_PLUGIN_NAME} plugin"
     )
     p_plugin_install.add_argument(
         "--target",
@@ -754,6 +757,15 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         dest="dry_run",
         help="Print the commands that would run, without running them",
+    )
+    p_plugin_install.add_argument(
+        "--marketplace",
+        default=_PLUGIN_MARKETPLACE_REPO,
+        metavar="REPO_OR_PATH",
+        help=(
+            "Marketplace repository or local checkout "
+            f"(default: {_PLUGIN_MARKETPLACE_REPO})"
+        ),
     )
 
     p_plugin_install.set_defaults(func=cmd_plugin_install)

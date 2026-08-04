@@ -4,38 +4,26 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-_STOPWORDS = frozenset({
-    "a", "an", "the", "of", "for", "to", "in", "on", "at", "by", "with",
-    "is", "are", "be", "when", "if", "should", "must", "will", "does", "do",
-    "what", "which", "how", "who",
-})
-_WORD = re.compile(r"[a-z0-9]+")
+_NON_ID = re.compile(r"[^a-z0-9._-]+")
 
-def question_key(text: str) -> tuple[str, ...]:
-    words = []
-    for word in _WORD.findall(text.lower()):
-        if word in _STOPWORDS:
-            continue
-        words.append(word[:-1] if len(word) > 3 and word.endswith("s") else word)
-    return tuple(words)
+def _normalized_answer(value: str) -> str:
+    return " ".join(value.split()).casefold()
 
 @dataclass
 class Disagreement:
+    cell_id: str
     question: str
     where: str
     answers: dict[str, str] = field(default_factory=dict)
-    phrasings: dict[str, str] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
-        payload = {
+        return {
+            "cell_id": self.cell_id,
             "question": self.question,
             "where": self.where,
             "answers": dict(sorted(self.answers.items())),
-            "distinct": len(set(self.answers.values())),
+            "distinct": len({_normalized_answer(value) for value in self.answers.values()}),
         }
-        if len(set(self.phrasings.values())) > 1:
-            payload["phrasings"] = dict(sorted(self.phrasings.items()))
-        return payload
 
 @dataclass
 class Coverage:
@@ -117,55 +105,14 @@ def merge_blockers(readings: list[dict[str, Any]]) -> list[dict[str, Any]]:
         blocker["found_by"] = sorted(blocker["found_by"])
     return ordered
 
-def find_disagreements(
-    readings: list[dict[str, Any]],
-) -> tuple[list[Disagreement], list[str]]:
-    grouped: dict[tuple[str, ...], dict[str, Any]] = {}
-    notes: list[str] = []
-
-    for reading in readings:
-        lens = str(reading.get("lens", "?"))
-        for decision in reading.get("decisions", []):
-            question = str(decision.get("question", "")).strip()
-            value = decision.get("value")
-            if not question or value is None:
-                continue
-            key = question_key(question)
-            if not key:
-                continue
-            slot = grouped.setdefault(
-                key,
-                {
-                    "question": question,
-                    "where": _where(decision),
-                    "answers": {},
-                    "phrasings": {},
-                },
-            )
-            previous = slot["answers"].get(lens)
-            if previous is not None and previous != str(value):
-                notes.append(
-                    f"{lens}: answered \"{question}\" twice — kept "
-                    f"'{previous}', ignored '{value}'"
-                )
-                continue
-            slot["answers"][lens] = str(value)
-            slot["phrasings"][lens] = question
-
-    found = [
-        Disagreement(
-            question=slot["question"],
-            where=slot["where"],
-            answers=slot["answers"],
-            phrasings=slot["phrasings"],
-        )
-        for slot in grouped.values()
-        if len(set(slot["answers"].values())) > 1
-    ]
-    return _sorted(found), notes
-
 def _sorted(found: list[Disagreement]) -> list[Disagreement]:
-    return sorted(found, key=lambda d: (-len(set(d.answers.values())), d.question))
+    return sorted(
+        found,
+        key=lambda d: (
+            -len({_normalized_answer(value) for value in d.answers.values()}),
+            d.cell_id,
+        ),
+    )
 
 def grid_coverage(
     grid: dict[str, Any], readings: list[dict[str, Any]]
@@ -196,11 +143,16 @@ def grid_coverage(
 
         coverage.cells_filled += 1
         answers = {lens: value for lens, (value, _) in filled.items()}
-        if len(set(answers.values())) > 1:
+        if len({_normalized_answer(value) for value in answers.values()}) > 1:
             disagreements.append(
-                Disagreement(question=question, where=where, answers=answers)
+                Disagreement(
+                    cell_id=str(cell["id"]),
+                    question=question,
+                    where=where,
+                    answers=answers,
+                )
             )
-        elif all(guessed for _, guessed in filled.values()):
+        elif len(filled) > 1 and all(guessed for _, guessed in filled.values()):
             coverage.agreed_guesses.append({
                 "id": cell["id"],
                 "question": question,
@@ -330,49 +282,30 @@ def compare(
         sources.append({"lens": "coherence", "blockers": coherence["blockers"]})
 
     result.blockers = merge_blockers(sources)
-    result.disagreements, from_decisions = find_disagreements(usable)
-    result.notes += from_decisions
     result.matrices = matrix_coverage(usable)
 
     if grid:
-        result.coverage, from_cells = grid_coverage(grid, usable)
-        result.disagreements = _sorted(result.disagreements + from_cells)
+        result.coverage, result.disagreements = grid_coverage(grid, usable)
+        result.disagreements = _sorted(result.disagreements)
 
-    _attach_disagreements(result)
+    _add_disagreement_blockers(result)
     return result
 
-def _slug(text: str) -> str:
-    words = _WORD.findall(text.lower())
-    return "-".join(words[:6]) or "unnamed"
-
 def _chosen_by(lens: str, disagreement: Disagreement) -> str:
-    asked = disagreement.phrasings.get(lens)
-    if asked and asked != disagreement.question:
-        return f"chosen independently by {lens}, asked as: {asked}"
     return f"chosen independently by {lens}"
 
-def _attach_disagreements(result: Comparison) -> None:
-    hosts: dict[str, dict[str, Any]] = {}
-    for blocker in result.blockers:
-        where = _where(blocker)
-        if where:
-            hosts.setdefault(where, blocker)
-
+def _add_disagreement_blockers(result: Comparison) -> None:
     by_id = {b["id"]: b for b in result.blockers if b.get("id")}
     for disagreement in result.disagreements:
-        host = hosts.pop(disagreement.where, None) if disagreement.where else None
-        if host is not None:
-            host.setdefault("disagreements", []).append(disagreement.as_dict())
-            continue
-
-        slug = f"diverged-{_slug(disagreement.question)}"
-        clash = by_id.get(slug)
+        safe_cell_id = _NON_ID.sub("-", disagreement.cell_id.casefold()).strip("-")
+        blocker_id = f"diverged-{safe_cell_id or 'unnamed'}"
+        clash = by_id.get(blocker_id)
         if clash is not None:
             clash.setdefault("disagreements", []).append(disagreement.as_dict())
             continue
 
         synthesized = {
-            "id": slug,
+            "id": blocker_id,
             "title": f"Lenses disagree: {disagreement.question}",
             "question": disagreement.question,
             "where": disagreement.where,
@@ -383,6 +316,6 @@ def _attach_disagreements(result: Comparison) -> None:
             "found_by": sorted(disagreement.answers),
             "from_disagreement": True,
         }
-        by_id[slug] = synthesized
+        by_id[blocker_id] = synthesized
         result.blockers.append(synthesized)
 

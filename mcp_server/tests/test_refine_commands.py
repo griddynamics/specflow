@@ -9,6 +9,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+import cli as specflow_cli
 from services import refine_artifacts as artifacts
 from services import refine_commands
 
@@ -39,6 +40,23 @@ def blocker(identifier: str, *, where: str = "specs/orders.md#Checkout") -> dict
     }
 
 class TestUsageErrors(unittest.TestCase):
+    def test_new_round_requires_at_least_one_safe_unique_lens(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            code, output = run("refine", "new-round", "--outputs", tmp)
+            self.assertEqual(code, refine_commands.EXIT_USAGE)
+            self.assertIn("at least one --lens", output)
+
+            code, output = run(
+                "refine",
+                "new-round",
+                "--outputs",
+                tmp,
+                "--lens",
+                "../escape",
+            )
+            self.assertEqual(code, refine_commands.EXIT_USAGE)
+            self.assertIn("may contain only", output)
+
     def test_round_with_no_rounds_yet_exits_two_with_a_message(self):
         with tempfile.TemporaryDirectory() as tmp:
             code, output = run("refine", "round", "--outputs", tmp)
@@ -87,6 +105,46 @@ class TestUsageErrors(unittest.TestCase):
             self.assertEqual(code, refine_commands.EXIT_USAGE)
             self.assertIn("could be compared", output)
 
+    def test_manifested_round_requires_a_nonempty_grid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run(
+                "refine",
+                "new-round",
+                "--outputs",
+                tmp,
+                "--lens",
+                "a",
+            )
+            layout = artifacts.layout_for(tmp)
+            artifacts.write_json(layout.reading_path(1, "a"), reading("a"))
+
+            code, output = run("refine", "round", "--outputs", tmp)
+            self.assertEqual(code, refine_commands.EXIT_USAGE)
+            self.assertIn("missing required grid", output)
+
+    def test_manifested_round_reports_an_absent_expected_lens(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run(
+                "refine",
+                "new-round",
+                "--outputs",
+                tmp,
+                "--lens",
+                "a",
+                "b",
+            )
+            layout = artifacts.layout_for(tmp)
+            artifacts.write_json(
+                layout.grid_path(1),
+                {"cells": [{"id": "hold.timeout", "question": "What happens?"}]},
+            )
+            artifacts.write_json(layout.reading_path(1, "a"), reading("a"))
+
+            code, output = run("refine", "round", "--outputs", tmp)
+            self.assertEqual(code, refine_commands.EXIT_OK)
+            self.assertIn("1 of 2 readings compared", output)
+            self.assertIn("missing expected reading", output)
+
     def test_the_error_is_json_when_json_was_asked_for(self):
         with tempfile.TemporaryDirectory() as tmp:
             code, output = run("refine", "round", "--outputs", tmp, "--json")
@@ -96,7 +154,16 @@ class TestUsageErrors(unittest.TestCase):
 class TestRootPath(unittest.TestCase):
     def test_outputs_is_resolved_against_root_path(self):
         with tempfile.TemporaryDirectory() as tmp:
-            code, output = run("--root-path", tmp, "refine", "new-round", "--outputs", "docs")
+            code, output = run(
+                "--root-path",
+                tmp,
+                "refine",
+                "new-round",
+                "--outputs",
+                "docs",
+                "--lens",
+                "a",
+            )
             self.assertEqual(code, refine_commands.EXIT_OK)
             self.assertIn(str(Path(tmp) / "docs" / "refine" / "round-01"), output)
 
@@ -115,7 +182,14 @@ class TestRootPath(unittest.TestCase):
     def test_an_absolute_outputs_dir_still_wins(self):
         with tempfile.TemporaryDirectory() as tmp:
             code, output = run(
-                "--root-path", "/nonexistent", "refine", "new-round", "--outputs", tmp
+                "--root-path",
+                "/nonexistent",
+                "refine",
+                "new-round",
+                "--outputs",
+                tmp,
+                "--lens",
+                "a",
             )
             self.assertEqual(code, refine_commands.EXIT_OK)
             self.assertIn(tmp, output)
@@ -239,7 +313,7 @@ class TestPayload(unittest.TestCase):
             )
             run("refine", "round", "--outputs", tmp, "--json")
             run("refine", "resolve", "--outputs", tmp, "--id", "expiry",
-                "--choice", "refund")
+                "--choice", "opt0")
 
             payload = json.loads(run("refine", "status", "--outputs", tmp, "--json")[1])
             self.assertEqual(payload["counts"]["open"], 1)
@@ -247,12 +321,71 @@ class TestPayload(unittest.TestCase):
 
     def test_resolving_twice_is_refused_not_recorded_twice(self):
         with tempfile.TemporaryDirectory() as tmp:
+            layout = artifacts.layout_for(tmp)
+            artifacts.write_json(
+                layout.findings_path,
+                {"blockers": [blocker("expiry")]},
+            )
             args = ("refine", "resolve", "--outputs", tmp, "--id", "expiry",
-                    "--choice", "refund")
+                    "--choice", "opt0")
             self.assertEqual(run(*args)[0], refine_commands.EXIT_OK)
             code, output = run(*args)
             self.assertEqual(code, refine_commands.EXIT_USAGE)
             self.assertIn("already resolved", output)
+
+    def test_unknown_blocker_and_invalid_choice_do_not_mutate_resolutions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            layout = artifacts.layout_for(tmp)
+            artifacts.write_json(
+                layout.findings_path,
+                {"blockers": [blocker("expiry")]},
+            )
+
+            unknown = run(
+                "refine",
+                "resolve",
+                "--outputs",
+                tmp,
+                "--id",
+                "missing",
+                "--choice",
+                "opt0",
+            )
+            invalid = run(
+                "refine",
+                "resolve",
+                "--outputs",
+                tmp,
+                "--id",
+                "expiry",
+                "--choice",
+                "not-an-option",
+            )
+
+            self.assertEqual(unknown[0], refine_commands.EXIT_USAGE)
+            self.assertIn("not an open blocker", unknown[1])
+            self.assertEqual(invalid[0], refine_commands.EXIT_USAGE)
+            self.assertIn("choose one of", invalid[1])
+            self.assertEqual(artifacts.load_resolutions(layout), [])
+
+class TestPluginInstall(unittest.TestCase):
+    def test_default_install_uses_the_published_marketplace(self):
+        steps = specflow_cli._plugin_install_steps("claude")
+        self.assertEqual(
+            steps[0],
+            ["claude", "plugin", "marketplace", "add", "griddynamics/specflow"],
+        )
+
+    def test_local_checkout_can_replace_the_marketplace_source(self):
+        steps = specflow_cli._plugin_install_steps("claude", "/checkout/specflow")
+        self.assertEqual(
+            steps[0],
+            ["claude", "plugin", "marketplace", "add", "/checkout/specflow"],
+        )
+        self.assertEqual(
+            steps[1],
+            ["claude", "plugin", "install", "specflow2@specflow-marketplace"],
+        )
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

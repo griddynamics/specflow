@@ -1,4 +1,4 @@
-# SpecFlow 2.0 — Plugin Plan (final)
+# SpecFlow 2.0 — Historical Plugin Plan (superseded)
 
 > ⚠️ **Sections 3 and 5–8 are superseded by the code that shipped.** The oracle
 > library, the totality gate, the ranking and saturation scripts, the
@@ -11,10 +11,12 @@
 > actually built, what was cut and why, and which gates remain unmet. Do not build
 > from §3, §5, §6 or §7.
 
-**Status**: DRAFT for approval
+**Status**: SUPERSEDED — rationale/history only; `status.md` describes the product
 **Date**: 2026-08-03
 **Supersedes**: `PLAN.md` and `PLUGIN-SKILLS.md` in this directory (earlier drafts, safe to delete once this is approved)
-**Shape**: A Claude Code marketplace plugin. No backend, no MCP server, no Agent SDK, no hosted anything.
+**Shape**: A Claude Code marketplace plugin with no SpecFlow backend. The user's
+coding agent and model provider may still be hosted and receive specification
+context.
 
 ---
 
@@ -270,7 +272,7 @@ Proposed replacements, each guarding a property 2.0 actually depends on:
 | Losing Cursor support | Medium | ⚠️ Skills and subagents are Claude Code only; `docs/IDE-SETUP.md` supports Cursor today. Either keep a thin shim or write parallel `.cursor/rules`. **Commercial decision — your call, not a technical blocker.** |
 | No telemetry → slower iteration | Medium | For the compliance-sensitive buyer, not collecting telemetry is a feature. Substitute: artifacts live in the user's repo; ask design partners to share them. |
 | Plugin-root path resolution for `lib/` | Medium | P0 verification. Per-skill shim as fallback. |
-| Sales narrative weakens ("we build 3 prototypes") | Medium | Counter: runs on your own subscription, nothing leaves your machine, no third-party vendor, and per-requirement findings 1.0 could not produce. |
+| Sales narrative weakens ("we build 3 prototypes") | Medium | Counter: no SpecFlow backend is used and artifacts stay in the repo; model-provider processing and cost still apply. |
 
 ---
 

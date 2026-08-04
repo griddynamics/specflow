@@ -29,6 +29,8 @@ That is the 1.0 companion plugin: two skills symlinked to
 `mcp_server/services/skills/`, which is also what the MCP server serves. The two
 plugins are independent products in one marketplace, and `specflow plugin install`
 installs `specflow2` because it is the only one whose skills need this CLI present.
+Before merge/release, reviewers install the CLI from `mcp_server/` and pass the
+local checkout through `specflow plugin install --marketplace`.
 
 ### What was cut, and why
 
@@ -43,10 +45,11 @@ after the §5 argument below made it clear the loop cannot promise convergence:
 | `novelty`, `record_round`, `state.json`, `counts.new`/`counts.repeat` | The round-to-round diff. It existed to feed a stop rule the design cannot justify — see §5. Its output was being read as convergence. |
 
 What survived the cut is the part that does not depend on a convergence claim:
-disagreement detection, grid coverage (uncovered cells and agreed-but-guessed),
-blocker merging with attribution, and `resolutions.json` so a decision already
-made stops being re-asked. That last one is a fact about the user's input, not a
-claim about coverage, which is why it stayed.
+ID-keyed grid disagreement detection, grid coverage (uncovered cells and
+agreed-but-guessed), exact-id blocker merging with attribution, and
+`resolutions.json`. An exact blocker id already decided is suppressed; semantically
+repeated lens findings with new agent-authored ids are handled by passing the
+resolution artifact back to the model, not by pretending code can match prose.
 
 ## 1a. What building gave us, and what actually replaces it
 
@@ -89,11 +92,12 @@ only lists cases it can already handle.
 
 **Bounds worth stating.** The union of six lens-chosen cross-products is wider than
 one shared grid but still not machine enumeration: a decision no lens's axes reach
-stays invisible, and no count here reveals that. Matrices are also never merged
-across lenses, because aligning one lens's "seat hold" with another's "reservation"
-would take a similarity threshold — a judgment, and not one belonging in code. The
-skill compares them by eye; the free-form `decisions` array is what catches
-cross-lens divergence.
+stays invisible, and no count here reveals that. Matrices and free-form decisions
+are never merged across lenses, because aligning one lens's "seat hold" with
+another's "reservation" would take a similarity threshold — a judgment, and not
+one belonging in code. The model may cluster that prose; deterministic cross-lens
+comparison uses only shared grid cell ids. The grid is therefore required for new
+manifested rounds, not an optional enhancement.
 
 **Still missing, and cheap.** Contract oracles (`specflow-contracts`, plan §5,
 unbuilt) would recover *contradiction by impossibility* without building the app:
@@ -111,7 +115,7 @@ reverses it. Sections 1, 2 and 4 still describe what was built. These do not:
 | Plan says | Code does |
 |---|---|
 | §3 — an oracle library: `validate_artifact.py`, `check_totality.py`, `contracts_oracle.py`, `concordance.py`, `rank_blockers.py`, `saturation.py` | All cut (commit `6808a60`). No validator, no ranking, no saturation rule. |
-| §3 — "Artifacts are total or rejected" as the forcing function | No totality gate. A reading is compared as far as it goes; the grid reports unfilled cells instead of rejecting. |
+| §3 — "Artifacts are total or rejected" as the forcing function | No totality gate. A reading is compared as far as it goes; the required grid reports unfilled cells instead of rejecting the reading. |
 | §5 — `specflow-contracts` skill | Not built. |
 | §5 — `specflow-mutate` as the internal QA harness | Not built. This was the P7 gate. |
 | §5 — seven published skills | **Two.** See §1. Four were cut as non-essential; `specflow-contracts` was never built. |
@@ -172,8 +176,10 @@ variance". 2.0's most defensible claim is "here is where independent readings of
 your spec diverged, and here is what an agent concluded from that", with an
 explicit disclaimer that nothing was executed and nothing was proven.
 
-That may well be enough, especially with COGS at ~0 and nothing leaving the
-customer's machine. But it is a *narrower* claim than §1 of the plan implies
+That may well be enough, especially with no SpecFlow backend cost in this path.
+Model-token cost is unmeasured, and specification data follows the coding agent
+and model provider's normal data path — it is not guaranteed to stay on-device.
+But it is a *narrower* claim than §1 of the plan implies
 ("refine until the spec is unambiguous, then the plan you get is reliable" — the
 code deliberately refuses to support that sentence), and the gap should be closed
 deliberately rather than by a demo that overstates it. §3 is what closes it: a

@@ -10,6 +10,7 @@ RESOLUTIONS_FILE = "resolutions.json"
 FINDINGS_FILE = "findings.json"
 GRID_FILE = "grid.json"
 COHERENCE_FILE = "coherence.json"
+MANIFEST_FILE = "manifest.json"
 READING_PREFIX = "reading."
 
 @dataclass(frozen=True)
@@ -27,6 +28,9 @@ class Layout:
     @property
     def findings_path(self) -> Path:
         return self.root / FINDINGS_FILE
+
+    def manifest_path(self, number: int) -> Path:
+        return self.round_dir(number) / MANIFEST_FILE
 
     def round_dir(self, number: int) -> Path:
         return self.root / f"round-{number:02d}"
@@ -97,10 +101,47 @@ def _require_object_list(path: Path, data: dict[str, Any], key: str) -> None:
             f"{type(value).__name__}"
         )
 
-def load_readings(layout: Layout, number: int) -> list[dict[str, Any]]:
+def load_manifest(layout: Layout, number: int) -> dict[str, Any]:
+    path = layout.manifest_path(number)
+    if not path.exists():
+        return {}
+    data = _require_object(path, read_json(path))
+    lenses = data.get("lenses")
+    if (
+        not isinstance(lenses, list)
+        or not lenses
+        or not all(isinstance(lens, str) and lens.strip() for lens in lenses)
+        or any(
+            not all(character.isalnum() or character in "-_" for character in lens)
+            for lens in lenses
+        )
+        or len({lens.casefold() for lens in lenses}) != len(lenses)
+    ):
+        raise ValueError(
+            f"{path}: 'lenses' should be a non-empty list of unique safe names"
+        )
+    return data
+
+def load_readings(
+    layout: Layout,
+    number: int,
+    expected_lenses: list[str] | None = None,
+) -> list[dict[str, Any]]:
     loaded = []
-    for path in layout.readings(number):
+    paths = (
+        [layout.reading_path(number, lens) for lens in expected_lenses]
+        if expected_lenses is not None
+        else layout.readings(number)
+    )
+    for path in paths:
         from_filename = path.stem.removeprefix(READING_PREFIX)
+        if not path.exists():
+            loaded.append({
+                "lens": from_filename,
+                "_path": str(path),
+                "_unreadable": f"missing expected reading: {path}",
+            })
+            continue
         try:
             data = _require_object(path, read_json(path))
         except (ValueError, OSError) as exc:
@@ -118,12 +159,38 @@ def load_readings(layout: Layout, number: int) -> list[dict[str, Any]]:
         loaded.append(data)
     return loaded
 
-def load_grid(layout: Layout, number: int) -> dict[str, Any]:
+def load_grid(
+    layout: Layout,
+    number: int,
+    *,
+    required: bool = False,
+) -> dict[str, Any]:
     path = layout.grid_path(number)
     if not path.exists():
+        if required:
+            raise ValueError(f"missing required grid: {path}")
         return {}
     data = _require_object(path, read_json(path))
     _require_object_list(path, data, "cells")
+    cells = data.get("cells") or []
+    ids = [cell.get("id") for cell in cells]
+    if required and not cells:
+        raise ValueError(f"{path}: 'cells' should contain at least one grid cell")
+    if any(not isinstance(cell_id, str) or not cell_id.strip() for cell_id in ids):
+        raise ValueError(f"{path}: every grid cell should have a non-empty string 'id'")
+    invalid_ids = [
+        cell_id
+        for cell_id in ids
+        if isinstance(cell_id, str)
+        and not all(character.isalnum() or character in "._-" for character in cell_id)
+    ]
+    if invalid_ids:
+        raise ValueError(
+            f"{path}: grid cell ids may contain only letters, numbers, '.', '-' and '_'"
+        )
+    normalized_ids = [str(cell_id).casefold() for cell_id in ids]
+    if len(set(normalized_ids)) != len(normalized_ids):
+        raise ValueError(f"{path}: grid cell ids should be unique")
     return data
 
 def load_coherence(layout: Layout, number: int) -> dict[str, Any]:

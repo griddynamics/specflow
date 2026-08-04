@@ -159,8 +159,8 @@
 <div class="page">
 
   <header>
-    <p class="eyebrow">SpecFlow 2.0 · /specflow-refine · runs locally, no backend</p>
-    <h1>Read one spec six ways at once. Where the readings <em>disagree</em>, the spec is ambiguous.</h1>
+    <p class="eyebrow">SpecFlow 2.0 · /specflow-refine · local artifacts, no SpecFlow backend</p>
+    <h1>Read one spec six ways at once. Where ID-keyed readings <em>diverge</em>, inspect the spec.</h1>
   </header>
 
   <div class="body">
@@ -169,8 +169,8 @@
       <h2>One round</h2>
       <div class="flow">
 
-        <div class="node code">
-          <span class="n">code</span>
+        <div class="node model">
+          <span class="n">model</span>
           <span class="t">List the decisions the spec implies
             <small>Answers none of them. This is the exam paper.</small></span>
         </div>
@@ -205,8 +205,8 @@
 
         <div class="node code">
           <span class="n">code</span>
-          <span class="t">Compare the answers
-            <small>Set operations. Same input, same output, every time.</small></span>
+          <span class="t">Compare answers carrying the same grid id
+            <small>No fuzzy prose matching. Same input, same output, every time.</small></span>
         </div>
         <div class="arrow"></div>
 
@@ -220,7 +220,7 @@
         <div class="node code">
           <span class="n">code</span>
           <span class="t">Write the decision into the spec file
-            <small>Recorded, so no later round asks it again.</small></span>
+            <small>Recorded, so that exact blocker id is suppressed later.</small></span>
         </div>
       </div>
 
@@ -239,8 +239,8 @@
 
         <div class="sig">
           <h3>Disagreement</h3>
-          <p>Two agents answered the same question differently.
-            <em>The spec did not determine it. File and section attached.</em></p>
+          <p>Two agents answered the same shared grid cell differently.
+            <em>Evidence to inspect, not proof of a defect. File and section attached.</em></p>
         </div>
 
         <div class="sig">
@@ -272,9 +272,10 @@
   </div>
 
   <footer>
-    <p><b>Every output says “something is missing here”</b> — one file, one section, checkable
-      in seconds. The opposite claim, that nothing else is missing, needs a denominator this
-      design does not have. So it is never made.</p>
+    <p><b>Every output locates what the round observed</b> — one file, one section,
+      checkable in seconds. Whether it is a real defect is a model and human judgment.
+      The opposite claim, that nothing else is missing, needs a denominator this design
+      does not have. So it is never made.</p>
     <p><span class="warn">Unproven:</span> that disagreement between readings tracks real
       spec defects. Measuring it takes one afternoon — plant a known ambiguity, see if a
       round finds it and points at the right requirement.</p>

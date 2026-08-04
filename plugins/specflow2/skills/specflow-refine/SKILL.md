@@ -1,6 +1,6 @@
 ---
 name: specflow-refine
-description: Refine a specification before you build it. Independent subagents each read the spec under a different adversarial lens; where they disagree, the spec is ambiguous. You resolve the decisions that matter and the answers are written back into the spec. Runs entirely locally; no backend, nothing leaves the machine.
+description: Refine a specification before you build it. Independent subagents read the spec under different adversarial lenses; a local CLI compares their ID-keyed artifacts and records decisions. Uses no SpecFlow backend; model-provider data handling still applies.
 argument-hint: "(optional) spec_dir outputs_dir — defaults: specs docs"
 ---
 
@@ -8,8 +8,9 @@ argument-hint: "(optional) spec_dir outputs_dir — defaults: specs docs"
 
 You are orchestrating a specification refinement loop. Several subagents each
 read the same spec under one adversarial lens, with no knowledge of each other.
-Where independent readings land on different answers, the spec did not determine
-the answer — that is the finding.
+Where independent readings give different answers to the same grid cell, report
+the divergence. It is evidence to inspect, not proof by itself that the spec is
+defective.
 
 **You do not write code and you do not commit anything.** The point is to find
 what the spec fails to determine, before anyone spends days building one arbitrary
@@ -39,11 +40,11 @@ uv tool install gd-specflow
 Read this before running anything. Getting it backwards is the main way this loop
 goes wrong.
 
-**The CLI compares and remembers.** It groups answers to the same question across
-lenses, tells you which differ, merges blockers by id so you can see how many
-lenses independently raised each, and diffs this round against every previous one.
-That is list work over more items than you can track reliably by eye — you *will*
-lose the fourteenth of twenty.
+**The CLI compares and remembers.** It compares answers carrying the same grid
+cell id, merges blockers carrying the same exact id, reports missing expected
+readings, and suppresses exact blocker ids already resolved. It does not infer
+that differently worded prose means the same thing. Semantic clustering stays
+your judgment.
 
 **You judge.** Run this skill on a best-in-class model — the calls below are
 yours, not the CLI's. Is this spec good enough to build from? Is this architecture
@@ -145,8 +146,10 @@ carrying a suggested value contaminates every lens that reads it. And **the grid
 is written once, for all lenses**; a lens that picks its own cells has scoped its
 own exam, which is exactly how the deleted completeness gate failed.
 
-Skipping this step is allowed. The loop then works as it did before, and finds
-less.
+This step is required. The grid ids are the deterministic identity shared across
+independent readings; without them, code cannot know that two differently worded
+questions mean the same thing. If the grid is too broad, narrow the round rather
+than omitting it.
 
 ### Step 3 — fan out
 
@@ -226,10 +229,11 @@ Skipping it is allowed and costs you this class of finding entirely.
 specflow refine round --outputs <outputs_dir>
 ```
 
-This prints where the readings disagree, the merged blockers with attribution —
+This prints where readings gave different answers to the same grid ids, the
+merged exact-id blockers with attribution —
 which lenses independently raised each, and which you have already decided — and,
-if there was a grid, which cells no lens answered and which were answered by every
-lens guessing. It writes `findings.json`, which `refine status` reads back.
+which cells no lens answered and which were answered by every lens guessing. It
+writes `findings.json`, which `refine status` reads back.
 
 It passes no verdict. There is no score, no readiness call, and no signal that the
 loop is done; see step 7.
@@ -260,9 +264,9 @@ sections of the output decide how much the rest is worth:
   malformed did not participate. The headline says `N of M readings compared`
   when they differ. Re-run that lens before treating the round as a full one; the
   gaps it would have found are simply absent, not shown to be absent.
-- **`Worth knowing about this round`** — a lens that answered one question two
-  ways, or two files claiming the same lens name (which means the fan-out sent
-  one lens twice, and you have fewer independent readings than you think).
+- **`Worth knowing about this round`** — two files claiming the same lens name
+  means the fan-out likely copied one lens into another file, and you have fewer
+  independent readings than the manifest says.
 
 If a command exits non-zero it tells you which file is wrong. Fix the file and
 re-run; re-running a round simply replaces its findings.
@@ -416,28 +420,23 @@ tells you less than one that fills what it knows. Comparison here needs no word
 matching — the id already says two lenses answered the same question.
 
 **`decisions`** — every question the lens had to answer to proceed, with the
-answer it settled on. This is where the comparison happens, so it matters that
-the lens writes down what it decided *even when the spec was silent* — set
-`guessed: true` and the reading stays honest.
-
-Phrase `question` as a question, and **name the subject before the object**: two
-lenses will word it differently, and the CLI collides them on their significant
-words *in order*. So "does the hold expire before the payment" matches a lens that
-wrote "when the holds expire, is that before payment", and does **not** match "does
-the payment expire before the hold" — which is a different question with a
-different answer. Ordering is what keeps the second from being reported as
-agreement-turned-disagreement with the first. Where two lenses phrase one question
-differently, both phrasings are shown.
-
-A lens answering the same question twice with different values is reported as a
-note; the first answer stands. If a lens needs to change its mind, it should
-answer once.
+answer it settled on. Write it down even when the spec was silent and set
+`guessed: true`. The orchestrating model reads these as evidence, but the CLI does
+not compare their free-form wording: doing so would introduce an arbitrary
+similarity threshold. Cross-lens deterministic comparison happens only in
+`cells`, keyed by the shared grid id.
 
 **`blockers`** — decisions the lens could not responsibly make alone. Needs a
-stable slug `id` (so the same finding from three lenses collides), a `question`
-answerable in one line, at least two `options` with consequences, a
+stable slug `id`, a `question` answerable in one line, at least two `options` with
+consequences, a
 `recommended`, `impact` (`blocks_build` / `changes_architecture` /
 `changes_behaviour` / `cosmetic`), and `reversible`.
+
+The CLI merges blockers only when their ids are exactly equal. If the blocker is
+about a grid cell, derive its id from that cell id. For a lens-only finding, use a
+semantic slug and do not assume another independent lens will choose the same
+one; the orchestrating model remains responsible for recognizing equivalent
+prose.
 
 **`where`** — the spec file and section. Used to group a disagreement with the
 blocker at the same place, so one gap does not show up as two items.

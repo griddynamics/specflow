@@ -1,12 +1,12 @@
 ---
 name: specflow-resolve
-description: Walk through the open specification decisions from a refinement round and write the answers back into the spec files, with traceability. Records each decision so later rounds stop asking.
+description: Walk through open specification decisions from a refinement round, write answers back into the spec files, and record exact blocker IDs for traceability.
 argument-hint: "(optional) spec_dir outputs_dir — defaults: specs docs"
 ---
 
 # SpecFlow Resolve
 
-Take the ranked decisions from a refinement round, settle them with the user, and
+Take the open decisions from a refinement round, settle them with the user, and
 **write the answers into the specification**.
 
 That last part is the job. A loop that only reports blockers leaves all the work
@@ -91,8 +91,12 @@ specflow refine resolve --outputs <outputs_dir> --id <blocker-id> --choice "<opt
   --applied-to specs/orders.md --source user
 ```
 
-Recording is what stops the next round re-asking. Skip it and every later round
-will surface the same decision as though it were new.
+Recording suppresses that exact blocker id in current and later findings. Because
+independent agents may give a semantically repeated lens-only finding a different
+id, also pass `resolutions.json` to later lenses as `/specflow-refine` instructs;
+the model must recognize the prior decision when exact identity is unavailable.
+The CLI deliberately does not guess that two differently worded findings are the
+same.
 
 ### 5. Report
 

@@ -1,6 +1,6 @@
 {
   "name": "specflow2",
-  "description": "Refine specifications before you build. Independent subagents each read your spec under a different adversarial lens; where their readings disagree, the spec is ambiguous. You resolve the decisions that matter and the answers are written back into the spec. Runs entirely locally — no backend, no third party, nothing leaves your machine.",
+  "description": "Refine specifications before you build. Independent subagents produce ID-keyed readings under different adversarial lenses; a local CLI compares them and records decisions without using the SpecFlow backend. Your coding-agent and model-provider data policies still apply.",
   "version": "0.1.0",
   "author": {
     "name": "Grid Dynamics"

@@ -61,175 +61,91 @@ def blocker(identifier: str, *, title: str = "", options: int = 2) -> dict[str, 
         "reversible": True,
     }
 
-class TestDisagreement(unittest.TestCase):
-    def test_same_answer_is_not_a_disagreement(self):
-        readings = [
-            reading("a", decisions=[decision("what store backs orders", "postgres")]),
-            reading("b", decisions=[decision("what store backs orders", "postgres")]),
-        ]
-        found, notes = compare.find_disagreements(readings)
-        self.assertEqual(found, [])
-        self.assertEqual(notes, [])
+class TestDisagreementIdentity(unittest.TestCase):
+    def test_free_form_decisions_are_evidence_not_deterministic_identity(self):
+        result = compare.compare([
+            reading("a", decisions=[decision("Who owns the hold expiry timer?", "service")]),
+            reading(
+                "b",
+                decisions=[
+                    decision(
+                        "Which component is responsible for expiring the hold timer?",
+                        "database TTL",
+                    )
+                ],
+            ),
+        ])
+        self.assertEqual(result.disagreements, [])
+        self.assertEqual(result.blockers, [])
 
-    def test_different_answers_are_located(self):
-        readings = [
-            reading("a", decisions=[decision("what store backs orders", "postgres")]),
-            reading("b", decisions=[decision("what store backs orders", "dynamodb")]),
-        ]
-        found, _ = compare.find_disagreements(readings)
-        self.assertEqual(len(found), 1)
-        self.assertEqual(found[0].answers, {"a": "postgres", "b": "dynamodb"})
-        self.assertEqual(found[0].where, "specs/orders.md#Checkout")
-
-    def test_rewording_the_question_still_collides(self):
-        readings = [
-            reading("a", decisions=[decision("What store backs the orders?", "postgres")]),
-            reading("b", decisions=[decision("what stores back an order", "dynamodb")]),
-        ]
-        found, _ = compare.find_disagreements(readings)
-        self.assertEqual(len(found), 1)
-
-    def test_unrelated_questions_do_not_collide(self):
-        readings = [
-            reading("a", decisions=[decision("what store backs orders", "postgres")]),
-            reading("b", decisions=[decision("how are retries bounded", "3 attempts")]),
-        ]
-        found, _ = compare.find_disagreements(readings)
-        self.assertEqual(found, [])
-
-    def test_reordering_the_words_is_a_different_question(self):
-        readings = [
-            reading("a", decisions=[
-                decision("Does the hold expire before the payment?", "yes")
-            ]),
-            reading("b", decisions=[
-                decision("Does the payment expire before the hold?", "no")
-            ]),
-        ]
-        found, _ = compare.find_disagreements(readings)
-        self.assertEqual(found, [])
-
-    def test_one_lens_answering_twice_keeps_the_first_and_says_so(self):
-        readings = [
-            reading("a", decisions=[
-                decision("what store backs orders", "postgres"),
-                decision("what store backs orders", "dynamodb"),
-            ]),
-        ]
-        found, notes = compare.find_disagreements(readings)
-        self.assertEqual(found, [])
-        self.assertEqual(len(notes), 1)
-        self.assertIn("postgres", notes[0])
-        self.assertIn("dynamodb", notes[0])
-
-    def test_differing_phrasings_are_all_reported(self):
-        readings = [
-            reading("a", decisions=[decision("What store backs the orders?", "pg")]),
-            reading("b", decisions=[decision("what stores back an order", "ddb")]),
-        ]
-        found, _ = compare.find_disagreements(readings)
-        self.assertEqual(
-            found[0].as_dict()["phrasings"],
-            {"a": "What store backs the orders?", "b": "what stores back an order"},
+    def test_grid_id_creates_a_located_disagreement_blocker(self):
+        result = compare.compare(
+            [
+                reading("a", cells=[cell("hold.timeout", "released")]),
+                reading("b", cells=[cell("hold.timeout", "extended")]),
+            ],
+            grid=grid("hold.timeout"),
         )
+        self.assertEqual(result.disagreements[0].cell_id, "hold.timeout")
+        self.assertEqual(result.blockers[0]["id"], "diverged-hold.timeout")
 
-    def test_identical_phrasings_are_not_repeated_in_the_payload(self):
-        readings = [
-            reading("a", decisions=[decision("what store backs orders", "pg")]),
-            reading("b", decisions=[decision("what store backs orders", "ddb")]),
-        ]
-        found, _ = compare.find_disagreements(readings)
-        self.assertNotIn("phrasings", found[0].as_dict())
-
-    def test_disagreement_nobody_raised_becomes_its_own_blocker(self):
-        result = compare.compare([
-            reading("a", decisions=[decision("what store backs orders", "postgres")]),
-            reading("b", decisions=[decision("what store backs orders", "dynamodb")]),
-        ])
-        derived = [b for b in result.blockers if b.get("from_disagreement")]
-        self.assertEqual(len(derived), 1)
-        self.assertEqual(
-            {o["label"] for o in derived[0]["options"]}, {"postgres", "dynamodb"}
+    def test_case_and_whitespace_only_answer_differences_are_equal(self):
+        result = compare.compare(
+            [
+                reading("a", cells=[cell("hold.timeout", " Seat Released ")]),
+                reading("b", cells=[cell("hold.timeout", "seat   released")]),
+            ],
+            grid=grid("hold.timeout"),
         )
+        self.assertEqual(result.disagreements, [])
 
-    def test_disagreement_attaches_to_a_blocker_at_the_same_place(self):
-        result = compare.compare([
-            reading("a",
-                    decisions=[decision("what store backs orders", "postgres")],
-                    blockers=[blocker("store-choice")]),
-            reading("b", decisions=[decision("what store backs orders", "dynamodb")]),
-        ])
-        self.assertEqual([b["id"] for b in result.blockers], ["store-choice"])
+    def test_grid_question_rewording_does_not_change_the_blocker_id(self):
+        readings = [
+            reading("a", cells=[cell("hold.timeout", "released")]),
+            reading("b", cells=[cell("hold.timeout", "extended")]),
+        ]
+        first = compare.compare(
+            readings,
+            grid={"cells": [{"id": "hold.timeout", "question": "What happens?"}]},
+        )
+        second = compare.compare(
+            readings,
+            grid={"cells": [{"id": "hold.timeout", "question": "Where does it go?"}]},
+        )
+        self.assertEqual(first.blockers[0]["id"], second.blockers[0]["id"])
+
+    def test_same_where_never_merges_unrelated_findings(self):
+        result = compare.compare(
+            [
+                reading(
+                    "a",
+                    blockers=[blocker("seat-map-source")],
+                    cells=[cell("refund.window", "30 days")],
+                ),
+                reading("b", cells=[cell("refund.window", "90 days")]),
+            ],
+            grid=grid("refund.window"),
+        )
+        self.assertEqual(
+            {item["id"] for item in result.blockers},
+            {"seat-map-source", "diverged-refund.window"},
+        )
+        self.assertNotIn("disagreements", result.blockers[0])
+
+    def test_exact_stable_id_can_explicitly_join_authored_and_grid_findings(self):
+        result = compare.compare(
+            [
+                reading(
+                    "a",
+                    blockers=[blocker("diverged-hold.timeout")],
+                    cells=[cell("hold.timeout", "released")],
+                ),
+                reading("b", cells=[cell("hold.timeout", "extended")]),
+            ],
+            grid=grid("hold.timeout"),
+        )
+        self.assertEqual([item["id"] for item in result.blockers], ["diverged-hold.timeout"])
         self.assertEqual(len(result.blockers[0]["disagreements"]), 1)
-        self.assertEqual(len(result.disagreements), 1)
-
-    def test_many_disagreements_at_one_location_stay_many_blockers(self):
-        result = compare.compare([
-            reading("a", blockers=[blocker("expiry")], decisions=[
-                decision("how long is the hold", "5m"),
-                decision("who cancels an order", "the buyer"),
-                decision("what currency is stored", "usd"),
-            ]),
-            reading("b", decisions=[
-                decision("how long is the hold", "15m"),
-                decision("who cancels an order", "support"),
-                decision("what currency is stored", "eur"),
-            ]),
-        ])
-        self.assertEqual(len(result.disagreements), 3)
-        self.assertEqual(len(result.blockers), 3)
-        self.assertEqual(len(result.blockers[0]["disagreements"]), 1)
-
-    def test_item_count_is_the_same_with_or_without_a_host_blocker(self):
-        decisions_a = [decision("how long is the hold", "5m"),
-                       decision("who cancels an order", "the buyer")]
-        decisions_b = [decision("how long is the hold", "15m"),
-                       decision("who cancels an order", "support")]
-        with_host = compare.compare([
-            reading("a", blockers=[blocker("expiry")], decisions=decisions_a),
-            reading("b", decisions=decisions_b),
-        ])
-        without_host = compare.compare([
-            reading("a", decisions=decisions_a),
-            reading("b", decisions=decisions_b),
-        ])
-        self.assertEqual(len(with_host.blockers), len(without_host.blockers))
-
-    def test_slug_collision_attaches_instead_of_dropping_the_disagreement(self):
-        shared = "should the order be cancelled when the"
-        result = compare.compare([
-            reading("a", decisions=[
-                {"question": f"{shared} payment fails", "value": "yes",
-                 "where": "specs/a.md"},
-                {"question": f"{shared} hold expires", "value": "yes",
-                 "where": "specs/b.md"},
-            ]),
-            reading("b", decisions=[
-                {"question": f"{shared} payment fails", "value": "no",
-                 "where": "specs/a.md"},
-                {"question": f"{shared} hold expires", "value": "no",
-                 "where": "specs/b.md"},
-            ]),
-        ])
-        self.assertEqual(len(result.disagreements), 2)
-        self.assertEqual(len(result.blockers), 1)
-        self.assertEqual(len(result.blockers[0]["disagreements"]), 1)
-
-    def test_synthesized_id_is_readable_and_stable(self):
-        result = compare.compare([
-            reading("a", decisions=[decision("which datastore backs bookings", "pg")]),
-            reading("b", decisions=[decision("which datastore backs bookings", "ddb")]),
-        ])
-        derived = [b for b in result.blockers if b.get("from_disagreement")][0]
-        self.assertEqual(derived["id"], "diverged-which-datastore-backs-bookings")
-
-    def test_three_way_disagreement_ranks_above_two_way(self):
-        result = compare.compare([
-            reading("a", decisions=[decision("q one alpha", "x"), decision("q two beta", "p")]),
-            reading("b", decisions=[decision("q one alpha", "y"), decision("q two beta", "q")]),
-            reading("c", decisions=[decision("q one alpha", "z"), decision("q two beta", "p")]),
-        ])
-        self.assertEqual(result.disagreements[0].as_dict()["distinct"], 3)
 
 class TestMergeBlockers(unittest.TestCase):
     def test_same_id_from_three_lenses_merges_with_attribution(self):
@@ -317,6 +233,43 @@ class TestLayout(unittest.TestCase):
             loaded = artifacts.load_readings(layout, 1)
             self.assertEqual([r["lens"] for r in loaded], ["concurrency"])
 
+    def test_manifest_round_trip_records_expected_lenses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            layout = artifacts.layout_for(tmp)
+            artifacts.write_json(
+                layout.manifest_path(1),
+                {"lenses": ["concurrency", "ordering"]},
+            )
+            self.assertEqual(
+                artifacts.load_manifest(layout, 1)["lenses"],
+                ["concurrency", "ordering"],
+            )
+
+    def test_manifest_rejects_unsafe_or_case_duplicate_lenses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            layout = artifacts.layout_for(tmp)
+            for lenses in (["../escape"], ["Ordering", "ordering"]):
+                artifacts.write_json(layout.manifest_path(1), {"lenses": lenses})
+                with self.assertRaisesRegex(ValueError, "unique safe names"):
+                    artifacts.load_manifest(layout, 1)
+
+    def test_missing_expected_reading_is_loaded_as_incomplete(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            layout = artifacts.layout_for(tmp)
+            artifacts.write_json(layout.reading_path(1, "a"), reading("a"))
+            loaded = artifacts.load_readings(layout, 1, expected_lenses=["a", "b"])
+            result = compare.compare(loaded)
+            self.assertEqual(result.lens_count, 1)
+            self.assertEqual(result.readings_total, 2)
+            self.assertIn("missing expected reading", result.incomplete[0])
+
+    def test_legacy_round_without_manifest_uses_observed_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            layout = artifacts.layout_for(tmp)
+            artifacts.write_json(layout.reading_path(1, "a"), reading("a"))
+            self.assertEqual(artifacts.load_manifest(layout, 1), {})
+            self.assertEqual(len(artifacts.load_readings(layout, 1)), 1)
+
     def test_lens_name_is_derived_from_the_filename(self):
         with tempfile.TemporaryDirectory() as tmp:
             layout = artifacts.layout_for(tmp)
@@ -341,7 +294,7 @@ class TestLayout(unittest.TestCase):
             )
 
             result = compare.compare(loaded)
-            self.assertEqual(len(result.disagreements), 1)
+            self.assertEqual(result.disagreements, [])
             self.assertEqual(len(result.notes), 1)
             self.assertIn("fan-out", result.notes[0])
 
@@ -359,6 +312,30 @@ class TestLayout(unittest.TestCase):
             with self.assertRaises(ValueError) as ctx:
                 artifacts.load_grid(layout, 1)
             self.assertIn(artifacts.GRID_FILE, str(ctx.exception))
+
+    def test_required_grid_must_exist_and_contain_a_cell(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            layout = artifacts.layout_for(tmp)
+            with self.assertRaisesRegex(ValueError, "missing required grid"):
+                artifacts.load_grid(layout, 1, required=True)
+
+            artifacts.write_json(layout.grid_path(1), {"cells": []})
+            with self.assertRaisesRegex(ValueError, "at least one"):
+                artifacts.load_grid(layout, 1, required=True)
+
+    def test_grid_ids_must_be_unique_and_path_safe(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            layout = artifacts.layout_for(tmp)
+            artifacts.write_json(
+                layout.grid_path(1),
+                {"cells": [{"id": "Hold.Timeout"}, {"id": "hold.timeout"}]},
+            )
+            with self.assertRaisesRegex(ValueError, "unique"):
+                artifacts.load_grid(layout, 1)
+
+            artifacts.write_json(layout.grid_path(1), {"cells": [{"id": "../escape"}]})
+            with self.assertRaisesRegex(ValueError, "may contain"):
+                artifacts.load_grid(layout, 1)
 
     def test_a_coherence_file_with_the_wrong_shape_names_the_file(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -446,6 +423,14 @@ class TestGridCoverage(unittest.TestCase):
         self.assertEqual(disagreements, [])
         self.assertEqual(coverage.agreed_guesses[0]["lenses"], ["a", "b"])
 
+    def test_one_guess_is_not_mislabeled_as_agreement(self):
+        coverage, disagreements = compare.grid_coverage(
+            grid("hold.timeout"),
+            [reading("a", cells=[cell("hold.timeout", "released", guessed=True)])],
+        )
+        self.assertEqual(disagreements, [])
+        self.assertEqual(coverage.agreed_guesses, [])
+
     def test_agreement_one_lens_read_from_the_spec_is_not_flagged(self):
         coverage, _ = compare.grid_coverage(
             grid("hold.timeout"),
@@ -466,7 +451,7 @@ class TestGridCoverage(unittest.TestCase):
         )
         self.assertTrue(any(b.get("from_disagreement") for b in result.blockers))
 
-    def test_cell_conflict_attaches_to_a_blocker_at_the_same_place(self):
+    def test_cell_conflict_does_not_attach_by_free_form_location(self):
         result = compare.compare(
             [
                 reading("a", blockers=[blocker("expiry")],
@@ -475,8 +460,11 @@ class TestGridCoverage(unittest.TestCase):
             ],
             grid=grid("hold.timeout"),
         )
-        self.assertEqual([b["id"] for b in result.blockers], ["expiry"])
-        self.assertEqual(len(result.blockers[0]["disagreements"]), 1)
+        self.assertEqual(
+            [b["id"] for b in result.blockers],
+            ["expiry", "diverged-hold.timeout"],
+        )
+        self.assertNotIn("disagreements", result.blockers[0])
 
     def test_a_round_without_a_grid_still_compares(self):
         result = compare.compare([reading("a"), reading("b")])

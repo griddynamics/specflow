@@ -12,7 +12,7 @@
     {
       "name": "specflow2",
       "source": "./plugins/specflow2",
-      "description": "Refine specifications before you build. Independent subagents each read your spec under a different adversarial lens; where their readings disagree, the spec is ambiguous. Runs entirely locally — no backend, no third party, nothing leaves your machine."
+      "description": "Refine specifications before you build. Independent subagents produce ID-keyed readings under different adversarial lenses; a local CLI compares them without using the SpecFlow backend. Your coding-agent and model-provider data policies still apply."
     }
   ]
 }

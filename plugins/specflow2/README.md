@@ -1,6 +1,9 @@
 # specflow2 — the spec-refinement plugin
 
-Spec refinement that runs entirely in the user's Claude Code session.
+Spec refinement orchestrated from the user's Claude Code session, with artifacts
+and deterministic comparison kept in the local repository. The SpecFlow backend
+is not used; the coding agent and its model provider still receive whatever
+specification context their normal operation requires.
 
 **Separate from the `specflow` plugin in the same marketplace.** That one carries
 the two skills of the 1.0 backend flow — `specflow-analysis` and
@@ -16,11 +19,10 @@ separately on PyPI as `gd-specflow` — does the part prose is bad at.
 
 The split follows one rule:
 
-**Code compares.** Which lenses answered the same question differently. Which
-cells nobody filled. Which blockers three lenses raised independently. Which
-decisions you have already made, so they stop being re-asked. This is list work
-over more items than a model tracks reliably, and it must give the same answer
-twice.
+**Code compares stable IDs.** Which lenses answered the same shared-grid cell
+differently. Which cells nobody filled. Which exact blocker ids several lenses
+raised independently. Which exact blocker ids you already resolved. It does not
+guess that differently worded prose means the same thing; the model judges that.
 
 **A model judges.** Whether the architecture is sound, whether the spec is ready,
 whether a decision is worth interrupting someone over, whether another round is
@@ -85,6 +87,15 @@ claude plugin marketplace add griddynamics/specflow
 claude plugin install specflow2@specflow-marketplace   # not `specflow`
 ```
 
+Before this branch is released, install and test from a checkout instead of
+PyPI/default-branch contents:
+
+```bash
+cd mcp_server
+uv tool install --force .
+specflow plugin install --target claude --marketplace "$(git rev-parse --show-toplevel)"
+```
+
 ## Skills
 
 Two.
@@ -137,14 +148,15 @@ less reliable — not more authoritative.
 specflow refine new-round   allocate the next round directory and name its files
 specflow refine round       compare this round's readings against each other and
                             against the grid
-specflow refine resolve     record a decision so later rounds stop asking it
+specflow refine resolve     validate and record an exact blocker-id decision
 specflow refine status      read the last round's findings back, minus anything
                             resolved since
 ```
 
-The grid and the coherence file are optional inputs to `round`: write them and it
-reports unanswered cells and folds in the coherence blockers, omit them and it
-compares the readings alone.
+New rounds carry a manifest naming their expected lenses and require a grid. The
+grid supplies the stable cell IDs that make deterministic cross-lens comparison
+possible. The coherence file remains optional; when present, its blockers are
+folded into the result.
 
 Exit codes: `0` success, `2` bad usage — a missing round, a round with no
 readings, a file that is not the JSON it should be. Every message names the file.
@@ -181,7 +193,8 @@ directory the local flow owns outright:
 docs/refine/
   resolutions.json      decisions made, cumulative
   findings.json         the latest round's merged view
-  round-01/             grid.json, reading.<lens>.json, coherence.json
+  round-01/             manifest.json, grid.json, reading.<lens>.json,
+                        optional coherence.json
 ```
 
 Readable JSON in your own repo — git-tracked, diffable, and editable with the

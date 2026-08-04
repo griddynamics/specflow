@@ -45,20 +45,39 @@ def _round_context(args: argparse.Namespace) -> tuple[artifacts.Layout, int]:
 
 def cmd_new_round(args: argparse.Namespace) -> int:
     layout = _layout(args)
+    if not args.lens:
+        raise ValueError("at least one --lens is required")
+    invalid_lenses = [
+        lens
+        for lens in args.lens
+        if not lens
+        or not all(character.isalnum() or character in "-_" for character in lens)
+    ]
+    if invalid_lenses:
+        raise ValueError(
+            "--lens names may contain only letters, numbers, '-' and '_': "
+            + ", ".join(invalid_lenses)
+        )
+    if len({lens.casefold() for lens in args.lens}) != len(args.lens):
+        raise ValueError("--lens names should be unique")
+
     number = (layout.latest_round() or 0) + 1
     directory = layout.round_dir(number)
     directory.mkdir(parents=True, exist_ok=True)
+    artifacts.write_json(layout.manifest_path(number), {"lenses": args.lens})
 
     write_to = [str(layout.reading_path(number, lens)) for lens in args.lens]
     payload = {
         "round": number,
         "dir": str(directory),
+        "manifest": str(layout.manifest_path(number)),
         "write_to": write_to,
         "grid": str(layout.grid_path(number)),
         "coherence": str(layout.coherence_path(number)),
     }
     lines = [f"Round {number} -> {directory}"]
-    lines.append(f"  grid     {artifacts.GRID_FILE}  (write first; every lens fills it)")
+    lines.append(f"  contract {artifacts.MANIFEST_FILE}  (expected lenses)")
+    lines.append(f"  grid     {artifacts.GRID_FILE}  (required; write before readings)")
     lines += [f"  expects  {Path(p).name}" for p in write_to]
     lines.append(f"  then     {artifacts.COHERENCE_FILE}  (optional)")
     _emit(payload, args.json, "\n".join(lines))
@@ -66,17 +85,20 @@ def cmd_new_round(args: argparse.Namespace) -> int:
 
 def cmd_round(args: argparse.Namespace) -> int:
     layout, number = _round_context(args)
+    manifest = artifacts.load_manifest(layout, number)
+    expected_lenses = manifest.get("lenses")
 
-    readings = artifacts.load_readings(layout, number)
+    readings = artifacts.load_readings(layout, number, expected_lenses=expected_lenses)
     if not readings:
         raise ValueError(
             f"no readings in {layout.round_dir(number)} — "
             f"each lens writes {artifacts.READING_PREFIX}<lens>.json there"
         )
 
+    grid = artifacts.load_grid(layout, number, required=bool(manifest))
     result = compare.compare(
         readings,
-        grid=artifacts.load_grid(layout, number),
+        grid=grid,
         coherence=artifacts.load_coherence(layout, number),
     )
     if not result.lens_count:
@@ -202,12 +224,8 @@ def _render_round(payload: dict[str, Any]) -> str:
                 )
             for item in blocker.get("disagreements", []):
                 lines.append(f"      readings disagree — {item['question']}")
-                phrasings = item.get("phrasings", {})
                 for lens, answer in item["answers"].items():
                     lines.append(f"          {lens}: {answer}")
-                    asked = phrasings.get(lens)
-                    if asked and asked != item["question"]:
-                        lines.append(f"              asked as: {asked}")
         lines.append("")
 
     if counts["uncovered_cells"] or counts["agreed_guesses"]:
@@ -241,6 +259,38 @@ def cmd_resolve(args: argparse.Namespace) -> int:
             {"error": "already resolved", "blocker_id": args.id},
             args.json,
             f"{args.id} is already resolved.",
+        )
+        return EXIT_USAGE
+
+    findings = artifacts.load_findings(layout)
+    blocker = next(
+        (item for item in findings.get("blockers", []) if item.get("id") == args.id),
+        None,
+    )
+    if blocker is None:
+        _emit(
+            {"error": "unknown open blocker", "blocker_id": args.id},
+            args.json,
+            f"{args.id} is not an open blocker in the latest findings.",
+        )
+        return EXIT_USAGE
+
+    option_labels = [
+        str(option["label"])
+        for option in blocker.get("options", [])
+        if option.get("label") is not None
+    ]
+    if option_labels and args.choice not in option_labels:
+        _emit(
+            {
+                "error": "invalid choice",
+                "blocker_id": args.id,
+                "choice": args.choice,
+                "allowed": option_labels,
+            },
+            args.json,
+            f"{args.choice!r} is not a choice for {args.id}; choose one of: "
+            + ", ".join(option_labels),
         )
         return EXIT_USAGE
 
