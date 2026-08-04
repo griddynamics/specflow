@@ -5,8 +5,9 @@ would be *less* reliable, not more:
 
   new-round  derives the round directory and file names, so prose never spells
              out a path that stops honouring --outputs
-  round      compares the readings and diffs this round against every previous
-             one — list comparison over items too numerous to track by hand
+  round      compares the readings, checks them against the round's grid, and
+             diffs this round against every previous one — list comparison over
+             items too numerous to track by hand
   resolve    appends a decision to a cumulative file, so later rounds stop
              re-asking it
   status     reads that state back for the reporting and planning skills
@@ -65,9 +66,17 @@ def cmd_new_round(args: argparse.Namespace) -> int:
     directory.mkdir(parents=True, exist_ok=True)
 
     write_to = [str(layout.reading_path(number, lens)) for lens in args.lens]
-    payload = {"round": number, "dir": str(directory), "write_to": write_to}
+    payload = {
+        "round": number,
+        "dir": str(directory),
+        "write_to": write_to,
+        "grid": str(layout.grid_path(number)),
+        "coherence": str(layout.coherence_path(number)),
+    }
     lines = [f"Round {number} -> {directory}"]
+    lines.append(f"  grid     {artifacts.GRID_FILE}  (write first; every lens fills it)")
     lines += [f"  expects  {Path(p).name}" for p in write_to]
+    lines.append(f"  then     {artifacts.COHERENCE_FILE}  (optional)")
     _emit(payload, args.json, "\n".join(lines))
     return EXIT_OK
 
@@ -85,7 +94,11 @@ def cmd_round(args: argparse.Namespace) -> int:
             f"each lens writes {artifacts.READING_PREFIX}<lens>.json there"
         )
 
-    result = compare.compare(readings)
+    result = compare.compare(
+        readings,
+        grid=artifacts.load_grid(layout, number),
+        coherence=artifacts.load_coherence(layout, number),
+    )
     resolved = artifacts.resolved_ids(layout)
     blocker_ids = [b["id"] for b in result.blockers if b.get("id")]
     novelty = compare.novelty(artifacts.load_state(layout), blocker_ids, resolved)
@@ -94,6 +107,7 @@ def cmd_round(args: argparse.Namespace) -> int:
         b for b in result.blockers if b.get("id") not in resolved
     ]
 
+    coverage = result.coverage
     payload = {
         "round": number,
         "lenses": result.lenses,
@@ -104,10 +118,13 @@ def cmd_round(args: argparse.Namespace) -> int:
             "repeat": len(novelty["repeat"]),
             "already_decided": len(novelty["resolved"]),
             "disagreements": len(result.disagreements),
+            "uncovered_cells": len(coverage.uncovered) if coverage else 0,
+            "agreed_guesses": len(coverage.agreed_guesses) if coverage else 0,
         },
         "novelty": novelty,
         "disagreements": [d.as_dict() for d in result.disagreements],
         "blockers": open_blockers,
+        "coverage": coverage.as_dict() if coverage else None,
         "incomplete_readings": result.incomplete,
         "findings_path": str(layout.findings_path),
     }
@@ -142,6 +159,27 @@ def _render_round(payload: dict[str, Any]) -> str:
         lines += [f"  {item}" for item in payload["incomplete_readings"]]
         lines.append("")
 
+    coverage = payload.get("coverage")
+    if coverage:
+        lines.append(
+            f"Grid: {coverage['cells_filled']}/{coverage['cells_total']} cells "
+            "answered by at least one lens"
+        )
+        if coverage["uncovered"]:
+            lines.append("  no lens answered these:")
+            lines += [
+                f"    {cell['id']} — {cell['question']}"
+                for cell in coverage["uncovered"]
+            ]
+        if coverage["agreed_guesses"]:
+            lines.append("  agreed, but every lens was guessing:")
+            lines += [
+                f"    {cell['id']} — {cell['value']}  "
+                f"({', '.join(cell['lenses'])})"
+                for cell in coverage["agreed_guesses"]
+            ]
+        lines.append("")
+
     if payload["blockers"]:
         lines.append("Open blockers:")
         for blocker in payload["blockers"]:
@@ -169,6 +207,13 @@ def _render_round(payload: dict[str, Any]) -> str:
         lines.append(
             "Nothing new this round. Whether that means the spec is ready is "
             "your call — say so explicitly rather than implying it."
+        )
+
+    if counts["uncovered_cells"] or counts["agreed_guesses"]:
+        lines.append(
+            f"{counts['uncovered_cells']} cell(s) no lens answered and "
+            f"{counts['agreed_guesses']} answered only by agreeing guesses. "
+            "Neither shows up as a disagreement."
         )
     return "\n".join(lines)
 
@@ -218,6 +263,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         "counts": findings.get("counts", {}),
         "blockers": findings.get("blockers", []),
         "disagreements": findings.get("disagreements", []),
+        "coverage": findings.get("coverage"),
     }
 
     lines = [
@@ -225,6 +271,8 @@ def cmd_status(args: argparse.Namespace) -> int:
         f"Resolved        {payload['resolved']}",
         f"Open blockers   {payload['counts'].get('open', 0)}",
         f"Disagreements   {payload['counts'].get('disagreements', 0)}",
+        f"Unanswered      {payload['counts'].get('uncovered_cells', 0)} grid cell(s)",
+        f"Agreed guesses  {payload['counts'].get('agreed_guesses', 0)}",
     ]
     if payload["blockers"]:
         lines.append("")

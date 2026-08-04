@@ -58,6 +58,33 @@ that. Say what you concluded and why, and let the user disagree with you.
 other's output, and there is no shared plan. Two lenses reaching different
 conclusions from the same spec is the entire signal; shared context destroys it.
 
+The rule that makes the grid below legal: **share the questions, never the
+answers.** Every lens may know which cells exist, because that came from the
+spec. No lens may know what another put in one.
+
+---
+
+## What replaces building
+
+The predecessor to this loop found gaps by building the system — hours of it.
+That worked because code will not compile half a decision: every field needs a
+type, every branch a body, every error path a return. Reading a spec forces
+nothing, and an agent slides past a gap without noticing.
+
+Three things below restore that forcing, at a fraction of the cost:
+
+- **The grid** (step 2) makes the decisions enumerable before anyone answers
+  them, so an unanswered one is visible instead of merely absent.
+- **The coherence pass** (step 4) asks whether the answers can all be true at
+  once. Disagreement finds gaps; it never finds two lenses that agreed and were
+  jointly wrong. Building found those when the code did not run.
+- **The next round** (step 7) is seeded with your resolutions, so it reaches the
+  gaps that exist *because* of how you resolved the last one. That is the
+  dependency ordering a build gets for free.
+
+What none of them restore is execution. Nothing here runs, so nothing here
+disproves anything — see step 7 for where that still costs you.
+
 ---
 
 ## The loop
@@ -68,13 +95,48 @@ conclusions from the same spec is the entire signal; shared context destroys it.
 specflow refine new-round --outputs <outputs_dir> --lens concurrency partial-failure data-lifecycle auth-boundaries idempotency ordering
 ```
 
-Note the round number and directory it prints.
+Note the round number and directory it prints, along with the paths for the grid
+and the coherence file.
 
 Six lenses is the default. Fewer is cheaper and finds less; more costs
 proportionally. This is the cost dial — start with three on a first pass if the
 spec is large.
 
-### Step 2 — fan out
+### Step 2 — sketch the grid
+
+Spawn **one** subagent to enumerate the decisions the spec implies, and to answer
+none of them. It writes `<round dir>/grid.json`:
+
+```json
+{
+  "cells": [
+    {
+      "id": "hold.timeout",
+      "question": "A seat hold is open and its timer expires — what happens?",
+      "where": "specs/booking.md#Holds"
+    }
+  ]
+}
+```
+
+Cells come from the spec's own vocabulary, not from any lens:
+
+- every entity the spec names × every event that can reach it,
+- every role × every protected resource × every action,
+- every stored field that can be absent, expire, or change.
+
+Aim for a few dozen. If the spec implies hundreds, narrow this round to a
+subsystem and say which one — a grid too large to fill is one nobody fills.
+
+Two rules make this worth doing. **The enumerator must not answer** — a cell
+carrying a suggested value contaminates every lens that reads it. And **the grid
+is written once, for all lenses**; a lens that picks its own cells has scoped its
+own exam, which is exactly how the deleted completeness gate failed.
+
+Skipping this step is allowed. The loop then works as it did before, and finds
+less.
+
+### Step 3 — fan out
 
 Read each lens file from `lenses/` in this skill's directory. Then spawn **one
 subagent per lens, all in a single message** so they run concurrently.
@@ -83,6 +145,8 @@ Give each subagent:
 
 - the full contents of its lens file,
 - the spec directory to read,
+- the grid from step 2, with the instruction to fill every cell its lens has a
+  view on and to leave the rest alone,
 - the reading format below,
 - the exact output path: `<round dir>/reading.<lens>.json`.
 
@@ -97,17 +161,48 @@ small and cheap under-reports, agreeing with the spec it was sent to attack. If
 your harness can give different subagents different models, spread the lenses
 across model families — one model disagrees with itself less than several do.
 
-### Step 3 — compare
+### Step 4 — check coherence
+
+Once every lens has written its reading, spawn **one** subagent over the whole
+round directory. Its question is not "is anything missing" but:
+
+> Take these answers as given. Which two of them cannot both be true?
+
+It is looking for the failure disagreement cannot see — a locking rule that makes
+the retry policy unreachable, a retention window shorter than the dispute window,
+an idempotency key that does not survive the partition the ordering lens assumed.
+Building caught these when the code did not run. Nothing else here does.
+
+It writes `<round dir>/coherence.json`, blockers only, same format as below:
+
+```json
+{ "blockers": [ { "id": "locking-blocks-retry", "...": "..." } ] }
+```
+
+This pass reads every lens's output, so it is **not** an independent reading. It
+runs after the lenses are done, never before, and it never contributes decisions
+— only blockers. The CLI enforces the second half of that: coherence blockers are
+attributed to `coherence` and left out of the lens count.
+
+Skipping it is allowed and costs you this class of finding entirely.
+
+### Step 5 — compare
 
 ```bash
 specflow refine round --outputs <outputs_dir>
 ```
 
 This prints where the readings disagree, the merged blockers with attribution,
-and which are new since previous rounds. It writes `findings.json` for the
-reporting skill.
+which are new since previous rounds, and — if there was a grid — which cells no
+lens answered and which were answered by every lens guessing. It writes
+`findings.json` for the reporting skill.
 
-### Step 4 — decide what reaches the user
+Read those last two carefully. **A cell nobody answered is a gap so complete that
+no reading even reached it**, and it will never appear as a disagreement. **A cell
+every lens guessed at is agreement that is not evidence** — the spec was silent
+and they converged anyway. Both are findings; neither is a disagreement.
+
+### Step 6 — decide what reaches the user
 
 The command does **not** sort blockers into ask/assume for you. That is your
 judgment, and here is how to make it:
@@ -125,12 +220,23 @@ should say so rather than flooding the user.
 
 Then hand off to `/specflow-resolve`, or handle it here with `AskUserQuestion`.
 
-### Step 5 — loop or stop
+### Step 7 — loop or stop
 
 The command tells you whether this round raised anything the previous rounds did
 not. **Whether that means you are done is your call.** Nothing new in one round
 is decent evidence the well is dry; it is not proof. If the spec is high-stakes,
 run another.
+
+**Round two is not a retry.** It runs against a spec your resolutions changed, so
+it reaches the questions that only exist downstream of how you answered the last
+ones — the ones a build would have hit in hour six because of a decision made in
+hour two. A first round that resolved anything substantial has earned a second.
+
+**Spike the one decision worth executing.** If a blocker is expensive and
+irreversible and the lenses split on it, no amount of reading settles it — that
+is precisely what building was for. Write only that one interface and its state
+transitions, half an hour, and let it fail. Recommend this rather than pretending
+the round covered it.
 
 When you stop, say plainly what happened and what it does not mean. Then suggest
 `/specflow-planning` — the spec is now more determinate, so a plan built from it
@@ -146,6 +252,9 @@ Give this to every subagent verbatim. One JSON object per lens:
 {
   "lens": "concurrency",
   "spec_root": "specs",
+  "cells": [
+    {"id": "hold.timeout", "value": "seat returns to the pool", "guessed": true}
+  ],
   "decisions": [
     {
       "question": "What does the second caller see while a seat is held?",
@@ -171,6 +280,13 @@ Give this to every subagent verbatim. One JSON object per lens:
   ]
 }
 ```
+
+**`cells`** — the grid, answered. One short value per cell the lens has a view
+on, keyed by the id the grid gave it, and `guessed: true` whenever the spec did
+not say. Omit a cell rather than filling it from nothing; a concurrency lens has
+no business answering an authorization cell, and a lens that fills everything
+tells you less than one that fills what it knows. Comparison here needs no word
+matching — the id already says two lenses answered the same question.
 
 **`decisions`** — every question the lens had to answer to proceed, with the
 answer it settled on. This is where the comparison happens, so it matters that

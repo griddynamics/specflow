@@ -16,8 +16,17 @@ completeness gate over a self-declared checklist — only hides the judgment
 behind a number nobody calibrated. The skill decides those, out loud, and the
 user can argue with it.
 
-So nothing here scores, ranks, or passes verdict. It reports what differs and
-what is new. The reading of *that* is the orchestrator's job.
+**The grid is how a reading gets forced.** Building a system forced every
+ambiguity into the open because code will not compile half a decision. Reading a
+spec forces nothing — an agent slides past a gap without noticing. A grid
+restores the forcing at a thousandth of the cost: the cells are enumerated from
+the spec up front, every lens fills the same ones, and a cell nobody filled is a
+gap you can count instead of judge. Counting filled cells is list work; deciding
+whether the answer in one is *right* is not, and stays where the rest of the
+judgment lives.
+
+So nothing here scores, ranks, or passes verdict. It reports what differs, what
+is unfilled, and what is new. The reading of *that* is the orchestrator's job.
 """
 
 from __future__ import annotations
@@ -67,12 +76,31 @@ class Disagreement:
 
 
 @dataclass
+class Coverage:
+    """What the lenses did and did not fill in on this round's grid."""
+
+    cells_total: int = 0
+    cells_filled: int = 0
+    uncovered: list[dict[str, Any]] = field(default_factory=list)
+    agreed_guesses: list[dict[str, Any]] = field(default_factory=list)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "cells_total": self.cells_total,
+            "cells_filled": self.cells_filled,
+            "uncovered": self.uncovered,
+            "agreed_guesses": self.agreed_guesses,
+        }
+
+
+@dataclass
 class Comparison:
     lens_count: int
     lenses: list[str] = field(default_factory=list)
     blockers: list[dict[str, Any]] = field(default_factory=list)
     disagreements: list[Disagreement] = field(default_factory=list)
     incomplete: list[str] = field(default_factory=list)
+    coverage: Coverage | None = None
 
 
 def _where(item: dict[str, Any]) -> str:
@@ -151,8 +179,75 @@ def find_disagreements(readings: list[dict[str, Any]]) -> list[Disagreement]:
         for slot in grouped.values()
         if len(set(slot["answers"].values())) > 1
     ]
-    found.sort(key=lambda d: (-len(set(d.answers.values())), d.question))
-    return found
+    return _sorted(found)
+
+
+def _sorted(found: list[Disagreement]) -> list[Disagreement]:
+    """Widest divergence first — most lenses landing on most distinct answers."""
+    return sorted(found, key=lambda d: (-len(set(d.answers.values())), d.question))
+
+
+def grid_coverage(
+    grid: dict[str, Any], readings: list[dict[str, Any]]
+) -> tuple[Coverage, list[Disagreement]]:
+    """Check the round's readings against the cells the grid says exist.
+
+    Three outcomes per cell, and each means something different:
+
+    *Nobody filled it* — the gap no reading even reached. This is the case a
+    prose reading loses silently, because nothing in a paragraph demands an
+    answer the way an empty cell does.
+
+    *Two lenses filled it differently* — a disagreement, returned as one so it
+    joins the ones found in prose and reaches the user through the same path.
+    Grouping cells needs no word matching: the cell id already says these are
+    answers to one question.
+
+    *Everyone filled it, and everyone guessed* — agreement that is not evidence.
+    Independent readings converging on an answer the spec never gave is a shared
+    blind spot wearing consensus, and it is invisible to a design that only looks
+    for divergence. Reported, never counted as a disagreement, because the lenses
+    genuinely did agree.
+    """
+    cells = [cell for cell in grid.get("cells", []) if cell.get("id")]
+    answered: dict[str, dict[str, tuple[str, bool]]] = {}
+    for reading in readings:
+        lens = reading.get("lens", "?")
+        for entry in reading.get("cells", []):
+            cell_id, value = entry.get("id"), entry.get("value")
+            if not cell_id or value is None:
+                continue
+            answered.setdefault(cell_id, {})[lens] = (
+                str(value), bool(entry.get("guessed"))
+            )
+
+    coverage = Coverage(cells_total=len(cells))
+    disagreements: list[Disagreement] = []
+    for cell in cells:
+        filled = answered.get(cell["id"], {})
+        question = str(cell.get("question") or cell["id"])
+        where = _where(cell)
+        if not filled:
+            coverage.uncovered.append(
+                {"id": cell["id"], "question": question, "where": where}
+            )
+            continue
+
+        coverage.cells_filled += 1
+        answers = {lens: value for lens, (value, _) in filled.items()}
+        if len(set(answers.values())) > 1:
+            disagreements.append(
+                Disagreement(question=question, where=where, answers=answers)
+            )
+        elif all(guessed for _, guessed in filled.values()):
+            coverage.agreed_guesses.append({
+                "id": cell["id"],
+                "question": question,
+                "where": where,
+                "value": next(iter(answers.values())),
+                "lenses": sorted(answers),
+            })
+    return coverage, disagreements
 
 
 def _missing_keys(reading: dict[str, Any]) -> list[str]:
@@ -160,8 +255,20 @@ def _missing_keys(reading: dict[str, Any]) -> list[str]:
     return [key for key in ("lens", "decisions", "blockers") if key not in reading]
 
 
-def compare(readings: list[dict[str, Any]]) -> Comparison:
-    """Merge a round's readings into one attributed view."""
+def compare(
+    readings: list[dict[str, Any]],
+    grid: dict[str, Any] | None = None,
+    coherence: dict[str, Any] | None = None,
+) -> Comparison:
+    """Merge a round's readings into one attributed view.
+
+    ``coherence`` is the pass that asks whether the answers can all be true at
+    once. It contributes blockers and nothing else: it read every lens's output,
+    so it is not an independent reading and must never vote in a disagreement.
+    It is also left out of ``lenses``/``lens_count``, which count independent
+    readings — inflating that number would overstate the only evidence this
+    design has.
+    """
     result = Comparison(
         lens_count=len(readings),
         lenses=sorted(r.get("lens", "?") for r in readings),
@@ -180,8 +287,16 @@ def compare(readings: list[dict[str, Any]]) -> Comparison:
         else:
             usable.append(reading)
 
-    result.blockers = merge_blockers(usable)
+    sources = list(usable)
+    if coherence and coherence.get("blockers"):
+        sources.append({"lens": "coherence", "blockers": coherence["blockers"]})
+
+    result.blockers = merge_blockers(sources)
     result.disagreements = find_disagreements(usable)
+
+    if grid:
+        result.coverage, from_cells = grid_coverage(grid, usable)
+        result.disagreements = _sorted(result.disagreements + from_cells)
 
     _attach_disagreements(result)
     return result

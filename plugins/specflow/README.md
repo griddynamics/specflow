@@ -24,6 +24,28 @@ So there is no validator, no readiness score, and nothing that will tell you you
 spec passed. What you get is: here is where independent readings of your spec
 disagreed, and here is what the agent concluded from that.
 
+## What replaces building
+
+SpecFlow 1.0 found gaps by building the system — hours per variant. That worked
+because a compiler will not accept half a decision. Reading forces nothing, so a
+round restores the forcing three cheaper ways:
+
+- **A grid.** One pass enumerates the decisions the spec implies — states ×
+  events, roles × resources, fields that can be absent — before anyone answers
+  them. Every lens fills the same cells. A cell nobody filled is a gap you can
+  count; a cell every lens filled *by guessing* is agreement that is not
+  evidence, and neither one shows up as a disagreement.
+- **A coherence pass.** After the lenses finish, one agent asks whether their
+  answers can all be true at once. Disagreement finds gaps but never finds
+  lenses that agreed and were jointly wrong; building found those when the code
+  did not run.
+- **The next round.** Seeded with your resolutions, so it reaches the questions
+  that exist only because of how you answered the last ones.
+
+None of it executes anything, so none of it disproves anything. For the one
+decision that is expensive, irreversible, and split, the skill tells you to spike
+it — half an hour of real code, not eight hours of it.
+
 ## Install
 
 ```bash
@@ -81,10 +103,15 @@ less reliable — not more authoritative.
 
 ```
 specflow refine new-round   allocate the next round directory and name its files
-specflow refine round       compare this round's readings; diff against previous rounds
+specflow refine round       compare this round's readings against each other and
+                            against the grid; diff against previous rounds
 specflow refine resolve     record a decision so later rounds stop asking it
 specflow refine status      read that state back, for reporting and planning
 ```
+
+The grid and the coherence file are optional inputs to `round`: write them and it
+reports unanswered cells and folds in the coherence blockers, omit them and it
+behaves as it always did.
 
 Exit codes: `0` success, `2` bad usage. Nothing fails a run on a judgment call.
 

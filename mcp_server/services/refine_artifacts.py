@@ -9,9 +9,11 @@ read, diff, and edit any of it with the tools they already have.
       resolutions.json                  decisions made, cumulative
       findings.json                     latest round's merged view
       round-01/
+        grid.json                       the cells every lens must fill
         reading.concurrency.json
         reading.ordering.json
         ...
+        coherence.json                  can these answers all be true at once?
 """
 
 from __future__ import annotations
@@ -25,6 +27,8 @@ REFINE_SUBDIR = "refine"
 STATE_FILE = "state.json"
 RESOLUTIONS_FILE = "resolutions.json"
 FINDINGS_FILE = "findings.json"
+GRID_FILE = "grid.json"
+COHERENCE_FILE = "coherence.json"
 READING_PREFIX = "reading."
 
 
@@ -61,6 +65,12 @@ class Layout:
     def reading_path(self, number: int, lens: str) -> Path:
         return self.round_dir(number) / f"{READING_PREFIX}{lens}.json"
 
+    def grid_path(self, number: int) -> Path:
+        return self.round_dir(number) / GRID_FILE
+
+    def coherence_path(self, number: int) -> Path:
+        return self.round_dir(number) / COHERENCE_FILE
+
     def rounds(self) -> list[int]:
         """Round numbers present on disk, ascending."""
         if not self.root.is_dir():
@@ -82,6 +92,9 @@ class Layout:
         if not directory.is_dir():
             return []
         return sorted(directory.glob(f"{READING_PREFIX}*.json"))
+
+    def has_grid(self, number: int) -> bool:
+        return self.grid_path(number).exists()
 
 
 def layout_for(outputs_dir: str | Path) -> Layout:
@@ -123,6 +136,32 @@ def load_readings(layout: Layout, number: int) -> list[dict[str, Any]]:
         data["_path"] = str(path)
         loaded.append(data)
     return loaded
+
+
+def load_grid(layout: Layout, number: int) -> dict[str, Any]:
+    """The round's cell list, or an empty document if this round has no grid.
+
+    Optional on purpose: a round without a grid still compares readings, which
+    is what every round did before grids existed.
+    """
+    path = layout.grid_path(number)
+    if not path.exists():
+        return {}
+    data = read_json(path)
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} should contain an object, got {type(data).__name__}")
+    return data
+
+
+def load_coherence(layout: Layout, number: int) -> dict[str, Any]:
+    """The coherence pass's blockers, or an empty document if it did not run."""
+    path = layout.coherence_path(number)
+    if not path.exists():
+        return {}
+    data = read_json(path)
+    if not isinstance(data, dict):
+        raise ValueError(f"{path} should contain an object, got {type(data).__name__}")
+    return data
 
 
 def load_state(layout: Layout) -> dict[str, Any]:

@@ -18,13 +18,33 @@ from services import refine_artifacts as artifacts
 from services import refine_compare as compare
 
 
-def reading(lens: str, *, decisions=None, blockers=None) -> dict[str, Any]:
-    return {
+def reading(lens: str, *, decisions=None, blockers=None, cells=None) -> dict[str, Any]:
+    payload = {
         "lens": lens,
         "spec_root": "specs",
         "decisions": decisions if decisions is not None else [],
         "blockers": blockers if blockers is not None else [],
     }
+    if cells is not None:
+        payload["cells"] = cells
+    return payload
+
+
+def grid(*ids: str) -> dict[str, Any]:
+    return {
+        "cells": [
+            {
+                "id": cell_id,
+                "question": f"what happens on {cell_id}?",
+                "where": "specs/orders.md#Checkout",
+            }
+            for cell_id in ids
+        ]
+    }
+
+
+def cell(cell_id: str, value: str, *, guessed: bool = False) -> dict[str, Any]:
+    return {"id": cell_id, "value": value, "guessed": guessed}
 
 
 def decision(question: str, value: str, *, guessed: bool = False) -> dict[str, Any]:
@@ -238,6 +258,112 @@ class TestLayout(unittest.TestCase):
             self.assertEqual(artifacts.load_state(layout), {"rounds": []})
             self.assertEqual(artifacts.load_resolutions(layout), [])
             self.assertEqual(artifacts.load_findings(layout), {})
+
+
+class TestGridCoverage(unittest.TestCase):
+    """The forcing function: a cell nobody filled is countable, not judged."""
+
+    def test_cell_no_lens_answered_is_reported(self):
+        coverage, _ = compare.grid_coverage(
+            grid("hold.timeout", "hold.cancel"),
+            [reading("a", cells=[cell("hold.timeout", "seat released")])],
+        )
+        self.assertEqual(coverage.cells_total, 2)
+        self.assertEqual(coverage.cells_filled, 1)
+        self.assertEqual([c["id"] for c in coverage.uncovered], ["hold.cancel"])
+
+    def test_two_lenses_filling_a_cell_differently_is_a_disagreement(self):
+        _, disagreements = compare.grid_coverage(
+            grid("hold.timeout"),
+            [
+                reading("a", cells=[cell("hold.timeout", "seat released")]),
+                reading("b", cells=[cell("hold.timeout", "hold extended")]),
+            ],
+        )
+        self.assertEqual(len(disagreements), 1)
+        self.assertEqual(
+            disagreements[0].answers, {"a": "seat released", "b": "hold extended"}
+        )
+
+    def test_agreement_reached_by_guessing_is_reported_not_silent(self):
+        """Consensus over a silent spec is a shared blind spot, not evidence."""
+        coverage, disagreements = compare.grid_coverage(
+            grid("hold.timeout"),
+            [
+                reading("a", cells=[cell("hold.timeout", "released", guessed=True)]),
+                reading("b", cells=[cell("hold.timeout", "released", guessed=True)]),
+            ],
+        )
+        self.assertEqual(disagreements, [])
+        self.assertEqual(coverage.agreed_guesses[0]["lenses"], ["a", "b"])
+
+    def test_agreement_one_lens_read_from_the_spec_is_not_flagged(self):
+        coverage, _ = compare.grid_coverage(
+            grid("hold.timeout"),
+            [
+                reading("a", cells=[cell("hold.timeout", "released", guessed=True)]),
+                reading("b", cells=[cell("hold.timeout", "released")]),
+            ],
+        )
+        self.assertEqual(coverage.agreed_guesses, [])
+
+    def test_cell_conflict_becomes_a_blocker_through_the_normal_path(self):
+        result = compare.compare(
+            [
+                reading("a", cells=[cell("hold.timeout", "released")]),
+                reading("b", cells=[cell("hold.timeout", "extended")]),
+            ],
+            grid=grid("hold.timeout"),
+        )
+        self.assertTrue(any(b.get("from_disagreement") for b in result.blockers))
+
+    def test_cell_conflict_attaches_to_a_blocker_at_the_same_place(self):
+        """One gap stays one item, whether it was found in prose or in a cell."""
+        result = compare.compare(
+            [
+                reading("a", blockers=[blocker("expiry")],
+                        cells=[cell("hold.timeout", "released")]),
+                reading("b", cells=[cell("hold.timeout", "extended")]),
+            ],
+            grid=grid("hold.timeout"),
+        )
+        self.assertEqual([b["id"] for b in result.blockers], ["expiry"])
+        self.assertEqual(len(result.blockers[0]["disagreements"]), 1)
+
+    def test_a_round_without_a_grid_still_compares(self):
+        result = compare.compare([reading("a"), reading("b")])
+        self.assertIsNone(result.coverage)
+
+
+class TestCoherence(unittest.TestCase):
+    """The pass that asks whether the answers can all be true at once."""
+
+    def test_coherence_blockers_reach_the_user_attributed(self):
+        result = compare.compare(
+            [reading("a"), reading("b")],
+            coherence={"blockers": [blocker("locking-contradicts-retry")]},
+        )
+        found = {b["id"]: b["found_by"] for b in result.blockers}
+        self.assertEqual(found["locking-contradicts-retry"], ["coherence"])
+
+    def test_coherence_does_not_count_as_an_independent_reading(self):
+        """It saw every lens's output, so calling it a seventh lens would lie."""
+        result = compare.compare(
+            [reading("a"), reading("b")],
+            coherence={"blockers": [blocker("x")]},
+        )
+        self.assertEqual(result.lens_count, 2)
+        self.assertEqual(result.lenses, ["a", "b"])
+
+    def test_coherence_never_votes_in_a_disagreement(self):
+        result = compare.compare(
+            [reading("a", decisions=[decision("what store", "postgres")])],
+            coherence={
+                "blockers": [],
+                "decisions": [decision("what store", "mysql")],
+            },
+        )
+        self.assertEqual(result.disagreements, [])
 
 
 class TestEndToEnd(unittest.TestCase):

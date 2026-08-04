@@ -18,7 +18,7 @@ the decisions already recorded. Read it rather than the state files behind it.
 
 ## What to show
 
-Four sections, in this order:
+Five sections, in this order:
 
 1. **Where we are.** Rounds run, and whether the last round raised anything the
    earlier ones did not.
@@ -32,7 +32,13 @@ Four sections, in this order:
    differently, with each lens's answer. These are the most concrete findings
    available — an ambiguity with a location and two specific readings attached.
 
-4. **Assumed on your behalf.** What was applied without asking, from the
+4. **Unanswered, and agreed-but-guessed.** From `coverage`: the grid cells no
+   lens answered, and the ones every lens answered by guessing. Neither appears
+   as a disagreement, and both are gaps — the first is a question no reading
+   reached, the second is consensus over a spec that said nothing. Say which is
+   which; they need different fixes.
+
+5. **Assumed on your behalf.** What was applied without asking, from the
    `--source assumed` records, and what each default was. Users should be able to
    audit these, disagree, and reopen one. Do not bury this section; a decision
    made silently is only acceptable if it is easy to find afterwards.
