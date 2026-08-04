@@ -176,10 +176,13 @@ def _configure_env(backend_url: str, user_email: str | None) -> None:
 
 
 def resolve_root(root_path_arg: str | None) -> Path:
-    """Return absolute project root. Defaults to cwd; --root-path overrides."""
-    if root_path_arg:
-        return Path(root_path_arg).expanduser().resolve()
-    return Path.cwd().resolve()
+    """Return absolute project root. Defaults to cwd; --root-path overrides.
+
+    Implementation lives in ``local_env`` so the ``refine`` group can resolve the
+    same flag from ``services/`` without importing this module back; kept here
+    under its original name for the existing call sites.
+    """
+    return local_env.resolve_project_root(root_path_arg)
 
 
 # ---------------------------------------------------------------------------
@@ -556,9 +559,10 @@ def cmd_plugin_install(args: argparse.Namespace) -> int:
             return result.returncode
 
     print(
-        f"\nInstalled. The skills call this CLI, which is already on your PATH — "
-        f"that is why they are distributed separately.\n"
-        f"Start with /specflow-analysis, then /specflow-refine."
+        "\nInstalled. The skills call this CLI, which is already on your PATH — "
+        "that is why they are distributed separately.\n"
+        "Run /specflow-refine on a spec directory; /specflow-resolve settles what "
+        "it finds."
     )
     return 0
 

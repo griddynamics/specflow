@@ -7,7 +7,7 @@
     {
       "name": "specflow",
       "source": "./plugins/specflow",
-      "description": "Grid Dynamics SpecFlow Marketplace plugin"
+      "description": "Refine specifications before you build. Independent subagents each read your spec under a different adversarial lens; where their readings disagree, the spec is ambiguous. Runs entirely locally — no backend, no third party, nothing leaves your machine."
     }
   ]
 }

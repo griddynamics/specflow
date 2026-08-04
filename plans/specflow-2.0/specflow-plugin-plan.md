@@ -1,5 +1,16 @@
 # SpecFlow 2.0 — Plugin Plan (final)
 
+> ⚠️ **Sections 3 and 5–8 are superseded by the code that shipped.** The oracle
+> library, the totality gate, the ranking and saturation scripts, the
+> `plugins/specflow/lib/` layout and the Steel Commandments 2.0 proposal were all
+> deliberately cut or reversed. So were four of the seven skills: what ships is
+> `specflow-refine` and `specflow-resolve`, and there is **no stop rule** — §7's P6
+> ("loop terminates on saturation") encodes an inference the design cannot support.
+> Section 4 still holds and §1–§2 describe the shape, but the flow diagram in §1 and
+> the skill inventory in §5 do not. See **`status.md`** in this directory for what is
+> actually built, what was cut and why, and which gates remain unmet. Do not build
+> from §3, §5, §6 or §7.
+
 **Status**: DRAFT for approval
 **Date**: 2026-08-03
 **Supersedes**: `PLAN.md` and `PLUGIN-SKILLS.md` in this directory (earlier drafts, safe to delete once this is approved)

@@ -1,5 +1,7 @@
 {
   "//": "Import-resolution only. Deliberately does NOT set typeCheckingMode, so backend/ and mcp_server/ keep the defaults they were written against — this file exists solely to tell Pyright where non-installed source roots live.",
+  "//pythonVersion": "The lower of the two roots (mcp_server pins ==3.13.*, backend ==3.14.0). Without it Pyright falls back to its own default and flags `X | Y` unions and StrEnum as errors throughout both trees, which buries anything real.",
+  "pythonVersion": "3.13",
   "extraPaths": [
     "backend",
     "mcp_server"

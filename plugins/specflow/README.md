@@ -8,21 +8,23 @@ separately on PyPI as `gd-specflow` — does the part prose is bad at.
 
 The split follows one rule:
 
-**Code compares and remembers.** Which lenses answered the same question
-differently. Which blockers three lenses raised independently. What this round
-found that no previous round did. This is list work over more items than a model
-tracks reliably, and it must give the same answer twice.
+**Code compares.** Which lenses answered the same question differently. Which
+cells nobody filled. Which blockers three lenses raised independently. Which
+decisions you have already made, so they stop being re-asked. This is list work
+over more items than a model tracks reliably, and it must give the same answer
+twice.
 
 **A model judges.** Whether the architecture is sound, whether the spec is ready,
-whether a decision is worth interrupting someone over. None of that is checkable,
-and an earlier version of this plugin tried anyway — a completeness gate over a
-checklist the agent wrote itself, and a weighted score deciding what to ask about.
-Both were judgments wearing arithmetic. They are gone, and the skills now make
-those calls out loud where a user can disagree with them.
+whether a decision is worth interrupting someone over, whether another round is
+worth running. None of that is checkable, and earlier versions of this plugin tried
+anyway — a completeness gate over a checklist the agent wrote itself, a weighted
+score deciding what to ask about, and a round diff read as convergence. All three
+were judgments wearing arithmetic. They are gone, and the skills now make those
+calls out loud where a user can disagree with them.
 
-So there is no validator, no readiness score, and nothing that will tell you your
-spec passed. What you get is: here is where independent readings of your spec
-disagreed, and here is what the agent concluded from that.
+So there is no validator, no readiness score, no stop rule, and nothing that will
+tell you your spec passed. What you get is: here is where independent readings of
+your spec disagreed, and here is what the agent concluded from that.
 
 ## What replaces building
 
@@ -60,19 +62,24 @@ skills will tell you what is missing.
 
 ## Skills
 
+Two.
+
 | Skill | Job |
 |---|---|
-| `specflow-analysis` | read the spec and report what it does and does not determine |
-| `specflow-refine` | the loop — fan out independent lenses, compare, resolve, repeat |
-| `specflow-simulate` | one lens, one pass, no loop |
-| `specflow-resolve` | record decisions and write them back into the spec |
-| `specflow-planning` | phase the work, after refinement rather than before |
-| `specflow-report` | current state of a refinement, read-only |
+| `specflow-refine` | the loop — fan out independent lenses over the spec, compare, repeat |
+| `specflow-resolve` | settle the decisions it found and write them back into the spec |
 
 The six adversarial lenses ship as data (`skills/specflow-refine/lenses/*.md`),
-not as skills. Nobody types "run the idempotency lens", `/specflow-simulate`
-reads the same files so the two paths cannot drift, and a seventh lens is one
+not as skills. Nobody types "run the idempotency lens", and a seventh lens is one
 markdown file. Lens count is the cost dial.
+
+Nothing else is here on purpose. Earlier versions shipped a single-lens pass, a
+read-only status renderer, a spec-analysis pass and a planning skill. Each was
+either a wrapper over one CLI command, or work this loop is not for: one lens
+cannot disagree with itself, so it produces none of the signal, and planning and
+estimating are downstream of a spec rather than part of reading one. The
+deliverable here is a spec with fewer holes in it and a list of the holes that
+remain.
 
 ## Models
 
@@ -83,8 +90,7 @@ where you already make it. Any model your agent can run, SpecFlow runs on.
 | Job | Needs |
 |---|---|
 | the `/specflow-refine` orchestrator — decides what reaches you | best-in-class model |
-| lenses, `/specflow-analysis`, `/specflow-simulate`, `/specflow-planning` | general purpose |
-| `/specflow-report` | small and cheap |
+| the lenses, and `/specflow-resolve` | general purpose |
 
 Small and cheap under-reports as a lens: sent to attack a spec, it agrees with
 it, and a lens that finds nothing still costs a round.
@@ -104,32 +110,74 @@ less reliable — not more authoritative.
 ```
 specflow refine new-round   allocate the next round directory and name its files
 specflow refine round       compare this round's readings against each other and
-                            against the grid; diff against previous rounds
+                            against the grid
 specflow refine resolve     record a decision so later rounds stop asking it
-specflow refine status      read that state back, for reporting and planning
+specflow refine status      read the last round's findings back, minus anything
+                            resolved since
 ```
 
 The grid and the coherence file are optional inputs to `round`: write them and it
 reports unanswered cells and folds in the coherence blockers, omit them and it
-behaves as it always did.
+compares the readings alone.
 
-Exit codes: `0` success, `2` bad usage. Nothing fails a run on a judgment call.
+Exit codes: `0` success, `2` bad usage — a missing round, a round with no
+readings, a file that is not the JSON it should be. Every message names the file.
+Nothing fails a run on a judgment call, and re-running a round simply replaces its
+findings.
 
-Source: `mcp_server/services/refine_compare.py` (comparison and bookkeeping),
+**There is no stop rule, and that is the deliberate part.** An earlier version
+diffed each round against the previous ones, and the skill read "nothing new" as
+convergence. That inference does not hold: `new == 0` is equally consistent with
+this round's lenses finding less, and nothing holds lens effort constant between
+rounds. Making it a threshold would need the false-negative rate of a single
+round, which is unmeasured — so the diff, its counts and the round ledger behind
+them are gone. When to stop is a judgment the skill makes out loud, where you can
+disagree with it.
+
+Source: `mcp_server/services/refine_compare.py` (comparison),
 `refine_artifacts.py` (file layout), `refine_commands.py` (the command group).
-About 700 lines, half of it argparse wiring and output formatting. If the
-comparison module starts growing, check whether a judgment has crept into it.
+About 680 lines of code, a third of it argparse wiring and output formatting. If
+the comparison module starts growing, check whether a judgment has crept into it.
 
-## Two skills exist twice in this repo, on purpose
+## Trying it out
 
-`specflow-analysis` and `specflow-planning` also exist under
-`mcp_server/services/skills/`, and the two sets are **not** shared.
+`docs/specflow-2.0/testing-the-refine-loop.md` walks the whole thing, cheapest
+first. Level 1 drives the four commands with hand-written artifacts and **no model
+at all**, which is the fastest way to see what the loop does and the only way to
+tell a CLI bug from a subagent that read the spec badly.
 
-They used to be: the paths here were symlinks into `mcp_server/`, which was
-right while both channels served the same flow. They now serve different ones.
-The `mcp_server` copies are templates with `<<SPEC_DIR>>` substitution tokens,
-served as MCP tool responses into the backend `run_generation` flow. The copies
-here drive the local refinement loop.
+## Where the artifacts go
 
-Do not re-link them. Doing so would hand 2.0 instructions to users of the live
-backend flow. They converge again only when one of the two flows is retired.
+Everything the loop reads or writes lives under `<outputs_dir>/refine/`, one
+directory the local flow owns outright:
+
+```
+docs/refine/
+  resolutions.json      decisions made, cumulative
+  findings.json         the latest round's merged view
+  round-01/             grid.json, reading.<lens>.json, coherence.json
+```
+
+Readable JSON in your own repo — git-tracked, diffable, and editable with the
+tools you already have. There is no database and no server to query.
+
+Two things are absent by design. There is **no round ledger**: it existed only to
+feed the stop rule described above, and rounds are simply the directories present.
+And the loop writes **no markdown report** — the skill reports to you in the
+conversation, which is where you can argue with it.
+
+## Why this plugin writes no `analysis/` or `planning/` files
+
+The MCP server in this repo ships its own `specflow-analysis` and
+`specflow-planning` templates for the 1.0 backend flow, and that flow's contract
+reserves `analysis/specification_completeness.md` and
+`planning/IMPLEMENTATION_PLAN.md`. Its validator rejects an analysis file with no
+Part F readiness section — a section that exists only to tell that backend whether
+to run E2E.
+
+The plugin used to symlink those two skills, then shipped diverged copies of them,
+and a user with both installed could run the local skill and be rejected by the
+backend for a file they never meant to hand it. Both are now gone from the plugin:
+this loop writes only under `refine/`, which is outside the three directories that
+validator searches. Don't add a skill here that writes into `analysis/` or
+`planning/`.

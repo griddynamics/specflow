@@ -79,14 +79,16 @@ class TestDisagreement(unittest.TestCase):
             reading("a", decisions=[decision("what store backs orders", "postgres")]),
             reading("b", decisions=[decision("what store backs orders", "postgres")]),
         ]
-        self.assertEqual(compare.find_disagreements(readings), [])
+        found, notes = compare.find_disagreements(readings)
+        self.assertEqual(found, [])
+        self.assertEqual(notes, [])
 
     def test_different_answers_are_located(self):
         readings = [
             reading("a", decisions=[decision("what store backs orders", "postgres")]),
             reading("b", decisions=[decision("what store backs orders", "dynamodb")]),
         ]
-        found = compare.find_disagreements(readings)
+        found, _ = compare.find_disagreements(readings)
         self.assertEqual(len(found), 1)
         self.assertEqual(found[0].answers, {"a": "postgres", "b": "dynamodb"})
         self.assertEqual(found[0].where, "specs/orders.md#Checkout")
@@ -97,14 +99,63 @@ class TestDisagreement(unittest.TestCase):
             reading("a", decisions=[decision("What store backs the orders?", "postgres")]),
             reading("b", decisions=[decision("what stores back an order", "dynamodb")]),
         ]
-        self.assertEqual(len(compare.find_disagreements(readings)), 1)
+        found, _ = compare.find_disagreements(readings)
+        self.assertEqual(len(found), 1)
 
     def test_unrelated_questions_do_not_collide(self):
         readings = [
             reading("a", decisions=[decision("what store backs orders", "postgres")]),
             reading("b", decisions=[decision("how are retries bounded", "3 attempts")]),
         ]
-        self.assertEqual(compare.find_disagreements(readings), [])
+        found, _ = compare.find_disagreements(readings)
+        self.assertEqual(found, [])
+
+    def test_reordering_the_words_is_a_different_question(self):
+        """A bag of words made these one question and paired the wrong answer to it."""
+        readings = [
+            reading("a", decisions=[
+                decision("Does the hold expire before the payment?", "yes")
+            ]),
+            reading("b", decisions=[
+                decision("Does the payment expire before the hold?", "no")
+            ]),
+        ]
+        found, _ = compare.find_disagreements(readings)
+        self.assertEqual(found, [])
+
+    def test_one_lens_answering_twice_keeps_the_first_and_says_so(self):
+        """A reading contradicting itself is a finding, not a silent overwrite."""
+        readings = [
+            reading("a", decisions=[
+                decision("what store backs orders", "postgres"),
+                decision("what store backs orders", "dynamodb"),
+            ]),
+        ]
+        found, notes = compare.find_disagreements(readings)
+        self.assertEqual(found, [])
+        self.assertEqual(len(notes), 1)
+        self.assertIn("postgres", notes[0])
+        self.assertIn("dynamodb", notes[0])
+
+    def test_differing_phrasings_are_all_reported(self):
+        """One lens's wording must not stand in for another lens's answer."""
+        readings = [
+            reading("a", decisions=[decision("What store backs the orders?", "pg")]),
+            reading("b", decisions=[decision("what stores back an order", "ddb")]),
+        ]
+        found, _ = compare.find_disagreements(readings)
+        self.assertEqual(
+            found[0].as_dict()["phrasings"],
+            {"a": "What store backs the orders?", "b": "what stores back an order"},
+        )
+
+    def test_identical_phrasings_are_not_repeated_in_the_payload(self):
+        readings = [
+            reading("a", decisions=[decision("what store backs orders", "pg")]),
+            reading("b", decisions=[decision("what store backs orders", "ddb")]),
+        ]
+        found, _ = compare.find_disagreements(readings)
+        self.assertNotIn("phrasings", found[0].as_dict())
 
     def test_disagreement_nobody_raised_becomes_its_own_blocker(self):
         """The valuable case: a gap no single reading noticed."""
@@ -130,6 +181,64 @@ class TestDisagreement(unittest.TestCase):
         self.assertEqual(len(result.blockers[0]["disagreements"]), 1)
         # Still reported as a disagreement in its own right.
         self.assertEqual(len(result.disagreements), 1)
+
+    def test_many_disagreements_at_one_location_stay_many_blockers(self):
+        """A coarse `where` must not make N gaps look like one open blocker."""
+        result = compare.compare([
+            reading("a", blockers=[blocker("expiry")], decisions=[
+                decision("how long is the hold", "5m"),
+                decision("who cancels an order", "the buyer"),
+                decision("what currency is stored", "usd"),
+            ]),
+            reading("b", decisions=[
+                decision("how long is the hold", "15m"),
+                decision("who cancels an order", "support"),
+                decision("what currency is stored", "eur"),
+            ]),
+        ])
+        self.assertEqual(len(result.disagreements), 3)
+        # One host absorbs one; the other two become blockers of their own.
+        self.assertEqual(len(result.blockers), 3)
+        self.assertEqual(len(result.blockers[0]["disagreements"]), 1)
+
+    def test_item_count_is_the_same_with_or_without_a_host_blocker(self):
+        """Grouping must not depend on whether a lens happened to flag the spot."""
+        decisions_a = [decision("how long is the hold", "5m"),
+                       decision("who cancels an order", "the buyer")]
+        decisions_b = [decision("how long is the hold", "15m"),
+                       decision("who cancels an order", "support")]
+        with_host = compare.compare([
+            reading("a", blockers=[blocker("expiry")], decisions=decisions_a),
+            reading("b", decisions=decisions_b),
+        ])
+        without_host = compare.compare([
+            reading("a", decisions=decisions_a),
+            reading("b", decisions=decisions_b),
+        ])
+        self.assertEqual(len(with_host.blockers), len(without_host.blockers))
+
+    def test_slug_collision_attaches_instead_of_dropping_the_disagreement(self):
+        """Two questions can slug alike; neither may vanish from `blockers`."""
+        shared = "should the order be cancelled when the"
+        result = compare.compare([
+            reading("a", decisions=[
+                {"question": f"{shared} payment fails", "value": "yes",
+                 "where": "specs/a.md"},
+                {"question": f"{shared} hold expires", "value": "yes",
+                 "where": "specs/b.md"},
+            ]),
+            reading("b", decisions=[
+                {"question": f"{shared} payment fails", "value": "no",
+                 "where": "specs/a.md"},
+                {"question": f"{shared} hold expires", "value": "no",
+                 "where": "specs/b.md"},
+            ]),
+        ])
+        self.assertEqual(len(result.disagreements), 2)
+        self.assertEqual(len(result.blockers), 1)
+        # The second had no id of its own to take — attached as evidence rather
+        # than dropped out of `blockers` with nothing said.
+        self.assertEqual(len(result.blockers[0]["disagreements"]), 1)
 
     def test_synthesized_id_is_readable_and_stable(self):
         result = compare.compare([
@@ -183,36 +292,47 @@ class TestMergeBlockers(unittest.TestCase):
         self.assertIn("decisions", result.incomplete[0])
 
 
-class TestNovelty(unittest.TestCase):
-    """Bookkeeping across rounds — what code is genuinely better at."""
+class TestMalformedReadings(unittest.TestCase):
+    """Six subagents write these concurrently; one bad shape must not kill a round."""
 
-    def test_first_round_is_all_new(self):
-        result = compare.novelty({"rounds": []}, ["a", "b"], set())
-        self.assertEqual(result["new"], ["a", "b"])
-        self.assertEqual(result["repeat"], [])
+    def test_blockers_as_an_object_is_reported_not_crashed(self):
+        result = compare.compare([
+            {"lens": "bad", "decisions": [], "blockers": {"expiry": {"id": "x"}}},
+            reading("good", blockers=[blocker("expiry")]),
+        ])
+        self.assertEqual(result.lens_count, 1)
+        self.assertEqual([b["id"] for b in result.blockers], ["expiry"])
+        self.assertIn("blockers should be a list of objects", result.incomplete[0])
 
-    def test_previously_seen_is_a_repeat_not_new(self):
-        state = compare.record_round(
-            {"rounds": []}, number=1, lenses=["x"], blocker_ids=["a"]
+    def test_decisions_as_a_string_is_reported_not_crashed(self):
+        result = compare.compare([{"lens": "bad", "decisions": "oops", "blockers": []}])
+        self.assertEqual(result.lens_count, 0)
+        self.assertIn("decisions should be a list of objects", result.incomplete[0])
+
+    def test_cells_as_a_string_is_reported_not_crashed(self):
+        result = compare.compare(
+            [{"lens": "bad", "decisions": [], "blockers": [], "cells": "oops"}],
+            grid=grid("hold.timeout"),
         )
-        result = compare.novelty(state, ["a", "b"], set())
-        self.assertEqual(result["new"], ["b"])
-        self.assertEqual(result["repeat"], ["a"])
+        self.assertEqual(result.lens_count, 0)
+        self.assertIn("cells should be a list of objects", result.incomplete[0])
 
-    def test_resolved_never_counts_as_new(self):
-        result = compare.novelty({"rounds": []}, ["a", "b"], {"a"})
-        self.assertEqual(result["new"], ["b"])
-        self.assertEqual(result["resolved"], ["a"])
+    def test_a_list_with_a_non_object_entry_is_still_rejected(self):
+        result = compare.compare([
+            {"lens": "bad", "decisions": [{"question": "q", "value": "v"}, "oops"],
+             "blockers": []},
+        ])
+        self.assertEqual(result.lens_count, 0)
 
-    def test_rerunning_a_round_replaces_its_record(self):
-        state = compare.record_round(
-            {"rounds": []}, number=1, lenses=["x"], blocker_ids=["a"]
-        )
-        state = compare.record_round(
-            state, number=1, lenses=["x", "y"], blocker_ids=["a", "b"]
-        )
-        self.assertEqual(len(state["rounds"]), 1)
-        self.assertEqual(state["rounds"][0]["blocker_ids"], ["a", "b"])
+    def test_uncomparable_readings_are_not_counted_as_lenses(self):
+        """"Round 1 — 6 lenses" over four usable readings overstates the evidence."""
+        result = compare.compare([
+            reading("a"),
+            {"lens": "bad", "decisions": "oops", "blockers": []},
+        ])
+        self.assertEqual(result.lens_count, 1)
+        self.assertEqual(result.readings_total, 2)
+        self.assertEqual(result.lenses, ["a"])
 
 
 class TestLayout(unittest.TestCase):
@@ -235,6 +355,82 @@ class TestLayout(unittest.TestCase):
             artifacts.write_json(path, {"decisions": [], "blockers": []})
             self.assertEqual(artifacts.load_readings(layout, 1)[0]["lens"], "ordering")
 
+    def test_the_filename_wins_over_a_lens_field_that_disagrees(self):
+        """Two files claiming one lens name collapse into one, losing the signal."""
+        with tempfile.TemporaryDirectory() as tmp:
+            layout = artifacts.layout_for(tmp)
+            artifacts.write_json(
+                layout.reading_path(1, "ordering"),
+                reading("concurrency", decisions=[decision("what store", "pg")]),
+            )
+            artifacts.write_json(
+                layout.reading_path(1, "concurrency"),
+                reading("concurrency", decisions=[decision("what store", "ddb")]),
+            )
+            loaded = artifacts.load_readings(layout, 1)
+            self.assertEqual(
+                sorted(r["lens"] for r in loaded), ["concurrency", "ordering"]
+            )
+
+            result = compare.compare(loaded)
+            # Would be [] if both readings had answered as "concurrency".
+            self.assertEqual(len(result.disagreements), 1)
+            self.assertEqual(len(result.notes), 1)
+            self.assertIn("fan-out", result.notes[0])
+
+    def test_a_matching_lens_field_raises_no_note(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            layout = artifacts.layout_for(tmp)
+            artifacts.write_json(layout.reading_path(1, "ordering"), reading("ordering"))
+            result = compare.compare(artifacts.load_readings(layout, 1))
+            self.assertEqual(result.notes, [])
+
+    def test_a_grid_with_the_wrong_shape_names_the_file(self):
+        """The grid is the exam every lens sat; a broken one is not an absent one."""
+        with tempfile.TemporaryDirectory() as tmp:
+            layout = artifacts.layout_for(tmp)
+            artifacts.write_json(layout.grid_path(1), {"cells": "oops"})
+            with self.assertRaises(ValueError) as ctx:
+                artifacts.load_grid(layout, 1)
+            self.assertIn(artifacts.GRID_FILE, str(ctx.exception))
+
+    def test_a_coherence_file_with_the_wrong_shape_names_the_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            layout = artifacts.layout_for(tmp)
+            artifacts.write_json(layout.coherence_path(1), {"blockers": {"a": {}}})
+            with self.assertRaises(ValueError) as ctx:
+                artifacts.load_coherence(layout, 1)
+            self.assertIn(artifacts.COHERENCE_FILE, str(ctx.exception))
+
+    def test_hand_edited_resolutions_of_the_wrong_shape_name_the_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            layout = artifacts.layout_for(tmp)
+            artifacts.write_json(layout.resolutions_path, {"resolved": "expiry"})
+            with self.assertRaises(ValueError) as ctx:
+                artifacts.load_resolutions(layout)
+            self.assertIn(artifacts.RESOLUTIONS_FILE, str(ctx.exception))
+
+
+    def test_everything_lives_under_the_loop_s_own_subdirectory(self):
+        """Nothing here may land where the 1.0 contract validator looks.
+
+        That validator fuzzy-matches `specification_completeness.md` and
+        `IMPLEMENTATION_PLAN.md` across the outputs root, `analysis/` and
+        `planning/`. Keeping every path under `refine/` is what makes the two
+        channels unable to collide, now that the local flow writes no markdown of
+        its own to name.
+        """
+        layout = artifacts.layout_for("docs")
+        for path in (
+            layout.resolutions_path,
+            layout.findings_path,
+            layout.grid_path(1),
+            layout.reading_path(1, "ordering"),
+        ):
+            self.assertIn(artifacts.REFINE_SUBDIR, path.parts)
+            self.assertNotIn("analysis", path.parts)
+            self.assertNotIn("planning", path.parts)
+
     def test_broken_json_names_the_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             bad = Path(tmp) / "x.json"
@@ -252,10 +448,10 @@ class TestLayout(unittest.TestCase):
             )
             self.assertEqual(artifacts.resolved_ids(layout), {"expiry"})
 
-    def test_missing_state_is_empty_not_an_error(self):
+    def test_a_fresh_project_is_empty_not_an_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             layout = artifacts.layout_for(tmp)
-            self.assertEqual(artifacts.load_state(layout), {"rounds": []})
+            self.assertEqual(layout.rounds(), [])
             self.assertEqual(artifacts.load_resolutions(layout), [])
             self.assertEqual(artifacts.load_findings(layout), {})
 

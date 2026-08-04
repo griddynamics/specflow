@@ -192,15 +192,32 @@ Skipping it is allowed and costs you this class of finding entirely.
 specflow refine round --outputs <outputs_dir>
 ```
 
-This prints where the readings disagree, the merged blockers with attribution,
-which are new since previous rounds, and — if there was a grid — which cells no
-lens answered and which were answered by every lens guessing. It writes
-`findings.json` for the reporting skill.
+This prints where the readings disagree, the merged blockers with attribution —
+which lenses independently raised each, and which you have already decided — and,
+if there was a grid, which cells no lens answered and which were answered by every
+lens guessing. It writes `findings.json`, which `refine status` reads back.
+
+It passes no verdict. There is no score, no readiness call, and no signal that the
+loop is done; see step 7.
 
 Read those last two carefully. **A cell nobody answered is a gap so complete that
 no reading even reached it**, and it will never appear as a disagreement. **A cell
 every lens guessed at is agreement that is not evidence** — the spec was silent
 and they converged anyway. Both are findings; neither is a disagreement.
+
+**Check what the round actually saw before you read anything into it.** Two
+sections of the output decide how much the rest is worth:
+
+- **`Readings that could not be compared`** — a lens whose file is missing or
+  malformed did not participate. The headline says `N of M readings compared`
+  when they differ. Re-run that lens before treating the round as a full one; the
+  gaps it would have found are simply absent, not shown to be absent.
+- **`Worth knowing about this round`** — a lens that answered one question two
+  ways, or two files claiming the same lens name (which means the fan-out sent
+  one lens twice, and you have fewer independent readings than you think).
+
+If a command exits non-zero it tells you which file is wrong. Fix the file and
+re-run; re-running a round simply replaces its findings.
 
 ### Step 6 — decide what reaches the user
 
@@ -222,15 +239,32 @@ Then hand off to `/specflow-resolve`, or handle it here with `AskUserQuestion`.
 
 ### Step 7 — loop or stop
 
-The command tells you whether this round raised anything the previous rounds did
-not. **Whether that means you are done is your call.** Nothing new in one round
-is decent evidence the well is dry; it is not proof. If the spec is high-stakes,
-run another.
+**Nothing tells you when to stop. That is deliberate, and it is your call.**
 
-**Round two is not a retry.** It runs against a spec your resolutions changed, so
-it reaches the questions that only exist downstream of how you answered the last
-ones — the ones a build would have hit in hour six because of a decision made in
-hour two. A first round that resolved anything substantial has earned a second.
+There used to be a signal here — the command diffed each round against the
+previous ones and reported what was new. It was removed, because "this round
+raised nothing new" has two causes that leave identical artifacts: the spec has
+nothing left to give, or *this round's lenses found less*. Nothing holds lens
+effort constant between rounds, so the second reading is always available, and a
+loop that stopped on the first was reporting a guess as a measurement.
+
+So decide out loud, from what you can actually see:
+
+- **Was the round whole?** Six readings compared, or four? A partial round found
+  less because it *saw* less. Fix the missing lenses and re-run before concluding
+  anything — re-running a round is safe and overwrites its findings.
+- **Did you resolve anything substantial?** If so, run another round: the spec has
+  changed, and round two reaches the questions that exist only downstream of how
+  you answered the last ones — the ones a build would have hit in hour six because
+  of a decision made in hour two. **Round two is not a retry.**
+- **Are the remaining open blockers ones you are willing to build on?** That is
+  the actual question, and it is a judgment about your risk, not about the spec's
+  completeness.
+
+Whatever you conclude, say it as your own assessment and say what it does not
+mean. "The last round surfaced nothing I judge worth blocking on" is honest. "The
+spec is complete" is not a claim this loop can support, and nothing in it will
+tell you otherwise.
 
 **Spike the one decision worth executing.** If a blocker is expensive and
 irreversible and the lenses split on it, no amount of reading settles it — that
@@ -238,9 +272,11 @@ is precisely what building was for. Write only that one interface and its state
 transitions, half an hour, and let it fail. Recommend this rather than pretending
 the round covered it.
 
-When you stop, say plainly what happened and what it does not mean. Then suggest
-`/specflow-planning` — the spec is now more determinate, so a plan built from it
-is worth more.
+When you stop, report the decisions resolved, what is still open, what you
+assumed, and where the readings disagreed — then hand the user back their spec.
+Planning, estimating and building are not this skill's job and there is no
+follow-on skill to point at; the deliverable is a spec with fewer holes in it and
+a list of the holes that remain.
 
 ---
 
@@ -281,6 +317,12 @@ Give this to every subagent verbatim. One JSON object per lens:
 }
 ```
 
+**`lens`** — write it, but **the filename decides**. `reading.ordering.json` is the
+`ordering` lens whatever its body says, because a body written by hand across six
+concurrent prompts is exactly where a copy-paste puts the same name on two files —
+and two readings sharing a lens name collapse into one, taking the disagreement
+between them with it. A mismatch is reported, not silently obeyed.
+
 **`cells`** — the grid, answered. One short value per cell the lens has a view
 on, keyed by the id the grid gave it, and `guessed: true` whenever the spec did
 not say. Omit a cell rather than filling it from nothing; a concurrency lens has
@@ -291,8 +333,20 @@ matching — the id already says two lenses answered the same question.
 **`decisions`** — every question the lens had to answer to proceed, with the
 answer it settled on. This is where the comparison happens, so it matters that
 the lens writes down what it decided *even when the spec was silent* — set
-`guessed: true` and the reading stays honest. Phrase `question` as a question;
-two lenses will word it differently and the CLI matches on content.
+`guessed: true` and the reading stays honest.
+
+Phrase `question` as a question, and **name the subject before the object**: two
+lenses will word it differently, and the CLI collides them on their significant
+words *in order*. So "does the hold expire before the payment" matches a lens that
+wrote "when the holds expire, is that before payment", and does **not** match "does
+the payment expire before the hold" — which is a different question with a
+different answer. Ordering is what keeps the second from being reported as
+agreement-turned-disagreement with the first. Where two lenses phrase one question
+differently, both phrasings are shown.
+
+A lens answering the same question twice with different values is reported as a
+note; the first answer stands. If a lens needs to change its mind, it should
+answer once.
 
 **`blockers`** — decisions the lens could not responsibly make alone. Needs a
 stable slug `id` (so the same finding from three lenses collides), a `question`

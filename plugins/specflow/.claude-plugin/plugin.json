@@ -10,10 +10,9 @@
   "license": "MIT",
   "keywords": [
     "specflow",
-    "spec-analysis",
     "spec-refinement",
+    "spec-ambiguity",
     "blocker-detection",
-    "requirements",
-    "implementation-planning"
+    "requirements"
   ]
 }
