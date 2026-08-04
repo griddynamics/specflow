@@ -8,6 +8,11 @@
       "name": "specflow",
       "source": "./plugins/specflow",
       "description": "Grid Dynamics SpecFlow Marketplace plugin"
+    },
+    {
+      "name": "specflow2",
+      "source": "./plugins/specflow2",
+      "description": "Refine specifications before you build. Independent subagents produce ID-keyed readings under different adversarial lenses; a local CLI compares them without using the SpecFlow backend. Your coding-agent and model-provider data policies still apply."
     }
   ]
 }

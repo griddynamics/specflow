@@ -9,6 +9,11 @@ Diagnose and compare-variants remain `@mcp.prompt()` slash commands.
 Source of truth: services/skills/{name}/SKILL.md — included as package
 data so skills are available after pip install, not just from the repo.
 
+Two consumers, one copy: served as MCP tool responses *and* symlinked into the
+`plugins/specflow/` plugin. Keep the symlink. The separate `specflow2` plugin must
+never ship an analysis or planning skill, nor write to `analysis/` / `planning/` —
+this flow's contract owns those names. See `plans/specflow-2.0/status.md`.
+
 Only user-facing skills are bundled here. Developer skills (specflow-backport,
 deploy-requirements) live in .claude/skills/ as repo-local slash commands
 for SpecFlow engineers and are not distributed via the MCP server.

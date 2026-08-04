@@ -1,0 +1,18 @@
+{
+  "name": "specflow2",
+  "description": "Refine specifications before you build. Independent subagents produce ID-keyed readings under different adversarial lenses; a local CLI compares them and records decisions without using the SpecFlow backend. Your coding-agent and model-provider data policies still apply.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Grid Dynamics"
+  },
+  "homepage": "https://github.com/griddynamics/specflow",
+  "repository": "https://github.com/griddynamics/specflow",
+  "license": "MIT",
+  "keywords": [
+    "specflow",
+    "spec-refinement",
+    "spec-ambiguity",
+    "blocker-detection",
+    "requirements"
+  ]
+}

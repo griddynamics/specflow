@@ -169,6 +169,13 @@ def resolve_repo_root(start: Path | None = None) -> Path | None:
     return repo_root(start) or installed_repo_root()
 
 
+def resolve_project_root(root_path_arg: str | Path | None) -> Path:
+    """The user's project root from ``--root-path``, default cwd. Not ``resolve_repo_root``."""
+    if root_path_arg:
+        return Path(root_path_arg).expanduser().resolve()
+    return Path.cwd().resolve()
+
+
 def env_file_path(root: Path) -> Path:
     return root / _ENV_FILENAME
 

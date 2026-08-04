@@ -2,6 +2,26 @@
 
 **Updated**: June 23, 2026 | **Branch**: (current) | **Tests**: 1228+ passing (`make unit-tests`)
 
+## Active Work
+
+- **PR 59 refinement-plugin presentability fixes (Aug 4)**: Discovery and reviewed
+  implementation proposal are in
+  `agents/plans/pr59-presentability/pr59-presentability-{SPECS,PLAN}.md`.
+  Implementation now uses manifested lens expectations, required grid IDs for
+  deterministic comparison, exact-id resolution validation, branch-local
+  marketplace installation, and accurate model-provider data-flow language.
+  Non-test validation passed: direct CLI flow reported a missing expected lens,
+  compared only shared cell IDs, ignored case/whitespace-only answer differences,
+  kept same-anchor findings separate, rejected unknown/invalid resolutions, and
+  accepted a valid one; local marketplace dry-run used the checkout path. A fresh
+  wheel contained all three `services/refine_*.py` modules (release workflow
+  replaces the placeholder package version from the tag). Validation: 81 focused
+  refinement tests and 834 full unit tests pass; Ruff passes on every changed
+  Python file. Repository-wide `make check` remains blocked by two unchanged
+  backend Ruff findings (`claude_code.py` duplicate `run_git` import and
+  `test_workspace_git_hooks.py` unused `pytest` import); user chose to keep PR 59
+  scoped rather than add unrelated cleanup.
+
 ## Core Systems (Production Ready)
 
 - **State**: `backend/app/state/` — estimation_state_machine, workspace_state_machine, transitions, workflow_orchestrator
