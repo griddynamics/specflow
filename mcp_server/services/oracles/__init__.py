@@ -5,12 +5,15 @@ is code. The split is deliberate: an oracle's whole value is that it is not a
 language model. "Check the state table is complete" as an instruction is
 advisory. A script that exits non-zero on an empty cell is a forcing function.
 
-Stdlib only, by policy. This ships inside a marketplace plugin and runs on
-whatever Python the user has; a ``pip install`` step turns a working skill into
-a support ticket.
+The two halves ship through different channels, and that is what keeps the split
+honest. Prose goes out as the marketplace plugin (``plugins/specflow``); code
+goes out in this package, on PyPI as ``gd-specflow``. A skill reaches an oracle
+only by running ``specflow refine ...``, so there is no way for prose to quietly
+reimplement a check, and no way for a check to depend on a prompt.
 
-Entry point is ``../specflow_cli.py`` — deliberately outside this package, so
-the package stays a pure library and the script owns the path bootstrap.
+Stdlib only. That is no longer forced — the CLI around it has real dependencies
+— but these modules are pure functions over plain JSON, and keeping them that
+way is what makes every verdict reproducible from the artifacts on disk.
 """
 
 from . import jsonschema_mini

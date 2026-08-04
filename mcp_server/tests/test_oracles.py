@@ -1,10 +1,7 @@
-#!/usr/bin/env python3
 """Regression tests for the SpecFlow oracles.
 
-Run with the stdlib runner — no pytest, matching the plugin's zero-dependency
-policy:
-
-    python3 plugins/specflow/lib/tests/test_oracles.py
+Runs under the MCP server suite (``make unit-tests``), so a change to a schema,
+a totality rule or a ranking threshold cannot land green without these passing.
 
 Every test here corresponds to a defect the loop must keep catching. If one
 starts failing, the loop has become less able to find real specification gaps —
@@ -14,16 +11,13 @@ which is the only thing this product does.
 from __future__ import annotations
 
 import json
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from specflow import artifacts, concordance, contracts, mutate, rank, saturation, totality
-from specflow.jsonschema_mini import validate_as
+from services.oracles import artifacts, concordance, contracts, mutate, rank, saturation, totality
+from services.oracles.jsonschema_mini import validate_as
 
 
 def anchor(
@@ -430,7 +424,7 @@ class TestArtifactLayout(unittest.TestCase):
 class TestJsonSchemaValidator(unittest.TestCase):
     def test_unimplemented_keyword_raises_rather_than_passing(self):
         """A silently-ignored constraint is worse than no constraint."""
-        from specflow.jsonschema_mini import validate
+        from services.oracles.jsonschema_mini import validate
 
         with self.assertRaises(ValueError):
             validate({}, {"type": "object", "propertyNames": {"type": "string"}})
@@ -444,7 +438,3 @@ class TestJsonSchemaValidator(unittest.TestCase):
         artifact = valid_interpretation()
         artifact["unexpected_key"] = True
         self.assertFalse(validate_as(artifact, "specflow/interpretation").ok)
-
-
-if __name__ == "__main__":
-    unittest.main(verbosity=2)

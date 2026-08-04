@@ -20,15 +20,23 @@ of the cost of building it.
 - `spec_dir` — specification root. Default `specs`.
 - `outputs_dir` — where artifacts are written. Default `docs`.
 
-Resolve the toolkit path once, at the start:
+Check the toolkit is reachable once, at the start:
 
 ```bash
-SF="${CLAUDE_PLUGIN_ROOT:-$(pwd)/plugins/specflow}/lib/specflow_cli.py"
-python3 "$SF" --help >/dev/null || echo "toolkit not found — check CLAUDE_PLUGIN_ROOT"
+specflow refine --help >/dev/null
 ```
 
-If that fails, locate `specflow_cli.py` under the installed plugin and use its
-absolute path. Everything below assumes `$SF`.
+The oracles ship in the SpecFlow CLI, not in this plugin — this skill is prose,
+and every verdict comes from that binary. If the command is not found, stop and
+tell the user to install it:
+
+```
+uv tool install gd-specflow
+```
+
+**Do not work around a missing CLI by checking the artifacts yourself.** An
+advisory check is precisely what this design rejects; a skill that falls back to
+reading the JSON has silently turned the gates back into suggestions.
 
 ---
 
@@ -49,7 +57,7 @@ Three things restore the compulsion. Do not weaken any of them:
    shared plan. Two lenses reaching different conclusions from the same spec is
    the primary signal; shared context destroys it.
 3. **Scripts decide, not you.** Every count, ranking and verdict comes from
-   `$SF`. Do not eyeball concordance or estimate a score. If a gate exits
+   the CLI. Do not eyeball concordance or estimate a score. If a gate exits
    non-zero, stop and fix — do not proceed and mention it.
 
 ---
@@ -59,7 +67,7 @@ Three things restore the compulsion. Do not weaken any of them:
 ### Step 1 — allocate a round
 
 ```bash
-python3 "$SF" new-round --outputs <outputs_dir> --lens concurrency partial-failure data-lifecycle auth-boundaries idempotency ordering
+specflow refine new-round --outputs <outputs_dir> --lens concurrency partial-failure data-lifecycle auth-boundaries idempotency ordering
 ```
 
 Note the round number and directory it prints.
@@ -87,7 +95,7 @@ proportionally. This is the cost dial.
 ### Step 3 — validate, merge, rank, decide
 
 ```bash
-python3 "$SF" round --outputs <outputs_dir>
+specflow refine round --outputs <outputs_dir>
 ```
 
 This validates every artifact, merges them, finds located disagreements, ranks
@@ -122,8 +130,11 @@ worth trusting.
 
 ## The artifact contract
 
-Give this to every subagent verbatim. The schema is authoritative and lives at
-`lib/specflow/schema/interpretation.schema.json` in the plugin.
+Give this to every subagent verbatim. The schema is authoritative — print it and paste it in:
+
+```bash
+specflow refine schema interpretation
+```
 
 Each lens writes one JSON object with these keys:
 

@@ -14,6 +14,8 @@ Commands:
   download-outputs    Download and extract completed generation outputs
   clear-workspace     Free a CLEANING workspace set early
   sessions            List active generation sessions
+  refine              Spec refinement (see services/refine_commands.py)
+  plugin              Install the Claude Code plugin
 
 Local-only invariant: refuses to connect to non-localhost URLs unless --force
 is passed.  No API key is ever sent in local mode.
@@ -22,15 +24,18 @@ is passed.  No API key is ever sent in local mode.
 import argparse
 import asyncio
 import datetime
+import inspect
 import json
 import logging
 import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from services import local_env
+from services import local_env, refine_commands
 from tui import mcp_clients
 
 logger = logging.getLogger(__name__)
@@ -493,6 +498,72 @@ async def cmd_init(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Plugin installation
+# ---------------------------------------------------------------------------
+
+# The plugin ships through the marketplace, not through this package. The wheel
+# carries the oracles; the marketplace carries the skills that call them. So
+# install means "point the tool at the published marketplace" — never copying
+# files out of this install, which would fork the skills from the ones the
+# marketplace serves and let the two drift.
+_PLUGIN_MARKETPLACE_REPO = "griddynamics/specflow"
+# Name declared by .claude-plugin/marketplace.json, not the repo name.
+_PLUGIN_MARKETPLACE_NAME = "specflow-marketplace"
+_PLUGIN_NAME = "specflow"
+_DEFAULT_PLUGIN_TARGET = "claude"
+_PLUGIN_TARGETS = {_DEFAULT_PLUGIN_TARGET}
+
+
+def _plugin_install_steps(target: str) -> list[list[str]]:
+    """The commands that install the published plugin into ``target``."""
+    if target != "claude":  # pragma: no cover - argparse restricts the choices
+        raise ValueError(f"Unsupported plugin target: {target!r}")
+    return [
+        [target, "plugin", "marketplace", "add", _PLUGIN_MARKETPLACE_REPO],
+        # Qualified: the user may well have other marketplaces installed.
+        [target, "plugin", "install", f"{_PLUGIN_NAME}@{_PLUGIN_MARKETPLACE_NAME}"],
+    ]
+
+
+def cmd_plugin_install(args: argparse.Namespace) -> int:
+    """Install the published SpecFlow plugin by driving the target tool's own CLI."""
+    target = args.target
+    steps = _plugin_install_steps(target)
+
+    if args.dry_run:
+        for step in steps:
+            print(" ".join(step))
+        return 0
+
+    if shutil.which(target) is None:
+        print(
+            f"'{target}' was not found on PATH, so the plugin cannot be installed.\n"
+            f"Install {target.capitalize()} Code first, then re-run: "
+            f"specflow plugin install --target {target}",
+            file=sys.stderr,
+        )
+        return 1
+
+    for step in steps:
+        print(f"$ {' '.join(step)}")
+        result = subprocess.run(step)
+        if result.returncode != 0:
+            print(
+                f"'{' '.join(step)}' failed with exit code {result.returncode}. "
+                "Nothing further was attempted.",
+                file=sys.stderr,
+            )
+            return result.returncode
+
+    print(
+        f"\nInstalled. The skills call this CLI, which is already on your PATH — "
+        f"that is why they are distributed separately.\n"
+        f"Start with /specflow-analysis, then /specflow-refine."
+    )
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
 
@@ -564,6 +635,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Print planned actions without starting services or seeding",
     )
 
+    p_init.set_defaults(func=cmd_init)
+
     # run-generation
     p_run = subparsers.add_parser("run-generation", help="Upload specs and start code generation")
     p_run.add_argument("--spec-dir", default="specs", help="Spec directory (default: specs)")
@@ -579,7 +652,10 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # check-status
-    subparsers.add_parser("check-status", help="Check progress of a running generation")
+    p_status = subparsers.add_parser("check-status", help="Check progress of a running generation")
+    p_status.set_defaults(func=cmd_check_status)
+
+    p_run.set_defaults(func=cmd_run_generation)
 
     # retry-generation
     p_retry = subparsers.add_parser("retry-generation", help="Retry a failed generation")
@@ -589,6 +665,8 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="generation_id",
         help="Generation ID (default: from specflow_session.json)",
     )
+
+    p_retry.set_defaults(func=cmd_retry_generation)
 
     # download-outputs
     p_dl = subparsers.add_parser(
@@ -606,6 +684,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Local directory to extract outputs into (default: docs)",
     )
 
+    p_dl.set_defaults(func=cmd_download_outputs)
+
     # clear-workspace
     p_clear = subparsers.add_parser(
         "clear-workspace",
@@ -613,6 +693,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     p_clear.add_argument("--set", type=int, required=True, dest="set", help="Set number to clear")
     p_clear.add_argument("--yes", action="store_true", help="Skip confirmation prompt")
+
+    p_clear.set_defaults(func=cmd_clear_workspace)
 
     # sessions
     p_sessions = subparsers.add_parser("sessions", help="List active generation sessions")
@@ -628,6 +710,8 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="SECONDS",
         help="Polling interval in seconds for --watch mode (default: 15)",
     )
+
+    p_sessions.set_defaults(func=cmd_sessions)
 
     # tui
     p_tui = subparsers.add_parser("tui", help="Launch the interactive terminal UI")
@@ -645,6 +729,31 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Status poll interval in seconds (default: 3)",
     )
 
+    p_tui.set_defaults(func=cmd_tui)
+
+    # refine — the whole group registers itself
+    refine_commands.register(subparsers)
+
+    # plugin
+    p_plugin = subparsers.add_parser("plugin", help="Install the SpecFlow plugin into an AI coding tool")
+    plugin_actions = p_plugin.add_subparsers(dest="plugin_command", metavar="ACTION")
+    plugin_actions.required = True
+    p_plugin_install = plugin_actions.add_parser("install", help="Install the published plugin")
+    p_plugin_install.add_argument(
+        "--target",
+        default=_DEFAULT_PLUGIN_TARGET,
+        choices=sorted(_PLUGIN_TARGETS),
+        help=f"Which tool to install into (default: {_DEFAULT_PLUGIN_TARGET})",
+    )
+    p_plugin_install.add_argument(
+        "--dry-run",
+        action="store_true",
+        dest="dry_run",
+        help="Print the commands that would run, without running them",
+    )
+
+    p_plugin_install.set_defaults(func=cmd_plugin_install)
+
     return parser
 
 
@@ -652,24 +761,26 @@ def _build_parser() -> argparse.ArgumentParser:
 # Entry point
 # ---------------------------------------------------------------------------
 
-_COMMAND_MAP = {
-    "init": cmd_init,
-    "run-generation": cmd_run_generation,
-    "check-status": cmd_check_status,
-    "retry-generation": cmd_retry_generation,
-    "download-outputs": cmd_download_outputs,
-    "clear-workspace": cmd_clear_workspace,
-    "sessions": cmd_sessions,
-    "tui": cmd_tui,
-}
+# Commands with no backend to talk to. They skip config resolution, the
+# localhost guard and the env push — not as exceptions to the normal path, but
+# because none of that means anything to them. `init` brings the backend up, so
+# it cannot require one; `refine` and `plugin` never touch it at all.
+_LOCAL_COMMANDS = {"init", "refine", "plugin"}
 
-# Commands that operate on files and print the project root
-_FILE_OPERATING_COMMANDS = {
-    "run-generation",
-    "check-status",
-    "retry-generation",
-    "download-outputs",
-}
+
+def _dispatch(handler: Any, args: argparse.Namespace) -> int:
+    """Run a command handler, awaiting it only if it is actually async.
+
+    Backend commands are coroutines; the local ones are plain functions. Which
+    it is belongs to the handler, not to the caller, so this asks rather than
+    keeping a second list to fall out of step with the first.
+    """
+    try:
+        result = handler(args)
+        return asyncio.run(result) if inspect.isawaitable(result) else result
+    except KeyboardInterrupt:
+        print("\nStopped.")
+        return 0
 
 
 def main() -> None:
@@ -682,17 +793,15 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
-    # `init` brings the backend UP — it must not require a reachable/localhost
-    # backend, and it needs no env-pushed runtime config. Dispatch it directly,
-    # before the localhost guard and config resolution that every other command
-    # runs through.
-    if args.command == "init":
-        try:
-            exit_code = asyncio.run(cmd_init(args))
-        except KeyboardInterrupt:
-            print("\nStopped.")
-            exit_code = 0
-        sys.exit(exit_code)
+    # Every parser carries its own handler. Resolved here rather than from a
+    # module-level table because the table binds function objects at import
+    # time, which silently defeats patching them in tests.
+    handler = args.func
+
+    # Local commands run before any backend config is resolved or guarded —
+    # see _LOCAL_COMMANDS for why that is not an exception but the correct path.
+    if args.command in _LOCAL_COMMANDS:
+        sys.exit(_dispatch(handler, args))
 
     # Determine root early so config resolution can read mcp-config.json
     root = resolve_root(getattr(args, "root_path", None))
@@ -716,13 +825,7 @@ def main() -> None:
     # Push config into env before importing service singletons
     _configure_env(backend_url, user_email)
 
-    handler = _COMMAND_MAP[args.command]
-    try:
-        exit_code = asyncio.run(handler(args))
-    except KeyboardInterrupt:
-        print("\nStopped.")
-        exit_code = 0
-    sys.exit(exit_code)
+    sys.exit(_dispatch(handler, args))
 
 
 if __name__ == "__main__":

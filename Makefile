@@ -317,8 +317,6 @@ unit-tests:
 		uv run pytest test/ -v
 	@echo "🧪 Running MCP server unit tests..."
 	@cd mcp_server && uv run pytest tests/ -v
-	@echo "🧪 Running SpecFlow plugin oracle tests..."
-	@python3 plugins/specflow/lib/tests/test_oracles.py
 	@echo "✅ Unit tests passed"
 
 # Run integration tests (sqlite by default; override DATABASE_TYPE=emulator/firestore)

@@ -17,10 +17,6 @@ that must be both supplied and computed, two entities that each require the
 other to exist first, an endpoint returning a shape nothing defines. Nobody
 writes those deliberately.
 
-```bash
-SF="${CLAUDE_PLUGIN_ROOT:-$(pwd)/plugins/specflow}/lib/specflow_cli.py"
-```
-
 ## What to do
 
 ### 1. Make sure there is a model to work from
@@ -32,7 +28,7 @@ skill validates a model, it does not invent one.
 ### 2. Check the model for contradictions
 
 ```bash
-python3 "$SF" contracts --outputs <outputs_dir>
+specflow refine contracts --outputs <outputs_dir>
 ```
 
 This needs no emitted files. It reports:
@@ -71,7 +67,7 @@ this skill needs no `pip install`.
 ### 4. Cross-check what you emitted
 
 ```bash
-python3 "$SF" contracts --outputs <outputs_dir>
+specflow refine contracts --outputs <outputs_dir>
 ```
 
 The same command as step 2. It picks the emitted files up from the layout once

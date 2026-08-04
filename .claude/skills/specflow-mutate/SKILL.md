@@ -29,10 +29,6 @@ localization is not a pass.
 This is also the regression suite for the whole pipeline. A mutation that stops
 being caught is a concrete bug with a reproducible input.
 
-```bash
-SF="${CLAUDE_PLUGIN_ROOT:-$(pwd)/plugins/specflow}/lib/specflow_cli.py"
-```
-
 ## Available mutations
 
 | Kind | What it does |
@@ -57,7 +53,7 @@ baseline has open blockers, you cannot tell your injected defect from the noise.
 ### 2. Inject one defect
 
 ```bash
-python3 "$SF" mutate apply \
+specflow refine mutate apply \
   --spec-dir specs \
   --into /tmp/specflow-mutation \
   --kind drop_constraint \
@@ -79,7 +75,7 @@ separate `outputs_dir` so you do not overwrite the baseline run.
 ### 4. Verify
 
 ```bash
-python3 "$SF" mutate verify \
+specflow refine mutate verify \
   --outputs /tmp/specflow-mutation/docs \
   --manifest /tmp/specflow-mutation/mutation-manifest.json
 ```

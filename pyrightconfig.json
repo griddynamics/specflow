@@ -1,7 +1,6 @@
 {
   "//": "Import-resolution only. Deliberately does NOT set typeCheckingMode, so backend/ and mcp_server/ keep the defaults they were written against — this file exists solely to tell Pyright where non-installed source roots live.",
   "extraPaths": [
-    "plugins/specflow/lib",
     "backend",
     "mcp_server"
   ]

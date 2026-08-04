@@ -1,39 +1,28 @@
-#!/usr/bin/env python3
-"""Single entry point for every SpecFlow oracle.
+"""``specflow refine`` — the spec-refinement command group.
 
-One dispatcher rather than seven scripts, for a practical reason: a skill has to
-name a path to invoke anything, and that path is the one fragile thing in a
-plugin. Keeping it to one file per skill invocation minimises the surface, and
-Python resolves its own siblings from __file__ regardless of how it was called.
+The oracles themselves live in ``services.oracles`` and stay a pure library:
+functions over plain JSON, no argparse, no IO policy. This module is the only
+place that knows they are reachable from a command line.
 
-Commands the refinement loop actually uses:
+Every command here is **local**. It reads and writes files under the project's
+outputs directory and touches no backend, which is why ``cli.main`` dispatches
+the group without resolving a backend URL or running the localhost guard.
 
-    new-round         allocate the next round directory
-    round             validate, merge, rank, decide whether to stop  <- the workhorse
-    resolve           record a decision so later rounds stop asking
-    status            render current state
-    contracts         check emitted SQL/API against the model
-    check-dimensions  gate the analysis artifact before the loop starts
-    mutate            inject a known defect and verify it gets caught (internal)
-
-Exit codes: 0 success, 1 checks failed, 2 bad usage. The non-zero on failure is
-the point — a skill cannot quietly proceed past a gate that did not pass.
+Exit codes match the rest of the CLI: 0 success, 1 checks failed, 2 bad usage.
+The non-zero on failure is the point — a skill cannot quietly proceed past a
+gate that did not pass, and that guarantee is the reason these are scripts
+rather than instructions.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import sys
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-# Skills invoke this by absolute path from any working directory, so make the
-# sibling package importable before importing it.
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from specflow import (  # noqa: E402  (must follow the sys.path bootstrap)
+from services.oracles import (
     artifacts,
     concordance,
     contracts,
@@ -42,9 +31,13 @@ from specflow import (  # noqa: E402  (must follow the sys.path bootstrap)
     saturation,
     totality,
 )
-from specflow.jsonschema_mini import validate_as  # noqa: E402
+from services.oracles.jsonschema_mini import default_store, validate_as
+
+# Schema ids are "specflow/<name>"; these are the names a skill may ask for.
+SCHEMA_NAMES = ("interpretation", "dimensions", "blocker")
 
 EXIT_OK, EXIT_FAILED, EXIT_USAGE = 0, 1, 2
+
 
 
 def _emit(payload: dict[str, Any], as_json: bool, human: str) -> None:
@@ -468,29 +461,58 @@ def cmd_check_dimensions(args: argparse.Namespace) -> int:
     return EXIT_OK if ok else EXIT_FAILED
 
 
+# ---------------------------------------------------------------- schema
+
+def cmd_schema(args: argparse.Namespace) -> int:
+    """Print an artifact schema.
+
+    The schemas are the contract where prose and code meet: a subagent is told
+    to fill this structure, and the oracles check that it did. Since they now
+    ship inside the wheel, a skill cannot name a path to one — so the CLI hands
+    them out, and there is still exactly one copy.
+    """
+    store = default_store()
+    schema_id = f"specflow/{args.name}"
+    print(json.dumps(store.get(schema_id), indent=2, ensure_ascii=False))
+    return EXIT_OK
+
+
 # ---------------------------------------------------------------- parser
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="specflow",
-        description="Deterministic oracles for the SpecFlow refinement loop.",
-    )
-    parser.add_argument("--json", action="store_true", help="machine-readable output")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+def register(subparsers: argparse._SubParsersAction) -> None:
+    """Attach the ``refine`` group to the host CLI's subparsers.
 
-    def with_outputs(sub: argparse.ArgumentParser) -> argparse.ArgumentParser:
-        sub.add_argument("--outputs", default="docs", help="outputs dir (default: docs)")
+    Nested rather than flat: ``status`` and ``resolve`` are far too generic at
+    the top level, and ``status`` would sit confusingly next to the existing
+    ``check-status``, which reports on something else entirely.
+    """
+    refine = subparsers.add_parser(
+        "refine",
+        help="Spec refinement — simulate the build, find what the spec does not determine",
+        description=(
+            "Local spec refinement. Independent lenses simulate building the spec, "
+            "these commands adjudicate what they disagree about."
+        ),
+    )
+    commands = refine.add_subparsers(dest="refine_command", metavar="COMMAND")
+    commands.required = True
+
+    def leaf(name: str, help_text: str, *, outputs: bool = True) -> argparse.ArgumentParser:
+        sub = commands.add_parser(name, help=help_text)
+        if outputs:
+            sub.add_argument("--outputs", default="docs", help="outputs dir (default: docs)")
+        sub.add_argument("--json", action="store_true", help="machine-readable output")
         return sub
 
-    new_round = with_outputs(subparsers.add_parser("new-round", help="allocate the next round"))
+    new_round = leaf("new-round", "allocate the next round directory")
     new_round.add_argument("--lens", nargs="*", default=[], help="lens names expected this round")
     new_round.set_defaults(func=cmd_new_round)
 
-    validate = with_outputs(subparsers.add_parser("validate", help="schema + totality only"))
+    validate = leaf("validate", "schema + totality only")
     validate.add_argument("--round", type=int)
     validate.set_defaults(func=cmd_validate)
 
-    round_cmd = with_outputs(subparsers.add_parser("round", help="validate, merge, rank, decide"))
+    round_cmd = leaf("round", "validate, merge, rank, decide")
     round_cmd.add_argument("--round", type=int)
     round_cmd.add_argument(
         "--consecutive", type=int, default=1,
@@ -498,7 +520,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     round_cmd.set_defaults(func=cmd_round)
 
-    resolve = with_outputs(subparsers.add_parser("resolve", help="record a decision"))
+    resolve = leaf("resolve", "record a decision")
     resolve.add_argument("--id", required=True, help="blocker id")
     resolve.add_argument("--choice", required=True, help="the chosen option label")
     resolve.add_argument("--applied-to", nargs="*", help="spec files updated")
@@ -508,50 +530,38 @@ def build_parser() -> argparse.ArgumentParser:
     )
     resolve.set_defaults(func=cmd_resolve)
 
-    status = with_outputs(subparsers.add_parser("status", help="current refinement state"))
-    status.set_defaults(func=cmd_status)
+    leaf("status", "current refinement state").set_defaults(func=cmd_status)
 
-    contracts_cmd = with_outputs(subparsers.add_parser("contracts", help="check the model and emitted artifacts"))
+    contracts_cmd = leaf("contracts", "check the model and emitted artifacts")
     contracts_cmd.add_argument("--round", type=int)
     contracts_cmd.add_argument("--sql", help="emitted DDL file (default: the layout's schema.sql)")
     contracts_cmd.add_argument("--api", help="emitted API contract JSON (default: the layout's api.json)")
     contracts_cmd.set_defaults(func=cmd_contracts)
 
-    check_dimensions = with_outputs(
-        subparsers.add_parser("check-dimensions", help="schema + evasion check on the analysis artifact")
-    )
-    check_dimensions.set_defaults(func=cmd_check_dimensions)
+    leaf(
+        "check-dimensions", "schema + evasion check on the analysis artifact"
+    ).set_defaults(func=cmd_check_dimensions)
 
-    mutate_cmd = subparsers.add_parser("mutate", help="inject a defect and verify detection")
-    mutate_subs = mutate_cmd.add_subparsers(dest="mutate_command", required=True)
+    schema = commands.add_parser("schema", help="print an artifact schema")
+    schema.add_argument("name", choices=SCHEMA_NAMES, help="which schema to print")
+    schema.set_defaults(func=cmd_schema)
+
+    mutate_cmd = commands.add_parser(
+        "mutate", help="inject a known defect and verify it gets caught (internal QA)"
+    )
+    mutate_subs = mutate_cmd.add_subparsers(dest="mutate_command", metavar="ACTION")
+    mutate_subs.required = True
 
     apply_cmd = mutate_subs.add_parser("apply")
     apply_cmd.add_argument("--spec-dir", required=True)
     apply_cmd.add_argument("--into", required=True, help="destination for the mutated copy")
     apply_cmd.add_argument("--kind", required=True, choices=list(mutate.MUTATIONS))
     apply_cmd.add_argument("--index", type=int, default=0, help="which eligible line (deterministic)")
+    apply_cmd.add_argument("--json", action="store_true", help="machine-readable output")
     apply_cmd.set_defaults(func=cmd_mutate_apply)
 
-    verify_cmd = with_outputs(mutate_subs.add_parser("verify"))
+    verify_cmd = mutate_subs.add_parser("verify")
+    verify_cmd.add_argument("--outputs", default="docs", help="outputs dir (default: docs)")
     verify_cmd.add_argument("--manifest", required=True)
+    verify_cmd.add_argument("--json", action="store_true", help="machine-readable output")
     verify_cmd.set_defaults(func=cmd_mutate_verify)
-
-    return parser
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    try:
-        return args.func(args)
-    except (FileNotFoundError, ValueError, RuntimeError, KeyError) as exc:
-        message = str(exc).strip("'")
-        if args.json:
-            print(json.dumps({"error": message}, indent=2))
-        else:
-            print(f"error: {message}", file=sys.stderr)
-        return EXIT_USAGE
-
-
-if __name__ == "__main__":
-    sys.exit(main())

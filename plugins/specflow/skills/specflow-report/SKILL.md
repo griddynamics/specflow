@@ -10,8 +10,7 @@ Render the current state of refinement. Read-only: this skill runs no lenses and
 changes nothing.
 
 ```bash
-SF="${CLAUDE_PLUGIN_ROOT:-$(pwd)/plugins/specflow}/lib/specflow_cli.py"
-python3 "$SF" status --outputs <outputs_dir> --json
+specflow refine status --outputs <outputs_dir> --json
 ```
 
 That payload carries everything below — the `ask` and `assume` lists, the located

@@ -21,10 +21,6 @@ decisions, and fixes written back into the spec — use `/specflow-refine`.
 - `spec_dir` — default `specs`.
 - `outputs_dir` — default `docs`.
 
-```bash
-SF="${CLAUDE_PLUGIN_ROOT:-$(pwd)/plugins/specflow}/lib/specflow_cli.py"
-```
-
 ## What to do
 
 1. **Read the lens.** Load `../specflow-refine/lenses/<lens>.md` from the
@@ -34,14 +30,14 @@ SF="${CLAUDE_PLUGIN_ROOT:-$(pwd)/plugins/specflow}/lib/specflow_cli.py"
 2. **Allocate a round.**
 
    ```bash
-   python3 "$SF" new-round --outputs <outputs_dir> --lens <lens>
+   specflow refine new-round --outputs <outputs_dir> --lens <lens>
    ```
 
 3. **Simulate the build yourself** — no subagent needed for a single lens. Read
    the spec, work through the lens's questions, and write one artifact to
    `<round dir>/interpretation.<lens>.json` following the contract in
    `/specflow-refine` (§ The artifact contract). The schema is at
-   `lib/specflow/schema/interpretation.schema.json`.
+   `specflow refine schema interpretation`.
 
    The structure is the point. You are filling a state transition matrix and a
    typed data model, not writing a list of concerns — a prose list is partial by
@@ -53,7 +49,7 @@ SF="${CLAUDE_PLUGIN_ROOT:-$(pwd)/plugins/specflow}/lib/specflow_cli.py"
 4. **Check it.**
 
    ```bash
-   python3 "$SF" round --outputs <outputs_dir>
+   specflow refine round --outputs <outputs_dir>
    ```
 
    Non-zero exit means your artifact is not total. It prints exactly what is

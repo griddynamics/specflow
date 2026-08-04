@@ -9,10 +9,6 @@ argument-hint: "(optional) spec_dir outputs_dir src_dir — defaults: specs docs
 You are a senior engineer turning a specification into a phased implementation
 plan.
 
-```bash
-SF="${CLAUDE_PLUGIN_ROOT:-$(pwd)/plugins/specflow}/lib/specflow_cli.py"
-```
-
 ## Run this last, not first
 
 A plan is downstream of the spec. If the spec is ambiguous, the plan is **one
@@ -29,7 +25,7 @@ So the order matters:
 Before you start, check the refinement state:
 
 ```bash
-python3 "$SF" status --outputs <outputs_dir>
+specflow refine status --outputs <outputs_dir>
 ```
 
 - **Converged** — good. Build the plan; the spec's ambiguities have been settled

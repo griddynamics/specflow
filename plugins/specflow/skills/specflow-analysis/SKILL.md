@@ -11,10 +11,6 @@ to build from. Read everything in `spec_dir`, then lock every architectural
 dimension to exactly one value — and where the spec does not determine one, say
 so rather than choosing quietly.
 
-```bash
-SF="${CLAUDE_PLUGIN_ROOT:-$(pwd)/plugins/specflow}/lib/specflow_cli.py"
-```
-
 ## Arguments
 
 - `spec_dir` — default `specs`
@@ -23,8 +19,8 @@ SF="${CLAUDE_PLUGIN_ROOT:-$(pwd)/plugins/specflow}/lib/specflow_cli.py"
 
 ## The dimensions framework lives in the schema
 
-`lib/specflow/schema/dimensions.schema.json` in this plugin is the **single
-source of truth** for what must be decided. Read it before you start. It defines:
+`specflow refine schema dimensions` prints the **single source of truth** for
+what must be decided. Read it before you start. It defines:
 
 - **Part A** — six universal dimensions, mandatory for every project, each locked
   to exactly one value: persistence, infrastructure complexity, scale target,
@@ -85,7 +81,7 @@ merely readable.
 ### 4. Check your own work
 
 ```bash
-python3 "$SF" check-dimensions --outputs <outputs_dir>
+specflow refine check-dimensions --outputs <outputs_dir>
 ```
 
 This runs the schema and the evasion rule from step 2 — the same check the

@@ -52,10 +52,13 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 py-modules = ["server", "cli"]
-packages = ["services", "services.skills", "schemas", "tui"]
+packages = ["services", "services.skills", "services.oracles", "schemas", "tui"]
 
 [tool.setuptools.package-data]
 "services.skills" = ["**/*.md"]
+# The refinement schemas are the artifact contract the oracles validate against
+# and the structure subagents are told to fill. They must ship with the wheel.
+"services.oracles" = ["schema/*.json"]
 
 [dependency-groups]
 dev = [

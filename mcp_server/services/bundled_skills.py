@@ -9,6 +9,20 @@ Diagnose and compare-variants remain `@mcp.prompt()` slash commands.
 Source of truth: services/skills/{name}/SKILL.md — included as package
 data so skills are available after pip install, not just from the repo.
 
+Scope of that claim: these files are the source of truth for the **1.0 backend
+flow only**. `plugins/specflow/skills/` holds separate, deliberately unshared
+copies of `specflow-analysis` and `specflow-planning` for the 2.0 local
+refinement loop.
+
+Those two paths used to be symlinks into this directory, which was right while
+both channels served the same flow. They no longer do. The files here are
+templates carrying `<<SPEC_DIR>>` substitution tokens, returned as MCP tool
+responses to drive `run_generation`; the plugin copies are Claude Code skills
+that shell out to `specflow refine ...` and drive the local loop. Same names,
+different workflows, incompatible formats — so re-linking them would hand
+backend-flow users instructions for the other product. Edit the two sets
+independently, and expect them to converge only when one flow is retired.
+
 Only user-facing skills are bundled here. Developer skills (specflow-backport,
 deploy-requirements) live in .claude/skills/ as repo-local slash commands
 for SpecFlow engineers and are not distributed via the MCP server.
