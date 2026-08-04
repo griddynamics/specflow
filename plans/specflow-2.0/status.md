@@ -48,6 +48,61 @@ blocker merging with attribution, and `resolutions.json` so a decision already
 made stops being re-asked. That last one is a fact about the user's input, not a
 claim about coverage, which is why it stayed.
 
+## 1a. What building gave us, and what actually replaces it
+
+The question this design has to answer: 1.0 found gaps by **building the app**,
+which surfaced decisions nobody knew existed when they read the spec. Reading
+cannot do that by default. Building was five separate instruments, and they are
+recovered at very different rates — worth keeping separate, because collapsing them
+into "we replaced building" is how the claim becomes dishonest.
+
+| Building gave | What replaces it | Recovered |
+|---|---|---|
+| **Enumeration by machine.** A compiler never had to be told which decisions existed — it walked the graph and stopped at each one. | **Per-lens matrices** (new here): each lens names its own rows and columns before answering, then must account for every intersection. Six lenses declare six cross-products from six angles. Plus the **shared grid**, which is narrower but comparable across lenses. | ~ mostly |
+| **Composition failure.** Two decisions each fine, incompatible once both are instantiated. | The **coherence pass**: reads all six readings, asks which two answers cannot both be true. | ~ partly |
+| **Dependency depth.** Hour-six decisions exist only because of hour-two decisions. | **Round two seeded with your resolutions**, so it reaches questions that exist only downstream of the last answers. | ~ partly |
+| **Contradiction by impossibility.** You literally cannot write the code. | Nothing. A lens can *argue* two requirements conflict; nothing here fails to compile. | ✗ |
+| **Runtime discovery.** Only true when data flows. | Nothing, and nothing short of building recovers it. | ✗ |
+
+**The matrix is the load-bearing addition, and the distinction from the deleted
+gate matters.** The gate scored an agent against axes the agent itself had
+declared, so it was gameable — declare fewer axes, pass. The matrix declares axes
+too, but nothing passes or fails: unfilled cells are counted and printed, and the
+value is in the *asking*. A cross-product cell exists whether or not anyone wants
+to answer it, which is precisely the property prose lacks.
+
+Three outcomes per cell, and the middle one is why the mechanism earns its place:
+
+- **answered** (with `guessed` where the spec did not supply it),
+- **`unanswerable`** — the lens reached the cell, could not answer, and said why.
+  A question the spec's own vocabulary forced into existence and cannot settle.
+  This is the closest thing here to what building used to surface, and it needs no
+  second lens to corroborate it: "this intersection has no answer" is a fact about
+  the spec, not an opinion about it.
+- **missing** — enumerated and never returned to. A hole in the *reading*, not the
+  spec, reported as such so it is not mistaken for a finding.
+
+Each lens is also told to work in **three passes**: enumerate the axes answering
+nothing, fill every intersection, then re-read its own matrix and account for every
+remaining cell. The ordering is the point — a lens that answers while enumerating
+only lists cases it can already handle.
+
+**Bounds worth stating.** The union of six lens-chosen cross-products is wider than
+one shared grid but still not machine enumeration: a decision no lens's axes reach
+stays invisible, and no count here reveals that. Matrices are also never merged
+across lenses, because aligning one lens's "seat hold" with another's "reservation"
+would take a similarity threshold — a judgment, and not one belonging in code. The
+skill compares them by eye; the free-form `decisions` array is what catches
+cross-lens divergence.
+
+**Still missing, and cheap.** Contract oracles (`specflow-contracts`, plan §5,
+unbuilt) would recover *contradiction by impossibility* without building the app:
+generate real SQL DDL, OpenAPI or type definitions from the spec and run real
+validators, which reject things prose can express and a schema cannot. Generating
+the **acceptance tests** rather than the implementation would force the same
+"what does it do when X" enumeration, and a requirement you cannot write a test for
+is itself the finding.
+
 ## 2. The plan document is half-superseded
 
 `specflow-plugin-plan.md` was committed in the same branch as the code that

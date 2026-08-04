@@ -36,25 +36,37 @@ your spec disagreed, and here is what the agent concluded from that.
 
 ## What replaces building
 
-SpecFlow 1.0 found gaps by building the system — hours per variant. That worked
-because a compiler will not accept half a decision. Reading forces nothing, so a
-round restores the forcing three cheaper ways:
+SpecFlow 1.0 found gaps by building the system — hours per variant. That worked for
+one reason: a compiler never had to be told which decisions existed. It walked the
+graph and stopped at every undecided thing. Reading a spec walks nothing, and a
+paragraph can omit a case without looking incomplete.
 
-- **A grid.** One pass enumerates the decisions the spec implies — states ×
-  events, roles × resources, fields that can be absent — before anyone answers
-  them. Every lens fills the same cells. A cell nobody filled is a gap you can
-  count; a cell every lens filled *by guessing* is agreement that is not
-  evidence, and neither one shows up as a disagreement.
+Four things restore that forcing, in order of how much they recover:
+
+- **Each lens's own matrix.** Before answering anything, a lens names its rows and
+  columns — held resources × colliding operations, entities × lifecycle events,
+  operations × who is calling — and then must account for **every intersection**. A
+  cell exists whether or not anyone wants to answer it. A cell the lens reaches and
+  cannot answer, with a reason, is the single most useful thing this loop produces.
+  Six lenses declare six different cross-products, so a case invisible from one
+  angle is often forced by another.
+- **A shared grid.** One pass enumerates decisions for *all* lenses, so those cells
+  are comparable across readings — narrower than the matrices, but the only thing
+  here with a denominator. A cell nobody filled is a countable gap; a cell every
+  lens filled *by guessing* is agreement that is not evidence.
 - **A coherence pass.** After the lenses finish, one agent asks whether their
-  answers can all be true at once. Disagreement finds gaps but never finds
-  lenses that agreed and were jointly wrong; building found those when the code
-  did not run.
-- **The next round.** Seeded with your resolutions, so it reaches the questions
-  that exist only because of how you answered the last ones.
+  answers can all be true at once. Disagreement finds gaps but never finds lenses
+  that agreed and were jointly wrong; building found those when the code did not
+  run.
+- **The next round.** Seeded with your resolutions, so it reaches the questions that
+  exist only because of how you answered the last ones.
 
-None of it executes anything, so none of it disproves anything. For the one
-decision that is expensive, irreversible, and split, the skill tells you to spike
-it — half an hour of real code, not eight hours of it.
+**None of it executes anything.** A matrix forces the *question* to exist; only
+running code proves an answer wrong. So this cannot find what appears when data
+flows, and it cannot show a decision is impossible — a lens can argue two
+requirements conflict, but nothing here fails to compile. For the one decision that
+is expensive, irreversible, and split, the skill tells you to spike it: half an hour
+of real code, not eight hours of it.
 
 ## Install
 

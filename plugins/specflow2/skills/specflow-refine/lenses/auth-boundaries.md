@@ -24,6 +24,25 @@ Work through the spec asking:
 - Which fields may the caller set, and which are server-controlled? A caller who
   can write `role` or `price` has an authorization bug, not a validation bug.
 
+## The matrix to fill
+
+Name the axes before you answer anything, then put something in every cell.
+
+- **rows** — every operation the spec describes. Every one, including the ones
+  that read like plumbing; this lens exists because specs name roles once and then
+  describe features as though the caller is always entitled.
+- **cols** — the caller's relationship to the data being touched: *owns it*,
+  *same organisation or team*, *different tenant*, *unauthenticated*, *another
+  service*, *an operator or support user*.
+
+Each cell says allowed or refused, **and what a refusal looks like** — 403, 404 to
+avoid leaking existence, or a filtered result. Those are different decisions and
+the spec usually makes none of them.
+
+A cell you cannot answer is the finding. Write `unanswerable` with the reason, for
+example *the spec never says whether support staff are a role or an escalation, so
+this row has no defined answer*.
+
 ## What counts as a blocker here
 
 The spec is missing a decision wherever an operation touches data it does not

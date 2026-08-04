@@ -20,6 +20,24 @@ others. Work through the spec asking:
 - What does the user see mid-failure? A spinner that never resolves is a
   specified behaviour if nobody chose otherwise.
 
+## The matrix to fill
+
+Name the axes before you answer anything, then put something in every cell.
+
+- **rows** — every operation that touches more than one place: two tables, a table
+  and a queue, a database and an external provider.
+- **cols** — where it stopped: *after the first write*, *after the external call
+  but before recording it*, *after the external call succeeded but the response was
+  lost*, *while writing the failure record itself*.
+
+Each cell describes the state of the world and answers one thing: **can the system
+recognise it later, and recover?** A state nothing can detect is worse than a
+crash.
+
+A cell you cannot answer is the finding. Write `unanswerable` with the reason, for
+example *the spec describes no record of this step having started, so this state is
+indistinguishable from never having been attempted*.
+
 ## What counts as a blocker here
 
 The spec is missing a decision wherever an operation can leave the system in a

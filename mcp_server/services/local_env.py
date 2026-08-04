@@ -170,14 +170,7 @@ def resolve_repo_root(start: Path | None = None) -> Path | None:
 
 
 def resolve_project_root(root_path_arg: str | Path | None) -> Path:
-    """Return the absolute project root the CLI's ``--root-path`` names.
-
-    Distinct from ``resolve_repo_root`` above: that one hunts for the SpecFlow
-    *checkout* the self-host bootstrap needs, this one is simply "the user's
-    project", defaulting to cwd. Lives here rather than in ``cli`` so the command
-    groups registered from ``services/`` can honour the same flag without
-    importing their host back.
-    """
+    """The user's project root from ``--root-path``, default cwd. Not ``resolve_repo_root``."""
     if root_path_arg:
         return Path(root_path_arg).expanduser().resolve()
     return Path.cwd().resolve()

@@ -23,6 +23,24 @@ Work through the spec asking:
 - What is the retention obligation? If the spec mentions personal data at all,
   deletion and export are requirements, not features.
 
+## The matrix to fill
+
+Name the axes before you answer anything, then put something in every cell.
+
+- **rows** — every entity the spec names, including the ones it mentions only in
+  passing as a field on something else.
+- **cols** — the events that reach it after creation: *updated*, *the thing it
+  references is deleted*, *it is deleted while referenced*, *retention window
+  expires*, *a subject asks for export or erasure*, *restored from a backup taken
+  before a schema change*.
+
+Each cell says what happens to the data. "Kept forever" is a valid answer only
+where someone chose it; if you are inferring it from silence, that is a guess.
+
+A cell you cannot answer is the finding. Write `unanswerable` with the reason, for
+example *the spec sets no retention period for this entity and it carries personal
+data, so the expiry column has no answer at all*.
+
 ## What counts as a blocker here
 
 The spec is missing a decision wherever an entity has no defined end of life, or

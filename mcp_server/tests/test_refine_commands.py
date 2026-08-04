@@ -1,16 +1,3 @@
-"""Tests for the ``specflow refine`` command group.
-
-These cover the promises the commands make to the *skills that call them*: the
-documented exit codes, the payload keys a skill reads, and the fact that a
-re-run of the same round is not mistaken for a second round. The comparison
-itself is tested in ``test_refine.py``.
-
-Every command is driven through the real parser rather than by calling handlers
-directly, because two of the fixes here live in the wiring — the usage-error
-wrapper and ``--root-path`` resolution — and a handler-level call would skip
-both.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -25,9 +12,7 @@ from typing import Any
 from services import refine_artifacts as artifacts
 from services import refine_commands
 
-
 def run(*argv: str) -> tuple[int, str]:
-    """Parse and dispatch as ``cli.main`` does, capturing stdout."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--root-path", default=None)
     subparsers = parser.add_subparsers(dest="command")
@@ -40,10 +25,8 @@ def run(*argv: str) -> tuple[int, str]:
         code = args.func(args)
     return code, buffer.getvalue()
 
-
 def reading(lens: str, **fields: Any) -> dict[str, Any]:
     return {"lens": lens, "decisions": [], "blockers": [], **fields}
-
 
 def blocker(identifier: str, *, where: str = "specs/orders.md#Checkout") -> dict[str, Any]:
     return {
@@ -55,10 +38,7 @@ def blocker(identifier: str, *, where: str = "specs/orders.md#Checkout") -> dict
         "recommended": "opt0",
     }
 
-
 class TestUsageErrors(unittest.TestCase):
-    """"Exit codes: 0 success, 2 bad usage" is promised in help text and README."""
-
     def test_round_with_no_rounds_yet_exits_two_with_a_message(self):
         with tempfile.TemporaryDirectory() as tmp:
             code, output = run("refine", "round", "--outputs", tmp)
@@ -66,7 +46,6 @@ class TestUsageErrors(unittest.TestCase):
             self.assertIn("new-round", output)
 
     def test_round_with_no_readings_exits_two_with_a_message(self):
-        """The likeliest real failure: a lens subagent never wrote its file."""
         with tempfile.TemporaryDirectory() as tmp:
             layout = artifacts.layout_for(tmp)
             layout.round_dir(1).mkdir(parents=True)
@@ -85,7 +64,6 @@ class TestUsageErrors(unittest.TestCase):
             self.assertIn("reading.ordering.json", output)
 
     def test_one_unparseable_reading_does_not_cost_the_other_lenses(self):
-        """Five good readings must not be thrown away over one truncated write."""
         with tempfile.TemporaryDirectory() as tmp:
             layout = artifacts.layout_for(tmp)
             artifacts.write_json(
@@ -115,10 +93,7 @@ class TestUsageErrors(unittest.TestCase):
             self.assertEqual(code, refine_commands.EXIT_USAGE)
             self.assertIn("error", json.loads(output))
 
-
 class TestRootPath(unittest.TestCase):
-    """The host CLI's global ``--root-path`` reaches this group too."""
-
     def test_outputs_is_resolved_against_root_path(self):
         with tempfile.TemporaryDirectory() as tmp:
             code, output = run("--root-path", tmp, "refine", "new-round", "--outputs", "docs")
@@ -145,16 +120,7 @@ class TestRootPath(unittest.TestCase):
             self.assertEqual(code, refine_commands.EXIT_OK)
             self.assertIn(tmp, output)
 
-
 class TestNoStopRule(unittest.TestCase):
-    """`round` reports what it compared and passes no verdict on the loop.
-
-    A previous version diffed each round against the previous ones, and the skill
-    read "nothing new" as convergence. That inference is unsupported — `new == 0`
-    is equally consistent with lenses that found less this round — so the diff,
-    its counts, and the ledger behind it are gone. These tests keep them gone.
-    """
-
     def test_the_payload_carries_no_novelty_or_stop_signal(self):
         with tempfile.TemporaryDirectory() as tmp:
             layout = artifacts.layout_for(tmp)
@@ -194,10 +160,7 @@ class TestNoStopRule(unittest.TestCase):
             second = json.loads(run("refine", "round", "--outputs", tmp, "--json")[1])
             self.assertEqual(first, second)
 
-
 class TestPayload(unittest.TestCase):
-    """Keys the skills read. Adding one is fine; renaming one breaks a skill."""
-
     def test_round_payload_carries_the_keys_the_skills_read(self):
         with tempfile.TemporaryDirectory() as tmp:
             layout = artifacts.layout_for(tmp)
@@ -205,10 +168,47 @@ class TestPayload(unittest.TestCase):
             payload = json.loads(run("refine", "round", "--outputs", tmp, "--json")[1])
             for key in (
                 "round", "lenses", "lens_count", "readings_total", "counts",
-                "disagreements", "blockers", "coverage",
+                "disagreements", "blockers", "coverage", "matrices",
                 "incomplete_readings", "notes", "findings_path",
             ):
                 self.assertIn(key, payload)
+
+    def test_a_matrix_cell_the_spec_cannot_answer_reaches_the_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            layout = artifacts.layout_for(tmp)
+            artifacts.write_json(layout.reading_path(1, "concurrency"), reading(
+                "concurrency",
+                matrices=[{
+                    "name": "held resource × collision",
+                    "rows": ["seat hold"],
+                    "cols": ["second claim", "timer expiry"],
+                    "cells": [{
+                        "row": "seat hold", "col": "second claim",
+                        "unanswerable": "nobody owns the timer",
+                    }],
+                }],
+            ))
+            code, output = run("refine", "round", "--outputs", tmp)
+            self.assertEqual(code, refine_commands.EXIT_OK)
+            self.assertIn("0/2 answered", output)
+            self.assertIn("spec cannot say", output)
+            self.assertIn("nobody owns the timer", output)
+            self.assertIn("never filled", output)
+
+            payload = json.loads(run("refine", "round", "--outputs", tmp, "--json")[1])
+            self.assertEqual(payload["counts"]["matrix_unanswerable"], 1)
+            self.assertEqual(payload["counts"]["matrix_skipped"], 1)
+
+    def test_status_reports_the_matrix_counts_back(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            layout = artifacts.layout_for(tmp)
+            artifacts.write_json(layout.reading_path(1, "a"), reading("a", matrices=[{
+                "name": "m", "rows": ["r"], "cols": ["c"], "cells": [],
+            }]))
+            run("refine", "round", "--outputs", tmp, "--json")
+            code, output = run("refine", "status", "--outputs", tmp)
+            self.assertEqual(code, refine_commands.EXIT_OK)
+            self.assertIn("Lens skipped     1 matrix cell(s)", output)
 
     def test_a_partial_round_says_so_in_the_headline_and_at_the_end(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -231,8 +231,6 @@ class TestPayload(unittest.TestCase):
             self.assertEqual([b["id"] for b in findings["blockers"]], ["expiry"])
 
     def test_status_drops_a_blocker_resolved_since_the_last_round(self):
-        """`/specflow-resolve` reads this right after recording one; a stale count
-        is how the loop re-asks a decision it was just told to stop asking."""
         with tempfile.TemporaryDirectory() as tmp:
             layout = artifacts.layout_for(tmp)
             artifacts.write_json(
@@ -255,7 +253,6 @@ class TestPayload(unittest.TestCase):
             code, output = run(*args)
             self.assertEqual(code, refine_commands.EXIT_USAGE)
             self.assertIn("already resolved", output)
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

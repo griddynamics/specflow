@@ -1,0 +1,283 @@
+<title>SpecFlow 2.0 — how spec gaps get found</title>
+
+<style>
+  :root {
+    color-scheme: light;
+    --paper: #f4f7f8; --card: #ffffff;
+    --ink: #101a20; --ink-2: #4a5d68; --ink-3: #83959f;
+    --rule: #d3dee3; --rule-firm: #a9bcc4;
+    --accent: #14657f; --accent-wash: #e3eff3;
+    --diverge: #a83c26; --forced: #1f6b53; --unfilled: #6b4f9e; --guessed: #8e6410;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --paper: #0c1418; --card: #142127;
+      --ink: #e6eef1; --ink-2: #a2b4bd; --ink-3: #708490;
+      --rule: #24343c; --rule-firm: #3d525d;
+      --accent: #55b9d6; --accent-wash: #16303a;
+      --diverge: #ea8871; --forced: #4fc79b; --unfilled: #b599ec; --guessed: #e0b34f;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --paper: #0c1418; --card: #142127;
+    --ink: #e6eef1; --ink-2: #a2b4bd; --ink-3: #708490;
+    --rule: #24343c; --rule-firm: #3d525d;
+    --accent: #55b9d6; --accent-wash: #16303a;
+    --diverge: #ea8871; --forced: #4fc79b; --unfilled: #b599ec; --guessed: #e0b34f;
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --paper: #f4f7f8; --card: #ffffff;
+    --ink: #101a20; --ink-2: #4a5d68; --ink-3: #83959f;
+    --rule: #d3dee3; --rule-firm: #a9bcc4;
+    --accent: #14657f; --accent-wash: #e3eff3;
+    --diverge: #a83c26; --forced: #1f6b53; --unfilled: #6b4f9e; --guessed: #8e6410;
+  }
+
+  .page {
+    box-sizing: border-box; min-height: 100dvh;
+    background: var(--paper); color: var(--ink);
+    font-family: var(--sans);
+    font-size: clamp(13px, .4vw + 11.6px, 15.5px); line-height: 1.4;
+    padding: clamp(20px, 2.4vw, 36px) clamp(20px, 3vw, 46px);
+    display: flex; flex-direction: column; gap: clamp(16px, 2vw, 26px);
+  }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: .72em; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--ink-3); margin: 0 0 .45em;
+  }
+  h1 {
+    font-family: var(--mono); font-weight: 600;
+    font-size: clamp(1.15rem, 1.6vw, 1.5rem);
+    letter-spacing: -.015em; line-height: 1.2; margin: 0; text-wrap: balance;
+  }
+  h1 em { font-style: normal; color: var(--diverge); }
+  header { border-bottom: 1px solid var(--rule); padding-bottom: clamp(13px, 1.5vw, 18px); }
+
+  h2 {
+    font-family: var(--mono); font-size: .72em; font-weight: 600;
+    letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3);
+    margin: 0 0 1em;
+  }
+
+  .body { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, .82fr); gap: clamp(22px, 3.4vw, 56px); }
+
+  /* ── flow ─────────────────────────────────────────────── */
+  .flow { display: flex; flex-direction: column; gap: 0; }
+  .node {
+    display: grid; grid-template-columns: 2.3em 1fr; align-items: center;
+    gap: 0 .9em;
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--edge);
+    border-radius: 4px;
+    padding: .62em .8em;
+  }
+  .code  { --edge: var(--accent); }
+  .model { --edge: var(--rule-firm); }
+
+  .node .n {
+    font-family: var(--mono); font-size: .72em; letter-spacing: .06em;
+    color: var(--ink-3); text-transform: uppercase;
+  }
+  .node .t { font-weight: 600; }
+  .node .t small {
+    display: block; font-weight: 400; font-size: .84em; color: var(--ink-2);
+    margin-top: .1em;
+  }
+  .arrow {
+    height: 1.15em; margin-left: calc(2.3em / 2 + .8em);
+    border-left: 1px solid var(--rule-firm);
+  }
+
+  .parallel {
+    display: flex; flex-wrap: wrap; gap: .3em;
+    font-family: var(--mono); font-size: .74em;
+  }
+  .parallel b {
+    font-weight: 400; color: var(--accent);
+    background: var(--accent-wash); border-radius: 3px; padding: .12em .45em;
+  }
+
+  .loop {
+    margin-top: .7em; font-size: .93em; color: var(--ink-2);
+    border-top: 1px dashed var(--rule-firm); padding-top: .7em;
+  }
+  .loop b { color: var(--ink); }
+
+  .key {
+    display: flex; gap: 1.3em; margin-top: .9em;
+    font-family: var(--mono); font-size: .72em; color: var(--ink-3);
+  }
+  .key i { display: inline-block; width: .9em; height: .9em; border-radius: 2px; vertical-align: -.1em; margin-right: .45em; }
+
+  /* ── signals ──────────────────────────────────────────── */
+  .out { display: flex; flex-direction: column; gap: clamp(10px, 1.2vw, 15px); }
+  .sig { border-left: 3px solid var(--tone); padding-left: .85em; }
+  .sig:nth-child(1) { --tone: var(--diverge); }
+  .sig:nth-child(2) { --tone: var(--forced); }
+  .sig:nth-child(3) { --tone: var(--unfilled); }
+  .sig:nth-child(4) { --tone: var(--guessed); }
+  .sig h3 {
+    margin: 0 0 .12em; font-family: var(--mono); font-size: .74em;
+    font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--tone);
+  }
+  .sig p { margin: 0; color: var(--ink); }
+  .sig p em { font-style: normal; color: var(--ink-3); font-size: .88em; display: block; margin-top: .12em; }
+
+  .never {
+    margin-top: .4em; border: 1px solid var(--rule-firm); border-radius: 4px;
+    padding: .75em .9em;
+  }
+  .never h3 {
+    margin: 0 0 .4em; font-family: var(--mono); font-size: .74em; font-weight: 600;
+    letter-spacing: .09em; text-transform: uppercase; color: var(--ink-2);
+  }
+  .never p { margin: 0; color: var(--ink-2); font-size: .93em; }
+  .never s { color: var(--ink-3); text-decoration-color: var(--rule-firm); }
+
+  footer {
+    border-top: 1px solid var(--rule); padding-top: clamp(12px, 1.4vw, 16px);
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, .82fr);
+    gap: clamp(22px, 3.4vw, 56px); color: var(--ink-2); font-size: .93em;
+  }
+  footer p { margin: 0; }
+  footer b { color: var(--ink); }
+  footer .warn { color: var(--diverge); font-weight: 600; }
+
+  @media (max-width: 860px) {
+    .page { min-height: 0; }
+    .body, footer { grid-template-columns: minmax(0, 1fr); }
+  }
+</style>
+
+<div class="page">
+
+  <header>
+    <p class="eyebrow">SpecFlow 2.0 · /specflow-refine · runs locally, no backend</p>
+    <h1>Read one spec six ways at once. Where the readings <em>disagree</em>, the spec is ambiguous.</h1>
+  </header>
+
+  <div class="body">
+
+    <section>
+      <h2>One round</h2>
+      <div class="flow">
+
+        <div class="node code">
+          <span class="n">code</span>
+          <span class="t">List the decisions the spec implies
+            <small>Answers none of them. This is the exam paper.</small></span>
+        </div>
+        <div class="arrow"></div>
+
+        <div class="node model">
+          <span class="n">×6</span>
+          <span class="t">Six agents answer it, in parallel, blind to each other
+            <small>One failure mode each. Every guess marked as a guess.</small>
+            <span class="parallel">
+              <b>concurrency</b><b>ordering</b><b>idempotency</b><b>auth</b><b>partial&nbsp;failure</b><b>data&nbsp;lifecycle</b>
+            </span>
+          </span>
+        </div>
+        <div class="arrow"></div>
+
+        <div class="node model">
+          <span class="n">each</span>
+          <span class="t">Also draws its own grid, then fills every cell
+            <small>Rows × columns from its own angle — held resources × collisions,
+              entities × lifecycle events. Axes first, answers second. A cell it
+              cannot answer, with the reason, is the best output there is.</small></span>
+        </div>
+        <div class="arrow"></div>
+
+        <div class="node model">
+          <span class="n">×1</span>
+          <span class="t">Can all six answers be true at once?
+            <small>Reads everything, so it reports problems but never votes.</small></span>
+        </div>
+        <div class="arrow"></div>
+
+        <div class="node code">
+          <span class="n">code</span>
+          <span class="t">Compare the answers
+            <small>Set operations. Same input, same output, every time.</small></span>
+        </div>
+        <div class="arrow"></div>
+
+        <div class="node model">
+          <span class="n">model</span>
+          <span class="t">Decide what is worth your attention
+            <small>Ask, assume, or drop. Nothing ranks it for you.</small></span>
+        </div>
+        <div class="arrow"></div>
+
+        <div class="node code">
+          <span class="n">code</span>
+          <span class="t">Write the decision into the spec file
+            <small>Recorded, so no later round asks it again.</small></span>
+        </div>
+      </div>
+
+      <p class="loop">↻ <b>Another round, or stop.</b> Round two runs against the spec your
+        decisions changed, so it reaches questions that only exist downstream of them.</p>
+
+      <p class="key">
+        <span><i style="background: var(--accent)"></i>code — reproducible</span>
+        <span><i style="background: var(--rule-firm)"></i>model — judgment</span>
+      </p>
+    </section>
+
+    <section>
+      <h2>What comes out</h2>
+      <div class="out">
+
+        <div class="sig">
+          <h3>Disagreement</h3>
+          <p>Two agents answered the same question differently.
+            <em>The spec did not determine it. File and section attached.</em></p>
+        </div>
+
+        <div class="sig">
+          <h3>The spec cannot answer this</h3>
+          <p>A lens reached a cell in its own grid and could not fill it.
+            <em>The question existed because the axes forced it. Closest thing to
+              what building used to surface.</em></p>
+        </div>
+
+        <div class="sig">
+          <h3>Nobody answered</h3>
+          <p>A decision no reading even reached.
+            <em>The one real coverage number: cells filled / cells listed.</em></p>
+        </div>
+
+        <div class="sig">
+          <h3>All agreed, all guessing</h3>
+          <p>Consensus over a spec that said nothing.
+            <em>A shared blind spot. Disagreement alone cannot see it.</em></p>
+        </div>
+
+        <div class="never">
+          <h3>Never produced</h3>
+          <p><s>readiness score</s> · <s>pass/fail gate</s> · <s>“you have converged”</s> ·
+            <s>“the spec is complete”</s></p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <footer>
+    <p><b>Every output says “something is missing here”</b> — one file, one section, checkable
+      in seconds. The opposite claim, that nothing else is missing, needs a denominator this
+      design does not have. So it is never made.</p>
+    <p><span class="warn">Unproven:</span> that disagreement between readings tracks real
+      spec defects. Measuring it takes one afternoon — plant a known ambiguity, see if a
+      round finds it and points at the right requirement.</p>
+  </footer>
+
+</div>

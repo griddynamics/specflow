@@ -1,11 +1,3 @@
-"""Tests for the refinement comparison and bookkeeping.
-
-Scope note: these test comparison and memory, because that is all the code does.
-There is deliberately no test that a reading is "complete" or that a spec is
-"ready" — those are judgments the skill makes, and a test asserting them would
-just be pinning down an arbitrary threshold.
-"""
-
 from __future__ import annotations
 
 import json
@@ -17,8 +9,9 @@ from typing import Any
 from services import refine_artifacts as artifacts
 from services import refine_compare as compare
 
-
-def reading(lens: str, *, decisions=None, blockers=None, cells=None) -> dict[str, Any]:
+def reading(
+    lens: str, *, decisions=None, blockers=None, cells=None, matrices=None
+) -> dict[str, Any]:
     payload = {
         "lens": lens,
         "spec_root": "specs",
@@ -27,8 +20,9 @@ def reading(lens: str, *, decisions=None, blockers=None, cells=None) -> dict[str
     }
     if cells is not None:
         payload["cells"] = cells
+    if matrices is not None:
+        payload["matrices"] = matrices
     return payload
-
 
 def grid(*ids: str) -> dict[str, Any]:
     return {
@@ -42,10 +36,8 @@ def grid(*ids: str) -> dict[str, Any]:
         ]
     }
 
-
 def cell(cell_id: str, value: str, *, guessed: bool = False) -> dict[str, Any]:
     return {"id": cell_id, "value": value, "guessed": guessed}
-
 
 def decision(question: str, value: str, *, guessed: bool = False) -> dict[str, Any]:
     return {
@@ -54,7 +46,6 @@ def decision(question: str, value: str, *, guessed: bool = False) -> dict[str, A
         "where": "specs/orders.md#Checkout",
         "guessed": guessed,
     }
-
 
 def blocker(identifier: str, *, title: str = "", options: int = 2) -> dict[str, Any]:
     return {
@@ -70,10 +61,7 @@ def blocker(identifier: str, *, title: str = "", options: int = 2) -> dict[str, 
         "reversible": True,
     }
 
-
 class TestDisagreement(unittest.TestCase):
-    """The signal: independent readings landing on different answers."""
-
     def test_same_answer_is_not_a_disagreement(self):
         readings = [
             reading("a", decisions=[decision("what store backs orders", "postgres")]),
@@ -94,7 +82,6 @@ class TestDisagreement(unittest.TestCase):
         self.assertEqual(found[0].where, "specs/orders.md#Checkout")
 
     def test_rewording_the_question_still_collides(self):
-        """Two lenses will not phrase the same question identically."""
         readings = [
             reading("a", decisions=[decision("What store backs the orders?", "postgres")]),
             reading("b", decisions=[decision("what stores back an order", "dynamodb")]),
@@ -111,7 +98,6 @@ class TestDisagreement(unittest.TestCase):
         self.assertEqual(found, [])
 
     def test_reordering_the_words_is_a_different_question(self):
-        """A bag of words made these one question and paired the wrong answer to it."""
         readings = [
             reading("a", decisions=[
                 decision("Does the hold expire before the payment?", "yes")
@@ -124,7 +110,6 @@ class TestDisagreement(unittest.TestCase):
         self.assertEqual(found, [])
 
     def test_one_lens_answering_twice_keeps_the_first_and_says_so(self):
-        """A reading contradicting itself is a finding, not a silent overwrite."""
         readings = [
             reading("a", decisions=[
                 decision("what store backs orders", "postgres"),
@@ -138,7 +123,6 @@ class TestDisagreement(unittest.TestCase):
         self.assertIn("dynamodb", notes[0])
 
     def test_differing_phrasings_are_all_reported(self):
-        """One lens's wording must not stand in for another lens's answer."""
         readings = [
             reading("a", decisions=[decision("What store backs the orders?", "pg")]),
             reading("b", decisions=[decision("what stores back an order", "ddb")]),
@@ -158,7 +142,6 @@ class TestDisagreement(unittest.TestCase):
         self.assertNotIn("phrasings", found[0].as_dict())
 
     def test_disagreement_nobody_raised_becomes_its_own_blocker(self):
-        """The valuable case: a gap no single reading noticed."""
         result = compare.compare([
             reading("a", decisions=[decision("what store backs orders", "postgres")]),
             reading("b", decisions=[decision("what store backs orders", "dynamodb")]),
@@ -170,7 +153,6 @@ class TestDisagreement(unittest.TestCase):
         )
 
     def test_disagreement_attaches_to_a_blocker_at_the_same_place(self):
-        """One gap must not appear as two list items."""
         result = compare.compare([
             reading("a",
                     decisions=[decision("what store backs orders", "postgres")],
@@ -179,11 +161,9 @@ class TestDisagreement(unittest.TestCase):
         ])
         self.assertEqual([b["id"] for b in result.blockers], ["store-choice"])
         self.assertEqual(len(result.blockers[0]["disagreements"]), 1)
-        # Still reported as a disagreement in its own right.
         self.assertEqual(len(result.disagreements), 1)
 
     def test_many_disagreements_at_one_location_stay_many_blockers(self):
-        """A coarse `where` must not make N gaps look like one open blocker."""
         result = compare.compare([
             reading("a", blockers=[blocker("expiry")], decisions=[
                 decision("how long is the hold", "5m"),
@@ -197,12 +177,10 @@ class TestDisagreement(unittest.TestCase):
             ]),
         ])
         self.assertEqual(len(result.disagreements), 3)
-        # One host absorbs one; the other two become blockers of their own.
         self.assertEqual(len(result.blockers), 3)
         self.assertEqual(len(result.blockers[0]["disagreements"]), 1)
 
     def test_item_count_is_the_same_with_or_without_a_host_blocker(self):
-        """Grouping must not depend on whether a lens happened to flag the spot."""
         decisions_a = [decision("how long is the hold", "5m"),
                        decision("who cancels an order", "the buyer")]
         decisions_b = [decision("how long is the hold", "15m"),
@@ -218,7 +196,6 @@ class TestDisagreement(unittest.TestCase):
         self.assertEqual(len(with_host.blockers), len(without_host.blockers))
 
     def test_slug_collision_attaches_instead_of_dropping_the_disagreement(self):
-        """Two questions can slug alike; neither may vanish from `blockers`."""
         shared = "should the order be cancelled when the"
         result = compare.compare([
             reading("a", decisions=[
@@ -236,8 +213,6 @@ class TestDisagreement(unittest.TestCase):
         ])
         self.assertEqual(len(result.disagreements), 2)
         self.assertEqual(len(result.blockers), 1)
-        # The second had no id of its own to take — attached as evidence rather
-        # than dropped out of `blockers` with nothing said.
         self.assertEqual(len(result.blockers[0]["disagreements"]), 1)
 
     def test_synthesized_id_is_readable_and_stable(self):
@@ -255,7 +230,6 @@ class TestDisagreement(unittest.TestCase):
             reading("c", decisions=[decision("q one alpha", "z"), decision("q two beta", "p")]),
         ])
         self.assertEqual(result.disagreements[0].as_dict()["distinct"], 3)
-
 
 class TestMergeBlockers(unittest.TestCase):
     def test_same_id_from_three_lenses_merges_with_attribution(self):
@@ -291,10 +265,7 @@ class TestMergeBlockers(unittest.TestCase):
         self.assertEqual(len(result.incomplete), 1)
         self.assertIn("decisions", result.incomplete[0])
 
-
 class TestMalformedReadings(unittest.TestCase):
-    """Six subagents write these concurrently; one bad shape must not kill a round."""
-
     def test_blockers_as_an_object_is_reported_not_crashed(self):
         result = compare.compare([
             {"lens": "bad", "decisions": [], "blockers": {"expiry": {"id": "x"}}},
@@ -325,7 +296,6 @@ class TestMalformedReadings(unittest.TestCase):
         self.assertEqual(result.lens_count, 0)
 
     def test_uncomparable_readings_are_not_counted_as_lenses(self):
-        """"Round 1 — 6 lenses" over four usable readings overstates the evidence."""
         result = compare.compare([
             reading("a"),
             {"lens": "bad", "decisions": "oops", "blockers": []},
@@ -333,7 +303,6 @@ class TestMalformedReadings(unittest.TestCase):
         self.assertEqual(result.lens_count, 1)
         self.assertEqual(result.readings_total, 2)
         self.assertEqual(result.lenses, ["a"])
-
 
 class TestLayout(unittest.TestCase):
     def test_round_allocation_and_reading_round_trip(self):
@@ -356,7 +325,6 @@ class TestLayout(unittest.TestCase):
             self.assertEqual(artifacts.load_readings(layout, 1)[0]["lens"], "ordering")
 
     def test_the_filename_wins_over_a_lens_field_that_disagrees(self):
-        """Two files claiming one lens name collapse into one, losing the signal."""
         with tempfile.TemporaryDirectory() as tmp:
             layout = artifacts.layout_for(tmp)
             artifacts.write_json(
@@ -373,7 +341,6 @@ class TestLayout(unittest.TestCase):
             )
 
             result = compare.compare(loaded)
-            # Would be [] if both readings had answered as "concurrency".
             self.assertEqual(len(result.disagreements), 1)
             self.assertEqual(len(result.notes), 1)
             self.assertIn("fan-out", result.notes[0])
@@ -386,7 +353,6 @@ class TestLayout(unittest.TestCase):
             self.assertEqual(result.notes, [])
 
     def test_a_grid_with_the_wrong_shape_names_the_file(self):
-        """The grid is the exam every lens sat; a broken one is not an absent one."""
         with tempfile.TemporaryDirectory() as tmp:
             layout = artifacts.layout_for(tmp)
             artifacts.write_json(layout.grid_path(1), {"cells": "oops"})
@@ -410,16 +376,7 @@ class TestLayout(unittest.TestCase):
                 artifacts.load_resolutions(layout)
             self.assertIn(artifacts.RESOLUTIONS_FILE, str(ctx.exception))
 
-
     def test_everything_lives_under_the_loop_s_own_subdirectory(self):
-        """Nothing here may land where the 1.0 contract validator looks.
-
-        That validator fuzzy-matches `specification_completeness.md` and
-        `IMPLEMENTATION_PLAN.md` across the outputs root, `analysis/` and
-        `planning/`. Keeping every path under `refine/` is what makes the two
-        channels unable to collide, now that the local flow writes no markdown of
-        its own to name.
-        """
         layout = artifacts.layout_for("docs")
         for path in (
             layout.resolutions_path,
@@ -455,10 +412,7 @@ class TestLayout(unittest.TestCase):
             self.assertEqual(artifacts.load_resolutions(layout), [])
             self.assertEqual(artifacts.load_findings(layout), {})
 
-
 class TestGridCoverage(unittest.TestCase):
-    """The forcing function: a cell nobody filled is countable, not judged."""
-
     def test_cell_no_lens_answered_is_reported(self):
         coverage, _ = compare.grid_coverage(
             grid("hold.timeout", "hold.cancel"),
@@ -482,7 +436,6 @@ class TestGridCoverage(unittest.TestCase):
         )
 
     def test_agreement_reached_by_guessing_is_reported_not_silent(self):
-        """Consensus over a silent spec is a shared blind spot, not evidence."""
         coverage, disagreements = compare.grid_coverage(
             grid("hold.timeout"),
             [
@@ -514,7 +467,6 @@ class TestGridCoverage(unittest.TestCase):
         self.assertTrue(any(b.get("from_disagreement") for b in result.blockers))
 
     def test_cell_conflict_attaches_to_a_blocker_at_the_same_place(self):
-        """One gap stays one item, whether it was found in prose or in a cell."""
         result = compare.compare(
             [
                 reading("a", blockers=[blocker("expiry")],
@@ -530,10 +482,87 @@ class TestGridCoverage(unittest.TestCase):
         result = compare.compare([reading("a"), reading("b")])
         self.assertIsNone(result.coverage)
 
+def matrix(name="ops × collisions", rows=("hold", "seat"), cols=("claim", "cancel"),
+           cells=()) -> dict[str, Any]:
+    return {"name": name, "rows": list(rows), "cols": list(cols), "cells": list(cells)}
+
+class TestMatrixCoverage(unittest.TestCase):
+    def test_every_intersection_is_counted_whether_or_not_it_was_filled(self):
+        report = compare.matrix_coverage([
+            reading("a", matrices=[matrix(cells=[
+                {"row": "hold", "col": "claim", "value": "409"},
+            ])]),
+        ])
+        self.assertEqual(report[0].declared, 4)
+        self.assertEqual(report[0].answered, 1)
+        self.assertEqual(len(report[0].missing), 3)
+
+    def test_a_cell_the_lens_could_not_answer_is_a_finding_with_a_reason(self):
+        report = compare.matrix_coverage([
+            reading("a", matrices=[matrix(cells=[
+                {"row": "hold", "col": "claim", "unanswerable": "nobody owns the timer"},
+            ])]),
+        ])
+        self.assertEqual(report[0].answered, 0)
+        self.assertEqual(
+            report[0].unanswerable,
+            [{"row": "hold", "col": "claim", "why": "nobody owns the timer"}],
+        )
+        self.assertEqual(len(report[0].missing), 3)
+
+    def test_guessed_answers_are_counted_separately_from_answered(self):
+        report = compare.matrix_coverage([
+            reading("a", matrices=[matrix(cells=[
+                {"row": "hold", "col": "claim", "value": "409", "guessed": True},
+                {"row": "hold", "col": "cancel", "value": "released"},
+            ])]),
+        ])
+        self.assertEqual(report[0].answered, 2)
+        self.assertEqual(report[0].guessed, 1)
+
+    def test_matrices_are_never_merged_across_lenses(self):
+        report = compare.matrix_coverage([
+            reading("a", matrices=[matrix(name="same title")]),
+            reading("b", matrices=[matrix(name="same title")]),
+        ])
+        self.assertEqual([m.lens for m in report], ["a", "b"])
+
+    def test_the_least_complete_reading_is_reported_first(self):
+        report = compare.matrix_coverage([
+            reading("thorough", matrices=[matrix(name="x", cells=[
+                {"row": r, "col": c, "value": "v"}
+                for r in ("hold", "seat") for c in ("claim", "cancel")
+            ])]),
+            reading("thin", matrices=[matrix(name="y")]),
+        ])
+        self.assertEqual([m.lens for m in report], ["thin", "thorough"])
+
+    def test_a_matrix_with_no_axes_is_not_a_cross_product(self):
+        report = compare.matrix_coverage([
+            reading("a", matrices=[matrix(rows=(), cols=())]),
+        ])
+        self.assertEqual(report, [])
+
+    def test_axes_of_the_wrong_shape_are_reported_not_counted(self):
+        result = compare.compare([
+            {"lens": "a", "decisions": [], "blockers": [],
+             "matrices": [{"name": "x", "rows": "hold", "cols": ["claim"], "cells": []}]},
+        ])
+        self.assertEqual(result.lens_count, 0)
+        self.assertIn("matrices[0].rows", result.incomplete[0])
+
+    def test_a_round_without_matrices_still_compares(self):
+        result = compare.compare([reading("a"), reading("b")])
+        self.assertEqual(result.matrices, [])
+
+    def test_nothing_about_a_matrix_blocks_or_fails_the_round(self):
+        result = compare.compare([
+            reading("a", matrices=[matrix()]),
+        ])
+        self.assertEqual(result.blockers, [])
+        self.assertEqual(len(result.matrices[0].missing), 4)
 
 class TestCoherence(unittest.TestCase):
-    """The pass that asks whether the answers can all be true at once."""
-
     def test_coherence_blockers_reach_the_user_attributed(self):
         result = compare.compare(
             [reading("a"), reading("b")],
@@ -543,7 +572,6 @@ class TestCoherence(unittest.TestCase):
         self.assertEqual(found["locking-contradicts-retry"], ["coherence"])
 
     def test_coherence_does_not_count_as_an_independent_reading(self):
-        """It saw every lens's output, so calling it a seventh lens would lie."""
         result = compare.compare(
             [reading("a"), reading("b")],
             coherence={"blockers": [blocker("x")]},
@@ -561,10 +589,8 @@ class TestCoherence(unittest.TestCase):
         )
         self.assertEqual(result.disagreements, [])
 
-
 class TestEndToEnd(unittest.TestCase):
     def test_resolved_blocker_drops_out_of_the_next_round(self):
-        """The loop must not re-ask a decision the user already made."""
         with tempfile.TemporaryDirectory() as tmp:
             layout = artifacts.layout_for(tmp)
             for lens in ("a", "b"):
@@ -594,7 +620,6 @@ class TestEndToEnd(unittest.TestCase):
             "blockers": result.blockers,
         }
         self.assertEqual(json.loads(json.dumps(payload))["blockers"][0]["id"], "expiry")
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

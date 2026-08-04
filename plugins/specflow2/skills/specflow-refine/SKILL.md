@@ -71,10 +71,19 @@ That worked because code will not compile half a decision: every field needs a
 type, every branch a body, every error path a return. Reading a spec forces
 nothing, and an agent slides past a gap without noticing.
 
-Three things below restore that forcing, at a fraction of the cost:
+Four things below restore that forcing, at a fraction of the cost. They are listed
+in order of how much they recover:
 
-- **The grid** (step 2) makes the decisions enumerable before anyone answers
-  them, so an unanswered one is visible instead of merely absent.
+- **The per-lens matrix** (§ the reading format) is the strongest, and the reason
+  the loop reaches decisions nobody knew to ask about. Each lens names its own rows
+  and columns *before* answering anything, then must put something in every
+  intersection. A cell exists whether or not anyone wants to answer it — that is
+  the property a compiler had and prose does not. Six lenses declare six different
+  cross-products, so a case invisible from one angle is often forced by another.
+- **The grid** (step 2) does the same over one list, shared by every lens, which is
+  what makes its cells comparable *across* lenses. Narrower than the matrices —
+  one author, one set of blind spots — but it is the only thing here with a
+  denominator you can count against.
 - **The coherence pass** (step 4) asks whether the answers can all be true at
   once. Disagreement finds gaps; it never finds two lenses that agreed and were
   jointly wrong. Building found those when the code did not run.
@@ -82,8 +91,11 @@ Three things below restore that forcing, at a fraction of the cost:
   gaps that exist *because* of how you resolved the last one. That is the
   dependency ordering a build gets for free.
 
-What none of them restore is execution. Nothing here runs, so nothing here
-disproves anything — see step 7 for where that still costs you.
+**What none of them restore is execution.** A matrix forces the *question* to
+exist; only running code proves an answer wrong. So this loop cannot find what
+appears when data actually flows, and it cannot show that a decision is impossible
+— a lens can argue two requirements conflict, but nothing here fails to compile.
+See step 7 for the one place you should still spend half an hour building.
 
 ---
 
@@ -148,7 +160,29 @@ Give each subagent:
 - the grid from step 2, with the instruction to fill every cell its lens has a
   view on and to leave the rest alone,
 - the reading format below,
+- **the three-pass instruction below, verbatim**,
 - the exact output path: `<round dir>/reading.<lens>.json`.
+
+**Tell every lens to work in three passes, in this order.** The order is what
+makes the decisions appear at all; a lens that answers as it goes only ever finds
+what it already thought to look for.
+
+> **1. Enumerate, answer nothing.** Name your matrix axes first — the rows and
+> columns your lens attacks along, from the lens file. Write the axes down before
+> you know a single answer. If you answer while enumerating you will only list the
+> cases you can already handle, which is the exact failure this pass exists to
+> prevent.
+>
+> **2. Fill every intersection.** Go cell by cell. Say what the system does. Where
+> the spec did not tell you, answer anyway and mark it `guessed: true`. Where you
+> genuinely cannot answer, write `unanswerable` with one line on why — that is a
+> finding, not a failure, and it is the most useful thing you can produce.
+>
+> **3. Re-read your own matrix and account for every cell.** Any cell still empty
+> is one you enumerated and walked away from: go back and either answer it, or say
+> why it cannot be answered. Then ask of your filled cells: *which of these did I
+> assert more confidently than the spec justifies?* Downgrade those to `guessed`,
+> and promote to a blocker any guess that would be expensive to get wrong.
 
 **Never tell a subagent what another lens found, and never pass it a plan.** Each
 one reads the spec cold. If a previous round produced resolutions, pass
@@ -204,6 +238,20 @@ Read those last two carefully. **A cell nobody answered is a gap so complete tha
 no reading even reached it**, and it will never appear as a disagreement. **A cell
 every lens guessed at is agreement that is not evidence** — the spec was silent
 and they converged anyway. Both are findings; neither is a disagreement.
+
+**Then read the matrix section, and treat its two lines differently.**
+
+- **`spec cannot say`** — a lens reached a cell in its own cross-product and
+  reported that the spec cannot answer it, with a reason. These are the decisions
+  that only exist because something forced the question, and they are the closest
+  this loop gets to what building used to surface. Promote the expensive ones to
+  the user in step 6 even when no other lens mentioned them; a single lens is weak
+  evidence for a *judgment*, but "this intersection has no answer" is a fact about
+  the spec, not an opinion about it.
+- **`never filled`** — a lens enumerated a cell and never came back to it. That is
+  a hole in the reading, not in the spec. Re-run that lens before you conclude
+  anything about the area it covers, and do not report those cells to the user as
+  findings.
 
 **Check what the round actually saw before you read anything into it.** Two
 sections of the output decide how much the rest is worth:
@@ -288,6 +336,19 @@ Give this to every subagent verbatim. One JSON object per lens:
 {
   "lens": "concurrency",
   "spec_root": "specs",
+  "matrices": [
+    {
+      "name": "held resource × concurrent operation",
+      "rows": ["seat hold", "payment intent", "seat inventory"],
+      "cols": ["second hold attempt", "cancel", "timer expiry"],
+      "cells": [
+        {"row": "seat hold", "col": "second hold attempt",
+         "value": "rejected with 409", "guessed": true},
+        {"row": "seat hold", "col": "timer expiry",
+         "unanswerable": "spec never says who owns the timer, so two owners give two answers"}
+      ]
+    }
+  ],
   "cells": [
     {"id": "hold.timeout", "value": "seat returns to the pool", "guessed": true}
   ],
@@ -316,6 +377,30 @@ Give this to every subagent verbatim. One JSON object per lens:
   ]
 }
 ```
+
+**`matrices`** — the lens's own cross-product, and **the reason this loop finds
+anything a careful read would not.** Each lens names its own axes, from its own
+angle of attack, and then must put something in every intersection. That is the
+one property building had for free: a compiler never needed to be told which
+decisions existed, because it walked the graph and stopped at each one. Prose walks
+nothing and can omit a case without looking incomplete. A grid of rows × columns
+cannot — the cell exists whether anyone wants to answer it or not.
+
+Three things may go in a cell, and they mean different things:
+
+- **an answer** — `value`, plus `guessed: true` if the spec did not supply it,
+- **`unanswerable`** — you reached the cell, cannot answer it, and say why in one
+  line. **This is the most valuable output of the whole reading**: a question the
+  spec's own vocabulary forced into existence and cannot settle,
+- **nothing at all** — no entry. Reported as a cell you enumerated and never came
+  back to, which is a hole in your reading rather than in the spec.
+
+Nothing gates on filling it. There is no score and no pass mark, so padding a cell
+with a confident invention buys you nothing and costs the round a real finding.
+
+Axes come from the lens file (§ *the matrix to fill*). Keep each matrix small
+enough to actually complete — two axes of three to six values each. Two small
+matrices beat one 12 × 12 nobody finishes.
 
 **`lens`** — write it, but **the filename decides**. `reading.ordering.json` is the
 `ordering` lens whatever its body says, because a body written by hand across six

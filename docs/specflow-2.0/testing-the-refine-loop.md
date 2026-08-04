@@ -111,6 +111,19 @@ EOF
 cat > "$R/reading.concurrency.json" <<'EOF'
 {
   "lens": "concurrency",
+  "matrices": [
+    {
+      "name": "held resource × collision",
+      "rows": ["seat hold", "seat inventory"],
+      "cols": ["second claim", "cancel", "timer expiry"],
+      "cells": [
+        {"row": "seat hold", "col": "second claim", "value": "rejected 409", "guessed": true},
+        {"row": "seat hold", "col": "cancel", "value": "seat released"},
+        {"row": "seat hold", "col": "timer expiry",
+         "unanswerable": "spec never says who owns the timer"}
+      ]
+    }
+  ],
   "cells": [
     {"id": "hold.timeout", "value": "seat returns to the pool", "guessed": true},
     {"id": "hold.contended", "value": "rejected with 409", "guessed": true}
@@ -170,22 +183,30 @@ EOF
 sf --root-path "$DEMO" refine round --outputs docs
 ```
 
-Six things in that output are worth checking, because each is a behaviour that has
+Eight things in that output are worth checking, because each is a behaviour that has
 been wrong at some point:
 
 1. **`2 lenses: concurrency, ordering`** — the count is of readings that could be
    compared, not files on disk. Break one file and it becomes `1 of 2 readings
    compared`.
-2. **The differently worded question is one disagreement**, not two, and the
+
+2. **`concurrency · held resource × collision — 2/6 answered`** — the lens's own
+   cross-product. Six intersections exist because it named 2 rows × 3 columns, and
+   it accounted for three of them.
+
+3. **`spec cannot say  seat hold × timer expiry`** with the reason attached — the
+   payoff. That question exists only because the axes forced it, and it is listed
+   apart from `never filled`, which marks cells the lens enumerated and abandoned.
+4. **The differently worded question is one disagreement**, not two, and the
    answer from each lens carries its own phrasing (`asked as: …`).
-3. **Three open blockers, not one** — the cell disagreement attaches to the
+5. **Three open blockers, not one** — the cell disagreement attaches to the
    blocker at the same location as evidence; the prose disagreement, which has no
    blocker of its own there, becomes one. N gaps at one location stay N items.
-4. **`hold.timeout.paid` is listed as answered by nobody.** A cell no reading
+6. **`hold.timeout.paid` is listed as answered by nobody.** A cell no reading
    reached never shows up as a disagreement — this is the only place it appears.
-5. **`hold.contended` is listed as agreed-but-guessed.** Consensus over a silent
+7. **`hold.contended` is listed as agreed-but-guessed.** Consensus over a silent
    spec is not evidence.
-6. **The coherence blocker is attributed to `coherence`** and is *not* counted as
+8. **The coherence blocker is attributed to `coherence`** and is *not* counted as
    a third lens.
 
 ### Re-run it
@@ -257,19 +278,25 @@ What to look at afterwards, in order:
 1. **`docs/refine/round-01/` — did every lens write a file?** A missing file is a
    subagent that failed, and the round saw proportionally less. The output says
    `N of M readings compared` when they differ.
-2. **Are `guessed: true` markers present in the readings?** A reading with no
+2. **Did each lens declare a matrix, and does it look like its own?** If all six
+   chose near-identical axes, they were not reading from their own angle — check
+   nothing leaked the grid or another lens's output into their prompts. And check
+   the axes were written *before* the answers: a matrix where every cell is filled
+   confidently is the signature of a lens that enumerated only what it could
+   already handle.
+3. **Are `guessed: true` markers present in the readings?** A reading with no
    guesses on an underdetermined spec is a lens that filled in confident
    inventions, and every count downstream inherits that.
-3. **Do the blockers carry a `where` pointing at a real section?** Location is what
+4. **Do the blockers carry a `where` pointing at a real section?** Location is what
    groups a disagreement with the blocker it belongs to; a vague `where` degrades
    the grouping.
-4. **The `Worth knowing about this round` section.** Two files claiming the same
+5. **The `Worth knowing about this round` section.** Two files claiming the same
    lens name means the fan-out sent one lens twice, so there are fewer independent
    readings than the header suggests.
-5. **Did the lenses actually diverge?** Zero disagreements across six lenses on a
+6. **Did the lenses actually diverge?** Zero disagreements across six lenses on a
    real spec is more likely a fan-out that leaked shared context than a spec that
    is unambiguous. Check that no subagent prompt contained another's output.
-6. **Round two.** Run it after resolving something substantial. It should reach
+7. **Round two.** Run it after resolving something substantial. It should reach
    questions that exist *because* of how you resolved round one; if it returns the
    same blockers unchanged, check that the resolutions were recorded (they drop out
    of `refine status` when they were).

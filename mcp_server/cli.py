@@ -176,12 +176,7 @@ def _configure_env(backend_url: str, user_email: str | None) -> None:
 
 
 def resolve_root(root_path_arg: str | None) -> Path:
-    """Return absolute project root. Defaults to cwd; --root-path overrides.
-
-    Implementation lives in ``local_env`` so the ``refine`` group can resolve the
-    same flag from ``services/`` without importing this module back; kept here
-    under its original name for the existing call sites.
-    """
+    """Return absolute project root. Defaults to cwd; --root-path overrides."""
     return local_env.resolve_project_root(root_path_arg)
 
 
@@ -512,12 +507,7 @@ async def cmd_init(args: argparse.Namespace) -> int:
 _PLUGIN_MARKETPLACE_REPO = "griddynamics/specflow"
 # Name declared by .claude-plugin/marketplace.json, not the repo name.
 _PLUGIN_MARKETPLACE_NAME = "specflow-marketplace"
-# The marketplace carries two plugins, and this command installs the refinement
-# one. `specflow` is the 1.0 companion: its two skills are the same templates the
-# MCP server already returns from `check_specification_completeness` and
-# `run_planning`, so a user on that flow has them without installing anything.
-# `specflow2` is the only one whose skills need this CLI on the PATH, which is why
-# it is the one worth automating here.
+# Of the marketplace's two plugins, only specflow2's skills need this CLI present.
 _PLUGIN_NAME = "specflow2"
 _DEFAULT_PLUGIN_TARGET = "claude"
 _PLUGIN_TARGETS = {_DEFAULT_PLUGIN_TARGET}

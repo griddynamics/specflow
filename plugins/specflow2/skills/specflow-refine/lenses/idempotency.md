@@ -21,6 +21,23 @@ Work through the spec asking:
 - Is the *response* replayable? A caller that retried because it lost the
   response needs the same answer, not a "already done" error it cannot act on.
 
+## The matrix to fill
+
+Name the axes before you answer anything, then put something in every cell.
+
+- **rows** — every operation the spec describes that changes something. Reads too,
+  where a read has a side effect such as issuing a token or consuming a quota.
+- **cols** — the replay conditions: *same input twice*, *same key with a different
+  payload*, *retried after a timeout where the caller cannot know if it landed*,
+  *replayed after a later operation already happened*.
+
+Each cell says what the second and fifth attempt do — not just the second. Assume
+five.
+
+A cell you cannot answer is the finding. Write `unanswerable` with the reason, for
+example *the spec names no key for this operation and no natural one exists in its
+input, so nothing can tell a retry from a new request*.
+
 ## What counts as a blocker here
 
 The spec is missing a decision for every operation whose second execution is

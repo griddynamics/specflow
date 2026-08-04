@@ -1,35 +1,3 @@
-"""``specflow refine`` — the spec-refinement command group.
-
-Four commands, and each one exists because a model doing the same job by eye
-would be *less* reliable, not more:
-
-  new-round  derives the round directory and file names, so prose never spells
-             out a path that stops honouring --outputs
-  round      compares the readings and checks them against the round's grid —
-             list comparison over items too numerous to track by hand
-  resolve    appends a decision to a cumulative file, so later rounds stop
-             re-asking it
-  status     reads the last round's findings back, minus anything since resolved
-
-There is deliberately no validate, no completeness gate, no score, and **no stop
-rule**. Whether a reading is good, whether the spec is ready, whether a decision
-is worth a human's attention, and whether another round is worth running are all
-judgments; the skill makes them in the open where the user can disagree. An
-earlier version diffed each round against the previous ones and the skill read
-"nothing new" as convergence — see ``refine_compare`` for why that inference does
-not hold and what was removed with it.
-
-Every command is **local** — it reads and writes files under the project's
-outputs directory and touches no backend, which is why ``cli.main`` dispatches
-the group without resolving a backend URL or running the localhost guard.
-
-Exit codes: 0 success, 2 bad usage. Nothing here fails a run on a judgment call.
-The second half of that is enforced by ``_reporting_usage_errors``, which wraps
-every handler registered below — the promise is made in this module's help text
-and the plugin README, so it is kept here rather than left to the host CLI's
-generic dispatch, which catches nothing of the sort.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -45,30 +13,15 @@ from services import refine_compare as compare
 
 EXIT_OK, EXIT_USAGE = 0, 2
 
-
 def _emit(payload: dict[str, Any], as_json: bool, human: str) -> None:
     if as_json:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
         print(human)
 
-
 def _reporting_usage_errors(
     handler: Callable[[argparse.Namespace], int],
 ) -> Callable[[argparse.Namespace], int]:
-    """Turn a bad-input error into the documented message and exit code 2.
-
-    Every failure these commands have is a bad input: no rounds yet, a round with
-    no readings, a file that is not the JSON it should be. The likeliest one in
-    practice is a lens subagent that never wrote its file, which the loop hits
-    mid-round — so it has to read as a message about a file, not as a traceback
-    out of ``main``.
-
-    Reported through ``_emit`` on stdout, like ``cmd_resolve``'s own refusal, so
-    ``--json`` callers still get parseable JSON and a skill capturing stdout
-    still sees what went wrong.
-    """
-
     @functools.wraps(handler)
     def wrapper(args: argparse.Namespace) -> int:
         try:
@@ -79,33 +32,16 @@ def _reporting_usage_errors(
 
     return wrapper
 
-
 def _layout(args: argparse.Namespace) -> artifacts.Layout:
-    """Resolve ``--outputs`` against the project root, honouring ``--root-path``.
-
-    The host CLI's global ``--root-path`` reaches these commands too. Resolving
-    against the process cwd instead meant `--root-path /proj refine status`
-    silently read `./docs`, reported no rounds, and a later `resolve` wrote its
-    artifacts into whichever tree the shell happened to be in.
-    """
     root = local_env.resolve_project_root(getattr(args, "root_path", None))
     return artifacts.layout_for(root / args.outputs)
 
-
 def _round_context(args: argparse.Namespace) -> tuple[artifacts.Layout, int]:
-    """Resolve --outputs/--round for the commands that operate on a round.
-
-    Raises rather than emitting: ``_reporting_usage_errors`` turns a ValueError
-    into the same message with EXIT_USAGE.
-    """
     layout = _layout(args)
     number = args.round or layout.latest_round()
     if number is None:
         raise ValueError("no rounds found — run new-round first")
     return layout, number
-
-
-# ---------------------------------------------------------------- new-round
 
 def cmd_new_round(args: argparse.Namespace) -> int:
     layout = _layout(args)
@@ -128,11 +64,7 @@ def cmd_new_round(args: argparse.Namespace) -> int:
     _emit(payload, args.json, "\n".join(lines))
     return EXIT_OK
 
-
-# ---------------------------------------------------------------- round
-
 def cmd_round(args: argparse.Namespace) -> int:
-    """Compare this round's readings and say what is new since the last one."""
     layout, number = _round_context(args)
 
     readings = artifacts.load_readings(layout, number)
@@ -171,10 +103,13 @@ def cmd_round(args: argparse.Namespace) -> int:
             "disagreements": len(result.disagreements),
             "uncovered_cells": len(coverage.uncovered) if coverage else 0,
             "agreed_guesses": len(coverage.agreed_guesses) if coverage else 0,
+            "matrix_unanswerable": sum(len(m.unanswerable) for m in result.matrices),
+            "matrix_skipped": sum(len(m.missing) for m in result.matrices),
         },
         "disagreements": [d.as_dict() for d in result.disagreements],
         "blockers": open_blockers,
         "coverage": coverage.as_dict() if coverage else None,
+        "matrices": [m.as_dict() for m in result.matrices],
         "incomplete_readings": result.incomplete,
         "notes": result.notes,
         "findings_path": str(layout.findings_path),
@@ -185,13 +120,9 @@ def cmd_round(args: argparse.Namespace) -> int:
     _emit(payload, args.json, _render_round(payload))
     return EXIT_OK
 
-
 def _render_round(payload: dict[str, Any]) -> str:
     counts = payload["counts"]
     compared, total = payload["lens_count"], payload["readings_total"]
-    # Naming the shortfall in the headline, not only in the list below it: the
-    # header is what gets quoted back to the user, and "6 lenses" over four
-    # comparable readings overstates the round's only evidence.
     head = (
         f"{compared} lenses"
         if compared == total
@@ -212,6 +143,23 @@ def _render_round(payload: dict[str, Any]) -> str:
     if payload["notes"]:
         lines.append("Worth knowing about this round:")
         lines += [f"  {item}" for item in payload["notes"]]
+        lines.append("")
+
+    if payload.get("matrices"):
+        lines.append("Each lens's own matrix:")
+        for matrix in payload["matrices"]:
+            lines.append(
+                f"  {matrix['lens']} · {matrix['name']} — "
+                f"{matrix['answered']}/{matrix['declared']} answered"
+                + (f", {matrix['guessed']} guessed" if matrix["guessed"] else "")
+            )
+            for cell in matrix["unanswerable"]:
+                lines.append(
+                    f"      spec cannot say  {cell['row']} × {cell['col']}"
+                    f"  — {cell['why']}"
+                )
+            for cell in matrix["missing"]:
+                lines.append(f"      never filled     {cell['row']} × {cell['col']}")
         lines.append("")
 
     coverage = payload.get("coverage")
@@ -246,9 +194,6 @@ def _render_round(payload: dict[str, Any]) -> str:
             )
             if blocker.get("question"):
                 lines.append(f"      {blocker['question']}")
-            # The options are the decision. Without them a blocker synthesized
-            # from a disagreement printed the question and neither answer, which
-            # is the one thing the round actually established.
             for option in blocker.get("options", []):
                 consequence = option.get("consequence")
                 lines.append(
@@ -260,8 +205,6 @@ def _render_round(payload: dict[str, Any]) -> str:
                 phrasings = item.get("phrasings", {})
                 for lens, answer in item["answers"].items():
                     lines.append(f"          {lens}: {answer}")
-                    # Only present when the lenses worded it differently. Shown
-                    # so an answer is never read against someone else's wording.
                     asked = phrasings.get(lens)
                     if asked and asked != item["question"]:
                         lines.append(f"              asked as: {asked}")
@@ -274,9 +217,14 @@ def _render_round(payload: dict[str, Any]) -> str:
             "Neither shows up as a disagreement."
         )
 
-    # No verdict on whether the round settled anything, and no count of what is
-    # "new" since the last one. Both existed here, and both were read as evidence
-    # the spec had converged — an inference nothing in this data supports.
+    if counts["matrix_unanswerable"] or counts["matrix_skipped"]:
+        lines.append(
+            f"{counts['matrix_unanswerable']} matrix cell(s) a lens reached and "
+            f"reported the spec cannot answer; {counts['matrix_skipped']} it "
+            "enumerated and never came back to. The first is a finding, the second "
+            "is an incomplete reading — re-run that lens."
+        )
+
     if payload["incomplete_readings"]:
         lines.append(
             f"{len(payload['incomplete_readings'])} of {payload['readings_total']} "
@@ -284,9 +232,6 @@ def _render_round(payload: dict[str, Any]) -> str:
             "one. Fix those and re-run before reading anything into the counts."
         )
     return "\n".join(lines)
-
-
-# ---------------------------------------------------------------- resolve
 
 def cmd_resolve(args: argparse.Namespace) -> int:
     layout = _layout(args)
@@ -315,19 +260,11 @@ def cmd_resolve(args: argparse.Namespace) -> int:
     )
     return EXIT_OK
 
-
-# ---------------------------------------------------------------- status
-
 def cmd_status(args: argparse.Namespace) -> int:
     layout = _layout(args)
     findings = artifacts.load_findings(layout)
     resolutions = artifacts.load_resolutions(layout)
 
-    # `findings.json` is a snapshot from the last `round`; the resolutions file
-    # keeps moving after it. Re-subtracting here rather than reporting the
-    # snapshot's own count, because `/specflow-resolve` reads this immediately
-    # after recording a decision — and a decision the user just made showing up as
-    # still open is how the loop re-asks something it was told to stop asking.
     resolved = artifacts.resolved_ids(layout)
     open_blockers = [
         b for b in findings.get("blockers", []) if b.get("id") not in resolved
@@ -336,8 +273,6 @@ def cmd_status(args: argparse.Namespace) -> int:
     counts["open"] = len(open_blockers)
 
     payload = {
-        # Counted from the directories on disk. There is no separate round ledger
-        # — the one that existed only fed a convergence diff this design dropped.
         "rounds_run": len(layout.rounds()),
         "resolved": len(resolutions),
         "resolutions": resolutions,
@@ -345,15 +280,18 @@ def cmd_status(args: argparse.Namespace) -> int:
         "blockers": open_blockers,
         "disagreements": findings.get("disagreements", []),
         "coverage": findings.get("coverage"),
+        "matrices": findings.get("matrices", []),
     }
 
     lines = [
-        f"Rounds run      {payload['rounds_run']}",
-        f"Resolved        {payload['resolved']}",
-        f"Open blockers   {payload['counts'].get('open', 0)}",
-        f"Disagreements   {payload['counts'].get('disagreements', 0)}",
-        f"Unanswered      {payload['counts'].get('uncovered_cells', 0)} grid cell(s)",
-        f"Agreed guesses  {payload['counts'].get('agreed_guesses', 0)}",
+        f"Rounds run       {payload['rounds_run']}",
+        f"Resolved         {payload['resolved']}",
+        f"Open blockers    {payload['counts'].get('open', 0)}",
+        f"Disagreements    {payload['counts'].get('disagreements', 0)}",
+        f"Unanswered       {payload['counts'].get('uncovered_cells', 0)} grid cell(s)",
+        f"Agreed guesses   {payload['counts'].get('agreed_guesses', 0)}",
+        f"Spec cannot say  {payload['counts'].get('matrix_unanswerable', 0)} matrix cell(s)",
+        f"Lens skipped     {payload['counts'].get('matrix_skipped', 0)} matrix cell(s)",
     ]
     if payload["blockers"]:
         lines.append("")
@@ -364,16 +302,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     _emit(payload, args.json, "\n".join(lines))
     return EXIT_OK
 
-
-# ---------------------------------------------------------------- parser
-
 def register(subparsers: argparse._SubParsersAction) -> None:
-    """Attach the ``refine`` group to the host CLI's subparsers.
-
-    Nested rather than flat: ``status`` and ``resolve`` are far too generic at
-    the top level, and ``status`` would sit confusingly next to the existing
-    ``check-status``, which reports on something else entirely.
-    """
     refine = subparsers.add_parser(
         "refine",
         help="Spec refinement — compare independent readings of a spec",
@@ -392,9 +321,6 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         sub.add_argument("--json", action="store_true", help="machine-readable output")
         return sub
 
-    # Wrapped once, here, rather than at each handler: the exit-code promise
-    # belongs to the group, and a handler added later inherits it by being
-    # registered instead of by remembering a decorator.
     def bind(parser: argparse.ArgumentParser, handler: Any) -> None:
         parser.set_defaults(func=_reporting_usage_errors(handler))
 

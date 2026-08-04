@@ -22,6 +22,22 @@ Work through the spec asking:
 - For anything batched or scheduled: what happens when a run overlaps the
   previous one because it took longer than the interval?
 
+## The matrix to fill
+
+Name the axes before you answer anything, then put something in every cell.
+
+- **rows** — every event, message or state change the spec names. If the spec
+  reads "first this, then that", both halves are rows.
+- **cols** — the ways it can arrive out of order: *before the event it depends
+  on*, *twice, second copy late*, *after a terminal state was reached*, *never*.
+
+Each cell says what the system does. The narrative order the spec implies is not
+an answer — the cell asks what happens when that order does not hold.
+
+A cell you cannot answer is the finding. Write `unanswerable` with the reason,
+for example *nothing in the spec establishes an order between these two, so both
+answers are equally supported*.
+
 ## What counts as a blocker here
 
 The spec is missing a decision wherever it implies a sequence without stating a
