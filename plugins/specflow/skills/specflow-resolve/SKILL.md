@@ -20,17 +20,28 @@ with the user; the value is a spec that no longer has the hole.
 specflow refine status --outputs <outputs_dir> --json
 ```
 
-The `ask` list is what needs a human. If it is empty, say so and stop — do not
+That gives you the open blockers with attribution — which lenses raised each, and
+where the readings disagreed. If the list is empty, say so and stop; do not
 manufacture questions.
 
-Work in ranked order. The ranking already accounts for how far a wrong choice
-propagates and how many independent lenses raised it.
+**Sorting these is your judgment, not the CLI's.** There is no ranking to defer
+to, on purpose: a weighted score would have been invented numbers dressed up as
+measurement. Decide it yourself, using:
+
+- how expensive a wrong guess is to undo — architecture, data model, and security
+  boundaries are the costly ones,
+- whether the lenses disagreed, which is evidence the spec genuinely leaves it
+  open rather than one agent being pedantic,
+- how many independent lenses raised it.
+
+Say your reasoning out loud when you present the list, so the user can push back
+on your ordering rather than trusting it.
 
 ### 2. Handle the cheap ones without asking
 
-Anything the round classified `assume` is reversible and low-impact. Apply the
-recommendation, record it, and mention it in your summary as a batch. Do not put
-these to the user one by one.
+Where a choice is genuinely reversible and low-impact, apply the recommendation,
+record it, and mention it in your summary as a batch. Do not put these to the
+user one by one.
 
 ```bash
 specflow refine resolve --outputs <outputs_dir> --id <blocker-id> --choice "<option label>" --source assumed
@@ -51,8 +62,9 @@ Rules that matter:
 
 - **One line to answer.** If a question needs a paragraph of setup, the analysis
   is incomplete — say so rather than passing the confusion on.
-- **Never show a score.** "Five of six independent readings hit this" is useful.
-  "Concordance 0.83" is not.
+- **Never show a score.** "Five of six independent readings hit this" is useful
+  and true. A ratio or a readiness percentage is not — nothing here is calibrated,
+  and there is no metric in this product to quote.
 - **Offer the default.** "I'll assume X unless you'd rather Y" is usually cheaper
   for the user than an open question, and it is honest as long as you actually
   apply X.
@@ -61,7 +73,7 @@ Rules that matter:
 
 This is the step that changes something. For each resolved decision:
 
-- **Edit the spec file named in the blocker's `spec_anchor`.** Add or amend the
+- **Edit the spec file named in the blocker's `where`.** Add or amend the
   requirement so the ambiguity is gone. Write in the surrounding document's voice
   and format — match its heading style, numbering, and level of formality.
 - **Never delete or rewrite the user's prose to make room.** Extend it. If the
@@ -79,8 +91,8 @@ specflow refine resolve --outputs <outputs_dir> --id <blocker-id> --choice "<opt
   --applied-to specs/orders.md --source user
 ```
 
-Recording is what stops the next round re-asking. Skip it and the loop will never
-converge.
+Recording is what stops the next round re-asking. Skip it and every later round
+will surface the same decision as though it were new.
 
 ### 5. Report
 

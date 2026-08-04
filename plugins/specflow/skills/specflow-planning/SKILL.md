@@ -28,8 +28,9 @@ Before you start, check the refinement state:
 specflow refine status --outputs <outputs_dir>
 ```
 
-- **Converged** — good. Build the plan; the spec's ambiguities have been settled
-  and recorded.
+- **Rounds run, nothing open** — build the plan. Note that "no open decisions"
+  means the last round surfaced nothing new, not that the spec is proven complete;
+  no tool asserts the latter.
 - **Open decisions** — say so plainly, list what is still open, and recommend
   `/specflow-refine` first. If the user wants the plan anyway, produce it, but
   state clearly which open decisions you had to resolve yourself and how. Those
@@ -47,9 +48,10 @@ Write `<outputs_dir>/planning/IMPLEMENTATION_PLAN.md`.
 ### Locked values first
 
 Open with the architectural dimensions, taken from
-`<outputs_dir>/analysis/dimensions.json` and the recorded resolutions — not
-re-derived. Re-deriving them here would reintroduce exactly the variance
-refinement removed.
+`<outputs_dir>/analysis/specification_completeness.md` and the recorded
+resolutions — not re-derived. Re-deriving them here would reintroduce exactly the
+ambiguity refinement just removed, and this time nobody would notice, because a
+plan reads like a decision already made.
 
 ### Then the phases
 

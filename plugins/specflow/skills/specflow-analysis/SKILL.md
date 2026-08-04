@@ -17,25 +17,27 @@ so rather than choosing quietly.
 - `outputs_dir` — default `docs`
 - `src_dir` — existing code, if any. Default `src`.
 
-## The dimensions framework lives in the schema
+## The dimensions to lock
 
-`specflow refine schema dimensions` prints the **single source of truth** for
-what must be decided. Read it before you start. It defines:
+Work through these. They are the decisions that must be settled before anyone can
+build, and the ones that silently diverge between two independent readings of the
+same spec.
 
-- **Part A** — six universal dimensions, mandatory for every project, each locked
-  to exactly one value: persistence, infrastructure complexity, scale target,
-  technology stack, quality level, scope boundaries.
-- **Part B** — technology-specific dimensions, by project type.
-- **Part C** — project-specific dimensions you discover. These are the variance
-  sources the framework did not anticipate, and they are often the most valuable
-  part of an analysis.
-- **Part D** — micro-level consistency locks: naming conventions and code
-  patterns. All fields required. These are the values that silently diverge
-  between two independent implementations of the same spec, which is exactly why
-  they are pinned here.
+- **Universal** — persistence, infrastructure complexity, scale target, technology
+  stack, quality level, scope boundaries. Every project has all six.
+- **Technology-specific** — whatever the chosen stack forces a decision about.
+- **Project-specific** — the ones you discover that no checklist anticipated.
+  These are often the most valuable part of an analysis, so do not stop at the
+  list above.
+- **Consistency locks** — naming conventions and code patterns: file and
+  identifier casing, database and API path conventions, error handling,
+  validation boundary, async style, config source.
 
-Keeping this in a schema rather than in prose means the completeness of your
-output is *checked* rather than trusted.
+This is a prompt for your attention, not a form to complete. Nothing checks that
+you filled every slot, because a filled slot proves nothing about whether the
+reading is any good — and a checklist you can satisfy is a checklist you can
+satisfy without thinking. Judge whether you have understood the spec, and say
+what you are unsure of.
 
 ## What to do
 
@@ -52,44 +54,27 @@ itself a finding.
 
 ### 2. Lock every dimension
 
-For each dimension in the schema, record the value **and where it came from**.
-Every value carries a `spec_anchor`: the file, and the section if you can name
-one.
+For each dimension, record the value **and where it came from** — the file, and
+the section if you can name one.
 
-When the spec does not determine a value:
+When the spec does not determine a value, say so directly: name the gap, say what
+you would assume, and say what it would cost to assume wrong. An unresolved
+dimension stated plainly is a finding. The same dimension filled in with `TBD`,
+`unknown`, `varies`, or `N/A` is worse than either — it looks answered while
+telling the reader nothing.
 
-- set `"inferred": true` on that anchor, and
-- state the gap explicitly in the report.
+### 3. Write the report
 
-Do not fill a cell with `TBD`, `unknown`, `varies`, or `N/A`. Those are rejected
-mechanically, for a good reason: an evasion looks filled while telling the reader
-nothing. If you cannot determine a value, the gap *is* the finding.
+**`<outputs_dir>/analysis/specification_completeness.md`**:
 
-### 3. Write both outputs
-
-**`<outputs_dir>/analysis/specification_completeness.md`** — the human report:
-
-- what the spec determines, dimension by dimension,
+- what the spec determines, dimension by dimension, with where you read it,
 - what it does not, with the specific requirement each gap belongs to,
 - contradictions, where two parts of the spec cannot both hold,
 - what you would need to ask to close each gap.
 
-**`<outputs_dir>/analysis/dimensions.json`** — the same values in the schema's
-shape. This is what makes the analysis comparable and checkable rather than
-merely readable.
-
-### 4. Check your own work
-
-```bash
-specflow refine check-dimensions --outputs <outputs_dir>
-```
-
-This runs the schema and the evasion rule from step 2 — the same check the
-refinement loop applies to a lens artifact, so an analysis cannot pass here and
-fail there.
-
-Non-zero exit means it did not pass. Fix whatever it reports before finishing;
-do not describe the analysis as complete while the check fails.
+Prose, because this is for a human to read and argue with. There is no machine
+format here and nothing scores it — a second file in a schema's shape would only
+be checkable for *shape*, which was never the question worth answering.
 
 ## Report honestly
 

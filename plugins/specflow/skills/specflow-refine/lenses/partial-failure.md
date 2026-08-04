@@ -29,11 +29,14 @@ implementer can handle it consistently — two builds will handle it two ways.
 "Roll back the transaction" only closes this when every step is inside the same
 transaction. Say so explicitly, or treat it as open.
 
-## Fill particularly carefully
+## Decisions to record
 
-- `failure_modes` — this is your lens's primary output. One entry per reachable
-  bad state, with `spec_says` set honestly. `"nothing"` is the correct value
-  when the spec is silent, and it obliges you to raise a matching blocker.
-- `state_machines` — add the intermediate states real failures create
-  (`pending_confirmation`, `partially_applied`). If the spec only names the
-  clean states, that itself is the finding.
+Write these into `decisions` even where the spec is silent — that is what makes
+another lens's different answer visible. Mark a guess `guessed: true`.
+
+- For every reachable bad state: what does the spec say happens? Record "nothing"
+  honestly when it says nothing — that is the finding, and it deserves a blocker.
+- What intermediate states do real failures create (`pending_confirmation`,
+  `partially_applied`) that the spec never names?
+- Who cleans up a half-finished operation, and when?
+- What does the caller see, and what can they safely retry?

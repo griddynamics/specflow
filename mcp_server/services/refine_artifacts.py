@@ -1,20 +1,17 @@
 """On-disk layout for a refinement run.
 
-Everything lives in the user's own repo as readable JSON. That is deliberate:
-the artifacts are the state, so there is no database to inspect, no server to
-query, and the user can read, diff, and edit any of it with the tools they
-already have. A refinement run is reviewable in a pull request.
+Everything lives in the user's own repo as readable JSON. The artifacts are the
+state, so there is no database to inspect and no server to query — the user can
+read, diff, and edit any of it with the tools they already have.
 
     <outputs_dir>/refine/
-      state.json                        round counter + saturation history
+      state.json                        which blockers each round asked about
       resolutions.json                  decisions made, cumulative
-      blockers.json                     current ranked list
+      findings.json                     latest round's merged view
       round-01/
-        interpretation.concurrency.json
-        interpretation.ordering.json
+        reading.concurrency.json
+        reading.ordering.json
         ...
-      contracts/
-        schema.sql  api.json  types.json
 """
 
 from __future__ import annotations
@@ -25,15 +22,10 @@ from pathlib import Path
 from typing import Any
 
 REFINE_SUBDIR = "refine"
-ANALYSIS_SUBDIR = "analysis"
 STATE_FILE = "state.json"
 RESOLUTIONS_FILE = "resolutions.json"
-BLOCKERS_FILE = "blockers.json"
-DIMENSIONS_FILE = "dimensions.json"
-CONTRACTS_SUBDIR = "contracts"
-SCHEMA_SQL_FILE = "schema.sql"
-API_CONTRACT_FILE = "api.json"
-INTERPRETATION_PREFIX = "interpretation."
+FINDINGS_FILE = "findings.json"
+READING_PREFIX = "reading."
 
 
 @dataclass(frozen=True)
@@ -41,8 +33,8 @@ class Layout:
     """Resolved paths for one project's refinement run.
 
     Every path the loop reads or writes is derived here, so a skill never has to
-    spell one out. A hardcoded ``docs/refine/...`` in prose is a path that stops
-    honouring ``outputs_dir`` the moment a user overrides it.
+    spell one out. A hardcoded ``docs/refine/...`` in prose stops honouring
+    ``outputs_dir`` the moment a user overrides it.
     """
 
     outputs_dir: Path
@@ -50,11 +42,6 @@ class Layout:
     @property
     def root(self) -> Path:
         return self.outputs_dir / REFINE_SUBDIR
-
-    @property
-    def dimensions_path(self) -> Path:
-        """Written by ``/specflow-analysis``, outside the refine tree."""
-        return self.outputs_dir / ANALYSIS_SUBDIR / DIMENSIONS_FILE
 
     @property
     def state_path(self) -> Path:
@@ -65,26 +52,14 @@ class Layout:
         return self.root / RESOLUTIONS_FILE
 
     @property
-    def blockers_path(self) -> Path:
-        return self.root / BLOCKERS_FILE
-
-    @property
-    def contracts_dir(self) -> Path:
-        return self.root / CONTRACTS_SUBDIR
-
-    @property
-    def schema_sql_path(self) -> Path:
-        return self.contracts_dir / SCHEMA_SQL_FILE
-
-    @property
-    def api_contract_path(self) -> Path:
-        return self.contracts_dir / API_CONTRACT_FILE
+    def findings_path(self) -> Path:
+        return self.root / FINDINGS_FILE
 
     def round_dir(self, number: int) -> Path:
         return self.root / f"round-{number:02d}"
 
-    def interpretation_path(self, number: int, lens: str) -> Path:
-        return self.round_dir(number) / f"{INTERPRETATION_PREFIX}{lens}.json"
+    def reading_path(self, number: int, lens: str) -> Path:
+        return self.round_dir(number) / f"{READING_PREFIX}{lens}.json"
 
     def rounds(self) -> list[int]:
         """Round numbers present on disk, ascending."""
@@ -102,11 +77,11 @@ class Layout:
         rounds = self.rounds()
         return rounds[-1] if rounds else None
 
-    def interpretations(self, number: int) -> list[Path]:
+    def readings(self, number: int) -> list[Path]:
         directory = self.round_dir(number)
         if not directory.is_dir():
             return []
-        return sorted(directory.glob(f"{INTERPRETATION_PREFIX}*.json"))
+        return sorted(directory.glob(f"{READING_PREFIX}*.json"))
 
 
 def layout_for(outputs_dir: str | Path) -> Layout:
@@ -131,14 +106,20 @@ def write_json(path: Path, payload: Any) -> Path:
     return path
 
 
-def load_interpretations(layout: Layout, number: int) -> list[dict[str, Any]]:
-    """Load every lens artifact for a round, tagging each with its lens name."""
+def load_readings(layout: Layout, number: int) -> list[dict[str, Any]]:
+    """Load every lens reading for a round, tagging each with its lens name.
+
+    Shape is checked only far enough to compare the readings. Whether a reading
+    is any *good* is a judgment, and no validator was ever going to make it.
+    """
     loaded = []
-    for path in layout.interpretations(number):
+    for path in layout.readings(number):
         data = read_json(path)
         if not isinstance(data, dict):
-            raise ValueError(f"{path} should contain an object, got {type(data).__name__}")
-        data.setdefault("lens", path.stem.removeprefix(INTERPRETATION_PREFIX))
+            raise ValueError(
+                f"{path} should contain an object, got {type(data).__name__}"
+            )
+        data.setdefault("lens", path.stem.removeprefix(READING_PREFIX))
         data["_path"] = str(path)
         loaded.append(data)
     return loaded
@@ -146,15 +127,15 @@ def load_interpretations(layout: Layout, number: int) -> list[dict[str, Any]]:
 
 def load_state(layout: Layout) -> dict[str, Any]:
     if not layout.state_path.exists():
-        return {"rounds": [], "converged": False}
+        return {"rounds": []}
     return read_json(layout.state_path)
 
 
-def load_blockers(layout: Layout) -> dict[str, Any]:
-    """The current ranked list, or an empty document before the first round."""
-    if not layout.blockers_path.exists():
+def load_findings(layout: Layout) -> dict[str, Any]:
+    """The latest merged view, or an empty document before the first round."""
+    if not layout.findings_path.exists():
         return {}
-    return read_json(layout.blockers_path)
+    return read_json(layout.findings_path)
 
 
 def load_resolutions(layout: Layout) -> list[dict[str, Any]]:

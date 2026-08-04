@@ -2,21 +2,32 @@
 
 Spec refinement that runs entirely in the user's Claude Code session.
 
-**This plugin is prose.** Skills orchestrate — spawning subagents, sequencing
-rounds, deciding when to ask the user. Every count, ranking and verdict comes
-from the SpecFlow CLI, which ships separately on PyPI as `gd-specflow`.
+**This plugin is prose.** Skills do the work: they spawn independent subagents,
+sequence rounds, and decide what reaches the user. The SpecFlow CLI — shipped
+separately on PyPI as `gd-specflow` — does the part prose is bad at.
 
-That split is deliberate and it is what keeps the design honest. An oracle's
-whole value is that it is not a language model: "check the state table is
-complete" as an instruction is advisory, while a command that exits non-zero on
-an empty cell is a forcing function. Keeping the two in different artifacts
-means prose cannot quietly reimplement a check, and a check cannot come to
-depend on a prompt.
+The split follows one rule:
+
+**Code compares and remembers.** Which lenses answered the same question
+differently. Which blockers three lenses raised independently. What this round
+found that no previous round did. This is list work over more items than a model
+tracks reliably, and it must give the same answer twice.
+
+**A model judges.** Whether the architecture is sound, whether the spec is ready,
+whether a decision is worth interrupting someone over. None of that is checkable,
+and an earlier version of this plugin tried anyway — a completeness gate over a
+checklist the agent wrote itself, and a weighted score deciding what to ask about.
+Both were judgments wearing arithmetic. They are gone, and the skills now make
+those calls out loud where a user can disagree with them.
+
+So there is no validator, no readiness score, and nothing that will tell you your
+spec passed. What you get is: here is where independent readings of your spec
+disagreed, and here is what the agent concluded from that.
 
 ## Install
 
 ```bash
-uv tool install gd-specflow          # the CLI — the oracles live here
+uv tool install gd-specflow          # the CLI
 specflow plugin install --target claude
 ```
 
@@ -29,11 +40,10 @@ skills will tell you what is missing.
 
 | Skill | Job |
 |---|---|
-| `specflow-analysis` | lock every architectural dimension; emit a report plus a checkable `dimensions.json` |
-| `specflow-refine` | the loop — fan out independent lenses, merge, rank, resolve, repeat until saturated |
+| `specflow-analysis` | read the spec and report what it does and does not determine |
+| `specflow-refine` | the loop — fan out independent lenses, compare, resolve, repeat |
 | `specflow-simulate` | one lens, one pass, no loop |
 | `specflow-resolve` | record decisions and write them back into the spec |
-| `specflow-contracts` | emit the data model and API contract as real artifacts, then check them |
 | `specflow-planning` | phase the work, after refinement rather than before |
 | `specflow-report` | current state of a refinement, read-only |
 
@@ -44,21 +54,22 @@ markdown file. Lens count is the cost dial.
 
 ## The commands the skills call
 
+Four, and each exists only because a model doing the same job by eye would be
+less reliable — not more authoritative.
+
 ```
-specflow refine new-round         allocate the next round directory
-specflow refine round             validate, merge, rank, decide  <- the workhorse
-specflow refine validate          schema + totality only
-specflow refine resolve           record a decision
-specflow refine status            current state, for reporting
-specflow refine contracts         model contradictions + emitted SQL/API checks
-specflow refine check-dimensions  gate the analysis artifact
-specflow refine schema NAME       print an artifact contract
-specflow refine mutate            inject a known defect, verify it is caught (internal QA)
+specflow refine new-round   allocate the next round directory and name its files
+specflow refine round       compare this round's readings; diff against previous rounds
+specflow refine resolve     record a decision so later rounds stop asking it
+specflow refine status      read that state back, for reporting and planning
 ```
 
-Exit codes: `0` success, `1` checks failed, `2` bad usage. Source lives in
-`mcp_server/services/oracles/` (library) and `mcp_server/services/refine_commands.py`
-(the command group).
+Exit codes: `0` success, `2` bad usage. Nothing fails a run on a judgment call.
+
+Source: `mcp_server/services/refine_compare.py` (comparison and bookkeeping),
+`refine_artifacts.py` (file layout), `refine_commands.py` (the command group).
+About 700 lines, half of it argparse wiring and output formatting. If the
+comparison module starts growing, check whether a judgment has crept into it.
 
 ## Two skills exist twice in this repo, on purpose
 

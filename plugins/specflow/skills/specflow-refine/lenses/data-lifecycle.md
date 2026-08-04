@@ -30,11 +30,16 @@ a reference has no defined behaviour when its target disappears. These surface
 in production months after launch, which is exactly why simulating the build
 catches them and reading the happy path does not.
 
-## Fill particularly carefully
+## Decisions to record
 
-- `entities[].fields[].references` — set it wherever a relationship exists, and
-  raise a blocker for each one whose delete behaviour the spec does not state.
-- `entities[].fields[].derived` — flag anything computed. A derived field that
-  must also be historically stable is a contradiction worth naming.
-- `operations` — include the delete and export paths even when the spec omits
+Write these into `decisions` even where the spec is silent — that is what makes
+another lens's different answer visible. Mark a guess `guessed: true`.
+
+- For every relationship: what happens to the children when the parent is
+  deleted?
+- For every computed value: is it recalculated or frozen, and does anything
+  depend on it staying historically stable?
+- What is the retention period, and what does deletion actually mean — removed,
+  or flagged?
+- Are there delete and export paths at all? Include them even when the spec omits
   them; their absence is the finding.

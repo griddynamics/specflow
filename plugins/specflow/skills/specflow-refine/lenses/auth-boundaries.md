@@ -30,11 +30,15 @@ The spec is missing a decision wherever an operation touches data it does not
 prove the caller owns. Also wherever roles are named but their permissions are
 not enumerated — "admins can manage users" is a role, not a rule.
 
-## Fill particularly carefully
+## Decisions to record
 
-- `operations[].authorization` — required on every mutating operation. Leaving
-  it empty is caught mechanically, so state the actual rule or raise a blocker.
-- `entities[].fields` — mark server-controlled fields as `derived` so a
-  caller-writable field that should not be shows up as a contradiction.
-- `blockers` — one per operation whose ownership rule you had to infer. These
-  are cheap to fix in the spec and expensive to discover in production.
+Write these into `decisions` even where the spec is silent — that is what makes
+another lens's different answer visible. Mark a guess `guessed: true`.
+
+- For every mutating operation: who is allowed to call it, on whose records?
+- Which fields are server-controlled, and what happens if a caller sends one?
+- Who may act on someone else's data, and under what escalation?
+- Where does the spec name a role without saying what it can do?
+
+Raise a blocker for each operation whose ownership rule you had to infer. These
+are cheap to fix in the spec and expensive to discover in production.

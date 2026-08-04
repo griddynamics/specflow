@@ -29,13 +29,14 @@ mechanism that enforces it, and wherever an out-of-order arrival has no defined
 handling. "Events are processed in order" needs to name what provides that
 guarantee, or it is an assumption rather than a requirement.
 
-## Fill particularly carefully
+## Decisions to record
 
-- `state_machines` — every cell where an event fires against a state that should
-  logically come later. These are precisely the out-of-order cases, and they are
-  the cells most often left blank.
-- `operations[].inputs` — note where an input references something that may not
-  exist yet.
-- `phases` — if the build order matters and the spec does not imply one, your
-  decomposition is a hypothesis. Divergence from other lenses on that is a
-  signal in itself.
+Write these into `decisions` even where the spec is silent — that is what makes
+another lens's different answer visible. Mark a guess `guessed: true`.
+
+- For every event that can arrive early: what happens if it does?
+- Where does an input reference something that may not exist yet?
+- What is the ordering guarantee the spec assumes, and what provides it?
+- If the build order matters and the spec does not imply one, what order would
+  you pick? Your sequencing is a hypothesis, and another lens choosing
+  differently is a signal in itself.

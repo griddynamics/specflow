@@ -28,11 +28,13 @@ observably different from its first and which the spec does not mark as
 non-retryable. This class of defect is invisible in a happy-path read and
 routinely reaches production.
 
-## Fill particularly carefully
+## Decisions to record
 
-- `operations[].idempotent` — set explicitly on every operation. This field
-  exists to stop the question being skipped.
-- `state_machines` — the matrix cell where an event fires against a state that
-  already consumed it. Those cells are exactly the duplicate-delivery cases.
-- `failure_modes` — the scenario where a retry succeeded and produced a second
-  side effect.
+Write these into `decisions` even where the spec is silent — that is what makes
+another lens's different answer visible. Mark a guess `guessed: true`.
+
+- For every operation: is calling it twice with the same input safe, and if so
+  what makes it safe — a key, a version, a natural uniqueness?
+- What happens when an event arrives against a state that already consumed it?
+- On a retry that succeeded the first time invisibly, what does the caller see?
+- Which side effects are not replayable — mail, payment, external calls?

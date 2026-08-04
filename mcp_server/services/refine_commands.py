@@ -1,43 +1,39 @@
 """``specflow refine`` — the spec-refinement command group.
 
-The oracles themselves live in ``services.oracles`` and stay a pure library:
-functions over plain JSON, no argparse, no IO policy. This module is the only
-place that knows they are reachable from a command line.
+Four commands, and each one exists because a model doing the same job by eye
+would be *less* reliable, not more:
 
-Every command here is **local**. It reads and writes files under the project's
+  new-round  derives the round directory and file names, so prose never spells
+             out a path that stops honouring --outputs
+  round      compares the readings and diffs this round against every previous
+             one — list comparison over items too numerous to track by hand
+  resolve    appends a decision to a cumulative file, so later rounds stop
+             re-asking it
+  status     reads that state back for the reporting and planning skills
+
+There is deliberately no validate, no completeness gate, and no score. Whether a
+reading is good, whether the spec is ready, and whether a decision is worth a
+human's attention are judgments; the skill makes them in the open where the user
+can disagree. See ``refine_compare`` for the reasoning.
+
+Every command is **local** — it reads and writes files under the project's
 outputs directory and touches no backend, which is why ``cli.main`` dispatches
 the group without resolving a backend URL or running the localhost guard.
 
-Exit codes match the rest of the CLI: 0 success, 1 checks failed, 2 bad usage.
-The non-zero on failure is the point — a skill cannot quietly proceed past a
-gate that did not pass, and that guarantee is the reason these are scripts
-rather than instructions.
+Exit codes: 0 success, 2 bad usage. Nothing here fails a run on a judgment call.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from services.oracles import (
-    artifacts,
-    concordance,
-    contracts,
-    mutate,
-    rank,
-    saturation,
-    totality,
-)
-from services.oracles.jsonschema_mini import default_store, validate_as
+from services import refine_artifacts as artifacts
+from services import refine_compare as compare
 
-# Schema ids are "specflow/<name>"; these are the names a skill may ask for.
-SCHEMA_NAMES = ("interpretation", "dimensions", "blocker")
-
-EXIT_OK, EXIT_FAILED, EXIT_USAGE = 0, 1, 2
-
+EXIT_OK, EXIT_USAGE = 0, 2
 
 
 def _emit(payload: dict[str, Any], as_json: bool, human: str) -> None:
@@ -51,8 +47,7 @@ def _round_context(args: argparse.Namespace) -> tuple[artifacts.Layout, int]:
     """Resolve --outputs/--round for the commands that operate on a round.
 
     Raises rather than emitting: ``main`` already turns a ValueError into the
-    same JSON-or-stderr message with EXIT_USAGE, so three copies of the guard
-    (which had already drifted into two different wordings) collapse to one.
+    same message with EXIT_USAGE.
     """
     layout = artifacts.layout_for(args.outputs)
     number = args.round or layout.latest_round()
@@ -65,194 +60,116 @@ def _round_context(args: argparse.Namespace) -> tuple[artifacts.Layout, int]:
 
 def cmd_new_round(args: argparse.Namespace) -> int:
     layout = artifacts.layout_for(args.outputs)
-    latest = layout.latest_round() or 0
-    number = latest + 1
+    number = (layout.latest_round() or 0) + 1
     directory = layout.round_dir(number)
     directory.mkdir(parents=True, exist_ok=True)
 
-    payload = {
-        "round": number,
-        "dir": str(directory),
-        "write_to": [
-            str(layout.interpretation_path(number, lens)) for lens in args.lens
-        ],
-    }
+    write_to = [str(layout.reading_path(number, lens)) for lens in args.lens]
+    payload = {"round": number, "dir": str(directory), "write_to": write_to}
     lines = [f"Round {number} -> {directory}"]
-    lines += [f"  expects  {Path(p).name}" for p in payload["write_to"]]
+    lines += [f"  expects  {Path(p).name}" for p in write_to]
     _emit(payload, args.json, "\n".join(lines))
     return EXIT_OK
-
-
-# ---------------------------------------------------------------- validate
-
-def _validate_one(interpretation: dict[str, Any]) -> dict[str, Any]:
-    """Schema conformance then totality, for one lens artifact."""
-    payload = {k: v for k, v in interpretation.items() if not k.startswith("_")}
-    schema_result = validate_as(payload, "specflow/interpretation")
-    problems = [str(p) for p in schema_result.problems]
-
-    # Totality only means something on a structurally valid artifact.
-    gaps: list[str] = []
-    if schema_result.ok:
-        gaps = [str(f) for f in totality.check(interpretation).findings]
-
-    return {
-        "lens": interpretation.get("lens"),
-        "path": interpretation.get("_path"),
-        "schema_problems": problems,
-        "totality_gaps": gaps,
-        "ok": not problems and not gaps,
-    }
-
-
-def _validate_round(number: int, loaded: list[dict[str, Any]]) -> dict[str, Any]:
-    """Validate already-loaded artifacts — the caller owns the (single) read."""
-    if not loaded:
-        return {"round": number, "lenses": [], "ok": False, "error": "no interpretation files found"}
-    reports = [_validate_one(item) for item in loaded]
-    return {
-        "round": number,
-        "lenses": reports,
-        "ok": all(r["ok"] for r in reports),
-    }
-
-
-def cmd_validate(args: argparse.Namespace) -> int:
-    layout, number = _round_context(args)
-    result = _validate_round(number, artifacts.load_interpretations(layout, number))
-    _emit(result, args.json, _render_validation(result))
-    return EXIT_OK if result["ok"] else EXIT_FAILED
-
-
-def _render_validation(result: dict[str, Any]) -> str:
-    if result.get("error"):
-        return f"Round {result['round']}: {result['error']}"
-    lines = [f"Round {result['round']} — {len(result['lenses'])} lens artifact(s)"]
-    for report in result["lenses"]:
-        mark = "ok" if report["ok"] else "FAIL"
-        lines.append(f"  [{mark}] {report['lens']}")
-        for problem in report["schema_problems"]:
-            lines.append(f"        schema: {problem}")
-        for gap in report["totality_gaps"]:
-            lines.append(f"        totality: {gap}")
-    if not result["ok"]:
-        lines.append("")
-        lines.append("Artifacts are not total. Fix them and re-run — do not proceed.")
-    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------- round
 
 def cmd_round(args: argparse.Namespace) -> int:
-    """Validate, merge, rank, and decide whether to stop. One call per round."""
+    """Compare this round's readings and say what is new since the last one."""
     layout, number = _round_context(args)
 
-    interpretations = artifacts.load_interpretations(layout, number)
-    validation = _validate_round(number, interpretations)
-    if not validation["ok"]:
-        _emit(
-            {"stage": "validate", "validation": validation},
-            args.json,
-            _render_validation(validation),
+    readings = artifacts.load_readings(layout, number)
+    if not readings:
+        raise ValueError(
+            f"no readings in {layout.round_dir(number)} — "
+            f"each lens writes {artifacts.READING_PREFIX}<lens>.json there"
         )
-        return EXIT_FAILED
 
-    merged = concordance.compute(interpretations)
-
-    model_issues: list[str] = []
-    for interpretation in interpretations:
-        report = contracts.check_model(interpretation)
-        model_issues += [f"{interpretation.get('lens')}: {issue}" for issue in map(str, report.issues)]
-
+    result = compare.compare(readings)
     resolved = artifacts.resolved_ids(layout)
-    ranked = rank.rank(merged.blockers, lens_count=merged.lens_count, already_resolved=resolved)
-    buckets = rank.partition(ranked)
-    summary = rank.summarize(buckets)
+    blocker_ids = [b["id"] for b in result.blockers if b.get("id")]
+    novelty = compare.novelty(artifacts.load_state(layout), blocker_ids, resolved)
 
-    state = artifacts.load_state(layout)
-    verdict = saturation.evaluate(
-        state,
-        ranked,
-        round_number=number,
-        lens_count=merged.lens_count,
-        resolved=resolved,
-        required_streak=args.consecutive,
-    )
-
-    divergences = [asdict(d) for d in merged.divergences]
-    by_disposition = {d.value: buckets[d] for d in rank.Disposition}
-
-    artifacts.write_json(layout.state_path, saturation.updated_state(state, verdict))
-    artifacts.write_json(
-        layout.blockers_path,
-        {
-            "round": number,
-            "lens_count": merged.lens_count,
-            "summary": summary,
-            **by_disposition,
-            "divergences": divergences,
-            "contract_issues": model_issues,
-        },
-    )
+    open_blockers = [
+        b for b in result.blockers if b.get("id") not in resolved
+    ]
 
     payload = {
-        "stage": "complete",
         "round": number,
-        "lens_count": merged.lens_count,
-        "summary": summary,
-        "converged": verdict.converged,
-        "saturation": verdict.as_dict(),
-        "ask": buckets[rank.ASK],
-        "assume": buckets[rank.ASSUME],
-        "divergences": divergences,
-        "contract_issues": model_issues,
-        "blockers_path": str(layout.blockers_path),
+        "lenses": result.lenses,
+        "lens_count": result.lens_count,
+        "counts": {
+            "open": len(open_blockers),
+            "new": len(novelty["new"]),
+            "repeat": len(novelty["repeat"]),
+            "already_decided": len(novelty["resolved"]),
+            "disagreements": len(result.disagreements),
+        },
+        "novelty": novelty,
+        "disagreements": [d.as_dict() for d in result.disagreements],
+        "blockers": open_blockers,
+        "incomplete_readings": result.incomplete,
+        "findings_path": str(layout.findings_path),
     }
+
+    artifacts.write_json(
+        layout.state_path,
+        compare.record_round(
+            artifacts.load_state(layout),
+            number=number,
+            lenses=result.lenses,
+            blocker_ids=blocker_ids,
+        ),
+    )
+    artifacts.write_json(layout.findings_path, payload)
+
     _emit(payload, args.json, _render_round(payload))
     return EXIT_OK
 
 
 def _render_round(payload: dict[str, Any]) -> str:
-    summary = payload["summary"]
+    counts = payload["counts"]
     lines = [
-        f"Round {payload['round']} — {payload['lens_count']} lenses",
-        f"  ask {summary['ask']}   assume {summary['assume']}   note {summary['note']}",
+        f"Round {payload['round']} — {payload['lens_count']} lenses: "
+        f"{', '.join(payload['lenses'])}",
+        f"  open {counts['open']}   new {counts['new']}   "
+        f"seen before {counts['repeat']}   already decided {counts['already_decided']}",
         "",
     ]
 
-    if payload["divergences"]:
-        lines.append("Located disagreements:")
-        for divergence in payload["divergences"]:
-            lines.append(f"  {divergence['where']}: {divergence['detail']}")
-            for lens, value in divergence["lenses"].items():
-                lines.append(f"      {lens}: {value}")
+    if payload["incomplete_readings"]:
+        lines.append("Readings that could not be compared:")
+        lines += [f"  {item}" for item in payload["incomplete_readings"]]
         lines.append("")
 
-    if payload["contract_issues"]:
-        lines.append("Contract issues:")
-        lines += [f"  {issue}" for issue in payload["contract_issues"]]
+    if payload["blockers"]:
+        lines.append("Open blockers:")
+        for blocker in payload["blockers"]:
+            found = ", ".join(blocker.get("found_by", [])) or "unknown"
+            flag = " (new)" if blocker["id"] in payload["novelty"]["new"] else ""
+            lines.append(f"  {blocker['id']}{flag} — {blocker.get('title', '')}")
+            lines.append(
+                f"      raised by {found}"
+                + (f"  in {blocker['where']}" if blocker.get("where") else "")
+            )
+            if blocker.get("question"):
+                lines.append(f"      {blocker['question']}")
+            for item in blocker.get("disagreements", []):
+                lines.append(f"      readings disagree — {item['question']}")
+                for lens, answer in item["answers"].items():
+                    lines.append(f"          {lens}: {answer}")
         lines.append("")
 
-    if payload["ask"]:
-        lines.append("Needs a decision:")
-        for blocker in payload["ask"]:
-            found = ", ".join(blocker.get("found_by", []))
-            lines.append(f"  [{blocker['_score']}] {blocker['id']} — {blocker['title']}")
-            lines.append(f"        raised by: {found or 'unknown'}  ({blocker['_rationale']})")
-            lines.append(f"        {blocker.get('question', '')}")
-        lines.append("")
-
-    if payload["assume"]:
-        lines.append("Assuming (recorded, reversible):")
-        for blocker in payload["assume"]:
-            lines.append(f"  {blocker['id']} -> {blocker.get('recommended')}")
-        lines.append("")
-
-    lines.append(
-        "CONVERGED — " + payload["saturation"]["reason"]
-        if payload["converged"]
-        else "NOT CONVERGED — " + payload["saturation"]["reason"]
-    )
+    if counts["new"]:
+        lines.append(
+            f"{counts['new']} blocker(s) not seen in any previous round. "
+            "Decide these, then judge whether another round is worth it."
+        )
+    else:
+        lines.append(
+            "Nothing new this round. Whether that means the spec is ready is "
+            "your call — say so explicitly rather than implying it."
+        )
     return "\n".join(lines)
 
 
@@ -291,189 +208,31 @@ def cmd_resolve(args: argparse.Namespace) -> int:
 def cmd_status(args: argparse.Namespace) -> int:
     layout = artifacts.layout_for(args.outputs)
     state = artifacts.load_state(layout)
+    findings = artifacts.load_findings(layout)
     resolutions = artifacts.load_resolutions(layout)
-    blockers = artifacts.load_blockers(layout)
-    counts = {d.value: len(blockers.get(d.value, [])) for d in rank.Disposition}
 
     payload = {
         "rounds_run": len(state.get("rounds", [])),
-        "converged": state.get("converged", False),
-        "dry_streak": state.get("dry_streak", 0),
         "resolved": len(resolutions),
-        "counts": counts,
         "resolutions": resolutions,
-        "ask": blockers.get(rank.ASK.value, []),
-        "assume": blockers.get(rank.ASSUME.value, []),
-        # Carried through so a reporting skill does not have to re-read
-        # blockers.json behind the CLI — and hardcode its path to do it.
-        "divergences": blockers.get("divergences", []),
-        "contract_issues": blockers.get("contract_issues", []),
+        "counts": findings.get("counts", {}),
+        "blockers": findings.get("blockers", []),
+        "disagreements": findings.get("disagreements", []),
     }
 
     lines = [
-        f"Rounds run       {payload['rounds_run']}",
-        f"Converged        {'yes' if payload['converged'] else 'no'}",
-        f"Resolved         {payload['resolved']}",
-        f"Open decisions   {counts[rank.ASK.value]}",
-        f"Assumed          {counts[rank.ASSUME.value]}",
-        f"Noted            {counts[rank.NOTE.value]}",
+        f"Rounds run      {payload['rounds_run']}",
+        f"Resolved        {payload['resolved']}",
+        f"Open blockers   {payload['counts'].get('open', 0)}",
+        f"Disagreements   {payload['counts'].get('disagreements', 0)}",
     ]
-    if payload["ask"]:
+    if payload["blockers"]:
         lines.append("")
         lines.append("Still open:")
-        lines += [f"  {b['id']} — {b['title']}" for b in payload["ask"]]
+        lines += [
+            f"  {b['id']} — {b.get('title', '')}" for b in payload["blockers"]
+        ]
     _emit(payload, args.json, "\n".join(lines))
-    return EXIT_OK
-
-
-# ---------------------------------------------------------------- contracts
-
-def _read_emitted(layout: artifacts.Layout, args: argparse.Namespace) -> contracts.Emitted:
-    """Read and parse the emitted artifacts once, for every lens in the round.
-
-    Paths default to the layout, so the skill that emits them and the check that
-    reads them cannot disagree about where they live.
-    """
-    def read(override: str | None, default: Path) -> str | None:
-        # An explicit path that does not exist is an error worth reporting; the
-        # layout default is simply absent until the emit step has run.
-        if override:
-            return Path(override).read_text(encoding="utf-8")
-        return default.read_text(encoding="utf-8") if default.is_file() else None
-
-    return contracts.Emitted.parse(
-        sql=read(args.sql, layout.schema_sql_path),
-        api=read(args.api, layout.api_contract_path),
-    )
-
-
-def cmd_contracts(args: argparse.Namespace) -> int:
-    layout, number = _round_context(args)
-
-    interpretations = artifacts.load_interpretations(layout, number)
-    if not interpretations:
-        _emit({"error": "no interpretations"}, args.json, f"No lens artifacts in round {number}.")
-        return EXIT_USAGE
-
-    emitted = _read_emitted(layout, args)
-
-    findings = []
-    for interpretation in interpretations:
-        report = contracts.check_model(interpretation)
-        if not emitted.empty:
-            report.issues.extend(emitted.check(interpretation).issues)
-        findings.append({
-            "lens": interpretation.get("lens"),
-            "issues": [str(issue) for issue in report.issues],
-            "ok": report.ok,
-        })
-
-    ok = all(f["ok"] for f in findings)
-    lines = []
-    for finding in findings:
-        lines.append(f"[{'ok' if finding['ok'] else 'FAIL'}] {finding['lens']}")
-        lines += [f"      {issue}" for issue in finding["issues"]]
-    _emit({"round": number, "findings": findings, "ok": ok}, args.json, "\n".join(lines) or "No issues.")
-    return EXIT_OK if ok else EXIT_FAILED
-
-
-# ---------------------------------------------------------------- mutate
-
-def cmd_mutate_apply(args: argparse.Namespace) -> int:
-    manifest = mutate.apply_mutation(
-        Path(args.spec_dir),
-        Path(args.into),
-        kind=args.kind,
-        index=args.index,
-    )
-    out = Path(args.into) / "mutation-manifest.json"
-    payload = asdict(manifest)
-    artifacts.write_json(out, payload)
-    first = manifest.mutations[0]
-    _emit(
-        {"manifest": payload, "manifest_path": str(out)},
-        args.json,
-        f"Applied {first.kind} to {first.file}:{first.line}\n"
-        f"  was: {first.original}\n"
-        f"  now: {first.replacement or '<deleted>'}\n"
-        f"Manifest: {out}",
-    )
-    return EXIT_OK
-
-
-def cmd_mutate_verify(args: argparse.Namespace) -> int:
-    manifest = artifacts.read_json(Path(args.manifest))
-    blockers_doc = artifacts.load_blockers(artifacts.layout_for(args.outputs))
-    all_blockers = [
-        blocker
-        for disposition in rank.Disposition
-        for blocker in blockers_doc.get(disposition.value, [])
-    ]
-    result = mutate.verify(manifest, all_blockers)
-
-    lines = [f"Mutations: {result['mutations']}   localized: {result['localized']}"]
-    for entry in result["results"]:
-        mark = "PASS" if entry["localized"] else "MISS"
-        lines.append(f"  [{mark}] {entry['kind']} expected in {entry['expected_file']}")
-        if entry["matching_blockers"]:
-            lines.append(f"          matched: {', '.join(entry['matching_blockers'])}")
-    lines.append("")
-    lines.append("PASS — the loop detects and localizes injected ambiguity." if result["passed"]
-                 else "FAIL — an injected defect was not localized. This is a real bug.")
-    _emit(result, args.json, "\n".join(lines))
-    return EXIT_OK if result["passed"] else EXIT_FAILED
-
-
-# ---------------------------------------------------------- check-dimensions
-
-def cmd_check_dimensions(args: argparse.Namespace) -> int:
-    """Gate the analysis artifact with the same rules the loop applies later.
-
-    Schema conformance plus the evasion walk. The schema alone accepts
-    ``{"value": "TBD"}`` — and an evasion is exactly what the analysis skill
-    promises is "rejected mechanically", so the promise has to be a check.
-    """
-    layout = artifacts.layout_for(args.outputs)
-    path = layout.dimensions_path
-    document = artifacts.read_json(path)
-
-    schema_result = validate_as(document, "specflow/dimensions")
-    problems = [str(p) for p in schema_result.problems]
-    gaps = (
-        [str(f) for f in totality.evasion_findings(document)]
-        if schema_result.ok and isinstance(document, dict)
-        else []
-    )
-
-    ok = not problems and not gaps
-    lines = [f"{path} — {'ok' if ok else 'FAIL'}"]
-    lines += [f"  schema: {problem}" for problem in problems]
-    lines += [f"  evasion: {gap}" for gap in gaps]
-    if not ok:
-        lines.append("")
-        lines.append("Fix these before describing the analysis as complete.")
-
-    _emit(
-        {"path": str(path), "schema_problems": problems, "evasions": gaps, "ok": ok},
-        args.json,
-        "\n".join(lines),
-    )
-    return EXIT_OK if ok else EXIT_FAILED
-
-
-# ---------------------------------------------------------------- schema
-
-def cmd_schema(args: argparse.Namespace) -> int:
-    """Print an artifact schema.
-
-    The schemas are the contract where prose and code meet: a subagent is told
-    to fill this structure, and the oracles check that it did. Since they now
-    ship inside the wheel, a skill cannot name a path to one — so the CLI hands
-    them out, and there is still exactly one copy.
-    """
-    store = default_store()
-    schema_id = f"specflow/{args.name}"
-    print(json.dumps(store.get(schema_id), indent=2, ensure_ascii=False))
     return EXIT_OK
 
 
@@ -488,36 +247,28 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     """
     refine = subparsers.add_parser(
         "refine",
-        help="Spec refinement — simulate the build, find what the spec does not determine",
+        help="Spec refinement — compare independent readings of a spec",
         description=(
-            "Local spec refinement. Independent lenses simulate building the spec, "
-            "these commands adjudicate what they disagree about."
+            "Local spec refinement. Independent lenses read the spec; these "
+            "commands compare what they disagree about and remember what you "
+            "have already decided."
         ),
     )
     commands = refine.add_subparsers(dest="refine_command", metavar="COMMAND")
     commands.required = True
 
-    def leaf(name: str, help_text: str, *, outputs: bool = True) -> argparse.ArgumentParser:
+    def leaf(name: str, help_text: str) -> argparse.ArgumentParser:
         sub = commands.add_parser(name, help=help_text)
-        if outputs:
-            sub.add_argument("--outputs", default="docs", help="outputs dir (default: docs)")
+        sub.add_argument("--outputs", default="docs", help="outputs dir (default: docs)")
         sub.add_argument("--json", action="store_true", help="machine-readable output")
         return sub
 
     new_round = leaf("new-round", "allocate the next round directory")
-    new_round.add_argument("--lens", nargs="*", default=[], help="lens names expected this round")
+    new_round.add_argument("--lens", nargs="*", default=[], help="lens names this round")
     new_round.set_defaults(func=cmd_new_round)
 
-    validate = leaf("validate", "schema + totality only")
-    validate.add_argument("--round", type=int)
-    validate.set_defaults(func=cmd_validate)
-
-    round_cmd = leaf("round", "validate, merge, rank, decide")
+    round_cmd = leaf("round", "compare this round's readings")
     round_cmd.add_argument("--round", type=int)
-    round_cmd.add_argument(
-        "--consecutive", type=int, default=1,
-        help="consecutive dry rounds required to converge (default 1)",
-    )
     round_cmd.set_defaults(func=cmd_round)
 
     resolve = leaf("resolve", "record a decision")
@@ -526,42 +277,8 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     resolve.add_argument("--applied-to", nargs="*", help="spec files updated")
     resolve.add_argument(
         "--source", default="user", choices=["user", "assumed"],
-        help="whether the user decided or the default was applied",
+        help="whether the user decided or the skill applied a default",
     )
     resolve.set_defaults(func=cmd_resolve)
 
     leaf("status", "current refinement state").set_defaults(func=cmd_status)
-
-    contracts_cmd = leaf("contracts", "check the model and emitted artifacts")
-    contracts_cmd.add_argument("--round", type=int)
-    contracts_cmd.add_argument("--sql", help="emitted DDL file (default: the layout's schema.sql)")
-    contracts_cmd.add_argument("--api", help="emitted API contract JSON (default: the layout's api.json)")
-    contracts_cmd.set_defaults(func=cmd_contracts)
-
-    leaf(
-        "check-dimensions", "schema + evasion check on the analysis artifact"
-    ).set_defaults(func=cmd_check_dimensions)
-
-    schema = commands.add_parser("schema", help="print an artifact schema")
-    schema.add_argument("name", choices=SCHEMA_NAMES, help="which schema to print")
-    schema.set_defaults(func=cmd_schema)
-
-    mutate_cmd = commands.add_parser(
-        "mutate", help="inject a known defect and verify it gets caught (internal QA)"
-    )
-    mutate_subs = mutate_cmd.add_subparsers(dest="mutate_command", metavar="ACTION")
-    mutate_subs.required = True
-
-    apply_cmd = mutate_subs.add_parser("apply")
-    apply_cmd.add_argument("--spec-dir", required=True)
-    apply_cmd.add_argument("--into", required=True, help="destination for the mutated copy")
-    apply_cmd.add_argument("--kind", required=True, choices=list(mutate.MUTATIONS))
-    apply_cmd.add_argument("--index", type=int, default=0, help="which eligible line (deterministic)")
-    apply_cmd.add_argument("--json", action="store_true", help="machine-readable output")
-    apply_cmd.set_defaults(func=cmd_mutate_apply)
-
-    verify_cmd = mutate_subs.add_parser("verify")
-    verify_cmd.add_argument("--outputs", default="docs", help="outputs dir (default: docs)")
-    verify_cmd.add_argument("--manifest", required=True)
-    verify_cmd.add_argument("--json", action="store_true", help="machine-readable output")
-    verify_cmd.set_defaults(func=cmd_mutate_verify)

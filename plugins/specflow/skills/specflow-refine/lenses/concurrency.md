@@ -26,10 +26,17 @@ is not an answer — it names a mechanism, not a behaviour.
 Note that an invariant the spec states without saying how it is enforced under
 contention is a real gap even when the happy path is fully specified.
 
-## Fill particularly carefully
+## Decisions to record
 
-- `state_machines` — the same event arriving twice, and events arriving while
-  the entity is mid-transition. These are the matrix cells that get skipped.
-- `operations[].idempotent` — decide it for every operation, not just the
-  obvious ones.
-- `failure_modes` — the scenario where two callers both believed they succeeded.
+Write these into `decisions` even where the spec is silent — that is what makes
+another lens's different answer visible. Mark a guess `guessed: true`.
+
+- For every contended operation: *who wins, and what does the loser see?*
+- For every operation: is running it twice at once safe?
+- For each stated invariant: what enforces it in the window between check and
+  commit?
+- What is the unit of atomicity when one request touches several records?
+
+Raise a blocker where you would not be willing to pick for the user. An invariant
+the spec states without saying how it holds under contention is a real gap even
+when the happy path is fully specified.
