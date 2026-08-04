@@ -8,12 +8,14 @@ its second half** — see §2. Read this file first.
 
 ## 1. What is built
 
-A local refinement loop, shipped as a Claude Code plugin plus four CLI commands.
+A local refinement loop, shipped as its **own** Claude Code plugin plus four CLI
+commands.
 
-- **`plugins/specflow/`** — **two** skills, `refine` and `resolve`, plus six lens
-  prompts as data. Prose orchestration: `refine` fans out independent subagents
-  over the spec and decides what reaches the user; `resolve` settles the decisions
-  and writes them back into the spec files.
+- **`plugins/specflow2/`** — a second plugin in the existing marketplace, holding
+  **two** skills, `refine` and `resolve`, plus six lens prompts as data. Prose
+  orchestration: `refine` fans out independent subagents over the spec and decides
+  what reaches the user; `resolve` settles the decisions and writes them back into
+  the spec files.
 - **`mcp_server/services/refine_{compare,artifacts,commands}.py`** — ~680 lines of
   code that compare a round's readings.
   `specflow refine new-round|round|resolve|status`.
@@ -21,6 +23,12 @@ A local refinement loop, shipped as a Claude Code plugin plus four CLI commands.
 
 The split is one line: **code compares, a model judges.** Nothing in the CLI
 scores, gates, or passes verdict.
+
+**`plugins/specflow/` is untouched — byte-identical to `main`,** symlinks and all.
+That is the 1.0 companion plugin: two skills symlinked to
+`mcp_server/services/skills/`, which is also what the MCP server serves. The two
+plugins are independent products in one marketplace, and `specflow plugin install`
+installs `specflow2` because it is the only one whose skills need this CLI present.
 
 ### What was cut, and why
 
@@ -31,7 +39,7 @@ after the §5 argument below made it clear the loop cannot promise convergence:
 |---|---|
 | `specflow-simulate` | One lens cannot disagree with itself, so it produces none of the signal. It was a demo. |
 | `specflow-report` | A renderer over `refine status`. The orchestrator reports inline. |
-| `specflow-analysis`, `specflow-planning` (plugin copies) | Analysis is subsumed by six lenses reading the same spec; planning and estimating are downstream of a spec, not part of reading one. Deleting them also removes the filename collision with the 1.0 backend contract outright, instead of working around it by renaming. |
+| `specflow-analysis`, `specflow-planning` (2.0 copies of them) | Analysis is subsumed by six lenses reading the same spec; planning and estimating are downstream of a spec, not part of reading one. The 1.0 originals are unaffected — the PR briefly de-symlinked and forked them, and that is what got reverted. |
 | `novelty`, `record_round`, `state.json`, `counts.new`/`counts.repeat` | The round-to-round diff. It existed to feed a stop rule the design cannot justify — see §5. Its output was being read as convergence. |
 
 What survived the cut is the part that does not depend on a convergence claim:
@@ -151,14 +159,19 @@ What would make it a dead end:
 ## 7. Smaller things carried over
 
 - **`CLAUDE.md` describes only the 1.0 flow.** It has no mention of the local
-  channel, and nothing there records the rule that the plugin must not ship an
-  analysis or planning skill, or write anything into `analysis/` / `planning/` —
-  the 1.0 contract owns those names. That rule is currently written only in
-  `plugins/specflow/README.md` and in `bundled_skills.py`, so the next contributor
-  to "restore" the missing skills will reintroduce the collision.
+  channel, and nothing there records the two rules that keep the marketplace's two
+  plugins from colliding: `specflow2` ships no analysis or planning skill, and
+  nothing in it writes to `analysis/` or `planning/`. Those rules are currently
+  written only in `plugins/specflow2/README.md` and `bundled_skills.py`.
 - **Prose is most of the diff and none of it is testable.** ~680 lines of code
   against ~930 of skills and README. The product lives in the prose, so
   the review surface is mostly unverifiable by construction. Stated as accepted
   risk in the plan (§9, "cannot fully close") and it is the right call — but it
-  means Level 2–4 human observation is not optional, it is the only coverage the
+  means Level 2–3 human observation is not optional, it is the only coverage the
   orchestration has.
+- **The plugin path serves 1.0 templates unsubstituted.** Pre-existing on `main`
+  and out of scope here, but worth recording: the symlinked skills contain
+  `<<SPEC_DIR>>` / `<<OUTPUTS_DIR>>` / `<<SRC_DIR>>` placeholders that
+  `server.py:_make_prompt_text` fills in for the MCP tool responses. Nothing fills
+  them on the plugin path, so a `specflow` plugin user running `/specflow-analysis`
+  sees the literal tokens. Unchanged by this PR either way.

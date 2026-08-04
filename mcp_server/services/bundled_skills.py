@@ -9,16 +9,17 @@ Diagnose and compare-variants remain `@mcp.prompt()` slash commands.
 Source of truth: services/skills/{name}/SKILL.md — included as package
 data so skills are available after pip install, not just from the repo.
 
-Scope of that claim: these files are the source of truth for the **1.0 backend
-flow only**, and they are the only copies. `plugins/specflow/` — the 2.0 local
-refinement loop — ships `specflow-refine` and `specflow-resolve` and nothing else.
+Two consumers, one copy. These files are served as MCP tool responses *and*
+symlinked into the `plugins/specflow/` marketplace plugin, so an edit here reaches
+both. That is the point of the symlink — keep it.
 
-It used to symlink `specflow-analysis` and `specflow-planning` from here, then
-carried diverged copies of them, and both arrangements were wrong: the same
-filenames written by two flows meant a user with both installed could run the local
-skill and have `run_generation` reject the file it produced. The plugin now writes
-only under `<outputs_dir>/refine/`, which the contract validator does not search.
-Do not add an analysis or planning skill to the plugin, and do not re-link these.
+The `specflow2` plugin is a different product and shares nothing with this
+directory: it ships the local refinement loop (`specflow-refine`,
+`specflow-resolve`) and writes only under `<outputs_dir>/refine/`. An earlier draft
+put those skills in `plugins/specflow/` beside the symlinks, writing this flow's
+reserved filenames with content its contract validator rejects; splitting the
+plugins is what fixed it. So: no analysis or planning skill in `specflow2`, and
+nothing in `specflow2` writes to `analysis/` or `planning/`.
 
 Only user-facing skills are bundled here. Developer skills (specflow-backport,
 deploy-requirements) live in .claude/skills/ as repo-local slash commands

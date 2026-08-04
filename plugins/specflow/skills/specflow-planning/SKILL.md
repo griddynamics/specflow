@@ -1,0 +1,1 @@
+../../../../mcp_server/services/skills/specflow-planning/SKILL.md

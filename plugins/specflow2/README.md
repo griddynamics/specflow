@@ -1,6 +1,14 @@
-# SpecFlow plugin
+# specflow2 — the spec-refinement plugin
 
 Spec refinement that runs entirely in the user's Claude Code session.
+
+**Separate from the `specflow` plugin in the same marketplace.** That one carries
+the two skills of the 1.0 backend flow — `specflow-analysis` and
+`specflow-planning`, symlinked to the templates the MCP server serves for
+`check_specification_completeness` and `run_planning`. This one carries the local
+refinement loop and nothing else. Installing either does not affect the other, and
+they write to different places: 1.0 owns `<outputs_dir>/{analysis,planning}/`, this
+plugin owns `<outputs_dir>/refine/`.
 
 **This plugin is prose.** Skills do the work: they spawn independent subagents,
 sequence rounds, and decide what reaches the user. The SpecFlow CLI — shipped
@@ -56,9 +64,14 @@ specflow plugin install --target claude
 ```
 
 The second command points Claude Code at the published marketplace and installs
-this plugin. Installing in that order matters: the skills call `specflow`, so
-the CLI has to exist first. If you added the marketplace by hand instead, the
-skills will tell you what is missing.
+`specflow2` from it. Installing in that order matters: the skills call `specflow`,
+so the CLI has to exist first. If you added the marketplace by hand instead, the
+skills will tell you what is missing — and note the plugin name:
+
+```bash
+claude plugin marketplace add griddynamics/specflow
+claude plugin install specflow2@specflow-marketplace   # not `specflow`
+```
 
 ## Skills
 
@@ -73,8 +86,9 @@ The six adversarial lenses ship as data (`skills/specflow-refine/lenses/*.md`),
 not as skills. Nobody types "run the idempotency lens", and a seventh lens is one
 markdown file. Lens count is the cost dial.
 
-Nothing else is here on purpose. Earlier versions shipped a single-lens pass, a
-read-only status renderer, a spec-analysis pass and a planning skill. Each was
+Nothing else is here on purpose. Earlier drafts of this plugin shipped a
+single-lens pass, a read-only status renderer, a spec-analysis pass and a planning
+skill. Each was
 either a wrapper over one CLI command, or work this loop is not for: one lens
 cannot disagree with itself, so it produces none of the signal, and planning and
 estimating are downstream of a spec rather than part of reading one. The
@@ -168,16 +182,21 @@ conversation, which is where you can argue with it.
 
 ## Why this plugin writes no `analysis/` or `planning/` files
 
-The MCP server in this repo ships its own `specflow-analysis` and
-`specflow-planning` templates for the 1.0 backend flow, and that flow's contract
-reserves `analysis/specification_completeness.md` and
-`planning/IMPLEMENTATION_PLAN.md`. Its validator rejects an analysis file with no
-Part F readiness section — a section that exists only to tell that backend whether
-to run E2E.
+Those two directories belong to the 1.0 flow. Its contract reserves
+`analysis/specification_completeness.md` and `planning/IMPLEMENTATION_PLAN.md`, and
+its validator rejects an analysis file with no Part F readiness section — a section
+that exists only to tell that backend whether to run E2E, and one this loop has no
+reason to produce.
 
-The plugin used to symlink those two skills, then shipped diverged copies of them,
-and a user with both installed could run the local skill and be rejected by the
-backend for a file they never meant to hand it. Both are now gone from the plugin:
-this loop writes only under `refine/`, which is outside the three directories that
-validator searches. Don't add a skill here that writes into `analysis/` or
-`planning/`.
+An earlier draft of the 2.0 skills lived in the `specflow` plugin alongside the 1.0
+ones and wrote those same filenames with different content, so a user could run the
+local skill and then have `run_generation` reject the file they never meant to hand
+it. Splitting the plugins fixed that at the root: `specflow` has the 1.0 skills and
+only those, `specflow2` has the loop and writes only under `refine/`, which is
+outside the three directories that validator searches.
+
+Two rules keep it that way. **Don't add an analysis or planning skill here** — if
+you want to change what 1.0 produces, edit
+`mcp_server/services/skills/specflow-{analysis,planning}/SKILL.md`, which is the
+single source for both the MCP tool responses and the `specflow` plugin. And
+**don't write into `analysis/` or `planning/`** from any skill in this plugin.

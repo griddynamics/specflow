@@ -505,14 +505,20 @@ async def cmd_init(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 # The plugin ships through the marketplace, not through this package. The wheel
-# carries the oracles; the marketplace carries the skills that call them. So
+# carries the commands; the marketplace carries the skills that call them. So
 # install means "point the tool at the published marketplace" — never copying
 # files out of this install, which would fork the skills from the ones the
 # marketplace serves and let the two drift.
 _PLUGIN_MARKETPLACE_REPO = "griddynamics/specflow"
 # Name declared by .claude-plugin/marketplace.json, not the repo name.
 _PLUGIN_MARKETPLACE_NAME = "specflow-marketplace"
-_PLUGIN_NAME = "specflow"
+# The marketplace carries two plugins, and this command installs the refinement
+# one. `specflow` is the 1.0 companion: its two skills are the same templates the
+# MCP server already returns from `check_specification_completeness` and
+# `run_planning`, so a user on that flow has them without installing anything.
+# `specflow2` is the only one whose skills need this CLI on the PATH, which is why
+# it is the one worth automating here.
+_PLUGIN_NAME = "specflow2"
 _DEFAULT_PLUGIN_TARGET = "claude"
 _PLUGIN_TARGETS = {_DEFAULT_PLUGIN_TARGET}
 
@@ -739,10 +745,14 @@ def _build_parser() -> argparse.ArgumentParser:
     refine_commands.register(subparsers)
 
     # plugin
-    p_plugin = subparsers.add_parser("plugin", help="Install the SpecFlow plugin into an AI coding tool")
+    p_plugin = subparsers.add_parser(
+        "plugin", help="Install the spec-refinement plugin into an AI coding tool"
+    )
     plugin_actions = p_plugin.add_subparsers(dest="plugin_command", metavar="ACTION")
     plugin_actions.required = True
-    p_plugin_install = plugin_actions.add_parser("install", help="Install the published plugin")
+    p_plugin_install = plugin_actions.add_parser(
+        "install", help=f"Install the published {_PLUGIN_NAME} plugin"
+    )
     p_plugin_install.add_argument(
         "--target",
         default=_DEFAULT_PLUGIN_TARGET,
