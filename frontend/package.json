@@ -38,6 +38,6 @@
     "eslint": "^9",
     "eslint-config-next": "16.3.7",
     "tsx": "4.23.15",
-    "typescript": "^5"
+    "typescript": "^7"
   }
 }
