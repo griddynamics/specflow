@@ -135,7 +135,7 @@ services:
       start_period: 10s
 
   langfuse-redis:
-    image: redis:7.4
+    image: redis:8.0
     container_name: specflow-langfuse-redis
     profiles: ["langfuse"]
     mem_limit: 128m
