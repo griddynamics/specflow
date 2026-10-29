@@ -116,7 +116,7 @@ services:
       retries: 12
 
   langfuse-clickhouse:
-    image: clickhouse/clickhouse-server:24.12
+    image: clickhouse/clickhouse-server:26.10
     container_name: specflow-langfuse-clickhouse
     profiles: ["langfuse"]
     mem_limit: 3g   # ClickHouse caps itself at 90% of this; 1g failed on trace inserts
