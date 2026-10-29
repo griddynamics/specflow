@@ -46,7 +46,7 @@ services:
       retries: 12
 
   neo4j:
-    image: neo4j:5.26.30-community
+    image: neo4j:5.26.31-community
     container_name: specflow-neo4j
     mem_limit: 1280m
     ports:
@@ -69,7 +69,7 @@ services:
   # Local only: Temporal dev server with the namespace created on start. SQLite lives on
   # a volume, so workflow history survives `make down`.
   temporal:
-    image: temporalio/temporal:1.5.1
+    image: temporalio/temporal:1.9.1
     container_name: specflow-temporal
     profiles: ["temporal"]
     mem_limit: 512m
@@ -242,7 +242,7 @@ services:
   # RustFS falls back to a built-in default key. It does not create buckets: rustfs-init does.
   # Host port 19000, never 9000 (Langfuse's MinIO may hold it).
   rustfs:
-    image: rustfs/rustfs:1.0.1@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c
+    image: rustfs/rustfs:1.0.4@sha256:ed9210d6411d77ffceb70d94b964a3cb7d225983368bc25bebe01e995293dcc2
     container_name: specflow-rustfs
     mem_limit: 512m
     ports:
