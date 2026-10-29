@@ -14,7 +14,7 @@ dependencies = [
     "google-api-python-client>=2.201.0",
     "google-auth>=2.62.0",
     "httplib2>=0.22",
-    "graphiti-core==0.30.2",
+    "graphiti-core==0.31.2",
     "langfuse>=4,<5",
     "neo4j>=6.4.1",
     "numpy>=2.5.4",
