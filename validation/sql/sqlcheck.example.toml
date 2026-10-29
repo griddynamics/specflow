@@ -1,0 +1,106 @@
+# sqlcheck.toml -- copy to the project root as `sqlcheck.toml` and adjust.
+# Every relative path is resolved against `[paths].root`, itself relative to this file.
+# The values below describe a neutral example layout:
+#
+#   src/app/models/        SQLAlchemy models (package `app.models`)
+#   src/app/database.py    the engine factory
+#   src/app/sql/*.sql      statements loaded at runtime
+#   alembic.ini            Alembic, with versions in alembic/versions and
+#   alembic/sql/*.sql      migration SQL (the only place a DROP may appear)
+#   sql-schema.json        the declared schema (`sqlcheck build-schema` bootstraps it)
+
+[run]
+# The steps `sqlcheck run` executes, in order: the static steps, which need only the kit's
+# own environment. A step whose inputs are not configured is reported as skipped, never
+# silently passed. The dynamic steps import the project's code, so run them from the
+# project's environment with `sqlcheck run --step schema-parity --step migrations
+# --step sqlite-pragmas`, or add them here when the kit is installed there.
+steps = [
+  "sqlfluff",
+  "sql-rules",
+  "alembic-lint",
+  "orm-lint",
+  "inline-queries",
+  "semgrep",
+  # "schema-parity",
+  # "migrations",
+  # "sqlite-pragmas",
+]
+
+[paths]
+root = "."
+sql = ["src", "alembic"]              # directories scanned for .sql files
+python = ["src"]                      # directories scanned by orm-lint, inline-queries and semgrep
+schema = "sql-schema.json"            # the declared schema
+alembic_versions = "alembic/versions"
+migration_sql_dirs = ["alembic/sql"]  # a DROP is allowed only in files directly in these
+
+[sqlfluff]
+config = ".sqlfluff"                  # omit to use the kit's own .sqlfluff
+dialect = "sqlite"                    # also the dialect sql-rules and alembic-lint parse with
+
+[orm_lint]
+models_package = "app.models"         # imports from here are ORM models
+not_models = ["app.models.enums"]     # modules of that package that hold no models
+models_dir = "src/app/models"         # where `__tablename__` is read
+module_root = "src"                   # register names are dotted paths below this directory
+
+[orm_lint.scan_register]
+# Reads of every row of a table that are intended. Dotted names below `module_root`.
+methods = []                          # e.g. "app.repositories.orders.OrderRepository.export_all"
+classes = []                          # e.g. "NightlyReconciliationJob"
+complete_lists = []                   # e.g. "app.repositories.countries.list_countries"
+
+[inline_queries]
+# Statements live in query files and are loaded; Python holds no SQL text.
+query_suffixes = [".sql"]             # what counts as a query file
+migration_dirs = ["alembic"]          # there only text handed to execute()/text() is judged
+orphan_roots = ["src", "alembic"]     # query files below these must be reached by a loader call
+exclude = []                          # extra fnmatch globs (relative to the root) to skip;
+                                      # test files and tests/ directories are always skipped
+
+[inline_queries.loaders]
+# Loader function name = directory (relative to the root) its path argument is relative to.
+read_query = "src/app"
+read_migration_sql = "alembic"
+
+[semgrep]
+# rules = "path/to/rules"             # omit to use the kit's semgrep/ directory
+# generated_dir = "build/sqlcheck/semgrep"   # where the schema-bound rules are rendered; omitted, the semgrep step renders into a temporary directory
+paths_include = ["**/src/**"]
+
+[schema_parity]
+metadata = "app.models:Base.metadata"
+ignore_tables = ["alembic_version"]
+implicit_columns = []                 # columns on every table that the schema leaves out
+conditional_unique_dialects = ["sqlite"]
+
+[schema_parity.type_families]
+# Declared type prefix -> SQLAlchemy type classes (by name, or "pkg.module:Class").
+# The longest matching prefix wins.
+text = ["String"]
+uuid = ["String", "Uuid"]
+int = ["Integer"]
+real = ["Float", "Numeric"]
+bool = ["Boolean"]
+json = ["JSON"]
+enum = ["Enum"]
+timestamp = ["DateTime"]
+date = ["Date"]
+
+[migrations]
+alembic_ini = "alembic.ini"
+url_template = "sqlite:///{path}"     # e.g. "sqlite+aiosqlite:///{path}" for an async env.py
+url_env = "DATABASE_URL"              # also exported, for an env.py that reads it
+
+[sqlite_pragmas]
+factory = "app.database:build_engine"
+url_template = "sqlite:///{path}"
+
+[sqlite_pragmas.factory_kwargs]
+busy_timeout_s = 5
+
+[sqlite_pragmas.expected]
+journal_mode = "wal"
+foreign_keys = 1
+busy_timeout = 5000

@@ -1,0 +1,10 @@
+# Ignore patterns `run.mjs` gives Prettier when the project has no `.prettierignore` of its own
+# (the project's `.gitignore` is read next to this file). Build output, dependencies and reports.
+dist/
+build/
+coverage/
+node_modules/
+.venv/
+playwright-report/
+test-results/
+*.tsbuildinfo

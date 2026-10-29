@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Select — GD Liquid Glass</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<style>html,body{margin:0;background:var(--ground)}</style>
+<script>(function(){var t=new URLSearchParams(location.search).get('theme');document.documentElement.setAttribute('data-theme',t==='dark'?'dark':'light');})();</script>
+<script src="../components/lib/react.production.min.js"></script>
+<script src="../components/lib/react-dom.production.min.js"></script>
+<script src="../components/lib/jsx-runtime-shim.js"></script>
+<script src="../components/lib/xyflow-react.umd.js"></script>
+<script src="../components/bundle.js"></script>
+</head>
+<body>
+<div class="gdg-root gdg-wash" style="padding:24px;min-height:300px;box-sizing:border-box;" id="root"></div>
+<script>
+var G = window.GDGlass, h = React.createElement;
+var PEOPLE = [
+  { id:'mk', name:'Sam Carter', role:'Product owner', email:'scarter@example.com' },
+  { id:'ak', name:'Alex Rivera', role:'Engineer', email:'arivera@example.com' },
+  { id:'nc', name:'Nina Walker', role:'Delivery manager', email:'nwalker@example.com' }];
+
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{display:'flex',gap:24,alignItems:'flex-end'}},
+  h(G.Select,{label:'Domain', icon:'funnel-simple', defaultOpen:true, options:[{value:'all',label:'All domains'},{value:'sec',label:'Security'},{value:'data',label:'Data'},{value:'ux',label:'UX'},{value:'int',label:'Integrations'}], defaultValue:'all'}),
+  h(G.Select,{label:'Owner', options:[{value:'any',label:'Anyone'},{value:'me',label:'Me'}], defaultValue:'me'})));
+</script>
+</body>
+</html>

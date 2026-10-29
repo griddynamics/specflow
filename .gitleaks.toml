@@ -1,15 +1,21 @@
+# gitleaks configuration. Extends the default rules; every entry below allows one known
+# false positive by path and rule, with the reason. Do not add a path without a reason.
+title = "specflow-graph gitleaks"
+
 [extend]
 useDefault = true
 
 [[allowlists]]
-description = "Local/generated/private directories outside the public source surface"
-paths = [
-  '''^\.env$''',
-  '''^\.specflow-local/''',
-  '''^\.specflow-test/''',
-  '''^agent_logs/''',
-  '''^workspaces/''',
-  '''^docs_internal/''',
-  '''(^|/)__pycache__/''',
-  '''\.pyc$''',
-]
+description = "Semgrep rule fixture: a made-up GitHub token (also matched by the generic key rule) that the rule kit.python.no-hardcoded-secrets must flag (SPL-PUB-04)"
+targetRules = ["github-pat", "generic-api-key"]
+paths = ['''(^|/)validation/python/lint/semgrep/fixtures/python\.py$''']
+
+[[allowlists]]
+description = "Semgrep rule fixture: the example access key from the AWS documentation, used to test the same rule"
+targetRules = ["aws-access-token"]
+paths = ['''(^|/)validation/python/lint/semgrep/fixtures/python\.py$''']
+
+[[allowlists]]
+description = "Unit test value: a dummy API key in a settings fixture, not a real credential"
+targetRules = ["generic-api-key"]
+paths = ['''(^|/)backend/tests/test_specflow_temporal_core_agent\.py$''']

@@ -1,0 +1,516 @@
+{
+  "presentationId": "pres-sample-0001",
+  "title": "Deck",
+  "pageSize": {},
+  "slides": [
+    {
+      "objectId": "s1",
+      "pageElements": [
+        {
+          "objectId": "t",
+          "shape": {
+            "shapeType": "TEXT_BOX",
+            "text": {
+              "textElements": [
+                {
+                  "paragraphMarker": {
+                    "style": {}
+                  },
+                  "startIndex": 0
+                },
+                {
+                  "startIndex": 0,
+                  "endIndex": 7,
+                  "textRun": {
+                    "content": "Opening",
+                    "style": {}
+                  }
+                },
+                {
+                  "startIndex": 7,
+                  "endIndex": 8,
+                  "textRun": {
+                    "content": "\n",
+                    "style": {}
+                  }
+                }
+              ]
+            },
+            "placeholder": {
+              "type": "TITLE"
+            }
+          }
+        },
+        {
+          "objectId": "b",
+          "shape": {
+            "shapeType": "TEXT_BOX",
+            "text": {
+              "textElements": [
+                {
+                  "paragraphMarker": {
+                    "style": {},
+                    "bullet": {
+                      "listId": "l1",
+                      "nestingLevel": 0,
+                      "glyph": "●"
+                    }
+                  },
+                  "startIndex": 0
+                },
+                {
+                  "startIndex": 0,
+                  "endIndex": 7,
+                  "textRun": {
+                    "content": "Point A",
+                    "style": {}
+                  }
+                },
+                {
+                  "startIndex": 7,
+                  "endIndex": 8,
+                  "textRun": {
+                    "content": "\n",
+                    "style": {}
+                  }
+                },
+                {
+                  "paragraphMarker": {
+                    "style": {},
+                    "bullet": {
+                      "listId": "l1",
+                      "nestingLevel": 1,
+                      "glyph": "●"
+                    }
+                  },
+                  "startIndex": 8
+                },
+                {
+                  "startIndex": 8,
+                  "endIndex": 16,
+                  "textRun": {
+                    "content": "Point A1",
+                    "style": {}
+                  }
+                },
+                {
+                  "startIndex": 16,
+                  "endIndex": 17,
+                  "textRun": {
+                    "content": "\n",
+                    "style": {}
+                  }
+                },
+                {
+                  "paragraphMarker": {
+                    "style": {}
+                  },
+                  "startIndex": 17
+                },
+                {
+                  "startIndex": 17,
+                  "endIndex": 27,
+                  "textRun": {
+                    "content": "Plain para",
+                    "style": {}
+                  }
+                },
+                {
+                  "startIndex": 27,
+                  "endIndex": 28,
+                  "textRun": {
+                    "content": "\n",
+                    "style": {}
+                  }
+                }
+              ]
+            },
+            "placeholder": {
+              "type": "BODY"
+            }
+          }
+        },
+        {
+          "objectId": "im",
+          "image": {
+            "imageProperties": {}
+          }
+        }
+      ],
+      "slideProperties": {
+        "layoutObjectId": "layout-1",
+        "masterObjectId": "master-1",
+        "notesPage": {
+          "objectId": "s1-notes",
+          "pageType": "NOTES",
+          "pageElements": [
+            {
+              "objectId": "s1-notes-img",
+              "shape": {
+                "shapeType": "SLIDE_IMAGE",
+                "placeholder": {
+                  "type": "SLIDE_IMAGE"
+                }
+              }
+            },
+            {
+              "objectId": "s1-notes-body",
+              "shape": {
+                "shapeType": "TEXT_BOX",
+                "placeholder": {
+                  "type": "BODY"
+                },
+                "text": {
+                  "textElements": [
+                    {
+                      "paragraphMarker": {
+                        "style": {}
+                      },
+                      "startIndex": 0
+                    },
+                    {
+                      "startIndex": 0,
+                      "endIndex": 9,
+                      "textRun": {
+                        "content": "Say hello",
+                        "style": {}
+                      }
+                    },
+                    {
+                      "startIndex": 9,
+                      "endIndex": 10,
+                      "textRun": {
+                        "content": "\n",
+                        "style": {}
+                      }
+                    },
+                    {
+                      "paragraphMarker": {
+                        "style": {}
+                      },
+                      "startIndex": 10
+                    },
+                    {
+                      "startIndex": 10,
+                      "endIndex": 20,
+                      "textRun": {
+                        "content": "Then start",
+                        "style": {}
+                      }
+                    },
+                    {
+                      "startIndex": 20,
+                      "endIndex": 21,
+                      "textRun": {
+                        "content": "\n",
+                        "style": {}
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "notesProperties": {
+            "speakerNotesObjectId": "s1-notes-body"
+          }
+        }
+      }
+    },
+    {
+      "objectId": "s2",
+      "pageElements": [
+        {
+          "objectId": "x",
+          "shape": {
+            "shapeType": "TEXT_BOX",
+            "text": {
+              "textElements": [
+                {
+                  "paragraphMarker": {
+                    "style": {}
+                  },
+                  "startIndex": 0
+                },
+                {
+                  "startIndex": 0,
+                  "endIndex": 13,
+                  "textRun": {
+                    "content": "No title here",
+                    "style": {}
+                  }
+                },
+                {
+                  "startIndex": 13,
+                  "endIndex": 14,
+                  "textRun": {
+                    "content": "\n",
+                    "style": {}
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "slideProperties": {
+        "layoutObjectId": "layout-1",
+        "masterObjectId": "master-1",
+        "notesPage": {
+          "objectId": "s2-notes",
+          "pageType": "NOTES",
+          "pageElements": [
+            {
+              "objectId": "s2-notes-img",
+              "shape": {
+                "shapeType": "SLIDE_IMAGE",
+                "placeholder": {
+                  "type": "SLIDE_IMAGE"
+                }
+              }
+            },
+            {
+              "objectId": "s2-notes-body",
+              "shape": {
+                "shapeType": "TEXT_BOX",
+                "placeholder": {
+                  "type": "BODY"
+                },
+                "text": {
+                  "textElements": []
+                }
+              }
+            }
+          ],
+          "notesProperties": {
+            "speakerNotesObjectId": "s2-notes-body"
+          }
+        }
+      }
+    },
+    {
+      "objectId": "s3",
+      "pageElements": [
+        {
+          "objectId": "g",
+          "elementGroup": {
+            "children": [
+              {
+                "objectId": "gt",
+                "shape": {
+                  "shapeType": "TEXT_BOX",
+                  "text": {
+                    "textElements": [
+                      {
+                        "paragraphMarker": {
+                          "style": {}
+                        },
+                        "startIndex": 0
+                      },
+                      {
+                        "startIndex": 0,
+                        "endIndex": 12,
+                        "textRun": {
+                          "content": "Grouped text",
+                          "style": {}
+                        }
+                      },
+                      {
+                        "startIndex": 12,
+                        "endIndex": 13,
+                        "textRun": {
+                          "content": "\n",
+                          "style": {}
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "objectId": "tb",
+          "table": {
+            "rows": 2,
+            "columns": 2,
+            "tableRows": [
+              {
+                "tableCells": [
+                  {
+                    "location": {
+                      "rowIndex": 0,
+                      "columnIndex": 0
+                    },
+                    "columnSpan": 2,
+                    "rowSpan": 1,
+                    "text": {
+                      "textElements": [
+                        {
+                          "paragraphMarker": {
+                            "style": {}
+                          },
+                          "startIndex": 0
+                        },
+                        {
+                          "startIndex": 0,
+                          "endIndex": 4,
+                          "textRun": {
+                            "content": "Wide",
+                            "style": {}
+                          }
+                        },
+                        {
+                          "startIndex": 4,
+                          "endIndex": 5,
+                          "textRun": {
+                            "content": "\n",
+                            "style": {}
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "location": {
+                      "rowIndex": 0,
+                      "columnIndex": 1
+                    },
+                    "columnSpan": 0,
+                    "rowSpan": 0
+                  }
+                ]
+              },
+              {
+                "tableCells": [
+                  {
+                    "location": {
+                      "rowIndex": 1,
+                      "columnIndex": 0
+                    },
+                    "text": {
+                      "textElements": [
+                        {
+                          "paragraphMarker": {
+                            "style": {}
+                          },
+                          "startIndex": 0
+                        },
+                        {
+                          "startIndex": 0,
+                          "endIndex": 1,
+                          "textRun": {
+                            "content": "l",
+                            "style": {}
+                          }
+                        },
+                        {
+                          "startIndex": 1,
+                          "endIndex": 2,
+                          "textRun": {
+                            "content": "\n",
+                            "style": {}
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "location": {
+                      "rowIndex": 1,
+                      "columnIndex": 1
+                    },
+                    "text": {
+                      "textElements": [
+                        {
+                          "paragraphMarker": {
+                            "style": {}
+                          },
+                          "startIndex": 0
+                        },
+                        {
+                          "startIndex": 0,
+                          "endIndex": 1,
+                          "textRun": {
+                            "content": "r",
+                            "style": {}
+                          }
+                        },
+                        {
+                          "startIndex": 1,
+                          "endIndex": 2,
+                          "textRun": {
+                            "content": "\n",
+                            "style": {}
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "slideProperties": {
+        "layoutObjectId": "layout-1",
+        "masterObjectId": "master-1",
+        "notesPage": {
+          "objectId": "s3-notes",
+          "pageType": "NOTES",
+          "pageElements": [
+            {
+              "objectId": "s3-notes-img",
+              "shape": {
+                "shapeType": "SLIDE_IMAGE",
+                "placeholder": {
+                  "type": "SLIDE_IMAGE"
+                }
+              }
+            },
+            {
+              "objectId": "s3-notes-body",
+              "shape": {
+                "shapeType": "TEXT_BOX",
+                "placeholder": {
+                  "type": "BODY"
+                },
+                "text": {
+                  "textElements": [
+                    {
+                      "paragraphMarker": {
+                        "style": {}
+                      },
+                      "startIndex": 0
+                    },
+                    {
+                      "startIndex": 0,
+                      "endIndex": 11,
+                      "textRun": {
+                        "content": "Table notes",
+                        "style": {}
+                      }
+                    },
+                    {
+                      "startIndex": 11,
+                      "endIndex": 12,
+                      "textRun": {
+                        "content": "\n",
+                        "style": {}
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "notesProperties": {
+            "speakerNotesObjectId": "s3-notes-body"
+          }
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "items": [
+    { "label": "Orders", "path": "/orders", "icon": "ShoppingCart", "key": "nav.orders" },
+    {
+      "label": "Catalog",
+      "group": true,
+      "icon": "BookOpen",
+      "key": "nav.catalog",
+      "children": [{ "label": "Products", "path": "/catalog/products", "icon": "Tag" }]
+    }
+  ]
+}

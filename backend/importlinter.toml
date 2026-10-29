@@ -1,0 +1,124 @@
+# Import contracts of the backend, read by validation/python/lint (IMPORTLINTER_CONFIG).
+# Run from backend/ with PYTHONPATH=src: src/ is the import root and every top-level package
+# is a root package (there is no single `src` package). `make validate-python` sets both.
+# Replaces validation/python/lint/importlinter.toml, whose `src.<feature>` layout does not exist here.
+# Facts behind the contracts: backend/src (checked with grimp when written).
+[tool.importlinter]
+root_packages = [
+    "agent_runtime",
+    "api",
+    "auth",
+    "db",
+    "drive",
+    "file_parsers",
+    "graph",
+    "llm",
+    "logger",
+    "storage",
+    "temporal",
+]
+include_external_packages = true
+
+# The central logger (backend/AGENTS.md) is the base of the tree: it
+# imports no other project package, so any package can use it without a cycle.
+[[tool.importlinter.contracts]]
+name = "The logger imports no project package"
+id = "logger-is-base"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["logger"]
+forbidden_modules = [
+    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "storage", "temporal",
+]
+
+# api is the outermost layer (HTTP). Nothing below it reaches back into it.
+[[tool.importlinter.contracts]]
+name = "Nothing imports the API layer"
+id = "api-is-outermost"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "agent_runtime", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
+]
+forbidden_modules = ["api"]
+
+# The graph package (Neo4j / Graphiti knowledge graph) depends on the logger and nothing else
+# of ours; the service wires it in from api and temporal.
+[[tool.importlinter.contracts]]
+name = "The graph package stands alone"
+id = "graph-standalone"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["graph"]
+forbidden_modules = [
+    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "llm", "storage", "temporal",
+]
+
+# graph.build sits on graph.core; the core never imports the build pipeline, the gap detector
+# or the planner.
+[[tool.importlinter.contracts]]
+name = "Graph core does not depend on its callers"
+id = "graph-core-lowest"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["graph.core"]
+forbidden_modules = ["graph.build", "graph.gap", "graph.plan"]
+
+# Provider and integration packages are reusable on their own: they know neither the database,
+# the workflow engine nor the HTTP layer.
+[[tool.importlinter.contracts]]
+name = "Integration packages do not know the service layers"
+id = "integrations-standalone"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["auth", "drive", "llm", "storage", "file_parsers"]
+forbidden_modules = ["api", "db", "temporal", "agent_runtime", "graph"]
+
+# Vendor SDKs stay in the package that owns the integration.
+[[tool.importlinter.contracts]]
+name = "Neo4j and Graphiti are confined to graph"
+id = "graph-sdk-confined"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "llm", "logger", "storage", "temporal",
+]
+forbidden_modules = ["neo4j", "graphiti_core"]
+
+[[tool.importlinter.contracts]]
+name = "Claude Agent SDK and Langfuse are confined to llm"
+id = "llm-sdk-confined"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "logger", "storage", "temporal",
+]
+forbidden_modules = ["claude_agent_sdk", "langfuse"]
+
+[[tool.importlinter.contracts]]
+name = "The web framework belongs to api and auth"
+id = "web-framework-confined"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "agent_runtime", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
+]
+forbidden_modules = ["fastapi", "starlette"]
+
+[[tool.importlinter.contracts]]
+name = "The ORM stays in api, db and temporal"
+id = "orm-confined"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["agent_runtime", "auth", "drive", "file_parsers", "graph", "llm", "logger", "storage"]
+forbidden_modules = ["sqlalchemy", "asyncpg", "alembic"]
+
+# Production code reaches no test module and no test-only library, directly or indirectly.
+[[tool.importlinter.contracts]]
+name = "No test code in production"
+id = "no-test-imports"
+type = "forbidden"
+source_modules = [
+    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
+]
+forbidden_modules = ["pytest", "_pytest"]

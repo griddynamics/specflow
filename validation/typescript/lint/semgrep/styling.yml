@@ -1,0 +1,21 @@
+# Colour is a theme token. The layout-measurement check is a design-system rule that takes a
+# `geometryModules` fact: see semgrep-ds/ds-styling.yml.
+rules:
+  - id: styling-no-raw-color-in-style
+    message: >-
+      Raw colour literal `$COLOR` in a style value. Colour is a theme token, never a literal:
+      use `var(--token)`. A literal `rgb()`, `rgba()`, `hsl()`, `oklch()` or `#rrggbb`
+      (including as a `var(--token, #fallback)` fallback) does not follow the token set and
+      escapes the contrast checks made on the tokens.
+    severity: ERROR
+    languages:
+      - typescript
+    paths:
+      exclude:
+        - '**/*.test.ts'
+        - '**/*.test.tsx'
+    patterns:
+      - pattern: '$KEY: "$COLOR"'
+      - metavariable-regex:
+          metavariable: $COLOR
+          regex: '.*(rgba?\(|hsla?\(|oklch\(|oklab\(|hwb\(|#[0-9a-fA-F]{3,8}\b).*'

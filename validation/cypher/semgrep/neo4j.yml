@@ -1,0 +1,82 @@
+rules:
+  - id: neo4j.autocommit-session-run
+    languages: [python]
+    severity: ERROR
+    message: >-
+      An auto-commit `session.run(...)` call. Run every graph read or write in a
+      managed transaction (`tx.run(...)` inside `session.execute_read`/
+      `execute_write`), which the driver retries on transient errors, never as
+      an auto-commit call on the session itself.
+    patterns:
+      - pattern: $SESSION.run(...)
+      - metavariable-regex:
+          metavariable: $SESSION
+          regex: "(?i).*session.*"
+
+  - id: neo4j.loaded-query-mutated
+    languages: [python]
+    severity: ERROR
+    message: >-
+      A query loaded from a `.cypher` file is modified before it runs.
+      Concatenation, `%`, `.format`, `.replace` or an f-string built from it turns
+      a reviewed, parameterized query file back into an assembled string; pass
+      values as parameters instead. Adapt the loader-name regex to your own
+      loader functions.
+    patterns:
+      - pattern-either:
+          - pattern: |
+              $Q = $LOADER(...)
+              ...
+              $Q + $X
+          - pattern: |
+              $Q = $LOADER(...)
+              ...
+              $Q % $X
+          - pattern: |
+              $Q = $LOADER(...)
+              ...
+              $Q.format(...)
+          - pattern: |
+              $Q = $LOADER(...)
+              ...
+              $Q.replace(...)
+          - pattern: |
+              $Q = $LOADER(...)
+              ...
+              f"...{$Q}..."
+      - metavariable-regex:
+          metavariable: $LOADER
+          regex: "^load_\\w*(?:query|cypher)\\w*$"
+
+  - id: neo4j.driver-constructed-outside-graph-module
+    languages: [python]
+    severity: ERROR
+    paths:
+      exclude:
+        # The one module allowed to build the driver; adapt to your layout.
+        - "**/graph/**"
+    message: >-
+      A Neo4j driver constructed outside the graph module. The driver is one
+      instance, built once in the graph module and shared; a service or route
+      never opens its own.
+    patterns:
+      - pattern-either:
+          - pattern: GraphDatabase.driver(...)
+          - pattern: AsyncGraphDatabase.driver(...)
+
+  - id: neo4j.ad-hoc-session-outside-graph-module
+    languages: [python]
+    severity: ERROR
+    paths:
+      exclude:
+        # The one module allowed to open sessions; adapt to your layout.
+        - "**/graph/**"
+    message: >-
+      A graph session acquired directly (`driver.session(...)`) outside the graph
+      module. Callers reach the graph through the graph module's run helpers over
+      the shared driver, never by opening their own session.
+    patterns:
+      - pattern: $DRIVER.session(...)
+      - metavariable-regex:
+          metavariable: $DRIVER
+          regex: "(?i).*driver.*"

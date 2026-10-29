@@ -1,0 +1,420 @@
+{
+  "documentId": "doc-sample-0001",
+  "title": "Merged",
+  "revisionId": "rev-1",
+  "tabs": [
+    {
+      "tabProperties": {
+        "tabId": "t1",
+        "title": "Only",
+        "index": 0
+      },
+      "documentTab": {
+        "body": {
+          "content": [
+            {
+              "sectionBreak": {}
+            },
+            {
+              "table": {
+                "rows": 3,
+                "columns": 3,
+                "tableRows": [
+                  {
+                    "tableCells": [
+                      {
+                        "content": [
+                          {
+                            "paragraph": {
+                              "elements": [
+                                {
+                                  "textRun": {
+                                    "content": "Header\n",
+                                    "textStyle": {}
+                                  }
+                                }
+                              ],
+                              "paragraphStyle": {
+                                "namedStyleType": "NORMAL_TEXT"
+                              }
+                            }
+                          }
+                        ],
+                        "tableCellStyle": {
+                          "rowSpan": 1,
+                          "columnSpan": 2
+                        }
+                      },
+                      {
+                        "content": [
+                          {
+                            "paragraph": {
+                              "elements": [
+                                {
+                                  "textRun": {
+                                    "content": "Other\n",
+                                    "textStyle": {}
+                                  }
+                                }
+                              ],
+                              "paragraphStyle": {
+                                "namedStyleType": "NORMAL_TEXT"
+                              }
+                            }
+                          }
+                        ],
+                        "tableCellStyle": {
+                          "rowSpan": 1,
+                          "columnSpan": 1
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "tableCells": [
+                      {
+                        "content": [
+                          {
+                            "paragraph": {
+                              "elements": [
+                                {
+                                  "textRun": {
+                                    "content": "Tall\n",
+                                    "textStyle": {}
+                                  }
+                                }
+                              ],
+                              "paragraphStyle": {
+                                "namedStyleType": "NORMAL_TEXT"
+                              }
+                            }
+                          }
+                        ],
+                        "tableCellStyle": {
+                          "rowSpan": 2,
+                          "columnSpan": 1
+                        }
+                      },
+                      {
+                        "content": [
+                          {
+                            "paragraph": {
+                              "elements": [
+                                {
+                                  "textRun": {
+                                    "content": "b\n",
+                                    "textStyle": {}
+                                  }
+                                }
+                              ],
+                              "paragraphStyle": {
+                                "namedStyleType": "NORMAL_TEXT"
+                              }
+                            }
+                          }
+                        ],
+                        "tableCellStyle": {
+                          "rowSpan": 1,
+                          "columnSpan": 1
+                        }
+                      },
+                      {
+                        "content": [
+                          {
+                            "paragraph": {
+                              "elements": [
+                                {
+                                  "textRun": {
+                                    "content": "c|d\n",
+                                    "textStyle": {}
+                                  }
+                                }
+                              ],
+                              "paragraphStyle": {
+                                "namedStyleType": "NORMAL_TEXT"
+                              }
+                            }
+                          }
+                        ],
+                        "tableCellStyle": {
+                          "rowSpan": 1,
+                          "columnSpan": 1
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "tableCells": [
+                      {
+                        "content": [
+                          {
+                            "paragraph": {
+                              "elements": [
+                                {
+                                  "textRun": {
+                                    "content": "x\n",
+                                    "textStyle": {}
+                                  }
+                                }
+                              ],
+                              "paragraphStyle": {
+                                "namedStyleType": "NORMAL_TEXT"
+                              }
+                            }
+                          }
+                        ],
+                        "tableCellStyle": {
+                          "rowSpan": 1,
+                          "columnSpan": 1
+                        }
+                      },
+                      {
+                        "content": [
+                          {
+                            "paragraph": {
+                              "elements": [
+                                {
+                                  "textRun": {
+                                    "content": "y\n",
+                                    "textStyle": {}
+                                  }
+                                }
+                              ],
+                              "paragraphStyle": {
+                                "namedStyleType": "NORMAL_TEXT"
+                              }
+                            }
+                          }
+                        ],
+                        "tableCellStyle": {
+                          "rowSpan": 1,
+                          "columnSpan": 1
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "After\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                }
+              }
+            },
+            {
+              "table": {
+                "rows": 3,
+                "columns": 2,
+                "tableRows": [
+                  {
+                    "tableCells": [
+                      {
+                        "content": [
+                          {
+                            "paragraph": {
+                              "elements": [
+                                {
+                                  "textRun": {
+                                    "content": "A\n",
+                                    "textStyle": {}
+                                  }
+                                }
+                              ],
+                              "paragraphStyle": {
+                                "namedStyleType": "NORMAL_TEXT"
+                              }
+                            }
+                          }
+                        ],
+                        "tableCellStyle": {
+                          "rowSpan": 1,
+                          "columnSpan": 1
+                        }
+                      },
+                      {
+                        "content": [
+                          {
+                            "paragraph": {
+                              "elements": [
+                                {
+                                  "textRun": {
+                                    "content": "B\n",
+                                    "textStyle": {}
+                                  }
+                                }
+                              ],
+                              "paragraphStyle": {
+                                "namedStyleType": "NORMAL_TEXT"
+                              }
+                            }
+                          }
+                        ],
+                        "tableCellStyle": {
+                          "rowSpan": 1,
+                          "columnSpan": 1
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "tableCells": [
+                      {
+                        "content": [
+                          {
+                            "paragraph": {
+                              "elements": [
+                                {
+                                  "textRun": {
+                                    "content": "Merged\n",
+                                    "textStyle": {}
+                                  }
+                                }
+                              ],
+                              "paragraphStyle": {
+                                "namedStyleType": "NORMAL_TEXT"
+                              }
+                            }
+                          }
+                        ],
+                        "tableCellStyle": {
+                          "rowSpan": 1,
+                          "columnSpan": 2
+                        }
+                      },
+                      {
+                        "content": [],
+                        "tableCellStyle": {
+                          "rowSpan": 1,
+                          "columnSpan": 0
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "tableCells": [
+                      {
+                        "content": [
+                          {
+                            "paragraph": {
+                              "elements": [
+                                {
+                                  "textRun": {
+                                    "content": "multi\n",
+                                    "textStyle": {}
+                                  }
+                                }
+                              ],
+                              "paragraphStyle": {
+                                "namedStyleType": "NORMAL_TEXT"
+                              }
+                            }
+                          },
+                          {
+                            "paragraph": {
+                              "elements": [
+                                {
+                                  "textRun": {
+                                    "content": "line\n",
+                                    "textStyle": {}
+                                  }
+                                }
+                              ],
+                              "paragraphStyle": {
+                                "namedStyleType": "NORMAL_TEXT"
+                              }
+                            }
+                          }
+                        ],
+                        "tableCellStyle": {
+                          "rowSpan": 1,
+                          "columnSpan": 1
+                        }
+                      },
+                      {
+                        "content": [
+                          {
+                            "table": {
+                              "rows": 1,
+                              "columns": 2,
+                              "tableRows": [
+                                {
+                                  "tableCells": [
+                                    {
+                                      "content": [
+                                        {
+                                          "paragraph": {
+                                            "elements": [
+                                              {
+                                                "textRun": {
+                                                  "content": "n1\n",
+                                                  "textStyle": {}
+                                                }
+                                              }
+                                            ],
+                                            "paragraphStyle": {
+                                              "namedStyleType": "NORMAL_TEXT"
+                                            }
+                                          }
+                                        }
+                                      ],
+                                      "tableCellStyle": {
+                                        "rowSpan": 1,
+                                        "columnSpan": 1
+                                      }
+                                    },
+                                    {
+                                      "content": [
+                                        {
+                                          "paragraph": {
+                                            "elements": [
+                                              {
+                                                "textRun": {
+                                                  "content": "n2\n",
+                                                  "textStyle": {}
+                                                }
+                                              }
+                                            ],
+                                            "paragraphStyle": {
+                                              "namedStyleType": "NORMAL_TEXT"
+                                            }
+                                          }
+                                        }
+                                      ],
+                                      "tableCellStyle": {
+                                        "rowSpan": 1,
+                                        "columnSpan": 1
+                                      }
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          }
+                        ],
+                        "tableCellStyle": {
+                          "rowSpan": 1,
+                          "columnSpan": 1
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "childTabs": []
+    }
+  ]
+}

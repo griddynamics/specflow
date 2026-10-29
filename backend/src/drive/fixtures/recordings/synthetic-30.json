@@ -1,0 +1,259 @@
+{
+  "recorded": "2026-10-19",
+  "folders": [
+    {
+      "key": "f0",
+      "depth": 0,
+      "parent": null,
+      "name": "Recorded folder"
+    },
+    {
+      "key": "f1",
+      "depth": 1,
+      "parent": "f0",
+      "name": "Folder 1"
+    },
+    {
+      "key": "f2",
+      "depth": 1,
+      "parent": "f0",
+      "name": "Folder 2"
+    },
+    {
+      "key": "f3",
+      "depth": 1,
+      "parent": "f0",
+      "name": "Folder 3"
+    },
+    {
+      "key": "f4",
+      "depth": 2,
+      "parent": "f1",
+      "name": "Folder 4"
+    },
+    {
+      "key": "f5",
+      "depth": 2,
+      "parent": "f1",
+      "name": "Folder 5"
+    },
+    {
+      "key": "f6",
+      "depth": 2,
+      "parent": "f3",
+      "name": "Folder 6"
+    }
+  ],
+  "items": [
+    {
+      "name": "Google Docs 1",
+      "mimeType": "application/vnd.google-apps.document",
+      "size": null,
+      "modifiedTime": "2026-01-10T09:00:00.000Z",
+      "folder": "f0"
+    },
+    {
+      "name": "Google Docs 2",
+      "mimeType": "application/vnd.google-apps.document",
+      "size": null,
+      "modifiedTime": "2026-02-11T09:01:00.000Z",
+      "folder": "f1"
+    },
+    {
+      "name": "Google Docs 3",
+      "mimeType": "application/vnd.google-apps.document",
+      "size": null,
+      "modifiedTime": "2026-03-12T09:02:00.000Z",
+      "folder": "f2"
+    },
+    {
+      "name": "Google Docs 4",
+      "mimeType": "application/vnd.google-apps.document",
+      "size": null,
+      "modifiedTime": "2026-04-13T09:03:00.000Z",
+      "folder": "f3"
+    },
+    {
+      "name": "Google Docs 5",
+      "mimeType": "application/vnd.google-apps.document",
+      "size": null,
+      "modifiedTime": "2026-05-14T09:04:00.000Z",
+      "folder": "f4"
+    },
+    {
+      "name": "Google Docs 6",
+      "mimeType": "application/vnd.google-apps.document",
+      "size": null,
+      "modifiedTime": "2026-06-15T09:05:00.000Z",
+      "folder": "f5"
+    },
+    {
+      "name": "Google Slides 1",
+      "mimeType": "application/vnd.google-apps.presentation",
+      "size": null,
+      "modifiedTime": "2026-07-16T09:06:00.000Z",
+      "folder": "f6"
+    },
+    {
+      "name": "Google Slides 2",
+      "mimeType": "application/vnd.google-apps.presentation",
+      "size": null,
+      "modifiedTime": "2026-08-17T09:07:00.000Z",
+      "folder": "f0"
+    },
+    {
+      "name": "Google Slides 3",
+      "mimeType": "application/vnd.google-apps.presentation",
+      "size": null,
+      "modifiedTime": "2026-09-18T09:08:00.000Z",
+      "folder": "f1"
+    },
+    {
+      "name": "Google Sheets 1",
+      "mimeType": "application/vnd.google-apps.spreadsheet",
+      "size": null,
+      "modifiedTime": "2026-01-19T09:09:00.000Z",
+      "folder": "f2"
+    },
+    {
+      "name": "Google Sheets 2",
+      "mimeType": "application/vnd.google-apps.spreadsheet",
+      "size": null,
+      "modifiedTime": "2026-02-20T09:10:00.000Z",
+      "folder": "f3"
+    },
+    {
+      "name": "Google Sheets 3",
+      "mimeType": "application/vnd.google-apps.spreadsheet",
+      "size": null,
+      "modifiedTime": "2026-03-21T09:11:00.000Z",
+      "folder": "f4"
+    },
+    {
+      "name": "PDF 1",
+      "mimeType": "application/pdf",
+      "size": 12444,
+      "modifiedTime": "2026-04-22T09:12:00.000Z",
+      "folder": "f5"
+    },
+    {
+      "name": "PDF 2",
+      "mimeType": "application/pdf",
+      "size": 13381,
+      "modifiedTime": "2026-05-23T09:13:00.000Z",
+      "folder": "f6"
+    },
+    {
+      "name": "PDF 3",
+      "mimeType": "application/pdf",
+      "size": 14318,
+      "modifiedTime": "2026-06-24T09:14:00.000Z",
+      "folder": "f0"
+    },
+    {
+      "name": "PDF 4",
+      "mimeType": "application/pdf",
+      "size": 15255,
+      "modifiedTime": "2026-07-25T09:15:00.000Z",
+      "folder": "f1"
+    },
+    {
+      "name": "PDF 5",
+      "mimeType": "application/pdf",
+      "size": 16192,
+      "modifiedTime": "2026-08-26T09:16:00.000Z",
+      "folder": "f2"
+    },
+    {
+      "name": "Word documents 1",
+      "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "size": 17129,
+      "modifiedTime": "2026-09-27T09:17:00.000Z",
+      "folder": "f3"
+    },
+    {
+      "name": "Word documents 2",
+      "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "size": 18066,
+      "modifiedTime": "2026-01-10T09:18:00.000Z",
+      "folder": "f4"
+    },
+    {
+      "name": "PowerPoint files 1",
+      "mimeType": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      "size": 19003,
+      "modifiedTime": "2026-02-11T09:19:00.000Z",
+      "folder": "f5"
+    },
+    {
+      "name": "Excel files 1",
+      "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "size": 19940,
+      "modifiedTime": "2026-03-12T09:20:00.000Z",
+      "folder": "f6"
+    },
+    {
+      "name": "Images 1",
+      "mimeType": "image/png",
+      "size": 20877,
+      "modifiedTime": "2026-04-13T09:21:00.000Z",
+      "folder": "f0"
+    },
+    {
+      "name": "Images 2",
+      "mimeType": "image/png",
+      "size": 21814,
+      "modifiedTime": "2026-05-14T09:22:00.000Z",
+      "folder": "f1"
+    },
+    {
+      "name": "Images 3",
+      "mimeType": "image/png",
+      "size": 22751,
+      "modifiedTime": "2026-06-15T09:23:00.000Z",
+      "folder": "f2"
+    },
+    {
+      "name": "Videos 1",
+      "mimeType": "video/mp4",
+      "size": 23688,
+      "modifiedTime": "2026-07-16T09:24:00.000Z",
+      "folder": "f3"
+    },
+    {
+      "name": "Other files 1",
+      "mimeType": "application/zip",
+      "size": 24625,
+      "modifiedTime": "2026-08-17T09:25:00.000Z",
+      "folder": "f4"
+    },
+    {
+      "name": "Other files 2",
+      "mimeType": "application/zip",
+      "size": 25562,
+      "modifiedTime": "2026-09-18T09:26:00.000Z",
+      "folder": "f5"
+    },
+    {
+      "name": "Other Google files 1",
+      "mimeType": "application/vnd.google-apps.form",
+      "size": null,
+      "modifiedTime": "2026-01-19T09:27:00.000Z",
+      "folder": "f6"
+    },
+    {
+      "name": "Other Google files 2",
+      "mimeType": "application/vnd.google-apps.form",
+      "size": null,
+      "modifiedTime": "2026-02-20T09:28:00.000Z",
+      "folder": "f0"
+    },
+    {
+      "name": "Shortcuts 1",
+      "mimeType": "application/vnd.google-apps.shortcut",
+      "size": null,
+      "modifiedTime": "2026-03-21T09:29:00.000Z",
+      "folder": "f1"
+    }
+  ]
+}

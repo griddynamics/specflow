@@ -1,0 +1,92 @@
+# Generic SQLAlchemy transaction and engine rules. The two schema-bound rules (the
+# hard-delete allow-list and the append-only tables) are rendered from the declared schema
+# by `sqlcheck render-semgrep`, since a static rule cannot read a file at match time.
+# Adjust the `paths:` globs to the project's layout: `services/` is the service layer,
+# `database/` (or `database.py`) the one module that builds engines and sessions.
+rules:
+  - id: kit.sql.commit-outside-service
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/**"
+      exclude:
+        # project: units of work live in the Temporal activities, the API runtime's
+        # session scope and the db package (session scope, agent scope); there is no services/.
+        - "**/src/db/**"
+        - "**/src/api/runtime.py"
+        - "**/src/api/graph_build/corpus.py"
+        - "**/src/temporal/**/activities.py"
+    message: >-
+      A SQL transaction is committed or rolled back outside the service
+      layer. A request's session dependency yields a session and never
+      commits it; the service layer opens and commits (or rolls back) its
+      own unit of work, one per use case.
+    patterns:
+      - pattern-either:
+          - pattern: $SESSION.commit(...)
+          - pattern: $SESSION.rollback(...)
+          - pattern: $SESSION.begin(...)
+      - metavariable-regex:
+          metavariable: $SESSION
+          # A session-named target, the common injected `db` name, a raw
+          # `conn`/`connection` or a `uow` (unit of work), each with an optional
+          # leading `_` for an intentionally unused parameter.
+          regex: "(?i)^_?(db|conn|connection|uow|.*session.*)$"
+
+  - id: kit.sql.self-opened-engine-outside-database-module
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/**"
+      exclude:
+        - "**/src/db/**"   # project: db/session.py builds engines; db/migrate.py probes the revision
+    message: >-
+      A SQL engine or session factory is constructed outside the database
+      module. Sessions come from a dependency; a repository or
+      service never opens its own.
+    patterns:
+      - pattern-either:
+          - pattern: create_async_engine(...)
+          - pattern: async_sessionmaker(...)
+          - pattern: create_engine(...)
+          - pattern: sessionmaker(...)
+          - pattern: scoped_session(...)
+          - pattern: Session($ENGINE, ...)
+
+  - id: kit.sql.no-network-call-in-open-session
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/**"
+    message: >-
+      A network call made while a SQL transaction is open. No transaction is
+      held across a call to a remote service -- those calls happen before the
+      transaction opens or after it commits.
+    patterns:
+      - pattern-either:
+          - pattern: |
+              async with $SESSION.begin():
+                  ...
+                  httpx.$M(...)
+                  ...
+          - pattern: |
+              async with $SESSION.begin():
+                  ...
+                  requests.$M(...)
+                  ...
+          - pattern: |
+              with $SESSION.begin():
+                  ...
+                  httpx.$M(...)
+                  ...
+          - pattern: |
+              with $SESSION.begin():
+                  ...
+                  requests.$M(...)
+                  ...
+      - metavariable-regex:
+          metavariable: $SESSION
+          regex: "(?i)^_?(db|conn|connection|uow|.*session.*)$"

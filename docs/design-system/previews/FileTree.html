@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FileTree — GD Liquid Glass</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<style>html,body{margin:0;background:var(--ground)}</style>
+<script>(function(){var t=new URLSearchParams(location.search).get('theme');document.documentElement.setAttribute('data-theme',t==='dark'?'dark':'light');})();</script>
+<script src="../components/lib/react.production.min.js"></script>
+<script src="../components/lib/react-dom.production.min.js"></script>
+<script src="../components/lib/jsx-runtime-shim.js"></script>
+<script src="../components/lib/xyflow-react.umd.js"></script>
+<script src="../components/bundle.js"></script>
+</head>
+<body>
+<div class="gdg-root gdg-scene" style="padding:24px;min-height:420px;box-sizing:border-box;" id="root"></div>
+<script>
+var G = window.GDGlass, h = React.createElement;
+var PEOPLE = [
+  { id:'mk', name:'Sam Carter', role:'Product owner', email:'scarter@example.com' },
+  { id:'ak', name:'Alex Rivera', role:'Engineer', email:'arivera@example.com' },
+  { id:'nc', name:'Nina Walker', role:'Delivery manager', email:'nwalker@example.com' }];
+
+ReactDOM.createRoot(document.getElementById('root')).render(h(G.GlassSurface,{variant:'strong',style:{padding:12,width:320}},
+  h(G.FileTree,{title:'Files', actions:h(G.Button,{variant:'glass',size:'sm'},h(G.Icon,{name:'plus',size:14}),'Add'), defaultExpanded:['specs','sec'], defaultSelected:'ac',
+    nodes:[{id:'readme',name:'README.md'},{id:'specs',name:'specs',type:'folder',children:[
+      {id:'sec',name:'security',type:'folder',children:[{id:'ac',name:'access-control.md',badge:2},{id:'sso',name:'sso.md'}]},
+      {id:'co',name:'checkout-flow.md'},{id:'dm',name:'data-model.md',badge:1},{id:'int',name:'integrations',type:'folder',children:[{id:'sf',name:'salesforce.md'}]}]},
+      {id:'adr',name:'decisions',type:'folder',children:[{id:'a1',name:'adr-001-auth.md'}]}]})));
+</script>
+</body>
+</html>

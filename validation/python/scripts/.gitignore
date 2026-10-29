@@ -1,0 +1,8 @@
+.venv/
+.reports/
+build/
+.coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+__pycache__/

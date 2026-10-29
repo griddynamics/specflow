@@ -1,0 +1,24 @@
+Alembic migrations of the backend (async dbapi; env.py builds the URL from DATABASE_*).
+
+Development policy: the application is in development, so there are no incremental
+migrations. The whole schema is one hand-written revision, versions/0001_initial.py
+(down_revision None): every table, index and constraint in its final shape, the
+row-level security policies of the agent role and its column grant on documents. It
+has no backfill and no upgrade path from an older database.
+
+On a schema change:
+
+1. Edit the models (src/db/models.py) and edit 0001_initial.py to match them by hand
+   (do not autogenerate it, and do not add a new revision).
+2. Recreate the database from scratch: `make down-volumes` and then `make up`
+   (repository root). The api container runs `specflow migrate` on start.
+3. Check it: `make db-upgrade`, then from backend/
+   `uv run --env-file ../.env.local alembic check` (the models match the revision) and
+   `uv run --env-file ../.env.local alembic current` (prints `0001_initial (head)`).
+
+A database stamped with a revision that no longer exists (for example `0005` from the
+old chain) makes `alembic upgrade` fail with "Can't locate revision"; recreate it as in
+step 2. downgrade() drops every table the revision created.
+
+migrations/sql/ holds the SQL text the revision reads with its own read_migration_sql
+(the revision never imports src/).

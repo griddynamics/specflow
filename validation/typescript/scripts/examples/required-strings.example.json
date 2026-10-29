@@ -1,0 +1,7 @@
+{
+  "strings": [
+    { "value": "No orders yet.", "label": "order list, empty" },
+    { "value": "No order matches the current filters.", "label": "order list, filtered empty" },
+    { "value": "Something went wrong. Try again.", "label": "generic error" }
+  ]
+}

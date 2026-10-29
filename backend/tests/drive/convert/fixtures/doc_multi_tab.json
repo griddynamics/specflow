@@ -1,0 +1,257 @@
+{
+  "documentId": "doc-sample-0001",
+  "title": "Multi Tab Doc",
+  "revisionId": "rev-1",
+  "tabs": [
+    {
+      "tabProperties": {
+        "tabId": "t1",
+        "title": "Intro",
+        "index": 0
+      },
+      "documentTab": {
+        "body": {
+          "content": [
+            {
+              "sectionBreak": {}
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "Welcome\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "HEADING_1"
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "Text with ",
+                      "textStyle": {}
+                    }
+                  },
+                  {
+                    "textRun": {
+                      "content": "a link",
+                      "textStyle": {
+                        "link": {
+                          "url": "https://example.com/a(b)"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "textRun": {
+                      "content": " and ",
+                      "textStyle": {}
+                    }
+                  },
+                  {
+                    "textRun": {
+                      "content": "bad",
+                      "textStyle": {
+                        "link": {
+                          "url": "https://lh7-rt.googleusercontent.com/docsz/AD_4nXexample?key=secret"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "textRun": {
+                      "content": ".\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "Line one",
+                      "textStyle": {}
+                    }
+                  },
+                  {
+                    "textRun": {
+                      "content": "\u000b",
+                      "textStyle": {}
+                    }
+                  },
+                  {
+                    "textRun": {
+                      "content": "line two\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "inlineObjectElement": {
+                      "inlineObjectId": "img1"
+                    }
+                  },
+                  {
+                    "textRun": {
+                      "content": "\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "childTabs": [
+        {
+          "tabProperties": {
+            "tabId": "t1a",
+            "title": "Child",
+            "index": 0
+          },
+          "documentTab": {
+            "body": {
+              "content": [
+                {
+                  "sectionBreak": {}
+                },
+                {
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "textRun": {
+                          "content": "Child body\n",
+                          "textStyle": {}
+                        }
+                      }
+                    ],
+                    "paragraphStyle": {
+                      "namedStyleType": "NORMAL_TEXT"
+                    }
+                  }
+                },
+                {
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "textRun": {
+                          "content": "Deep\n",
+                          "textStyle": {}
+                        }
+                      }
+                    ],
+                    "paragraphStyle": {
+                      "namedStyleType": "HEADING_2"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "childTabs": [
+            {
+              "tabProperties": {
+                "tabId": "t1a1",
+                "title": "Grandchild",
+                "index": 0
+              },
+              "documentTab": {
+                "body": {
+                  "content": [
+                    {
+                      "sectionBreak": {}
+                    },
+                    {
+                      "paragraph": {
+                        "elements": [
+                          {
+                            "textRun": {
+                              "content": "Grandchild body\n",
+                              "textStyle": {}
+                            }
+                          }
+                        ],
+                        "paragraphStyle": {
+                          "namedStyleType": "NORMAL_TEXT"
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              "childTabs": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tabProperties": {
+        "tabId": "t2",
+        "title": "Second",
+        "index": 1
+      },
+      "documentTab": {
+        "body": {
+          "content": [
+            {
+              "sectionBreak": {}
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "Second body\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "childTabs": []
+    }
+  ],
+  "inlineObjects": {
+    "img1": {
+      "inlineObjectProperties": {
+        "embeddedObject": {
+          "imageProperties": {
+            "contentUri": "https://lh7-rt.googleusercontent.com/docsz/AD_4nXexample?key=secret"
+          }
+        }
+      }
+    }
+  }
+}

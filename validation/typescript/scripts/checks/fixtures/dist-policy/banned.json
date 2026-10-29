@@ -1,0 +1,7 @@
+[
+  {
+    "rule": "dist-policy-query-devtools",
+    "label": "TanStack Query Devtools",
+    "markers": ["ReactQueryDevtoolsPanel"]
+  }
+]

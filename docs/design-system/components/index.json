@@ -1,0 +1,373 @@
+{
+ "name": "GD Liquid Glass",
+ "namespace": "GDGlass",
+ "tokens": "tokens.json",
+ "css": [
+  "tokens.css",
+  "components/bundle.css"
+ ],
+ "bundle": "components/bundle.js",
+ "types": "components/index.d.ts",
+ "components": [
+  {
+   "name": "GlassSurface",
+   "group": "Layout",
+   "summary": "The Liquid Glass material: a translucent, blurred, saturated layer with a light-catching rim and a top-left specular sheen; every GD Liquid Glass component is made of it.",
+   "readme": "components/GlassSurface/README.md",
+   "preview": "previews/GlassSurface.html",
+   "props": "GlassSurfaceProps in components/index.d.ts"
+  },
+  {
+   "name": "Button",
+   "group": "Actions",
+   "summary": "Capsule buttons in Fira Sans Bold UPPERCASE, the shape of the Grid Dynamics website CTAs.",
+   "readme": "components/Button/README.md",
+   "preview": "previews/Button.html",
+   "props": "ButtonProps in components/index.d.ts"
+  },
+  {
+   "name": "Card",
+   "group": "Layout",
+   "summary": "A glass container with an optional eyebrow, title, body and footer row.",
+   "readme": "components/Card/README.md",
+   "preview": "previews/Card.html",
+   "props": "CardProps in components/index.d.ts"
+  },
+  {
+   "name": "Sidebar",
+   "group": "Navigation",
+   "summary": "App-level navigation in a floating glass panel, expanded with icons and labels or collapsed to an icon rail.",
+   "readme": "components/Sidebar/README.md",
+   "preview": "previews/Sidebar.html",
+   "props": "SidebarProps in components/index.d.ts"
+  },
+  {
+   "name": "TopBar",
+   "group": "Navigation",
+   "summary": "The app's top-right control cluster: project switcher, New project button and the user menu, in one floating glass capsule.",
+   "readme": "components/TopBar/README.md",
+   "preview": "previews/TopBar.html",
+   "props": "TopBarProps in components/index.d.ts"
+  },
+  {
+   "name": "NavBar",
+   "group": "Navigation",
+   "summary": "A floating glass capsule for top-level navigation: GD logo left, links centre, one primary action right.",
+   "readme": "components/NavBar/README.md",
+   "preview": "previews/NavBar.html",
+   "props": "NavBarProps in components/index.d.ts"
+  },
+  {
+   "name": "TabBar",
+   "group": "Navigation",
+   "summary": "A floating glass capsule of 2\u20135 section tabs for mobile and compact app layouts; the selected tab sits in a yellow-tinted glass lens.",
+   "readme": "components/TabBar/README.md",
+   "preview": "previews/TabBar.html",
+   "props": "TabBarProps in components/index.d.ts"
+  },
+  {
+   "name": "Menu",
+   "group": "Overlays",
+   "summary": "A dropdown of actions or choices anchored to a trigger, on thick glass.",
+   "readme": "components/Menu/README.md",
+   "preview": "previews/Menu.html",
+   "props": "MenuProps in components/index.d.ts"
+  },
+  {
+   "name": "Modal",
+   "group": "Overlays",
+   "summary": "A centred dialog of thick glass for focused tasks: creating a project, answering a decision, confirming something irreversible.",
+   "readme": "components/Modal/README.md",
+   "preview": "previews/Modal.html",
+   "props": "ModalProps in components/index.d.ts"
+  },
+  {
+   "name": "SegmentedControl",
+   "group": "Inputs",
+   "summary": "Switches between 2\u20135 views of the same content; a glass lens slides to the chosen segment with a slight overshoot.",
+   "readme": "components/SegmentedControl/README.md",
+   "preview": "previews/SegmentedControl.html",
+   "props": "SegmentedControlProps in components/index.d.ts"
+  },
+  {
+   "name": "Select",
+   "group": "Inputs",
+   "summary": "A dropdown for picking one value, usually a filter (Domain, Owner, Status).",
+   "readme": "components/Select/README.md",
+   "preview": "previews/Select.html",
+   "props": "SelectProps in components/index.d.ts"
+  },
+  {
+   "name": "Switch",
+   "group": "Inputs",
+   "summary": "An on/off toggle: a glass thumb on a clear track that fills `yellow` when on; the thumb stretches while pressed.",
+   "readme": "components/Switch/README.md",
+   "preview": "previews/Switch.html",
+   "props": "SwitchProps in components/index.d.ts"
+  },
+  {
+   "name": "TextField",
+   "group": "Inputs",
+   "summary": "A labelled single-line input on `glass-fill-strong` with an inset shadow, so typed text always meets contrast over imagery.",
+   "readme": "components/TextField/README.md",
+   "preview": "previews/TextField.html",
+   "props": "TextFieldProps in components/index.d.ts"
+  },
+  {
+   "name": "SearchField",
+   "group": "Inputs",
+   "summary": "A capsule search input with a magnifier and a clear button.",
+   "readme": "components/SearchField/README.md",
+   "preview": "previews/SearchField.html",
+   "props": "SearchFieldProps in components/index.d.ts"
+  },
+  {
+   "name": "PeoplePicker",
+   "group": "Inputs",
+   "summary": "Adds people to something (project contributors, decision assignees) by typing a name, email or role and picking from suggestions; picks become removable chips.",
+   "readme": "components/PeoplePicker/README.md",
+   "preview": "previews/PeoplePicker.html",
+   "props": "PeoplePickerProps in components/index.d.ts"
+  },
+  {
+   "name": "LinkField",
+   "group": "Inputs",
+   "summary": "A URL input with a **Test access** button and a live status line, for connecting repositories, drives and other sources.",
+   "readme": "components/LinkField/README.md",
+   "preview": "previews/LinkField.html",
+   "props": "LinkFieldProps in components/index.d.ts"
+  },
+  {
+   "name": "OptionCards",
+   "group": "Inputs",
+   "summary": "Large single-choice answers: lettered options (A, B, C) with an optional free-text \"Other\" (D), or a Yes/No pair.",
+   "readme": "components/OptionCards/README.md",
+   "preview": "previews/OptionCards.html",
+   "props": "OptionCardsProps in components/index.d.ts"
+  },
+  {
+   "name": "Dropzone",
+   "group": "Inputs",
+   "summary": "A dashed glass area for adding files by drag-and-drop or the system file picker.",
+   "readme": "components/Dropzone/README.md",
+   "preview": "previews/Dropzone.html",
+   "props": "DropzoneProps in components/index.d.ts"
+  },
+  {
+   "name": "FileRow",
+   "group": "Data",
+   "summary": "One file in an upload list: type icon, name, size, and its state.",
+   "readme": "components/FileRow/README.md",
+   "preview": "previews/FileRow.html",
+   "props": "FileRowProps in components/index.d.ts"
+  },
+  {
+   "name": "ProgressBar",
+   "group": "Status",
+   "summary": "A thin progress track with a yellow fill, plus `Spinner` for short unknown waits.",
+   "readme": "components/ProgressBar/README.md",
+   "preview": "previews/ProgressBar.html",
+   "props": "ProgressBarProps in components/index.d.ts"
+  },
+  {
+   "name": "Tag",
+   "group": "Status",
+   "summary": "Pill labels for categories and statuses: the only shape the GD deck system has always rounded.",
+   "readme": "components/Tag/README.md",
+   "preview": "previews/Tag.html",
+   "props": "TagProps in components/index.d.ts"
+  },
+  {
+   "name": "SeverityBadge",
+   "group": "Status",
+   "summary": "Severity of a decision or risk: Critical, High, Medium, Low, shown as a four-step bar glyph plus the word.",
+   "readme": "components/SeverityBadge/README.md",
+   "preview": "previews/SeverityBadge.html",
+   "props": "SeverityBadgeProps in components/index.d.ts"
+  },
+  {
+   "name": "Avatar",
+   "group": "Data",
+   "summary": "A person (initials or photo) or the SpecBot assistant, in a small glass circle.",
+   "readme": "components/Avatar/README.md",
+   "preview": "previews/Avatar.html",
+   "props": "AvatarProps in components/index.d.ts"
+  },
+  {
+   "name": "StatCard",
+   "group": "Data",
+   "summary": "A big-number tile: Fira Sans ExtraBold numeral (`stat` style), a half-size unit, and a muted label, with a short yellow bar above.",
+   "readme": "components/StatCard/README.md",
+   "preview": "previews/StatCard.html",
+   "props": "StatCardProps in components/index.d.ts"
+  },
+  {
+   "name": "EmptyState",
+   "group": "Layout",
+   "summary": "A centred glass card that explains why a screen is empty and offers the next step.",
+   "readme": "components/EmptyState/README.md",
+   "preview": "previews/EmptyState.html",
+   "props": "EmptyStateProps in components/index.d.ts"
+  },
+  {
+   "name": "Skeleton",
+   "group": "Status",
+   "summary": "Placeholder shapes that shimmer while content loads.",
+   "readme": "components/Skeleton/README.md",
+   "preview": "previews/Skeleton.html",
+   "props": "SkeletonProps in components/index.d.ts"
+  },
+  {
+   "name": "Tooltip",
+   "group": "Overlays",
+   "summary": "A short glass label that appears on hover and keyboard focus.",
+   "readme": "components/Tooltip/README.md",
+   "preview": "previews/Tooltip.html",
+   "props": "TooltipProps in components/index.d.ts"
+  },
+  {
+   "name": "Toast",
+   "group": "Status",
+   "summary": "A short confirmation or error that appears bottom-right and fades after ~4 s.",
+   "readme": "components/Toast/README.md",
+   "preview": "previews/Toast.html",
+   "props": "ToastProps in components/index.d.ts"
+  },
+  {
+   "name": "Sheet",
+   "group": "Overlays",
+   "summary": "A modal panel of thick glass rising from the bottom (mobile) or centred (desktop) over a `scrim`, for focused tasks and confirmations.",
+   "readme": "components/Sheet/README.md",
+   "preview": "previews/Sheet.html",
+   "props": "SheetProps in components/index.d.ts"
+  },
+  {
+   "name": "Icon",
+   "group": "Foundations",
+   "summary": "Small UI glyphs drawn from Phosphor Icons (Regular weight, MIT licence): a flagged substitute, since the GD brand has no interface icon set of its own.",
+   "readme": "components/Icon/README.md",
+   "preview": "previews/Icon.html",
+   "props": "IconProps in components/index.d.ts"
+  },
+  {
+   "name": "Prose",
+   "group": "Content",
+   "summary": "Styles for rendered Markdown: README views, spec files, linked documents in decisions.",
+   "readme": "components/Prose/README.md",
+   "preview": "previews/Prose.html",
+   "props": "ProseProps in components/index.d.ts"
+  },
+  {
+   "name": "FileTree",
+   "group": "Navigation",
+   "summary": "A folder tree of project files with expand/collapse, file-type icons and a selected file.",
+   "readme": "components/FileTree/README.md",
+   "preview": "previews/FileTree.html",
+   "props": "FileTreeProps in components/index.d.ts"
+  },
+  {
+   "name": "Breadcrumbs",
+   "group": "Navigation",
+   "summary": "The path to the current file or page, with each earlier step clickable.",
+   "readme": "components/Breadcrumbs/README.md",
+   "preview": "previews/Breadcrumbs.html",
+   "props": "BreadcrumbsProps in components/index.d.ts"
+  },
+  {
+   "name": "SelectionToolbar",
+   "group": "Content",
+   "summary": "A floating glass toolbar that appears above selected text in a document: **Edit**, **Comment**, **Ask SpecBot**.",
+   "readme": "components/SelectionToolbar/README.md",
+   "preview": "previews/SelectionToolbar.html",
+   "props": "SelectionToolbarProps in components/index.d.ts"
+  },
+  {
+   "name": "CommentThread",
+   "group": "Content",
+   "summary": "A comment thread anchored to highlighted text, with @mentions for people and @specbot.",
+   "readme": "components/CommentThread/README.md",
+   "preview": "previews/CommentThread.html",
+   "props": "CommentThreadProps in components/index.d.ts"
+  },
+  {
+   "name": "DecisionList",
+   "group": "Data",
+   "summary": "The decisions inbox: a glass table of decisions with domain, severity and assignee; each row opens the decision.",
+   "readme": "components/DecisionList/README.md",
+   "preview": "previews/DecisionList.html",
+   "props": "DecisionListProps in components/index.d.ts"
+  },
+  {
+   "name": "QuestionBlock",
+   "group": "Inputs",
+   "summary": "One question inside a decision: numbered heading, optional help, an answer input and an optional comment.",
+   "readme": "components/QuestionBlock/README.md",
+   "preview": "previews/QuestionBlock.html",
+   "props": "QuestionBlockProps in components/index.d.ts"
+  },
+  {
+   "name": "DocLinks",
+   "group": "Content",
+   "summary": "Links to the source documents behind a decision or an answer, opening the Markdown version in the Files view.",
+   "readme": "components/DocLinks/README.md",
+   "preview": "previews/DocLinks.html",
+   "props": "DocLinksProps in components/index.d.ts"
+  },
+  {
+   "name": "ChatMessage",
+   "group": "Chat",
+   "summary": "Messages in the SpecBot conversation: user bubbles on the right, assistant answers on the left with tool steps and source citations.",
+   "readme": "components/ChatMessage/README.md",
+   "preview": "previews/ChatMessage.html",
+   "props": "ChatMessageProps in components/index.d.ts"
+  },
+  {
+   "name": "ChatComposer",
+   "group": "Chat",
+   "summary": "The \"Ask me\" input for SpecBot: a large glass capsule with a yellow-glass send button and optional suggested prompts above it.",
+   "readme": "components/ChatComposer/README.md",
+   "preview": "previews/ChatComposer.html",
+   "props": "ChatComposerProps in components/index.d.ts"
+  },
+  {
+   "name": "ConnectorCard",
+   "group": "Data",
+   "summary": "A marketplace tile for a connector: vendor logo, name, category, one-line description, status and action.",
+   "readme": "components/ConnectorCard/README.md",
+   "preview": "previews/ConnectorCard.html",
+   "props": "ConnectorCardProps in components/index.d.ts"
+  },
+  {
+   "name": "DiagramNode",
+   "group": "Diagrams",
+   "summary": "One box on an architecture diagram: a glass card with a tinted icon tile, an UPPERCASE kind label, a title and a technology subtitle.",
+   "readme": "components/DiagramNode/README.md",
+   "preview": "previews/DiagramNode.html",
+   "props": "DiagramNodeProps in components/index.d.ts"
+  },
+  {
+   "name": "ArchitectureDiagram",
+   "group": "Diagrams",
+   "summary": "A data-driven architecture diagram: nodes, boundary groups and routed connectors on a dotted glass canvas, with a legend and click-to-trace selection.",
+   "readme": "components/ArchitectureDiagram/README.md",
+   "preview": "previews/ArchitectureDiagram.html",
+   "props": "ArchitectureDiagramProps in components/index.d.ts"
+  },
+  {
+   "name": "ProcessFlow",
+   "group": "Diagrams",
+   "summary": "A swimlane process diagram laid out from data: lanes for who does the work, columns for sequence, and typed steps joined by flow connectors.",
+   "readme": "components/ProcessFlow/README.md",
+   "preview": "previews/ProcessFlow.html",
+   "props": "ProcessFlowProps in components/index.d.ts"
+  },
+  {
+   "name": "FlowCanvas",
+   "group": "Diagrams",
+   "summary": "React Flow (`@xyflow/react` 12) wired to the GD diagram look: GD node types, connector styles, markers, legend, dotted canvas, styled controls and minimap, and click-to-trace.",
+   "readme": "components/FlowCanvas/README.md",
+   "preview": "previews/FlowCanvas.html",
+   "props": "FlowCanvasProps in components/index.d.ts"
+  }
+ ]
+}

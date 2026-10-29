@@ -1,0 +1,6 @@
+{
+  "orderState.NEW": "NEW",
+  "orderState.SHIPPED": "Enviado",
+  "status.band_HIGH": "Alta",
+  "status.band_MEDIUM": "Média"
+}

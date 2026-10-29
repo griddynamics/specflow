@@ -1,0 +1,202 @@
+# pystatic adopter configuration. Copy to `<project root>/pystatic.toml` (or pass
+# `--config PATH`) and keep only the tables you need. Every path is relative to `--root`.
+# A check whose table is absent runs on its defaults (`no-dict-schemas`, `package-data`,
+# `file-size`, `deployment-files`, and `docs-bundle` when a `docs/` directory exists) or
+# reports itself skipped (all others with a table). `config-scoping`
+# takes no table (`blocking-in-async` runs on its defaults without one).
+
+# ---------------------------------------------------------------- no-dict-schemas
+[no-dict-schemas]
+scan = ["src/app/schemas"]
+# Fields the API contract declares as open maps.
+open-fields = ["metadata"]
+# Class-name suffixes that mark a response schema (default list shown in the README).
+suffixes = ["Out", "Response", "Result", "Row", "DTO", "View"]
+
+# ---------------------------------------------------------------- enum-literals
+[enum-literals]
+# Enum values that must never be hand-typed as strings on status/kind/role/... names.
+values = ["PENDING", "SHIPPED", "CANCELLED"]
+# Also every string value of an `Enum` subclass found in the scanned code.
+values-from-enums = true
+# Replaces the default eight names (status, kind, role, stage, outcome, mode, action, tier).
+# names = ["status", "kind", "role"]
+# Directories a module's import name is computed from (src layout first).
+import-roots = ["src", "."]
+
+# ---------------------------------------------------------------- config-literals
+[config-literals]
+# Code that must compute on configuration: no magic numbers there. A directory or one .py file.
+scan = ["src/app/pricing", "src/settings.py"]
+# Lower-case configuration keys an UPPER_SNAKE constant may be named after.
+keys = ["max_discount_percent", "retry_limit"]
+allowed = [0, 1, -1]
+# Classes built only from configuration: no field defaults, never constructed bare.
+config-classes = ["PricingWeights"]
+
+# ---------------------------------------------------------------- registry-files
+# One file per enum member, nothing else in the directory.
+[[registry-files]]
+enum = "src/app/notifications/kinds.py:NotificationKind"
+directory = "src/app/notifications/templates"
+pattern = "{value}.md"   # `{name}` is the member name, `{value}` its value
+exclude = ["RAW"]
+ignore = ["__pycache__"]
+
+# ---------------------------------------------------------------- json-schemas
+[[json-schemas]]
+schema = "schemas/catalog.schema.json"
+files = ["data/catalogs/*.json"]
+# Optional: each file must be named `<lower-cased value of this field>.json`.
+name-field = "kind"
+
+# ---------------------------------------------------------------- deployment-files
+[deployment-files]
+compose = ["docker-compose.yml"]
+forbidden-trees = ["tests", "scripts/demo-data"]
+# Keys production genuinely needs although they match a test-input word.
+allowed-keys = ["SEED_CATALOG_PATH"]
+workflows = ".github/workflows"
+# input-words = ["FIXTURE", "FIXTURES", "CASSETTE", "CASSETTES", "SEED"]
+# replay-words = ["RECORDING", "RECORDINGS", "REPLAY", "REPLAYS"]
+# locator-words = ["DIR", "PATH", "FILE", "PROFILE", "MODE", "URL", "BUNDLE"]
+
+# ---------------------------------------------------------------- blocking-in-async
+[blocking-in-async]
+# Call names (last dotted component) flagged inside `async def`. `calls` replaces the
+# built-in set (pandas/openpyxl readers, sync cloud-SDK clients); `extra-calls` extends it.
+# calls = ["read_csv", "load_workbook"]
+extra-calls = ["fetch_object", "execute_query"]
+
+# ---------------------------------------------------------------- file-size
+[file-size]
+paths = ["tests/fixtures", "data"]
+max-bytes = 1048576
+# Optional: judge only these suffixes (default: every file).
+# suffixes = [".pdf", ".pptx", ".docx", ".xlsx", ".png", ".jpg"]
+# Optional: PDFs and PPTX decks under these paths hold at most `max-pages` pages or slides
+# (default 2); other formats there are reported as uncountable. Needs the `pages` extra.
+# page-paths = ["tests/corpus"]
+# max-pages = 2
+
+# ---------------------------------------------------------------- source-ownership
+[source-ownership]
+# Directories that each run their own validation over their sources.
+projects = ["services/orders", "web"]
+# extensions = [".py", ".pyi", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".css", ".sql", ".cypher", ".sh"]
+
+# Sources outside every project, each group with its written reason and, when a project's checks
+# run over them, that owner. A pattern that matches nothing is a configuration error.
+[[source-ownership.external]]
+paths = ["tools/release.sh"]
+owner = "services/orders"
+reason = "services/orders/tests/test_release.py runs it"
+
+[[source-ownership.external]]
+paths = ["vendor/charts/**/*"]
+reason = "vendored read-only third-party bundle; validated by nobody here"
+
+# ---------------------------------------------------------------- runtime-defaults
+[runtime-defaults]
+# JSON object SETTING_NAME: number, generated from the documented (or declared) defaults.
+defaults = "tests/fixtures/runtime-defaults.json"
+scan = ["tests/acceptance", "tests/e2e"]
+suffixes = [".py", ".ts"]
+
+# ---------------------------------------------------------------- clones
+[clones]
+# Git pathspecs under --root: every tracked or untracked-but-not-ignored .py file there is compared.
+paths = ["src", "tests", "scripts"]
+# Root-relative fnmatch patterns (`*` crosses `/`) of the test files whose assertion oracles are
+# left out (pystatic.style.clone_inputs); imports are left out of every file. Default: test_*.py,
+# *_test.py, conftest.py and anything under a tests/ directory.
+tests = ["tests/*"]
+# jscpd's clone size and token mode (strict, mild, weak); format is the jscpd tokenizer language.
+min-lines = 10
+min-tokens = 100
+mode = "weak"
+format = "python"
+# Zero baseline: only 0 is accepted, any clone is a finding.
+threshold = 0
+# Reports beside the findings: json (<reports>/clones-jscpd.json), sarif (<unit>/clones.sarif).
+reporters = ["json", "sarif"]
+
+# ---------------------------------------------------------------- package-data
+[package-data]
+package-dir = "src"
+data-suffixes = [".sql", ".cypher", ".json"]
+
+# ---------------------------------------------------------------- docs-bundle
+[docs-bundle]
+root = "docs"
+index-name = "index.md"
+root-title = "Bookshop documentation"
+# Lines written above the root title of the generated root index.
+root-preamble = ["---", "bundle_version: \"1\"", "---"]
+fields = ["type", "title", "description", "status", "tags"]
+optional-fields = ["sources"]
+types = ["Guideline", "Requirements", "Architecture", "Decision", "Feature"]
+statuses = ["draft", "stable", "deprecated"]
+# A tag is the file stem of a document in this folder, or one of `extra-tags`.
+tag-folder = "features"
+extra-tags = ["requirements"]
+# Files linked under this level-2 heading of a tag document must carry tags.
+reading-order-heading = "Reading order"
+# First-cell identifiers that must be unique across every table ("" disables).
+id-pattern = '^`?([A-Z]{1,6}-[A-Z0-9]+(?:-[A-Z0-9]+)*)`?$'
+ascii-headings = true
+forbid-numbered-headings = true
+forbidden-heading-chars = ["§"]
+
+[[docs-bundle.folders]]
+path = "guidelines"
+title = "Guidelines"
+types = ["Guideline"]
+order = ["coding", "testing"]
+
+[[docs-bundle.folders]]
+path = "architecture"
+title = "Architecture"
+types = ["Architecture"]
+
+[[docs-bundle.folders]]
+path = "architecture/decisions"
+title = "Decisions"
+types = ["Decision"]
+# A summary line in the root index replaces the per-document list.
+summary = "Architecture decision records, one file per decision"
+
+[[docs-bundle.folders]]
+path = "features"
+title = "Features"
+types = ["Feature"]
+
+# File-name and opening-heading convention of numbered records.
+[[docs-bundle.numbered-records]]
+folder = "architecture/decisions"
+filename = '^adr-\d{2,}-[a-z0-9-]+\.md$'
+heading = '^(ADR-\d{2,}) (.+)$'   # the joined groups' slug must equal the file stem
+
+# Identifier rows that belong in one place only.
+[[docs-bundle.id-placement]]
+pattern = '^`?UI-\d'
+forbidden-folders = ["architecture"]
+allowed-files = ["architecture/frontend.md"]
+
+# Work-in-progress markers. Setting any entry replaces the default list in the README.
+[[docs-bundle.ephemeral]]
+name = "status glyph"
+pattern = '[✅⚠❌]'
+
+[[docs-bundle.ephemeral]]
+name = "code citation"
+pattern = '\b[\w.-]+(?:/[\w.-]+)*\.(?:py|tsx?|jsx?):\d+'
+
+[[docs-bundle.ephemeral]]
+name = "to-do marker"
+pattern = '\b(?:TODO|FIXME|TBD)\b'
+
+# Text after this heading in this file may keep old markers (a retired-terms list).
+[[docs-bundle.ephemeral-exempt]]
+file = "requirements/glossary.md"
+after = '^## Retired'

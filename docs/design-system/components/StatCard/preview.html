@@ -1,0 +1,15 @@
+<!-- @dsCard group="Data" height=200 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>StatCard — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-scene" style="padding:24px;display:flex;gap:20px;flex-wrap:wrap" id="root"></div>
+<script>
+  var G = window.GDGlass, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h(React.Fragment,null,
+    h(G.StatCard,{value:'4,500', unit:'+', label:'Engineers worldwide'}),
+    h(G.StatCard,{value:'18', unit:'%', label:'Conversion uplift'}),
+    h(G.StatCard,{value:'12', unit:'wk', label:'Pilot to production', variant:'strong'})));
+</script>
+</body>
+</html>

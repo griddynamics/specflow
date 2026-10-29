@@ -1,0 +1,70 @@
+/* FE-PLAN-02, FE-PLAN-03 (GAPS.md "## P22", G-PLAN-1): the light Features table with its Total row. The design system has
+   Card, Button and SeverityBadge but no light data table. Additive, tokens only (R4); no glass, no scene (FE-PLAN-02.AC10). */
+.plan-before {
+  display: grid;
+  align-content: start;
+  gap: var(--space-md);
+  min-width: 0;
+}
+
+.plan-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-sans);
+  color: var(--ink);
+  table-layout: auto;
+}
+.plan-table th,
+.plan-table td {
+  padding: var(--space-2xs) var(--space-sm); /* P26 QA m1: compact rows, so the nine rows, the footer and the button fit at 1280x800 */
+  border-bottom: 1px solid var(--hairline);
+  vertical-align: top;
+  text-align: left;
+}
+.plan-table thead th {
+  color: var(--ink-2);
+  font-weight: 600;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+.plan-table .plan-table__num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  width: 1%;
+}
+.plan-table thead .plan-table__num {
+  text-align: right;
+}
+.plan-table__cell {
+  display: grid;
+  gap: var(--space-2xs);
+}
+.plan-table__name {
+  font-weight: 600;
+}
+.plan-table__zero {
+  color: var(--ink-3);
+}
+.plan-table tfoot th,
+.plan-table tfoot td {
+  font-weight: 600;
+  border-bottom: 0;
+  border-top: 1px solid var(--ink-3);
+} /* the Total row (FE-PLAN-02.AC5): a stronger rule above it */
+
+.plan-table-wrap {
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+}
+/* P22 QA m1 (FE-DOD-05): the scroll region is a Tab stop (R22-03); use the DS 2px focus ring, not the browser default. */
+.plan-table-wrap:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.plan-before__note {
+  margin: 0;
+  color: var(--ink-2);
+}

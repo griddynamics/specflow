@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://specflow.local/contracts/schemas/sql-schema.schema.json",
+  "title": "Declared SQL schema of validation/sql",
+  "description": "backend/sql-schema.json in the format sqlcheck.schema documents: tables in the full object form or as a plain list of column names, and the hard-delete, append-only and ORM-name policy keys.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tables"],
+  "properties": {
+    "tables": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/identifier" },
+      "additionalProperties": {
+        "oneOf": [
+          { "$ref": "#/$defs/identifiers" },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["columns"],
+            "properties": {
+              "columns": {
+                "oneOf": [
+                  { "$ref": "#/$defs/identifiers" },
+                  {
+                    "type": "object",
+                    "minProperties": 1,
+                    "propertyNames": { "$ref": "#/$defs/identifier" },
+                    "additionalProperties": { "$ref": "#/$defs/column" }
+                  }
+                ]
+              },
+              "indexes": { "$ref": "#/$defs/identifiers" }
+            }
+          }
+        ]
+      }
+    },
+    "hard_delete_allowlist": { "$ref": "#/$defs/identifiers_or_empty" },
+    "append_only_tables": { "$ref": "#/$defs/identifiers_or_empty" },
+    "orm_models": {
+      "type": "object",
+      "propertyNames": { "$ref": "#/$defs/identifier" },
+      "additionalProperties": { "type": "string", "pattern": "^[A-Z][A-Za-z0-9]*$" }
+    }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "pattern": "^[a-z_][a-z0-9_]*$" },
+    "identifiers": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/identifier" }
+    },
+    "identifiers_or_empty": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/identifier" }
+    },
+    "column": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "minLength": 1 },
+        "enum": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string" } },
+        "fk": {
+          "description": "The referenced table, or table.column.",
+          "type": "string",
+          "pattern": "^[a-z_][a-z0-9_]*(\\.[a-z_][a-z0-9_]*)?$"
+        },
+        "unique": {
+          "oneOf": [
+            { "type": "boolean" },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["where"],
+              "properties": { "where": { "type": "string", "minLength": 1 } }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

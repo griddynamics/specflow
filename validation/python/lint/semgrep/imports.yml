@@ -1,0 +1,293 @@
+rules:
+  - id: kit.python.import-fallback
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Compatibility import: an import wrapped in try/except ImportError or
+      ModuleNotFoundError to fall back to another module. Dependencies are
+      deterministic and the environment is the lockfile; code never adapts
+      to what happens to be importable.
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern-either:
+                  - pattern: |
+                      try:
+                          ...
+                          import $A
+                          ...
+                      except $EXCEPTION:
+                          ...
+                  - pattern: |
+                      try:
+                          ...
+                          import $A
+                          ...
+                      except $EXCEPTION as $ERROR:
+                          ...
+                  - pattern: |
+                      try:
+                          ...
+                          from $M import $A
+                          ...
+                      except $EXCEPTION:
+                          ...
+                  - pattern: |
+                      try:
+                          ...
+                          from $M import $A
+                          ...
+                      except $EXCEPTION as $ERROR:
+                          ...
+              - metavariable-regex:
+                  metavariable: $EXCEPTION
+                  regex: '^(?:ImportError|ModuleNotFoundError)$'
+          - pattern: |
+              try:
+                  ...
+                  import $A
+                  ...
+              except (..., ImportError, ...):
+                  ...
+          - pattern: |
+              try:
+                  ...
+                  import $A
+                  ...
+              except (..., ImportError, ...) as $ERROR:
+                  ...
+          - pattern: |
+              try:
+                  ...
+                  import $A
+                  ...
+              except (..., ModuleNotFoundError, ...):
+                  ...
+          - pattern: |
+              try:
+                  ...
+                  import $A
+                  ...
+              except (..., ModuleNotFoundError, ...) as $ERROR:
+                  ...
+          - pattern: |
+              try:
+                  ...
+                  from $M import $A
+                  ...
+              except (..., ImportError, ...):
+                  ...
+          - pattern: |
+              try:
+                  ...
+                  from $M import $A
+                  ...
+              except (..., ImportError, ...) as $ERROR:
+                  ...
+          - pattern: |
+              try:
+                  ...
+                  from $M import $A
+                  ...
+              except (..., ModuleNotFoundError, ...):
+                  ...
+          - pattern: |
+              try:
+                  ...
+                  from $M import $A
+                  ...
+              except (..., ModuleNotFoundError, ...) as $ERROR:
+                  ...
+
+  - id: kit.python.sys-path-mutation
+    languages: [python]
+    severity: ERROR
+    message: >-
+      sys.path is mutated at runtime. Local code is an installed package; a
+      script never widens its own import path to reach a sibling module.
+    patterns:
+      - pattern-either:
+          - pattern: sys.path.insert(...)
+          - pattern: sys.path.append(...)
+          - pattern: sys.path.extend(...)
+          - pattern: sys.path += ...
+
+  - id: kit.python.package-dunder-probe
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Branching on __package__ to support both "run as a script" and "run
+      as a module" invocation. One invocation form is deterministic; a
+      dual-invocation bootstrap is a compatibility import in disguise.
+    patterns:
+      - pattern-either:
+          - pattern: |
+              if __package__:
+                  ...
+          - pattern: |
+              if not __package__:
+                  ...
+          - pattern: |
+              if __package__ is None:
+                  ...
+          - pattern: |
+              if __package__ is not None:
+                  ...
+          - pattern: |
+              if __package__ == $X:
+                  ...
+          - pattern: |
+              if __name__ == "__main__" and not __package__:
+                  ...
+          - pattern: __package__ or $X
+          - pattern: __package__ and $X
+
+  - id: kit.python.dynamic-import
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Dynamic import (importlib.util/importlib.import_module/__import__)
+      loading a module the caller could have imported with a plain top-level
+      `import` statement. A dynamically loaded module is not a dependency
+      the lockfile or import-linter can see.
+    paths:
+      exclude:
+        # project: src/cli.py is the `specflow` entrypoint and its contract is that a role's
+        # work module (constants `_API_MODULE`, `_WORKER_MODULE`, `_MIGRATE_MODULE`,
+        # `_HEALTH_MODULE`, all first-party src/ modules of the same lockfile) is imported only
+        # when that role's command runs, so `--help`, `--check-config` and a refused
+        # configuration never load it, and a module missing from a build is the logged
+        # `cli.module.unavailable` exit 1 (tests/test_specflow_cli.py pins both). A plain
+        # top-level import cannot be lazy and an inline one is PLC0415, so the premise
+        # ("could have imported with a plain top-level import") does not hold for this file.
+        - "**/src/cli.py"
+        # project: src/storage/factory.py loads the adapter of the configured cloud provider
+        # (`storage.gcs` or `storage.s3`; first-party modules of the same lockfile) only when
+        # that provider is built, so a process never imports the SDK of a provider it does not use,
+        # and a missing SDK is the logged `storage.provider.sdk_missing` configuration error
+        # (tests/test_storage_factory.py pins both). A top-level import cannot be lazy and an
+        # inline one is PLC0415, so the rule's premise does not hold for this file.
+        - "**/src/storage/factory.py"
+    patterns:
+      - pattern-either:
+          - pattern: importlib.util.spec_from_file_location(...)
+          - pattern: importlib.util.module_from_spec(...)
+          - pattern: importlib.import_module(...)
+          - pattern: __import__(...)
+
+  - id: kit.python.module-feature-probe
+    languages: [python]
+    severity: ERROR
+    message: >-
+      hasattr/getattr used to branch on whether an imported module carries
+      an optional attribute, or to fall back to a default when it does not,
+      instead of relying on a plain import. The lockfile fixes what a
+      dependency provides; code never asks a module at runtime whether a
+      feature exists. Only the guard/fallback shapes are banned -- an
+      ordinary hasattr/getattr call on a non-import value, or one passed as
+      a plain argument (an assertion, for example), is not a probe.
+    patterns:
+      # Intersect candidate guards with the import scope instead of searching a
+      # file-spanning import/guard sequence separately for each probe shape.
+      - pattern-inside: |
+          import $MOD
+          ...
+      - pattern-either:
+          # deep-expression operator (`<... ... ...>`): matches hasattr/getattr
+          # anywhere inside the condition/branch/default, not just as the
+          # bare top-level expression -- so `.major`, subscripts, `not`,
+          # `and`/`or` and ternaries are all one pattern each, and aliasing
+          # (`import $ORIG as $MOD`) needs no separate branch: semgrep
+          # resolves the alias and still matches the bare `import $MOD` form.
+          - pattern: |
+              if <... hasattr($MOD, $ATTR) ...>:
+                  ...
+          - pattern: |
+              $X if <... hasattr($MOD, $ATTR) ...> else $Y
+          - pattern: getattr($MOD, $ATTR, $DEFAULT)
+
+  - id: kit.python.version-branch
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Control flow branches on sys.version_info to change what is imported
+      or how. requires-python pins one interpreter; a version branch is a
+      compatibility import in disguise.
+    patterns:
+      # deep-expression operator: one pattern covers every comparison shape
+      # (`.major`, subscripts, `!=`, any operand order) instead of enumerating
+      # each operator/attribute-access combination by hand.
+      - pattern: |
+          if <... sys.version_info ...>:
+              ...
+
+  - id: kit.python.no-type-checking
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/*.py"
+    message: >-
+      The `TYPE_CHECKING` constant is forbidden in application code.
+      Dependencies and imports must be concrete and visible at runtime for
+      Pydantic v2, FastAPI, import-linter, and deptry; do not hide imports
+      behind `if TYPE_CHECKING:`.
+    pattern-regex: "\\bTYPE_CHECKING\\b"
+
+  - id: kit.python.module-binding-alias
+    languages: [python]
+    severity: ERROR
+    message: >-
+      A module gives an imported runtime binding, class or function a second
+      assignment name. Use its canonical definition directly; `TypeAliasType`
+      aliases and upper-case metadata constants are distinct declarations.
+    # Anchored on the one assignment statement: each binding opens one `pattern-inside`
+    # region running to the end of its block, so matching stays linear in the module.
+    # A three-part `binding ... assignment` sequence pattern instead enumerates every
+    # later statement per binding and exceeds the per-file timeout on large modules.
+    patterns:
+      - pattern: $ALIAS = $ORIGINAL
+      - pattern-either:
+          - patterns:
+              - pattern-inside: |
+                  from $MODULE import $ORIGINAL
+                  ...
+              - metavariable-regex:
+                  metavariable: $ORIGINAL
+                  regex: '^(?![A-Z_][A-Z0-9_]*$)[A-Za-z_][A-Za-z0-9_]*$'
+          - pattern-inside: |
+              class $ORIGINAL(...):
+                  ...
+              ...
+          - pattern-inside: |
+              def $ORIGINAL(...):
+                  ...
+              ...
+          - pattern-inside: |
+              async def $ORIGINAL(...):
+                  ...
+              ...
+      - pattern-not-inside: |
+          def $FUNCTION(...):
+              ...
+      - pattern-not-inside: |
+          async def $FUNCTION(...):
+              ...
+      - pattern-not-inside: |
+          class $CLASS(...):
+              ...
+      - focus-metavariable: $ALIAS
+
+  - id: kit.python.explicit-compatibility-comment
+    languages: [python]
+    paths:
+      include: ["**/src/**"]
+    severity: ERROR
+    message: >-
+      A comment declares retained compatibility code. Remove that adaptation
+      and use the current contract directly.
+    pattern-regex: >-
+      (?im)^\s*\#[^\n]*(?:backwards?[- ]compat(?:ibility|ible)?\b|
+      compatibility[- ]shim\b|legacy[- ](?:alias|shim|compatibility|export)\b|
+      kept\s+for\s+(?:compatibility|old\s+callers|legacy\s+callers)\b|
+      deprecated[- ](?:alias|shim|export)\b)[^\n]*$

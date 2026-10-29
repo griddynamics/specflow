@@ -1,0 +1,16 @@
+<!-- @dsCard group="Inputs" height=320 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>TextField — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-scene" style="padding:24px" id="root"></div>
+<script>
+  var G = window.GDGlass, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    h(G.GlassSurface,{variant:'strong', style:{padding:24, maxWidth:560, display:'grid', gap:16, gridTemplateColumns:'1fr 1fr'}},
+      h(G.TextField,{label:'Account name', placeholder:'e.g. Acme Retail', help:'As it appears in Salesforce.'}),
+      h(G.TextField,{label:'Start date', defaultValue:'31/02/2026', error:'Enter a real date.'}),
+      h('div',{style:{gridColumn:'1 / -1'}}, h(G.TextField,{label:'Project description', multiline:true, rows:3, placeholder:'What should contributors know first?'}))));
+</script>
+</body>
+</html>

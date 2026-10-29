@@ -1,0 +1,14 @@
+.next/
+node_modules/
+out/
+build/
+coverage/
+playwright-report/
+test-results/
+logs/
+resources/
+public/
+next-env.d.ts
+package-lock.json
+# Copy of the design system: read-only.
+styles/ds/

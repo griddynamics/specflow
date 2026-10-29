@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": [
+    "typed-fixture.tsx",
+    "library-props.d.ts",
+    "repeat-row.tsx",
+    "repeat-list.tsx",
+    "view-routes.tsx",
+    "view-page.tsx",
+    "view-child.tsx",
+    "view-overlay.tsx",
+    "view-lazy.tsx",
+    "view-orphan.tsx"
+  ]
+}

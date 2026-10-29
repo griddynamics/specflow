@@ -1,0 +1,55 @@
+{
+  "root": "../app",
+  "checks": {
+    "html-scripts": { "html": "index.html" },
+    "i18n-catalogues": {
+      "locales": "src/locales",
+      "base-locale": "en",
+      "required-strings": "validation/required-strings.json",
+      "placeholder-ellipsis": "true"
+    },
+    "i18n-usage": { "src": "src", "locales": "src/locales", "base-locale": "en" },
+    "i18n-protected": {
+      "src": "src",
+      "locales": "src/locales",
+      "base-locale": "en",
+      "localised-code-families": ["status."],
+      "namespaces": ["common", "orders"]
+    },
+    "tokens": {
+      "src": "src",
+      "tokens-css": "src/styles/tokens.css",
+      "tokens-spec": "validation/tokens.spec.json"
+    },
+    "contrast": {
+      "tokens-css": "src/styles/tokens.css",
+      "min-ratio": "4.5",
+      "pairs": "validation/contrast-pairs.json"
+    },
+    "css-usage": { "src": "src", "html": "index.html", "css": "src/**/*.css" },
+    "dist-policy": {
+      "assets": "dist/assets",
+      "banned": "validation/dist-policy.json",
+      "banned-replace": "false"
+    },
+    "bundle-size": {
+      "dist": "dist",
+      "entry-budget": "160000",
+      "total-budget": "250000",
+      "build": "npm run build"
+    },
+    "api-types-only": { "generated-dir": "src/generated", "expected-file": "api.d.ts" },
+    "api-contract-map": { "src": "src", "contracts": "validation/api-contracts.json" },
+    "nav-tree": { "src": "src", "nav-spec": "validation/nav-spec.json" },
+    "next-routes": {
+      "app": "app",
+      "route-table": "lib/routes.ts#ROUTES",
+      "route-table-template": "template",
+      "nav-spec": "validation/nav-spec.json"
+    },
+    "next-boundaries": { "app": "app", "server-modules": ["*.server.*"] },
+    "semgrep": { "config": ".semgrep", "target": "src" }
+  },
+  "tools": ["tsc", "eslint", "knip", "knip-production", "prettier", "stylelint", "duplicates"],
+  "binDirs": []
+}

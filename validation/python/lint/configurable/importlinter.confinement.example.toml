@@ -1,0 +1,62 @@
+# EXAMPLE import contracts that name concrete packages of one project. They are not run by
+# `run.sh`: copy the contracts you need into the contracts file you pass with
+# `IMPORTLINTER_CONFIG` (or run `lint-imports --config <this file>` after editing it), and
+# replace every example module with the project's own.
+#
+# Rules of thumb (import-linter 2.15, grimp 3.17):
+# - `source_modules` of a "forbidden" contract must all exist in the import graph; a missing
+#   one aborts the whole run. List only packages that exist, or add them when they appear
+#   (`kit_tools/importlinter_source_coverage.py`, run.sh step `import-linter-coverage`,
+#   fails when a new top-level package is missing from such a list).
+# - `forbidden_modules` and the modules of a "protected" contract that name external
+#   packages need `include_external_packages = true`; a forbidden module that is absent from
+#   the graph is silently ignored.
+# - `protected_modules` must be present in the import graph (an external package must be
+#   imported somewhere), otherwise lint-imports aborts with "<module> not present in the
+#   graph"; drop the protected contract until the library is in use.
+# - `allow_indirect_imports = true` limits a contract to direct imports; leave it out to
+#   forbid the dependency along any chain of imports as well.
+[tool.importlinter]
+root_package = "src"
+include_external_packages = true
+
+# A deterministic core package depends on no side-effecting library and on no outer layer.
+[[tool.importlinter.contracts]]
+name = "Core has no side-effecting dependencies"
+id = "core-pure"
+type = "forbidden"
+source_modules = ["src.core"]
+forbidden_modules = [
+    "src.routes",
+    "src.service",
+    "src.repositories",
+    "sqlalchemy",
+    "httpx",
+    "fastapi",
+    "structlog",
+]
+
+# A vendor SDK is imported only by the package that wraps it, never by the inner layers.
+[[tool.importlinter.contracts]]
+name = "Vendor SDK confined to the integrations package"
+id = "vendor-sdk-confined"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["src.core", "src.routes", "src.service", "src.repositories"]
+forbidden_modules = ["boto3"]
+
+# A library is imported by one module only; `allowed_importers` names who may import that
+# module, so a new caller is a finding rather than a silent second implementation.
+[[tool.importlinter.contracts]]
+name = "Numeric library confined to one module"
+id = "numeric-library-confined"
+type = "protected"
+protected_modules = ["numpy"]
+allowed_importers = ["src.numerics"]
+
+[[tool.importlinter.contracts]]
+name = "Numeric module imported by approved callers only"
+id = "numeric-module-confined"
+type = "protected"
+protected_modules = ["src.numerics"]
+allowed_importers = ["src.reporting", "src.scoring"]

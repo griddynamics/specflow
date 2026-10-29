@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://specflow.local/contracts/schemas/drive-recording.schema.json",
+  "title": "Recorded Drive folder listing",
+  "description": "src/drive/fixtures/recordings/<name>.json, read by drive.recordings.load: the folder tree (root key f0) and the items of each folder, without ids or versions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["recorded", "folders", "items"],
+  "properties": {
+    "recorded": { "type": "string", "format": "date", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" },
+    "folders": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "depth", "parent", "name"],
+        "properties": {
+          "key": { "$ref": "#/$defs/folder_key" },
+          "depth": { "type": "integer", "minimum": 0 },
+          "parent": { "oneOf": [{ "$ref": "#/$defs/folder_key" }, { "type": "null" }] },
+          "name": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "mimeType", "folder"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "mimeType": { "type": "string", "pattern": "^[a-z]+/[A-Za-z0-9.+-]+$" },
+          "size": { "oneOf": [{ "type": "integer", "minimum": 0 }, { "type": "null" }] },
+          "modifiedTime": { "oneOf": [{ "type": "string", "format": "date-time" }, { "type": "null" }] },
+          "folder": { "$ref": "#/$defs/folder_key" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "folder_key": { "type": "string", "pattern": "^f[0-9]+$" }
+  }
+}

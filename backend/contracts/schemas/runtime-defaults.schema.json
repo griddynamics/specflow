@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://specflow.local/contracts/schemas/runtime-defaults.schema.json",
+  "title": "Generated runtime defaults",
+  "description": "tests/fixtures/runtime-defaults.json, the input of the pystatic runtime-defaults check: an object mapping each SETTING_NAME to its numeric default.",
+  "type": "object",
+  "minProperties": 1,
+  "propertyNames": { "pattern": "^[A-Z][A-Z0-9]*(_[A-Z0-9]+)*$" },
+  "additionalProperties": { "type": "number" }
+}

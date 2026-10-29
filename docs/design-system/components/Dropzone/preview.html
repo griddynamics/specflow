@@ -1,0 +1,19 @@
+<!-- @dsCard group="Inputs" height=300 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Dropzone — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-scene" style="padding:24px;min-height:300px;box-sizing:border-box;" id="root"></div>
+<script>
+var G = window.GDGlass, h = React.createElement;
+var PEOPLE = [
+  { id:'mk', name:'Sam Carter', role:'Product owner', email:'scarter@example.com' },
+  { id:'ak', name:'Alex Rivera', role:'Engineer', email:'arivera@example.com' },
+  { id:'nc', name:'Nina Walker', role:'Delivery manager', email:'nwalker@example.com' }];
+
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{display:'grid',gap:20,maxWidth:640}},
+  h(G.Dropzone,{title:'Drop your spec files here', hint:'Markdown, PDF or Word · up to 20 MB each', buttonLabel:'Upload files', primary:true}),
+  h(G.Dropzone,{compact:true, title:'Attach a supporting document', hint:'Demo only: files are not uploaded'})));
+</script>
+</body>
+</html>

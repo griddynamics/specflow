@@ -1,0 +1,109 @@
+rules:
+  - id: kit.pydantic.no-nested-config-class
+    languages: [python]
+    severity: ERROR
+    message: >-
+      A Pydantic model uses a nested `class Config` (v1 idiom). Pydantic v2
+      configures a model with `model_config = ConfigDict(...)`.
+    pattern: |
+      class $MODEL(...):
+          ...
+          class Config:
+              ...
+
+  - id: kit.pydantic.no-loose-dict-field
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/api/schemas.py"  # project: was **/src/schemas/**
+        - "**/src/api/graph_build/**"
+    message: >-
+      A Pydantic schema field uses an unconstrained dictionary type (dict[str, Any],
+      dict[str, str], etc.). Define a concrete Pydantic submodel with explicit typed fields
+      to prevent OpenAPI additionalProperties and TypeScript index signatures.
+    patterns:
+      - pattern-either:
+          - pattern: "$FIELD: dict[str, Any]"
+          - pattern: "$FIELD: dict[str, Any] = $DEFAULT"
+          - pattern: "$FIELD: dict[str, Any] | None"
+          - pattern: "$FIELD: dict[str, Any] | None = $DEFAULT"
+          - pattern: "$FIELD: Optional[dict[str, Any]]"
+          - pattern: "$FIELD: Optional[dict[str, Any]] = $DEFAULT"
+          - pattern: "$FIELD: Dict[str, Any]"
+          - pattern: "$FIELD: Dict[str, Any] = $DEFAULT"
+          - pattern: "$FIELD: dict[str, str]"
+          - pattern: "$FIELD: dict[str, str] = $DEFAULT"
+          - pattern: "$FIELD: dict[str, str] | None"
+          - pattern: "$FIELD: dict[str, str] | None = $DEFAULT"
+          - pattern: "$FIELD: Optional[dict[str, str]]"
+          - pattern: "$FIELD: Optional[dict[str, str]] = $DEFAULT"
+          - pattern: "$FIELD: dict[str, float]"
+          - pattern: "$FIELD: dict[str, float] = $DEFAULT"
+          - pattern: "$FIELD: dict[str, float] | None"
+          - pattern: "$FIELD: dict[str, float] | None = $DEFAULT"
+          - pattern: "$FIELD: list[dict[$K, $V]]"
+          - pattern: "$FIELD: list[dict[$K, $V]] = $DEFAULT"
+          - pattern: "$FIELD: List[dict[$K, $V]]"
+          - pattern: "$FIELD: List[dict[$K, $V]] = $DEFAULT"
+          - pattern: "$FIELD: dict[Any, Any]"
+          - pattern: "$FIELD: dict[Any, Any] = $DEFAULT"
+
+  - id: kit.pydantic.no-any-field
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/api/schemas.py"  # project: was **/src/schemas/**
+        - "**/src/api/graph_build/**"
+    message: >-
+      A Pydantic schema field uses an unconstrained `Any` annotation.
+      Define a concrete Pydantic model, enum, or specific primitive type to prevent
+      untyped OpenAPI schemas.
+    pattern-either:
+      - pattern: "$FIELD: Any"
+      - pattern: "$FIELD: Any = $DEFAULT"
+      - pattern: "$FIELD: Any | None"
+      - pattern: "$FIELD: Any | None = $DEFAULT"
+      - pattern: "$FIELD: Optional[Any]"
+      - pattern: "$FIELD: Optional[Any] = $DEFAULT"
+      - pattern: "$FIELD: list[Any]"
+      - pattern: "$FIELD: list[Any] = $DEFAULT"
+      - pattern: "$FIELD: List[Any]"
+      - pattern: "$FIELD: List[Any] = $DEFAULT"
+
+  - id: kit.pydantic.no-untyped-route-response
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/api/routers/**"  # project: was **/src/routes/**
+    message: >-
+      A route handler defines an unconstrained dictionary or `Any` return
+      annotation. Route handlers must declare a typed Pydantic response model
+      or return a concrete schema.
+    pattern-either:
+      - pattern: |
+          @$ROUTER.$METHOD(...)
+          async def $FN(...) -> dict[str, Any]:
+              ...
+      - pattern: |
+          @$ROUTER.$METHOD(...)
+          async def $FN(...) -> dict:
+              ...
+      - pattern: |
+          @$ROUTER.$METHOD(...)
+          async def $FN(...) -> Any:
+              ...
+      - pattern: |
+          @$ROUTER.$METHOD(...)
+          def $FN(...) -> dict[str, Any]:
+              ...
+      - pattern: |
+          @$ROUTER.$METHOD(...)
+          def $FN(...) -> dict:
+              ...
+      - pattern: |
+          @$ROUTER.$METHOD(...)
+          def $FN(...) -> Any:
+              ...

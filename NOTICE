@@ -1,0 +1,354 @@
+SpecFlow
+Copyright 2026-present Grid Dynamics Holdings, Inc.
+
+This product includes software developed at
+Grid Dynamics Holdings, Inc. (https://www.griddynamics.com/).
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+============================================================================
+
+THIRD-PARTY NOTICES
+
+This software may include or depend on the following third-party components.
+Each component is subject to its own license terms as described below.
+
+============================================================================
+Code adapted from earlier work
+============================================================================
+
+----------------------------------------------------------------------------
+SpecFlow (revision 600c23132dd19f79b6fcc4b69778e2c2ce1ba515)
+Copyright (c) 2024 Grid Dynamics International, Inc.
+Licensed under MIT License
+
+Stream error-diagnostic preservation, cleanup behavior, gateway SDK
+configuration, environment redaction, permission diagnostics, the conservative
+Bash guard, prompt-sequence loop mechanics, validator/resume crash-budget
+semantics, Langfuse stream lifecycle and tool-span pairing, and native OS
+sandbox defaults and dependency preflight were adapted from this revision.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+----------------------------------------------------------------------------
+
+============================================================================
+Bundled files
+============================================================================
+
+----------------------------------------------------------------------------
+Fira Sans (frontend/styles/ds/fonts, docs/design-system/fonts)
+Copyright 2012-2016, The Mozilla Foundation and Telefonica S.A.
+Licensed under SIL Open Font License 1.1 (full text in OFL.txt next to the fonts)
+"Fira Sans" is a trademark of The Mozilla Corporation.
+https://github.com/mozilla/Fira
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+React and React DOM, production builds (docs/design-system/components/lib)
+Copyright (c) Meta Platforms, Inc. and affiliates.
+Licensed under MIT License
+https://github.com/facebook/react
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+React Flow / @xyflow/react, UMD build (docs/design-system/components/lib)
+Copyright (c) webkid GmbH
+Licensed under MIT License
+https://github.com/xyflow/xyflow
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+Test document (backend/tests/data/specs/extraction.pdf, extraction.md)
+"Jagged Judges: Epistemic Stability Under Perturbation, Pressure, and
+Persistence" by Justin Zhao, Himaghna Bhattacharjee, Hannah Korevaar,
+Bhaktipriya Radharapu and Khalid El-Arini, arXiv:2608.12645
+Licensed under Creative Commons Attribution 4.0 (CC BY 4.0)
+https://arxiv.org/abs/2608.12645
+https://creativecommons.org/licenses/by/4.0/
+The PDF is an earlier version of the paper. extraction.md is a derived
+extraction: changes were made.
+----------------------------------------------------------------------------
+
+============================================================================
+Backend (Python) Dependencies
+============================================================================
+
+----------------------------------------------------------------------------
+Alembic (alembic)
+Copyright Michael Bayer
+Licensed under MIT License
+https://github.com/sqlalchemy/alembic
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+SQLAlchemy (sqlalchemy)
+Copyright SQLAlchemy authors and contributors
+Licensed under MIT License
+https://github.com/sqlalchemy/sqlalchemy
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+Anthropic Python SDK (anthropic), Claude Agent SDK (claude-agent-sdk)
+Copyright Anthropic, PBC
+Licensed under MIT License
+https://github.com/anthropics/anthropic-sdk-python
+https://github.com/anthropics/claude-agent-sdk-python
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+asyncpg
+Copyright the asyncpg authors and contributors
+Licensed under Apache License 2.0
+https://github.com/MagicStack/asyncpg
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+boto3 (optional extra "aws")
+Copyright Amazon.com, Inc. or its affiliates
+Licensed under Apache License 2.0
+https://github.com/boto/boto3
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+cryptography (through pyjwt[crypto])
+Copyright The Python Cryptographic Authority and individual contributors
+Licensed under Apache License 2.0 OR BSD 3-Clause License
+https://github.com/pyca/cryptography
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+FastAPI (fastapi)
+Copyright Sebastian Ramirez
+Licensed under MIT License
+https://github.com/fastapi/fastapi
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+Google API Client (google-api-python-client), Google Auth (google-auth),
+Google Cloud Storage (google-cloud-storage, optional extra "gcp")
+Copyright Google LLC
+Licensed under Apache License 2.0
+https://github.com/googleapis/google-api-python-client
+https://github.com/googleapis/google-cloud-python
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+Graphiti (graphiti-core)
+Copyright the Graphiti authors
+Licensed under Apache License 2.0
+https://github.com/getzep/graphiti
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+httplib2
+Copyright Joe Gregorio and contributors
+Licensed under MIT License
+https://github.com/httplib2/httplib2
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+Langfuse (langfuse)
+Copyright Finto Technologies
+Licensed under MIT License
+https://github.com/langfuse/langfuse-python
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+Neo4j Python Driver (neo4j)
+Copyright Neo4j Sweden AB
+Licensed under Apache License 2.0 (with parts under the Python-2.0 License)
+https://github.com/neo4j/neo4j-python-driver
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+NumPy (numpy)
+Copyright NumPy Developers
+Licensed under BSD 3-Clause License (bundled parts: 0BSD, MIT, Zlib, CC0-1.0)
+https://github.com/numpy/numpy
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+OpenAI Python SDK (openai)
+Copyright OpenAI
+Licensed under Apache License 2.0
+https://github.com/openai/openai-python
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+OpenAI Agents SDK (openai-agents)
+Copyright OpenAI
+Licensed under MIT License
+https://github.com/openai/openai-agents-python
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+OpenInference Instrumentation (openinference-instrumentation)
+Copyright OpenInference Authors
+Licensed under Apache License 2.0
+https://github.com/Arize-ai/openinference
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+OpenTelemetry OTLP HTTP Exporter (opentelemetry-exporter-otlp-proto-http)
+Copyright The OpenTelemetry Authors
+Licensed under Apache License 2.0
+https://github.com/open-telemetry/opentelemetry-python
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+Pydantic (pydantic)
+Copyright Pydantic Services Inc. and individual contributors
+Licensed under MIT License
+https://github.com/pydantic/pydantic
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+pydantic-settings
+Copyright Samuel Colvin and other contributors
+Licensed under MIT License
+https://github.com/pydantic/pydantic-settings
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+PyJWT (pyjwt)
+Copyright Jose Padilla
+Licensed under MIT License
+https://github.com/jpadilla/pyjwt
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+PyMuPDF (pymupdf), PyMuPDF4LLM (pymupdf4llm)
+Copyright Artifex Software, Inc.
+Licensed under GNU Affero General Public License 3.0 (or an Artifex
+commercial license)
+https://github.com/pymupdf/pymupdf
+https://github.com/pymupdf/pymupdf4llm
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+python-dotenv (installed through the dotenv package)
+Copyright Saurabh Kumar
+Licensed under BSD 3-Clause License
+https://github.com/theskumar/python-dotenv
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+PyYAML (pyyaml)
+Copyright Ingy dot Net and Kirill Simonov
+Licensed under MIT License
+https://github.com/yaml/pyyaml
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+Starlette (starlette), Uvicorn (uvicorn)
+Copyright Encode OSS Ltd.
+Licensed under BSD 3-Clause License
+https://github.com/Kludex/starlette
+https://github.com/Kludex/uvicorn
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+Temporal Python SDK (temporalio), Temporal OpenAI Agents integration
+(temporalio-openai-agents)
+Copyright Temporal Technologies Inc.
+Licensed under MIT License
+https://github.com/temporalio/sdk-python
+https://github.com/temporalio/ai-integrations
+----------------------------------------------------------------------------
+
+============================================================================
+Frontend (npm) Dependencies
+============================================================================
+
+----------------------------------------------------------------------------
+Next.js (next)
+Copyright Vercel, Inc.
+Licensed under MIT License
+https://github.com/vercel/next.js
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+Auth.js / NextAuth.js (next-auth)
+Copyright Balazs Orban and contributors
+Licensed under ISC License
+https://github.com/nextauthjs/next-auth
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+React (react), React DOM (react-dom)
+Copyright Meta Platforms, Inc. and affiliates
+Licensed under MIT License
+https://github.com/facebook/react
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+jose
+Copyright Filip Skokan
+Licensed under MIT License
+https://github.com/panva/jose
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+Phosphor Icons (@phosphor-icons/react)
+Copyright Phosphor Icons
+Licensed under MIT License
+https://github.com/phosphor-icons/react
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+react-markdown, remark-gfm, rehype-slug
+Copyright Espen Hovlandsdal, Titus Wormer and contributors
+Licensed under MIT License
+https://github.com/remarkjs/react-markdown
+https://github.com/remarkjs/remark-gfm
+https://github.com/rehypejs/rehype-slug
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+github-slugger
+Copyright Dan Flettre and contributors
+Licensed under ISC License
+https://github.com/Flet/github-slugger
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+Simple Icons (simple-icons)
+Copyright Simple Icons Collaborators
+Licensed under CC0 1.0 Universal (brand logos remain trademarks of their owners)
+https://github.com/simple-icons/simple-icons
+----------------------------------------------------------------------------
+
+============================================================================
+
+Additional third-party dependencies (transitive) and their licenses can be
+found by running:
+  backend:  uv run --with pip-licenses pip-licenses --from=mixed --format=table
+  frontend: npx license-checker --production --summary (in frontend/)
+
+Please refer to each dependency's own license file for full terms.

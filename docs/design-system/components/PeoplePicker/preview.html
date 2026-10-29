@@ -1,0 +1,18 @@
+<!-- @dsCard group="Inputs" height=320 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>PeoplePicker — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-scene" style="padding:24px;min-height:320px;box-sizing:border-box;" id="root"></div>
+<script>
+var G = window.GDGlass, h = React.createElement;
+var PEOPLE = [
+  { id:'mk', name:'Sam Carter', role:'Product owner', email:'scarter@example.com' },
+  { id:'ak', name:'Alex Rivera', role:'Engineer', email:'arivera@example.com' },
+  { id:'nc', name:'Nina Walker', role:'Delivery manager', email:'nwalker@example.com' }];
+
+ReactDOM.createRoot(document.getElementById('root')).render(h(G.GlassSurface,{variant:'strong', style:{padding:24, maxWidth:560, minHeight:240}},
+  h(G.PeoplePicker,{label:'Contributors', people:PEOPLE, defaultValue:['nc'], defaultOpen:true, help:'They get access to the project and its decisions.'})));
+</script>
+</body>
+</html>

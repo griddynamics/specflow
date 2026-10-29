@@ -1,205 +1,147 @@
-# Quickstart: Run SpecFlow Locally
+# Quick start
 
-Local harness in a sandbox is the default mode. It hosts the backend with AI agents in Docker, then gives your IDE a keyless MCP config.
+This guide runs SpecFlow on your machine with Docker, then shows how the parts fit
+together. For every setting, see [`docs/configuration.md`](docs/configuration.md).
 
-## 1. Setup
+## What you need
 
-```bash
-git clone https://github.com/griddynamics/specflow.git
-cd specflow
+| Need | Why | Notes |
+|---|---|---|
+| Docker with the Compose plugin | Runs the whole stack | Docker Desktop, OrbStack or Docker Engine |
+| `make` and `openssl` | `make env-local` writes random local secrets | Already on macOS and most Linux systems |
+| An OpenAI-compatible LLM gateway | Summaries and the knowledge-graph build | You need its URL, an API key and a model name |
+| Temporal | Runs the background workflows | Use your own on `localhost:7233`, or start the bundled one (`WITH=temporal`) |
+| Langfuse (optional) | Shows the agent traces | Use your own, start the bundled one (`WITH=langfuse`), or leave it off |
 
-cp .env.quickstart.example .env
-# Fill the REQUIRED block at the top of .env.
+For development you also need [uv](https://docs.astral.sh/uv/), Python 3.12 and
+Node.js 20.9 or newer.
 
-# Install the specflow CLI (includes the `specflow tui` terminal UI).
-uv tool install --editable ./mcp_server
+## Run it
 
-# Bootstrap the local harness sandbox.
-specflow init
+1. Write the local env file once. It holds random local secrets only:
 
-# Now the Harness Sandbox is live — use the MCP server!
+   ```shell
+   make env-local
+   ```
+
+2. Open `.env.local` and add your LLM settings:
+
+   ```dotenv
+   AGENT_MODEL=<model name>
+   LLM_GATEWAY_URL=<https://your-gateway/v1>
+   LLM_GATEWAY_API_KEY=<key>
+   # The knowledge-graph build stays off until these three are set:
+   GRAPH_LLM_MODEL=<model name>
+   GRAPH_SMALL_MODEL=<smaller, cheaper model name>
+   GRAPH_EMBEDDING_MODEL=<embedding model name>
+   ```
+
+3. Start the stack. Pick the line that fits you:
+
+   ```shell
+   make up                          # you already run Temporal on localhost:7233
+   make up WITH=temporal            # start a bundled Temporal too
+   make up WITH=temporal,langfuse   # bundled Temporal and Langfuse
+   ```
+
+   `make up` builds the images, starts the services and waits until they are healthy.
+
+4. Open http://127.0.0.1:3001 and sign in. Locally the app uses a dev login
+   (`dev@example.com` by default), so you need no identity provider.
+
+5. Create a project, add a source (upload PDFs), then press the build button on the
+   project page to build the knowledge graph. Google Drive folders also work as a
+   source; they need a Google service identity (see `DRIVE_IDENTITY_EMAIL` in
+   [`docs/configuration.md`](docs/configuration.md)).
+
+Stop the stack with `make down`. This keeps your data. `make down-volumes` deletes
+the local databases and files: use it only for a clean start.
+
+## What runs
+
+| Service | Port on your machine | Role |
+|---|---|---|
+| `frontend` | 3001 | Next.js web app |
+| `api` | 8000 | FastAPI: projects, sources, uploads, workflow starts, the knowledge-graph build; runs the database migrations on start |
+| `worker-parse` | - | Temporal worker: PDF to Markdown |
+| `worker-agents` | - | Temporal worker: AI summaries |
+| `postgres` | 5433 | Projects, documents, Markdown, summaries |
+| `neo4j` | 7474 (browser), 7687 | The knowledge graph |
+| `rustfs` | 19000 | Local S3-compatible object storage for uploaded files |
+| `temporal` (with `WITH=temporal`) | 7233, 8233 (UI) | Bundled Temporal dev server |
+| `langfuse-*` (with `WITH=langfuse`) | 3000 | Bundled Langfuse for traces |
+
+All ports bind to `127.0.0.1` only.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    user([Browser]) --> fe[frontend<br/>Next.js]
+    fe --> api[api<br/>FastAPI]
+    api --> pg[(Postgres)]
+    api --> s3[(Object storage<br/>S3 or GCS)]
+    api --> tmp{{Temporal}}
+    tmp --> wp[worker-parse<br/>PDF to Markdown]
+    tmp --> wa[worker-agents<br/>summaries]
+    wp --> s3
+    wp --> pg
+    wa --> pg
+    wa --> llm[[LLM gateway<br/>OpenAI-compatible]]
+    api --> neo[(Neo4j<br/>knowledge graph)]
+    api --> llm
+    wa -.-> lf[[Langfuse<br/>traces]]
 ```
 
-Prefer an interactive setup? Skip the `cp .env` / `specflow init` steps and run
-`specflow tui` — on first launch it walks you through collecting the required values,
-writes `.env`, and runs the bootstrap for you.
+How a document flows through the system:
 
-> The editable install runs from your clone, so `specflow` / `specflow tui` work from
-> **any** directory afterwards — they locate this checkout automatically, no extra setup.
+1. You add a source. The `api` stores each file in object storage, write-once.
+2. A Temporal workflow asks `worker-parse` to turn the PDF into Markdown. The Markdown
+   goes to Postgres.
+3. `worker-agents` writes a summary of each document with the LLM gateway.
+4. When you build the project, the `api` reads all current documents and builds
+   a typed knowledge graph in Neo4j: modules, features, capabilities and requirements,
+   how they relate, and which lines of which documents state them. A later build
+   changes only what the changed documents affect.
 
-#### MCP Setup
-When `specflow init` finishes, add the generated `.specflow-local/mcp-config.json` to your
-IDE MCP settings.
+The graph follows an ontology file (`docs/graph/spec-ontology.yaml`). The design is in
+[`docs/graph/`](docs/graph/INDEX.md).
 
-MCP Setup Instructions: **[MCP_USER.md](MCP_USER.md)**
+## Run in the cloud
 
-#### Start using SpecFlow
-Open a project in your IDE, create a new folder for "specs" and copy there your PDFs, markdown specs, etc. 
-Then ask your IDE agent:
+The same images run on any cloud. You need:
 
-```text
-Use SpecFlow MCP to check specification completeness
-in spec_dir "my_specs", and outputs dir in "results"
+- Postgres, Neo4j and Temporal that the services can reach.
+- An object-storage bucket. Choose the provider with a cloud profile file
+  (`SPECFLOW_CONFIG_FILE`: `cloud: gcp`, `aws` or `local`) or with `STORAGE_BACKEND`.
+- An OpenID Connect provider for sign-in (`AUTH_MODE=oidc`).
+
+[`docs/configuration.md`](docs/configuration.md) lists every variable, with its
+default, and the cloud profile format.
+
+## Develop
+
+```shell
+make setup           # backend virtual environment (uv)
+make frontend-setup  # frontend dependencies (npm)
 ```
 
-## 2. Prerequisites
+| Command | What it does |
+|---|---|
+| `make up`, `make down` | Start and stop the stack |
+| `make logs`, `make ps` | Follow the logs; list the services and their health |
+| `make api`, `make worker` | Run the API or a worker on your machine against the local stack |
+| `make check` | Backend lint and offline tests |
+| `make frontend-lint frontend-build` | Frontend lint and build |
+| `make e2e-production` | Offline browser tests against the built frontend |
+| `make validate` | All static validation tracks that CI runs |
 
-- Docker + Docker Compose
-- `uv` ([install](https://github.com/astral-sh/uv))
-- `curl`
-- Cursor, Claude Code, Claude Desktop, Copilot, or another MCP-capable IDE
+| Folder | What is in it |
+|---|---|
+| `backend/` | Python service: API, workers, graph library. See [`backend/README.md`](backend/README.md). |
+| `frontend/` | Next.js web app. See [`frontend/README.md`](frontend/README.md). |
+| `docs/` | Configuration reference, graph design, design system |
+| `validation/` | The static checks that CI runs |
 
-> Docker is the default and what this guide assumes. To run the backend without
-> Docker (bare-metal, agents confined by the host OS sandbox), set
-> `BACKEND_RUNTIME=process` — you then need the developer environment installed
-> and, on Linux, `bubblewrap`+`socat`. See
-> [`docs/backend/backend-runtime.md`](docs/backend/backend-runtime.md).
-
-## 3. Required `.env` Values
-
-Keep first setup focused. Fill only these values before running `specflow init`:
-
-| Variable | What to put there | Required? |
-|----------|-------------------| --------- |
-| `GITHUB_TOKEN` | GitHub PAT for disposable workspace repos. SpecFlow always needs `repo` + `read:user` (creates repos and resolves your GitHub login), plus `workflow` only for deploy/E2E runs. Create it with the broader Compass scopes (`repo,read:user,workflow,admin:repo_hook,user`) to reuse one token for both, or use a separate `repo,read:user` token if you prefer to keep keys separate. | Required
-| `P10Y_API_KEY` | Compass/P10Y API token. See [Compass setup](docs/quickstart-compass.md). | Required
-| `OPENROUTER_API_KEY` or `ANTHROPIC_API_KEY` | One LLM provider key. OpenRouter by default | Required
-| `GITHUB_ORG` | Name of GH org where repos will be created. If not provided, created as users repos. | Optional
-
-#### Setup Compass P10Y
-How to obtain P10Y_API_KEY:
-[Compass P10Y setup](docs/quickstart-compass.md)
-
-#### Prefer Anthropic?
-Set `ANTHROPIC_API_KEY` instead of `OPENROUTER_API_KEY`.
-The backend uses Anthropic automatically when it's the only provider key set
-(if both are set, OpenRouter is used).
-
-Everything else in `.env.quickstart.example` is already set for local mode or is
-optional. 
-
-## 4. What `specflow init` Does
-
-- Verifies P10Y/Compass access.
-- Starts the Docker-Compose backend stack
-- Creates or reuses disposable GitHub workspace repos.
-- Writes `.specflow-local/mcp-config.json` for your IDE.
-
-Useful flags:
-
-```bash
-specflow init --reset-local-db
-specflow init --provide-own-repos "repo1,repo2,repo3"
-```
-
-`specflow init` also accepts `--max-parallel-runs`, `--skip-build`, and `--dry-run`.
-
-Each parallel run needs 1-3 workspace repos. Workspace repos are destructively reset
-before generation. Use these repos only for SpecFlow.
-
-## 5. Install the MCP
-
-The MCP server runs inside your IDE, not in Docker.
-
-Cursor: Settings -> MCP, paste `.specflow-local/mcp-config.json`.
-
-Claude Code:
-
-```bash
-claude mcp add-json specflow "$(jq '.mcpServers.specflow' .specflow-local/mcp-config.json)"
-```
-
-Claude Desktop: Settings -> Developer -> Edit Config, then merge the
-`mcpServers` block from `.specflow-local/mcp-config.json`.
-
-## 6. Run a Generation
-
-From your IDE chat:
-
-1. `check_specification_completeness` writes `analysis/specification_completeness.md`.
-2. `run_planning` writes `planning/IMPLEMENTATION_PLAN.md`.
-3. `run_generation` uploads specs and plans to your local backend.
-4. `check_status` shows progress.
-5. `download_outputs` downloads generated code and reports.
-
-Steps 1 and 2 run locally in the IDE and are safe to repeat. Generation uses your
-local backend and workspace repos.
-
-## Agentic Deployment & Integration Tests (Optional)
-
-SpecFlow Harness contains two loops: coding loop to execute the plan, and optional deployment + integration tests loop.
-
-Code generation starts always. A live deploy + end-to-end test run against it is optional and
-gated by **Part F** of `analysis/specification_completeness.md` ("Integration & Deployment
-Readiness"):
-
-- **`LOCAL_ONLY`** (default) — no deploy step; you get generated code only.
-- **`INTEGRATION_TESTS_READY`** — after generation, agents build, deploy, and run E2E tests, then
-  report results back.
-
-`check_specification_completeness` assigns this label deterministically, based on whether your
-specs describe **all three** of: a deploy method/workflow, acceptance/E2E test methodology, and
-infrastructure targets (cluster, registry, namespace, or equivalent). Partial info keeps you at
-`LOCAL_ONLY`.
-
-To opt in, add a short deployment section to your specs — see
-[docs/examples/deployment-spec-example.md](docs/examples/deployment-spec-example.md) for a
-worked example you can adapt.
-
-If you opt in but don't fully specify **how** to deploy, SpecFlow still has a default: agent
-workspaces have no Docker daemon, `kubectl`, or cloud CLIs, so every deploy is always executed as
-a GitHub Actions workflow on a full-access runner (build → push → deploy → E2E). That default
-mechanism is documented in
-[`backend/app/standards/deployment_standards.md`](backend/app/standards/deployment_standards.md).
-Anything that needs a human (cloud resource provisioning, DNS, secrets, IAM) is flagged explicitly
-in the analysis output rather than assumed.
-
-## Local CLI
-
-After bootstrap, you can also drive runs from the local CLI:
-
-```bash
-specflow sessions
-specflow check-status
-specflow sessions --watch
-```
-
-For a live, glanceable view of a run — pipeline timeline, per-workspace progress bars,
-token/cost, and in-app actions — launch the interactive terminal UI:
-
-```bash
-specflow tui
-```
-
-(The TUI is installed with the CLI in step 1. On first launch with no `.env` yet,
-`specflow tui` walks you through collecting the required values, writes `.env`, and runs
-the bootstrap for you; on later launches it offers to start the Docker stack if it isn't
-already running.)
-
-## Stop or Reset
-
-Stop the local stack:
-
-```bash
-docker compose down --timeout 90
-```
-
-Reset the local SQLite database and reseed:
-
-```bash
-specflow init --reset-local-db
-```
-
-Inspect the database: install [DB Browser for SQLite](https://sqlitebrowser.org/)
-(`brew install --cask db-browser-for-sqlite`), then open it read-only against the live db:
-
-```bash
-open -a "DB Browser for SQLite" ~/.specflow/db/specflow.db
-```
-
-## More Guides
-
-- [Compass/P10Y setup](docs/quickstart-compass.md)
-- [Deployment spec example](docs/examples/deployment-spec-example.md)
-- [MCP usage](MCP_USER.md)
-- [MCP API reference](docs/mcp/API_REFERENCE.md)
+Logs go to stdout only, one JSON object per line. Never commit `.env.local` or a
+real secret.

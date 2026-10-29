@@ -1,0 +1,296 @@
+{
+  "tables": {
+    "connection_items": {
+      "columns": {
+        "id": {
+          "type": "uuid"
+        },
+        "connection_id": {
+          "type": "uuid",
+          "fk": "connections.id"
+        },
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "external_id": {
+          "type": "text"
+        },
+        "name": {
+          "type": "text"
+        },
+        "mime_type": {
+          "type": "text"
+        },
+        "category": {
+          "type": "text"
+        },
+        "processing_class": {
+          "type": "text"
+        },
+        "size_bytes": {
+          "type": "int"
+        },
+        "modified_time": {
+          "type": "timestamp"
+        },
+        "drive_version": {
+          "type": "int"
+        },
+        "md5": {
+          "type": "text"
+        },
+        "state": {
+          "type": "text"
+        },
+        "error_reason": {
+          "type": "text"
+        },
+        "error_step": {
+          "type": "text"
+        },
+        "document_id": {
+          "type": "uuid",
+          "fk": "documents.id"
+        },
+        "created_at": {
+          "type": "timestamp"
+        },
+        "updated_at": {
+          "type": "timestamp"
+        }
+      },
+      "indexes": [
+        "document_id",
+        "project_id"
+      ]
+    },
+    "connections": {
+      "columns": {
+        "id": {
+          "type": "uuid"
+        },
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "kind": {
+          "type": "text"
+        },
+        "external_id": {
+          "type": "text"
+        },
+        "link": {
+          "type": "text"
+        },
+        "name": {
+          "type": "text"
+        },
+        "state": {
+          "type": "text"
+        },
+        "failure_reason": {
+          "type": "text"
+        },
+        "connected_by": {
+          "type": "uuid",
+          "fk": "users.id"
+        },
+        "last_synced_at": {
+          "type": "timestamp"
+        },
+        "expected_files": {
+          "type": "int"
+        },
+        "ended_at": {
+          "type": "timestamp"
+        },
+        "name_suffix": {
+          "type": "int"
+        },
+        "created_at": {
+          "type": "timestamp"
+        },
+        "updated_at": {
+          "type": "timestamp"
+        }
+      },
+      "indexes": [
+        "project_id"
+      ]
+    },
+    "documents": {
+      "columns": {
+        "id": {
+          "type": "uuid"
+        },
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "content_hash": {
+          "type": "text"
+        },
+        "original_filename": {
+          "type": "text"
+        },
+        "media_type": {
+          "type": "text"
+        },
+        "size_bytes": {
+          "type": "int"
+        },
+        "origin": {
+          "type": "text"
+        },
+        "original_key": {
+          "type": "text"
+        },
+        "markdown_key": {
+          "type": "text"
+        },
+        "parser": {
+          "type": "text"
+        },
+        "version": {
+          "type": "int"
+        },
+        "previous_revision_id": {
+          "type": "uuid",
+          "fk": "documents.id"
+        },
+        "status": {
+          "type": "text"
+        },
+        "error": {
+          "type": "text"
+        },
+        "skipped_fragments": {
+          "type": "int"
+        },
+        "uploaded_by": {
+          "type": "uuid",
+          "fk": "users.id"
+        },
+        "source_id": {
+          "type": "uuid",
+          "fk": "connections.id"
+        },
+        "markdown": {
+          "type": "text"
+        },
+        "summarization": {
+          "type": "text"
+        },
+        "summarization_status": {
+          "type": "text"
+        },
+        "summarization_model": {
+          "type": "text"
+        },
+        "summarization_error": {
+          "type": "text"
+        },
+        "summarized_at": {
+          "type": "timestamp"
+        },
+        "created_at": {
+          "type": "timestamp"
+        },
+        "updated_at": {
+          "type": "timestamp"
+        }
+      },
+      "indexes": [
+        "project_id",
+        "source_id"
+      ]
+    },
+    "project_members": {
+      "columns": {
+        "project_id": {
+          "type": "uuid",
+          "fk": "projects.id"
+        },
+        "user_id": {
+          "type": "uuid",
+          "fk": "users.id"
+        },
+        "role": {
+          "type": "text"
+        },
+        "bio": {
+          "type": "text"
+        },
+        "joined_at": {
+          "type": "timestamp"
+        }
+      },
+      "indexes": [
+        "user_id"
+      ]
+    },
+    "projects": {
+      "columns": {
+        "id": {
+          "type": "uuid"
+        },
+        "name": {
+          "type": "text"
+        },
+        "created_by": {
+          "type": "uuid",
+          "fk": "users.id"
+        },
+        "pinned_commit_sha": {
+          "type": "text"
+        },
+        "removed_files": {
+          "type": "int"
+        },
+        "created_at": {
+          "type": "timestamp"
+        },
+        "updated_at": {
+          "type": "timestamp"
+        }
+      },
+      "indexes": [
+        "created_by"
+      ]
+    },
+    "users": {
+      "columns": {
+        "id": {
+          "type": "uuid"
+        },
+        "actor_id": {
+          "type": "text",
+          "unique": true
+        },
+        "display_name": {
+          "type": "text"
+        },
+        "email": {
+          "type": "text"
+        },
+        "auth_subject": {
+          "type": "text",
+          "unique": {
+            "where": "auth_subject is not null"
+          }
+        },
+        "created_at": {
+          "type": "timestamp"
+        }
+      }
+    }
+  },
+  "hard_delete_allowlist": [
+    "connections",
+    "connection_items",
+    "documents"
+  ],
+  "append_only_tables": [],
+  "orm_models": {}
+}

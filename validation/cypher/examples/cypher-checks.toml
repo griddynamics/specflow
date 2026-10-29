@@ -1,0 +1,48 @@
+# Run configuration for `cypher-checks all` (also `python -m cypher_checks all`).
+#
+# Copy this file to your project as `cypher-checks.toml`, point the paths at your own files and
+# run `cypher-checks all --config cypher-checks.toml`. Every relative path resolves against the
+# directory of this file. A step whose input is left out prints `skipped: <reason>`.
+
+# The graph schema file every check reads (see schema.yaml next to this file).
+schema = "schema.yaml"
+
+# Paths in findings are printed relative to this directory.
+root = "."
+
+# `.cypher` query files or directories: lint, cyver and explain read them.
+queries = ["queries"]
+
+# Schema DDL files or directories (CREATE CONSTRAINT / CREATE INDEX). The parity step holds them
+# to the schema file's `constraints` section; lint, cyver and explain read them as well.
+# Leave the key out to skip parity; an empty list is a finding ("no DDL files").
+ddl = ["schema"]
+
+[live]
+# cyver and explain start one throwaway Neo4j container through Docker.
+# `--static-only` on the command line skips them for one run.
+enabled = true
+# The server image to validate against; default: the kit's pinned neo4j:<tag>.
+# image = "neo4j:2026.08.1-community"
+
+[python]
+# The Python tree that loads the query files. Leave `root` out to skip no-inline-queries and
+# param-names.
+root = "app"
+# Loader function name = the directory (relative to `root`) its path argument is relative to.
+loaders = { load_query = "../queries" }
+# Directories (relative to `root`) whose query files must each be loaded by some loader call.
+# query_dirs = ["../queries"]
+# Globs of query files loaded by other means (for example the DDL applied at start-up).
+# orphan_exempt = ["**/schema/*.cypher"]
+# Extra globs to skip (tests, fixtures, tool directories are skipped already).
+exclude = []
+# Extra migration globs (alembic/ and migrations/ are known already).
+migrations = []
+
+[semgrep]
+# The kit's Neo4j driver rules (semgrep/neo4j.yml) over these paths.
+enabled = true
+paths = ["app"]
+# A replacement rules file, for example a copy of semgrep/neo4j.yml with your own module globs.
+# rules = "semgrep/neo4j.yml"

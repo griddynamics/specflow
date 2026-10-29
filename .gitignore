@@ -1,88 +1,48 @@
-# Environment variables
+logs/
 .env
-.env.local
-.env.backup
-.env.test
-
-# SpecFlow session file — local to each project, not committed
-specflow_session.json
-gain.json
-
-# Python
-__pycache__/
-*.py[cod
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-venv/
-ENV/
-env/
-.venv
-
-# UV
+.env.*
+!.env.example
 .venv/
-backend/.python-version
-
-# IDEs
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
-.DS_Store
-
-# Docker
-docker-compose.override.yml
-
-# Logs
-*.log
-logs/
-
-# Testing
-.coverage
-htmlcov/
-.pytest_cache/
-.tox/
-backend/coverage.json
-
-# Workspace data
-workspace/
+.acceptance/
+.specgraph/
+# Internal planning and agent tooling; not part of the published repository
+.specs/
+.agents/
+.claude/
+plans/
+.knowledge-graph
 specs/
-gain/
-gain_backup/
-workspaces
-agent_logs/
-.specflow-local/
-.specflow-test/
-e2e-workspace-config.json
-.mcp.json
-
-# Agent temporary files
-agents/temp/
-agents/plans/*/
-
-# Documentation archive
-docs/archive
-scripts/archive
-docs/internal
-
-# Contributor-local E2E workspace pool config (may hold private repo URLs).
-# The committed template is e2e-workspace-config.example.json.
-e2e-workspace-config*.json
-!e2e-workspace-config.example.json
-my-test-repos*.json
+.playwright-mcp/
+.codex
+.DS_Store
+.specplan
+input
+coding-tasks
+input-specflow
+input-v2
+input-specflow.zip
+input-v2.zip
+input-*/
+.docgraph/
+graph-build-test-input/
+archive/
+# Local state of backend/examples/graph_build.py
+.graph-build/
+# Output of `make validate` (pystatic reports, build artifacts)
+.validation-reports/
+# JUnit output of the CI report (tools/ci_report.py)
+junit.xml
+.reports/
+temp/
+docs/**/CHANGES.md

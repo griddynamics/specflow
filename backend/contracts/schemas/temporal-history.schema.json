@@ -1,0 +1,1460 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://specflow.local/contracts/schemas/temporal-history.schema.json",
+  "title": "Temporal workflow history",
+  "description": "temporal.api.history.v1.History in the proto3 JSON mapping, as the replay fixtures store it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "events"
+  ],
+  "properties": {
+    "events": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/HistoryEvent"
+      }
+    }
+  },
+  "$defs": {
+    "HistoryEvent": {
+      "description": "One HistoryEvent: its common fields and exactly one attributes object, the one its eventType names.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "eventId",
+        "eventTime",
+        "eventType"
+      ],
+      "properties": {
+        "eventId": {
+          "type": "string",
+          "pattern": "^-?[0-9]+$"
+        },
+        "eventTime": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "eventType": {
+          "enum": [
+            "EVENT_TYPE_UNSPECIFIED",
+            "EVENT_TYPE_WORKFLOW_EXECUTION_STARTED",
+            "EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED",
+            "EVENT_TYPE_WORKFLOW_EXECUTION_FAILED",
+            "EVENT_TYPE_WORKFLOW_EXECUTION_TIMED_OUT",
+            "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+            "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+            "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+            "EVENT_TYPE_WORKFLOW_TASK_TIMED_OUT",
+            "EVENT_TYPE_WORKFLOW_TASK_FAILED",
+            "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
+            "EVENT_TYPE_ACTIVITY_TASK_STARTED",
+            "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
+            "EVENT_TYPE_ACTIVITY_TASK_FAILED",
+            "EVENT_TYPE_ACTIVITY_TASK_TIMED_OUT",
+            "EVENT_TYPE_ACTIVITY_TASK_CANCEL_REQUESTED",
+            "EVENT_TYPE_ACTIVITY_TASK_CANCELED",
+            "EVENT_TYPE_TIMER_STARTED",
+            "EVENT_TYPE_TIMER_FIRED",
+            "EVENT_TYPE_TIMER_CANCELED",
+            "EVENT_TYPE_WORKFLOW_EXECUTION_CANCEL_REQUESTED",
+            "EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED",
+            "EVENT_TYPE_REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION_INITIATED",
+            "EVENT_TYPE_REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION_FAILED",
+            "EVENT_TYPE_EXTERNAL_WORKFLOW_EXECUTION_CANCEL_REQUESTED",
+            "EVENT_TYPE_MARKER_RECORDED",
+            "EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED",
+            "EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED",
+            "EVENT_TYPE_WORKFLOW_EXECUTION_CONTINUED_AS_NEW",
+            "EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED",
+            "EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_FAILED",
+            "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_STARTED",
+            "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED",
+            "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_FAILED",
+            "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_CANCELED",
+            "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_TIMED_OUT",
+            "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_TERMINATED",
+            "EVENT_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION_INITIATED",
+            "EVENT_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION_FAILED",
+            "EVENT_TYPE_EXTERNAL_WORKFLOW_EXECUTION_SIGNALED",
+            "EVENT_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES",
+            "EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ADMITTED",
+            "EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED",
+            "EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_REJECTED",
+            "EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_COMPLETED",
+            "EVENT_TYPE_WORKFLOW_PROPERTIES_MODIFIED_EXTERNALLY",
+            "EVENT_TYPE_ACTIVITY_PROPERTIES_MODIFIED_EXTERNALLY",
+            "EVENT_TYPE_WORKFLOW_PROPERTIES_MODIFIED",
+            "EVENT_TYPE_NEXUS_OPERATION_SCHEDULED",
+            "EVENT_TYPE_NEXUS_OPERATION_STARTED",
+            "EVENT_TYPE_NEXUS_OPERATION_COMPLETED",
+            "EVENT_TYPE_NEXUS_OPERATION_FAILED",
+            "EVENT_TYPE_NEXUS_OPERATION_CANCELED",
+            "EVENT_TYPE_NEXUS_OPERATION_TIMED_OUT",
+            "EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUESTED",
+            "EVENT_TYPE_WORKFLOW_EXECUTION_OPTIONS_UPDATED",
+            "EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_COMPLETED",
+            "EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_FAILED",
+            "EVENT_TYPE_WORKFLOW_EXECUTION_PAUSED",
+            "EVENT_TYPE_WORKFLOW_EXECUTION_UNPAUSED",
+            "EVENT_TYPE_WORKFLOW_EXECUTION_TIME_SKIPPING_TRANSITIONED"
+          ]
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^-?[0-9]+$"
+        },
+        "taskId": {
+          "type": "string",
+          "pattern": "^-?[0-9]+$"
+        },
+        "workerMayIgnore": {
+          "type": "boolean"
+        },
+        "userMetadata": {
+          "type": "object"
+        },
+        "links": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "principal": {
+          "type": "object"
+        },
+        "eventGroupMarkers": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "workflowExecutionStartedEventAttributes": {
+          "type": "object"
+        },
+        "workflowExecutionCompletedEventAttributes": {
+          "type": "object"
+        },
+        "workflowExecutionFailedEventAttributes": {
+          "type": "object"
+        },
+        "workflowExecutionTimedOutEventAttributes": {
+          "type": "object"
+        },
+        "workflowTaskScheduledEventAttributes": {
+          "type": "object"
+        },
+        "workflowTaskStartedEventAttributes": {
+          "type": "object"
+        },
+        "workflowTaskCompletedEventAttributes": {
+          "type": "object"
+        },
+        "workflowTaskTimedOutEventAttributes": {
+          "type": "object"
+        },
+        "workflowTaskFailedEventAttributes": {
+          "type": "object"
+        },
+        "activityTaskScheduledEventAttributes": {
+          "type": "object"
+        },
+        "activityTaskStartedEventAttributes": {
+          "type": "object"
+        },
+        "activityTaskCompletedEventAttributes": {
+          "type": "object"
+        },
+        "activityTaskFailedEventAttributes": {
+          "type": "object"
+        },
+        "activityTaskTimedOutEventAttributes": {
+          "type": "object"
+        },
+        "timerStartedEventAttributes": {
+          "type": "object"
+        },
+        "timerFiredEventAttributes": {
+          "type": "object"
+        },
+        "activityTaskCancelRequestedEventAttributes": {
+          "type": "object"
+        },
+        "activityTaskCanceledEventAttributes": {
+          "type": "object"
+        },
+        "timerCanceledEventAttributes": {
+          "type": "object"
+        },
+        "markerRecordedEventAttributes": {
+          "type": "object"
+        },
+        "workflowExecutionSignaledEventAttributes": {
+          "type": "object"
+        },
+        "workflowExecutionTerminatedEventAttributes": {
+          "type": "object"
+        },
+        "workflowExecutionCancelRequestedEventAttributes": {
+          "type": "object"
+        },
+        "workflowExecutionCanceledEventAttributes": {
+          "type": "object"
+        },
+        "requestCancelExternalWorkflowExecutionInitiatedEventAttributes": {
+          "type": "object"
+        },
+        "requestCancelExternalWorkflowExecutionFailedEventAttributes": {
+          "type": "object"
+        },
+        "externalWorkflowExecutionCancelRequestedEventAttributes": {
+          "type": "object"
+        },
+        "workflowExecutionContinuedAsNewEventAttributes": {
+          "type": "object"
+        },
+        "startChildWorkflowExecutionInitiatedEventAttributes": {
+          "type": "object"
+        },
+        "startChildWorkflowExecutionFailedEventAttributes": {
+          "type": "object"
+        },
+        "childWorkflowExecutionStartedEventAttributes": {
+          "type": "object"
+        },
+        "childWorkflowExecutionCompletedEventAttributes": {
+          "type": "object"
+        },
+        "childWorkflowExecutionFailedEventAttributes": {
+          "type": "object"
+        },
+        "childWorkflowExecutionCanceledEventAttributes": {
+          "type": "object"
+        },
+        "childWorkflowExecutionTimedOutEventAttributes": {
+          "type": "object"
+        },
+        "childWorkflowExecutionTerminatedEventAttributes": {
+          "type": "object"
+        },
+        "signalExternalWorkflowExecutionInitiatedEventAttributes": {
+          "type": "object"
+        },
+        "signalExternalWorkflowExecutionFailedEventAttributes": {
+          "type": "object"
+        },
+        "externalWorkflowExecutionSignaledEventAttributes": {
+          "type": "object"
+        },
+        "upsertWorkflowSearchAttributesEventAttributes": {
+          "type": "object"
+        },
+        "workflowExecutionUpdateAcceptedEventAttributes": {
+          "type": "object"
+        },
+        "workflowExecutionUpdateRejectedEventAttributes": {
+          "type": "object"
+        },
+        "workflowExecutionUpdateCompletedEventAttributes": {
+          "type": "object"
+        },
+        "workflowPropertiesModifiedExternallyEventAttributes": {
+          "type": "object"
+        },
+        "activityPropertiesModifiedExternallyEventAttributes": {
+          "type": "object"
+        },
+        "workflowPropertiesModifiedEventAttributes": {
+          "type": "object"
+        },
+        "workflowExecutionUpdateAdmittedEventAttributes": {
+          "type": "object"
+        },
+        "nexusOperationScheduledEventAttributes": {
+          "type": "object"
+        },
+        "nexusOperationStartedEventAttributes": {
+          "type": "object"
+        },
+        "nexusOperationCompletedEventAttributes": {
+          "type": "object"
+        },
+        "nexusOperationFailedEventAttributes": {
+          "type": "object"
+        },
+        "nexusOperationCanceledEventAttributes": {
+          "type": "object"
+        },
+        "nexusOperationTimedOutEventAttributes": {
+          "type": "object"
+        },
+        "nexusOperationCancelRequestedEventAttributes": {
+          "type": "object"
+        },
+        "workflowExecutionOptionsUpdatedEventAttributes": {
+          "type": "object"
+        },
+        "nexusOperationCancelRequestCompletedEventAttributes": {
+          "type": "object"
+        },
+        "nexusOperationCancelRequestFailedEventAttributes": {
+          "type": "object"
+        },
+        "workflowExecutionPausedEventAttributes": {
+          "type": "object"
+        },
+        "workflowExecutionUnpausedEventAttributes": {
+          "type": "object"
+        },
+        "workflowExecutionTimeSkippingTransitionedEventAttributes": {
+          "type": "object"
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "workflowExecutionStartedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "workflowExecutionCompletedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "workflowExecutionFailedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "workflowExecutionTimedOutEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "workflowTaskScheduledEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "workflowTaskStartedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "workflowTaskCompletedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "workflowTaskTimedOutEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "workflowTaskFailedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "activityTaskScheduledEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "activityTaskStartedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "activityTaskCompletedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "activityTaskFailedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "activityTaskTimedOutEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "timerStartedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "timerFiredEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "activityTaskCancelRequestedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "activityTaskCanceledEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "timerCanceledEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "markerRecordedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "workflowExecutionSignaledEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "workflowExecutionTerminatedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "workflowExecutionCancelRequestedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "workflowExecutionCanceledEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "requestCancelExternalWorkflowExecutionInitiatedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "requestCancelExternalWorkflowExecutionFailedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "externalWorkflowExecutionCancelRequestedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "workflowExecutionContinuedAsNewEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "startChildWorkflowExecutionInitiatedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "startChildWorkflowExecutionFailedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "childWorkflowExecutionStartedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "childWorkflowExecutionCompletedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "childWorkflowExecutionFailedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "childWorkflowExecutionCanceledEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "childWorkflowExecutionTimedOutEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "childWorkflowExecutionTerminatedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "signalExternalWorkflowExecutionInitiatedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "signalExternalWorkflowExecutionFailedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "externalWorkflowExecutionSignaledEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "upsertWorkflowSearchAttributesEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "workflowExecutionUpdateAcceptedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "workflowExecutionUpdateRejectedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "workflowExecutionUpdateCompletedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "workflowPropertiesModifiedExternallyEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "activityPropertiesModifiedExternallyEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "workflowPropertiesModifiedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "workflowExecutionUpdateAdmittedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "nexusOperationScheduledEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "nexusOperationStartedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "nexusOperationCompletedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "nexusOperationFailedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "nexusOperationCanceledEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "nexusOperationTimedOutEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "nexusOperationCancelRequestedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "workflowExecutionOptionsUpdatedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "nexusOperationCancelRequestCompletedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "nexusOperationCancelRequestFailedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "workflowExecutionPausedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "workflowExecutionUnpausedEventAttributes"
+          ]
+        },
+        {
+          "required": [
+            "workflowExecutionTimeSkippingTransitionedEventAttributes"
+          ]
+        }
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_WORKFLOW_EXECUTION_STARTED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "workflowExecutionStartedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "workflowExecutionCompletedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_WORKFLOW_EXECUTION_FAILED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "workflowExecutionFailedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_WORKFLOW_EXECUTION_TIMED_OUT"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "workflowExecutionTimedOutEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "workflowTaskScheduledEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_WORKFLOW_TASK_STARTED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "workflowTaskStartedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "workflowTaskCompletedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_WORKFLOW_TASK_TIMED_OUT"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "workflowTaskTimedOutEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_WORKFLOW_TASK_FAILED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "workflowTaskFailedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "activityTaskScheduledEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_ACTIVITY_TASK_STARTED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "activityTaskStartedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_ACTIVITY_TASK_COMPLETED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "activityTaskCompletedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_ACTIVITY_TASK_FAILED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "activityTaskFailedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_ACTIVITY_TASK_TIMED_OUT"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "activityTaskTimedOutEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_TIMER_STARTED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "timerStartedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_TIMER_FIRED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "timerFiredEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_ACTIVITY_TASK_CANCEL_REQUESTED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "activityTaskCancelRequestedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_ACTIVITY_TASK_CANCELED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "activityTaskCanceledEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_TIMER_CANCELED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "timerCanceledEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_MARKER_RECORDED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "markerRecordedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "workflowExecutionSignaledEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "workflowExecutionTerminatedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_WORKFLOW_EXECUTION_CANCEL_REQUESTED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "workflowExecutionCancelRequestedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "workflowExecutionCanceledEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION_INITIATED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "requestCancelExternalWorkflowExecutionInitiatedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_REQUEST_CANCEL_EXTERNAL_WORKFLOW_EXECUTION_FAILED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "requestCancelExternalWorkflowExecutionFailedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_EXTERNAL_WORKFLOW_EXECUTION_CANCEL_REQUESTED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "externalWorkflowExecutionCancelRequestedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_WORKFLOW_EXECUTION_CONTINUED_AS_NEW"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "workflowExecutionContinuedAsNewEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "startChildWorkflowExecutionInitiatedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_FAILED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "startChildWorkflowExecutionFailedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_STARTED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "childWorkflowExecutionStartedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "childWorkflowExecutionCompletedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_FAILED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "childWorkflowExecutionFailedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_CANCELED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "childWorkflowExecutionCanceledEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_TIMED_OUT"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "childWorkflowExecutionTimedOutEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_TERMINATED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "childWorkflowExecutionTerminatedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION_INITIATED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "signalExternalWorkflowExecutionInitiatedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION_FAILED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "signalExternalWorkflowExecutionFailedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_EXTERNAL_WORKFLOW_EXECUTION_SIGNALED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "externalWorkflowExecutionSignaledEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "upsertWorkflowSearchAttributesEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ACCEPTED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "workflowExecutionUpdateAcceptedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_REJECTED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "workflowExecutionUpdateRejectedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_COMPLETED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "workflowExecutionUpdateCompletedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_WORKFLOW_PROPERTIES_MODIFIED_EXTERNALLY"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "workflowPropertiesModifiedExternallyEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_ACTIVITY_PROPERTIES_MODIFIED_EXTERNALLY"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "activityPropertiesModifiedExternallyEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_WORKFLOW_PROPERTIES_MODIFIED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "workflowPropertiesModifiedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_WORKFLOW_EXECUTION_UPDATE_ADMITTED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "workflowExecutionUpdateAdmittedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_NEXUS_OPERATION_SCHEDULED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "nexusOperationScheduledEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_NEXUS_OPERATION_STARTED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "nexusOperationStartedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_NEXUS_OPERATION_COMPLETED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "nexusOperationCompletedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_NEXUS_OPERATION_FAILED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "nexusOperationFailedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_NEXUS_OPERATION_CANCELED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "nexusOperationCanceledEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_NEXUS_OPERATION_TIMED_OUT"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "nexusOperationTimedOutEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUESTED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "nexusOperationCancelRequestedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_WORKFLOW_EXECUTION_OPTIONS_UPDATED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "workflowExecutionOptionsUpdatedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_COMPLETED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "nexusOperationCancelRequestCompletedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_NEXUS_OPERATION_CANCEL_REQUEST_FAILED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "nexusOperationCancelRequestFailedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_WORKFLOW_EXECUTION_PAUSED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "workflowExecutionPausedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_WORKFLOW_EXECUTION_UNPAUSED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "workflowExecutionUnpausedEventAttributes"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "eventType": {
+                "const": "EVENT_TYPE_WORKFLOW_EXECUTION_TIME_SKIPPING_TRANSITIONED"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "workflowExecutionTimeSkippingTransitionedEventAttributes"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

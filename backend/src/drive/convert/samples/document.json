@@ -1,0 +1,596 @@
+{
+  "documentId": "doc-sample-0001",
+  "title": "Atlas Platform Handbook",
+  "revisionId": "rev-1",
+  "tabs": [
+    {
+      "tabProperties": {
+        "tabId": "t.0",
+        "title": "Overview",
+        "index": 0
+      },
+      "documentTab": {
+        "body": {
+          "content": [
+            {
+              "sectionBreak": {}
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "Atlas Platform Handbook\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "TITLE"
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "Purpose\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "HEADING_1"
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "Atlas is a fictional platform. See the ",
+                      "textStyle": {}
+                    }
+                  },
+                  {
+                    "textRun": {
+                      "content": "runbook",
+                      "textStyle": {
+                        "link": {
+                          "url": "https://example.com/runbook"
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "textRun": {
+                      "content": " for details.\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "Principles\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "HEADING_2"
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "Keep it simple\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                },
+                "bullet": {
+                  "listId": "list-1",
+                  "nestingLevel": 0
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "Prefer small services\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                },
+                "bullet": {
+                  "listId": "list-1",
+                  "nestingLevel": 1
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "Measure everything\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                },
+                "bullet": {
+                  "listId": "list-1",
+                  "nestingLevel": 0
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "Release steps\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "HEADING_2"
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "Merge the change\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                },
+                "bullet": {
+                  "listId": "list-2",
+                  "nestingLevel": 0
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "Wait for the pipeline\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                },
+                "bullet": {
+                  "listId": "list-2",
+                  "nestingLevel": 0
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "Diagram: ",
+                      "textStyle": {}
+                    }
+                  },
+                  {
+                    "inlineObjectElement": {
+                      "inlineObjectId": "kix.img1"
+                    }
+                  },
+                  {
+                    "textRun": {
+                      "content": "\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                }
+              }
+            },
+            {
+              "table": {
+                "rows": 3,
+                "columns": 3,
+                "tableRows": [
+                  {
+                    "tableCells": [
+                      {
+                        "content": [
+                          {
+                            "paragraph": {
+                              "elements": [
+                                {
+                                  "textRun": {
+                                    "content": "Service\n",
+                                    "textStyle": {}
+                                  }
+                                }
+                              ],
+                              "paragraphStyle": {
+                                "namedStyleType": "NORMAL_TEXT"
+                              }
+                            }
+                          }
+                        ],
+                        "tableCellStyle": {
+                          "rowSpan": 1,
+                          "columnSpan": 1
+                        }
+                      },
+                      {
+                        "content": [
+                          {
+                            "paragraph": {
+                              "elements": [
+                                {
+                                  "textRun": {
+                                    "content": "Owner\n",
+                                    "textStyle": {}
+                                  }
+                                }
+                              ],
+                              "paragraphStyle": {
+                                "namedStyleType": "NORMAL_TEXT"
+                              }
+                            }
+                          }
+                        ],
+                        "tableCellStyle": {
+                          "rowSpan": 1,
+                          "columnSpan": 1
+                        }
+                      },
+                      {
+                        "content": [
+                          {
+                            "paragraph": {
+                              "elements": [
+                                {
+                                  "textRun": {
+                                    "content": "Tier\n",
+                                    "textStyle": {}
+                                  }
+                                }
+                              ],
+                              "paragraphStyle": {
+                                "namedStyleType": "NORMAL_TEXT"
+                              }
+                            }
+                          }
+                        ],
+                        "tableCellStyle": {
+                          "rowSpan": 1,
+                          "columnSpan": 1
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "tableCells": [
+                      {
+                        "content": [
+                          {
+                            "paragraph": {
+                              "elements": [
+                                {
+                                  "textRun": {
+                                    "content": "api\n",
+                                    "textStyle": {}
+                                  }
+                                }
+                              ],
+                              "paragraphStyle": {
+                                "namedStyleType": "NORMAL_TEXT"
+                              }
+                            }
+                          }
+                        ],
+                        "tableCellStyle": {
+                          "rowSpan": 1,
+                          "columnSpan": 1
+                        }
+                      },
+                      {
+                        "content": [
+                          {
+                            "paragraph": {
+                              "elements": [
+                                {
+                                  "textRun": {
+                                    "content": "Team A\n",
+                                    "textStyle": {}
+                                  }
+                                }
+                              ],
+                              "paragraphStyle": {
+                                "namedStyleType": "NORMAL_TEXT"
+                              }
+                            }
+                          }
+                        ],
+                        "tableCellStyle": {
+                          "rowSpan": 1,
+                          "columnSpan": 1
+                        }
+                      },
+                      {
+                        "content": [
+                          {
+                            "paragraph": {
+                              "elements": [
+                                {
+                                  "textRun": {
+                                    "content": "1\n",
+                                    "textStyle": {}
+                                  }
+                                }
+                              ],
+                              "paragraphStyle": {
+                                "namedStyleType": "NORMAL_TEXT"
+                              }
+                            }
+                          }
+                        ],
+                        "tableCellStyle": {
+                          "rowSpan": 1,
+                          "columnSpan": 1
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "tableCells": [
+                      {
+                        "content": [
+                          {
+                            "paragraph": {
+                              "elements": [
+                                {
+                                  "textRun": {
+                                    "content": "worker\n",
+                                    "textStyle": {}
+                                  }
+                                }
+                              ],
+                              "paragraphStyle": {
+                                "namedStyleType": "NORMAL_TEXT"
+                              }
+                            }
+                          }
+                        ],
+                        "tableCellStyle": {
+                          "rowSpan": 1,
+                          "columnSpan": 1
+                        }
+                      },
+                      {
+                        "content": [
+                          {
+                            "paragraph": {
+                              "elements": [
+                                {
+                                  "textRun": {
+                                    "content": "Team B\n",
+                                    "textStyle": {}
+                                  }
+                                }
+                              ],
+                              "paragraphStyle": {
+                                "namedStyleType": "NORMAL_TEXT"
+                              }
+                            }
+                          }
+                        ],
+                        "tableCellStyle": {
+                          "rowSpan": 1,
+                          "columnSpan": 1
+                        }
+                      },
+                      {
+                        "content": [
+                          {
+                            "paragraph": {
+                              "elements": [
+                                {
+                                  "textRun": {
+                                    "content": "2\n",
+                                    "textStyle": {}
+                                  }
+                                }
+                              ],
+                              "paragraphStyle": {
+                                "namedStyleType": "NORMAL_TEXT"
+                              }
+                            }
+                          }
+                        ],
+                        "tableCellStyle": {
+                          "rowSpan": 1,
+                          "columnSpan": 1
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                }
+              }
+            }
+          ]
+        },
+        "lists": {
+          "list-1": {
+            "listProperties": {
+              "nestingLevels": [
+                {
+                  "glyphSymbol": "●"
+                },
+                {
+                  "glyphSymbol": "●"
+                }
+              ]
+            }
+          },
+          "list-2": {
+            "listProperties": {
+              "nestingLevels": [
+                {
+                  "glyphType": "DECIMAL"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "childTabs": [
+        {
+          "tabProperties": {
+            "tabId": "t.1",
+            "title": "Operations",
+            "index": 0
+          },
+          "documentTab": {
+            "body": {
+              "content": [
+                {
+                  "sectionBreak": {}
+                },
+                {
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "textRun": {
+                          "content": "On-call\n",
+                          "textStyle": {}
+                        }
+                      }
+                    ],
+                    "paragraphStyle": {
+                      "namedStyleType": "HEADING_1"
+                    }
+                  }
+                },
+                {
+                  "paragraph": {
+                    "elements": [
+                      {
+                        "textRun": {
+                          "content": "Page the primary first.\n",
+                          "textStyle": {}
+                        }
+                      }
+                    ],
+                    "paragraphStyle": {
+                      "namedStyleType": "NORMAL_TEXT"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "childTabs": []
+        }
+      ]
+    },
+    {
+      "tabProperties": {
+        "tabId": "t.2",
+        "title": "Glossary",
+        "index": 1
+      },
+      "documentTab": {
+        "body": {
+          "content": [
+            {
+              "sectionBreak": {}
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "Terms\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "HEADING_1"
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "Tier: criticality level 1 to 3.\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "childTabs": []
+    }
+  ]
+}

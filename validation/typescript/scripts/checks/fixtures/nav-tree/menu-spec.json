@@ -1,0 +1,4 @@
+{
+  "variable": "MENU",
+  "items": [{ "label": "Orders", "path": "/orders", "icon": "ShoppingCart" }]
+}

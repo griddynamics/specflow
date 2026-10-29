@@ -1,0 +1,19 @@
+<!-- @dsCard group="Layout" height=380 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>EmptyState — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-scene" style="padding:24px;min-height:380px;box-sizing:border-box;" id="root"></div>
+<script>
+var G = window.GDGlass, h = React.createElement;
+var PEOPLE = [
+  { id:'mk', name:'Sam Carter', role:'Product owner', email:'scarter@example.com' },
+  { id:'ak', name:'Alex Rivera', role:'Engineer', email:'arivera@example.com' },
+  { id:'nc', name:'Nina Walker', role:'Delivery manager', email:'nwalker@example.com' }];
+
+ReactDOM.createRoot(document.getElementById('root')).render(h(G.EmptyState,{icon:'upload-simple', title:'Start with your spec files',
+  actions:h(React.Fragment,null,h(G.Button,{variant:'primary',arrow:true},'Upload files'),h(G.Button,{variant:'plain'},'Use the sample project'))},
+  'Upload the Markdown specs for this project. We map them into a knowledge graph, diagrams and open decisions.'));
+</script>
+</body>
+</html>

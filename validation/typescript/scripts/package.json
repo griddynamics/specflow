@@ -1,0 +1,35 @@
+{
+  "name": "typescript-static-checks",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone static-validation scripts for TypeScript/React front ends, with their self-tests.",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "bin": {
+    "ts-static-checks": "./run.mjs"
+  },
+  "scripts": {
+    "check": "node run.mjs",
+    "duplicates": "node duplicates/duplicates.mjs",
+    "openapi-to-contracts": "node tools/openapi-to-contracts.mjs",
+    "test": "node --test \"checks/**/*.test.mjs\" \"duplicates/*.test.mjs\" \"tools/*.test.mjs\" run.test.mjs",
+    "format:check": "prettier --check \"**/*.{mjs,js,ts,tsx,json,css,html,md}\"",
+    "selftest": "npm test && npm run format:check"
+  },
+  "dependencies": {
+    "@jscpd/core": "4.0.4",
+    "@jscpd/tokenizer": "4.0.4",
+    "@size-limit/file": "13.1.1",
+    "postcss-selector-parser": "7.1.4",
+    "prismjs": "1.30.0",
+    "purgecss": "7.0.2",
+    "reprism": "0.0.11",
+    "size-limit": "13.1.1",
+    "typescript": "5.9.3"
+  },
+  "devDependencies": {
+    "prettier": "3.9.6"
+  }
+}

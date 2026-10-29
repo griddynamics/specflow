@@ -1,0 +1,1205 @@
+# "The store does the data work": the rows a read returns are its result, so nothing
+# between the store and the caller discards, orders, cuts or searches them. Taint follows
+# a store result through assignments, comprehensions, the collecting builtins and
+# `append`/`extend`/`add`/`update` within one function; a function is judged where it
+# reads, not where it is called, so what a function computes from rows is that function's
+# result, not the rows.
+#
+# What the rules do not judge:
+# - a field of one row (a JSON document, a nested list) is not a set of rows;
+# - a sort that builds the parameter of the next read orders no result;
+# - a skip on the outcome of a statement the loop issues (a guarded write), or on what a
+#   function computed from the row, filters no read: computing over every row is not
+#   filtering;
+# - a comprehension whose condition reads what another awaited call answered when it was
+#   given these rows' keys, where that call is not a read of the rows' own store, is a
+#   predicate spanning two stores, admitted once each read has taken the keys the other
+#   produced.
+#
+# Each store result carries the label of its store (GRAPH or SQL): a SQLAlchemy session
+# read (`execute`/`scalars`/`stream`/`stream_scalars`) is SQL, a graph driver read
+# (`run`/`execute_read`) is GRAPH. A repository read is labelled by its handle or class
+# name (one containing `graph` is GRAPH) or by its module under `repositories`
+# (`graph_*`/`*_graph` modules are GRAPH). Adjust `repositories`, the module-name
+# regexes and the `paths:` globs to the project's layout.
+#
+# Semgrep's taint engine does not follow a value into a slice (`rows[:n]`), so the cuts
+# are the `*-sliced`/`*-slices-*` search rules over the variable a read assigned.
+rules:
+  - id: kit.store_work.repository-result-shaped-in-python
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/db/**"   # project: the stores are the db package and the graph reader/writer
+        - "**/src/graph/core/reader.py"
+        - "**/src/graph/core/writer.py"
+    message: >-
+      A repository discards, orders or searches the rows a statement returned.
+      Every filter, order, first or last row, `min`/`max` and top-k over stored
+      data is the statement's own `WHERE`, `ORDER BY` and `LIMIT` (or the graph
+      pattern's), so the read returns the rows its result is made of and no
+      others.
+    mode: taint
+    pattern-sources:
+      # A store's own read, labelled with its store.
+      -
+        label: GRAPH
+        exact: true
+        patterns:
+          - pattern-either:
+              - pattern: await $STORE.run(...)
+              - pattern: await $STORE.execute_read(...)
+      -
+        label: SQL
+        exact: true
+        patterns:
+          - pattern-either:
+              - pattern: await $STORE.execute(...)
+              - pattern: await $STORE.scalars(...)
+              - pattern: await $STORE.stream(...)
+              - pattern: await $STORE.stream_scalars(...)
+    pattern-propagators:
+      - pattern: $TO.append($FROM)
+        from: $FROM
+        to: $TO
+      - pattern: $TO.extend($FROM)
+        from: $FROM
+        to: $TO
+      - pattern: $TO.add($FROM)
+        from: $FROM
+        to: $TO
+      - pattern: $TO.update($FROM)
+        from: $FROM
+        to: $TO
+      - pattern: $TO = [$E for $V in $FROM]
+        from: $FROM
+        to: $TO
+      - pattern: $TO = [$E async for $V in $FROM]
+        from: $FROM
+        to: $TO
+      - pattern: $TO = [$E for $V in $FROM for $W in $INNER]
+        from: $FROM
+        to: $TO
+      - pattern: $TO = [$E async for $V in $FROM for $W in $INNER]
+        from: $FROM
+        to: $TO
+      - pattern: "$TO = {$K: $E for $V in $FROM}"
+        from: $FROM
+        to: $TO
+      - pattern: "$TO = {$K: $E async for $V in $FROM}"
+        from: $FROM
+        to: $TO
+    pattern-sanitizers:
+      # A field of one row (a JSON document, a nested list) is not a set of rows.
+      -
+        patterns:
+          - pattern: $ROW.$FIELD
+          - pattern-not-inside: $ROW.$FIELD(...)
+          # The instance, a class, an enum or an imported name is not a row (pep8-naming
+          # keeps every local and parameter lower-case): leaving their members out keeps
+          # the sanitizer's matches, which the taint engine scans for every expression of
+          # the file, few.
+          - pattern-not:
+              patterns:
+                - pattern: $ROW.$FIELD
+                - metavariable-regex:
+                    metavariable: $ROW
+                    regex: '^(?:self|cls|[A-Z]\w*)$'
+      - pattern: $ROW.get(...)
+    pattern-sinks:
+      # Graph rows kept or dropped.
+      - requires: GRAPH
+        patterns:
+          - pattern-either:
+              - pattern: "[$V for $V in $SINK if $C]"
+              - pattern: "{$V for $V in $SINK if $C}"
+              - pattern: "($V for $V in $SINK if $C)"
+              - pattern: "[$V async for $V in $SINK if $C]"
+              - pattern: "{$K: $V for $V in $SINK if $C}"
+              - pattern: next($E for $V in $SINK if $C)
+              - pattern: next(($E for $V in $SINK if $C), $D)
+              - pattern: filter($F, $SINK)
+              - pattern: itertools.filterfalse($F, $SINK)
+              # A skip on the row itself: its condition reads the loop's row. A skip on
+              # what a function computed from the row (a parse, a domain predicate) is
+              # computation over every row.
+              - pattern: |
+                  for $V in $SINK:
+                      ...
+                      if <... $V ...>:
+                          continue
+                      ...
+              - pattern: |
+                  async for $V in $SINK:
+                      ...
+                      if <... $V ...>:
+                          continue
+                      ...
+              - pattern: |
+                  for $V, $W in $SINK:
+                      ...
+                      if <... $V ...>:
+                          continue
+                      ...
+              - pattern: |
+                  for $V, $W in $SINK:
+                      ...
+                      if <... $W ...>:
+                          continue
+                      ...
+          -
+            # A `continue` of an inner loop skips that loop's items, not these rows.
+            pattern-not: |
+              for $V in $SINK:
+                  ...
+                  for $W in $INNER:
+                      ...
+                      if $C:
+                          continue
+                      ...
+                  ...
+          # A skip on the outcome of a statement the loop issues (a guarded write that
+          # matched no row) is not a filter over the rows the read returned.
+          -
+            pattern-not-inside: |
+              for $V in $SINK:
+                  ...
+                  $OUTCOME = await $ANY(...)
+                  ...
+                  if <... $OUTCOME ...>:
+                      continue
+                  ...
+          # The predicate spanning both stores: the condition reads `$ANSWER`, or what was
+          # keyed from it (`$INDEX`); `$ANSWER` is what another read (`$OTHER`) answered when
+          # it was given these rows' keys, in the session block that scopes it or not; and
+          # that read is not the graph's, since a graph read of a graph result's keys is
+          # one statement with it.
+          - pattern-not-inside:
+              patterns:
+                - pattern-either:
+                    - pattern-inside: |
+                        $ANSWER = <... await $OTHER(..., <... $SINK ...>, ...) ...>
+                        ...
+                        <... [$V for $V in $SINK if <... $ANSWER ...>] ...>
+                    - pattern-inside: |
+                        $ANSWER = <... await $OTHER(..., <... $SINK ...>, ...) ...>
+                        ...
+                        <... {$V for $V in $SINK if <... $ANSWER ...>} ...>
+                    - pattern-inside: |
+                        $ANSWER = <... await $OTHER(..., <... $SINK ...>, ...) ...>
+                        ...
+                        <... ($V for $V in $SINK if <... $ANSWER ...>) ...>
+                    - pattern-inside: |
+                        $ANSWER = <... await $OTHER(..., <... $SINK ...>, ...) ...>
+                        ...
+                        $INDEX = <... $ANSWER ...>
+                        ...
+                        <... [$V for $V in $SINK if <... $INDEX ...>] ...>
+                    - pattern-inside: |
+                        async with $CONTEXT as $SESSION:
+                            ...
+                            $ANSWER = <... await $OTHER(..., <... $SINK ...>, ...) ...>
+                            ...
+                        ...
+                        <... [$V for $V in $SINK if <... $ANSWER ...>] ...>
+                    - patterns:
+                        - pattern-either:
+                            # The keys were assigned before that read, in its block or one
+                            # enclosing it: the read and the condition anchor the match, and
+                            # the assignment only has to precede them.
+                            - patterns:
+                                - pattern-inside: |
+                                    $ANSWER = <... await $OTHER(..., <... $KEYS ...>, ...) ...>
+                                    ...
+                                    <... [$V for $V in $SINK if <... $ANSWER ...>] ...>
+                                - pattern-inside: |
+                                    $KEYS = $KEYED
+                                    ...
+                            - pattern-inside: |
+                                async with $CONTEXT as $SESSION:
+                                    ...
+                                    $KEYS = $KEYED
+                                    ...
+                                    $ANSWER = <... await $OTHER(..., <... $KEYS ...>, ...) ...>
+                                    ...
+                                ...
+                                <... [$V for $V in $SINK if <... $ANSWER ...>] ...>
+                        - metavariable-pattern:
+                            metavariable: $KEYED
+                            pattern: <... $SINK ...>
+                # Not a graph session's read, nor a graph repository's handle,
+                - metavariable-regex:
+                    metavariable: $OTHER
+                    regex: '(?s)^(?!.*\.(?:run|execute_read)$)(?!.*(?i:graph)).*$'
+                # nor a function of a graph repository module, imported by name or by
+                # module (no part of `$OTHER` is one).
+                - metavariable-pattern:
+                    metavariable: $OTHER
+                    patterns:
+                      - pattern: $PART
+                      - pattern-not:
+                          patterns:
+                            - pattern-either:
+                                - pattern: src.repositories.$MODULE.$FUNCTION
+                                - pattern: src.repositories.$MODULE
+                            - metavariable-regex:
+                                metavariable: $MODULE
+                                regex: '^(?:graph_\w+|\w+_graph)$'
+          - focus-metavariable: $SINK
+      # SQL rows kept or dropped: the same, where the other read is not SQL's.
+      - requires: SQL
+        patterns:
+          - pattern-either:
+              - pattern: "[$V for $V in $SINK if $C]"
+              - pattern: "{$V for $V in $SINK if $C}"
+              - pattern: "($V for $V in $SINK if $C)"
+              - pattern: "[$V async for $V in $SINK if $C]"
+              - pattern: "{$K: $V for $V in $SINK if $C}"
+              - pattern: next($E for $V in $SINK if $C)
+              - pattern: next(($E for $V in $SINK if $C), $D)
+              - pattern: filter($F, $SINK)
+              - pattern: itertools.filterfalse($F, $SINK)
+              # A skip on the row itself: its condition reads the loop's row. A skip on
+              # what a function computed from the row (a parse, a domain predicate) is
+              # computation over every row.
+              - pattern: |
+                  for $V in $SINK:
+                      ...
+                      if <... $V ...>:
+                          continue
+                      ...
+              - pattern: |
+                  async for $V in $SINK:
+                      ...
+                      if <... $V ...>:
+                          continue
+                      ...
+              - pattern: |
+                  for $V, $W in $SINK:
+                      ...
+                      if <... $V ...>:
+                          continue
+                      ...
+              - pattern: |
+                  for $V, $W in $SINK:
+                      ...
+                      if <... $W ...>:
+                          continue
+                      ...
+          - # A `continue` of an inner loop skips that loop's items, not these rows.
+            pattern-not: |
+              for $V in $SINK:
+                  ...
+                  for $W in $INNER:
+                      ...
+                      if $C:
+                          continue
+                      ...
+                  ...
+          - pattern-not-inside: |
+              for $V in $SINK:
+                  ...
+                  $OUTCOME = await $ANY(...)
+                  ...
+                  if <... $OUTCOME ...>:
+                      continue
+                  ...
+          - pattern-not-inside:
+              patterns:
+                - pattern-either:
+                    - pattern-inside: |
+                        $ANSWER = <... await $OTHER(..., <... $SINK ...>, ...) ...>
+                        ...
+                        <... [$V for $V in $SINK if <... $ANSWER ...>] ...>
+                    - pattern-inside: |
+                        $ANSWER = <... await $OTHER(..., <... $SINK ...>, ...) ...>
+                        ...
+                        <... {$V for $V in $SINK if <... $ANSWER ...>} ...>
+                    - pattern-inside: |
+                        $ANSWER = <... await $OTHER(..., <... $SINK ...>, ...) ...>
+                        ...
+                        <... ($V for $V in $SINK if <... $ANSWER ...>) ...>
+                    - pattern-inside: |
+                        $ANSWER = <... await $OTHER(..., <... $SINK ...>, ...) ...>
+                        ...
+                        $INDEX = <... $ANSWER ...>
+                        ...
+                        <... [$V for $V in $SINK if <... $INDEX ...>] ...>
+                    - pattern-inside: |
+                        async with $CONTEXT as $SESSION:
+                            ...
+                            $ANSWER = <... await $OTHER(..., <... $SINK ...>, ...) ...>
+                            ...
+                        ...
+                        <... [$V for $V in $SINK if <... $ANSWER ...>] ...>
+                    - patterns:
+                        - pattern-either:
+                            # The keys were assigned before that read, in its block or one
+                            # enclosing it: the read and the condition anchor the match, and
+                            # the assignment only has to precede them.
+                            - patterns:
+                                - pattern-inside: |
+                                    $ANSWER = <... await $OTHER(..., <... $KEYS ...>, ...) ...>
+                                    ...
+                                    <... [$V for $V in $SINK if <... $ANSWER ...>] ...>
+                                - pattern-inside: |
+                                    $KEYS = $KEYED
+                                    ...
+                            - pattern-inside: |
+                                async with $CONTEXT as $SESSION:
+                                    ...
+                                    $KEYS = $KEYED
+                                    ...
+                                    $ANSWER = <... await $OTHER(..., <... $KEYS ...>, ...) ...>
+                                    ...
+                                ...
+                                <... [$V for $V in $SINK if <... $ANSWER ...>] ...>
+                        - metavariable-pattern:
+                            metavariable: $KEYED
+                            pattern: <... $SINK ...>
+                # Not a SQL session's read, nor a repository handle other than a graph's,
+                - metavariable-regex:
+                    metavariable: $OTHER
+                    regex: '(?s)^(?!.*\.(?:execute|scalars|stream|stream_scalars)$)(?:.*(?i:graph).*|(?!.*(?i:repo)).*)$'
+                # nor a function of a SQL repository module.
+                - metavariable-pattern:
+                    metavariable: $OTHER
+                    patterns:
+                      - pattern: $PART
+                      - pattern-not:
+                          patterns:
+                            - pattern-either:
+                                - pattern: src.repositories.$MODULE.$FUNCTION
+                                - pattern: src.repositories.$MODULE
+                            - metavariable-regex:
+                                metavariable: $MODULE
+                                regex: '^(?!(?:graph_\w+|\w+_graph)$)\w+$'
+          - focus-metavariable: $SINK
+      # Rows of either store ordered, cut or reduced to an extreme.
+      - requires: GRAPH or SQL
+        patterns:
+          - pattern-either:
+              - pattern: itertools.islice($SINK, ...)
+              # An order or extreme of the rows' projection: `$SINK` is the rows.
+              - pattern: sorted($E for $V in $SINK)
+              - pattern: sorted(($E for $V in $SINK), ...)
+              - pattern: sorted([$E for $V in $SINK], ...)
+              - pattern: sorted({$E for $V in $SINK}, ...)
+              - pattern: min($E for $V in $SINK)
+              - pattern: min(($E for $V in $SINK), ...)
+              - pattern: max($E for $V in $SINK)
+              - pattern: max(($E for $V in $SINK), ...)
+              - pattern: sorted($SINK, ...)
+              - pattern: $SINK.sort(...)
+              # One iterable: `min(a, b)` of two values orders no rows.
+              - pattern: min($SINK)
+              - pattern: min($SINK, key=$KEY)
+              - pattern: min($SINK, default=$DEFAULT)
+              - pattern: min($SINK, key=$KEY, default=$DEFAULT)
+              - pattern: max($SINK)
+              - pattern: max($SINK, key=$KEY)
+              - pattern: max($SINK, default=$DEFAULT)
+              - pattern: max($SINK, key=$KEY, default=$DEFAULT)
+              - pattern: heapq.nlargest($N, $SINK, ...)
+              - pattern: heapq.nsmallest($N, $SINK, ...)
+          # A sort that builds the parameter of the next read orders no result.
+          - pattern-not-inside: await $NEXT(..., <... $SINK ...>, ...)
+          - pattern-not-inside: await $NEXT(..., $KEY=<... $SINK ...>, ...)
+          - focus-metavariable: $SINK
+
+  - id: kit.store_work.repository-record-projection-filtered
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/db/**"   # project: the stores are the db package and the graph reader/writer
+        - "**/src/graph/core/reader.py"
+        - "**/src/graph/core/writer.py"
+    message: >-
+      A repository builds its rows from a statement's records and leaves some out.
+      The condition is the statement's `WHERE` (or the graph pattern's), applied
+      before any `LIMIT` it bounds, so the read returns the rows its result is made
+      of and no others.
+    mode: taint
+    pattern-sources:
+      - label: GRAPH
+        exact: true
+        patterns:
+          - pattern-either:
+              - pattern: await $STORE.run(...)
+              - pattern: await $STORE.execute_read(...)
+      - label: SQL
+        exact: true
+        patterns:
+          - pattern-either:
+              - pattern: await $STORE.execute(...)
+              - pattern: await $STORE.scalars(...)
+              - pattern: await $STORE.stream(...)
+              - pattern: await $STORE.stream_scalars(...)
+    pattern-propagators:
+      - pattern: $TO.append($FROM)
+        from: $FROM
+        to: $TO
+      - pattern: $TO.extend($FROM)
+        from: $FROM
+        to: $TO
+      - pattern: $TO.add($FROM)
+        from: $FROM
+        to: $TO
+      - pattern: $TO.update($FROM)
+        from: $FROM
+        to: $TO
+      - pattern: $TO = [$E for $V in $FROM]
+        from: $FROM
+        to: $TO
+      - pattern: $TO = [$E async for $V in $FROM]
+        from: $FROM
+        to: $TO
+      - pattern: $TO = [$E for $V in $FROM for $W in $INNER]
+        from: $FROM
+        to: $TO
+      - pattern: $TO = [$E async for $V in $FROM for $W in $INNER]
+        from: $FROM
+        to: $TO
+      - pattern: "$TO = {$K: $E for $V in $FROM}"
+        from: $FROM
+        to: $TO
+      - pattern: "$TO = {$K: $E async for $V in $FROM}"
+        from: $FROM
+        to: $TO
+    pattern-sanitizers:
+      # A field of one row (a JSON document, a nested list) is not a set of rows.
+      -
+        patterns:
+          - pattern: $ROW.$FIELD
+          - pattern-not-inside: $ROW.$FIELD(...)
+          # The instance, a class, an enum or an imported name is not a row (pep8-naming
+          # keeps every local and parameter lower-case): leaving their members out keeps
+          # the sanitizer's matches, which the taint engine scans for every expression of
+          # the file, few.
+          - pattern-not:
+              patterns:
+                - pattern: $ROW.$FIELD
+                - metavariable-regex:
+                    metavariable: $ROW
+                    regex: '^(?:self|cls|[A-Z]\w*)$'
+      - pattern: $ROW.get(...)
+    pattern-sinks:
+      - requires: GRAPH or SQL
+        patterns:
+          - pattern-either:
+              - pattern: "[$E for $V in $SINK if $C]"
+              - pattern: "[$E async for $V in $SINK if $C]"
+              - pattern: "{$E for $V in $SINK if $C}"
+              - pattern: "{$E async for $V in $SINK if $C}"
+              - pattern: "($E for $V in $SINK if $C)"
+              - pattern: "{$K: $E for $V in $SINK if $C}"
+              - pattern: "{$K: $E async for $V in $SINK if $C}"
+          # The keep-or-discard of whole rows is the shaping rule's finding.
+          - pattern-not: "[$V for $V in $SINK if $C]"
+          - pattern-not: "[$V async for $V in $SINK if $C]"
+          - pattern-not: "{$V for $V in $SINK if $C}"
+          - pattern-not: "($V for $V in $SINK if $C)"
+          - pattern-not: "{$K: $V for $V in $SINK if $C}"
+          # The items of one record's list (`record["tags"]`) are not records.
+          - metavariable-regex:
+              metavariable: $SINK
+              regex: '^(?!\(?\s*[A-Za-z_][\w.]*\[\s*["''][^"'']*["'']\s*\](\s+or\s+.*)?\)?$)'
+          - focus-metavariable: $SINK
+
+  - id: kit.store_work.repository-result-sliced
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/db/**"   # project: the stores are the db package and the graph reader/writer
+        - "**/src/graph/core/reader.py"
+        - "**/src/graph/core/writer.py"
+    message: >-
+      A repository cuts the rows a statement returned to a count. A limit is a
+      parameter of the statement, applied after every predicate it bounds, with
+      an `ORDER BY` whose last key makes the cut deterministic.
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              $ROWS = <... await $STORE.$READ(...) ...>
+              ...
+          - pattern-inside: |
+              $RESULT = await $STORE.$READ(...)
+              ...
+              $ROWS = <... $RESULT ...>
+              ...
+      - metavariable-regex:
+          metavariable: $READ
+          regex: "^(execute|scalars|stream|stream_scalars|run|execute_read)$"
+      # The rows, or their order, list or selection, cut to a count.
+      - pattern-either:
+          - pattern: $ROWS[$A:$B]
+          - pattern: $ROWS[$A:]
+          - pattern: $ROWS[:$B]
+          - pattern: sorted(<... $ROWS ...>, ...)[$A:$B]
+          - pattern: sorted(<... $ROWS ...>, ...)[$A:]
+          - pattern: sorted(<... $ROWS ...>, ...)[:$B]
+          - pattern: list(<... $ROWS ...>)[$A:$B]
+          - pattern: list(<... $ROWS ...>)[$A:]
+          - pattern: list(<... $ROWS ...>)[:$B]
+          - pattern: "[$E for $V in <... $ROWS ...>][$A:$B]"
+          - pattern: "[$E for $V in <... $ROWS ...>][$A:]"
+          - pattern: "[$E for $V in <... $ROWS ...>][:$B]"
+          - pattern: "[$E for $V in <... $ROWS ...> if $C][$A:$B]"
+          - pattern: "[$E for $V in <... $ROWS ...> if $C][$A:]"
+          - pattern: "[$E for $V in <... $ROWS ...> if $C][:$B]"
+
+  - id: kit.store_work.caller-shapes-repository-read
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/**"
+      exclude:
+        # The repository rules above judge the statements themselves.
+        - "**/src/db/**"   # project: the stores are the db package and the graph reader/writer
+        - "**/src/graph/core/reader.py"
+        - "**/src/graph/core/writer.py"
+    message: >-
+      A caller discards, orders or searches the rows a repository read
+      returned. The filter, order, first or last row, `min`/`max` and top-k
+      belong in the statement the repository runs, which takes them as
+      parameters; a service combines two stores' reads only after each has
+      applied every predicate of its own.
+    mode: taint
+    pattern-sources:
+      - label: GRAPH
+        exact: true
+        patterns:
+          - pattern-either:
+              - pattern: await $STORE.run(...)
+              - pattern: await $STORE.execute_read(...)
+      - label: SQL
+        exact: true
+        patterns:
+          - pattern-either:
+              - pattern: await $STORE.execute(...)
+              - pattern: await $STORE.scalars(...)
+              - pattern: await $STORE.stream(...)
+              - pattern: await $STORE.stream_scalars(...)
+      # A repository's read, labelled with the store its module, handle or class names;
+      # a repository of both stores carries both labels.
+      - label: GRAPH
+        exact: true
+        patterns:
+          - pattern-either:
+              # A read function of a repository module, imported by name or by module.
+              - patterns:
+                  - pattern: await src.repositories.$MODULE.$READ(...)
+                  - metavariable-regex:
+                      metavariable: $MODULE
+                      regex: '^(?:graph_\w+|\w+_graph)$'
+              -
+                patterns:
+                  - pattern: await $REPO.$READ(...)
+                  - metavariable-regex:
+                      metavariable: $REPO
+                      # A `*Repository` class, or a handle named `repo`/`repository` as
+                      # a word (`self._repo`, `order_repo`, `graph_repository`).
+                      regex: "^(?:.*Repository.*|(?i:(?:.*[^a-z])?repo(?:sitory)?(?:[^a-z].*)?))$"
+                  - metavariable-regex:
+                      metavariable: $REPO
+                      regex: "(?s)^.*(?i:graph).*$"
+              - patterns:
+                  - pattern-either:
+                      - pattern-inside: |
+                          $REPO = $CLS(...)
+                          ...
+                      - pattern-inside: |
+                          def $FUNC(..., $REPO: $CLS, ...):
+                              ...
+                      - pattern-inside: |
+                          async def $FUNC(..., $REPO: $CLS, ...):
+                              ...
+                      - pattern-inside: |
+                          class $CLASS:
+                              ...
+                              def __init__(...):
+                                  ...
+                                  $REPO = $CLS(...)
+                                  ...
+                              ...
+                  - pattern: await $REPO.$READ(...)
+                  - metavariable-regex:
+                      metavariable: $CLS
+                      regex: "^[A-Za-z]*Graph[A-Za-z]*Repository$"
+                  # A read the handle's name already labels is one source, not two: each
+                  # source match is scanned for every expression of the file.
+                  - pattern-not:
+                      patterns:
+                        - pattern: await $REPO.$READ(...)
+                        - metavariable-regex:
+                            metavariable: $REPO
+                            # A `*Repository` class, or a handle named `repo`/`repository` as
+                            # a word (`self._repo`, `order_repo`, `graph_repository`).
+                            regex: "^(?:.*Repository.*|(?i:(?:.*[^a-z])?repo(?:sitory)?(?:[^a-z].*)?))$"
+                        - metavariable-regex:
+                            metavariable: $REPO
+                            regex: "(?s)^.*(?i:graph).*$"
+          - metavariable-regex:
+              metavariable: $READ
+              regex: "^[a-z_]+$"
+      - label: SQL
+        exact: true
+        patterns:
+          - pattern-either:
+              - patterns:
+                  - pattern: await src.repositories.$MODULE.$READ(...)
+                  - metavariable-regex:
+                      metavariable: $MODULE
+                      regex: '^(?!(?:graph_\w+|\w+_graph)$)\w+$'
+              -
+                patterns:
+                  - pattern: await $REPO.$READ(...)
+                  - metavariable-regex:
+                      metavariable: $REPO
+                      # A `*Repository` class, or a handle named `repo`/`repository` as
+                      # a word (`self._repo`, `order_repo`, `graph_repository`).
+                      regex: "^(?:.*Repository.*|(?i:(?:.*[^a-z])?repo(?:sitory)?(?:[^a-z].*)?))$"
+                  - metavariable-regex:
+                      metavariable: $REPO
+                      regex: "(?s)^(?!.*(?i:graph)).*$"
+              - patterns:
+                  - pattern-either:
+                      - pattern-inside: |
+                          $REPO = $CLS(...)
+                          ...
+                      - pattern-inside: |
+                          def $FUNC(..., $REPO: $CLS, ...):
+                              ...
+                      - pattern-inside: |
+                          async def $FUNC(..., $REPO: $CLS, ...):
+                              ...
+                      - pattern-inside: |
+                          class $CLASS:
+                              ...
+                              def __init__(...):
+                                  ...
+                                  $REPO = $CLS(...)
+                                  ...
+                              ...
+                  - pattern: await $REPO.$READ(...)
+                  - metavariable-regex:
+                      metavariable: $CLS
+                      regex: "^(?![A-Za-z]*Graph)[A-Za-z]*Repository$"
+                  - pattern-not:
+                      patterns:
+                        - pattern: await $REPO.$READ(...)
+                        - metavariable-regex:
+                            metavariable: $REPO
+                            # A `*Repository` class, or a handle named `repo`/`repository` as
+                            # a word (`self._repo`, `order_repo`, `graph_repository`).
+                            regex: "^(?:.*Repository.*|(?i:(?:.*[^a-z])?repo(?:sitory)?(?:[^a-z].*)?))$"
+                        - metavariable-regex:
+                            metavariable: $REPO
+                            regex: "(?s)^(?!.*(?i:graph)).*$"
+          - metavariable-regex:
+              metavariable: $READ
+              regex: "^[a-z_]+$"
+    pattern-propagators:
+      - pattern: $TO.append($FROM)
+        from: $FROM
+        to: $TO
+      - pattern: $TO.extend($FROM)
+        from: $FROM
+        to: $TO
+      - pattern: $TO.add($FROM)
+        from: $FROM
+        to: $TO
+      - pattern: $TO.update($FROM)
+        from: $FROM
+        to: $TO
+      - pattern: $TO = [$E for $V in $FROM]
+        from: $FROM
+        to: $TO
+      - pattern: $TO = [$E async for $V in $FROM]
+        from: $FROM
+        to: $TO
+      - pattern: $TO = [$E for $V in $FROM for $W in $INNER]
+        from: $FROM
+        to: $TO
+      - pattern: $TO = [$E async for $V in $FROM for $W in $INNER]
+        from: $FROM
+        to: $TO
+      - pattern: "$TO = {$K: $E for $V in $FROM}"
+        from: $FROM
+        to: $TO
+      - pattern: "$TO = {$K: $E async for $V in $FROM}"
+        from: $FROM
+        to: $TO
+    pattern-sanitizers:
+      - patterns:
+          - pattern: $ROW.$FIELD
+          - pattern-not-inside: $ROW.$FIELD(...)
+          # The instance, a class, an enum or an imported name is not a row (pep8-naming
+          # keeps every local and parameter lower-case): leaving their members out keeps
+          # the sanitizer's matches, which the taint engine scans for every expression of
+          # the file, few.
+          - pattern-not:
+              patterns:
+                - pattern: $ROW.$FIELD
+                - metavariable-regex:
+                    metavariable: $ROW
+                    regex: '^(?:self|cls|[A-Z]\w*)$'
+      - pattern: $ROW.get(...)
+      # What a function or a method of the caller computes from rows and assigns is its
+      # own result, judged where that function reads; the builtins that only collect,
+      # order or count the rows they are given keep them rows, a repository function is a
+      # read, and a call whose arguments themselves shape the rows is still judged.
+      - patterns:
+          - pattern-either:
+              - pattern-inside: $TARGET = $FUNCTION(...)
+              - pattern-inside: $TARGET = await $FUNCTION(...)
+              - pattern-inside: $TARGET.update($FUNCTION(...))
+              - pattern-inside: $TARGET.extend($FUNCTION(...))
+          - pattern: $FUNCTION(...)
+          - metavariable-regex:
+              metavariable: $FUNCTION
+              regex: "^(self\\.)?(?!(list|tuple|set|frozenset|dict|sorted|reversed|iter|enumerate|zip|filter|next|min|max|len|cast)$)[A-Za-z_][A-Za-z0-9_]*$"
+          - pattern-not: src.repositories.$MODULE.$READ(...)
+          - pattern-not: $FUNCTION(..., <... sorted(...) ...>, ...)
+          - pattern-not: $FUNCTION(..., $KEYWORD=<... sorted(...) ...>, ...)
+          - pattern-not: $FUNCTION(..., <... min(...) ...>, ...)
+          - pattern-not: $FUNCTION(..., $KEYWORD=<... min(...) ...>, ...)
+          - pattern-not: $FUNCTION(..., <... max(...) ...>, ...)
+          - pattern-not: $FUNCTION(..., $KEYWORD=<... max(...) ...>, ...)
+          - pattern-not: $FUNCTION(..., <... next(...) ...>, ...)
+          - pattern-not: $FUNCTION(..., $KEYWORD=<... next(...) ...>, ...)
+          - pattern-not: $FUNCTION(..., <... filter(...) ...>, ...)
+          - pattern-not: $FUNCTION(..., $KEYWORD=<... filter(...) ...>, ...)
+          - pattern-not: $FUNCTION(..., <... heapq.nlargest(...) ...>, ...)
+          - pattern-not: $FUNCTION(..., $KEYWORD=<... heapq.nlargest(...) ...>, ...)
+          - pattern-not: $FUNCTION(..., <... heapq.nsmallest(...) ...>, ...)
+          - pattern-not: $FUNCTION(..., $KEYWORD=<... heapq.nsmallest(...) ...>, ...)
+          - pattern-not: $FUNCTION(..., <... itertools.islice(...) ...>, ...)
+          - pattern-not: $FUNCTION(..., $KEYWORD=<... itertools.islice(...) ...>, ...)
+          - pattern-not: $FUNCTION(..., <... itertools.filterfalse(...) ...>, ...)
+          - pattern-not: $FUNCTION(..., $KEYWORD=<... itertools.filterfalse(...) ...>, ...)
+          - pattern-not: "$FUNCTION(..., <... [$V for $V in $S if $C] ...>, ...)"
+          - pattern-not: "$FUNCTION(..., $KEYWORD=<... [$V for $V in $S if $C] ...>, ...)"
+          - pattern-not: "$FUNCTION(..., <... {$V for $V in $S if $C} ...>, ...)"
+          - pattern-not: "$FUNCTION(..., $KEYWORD=<... {$V for $V in $S if $C} ...>, ...)"
+          - pattern-not: "$FUNCTION(..., <... ($V for $V in $S if $C) ...>, ...)"
+          - pattern-not: "$FUNCTION(..., $KEYWORD=<... ($V for $V in $S if $C) ...>, ...)"
+          - pattern-not: "$FUNCTION(..., <... {$K: $V for $V in $S if $C} ...>, ...)"
+          - pattern-not: "$FUNCTION(..., $KEYWORD=<... {$K: $V for $V in $S if $C} ...>, ...)"
+    pattern-sinks:
+      # Graph rows kept or dropped.
+      - requires: GRAPH
+        patterns:
+          - pattern-either:
+              - pattern: "[$V for $V in $SINK if $C]"
+              - pattern: "{$V for $V in $SINK if $C}"
+              - pattern: "($V for $V in $SINK if $C)"
+              - pattern: "[$V async for $V in $SINK if $C]"
+              - pattern: "{$K: $V for $V in $SINK if $C}"
+              - pattern: next($E for $V in $SINK if $C)
+              - pattern: next(($E for $V in $SINK if $C), $D)
+              - pattern: filter($F, $SINK)
+              - pattern: itertools.filterfalse($F, $SINK)
+              # A skip on the row itself: its condition reads the loop's row. A skip on
+              # what a function computed from the row (a parse, a domain predicate) is
+              # computation over every row.
+              - pattern: |
+                  for $V in $SINK:
+                      ...
+                      if <... $V ...>:
+                          continue
+                      ...
+              - pattern: |
+                  async for $V in $SINK:
+                      ...
+                      if <... $V ...>:
+                          continue
+                      ...
+              - pattern: |
+                  for $V, $W in $SINK:
+                      ...
+                      if <... $V ...>:
+                          continue
+                      ...
+              - pattern: |
+                  for $V, $W in $SINK:
+                      ...
+                      if <... $W ...>:
+                          continue
+                      ...
+          -
+            # A `continue` of an inner loop skips that loop's items, not these rows.
+            pattern-not: |
+              for $V in $SINK:
+                  ...
+                  for $W in $INNER:
+                      ...
+                      if $C:
+                          continue
+                      ...
+                  ...
+          # A skip on the outcome of a statement the loop issues (a guarded write that
+          # matched no row) is not a filter over the rows the read returned.
+          -
+            pattern-not-inside: |
+              for $V in $SINK:
+                  ...
+                  $OUTCOME = await $ANY(...)
+                  ...
+                  if <... $OUTCOME ...>:
+                      continue
+                  ...
+          # The predicate spanning both stores: the condition reads `$ANSWER`, or what was
+          # keyed from it (`$INDEX`); `$ANSWER` is what another read (`$OTHER`) answered when
+          # it was given these rows' keys, in the session block that scopes it or not; and
+          # that read is not the graph's, since a graph read of a graph result's keys is
+          # one statement with it.
+          - pattern-not-inside:
+              patterns:
+                - pattern-either:
+                    - pattern-inside: |
+                        $ANSWER = <... await $OTHER(..., <... $SINK ...>, ...) ...>
+                        ...
+                        <... [$V for $V in $SINK if <... $ANSWER ...>] ...>
+                    - pattern-inside: |
+                        $ANSWER = <... await $OTHER(..., <... $SINK ...>, ...) ...>
+                        ...
+                        <... {$V for $V in $SINK if <... $ANSWER ...>} ...>
+                    - pattern-inside: |
+                        $ANSWER = <... await $OTHER(..., <... $SINK ...>, ...) ...>
+                        ...
+                        <... ($V for $V in $SINK if <... $ANSWER ...>) ...>
+                    - pattern-inside: |
+                        $ANSWER = <... await $OTHER(..., <... $SINK ...>, ...) ...>
+                        ...
+                        $INDEX = <... $ANSWER ...>
+                        ...
+                        <... [$V for $V in $SINK if <... $INDEX ...>] ...>
+                    - pattern-inside: |
+                        async with $CONTEXT as $SESSION:
+                            ...
+                            $ANSWER = <... await $OTHER(..., <... $SINK ...>, ...) ...>
+                            ...
+                        ...
+                        <... [$V for $V in $SINK if <... $ANSWER ...>] ...>
+                    - patterns:
+                        - pattern-either:
+                            # The keys were assigned before that read, in its block or one
+                            # enclosing it: the read and the condition anchor the match, and
+                            # the assignment only has to precede them.
+                            - patterns:
+                                - pattern-inside: |
+                                    $ANSWER = <... await $OTHER(..., <... $KEYS ...>, ...) ...>
+                                    ...
+                                    <... [$V for $V in $SINK if <... $ANSWER ...>] ...>
+                                - pattern-inside: |
+                                    $KEYS = $KEYED
+                                    ...
+                            - pattern-inside: |
+                                async with $CONTEXT as $SESSION:
+                                    ...
+                                    $KEYS = $KEYED
+                                    ...
+                                    $ANSWER = <... await $OTHER(..., <... $KEYS ...>, ...) ...>
+                                    ...
+                                ...
+                                <... [$V for $V in $SINK if <... $ANSWER ...>] ...>
+                        - metavariable-pattern:
+                            metavariable: $KEYED
+                            pattern: <... $SINK ...>
+                # Not a graph session's read, nor a graph repository's handle,
+                - metavariable-regex:
+                    metavariable: $OTHER
+                    regex: '(?s)^(?!.*\.(?:run|execute_read)$)(?!.*(?i:graph)).*$'
+                # nor a function of a graph repository module, imported by name or by
+                # module (no part of `$OTHER` is one).
+                - metavariable-pattern:
+                    metavariable: $OTHER
+                    patterns:
+                      - pattern: $PART
+                      - pattern-not:
+                          patterns:
+                            - pattern-either:
+                                - pattern: src.repositories.$MODULE.$FUNCTION
+                                - pattern: src.repositories.$MODULE
+                            - metavariable-regex:
+                                metavariable: $MODULE
+                                regex: '^(?:graph_\w+|\w+_graph)$'
+          - focus-metavariable: $SINK
+      # SQL rows kept or dropped: the same, where the other read is not SQL's.
+      - requires: SQL
+        patterns:
+          - pattern-either:
+              - pattern: "[$V for $V in $SINK if $C]"
+              - pattern: "{$V for $V in $SINK if $C}"
+              - pattern: "($V for $V in $SINK if $C)"
+              - pattern: "[$V async for $V in $SINK if $C]"
+              - pattern: "{$K: $V for $V in $SINK if $C}"
+              - pattern: next($E for $V in $SINK if $C)
+              - pattern: next(($E for $V in $SINK if $C), $D)
+              - pattern: filter($F, $SINK)
+              - pattern: itertools.filterfalse($F, $SINK)
+              # A skip on the row itself: its condition reads the loop's row. A skip on
+              # what a function computed from the row (a parse, a domain predicate) is
+              # computation over every row.
+              - pattern: |
+                  for $V in $SINK:
+                      ...
+                      if <... $V ...>:
+                          continue
+                      ...
+              - pattern: |
+                  async for $V in $SINK:
+                      ...
+                      if <... $V ...>:
+                          continue
+                      ...
+              - pattern: |
+                  for $V, $W in $SINK:
+                      ...
+                      if <... $V ...>:
+                          continue
+                      ...
+              - pattern: |
+                  for $V, $W in $SINK:
+                      ...
+                      if <... $W ...>:
+                          continue
+                      ...
+          - # A `continue` of an inner loop skips that loop's items, not these rows.
+            pattern-not: |
+              for $V in $SINK:
+                  ...
+                  for $W in $INNER:
+                      ...
+                      if $C:
+                          continue
+                      ...
+                  ...
+          - pattern-not-inside: |
+              for $V in $SINK:
+                  ...
+                  $OUTCOME = await $ANY(...)
+                  ...
+                  if <... $OUTCOME ...>:
+                      continue
+                  ...
+          - pattern-not-inside:
+              patterns:
+                - pattern-either:
+                    - pattern-inside: |
+                        $ANSWER = <... await $OTHER(..., <... $SINK ...>, ...) ...>
+                        ...
+                        <... [$V for $V in $SINK if <... $ANSWER ...>] ...>
+                    - pattern-inside: |
+                        $ANSWER = <... await $OTHER(..., <... $SINK ...>, ...) ...>
+                        ...
+                        <... {$V for $V in $SINK if <... $ANSWER ...>} ...>
+                    - pattern-inside: |
+                        $ANSWER = <... await $OTHER(..., <... $SINK ...>, ...) ...>
+                        ...
+                        <... ($V for $V in $SINK if <... $ANSWER ...>) ...>
+                    - pattern-inside: |
+                        $ANSWER = <... await $OTHER(..., <... $SINK ...>, ...) ...>
+                        ...
+                        $INDEX = <... $ANSWER ...>
+                        ...
+                        <... [$V for $V in $SINK if <... $INDEX ...>] ...>
+                    - pattern-inside: |
+                        async with $CONTEXT as $SESSION:
+                            ...
+                            $ANSWER = <... await $OTHER(..., <... $SINK ...>, ...) ...>
+                            ...
+                        ...
+                        <... [$V for $V in $SINK if <... $ANSWER ...>] ...>
+                    - patterns:
+                        - pattern-either:
+                            # The keys were assigned before that read, in its block or one
+                            # enclosing it: the read and the condition anchor the match, and
+                            # the assignment only has to precede them.
+                            - patterns:
+                                - pattern-inside: |
+                                    $ANSWER = <... await $OTHER(..., <... $KEYS ...>, ...) ...>
+                                    ...
+                                    <... [$V for $V in $SINK if <... $ANSWER ...>] ...>
+                                - pattern-inside: |
+                                    $KEYS = $KEYED
+                                    ...
+                            - pattern-inside: |
+                                async with $CONTEXT as $SESSION:
+                                    ...
+                                    $KEYS = $KEYED
+                                    ...
+                                    $ANSWER = <... await $OTHER(..., <... $KEYS ...>, ...) ...>
+                                    ...
+                                ...
+                                <... [$V for $V in $SINK if <... $ANSWER ...>] ...>
+                        - metavariable-pattern:
+                            metavariable: $KEYED
+                            pattern: <... $SINK ...>
+                # Not a SQL session's read, nor a repository handle other than a graph's,
+                - metavariable-regex:
+                    metavariable: $OTHER
+                    regex: '(?s)^(?!.*\.(?:execute|scalars|stream|stream_scalars)$)(?:.*(?i:graph).*|(?!.*(?i:repo)).*)$'
+                # nor a function of a SQL repository module.
+                - metavariable-pattern:
+                    metavariable: $OTHER
+                    patterns:
+                      - pattern: $PART
+                      - pattern-not:
+                          patterns:
+                            - pattern-either:
+                                - pattern: src.repositories.$MODULE.$FUNCTION
+                                - pattern: src.repositories.$MODULE
+                            - metavariable-regex:
+                                metavariable: $MODULE
+                                regex: '^(?!(?:graph_\w+|\w+_graph)$)\w+$'
+          - focus-metavariable: $SINK
+      # Rows of either store ordered, cut or reduced to an extreme.
+      - requires: GRAPH or SQL
+        patterns:
+          - pattern-either:
+              - pattern: itertools.islice($SINK, ...)
+              # An order or extreme of the rows' projection: `$SINK` is the rows.
+              - pattern: sorted($E for $V in $SINK)
+              - pattern: sorted(($E for $V in $SINK), ...)
+              - pattern: sorted([$E for $V in $SINK], ...)
+              - pattern: sorted({$E for $V in $SINK}, ...)
+              - pattern: min($E for $V in $SINK)
+              - pattern: min(($E for $V in $SINK), ...)
+              - pattern: max($E for $V in $SINK)
+              - pattern: max(($E for $V in $SINK), ...)
+              - pattern: sorted($SINK, ...)
+              - pattern: $SINK.sort(...)
+              # One iterable: `min(a, b)` of two values orders no rows.
+              - pattern: min($SINK)
+              - pattern: min($SINK, key=$KEY)
+              - pattern: min($SINK, default=$DEFAULT)
+              - pattern: min($SINK, key=$KEY, default=$DEFAULT)
+              - pattern: max($SINK)
+              - pattern: max($SINK, key=$KEY)
+              - pattern: max($SINK, default=$DEFAULT)
+              - pattern: max($SINK, key=$KEY, default=$DEFAULT)
+              - pattern: heapq.nlargest($N, $SINK, ...)
+              - pattern: heapq.nsmallest($N, $SINK, ...)
+          # A sort that builds the parameter of the next read orders no result.
+          - pattern-not-inside: await $NEXT(..., <... $SINK ...>, ...)
+          - pattern-not-inside: await $NEXT(..., $KEY=<... $SINK ...>, ...)
+          - focus-metavariable: $SINK
+
+  - id: kit.store_work.caller-slices-repository-read
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/**"
+      exclude:
+        # The repository rules above judge the statements themselves.
+        - "**/src/db/**"   # project: the stores are the db package and the graph reader/writer
+        - "**/src/graph/core/reader.py"
+        - "**/src/graph/core/writer.py"
+    message: >-
+      A caller cuts the rows a repository read returned to a count. The limit
+      is a parameter of the statement the repository runs, applied after every
+      predicate it bounds.
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern-either:
+                  - pattern-inside: |
+                      $ROWS = <... await $STORE.$READ(...) ...>
+                      ...
+                  - pattern-inside: |
+                      $RESULT = await $STORE.$READ(...)
+                      ...
+                      $ROWS = <... $RESULT ...>
+                      ...
+              - metavariable-regex:
+                  metavariable: $READ
+                  regex: "^(execute|scalars|stream|stream_scalars|run|execute_read)$"
+          - patterns:
+              - pattern-either:
+                  - pattern-inside: |
+                      $ROWS = <... await $REPO.$READ(...) ...>
+                      ...
+                  - pattern-inside: |
+                      $RESULT = await $REPO.$READ(...)
+                      ...
+                      $ROWS = <... $RESULT ...>
+                      ...
+              - metavariable-regex:
+                  metavariable: $REPO
+                  # A `*Repository` class, or a handle named `repo`/`repository` as
+                  # a word (`self._repo`, `order_repo`, `graph_repository`).
+                  regex: "^(?:.*Repository.*|(?i:(?:.*[^a-z])?repo(?:sitory)?(?:[^a-z].*)?))$"
+              - metavariable-regex:
+                  metavariable: $READ
+                  regex: "^[a-z_]+$"
+      - pattern-either:
+          - pattern: $ROWS[$A:$B]
+          - pattern: $ROWS[$A:]
+          - pattern: $ROWS[:$B]
+          - pattern: sorted(<... $ROWS ...>, ...)[$A:$B]
+          - pattern: sorted(<... $ROWS ...>, ...)[$A:]
+          - pattern: sorted(<... $ROWS ...>, ...)[:$B]
+          - pattern: list(<... $ROWS ...>)[$A:$B]
+          - pattern: list(<... $ROWS ...>)[$A:]
+          - pattern: list(<... $ROWS ...>)[:$B]
+          - pattern: "[$E for $V in <... $ROWS ...>][$A:$B]"
+          - pattern: "[$E for $V in <... $ROWS ...>][$A:]"
+          - pattern: "[$E for $V in <... $ROWS ...>][:$B]"
+          - pattern: "[$E for $V in <... $ROWS ...> if $C][$A:$B]"
+          - pattern: "[$E for $V in <... $ROWS ...> if $C][$A:]"
+          - pattern: "[$E for $V in <... $ROWS ...> if $C][:$B]"
+
+  - id: kit.store_work.hand-rolled-vector-maths
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/**"
+      exclude:
+        # The one module allowed to compare vectors in Python (vectors no store holds).
+        # Point this glob at the adopter's module, or leave it matching nothing; pair it
+        # with an import-linter forbidden contract if other modules must not import it.
+        - "**/services/vector_similarity.py"
+    message: >-
+      Vector maths written by hand. Nearest neighbours and similarity scores
+      are the store's vector index or similarity function; the service
+      compares only vectors no store holds, through the one module the
+      project sets aside for it.
+    pattern-either:
+      - pattern: sum($A * $B for ... in zip(...))
+      - pattern: math.fsum($A * $B for ... in zip(...))
+      - pattern: sum($A ** 2 for ... in $V)
+      - pattern: math.fsum($A ** 2 for ... in $V)
+      - pattern: sum($A * $A for $A in $V)
+      - pattern: math.fsum($A * $A for $A in $V)
+      - pattern: sum(map(operator.mul, ...))
+      - pattern: math.fsum(map(operator.mul, ...))
+      - pattern: math.sumprod(...)
+      - pattern: math.hypot(*$V)
+      - pattern: math.dist(...)
+      - pattern: $A @ $B
+      - pattern: numpy.dot(...)
+      - pattern: numpy.inner(...)
+      - pattern: numpy.matmul(...)
+      - pattern: numpy.einsum(...)
+      - pattern: numpy.linalg.norm(...)
+
+  - id: kit.store_work.stdlib-text-similarity
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/**"
+    message: >-
+      Text similarity from `difflib`. An equality, prefix or full-text match is
+      the store's index or function; a fuzzy ratio no store provides belongs to
+      one dedicated library, applied only over candidates the store has
+      already narrowed.
+    pattern: difflib.$FUNCTION(...)

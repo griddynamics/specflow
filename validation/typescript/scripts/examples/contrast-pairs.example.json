@@ -1,0 +1,6 @@
+{
+  "pairs": [
+    ["--color-surface", "--color-text"],
+    ["--primary", "--on-primary"]
+  ]
+}

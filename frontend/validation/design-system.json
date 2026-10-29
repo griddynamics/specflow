@@ -1,0 +1,51 @@
+{
+  "primitivesDir": "**/components/ui",
+  "dataTableFile": "**/components/ui/DecisionList.tsx",
+  "skeletonsDir": "**/components/ui",
+  "breadcrumbFile": "**/components/ui/Breadcrumbs.tsx",
+  "routeHelperFiles": ["**/lib/routes.ts"],
+  "searchModule": "**/components/ui/SearchField.tsx",
+  "modalFiles": "**/components/ui/Modal.tsx",
+  "tabsFile": "**/components/ui/SegmentedControl.tsx",
+  "pageHeaderFile": "**/components/ui/TopBar.tsx",
+  "headerFiles": ["**/components/ui/TopBar.tsx"],
+  "dismissalHook": { "name": "useOutside", "file": "**/components/ui/use-outside.ts" },
+  "primitiveNames": [
+    "Button",
+    "TextField",
+    "Select",
+    "SearchField",
+    "SegmentedControl",
+    "Switch",
+    "Modal",
+    "Menu",
+    "Tooltip",
+    "Tag",
+    "EmptyState",
+    "Skeleton",
+    "Breadcrumbs",
+    "TopBar",
+    "Card",
+    "GlassSurface"
+  ],
+  "modalNames": ["Modal"],
+  "headerComponentNames": ["TopBar"],
+  "pillComponentNames": ["Tag", "SeverityBadge"],
+  "typeRoleFields": ["headline"],
+  "geometryModules": ["**/lib/theme.ts"],
+  "monoComponents": ["code", "pre", "kbd", "samp"],
+  "monoClasses": ["mono"],
+  "identifierFields": ["projectId", "documentId", "decisionId", "created_at", "updated_at"],
+  "components": {
+    "emptyState": "EmptyState",
+    "skeleton": "Skeleton",
+    "searchInput": "SearchField",
+    "filterToolbar": "SegmentedControl"
+  },
+  "hitTargetClass": "gdg-hit",
+  "tokens": {
+    "inputBorder": "--hairline",
+    "overlay": "--scrim",
+    "monoFont": "--font-sans"
+  }
+}

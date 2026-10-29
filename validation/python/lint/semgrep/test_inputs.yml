@@ -1,0 +1,40 @@
+# Test-input selection rules for HTTP API tests: a test owns the inputs it sends, so a row is
+# chosen by a value the test's premise states, never by its position in a response or by an
+# order of generated ids. Sleeping in a test is `tests.yml`'s `kit.tests.no-sleep-literal`.
+rules:
+  - id: kit.tests.selection-by-response-position
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/tests/**"
+    message: >-
+      A row is selected by its position in a response (`.json()[N]`). Select it by a value the
+      test's premise states -- a text its own arrangement wrote or a label it names.
+    pattern-either:
+      - patterns:
+          - pattern: "$R.json()[$N]"
+          - metavariable-regex:
+              metavariable: "$N"
+              regex: "^-?\\d+$"
+      - pattern: "next(iter($R.json()))"
+      - pattern: "next(iter($R.json()), ...)"
+
+  - id: kit.tests.selection-by-sorted-id
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/tests/**"
+    message: >-
+      Rows are ordered or picked by their generated `id`, which changes with every run. Order
+      or select them by a value the premise states.
+    pattern-either:
+      - pattern: "sorted($X, key=lambda $Y: $Y['id'], ...)"
+      - pattern: "sorted($X, key=lambda $Y: str($Y['id']), ...)"
+      - pattern: "$X.sort(key=lambda $Y: $Y['id'], ...)"
+      - pattern: "$X.sort(key=lambda $Y: str($Y['id']), ...)"
+      - pattern: "min($X, key=lambda $Y: $Y['id'])"
+      - pattern: "min($X, key=lambda $Y: str($Y['id']))"
+      - pattern: "max($X, key=lambda $Y: $Y['id'])"
+      - pattern: "max($X, key=lambda $Y: str($Y['id']))"

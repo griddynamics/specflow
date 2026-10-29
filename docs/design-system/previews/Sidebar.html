@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sidebar — GD Liquid Glass</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<style>html,body{margin:0;background:var(--ground)}</style>
+<script>(function(){var t=new URLSearchParams(location.search).get('theme');document.documentElement.setAttribute('data-theme',t==='dark'?'dark':'light');})();</script>
+<script src="../components/lib/react.production.min.js"></script>
+<script src="../components/lib/react-dom.production.min.js"></script>
+<script src="../components/lib/jsx-runtime-shim.js"></script>
+<script src="../components/lib/xyflow-react.umd.js"></script>
+<script src="../components/bundle.js"></script>
+</head>
+<body>
+<div class="gdg-root gdg-scene" style="height:600px;padding:16px;display:flex;gap:24px;align-items:stretch" id="root"></div>
+<script>
+  var G = window.GDGlass, h = React.createElement;
+  var items = [
+    { section: 'Workspace' },
+    { value: 'home', label: 'Home', icon: 'house' },
+    { value: 'arch', label: 'Architecture', icon: 'stack', badge: 3 },
+    { value: 'proc', label: 'Processes', icon: 'tree-structure' },
+    { value: 'proj', label: 'Engagements', icon: 'folder-simple' },
+    { section: 'Insights' },
+    { value: 'rep', label: 'Reports', icon: 'chart-bar' },
+    { value: 'team', label: 'Team', icon: 'users' },
+    { value: 'set', label: 'Settings', icon: 'gear-six' }];
+  var user = { name: 'Anna Kowalska', role: 'Delivery manager' };
+  function Content(t){ return h('div',{style:{flex:1, display:'grid', alignContent:'start', gap:16, paddingTop:16}},
+    h('p',{className:'eyebrow', style:{margin:0, color:'var(--ink-2)', textTransform:'uppercase'}}, t),
+    h('h2',{className:'title-1', style:{margin:0}}, 'Architecture'),
+    h(G.Card,{title:'Checkout platform', eyebrow:'Diagram', style:{maxWidth:280}}, 'Updated 4 minutes ago')); }
+  ReactDOM.createRoot(document.getElementById('root')).render(h(React.Fragment,null,
+    h(G.Sidebar,{items:items, defaultValue:'arch', user:user}),
+    Content('Expanded · icons and text'),
+    h(G.Sidebar,{items:items, defaultValue:'arch', user:user, defaultCollapsed:true}),
+    Content('Collapsed · icons only')));
+</script>
+</body>
+</html>

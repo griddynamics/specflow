@@ -1,0 +1,13 @@
+<!-- @dsCard group="Status" height=80 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Tag — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-wash" style="padding:24px;display:flex;gap:10px;flex-wrap:wrap" id="root"></div>
+<script>
+  var G = window.GDGlass, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h(React.Fragment,null,
+    h(G.Tag,null,'Retail'), h(G.Tag,{tone:'accent'},'GenAI'), h(G.Tag,{tone:'info'},'In review'), h(G.Tag,{tone:'success'},'On track'), h(G.Tag,{tone:'danger'},'At risk'), h(G.Tag,{tone:'warning'},'Needs attention'), h(G.Tag,{tone:'pending'},'Checking')));
+</script>
+</body>
+</html>

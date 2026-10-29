@@ -1,0 +1,6 @@
+{
+  "pairs": [
+    ["--color-surface", "--color-text"],
+    ["--color-surface", "--color-text-muted"]
+  ]
+}

@@ -1,0 +1,83 @@
+# sqlcheck.toml -- configuration of validation/sql for the backend.
+# Every relative path resolves against [paths].root, itself relative to this file (backend/).
+#
+# Layout of this project:
+#   src/db/models.py        SQLAlchemy models (module `db.models`), Base in `db.base`
+#   src/db/session.py       the one place that builds engines and session factories
+#   src/db/*.py             repositories and stores (no `repositories/` folder, no `.sql` files)
+#   migrations/versions/    the one Alembic revision, 0001_initial; alembic.ini sits in backend/
+#   sql-schema.json         the declared schema (bootstrapped with `sqlcheck build-schema`)
+# Statements are SQLAlchemy Core/ORM expressions; there are no `.sql` files, so the SQL file
+# steps (sqlfluff, sql-rules) find nothing to read.
+
+[run]
+# Static steps only (the kit's own environment). The dynamic steps need the backend's
+# environment and a Postgres server, so they stay out of the default run:
+#   cd backend && uv run --with-editable ../validation/sql sqlcheck run \
+#     --step schema-parity --step migrations
+steps = [
+  "sqlfluff",
+  "sql-rules",
+  "alembic-lint",
+  "orm-lint",
+  "inline-queries",
+  "semgrep",
+]
+
+[paths]
+root = "."
+sql = ["src", "migrations"]
+python = ["src"]
+schema = "sql-schema.json"
+alembic_versions = "migrations/versions"
+migration_sql_dirs = []
+
+[sqlfluff]
+config = ".sqlfluff"
+dialect = "postgresql"   # SQLAlchemy dialect name; the kit also hands it to sqlfluff (.sqlfluff keeps `postgres`)
+
+[orm_lint]
+models_package = "db.models"
+not_models = []
+models_dir = "src/db"
+module_root = "src"
+
+[orm_lint.scan_register]
+methods = []
+classes = []
+complete_lists = []
+
+[inline_queries]
+query_suffixes = [".sql"]
+migration_dirs = ["migrations"]
+orphan_roots = ["src", "migrations"]
+exclude = ["src/graph/*"]   # Cypher text, judged by the cypher track (its DDL reads like SQL)
+
+[inline_queries.loaders]
+# Loader function name = directory (relative to this file) its path argument is relative to.
+read_query = "src/db/queries"           # db.query_files.read_query
+read_migration_sql = "migrations/sql"   # defined in migration 0001_initial (it never imports src)
+
+[semgrep]
+# generated_dir omitted: the schema-bound rules are rendered into a temporary directory
+paths_include = ["**/src/**"]
+
+[schema_parity]
+metadata = "db.models:Base.metadata"   # db.models registers every table on the shared Base
+ignore_tables = ["alembic_version"]
+implicit_columns = []
+conditional_unique_dialects = ["postgresql"]
+
+[schema_parity.type_families]
+text = ["Text", "String"]
+uuid = ["Uuid", "sqlalchemy.dialects.postgresql:UUID"]
+int = ["Integer", "BigInteger"]
+real = ["Float", "Numeric"]
+bool = ["Boolean"]
+json = ["JSON", "sqlalchemy.dialects.postgresql:JSONB"]
+enum = ["Enum"]
+timestamp = ["DateTime"]
+date = ["Date"]
+
+# [migrations] and [sqlite_pragmas] are left out: the migration round trip needs a throwaway
+# Postgres server (Alembic env.py reads DATABASE_* settings) and the project has no SQLite.

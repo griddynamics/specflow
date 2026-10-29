@@ -1,0 +1,116 @@
+/* FE-PLAN-08 (GAPS.md "## P25", G-PLAN-3): the Develop tab. The design system has Card, Tag, Button, SegmentedControl and `.gdg-prose` code
+   blocks but no code block with a Copy bar, no workflow cards and no tool table. Additive, tokens only. */
+.dev {
+  display: grid;
+  gap: var(--space-md);
+  min-width: 0;
+  font-family: var(--font-sans);
+  color: var(--ink);
+}
+.dev-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+  margin: 0;
+}
+.dev-banner > span:last-child {
+  color: var(--ink-2);
+}
+.dev-steps,
+.dev-flows {
+  display: grid;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+.dev-flows {
+  grid-template-columns: repeat(auto-fit, minmax(calc(var(--space-2xl) * 3), 1fr));
+}
+.dev h2 {
+  margin: var(--space-sm) 0 0;
+}
+.dev ol {
+  margin: 0;
+  padding-left: var(--space-md);
+  display: grid;
+  gap: var(--space-2xs);
+}
+.dev code {
+  overflow-wrap: anywhere;
+}
+.dev-example {
+  margin: var(--space-xs) 0 0;
+  color: var(--ink-2);
+}
+
+/* G-PLAN-3: the Copy bar above a block; the block scrolls inside its card, the page does not. */
+.dev-block {
+  display: grid;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+.dev-block__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+.dev-block__caption {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  color: var(--ink-2);
+}
+.dev-block__status {
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.dev-code {
+  min-width: 0;
+  max-width: none;
+}
+.dev-code pre {
+  margin: 0;
+  max-height: calc(var(--space-2xl) * 4);
+  max-width: 100%;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+}
+.dev-code pre:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* The tool table: a real table, hairline rows; it scrolls sideways inside its wrapper on a phone. */
+.dev-tools {
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+}
+.dev-tools table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+.dev-tools th {
+  font-weight: 600;
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: 2px solid var(--ink);
+  white-space: nowrap;
+}
+.dev-tools td {
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: 1px solid var(--hairline);
+  vertical-align: top;
+}
+
+/* R25-04: the polite announcement of "Copied" (the button label already shows it). */
+.dev-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

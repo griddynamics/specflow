@@ -1,0 +1,8 @@
+{
+  "merge.confirm": "Merge into {{label}}",
+  "merge.unescaped": "Open {{- name}}",
+  "merge.formatted": "Total {{value, number}}",
+  "merge.items_one": "{{count}} item",
+  "merge.items_other": "{{count}} items",
+  "merge.plain": "Merge"
+}

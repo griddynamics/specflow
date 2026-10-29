@@ -1,0 +1,6 @@
+{
+  "endpoints": [
+    { "id": "orders.get", "method": "GET", "path": "/orders/{id}" },
+    { "id": "orders.read", "method": "GET", "path": "/orders/{order_id}" }
+  ]
+}

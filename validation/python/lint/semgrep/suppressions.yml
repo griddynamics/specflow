@@ -1,0 +1,46 @@
+rules:
+  # Comment-level suppressions. ruff `--ignore-noqa` and semgrep `--disable-nosem`
+  # stop these comments from *working*; this file is the second net that *reports*
+  # them, so a suppression comment is itself a finding rather than a silent no-op.
+  # `# nosemgrep` is a special case for verification: semgrep self-suppresses any
+  # finding whose line contains that literal text, in `semgrep --test` mode even
+  # under `--disable-nosem`. `semgrep --test` therefore cannot exercise this one
+  # branch; a real scan with `--disable-nosem` does report it, and
+  # `tests/test_semgrep_rules.py::test_nosemgrep_is_caught_by_a_real_scan` asserts it.
+  - id: kit.suppressions.python-comment-suppression
+    languages: [python]
+    severity: ERROR
+    message: >-
+      A Python suppression comment (`# noqa`, `# type: ignore`, `# nosec`,
+      `# nosemgrep`, `# pragma: no cover`, `# pylint:`, `# fmt: off`). A
+      finding is fixed, never hidden; the reviewed, documented exceptions
+      are config-level scopes carried in the checker configuration itself,
+      never a comment in the code it scans.
+    pattern-regex: '#\s*(noqa\b|type:\s*ignore|nosec\b|nosemgrep\b|pragma:\s*no cover|pylint:|fmt:\s*off)'
+
+  - id: kit.suppressions.pytest-skip-decorator
+    languages: [python]
+    severity: ERROR
+    message: >-
+      A test is marked `skip`, `skipif` or `xfail`. A skipped, focused or
+      expected-to-fail test hides a finding as surely as a suppression
+      comment does; fix the test or remove it, never mark it aside.
+    patterns:
+      - pattern-either:
+          - pattern: "@pytest.mark.$M(...)"
+          - pattern: "@pytest.mark.$M"
+      - metavariable-regex:
+          metavariable: $M
+          regex: "^(?:skip|skipif|xfail)$"
+
+  - id: kit.suppressions.pytest-skip-call
+    languages: [python]
+    severity: ERROR
+    message: >-
+      `pytest.skip(...)` or `pytest.xfail(...)` called at runtime. A
+      skipped or expected-to-fail test hides a finding as surely as a
+      suppression comment does; fix the test or remove it, never mark it
+      aside.
+    pattern-either:
+      - pattern: pytest.skip(...)
+      - pattern: pytest.xfail(...)

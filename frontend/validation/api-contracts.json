@@ -1,0 +1,110 @@
+{
+  "callees": {
+    "httpGet": "GET",
+    "httpPost": "POST",
+    "httpDelete": "DELETE",
+    "getJson": "GET"
+  },
+  "endpoints": [
+    {
+      "id": "drive_identity_api_v1_drive_identity_get",
+      "method": "GET",
+      "path": "/drive/identity"
+    },
+    {
+      "id": "me_api_v1_me_get",
+      "method": "GET",
+      "path": "/me"
+    },
+    {
+      "id": "list_projects_api_v1_projects_get",
+      "method": "GET",
+      "path": "/projects"
+    },
+    {
+      "id": "create_project_api_v1_projects_post",
+      "method": "POST",
+      "path": "/projects"
+    },
+    {
+      "id": "get_project_api_v1_projects__pid__get",
+      "method": "GET",
+      "path": "/projects/{pid}"
+    },
+    {
+      "id": "list_documents_api_v1_projects__pid__documents_get",
+      "method": "GET",
+      "path": "/projects/{pid}/documents"
+    },
+    {
+      "id": "upload_document_api_v1_projects__pid__documents_post",
+      "method": "POST",
+      "path": "/projects/{pid}/documents"
+    },
+    {
+      "id": "get_document_api_v1_projects__pid__documents__did__get",
+      "method": "GET",
+      "path": "/projects/{pid}/documents/{did}"
+    },
+    {
+      "id": "parse_document_api_v1_projects__pid__documents__did__parse_post",
+      "method": "POST",
+      "path": "/projects/{pid}/documents/{did}/parse"
+    },
+    {
+      "id": "summarize_document_api_v1_projects__pid__documents__did__summarize_post",
+      "method": "POST",
+      "path": "/projects/{pid}/documents/{did}/summarize"
+    },
+    {
+      "id": "graph_build_status_api_v1_projects__pid__graph_build_get",
+      "method": "GET",
+      "path": "/projects/{pid}/graph_build"
+    },
+    {
+      "id": "start_graph_build_api_v1_projects__pid__graph_build_post",
+      "method": "POST",
+      "path": "/projects/{pid}/graph_build"
+    },
+    {
+      "id": "sources_status_api_v1_projects__pid__sources_get",
+      "method": "GET",
+      "path": "/projects/{pid}/sources"
+    },
+    {
+      "id": "remove_source_api_v1_projects__pid__sources__sid__delete",
+      "method": "DELETE",
+      "path": "/projects/{pid}/sources/{sid}"
+    },
+    {
+      "id": "end_upload_batch_api_v1_projects__pid__sources__sid__end_post",
+      "method": "POST",
+      "path": "/projects/{pid}/sources/{sid}/end"
+    },
+    {
+      "id": "list_source_files_api_v1_projects__pid__sources__sid__files_get",
+      "method": "GET",
+      "path": "/projects/{pid}/sources/{sid}/files"
+    },
+    {
+      "id": "add_batch_file_api_v1_projects__pid__sources__sid__files_post",
+      "method": "POST",
+      "path": "/projects/{pid}/sources/{sid}/files"
+    },
+    {
+      "id": "save_drive_folder_api_v1_projects__pid__sources_gdrive_post",
+      "method": "POST",
+      "path": "/projects/{pid}/sources/gdrive"
+    },
+    {
+      "id": "test_drive_folder_api_v1_projects__pid__sources_gdrive_test_post",
+      "method": "POST",
+      "path": "/projects/{pid}/sources/gdrive/test"
+    },
+    {
+      "id": "start_upload_batch_api_v1_projects__pid__sources_uploads_post",
+      "method": "POST",
+      "path": "/projects/{pid}/sources/uploads"
+    }
+  ]
+}

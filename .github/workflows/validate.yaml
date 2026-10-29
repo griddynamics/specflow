@@ -1,0 +1,369 @@
+name: Validate repository
+
+# Every validation job runs in parallel and records its result with validation/ci/ci_report.py; the
+# gate job merges the reports into the run summary (tables, failing tests, file annotations)
+# and fails the run if any job failed. Called by workflows that must not proceed without it,
+# or dispatched alone.
+# No concurrency group: a called workflow's github.workflow is the caller's, so a group here
+# would deadlock against the caller's own run.
+on:
+  workflow_call:
+  workflow_dispatch:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  static-python:
+    name: Static (${{ matrix.track }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        track: [python-lint, python-scripts, python-arch, cypher, sql]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with: { enable-cache: true, python-version: "3.12" }
+      # mypy and archkit resolve the backend's own dependencies from backend/.venv.
+      - run: make setup
+      - run: make validate-install-python
+      # The pystatic `clones` step (jscpd over every backend .py file) runs the TypeScript kit's
+      # jscpd engine with node: Node.js 24 and that kit's pinned packages (its package-lock.json).
+      - if: matrix.track == 'python-scripts'
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: validation/typescript/scripts/package-lock.json
+      - if: matrix.track == 'python-scripts'
+        run: make validate-install-python-clones
+      # The live cypher steps (cyver, explain) start a throwaway Neo4j testcontainer on the runner's
+      # Docker daemon. Pull the image they will start (resolved exactly as the kit does: [live] image,
+      # CYPHER_CHECKS_NEO4J_IMAGE, the kit's pin) in its own step, so a slow or failing pull is
+      # reported here and not as a check timeout. When backend/cypher-checks.toml turns the live
+      # steps off, the step says so and the checks report cyver/explain as skipped with that reason.
+      - if: matrix.track == 'cypher'
+        name: Docker and the Neo4j image for the live cypher steps
+        timeout-minutes: 10
+        working-directory: validation/cypher
+        run: |
+          docker version --format 'docker server {{.Server.Version}}'
+          image=$(env -u VIRTUAL_ENV uv run python - <<'PY'
+          from pathlib import Path
+          from cypher_checks.container import neo4j_image
+          from cypher_checks.run_all import load_config
+          config = load_config(Path("../../backend/cypher-checks.toml"))
+          print(neo4j_image(config.image) if config.live else "")
+          PY
+          )
+          if [ -z "$image" ]; then
+            echo "::warning title=cypher live steps off::backend/cypher-checks.toml sets [live] enabled = false: cyver and explain will not run"
+          else
+            docker pull --quiet "$image"
+          fi
+      # make exits 2 when a recipe fails, so 1 and 2 both mean "the checks found something".
+      - if: matrix.track != 'python-arch'
+        run: >-
+          python3 validation/ci/ci_report.py run --job static-${{ matrix.track }} --unit backend
+          --step ${{ matrix.track }} --path-prefix backend --findings-codes 1 2 --
+          make validate-${{ matrix.track }}
+      # archkit is a pytest suite: its JUnit file gives the per-check counts, and --junit-substeps
+      # lists every archkit check (one test module each) with its result.
+      - if: matrix.track == 'python-arch'
+        run: >-
+          python3 validation/ci/ci_report.py run --job static-${{ matrix.track }} --unit backend
+          --step ${{ matrix.track }} --junit backend/archkit-junit.xml --junit-substeps --findings-codes 1 2 --
+          make validate-${{ matrix.track }}
+        env:
+          PYTEST_ADDOPTS: --junitxml=${{ github.workspace }}/backend/archkit-junit.xml -o junit_family=xunit1
+      # The report script's own tests, so a parser change cannot misreport the checks of any job.
+      - if: ${{ !cancelled() && matrix.track == 'python-lint' }}
+        run: >-
+          python3 validation/ci/ci_report.py run --job static-${{ matrix.track }} --unit validation
+          --step ci-report-selftest --junit ci-report-junit.xml --findings-codes 1 2 --
+          make validate-ci-selftest
+        env:
+          PYTEST_ADDOPTS: --junitxml=${{ github.workspace }}/ci-report-junit.xml -o junit_family=xunit1
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: validation-reports-static-${{ matrix.track }}-${{ github.run_attempt }}
+          path: .reports/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+  static-typescript:
+    name: Static (${{ matrix.track }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        track: [typescript-lint, typescript-scripts]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: "24", cache: npm, cache-dependency-path: frontend/package-lock.json }
+      - uses: astral-sh/setup-uv@v10.2.0
+        with: { enable-cache: true, python-version: "3.12" }
+      - run: make frontend-setup
+      # tsc needs Next's generated route types.
+      - run: npx next typegen
+        working-directory: frontend
+      - run: make validate-install-typescript
+      # bundle-size (frontend/validation.config.json) measures the build output in .next/static.
+      - if: matrix.track == 'typescript-scripts'
+        run: make frontend-build
+      - run: >-
+          python3 validation/ci/ci_report.py run --job static-${{ matrix.track }} --unit frontend
+          --step ${{ matrix.track }} --path-prefix frontend --findings-codes 1 2 --
+          make validate-${{ matrix.track }}
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: validation-reports-static-${{ matrix.track }}-${{ github.run_attempt }}
+          path: .reports/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+  unit-python:
+    name: Unit (python services)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with: { enable-cache: true, python-version: "3.12" }
+      - run: make setup
+      # pytest runs in backend/, so junit.xml lands there; xunit1 keeps file and line per case.
+      - run: >-
+          python3 validation/ci/ci_report.py run --job unit-python --unit backend --step pytest
+          --junit backend/junit.xml --findings-codes 1 2 -- make unit-test
+        env:
+          PYTEST_ADDOPTS: --junitxml=junit.xml -o junit_family=xunit1
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: validation-reports-unit-python-${{ github.run_attempt }}
+          path: .reports/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+  unit-typescript:
+    name: Unit (frontend)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: "24", cache: npm, cache-dependency-path: frontend/package-lock.json }
+      - run: make frontend-setup
+      # The server tests start the standalone build.
+      - run: make frontend-build
+      # The UI flow tests drive the installed Playwright chromium.
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      # node:test writes the spec output to stdout and JUnit XML to frontend/junit.xml. The
+      # reporter options must precede the test globs, so node is called directly (same globs
+      # as the `test` script in frontend/package.json).
+      - run: >-
+          python3 validation/ci/ci_report.py run --job unit-typescript --unit frontend --step node-test
+          --cwd frontend --junit junit.xml --findings-codes 1 2 --
+          node --test --test-reporter=spec --test-reporter-destination=stdout
+          --test-reporter=junit --test-reporter-destination=junit.xml
+          "tests/unit/**/*.test.mjs" "tests/ui/**/*.test.mjs"
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: validation-reports-unit-typescript-${{ github.run_attempt }}
+          path: .reports/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+  # The offline browser packs (frontend/e2e-production) run against the BUILT standalone app and a
+  # stub API, never the real backend: no model call. The app is built once here and shared with every shard as an
+  # artifact (tar keeps the standalone tree's file modes; .next/cache is the build cache, which no shard needs).
+  # The shards download the artifact by the name in this job's `artifact` output, not by their own run_attempt:
+  # "Re-run failed jobs" reruns a failed shard as a later attempt but keeps this job (and its outputs) from the
+  # attempt that built it, so the rerun shard still finds the build. It is kept 7 days so such a rerun still works.
+  # The live pack (frontend/e2e, `make e2e`) is deliberately NOT run in CI: it needs the whole stack (`make up`) and
+  # spends LLM budget on every run.
+  e2e-build:
+    name: E2E (build)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      artifact: ${{ steps.build-artifact.outputs.artifact }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: "24", cache: npm, cache-dependency-path: frontend/package-lock.json }
+      - run: make frontend-setup
+      - run: >-
+          python3 validation/ci/ci_report.py run --job e2e-build --unit frontend --step next-build
+          --findings-codes 1 2 -- make frontend-build
+      - run: tar -C frontend -cf next-build.tar --exclude=.next/cache .next
+      - id: build-artifact
+        run: echo "artifact=e2e-next-build-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.build-artifact.outputs.artifact }}
+          path: next-build.tar
+          if-no-files-found: error
+          retention-days: 7
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: validation-reports-e2e-build-${{ github.run_attempt }}
+          path: .reports/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+  # Each shard reports as job e2e-<pack>-shard<i> (ci_report.py orders the shards, adds one combined row per pack and
+  # names a shard that sent nothing). With CI set, frontend/playwright.reporter.ts writes the list, a JUnit file (the
+  # run summary) and a blob report (merged by e2e-report). The shard counts here must match the gate's --expect list.
+  # The blob artifact is named per shard without the attempt and overwritten by a rerun, so after "Re-run failed
+  # jobs" e2e-report merges the latest result of every shard (and no stale copy of the rerun one).
+  # The production specs share one stub API per server, so each shard runs one worker against its own server.
+  e2e-production:
+    name: E2E production (shard ${{ matrix.shard }}/2)
+    needs: e2e-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: "24", cache: npm, cache-dependency-path: frontend/package-lock.json }
+      - run: make frontend-setup
+      - uses: actions/download-artifact@v8
+        with: { name: "${{ needs.e2e-build.outputs.artifact }}" }
+      - run: tar -C frontend -xf next-build.tar
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: >-
+          python3 validation/ci/ci_report.py run --job e2e-production-shard${{ matrix.shard }} --unit frontend
+          --step e2e-production --junit frontend/logs/e2e-production/junit.xml --findings-codes 1 2 --
+          make e2e-production SHARD=${{ matrix.shard }}/2
+      - if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-blob-production-shard${{ matrix.shard }}
+          path: frontend/logs/e2e-production/blob-report/
+          if-no-files-found: warn
+          overwrite: true
+          retention-days: 14
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-traces-production-${{ github.run_attempt }}-shard${{ matrix.shard }}
+          path: frontend/logs/e2e-production/results/
+          if-no-files-found: ignore
+          retention-days: 14
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: validation-reports-e2e-production-shard${{ matrix.shard }}-${{ github.run_attempt }}
+          path: .reports/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+  # One HTML report artifact (e2e-html-report-<attempt>, a folder per pack) merged from the latest blob report of
+  # every shard.
+  e2e-report:
+    name: E2E (HTML report)
+    if: ${{ !cancelled() && needs.e2e-build.result == 'success' }}
+    needs: [e2e-build, e2e-production]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: "24", cache: npm, cache-dependency-path: frontend/package-lock.json }
+      - run: make frontend-setup
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: e2e-blob-production-shard*
+          path: blob-reports/production
+          merge-multiple: true
+      - name: Merge the blob reports of each pack into one HTML report
+        working-directory: frontend
+        env:
+          PLAYWRIGHT_HTML_OPEN: never
+        run: |
+          for pack in production; do
+            if compgen -G "../blob-reports/$pack/*.zip" > /dev/null; then
+              PLAYWRIGHT_HTML_OUTPUT_DIR="../e2e-html-report/$pack" npx playwright merge-reports --reporter html "../blob-reports/$pack"
+            else
+              echo "::warning title=e2e $pack report::no blob report to merge: no shard of e2e-$pack got as far as running Playwright"
+            fi
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: e2e-html-report-${{ github.run_attempt }}
+          path: e2e-html-report/
+          if-no-files-found: warn
+          retention-days: 14
+
+  validation-gate:
+    name: Validation gate
+    if: always()
+    needs: [static-python, static-typescript, unit-python, unit-typescript, e2e-build, e2e-production]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: validation-reports-*
+          path: .reports
+          merge-multiple: true
+      # A job that died before reporting (cancelled, timed out) is named as missing here. Every shard of the e2e
+      # matrix is listed (e2e-production: 2, as in its matrix.shard).
+      - name: Merge reports
+        id: merge
+        continue-on-error: true
+        run: >-
+          python3 validation/ci/ci_report.py merge --expect
+          static-python-lint static-python-scripts static-python-arch static-cypher static-sql
+          static-typescript-lint static-typescript-scripts unit-python unit-typescript
+          e2e-build
+          e2e-production-shard1 e2e-production-shard2
+      # Writes the tables to the run summary and file/line annotations to the pull request.
+      - name: Write summary and annotations
+        if: always()
+        run: python3 validation/ci/ci_report.py github-summary
+      - name: Enforce results
+        if: always()
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          MERGE_OUTCOME: ${{ steps.merge.outcome }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          needs = json.loads(os.environ["NEEDS_JSON"])
+          failed = {name: row["result"] for name, row in needs.items() if row["result"] != "success"}
+          if failed or os.environ["MERGE_OUTCOME"] != "success":
+              print(f"validation failed: jobs={failed} merge={os.environ['MERGE_OUTCOME']}")
+              sys.exit(1)
+          PY
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: validation-reports-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .reports/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14

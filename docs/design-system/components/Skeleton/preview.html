@@ -1,0 +1,19 @@
+<!-- @dsCard group="Status" height=180 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Skeleton — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-wash" style="padding:24px;min-height:180px;box-sizing:border-box;" id="root"></div>
+<script>
+var G = window.GDGlass, h = React.createElement;
+var PEOPLE = [
+  { id:'mk', name:'Sam Carter', role:'Product owner', email:'scarter@example.com' },
+  { id:'ak', name:'Alex Rivera', role:'Engineer', email:'arivera@example.com' },
+  { id:'nc', name:'Nina Walker', role:'Delivery manager', email:'nwalker@example.com' }];
+
+ReactDOM.createRoot(document.getElementById('root')).render(h(G.GlassSurface,{variant:'strong',style:{padding:24,maxWidth:520,display:'grid',gap:16}},
+  h('div',{style:{display:'flex',gap:12,alignItems:'center'}}, h(G.Skeleton,{variant:'circle',width:40,height:40}), h('div',{style:{flex:1}}, h(G.Skeleton,{lines:2}))),
+  h(G.Skeleton,{variant:'block',height:72}), h(G.Skeleton,{lines:3})));
+</script>
+</body>
+</html>

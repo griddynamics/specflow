@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sheet — GD Liquid Glass</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<style>html,body{margin:0;background:var(--ground)}</style>
+<script>(function(){var t=new URLSearchParams(location.search).get('theme');document.documentElement.setAttribute('data-theme',t==='dark'?'dark':'light');})();</script>
+<script src="../components/lib/react.production.min.js"></script>
+<script src="../components/lib/react-dom.production.min.js"></script>
+<script src="../components/lib/jsx-runtime-shim.js"></script>
+<script src="../components/lib/xyflow-react.umd.js"></script>
+<script src="../components/bundle.js"></script>
+</head>
+<body>
+<div class="gdg-root gdg-scene" style="height:340px" id="root"></div>
+<script>
+  var G = window.GDGlass, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    h(G.Sheet,{title:'Share the readout?', actions:h(React.Fragment,null,h(G.Button,{variant:'glass'},'Cancel'),h(G.Button,{variant:'primary'},'Share'))},
+      'The client team will see the executive summary and the delivery plan. Cost details stay internal.'));
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+{
+  "app.title": "Example App",
+  "common.greeting": "Hello, {{name}}!",
+  "orders.list.empty": "No order matches the current filters.",
+  "admin.user.code_placeholder": "e.g. USER01…",
+  "search.placeholder": "Search…",
+  "chat.placeholder.search_mode": "?"
+}

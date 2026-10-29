@@ -1,0 +1,96 @@
+# Error-handling rules for a FastAPI service whose error handlers live in one module,
+# `src/errors.py`, and whose application entry point is `src/main.py`.
+rules:
+  - id: kit.errors.http-exception-outside-handlers
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/**"
+      exclude:
+        - "**/src/api/errors.py"  # project: was **/src/errors.py
+    message: >-
+      `HTTPException` built outside the error handlers. Every application
+      error is a typed exception, mapped once at the edge onto the error
+      envelope; a route or service never builds an HTTP error response by
+      hand.
+    pattern: HTTPException(...)
+
+  - id: kit.errors.envelope-outside-handlers
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/**"
+      exclude:
+        - "**/src/api/errors.py"  # project: was **/src/errors.py
+    message: >-
+      A `JSONResponse` with an error status, or a hand-built `{"error":
+      ...}` body, outside the error handlers. Errors return `{ "error":
+      { "code", "message", "details"? } }` with the matching HTTP status,
+      assembled once at the edge, never at a call site.
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern: JSONResponse(..., status_code=$CODE, ...)
+              - metavariable-comparison:
+                  metavariable: $CODE
+                  comparison: $CODE >= 400
+          - pattern: '{"error": $BODY}'
+
+  - id: kit.errors.no-builtin-raise
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        # project: the typed-error/error-code policy covers the HTTP surface; the library
+        # packages (llm, graph, db, temporal, ...) raise ValueError/RuntimeError for misuse.
+        - "**/src/api/**"
+        - "**/src/auth/**"
+      exclude:
+        - "**/src/api/errors.py"  # project: was **/src/errors.py
+    message: >-
+      A builtin `ValueError`, `RuntimeError`, `Exception` or `KeyError`
+      raised in application code. Every raised error is a typed
+      application exception that maps to a documented error code.
+    patterns:
+      - pattern-either:
+          - pattern: raise ValueError(...)
+          - pattern: raise RuntimeError(...)
+          - pattern: raise Exception(...)
+          - pattern: raise KeyError(...)
+
+  - id: kit.errors.lifespan-swallowed-failure
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/api/app.py"  # project: was **/src/main.py (the lifespan lives in the app factory)
+    message: >-
+      A lifespan startup step swallows a failure instead of aborting
+      startup. Each step is idempotent and a failing step aborts startup;
+      catching its exception and continuing hides a broken deployment.
+    patterns:
+      - pattern: |
+          async def lifespan($APP):
+              ...
+              try:
+                  ...
+              except $EXC:
+                  ...
+      - pattern-not: |
+          async def lifespan($APP):
+              ...
+              try:
+                  ...
+              except $EXC:
+                  ...
+                  raise
+      - pattern-not: |
+          async def lifespan($APP):
+              ...
+              try:
+                  ...
+              except $EXC:
+                  ...
+                  raise ...

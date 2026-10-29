@@ -1,0 +1,27 @@
+/* FE-DS-03, FE-DOD-05.AC2 (GAPS.md P04): style details bundle.css lacks. Tokens only; every rule is additive and has a higher
+   specificity than the bundle rule it complements, so import order does not matter. */
+
+/* Breadcrumbs: the design-system file has no focus rule for the step buttons (they get the browser's blue ring). */
+.gdg-crumbs button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* SearchField: the clear button has no focus rule in bundle.css (browser default ring). */
+.gdg-search__clear:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Menu items: bundle.css highlights the focused item (`glass-tint`) and sets `outline: none`; the ring is added on top, inset
+   so the list's overflow does not clip it. Select options are Menu items too. */
+.gdg-menu__list .gdg-menu__item:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+/* Modal `closeDisabled` (a save or a removal runs): the close control is aria-disabled, drawn like the other off buttons. */
+.gdg-modal .gdg-modal__close[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

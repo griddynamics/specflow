@@ -1,0 +1,15 @@
+{
+  "callees": {
+    "httpGet": "GET",
+    "httpPost": "POST",
+    "httpPut": "PUT",
+    "httpPatch": "PATCH",
+    "httpDelete": "DELETE"
+  },
+  "endpoints": [
+    { "id": "orders.list", "method": "GET", "path": "/orders?status=&page=" },
+    { "id": "orders.create", "method": "POST", "path": "/orders" },
+    { "id": "orders.get", "method": "GET", "path": "/orders/{id}" },
+    { "id": "orders.cancel", "method": "POST", "path": "/orders/{id}/cancel" }
+  ]
+}

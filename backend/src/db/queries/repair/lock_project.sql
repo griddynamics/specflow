@@ -1,0 +1,4 @@
+SELECT 1
+FROM projects
+WHERE id = :pid
+FOR NO KEY UPDATE

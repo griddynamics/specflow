@@ -1,0 +1,20 @@
+<!-- @dsCard group="Navigation" height=360 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>TopBar — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-scene" style="padding:12px 24px;min-height:360px;box-sizing:border-box;" id="root"></div>
+<script>
+var G = window.GDGlass, h = React.createElement;
+var PEOPLE = [
+  { id:'mk', name:'Sam Carter', role:'Product owner', email:'scarter@example.com' },
+  { id:'ak', name:'Alex Rivera', role:'Engineer', email:'arivera@example.com' },
+  { id:'nc', name:'Nina Walker', role:'Delivery manager', email:'nwalker@example.com' }];
+
+ReactDOM.createRoot(document.getElementById('root')).render(h(G.TopBar,{
+  projects:[{id:'atlas',name:'Atlas',meta:'Processed · 42 files'},{id:'new',name:'New project',meta:'Empty'}], projectId:'atlas', defaultProjectMenuOpen:true,
+  user:{name:'Sam Carter', email:'scarter@example.com'}},
+  h('h1',{className:'title-1', style:{margin:0}}, 'Mission Control')));
+</script>
+</body>
+</html>

@@ -1,0 +1,164 @@
+{
+  "reserved_folder_ids": {
+    "fake-synthetic-30": "recording",
+    "fake-synthetic-23": "recording",
+    "fake-empty-folder": "empty",
+    "fake-forms-only": "forms_only",
+    "fake-reason-no_access": "reason:no_access",
+    "fake-reason-not_a_folder": "reason:not_a_folder",
+    "fake-reason-drive_unavailable": "reason:drive_unavailable",
+    "fake-reason-setup_error": "reason:setup_error",
+    "fake-reason-too_slow": "reason:too_slow",
+    "fake-reason-unknown_error": "reason:unknown_error",
+    "fake-import-fails": "import_fails"
+  },
+  "link_vectors": [
+    {
+      "link": "https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOpQrStUvWxYz012345?usp=sharing",
+      "id": "1AbCdEfGhIjKlMnOpQrStUvWxYz012345"
+    },
+    {
+      "link": "https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOpQrStUvWxYz012345?usp=share_link",
+      "id": "1AbCdEfGhIjKlMnOpQrStUvWxYz012345"
+    },
+    {
+      "link": "https://drive.google.com/drive/u/1/folders/1AbCdEfGhIjKlMnOpQrStUvWxYz012345/",
+      "id": "1AbCdEfGhIjKlMnOpQrStUvWxYz012345"
+    },
+    {
+      "link": "https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOpQrStUvWxYz012345",
+      "id": "1AbCdEfGhIjKlMnOpQrStUvWxYz012345"
+    },
+    {
+      "link": "https://drive.google.com/open?id=1AbCdEfGhIjKlMnOpQrStUvWxYz012345",
+      "id": "1AbCdEfGhIjKlMnOpQrStUvWxYz012345"
+    },
+    {
+      "link": "  abcdefghij",
+      "id": "abcdefghij"
+    },
+    {
+      "link": "abcdefghij",
+      "id": "abcdefghij"
+    },
+    {
+      "link": "1AbCdEfGhIjKlMnOpQrStUvWxYz012345",
+      "id": "1AbCdEfGhIjKlMnOpQrStUvWxYz012345"
+    },
+    {
+      "link": "abcdefghi",
+      "id": null
+    },
+    {
+      "link": "",
+      "id": null
+    },
+    {
+      "link": "https://evil.example/drive/folders/1AbCdEfGhIjKlMnOp",
+      "id": null
+    },
+    {
+      "link": "https://docs.google.com/document/d/1abcdefghijk/edit",
+      "id": null
+    },
+    {
+      "link": "drive.google.com/abc",
+      "id": null
+    },
+    {
+      "link": "http://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOpQrStUvWxYz012345",
+      "id": null
+    },
+    {
+      "link": "https://DRIVE.google.com/drive/folders/1AbCdEfGhIjKlMnOpQrStUvWxYz012345",
+      "id": null
+    },
+    {
+      "link": "https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOpQrStUvWxYz012345#top",
+      "id": null
+    },
+    {
+      "link": "https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOpQrStUvWxYz012345/extra",
+      "id": null
+    },
+    {
+      "link": "https://drive.google.com/drive/u/x/folders/1AbCdEfGhIjKlMnOpQrStUvWxYz012345",
+      "id": null
+    },
+    {
+      "link": "https://drive.google.com/open?id=short",
+      "id": null
+    },
+    {
+      "link": "https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz012345/view",
+      "id": null
+    }
+  ],
+  "categories": [
+    {
+      "category": "google_docs",
+      "label": "Google Docs",
+      "processing_class": "processed"
+    },
+    {
+      "category": "google_slides",
+      "label": "Google Slides",
+      "processing_class": "processed"
+    },
+    {
+      "category": "google_sheets",
+      "label": "Google Sheets",
+      "processing_class": "processed"
+    },
+    {
+      "category": "pdf",
+      "label": "PDF",
+      "processing_class": "processed"
+    },
+    {
+      "category": "word",
+      "label": "Word documents",
+      "processing_class": "stored_only"
+    },
+    {
+      "category": "powerpoint",
+      "label": "PowerPoint files",
+      "processing_class": "stored_only"
+    },
+    {
+      "category": "excel",
+      "label": "Excel files",
+      "processing_class": "stored_only"
+    },
+    {
+      "category": "images",
+      "label": "Images",
+      "processing_class": "stored_only"
+    },
+    {
+      "category": "videos",
+      "label": "Videos",
+      "processing_class": "stored_only"
+    },
+    {
+      "category": "other_files",
+      "label": "Other files",
+      "processing_class": "stored_only"
+    },
+    {
+      "category": "other_google",
+      "label": "Other Google files",
+      "processing_class": "skipped"
+    },
+    {
+      "category": "shortcuts",
+      "label": "Shortcuts",
+      "processing_class": "skipped"
+    }
+  ],
+  "class_order": [
+    "processed",
+    "stored_only",
+    "skipped"
+  ]
+}

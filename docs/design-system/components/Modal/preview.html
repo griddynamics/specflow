@@ -1,0 +1,21 @@
+<!-- @dsCard group="Overlays" height=560 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Modal — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-scene" style="padding:0;min-height:560px;box-sizing:border-box;height:560px;position:relative" id="root"></div>
+<script>
+var G = window.GDGlass, h = React.createElement;
+var PEOPLE = [
+  { id:'mk', name:'Sam Carter', role:'Product owner', email:'scarter@example.com' },
+  { id:'ak', name:'Alex Rivera', role:'Engineer', email:'arivera@example.com' },
+  { id:'nc', name:'Nina Walker', role:'Delivery manager', email:'nwalker@example.com' }];
+
+function App(){ return h(G.Modal,{ contained:true, noAutoFocus:true, eyebrow:'Decision · Security', title:'External user permissions', description:'Two questions block the access-control spec.', onClose:function(){},
+  footer:h(React.Fragment,null,h(G.Button,{variant:'glass'},'Cancel'),h(G.Button,{variant:'primary'},'Submit answers')) },
+  h('div',{className:'gdg-context'},'Guests from client organisations need read access to specs, but the spec does not say whether they can comment or see cost estimates.'),
+  h(G.QuestionBlock,{number:'Q1', question:'What can external users do?', options:[{value:'r',label:'Read only'},{value:'c',label:'Read and comment'},{value:'e',label:'Read, comment and edit'}], allowOther:true, defaultValue:'c'})); }
+ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+</script>
+</body>
+</html>

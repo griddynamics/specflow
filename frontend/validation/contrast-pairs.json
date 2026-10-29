@@ -1,0 +1,11 @@
+{
+  "pairs": [
+    ["--ground", "--ink"],
+    ["--ground", "--ink-2"],
+    ["--ground", "--ink-3"],
+    ["--ground-alt", "--ink"],
+    ["--ground-alt", "--ink-2"],
+    ["--yellow", "--on-yellow"],
+    ["--severity-critical", "--on-severity-critical"]
+  ]
+}

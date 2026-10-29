@@ -1,233 +1,78 @@
 <div align="center">
-<img src="docs/logo/specflow-logo.png" alt="SpecFlow logo" width="200"/>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="public/specflow-logo-dark.png"/>
+  <img src="public/specflow-logo.png" alt="SpecFlow logo" width="200"/>
+</picture>
 
-### Agentic Harness for Large-Scale Code Generation
+### One Shared Knowledge Base for Agentic Delivery
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![PyPI version](https://img.shields.io/pypi/v/gd-specflow?label=gd-specflow)](https://pypi.org/project/gd-specflow/)
-[![Python 3.13](https://img.shields.io/badge/python-3.13-blue.svg)](https://www.python.org/downloads/)
-[![Publish to PyPI](https://github.com/griddynamics/specflow/actions/workflows/publish-mcp.yml/badge.svg)](https://github.com/griddynamics/specflow/actions/workflows/publish-mcp.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
+[![Next.js 16](https://img.shields.io/badge/Next.js-16-black.svg)](https://nextjs.org/)
+[![Quick start](https://img.shields.io/badge/quick%20start-5%20min-brightgreen.svg)](QUICKSTART.md)
 
 </div>
 
 ---
-AI agent harness for automated code generation and complexity estimation.
-Multiple deployable codebases built by multiple SOTA AI models.
-When their code complexity scores align, it proves the specs are complete.
+Agents solved coding. Planning became the critical path.
+SpecFlow turns your scattered specs into one shared knowledge graph.
+People and coding agents build from the same, complete context.
 
-SpecFlow is an AI agent harness that automates code generation, deployment, and testing through parallel AI agents in isolated, sandboxed execution environments.
+<!-- TODO: product GIF (add a source -> build -> explore the graph) -->
 
-Validator agents continuously assess, resume, and refine work until delivery standards are met.
+## The problem
 
+With AI coding agents, implementation takes a fraction of the time it used to.
+Planning did not get faster. **Even with AI, writing a solid spec still takes weeks**,
+and agents build exactly what an unclear spec says.
 
-<img src="docs/images/specflow-iconography.png" alt="SpecFlow iconography" style="max-width: 100vw; width: 100%; display: block; margin: 0 auto;" />
+<p align="center">
+  <img src="public/specflow-problem.png" width="860"
+       alt="AI SDLC: agents solved coding, planning became the critical path. Before agents: plan, a long implementation, review. With agents: implementation is short and planning is the longest part. Problem: even with AI, writing a solid spec takes weeks.">
+</p>
 
+A real spec is dozens of documents, decks and Drive folders, written by different
+people at different times. Requirements repeat and contradict each other, and key
+decisions are missing. Teams find out while they build, which is the most expensive
+moment.
 
-[https://github.com/user-attachments/assets/0783c394-1bf0-449f-a36e-1d46e899661c](https://github.com/user-attachments/assets/0783c394-1bf0-449f-a36e-1d46e899661c)
+## How SpecFlow helps
 
+<p align="center">
+  <img src="public/specflow-how-it-works.png" width="860"
+       alt="SpecFlow: one shared knowledge base for the team. Sources (codebase, documents, presentations) feed four steps: parse sources, generate the knowledge graph, raise decisions for owners, generate the implementation plan. The delivery team adds docs, answers decisions and triggers the plan. Plan steps go to the Rosetta harness, which drives coding agents that read the graph and work in your repos. Goal: deterministic context for higher quality.">
+</p>
 
-<!-- GETTING STARTED -->
-## Getting Started
+The graph stays current: when a document changes, the next build updates only what
+that change affects. Its vocabulary comes from an ontology file, so you can fit it to
+your domain without code changes.
 
+## What changes for your team
 
+<p align="center">
+  <img src="public/specflow-for-developers.png" width="860"
+       alt="What changes for your team: three developers with Claude Code, Cursor and Codex claim and update features in the SpecFlow knowledge graph through MCP. Keep your tools; no collisions, because the graph hands out features that don't share code paths; same daily flow: claim, code, open a PR, and the status updates itself. Impact: unlock team productivity.">
+</p>
 
-### Software
+## Try it
 
-
-| Requirement | Notes                                                                                                        |
-| ----------- | ------------------------------------------------------------------------------------------------------------ |
-| Docker      | Container runtime for the harness sandbox. [Install Docker](https://docs.docker.com/get-started/get-docker/) |
-| `uv`        | Python package manager. Install via `brew install uv` or [see docs](https://github.com/astral-sh/uv)         |
-| IDE         | SpecFlow is used as MCP in a IDE with agentic AI enabled: Cursor, Claude Code, Copilot, Gemini etc. This is the users project.         |
-
-
-
-
-### Keys and Tokens
-
-
-| Key                          | Name in `.env`                              | Notes                                                                                                                                            |
-| ---------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| GitHub Personal Access Token | `GITHUB_TOKEN`                              | For disposable workspace repos. Scope: `repo` + `read:user` + `workflow` `repo,read:user`. Advan                           |
-| P10Y API key                 | `P10Y_API_KEY`                              | Code complexity scoring. [Setup guide](docs/quickstart-compass.md)                                                                               |
-| LLM provider key             | `OPENROUTER_API_KEY` or `ANTHROPIC_API_KEY` | One key required. [Get OpenRouter key](https://openrouter.ai/keys) (default) or [Get Anthropic key](https://console.anthropic.com/settings/keys) |
-
-
-
-
-### Installation
-
-Few simple steps to get you going:
-
-- clone repo
-  ```sh
-  git clone https://github.com/griddynamics/specflow.git && cd specflow
-  ```
-- install Specflow (includes the Terminal UI that guides you through onboarding)
-  ```sh
-  uv tool install --editable ./mcp_server
-  ```
-- start Specflow app and follow instructions
-  ```
-  specflow tui
-  ```
-
-
-> [!Important]
-> Specflow Harness Sandbox is now running locally.
-> **Easiest:** in `specflow tui`, press **`c`** (*Add MCP to AI tool*) — the setup screen detects
-> Claude Code, Gemini CLI, and Cursor and wires SpecFlow up for you (one key), with an honest
-> connected/added/failed status per client.
-> Prefer to do it by hand? Copy-paste the content of `.specflow-local/mcp-config.json` into your client.
-
-
-<table>
-  <tr>
-    <td align="center"><img src="https://cdn.simpleicons.org/cursor/000000" width="40" height="40" alt="Cursor"/><br><b>Cursor</b></td>
-    <td align="center"><img src="https://cdn.simpleicons.org/claude/D4A27F" width="40" height="40" alt="Claude Code"/><br><b>Claude Code</b></td>
-    <td align="center"><img src="https://cdn.simpleicons.org/claude/D4A27F" width="40" height="40" alt="Claude Desktop"/><br><b>Claude Desktop</b></td>
-    <td align="center"><img src="https://cdn.simpleicons.org/githubcopilot/000000" width="40" height="40" alt="GitHub Copilot"/><br><b>Copilot</b></td>
-    <td align="center"><img src="https://cdn.simpleicons.org/googlegemini/8E75B2" width="40" height="40" alt="Gemini CLI"/><br><b>Gemini CLI</b></td>
-  </tr>
-</table>
-
-...and any other IDE or client that supports the [Model Context Protocol](https://modelcontextprotocol.io).
-
-
-<!-- USAGE -->
-## Usage
-
-MCP is now ready to use in any project. Prompt your IDE agent to talk to the harness.
-
-Let's say specification files are in `specs` directory, you can follow these steps:
-
-1. Start a new project in IDE and put your specs files into `specs` directory
-   ```text
-   specs/
-   |-- product-requirements.md
-   |-- user-flows.pdf
-   \-- acceptance-criteria.md
-   ```
-2. Check your specification completeness using `check_specification_completeness`  tool
-
-   ```text
-   Use SpecFlow MCP to check specification completeness in specs directory
-   ```
-
-3. Create a detailed plan using our `run_planning` tool
-
-   ```text
-   Create implementation plan using SpecFlow MCP
-   ```
-
-4. When you are happy with the plan, run generation using `run_generation` as above
-   ```text
-   Run generation with SpecFlow MCP
-   ```
-
-5. Generation usually takes many hours, use our TUI to monitor progress and receive Desktop Notifications:
-
-   ```sh
-   # Any terminal
-   specflow tui
-   ```
-
-<img src="docs/images/tui-screen.png" alt="SpecFlow iconography" style="max-width: 100vw; width: 100%; display: block; margin: 0 auto;" />
-
-
-6. When the generation has been completed, you can retrieve the results and P10Y reports from harness:
-   ```text
-   Download outputs using Specflow MCP
-   ```
-   **The rule of thumb is: if the P10Y score spread is low, then your specification is ready!**
-
-7. Use the built-in prompt to compare the variants and identify their strong and weak sides, together with a plan to automatically assemble the best variant.
-   ```text
-   use SpecFlow MCP prompt: specflow-compare-variants
-   ```
-
-
-### MCP Tools
-
-
-| Tool                               | Description                                                 |
-| ---------------------------------- | ----------------------------------------------------------- |
-| `check_specification_completeness` | Analyze specs for gaps and contradictions (local)           |
-| `run_planning`                     | Generate a phased implementation plan (local)               |
-| `read_document`                    | Extract PDF/DOCX/PPTX/XLSX/CSV to markdown (local)          |
-| `run_generation`                   | Upload and launch parallel codegen on the backend (2-8 hrs) |
-| `check_status`                     | Poll generation progress                                    |
-| `download_outputs`                 | Download archived artifacts from a completed run            |
-| `retry_generation`                 | Retry a failed generation                                   |
-
-
-
-<!-- IF YOU WANT TO GO DEEPER -->
-## If you want to go deeper
-### Install only SpecFlow skills
-
-We have portable set of skills that is normally used as preparation phase for Human-In-The-Loop AI assisted specification checks and planning.
-
-Example for Claude Code:
-```bash
-/plugin marketplace add griddynamics/specflow
-/plugin install specflow
+```shell
+make env-local          # writes local secrets; then add your LLM gateway settings to .env.local
+make up WITH=temporal   # starts the whole stack in Docker
 ```
 
+Open http://127.0.0.1:3001. Prerequisites, the architecture and the development
+commands are in [**QUICKSTART.md**](QUICKSTART.md).
 
-### SpecFlow Detailed Overview
+## Learn more
 
-[https://github.com/user-attachments/assets/ea1dd95d-5742-4c51-bf2c-c2cb582669c3](https://github.com/user-attachments/assets/ea1dd95d-5742-4c51-bf2c-c2cb582669c3)
+- [QUICKSTART.md](QUICKSTART.md): run it, how it fits together, develop
+- [docs/configuration.md](docs/configuration.md): every setting
+- [docs/graph/](docs/graph/INDEX.md): how the knowledge graph is built
+- [Rosetta](https://github.com/griddynamics/rosetta): the harness that turns plan steps into reviewed code
 
+## Contributing
 
-Full MCP config and usage: **[MCP_USER.md](MCP_USER.md)**
-
-
-Full MCP API reference: **[docs/mcp/API_REFERENCE.md](docs/mcp/API_REFERENCE.md)**
-
-
-Detailed SpecFlow harness instructions: [QUICKSTART.md](QUICKSTART.md)
-
-
-> [!Important]
-> AI agents work in **scratchpad repos** that are reset before each run — we create them for you. 
-> **Do not point SpecFlow at repositories with code or history you want to keep.
-> ** The managed SpecFlow service is for Grid Dynamics employees only. Open-source users should run the local quickstart.
-
-
-
-### Documentation
-
-
-| Document                                                                 | Description                                 |
-| ------------------------------------------------------------------------ | ------------------------------------------- |
-| [QUICKSTART.md](QUICKSTART.md)                                           | Local setup and first run                   |
-| [CONTRIBUTING.md](docs/CONTRIBUTING.md)                                  | How to contribute — workflow and PR checklist |
-| [CLAUDE.md](CLAUDE.md)                                                   | Development protocol and STEEL commandments |
-| [TOKEN_ECONOMY_GUIDANCE.md](TOKEN_ECONOMY_GUIDANCE.md)                   | Token economics and model choice — budgeting AI spend predictably |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)                             | System design and data flow                 |
-| [docs/mcp/API_REFERENCE.md](docs/mcp/API_REFERENCE.md)                   | MCP tool reference                          |
-| [docs/backend/DEVELOPMENT.md](docs/backend/DEVELOPMENT.md)               | Backend development guide                   |
-| [docs/backend/API_REFERENCE.md](docs/backend/API_REFERENCE.md)           | REST API reference                          |
-| [docs/operations/TROUBLESHOOTING.md](docs/operations/TROUBLESHOOTING.md) | Troubleshooting guide                       |
-| [docs/IDE-SETUP.md](docs/IDE-SETUP.md)                                   | IDE configuration (Cursor + Claude Code)    |
-| [docs/examples/deployment-spec-example.md](docs/examples/deployment-spec-example.md) | Example spec for agentic deployment + E2E tests |
-| [SECURITY.md](SECURITY.md)                                               | Security policy and vulnerability reporting |
-
-
-
-<!-- CONTACT -->
-## Contact
-
-Questions, feedback, or anything that doesn't fit a GitHub issue: [specflow@griddynamics.com](mailto:specflow@griddynamics.com)
-
-Found a security vulnerability? Please report it privately per [SECURITY.md](SECURITY.md) rather than opening a public issue.
-
-
-<!-- LICENSE -->
-## License
-
-[MIT](LICENSE) — Copyright (c) 2024 Grid Dynamics International, Inc.
-
-
-<p align="right">(<a href="#readme-top">back to top</a>)</p>
+Contributions are welcome. See [CONTRIBUTING.md](.github/CONTRIBUTING.md) and our
+[Code of Conduct](.github/CODE_OF_CONDUCT.md). To report a vulnerability, follow
+[SECURITY.md](.github/SECURITY.md).

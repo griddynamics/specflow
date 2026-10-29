@@ -1,0 +1,560 @@
+# Hand-written model answers for a `first` build of shop snapshot 1 (tech-specs 9.1-9.2).
+#
+# Nothing here was recorded from a model (owner decision P3): every entity, fact, attribute and
+# verdict is written by hand as a careful extractor would answer. `graph_support.ShopAnswers` reads
+# this file and answers each request by what it is about, never by its text:
+#
+# - node extraction by the fragments of the call's window, edges by the fragments of the unit,
+#   attributes by node name, the hub catalog by the titles of its batch, hub consolidation by the
+#   names in its block, requirement dedup by the name pair;
+# - fragments are named by handles (breadcrumb, start of the first body line, occurrence);
+# - edges and attributes name nodes as the requests show them: after Resolve, so an explicit-id node
+#   appears without its leading id ("System can show every basket line ..." for FR-CHK-001) and the
+#   consolidated "Audit trail" as "Audit logging";
+# - entity episodes and fact episodes are handles; the loader turns them into episode indices.
+#
+# Deliberate cases (asserted by tests/test_graph_build_live.py):
+# - the "~2" fragment id collision: the two "### Notes" sections of checkout.md (chk.notes, chk.notes2);
+# - explicit ids FR-CHK-001..006, FR_CHK_006 written with underscores, FR-CHK-005 extracted as a
+#   QualityRequirement (its FR id family wins the label);
+# - a cross-document link: the admin.md date-range requirement PART_OF "Order history export",
+#   the feature orders.md defines (FR-BLD-21);
+# - a reversed edge in two places (Orders database REALIZED_BY Audit logging; Checkout service
+#   PART_OF a quality requirement), an illegal edge (Authentication RELATES_TO Audit logging);
+# - a requirement dedup pair across documents, judged the same commitment (dedup_adjudicate);
+# - a hub alias pair, "Audit trail" and "Audit logging", merged by hub consolidation;
+# - one node window (orders.md, second "Export details" fragment) answering malformed output, so
+#   that fragment is skipped and the build ends `partially_succeeded` (FR-BLD-11);
+# - an implied RELATES_TO from "see FR-CHK-002" in a quote, an implied PART_OF from a `module`
+#   attribute;
+# - notes.md, with the prompt-injection line, yields no entity (so its unit makes no edge call);
+# - declared nearness (`related`) puts the hubs admin.md and "Export details" link by meaning into
+#   their edge catalogs.
+
+snapshot: 1
+
+# Small fragments so that several windows and units exist and the two "### Notes" sections stay
+# separate fragments (window budget: unit_tokens / max_node_windows = 500 tokens).
+options:
+  fragment_tokens: {min: 30, target: 120, max: 1200}
+  unit_tokens: 4000
+  max_node_windows: 8
+
+fragments:
+  # admin.md: one unit, windows [adm.intro, adm.finance] and [adm.retention .. adm.questions]
+  adm.intro: ["Admin console Requirements", "Requirements collected from the back-office team"]
+  adm.finance: ["Admin console Requirements > Order data for finance", "The finance team needs a way"]
+  adm.retention: ["Admin console Requirements > Retention", "- Orders older than the retention period"]
+  adm.access: ["Admin console Requirements > Access", "- Staff must sign in"]
+  adm.scope: ["Admin console Requirements > Out of scope", "- Editing orders from the admin screens"]
+  adm.screens: ["Admin console Requirements > Screens and layout", "- The download screen must be reachable"]
+  adm.questions: ["Admin console Requirements > Questions for the next workshop", "- Do auditors need"]
+  # checkout.md: one unit, windows [chk.intro .. chk.confirm] and [chk.quality .. chk.notes2]
+  chk.intro: ["Checkout service Requirements", "This document specifies the Checkout service"]
+  chk.basket: ["Checkout service Requirements > Features", "Basket review is the feature"]
+  chk.payment: ["Checkout service Requirements > Features > Payment flow", "Payment flow is the feature"]
+  chk.confirm: ["Checkout service Requirements > Features > Order confirmation", "Order confirmation is the feature"]
+  chk.quality: ["Checkout service Requirements > Quality requirements", "The Checkout service must respond"]
+  chk.rules: ["Checkout service Requirements > Business rules", "Orders with a total over $1,000"]
+  chk.stripe: ["Checkout service Requirements > Integrations", "The Checkout service must integrate with Stripe"]
+  chk.retries: ["Checkout service Requirements > Payment flow details", "When Stripe does not answer in time"]
+  chk.notes: ["Checkout service Requirements > Payment flow details > Notes", "Design notes for this part", 1]
+  chk.notes2: ["Checkout service Requirements > Payment flow details > Notes", "Design notes for this part", 2]
+  # notes.md: one unit, one window
+  nts.intro: ["Weekly sync notes", "Informal notes from the weekly sync"]
+  nts.agenda: ["Weekly sync notes > Attendees and agenda", "Attendees were the usual group"]
+  nts.discussion: ["Weekly sync notes > Discussion", "The team agreed that the staging environment"]
+  nts.followups: ["Weekly sync notes > Follow-ups", "- Check why staging was slow."]
+  nts.parking: ["Weekly sync notes > Parking lot", "Ideas that came up"]
+  # orders.md: two units; the first has five windows, the second (the rest of "Export details") three
+  ord.intro: ["Orders service Requirements", "This document specifies the Orders service"]
+  ord.export: ["Orders service Requirements > Order history export", "Order history export is the feature"]
+  ord.obligations: ["Orders service Requirements > Order history export > Obligations", "- Staff want to filter"]
+  ord.po: ["Orders service Requirements > Order history export > Purchase order data", "A purchase order is created"]
+  ord.erp: ["Orders service Requirements > Order history export > ERP delivery", "The Orders service must send each"]
+  ord.details1: ["Orders service Requirements > Export details", "The export is built in three stages"]
+  ord.details2: ["Orders service Requirements > Export details", "Large exports run as background jobs"]
+  ord.details3: ["Orders service Requirements > Export details", "Testing of the export concentrates"]
+  ord.details4: ["Orders service Requirements > Export details", "Concurrency is limited on purpose"]
+  ord.details5: ["Orders service Requirements > Export details", "Documentation for staff is kept short"]
+  # overview.md: one unit, windows [ov.intro .. ov.stripe] and [ov.auth .. ov.glossary]
+  ov.intro: ["Acme Shop - System Overview", "Acme Shop is a made-up online store"]
+  ov.scope: ["Acme Shop - System Overview > Scope", "The system lets customers browse"]
+  ov.checkout: ["Acme Shop - System Overview > Modules", "The Checkout service is the module"]
+  ov.orders: ["Acme Shop - System Overview > Modules > Orders service", "The Orders service stores confirmed orders"]
+  ov.db: ["Acme Shop - System Overview > Modules > Orders database", "The Orders database is the relational store"]
+  ov.erp: ["Acme Shop - System Overview > Modules > ERP (external)", "The ERP is the company's external"]
+  ov.stripe: ["Acme Shop - System Overview > Modules > Stripe (external)", "Stripe is an external payment provider"]
+  ov.auth: ["Acme Shop - System Overview > Cross-cutting capabilities", "Authentication is the capability"]
+  ov.audit: ["Acme Shop - System Overview > Cross-cutting capabilities > Audit logging", "Audit logging is the capability"]
+  ov.arch: ["Acme Shop - System Overview > Architecture", "The modules interact as follows."]
+  ov.glossary: ["Acme Shop - System Overview > Glossary", "- Basket: the list of products"]
+
+# One batch: every outline fits the small model. Basket review is not in any outline (its heading is
+# folded into the "Features" fragment), so the catalog does not list it.
+hub_catalog:
+  - documents:
+      - Acme Shop - System Overview
+      - Admin console Requirements
+      - Checkout service Requirements
+      - Orders service Requirements
+      - Weekly sync notes
+    hubs:
+      - [Checkout service, Module]
+      - [Orders service, Module]
+      - [Orders database, Module]
+      - [ERP, Module]
+      - [Stripe, Module]
+      - [Authentication, Capability]
+      - [Audit logging, Capability]
+      - [Payment flow, Feature]
+      - [Order confirmation, Feature]
+      - [Order history export, Feature]
+
+nodes:
+  - window: [ov.intro, ov.scope, ov.checkout, ov.orders, ov.db, ov.erp, ov.stripe]
+    entities:
+      - [Checkout service, Module, [ov.checkout]]
+      - [Orders service, Module, [ov.orders]]
+      - [Orders database, Module, [ov.db]]
+      - [ERP, Module, [ov.erp]]
+      - [Stripe, Module, [ov.stripe]]
+      - [System cannot store full card numbers, FunctionalRequirement, [ov.stripe]]
+  - window: [ov.auth, ov.audit, ov.arch, ov.glossary]
+    entities:
+      - [Authentication, Capability, [ov.auth]]
+      - [Audit logging, Capability, [ov.audit]]
+      - [Audit records stay append-only, QualityRequirement, [ov.audit]]
+      - [Orders service, Module, [ov.arch]]
+      - [Calls between internal modules use HTTPS, QualityRequirement, [ov.arch]]
+
+  - window: [chk.intro, chk.basket, chk.payment, chk.confirm]
+    entities:
+      - [Checkout service, Module, [chk.intro]]
+      - [Basket review, Feature, [chk.basket]]
+      - [Payment flow, Feature, [chk.payment]]
+      - [Order confirmation, Feature, [chk.confirm]]
+      - ["FR-CHK-001: System can show every basket line with quantity and unit price", FunctionalRequirement, [chk.basket]]
+      - ["FR-CHK-002: System can recalculate basket total when a quantity changes", FunctionalRequirement, [chk.basket]]
+      - ["FR-CHK-003: System can create a Stripe payment authorisation before confirming an order", FunctionalRequirement, [chk.payment]]
+      - ["FR-CHK-004: System can show an error and keep the basket when a payment is declined", FunctionalRequirement, [chk.payment]]
+      # extracted with the wrong type on purpose: the FR id family decides the label
+      - ["FR-CHK-005: System can send the confirmed order to Orders service within 5 seconds", QualityRequirement, [chk.confirm]]
+      - ["FR_CHK_006: System can display an order number on the confirmation page", FunctionalRequirement, [chk.confirm]]
+  - window: [chk.quality, chk.rules, chk.stripe, chk.retries, chk.notes, chk.notes2]
+    entities:
+      - [Pay now responds within 800 ms at p95 under 200 concurrent checkouts, QualityRequirement, [chk.quality]]
+      - ["Order over $1,000: needs manager approval", BusinessRule, [chk.rules]]
+      - [System can record the manager approval as an audit event, FunctionalRequirement, [chk.rules]]
+      - [System can tell the customer that the order awaits approval, FunctionalRequirement, [chk.rules]]
+      - [Checkout service calls Stripe to authorise and capture card payments, IntegrationRequirement, [chk.stripe]]
+      - [Stripe, Module, [chk.stripe]]
+      - [System can retry a Stripe authorisation up to two times, FunctionalRequirement, [chk.retries]]
+
+  - window: [nts.intro, nts.agenda, nts.discussion, nts.followups, nts.parking]
+    entities: []
+
+  - window: [ord.intro, ord.export]
+    entities:
+      - [Orders service, Module, [ord.intro]]
+      - [Orders database, Module, [ord.intro]]
+      - [Order history export, Feature, [ord.export]]
+      - [ERP, Module, [ord.export]]
+  - window: [ord.obligations]
+    entities:
+      - [Staff can filter the export by date range and order status, FunctionalRequirement]
+      - [Staff can download the order history as a CSV file, FunctionalRequirement]
+      - [Order export completes within one minute for up to 50000 orders, QualityRequirement]
+      - [Finance clerk can see the purchase order number of every exported order, FunctionalRequirement]
+      - [System can log every export in the audit trail, FunctionalRequirement]
+      - [Audit trail, Capability]
+      - [System can produce exports over one month in the background, FunctionalRequirement]
+      - [System can repeat the recalculated order totals in the export, FunctionalRequirement]
+  - window: [ord.po, ord.erp]
+    entities:
+      - ["Purchase order holds po_number, order_id, total_amount, currency, created_at, approved_by", DataRequirement, [ord.po]]
+      - [Orders service sends each purchase order to ERP, IntegrationRequirement, [ord.erp]]
+      - [ERP, Module, [ord.erp]]
+  - window: [ord.details1]
+    entities:
+      - [System can reject a date range that starts after it ends, FunctionalRequirement]
+  - window: [ord.details2]
+    error: malformed
+  - window: [ord.details3]
+    entities: []
+  - window: [ord.details4]
+    entities:
+      - ["Staff member: at most two running export jobs", BusinessRule]
+  - window: [ord.details5]
+    entities:
+      - [System can refuse an export job when temporary storage is short, FunctionalRequirement]
+
+  - window: [adm.intro, adm.finance]
+    entities:
+      - [Staff can download past orders as a CSV file, FunctionalRequirement, [adm.finance]]
+      - [Staff with the finance role can request the order file, FunctionalRequirement, [adm.finance]]
+      - [System can default the date range to the last full month, FunctionalRequirement, [adm.finance]]
+      - [System can record every order file download, FunctionalRequirement, [adm.finance]]
+  - window: [adm.retention, adm.access, adm.scope, adm.screens, adm.questions]
+    entities:
+      - [System can leave cancelled orders out of the order file, FunctionalRequirement, [adm.retention]]
+      - [Staff cannot open an admin screen before signing in, FunctionalRequirement, [adm.access]]
+      - [System can revoke download access when staff lose the finance role, FunctionalRequirement, [adm.access]]
+      - [Staff can reach the download screen from the finance section, FunctionalRequirement, [adm.screens]]
+
+# All hubs after exact merges are one block (far below 400 items).
+consolidation:
+  - block:
+      - Audit logging
+      - Audit trail
+      - Authentication
+      - Basket review
+      - Checkout service
+      - ERP
+      - Order confirmation
+      - Order history export
+      - Orders database
+      - Orders service
+      - Payment flow
+      - Stripe
+    groups:
+      - {label: Capability, names: [Audit logging, Audit trail]}
+
+edges:
+  - unit: [ov.intro, ov.scope, ov.checkout, ov.orders, ov.db, ov.erp, ov.stripe, ov.auth, ov.audit, ov.arch, ov.glossary]
+    facts:
+      - [Checkout service, INTEGRATES_WITH, Orders service, "- The Checkout service calls the Orders service to create an order once a payment succeeded.", [ov.arch]]
+      - [Checkout service, INTEGRATES_WITH, Stripe, "- The Checkout service calls Stripe to authorise and capture payments.", [ov.arch]]
+      - [Orders service, INTEGRATES_WITH, Orders database, "- The Orders service reads and writes the Orders database.", [ov.arch]]
+      - [Orders service, INTEGRATES_WITH, ERP, "- The Orders service sends purchase orders to the ERP.", [ov.arch]]
+      - [Authentication, REALIZED_BY, Checkout service, "Authentication is realised by the Checkout service and the Orders service, which both validate session tokens on every protected request.", [ov.auth]]
+      - [Authentication, REALIZED_BY, Orders service, "Authentication is realised by the Checkout service and the Orders service, which both validate session tokens on every protected request.", [ov.auth]]
+      - [Audit logging, REALIZED_BY, Checkout service, "It is realised by the Checkout service (payment and approval events), the Orders service (status changes and exports) and the Orders database (change history of purchase orders).", [ov.audit]]
+      - [Audit logging, REALIZED_BY, Orders service, "It is realised by the Checkout service (payment and approval events), the Orders service (status changes and exports) and the Orders database (change history of purchase orders).", [ov.audit]]
+      # reversed: a module is not REALIZED_BY a capability; Conform flips it
+      - [Orders database, REALIZED_BY, Audit logging, "It is realised by the Checkout service (payment and approval events), the Orders service (status changes and exports) and the Orders database (change history of purchase orders).", [ov.audit]]
+      # illegal: RELATES_TO never joins two capabilities; Conform drops and counts it
+      - [Authentication, RELATES_TO, Audit logging, "Every module writes its audit events through the shared Audit logging capability.", [ov.arch]]
+      - [Audit records stay append-only, GROUPED_BY, Audit logging, "Audit records are append-only.", [ov.audit]]
+
+  - unit: [chk.intro, chk.basket, chk.payment, chk.confirm, chk.quality, chk.rules, chk.stripe, chk.retries, chk.notes, chk.notes2]
+    facts:
+      - [Basket review, PART_OF, Checkout service, "Basket review is the feature in which the customer checks items, quantities and the total before paying.", [chk.basket]]
+      - [Payment flow, PART_OF, Checkout service, "Payment flow is the feature in which the customer pays for the basket by card and receives a confirmation.", [chk.payment]]
+      - [Order confirmation, PART_OF, Checkout service, "Order confirmation is the feature that closes the checkout.", [chk.confirm]]
+      - [System can show every basket line with quantity and unit price, PART_OF, Basket review, "- FR-CHK-001: The Checkout service must show every basket line with its quantity and unit price.", [chk.basket]]
+      - [System can recalculate basket total when a quantity changes, PART_OF, Basket review, "- FR-CHK-002: The Checkout service must recalculate the basket total whenever a quantity changes.", [chk.basket]]
+      - [System can create a Stripe payment authorisation before confirming an order, PART_OF, Payment flow, "- FR-CHK-003: The Checkout service must create a payment authorisation with Stripe before it confirms an order.", [chk.payment]]
+      - [System can show an error and keep the basket when a payment is declined, PART_OF, Payment flow, "- FR-CHK-004: The Checkout service must show a clear error message and keep the basket when a payment is declined.", [chk.payment]]
+      - [System can send the confirmed order to Orders service within 5 seconds, PART_OF, Order confirmation, "- FR-CHK-005: The Checkout service must send the confirmed order to the Orders service within 5 seconds of a successful payment.", [chk.confirm]]
+      - [System can send the confirmed order to Orders service within 5 seconds, RELATES_TO, Orders service, "- FR-CHK-005: The Checkout service must send the confirmed order to the Orders service within 5 seconds of a successful payment.", [chk.confirm]]
+      - [System can display an order number on the confirmation page, PART_OF, Order confirmation, "- FR_CHK_006: The Checkout service must display an order number on the confirmation page.", [chk.confirm]]
+      # reversed: a module is not PART_OF a requirement; Conform flips it (FR-BLD-09)
+      - [Checkout service, PART_OF, Pay now responds within 800 ms at p95 under 200 concurrent checkouts, "The Checkout service must respond to the \"Pay now\" action with a p95 latency of at most 800 ms under a load of 200 concurrent checkouts, measured at the service boundary and excluding the time spent inside Stripe.", [chk.quality]]
+      - ["Order over $1,000: needs manager approval", PART_OF, Checkout service, "Orders with a total over $1,000 need manager approval before they are confirmed.", [chk.rules]]
+      - [System can record the manager approval as an audit event, PART_OF, Checkout service, "The approval is recorded as an audit event and the customer is told that the order is awaiting approval.", [chk.rules]]
+      - [System can tell the customer that the order awaits approval, PART_OF, Order confirmation, "The approval is recorded as an audit event and the customer is told that the order is awaiting approval.", [chk.rules]]
+      - [Checkout service calls Stripe to authorise and capture card payments, PART_OF, Checkout service, "The Checkout service must integrate with Stripe over its HTTPS API to authorise and capture card payments, and it must accept Stripe's asynchronous payment callbacks.", [chk.stripe]]
+      - [Checkout service calls Stripe to authorise and capture card payments, RELATES_TO, Stripe, "The Checkout service must integrate with Stripe over its HTTPS API to authorise and capture card payments, and it must accept Stripe's asynchronous payment callbacks.", [chk.stripe]]
+      - [System can retry a Stripe authorisation up to two times, PART_OF, Payment flow, "When Stripe does not answer in time, the Checkout service retries the authorisation up to two times with the same idempotency key.", [chk.retries]]
+
+  # notes.md has no node, so its unit's catalog is empty and the build makes no edge call for it; the
+  # entry keeps the file covering every planned unit
+  - unit: [nts.intro, nts.agenda, nts.discussion, nts.followups, nts.parking]
+    facts: []
+
+  - unit: [ord.intro, ord.export, ord.obligations, ord.po, ord.erp, ord.details1, ord.details2]
+    facts:
+      - [Order history export, PART_OF, Orders service, "Order history export is the feature that lets staff download the orders of a period as a file and lets the finance department receive the matching purchase orders in the ERP.", [ord.export]]
+      - [Staff can filter the export by date range and order status, PART_OF, Order history export, "- Staff want to filter the export by a date range and by order status.", [ord.obligations]]
+      - [Staff can download the order history as a CSV file, PART_OF, Order history export, "- Staff users must be able to download the order history as a CSV file.", [ord.obligations]]
+      - [Order export completes within one minute for up to 50000 orders, PART_OF, Order history export, "- The export should finish within one minute for up to 50,000 orders.", [ord.obligations]]
+      - [Finance clerk can see the purchase order number of every exported order, PART_OF, Order history export, "- As a finance clerk, I want every exported order to carry its purchase order number.", [ord.obligations]]
+      - [System can log every export in the audit trail, PART_OF, Order history export, "- The Orders service must log every export in the audit trail.", [ord.obligations]]
+      - [System can log every export in the audit trail, GROUPED_BY, Audit logging, "- The Orders service must log every export in the audit trail.", [ord.obligations]]
+      - [System can produce exports over one month in the background, PART_OF, Order history export, "- Exports of more than one month should be produced in the background and offered for download later.", [ord.obligations]]
+      - [System can repeat the recalculated order totals in the export, PART_OF, Order history export, "- The order number format is defined by the Checkout service, see FR-CHK-002 for the recalculated totals that the export repeats.", [ord.obligations]]
+      - ["Purchase order holds po_number, order_id, total_amount, currency, created_at, approved_by", PART_OF, Orders service, "A purchase order is created for every confirmed order and has the following fields.", [ord.po]]
+      - [Orders service sends each purchase order to ERP, PART_OF, Orders service, "The Orders service must send each purchase order to the ERP as soon as it is created, and it must retry a failed delivery until the ERP acknowledges it.", [ord.erp]]
+      - [Orders service sends each purchase order to ERP, RELATES_TO, ERP, "The Orders service must send each purchase order to the ERP as soon as it is created, and it must retry a failed delivery until the ERP acknowledges it.", [ord.erp]]
+      - [System can reject a date range that starts after it ends, PART_OF, Order history export, "A range that starts after it ends is rejected before any work is done, and so is a range that reaches further than the retention period of the database.", [ord.details1]]
+
+  - unit: [ord.details3, ord.details4, ord.details5]
+    facts:
+      - ["Staff member: at most two running export jobs", PART_OF, Order history export, "Each staff member may have at most two export jobs running at the same time, and the whole service runs at most five background workers for exports.", [ord.details4]]
+      - [System can refuse an export job when temporary storage is short, PART_OF, Order history export, "The temporary storage is sized for the three largest files at the same time, and the job refuses to start when less space than that is free, with a message that asks the staff member to try again later instead of failing halfway.", [ord.details5]]
+
+  - unit: [adm.intro, adm.finance, adm.retention, adm.access, adm.scope, adm.screens, adm.questions]
+    facts:
+      # cross-document: admin.md never names the feature; orders.md defines it (FR-BLD-21)
+      - [System can default the date range to the last full month, PART_OF, Order history export, "- The screen must let staff pick a date range, and the range must default to the last full month.", [adm.finance]]
+      - [Staff can download past orders as a CSV file, PART_OF, Order history export, "- Staff users must be able to download the list of past orders as a CSV file.", [adm.finance]]
+      - [System can record every order file download, GROUPED_BY, Audit logging, "- Every download must be recorded so that it can be reviewed later.", [adm.finance]]
+      - [Staff cannot open an admin screen before signing in, GROUPED_BY, Authentication, "- Staff must sign in before they can open any admin screen.", [adm.access]]
+
+attributes:
+  # Modules
+  Checkout service:
+    quote: The Checkout service is the module that turns a basket into a paid order.
+    stmt: The Checkout service turns a basket into a paid order.
+    external: "no"
+    type: backend
+  Orders service:
+    quote: The Orders service stores confirmed orders, keeps their status up to date and answers questions about order history.
+    stmt: The Orders service stores confirmed orders and answers questions about order history.
+    external: "no"
+    type: backend
+  Orders database:
+    quote: The Orders database is the relational store that belongs to the Orders service.
+    stmt: The Orders database is the relational store of the Orders service.
+    external: "no"
+    type: datastore
+  ERP:
+    quote: The ERP is the company's external enterprise resource planning system.
+    stmt: The ERP is an external enterprise resource planning system that receives purchase orders.
+    external: "yes"
+    type: other
+  Stripe:
+    quote: Stripe is an external payment provider.
+    stmt: Stripe is an external payment provider that authorises and captures card payments.
+    external: "yes"
+    type: other
+  # Capabilities
+  Authentication:
+    quote: Authentication is the capability that proves who a caller is before any protected operation is allowed.
+    stmt: Authentication proves who a caller is before any protected operation.
+  Audit logging:
+    quote: Audit logging is the capability that records who did what and when, so that sensitive operations can be reviewed later.
+    stmt: Audit logging records who did what and when.
+  # Features
+  Basket review:
+    quote: Basket review is the feature in which the customer checks items, quantities and the total before paying.
+    stmt: Customers check items, quantities and the total before paying.
+    module: Checkout service
+  Payment flow:
+    quote: Payment flow is the feature in which the customer pays for the basket by card and receives a confirmation.
+    stmt: Customers pay for the basket by card and receive a confirmation.
+    module: Checkout service
+  Order confirmation:
+    quote: Order confirmation is the feature that closes the checkout.
+    stmt: Order confirmation closes the checkout with a confirmation page and e-mail.
+    module: Checkout service
+  Order history export:
+    quote: Order history export is the feature that lets staff download the orders of a period as a file
+    stmt: Staff download the orders of a period as a file.
+    module: Orders service
+  # overview.md requirements
+  System cannot store full card numbers:
+    quote: Acme Shop never stores full card numbers.
+    stmt: The shop never stores full card numbers.
+    source_status: stated
+    is_assumption: "no"
+  Audit records stay append-only:
+    quote: Audit records are append-only.
+    stmt: Audit records are append-only.
+    source_status: stated
+    is_assumption: "no"
+  Calls between internal modules use HTTPS:
+    quote: All calls between internal modules use HTTPS and carry the session or service token
+    stmt: Calls between internal modules use HTTPS and carry a session or service token.
+    source_status: stated
+    is_assumption: "no"
+  # checkout.md requirements
+  System can show every basket line with quantity and unit price:
+    quote: "FR-CHK-001: The Checkout service must show every basket line with its quantity and unit price."
+    stmt: The Checkout service shows every basket line with its quantity and unit price.
+    source_status: stated
+    is_assumption: "no"
+    acceptance_criteria: Each basket line shows its quantity and unit price.
+  System can recalculate basket total when a quantity changes:
+    quote: "FR-CHK-002: The Checkout service must recalculate the basket total whenever a quantity changes."
+    stmt: The Checkout service recalculates the basket total whenever a quantity changes.
+    source_status: stated
+    is_assumption: "no"
+  System can create a Stripe payment authorisation before confirming an order:
+    quote: "FR-CHK-003: The Checkout service must create a payment authorisation with Stripe before it confirms an order."
+    stmt: The Checkout service creates a Stripe payment authorisation before it confirms an order.
+    source_status: stated
+    is_assumption: "no"
+  System can show an error and keep the basket when a payment is declined:
+    quote: "FR-CHK-004: The Checkout service must show a clear error message and keep the basket when a payment is declined."
+    stmt: A declined payment shows a clear error and keeps the basket.
+    source_status: stated
+    is_assumption: "no"
+  System can send the confirmed order to Orders service within 5 seconds:
+    quote: "FR-CHK-005: The Checkout service must send the confirmed order to the Orders service within 5 seconds of a successful payment."
+    stmt: The confirmed order reaches the Orders service within 5 seconds of a successful payment.
+    source_status: stated
+    is_assumption: "no"
+  System can display an order number on the confirmation page:
+    quote: "FR_CHK_006: The Checkout service must display an order number on the confirmation page."
+    stmt: The confirmation page displays an order number.
+    source_status: stated
+    is_assumption: "no"
+  Pay now responds within 800 ms at p95 under 200 concurrent checkouts:
+    quote: The Checkout service must respond to the "Pay now" action with a p95 latency of at most 800 ms
+    stmt: The Pay now action answers within 800 ms at p95 under 200 concurrent checkouts.
+    source_status: stated
+    is_assumption: "no"
+    module: Checkout service
+  "Order over $1,000: needs manager approval":
+    quote: Orders with a total over $1,000 need manager approval before they are confirmed.
+    stmt: An order over $1,000 needs manager approval before it is confirmed.
+    source_status: stated
+    is_assumption: "no"
+  System can record the manager approval as an audit event:
+    quote: The approval is recorded as an audit event
+    stmt: The manager approval is recorded as an audit event.
+    source_status: stated
+    is_assumption: "no"
+  System can tell the customer that the order awaits approval:
+    quote: the customer is told that the order is awaiting approval.
+    stmt: The customer is told that the order is awaiting approval.
+    source_status: stated
+    is_assumption: "no"
+  Checkout service calls Stripe to authorise and capture card payments:
+    quote: The Checkout service must integrate with Stripe over its HTTPS API to authorise and capture
+    stmt: The Checkout service calls Stripe's HTTPS API to authorise and capture card payments.
+    source_status: stated
+    is_assumption: "no"
+  System can retry a Stripe authorisation up to two times:
+    quote: When Stripe does not answer in time, the Checkout service retries the authorisation up to two
+    stmt: An unanswered Stripe authorisation is retried up to two times with the same idempotency key.
+    source_status: stated
+    is_assumption: "no"
+  # orders.md requirements
+  Staff can filter the export by date range and order status:
+    quote: Staff want to filter the export by a date range and by order status.
+    stmt: Staff filter the export by date range and order status.
+    source_status: stated
+    is_assumption: "no"
+  Staff can download the order history as a CSV file:
+    quote: Staff users must be able to download the order history as a CSV file.
+    stmt: Staff download the order history as a CSV file.
+    source_status: stated
+    is_assumption: "no"
+  Order export completes within one minute for up to 50000 orders:
+    quote: The export should finish within one minute for up to 50,000 orders.
+    stmt: An export of up to 50,000 orders finishes within one minute.
+    source_status: stated
+    is_assumption: "no"
+  Finance clerk can see the purchase order number of every exported order:
+    quote: As a finance clerk, I want every exported order to carry its purchase order number.
+    stmt: Every exported order carries its purchase order number.
+    source_status: stated
+    is_assumption: "no"
+  System can log every export in the audit trail:
+    quote: The Orders service must log every export in the audit trail.
+    stmt: Every export is logged in the audit trail.
+    source_status: stated
+    is_assumption: "no"
+  System can produce exports over one month in the background:
+    quote: Exports of more than one month should be produced in the background and offered for download later.
+    stmt: Exports of more than one month run in the background and are offered for download later.
+    source_status: stated
+    is_assumption: "no"
+  System can repeat the recalculated order totals in the export:
+    quote: The order number format is defined by the Checkout service, see FR-CHK-002 for the recalculated totals that the export repeats.
+    stmt: The export repeats the recalculated totals of FR-CHK-002.
+    source_status: stated
+    is_assumption: "no"
+  Purchase order holds po_number, order_id, total_amount, currency, created_at, approved_by:
+    quote: A purchase order is created for every confirmed order and has the following fields.
+    stmt: A purchase order holds po_number, order_id, total_amount, currency, created_at and approved_by.
+    source_status: stated
+    is_assumption: "no"
+    module: Orders service
+  Orders service sends each purchase order to ERP:
+    quote: The Orders service must send each purchase order to the ERP as soon as it is created, and it
+    stmt: The Orders service sends each purchase order to the ERP and retries until it is acknowledged.
+    source_status: stated
+    is_assumption: "no"
+    module: Orders service
+  System can reject a date range that starts after it ends:
+    quote: A range that starts after it ends is rejected before any work
+    stmt: A date range that starts after it ends is rejected before any work is done.
+    source_status: stated
+    is_assumption: "no"
+    module: Orders service
+  "Staff member: at most two running export jobs":
+    quote: Each staff member may have at most two export jobs running at
+    stmt: A staff member has at most two export jobs running at the same time.
+    source_status: stated
+    is_assumption: "no"
+  System can refuse an export job when temporary storage is short:
+    quote: the job refuses to start when less space than
+    stmt: An export job refuses to start when the temporary storage lacks space.
+    source_status: stated
+    is_assumption: "no"
+  # admin.md requirements
+  Staff can download past orders as a CSV file:
+    quote: Staff users must be able to download the list of past orders as a CSV file.
+    stmt: Staff download the list of past orders as a CSV file.
+    source_status: stated
+    is_assumption: "no"
+  Staff with the finance role can request the order file:
+    quote: Only staff with the finance role should be able to request the file.
+    stmt: Only staff with the finance role request the file.
+    source_status: stated
+    is_assumption: "no"
+  System can default the date range to the last full month:
+    quote: The screen must let staff pick a date range, and the range must default to the last full month.
+    stmt: The date range defaults to the last full month.
+    source_status: stated
+    is_assumption: "no"
+  System can record every order file download:
+    quote: Every download must be recorded so that it can be reviewed later.
+    stmt: Every download is recorded for later review.
+    source_status: stated
+    is_assumption: "no"
+  System can leave cancelled orders out of the order file:
+    quote: We assume that finance only needs data for completed orders, so cancelled orders are left out of the file.
+    stmt: Cancelled orders are left out of the file.
+    source_status: stated
+    is_assumption: "yes"
+  Staff cannot open an admin screen before signing in:
+    quote: Staff must sign in before they can open any admin screen.
+    stmt: Staff sign in before they open any admin screen.
+    source_status: stated
+    is_assumption: "no"
+  System can revoke download access when staff lose the finance role:
+    quote: A staff member who loses the finance role must lose access to the download immediately.
+    stmt: Losing the finance role removes access to the download immediately.
+    source_status: stated
+    is_assumption: "no"
+  Staff can reach the download screen from the finance section:
+    quote: The download screen must be reachable from the main navigation under the finance section.
+    stmt: The download screen is reachable from the finance section of the main navigation.
+    source_status: stated
+    is_assumption: "no"
+
+# The admin.md and orders.md CSV statements restate one commitment: same actor (staff users), same
+# object (past orders, the order history), same format, slightly different words. Their name tokens
+# differ too much for a direct merge (Jaccard below 0.7), so the small model is asked.
+dedup:
+  - pair: [Staff can download past orders as a CSV file, Staff can download the order history as a CSV file]
+    same: true
+
+# Embedding texts that share a vector: the two CSV statements' `name_embedding` texts. A real
+# embedding model puts such restatements close (cosine >= 0.85 makes them dedup candidates); the
+# scripted gateway's hash-seeded vectors are unrelated for any two different texts, so the pair is
+# declared here. Every other text gets its own vector.
+synonyms:
+  - ["FunctionalRequirement: Staff can download past orders as a CSV file", "FunctionalRequirement: Staff can download the order history as a CSV file"]
+
+# Nearness the edge catalogs rely on (build.md step 4: a foreign hub joins a unit's catalog by
+# nearness only at cosine >= max(0.40, 0.8 x the fragment's best foreign hub)). A real embedding model
+# puts these fragments near the hubs they talk about without naming them; hash-seeded vectors are
+# nearly orthogonal, so the relations are declared and every other hub stays below the floor:
+# - admin.md never names "Order history export", "Audit logging" or "Authentication" (FR-BLD-21);
+# - the second orders.md unit ("Export details") does not name the feature either.
+related:
+  - anchor: "Feature: Order history export"
+    cosine: 0.7
+    fragments: [adm.finance, ord.details4, ord.details5]
+  - anchor: "Capability: Audit logging"
+    cosine: 0.6
+    fragments: [adm.finance]
+  - anchor: "Capability: Authentication"
+    cosine: 0.7
+    fragments: [adm.access]

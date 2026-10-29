@@ -1,0 +1,149 @@
+/* FE-PLAN-06, FE-PLAN-07 (GAPS.md "## P24", G-PLAN-2, G-PLAN-5): the Plan tab. The design system has Tag, ProgressBar and MarkdownProse but no
+   accordion, no task row and no small Tag. Additive, tokens only; no design-system rule is overridden. */
+
+.plan-tab {
+  display: grid;
+  gap: var(--space-sm);
+  font-family: var(--font-sans);
+  color: var(--ink);
+  min-width: 0;
+}
+.plan-tab__label {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+/* G-PLAN-2: one phase = a quiet glass section with a header button, a thin bar and the task list. */
+.plan-phase {
+  display: grid;
+  gap: var(--space-2xs);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-lg);
+  background: var(--glass-fill-strong);
+  border: 1px solid var(--glass-rim);
+} /* P26 audit FE-DOD-08.AC1 (G-P26-2): small and secondary text sits on strong glass, never on regular glass */
+.plan-phase__heading {
+  margin: 0;
+  font: inherit;
+}
+.plan-phase__head {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  width: 100%;
+  padding: var(--space-xs) var(--space-2xs);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+.plan-phase__head:focus-visible,
+.plan-task__head:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.plan-phase__name {
+  font-weight: 600;
+}
+.plan-phase__count {
+  margin-left: auto;
+  color: var(--ink-2);
+}
+.plan-phase__bar {
+  padding: 0 var(--space-2xs);
+}
+.plan-phase__tasks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0;
+}
+.plan-phase__tasks[hidden] {
+  display: none;
+}
+
+/* G-PLAN-5: a task row; the status Tag and the small Feature/Requirement Tags sit on the title line and wrap on narrow widths. */
+.plan-task {
+  border-top: 1px solid var(--hairline);
+}
+.plan-task__head {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2xs) var(--space-xs);
+  width: 100%;
+  padding: var(--space-xs) var(--space-2xs);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  font-family: var(--font-sans);
+}
+.plan-task__title {
+  font-weight: 500;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.plan-task__body {
+  padding: var(--space-2xs) var(--space-sm) var(--space-sm);
+}
+
+/* FE-PLAN-07: the task body. The toolbar is positioned inside this frame (as the Files pane). */
+/* P27-11: with a thread panel open the body is two columns (the text, then the Files review panel); one column below 48rem. */
+.plan-body-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-sm);
+}
+.plan-body-wrap[data-panel] {
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 22rem);
+}
+.plan-body-main {
+  min-width: 0;
+}
+.plan-body-wrap .files__panel {
+  align-self: start;
+  position: sticky;
+  top: var(--space-xs);
+  max-height: calc(100dvh - calc(var(--space-xl) + 2 * var(--space-sm)) - var(--space-xl));
+}
+@media (max-width: 48rem) {
+  .plan-body-wrap[data-panel] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .plan-body-wrap .files__panel {
+    position: static;
+    max-height: none;
+  }
+}
+.plan-body {
+  position: relative;
+  border-radius: var(--radius-md);
+}
+.plan-body:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.plan-body .gdg-prose {
+  padding: 0;
+}
+.plan-body__hint {
+  margin: var(--space-xs) 0 0;
+  color: var(--ink-2);
+}
+.plan-body__note {
+  margin: var(--space-2xs) 0 0;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* FE-DOD-05: the bars change without animation under reduced motion; the lists have no height animation at all (P24-2). */
+@media (prefers-reduced-motion: reduce) {
+  .plan-phase .gdg-progress__fill {
+    transition: none;
+  }
+}

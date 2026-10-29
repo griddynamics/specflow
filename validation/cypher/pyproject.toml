@@ -1,0 +1,101 @@
+[project]
+name = "cypher-checks"
+version = "0.1.0"
+description = "Static and live validation of Cypher query files against a declared graph schema."
+requires-python = ">=3.12"
+dependencies = [
+    "cyver==2.0.2",
+    "docker==7.2.0",
+    "neo4j==6.3.0",
+    "pyyaml==6.0.3",
+    "semgrep==1.177.0",
+    "testcontainers==4.15.0",
+]
+
+[project.scripts]
+cypher-checks = "cypher_checks.__main__:main"
+
+[dependency-groups]
+dev = [
+    "coverage==7.16.0",
+    "mypy==2.3.1",
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+    "pytest-timeout==2.4.0",
+    "ruff==0.16.7",
+    "types-pyyaml==6.0.12.20260906",
+]
+
+[build-system]
+requires = ["hatchling==1.32.4"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["cypher_checks"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"semgrep/neo4j.yml" = "cypher_checks/semgrep/neo4j.yml"
+
+[tool.pytest.ini_options]
+addopts = ["--strict-markers", "--strict-config", "-ra"]
+pythonpath = ["."]
+testpaths = ["tests"]
+xfail_strict = true
+filterwarnings = ["error"]
+# Covers a cold Neo4j container start inside the first live test's setup.
+timeout = 600
+markers = ["integration: needs Docker; starts a throwaway Neo4j testcontainer"]
+
+[tool.coverage.run]
+branch = true
+source = ["cypher_checks"]
+
+[tool.coverage.report]
+# Measured over the whole suite (`pytest --cov`, Docker running): a static-only run leaves
+# the live modules unexercised.
+fail_under = 85
+show_missing = true
+skip_covered = true
+exclude_also = ["if __name__ == .__main__.:"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["semgrep/**", "tests/fixtures/**"]
+
+[tool.ruff.lint]
+select = ["ARG", "B", "BLE", "C4", "C90", "E", "EM", "F", "FBT", "I", "N", "PERF", "PIE", "PL",
+          "PT", "PTH", "RET", "RUF", "S", "SIM", "TID", "TRY", "UP", "W"]
+ignore = ["UP040", "UP046", "UP047"]
+
+[tool.ruff.lint.isort]
+required-imports = ["from __future__ import annotations"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-args = 8
+max-positional-args = 5
+max-branches = 12
+max-statements = 50
+max-returns = 6
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "PLR2004", "SLF001"]
+# The `all` step runs semgrep from the resolved executable with a fixed argument list.
+"cypher_checks/run_all.py" = ["S603"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["cypher_checks", "tests"]
+exclude = ["^tests/fixtures/", "^semgrep/", "^examples/"]
+
+[[tool.mypy.overrides]]
+# CyVer 2.0.2 and docker ship no type stubs.
+module = ["CyVer", "docker", "docker.*"]
+ignore_missing_imports = true

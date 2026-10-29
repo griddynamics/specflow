@@ -1,0 +1,25 @@
+<!-- @dsCard group="Data" height=470 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>DecisionList — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-scene" style="padding:24px;min-height:470px;box-sizing:border-box;" id="root"></div>
+<script>
+var G = window.GDGlass, h = React.createElement;
+var PEOPLE = [
+  { id:'mk', name:'Sam Carter', role:'Product owner', email:'scarter@example.com' },
+  { id:'ak', name:'Alex Rivera', role:'Engineer', email:'arivera@example.com' },
+  { id:'nc', name:'Nina Walker', role:'Delivery manager', email:'nwalker@example.com' }];
+
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{display:'grid',gap:16}},
+  h('div',{className:'gdg-filters'}, h(G.Switch,{label:'Open', defaultChecked:true}), h(G.Switch,{label:'Assigned to me'}),
+    h(G.Select,{options:[{value:'all',label:'All domains'},{value:'sec',label:'Security'}], defaultValue:'all', icon:'funnel-simple'}),
+    h(G.SegmentedControl,{label:'Severity', options:[{value:'all',label:'All'},{value:'critical',label:'Critical'},{value:'high',label:'High'},{value:'medium',label:'Medium'},{value:'low',label:'Low'}], defaultValue:'all'})),
+  h(G.DecisionList,{footer:'4 of 28 decisions'},
+    h(G.DecisionRow,{title:'External user permissions', subtitle:'2 questions · access-control.md', domain:'Security', severity:'critical', assignee:'Sam Carter'}),
+    h(G.DecisionRow,{title:'Order event retention period', subtitle:'1 question · data-model.md', domain:'Data', severity:'high', assignee:'Alex Rivera'}),
+    h(G.DecisionRow,{title:'Guest onboarding email copy', subtitle:'1 question · onboarding.md', domain:'UX', severity:'medium', assignee:'Nina Walker'}),
+    h(G.DecisionRow,{title:'Salesforce sync frequency', subtitle:'1 question · salesforce.md', domain:'Integrations', severity:'low'}))));
+</script>
+</body>
+</html>

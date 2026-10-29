@@ -1,0 +1,34 @@
+/* FE-PLAN-01, FE-PLAN-10 (GAPS.md "## P21"): the screen frame of the Plan page. The design system has EmptyState, Skeleton and the shell's
+   header row but no page frame around them. Additive, tokens only; no design-system rule is overridden. */
+
+/* G-PLAN-4: the screen is a column that fills the content area, like the Decisions screen; the h1 is hidden (G-HDR-3). */
+.plan-screen {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: var(--space-md);
+  font-family: var(--font-sans);
+  color: var(--ink);
+}
+/* D20 (G-GATE-1): before Mission Control is Ready the one child is the gate scene; its row takes all the height, so the scene fills the content area. */
+.plan-screen:has(> .gate-scene) {
+  grid-template-rows: minmax(0, 1fr);
+  align-content: stretch;
+}
+.plan-skel {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+/* P26 (audit FE-DOD-04.AC1, G-P26-1): Stage 0 and Stage 2 are long (nine rows and a footer; 19 tasks; the Develop steps), so the content scrolls
+   inside its own region, below the header row, and the page does not scroll (as the README, mc-gaps.css, and the Files view). Same bound as
+   the README: the window minus the header row and the shell padding. The 4px padding keeps a focus ring at the edge from being clipped. The
+   region holds focusable children, so the keyboard scrolls it from them. */
+.plan-scroll {
+  min-width: 0;
+  box-sizing: border-box;
+  overflow-y: auto;
+  padding: var(--space-2xs);
+  max-height: max(calc(var(--space-2xl) * 6), calc(100dvh - calc(var(--space-xl) + 2 * var(--space-sm)) - var(--space-sm) * 2));
+}

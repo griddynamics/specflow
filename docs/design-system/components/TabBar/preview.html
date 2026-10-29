@@ -1,0 +1,13 @@
+<!-- @dsCard group="Navigation" height=120 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>TabBar — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-scene" style="padding:28px;display:flex;justify-content:center" id="root"></div>
+<script>
+  var G = window.GDGlass, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    h(G.TabBar,{tabs:[{value:'home',label:'Home'},{value:'proj',label:'Projects'},{value:'ins',label:'Insights'},{value:'team',label:'Team'}], defaultValue:'proj'}));
+</script>
+</body>
+</html>

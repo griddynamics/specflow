@@ -1,0 +1,89 @@
+/* FE-DS-03, FE-DOD-05.AC2 (GAPS.md P05): style details bundle.css lacks for the app components. Tokens only; every rule is
+   additive and has a higher specificity than the bundle rule it complements, so import order does not matter. */
+
+/* PeoplePicker chips: the remove button has no focus rule in bundle.css (browser default ring). */
+.gdg-chip button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* The PeoplePicker box already draws a focus ring (`:focus-within`); when the chip button has the focus only the button's own
+   ring stays, so there are never two rings. */
+.gdg-pp__box:has(.gdg-chip button:focus-visible) {
+  outline: 0 solid transparent;
+}
+
+/* G-P05-2: links in Prose have no focus rule in bundle.css (browser default 1px ring). */
+.gdg-prose a:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* G-P05-3 (deliberate deviation): the ChatMessage speaker label is `ink-2` on the bare scene photo, 3.4-3.6:1 in dark (< 4.5:1).
+   Accessibility over DS fidelity: primary ink in both themes. */
+.gdg-msg .gdg-msg__name {
+  color: var(--ink);
+}
+
+/* P15 (P11 minor, GAPS G-P15-3): FileTree rows. The `ul` is a grid whose items grow to their nowrap content, so a long file name made the rows wider
+   than the column and the ellipsis never showed. One shrinkable column and a shrinkable name: the name ends in an ellipsis, the row keeps the column width. */
+.gdg-tree ul {
+  grid-template-columns: minmax(0, 1fr);
+}
+.gdg-tree__name {
+  min-width: 0;
+}
+
+/* P15 (GAPS G-P15-8, P13 minor): the design-system hover for these controls is the bare `glass-tint`, which replaces their glass fill, so the text sits on
+   a yellow tint over the photo (4.1:1 for the suggestion chip in dark). Keep the tint, on top of the strong fill. (The High badge under a hovered decision
+   row had the same issue; since P28 it has no background, so its rule is gone.) */
+.gdg-suggest__chip:hover,
+.gdg-cite:hover {
+  background: linear-gradient(var(--glass-tint), var(--glass-tint)), var(--glass-fill-strong);
+}
+
+/* P15 (QA M1): the mention list may open downward (MentionInput picks the side with room inside the review panel). */
+.gdg-mention__list.is-below {
+  top: calc(100% + 6px);
+  bottom: auto;
+}
+
+/* P15 (QA m10): the tooltip of a clicked sidebar item hides until the pointer leaves, so it does not cover the new screen. */
+.gdg-side--collapsed [data-tip][data-quiet]:hover::after {
+  content: none;
+}
+
+/* P15 (review): a Button that is only busy (aria-disabled, kept focusable, e.g. Test access while checking) looks like the DS `:disabled` button. */
+.gdg-btn[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* P15 (QA M4, GAPS G-P15-9): DocLinks buttons are bare <button>s (the bundle sets the font on the list, not on the button), so they rendered in the browser
+   default (Arial 13.33px) in the decision modal. They take the font of the list. */
+.gdg-doclinks button {
+  font-family: inherit;
+}
+
+/* P28 (PQ9, owner Q24/Q25, GAPS G-SEV-1; deliberate deviation from the DS SeverityBadge): the severity badge is quiet. Every level is `--ink` text, no
+   background, no bars, no pill padding; only Critical has a red exclamation icon before the word. The word always shows. The doubled class beats the
+   bundle's `.gdg-sev--<level>` colours and backgrounds whatever the import order. */
+.gdg-sev.gdg-sev {
+  position: relative;
+  gap: 6px;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--ink);
+}
+/* R28-05, QA F2: the Critical icon hangs just left of the word (out of the flow), so every severity word starts at the same x, as the SEVERITY column header,
+   and the header baselines match (the icon no longer sets the line height). */
+.gdg-sev .gdg-sev__icon {
+  position: absolute;
+  inset-inline-end: 100%;
+  margin-inline-end: var(--space-xs);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--severity-critical);
+}

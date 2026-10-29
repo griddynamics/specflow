@@ -1,0 +1,38 @@
+# CONFIGURABLE RULES for a reproducible data pipeline and the immutable files it keeps.
+# Shipped values to replace:
+# - the pipeline package scope `**/src/pipeline/**` of `kit.configurable.no-random-id-in-pipeline-output`;
+# - the name pattern `(?i).*original.*` that identifies a path to an immutable file (an
+#   uploaded original, an archived input) in `kit.configurable.no-delete-of-immutable-file`.
+# Mirror every replaced name in `fixtures/pipeline.py`.
+rules:
+  - id: kit.configurable.no-random-id-in-pipeline-output
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/pipeline/**"
+    message: >-
+      A pipeline output identifier is a random `uuid4()`. Identifiers of what a pipeline
+      produces are derived from its inputs (a checksum, a position, `uuid5` over a stable
+      name), so a re-run yields the same identifiers and its output can be compared and
+      de-duplicated.
+    pattern-either:
+      - pattern: uuid.uuid4(...)
+      - pattern: uuid4(...)
+
+  - id: kit.configurable.no-delete-of-immutable-file
+    languages: [python]
+    severity: ERROR
+    message: >-
+      A delete call targets an immutable file (by the configured name pattern, an original).
+      Immutable inputs are kept while the record that owns them exists; only derived caches
+      may be cleared.
+    patterns:
+      - pattern-either:
+          - pattern: os.remove($PATH)
+          - pattern: os.unlink($PATH)
+          - pattern: $PATH.unlink(...)
+          - pattern: shutil.rmtree($PATH)
+      - metavariable-regex:
+          metavariable: $PATH
+          regex: "(?i).*original.*"

@@ -1,0 +1,27 @@
+{
+  "document_id": "DOC::SECURITY",
+  "path": "security.md",
+  "fragments": [
+    {
+      "fragment_id": "DOC::SECURITY#authentication#0",
+      "heading_path": ["Security", "Authentication"],
+      "line_start": 3,
+      "line_end": 9,
+      "text": "Security > Authentication\n\nCustomers authenticate with an email address and a password. A session token expires after one hour of inactivity and must be refreshed against the backend.\n\nThe frontend never stores a password, and the backend stores only a salted hash."
+    },
+    {
+      "fragment_id": "DOC::SECURITY#authorisation#0",
+      "heading_path": ["Security", "Authorisation"],
+      "line_start": 11,
+      "line_end": 16,
+      "text": "Security > Authorisation\n\nA customer may read only their own orders. An operations user may read any order but may never place one on a customer's behalf.\n\nAuthorisation is enforced in the backend, never in the frontend."
+    },
+    {
+      "fragment_id": "DOC::SECURITY#nothing#0",
+      "heading_path": ["Security", "Document Control"],
+      "line_start": 18,
+      "line_end": 20,
+      "text": "Security > Document Control\n\nRevision 4. Circulated for comment. Supersedes revision 3 of the same title."
+    }
+  ]
+}

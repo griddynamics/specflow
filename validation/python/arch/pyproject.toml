@@ -1,0 +1,75 @@
+# archkit: configurable architecture, security and parity checks for Python web services.
+#
+# Install it into the environment that runs the project's own code (the checks import the
+# project's app, settings and models), then run `archkit run --config archkit.toml`.
+# Runtime dependencies are minimums (the versions the kit was verified against), so the
+# kit installs next to the project's own pins; the `dev` group pins the example app and
+# self-test tools exactly.
+[project]
+name = "archkit"
+version = "0.1.0"
+description = "Configurable architecture, security and parity checks for Python web services."
+requires-python = ">=3.12"
+dependencies = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "httpx>=0.28.1",
+    "pyyaml>=6.0.3",
+    "markdown-it-py>=4.2.0",
+]
+
+[project.scripts]
+archkit = "archkit.cli:main"
+
+[dependency-groups]
+# The neutral example service under `examples/shop`, which the self-tests run every check
+# against, and the tools the kit's own code is linted and type-checked with.
+dev = [
+    "fastapi==0.141.1",
+    "starlette==1.6.0",
+    "pydantic-settings==2.15.0",
+    "anyio==4.15.1",
+    "ruff==0.16.7",
+    "mypy==2.3.1",
+    "types-pyyaml==6.0.12.20260906",
+]
+
+[build-system]
+requires = ["hatchling==1.32.4"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["archkit"]
+
+[tool.uv]
+default-groups = ["dev"]
+
+# The kit's own self-tests (`tests/`). The bundled checks run with their own settings
+# (`archkit/checks/pytest.ini`), never these.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--strict-markers", "--strict-config", "-ra", "-p", "no:cacheprovider", "--import-mode=importlib"]
+xfail_strict = true
+filterwarnings = ["error"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+python_files = ["test_*.py"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["examples"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "PT", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+# Checks and self-tests assert by design and start the kit's own probe scripts.
+"archkit/checks/*.py" = ["S101", "S603"]
+"tests/*.py" = ["S101", "S603"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["archkit"]
+plugins = ["pydantic.mypy"]

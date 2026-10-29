@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DiagramNode — GD Liquid Glass</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<style>html,body{margin:0;background:var(--ground)}</style>
+<script>(function(){var t=new URLSearchParams(location.search).get('theme');document.documentElement.setAttribute('data-theme',t==='dark'?'dark':'light');})();</script>
+<script src="../components/lib/react.production.min.js"></script>
+<script src="../components/lib/react-dom.production.min.js"></script>
+<script src="../components/lib/jsx-runtime-shim.js"></script>
+<script src="../components/lib/xyflow-react.umd.js"></script>
+<script src="../components/bundle.js"></script>
+</head>
+<body>
+<div class="gdg-root" style="padding:0" id="root"></div>
+<script>
+  var G = window.GDGlass, h = React.createElement;
+  var kinds = [['actor','Customers','Web and mobile'],['app','Storefront','Next.js 14'],['gateway','API gateway','Kong'],['service','Order service','Node.js'],
+    ['datastore','Catalog DB','PostgreSQL 15'],['queue','Order events','Kafka'],['ai','Recommender','LLM · GAIN'],['external','Salesforce','CRM · SaaS'],['storage','Media store','S3']];
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    h(G.DiagramCanvas,{width:960, height:330, label:'Diagram node kinds'},
+      kinds.map(function(k,i){ return h(G.DiagramNode,{key:k[0], kind:k[0], title:k[1], subtitle:k[2], x:24 + (i%4)*232, y:28 + Math.floor(i/4)*100, w:208, selected:k[0]==='ai'}); })));
+</script>
+</body>
+</html>

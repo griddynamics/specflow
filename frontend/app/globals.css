@@ -1,0 +1,25 @@
+/* FE-DS-01, FE-DS-07 (TECH-SPECS §6.3, §7; P17 s03): the app's base sheet, tokens only. It replaces the hello styles: no hello
+   element rules are left to undo.
+   - The theme root is <html data-theme> (root layout); tokens.css sets the variables and `color-scheme` there, so the page canvas,
+     scrollbars and form controls follow the chosen theme, never the OS.
+   - `.gdg-root` is the design-system root class: the production tree wrapper and the login page. It covers the
+     viewport with the ground colour (was isolation.css). */
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--ground);
+}
+.gdg-root {
+  min-height: 100dvh;
+  background: var(--ground);
+}
+/* P15 (QA M4): bare form controls inherit the design-system font (the browser default is Arial 13.33px); zero specificity, so every
+   design-system rule still wins. */
+:where(.gdg-root) button,
+:where(.gdg-root) input,
+:where(.gdg-root) textarea,
+:where(.gdg-root) select {
+  font-family: inherit;
+}

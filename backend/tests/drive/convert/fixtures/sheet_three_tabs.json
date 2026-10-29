@@ -1,0 +1,84 @@
+{
+  "spreadsheet": {
+    "properties": {
+      "title": "Budget"
+    },
+    "sheets": [
+      {
+        "properties": {
+          "sheetId": 0,
+          "title": "Income",
+          "index": 0
+        }
+      },
+      {
+        "properties": {
+          "sheetId": 1,
+          "title": "It's Q4",
+          "index": 1
+        }
+      },
+      {
+        "properties": {
+          "sheetId": 2,
+          "title": "Zażółć 日本語",
+          "index": 2
+        }
+      }
+    ]
+  },
+  "valueRanges": [
+    {
+      "range": "'Income'!A1:Z4",
+      "majorDimension": "ROWS",
+      "values": [
+        [
+          "Source",
+          "Amt"
+        ],
+        [
+          "Salary",
+          "100"
+        ],
+        [
+          "",
+          ""
+        ],
+        [
+          "Gift",
+          ""
+        ]
+      ]
+    },
+    {
+      "range": "'It''s Q4'!A1:Z2",
+      "majorDimension": "ROWS",
+      "values": [
+        [
+          "",
+          "B",
+          ""
+        ],
+        [
+          "a",
+          "",
+          "c"
+        ]
+      ]
+    },
+    {
+      "range": "'Zażółć 日本語'!A1:Z2",
+      "majorDimension": "ROWS",
+      "values": [
+        [
+          "k",
+          "v"
+        ],
+        [
+          "émoji",
+          "😀"
+        ]
+      ]
+    }
+  ]
+}

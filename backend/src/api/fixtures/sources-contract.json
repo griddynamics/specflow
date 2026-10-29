@@ -1,0 +1,11 @@
+{
+  "file_states": ["waiting", "processing", "done", "not_read", "skipped", "failed", "already_in_project"],
+  "reason_codes": ["source_failed", "read_failed", "unknown", "already_in_project", "not_readable", "not_imported", "access_lost", "drive_unavailable", "store_failed"],
+  "group_order": [["not_read", "skipped", "failed", "already_in_project"], ["processing"], ["waiting"], ["done"]],
+  "page_limit": 200,
+  "outcomes": ["added", "already_in_project", "read_again", "duplicate"],
+  "error_codes": ["source_not_found", "batch_ended", "removal_unavailable", "project_not_found", "validation_failed", "missing_filename", "empty_file", "unsupported_format", "database_unavailable"],
+  "source_fields": ["id", "kind", "name", "name_suffix", "added_by", "created_at", "listing_finished", "open", "total", "counts", "failure_reason", "folder_id", "link"],
+  "file_fields": ["id", "name", "category", "state", "reason", "holder"],
+  "holder_fields": ["id", "kind", "name", "name_suffix", "created_at"]
+}

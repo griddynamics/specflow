@@ -1,0 +1,292 @@
+{
+  "documentId": "doc-sample-0001",
+  "title": "Lists",
+  "revisionId": "rev-1",
+  "tabs": [
+    {
+      "tabProperties": {
+        "tabId": "t1",
+        "title": "Only",
+        "index": 0
+      },
+      "documentTab": {
+        "body": {
+          "content": [
+            {
+              "sectionBreak": {}
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "Plan\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "HEADING_1"
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "One\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                },
+                "bullet": {
+                  "listId": "la",
+                  "nestingLevel": 0
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "One.a\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                },
+                "bullet": {
+                  "listId": "la",
+                  "nestingLevel": 1
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "One.a.i\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                },
+                "bullet": {
+                  "listId": "la",
+                  "nestingLevel": 2
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "One.b\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                },
+                "bullet": {
+                  "listId": "la",
+                  "nestingLevel": 1
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "Two\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                },
+                "bullet": {
+                  "listId": "la",
+                  "nestingLevel": 0
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "Between\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "Step\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                },
+                "bullet": {
+                  "listId": "lb",
+                  "nestingLevel": 0
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "Sub step\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                },
+                "bullet": {
+                  "listId": "lb",
+                  "nestingLevel": 1
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "Sub step 2\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                },
+                "bullet": {
+                  "listId": "lb",
+                  "nestingLevel": 1
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "Step 2\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                },
+                "bullet": {
+                  "listId": "lb",
+                  "nestingLevel": 0
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                },
+                "bullet": {
+                  "listId": "lb",
+                  "nestingLevel": 0
+                }
+              }
+            },
+            {
+              "paragraph": {
+                "elements": [
+                  {
+                    "textRun": {
+                      "content": "Step 3\n",
+                      "textStyle": {}
+                    }
+                  }
+                ],
+                "paragraphStyle": {
+                  "namedStyleType": "NORMAL_TEXT"
+                },
+                "bullet": {
+                  "listId": "lb",
+                  "nestingLevel": 0
+                }
+              }
+            }
+          ]
+        },
+        "lists": {
+          "la": {
+            "listProperties": {
+              "nestingLevels": [
+                {
+                  "glyphSymbol": "●"
+                },
+                {
+                  "glyphSymbol": "●"
+                },
+                {
+                  "glyphSymbol": "●"
+                }
+              ]
+            }
+          },
+          "lb": {
+            "listProperties": {
+              "nestingLevels": [
+                {
+                  "glyphType": "DECIMAL"
+                },
+                {
+                  "glyphType": "ALPHA"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "childTabs": []
+    }
+  ]
+}

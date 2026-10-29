@@ -1,0 +1,39 @@
+{
+  "variable": "NAV_ITEMS",
+  "fields": {
+    "key": "labelKey",
+    "path": "to",
+    "icon": "icon",
+    "exact": "exact",
+    "children": "children",
+    "restricted": "adminOnly"
+  },
+  "items": [
+    { "label": "Dashboard", "path": "/", "icon": "Home", "exact": true, "key": "nav.dashboard" },
+    { "label": "Orders", "path": "/orders", "icon": "ShoppingCart", "key": "nav.orders" },
+    {
+      "label": "Catalog",
+      "group": true,
+      "icon": "BookOpen",
+      "key": "nav.catalog",
+      "children": [
+        { "label": "Products", "path": "/catalog/products", "icon": "Tag" },
+        { "label": "Suppliers", "path": "/catalog/suppliers", "icon": "Truck" }
+      ]
+    },
+    {
+      "label": "Administration",
+      "group": true,
+      "icon": "Settings",
+      "key": "nav.administration",
+      "children": [{ "label": "Users", "path": "/administration/users", "icon": "Users" }]
+    }
+  ],
+  "restrictedRoutes": {
+    "/": false,
+    "/orders": false,
+    "/catalog/products": false,
+    "/catalog/suppliers": true,
+    "/administration/users": true
+  }
+}

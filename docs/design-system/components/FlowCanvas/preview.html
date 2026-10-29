@@ -1,0 +1,36 @@
+<!-- @dsCard group="Diagrams" height=540 width=1100 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>FlowCanvas — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root" style="padding:0;min-height:540px;box-sizing:border-box;" id="root"></div>
+<script>
+var G = window.GDGlass, h = React.createElement;
+var PEOPLE = [
+  { id:'mk', name:'Sam Carter', role:'Product owner', email:'scarter@example.com' },
+  { id:'ak', name:'Alex Rivera', role:'Engineer', email:'arivera@example.com' },
+  { id:'nc', name:'Nina Walker', role:'Delivery manager', email:'nwalker@example.com' }];
+
+var X = window.ReactFlow;
+var nodes = [
+  { id:'g1', type:'gdGroup', position:{x:240,y:0}, style:{width:740,height:360}, data:{label:'Atlas platform · AWS', icon:'cloud', count:5} },
+  { id:'cust', type:'gdNode', position:{x:0,y:96}, data:{kind:'actor', title:'Guest user', subtitle:'Partner organisation', w:184, h:56} },
+  { id:'web', type:'gdNode', position:{x:24,y:96}, parentId:'g1', data:{kind:'app', title:'Atlas web', subtitle:'Next.js'} },
+  { id:'gw', type:'gdNode', position:{x:272,y:96}, parentId:'g1', data:{kind:'gateway', title:'API gateway', subtitle:'Kong'} },
+  { id:'auth', type:'gdNode', position:{x:272,y:240}, parentId:'g1', data:{kind:'security', title:'Access service', subtitle:'OIDC · RBAC'} },
+  { id:'spec', type:'gdNode', position:{x:520,y:40}, parentId:'g1', data:{kind:'service', title:'Spec service', subtitle:'Java · Spring', w:196} },
+  { id:'db', type:'gdNode', position:{x:520,y:160}, parentId:'g1', data:{kind:'datastore', title:'Spec store', subtitle:'PostgreSQL', w:196} },
+  { id:'llm', type:'gdNode', position:{x:1040,y:96}, data:{kind:'ai', title:'SpecBot', subtitle:'LLM · GD GAIN'} },
+  { id:'idp', type:'gdNode', position:{x:1040,y:256}, data:{kind:'external', title:'Client IdP', subtitle:'Azure AD'} } ];
+var edges = [
+  { id:'e1', source:'cust', target:'web', sourceHandle:'right', targetHandle:'left', kind:'sync', label:'HTTPS' },
+  { id:'e2', source:'web', target:'gw', sourceHandle:'right', targetHandle:'left', kind:'sync' },
+  { id:'e3', source:'gw', target:'spec', sourceHandle:'right', targetHandle:'left', kind:'sync' },
+  { id:'e4', source:'gw', target:'auth', sourceHandle:'bottom', targetHandle:'top', kind:'sync', label:'verify' },
+  { id:'e5', source:'spec', target:'db', sourceHandle:'bottom', targetHandle:'top', kind:'data', label:'read/write' },
+  { id:'e6', source:'spec', target:'llm', sourceHandle:'right', targetHandle:'left', kind:'async', label:'index' },
+  { id:'e7', source:'auth', target:'idp', sourceHandle:'right', targetHandle:'left', kind:'sync', label:'OIDC' } ];
+ReactDOM.createRoot(document.getElementById('root')).render(X ? h(X.ReactFlowProvider,null,h(G.FlowCanvas,{nodes:nodes, edges:edges, height:520})) : h('p',null,'React Flow not loaded'));
+</script>
+</body>
+</html>

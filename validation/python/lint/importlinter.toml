@@ -1,0 +1,44 @@
+# Generic import-linter contracts for a layered package, read with
+# `lint-imports --config importlinter.toml` from the directory that holds the root package.
+# `root_package` defaults to `src`; change it (and every `src.` prefix below) to the
+# project's own root package. Wildcards (`src.*`) resolve only to modules that exist,
+# so a contract over a layer the project does not have yet is kept, not an error.
+[tool.importlinter]
+root_package = "src"
+include_external_packages = true
+
+# Each feature package `src.<feature>` is layered routes -> service -> repositories;
+# a lower layer never imports a higher one. Parenthesised layers are optional.
+[[tool.importlinter.contracts]]
+name = "Feature layers"
+id = "feature-layers"
+type = "layers"
+containers = ["src.*"]
+layers = ["(routes)", "(service)", "(repositories)"]
+exhaustive = false
+
+# Routes stay thin: they call the service layer and never reach the data layer directly.
+[[tool.importlinter.contracts]]
+name = "Routes stay thin"
+id = "routes-thin"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["src.*.routes"]
+forbidden_modules = ["src.*.repositories", "sqlalchemy"]
+
+# The web framework belongs to the routes layer alone.
+[[tool.importlinter.contracts]]
+name = "No web framework below routes"
+id = "no-framework-below-routes"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["src.*.service", "src.*.repositories"]
+forbidden_modules = ["fastapi", "starlette"]
+
+# Production reaches no test module and no test-only library, directly or indirectly.
+[[tool.importlinter.contracts]]
+name = "No test code in production"
+id = "no-test-imports"
+type = "forbidden"
+source_modules = ["src"]
+forbidden_modules = ["tests", "vcr", "pytest", "_pytest"]

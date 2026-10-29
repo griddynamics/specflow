@@ -1,0 +1,16 @@
+{
+  "minLines": 10,
+  "minTokens": 100,
+  "mode": "weak",
+  "formats": ["typescript", "tsx", "javascript", "css"],
+  "ignore": [
+    "**/fixtures/**",
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/coverage/**",
+    "**/*.generated.*",
+    "**/src/generated/**",
+    "**/styles/ds/tokens.css"
+  ]
+}

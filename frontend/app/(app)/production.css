@@ -1,0 +1,27 @@
+/* FE-BP-03.AC2, FE-DS-08 (TECH-SPECS §1.6): the production `/` empty state. Same frame as the Mission Control scene (a `.gdg-scene`
+   backdrop with one glass card in its middle). Tokens only; no design-system rule is overridden. */
+.home-scene {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: var(--space-lg) var(--space-md);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.home-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+/* P17 fix1 (M1): the page while the sign-out routine runs (the screens are already unmounted). */
+.signing-out {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+}

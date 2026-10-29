@@ -1,0 +1,249 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://specflow.local/contracts/schemas/google-docs-document.schema.json",
+  "title": "Google Docs API Document (documents.get, includeTabsContent)",
+  "description": "The part of the Docs API v1 Document resource that drive.convert.docs reads, with the API's field names and types. Other API fields may be present; the fields listed here must have the API's shape.",
+  "type": "object",
+  "required": ["documentId", "title"],
+  "properties": {
+    "documentId": { "type": "string", "minLength": 1 },
+    "title": { "type": "string" },
+    "revisionId": { "type": "string" },
+    "tabs": { "type": "array", "items": { "$ref": "#/$defs/Tab" } },
+    "body": { "$ref": "#/$defs/Body" },
+    "lists": { "$ref": "#/$defs/Lists" },
+    "inlineObjects": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/InlineObject" }
+    }
+  },
+  "$defs": {
+    "Tab": {
+      "type": "object",
+      "properties": {
+        "tabProperties": {
+          "type": "object",
+          "required": ["tabId"],
+          "properties": {
+            "tabId": { "type": "string", "minLength": 1 },
+            "title": { "type": "string" },
+            "index": { "type": "integer", "minimum": 0 },
+            "parentTabId": { "type": "string" },
+            "nestingLevel": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "documentTab": {
+          "type": "object",
+          "properties": {
+            "body": { "$ref": "#/$defs/Body" },
+            "lists": { "$ref": "#/$defs/Lists" },
+            "inlineObjects": {
+              "type": "object",
+              "additionalProperties": { "$ref": "#/$defs/InlineObject" }
+            }
+          }
+        },
+        "childTabs": { "type": "array", "items": { "$ref": "#/$defs/Tab" } }
+      }
+    },
+    "Body": {
+      "type": "object",
+      "properties": {
+        "content": { "type": "array", "items": { "$ref": "#/$defs/StructuralElement" } }
+      }
+    },
+    "StructuralElement": {
+      "description": "Exactly one of paragraph, sectionBreak, table or tableOfContents.",
+      "type": "object",
+      "properties": {
+        "startIndex": { "type": "integer", "minimum": 0 },
+        "endIndex": { "type": "integer", "minimum": 0 },
+        "paragraph": { "$ref": "#/$defs/Paragraph" },
+        "sectionBreak": { "type": "object" },
+        "table": { "$ref": "#/$defs/Table" },
+        "tableOfContents": {
+          "type": "object",
+          "properties": {
+            "content": { "type": "array", "items": { "$ref": "#/$defs/StructuralElement" } }
+          }
+        }
+      },
+      "oneOf": [
+        { "required": ["paragraph"] },
+        { "required": ["sectionBreak"] },
+        { "required": ["table"] },
+        { "required": ["tableOfContents"] }
+      ]
+    },
+    "Paragraph": {
+      "type": "object",
+      "properties": {
+        "elements": { "type": "array", "items": { "$ref": "#/$defs/ParagraphElement" } },
+        "paragraphStyle": {
+          "type": "object",
+          "properties": {
+            "namedStyleType": {
+              "enum": [
+                "NAMED_STYLE_TYPE_UNSPECIFIED",
+                "NORMAL_TEXT",
+                "TITLE",
+                "SUBTITLE",
+                "HEADING_1",
+                "HEADING_2",
+                "HEADING_3",
+                "HEADING_4",
+                "HEADING_5",
+                "HEADING_6"
+              ]
+            }
+          }
+        },
+        "bullet": {
+          "type": "object",
+          "required": ["listId"],
+          "properties": {
+            "listId": { "type": "string", "minLength": 1 },
+            "nestingLevel": { "type": "integer", "minimum": 0, "maximum": 8 }
+          }
+        }
+      }
+    },
+    "ParagraphElement": {
+      "type": "object",
+      "properties": {
+        "startIndex": { "type": "integer", "minimum": 0 },
+        "endIndex": { "type": "integer", "minimum": 0 },
+        "textRun": {
+          "type": "object",
+          "required": ["content"],
+          "properties": {
+            "content": { "type": "string" },
+            "textStyle": { "$ref": "#/$defs/TextStyle" }
+          }
+        },
+        "inlineObjectElement": {
+          "type": "object",
+          "required": ["inlineObjectId"],
+          "properties": {
+            "inlineObjectId": { "type": "string", "minLength": 1 },
+            "textStyle": { "$ref": "#/$defs/TextStyle" }
+          }
+        },
+        "pageBreak": { "type": "object" },
+        "horizontalRule": { "type": "object" },
+        "footnoteReference": { "type": "object" }
+      }
+    },
+    "TextStyle": {
+      "type": "object",
+      "properties": {
+        "bold": { "type": "boolean" },
+        "italic": { "type": "boolean" },
+        "underline": { "type": "boolean" },
+        "strikethrough": { "type": "boolean" },
+        "link": {
+          "type": "object",
+          "properties": {
+            "url": { "type": "string" },
+            "headingId": { "type": "string" },
+            "bookmarkId": { "type": "string" },
+            "tabId": { "type": "string" }
+          }
+        }
+      }
+    },
+    "Table": {
+      "type": "object",
+      "properties": {
+        "rows": { "type": "integer", "minimum": 0 },
+        "columns": { "type": "integer", "minimum": 0 },
+        "tableRows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tableCells": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "content": { "type": "array", "items": { "$ref": "#/$defs/StructuralElement" } },
+                    "tableCellStyle": {
+                      "type": "object",
+                      "properties": {
+                        "rowSpan": { "type": "integer", "minimum": 0 },
+                        "columnSpan": { "type": "integer", "minimum": 0 }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "Lists": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "listProperties": {
+            "type": "object",
+            "properties": {
+              "nestingLevels": {
+                "type": "array",
+                "maxItems": 9,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "glyphType": {
+                      "enum": [
+                        "GLYPH_TYPE_UNSPECIFIED",
+                        "NONE",
+                        "DECIMAL",
+                        "ZERO_DECIMAL",
+                        "UPPER_ALPHA",
+                        "ALPHA",
+                        "UPPER_ROMAN",
+                        "ROMAN"
+                      ]
+                    },
+                    "glyphSymbol": { "type": "string" },
+                    "glyphFormat": { "type": "string" },
+                    "startNumber": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "InlineObject": {
+      "type": "object",
+      "properties": {
+        "objectId": { "type": "string" },
+        "inlineObjectProperties": {
+          "type": "object",
+          "properties": {
+            "embeddedObject": {
+              "type": "object",
+              "properties": {
+                "title": { "type": "string" },
+                "description": { "type": "string" },
+                "imageProperties": {
+                  "type": "object",
+                  "properties": {
+                    "contentUri": { "type": "string" },
+                    "sourceUri": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

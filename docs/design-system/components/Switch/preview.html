@@ -1,0 +1,13 @@
+<!-- @dsCard group="Inputs" height=110 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Switch — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-wash" style="padding:24px;display:flex;gap:28px;flex-wrap:wrap" id="root"></div>
+<script>
+  var G = window.GDGlass, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h(React.Fragment,null,
+    h(G.Switch,{label:'Email digests', defaultChecked:true}), h(G.Switch,{label:'Share with client'}), h(G.Switch,{label:'Locked', disabled:true})));
+</script>
+</body>
+</html>

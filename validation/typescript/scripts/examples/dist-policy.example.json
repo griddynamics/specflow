@@ -1,0 +1,12 @@
+[
+  {
+    "rule": "dist-policy-query-devtools",
+    "label": "TanStack Query Devtools",
+    "markers": ["ReactQueryDevtoolsPanel"]
+  },
+  {
+    "rule": "dist-policy-redux-devtools",
+    "label": "Redux DevTools",
+    "markers": ["__REDUX_DEVTOOLS_EXTENSION__"]
+  }
+]

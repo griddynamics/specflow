@@ -1,0 +1,19 @@
+<!-- @dsCard group="Content" height=200 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>DocLinks — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-wash" style="padding:24px;min-height:200px;box-sizing:border-box;" id="root"></div>
+<script>
+var G = window.GDGlass, h = React.createElement;
+var PEOPLE = [
+  { id:'mk', name:'Sam Carter', role:'Product owner', email:'scarter@example.com' },
+  { id:'ak', name:'Alex Rivera', role:'Engineer', email:'arivera@example.com' },
+  { id:'nc', name:'Nina Walker', role:'Delivery manager', email:'nwalker@example.com' }];
+
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{maxWidth:520}}, h(G.DocLinks,{links:[
+  {title:'Access control', path:'specs/security/access-control.md', section:'External users'},
+  {title:'API specification', path:'specs/api-spec.md', section:'4.2 Project summary'}]})));
+</script>
+</body>
+</html>

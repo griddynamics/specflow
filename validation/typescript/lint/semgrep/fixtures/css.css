@@ -1,0 +1,31 @@
+// Semgrep test annotations use `//`: semgrep reads this file as text (generic mode), and its test
+// runner does not recognise CSS block comments as annotations.
+
+.strip {
+  // ruleid: css-horizontal-scroller-without-overflow-y-hidden, css-horizontal-scroller-without-overscroll-contain
+  overflow-x: auto;
+}
+
+.tabs {
+  // ruleid: css-horizontal-scroller-without-overscroll-contain
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.table-panel {
+  // ok: css-horizontal-scroller-without-overflow-y-hidden, css-horizontal-scroller-without-overscroll-contain
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+}
+
+.both {
+  // ruleid: css-overflow-shorthand-scroller-without-y-hidden, css-horizontal-scroller-without-overscroll-contain
+  overflow: auto scroll;
+}
+
+.row {
+  // ok: css-overflow-shorthand-scroller-without-y-hidden, css-horizontal-scroller-without-overscroll-contain
+  overflow: auto hidden;
+  overscroll-behavior-x: contain;
+}

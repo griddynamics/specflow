@@ -1,0 +1,19 @@
+# SQLFluff configuration: drop this file into the project root (or point
+# `[sqlfluff].config` in sqlcheck.toml at it).
+#
+# `dialect`: set it to the project's database (sqlite, postgres, mysql, ...); keep
+#   `[sqlfluff].dialect` in sqlcheck.toml the same, since the kit's own parse-tree rules
+#   (sql-rules, alembic-lint) read the SQL with that dialect.
+# `templater = raw`: the `.sql` files are plain statements, never rendered, so there are
+#   no Jinja placeholders to expand.
+# `disable_noqa = True`: no inline suppression of a SQLFluff rule. The switch turns the
+#   directive off; the kit's `sql-rules-noqa-comment` reports the comment text itself
+#   wherever one still appears.
+#
+# No rule is excluded: every core rule (aliasing, ambiguity, capitalisation, conventions,
+# layout, references, structure) runs over every `.sql` file.
+
+[sqlfluff]
+dialect = sqlite
+templater = raw
+disable_noqa = True

@@ -1,0 +1,51 @@
+# Strict settings for a target project's own pyproject.toml: copy the tables below into it.
+# `ruff.toml`, `mypy.ini` and `importlinter.toml` sit beside this file and are passed by path.
+# The pytest plugins named here are the kit's `target-test` dependency group.
+
+# pytest: unknown markers, unknown config keys, unexpected passes and warnings are failures;
+# tests run in random order and each is bounded in time (pytest-randomly, pytest-timeout).
+[tool.pytest.ini_options]
+addopts = ["--strict-markers", "--strict-config", "-ra", "--import-mode=importlib", "-p", "randomly"]
+xfail_strict = true
+filterwarnings = ["error"]
+timeout = 60
+python_files = ["test_*.py"]
+testpaths = ["tests"]
+# A project that installs its root package into the test environment may drop this line.
+pythonpath = ["."]
+# Register every custom marker; `--strict-markers` rejects an unregistered one. Example:
+# markers = ["integration: needs a real database or container"]
+# With pytest-asyncio installed, async tests and fixtures need no marker. Enable both lines
+# together with the plugin (`--strict-config` rejects them without it):
+# asyncio_mode = "auto"
+# asyncio_default_fixture_loop_scope = "function"
+#
+# Command-line switches for the suites that need them (not put in addopts, since they depend
+# on the suite):
+#   unit suite, no network but local sockets:  pytest --disable-socket --allow-unix-socket
+#   parallel run, one module per worker:       pytest -n auto --dist loadfile
+#   coverage of the production package:        pytest --cov --cov-report=term-missing
+
+# coverage: branch coverage of the production package.
+[tool.coverage.run]
+branch = true
+source = ["src"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+# The coverage floor. Set it to the project's own value. A floor for one package only (for
+# example a deterministic core held to 95 %):
+#   coverage report --include="src/core/*" --fail-under=95
+# fail_under = 95
+
+# deptry: missing, unused, transitive and misplaced dependencies. Colocated test modules use
+# the validation environment, not runtime imports.
+[tool.deptry]
+known_first_party = ["src"]
+extend_exclude = ["(^|.*/)(test_[^/]+|conftest)\\.py$"]
+# Optional-dependency groups that hold development tools (their imports are then never DEP004):
+# pep621_dev_dependency_groups = ["dev"]
+# A distribution whose import name differs from its package name is mapped explicitly, e.g.:
+# [tool.deptry.package_module_name_map]
+# python-multipart = ["multipart"]

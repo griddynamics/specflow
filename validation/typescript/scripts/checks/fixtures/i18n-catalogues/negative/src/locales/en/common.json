@@ -1,0 +1,6 @@
+{
+  "app.title": "Example App",
+  "common.greeting": "Hello, {{name}}!",
+  "common.only_in_en": "Only in English",
+  "common.empty": ""
+}

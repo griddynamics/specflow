@@ -1,0 +1,81 @@
+{
+  "primitivesDir": "**/components/primitives",
+  "dataTableFile": "**/components/primitives/data-table.tsx",
+  "skeletonsDir": "**/components/primitives/skeletons",
+  "breadcrumbFile": "**/components/navigation/breadcrumb.tsx",
+  "routeHelperFiles": [],
+  "searchModule": "**/utils/search.ts",
+  "modalFiles": "**/components/primitives/modal*.tsx",
+  "tabsFile": "**/components/primitives/tabs.tsx",
+  "pageHeaderFile": "**/components/primitives/page-header.tsx",
+  "headerFiles": [
+    "**/components/primitives/*-header.tsx",
+    "**/components/primitives/section-title.tsx"
+  ],
+  "dismissalHook": {
+    "name": "useDismissal",
+    "file": "**/components/primitives/use-dismissal.ts"
+  },
+  "primitiveNames": [
+    "PageHeader",
+    "SectionHeader",
+    "SectionTitle",
+    "Breadcrumb",
+    "Pill",
+    "Button",
+    "Spinner",
+    "EmptyState",
+    "FormField",
+    "TextInput",
+    "TextArea",
+    "Select",
+    "TextField",
+    "SelectField",
+    "CheckboxField",
+    "SearchInput",
+    "FilterToolbar",
+    "DataTable",
+    "TableHead",
+    "TableBody",
+    "TableRow",
+    "Tabs",
+    "TabList",
+    "Tab",
+    "TabPanel",
+    "Modal",
+    "ConfirmDialog",
+    "FormModal",
+    "Drawer"
+  ],
+  "modalNames": ["Modal", "ConfirmDialog", "FormModal", "Drawer"],
+  "headerComponentNames": ["PageHeader", "SectionHeader", "SectionTitle"],
+  "pillComponentNames": ["Pill", "Badge"],
+  "typeRoleFields": ["headline"],
+  "geometryModules": ["**/utils/geometry.ts"],
+  "monoComponents": ["code", "pre", "kbd", "samp", "CodeCell", "KeyValueTable"],
+  "monoClasses": ["mono", "timestamp"],
+  "identifierFields": [
+    "orderId",
+    "order_id",
+    "userId",
+    "user_id",
+    "sku",
+    "timestamp",
+    "createdAt",
+    "created_at",
+    "updatedAt",
+    "updated_at"
+  ],
+  "components": {
+    "emptyState": "EmptyState",
+    "skeleton": "Skeleton",
+    "searchInput": "SearchInput",
+    "filterToolbar": "FilterToolbar"
+  },
+  "hitTargetClass": "touch-target",
+  "tokens": {
+    "inputBorder": "--input",
+    "overlay": "--overlay",
+    "monoFont": "--font-mono"
+  }
+}

@@ -1,0 +1,15 @@
+node_modules
+.next
+.git
+npm-debug.log*
+.env*
+Dockerfile
+.dockerignore
+# not part of an image
+tests
+e2e
+e2e-production
+playwright*.config.ts
+playwright-report
+test-results
+resources

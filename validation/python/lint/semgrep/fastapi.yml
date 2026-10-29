@@ -1,0 +1,25 @@
+rules:
+  # FastAPI safety rules from an upstream "fastapi" rule pack. Patterns and messages
+  # are the upstream's; only the rule ids carry the kit's `kit.` namespace.
+  - id: kit.fastapi.no-debug-mode
+    languages: [python]
+    severity: ERROR
+    message: "FastAPI debug mode must not be enabled in implementation code."
+    pattern-either:
+      - pattern: FastAPI(..., debug=True, ...)
+      - pattern: $APP.debug = True
+
+  - id: kit.fastapi.no-credentialed-wildcard-cors
+    languages: [python]
+    severity: ERROR
+    message: "Credentialed CORS must use an explicit origin allowlist."
+    patterns:
+      - pattern: |
+          $APP.add_middleware(
+            CORSMiddleware,
+            ...,
+            allow_origins=["*"],
+            ...,
+            allow_credentials=True,
+            ...
+          )

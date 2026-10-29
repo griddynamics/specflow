@@ -1,0 +1,19 @@
+<!-- @dsCard group="Inputs" height=420 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>OptionCards — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-wash" style="padding:24px;min-height:420px;box-sizing:border-box;" id="root"></div>
+<script>
+var G = window.GDGlass, h = React.createElement;
+var PEOPLE = [
+  { id:'mk', name:'Sam Carter', role:'Product owner', email:'scarter@example.com' },
+  { id:'ak', name:'Alex Rivera', role:'Engineer', email:'arivera@example.com' },
+  { id:'nc', name:'Nina Walker', role:'Delivery manager', email:'nwalker@example.com' }];
+
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{display:'grid',gridTemplateColumns:'1.4fr 1fr',gap:32,alignItems:'start'}},
+  h(G.OptionCards,{label:'Where should guest comments be stored?', options:[{value:'a',label:'Same database as internal comments',description:'Simplest; relies on row-level permissions.'},{value:'b',label:'Separate guest schema',description:'Clear isolation; extra migration work.'},{value:'c',label:'Client-side only',description:'No storage until approved.'}], allowOther:true, defaultValue:'__other', defaultOther:'Store in a separate schema but mirror to search.'}),
+  h('div',{style:{display:'grid',gap:12}}, h('p',{className:'headline',style:{margin:0}},'Is SSO mandatory for guests?'), h(G.OptionCards,{type:'yesno', label:'Is SSO mandatory for guests?', defaultValue:'yes'}))));
+</script>
+</body>
+</html>

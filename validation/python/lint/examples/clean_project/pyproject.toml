@@ -1,0 +1,14 @@
+# A minimal project that every lint of the kit accepts: `tests/test_run_sh.py` copies it to a
+# temporary directory and runs `run.sh` over it (clean: exit 0; with a violation added: exit 1).
+[project]
+name = "clean-project"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.deptry]
+known_first_party = ["src"]
+extend_exclude = ["(^|.*/)(test_[^/]+|conftest)\\.py$"]
+
+[tool.pytest.ini_options]
+markers = ["requirement: requirement id the test verifies"]

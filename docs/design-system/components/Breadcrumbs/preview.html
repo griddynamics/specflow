@@ -1,0 +1,17 @@
+<!-- @dsCard group="Navigation" height=90 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Breadcrumbs — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-wash" style="padding:24px;min-height:90px;box-sizing:border-box;" id="root"></div>
+<script>
+var G = window.GDGlass, h = React.createElement;
+var PEOPLE = [
+  { id:'mk', name:'Sam Carter', role:'Product owner', email:'scarter@example.com' },
+  { id:'ak', name:'Alex Rivera', role:'Engineer', email:'arivera@example.com' },
+  { id:'nc', name:'Nina Walker', role:'Delivery manager', email:'nwalker@example.com' }];
+
+ReactDOM.createRoot(document.getElementById('root')).render(h(G.Breadcrumbs,{items:[{label:'Atlas'},{label:'specs'},{label:'security'},{label:'access-control.md'}]}));
+</script>
+</body>
+</html>

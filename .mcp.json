@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@0.0.83",
+        "--headless",
+        "--isolated",
+        "--browser",
+        "chromium",
+        "--output-dir",
+        ".playwright-mcp"
+      ],
+      "env": {}
+    }
+  }
+}

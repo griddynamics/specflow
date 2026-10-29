@@ -1,0 +1,138 @@
+/* FE-BOT-01, FE-DS-08 (GAPS.md "## P13"): SpecBot screen layout. The design system gives ChatComposer, ChatMessage, ToolSteps,
+   Citations, TypingIndicator and the .gdg-scene backdrop but no screen layout around them. Additive, tokens only. */
+
+/* The screen fills the shell's main column; `overflow: clip` keeps the rounded corners without making a scroll container,
+   so the composer can stay sticky to the viewport while the page grows with the conversation. */
+.bot {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-lg);
+  overflow: clip;
+  font-family: var(--font-sans);
+  color: var(--ink);
+}
+.bot:focus {
+  outline: 0 solid transparent;
+}
+
+/* Empty state: greeting card, composer and suggestions centred. Text sits on strong glass (the bare scene fails contrast with ink-2 in dark). */
+.bot__empty {
+  flex: 1;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: var(--space-md);
+  padding: var(--space-lg) var(--space-md);
+}
+.bot__hello {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-xs);
+  text-align: center;
+  padding: var(--space-md) var(--space-lg);
+  max-width: 40rem;
+}
+.bot__title {
+  margin: 0;
+  color: var(--ink);
+}
+.bot__sub {
+  margin: 0;
+  color: var(--ink);
+}
+.bot__empty .gdg-composer-wrap {
+  gap: var(--space-md);
+}
+.bot__empty .gdg-suggest {
+  flex-direction: column;
+  align-items: center;
+}
+
+/* P15 (QA M2): the screen fits the shell (the page does not scroll); the conversation scrolls in `.bot__scroll` and the composer stays below it. */
+.shell:has(.bot) {
+  height: 100dvh;
+}
+.shell:has(.bot) .shell__col,
+.shell:has(.bot) .shell__main {
+  min-height: 0;
+}
+.bot__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+/* Conversation: messages scroll in their region; the composer pins to the bottom after the first message. */
+.bot__log {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  width: 100%;
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: var(--space-md) var(--space-sm) var(--space-lg);
+}
+.bot__log .gdg-msg {
+  max-width: 100%;
+}
+.bot__log .gdg-msg--user {
+  max-width: 85%;
+}
+.bot__pin {
+  flex: none;
+  padding: var(--space-sm) var(--space-sm) var(--space-sm);
+}
+
+/* A bot message that is still running its tool steps has no answer yet: no empty bubble. */
+.bot__msg--working .gdg-msg__text:empty {
+  display: none;
+}
+.bot__msg .gdg-msg__text .gdg-prose {
+  font-size: inherit;
+  line-height: inherit;
+}
+
+/* Link to the open decision, under the citations (with class body-sm). */
+.bot__decision {
+  margin-left: calc(var(--space-lg) + var(--space-xs)); /* avatar (32px) + gap (12px), aligned with the message body */
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  width: fit-content;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--glass-rim);
+  background: var(--glass-fill-strong);
+  color: var(--ink);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  box-shadow: var(--shadow-glass);
+}
+.bot__decision:hover {
+  background: var(--glass-tint);
+}
+.bot__decision:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Visually hidden heading: the h1 once the conversation has started (the greeting is the h1 before that). */
+.bot__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* End-of-conversation marker: scrolled into view with room for the sticky composer (about 62px box + 28px padding). */
+.bot__end {
+  scroll-margin-bottom: calc(var(--space-2xl) + var(--space-sm));
+}

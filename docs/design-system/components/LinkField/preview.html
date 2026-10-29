@@ -1,0 +1,21 @@
+<!-- @dsCard group="Inputs" height=300 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>LinkField — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-scene" style="padding:24px;min-height:300px;box-sizing:border-box;" id="root"></div>
+<script>
+var G = window.GDGlass, h = React.createElement;
+var PEOPLE = [
+  { id:'mk', name:'Sam Carter', role:'Product owner', email:'scarter@example.com' },
+  { id:'ak', name:'Alex Rivera', role:'Engineer', email:'arivera@example.com' },
+  { id:'nc', name:'Nina Walker', role:'Delivery manager', email:'nwalker@example.com' }];
+
+function Demo(){ return h(G.GlassSurface,{variant:'strong', style:{padding:24, maxWidth:620, display:'grid', gap:12}},
+  h(G.LinkField,{label:'GitHub repository', icon:'git-branch', placeholder:'https://github.com/org/repo', defaultValue:'https://github.com/acme/atlas-api', defaultStatus:'ok'}),
+  h(G.LinkField,{label:'Google Drive folder', icon:'folder-simple', placeholder:'https://drive.google.com/…', defaultValue:'https://drive.google.com/private/specs', defaultStatus:'fail'}),
+  h(G.LinkField,{label:'Second repository', icon:'git-branch', placeholder:'https://github.com/org/repo', help:'Press Enter or Test access.', onRemove:function(){}})); }
+ReactDOM.createRoot(document.getElementById('root')).render(h(Demo));
+</script>
+</body>
+</html>

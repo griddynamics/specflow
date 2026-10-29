@@ -1,0 +1,33 @@
+/* FE-DS-04 (WCAG 2.2 SC 2.3.3, 2.4.7): the accessibility cover of the design-system copy. styles/ds/components/bundle.css is a
+   byte copy of the read-only GD Liquid Glass folder (FE-DS-04.AC1), so the cover lives here and app/layout.tsx imports it right
+   after bundle.css. Every rule names the bundle selector verbatim; the `:root` prefix puts it one pseudo-class above the bundle
+   rule, so it wins whatever the CSS chunk order. Tokens only. */
+
+/* Reduced motion: the bundle's loaders (`.gdg-tag__spin`, `.gdg-spinner`, `.gdg-skel`, `.gdg-typing i`, the indeterminate
+   progress fill) keep the design-system rule: they turn slower (`animation-duration` 2.4 s / 3 s in the bundle), they are not
+   switched off, so a wait still shows that it is running (components/ProgressBar/README.md: "Both slow down under reduced
+   motion"; FE-DOD-05.AC6). The bundle covers `.gdg-tip::after`, which is less specific than the `:hover` / `:focus-within` rules
+   that start the tooltip animation: that cover is completed here. Every transition the bundle starts and does not switch off
+   is switched off here. */
+@media (prefers-reduced-motion: reduce) {
+  :root .gdg-tip:hover::after,
+  :root .gdg-tip:focus-within::after {
+    animation: none;
+  }
+  :root .gdg-progress__fill,
+  :root .gdg-menu__caret,
+  :root .gdg-oc__card,
+  :root .gdg-drop,
+  :root .gdg-rf-handle.react-flow__handle {
+    transition: none;
+  }
+}
+
+/* Focus: the bundle removes the outline of the Modal dialog (`.gdg-modal:focus`), which takes the focus itself when its first
+   button is destructive (Modal `initialFocus`). Keyboard focus gets the design-system ring. The other bundle `outline: none`
+   rules keep their visible focus: the Menu item ring is in components/ui/ui-gaps.css, and the SearchField, PeoplePicker and
+   Composer fields are ringed by their container's `:focus-within` rule in the bundle. */
+:root .gdg-modal:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}

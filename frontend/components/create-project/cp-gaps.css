@@ -1,0 +1,6 @@
+/* FE-CRT-01..06, FE-DS-03 (GAPS.md P08): layout of the Create project form, from tokens only. The design system gives the Modal and
+   the fields but no form grouping. Additive. */
+.cp-fields {
+  display: grid;
+  gap: var(--space-sm);
+}
