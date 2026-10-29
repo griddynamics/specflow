@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.20.1",
-    "anthropic>=1.1.0",
+    "anthropic>=2.3.0",
     "asyncpg>=0.32.0",
     "claude-agent-sdk==0.2.174",
     "dotenv>=0.9.9",
