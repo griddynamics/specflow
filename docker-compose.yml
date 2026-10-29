@@ -24,7 +24,7 @@ services:
   # On its first start (empty volume) backend/postgres-init/10-specflow-roles.sh creates the
   # app role, the database and the agent role.
   postgres:
-    image: postgres:17.11
+    image: postgres:18.4
     container_name: specflow-postgres
     mem_limit: 512m
     ports:
@@ -99,7 +99,7 @@ services:
 
   # Local only: Langfuse v3 and its stores. Dev-only secrets; never reuse them elsewhere.
   langfuse-postgres:
-    image: postgres:17.11
+    image: postgres:18.4
     container_name: specflow-langfuse-postgres
     profiles: ["langfuse"]
     mem_limit: 256m
