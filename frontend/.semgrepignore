@@ -1,0 +1,9 @@
+# Semgrep reads this only at its project root. Never list tests/ here: kit rules scan tests.
+node_modules/
+.next/
+out/
+build/
+playwright-report/
+test-results/
+# Copy of the GD Liquid Glass design system: read-only.
+styles/ds/

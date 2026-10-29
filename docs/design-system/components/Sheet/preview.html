@@ -1,0 +1,14 @@
+<!-- @dsCard group="Overlays" height=340 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Sheet — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-scene" style="height:340px" id="root"></div>
+<script>
+  var G = window.GDGlass, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    h(G.Sheet,{title:'Share the readout?', actions:h(React.Fragment,null,h(G.Button,{variant:'glass'},'Cancel'),h(G.Button,{variant:'primary'},'Share'))},
+      'The client team will see the executive summary and the delivery plan. Cost details stay internal.'));
+</script>
+</body>
+</html>

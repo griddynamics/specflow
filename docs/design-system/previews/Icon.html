@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Icon — GD Liquid Glass</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<style>html,body{margin:0;background:var(--ground)}</style>
+<script>(function(){var t=new URLSearchParams(location.search).get('theme');document.documentElement.setAttribute('data-theme',t==='dark'?'dark':'light');})();</script>
+<script src="../components/lib/react.production.min.js"></script>
+<script src="../components/lib/react-dom.production.min.js"></script>
+<script src="../components/lib/jsx-runtime-shim.js"></script>
+<script src="../components/lib/xyflow-react.umd.js"></script>
+<script src="../components/bundle.js"></script>
+</head>
+<body>
+<div class="gdg-root gdg-wash" style="padding:20px" id="root"></div>
+<script>
+  var G = window.GDGlass, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    h(G.GlassSurface,{variant:'strong', style:{padding:16, display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(118px, 1fr))', gap:6}},
+      G.Icon.names.map(function(n){ return h('div',{key:n, style:{display:'flex', alignItems:'center', gap:8, padding:'6px 4px', fontSize:12, color:'var(--ink)'}},
+        h(G.Icon,{name:n, size:20}), h('span',{style:{overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}, n)); })));
+</script>
+</body>
+</html>

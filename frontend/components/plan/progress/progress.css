@@ -1,0 +1,55 @@
+/* FE-PLAN-04 (GAPS.md "## P23"): Stage 1 of the Plan page, built like Mission Control Processing (one strong glass card on the soft
+   `.gdg-scene`). Additive, tokens only; no design-system rule is overridden. */
+
+/* G-P23-2: the scene fills the content area and centres the card; it exists in Stage 1 only (FE-PLAN-04.AC1, FE-PLAN-02.AC10). */
+.plan-scene {
+  align-self: stretch;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-lg) var(--space-md);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+/* M1 (QA): `.plan-screen` is a grid that starts its rows at the top; in Stage 1 its one row takes all the height, so the scene fills the
+   content area and centres the card, as `.mc-scene` does in the flex column of Mission Control. Stages 0 and 2 keep the plan-gaps.css frame. */
+.plan-screen:has(> .plan-scene) {
+  grid-template-rows: minmax(0, 1fr);
+  align-content: stretch;
+}
+.plan-card {
+  width: 100%;
+  max-width: 40rem;
+  padding: var(--space-md);
+  display: grid;
+  gap: var(--space-sm);
+}
+.plan-card__title {
+  margin: 0;
+  color: var(--ink);
+}
+.plan-card__title:focus {
+  outline: 0 solid transparent;
+}
+.plan-card__visual {
+  display: grid;
+  gap: var(--space-sm);
+}
+.plan-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* FE-PLAN-04.AC6: under reduced motion the bar changes without animation (the spinner already slows down in the design system). */
+@media (prefers-reduced-motion: reduce) {
+  .plan-card .gdg-progress__fill {
+    transition: none;
+  }
+}

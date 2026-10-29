@@ -1,0 +1,9 @@
+rules:
+  - id: kit.files.mime-from-extension-guess
+    languages: [python]
+    severity: ERROR
+    message: >-
+      `mimetypes.guess_type` classifies a file by its name. The type of an
+      uploaded or received file is detected from its content, never from its
+      extension: a name is chosen by the sender and proves nothing.
+    pattern: mimetypes.guess_type(...)

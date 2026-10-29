@@ -1,0 +1,122 @@
+/* FE-SHELL-01, FE-SHELL-02, FE-DS-03 (GAPS.md P07, G-P07-1): the app frame. The design system gives the Sidebar and TopBar but no
+   page frame; this is the layout from tokens only: a Sidebar in a sticky column `space-sm` from the window edge (it does not float over the content, see G-P07-1),
+   the top bar on top of one content column. Additive: no design-system rule is overridden. */
+/* The header row's fixed height: a space-xl content line (fits the TopBar cluster and a SegmentedControl) plus the TopBar's own
+   space-sm padding above and below. Screens that size themselves to the window subtract it (files-gaps.css, mc-gaps.css). */
+.shell {
+  display: flex;
+  gap: var(--space-sm);
+  min-height: 100dvh;
+  padding: var(--space-sm);
+  box-sizing: border-box;
+  font-family: var(--font-sans);
+  color: var(--ink);
+}
+.shell__nav {
+  position: sticky;
+  z-index: 2; /* P15 (QA M3, same family as G-P09-1): above the scene panels, so the collapsed rail's tooltips are not covered */
+  top: var(--space-sm);
+  flex: none;
+  align-self: flex-start;
+  height: calc(100dvh - 2 * var(--space-sm));
+}
+.shell__col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.shell__main:focus {
+  outline: 0 solid transparent;
+} /* programmatic focus target only (after Reset demo); not a tab stop */
+.shell__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.shell__loading {
+  flex: 1;
+  display: grid;
+  place-items: center;
+}
+.shell__note {
+  color: var(--ink);
+  padding: var(--space-md);
+}
+
+/* Header row (one for every screen). Line 1 is space-xl high: the screen's tab bar (left slot `.shell__head`, filled by ShellHeader)
+   and the global cluster, both centred on its axis, at the same place on every page. A screen's tools join line 1 when it is wide
+   enough; otherwise they wrap, as one group, to a second line under the tabs and the row grows (the cluster stays on line 1).
+   A grid instead of the DS flex row, so the cluster keeps line 1 when the left slot grows; row-gap 0 so an empty row 2 adds nothing.
+   One line = the header row height, so content starts at the same place on every page. 
+   G-P09-1 (GAPS "## P07" cross-reference): the top bar's glass cluster is its own stacking context with `z-index: auto`, so any positioned
+   content later in the DOM (a `.gdg-scene`, a diagram canvas) paints over the project switcher and user menu lists. Lift the bar. */
+.shell__col > .gdg-topbar {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  min-height: calc(var(--space-xl) + 2 * var(--space-sm));
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: var(--space-xl) auto;
+  row-gap: 0;
+  align-items: center;
+}
+.shell__col > .gdg-topbar > .gdg-topbar__lead {
+  grid-row: 1 / span 2;
+  align-self: stretch;
+}
+.shell__col > .gdg-topbar > .gdg-topbar__cluster {
+  grid-column: 2;
+  grid-row: 1;
+}
+.shell__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-md);
+  min-width: 0;
+}
+/* Each line group is exactly one line high, so the tabs share the cluster's axis and a wrapped group lines up the same way. */
+.shell__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-md);
+  min-height: var(--space-xl);
+  min-width: 0;
+  max-width: 100%;
+}
+.shell__line--tools {
+  flex: 1 1 auto;
+}
+.shell__line > .gdg-seg {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+} /* a tab bar wider than the slot scrolls sideways */
+/* A labelled Select (Decisions "Domain") keeps its label beside the trigger here, so it fits one line. */
+.shell__head .gdg-select {
+  grid-auto-flow: column;
+  align-items: center;
+}
+/* Until the user and project list load: the cluster keeps its size but is not shown, focusable or announced (G-P07-6). */
+.shell__topbar--ph .gdg-topbar__cluster {
+  visibility: hidden;
+}
+
+/* Visually hidden page heading: the sidebar names the page, the h1 stays for screen readers and the document outline. */
+.shell-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

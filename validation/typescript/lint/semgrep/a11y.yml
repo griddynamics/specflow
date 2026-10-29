@@ -1,0 +1,195 @@
+# Accessibility structure that jsx-a11y does not cover: nested interactive controls, step and
+# process semantics, decorative glyphs, and colour as the only carrier of a value (WCAG 2.2,
+# WAI-ARIA 1.2).
+rules:
+  - id: a11y-control-inside-interactive-role
+    message: >-
+      This control is nested inside an element that claims the interactive role `$OUTER_ROLE`.
+      An element with that role IS a control, so this is a control inside a control: one tap
+      fires both, the hit targets overlap, the keyboard reaches an outer tab stop whose Enter
+      runs an action its label never named, and the accessibility tree is invalid (WCAG
+      nested-interactive). Make a second action a SIBLING of the outer control inside a
+      non-interactive container. A container that is meant to own controls takes a composite
+      role (group, radiogroup, listbox, toolbar, tablist, menu), not button or radio.
+    severity: ERROR
+    languages:
+      - typescript
+    paths:
+      exclude:
+        - '**/*.test.ts'
+        - '**/*.test.tsx'
+    patterns:
+      - pattern-inside: <$OUTER ... role="$OUTER_ROLE" ...>...</$OUTER>
+      - metavariable-regex:
+          metavariable: $OUTER_ROLE
+          regex: ^(button|link|checkbox|radio|switch|menuitem|menuitemcheckbox|menuitemradio|option|tab)$
+      # The outer element also matches its own `pattern-inside`. `$OUTER` and
+      # `$OUTER_ROLE` are bound here, so this removes that self-match and nothing
+      # else.
+      - pattern-not: <$OUTER ... role="$OUTER_ROLE" ...>...</$OUTER>
+      - pattern-either:
+          - pattern: <button ...>...</button>
+          - pattern: <a ... href=... ...>...</a>
+          - pattern: <$INNER ... onClick={$INNER_HANDLER} ...>...</$INNER>
+          - pattern: <$INNER ... onClick={$INNER_HANDLER} ... />
+
+  - id: a11y-control-inside-native-control
+    message: >-
+      A `<button>` or a link is wrapped around another control. A native control carries its
+      interactive role implicitly, so this is a control inside a control: the inner one cannot
+      be operated without also activating the outer one, the keyboard order offers two stops
+      for one action, and the accessibility tree is invalid (WCAG nested-interactive). Give
+      the two actions two sibling controls inside a non-interactive container.
+    severity: ERROR
+    languages:
+      - typescript
+    paths:
+      exclude:
+        - '**/*.test.ts'
+        - '**/*.test.tsx'
+    patterns:
+      - pattern-either:
+          - pattern: <button ...>...<$INNER ... onClick={$INNER_HANDLER} ...>...</$INNER>...</button>
+          - pattern: <button ...>...<$INNER ... onClick={$INNER_HANDLER} ... />...</button>
+          - pattern: <button ...>...<button ...>...</button>...</button>
+          - pattern: <a ... href=... ...>...<button ...>...</button>...</a>
+          - pattern: <a ... href=... ...>...<$INNER ... onClick={$INNER_HANDLER} ...>...</$INNER>...</a>
+      # A native control that ALSO spells an interactive role out is reported,
+      # once, by `control-inside-interactive-role` above. No defect is counted
+      # twice.
+      - pattern-not: <$OUTER ... role="$ANY_ROLE" ...>...</$OUTER>
+
+  - id: a11y-step-semantics-outside-list
+    message: >-
+      `aria-current="step"` is set on a `<$EL>`, not on an `<li>`. A step is a step of an
+      ordered process, and the process is an ordered list: the state is only meaningful to a
+      screen reader inside the `<ol>`/`<li>` structure that tells it how many steps there are
+      and which one this is. Render the steps as `<ol>` with one `<li>` per step and
+      `aria-current="step"` on the current one (a shared stepper component, if the project has
+      one).
+    severity: ERROR
+    languages:
+      - typescript
+    paths:
+      exclude:
+        - '**/*.test.ts'
+        - '**/*.test.tsx'
+    patterns:
+      - pattern-either:
+          - pattern: |
+              <$EL aria-current="step" ...>...</$EL>
+          - patterns:
+              - pattern: |
+                  <$EL aria-current={$V} ...>...</$EL>
+              - metavariable-regex:
+                  metavariable: $V
+                  regex: '(?s).*[''"]step[''"]'
+      - pattern-not: |
+          <li ...>...</li>
+
+  - id: a11y-process-indicator-not-a-list
+    message: >-
+      A step/stage sequence (`$SEQ`) is rendered into bare `<span>`/`<div>` elements. An
+      ordered process indicator is a list: `<ol>` with one `<li>` per step and
+      `aria-current="step"` on the current one, so a screen reader announces the position and
+      the count and a colour-blind reader still gets the ordinal. A flat run of styled spans
+      carries the progression in weight and colour alone.
+    severity: ERROR
+    languages:
+      - typescript
+    paths:
+      exclude:
+        - '**/*.test.ts'
+        - '**/*.test.tsx'
+    patterns:
+      - pattern-inside: |
+          $SEQ.map(...)
+      - pattern-either:
+          - pattern: |
+              <span ...>...</span>
+          - pattern: |
+              <div ...>...</div>
+      - pattern-not-inside: |
+          <li ...>...</li>
+      - metavariable-regex:
+          metavariable: $SEQ
+          regex: '(?i)^([a-z0-9_$]+\.)*[a-z0-9_$]*(stage|step|phase|milestone)[a-z0-9_$]*$'
+
+  - id: a11y-decorative-separator-not-hidden
+    message: >-
+      A decorative separator glyph is rendered in its own element without
+      `aria-hidden="true"`, so a screen reader reads it out between every pair of items. A
+      separator is presentation: mark the glyph `aria-hidden="true"`, and let `<ol>`/`<li>`
+      markup carry the structure it fakes. A glyph that carries meaning is a marker and is
+      drawn beside its text label, never instead of it.
+    severity: ERROR
+    languages:
+      - typescript
+    paths:
+      exclude:
+        - '**/*.test.ts'
+        - '**/*.test.tsx'
+    patterns:
+      - pattern-either:
+          - pattern: |
+              <$EL ...>›</$EL>
+          - pattern: |
+              <$EL ...>»</$EL>
+          - pattern: |
+              <$EL ...>▸</$EL>
+          - pattern: |
+              <$EL ...>▶</$EL>
+          - pattern: |
+              <$EL ...>→</$EL>
+          - pattern: |
+              <$EL ...>·</$EL>
+          - pattern: |
+              <$EL ...>•</$EL>
+          - pattern: |
+              <$EL ...>❯</$EL>
+          - pattern: |
+              <$EL ...>⋯</$EL>
+          - pattern: |
+              <$EL ...>…</$EL>
+          - pattern: |
+              <$EL ...>|</$EL>
+          - patterns:
+              - pattern: |
+                  <$EL ...>{$G}</$EL>
+              - metavariable-regex:
+                  metavariable: $G
+                  regex: '^[''"][›»▸▶→·•❯⋯…|]+[''"]$'
+      - pattern-not: |
+          <$EL aria-hidden="true" ...>...</$EL>
+      - pattern-not: |
+          <$EL aria-hidden ...>...</$EL>
+      - pattern-not: |
+          <$EL aria-hidden={true} ...>...</$EL>
+
+  - id: a11y-status-mapped-to-colour-alone
+    message: >-
+      The value `$KEY` is mapped straight to a colour token and to nothing else, which makes
+      colour the sole carrier of its meaning (WCAG 2.2 SC 1.4.1): a colour-blind reader, a
+      monochrome print and a screen reader all receive nothing. Map the value to a record
+      carrying its text label (and a glyph, if it has one) alongside the colour, or pass the
+      value to the component that owns that pairing.
+    severity: ERROR
+    languages:
+      - typescript
+    paths:
+      exclude:
+        - '**/*.test.ts'
+        - '**/*.test.tsx'
+    patterns:
+      # Property level, not object level: semgrep emits one finding per
+      # binding, so matching the whole object literal would stack every row of
+      # the table on the object's opening line. Matched as a bare property, each
+      # offending row reports at its own line.
+      - pattern: |
+          $KEY: $V
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: '^[''"]?[A-Z][A-Z0-9_]+[''"]?$'
+      - metavariable-regex:
+          metavariable: $V
+          regex: '^[''"]var\(--'

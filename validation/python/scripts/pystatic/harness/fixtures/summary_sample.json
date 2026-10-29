@@ -1,0 +1,26 @@
+[
+  {
+    "unit": "python",
+    "step": "ruff",
+    "exit": 0,
+    "status": "ok",
+    "duration_ms": 120,
+    "findings": 0
+  },
+  {
+    "unit": "python",
+    "step": "hygiene",
+    "exit": 1,
+    "status": "findings",
+    "duration_ms": 40,
+    "findings": 3
+  },
+  {
+    "unit": "frontend",
+    "workspace": "web",
+    "step": "prettier",
+    "exit": 0,
+    "duration_ms": 15,
+    "findings": 0
+  }
+]

@@ -1,0 +1,55 @@
+# The Python lint kit: the tools it runs and the settings of its own self-tests.
+# Versions are pinned to the exact releases the rules and self-tests were verified against.
+# `uv sync` in this folder installs the `lint` and `test` groups into `.venv/` here.
+[project]
+name = "python-lint-kit"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+# The checkers `run.sh` calls.
+lint = [
+    "ruff==0.16.7",
+    "mypy==2.3.1",
+    "pydantic==2.13.5",            # mypy.ini loads the `pydantic.mypy` plugin
+    "semgrep==1.177.0",
+    "import-linter==2.15",
+    "grimp==3.17",
+    "deptry==0.25.1",
+    "check-jsonschema==0.38.0",
+]
+# The kit's own self-tests.
+test = [
+    "pytest==9.1.1",
+    "pytest-randomly==5.0.0",
+    "pytest-timeout==2.4.0",
+    "pyyaml==6.0.3",
+    "types-pyyaml==6.0.12.20260906",
+]
+# The pytest plugins and coverage a target project's own test suite uses with the settings of
+# `pyproject.fragment.toml`. Add them to the target's test environment; the kit does not need them.
+target-test = [
+    "pytest==9.1.1",
+    "pytest-randomly==5.0.0",
+    "pytest-timeout==2.4.0",
+    "pytest-asyncio==1.4.0",
+    "pytest-cov==7.1.0",
+    "pytest-socket==0.8.1",
+    "pytest-xdist==3.8.0",
+    "coverage==7.16.0",
+]
+
+[tool.uv]
+package = false
+default-groups = ["lint", "test"]
+
+# The same strict pytest settings `pyproject.fragment.toml` gives a target project.
+[tool.pytest.ini_options]
+addopts = ["--strict-markers", "--strict-config", "-ra", "--import-mode=importlib", "-p", "randomly"]
+xfail_strict = true
+filterwarnings = ["error"]
+timeout = 120
+python_files = ["test_*.py"]
+testpaths = ["tests"]
+pythonpath = ["."]

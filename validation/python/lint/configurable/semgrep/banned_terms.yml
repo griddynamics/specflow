@@ -1,0 +1,22 @@
+# CONFIGURABLE RULE. Production code must not hard-code the names of one customer, brand,
+# data source or document. The terms are the adopter's catalogue: replace the alternation in
+# `pattern-regex` with the project's own terms (one regex, case-insensitive, `\b` word
+# boundaries), then mirror a few of them in `fixtures/banned_terms.py`.
+# The shipped terms are neutral examples. The rule scans `**/src/**`; change `paths:` to the
+# production tree of the project.
+rules:
+  - id: kit.configurable.no-banned-term
+    languages: [regex]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/**"
+      exclude:
+        - "**/fixtures/**"
+    message: >-
+      A customer, brand, supplier or catalogue-code string that the project keeps out of
+      production code is written into it. Such values are data (seeded rows, settings or
+      profiles), never source text. An example in a comment or a string uses a neutral value
+      of the same grammar.
+    pattern-regex: >-
+      (?i)(?:\b(?:acme|globex)\b|\bsku-\d{4}\b)

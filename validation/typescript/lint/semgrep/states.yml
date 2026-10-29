@@ -1,0 +1,151 @@
+# Loading and error states: an error never blanks a route, an error or loading surface is
+# announced, and severity is not a raw glyph.
+rules:
+  - id: states-route-layout-blanks-on-error
+    message: >-
+      A failed data request renders an inline, retryable error scoped to the failing panel and
+      never blanks the whole route. This component renders an <Outlet />, so it is a route
+      layout: an error-guarded early return that omits the <Outlet /> removes every child
+      route from the tree. Render the error beside an <Outlet /> that always mounts. Only the
+      route error boundary replaces a whole route, and only for a render failure.
+    severity: ERROR
+    languages:
+      - typescript
+    paths:
+      exclude:
+        - '**/*.test.tsx'
+    patterns:
+      # the enclosing component renders an <Outlet /> => it is a route layout
+      - pattern-either:
+          - pattern-inside: |
+              function $C(...) {
+                ...
+                return <... <Outlet ... /> ...>;
+                ...
+              }
+          - pattern-inside: |
+              const $C = (...) => {
+                ...
+                return <... <Outlet ... /> ...>;
+                ...
+              }
+      - pattern: |
+          if ($COND) { return $BLANK; }
+      # ... guarded by a failure condition (isError, errorX || errorY,
+      # unavailable, isUpstreamUnavailable, hasFailed, ...)
+      - metavariable-regex:
+          metavariable: $COND
+          regex: (?i).*(error|fail|unavailable|upstream).*
+      # ... and the branch it returns does not contain the <Outlet />
+      - pattern-not: |
+          if ($COND) { return <... <Outlet ... /> ...>; }
+
+  - id: states-error-text-without-alert-role
+    message: >-
+      An error or unavailability message rendered in a raw `<$TAG>` with no live-region role
+      is never announced. Render it through the project's error component, which owns the live
+      region and the retry control, or give the element (or a region enclosing it)
+      `role="alert"` (assertive, for an error) or `role="status"` (polite, for a warning).
+    severity: ERROR
+    languages:
+      - typescript
+    paths:
+      exclude:
+        - '**/*.test.tsx'
+    patterns:
+      - pattern: <$TAG ...>...{$MSG}...</$TAG>
+      # a raw host element, not a component that owns its own role
+      - metavariable-regex:
+          metavariable: $TAG
+          regex: ^[a-z][a-z0-9]*$
+      # the rendered expression is a failure message, not a count of failures,
+      # and is a leaf expression rather than a wrapper holding more JSX
+      - metavariable-regex:
+          metavariable: $MSG
+          regex: (?i)^(?!.*[<])(?!.*(count|length|total|percent|\brate\b)).*(\berr\b|error|unavailable|failed|failure).*$
+      - pattern-not: <$TAG role="alert" ...>...</$TAG>
+      - pattern-not: <$TAG role="status" ...>...</$TAG>
+      - pattern-not: <$TAG role={...} ...>...</$TAG>
+      # ... and no live region above it either. A live region announces its whole
+      # subtree, so text inside one is already announced; requiring the role on
+      # the leaf as well would force `role="alert"` onto an <h1> and cost the
+      # heading its own role. Only the two literal live-region roles are
+      # accepted here: `role={$EXPR}` as an *ancestor* pattern matches any role
+      # at all (`dialog`, `menu`), which would silence a genuine finding.
+      - pattern-not-inside: <$WRAP role="alert" ...>...</$WRAP>
+      - pattern-not-inside: <$WRAP role="status" ...>...</$WRAP>
+
+  - id: states-raw-status-glyph
+    message: >-
+      A raw glyph is used as a status indicator. A glyph has no accessible name, no design
+      token and no localisation: carry severity with a named icon from the project's icon set
+      inside a token-coloured element, next to a text label.
+    severity: ERROR
+    languages:
+      - typescript
+    paths:
+      exclude:
+        - '**/*.test.ts'
+        - '**/*.test.tsx'
+    pattern-regex: '[\x{26A0}\x{2757}\x{2755}\x{274C}\x{2716}\x{2717}\x{2718}\x{2705}\x{2714}\x{2713}\x{2611}\x{2612}\x{26D4}\x{1F6AB}\x{1F534}\x{1F7E0}\x{1F7E1}\x{1F7E2}]'
+
+  - id: states-loading-branch-missing-aria-busy
+    message: >-
+      A surface rendered while a request is in flight carries `aria-busy="true"` and drops it
+      when the request settles; without it a screen reader is told nothing is happening. Put
+      `aria-busy` on the element this branch renders, or render a spinner or skeleton
+      component that already carries it.
+    severity: ERROR
+    languages:
+      - typescript
+    paths:
+      exclude:
+        - '**/*.test.ts'
+        - '**/*.test.tsx'
+    patterns:
+      - pattern-either:
+          - pattern: $COND && <$EL ...>...</$EL>
+          - pattern: $COND && <$EL ... />
+      - pattern-not: $COND && <$EL aria-busy="..." ...>...</$EL>
+      - pattern-not: $COND && <$EL aria-busy={...} ...>...</$EL>
+      - pattern-not: $COND && <$EL aria-busy="..." ... />
+      - pattern-not: $COND && <$EL aria-busy={...} ... />
+      - metavariable-regex:
+          metavariable: $COND
+          regex: '^[^!]*([Ll]oading|[Pp]ending|[Bb]usy|[Ff]etching)[^!]*$'
+      - metavariable-regex:
+          metavariable: $EL
+          regex: '^(?!(Spinner|[A-Za-z]*Skeleton)$).*$'
+
+  - id: states-loading-return-missing-aria-busy
+    message: >-
+      A component that returns early while a request is in flight is a surface that is
+      waiting, and carries `aria-busy="true"` until it settles. Put `aria-busy` on the
+      returned element, or return a spinner or skeleton component that already carries it.
+    severity: ERROR
+    languages:
+      - typescript
+    paths:
+      exclude:
+        - '**/*.test.ts'
+        - '**/*.test.tsx'
+    patterns:
+      - pattern-either:
+          - pattern: |
+              if ($COND) { return <$EL ...>...</$EL>; }
+          - pattern: |
+              if ($COND) { return <$EL ... />; }
+      - pattern-not: |
+          if ($COND) { return <$EL aria-busy="..." ...>...</$EL>; }
+      - pattern-not: |
+          if ($COND) { return <$EL aria-busy={...} ...>...</$EL>; }
+      - pattern-not: |
+          if ($COND) { return <$EL aria-busy="..." ... />; }
+      - pattern-not: |
+          if ($COND) { return <$EL aria-busy={...} ... />; }
+      - metavariable-regex:
+          metavariable: $COND
+          regex: '^[^!]*([Ll]oading|[Pp]ending|[Bb]usy|[Ff]etching)[^!]*$'
+      - metavariable-regex:
+          metavariable: $EL
+          regex: '^(?!(Spinner|[A-Za-z]*Skeleton)$).*$'

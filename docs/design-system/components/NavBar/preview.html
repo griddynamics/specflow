@@ -1,0 +1,14 @@
+<!-- @dsCard group="Navigation" height=120 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>NavBar — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-scene" style="padding:24px 20px" id="root"></div>
+<script>
+  var G = window.GDGlass, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    h(G.NavBar,{links:[{label:'Consulting'},{label:'Engineering', current:true},{label:'Platforms'},{label:'Industries'},{label:'Insights'}],
+      action:h(G.Button,{variant:'primary', size:'sm'},"Let's talk")}));
+</script>
+</body>
+</html>

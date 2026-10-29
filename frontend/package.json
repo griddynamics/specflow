@@ -1,0 +1,43 @@
+{
+  "name": "frontend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "predev": "node scripts/check-env.mjs --load-dotenv --dev",
+    "dev": "next dev",
+    "build": "next build",
+    "prestart": "node scripts/check-env.mjs --load-dotenv",
+    "start": "next start",
+    "lint": "eslint",
+    "test": "node --test \"tests/unit/**/*.test.mjs\" \"tests/ui/**/*.test.mjs\"",
+    "test:oidc": "node --test \"tests/oidc/**/*.test.mjs\"",
+    "test:upload": "node --test \"tests/upload/**/*.test.mjs\"",
+    "e2e": "playwright test",
+    "test:production": "node --import tsx --test \"tests/production/**/*.test.ts\"",
+    "e2e:production": "playwright test -c playwright.production.config.ts",
+    "check:tokens": "node scripts/check-tokens.mjs"
+  },
+  "dependencies": {
+    "@phosphor-icons/react": "2.1.10",
+    "github-slugger": "2.0.0",
+    "jose": "6.2.12",
+    "next": "16.3.7",
+    "next-auth": "5.0.0-beta.32",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-markdown": "10.1.0",
+    "rehype-slug": "6.0.0",
+    "remark-gfm": "4.0.1",
+    "simple-icons": "16.34.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.7",
+    "tsx": "4.23.15",
+    "typescript": "^5"
+  }
+}

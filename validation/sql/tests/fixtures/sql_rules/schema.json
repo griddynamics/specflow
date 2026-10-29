@@ -1,0 +1,12 @@
+{
+  "tables": {
+    "customer_order": ["id", "customer_id", "status", "created_at"],
+    "app_account": ["id", "email", "disabled"],
+    "cache_entry": ["key", "payload", "expires_at"],
+    "password_reset": ["id", "account_id", "expires_at"],
+    "audit_log": ["id", "ts", "request_id", "payload"],
+    "login_event": ["id", "ts", "account_id"]
+  },
+  "hard_delete_allowlist": ["cache_entry", "password_reset"],
+  "append_only_tables": ["audit_log", "login_event"]
+}

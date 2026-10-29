@@ -1,0 +1,5 @@
+{
+  "terms": ["Contoso", "Fabrikam", "Northwind Traders"],
+  "patterns": ["\\bacme-\\d{4}\\b"],
+  "exclude": ["**/*.test.ts", "**/*.test.tsx", "**/*.test.mjs"]
+}

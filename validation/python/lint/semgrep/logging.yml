@@ -1,0 +1,43 @@
+rules:
+  - id: kit.logging.no-secret-kwarg-in-log-call
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/**"
+    message: >-
+      A log or bind call carries a `password`, `token`, `secret`,
+      `authorization` or `cookie` keyword argument. Cloud and session
+      credentials stay server-side and never reach a log record.
+    patterns:
+      - pattern-either:
+          - pattern: $LOGGER.$METHOD(..., password=$V, ...)
+          - pattern: $LOGGER.$METHOD(..., token=$V, ...)
+          - pattern: $LOGGER.$METHOD(..., secret=$V, ...)
+          - pattern: $LOGGER.$METHOD(..., authorization=$V, ...)
+          - pattern: $LOGGER.$METHOD(..., cookie=$V, ...)
+      - metavariable-regex:
+          metavariable: $METHOD
+          # Semgrep's import-based name resolution rewrites a plain call to an
+          # imported symbol (`PostgresContainer(..., password=...)`) into its
+          # qualified form, which then satisfies the `$LOGGER.$METHOD(...)` shape.
+          # Constraining `$METHOD` to the logger surface (plus `bind`/`new`)
+          # excludes such constructors without narrowing the real log calls.
+          regex: "^(?:debug|info|warning|warn|error|exception|critical|log|msg|bind|new)$"
+
+  - id: kit.logging.exception-text-exposed
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/api/errors.py"  # project: was **/src/errors.py
+    message: >-
+      `str(exc)` inside an error-handler body. Errors leave through the
+      envelope and expose no stack trace or provider message; this
+      invariant is scoped to the error-handler module itself, not every
+      exception variable named similarly across the service.
+    patterns:
+      - pattern: str($E)
+      - metavariable-regex:
+          metavariable: $E
+          regex: "^(?:exc|e|err|error|exception)$"

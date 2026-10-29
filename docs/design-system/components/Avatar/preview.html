@@ -1,0 +1,19 @@
+<!-- @dsCard group="Data" height=110 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Avatar — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-wash" style="padding:24px;min-height:110px;box-sizing:border-box;" id="root"></div>
+<script>
+var G = window.GDGlass, h = React.createElement;
+var PEOPLE = [
+  { id:'mk', name:'Sam Carter', role:'Product owner', email:'scarter@example.com' },
+  { id:'ak', name:'Alex Rivera', role:'Engineer', email:'arivera@example.com' },
+  { id:'nc', name:'Nina Walker', role:'Delivery manager', email:'nwalker@example.com' }];
+
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{display:'flex',gap:20,alignItems:'center'}},
+  h(G.Avatar,{name:'Sam Carter', size:'lg'}), h(G.Avatar,{name:'Alex Rivera', size:'md'}), h(G.Avatar,{name:'Nina Walker', size:'sm'}), h(G.Avatar,{name:'SpecBot', kind:'bot', size:'lg'}),
+  h(G.AvatarGroup,{people:[{name:'Sam Carter'},{name:'Alex Rivera'},{name:'Nina Walker'},{name:'Ola Nowak'},{name:'Jan Kowal'}], size:'md'})));
+</script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+# The kit's own reviewed suppressions: `config-scoping` run against this directory.
+
+[ruff.exclude]
+"pystatic/**/fixtures/**" = "deliberately invalid samples the checks' self-tests feed them"
+
+[mypy.exclude]
+"/fixtures/" = "deliberately invalid samples the checks' self-tests feed them"
+
+[mypy]
+ignore-missing-imports = ["pylint.*", "vulture", "vulture.*"]
+
+[ruff.global-ignore]
+UP040 = "PEP 695 `type` aliases are refused by length-limits (semgrep cannot parse them); TypeAliasType is the spelling"

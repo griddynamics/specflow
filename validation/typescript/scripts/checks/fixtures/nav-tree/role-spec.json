@@ -1,0 +1,30 @@
+{
+  "items": [
+    { "label": "Orders", "path": "/orders", "icon": "ShoppingCart" },
+    {
+      "label": "Catalog",
+      "group": true,
+      "icon": "BookOpen",
+      "children": [
+        { "label": "Products", "path": "/catalog/products", "icon": "Tag" },
+        { "label": "Suppliers", "path": "/catalog/suppliers", "icon": "BookOpen" }
+      ]
+    },
+    {
+      "label": "Administration",
+      "group": true,
+      "icon": "Settings",
+      "children": [
+        { "label": "Activity log", "path": "/activity", "icon": "ClipboardList" },
+        { "label": "Users", "path": "/administration/users", "icon": "Users" }
+      ]
+    }
+  ],
+  "restrictedRoutes": {
+    "/orders": false,
+    "/catalog/products": false,
+    "/catalog/suppliers": true,
+    "/activity": false,
+    "/administration/users": true
+  }
+}

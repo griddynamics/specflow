@@ -1,0 +1,70 @@
+# Purity rules for a deterministic core package. The default scope is `**/src/core/**`;
+# point `paths.include` at the package that must stay a pure function of its inputs.
+rules:
+  - id: kit.determinism.no-nondeterministic-source
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/core/**"
+    message: >-
+      The deterministic core reached the clock, a random source or an id
+      generator directly. Time, randomness and identity are injected as
+      arguments so the core stays a function of its inputs -- testable,
+      retried and reasoned about.
+    patterns:
+      - pattern-either:
+          - pattern: time.time(...)
+          - pattern: time.monotonic(...)
+          - pattern: time.perf_counter(...)
+          - pattern: datetime.now(...)
+          - pattern: datetime.utcnow(...)
+          - pattern: date.today(...)
+          - pattern: random.$FUNC(...)
+          - pattern: secrets.$FUNC(...)
+          - pattern: uuid.uuid4(...)
+          - pattern: uuid.uuid1(...)
+
+  - id: kit.determinism.no-environment-or-io
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/core/**"
+    message: >-
+      The deterministic core performed I/O or read the process environment.
+      The part that decides takes values and returns values -- no network, no
+      database, no file system, no ambient environment. `print(...)` is not
+      repeated here: ruff `T20` already reports every print statement.
+    patterns:
+      - pattern-either:
+          - pattern: os.environ.get(...)
+          - pattern: os.environ[...]
+          - pattern: os.getenv(...)
+          - pattern: open(...)
+
+  - id: kit.determinism.no-async-def
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/core/**"
+    message: >-
+      An `async def` inside the deterministic core, nested functions included.
+      The core is a synchronous function of its inputs; there is no
+      scheduling, awaited or not, anywhere inside it.
+    pattern: |
+      async def $F(...):
+          ...
+
+  - id: kit.determinism.no-await-expression
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/core/**"
+    message: >-
+      An `await` expression inside the deterministic core. The core never
+      suspends on I/O or another coroutine; every value it needs is an
+      argument.
+    pattern: await $X

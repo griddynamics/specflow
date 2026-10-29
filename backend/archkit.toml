@@ -1,0 +1,89 @@
+# archkit configuration for the backend API. Copy of the structure of
+# validation/python/arch/examples/shop/archkit.toml with the project's own values.
+# Every check section is required; an unknown section or key is a configuration error.
+# Run: `make validate-python-arch`. Paths are relative to this file's folder (backend/).
+
+[archkit]
+project_root = "."
+# src is the import root (top-level packages api, auth, db, ...); archkit_support holds the
+# zero-argument app factory.
+python_path = ["src", "."]
+app_factory = "archkit_support.factory:create_app"
+# project: graphiti_core (third party) declares class-based pydantic config; the track runs
+# with warnings as errors, so that one category is ignored.
+filterwarnings = ["ignore::pydantic.warnings.PydanticDeprecatedSince20"]
+
+# No `settings_class`: backend settings are several classes built by `load_settings`, and the
+# factory passes a literal mapping instead of reading the environment.
+[archkit.hermetic]
+env = {}
+
+[http]
+path_params = { pid = "00000000-0000-0000-0000-000000000000", sid = "00000000-0000-0000-0000-000000000000", did = "00000000-0000-0000-0000-000000000000" }
+default_path_param = "archkit-id-000"
+boom_path = "/api/v1/__archkit_boom"
+envelope_code = "error.code"
+envelope_message = "error.message"
+
+[error_codes]
+# (code, http) pairs of src/api/errors.py (ApiError factories, _HTTP_CODES, validation,
+# unhandled) and src/auth/errors.py (AuthError).
+codes = [
+    { code = "invalid_token", http = 401 },
+    { code = "email_not_verified", http = 403 },
+    { code = "email_invalid", http = 403 },
+    { code = "domain_not_allowed", http = 403 },
+    { code = "project_not_found", http = 404 },
+    { code = "document_not_found", http = 404 },
+    { code = "source_not_found", http = 404 },
+    { code = "not_found", http = 404 },
+    { code = "method_not_allowed", http = 405 },
+    { code = "batch_ended", http = 409 },
+    { code = "model_not_allowed", http = 422 },
+    { code = "validation_failed", http = 422 },
+    { code = "removal_unavailable", http = 503 },
+    { code = "database_unavailable", http = 503 },
+    { code = "internal_error", http = 500 },
+    { code = "http_error", http = 400 },
+]
+ignore_handlers = [
+    "starlette.requests:ClientDisconnect",
+    "fastapi.exceptions:WebSocketRequestValidationError",
+]
+probes = [
+    { name = "probe-1", class = "api.errors:ApiError", args = [404, "project_not_found", "The project does not exist."] },
+    { name = "probe-2", class = "auth.errors:AuthError", args = [401, "invalid_token", "The access token is invalid."], kwargs = { reason = "expired" } },
+    { name = "probe-3", class = "api.errors:ApiError", args = [404, "document_not_found", "The document does not exist."] },
+    { name = "probe-4", class = "api.errors:ApiError", args = [404, "source_not_found", "The source does not exist."] },
+    { name = "probe-5", class = "api.errors:ApiError", args = [409, "batch_ended", "The upload batch is closed."] },
+    { name = "probe-6", class = "api.errors:ApiError", args = [422, "model_not_allowed", "The requested model is not allowed."] },
+    { name = "probe-7", class = "api.errors:ApiError", args = [503, "removal_unavailable", "The source could not be removed. Try again."] },
+    { name = "probe-8", class = "api.errors:ApiError", args = [503, "database_unavailable", "The database is unavailable. Try again later."] },
+    { name = "probe-9", class = "auth.errors:AuthError", args = [403, "email_not_verified", "The email is not verified."], kwargs = { reason = "email_not_verified" } },
+    { name = "probe-10", class = "auth.errors:AuthError", args = [403, "email_invalid", "The email is invalid."], kwargs = { reason = "email_invalid" } },
+    { name = "probe-11", class = "auth.errors:AuthError", args = [403, "domain_not_allowed", "The email domain is not allowed."], kwargs = { reason = "domain_not_allowed" } },
+    { name = "probe-12", class = "starlette.exceptions:HTTPException", kwargs = { status_code = 404, detail = "missing" } },
+    { name = "probe-13", class = "starlette.exceptions:HTTPException", kwargs = { status_code = 400, detail = "bad" } },
+    { class = "fastapi.exceptions:RequestValidationError", kwargs = { errors = [] } },
+    { name = "probe-14", class = "starlette.exceptions:HTTPException", kwargs = { status_code = 405, detail = "not allowed" } },
+    { class = "builtins:RuntimeError", args = ["unexpected"] },
+]
+
+[error_exposure]
+unknown_path = "/api/v1/this-route-does-not-exist"
+method_not_allowed = "DELETE /api/v1/me"
+
+[request_id]
+header = "X-Request-Id"
+ok_path = "/healthz"
+unknown_path = "/api/v1/this-route-does-not-exist"
+method_not_allowed = "DELETE /api/v1/me"
+unauthenticated_path = "/api/v1/me"
+
+[route_contract]
+public_operations = ["GET /healthz", "GET /readyz"]
+create_operation_prefix = "create_"
+
+[openapi_snapshot]
+path = "contracts/openapi.json"
+regenerate = "cd backend && uv run --frozen --with-editable ../validation/python/arch python -m archkit export-openapi --config archkit.toml"

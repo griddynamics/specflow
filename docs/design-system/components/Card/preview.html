@@ -1,0 +1,18 @@
+<!-- @dsCard group="Layout" height=260 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Card — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-scene" style="padding:28px;display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start" id="root"></div>
+<script>
+  var G = window.GDGlass, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h(React.Fragment,null,
+    h(G.Card,{eyebrow:'Case study', title:'Pilot to production in 12 weeks', style:{width:300},
+      footer:h(React.Fragment,null,h(G.Tag,null,'Retail'),h(G.Tag,{tone:'accent'},'GenAI'))},
+      'Senior, co-located teams took a search use-case from prototype to live traffic.'),
+    h(G.Card,{variant:'strong', eyebrow:'Engagement', title:'Data platform modernisation', style:{width:300},
+      footer:h(G.Button,{variant:'primary', size:'sm', arrow:true},'Open')},
+      'Migration of 340 pipelines to a lakehouse with no downtime.')));
+</script>
+</body>
+</html>

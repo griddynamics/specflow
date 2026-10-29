@@ -1,0 +1,63 @@
+# archkit configuration of the example service. Every check section is required, so a green
+# `archkit run --config examples/shop/archkit.toml` exercises every check. Copy this file
+# to the adopting project's root as `archkit.toml` and replace the values; an unknown
+# section or key is a configuration error. Paths are relative to `project_root`.
+
+[archkit]
+project_root = "."
+python_path = ["src"]
+app_factory = "shop.main:create_app"
+# Extra `-W` warning filters for third-party noise the project cannot fix (narrowest message).
+filterwarnings = []
+
+[archkit.hermetic]
+settings_class = "shop.config:Settings"
+cache_clear = ["shop.config:get_settings"]
+env = { SECRET_KEY = "archkit-hermetic-value" }
+
+[http]
+path_params = { order_id = "o-unknown" }
+default_path_param = "test-id-000"
+boom_path = "/api/v1/__archkit_boom"
+envelope_code = "error.code"
+envelope_message = "error.message"
+
+[error_codes]
+codes = [
+    { code = "UNAUTHENTICATED", http = 401 },
+    { code = "FORBIDDEN", http = 403 },
+    { code = "NOT_FOUND", http = 404 },
+    { code = "METHOD_NOT_ALLOWED", http = 405 },
+    { code = "CONFLICT", http = 409 },
+    { code = "VALIDATION_ERROR", http = 422 },
+    { code = "INTERNAL_ERROR", http = 500 },
+]
+ignore_handlers = ["fastapi.exceptions:WebSocketRequestValidationError"]
+probes = [
+    { class = "shop.errors:NotFoundError", args = ["order", "o-1"] },
+    { class = "shop.errors:ConflictError", args = ["conflict"] },
+    { class = "shop.errors:ForbiddenError" },
+    { class = "shop.errors:UnauthenticatedError" },
+    { class = "fastapi.exceptions:RequestValidationError", kwargs = { errors = [] } },
+    { class = "fastapi:HTTPException", kwargs = { status_code = 405, detail = "not allowed" } },
+    { class = "builtins:RuntimeError", args = ["unexpected"] },
+]
+
+[error_exposure]
+unknown_path = "/api/v1/this-route-does-not-exist"
+method_not_allowed = "DELETE /api/v1/health"
+
+[request_id]
+header = "X-Request-Id"
+ok_path = "/api/v1/health"
+unknown_path = "/api/v1/this-route-does-not-exist"
+method_not_allowed = "DELETE /api/v1/health"
+unauthenticated_path = "/api/v1/users/me"
+
+[route_contract]
+public_operations = ["GET /api/v1/health", "POST /api/v1/auth/login"]
+create_operation_prefix = "create_"
+
+[openapi_snapshot]
+path = "contracts/openapi.json"
+regenerate = "archkit export-openapi --config examples/shop/archkit.toml"

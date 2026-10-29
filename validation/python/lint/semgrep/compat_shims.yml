@@ -1,0 +1,19 @@
+rules:
+  - id: kit.python.reexport-only-shim
+    languages: [python]
+    severity: ERROR
+    paths:
+      exclude: ["**/__init__.py"]
+    message: >-
+      This module only imports and re-exports other modules' definitions.
+      Consumers use the canonical definition owner, without an intermediate shim.
+    patterns:
+      - pattern-regex: >-
+          (?sx)\A\s*(?:(?:\#[^\n]*\n)\s*)*(?:(?:""".*?"""|'''.*?''')\s*)?
+          (?:from\s+__future__\s+import\s+[^\n]+\n\s*)?
+          (?:(?:\#[^\n]*\n)\s*)*
+          (?P<SHIM>(?:from\s+(?!__future__\b)[\w.]+\s+import\s+(?:\([^)]*\)|[^\n;]+)\s*
+          (?:(?:\#[^\n]*\n)\s*)*)+)
+          (?:__all__\s*=\s*(?:\[[^]]*\]|\([^)]*\))\s*)?\Z
+
+      - focus-metavariable: $SHIM

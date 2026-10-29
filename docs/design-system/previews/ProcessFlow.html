@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ProcessFlow — GD Liquid Glass</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<style>html,body{margin:0;background:var(--ground)}</style>
+<script>(function(){var t=new URLSearchParams(location.search).get('theme');document.documentElement.setAttribute('data-theme',t==='dark'?'dark':'light');})();</script>
+<script src="../components/lib/react.production.min.js"></script>
+<script src="../components/lib/react-dom.production.min.js"></script>
+<script src="../components/lib/jsx-runtime-shim.js"></script>
+<script src="../components/lib/xyflow-react.umd.js"></script>
+<script src="../components/bundle.js"></script>
+</head>
+<body>
+<div class="gdg-root" id="root"></div>
+<script>
+  var G = window.GDGlass, h = React.createElement;
+  var lanes = [{ id:'client', label:'Client', icon:'users' }, { id:'gd', label:'GD delivery', icon:'cube' }, { id:'plat', label:'Platform', icon:'cloud' }];
+  var steps = [
+    { id:'s', type:'start', title:'Use-case request', lane:'client', col:0 },
+    { id:'w', type:'step', title:'Discovery workshop', owner:'2 days', lane:'gd', col:1 },
+    { id:'d', type:'decision', title:'Fit for AI\u2011native?', lane:'gd', col:2 },
+    { id:'p', type:'step', title:'Build pilot', owner:'6 weeks', lane:'plat', col:3 },
+    { id:'a', type:'step', title:'Advisory roadmap', owner:'2 weeks', lane:'client', col:3 },
+    { id:'r', type:'subprocess', title:'Production rollout', owner:'Release train', lane:'plat', col:4 },
+    { id:'e', type:'end', title:'Value review', lane:'client', col:5 }];
+  var edges = [
+    { from:'s', to:'w' }, { from:'w', to:'d' },
+    { from:'d', to:'p', label:'Yes', fromSide:'bottom', toSide:'left' },
+    { from:'d', to:'a', label:'No', fromSide:'top', toSide:'left' },
+    { from:'p', to:'r' }, { from:'r', to:'e', fromSide:'top', toSide:'bottom' }, { from:'a', to:'e', kind:'async' }];
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    h(G.ProcessFlow,{ lanes:lanes, steps:steps, edges:edges, label:'AI-native engagement process from request to value review.' }));
+</script>
+</body>
+</html>

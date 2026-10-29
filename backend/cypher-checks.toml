@@ -1,0 +1,33 @@
+# Run configuration for validation/cypher (`cypher-checks all`), project = backend/.
+# Relative paths resolve against this file's directory (backend/).
+#
+# The Cypher of this project lives in `.cypher` files under src/graph/core/queries/ and
+# src/graph/build/queries/, loaded by `load_core_query` (graph.core.queries) and `load_build_query`
+# (graph.build.queries). A query whose relationship type or label is only known at run time is a
+# file with `__NAME__` tokens, filled by `render_query` (graph.core.query_files).
+#
+# The constraints and indexes are static DDL files under src/graph/core/ddl/ (one idempotent
+# statement per object), loaded by `load_core_ddl` (graph.core.queries) and applied by
+# `ensure_schema` (graph.core.schema). `parity` holds them to graph-schema.yaml `constraints`.
+
+schema = "graph-schema.yaml"
+root = "."
+queries = ["src/graph/core/queries", "src/graph/build/queries"]
+ddl = ["src/graph/core/ddl"]
+
+[live]
+# cyver and explain start one throwaway Neo4j container of the kit (Docker); they check every query
+# and DDL file against a real server. `cypher-checks all --static-only` skips them for one run.
+enabled = true
+
+[python]
+root = "src"
+loaders = { load_core_query = "graph/core/queries", load_build_query = "graph/build/queries", load_core_ddl = "graph/core/ddl" }
+query_dirs = ["graph/core/queries", "graph/build/queries", "graph/core/ddl"]
+# The Postgres side is judged by the sql track (SQL strings in src/db and src/temporal).
+exclude = ["db/**", "temporal/**", "api/**", "drive/**", "storage/**", "auth/**", "llm/**", "logger/**", "file_parsers/**", "agent_runtime/**"]
+
+[semgrep]
+enabled = true
+paths = ["src"]
+rules = "../validation/cypher/semgrep/neo4j.yml"

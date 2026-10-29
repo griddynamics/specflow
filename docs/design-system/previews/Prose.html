@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prose — GD Liquid Glass</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<style>html,body{margin:0;background:var(--ground)}</style>
+<script>(function(){var t=new URLSearchParams(location.search).get('theme');document.documentElement.setAttribute('data-theme',t==='dark'?'dark':'light');})();</script>
+<script src="../components/lib/react.production.min.js"></script>
+<script src="../components/lib/react-dom.production.min.js"></script>
+<script src="../components/lib/jsx-runtime-shim.js"></script>
+<script src="../components/lib/xyflow-react.umd.js"></script>
+<script src="../components/bundle.js"></script>
+</head>
+<body>
+<div class="gdg-root" style="padding:0;min-height:620px;box-sizing:border-box;" id="root"></div>
+<script>
+var G = window.GDGlass, h = React.createElement;
+var PEOPLE = [
+  { id:'mk', name:'Sam Carter', role:'Product owner', email:'scarter@example.com' },
+  { id:'ak', name:'Alex Rivera', role:'Engineer', email:'arivera@example.com' },
+  { id:'nc', name:'Nina Walker', role:'Delivery manager', email:'nwalker@example.com' }];
+
+ReactDOM.createRoot(document.getElementById('root')).render(h(G.Prose,{paper:true, html:"<h1>Access control</h1><p>Atlas serves two audiences: <strong>internal teams</strong> at the client and <strong>external users</strong> invited from partner organisations.</p><h2>External users</h2><p>Guests sign in through the client's identity provider. <mark>Guests can read published specs and comment, but cannot see cost estimates or edit content.</mark> Access expires after 90 days unless renewed.</p><h3>Roles</h3><table><thead><tr><th>Role</th><th>Read</th><th>Comment</th><th>Edit</th></tr></thead><tbody><tr><td>Owner</td><td>Yes</td><td>Yes</td><td>Yes</td></tr><tr><td>Contributor</td><td>Yes</td><td>Yes</td><td>Yes</td></tr><tr><td>Guest</td><td>Yes</td><td>Yes</td><td>No</td></tr></tbody></table><blockquote>Open question: should guests see other guests' comments?</blockquote><ul><li>SSO via <code>OIDC</code></li><li>Audit log for every permission change</li></ul>"}));
+</script>
+</body>
+</html>

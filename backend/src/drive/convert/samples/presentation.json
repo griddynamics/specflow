@@ -1,0 +1,635 @@
+{
+  "presentationId": "pres-sample-0001",
+  "title": "Atlas Quarterly Review",
+  "pageSize": {},
+  "slides": [
+    {
+      "objectId": "s1",
+      "pageElements": [
+        {
+          "objectId": "s1-t",
+          "shape": {
+            "shapeType": "TEXT_BOX",
+            "text": {
+              "textElements": [
+                {
+                  "paragraphMarker": {
+                    "style": {}
+                  },
+                  "startIndex": 0
+                },
+                {
+                  "startIndex": 0,
+                  "endIndex": 22,
+                  "textRun": {
+                    "content": "Atlas Quarterly Review",
+                    "style": {}
+                  }
+                },
+                {
+                  "startIndex": 22,
+                  "endIndex": 23,
+                  "textRun": {
+                    "content": "\n",
+                    "style": {}
+                  }
+                }
+              ]
+            },
+            "placeholder": {
+              "type": "CENTERED_TITLE"
+            }
+          }
+        },
+        {
+          "objectId": "s1-b",
+          "shape": {
+            "shapeType": "TEXT_BOX",
+            "text": {
+              "textElements": [
+                {
+                  "paragraphMarker": {
+                    "style": {}
+                  },
+                  "startIndex": 0
+                },
+                {
+                  "startIndex": 0,
+                  "endIndex": 24,
+                  "textRun": {
+                    "content": "Fictional deck for tests",
+                    "style": {}
+                  }
+                },
+                {
+                  "startIndex": 24,
+                  "endIndex": 25,
+                  "textRun": {
+                    "content": "\n",
+                    "style": {}
+                  }
+                }
+              ]
+            },
+            "placeholder": {
+              "type": "SUBTITLE"
+            }
+          }
+        }
+      ],
+      "slideProperties": {
+        "layoutObjectId": "layout-1",
+        "masterObjectId": "master-1",
+        "notesPage": {
+          "objectId": "s1-notes",
+          "pageType": "NOTES",
+          "pageElements": [
+            {
+              "objectId": "s1-notes-img",
+              "shape": {
+                "shapeType": "SLIDE_IMAGE",
+                "placeholder": {
+                  "type": "SLIDE_IMAGE"
+                }
+              }
+            },
+            {
+              "objectId": "s1-notes-body",
+              "shape": {
+                "shapeType": "TEXT_BOX",
+                "placeholder": {
+                  "type": "BODY"
+                },
+                "text": {
+                  "textElements": [
+                    {
+                      "paragraphMarker": {
+                        "style": {}
+                      },
+                      "startIndex": 0
+                    },
+                    {
+                      "startIndex": 0,
+                      "endIndex": 46,
+                      "textRun": {
+                        "content": "Welcome everyone. Keep this under two minutes.",
+                        "style": {}
+                      }
+                    },
+                    {
+                      "startIndex": 46,
+                      "endIndex": 47,
+                      "textRun": {
+                        "content": "\n",
+                        "style": {}
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "notesProperties": {
+            "speakerNotesObjectId": "s1-notes-body"
+          }
+        }
+      }
+    },
+    {
+      "objectId": "s2",
+      "pageElements": [
+        {
+          "objectId": "s2-t",
+          "shape": {
+            "shapeType": "TEXT_BOX",
+            "text": {
+              "textElements": [
+                {
+                  "paragraphMarker": {
+                    "style": {}
+                  },
+                  "startIndex": 0
+                },
+                {
+                  "startIndex": 0,
+                  "endIndex": 10,
+                  "textRun": {
+                    "content": "Highlights",
+                    "style": {}
+                  }
+                },
+                {
+                  "startIndex": 10,
+                  "endIndex": 11,
+                  "textRun": {
+                    "content": "\n",
+                    "style": {}
+                  }
+                }
+              ]
+            },
+            "placeholder": {
+              "type": "TITLE"
+            }
+          }
+        },
+        {
+          "objectId": "s2-b",
+          "shape": {
+            "shapeType": "TEXT_BOX",
+            "text": {
+              "textElements": [
+                {
+                  "paragraphMarker": {
+                    "style": {},
+                    "bullet": {
+                      "listId": "l1",
+                      "nestingLevel": 0,
+                      "glyph": "●"
+                    }
+                  },
+                  "startIndex": 0
+                },
+                {
+                  "startIndex": 0,
+                  "endIndex": 16,
+                  "textRun": {
+                    "content": "Latency down 20%",
+                    "style": {}
+                  }
+                },
+                {
+                  "startIndex": 16,
+                  "endIndex": 17,
+                  "textRun": {
+                    "content": "\n",
+                    "style": {}
+                  }
+                },
+                {
+                  "paragraphMarker": {
+                    "style": {},
+                    "bullet": {
+                      "listId": "l1",
+                      "nestingLevel": 1,
+                      "glyph": "●"
+                    }
+                  },
+                  "startIndex": 17
+                },
+                {
+                  "startIndex": 17,
+                  "endIndex": 34,
+                  "textRun": {
+                    "content": "Cache layer added",
+                    "style": {}
+                  }
+                },
+                {
+                  "startIndex": 34,
+                  "endIndex": 35,
+                  "textRun": {
+                    "content": "\n",
+                    "style": {}
+                  }
+                },
+                {
+                  "paragraphMarker": {
+                    "style": {},
+                    "bullet": {
+                      "listId": "l1",
+                      "nestingLevel": 0,
+                      "glyph": "●"
+                    }
+                  },
+                  "startIndex": 35
+                },
+                {
+                  "startIndex": 35,
+                  "endIndex": 39,
+                  "textRun": {
+                    "content": "See ",
+                    "style": {}
+                  }
+                },
+                {
+                  "startIndex": 39,
+                  "endIndex": 48,
+                  "textRun": {
+                    "content": "dashboard",
+                    "style": {
+                      "link": {
+                        "url": "https://example.com/dash"
+                      }
+                    }
+                  }
+                },
+                {
+                  "startIndex": 48,
+                  "endIndex": 49,
+                  "textRun": {
+                    "content": "\n",
+                    "style": {}
+                  }
+                }
+              ]
+            },
+            "placeholder": {
+              "type": "BODY"
+            }
+          }
+        },
+        {
+          "objectId": "s2-img",
+          "image": {
+            "imageProperties": {}
+          }
+        }
+      ],
+      "slideProperties": {
+        "layoutObjectId": "layout-1",
+        "masterObjectId": "master-1",
+        "notesPage": {
+          "objectId": "s2-notes",
+          "pageType": "NOTES",
+          "pageElements": [
+            {
+              "objectId": "s2-notes-img",
+              "shape": {
+                "shapeType": "SLIDE_IMAGE",
+                "placeholder": {
+                  "type": "SLIDE_IMAGE"
+                }
+              }
+            },
+            {
+              "objectId": "s2-notes-body",
+              "shape": {
+                "shapeType": "TEXT_BOX",
+                "placeholder": {
+                  "type": "BODY"
+                },
+                "text": {
+                  "textElements": [
+                    {
+                      "paragraphMarker": {
+                        "style": {}
+                      },
+                      "startIndex": 0
+                    },
+                    {
+                      "startIndex": 0,
+                      "endIndex": 26,
+                      "textRun": {
+                        "content": "Mention the cache rollout.",
+                        "style": {}
+                      }
+                    },
+                    {
+                      "startIndex": 26,
+                      "endIndex": 27,
+                      "textRun": {
+                        "content": "\n",
+                        "style": {}
+                      }
+                    },
+                    {
+                      "paragraphMarker": {
+                        "style": {}
+                      },
+                      "startIndex": 27
+                    },
+                    {
+                      "startIndex": 27,
+                      "endIndex": 45,
+                      "textRun": {
+                        "content": "Ask for questions.",
+                        "style": {}
+                      }
+                    },
+                    {
+                      "startIndex": 45,
+                      "endIndex": 46,
+                      "textRun": {
+                        "content": "\n",
+                        "style": {}
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "notesProperties": {
+            "speakerNotesObjectId": "s2-notes-body"
+          }
+        }
+      }
+    },
+    {
+      "objectId": "s3",
+      "pageElements": [
+        {
+          "objectId": "s3-t",
+          "shape": {
+            "shapeType": "TEXT_BOX",
+            "text": {
+              "textElements": [
+                {
+                  "paragraphMarker": {
+                    "style": {}
+                  },
+                  "startIndex": 0
+                },
+                {
+                  "startIndex": 0,
+                  "endIndex": 7,
+                  "textRun": {
+                    "content": "Numbers",
+                    "style": {}
+                  }
+                },
+                {
+                  "startIndex": 7,
+                  "endIndex": 8,
+                  "textRun": {
+                    "content": "\n",
+                    "style": {}
+                  }
+                }
+              ]
+            },
+            "placeholder": {
+              "type": "TITLE"
+            }
+          }
+        },
+        {
+          "objectId": "s3-tb",
+          "table": {
+            "rows": 3,
+            "columns": 2,
+            "tableRows": [
+              {
+                "tableCells": [
+                  {
+                    "location": {
+                      "rowIndex": 0,
+                      "columnIndex": 0
+                    },
+                    "text": {
+                      "textElements": [
+                        {
+                          "paragraphMarker": {
+                            "style": {}
+                          },
+                          "startIndex": 0
+                        },
+                        {
+                          "startIndex": 0,
+                          "endIndex": 6,
+                          "textRun": {
+                            "content": "Region",
+                            "style": {}
+                          }
+                        },
+                        {
+                          "startIndex": 6,
+                          "endIndex": 7,
+                          "textRun": {
+                            "content": "\n",
+                            "style": {}
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "location": {
+                      "rowIndex": 0,
+                      "columnIndex": 1
+                    },
+                    "text": {
+                      "textElements": [
+                        {
+                          "paragraphMarker": {
+                            "style": {}
+                          },
+                          "startIndex": 0
+                        },
+                        {
+                          "startIndex": 0,
+                          "endIndex": 5,
+                          "textRun": {
+                            "content": "Users",
+                            "style": {}
+                          }
+                        },
+                        {
+                          "startIndex": 5,
+                          "endIndex": 6,
+                          "textRun": {
+                            "content": "\n",
+                            "style": {}
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "tableCells": [
+                  {
+                    "location": {
+                      "rowIndex": 1,
+                      "columnIndex": 0
+                    },
+                    "text": {
+                      "textElements": [
+                        {
+                          "paragraphMarker": {
+                            "style": {}
+                          },
+                          "startIndex": 0
+                        },
+                        {
+                          "startIndex": 0,
+                          "endIndex": 2,
+                          "textRun": {
+                            "content": "EU",
+                            "style": {}
+                          }
+                        },
+                        {
+                          "startIndex": 2,
+                          "endIndex": 3,
+                          "textRun": {
+                            "content": "\n",
+                            "style": {}
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "location": {
+                      "rowIndex": 1,
+                      "columnIndex": 1
+                    },
+                    "text": {
+                      "textElements": [
+                        {
+                          "paragraphMarker": {
+                            "style": {}
+                          },
+                          "startIndex": 0
+                        },
+                        {
+                          "startIndex": 0,
+                          "endIndex": 3,
+                          "textRun": {
+                            "content": "120",
+                            "style": {}
+                          }
+                        },
+                        {
+                          "startIndex": 3,
+                          "endIndex": 4,
+                          "textRun": {
+                            "content": "\n",
+                            "style": {}
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "tableCells": [
+                  {
+                    "location": {
+                      "rowIndex": 2,
+                      "columnIndex": 0
+                    },
+                    "text": {
+                      "textElements": [
+                        {
+                          "paragraphMarker": {
+                            "style": {}
+                          },
+                          "startIndex": 0
+                        },
+                        {
+                          "startIndex": 0,
+                          "endIndex": 2,
+                          "textRun": {
+                            "content": "US",
+                            "style": {}
+                          }
+                        },
+                        {
+                          "startIndex": 2,
+                          "endIndex": 3,
+                          "textRun": {
+                            "content": "\n",
+                            "style": {}
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "location": {
+                      "rowIndex": 2,
+                      "columnIndex": 1
+                    },
+                    "text": {
+                      "textElements": [
+                        {
+                          "paragraphMarker": {
+                            "style": {}
+                          },
+                          "startIndex": 0
+                        },
+                        {
+                          "startIndex": 0,
+                          "endIndex": 3,
+                          "textRun": {
+                            "content": "340",
+                            "style": {}
+                          }
+                        },
+                        {
+                          "startIndex": 3,
+                          "endIndex": 4,
+                          "textRun": {
+                            "content": "\n",
+                            "style": {}
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "slideProperties": {
+        "layoutObjectId": "layout-1",
+        "masterObjectId": "master-1",
+        "notesPage": {
+          "objectId": "s3-notes",
+          "pageType": "NOTES",
+          "pageElements": [],
+          "notesProperties": {
+            "speakerNotesObjectId": "s3-notes-body"
+          }
+        }
+      }
+    }
+  ]
+}

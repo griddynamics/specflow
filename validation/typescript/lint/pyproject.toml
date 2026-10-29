@@ -1,0 +1,9 @@
+[project]
+name = "typescript-lint-kit-semgrep"
+version = "1.0.0"
+description = "Pins the semgrep the TypeScript lint kit runs (run.mjs, selftest:semgrep)."
+requires-python = ">=3.12"
+dependencies = ["semgrep==1.177.0"]
+
+[tool.uv]
+package = false

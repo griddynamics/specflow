@@ -1,0 +1,12 @@
+{
+  // Strict base for a TypeScript package whose declarations other packages consume: every exported
+  // declaration states its type (`isolatedDeclarations`), so its `.d.ts` is emitted per file
+  // without type inference across files. A package's tsconfig extends it and adds `include`.
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ESNext"],
+    "declaration": true,
+    "declarationMap": true,
+    "isolatedDeclarations": true
+  }
+}

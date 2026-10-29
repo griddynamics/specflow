@@ -1,0 +1,31 @@
+# The reviewed table `config-scoping` judges a project's pyproject.toml against.
+# Copy it to `<root>/reviewed-suppressions.toml` (or pass `--reviewed PATH`). Every
+# suppression the project's config holds needs an entry here, each with its reason; an
+# entry the config no longer holds is reported as stale, so the table only shrinks.
+
+# `[tool.ruff.lint] ignore` / `extend-ignore` (and the legacy `[tool.ruff]` spelling).
+[ruff.global-ignore]
+COM812 = "formatter conflict: ruff format already owns trailing-comma style"
+ISC001 = "formatter conflict: ruff format already owns string-concat style"
+
+# `[tool.ruff.lint.per-file-ignores]` / `extend-per-file-ignores`: glob -> codes.
+[ruff.per-file-ignores]
+"tests/**" = ["S101", "PLR2004"]
+
+# `[tool.ruff] exclude` / `extend-exclude`: whole-path exclusions.
+[ruff.exclude]
+"tests/fixtures/**" = "deliberately invalid samples for rule self-tests"
+
+# `[tool.mypy] exclude`.
+[mypy.exclude]
+"^tests/fixtures/" = "deliberately invalid samples for rule self-tests"
+
+[mypy]
+# `disable_error_code` anywhere in `[tool.mypy]` or an override.
+disable-error-code = []
+# Modules of overrides that set `ignore_missing_imports = true`.
+ignore-missing-imports = []
+
+[pytest]
+# `[tool.pytest.ini_options] filterwarnings` entries starting with `ignore:`.
+filterwarnings = []

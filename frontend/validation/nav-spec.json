@@ -1,0 +1,18 @@
+{
+  "variable": "SECTIONS",
+  "fields": {
+    "key": "value",
+    "path": "path",
+    "icon": "icon",
+    "exact": "exact",
+    "children": "children",
+    "restricted": "restricted"
+  },
+  "items": [
+    { "label": "Mission Control", "key": "missionControl", "icon": "squares-four" },
+    { "label": "Decisions", "key": "decisions", "icon": "list-checks" },
+    { "label": "Plan", "key": "plan", "icon": "kanban" },
+    { "label": "SpecBot", "key": "specbot", "icon": "sparkle" },
+    { "label": "Connections", "key": "connections", "icon": "plug" }
+  ]
+}

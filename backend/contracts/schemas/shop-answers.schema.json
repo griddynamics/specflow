@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://specflow.local/contracts/schemas/shop-answers.schema.json",
+  "title": "Hand-written model answers of one shop snapshot",
+  "description": "tests/fixtures/graph/shop/answers/<snapshot>.yaml, read by graph_support.ShopAnswers. Fragments are named by handles; every other section answers one kind of prompt by what the request is about.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["snapshot", "fragments"],
+  "properties": {
+    "snapshot": { "type": "integer", "minimum": 1 },
+    "options": {
+      "description": "BuildOptions the windows and units were written for; graph.build.options.BuildOptions validates the full model.",
+      "type": "object",
+      "properties": {
+        "fragment_tokens": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "min": { "type": "integer", "minimum": 1 },
+            "target": { "type": "integer", "minimum": 1 },
+            "max": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "max_node_windows": { "type": "integer", "minimum": 1 },
+        "unit_tokens": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "fragments": {
+      "description": "Handle to [breadcrumb, start of the first body line, occurrence (default 1)].",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "$ref": "#/$defs/handle" },
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 3,
+        "prefixItems": [
+          { "type": "string", "minLength": 1 },
+          { "type": "string" },
+          { "type": "integer", "minimum": 1 }
+        ],
+        "items": false
+      }
+    },
+    "nodes": {
+      "description": "Per node-extraction window: the entities, or the LLMError reason the call fails with.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["window"],
+        "properties": {
+          "window": { "$ref": "#/$defs/handles" },
+          "entities": {
+            "type": "array",
+            "items": {
+              "description": "[name, label, [episode handles]]; the handles may be left out for a one-fragment window.",
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 3,
+              "prefixItems": [
+                { "type": "string", "minLength": 1 },
+                { "$ref": "#/$defs/label" },
+                { "$ref": "#/$defs/handles" }
+              ],
+              "items": false
+            }
+          },
+          "error": { "type": "string", "pattern": "^[a-z][a-z_]*$" }
+        },
+        "oneOf": [{ "required": ["entities"] }, { "required": ["error"] }]
+      }
+    },
+    "edges": {
+      "description": "Per unit: the facts as [source, RELATION, target, fact, [episode handles]].",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["unit"],
+        "properties": {
+          "unit": { "$ref": "#/$defs/handles" },
+          "facts": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "minItems": 5,
+              "maxItems": 5,
+              "prefixItems": [
+                { "type": "string", "minLength": 1 },
+                { "type": "string", "pattern": "^[A-Z][A-Z_]*$" },
+                { "type": "string", "minLength": 1 },
+                { "type": "string", "minLength": 1 },
+                { "$ref": "#/$defs/handles" }
+              ],
+              "items": false
+            }
+          }
+        }
+      }
+    },
+    "attributes": {
+      "description": "Attribute values by node name; unlisted attributes are null.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
+        "additionalProperties": { "type": ["string", "null"] }
+      }
+    },
+    "hub_catalog": {
+      "description": "Per batch (its document titles): the hubs as [name, label].",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["documents", "hubs"],
+        "properties": {
+          "documents": { "$ref": "#/$defs/names" },
+          "hubs": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "prefixItems": [{ "type": "string", "minLength": 1 }, { "$ref": "#/$defs/label" }],
+              "items": false
+            }
+          }
+        }
+      }
+    },
+    "consolidation": {
+      "description": "Per block (the set of hub names): groups of names with the merged label.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["block", "groups"],
+        "properties": {
+          "block": { "$ref": "#/$defs/names" },
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["names", "label"],
+              "properties": {
+                "names": { "$ref": "#/$defs/names" },
+                "label": { "$ref": "#/$defs/label" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "dedup": {
+      "description": "Per name pair: the `same` verdict.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["pair", "same"],
+        "properties": {
+          "pair": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 2,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "same": { "type": "boolean" }
+        }
+      }
+    },
+    "synonyms": {
+      "description": "Groups of embedding texts sharing one vector.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/names" }
+    },
+    "related": {
+      "description": "Nearness the build relies on: the anchor text and the fragments and texts at `cosine` to it.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["anchor", "cosine"],
+        "properties": {
+          "anchor": { "type": "string", "minLength": 1 },
+          "cosine": { "type": "number", "minimum": -1, "maximum": 1 },
+          "fragments": { "$ref": "#/$defs/handles" },
+          "texts": { "$ref": "#/$defs/names" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "handle": { "type": "string", "minLength": 1 },
+    "handles": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/handle" }
+    },
+    "label": { "type": "string", "pattern": "^[A-Z][A-Za-z]*$" },
+    "names": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

@@ -1,0 +1,63 @@
+/* FE-DS-03, FE-DEC-01..04 (GAPS.md "## P12"): layout of the Decisions screen and the decision modal. The design system has the filter
+   row, DecisionList, Modal, DocLinks and QuestionBlock but no screen layout or modal section structure around them. Additive,
+   tokens only; no design-system rule is overridden. */
+
+/* G-P12-1: the screen is a column: list, live count (the Severity tab bar and the filter row are in the shell's header row; the h1 is hidden). */
+.dec-screen {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: var(--space-md);
+  font-family: var(--font-sans);
+  color: var(--ink);
+}
+/* D20 (G-GATE-1): before Mission Control is Ready the one child is the gate scene; its row takes all the height, so the scene fills the content area. */
+.dec-screen:has(> .gate-scene) {
+  grid-template-rows: minmax(0, 1fr);
+  align-content: stretch;
+}
+.dec-count {
+  margin: 0;
+  color: var(--ink-2);
+} /* with class body-sm; the live region (aria-live=polite) */
+.dec-skel {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+/* G-P12-2: the modal body has three titled sections (Context, Sources, Questions) and a meta row (severity, domain, assignee, status). */
+.dec-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+}
+.dec-meta__who {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  color: var(--ink-2);
+} /* with class body-sm */
+.dec-sec {
+  display: grid;
+  gap: var(--space-xs);
+  align-content: start;
+}
+.dec-sec__title {
+  margin: 0;
+  color: var(--ink-2);
+  text-transform: uppercase;
+} /* with class eyebrow */
+.dec-context p {
+  margin: 0;
+}
+.dec-context p + p {
+  margin-top: var(--space-xs);
+}
+
+/* G-P12-3: one-line hint under a question whose comment has no answer yet (the comment is only sent with an answer). */
+.dec-hint {
+  margin: 0;
+  color: var(--ink-2);
+}

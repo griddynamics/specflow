@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://specflow.local/contracts/schemas/meta/json-schema-2020-12.schema.json",
+  "title": "JSON Schema draft 2020-12 meta-schema",
+  "description": "Every schema under contracts/schemas/ is a valid draft 2020-12 schema. The meta-schema itself is resolved from the validator's bundled copy, never fetched.",
+  "$ref": "https://json-schema.org/draft/2020-12/schema"
+}

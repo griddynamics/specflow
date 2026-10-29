@@ -1,0 +1,7 @@
+{
+  "endpoints": [
+    { "id": "orders.list", "method": "GET", "path": "/orders" },
+    { "id": "orders.get", "method": "GET", "path": "/orders/{id}" },
+    { "id": "orders.create", "method": "POST", "path": "/orders" }
+  ]
+}

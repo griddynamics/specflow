@@ -1,0 +1,896 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://specflow.local/contracts/schemas/spec-ontology.schema.json",
+  "$defs": {
+    "AttributeDef": {
+      "additionalProperties": false,
+      "description": "One attribute; which of the optional fields apply depends on ``type`` (checked by the loader).",
+      "properties": {
+        "type": {
+          "enum": [
+            "text",
+            "enum",
+            "ref"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "max_chars": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Chars"
+        },
+        "values": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Values"
+        },
+        "aliases": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Aliases",
+          "type": "object"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "store": {
+          "default": true,
+          "title": "Store",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "AttributeDef",
+      "type": "object"
+    },
+    "CorpusDef": {
+      "additionalProperties": false,
+      "properties": {
+        "framing": {
+          "default": "",
+          "title": "Framing",
+          "type": "string"
+        },
+        "exclude": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Exclude",
+          "type": "array"
+        }
+      },
+      "title": "CorpusDef",
+      "type": "object"
+    },
+    "EdgeTypeDef": {
+      "additionalProperties": false,
+      "properties": {
+        "origin": {
+          "enum": [
+            "extracted",
+            "analysis",
+            "human",
+            "planner"
+          ],
+          "title": "Origin",
+          "type": "string"
+        },
+        "tier": {
+          "enum": [
+            "context",
+            "spec",
+            "governance",
+            "plan"
+          ],
+          "title": "Tier",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "pairs": {
+          "items": {
+            "$ref": "#/$defs/PairDef"
+          },
+          "minItems": 1,
+          "title": "Pairs",
+          "type": "array"
+        },
+        "symmetric": {
+          "default": false,
+          "title": "Symmetric",
+          "type": "boolean"
+        },
+        "id_references": {
+          "default": false,
+          "title": "Id References",
+          "type": "boolean"
+        },
+        "cues": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Cues",
+          "type": "array"
+        },
+        "derive": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Derive",
+          "type": "array"
+        }
+      },
+      "required": [
+        "origin",
+        "tier",
+        "pairs"
+      ],
+      "title": "EdgeTypeDef",
+      "type": "object"
+    },
+    "IdDef": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "title": "Format",
+          "type": "string"
+        }
+      },
+      "required": [
+        "format"
+      ],
+      "title": "IdDef",
+      "type": "object"
+    },
+    "IdentityDef": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "enum": [
+            "id",
+            "surface"
+          ],
+          "title": "Key",
+          "type": "string"
+        },
+        "scope": {
+          "default": "type",
+          "enum": [
+            "type",
+            "group"
+          ],
+          "title": "Scope",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key"
+      ],
+      "title": "IdentityDef",
+      "type": "object"
+    },
+    "InferenceDef": {
+      "additionalProperties": false,
+      "properties": {
+        "cap": {
+          "exclusiveMinimum": 0,
+          "title": "Cap",
+          "type": "integer"
+        },
+        "floor": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Floor",
+          "type": "number"
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/InferenceRuleDef"
+          },
+          "title": "Rules",
+          "type": "array"
+        }
+      },
+      "required": [
+        "cap",
+        "floor"
+      ],
+      "title": "InferenceDef",
+      "type": "object"
+    },
+    "InferenceRuleDef": {
+      "additionalProperties": false,
+      "description": "One rule; which parameters apply depends on ``template`` (checked by the loader).",
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "template": {
+          "title": "Template",
+          "type": "string"
+        },
+        "prompt": {
+          "title": "Prompt",
+          "type": "string"
+        },
+        "writes": {
+          "title": "Writes",
+          "type": "string"
+        },
+        "subject": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subject"
+        },
+        "via": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Via"
+        },
+        "mentions": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mentions"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "min_targets": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min Targets"
+        },
+        "max_targets": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Targets"
+        },
+        "member_relation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Member Relation"
+        },
+        "container_relation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Container Relation"
+        },
+        "container": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Container"
+        },
+        "max_hops": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Hops"
+        },
+        "targets": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Targets"
+        },
+        "max_candidates": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Candidates"
+        }
+      },
+      "required": [
+        "id",
+        "template",
+        "prompt",
+        "writes"
+      ],
+      "title": "InferenceRuleDef",
+      "type": "object"
+    },
+    "NodeGroupDef": {
+      "additionalProperties": false,
+      "description": "A node group: fields its member types inherit; never a label.",
+      "properties": {
+        "origin": {
+          "anyOf": [
+            {
+              "enum": [
+                "extracted",
+                "analysis",
+                "human",
+                "planner"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Origin"
+        },
+        "tier": {
+          "anyOf": [
+            {
+              "enum": [
+                "context",
+                "spec",
+                "governance",
+                "plan"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tier"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "enum": [
+                "anchor",
+                "group",
+                "atomic"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role"
+        },
+        "identity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IdentityDef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "guidance": {
+          "default": "",
+          "title": "Guidance",
+          "type": "string"
+        },
+        "attributes": {
+          "additionalProperties": {
+            "$ref": "#/$defs/AttributeDef"
+          },
+          "title": "Attributes",
+          "type": "object"
+        }
+      },
+      "title": "NodeGroupDef",
+      "type": "object"
+    },
+    "NodeTypeDef": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "group": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Group"
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "enum": [
+                "extracted",
+                "analysis",
+                "human",
+                "planner"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Origin"
+        },
+        "tier": {
+          "anyOf": [
+            {
+              "enum": [
+                "context",
+                "spec",
+                "governance",
+                "plan"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tier"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "enum": [
+                "anchor",
+                "group",
+                "atomic"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Role"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IdDef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id_families": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Id Families",
+          "type": "array"
+        },
+        "identity": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IdentityDef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "guidance": {
+          "default": "",
+          "title": "Guidance",
+          "type": "string"
+        },
+        "attributes": {
+          "additionalProperties": {
+            "$ref": "#/$defs/AttributeDef"
+          },
+          "title": "Attributes",
+          "type": "object"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "title": "NodeTypeDef",
+      "type": "object"
+    },
+    "PairDef": {
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "title": "From",
+          "type": "string"
+        },
+        "to": {
+          "title": "To",
+          "type": "string"
+        },
+        "default": {
+          "type": "boolean",
+          "default": false,
+          "title": "Default"
+        },
+        "cue_required": {
+          "default": false,
+          "title": "Cue Required",
+          "type": "boolean"
+        },
+        "exclusive": {
+          "default": false,
+          "title": "Exclusive",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "title": "PairDef",
+      "type": "object"
+    },
+    "SpineDef": {
+      "additionalProperties": false,
+      "properties": {
+        "sources": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Sources",
+          "type": "array"
+        },
+        "roots": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Roots",
+          "type": "array"
+        },
+        "paths": {
+          "items": {
+            "$ref": "#/$defs/SpinePathDef"
+          },
+          "minItems": 1,
+          "title": "Paths",
+          "type": "array"
+        }
+      },
+      "required": [
+        "sources",
+        "roots",
+        "paths"
+      ],
+      "title": "SpineDef",
+      "type": "object"
+    },
+    "SpinePathDef": {
+      "additionalProperties": false,
+      "description": "``{via: [...], min, max}`` or ``{sequence: [...]}``; exactly one form (checked by the loader).",
+      "properties": {
+        "via": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Via"
+        },
+        "sequence": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sequence"
+        },
+        "min": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min"
+        },
+        "max": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max"
+        }
+      },
+      "title": "SpinePathDef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One ontology file with every section typed by the model the loader validates its entries with.",
+  "properties": {
+    "format_version": {
+      "const": 1,
+      "title": "Format Version",
+      "type": "integer"
+    },
+    "name": {
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "version": {
+      "minLength": 1,
+      "title": "Version",
+      "type": "string"
+    },
+    "owner": {
+      "enum": [
+        "build",
+        "gap",
+        "plan"
+      ],
+      "title": "Owner",
+      "type": "string"
+    },
+    "corpus": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CorpusDef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "vocabularies": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "minProperties": 1,
+            "type": "object"
+          }
+        ]
+      },
+      "title": "Vocabularies",
+      "type": "object"
+    },
+    "node_groups": {
+      "additionalProperties": {
+        "$ref": "#/$defs/NodeGroupDef"
+      },
+      "title": "Node Groups",
+      "type": "object"
+    },
+    "node_types": {
+      "additionalProperties": {
+        "$ref": "#/$defs/NodeTypeDef"
+      },
+      "title": "Node Types",
+      "type": "object"
+    },
+    "edge_types": {
+      "additionalProperties": {
+        "$ref": "#/$defs/EdgeTypeDef"
+      },
+      "title": "Edge Types",
+      "type": "object"
+    },
+    "spine": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SpineDef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "inference": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/InferenceDef"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "format_version",
+    "name",
+    "version",
+    "owner"
+  ],
+  "title": "Ontology file",
+  "type": "object"
+}

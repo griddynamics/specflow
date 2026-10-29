@@ -1,0 +1,40 @@
+# pystatic configuration for the repository root (validation/python/scripts).
+# Only the repository-wide check lives here; backend/pystatic.toml configures the backend's own.
+# `make validate-python-scripts` runs it after the backend checks, from validation/python/scripts:
+#   uv run python -m pystatic.scripts.source_ownership --root <repo root> --config <repo root>/pystatic.toml
+
+# ---------------------------------------------------------------- source-ownership
+[source-ownership]
+# Directories that each run their own validation over their sources: the two applications
+# (make validate-python-* / validate-cypher / validate-sql for backend, validate-typescript-* for
+# frontend), the validation kits (make validate-selftest) and the kit's CI report folder, whose
+# tests (validation/ci/test_*.py) run in make validate-ci-selftest, part of validate-selftest.
+projects = [
+    "backend",
+    "frontend",
+    "validation/ci",
+    "validation/python/lint",
+    "validation/python/scripts",
+    "validation/python/arch",
+    "validation/cypher",
+    "validation/sql",
+    "validation/typescript/lint",
+    "validation/typescript/scripts",
+]
+
+# The kit's track runner sits at the kit root, beside the track folders it dispatches to.
+# validation/ci/test_run_all.py runs it (options, usage errors, the track loop and its skips).
+[[source-ownership.external]]
+paths = ["validation/run-all.sh"]
+owner = "validation/ci"
+reason = "the kit's track runner; validation/ci/test_run_all.py runs it in make validate-ci-selftest"
+
+# The GD Liquid Glass design system is vendored into docs/design-system read-only (AGENTS.md:
+# tokens are the source of truth, the folder is not edited here). Its component bundle (built
+# JavaScript/CSS, the minified React and xyflow builds it ships with, the type declarations) and
+# tokens.css are third-party design-token and component source: no project of this repository
+# builds, lints or tests them. The frontend uses its own copy, frontend/styles/ds/tokens.css, which
+# validate-typescript-scripts checks (tokens, contrast).
+[[source-ownership.external]]
+paths = ["docs/design-system/components/**/*", "docs/design-system/tokens.css"]
+reason = "vendored read-only third-party design system (GD Liquid Glass components and design tokens); validated by nobody in this repository"

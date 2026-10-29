@@ -1,0 +1,25 @@
+# project: the repair steps b1-b5 are migration 0005's frozen backfill text (B1-B5), applied
+# to one project. tests/test_db_sources_batches_offline.py pins them token for token to the
+# applied, never-edited revision, so only their layout may follow the kit. These settings
+# describe that frozen text and apply to this folder only:
+# - the joins read `JOIN t ON t.key = earlier.key` (AM05 plain JOIN, ST09 later table first);
+# - an INSERT ... SELECT names its columns in the INSERT list, so its select targets carry
+#   no aliases and repeat `created_at` (AL03, AL08 do not apply to INSERT targets);
+# - `COALESCE` is the only upper-case function name of the frozen text (CP03).
+# Table aliases stay implicit, as written in the revision (AL01).
+
+[sqlfluff]
+exclude_rules = AL03, AL08
+
+[sqlfluff:rules:aliasing.table]
+aliasing = implicit
+
+[sqlfluff:rules:ambiguous.join]
+fully_qualify_join_types = outer
+
+[sqlfluff:rules:structure.join_condition_order]
+preferred_first_table_in_join_clause = later
+
+[sqlfluff:rules:capitalisation.functions]
+extended_capitalisation_policy = lower
+ignore_words = coalesce

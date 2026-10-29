@@ -1,0 +1,33 @@
+{
+  "tables": {
+    "customer": {
+      "columns": {
+        "id": {"type": "uuid"},
+        "email": {"type": "text", "unique": true},
+        "disabled": {"type": "bool"}
+      }
+    },
+    "customer_order": {
+      "columns": {
+        "id": {"type": "uuid"},
+        "customer_id": {"type": "uuid", "fk": "customer.id"},
+        "status": {"type": "enum", "enum": ["OPEN", "PAID", "CLOSED"]},
+        "external_ref": {"type": "text", "unique": {"where": "status != 'CLOSED'"}},
+        "created_at": {"type": "timestamp"}
+      },
+      "indexes": ["status"]
+    },
+    "cache_entry": ["key", "payload", "expires_at"],
+    "audit_log": {
+      "columns": {
+        "id": {"type": "int"},
+        "ts": {"type": "timestamp"},
+        "request_id": {"type": "text"},
+        "payload": {"type": "json"}
+      }
+    }
+  },
+  "hard_delete_allowlist": ["cache_entry"],
+  "append_only_tables": ["audit_log"],
+  "orm_models": {"audit_log": "AuditLog"}
+}

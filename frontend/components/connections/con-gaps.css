@@ -1,0 +1,48 @@
+/* FE-CON-01, FE-DS-03 (GAPS.md "## P14"): Connections screen layout. The design system gives ConnectorCard, SearchField,
+   SegmentedControl and EmptyState but no screen layout around them. Additive, tokens only; no design-system rule is overridden. */
+/* The tab bar and the tools (search, New connection) are in the shell's header row; the screen starts at the shell's content edge,
+   like the others. The tools fill their line, so New connection sits at its right end (beside the cluster, or under it when wrapped). */
+.con-screen {
+  display: grid;
+  gap: var(--space-md);
+  align-content: start;
+  font-family: var(--font-sans);
+  color: var(--ink);
+}
+.con-tools {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm) var(--space-md);
+  flex-wrap: wrap;
+}
+.con-tools .gdg-search {
+  flex: 1 1 16rem;
+  max-width: 24rem;
+}
+.con-new {
+  margin-left: auto;
+}
+.con-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-sm);
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+}
+.con-grid > li {
+  display: grid;
+  min-width: 0;
+}
+.con-grid > li > .gdg-conn {
+  align-content: start;
+}
+.con-count {
+  margin: 0;
+  color: var(--ink-2);
+}
+.con-empty {
+  display: grid;
+  justify-items: center;
+}

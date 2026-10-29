@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GlassSurface — GD Liquid Glass</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<style>html,body{margin:0;background:var(--ground)}</style>
+<script>(function(){var t=new URLSearchParams(location.search).get('theme');document.documentElement.setAttribute('data-theme',t==='dark'?'dark':'light');})();</script>
+<script src="../components/lib/react.production.min.js"></script>
+<script src="../components/lib/react-dom.production.min.js"></script>
+<script src="../components/lib/jsx-runtime-shim.js"></script>
+<script src="../components/lib/xyflow-react.umd.js"></script>
+<script src="../components/bundle.js"></script>
+</head>
+<body>
+<div class="gdg-root gdg-scene" style="padding:32px;min-height:300px;display:flex;gap:20px;align-items:center;flex-wrap:wrap">
+  <div id="root" style="display:contents"></div>
+</div>
+<script>
+  var G = window.GDGlass, h = React.createElement;
+  function box(v, label, extra){ return h(G.GlassSurface, Object.assign({variant:v, style:{width:170,height:150,padding:18}}, extra||{}), h('div',{className:'headline'},label), h('div',{className:'body-sm', style:{color:'var(--ink)', marginTop:4}}, v === 'regular' ? 'glass-fill' : v === 'strong' ? 'glass-fill-strong' : v === 'tint' ? 'glass-tint' : 'glass-fill-subtle')); }
+  ReactDOM.createRoot(document.getElementById('root')).render(h(React.Fragment,null,
+    box('regular','Regular'), box('strong','Strong'), box('tint','Tint'), box('regular','Ribbed',{ribbed:true})));
+</script>
+</body>
+</html>

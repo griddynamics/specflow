@@ -1,0 +1,175 @@
+# Graph schema of the Neo4j spec graph, read by validation/cypher (cypher-checks).
+# Source of truth: docs/graph/data-model.md and src/graph/core/ontology/spec-ontology.yaml
+# (domain labels and relation names); constraints and indexes: the static DDL files under
+# src/graph/core/ddl/, applied by src/graph/core/schema.py (ensure_schema).
+#
+# Every node and relationship also carries `group_id` (= project_id). Uniqueness and range
+# objects in Neo4j are composite `(group_id, <property>)`; the kit declares one property per
+# entry, so only the second property is listed (`group_id` is a common property below and the
+# scope key of policy.merge_scope_keys, which parity sets aside in a composite DDL key).
+#
+# Cypher text lives in .cypher files under src/graph/core/queries/ and src/graph/build/queries/,
+# loaded by the `Query` constants of src/graph/core/queries.py and src/graph/build/queries.py.
+# A file whose relationship type is only known at run time holds a `__NAME__` token (see the
+# placeholder relationships below); its factory fills the token with a validated name.
+
+common_properties:
+  group_id: {type: string}
+
+nodes:
+  SpecNode:
+    properties:
+      uuid: {type: string}
+      spec_id: {type: string}
+      spec_id_aliases: {type: "list<string>"}
+      name: {type: string}
+      identity_key: {type: string}
+      identity_aliases: {type: "list<string>"}
+      statements: {type: json}
+      statement_text: {type: string}
+      label_disagreement: {type: string}
+      embedding: {type: vector}
+      name_embedding: {type: vector}
+      embedding_model: {type: string}
+      created_at: {type: timestamp}
+      updated_at: {type: timestamp}
+      created_build_id: {type: string}
+      last_build_id: {type: string}
+  # Domain labels: a spec node carries SpecNode plus exactly one of these. Their own
+  # attributes are ontology-defined (stmt, quote, acceptance_criteria, ...) and not listed.
+  Module: {properties: {}}
+  Feature: {properties: {}}
+  Capability: {properties: {}}
+  FunctionalRequirement: {properties: {}}
+  QualityRequirement: {properties: {}}
+  Constraint: {properties: {}}
+  BusinessRule: {properties: {}}
+  IntegrationRequirement: {properties: {}}
+  DataRequirement: {properties: {}}
+  # Placeholder: the `__LABEL__` token of the keyed-node match and delete templates stands for Document,
+  # Fragment or a foreign type, with `__KEY__` its key (document_id, fragment_id or uuid).
+  __LABEL__: {properties: {__KEY__: {type: string}}}
+  # Placeholder: the `__FOREIGN_LABEL__` token of upsert_foreign_node.cypher stands for each foreign
+  # label (a declared label of another owner than build, from a submodule ontology file). Foreign nodes
+  # carry their label only (never SpecNode), keyed by uuid; their other properties are the owner's.
+  __FOREIGN_LABEL__: {properties: {uuid: {type: string}}}
+  Document:
+    properties:
+      document_id: {type: string}
+      spec_id: {type: string}
+      revision_id: {type: string}
+      version: {type: integer}
+      path: {type: string}
+      title: {type: string}
+      status: {type: string, enum: [active, removed]}
+      last_build_id: {type: string}
+  Fragment:
+    properties:
+      fragment_id: {type: string}
+      document_id: {type: string}
+      spec_id: {type: string}
+      text: {type: string}
+      heading_path: {type: "list<string>"}
+      ordinal: {type: integer}
+      line_start: {type: integer}
+      line_end: {type: integer}
+      content_hash: {type: string}
+      status: {type: string, enum: [active, skipped, retired]}
+      extracted_hash: {type: string}
+      error_code: {type: string}
+      last_build_id: {type: string}
+
+relationships:
+  # Domain edges (ontology edge_types) between spec nodes. The legal label pairs are the
+  # ontology's; all domain labels are listed here and the pair check stays with the code.
+  PART_OF: &domain
+    from: [SpecNode]
+    to: [SpecNode]
+    properties: [group_id, uuid, edge_key, basis, source_fragment_ids, fact, inference_rule, confidence,
+                 evidence, judge_model, inferred_at, created_at, updated_at, last_build_id]
+  GROUPED_BY: *domain
+  REALIZED_BY: *domain
+  INTEGRATES_WITH: *domain
+  RELATES_TO: *domain
+  # Structural relationships owned by build.
+  # `__LABEL__` (the keyed-node placeholder above) also starts a CONTAINS: it stands for Document,
+  # so keyed_node_relationship_types.cypher reads the relationships of a real keyed-node shape.
+  CONTAINS:
+    from: [Document, __LABEL__]
+    to: [Fragment]
+    properties: [group_id]
+  REFERENCED_BY:
+    from: [SpecNode]
+    to: [Fragment]
+    properties: [group_id, line_start, line_end]
+  MENTIONED_IN:
+    from: [SpecNode]
+    to: [Fragment]
+    properties: [group_id, count]
+  # Placeholders: the `__NAME__` tokens of the query templates stand for any domain relation
+  # (src/graph/*/queries/*.cypher, filled by graph.core.query_files.render_query).
+  __TYPE__: *domain
+  __TYPES__: *domain
+  __MEMBER__: *domain
+  __CONTAINER__: *domain
+
+constraints:
+  # src/graph/core/ddl/node_constraints.cypher. __FOREIGN_LABEL__.uuid: the template
+  # src/graph/core/ddl/foreign_node_constraint.cypher (rendered by graph.core.queries.foreign_node_constraint);
+  # every foreign label of the ontology ensure_schema runs with must have its `graph_foreign_uuid_<label>`
+  # (group_id, uuid) constraint in the DDL, else setup fails with schema_ddl_incomplete (graph.core.schema).
+  # Parity expands the entry to the concrete labels of policy.placeholder_labels.__FOREIGN_LABEL__.
+  unique: [SpecNode.spec_id, SpecNode.uuid, Document.document_id, Fragment.fragment_id, __FOREIGN_LABEL__.uuid]
+  # src/graph/core/ddl/node_indexes.cypher (range) and relationship_indexes.cypher: the
+  # (group_id, edge_key) index of every relation of the shipped ontology.
+  indexes: [SpecNode.identity_key, GROUPED_BY.edge_key, INTEGRATES_WITH.edge_key, PART_OF.edge_key,
+            REALIZED_BY.edge_key, RELATES_TO.edge_key]
+
+policy:
+  # Schema DDL: the static CREATE ... IF NOT EXISTS statements of the constraints and indexes.
+  ddl_globs: ["**/graph/core/ddl/*.cypher"]
+  # Files that CREATE edges: the re-point of a merged node's foreign relationships (move_foreign_relationships,
+  # build_merge_spec_nodes) and the replacement of a node's evidence and mention links.
+  create_allowed_globs: ["move_foreign_relationships.cypher", "build_merge_spec_nodes.cypher", "build_replace_node_links.cypher"]
+  # project: every uniqueness constraint is composite (group_id, <key>) (src/graph/core/schema.py), so
+  # a MERGE on the key alone would take no constraint lock, match across projects and scan the label.
+  # group_id is the tenant half of the full key; the kit still requires it to be a $parameter.
+  merge_scope_keys: [group_id]
+  # Placeholder labels and the concrete labels they stand for, which parity expands a declared
+  # `Placeholder.property` to (an empty list asks for no DDL; the template on the placeholder itself is
+  # declared). __FOREIGN_LABEL__: the foreign labels of the shipped ontology, graph.core.schema.foreign_labels
+  # (none; tests/test_graph_schema.py holds the two equal), each needing its graph_foreign_uuid_<label> DDL.
+  placeholder_labels:
+    __FOREIGN_LABEL__: []
+  # project: batch writes whose MERGE key is a row property bound by an UNWIND of $rows (or of a list
+  # of such a row) that is not the statement's first clause: the fragment upsert first matches the
+  # fragment's document (a row without one writes nothing), and the link replacement stubs each
+  # evidence and mention fragment. The key still comes straight from the parameter, never rebound.
+  batch_merge_queries: [build_upsert_fragments, build_replace_node_links]
+  # Files that DELETE nodes (or, in a FOREACH, relationships), and what each may delete.
+  node_removals:
+    delete_spec_node: [SpecNode]
+    delete_keyed_node: [__LABEL__]
+    build_delete_spec_nodes: [SpecNode]
+    build_merge_spec_nodes: [SpecNode]
+    build_repair_delete_nodes: [SpecNode]
+    build_replace_node_links: [REFERENCED_BY, MENTIONED_IN]
+  # Variable-length walks: the hard cap is the literal upper bound of the query file, the key the
+  # parameter of its length(p) filter. scope_via: a spine `via` path, its file default `{1,3}` is
+  # the shipped PART_OF path (spec-ontology.yaml spine.paths); $max_hops is the path's `max`.
+  capped_traversals:
+    - {query: scope_via, hard_cap: 3, key: max_hops}
+  # Lookups the anchor rule cannot see: a relationship found through its per-relation
+  # (group_id, edge_key) index or by elementId, and template fragments whose first node is bound
+  # by the query they are joined into.
+  scan_shaped_queries:
+    - delete_edges
+    - update_edges
+    - read_current_edges
+    - infer_delete_edges
+    - delete_relationship
+    - upsert_relationship
+    - build_repair_delete_edges
+    - build_repair_edge_evidence
+    - infer_endpoint_via
+    - infer_endpoint_mentions

@@ -1,0 +1,18 @@
+rules:
+  - id: kit.tests.no-sleep-literal
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/tests/**"
+    message: >-
+      A test sleeps for a duration. Waiting for a duration is a guess about someone else's
+      machine: wait for the condition itself (an event, a future, the awaited call), and hold
+      the clock a deadline reads instead of racing it.
+    pattern-either:
+      - pattern: time.sleep(...)
+      - patterns:
+          - pattern: asyncio.sleep($DURATION, ...)
+          - metavariable-regex:
+              metavariable: $DURATION
+              regex: "^(?:0*[1-9][0-9_]*(?:\\.[0-9_]*)?|0*\\.[0-9_]*[1-9][0-9_]*|[0-9_]*[1-9][0-9_]*e[+-]?[0-9]+)$"

@@ -1,0 +1,19 @@
+<!-- @dsCard group="Chat" height=260 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>ChatComposer — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-scene" style="padding:24px;min-height:260px;box-sizing:border-box;" id="root"></div>
+<script>
+var G = window.GDGlass, h = React.createElement;
+var PEOPLE = [
+  { id:'mk', name:'Sam Carter', role:'Product owner', email:'scarter@example.com' },
+  { id:'ak', name:'Alex Rivera', role:'Engineer', email:'arivera@example.com' },
+  { id:'nc', name:'Nina Walker', role:'Delivery manager', email:'nwalker@example.com' }];
+
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{display:'grid',gap:20,paddingTop:12}},
+  h('h2',{className:'title-1', style:{margin:0,textAlign:'center'}},'What do you want to know about Atlas?'),
+  h(G.ChatComposer,{suggestions:['Find the permissions for users outside the organization','Summarise open security decisions','Which services write to Kafka?']})));
+</script>
+</body>
+</html>

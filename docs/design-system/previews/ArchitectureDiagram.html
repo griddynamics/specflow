@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ArchitectureDiagram — GD Liquid Glass</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<style>html,body{margin:0;background:var(--ground)}</style>
+<script>(function(){var t=new URLSearchParams(location.search).get('theme');document.documentElement.setAttribute('data-theme',t==='dark'?'dark':'light');})();</script>
+<script src="../components/lib/react.production.min.js"></script>
+<script src="../components/lib/react-dom.production.min.js"></script>
+<script src="../components/lib/jsx-runtime-shim.js"></script>
+<script src="../components/lib/xyflow-react.umd.js"></script>
+<script src="../components/bundle.js"></script>
+</head>
+<body>
+<div class="gdg-root" id="root"></div>
+<script>
+  var G = window.GDGlass, h = React.createElement;
+  var nodes = [
+    { id:'cust', kind:'actor', title:'Customers', subtitle:'Web and mobile', x:24, y:104, w:184, h:56 },
+    { id:'merch', kind:'actor', title:'Merchandisers', subtitle:'Internal users', x:24, y:360, w:184, h:56 },
+    { id:'gw', kind:'gateway', title:'API gateway', subtitle:'Kong', x:288, y:100 },
+    { id:'portal', kind:'app', title:'Admin portal', subtitle:'Next.js 14', x:288, y:356 },
+    { id:'search', kind:'service', title:'Search service', subtitle:'Java · Spring Boot', x:568, y:76 },
+    { id:'orders', kind:'service', title:'Order service', subtitle:'Node.js', x:568, y:212 },
+    { id:'ai', kind:'ai', title:'Recommender', subtitle:'LLM · GD GAIN', x:568, y:348 },
+    { id:'db', kind:'datastore', title:'Catalog DB', subtitle:'PostgreSQL 15', x:848, y:76, w:192 },
+    { id:'kafka', kind:'queue', title:'Order events', subtitle:'Kafka', x:848, y:212, w:192 },
+    { id:'sf', kind:'external', title:'Salesforce', subtitle:'CRM · SaaS', x:848, y:484, w:192 }];
+  var groups = [{ label:'AWS · eu-west-1', icon:'cloud', x:256, y:40, w:808, h:400 }];
+  var edges = [
+    { from:'cust', to:'gw', label:'HTTPS' },
+    { from:'merch', to:'portal' },
+    { from:'portal', to:'gw', fromSide:'top', toSide:'bottom' },
+    { from:'gw', to:'search', fromOffset:-12 },
+    { from:'gw', to:'orders', fromOffset:12 },
+    { from:'search', to:'db', kind:'data', label:'read' },
+    { from:'orders', to:'kafka', kind:'async', label:'publish' },
+    { from:'orders', to:'ai', fromSide:'bottom', toSide:'top', label:'score' },
+    { from:'kafka', to:'sf', kind:'async', fromSide:'bottom', toSide:'top', label:'sync to CRM' }];
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    h(G.ArchitectureDiagram,{ width:1080, height:580, nodes:nodes, groups:groups, edges:edges, defaultSelected:'orders', legendPosition:'bottom-left',
+      label:'Checkout platform: customers reach an API gateway in AWS that routes to search and order services; orders publish to Kafka, which syncs to Salesforce.' }));
+</script>
+</body>
+</html>

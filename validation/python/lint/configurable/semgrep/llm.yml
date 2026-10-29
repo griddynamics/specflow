@@ -1,0 +1,105 @@
+# CONFIGURABLE RULES for the package that calls a language model (written for pydantic-ai's
+# `Agent`; adapt the call shapes to another client library). Shipped values to replace:
+# - the model package scope `**/src/llm/**` and the settings module `**/src/config.py`;
+# - the model-id prefixes in `kit.configurable.llm-model-id-literal-outside-settings`
+#   (`gpt-`, `text-embedding-`, `models/`): use the id grammar of the project's provider;
+# - the client constructor `llm_sdk.Client` and the settings object `settings` in
+#   `kit.configurable.llm-client-not-from-settings`;
+# - the file-log names `FileTrafficLogger` and `traffic_log_path` in
+#   `kit.configurable.llm-no-file-log` (the constructor of a file-based log of model traffic and
+#   the setting or attribute that holds its path).
+# Mirror every replaced name in `fixtures/llm.py`.
+rules:
+  - id: kit.configurable.llm-inline-prompt-string
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/llm/**"
+    message: >-
+      A prompt or instructions literal is passed inline to the model agent. Prompts live in
+      versioned files loaded at run time, so a prompt is reviewed and diffed as a document
+      instead of a literal buried in a call site.
+    patterns:
+      - pattern-either:
+          - pattern: Agent(..., system_prompt="$P", ...)
+          - pattern: Agent(..., instructions="$P", ...)
+          - pattern: $AGENT.run("$P", ...)
+      - metavariable-regex:
+          metavariable: $P
+          regex: "^.{20,}$"
+
+  - id: kit.configurable.llm-model-id-literal-outside-settings
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/llm/**"
+      exclude:
+        - "**/src/config.py"
+    message: >-
+      A model id literal outside the settings module. The model is a setting resolved at
+      start-up, never a string constant at the call site, so it changes without a code change.
+    pattern: '"=~/^(gpt-|text-embedding-|models\/)/"'
+
+  - id: kit.configurable.llm-run-missing-timeout
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/llm/**"
+    message: >-
+      `agent.run(...)` without `timeout=`. A model call is bounded by the application's own
+      timeout, applied at the call site, never left to the provider's default.
+    patterns:
+      - pattern: $AGENT.run(...)
+      - pattern-not: $AGENT.run(..., timeout=$T, ...)
+
+  - id: kit.configurable.llm-temperature-literal
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/llm/**"
+      exclude:
+        - "**/src/config.py"
+    message: >-
+      `temperature=` is a numeric literal. The generation temperature is a setting, never a
+      code constant at the call site.
+    patterns:
+      - pattern: $F(..., temperature=$V, ...)
+      - metavariable-regex:
+          metavariable: $V
+          regex: "^-?\\d+(?:\\.\\d+)?$"
+
+  - id: kit.configurable.llm-client-not-from-settings
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/llm/**"
+    message: >-
+      The model provider client is constructed without taking its credential from the
+      settings. The client is built from settings, never from a literal key or project id at
+      the construction site.
+    patterns:
+      - pattern: llm_sdk.Client(...)
+      - pattern-not: llm_sdk.Client(api_key=settings.$K, ...)
+      - pattern-not: llm_sdk.Client(api_key=$S.api_key, ...)
+      - pattern-not: llm_sdk.Client(**$KWARGS)
+
+  - id: kit.configurable.llm-no-file-log
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/llm/**"
+    message: >-
+      A file-based log of model traffic. Prompts and responses can carry personal or
+      confidential data; they go through the application's structured, access-controlled
+      logging or tracing, never into a file the package writes by itself.
+    pattern-either:
+      - pattern: FileTrafficLogger(...)
+      - pattern: $M.FileTrafficLogger(...)
+      - pattern: $X.traffic_log_path
+      - pattern: traffic_log_path

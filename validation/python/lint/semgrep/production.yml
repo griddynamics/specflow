@@ -1,0 +1,84 @@
+rules:
+  - id: kit.production.test-justified-comment
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/**"
+    message: >-
+      Production text justifies code by a test, a recording or a replay. A comment states
+      the product rule it upholds; how a test, recording or parsed fixture behaves is the
+      test support's to say.
+    pattern-regex: >-
+      (?i)(?:\bvcr\b|\bfixture[ -](?:replay|mode)\b|\bparsed[ -]fixtures?\b|\brecorded[ ](?:provider[ ])?(?:exchanges?|fixtures?)\b|\bin[ ](?:unit[ ]|acceptance[ ]|e2e[ ])?tests?\b|\bunit[ ]tests?\b|\btest[ ](?:suite|runner|process)\b)
+
+  - id: kit.production.test-model-import
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/**"
+    message: >-
+      Production imports a model that exists for tests (`pydantic_ai.models.test` or
+      `pydantic_ai.models.function`). A test substitutes its model at the model
+      boundary from the test support; production binds only the provider model.
+    pattern-either:
+      - pattern: import pydantic_ai.models.test
+      - pattern: import pydantic_ai.models.function
+      - pattern: from pydantic_ai.models.test import $NAME
+      - pattern: from pydantic_ai.models.function import $NAME
+      - pattern: from pydantic_ai.models import test
+      - pattern: from pydantic_ai.models import function
+
+  - id: kit.production.test-runner-branch
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/**"
+    message: >-
+      Production branches on a test runner or a test environment. The code behaves the same
+      under test as in a deployment; a test substitutes at a boundary the product already
+      has.
+    pattern-either:
+      - patterns:
+          - pattern-either:
+              - pattern: os.environ.get($KEY, ...)
+              - pattern: os.getenv($KEY, ...)
+              - pattern: os.environ[$KEY]
+              - pattern: $KEY in os.environ
+              - pattern: $KEY not in os.environ
+          - metavariable-regex:
+              metavariable: $KEY
+              regex: "^[\"'](?:PYTEST|_PYTEST|VITEST)"
+      - patterns:
+          - pattern-either:
+              - pattern: $MODULE in sys.modules
+              - pattern: $MODULE not in sys.modules
+              - pattern: sys.modules.get($MODULE, ...)
+          - metavariable-regex:
+              metavariable: $MODULE
+              regex: "^[\"'](?:pytest|_pytest|unittest)[\"']$"
+
+  - id: kit.production.fixture-setting
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/settings.py"  # project: was **/src/config.py
+    message: >-
+      A setting names a fixture, recording, replay or seed input. Production reads no seed
+      or test input; a test substitutes its inputs from the test support.
+    patterns:
+      - pattern-inside: |
+          class Settings(...):
+              ...
+      - pattern-either:
+          - pattern: "$NAME: $TYPE = $DEFAULT"
+          - pattern: "$NAME: $TYPE"
+      - metavariable-regex:
+          metavariable: $NAME
+          # A fixture, VCR or seed name anywhere; a replay or recording named with what
+          # locates it (a directory, path, file, profile, mode, URL or bundle). An audio
+          # recording bound or an idempotent command replay names no test input.
+          regex: "(?i)^.*(?:fixture|vcr|seed|(?:^|_)(?:replay|recording)_(?:dir|path|file|mode|profile|url|bundle)(?:_|$)|(?:^|_)(?:dir|path|file|mode|profile|url|bundle)_(?:replay|recording)(?:_|$))"

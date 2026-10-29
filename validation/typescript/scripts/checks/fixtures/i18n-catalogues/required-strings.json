@@ -1,0 +1,7 @@
+{
+  "strings": [
+    { "value": "No order matches the current filters.", "label": "order list, empty" },
+    { "value": "No supplier has been added yet.", "label": "supplier list, empty" },
+    "Example App"
+  ]
+}

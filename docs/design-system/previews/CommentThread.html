@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CommentThread — GD Liquid Glass</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<style>html,body{margin:0;background:var(--ground)}</style>
+<script>(function(){var t=new URLSearchParams(location.search).get('theme');document.documentElement.setAttribute('data-theme',t==='dark'?'dark':'light');})();</script>
+<script src="../components/lib/react.production.min.js"></script>
+<script src="../components/lib/react-dom.production.min.js"></script>
+<script src="../components/lib/jsx-runtime-shim.js"></script>
+<script src="../components/lib/xyflow-react.umd.js"></script>
+<script src="../components/bundle.js"></script>
+</head>
+<body>
+<div class="gdg-root gdg-scene" style="padding:24px;min-height:520px;box-sizing:border-box;" id="root"></div>
+<script>
+var G = window.GDGlass, h = React.createElement;
+var PEOPLE = [
+  { id:'mk', name:'Sam Carter', role:'Product owner', email:'scarter@example.com' },
+  { id:'ak', name:'Alex Rivera', role:'Engineer', email:'arivera@example.com' },
+  { id:'nc', name:'Nina Walker', role:'Delivery manager', email:'nwalker@example.com' }];
+
+var MP = PEOPLE.map(function(p){ return {id:p.id, name:p.name, role:p.role}; }).concat([{id:'bot', name:'SpecBot', handle:'specbot', kind:'bot', role:'AI assistant'}]);
+function Demo(){ var st=React.useState([
+  {author:'Nina Walker', time:'10:42', text:'@Alex Rivera can guests see cost estimates today? This line says no but the API returns them.'},
+  {author:'Alex Rivera', time:'10:51', text:'They can. @specbot can you find where estimates are exposed?'},
+  {author:'SpecBot', kind:'bot', time:'10:51', text:'Estimates are returned by GET /projects/{id}/summary (api-spec.md, section 4.2) with no role check. The access-control spec expects a Guest filter there.'}]), c=st[0], set=st[1];
+  return h('div',{style:{maxWidth:440}}, h(G.CommentThread,{quote:'Guests can read published specs and comment, but cannot see cost estimates.', people:MP, comments:c, onResolve:function(){},
+    onSubmit:function(t){ set(c.concat([{author:'Sam Carter', time:'now', text:t}])); }})); }
+ReactDOM.createRoot(document.getElementById('root')).render(h(Demo));
+</script>
+</body>
+</html>

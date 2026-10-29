@@ -1,0 +1,9 @@
+# Example input of run.sh's `jsonschema` step. Copy it to the project root as
+# `jsonschema-checks.txt` (or point JSONSCHEMA_CHECKS at it) and replace the lines.
+# One schema per line, followed by the files it validates (globs are expanded from the
+# project root). A schema named `vendor.<name>` is one of check-jsonschema's built-in schemas.
+# Lines that are empty or start with `#` are ignored.
+#
+# <schema>                         <files or globs>
+schemas/order.schema.json          data/orders/*.json
+vendor.github-workflows            .github/workflows/*.yml

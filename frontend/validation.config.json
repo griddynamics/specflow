@@ -1,0 +1,23 @@
+{
+  "root": ".",
+  "checks": {
+    "html-scripts": { "html": "app/layout.tsx" },
+    "tokens": { "src": ".", "tokens-css": "styles/ds/tokens.css" },
+    "contrast": { "tokens-css": "styles/ds/tokens.css", "min-ratio": "4.5", "pairs": "validation/contrast-pairs.json" },
+    "css-usage": { "src": ".", "html": "app/layout.tsx", "css": "{app,components}/**/*.css" },
+    "bundle-size": { "dist": ".next/static", "total-budget": "750000" },
+    "api-contract-map": { "src": "lib", "contracts": "validation/api-contracts.json" },
+    "nav-tree": { "src": "components", "nav-spec": "validation/nav-spec.json" },
+    "next-routes": {
+      "app": "app",
+      "route-table": "lib/routes.ts#ROUTES",
+      "route-table-prefixes": "lib/routes.ts#TREE_PREFIX",
+      "route-table-prefix-keys": "trees",
+      "nav-spec": "validation/nav-spec.json",
+      "nav-route-key": "true"
+    },
+    "next-boundaries": { "app": "app" }
+  },
+  "tools": ["duplicates"],
+  "binDirs": []
+}

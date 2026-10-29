@@ -1,0 +1,6 @@
+:root {
+  --background: oklch(0.968 0.003 250);
+  --foreground: oklch(0.22 0.017 253);
+  --primary: oklch(0.45 0.088 246);
+  --primary-foreground: oklch(0.985 0.002 250);
+}

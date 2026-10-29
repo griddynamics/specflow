@@ -1,0 +1,42 @@
+# CONFIGURABLE RULES for the one package that talks to an external system (a gateway or
+# client package). The shipped gateway package is `**/src/gateway/**` and the shipped vendor
+# SDK is `vendor_sdk`. To adopt: change `paths:` to the project's outbound-client package,
+# replace `vendor_sdk` with the SDK's import name (one `pattern` per import spelling the
+# project uses, e.g. `import cloud.vendor`, `from cloud import vendor`), and mirror the names
+# in `fixtures/gateway.py` and `fixtures/src/`.
+# A whole SDK that must never be imported anywhere is a ruff `banned-api` row (ruff.toml).
+rules:
+  - id: kit.configurable.no-silent-fallback-in-gateway
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/gateway/**"
+    message: >-
+      A `try`/`except` block in a gateway module returns a value instead of re-raising. On
+      any failure the gateway raises a typed error naming the reason rather than computing a
+      substitute result (an empty list, a placeholder answer, an `unknown` version): the
+      caller decides what unavailability means, never the gateway.
+    patterns:
+      - pattern: |
+          try:
+              ...
+          except $EXC:
+              ...
+              return $X
+
+  - id: kit.configurable.sdk-import-outside-gateway
+    languages: [python]
+    severity: ERROR
+    paths:
+      # Tests may import the SDK's types for interception and assertions.
+      exclude:
+        - "**/src/gateway/**"
+        - "**/tests/**"
+    message: >-
+      The vendor SDK is imported outside the gateway package. Only the gateway imports it;
+      every other module reaches the external system through the gateway, so retries,
+      timeouts, credentials and error mapping live in one place.
+    pattern-either:
+      - pattern: import vendor_sdk
+      - pattern: from vendor_sdk import $NAME

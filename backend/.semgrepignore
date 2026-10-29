@@ -1,0 +1,22 @@
+# project: copied from validation/python/lint/.semgrepignore. Copy to the root of the scanned project and run semgrep with `--project-root .` there.
+# Semgrep reads `.semgrepignore` only at its project root; without one it applies its
+# built-in default list, which skips every folder named "test"/"tests" and so would
+# silently exclude the project's own tests (and the test-scoped `kit.tests.*` rules).
+# List every exclusion explicitly and never add a tests/test pattern here.
+
+.venv/
+.git/
+__pycache__/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.import_linter_cache/
+node_modules/
+dist/
+build/
+htmlcov/
+coverage/
+# The kit's own deliberate violation fixtures, when the kit is vendored into the project.
+**/semgrep/fixtures/
+
+# project: the validation kit lives at the repo root, outside backend/; nothing else to exclude.

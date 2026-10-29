@@ -1,0 +1,101 @@
+# Strict ruff configuration for a Python 3.12 project.
+# Use: `ruff format --config ruff.toml --check <dir>` and `ruff check --config ruff.toml <dir>`.
+# A finding is fixed, never suppressed in code: run `ruff check --ignore-noqa` so a
+# `# noqa` comment does not hide anything (semgrep `kit.suppressions.*` also reports it).
+# project: the backend is written to 120 columns (1052 lines over 100, 44 over 120).
+line-length = 120
+target-version = "py312"
+# project: src/ is the import root (top-level packages graph, db, api, ...); tests/ and
+# examples/ import their helpers by bare module name. Keeps isort first-party detection right.
+src = ["src", "tests", "examples"]
+extend-exclude = [
+    # Deliberate banned shapes for `semgrep --test`; never lint targets.
+    "**/semgrep/fixtures/**",
+]
+
+[lint]
+select = ["A","ARG","ASYNC","B","BLE","C4","C90","DTZ","E","EM","ERA","EXE","F","FAST","FBT","FLY","FURB","G","I",
+          "ICN","INP","ISC","LOG","N","PD","PERF","PGH","PIE","PL","PT","PTH","RET","RSE","RUF","S","SIM","SLF",
+          "T10","T20","TID","TRY","UP","W","YTT"]     # PL includes PLC0415: no inline imports
+ignore = [
+    "COM812", "ISC001",   # conflict with `ruff format`, which owns trailing commas and implicit concatenation
+    "FAST003",            # misfires on `Annotated` path-parameter aliases
+    # project: the codebase raises with inline messages everywhere (EM101/EM102 398+111,
+    # TRY003 312 hits); the message-in-variable style is not a project convention.
+    "EM101", "EM102", "TRY003",
+]
+
+[lint.isort]
+required-imports = ["from __future__ import annotations"]
+# project: src/ holds local type stubs (src/google/cloud/storage/*.pyi, src/pymupdf4llm.pyi) for
+# third-party libraries that ship no py.typed; their presence under the `src` root must not make
+# isort file the real installed packages as first-party.
+known-third-party = ["google", "pymupdf4llm"]
+
+[lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[lint.flake8-tidy-imports.banned-api]
+"requests".msg = "Use httpx"
+"os.path".msg = "Use pathlib"
+"logging.getLogger".msg = "Use logger.logger.get_logger (central logger, backend/AGENTS.md); only src/logger touches stdlib logging"  # project
+"time.sleep".msg = "No time.sleep: wait for the condition, not a duration"
+"asyncio.get_event_loop".msg = "Use asyncio.to_thread / get_running_loop"
+"datetime.datetime.utcnow".msg = "Use datetime.now(UTC)"
+"pydantic.v1".msg = "Pydantic v2 only"
+"typing.TYPE_CHECKING".msg = "TYPE_CHECKING is forbidden: imports stay concrete and visible at runtime"
+"sqlalchemy.orm.declarative_base".msg = "SQLAlchemy 2: subclass DeclarativeBase"
+# Project-specific bans (configurable): add one row per SDK the project has dropped and per
+# superseded in-house class or function, so the old mechanism cannot come back. Examples:
+# "legacy_vendor_sdk".msg = "Banned SDK: call the gateway package instead"
+# "app.audit.FileAuditLogger".msg = "Superseded: write audit rows through app.audit.record"
+# "sqlalchemy.text".msg = "SQL lives in .sql files, not in string literals"
+# Tooling subtree only (put it in a tools/ruff.toml with `extend = "<kit>/ruff.toml"`, not here):
+# "app".msg = "A tool never imports the application package; use its public interface or wire contract"
+
+[lint.flake8-self]
+# project: sys._current_frames is a documented public `sys` function (underscore by CPython
+# naming, no public alternative) used by the worker's thread-stack diagnostics; it is not a
+# private member of another object, which is what SLF001 guards.
+extend-ignore-names = ["_current_frames"]
+
+[lint.mccabe]
+max-complexity = 10
+
+[lint.pylint]
+max-args = 8
+max-positional-args = 5
+max-branches = 12
+max-statements = 50
+max-returns = 6
+
+[lint.per-file-ignores]   # the rule's premise does not apply; scoping, not suppression
+"**/tests/**" = ["S101", "ARG001", "PLR2004", "SLF001", "S603", "INP001", "F811", "PT018"]  # asserts, fixture args, literal expectations, white-box access, tools invoked by argv; project: PT018 (651 composite asserts: the suite asserts `a and b` throughout), INP001 (tests/ is a flat rootdir of modules), F811 (pytest fixtures imported from *_support modules are re-bound as test arguments)
+"**/test_*.py" = ["S101", "ARG001", "PLR2004", "SLF001", "S603"]      # same, for tests colocated with their module
+"**/conftest.py" = ["ARG001"]                                         # fixture args
+# project: layout-specific scoping (not suppression). Globs start with `**/` because they resolve
+# against this file's folder, not against the scanned project.
+"**/src/logger/**" = ["TID251"]                                       # the central logger owns stdlib logging
+# project: BLE001 is scoped off only for the central logger's total boundaries. Each of these
+# files is contractually "never raises":
+# it formats, stringifies or writes arbitrary caller data (`__str__`/`__repr__`, record
+# attributes, a host-replaced sys.stderr, a handler's emit) whose failure set is unbounded, and it
+# may not log its own failure through the logging pipeline (no self-logging: recursion), which is
+# the only way BLE001 accepts a broad catch. Every catch with a known failure set is narrowed in
+# code (payload._safe_encode, logger.flush); config.py, correlation.py, progress.py stay checked.
+"**/src/logger/_stderr.py" = ["BLE001"]                               # stderr is the last fallback: a failing write is dropped
+"**/src/logger/formatters.py" = ["BLE001"]                            # JsonFormatter.format() is total over any LogRecord
+"**/src/logger/handlers.py" = ["BLE001"]                              # O19 listener guard: a raising handler must not kill the thread
+"**/src/logger/logger.py" = ["BLE001"]                                # bootstrap never raises: a failed bootstrap degrades, warns once
+"**/src/logger/payload.py" = ["BLE001"]                               # summarise_payload never raises on any untrusted payload
+"**/tests/test_logger_*.py" = ["TID251", "PLC0415"]                   # logger tests exercise stdlib logging and re-import the module under test
+"**/examples/**" = ["INP001", "T201"]                         # runnable scripts, not a package; their printed output is the product
+"**/migrations/**" = ["INP001"]                               # alembic environment, not a package
+# project: llm.evidence.run_command exists to run a caller-built argv (list form, never a shell)
+# and capture its result as evaluation evidence; S603 is a "review the argv source" prompt whose
+# premise is the same as the tests/** scoping above ("tools invoked by argv"). Its callers pass
+# fixed argv tuples (git, uv, sys.executable -m ...) from in-repo code; no request or document data reaches it.
+"**/src/llm/evidence.py" = ["S603"]
+# project: src/google/**/*.pyi are type stubs of google-cloud-storage (no py.typed upstream); a stub
+# must declare the library's real class names (InvalidResponse, DataCorruption), so N818 cannot apply.
+"**/src/google/**/*.pyi" = ["N818"]

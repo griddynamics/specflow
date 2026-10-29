@@ -1,0 +1,22 @@
+# Production code holds no comment that justifies code by a test or the test environment: a
+# comment states the rule the code upholds. Semgrep generic mode reads each file as text, so the
+# pattern starts at a comment opener and stays inside that comment.
+rules:
+  - id: production-no-test-justification-comment
+    message: >-
+      A comment in production code names a test, the test environment or a recording as the
+      reason for the code. State the rule the code upholds; what a test needs lives in the
+      test or its support code.
+    severity: ERROR
+    languages:
+      - generic
+    paths:
+      include:
+        - '**/*.ts'
+        - '**/*.tsx'
+        - '**/*.css'
+      exclude:
+        - '**/*.test.ts'
+        - '**/*.test.tsx'
+    pattern-regex: >-
+      (?is)(?:/\*(?:(?!\*/).)*?|//[^\n]*?)(?:\bjsdom\b|\bvitest\b|\bplaywright\b|\bunit[- ]tests?\b|\be2e\b|\b(?:a|the|this|that|its|every|each|any|no)[\s*/]+(?:unit[\s*/]+|component[\s*/]+|contrast[\s*/]+)?tests?\b|\bin[\s*/]+tests?\b|\btests?[\s*/]+(?:can|could|may|must|need|needs|read|reads|find|finds|query|queries|assert|asserts|rely|relies|use|uses|drive|drives|select|selects|reach|reaches|see|sees|depend|depends|pin|pins|target|targets|hold|holds)\b|\btest[- ]?ids?\b|\bfixture[\s*/]+replay\b|\.test\.(?:tsx?|mjs)\b|\btest[\s*/]+(?:double|stub|mode|environment|runner|harness)s?\b)

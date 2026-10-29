@@ -1,0 +1,6 @@
+{
+  "app.title": "Example App",
+  "common.greeting": "Olá!",
+  "common.only_in_pt": "Só em português",
+  "common.empty": 42
+}

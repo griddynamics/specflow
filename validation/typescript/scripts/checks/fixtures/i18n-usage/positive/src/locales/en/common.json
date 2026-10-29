@@ -1,0 +1,9 @@
+{
+  "app.title": "Title",
+  "app.indirect": "Indirect",
+  "app.items_one": "{{count}} item",
+  "app.items_other": "{{count}} items",
+  "status.band_HIGH": "High",
+  "status.band_MEDIUM": "Medium",
+  "status.band_LOW": "Low"
+}

@@ -1,0 +1,17 @@
+# Not part of the api or worker image.
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.coverage*
+htmlcov
+.env*
+logs
+tests
+examples
+ontology
+postgres-init
+*.Dockerfile
+.dockerignore

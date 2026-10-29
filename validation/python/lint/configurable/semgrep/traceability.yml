@@ -1,0 +1,37 @@
+# CONFIGURABLE RULE. Every test function carries a traceability marker that names the
+# requirement it verifies, for example `@pytest.mark.requirement("REQ-12")`.
+# To adopt: rename `requirement` in the two `pattern-not` blocks (and the message) to the
+# project's marker, register the marker under `[tool.pytest.ini_options] markers` (the kit's
+# pytest settings use `--strict-markers`), and adjust `paths:` to the test tree. Add an
+# `exclude` entry for any test folder that is exempt (for example a folder of pure unit tests).
+rules:
+  - id: kit.configurable.test-must-carry-marker
+    languages: [python]
+    severity: ERROR
+    message: >-
+      A test function does not declare requirement traceability with
+      `@pytest.mark.requirement(...)`. Every test names the requirement it verifies.
+    paths:
+      include:
+        - "**/tests/**"
+      exclude:
+        - "**/fixtures/**"
+    patterns:
+      - pattern-either:
+          - pattern: |
+              def $TEST(...):
+                  ...
+          - pattern: |
+              async def $TEST(...):
+                  ...
+      - metavariable-regex:
+          metavariable: $TEST
+          regex: "^test_"
+      - pattern-not: |
+          @pytest.mark.requirement(...)
+          def $TEST(...):
+              ...
+      - pattern-not: |
+          @pytest.mark.requirement(...)
+          async def $TEST(...):
+              ...

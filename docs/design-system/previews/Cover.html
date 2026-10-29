@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cover — GD Liquid Glass</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<style>html,body{margin:0;background:var(--ground)}</style>
+<script>(function(){var t=new URLSearchParams(location.search).get('theme');document.documentElement.setAttribute('data-theme',t==='dark'?'dark':'light');})();</script>
+<script src="../components/lib/react.production.min.js"></script>
+<script src="../components/lib/react-dom.production.min.js"></script>
+<script src="../components/lib/jsx-runtime-shim.js"></script>
+<script src="../components/lib/xyflow-react.umd.js"></script>
+<script src="../components/bundle.js"></script>
+</head>
+<body>
+<div class="cv">
+  <svg viewBox="0 0 960 300" width="960" height="300" aria-hidden="true">
+    <!--
+      blocks: yellow 224×300 (4×space-xl) slab bleeding top and bottom; coral 168×168; sky-blue 112×112 bleeding top-right; ink 80×112; yellow-tint 112×168 — all radius-0 (GD rectilinear).
+      arrangement: one tall yellow slab with satellites, staggered down-right like the stacked prism cubes of the Grid Dynamics website hero.
+      pattern: literal motif — four overlapping glass tiles (glass-fill / glass-fill-strong with glass-rim, radius-lg) stepping diagonally across the blocks; chosen because the system is "glass floating over the brand's colour".
+      scales: steps space-xl 56 and space-2xl 80; tiles 112 = 2×space-xl; radius-0 for blocks, radius-lg for glass.
+    -->
+    <rect class="yellow" x="560" y="0" width="224" height="300"/>
+    <rect class="sky" x="848" y="0" width="112" height="112"/>
+    <rect class="coral" x="728" y="132" width="168" height="168"/>
+    <rect class="ink" x="480" y="188" width="80" height="112"/>
+    <rect class="tint" x="896" y="132" width="64" height="168"/>
+    <rect class="glass" x="504" y="36" width="112" height="112"/>
+    <rect class="glass strong" x="616" y="92" width="112" height="112"/>
+    <rect class="glass" x="728" y="56" width="168" height="112"/>
+    <rect class="glass" x="840" y="168" width="112" height="112"/>
+  </svg>
+  <h1 class="name">GD Liquid<br>Glass</h1>
+  <p class="tag">Grid Dynamics brand, rendered in light and glass.</p>
+</div>
+</body>
+</html>

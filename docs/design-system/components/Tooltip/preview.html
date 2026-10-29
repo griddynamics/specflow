@@ -1,0 +1,20 @@
+<!-- @dsCard group="Overlays" height=130 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Tooltip — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-wash" style="padding:24px;min-height:130px;box-sizing:border-box;" id="root"></div>
+<script>
+var G = window.GDGlass, h = React.createElement;
+var PEOPLE = [
+  { id:'mk', name:'Sam Carter', role:'Product owner', email:'scarter@example.com' },
+  { id:'ak', name:'Alex Rivera', role:'Engineer', email:'arivera@example.com' },
+  { id:'nc', name:'Nina Walker', role:'Delivery manager', email:'nwalker@example.com' }];
+
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{display:'flex',gap:28,paddingTop:44}},
+  h(G.Tooltip,{label:'Reset demo data'}, h('button',{className:'gdg-iconbtn','aria-label':'Reset demo data', style:{background:'var(--glass-fill-strong)'}}, h(G.Icon,{name:'arrow-counter-clockwise'}))),
+  h(G.Tooltip,{label:'Copy link', side:'right'}, h('button',{className:'gdg-iconbtn','aria-label':'Copy link', style:{background:'var(--glass-fill-strong)'}}, h(G.Icon,{name:'link-simple'})))));
+setTimeout(function(){ var b=document.querySelector('.gdg-iconbtn'); if(b) b.focus(); }, 300);
+</script>
+</body>
+</html>

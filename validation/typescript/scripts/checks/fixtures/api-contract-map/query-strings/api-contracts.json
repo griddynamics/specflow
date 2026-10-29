@@ -1,0 +1,8 @@
+{
+  "callees": { "fetchJson": "GET", "sendJson": "POST" },
+  "endpoints": [
+    { "id": "orders.search", "method": "GET", "path": "/orders?status=&page=" },
+    { "id": "orders.get", "method": "GET", "path": "/orders/{id}" },
+    { "id": "orders.cancel", "method": "POST", "path": "/orders/{id}/cancel" }
+  ]
+}

@@ -1,0 +1,38 @@
+# CONFIGURABLE RULES over named model fields. They encode two conventions about one entity of
+# the project's own data model. The shipped entity is `order`, its field `status` and its
+# structured field `metadata`; to adopt, replace those names in the patterns and in the
+# `metavariable-regex` (which selects the entity by the name of the variable that holds it),
+# change `paths:` to the project's layout, and mirror the names in `fixtures/schema_fields.py`.
+rules:
+  - id: kit.configurable.state-field-written-outside-owner
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/**"
+      exclude:
+        - "**/src/repositories/**"
+    message: >-
+      The `status` field of an order is assigned outside the repository that owns it. The
+      state of an entity is written by one module, so every transition is auditable in one
+      place and never scattered across the application.
+    patterns:
+      - pattern: $OBJ.status = $VAL
+      - metavariable-regex:
+          metavariable: $OBJ
+          regex: "(?i).*order.*"
+
+  - id: kit.configurable.typed-field-assigned-dict-literal
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/**"
+    message: >-
+      The `metadata` field of an order is assigned a raw dict literal instead of the typed
+      model that describes it. Each writer builds the typed model, never a hand-made mapping.
+    patterns:
+      - pattern: $OBJ.metadata = {...}
+      - metavariable-regex:
+          metavariable: $OBJ
+          regex: "(?i).*order.*"

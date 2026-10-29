@@ -1,0 +1,21 @@
+<!-- @dsCard group="Data" height=420 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>ConnectorCard — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-scene" style="padding:24px;min-height:420px;box-sizing:border-box;" id="root"></div>
+<script>
+var G = window.GDGlass, h = React.createElement;
+var PEOPLE = [
+  { id:'mk', name:'Sam Carter', role:'Product owner', email:'scarter@example.com' },
+  { id:'ak', name:'Alex Rivera', role:'Engineer', email:'arivera@example.com' },
+  { id:'nc', name:'Nina Walker', role:'Delivery manager', email:'nwalker@example.com' }];
+
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:20}},
+  h(G.ConnectorCard,{name:'GitHub', category:'Code', description:'Read repositories, pull requests and ADRs.', status:'connected', meta:'3 repositories'}),
+  h(G.ConnectorCard,{name:'Google Drive', category:'Documents', description:'Import specs and meeting notes from shared folders.', status:'attention', meta:'Token expires in 2 days'}),
+  h(G.ConnectorCard,{name:'Jira', category:'Delivery', description:'Link decisions to epics and stories.', status:'connected', meta:'Organisation'}),
+  h(G.ConnectorCard,{name:'Slack', category:'Communication', description:'Post decision digests to project channels.', status:'off'})));
+</script>
+</body>
+</html>

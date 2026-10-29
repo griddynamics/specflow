@@ -1,0 +1,142 @@
+rules:
+  - id: kit.security.identity-from-header
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/**"
+    message: >-
+      Identity or role read from an `X-User-*` request header. The only
+      credential a route accepts is the session cookie; a role is never
+      taken from a client-supplied header.
+    pattern: $R.headers.get("=~/^X-User-/", ...)
+
+  - id: kit.security.cookie-missing-safe-flags
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/**"
+    message: >-
+      `set_cookie` without every safe flag. The session cookie is
+      HTTP-only, `Secure`, `SameSite=Lax` and carries a settings-driven
+      lifetime; a cookie set without `httponly`, `secure`, `samesite` and
+      `max_age` is readable from script, sent cross-site or never expires.
+    patterns:
+      - pattern: $RESPONSE.set_cookie(...)
+      - pattern-not: $RESPONSE.set_cookie(..., httponly=True, ..., secure=$S, ..., samesite=$SS, ..., max_age=$MA, ...)
+
+  - id: kit.security.delete-cookie-missing-matching-flags
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/**"
+    message: >-
+      `delete_cookie` without the `httponly`/`secure`/`samesite` flags that
+      match the cookie's own `set_cookie`. A cookie deleted with different
+      attributes than it was set with is not reliably cleared by the
+      browser.
+    patterns:
+      - pattern: $RESPONSE.delete_cookie(...)
+      - pattern-not: $RESPONSE.delete_cookie(..., httponly=True, ..., secure=$S, ..., samesite=$SS, ...)
+
+  - id: kit.security.runtime-tunable-literal
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/**"
+      exclude:
+        - "**/src/settings.py"  # project: was **/src/config.py
+    message: >-
+      A numeric tunable (timeout, limit, threshold, retries, batch size or
+      a `max_*`/`min_*`/`*_dim` bound) is passed as a literal instead of a
+      `Settings` value. Model names, thresholds and timeouts are
+      configuration, never code constants; only the settings module
+      carries the literal default a `Settings` field falls back to.
+    patterns:
+      - pattern-either:
+          - patterns:
+              - pattern-either:
+                  - pattern: $FUNC(..., timeout=$V, ...)
+                  - pattern: $FUNC(..., retries=$V, ...)
+                  - pattern: $FUNC(..., threshold=$V, ...)
+                  - pattern: $FUNC(..., batch_size=$V, ...)
+              - metavariable-regex:
+                  metavariable: $V
+                  regex: "^-?\\d+(?:\\.\\d+)?$"
+          - patterns:
+              - pattern: $FUNC(..., $KW=$V, ...)
+              - metavariable-regex:
+                  metavariable: $KW
+                  regex: "^(?:max_\\w+|min_\\w+|\\w*_dim)$"
+              - metavariable-regex:
+                  metavariable: $V
+                  regex: "^-?\\d+(?:\\.\\d+)?$"
+      - metavariable-regex:
+          metavariable: $FUNC
+          regex: "^(?!Query$|Field$|Path$|Body$|Cookie$|Header$).*$"
+
+  - id: kit.security.request-id-outside-middleware
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/**"
+      exclude:
+        - "**/src/api/request_id.py"  # project: was **/src/main.py (the request-id middleware)
+        - "**/src/api/app.py"
+    message: >-
+      A request id minted (`uuid.uuid4()`, `uuid4()`, or either wrapped in
+      `str(...)`, assigned to a `request_id`-named target) outside the
+      request-id middleware. The request id is generated once, in the
+      outermost middleware, and is a required argument of every audit and
+      outbound writer downstream -- never re-minted or independently derived
+      at a call site.
+    patterns:
+      - pattern-either:
+          - pattern: $X = uuid.uuid4()
+          - pattern: $X = str(uuid.uuid4())
+          - pattern: $X = uuid4()
+          - pattern: $X = str(uuid4())
+      - metavariable-regex:
+          metavariable: $X
+          regex: "(?i).*request_id.*"
+
+  - id: kit.security.request-id-read-outside-middleware
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/**"
+      exclude:
+        - "**/src/api/request_id.py"  # project: was **/src/main.py (the request-id middleware)
+        - "**/src/api/app.py"
+    message: >-
+      The inbound `X-Request-Id` header read directly, outside the
+      request-id middleware. The middleware reads (or mints) the request id
+      once and carries it through request state; a handler or service never
+      re-reads the header itself.
+    pattern: $R.headers.get("=~/^X-Request-Id$/i", ...)
+
+  - id: kit.security.environment-read-outside-settings
+    languages: [python]
+    severity: ERROR
+    paths:
+      include:
+        - "**/src/**"
+      exclude:
+        - "**/src/settings.py"  # project: was **/src/config.py
+        # The deterministic core is `determinism.yml`'s: it reads no environment at all.
+        - "**/src/core/**"
+    message: >-
+      The process environment read directly outside the settings module.
+      Every runtime key is a `Settings` field; the rest of the service
+      reads configuration through `Settings`, never `os.environ` or
+      `os.getenv` at the call site.
+    patterns:
+      - pattern-either:
+          - pattern: os.environ.get(...)
+          - pattern: os.environ[...]
+          - pattern: os.getenv(...)

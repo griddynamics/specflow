@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TextField — GD Liquid Glass</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<style>html,body{margin:0;background:var(--ground)}</style>
+<script>(function(){var t=new URLSearchParams(location.search).get('theme');document.documentElement.setAttribute('data-theme',t==='dark'?'dark':'light');})();</script>
+<script src="../components/lib/react.production.min.js"></script>
+<script src="../components/lib/react-dom.production.min.js"></script>
+<script src="../components/lib/jsx-runtime-shim.js"></script>
+<script src="../components/lib/xyflow-react.umd.js"></script>
+<script src="../components/bundle.js"></script>
+</head>
+<body>
+<div class="gdg-root gdg-scene" style="padding:24px" id="root"></div>
+<script>
+  var G = window.GDGlass, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(
+    h(G.GlassSurface,{variant:'strong', style:{padding:24, maxWidth:560, display:'grid', gap:16, gridTemplateColumns:'1fr 1fr'}},
+      h(G.TextField,{label:'Account name', placeholder:'e.g. Acme Retail', help:'As it appears in Salesforce.'}),
+      h(G.TextField,{label:'Start date', defaultValue:'31/02/2026', error:'Enter a real date.'}),
+      h('div',{style:{gridColumn:'1 / -1'}}, h(G.TextField,{label:'Project description', multiline:true, rows:3, placeholder:'What should contributors know first?'}))));
+</script>
+</body>
+</html>

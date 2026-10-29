@@ -1,0 +1,12 @@
+/* FE-DS-08.AC2, D20 (GAPS G-GATE-1): the frame of the shared "not Ready" gate (Plan and Decisions). The wrapper also carries the design-system
+   `.gdg-scene` backdrop; it fills the content area and centres the EmptyState card, like `.mc-scene` and `.plan-scene`. Additive, tokens only;
+   no design-system rule is overridden. The screens give their grid one full-height row (`:has(> .gate-scene)` in plan-gaps.css, dec-gaps.css). */
+.gate-scene {
+  align-self: stretch;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: var(--space-lg) var(--space-md);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}

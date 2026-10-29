@@ -1,0 +1,221 @@
+/* FE-DS-03, FE-MC-08, FE-REV-03 (GAPS.md "## P11"): layout of the Files view. The design system has FileTree, Breadcrumbs, Prose,
+   SelectionToolbar and CommentThread but no two/three-column layout around them. Additive, tokens only; no design-system rule is
+   overridden. */
+
+/* G-P11-1: tree column + reading column; the height is bounded so the pane (not the page) scrolls and the toolbar's container is
+   the scroll container. the height subtracts what sits above and around the view in Mission Control Ready: the shell's header row
+   (see shell-gaps.css) and the shell padding above and below. */
+.files {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(14rem, 20rem) minmax(0, 1fr);
+  gap: var(--space-sm);
+  height: max(30rem, calc(100dvh - calc(calc(var(--space-xl) + 2 * var(--space-sm)) + var(--space-sm) * 2)));
+  max-height: max(30rem, calc(100dvh - calc(calc(var(--space-xl) + 2 * var(--space-sm)) + var(--space-sm) * 2)));
+  font-family: var(--font-sans);
+  color: var(--ink);
+}
+.files__tree {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: var(--space-xs);
+  border-radius: var(--radius-lg);
+}
+.files__tree-head {
+  flex: none;
+}
+.files__tree-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.files__main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.files__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.files__note {
+  flex: 1;
+  display: grid;
+  place-items: center;
+}
+
+/* G-P11-2: the document: reading pane (the scroll container, positioned for the toolbar) + the right-hand review panel. */
+/* Phase 1 Mission Control sources: one document opened from a link, without the tree (FilesView `treeless`). */
+.files--treeless {
+  grid-template-columns: minmax(0, 1fr);
+}
+.files__doc {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-sm);
+}
+.files__doc:has(.files__panel) {
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 22rem);
+}
+.files__pane {
+  position: relative;
+  min-height: 0;
+  overflow: auto;
+  padding-top: var(--space-xs);
+  border-radius: var(--radius-lg);
+}
+/* a deep-linked heading takes focus programmatically: the ring shows for keyboard focus only (:focus-visible) */
+.files__pane .gdg-prose :is(h1, h2, h3, h4, h5, h6):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: var(--space-2xs);
+  border-radius: var(--radius-sm);
+}
+.files__pane .gdg-paper {
+  min-height: calc(100% - var(--space-xs));
+  box-sizing: border-box;
+}
+
+/* G-P11-3: review panel column (the thread itself is the DS CommentThread, glass strong). */
+.files__panel {
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.files__panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  padding: 0 var(--space-2xs);
+}
+.files__panel-title {
+  margin: 0;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* G-P11-4: editable-block frame. The DS styles `.gdg-prose [contenteditable="true"]` (focus ring, glass fill); this adds the
+   Save/Cancel row and keeps line breaks of the Markdown source. */
+.files-edit {
+  display: grid;
+  gap: var(--space-xs);
+  margin: 0 0 var(--space-sm);
+}
+.files-edit__box {
+  white-space: pre-wrap;
+  padding: var(--space-xs) var(--space-sm);
+  min-height: 1.5em;
+}
+.files-edit__actions {
+  display: flex;
+  gap: var(--space-xs);
+}
+.files-edit__error {
+  margin: 0;
+  color: var(--danger);
+}
+
+/* G-P11-5: the DS rule styles `[contenteditable="true"]`; the editor uses `plaintext-only` (no pasted markup, no bold/italic by keyboard),
+   so the same frame is repeated for that value. */
+.gdg-prose [contenteditable="plaintext-only"] {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: var(--space-2xs);
+  border-radius: var(--radius-sm);
+  background: var(--glass-fill-strong);
+}
+
+/* G-P11-6: the bot's "Sources" line under a thread (CommentThread has no slot for references, MOCKS §8.2). */
+.files__sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2xs) var(--space-xs);
+  padding: 0 var(--space-xs);
+  color: var(--ink);
+}
+.files__sources-label {
+  font-weight: 600;
+  color: var(--ink-2);
+}
+.files__sources ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2xs) var(--space-sm);
+}
+.files__sources a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--yellow);
+  text-decoration-thickness: 2px;
+  text-underline-offset: var(--space-2xs);
+  overflow-wrap: anywhere;
+}
+.files__sources a:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* G-P11-7 (fix2): focus rings of the Files screen are the DS ring: 2px solid --focus-ring, 2px offset. */
+.files__pane:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+} /* inset: the pane scrolls and clips an outer ring */
+.files__pane mark.gdg-mark:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.files__pane .gdg-seltool__btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.files__table:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* G-P11-8 (fix2): wide tables scroll inside their own wrapper; long tree names end in an ellipsis. */
+.files__table {
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  max-width: 100%;
+  margin: 0 0 var(--space-sm);
+}
+.files__pane .gdg-prose .files__table table {
+  display: table;
+  margin: 0;
+}
+.files__tree .gdg-tree__name {
+  min-width: 0;
+}
+.files-edit__hint {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+/* P15 (QA m4, review): the review panel scrolls its own content; the composer row (Comment button) stays visible at the bottom of it. */
+.files__panel .gdg-thread__compose {
+  position: sticky;
+  bottom: 0;
+  background: var(--glass-fill-strong);
+  z-index: 1;
+}
+/* A toast (bottom right) would cover the panel's actions (Comment) for ~4 s after "Changes saved". Where those actions sit depends on the
+   thread length and the window height, so with the panel open the toasts move left of it, to the bottom of the reading pane
+   (22rem = the panel column's width, at its maximum from 1280 px; space-sm = the shell's right padding and the gap). */
+body:has(.files__panel) .gdg-toasts {
+  right: calc(var(--space-sm) * 2 + 22rem);
+}

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://specflow.local/contracts/schemas/google-sheets-values.schema.json",
+  "title": "Google Sheets spreadsheet with its values",
+  "description": "The input of drive.convert.sheets: the Sheets API v4 Spreadsheet resource (spreadsheets.get) under spreadsheet and the ValueRange list of values.batchGet under valueRanges, with the API's field names and types.",
+  "type": "object",
+  "required": ["spreadsheet", "valueRanges"],
+  "properties": {
+    "spreadsheet": {
+      "type": "object",
+      "required": ["properties", "sheets"],
+      "properties": {
+        "spreadsheetId": { "type": "string" },
+        "properties": {
+          "type": "object",
+          "required": ["title"],
+          "properties": { "title": { "type": "string" } }
+        },
+        "sheets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["properties"],
+            "properties": {
+              "properties": {
+                "type": "object",
+                "required": ["sheetId", "title", "index"],
+                "properties": {
+                  "sheetId": { "type": "integer", "minimum": 0 },
+                  "title": { "type": "string" },
+                  "index": { "type": "integer", "minimum": 0 }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "valueRanges": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["range"],
+        "properties": {
+          "range": { "type": "string", "minLength": 1 },
+          "majorDimension": { "enum": ["DIMENSION_UNSPECIFIED", "ROWS", "COLUMNS"] },
+          "values": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": { "type": ["string", "number", "boolean", "null"] }
+            }
+          }
+        }
+      }
+    }
+  }
+}

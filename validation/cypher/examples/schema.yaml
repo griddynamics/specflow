@@ -1,0 +1,83 @@
+# Example graph schema for cypher_checks: a small Person/Movie graph.
+#
+# Copy this file, describe your own graph, and pass it with `--schema`. Every check reads the
+# schema from here and nothing else; the `policy` section is optional and every register in
+# it is empty by default, so each allowance fails closed.
+
+# A label every node also carries (optional). Uniqueness declared on it (below) gets a
+# label-qualified value per node in the fixture graph.
+common_label: Entity
+
+# Properties every node label carries.
+common_properties:
+  id: {type: string}
+  status: {type: string, enum: [ACTIVE, INACTIVE]}
+
+# Node labels and their own properties. `type` is free text read for a dummy value:
+# string, integer, float, boolean, timestamp, json, vector, id, list<T>.
+nodes:
+  Person:
+    properties:
+      name: {type: string}
+      born: {type: integer}
+      embedding: {type: vector}
+  Movie:
+    properties:
+      title: {type: string}
+      released: {type: integer}
+      tagline: {type: string}
+      plot_embedding: {type: vector}
+  Genre:
+    properties:
+      name: {type: string}
+
+# Relationship types: start labels, end labels and property names.
+relationships:
+  ACTED_IN:
+    from: [Person]
+    to: [Movie]
+    properties: [roles]
+  DIRECTED:
+    from: [Person]
+    to: [Movie]
+  IN_GENRE:
+    from: [Movie]
+    to: [Genre]
+  FOLLOWS:
+    from: [Person]
+    to: [Person]
+    properties: [since]
+
+constraints:
+  # Uniqueness constraints Neo4j enforces, `Label.property`.
+  unique: [Entity.id, Genre.name]
+  # Range indexes, `Label.property`. Vector-typed properties are ignored here.
+  indexes: [Person.name, Movie.title]
+
+policy:
+  # Files holding schema DDL: many statements per file, CREATE allowed, data rules skipped.
+  ddl_globs: ["**/schema/*.cypher"]
+  # Files allowed to write; a write clause anywhere else is a finding. Empty disables it.
+  write_globs: ["**/write/*.cypher"]
+  # Queries (by file stem) that scan on purpose: exempt from the anchor rule and plan scans.
+  scan_shaped_queries: ["All genres", "All movies"]
+  # Labels whose unindexed label scan is a plan finding outside the scan-shaped register.
+  banned_scan_labels: [Person, Movie]
+  # Variable-length walks: the file stem, its hard cap and the config key its
+  # `length(p) <= $key` filter must use.
+  capped_traversals:
+    - {query: "Follower network", hard_cap: 4, key: FOLLOW_MAX_DEPTH}
+  # Files (by name glob) that may re-point an edge: CREATE a copy by elementId, DELETE the old.
+  create_allowed_globs: ["repoint_*.cypher"]
+  # Files (by stem) that may DELETE, and the labels/types each may delete.
+  node_removals:
+    "Remove genre": [Genre, IN_GENRE]
+  # Files (by stem) allowed to return vector-typed properties.
+  vector_read_queries: ["Movie embeddings"]
+  # Locations a write file may live in; a write file elsewhere is a finding. Empty disables it.
+  # write_allowed_globs: ["**/people/queries/write/*.cypher", "**/movies/queries/write/*.cypher"]
+  # Read files that must each be named in `read_owners`; every `read_owners` entry must in
+  # turn name a read file among the checked targets. Empty disables both rules.
+  # read_globs: ["**/read/*.cypher"]
+  # read_owners: ["All genres", "Follower network", "Movie by title", "Movie embeddings",
+  #               "Similar movies"]

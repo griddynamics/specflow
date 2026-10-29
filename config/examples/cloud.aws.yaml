@@ -1,0 +1,15 @@
+# Example cloud profile for AWS: an S3 bucket.
+# Copy it, set the bucket, prefix and region, and point SPECFLOW_CONFIG_FILE at the copy.
+# Environment variables override every value. No secrets here: S3 keys come from the
+# AWS credential chain (environment variables, an IAM role, or IRSA).
+# Set a bucket lifecycle rule AbortIncompleteMultipartUpload to clean up failed uploads.
+cloud: aws
+services:
+  object_storage:
+    provider: s3
+    bucket: your-bucket-name
+    prefix: prod/
+    s3:
+      endpoint_url: null   # null = the AWS endpoint
+      region: eu-west-1
+      addressing: auto

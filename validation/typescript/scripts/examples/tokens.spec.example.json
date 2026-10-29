@@ -1,0 +1,11 @@
+{
+  "tokens": [
+    { "name": "--background", "value": "oklch(0.97 0 0)" },
+    { "name": "--foreground", "value": "oklch(0.2 0.02 255)" },
+    { "name": "--primary", "value": "oklch(0.45 0.09 245)" },
+    { "name": "--primary-foreground", "value": "oklch(0.98 0 0)" },
+    { "name": "--muted" },
+    { "name": "--muted-foreground" },
+    { "name": "--radius", "value": "0.5rem" }
+  ]
+}

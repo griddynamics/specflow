@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security issue
+    url: https://github.com/griddynamics/specflow/security/policy
+    about: Do not open a public issue. Follow SECURITY.md to report it privately.

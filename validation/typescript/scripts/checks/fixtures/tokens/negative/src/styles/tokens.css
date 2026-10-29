@@ -1,0 +1,6 @@
+:root {
+  --background: oklch(0.5 0 0);
+  --muted: oklch(0.945 0.004 250);
+  --muted-foreground: oklch(0.52 0.014 253);
+  --chart-1: oklch(0.45 0.088 246);
+}

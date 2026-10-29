@@ -1,0 +1,545 @@
+# Local stack: the deployed services (api, workers, frontend, Postgres, Neo4j) with the same
+# images, start commands and host names (specflow-<name>), plus RustFS (S3 storage), which
+# this file runs itself. Temporal and Langfuse are OPTIONAL: most users already run their own.
+# Lines marked "local only" exist only here.
+#
+# Use it through the Makefile: `make up`, `make logs`, `make ps`, `make down`.
+# Default `make up`: postgres, neo4j, rustfs, rustfs-init, api, worker-parse, worker-agents, frontend.
+# The services then use TEMPORAL_ADDRESS (default host.docker.internal:7233) and, when set,
+# LANGFUSE_BASE_URL + keys. `make up WITH=temporal,langfuse` also starts the bundled ones (profiles
+# `temporal`, `langfuse`) and the Makefile points the app at them.
+# `--env-file .env.local` only fills the ${...} values below; no service reads the file.
+#
+#   Temporal  - dev server (SQLite on a volume), namespace TEMPORAL_NAMESPACE, UI on 8233
+#   RustFS    - S3-compatible store (bucket specflow-local made by rustfs-init), host port 19000
+#   Langfuse  - v3 (web, worker, clickhouse, redis, minio, own postgres), UI on port 3000;
+#               the project and its API keys are created on first start from
+#               LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY (login: LANGFUSE_INIT_USER_*)
+#
+# Start order: postgres + neo4j + rustfs (+ temporal, langfuse-web when on) healthy, rustfs-init done -> api (runs
+# `specflow migrate`, then serves) healthy -> worker-parse, worker-agents, frontend.
+name: specflow
+
+services:
+  # On its first start (empty volume) backend/postgres-init/10-specflow-roles.sh creates the
+  # app role, the database and the agent role.
+  postgres:
+    image: postgres:17.11
+    container_name: specflow-postgres
+    mem_limit: 512m
+    ports:
+      - "127.0.0.1:${DATABASE_PORT:-5433}:5432"
+    environment:
+      POSTGRES_PASSWORD: "${POSTGRES_ADMIN_PASSWORD:?set POSTGRES_ADMIN_PASSWORD in .env.local}"
+      DATABASE_NAME: "specflow"
+      DATABASE_USER: "specflow"
+      DATABASE_PASSWORD: "${DATABASE_PASSWORD:?set DATABASE_PASSWORD in .env.local}"
+      DATABASE_AGENT_USER: "specflow_agent"
+      DATABASE_AGENT_PASSWORD: "${DATABASE_AGENT_PASSWORD:?set DATABASE_AGENT_PASSWORD in .env.local}"
+    volumes:
+      - specflow-postgres-data:/var/lib/postgresql/data
+      - ./backend/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  neo4j:
+    image: neo4j:5.26.30-community
+    container_name: specflow-neo4j
+    mem_limit: 1280m
+    ports:
+      - "127.0.0.1:7474:7474"   # local only: the Neo4j browser
+      - "127.0.0.1:7687:7687"
+    environment:
+      NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env.local}"
+      NEO4J_server_memory_heap_initial__size: "512m"
+      NEO4J_server_memory_heap_max__size: "768m"
+      NEO4J_server_memory_pagecache_size: "256m"
+    volumes:
+      - specflow-neo4j-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  # Local only: Temporal dev server with the namespace created on start. SQLite lives on
+  # a volume, so workflow history survives `make down`.
+  temporal:
+    image: temporalio/temporal:1.5.1
+    container_name: specflow-temporal
+    profiles: ["temporal"]
+    mem_limit: 512m
+    user: "0:0"   # the image user cannot write to a fresh named volume
+    command:
+      - server
+      - start-dev
+      - --ip
+      - 0.0.0.0
+      - --namespace
+      - "${TEMPORAL_NAMESPACE:-specflow-local}"
+      - --db-filename
+      - /data/temporal.db
+    ports:
+      - "127.0.0.1:7233:7233"
+      - "127.0.0.1:8233:8233"   # the Temporal UI
+    volumes:
+      - specflow-temporal-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "temporal operator namespace describe --address 127.0.0.1:7233 --namespace \"$${TEMPORAL_NS}\" >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    environment:
+      TEMPORAL_NS: "${TEMPORAL_NAMESPACE:-specflow-local}"
+
+  # Local only: Langfuse v3 and its stores. Dev-only secrets; never reuse them elsewhere.
+  langfuse-postgres:
+    image: postgres:17.11
+    container_name: specflow-langfuse-postgres
+    profiles: ["langfuse"]
+    mem_limit: 256m
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+      POSTGRES_DB: langfuse
+    volumes:
+      - specflow-langfuse-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langfuse"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  langfuse-clickhouse:
+    image: clickhouse/clickhouse-server:24.12
+    container_name: specflow-langfuse-clickhouse
+    profiles: ["langfuse"]
+    mem_limit: 3g   # ClickHouse caps itself at 90% of this; 1g failed on trace inserts
+    user: "101:101"
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+    volumes:
+      - specflow-langfuse-clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  langfuse-redis:
+    image: redis:7.4
+    container_name: specflow-langfuse-redis
+    profiles: ["langfuse"]
+    mem_limit: 128m
+    command: ["redis-server", "--requirepass", "langfuse", "--maxmemory-policy", "noeviction"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a langfuse ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  langfuse-minio:
+    image: cgr.dev/chainguard/minio:latest
+    container_name: specflow-langfuse-minio
+    profiles: ["langfuse"]
+    mem_limit: 256m
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: miniosecret
+    volumes:
+      - specflow-langfuse-minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    container_name: specflow-langfuse-worker
+    profiles: ["langfuse"]
+    mem_limit: 768m
+    environment: &langfuse-env
+      DATABASE_URL: "postgresql://langfuse:langfuse@specflow-langfuse-postgres:5432/langfuse"
+      SALT: "specflow-local-salt"
+      ENCRYPTION_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
+      TELEMETRY_ENABLED: "false"
+      CLICKHOUSE_MIGRATION_URL: "clickhouse://specflow-langfuse-clickhouse:9000"
+      CLICKHOUSE_URL: "http://specflow-langfuse-clickhouse:8123"
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      LANGFUSE_USE_AZURE_BLOB: "false"
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: miniosecret
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: "http://specflow-langfuse-minio:9000"
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: miniosecret
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: "http://specflow-langfuse-minio:9000"
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
+      REDIS_HOST: specflow-langfuse-redis
+      REDIS_PORT: "6379"
+      REDIS_AUTH: langfuse
+    depends_on: &langfuse-deps
+      langfuse-postgres:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+      langfuse-minio:
+        condition: service_healthy
+
+  langfuse-web:
+    image: langfuse/langfuse:3
+    container_name: specflow-langfuse-web
+    profiles: ["langfuse"]
+    mem_limit: 2g
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      <<: *langfuse-env
+      NODE_OPTIONS: "--max-old-space-size=1536"
+      NEXTAUTH_URL: "http://localhost:3000"
+      NEXTAUTH_SECRET: "specflow-local-nextauth-secret"
+      # Headless init (first start): org, project, API keys and a login user.
+      LANGFUSE_INIT_ORG_ID: specflow
+      LANGFUSE_INIT_ORG_NAME: specflow
+      LANGFUSE_INIT_PROJECT_ID: specflow-local
+      LANGFUSE_INIT_PROJECT_NAME: specflow-local
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: "${LANGFUSE_PUBLIC_KEY:-pk-lf-specflow-local}"
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: "${LANGFUSE_SECRET_KEY:-sk-lf-specflow-local}"
+      LANGFUSE_INIT_USER_EMAIL: "${LANGFUSE_INIT_USER_EMAIL:-admin@specflow.local}"
+      LANGFUSE_INIT_USER_NAME: admin
+      LANGFUSE_INIT_USER_PASSWORD: "${LANGFUSE_INIT_USER_PASSWORD:-specflow-local}"
+    depends_on: *langfuse-deps
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://$$(hostname):3000/api/public/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  # Local only: S3-compatible object store for the cloud profile. Pinned by digest (young
+  # project: re-run the live S3 test on every bump). Both keys are required: without them
+  # RustFS falls back to a built-in default key. It does not create buckets: rustfs-init does.
+  # Host port 19000, never 9000 (Langfuse's MinIO may hold it).
+  rustfs:
+    image: rustfs/rustfs:1.0.1@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c
+    container_name: specflow-rustfs
+    mem_limit: 512m
+    ports:
+      - "127.0.0.1:${RUSTFS_HOST_PORT:-19000}:9000"
+    environment:
+      RUSTFS_ACCESS_KEY: "${RUSTFS_ACCESS_KEY:?set RUSTFS_ACCESS_KEY (run make env-local)}"
+      RUSTFS_SECRET_KEY: "${RUSTFS_SECRET_KEY:?set RUSTFS_SECRET_KEY (run make env-local)}"
+    volumes:
+      - specflow-rustfs-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/health >/dev/null || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  # Local only: one-shot. Creates the bucket of config/cloud.local.yaml, then exits 0 (also when
+  # it exists). Uses the api image (boto3 is in it); api and workers wait for it.
+  rustfs-init:
+    build:
+      context: ./backend
+      dockerfile: api.Dockerfile
+    image: specflow-api:local
+    container_name: specflow-rustfs-init
+    restart: "no"
+    mem_limit: 256m
+    environment:
+      AWS_ENDPOINT_URL_S3: "http://specflow-rustfs:9000"
+      AWS_ACCESS_KEY_ID: "${RUSTFS_ACCESS_KEY:?set RUSTFS_ACCESS_KEY (run make env-local)}"
+      AWS_SECRET_ACCESS_KEY: "${RUSTFS_SECRET_KEY:?set RUSTFS_SECRET_KEY (run make env-local)}"
+      AWS_REGION: "us-east-1"
+      INIT_BUCKET: "specflow-local"
+    entrypoint:
+      - python
+      - -c
+      - |
+        import os
+        import boto3
+        from botocore.exceptions import ClientError
+        try:
+            boto3.client("s3").create_bucket(Bucket=os.environ["INIT_BUCKET"])
+        except ClientError as error:
+            # RustFS 1.0.1 answers 200 for an existing bucket of ours; S3 itself says BucketAlreadyOwnedByYou.
+            if error.response["Error"]["Code"] != "BucketAlreadyOwnedByYou":
+                raise
+    depends_on:
+      rustfs:
+        condition: service_healthy
+
+  # Runs `specflow migrate`, then the API on port 8000. Starts the Temporal workflows.
+  api:
+    build:
+      context: ./backend
+      dockerfile: api.Dockerfile
+    image: specflow-api:local
+    container_name: specflow-api
+    # Read-only root filesystem, as on Kubernetes: the service writes no files (logs go to stdout).
+    read_only: true
+    mem_limit: 768m
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # reaches a Temporal or Langfuse on the host (Linux)
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      APP_ENV: "${APP_ENV:-local}"
+      API_PORT: "8000"
+      DATABASE_HOST: "specflow-postgres"
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: "specflow"
+      DATABASE_USER: "specflow"
+      DATABASE_PASSWORD: "${DATABASE_PASSWORD:?set DATABASE_PASSWORD in .env.local}"
+      DATABASE_AGENT_USER: "specflow_agent"
+      AUTH_MODE: "${AUTH_MODE:-dev}"
+      AUTH_DEV_SIGNING_KEY: "${AUTH_DEV_SIGNING_KEY:-}"   # local only: dev login
+      OIDC_ISSUER: "${OIDC_ISSUER:-}"
+      AUTH_JWKS_URL: "${AUTH_JWKS_URL:-}"
+      AUTH_API_AUDIENCE: "${AUTH_API_AUDIENCE:-}"
+      AUTH_API_CLIENT_IDS: "${AUTH_API_CLIENT_IDS:-}"
+      AUTH_ALLOWED_EMAIL_DOMAINS: "${AUTH_ALLOWED_EMAIL_DOMAINS:-example.com}"   # local only: matches the dev login user
+      SPECFLOW_CONFIG_FILE: "/etc/specflow/cloud.yaml"   # local only: S3 storage on RustFS (config/cloud.local.yaml)
+      AWS_ACCESS_KEY_ID: "${RUSTFS_ACCESS_KEY:?set RUSTFS_ACCESS_KEY (run make env-local)}"   # local only: the RustFS keys
+      AWS_SECRET_ACCESS_KEY: "${RUSTFS_SECRET_KEY:?set RUSTFS_SECRET_KEY (run make env-local)}"
+      TEMPORAL_ADDRESS: "${TEMPORAL_ADDRESS:-host.docker.internal:7233}"
+      TEMPORAL_NAMESPACE: "${TEMPORAL_NAMESPACE:-specflow-local}"
+      TEMPORAL_QUEUE_PARSE: "specflow-parse"
+      TEMPORAL_QUEUE_AGENTS: "specflow-agents"
+      NEO4J_URI: "bolt://specflow-neo4j:7687"
+      NEO4J_USER: "neo4j"
+      NEO4J_PASSWORD: "${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env.local}"
+      NEO4J_DATABASE: "neo4j"
+      AGENT_MODEL: "${AGENT_MODEL:-}"
+      AGENT_TRACE_SENSITIVE_DATA: "${AGENT_TRACE_SENSITIVE_DATA:-true}"
+      # POST /projects/{pid}/graph_build runs the graph build in this process: off while the
+      # GRAPH_*_MODEL variables are blank. The build state (spec_id registry, build records,
+      # stored extraction) must survive a restart, so it lives on the specflow-graph-state volume.
+      LLM_GATEWAY_URL: "${LLM_GATEWAY_URL:-}"
+      LLM_GATEWAY_API_KEY: "${LLM_GATEWAY_API_KEY:-}"
+      GRAPH_LLM_MODEL: "${GRAPH_LLM_MODEL:-}"
+      GRAPH_SMALL_MODEL: "${GRAPH_SMALL_MODEL:-}"
+      GRAPH_EMBEDDING_MODEL: "${GRAPH_EMBEDDING_MODEL:-}"
+      GRAPH_EMBEDDING_DIM: "${GRAPH_EMBEDDING_DIM:-1536}"
+      GRAPH_STATE_DIR: "/var/lib/specflow/graph"
+      LANGFUSE_BASE_URL: "${LANGFUSE_BASE_URL:-}"
+      LANGFUSE_PUBLIC_KEY: "${LANGFUSE_PUBLIC_KEY:-}"
+      LANGFUSE_SECRET_KEY: "${LANGFUSE_SECRET_KEY:-}"
+      LOGS_STDOUT_LEVEL: "INFO"
+      LOGS_LEVEL: "${LOGS_LEVEL:-INFO}"
+    volumes:
+      - type: bind   # local only: the cloud profile (storage on RustFS), read-only
+        source: ./config/cloud.local.yaml
+        target: /etc/specflow/cloud.yaml
+        read_only: true
+      - type: volume   # graph build state (GRAPH_STATE_DIR)
+        source: specflow-graph-state
+        target: /var/lib/specflow/graph
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      temporal:   # only when the temporal profile is on
+        condition: service_healthy
+        required: false
+      langfuse-web:   # only when the langfuse profile is on
+        condition: service_healthy
+        required: false
+      rustfs-init:
+        condition: service_completed_successfully
+    healthcheck:
+      # No curl in the slim image: python is the probe. start_period covers the migration.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=4)"]
+      interval: 10s
+      timeout: 6s
+      retries: 6
+      start_period: 60s
+
+  # Polls the Temporal queue specflow-parse: PDF parsing. No Neo4j, LLM gateway or agent password.
+  worker-parse:
+    build:
+      context: ./backend
+      dockerfile: worker.Dockerfile
+    image: specflow-worker:local
+    container_name: specflow-worker-parse
+    # Read-only root filesystem, as on Kubernetes; /tmp is the only writable place (the pod's emptyDir).
+    read_only: true
+    tmpfs:
+      - /tmp:size=1g
+    mem_limit: 2g
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # reaches a Temporal or Langfuse on the host (Linux)
+    stop_grace_period: 150s   # on SIGTERM, running activities finish for up to 130 s
+    environment:
+      APP_ENV: "${APP_ENV:-local}"
+      WORKER_QUEUES: "parse"
+      WORKER_HEALTH_PORT: "8001"
+      DATABASE_HOST: "specflow-postgres"
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: "specflow"
+      DATABASE_USER: "specflow"
+      DATABASE_PASSWORD: "${DATABASE_PASSWORD:?set DATABASE_PASSWORD in .env.local}"
+      DATABASE_AGENT_USER: "specflow_agent"
+      SPECFLOW_CONFIG_FILE: "/etc/specflow/cloud.yaml"   # local only: S3 storage on RustFS (config/cloud.local.yaml)
+      AWS_ACCESS_KEY_ID: "${RUSTFS_ACCESS_KEY:?set RUSTFS_ACCESS_KEY (run make env-local)}"   # local only: the RustFS keys
+      AWS_SECRET_ACCESS_KEY: "${RUSTFS_SECRET_KEY:?set RUSTFS_SECRET_KEY (run make env-local)}"
+      TEMPORAL_ADDRESS: "${TEMPORAL_ADDRESS:-host.docker.internal:7233}"
+      TEMPORAL_NAMESPACE: "${TEMPORAL_NAMESPACE:-specflow-local}"
+      TEMPORAL_QUEUE_PARSE: "specflow-parse"
+      TEMPORAL_QUEUE_AGENTS: "specflow-agents"
+      LOGS_STDOUT_LEVEL: "INFO"
+      LOGS_LEVEL: "${LOGS_LEVEL:-INFO}"
+    volumes:
+      - type: bind   # local only: the cloud profile (storage on RustFS), read-only
+        source: ./config/cloud.local.yaml
+        target: /etc/specflow/cloud.yaml
+        read_only: true
+    depends_on:
+      api:
+        condition: service_healthy
+      rustfs-init:
+        condition: service_completed_successfully
+    healthcheck:
+      # Readiness: database, Temporal and storage; exit 0 = ok. Liveness is GET /healthz on 8001.
+      test: ["CMD", "specflow", "worker", "--check"]
+      interval: 30s
+      timeout: 25s
+      retries: 3
+      start_period: 30s
+
+  # Polls the Temporal queue specflow-agents: the summary agent (LLM gateway, Neo4j, Langfuse).
+  worker-agents:
+    build:
+      context: ./backend
+      dockerfile: worker.Dockerfile
+    image: specflow-worker:local
+    container_name: specflow-worker-agents
+    # Read-only root filesystem, as on Kubernetes; /tmp is the only writable place (the pod's emptyDir).
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m
+    mem_limit: 2g
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # reaches a Temporal or Langfuse on the host (Linux)
+    stop_grace_period: 150s   # on SIGTERM, running activities finish for up to 130 s
+    environment:
+      APP_ENV: "${APP_ENV:-local}"
+      WORKER_QUEUES: "agents"
+      WORKER_HEALTH_PORT: "8001"
+      DATABASE_HOST: "specflow-postgres"
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: "specflow"
+      DATABASE_USER: "specflow"
+      DATABASE_PASSWORD: "${DATABASE_PASSWORD:?set DATABASE_PASSWORD in .env.local}"
+      DATABASE_AGENT_USER: "specflow_agent"
+      DATABASE_AGENT_PASSWORD: "${DATABASE_AGENT_PASSWORD:?set DATABASE_AGENT_PASSWORD in .env.local}"
+      SPECFLOW_CONFIG_FILE: "/etc/specflow/cloud.yaml"   # local only: S3 storage on RustFS (config/cloud.local.yaml)
+      AWS_ACCESS_KEY_ID: "${RUSTFS_ACCESS_KEY:?set RUSTFS_ACCESS_KEY (run make env-local)}"   # local only: the RustFS keys
+      AWS_SECRET_ACCESS_KEY: "${RUSTFS_SECRET_KEY:?set RUSTFS_SECRET_KEY (run make env-local)}"
+      TEMPORAL_ADDRESS: "${TEMPORAL_ADDRESS:-host.docker.internal:7233}"
+      TEMPORAL_NAMESPACE: "${TEMPORAL_NAMESPACE:-specflow-local}"
+      TEMPORAL_QUEUE_PARSE: "specflow-parse"
+      TEMPORAL_QUEUE_AGENTS: "specflow-agents"
+      NEO4J_URI: "bolt://specflow-neo4j:7687"
+      NEO4J_USER: "neo4j"
+      NEO4J_PASSWORD: "${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env.local}"
+      NEO4J_DATABASE: "neo4j"
+      LLM_GATEWAY_URL: "${LLM_GATEWAY_URL:-}"
+      LLM_GATEWAY_API_KEY: "${LLM_GATEWAY_API_KEY:-}"
+      AGENT_MODEL: "${AGENT_MODEL:-}"
+      AGENT_TRACE_SENSITIVE_DATA: "${AGENT_TRACE_SENSITIVE_DATA:-true}"
+      LANGFUSE_BASE_URL: "${LANGFUSE_BASE_URL:-}"
+      LANGFUSE_PUBLIC_KEY: "${LANGFUSE_PUBLIC_KEY:-}"
+      LANGFUSE_SECRET_KEY: "${LANGFUSE_SECRET_KEY:-}"
+      LOGS_STDOUT_LEVEL: "INFO"
+      LOGS_LEVEL: "${LOGS_LEVEL:-INFO}"
+    volumes:
+      - type: bind   # local only: the cloud profile (storage on RustFS), read-only
+        source: ./config/cloud.local.yaml
+        target: /etc/specflow/cloud.yaml
+        read_only: true
+    depends_on:
+      api:
+        condition: service_healthy
+      rustfs-init:
+        condition: service_completed_successfully
+    healthcheck:
+      # Readiness: database, Temporal, storage and Neo4j; exit 0 = ok. Liveness is GET /healthz on 8001.
+      test: ["CMD", "specflow", "worker", "--check"]
+      interval: 30s
+      timeout: 25s
+      retries: 3
+      start_period: 30s
+
+  # The standalone Next.js server (the image Infra builds). For live reload, stop it and
+  # run `make frontend-dev` on the host instead (same port).
+  frontend:
+    build: ./frontend
+    image: specflow-frontend:local
+    container_name: specflow-frontend
+    mem_limit: 512m
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-3001}:3000"
+    environment:
+      APP_ENV: "${APP_ENV:-local}"
+      AUTH_MODE: "${AUTH_MODE:-dev}"
+      AUTH_DEV_SIGNING_KEY: "${AUTH_DEV_SIGNING_KEY:-}"     # local only: dev login
+      LOCAL_TEST_USER_EMAIL: "${LOCAL_TEST_USER_EMAIL:-dev@example.com}"   # local only: dev login
+      PUBLIC_URL: "${PUBLIC_URL:-http://localhost:3001}"
+      API_INTERNAL_URL: "http://specflow-api:8000"
+      OIDC_ISSUER: "${OIDC_ISSUER:-}"
+      OIDC_INTERNAL_URL: "${OIDC_INTERNAL_URL:-}"
+      OIDC_CLIENT_ID: "${OIDC_CLIENT_ID:-}"
+      OIDC_CLIENT_SECRET: "${OIDC_CLIENT_SECRET:-}"
+      SESSION_SECRET: "${SESSION_SECRET:-}"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 30s
+      retries: 6
+      start_period: 60s
+
+volumes:
+  specflow-rustfs-data:
+    name: specflow-rustfs-data
+  specflow-temporal-data:
+    name: specflow-temporal-data
+  specflow-langfuse-postgres-data:
+    name: specflow-langfuse-postgres-data
+  specflow-langfuse-clickhouse-data:
+    name: specflow-langfuse-clickhouse-data
+  specflow-langfuse-minio-data:
+    name: specflow-langfuse-minio-data
+  specflow-postgres-data:
+    name: specflow-postgres-data
+  specflow-neo4j-data:
+    name: specflow-neo4j-data
+  specflow-graph-state:
+    name: specflow-graph-state

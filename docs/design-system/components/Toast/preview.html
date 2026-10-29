@@ -1,0 +1,20 @@
+<!-- @dsCard group="Status" height=260 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>Toast — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-scene" style="padding:24px;min-height:260px;box-sizing:border-box;" id="root"></div>
+<script>
+var G = window.GDGlass, h = React.createElement;
+var PEOPLE = [
+  { id:'mk', name:'Sam Carter', role:'Product owner', email:'scarter@example.com' },
+  { id:'ak', name:'Alex Rivera', role:'Engineer', email:'arivera@example.com' },
+  { id:'nc', name:'Nina Walker', role:'Delivery manager', email:'nwalker@example.com' }];
+
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{display:'grid',gap:10,maxWidth:380}},
+  h(G.Toast,{tone:'success', title:'Answers submitted', message:'Natalia will review them today.', onClose:function(){}}),
+  h(G.Toast,{tone:'info', title:'Not available in this demo', message:'The connection wizard ships later.', onClose:function(){}}),
+  h(G.Toast,{tone:'danger', title:'No access to Google Drive', message:'Share the folder with the GD service account.', onClose:function(){}})));
+</script>
+</body>
+</html>

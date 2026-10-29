@@ -1,0 +1,174 @@
+# Hand-written model answers for the `update` build from shop snapshot 1 to snapshot 2 (tech-specs
+# 9.1-9.2), with the options of 1.yaml. Written by hand like 1.yaml (owner decision P3), never recorded.
+#
+# Only checkout.md changed (README "Snapshot 2"), so an update build asks only about its dirty
+# fragments; every other fragment and unit reuses its stored results and makes no call. That is the
+# reuse contract (FR-BLD-03, FR-BLD-22): a request this file does not answer fails the test. It holds:
+# - node windows: the edited "Payment flow" fragment and the new "Delivery options" fragment, one
+#   window each (the windows cover only dirty fragments);
+# - edges: the checkout.md unit, whose content changed (the whole unit is asked again; its facts are
+#   1.yaml's minus the removed "Business rules" section, with FR-CHK-004 reworded and the new nodes);
+# - attributes of the new and changed nodes;
+# - hub consolidation: the block is sent because it holds a new hub ("Delivery options"); the answer
+#   groups nothing, and the decision stored by build 1 still keeps "Audit trail" in "Audit logging"
+#   (FR-BLD-25: a stored decision overrides the model).
+# The removed "Business rules" section retires its fragment; the business rule and its two FRs are
+# grounded only there, so they are deleted.
+
+snapshot: 2
+
+options:
+  fragment_tokens: {min: 30, target: 120, max: 1200}
+  unit_tokens: 4000
+  max_node_windows: 8
+
+fragments:
+  # admin.md: one unit, windows [adm.intro, adm.finance] and [adm.retention .. adm.questions]
+  adm.intro: ["Admin console Requirements", "Requirements collected from the back-office team"]
+  adm.finance: ["Admin console Requirements > Order data for finance", "The finance team needs a way"]
+  adm.retention: ["Admin console Requirements > Retention", "- Orders older than the retention period"]
+  adm.access: ["Admin console Requirements > Access", "- Staff must sign in"]
+  adm.scope: ["Admin console Requirements > Out of scope", "- Editing orders from the admin screens"]
+  adm.screens: ["Admin console Requirements > Screens and layout", "- The download screen must be reachable"]
+  adm.questions: ["Admin console Requirements > Questions for the next workshop", "- Do auditors need"]
+  # checkout.md: one unit, windows [chk.intro .. chk.confirm] and [chk.delivery .. chk.notes2]
+  chk.intro: ["Checkout service Requirements", "This document specifies the Checkout service"]
+  chk.basket: ["Checkout service Requirements > Features", "Basket review is the feature"]
+  chk.payment: ["Checkout service Requirements > Features > Payment flow", "Payment flow is the feature"]
+  chk.confirm: ["Checkout service Requirements > Features > Order confirmation", "Order confirmation is the feature"]
+  chk.delivery: ["Checkout service Requirements > Features > Delivery options", "Delivery options is the feature"]
+  chk.quality: ["Checkout service Requirements > Quality requirements", "The Checkout service must respond"]
+  chk.stripe: ["Checkout service Requirements > Integrations", "The Checkout service must integrate with Stripe"]
+  chk.retries: ["Checkout service Requirements > Payment flow details", "When Stripe does not answer in time"]
+  chk.notes: ["Checkout service Requirements > Payment flow details > Notes", "Design notes for this part", 1]
+  chk.notes2: ["Checkout service Requirements > Payment flow details > Notes", "Design notes for this part", 2]
+  # notes.md: one unit, one window
+  nts.intro: ["Weekly sync notes", "Informal notes from the weekly sync"]
+  nts.agenda: ["Weekly sync notes > Attendees and agenda", "Attendees were the usual group"]
+  nts.discussion: ["Weekly sync notes > Discussion", "The team agreed that the staging environment"]
+  nts.followups: ["Weekly sync notes > Follow-ups", "- Check why staging was slow."]
+  nts.parking: ["Weekly sync notes > Parking lot", "Ideas that came up"]
+  # orders.md: two units; the first has five windows, the second (the rest of "Export details") three
+  ord.intro: ["Orders service Requirements", "This document specifies the Orders service"]
+  ord.export: ["Orders service Requirements > Order history export", "Order history export is the feature"]
+  ord.obligations: ["Orders service Requirements > Order history export > Obligations", "- Staff want to filter"]
+  ord.po: ["Orders service Requirements > Order history export > Purchase order data", "A purchase order is created"]
+  ord.erp: ["Orders service Requirements > Order history export > ERP delivery", "The Orders service must send each"]
+  ord.details1: ["Orders service Requirements > Export details", "The export is built in three stages"]
+  ord.details2: ["Orders service Requirements > Export details", "Large exports run as background jobs"]
+  ord.details3: ["Orders service Requirements > Export details", "Testing of the export concentrates"]
+  ord.details4: ["Orders service Requirements > Export details", "Concurrency is limited on purpose"]
+  ord.details5: ["Orders service Requirements > Export details", "Documentation for staff is kept short"]
+  # overview.md: one unit, windows [ov.intro .. ov.stripe] and [ov.auth .. ov.glossary]
+  ov.intro: ["Acme Shop - System Overview", "Acme Shop is a made-up online store"]
+  ov.scope: ["Acme Shop - System Overview > Scope", "The system lets customers browse"]
+  ov.checkout: ["Acme Shop - System Overview > Modules", "The Checkout service is the module"]
+  ov.orders: ["Acme Shop - System Overview > Modules > Orders service", "The Orders service stores confirmed orders"]
+  ov.db: ["Acme Shop - System Overview > Modules > Orders database", "The Orders database is the relational store"]
+  ov.erp: ["Acme Shop - System Overview > Modules > ERP (external)", "The ERP is the company's external"]
+  ov.stripe: ["Acme Shop - System Overview > Modules > Stripe (external)", "Stripe is an external payment provider"]
+  ov.auth: ["Acme Shop - System Overview > Cross-cutting capabilities", "Authentication is the capability"]
+  ov.audit: ["Acme Shop - System Overview > Cross-cutting capabilities > Audit logging", "Audit logging is the capability"]
+  ov.arch: ["Acme Shop - System Overview > Architecture", "The modules interact as follows."]
+  ov.glossary: ["Acme Shop - System Overview > Glossary", "- Basket: the list of products"]
+
+nodes:
+  - window: [chk.payment]
+    entities:
+      - [Payment flow, Feature]
+      - ["FR-CHK-003: System can create a Stripe payment authorisation before confirming an order", FunctionalRequirement]
+      # reworded: same explicit id, so the same node (modified, same spec_id)
+      - ["FR-CHK-004: System can keep the basket and name the reason when a payment is declined", FunctionalRequirement]
+      - [System can offer a retry with another card from the error message, FunctionalRequirement]
+  - window: [chk.delivery]
+    entities:
+      - [Delivery options, Feature]
+      - ["FR-CHK-007: System can let the customer choose one delivery option before payment", FunctionalRequirement]
+      - [System can show the estimated delivery date next to each delivery option, FunctionalRequirement]
+
+consolidation:
+  - block:
+      - Audit logging
+      - Audit trail
+      - Authentication
+      - Basket review
+      - Checkout service
+      - Delivery options
+      - ERP
+      - Order confirmation
+      - Order history export
+      - Orders database
+      - Orders service
+      - Payment flow
+      - Stripe
+    groups: []
+
+edges:
+  - unit: [chk.intro, chk.basket, chk.payment, chk.confirm, chk.delivery, chk.quality, chk.stripe, chk.retries, chk.notes, chk.notes2]
+    facts:
+      - [Basket review, PART_OF, Checkout service, "Basket review is the feature in which the customer checks items, quantities and the total before paying.", [chk.basket]]
+      - [Payment flow, PART_OF, Checkout service, "Payment flow is the feature in which the customer pays for the basket by card and receives a confirmation.", [chk.payment]]
+      - [Order confirmation, PART_OF, Checkout service, "Order confirmation is the feature that closes the checkout.", [chk.confirm]]
+      - [Delivery options, PART_OF, Checkout service, "Delivery options is the feature in which the customer chooses how the order is shipped before paying for it.", [chk.delivery]]
+      - [System can show every basket line with quantity and unit price, PART_OF, Basket review, "- FR-CHK-001: The Checkout service must show every basket line with its quantity and unit price.", [chk.basket]]
+      - [System can recalculate basket total when a quantity changes, PART_OF, Basket review, "- FR-CHK-002: The Checkout service must recalculate the basket total whenever a quantity changes.", [chk.basket]]
+      - [System can create a Stripe payment authorisation before confirming an order, PART_OF, Payment flow, "- FR-CHK-003: The Checkout service must create a payment authorisation with Stripe before it confirms an order.", [chk.payment]]
+      - [System can keep the basket and name the reason when a payment is declined, PART_OF, Payment flow, "- FR-CHK-004: The Checkout service must keep the basket unchanged and show an error message that names the reason when a payment is declined.", [chk.payment]]
+      - [System can offer a retry with another card from the error message, PART_OF, Payment flow, "- The Checkout service should offer the customer a retry with another card straight from the error message.", [chk.payment]]
+      - [System can send the confirmed order to Orders service within 5 seconds, PART_OF, Order confirmation, "- FR-CHK-005: The Checkout service must send the confirmed order to the Orders service within 5 seconds of a successful payment.", [chk.confirm]]
+      - [System can send the confirmed order to Orders service within 5 seconds, RELATES_TO, Orders service, "- FR-CHK-005: The Checkout service must send the confirmed order to the Orders service within 5 seconds of a successful payment.", [chk.confirm]]
+      - [System can display an order number on the confirmation page, PART_OF, Order confirmation, "- FR_CHK_006: The Checkout service must display an order number on the confirmation page.", [chk.confirm]]
+      - [System can let the customer choose one delivery option before payment, PART_OF, Delivery options, "- FR-CHK-007: The Checkout service must let the customer choose one delivery option before payment.", [chk.delivery]]
+      - [System can show the estimated delivery date next to each delivery option, PART_OF, Delivery options, "- The Checkout service should show the estimated delivery date next to each delivery option.", [chk.delivery]]
+      - [Checkout service, PART_OF, Pay now responds within 800 ms at p95 under 200 concurrent checkouts, "The Checkout service must respond to the \"Pay now\" action with a p95 latency of at most 800 ms under a load of 200 concurrent checkouts, measured at the service boundary and excluding the time spent inside Stripe.", [chk.quality]]
+      - [Checkout service calls Stripe to authorise and capture card payments, PART_OF, Checkout service, "The Checkout service must integrate with Stripe over its HTTPS API to authorise and capture card payments, and it must accept Stripe's asynchronous payment callbacks.", [chk.stripe]]
+      - [Checkout service calls Stripe to authorise and capture card payments, RELATES_TO, Stripe, "The Checkout service must integrate with Stripe over its HTTPS API to authorise and capture card payments, and it must accept Stripe's asynchronous payment callbacks.", [chk.stripe]]
+      - [System can retry a Stripe authorisation up to two times, PART_OF, Payment flow, "When Stripe does not answer in time, the Checkout service retries the authorisation up to two times with the same idempotency key.", [chk.retries]]
+
+attributes:
+  Payment flow:
+    quote: Payment flow is the feature in which the customer pays for the basket by card and receives a confirmation.
+    stmt: Customers pay for the basket by card and receive a confirmation.
+    module: Checkout service
+  Delivery options:
+    quote: Delivery options is the feature in which the customer chooses how the order is shipped
+    stmt: Customers choose how the order is shipped before paying for it.
+    module: Checkout service
+  System can create a Stripe payment authorisation before confirming an order:
+    quote: "FR-CHK-003: The Checkout service must create a payment authorisation with Stripe before it confirms an order."
+    stmt: The Checkout service creates a Stripe payment authorisation before it confirms an order.
+    source_status: stated
+    is_assumption: "no"
+  System can keep the basket and name the reason when a payment is declined:
+    quote: "FR-CHK-004: The Checkout service must keep the basket unchanged and show an error message that names the reason when a payment is declined."
+    stmt: A declined payment keeps the basket unchanged and shows an error naming the reason.
+    source_status: stated
+    is_assumption: "no"
+  System can offer a retry with another card from the error message:
+    quote: The Checkout service should offer the customer a retry with another card straight from the error message.
+    stmt: The error message offers the customer a retry with another card.
+    source_status: stated
+    is_assumption: "no"
+  System can let the customer choose one delivery option before payment:
+    quote: "FR-CHK-007: The Checkout service must let the customer choose one delivery option before payment."
+    stmt: The customer chooses one delivery option before payment.
+    source_status: stated
+    is_assumption: "no"
+  System can show the estimated delivery date next to each delivery option:
+    quote: The Checkout service should show the estimated delivery date next to each delivery option.
+    stmt: Each delivery option shows its estimated delivery date.
+    source_status: stated
+    is_assumption: "no"
+
+# Nearness: the same relations as 1.yaml. Stored vectors are reused by text, so the unchanged fragments
+# keep the vectors build 1 gave them; the relations matter here only for texts embedded for the first time.
+related:
+  - anchor: "Feature: Order history export"
+    cosine: 0.7
+    fragments: [adm.finance, ord.details4, ord.details5]
+  - anchor: "Capability: Audit logging"
+    cosine: 0.6
+    fragments: [adm.finance]
+  - anchor: "Capability: Authentication"
+    cosine: 0.7
+    fragments: [adm.access]

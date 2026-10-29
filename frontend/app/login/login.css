@@ -1,0 +1,41 @@
+/* FE-BP-03.AC5, FE-DS-01, FE-DS-08 (P17 s04): the sign-in page. The design system has no login layout; this is one glass card in the
+   middle of a `.gdg-scene` backdrop, from tokens only. Additive: no design-system rule is overridden. */
+.login {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--space-lg) var(--space-md);
+}
+.login__card {
+  width: 100%;
+  max-width: 26rem;
+  padding: var(--space-lg) var(--space-md);
+  display: grid;
+  gap: var(--space-md);
+}
+.login__logo {
+  display: block;
+  height: var(--space-lg);
+  width: auto;
+} /* D21: the colour SVGs have no padding; the DS rule .gdg-logo-light/-dark hides the other theme's file (it wins by specificity) */
+.login__title {
+  margin: 0;
+  color: var(--ink);
+}
+.login__form {
+  display: grid;
+  gap: var(--space-md);
+  justify-items: stretch;
+}
+.login__form .gdg-btn {
+  justify-self: start;
+}
+/* P17 fix1: a failed sign-in and the sign-out notes. */
+.login__alert,
+.login__note {
+  margin: 0;
+  color: var(--ink);
+}
+.login__alert {
+  color: var(--danger);
+}

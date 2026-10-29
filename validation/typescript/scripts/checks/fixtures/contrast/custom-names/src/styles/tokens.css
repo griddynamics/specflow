@@ -1,0 +1,5 @@
+:root {
+  --color-surface: oklch(0.968 0.003 250);
+  --color-text: oklch(0.22 0.017 253);
+  --color-text-muted: oklch(0.9 0.003 250);
+}

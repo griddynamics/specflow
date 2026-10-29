@@ -1,0 +1,188 @@
+# pystatic configuration for the backend (validation/python/scripts).
+# Every path is relative to --root, which is backend/. Run: see `make validate-backend`.
+# A check without a table runs on its defaults or reports itself skipped.
+
+# ---------------------------------------------------------------- blocking-in-async
+[blocking-in-async]
+# Sync GCS entry points beyond the default set. Neo4j `execute_query` is not listed: the
+# backend uses the async driver, whose execute_query is awaited.
+extra-calls = ["get_bucket", "list_blobs"]
+
+# ---------------------------------------------------------------- no-dict-schemas
+[no-dict-schemas]
+# Pydantic response models live in api/schemas.py and next to the routers.
+scan = ["src/api", "src/api/routers", "src/api/graph_build"]
+# Open maps the API contract declares (error details are free-form by design).
+open-fields = ["details", "metadata"]
+
+# ---------------------------------------------------------------- enum-literals
+[enum-literals]
+# Explicit values, not `values-from-enums`: harvesting every StrEnum value also flags plain
+# status strings of other domains (ProcessingClass "skipped" vs the graph build statuses,
+# ValidatedRunOutcome "succeeded" vs BuildStatus, Category "pdf"). Listed are the StrEnum
+# values (drive.reasons.Reason / FileErrorReason, drive.categories.ProcessingClass,
+# llm.result.AgentErrorKind, llm.retry_policy.FailureDisposition,
+# llm.validated_agent_dag.*) that no other vocabulary reuses. Add a value when an enum gains one.
+values = [
+    "invalid_link", "no_access", "not_a_folder", "already_connected", "drive_unavailable",
+    "setup_error", "too_slow", "unknown_error", "convert_failed", "parse_failed",
+    "store_failed", "import_failed", "no_result", "stored_only", "resume_exhausted",
+    "crash_exhausted", "terminal_failure",
+]
+import-roots = ["src", "."]
+
+# ---------------------------------------------------------------- deployment-files
+# Not configured here: docker-compose.yml and .github/workflows live at the repository
+# root, outside this --root. Run pystatic with --root <repo root> to cover them.
+
+# ---------------------------------------------------------------- file-size
+[file-size]
+paths = ["tests/fixtures", "tests/data", "src"]
+max-bytes = 1048576
+
+# ---------------------------------------------------------------- package-data
+[package-data]
+# pyproject.toml packages `src` as the wheel root (hatch `only-include = ["src"]`).
+package-dir = "src"
+data-suffixes = [".json", ".md", ".yaml", ".yml", ".sql", ".cypher"]
+
+# ---------------------------------------------------------------- config-literals
+[config-literals]
+# Classes built only from configuration: no field default, never constructed bare.
+#   DatabaseSettings  settings.py, read from DATABASE_* only (`from_environment`)
+#   CallBudget        graph.core.config, one call class's timeout and attempts
+# The other bindings of settings.py are left out on purpose: their field defaults ARE the
+# documented environment defaults (API_PORT, NEO4J_DATABASE, ...), so they are the configuration
+# itself, not classes built from it.
+config-classes = ["DatabaseSettings", "CallBudget"]
+# The numeric rule reads the configuration module alone (a `scan` entry may name one .py file):
+# src/settings.py sits at the import root, and scanning all of src/ would judge code that only
+# consumes configuration. Its numbers are named: the default ports are the keyed constants below,
+# the URL default ports come from http.client and the signing-key floor from hashlib.
+scan = ["src/settings.py"]
+# Lower-case configuration keys an UPPER_SNAKE constant of the scanned code may be named after:
+# the documented defaults of API_PORT, WORKER_HEALTH_PORT, DATABASE_PORT and GRAPH_EMBEDDING_DIM.
+keys = ["api_port", "worker_health_port", "database_port", "graph_embedding_dim"]
+
+# ---------------------------------------------------------------- runtime-defaults
+[runtime-defaults]
+# Generated from settings.py and graph.build BuildOptions by tests/runtime_defaults_support.py;
+# tests/test_runtime_defaults.py fails when it drifts. Tests read RUNTIME_DEFAULTS from it.
+defaults = "tests/fixtures/runtime-defaults.json"
+scan = ["tests"]
+suffixes = [".py"]
+
+# ---------------------------------------------------------------- json-schemas
+# Every committed data document with a fixed shape, against its schema in contracts/schemas/.
+# spec-ontology and temporal-history are exported from code (tests/contract_schemas_support.py;
+# tests/test_contract_schemas.py fails when they drift); openapi-3.1 is the official OAS 3.1
+# schema (spec.openapis.org/oas/3.1/schema/2022-10-07); the others are written by hand.
+[[json-schemas]]
+schema = "contracts/schemas/openapi-3.1.schema.json"
+files = ["contracts/openapi.json"]
+
+[[json-schemas]]
+schema = "contracts/schemas/meta/json-schema-2020-12.schema.json"
+files = ["contracts/schemas/*.schema.json"]
+
+[[json-schemas]]
+schema = "contracts/schemas/spec-ontology.schema.json"
+files = ["src/graph/core/ontology/*.yaml", "../docs/graph/spec-ontology.yaml"]
+
+[[json-schemas]]
+schema = "contracts/schemas/sources-contract.schema.json"
+files = ["src/api/fixtures/sources-contract.json"]
+
+[[json-schemas]]
+schema = "contracts/schemas/drive-contract.schema.json"
+files = ["src/drive/fixtures/contract.json"]
+
+[[json-schemas]]
+schema = "contracts/schemas/drive-recording.schema.json"
+files = ["src/drive/fixtures/recordings/*.json"]
+
+[[json-schemas]]
+schema = "contracts/schemas/google-docs-document.schema.json"
+files = ["src/drive/convert/samples/document.json", "tests/drive/convert/fixtures/doc_*.json"]
+
+[[json-schemas]]
+schema = "contracts/schemas/google-sheets-values.schema.json"
+files = ["src/drive/convert/samples/spreadsheet.json", "tests/drive/convert/fixtures/sheet_*.json"]
+
+[[json-schemas]]
+schema = "contracts/schemas/google-slides-presentation.schema.json"
+files = ["src/drive/convert/samples/presentation.json", "tests/drive/convert/fixtures/slides_*.json"]
+
+[[json-schemas]]
+schema = "contracts/schemas/temporal-history.schema.json"
+files = ["tests/fixtures/temporal/*.json"]
+
+[[json-schemas]]
+schema = "contracts/schemas/prefragmented-document.schema.json"
+files = ["tests/fixtures/specgraph/prefragmented/*.json"]
+
+[[json-schemas]]
+schema = "contracts/schemas/shop-answers.schema.json"
+files = ["tests/fixtures/graph/shop/answers/*.yaml"]
+
+# The kit inputs, in the formats validation/sql (sqlcheck.schema) and validation/cypher
+# (cypher_checks.schema) document.
+[[json-schemas]]
+schema = "contracts/schemas/sql-schema.schema.json"
+files = ["sql-schema.json"]
+
+[[json-schemas]]
+schema = "contracts/schemas/graph-schema.schema.json"
+files = ["graph-schema.yaml"]
+
+# The [runtime-defaults] input (SETTING_NAME: number).
+[[json-schemas]]
+schema = "contracts/schemas/runtime-defaults.schema.json"
+files = ["tests/fixtures/runtime-defaults.json"]
+
+# ---------------------------------------------------------------- docs-bundle
+# The repository documentation tree (../docs): the graph library specification (docs/graph, its
+# table of contents is INDEX.md) and the GD Liquid Glass design system (docs/design-system).
+[docs-bundle]
+root = "../docs"
+index-name = "INDEX.md"
+fields = ["type", "title", "description", "status", "tags"]
+types = [
+    "Overview", "Architecture", "DataModel", "Ontology", "Design", "API", "Requirements",
+    "Roadmap", "Questions", "Changelog", "Explainer",
+]
+statuses = ["draft", "stable", "deprecated"]
+
+# ---------------------------------------------------------------- clones
+# jscpd clone detection over every Python source of the backend: "." is the whole tree under
+# --root (src, tests, examples, migrations, archkit_support), as git lists it, with no filter.
+# The validation kits' own Python (validation/**) is not a backend source: each kit is its own
+# project in ../pystatic.toml [source-ownership] and is checked by `make validate-selftest`.
+[clones]
+paths = ["."]
+# tests/ holds the test modules and their *_support.py fixture modules: their independent
+# assertion oracles are left out (pystatic.style.clone_inputs), their setup is compared.
+tests = ["tests/*"]
+# The frontend's duplicates check uses the same clone size (frontend/.jscpd.json).
+min-lines = 10
+min-tokens = 100
+mode = "weak"
+format = "python"
+threshold = 0
+reporters = ["json", "sarif"]
+
+# Skipped, with the reason:
+#   registry-files    no enum owns a one-file-per-member directory. The eight StrEnums of src/
+#                     (drive.reasons, drive.categories, llm.result, llm.retry_policy,
+#                     llm.validated_agent_dag) are vocabularies without files. The file-per-entry
+#                     directories are keyed by literal strings, not enum members: the .cypher and
+#                     .sql query files (one per Query/read_query constant; their missing and orphan
+#                     files are checked by validation/cypher no-inline-queries and validation/sql
+#                     from the literal loader arguments), the versioned PDF and transcript prompts
+#                     (PROMPT_ID constants) and the ontology judge prompts (YAML `prompt` refs,
+#                     checked by graph.core.ontology.loader).
+#   source-ownership  not applicable with --root backend/: the check lists only the sources under
+#                     --root, and every one of them belongs to this single project. It runs
+#                     against the repository root from ../pystatic.toml (backend, frontend and the
+#                     validation kits as projects) as the second step of
+#                     `make validate-python-scripts`.

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "app/**/{page,layout,route,loading,error,not-found,template,default}.{ts,tsx}",
+    "{auth,proxy,instrumentation,next.config}.ts",
+    "playwright*.config.ts",
+    "scripts/**/*.mjs",
+    "tests/**/*.{ts,tsx,mjs}",
+    "e2e*/**/*.ts",
+    "eslint.kit.config.mjs",
+    "stylelint.config.mjs"
+  ],
+  "project": ["**/*.{ts,tsx,mjs}"],
+  "ignoreExportsUsedInFile": true,
+  "rules": {
+    "files": "error",
+    "dependencies": "error",
+    "devDependencies": "error",
+    "unlisted": "error",
+    "binaries": "error",
+    "unresolved": "error",
+    "exports": "error",
+    "nsExports": "error",
+    "types": "error",
+    "nsTypes": "error",
+    "enumMembers": "error",
+    "duplicates": "error"
+  },
+  "ignoreDependencies": ["@next/env"]
+}

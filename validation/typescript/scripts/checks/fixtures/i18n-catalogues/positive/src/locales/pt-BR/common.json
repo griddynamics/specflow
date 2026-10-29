@@ -1,0 +1,8 @@
+{
+  "app.title": "Example App",
+  "common.greeting": "Olá, {{name}}!",
+  "orders.list.empty": "Nenhum pedido corresponde aos filtros atuais.",
+  "admin.user.code_placeholder": "ex.: USER01…",
+  "search.placeholder": "Pesquisar…",
+  "chat.placeholder.search_mode": "?"
+}

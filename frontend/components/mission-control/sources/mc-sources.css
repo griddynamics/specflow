@@ -1,0 +1,475 @@
+/* Phase 1 Mission Control sources (plans/mission-control-sources/DESIGN.md D11; owner redesign 2026-10-15): the build button on the
+   header row and the source cards. The design system gives GlassSurface, Button, Menu, Tag, ProgressBar and
+   EmptyState but no screen layout around them. Additive, tokens only; no design-system rule is overridden. */
+
+.mcs-screen {
+  gap: var(--space-md);
+}
+.mcs-error {
+  margin: 0;
+  padding: var(--space-md);
+  color: var(--ink);
+}
+
+/* Header row (the left slot, where other screens put their tabs): build button, Add source, "⋯", left-aligned. */
+.mcs-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+.mcs-actions .gdg-btn {
+  white-space: nowrap;
+}
+/* Off (aria-disabled: still focusable, so the tooltip and the description reach the keyboard), drawn like a disabled DS button. */
+.mcs-btn--off {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* ---- Sources ---- */
+.mcs-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  min-width: 0;
+  padding-bottom: var(--space-md);
+}
+/* No source yet: the empty state on the brand scene (cubes on the right), like the other empty and gate states (E5). */
+.mcs-empty {
+  min-height: calc(var(--space-2xl) * 5);
+}
+
+/* Cards (sources-ux, mockup "Cards B2"): a grid of tiles, the same for every source kind: the logo in a 64 px ring, the name, a second
+   line and one count line. About 120 px high. The whole card is the click target (a button inside the heading, stretched over it). */
+.mcs-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-sm);
+  grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+}
+.mcs-cards > li {
+  display: grid;
+  min-width: 0;
+}
+.mcs-card {
+  position: relative;
+  color: var(--ink);
+  min-width: 0;
+  min-height: 120px;
+  box-sizing: border-box;
+  border-radius: var(--radius-lg);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-sm);
+  align-items: center;
+  padding: var(--space-md);
+  transition: box-shadow 160ms ease;
+}
+.mcs-card:hover {
+  box-shadow: var(--shadow-glass-float);
+}
+.mcs-card:has(.mcs-card__open:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.mcs-card__body {
+  display: grid;
+  gap: var(--space-2xs);
+  min-width: 0;
+}
+.mcs-card__name {
+  margin: 0;
+  font-weight: 700;
+  min-width: 0;
+}
+.mcs-card__open {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mcs-card__open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-lg);
+}
+.mcs-card__open:focus-visible {
+  outline: 0 solid transparent;
+}
+.mcs-card__line2 {
+  margin: 0;
+  color: var(--ink-2);
+}
+.mcs-card__count {
+  margin: 0;
+  color: var(--ink);
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2xs);
+}
+.mcs-card__count-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mcs-card__count--warn {
+  font-weight: 700;
+}
+/* FR-SRC-0004: a warning icon in a filled orange circle before the count; no text label (it has an accessible name). */
+.mcs-card__warn {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  background: var(--coral);
+  color: var(--ground);
+}
+
+/* The ring (FR-SRC-0002): the track is the hairline, the arc is yellow while Processing, a full ring is green (Done, Done with problems)
+   or red (Failed). The yellow arc is an owner-approved status exception to "one yellow moment" (the ring is status, not an action). */
+.mcs-ring {
+  position: relative;
+  flex: none;
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  color: var(--ink);
+}
+.mcs-ring__svg {
+  position: absolute;
+  inset: 0;
+  transform: rotate(-90deg);
+}
+.mcs-ring__track {
+  stroke: var(--hairline);
+}
+.mcs-ring__arc {
+  stroke: var(--yellow);
+  transition:
+    stroke-dashoffset 320ms ease,
+    stroke 160ms ease;
+}
+.mcs-ring[data-state="done"] .mcs-ring__arc,
+.mcs-ring[data-state="done_with_problems"] .mcs-ring__arc {
+  stroke: var(--success);
+}
+.mcs-ring[data-state="failed"] .mcs-ring__arc {
+  stroke: var(--danger);
+}
+.mcs-ring__logo {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+}
+.mcs-ring__logo img {
+  width: 28px;
+  height: 28px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mcs-ring__arc,
+  .mcs-card {
+    transition: none;
+  }
+}
+
+/* A document opened from a link: Back, then the reader. */
+.mcs-doc {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+.mcs-doc__back {
+  align-self: flex-start;
+}
+/* The reader sizes itself to the window (files-gaps.css); the Back line above it takes one more space-xl. */
+.mcs-doc .files {
+  height: max(30rem, calc(100dvh - calc(calc(var(--space-xl) + 2 * var(--space-sm)) + var(--space-sm) * 2 + var(--space-xl))));
+  max-height: max(30rem, calc(100dvh - calc(calc(var(--space-xl) + 2 * var(--space-sm)) + var(--space-sm) * 2 + var(--space-xl))));
+}
+
+/* Narrow screens: the header's left slot is too narrow for the build button next to the project dropdown, so the actions take
+   their own full-width line under it (only on the screen that shows them); and one card per line. */
+@media (max-width: 720px) {
+  .shell__col > .gdg-topbar:has(.mcs-actions) > .gdg-topbar__lead {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    padding-top: var(--space-xs);
+  }
+  .mcs-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mcs-card {
+    padding: var(--space-sm);
+  }
+}
+
+/* ---- Drive modal (GDUI units): account line with copy, the collapsed guide, the link field, the result. Tokens only. ---- */
+.mcs-drive {
+  display: grid;
+  gap: var(--space-sm);
+  color: var(--ink);
+  min-width: 0;
+}
+.mcs-drive p {
+  margin: 0;
+}
+.mcs-drive__share {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-xs);
+}
+.mcs-drive__account {
+  min-width: 0;
+}
+/* The email is shown in full (FR-GDUI-0002.AC1): it wraps, it is never cut. */
+.mcs-drive__email {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.mcs-drive__share .gdg-btn {
+  flex: none;
+}
+.mcs-drive__hint {
+  color: var(--ink-2);
+}
+.mcs-drive__guide {
+  display: grid;
+  gap: var(--space-xs);
+  justify-items: start;
+}
+.mcs-drive__guide > .gdg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+}
+.mcs-drive__steps {
+  margin: 0;
+  padding: 0 0 0 var(--space-md);
+  display: grid;
+  gap: var(--space-sm);
+  width: 100%;
+  box-sizing: border-box;
+}
+.mcs-drive__step {
+  display: grid;
+  gap: var(--space-xs);
+  padding-left: var(--space-2xs);
+}
+.mcs-drive__shot {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--hairline);
+}
+.mcs-drive__result {
+  display: grid;
+  gap: var(--space-xs);
+}
+.mcs-drive__summary {
+  display: grid;
+  gap: var(--space-2xs);
+}
+.mcs-drive__folder {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.mcs-drive__bullets {
+  margin: 0;
+  padding-left: var(--space-md);
+  display: grid;
+  gap: var(--space-2xs);
+}
+
+/* The Build knowledge tooltip (FR-GDUI-0021) is longer than the button: it opens from the button's left edge, not centred on it, so the
+   sidebar to the left of the header row never cuts it off. */
+.mcs-actions > [data-tip]::after {
+  left: 0;
+  transform: none;
+}
+
+/* ---- Details modal (sources-ux, mockup "Details 3 — grouped") ---- */
+.mcs-details {
+  display: grid;
+  gap: var(--space-sm);
+  color: var(--ink);
+  min-width: 0;
+}
+.mcs-details p {
+  margin: 0;
+}
+.mcs-details__failure {
+  overflow-wrap: anywhere;
+}
+.mcs-details__note {
+  color: var(--ink-2);
+}
+.mcs-details__error {
+  display: grid;
+  gap: var(--space-xs);
+  justify-items: start;
+}
+.mcs-details__empty {
+  color: var(--ink-2);
+}
+.mcs-loading {
+  display: grid;
+  gap: var(--space-xs);
+}
+/* The footer: Remove source on the left (danger text button), the rest on the right. */
+.mcs-foot {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--space-xs);
+}
+.mcs-foot__gap {
+  flex: 1;
+}
+.mcs-danger-btn {
+  color: var(--danger);
+}
+
+.mcs-groups {
+  max-height: min(380px, 50vh);
+  overflow: auto;
+  min-width: 0;
+}
+.mcs-group {
+  display: grid;
+}
+.mcs-group__head {
+  margin: var(--space-sm) 0 var(--space-2xs);
+  font: inherit;
+}
+.mcs-group:first-child > .mcs-group__head {
+  margin-top: 0;
+}
+.mcs-group__toggle {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: var(--space-2xs) 0;
+  margin: 0;
+  cursor: pointer;
+  color: var(--ink-2);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+.mcs-group__toggle:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+.mcs-group__toggle .eyebrow {
+  margin: 0;
+}
+.mcs-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  border-top: 1px solid var(--hairline);
+}
+.mcs-file {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-xs);
+  align-items: center;
+  padding: var(--space-xs) var(--space-2xs);
+  border-bottom: 1px solid var(--hairline);
+}
+.mcs-file__text {
+  min-width: 0;
+}
+.mcs-file__name {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mcs-file:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+  border-radius: var(--radius-sm);
+}
+/* FR-SRC-0010: the row with the keyboard focus shows its whole name. */
+.mcs-file:focus .mcs-file__name {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.mcs-file__why {
+  margin: 0;
+  color: var(--ink-2);
+}
+.mcs-file__busy {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  color: var(--ink-2);
+}
+.mcs-file__spin {
+  width: 16px;
+  height: 16px;
+}
+.mcs-more {
+  color: var(--ink-2);
+  text-align: center;
+  padding: var(--space-xs) 0;
+}
+.mcs-more--failed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+}
+
+/* ---- Remove source confirmation (mockup "Remove source — confirmation") ---- */
+.mcs-remove {
+  display: grid;
+  gap: var(--space-sm);
+  color: var(--ink);
+}
+.mcs-remove p {
+  margin: 0;
+}
+.mcs-remove__warn {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  border-radius: var(--radius-md);
+  background: var(--warning-tint);
+}
+.mcs-remove__warn b {
+  overflow-wrap: anywhere;
+}
+.mcs-remove__error {
+  color: var(--danger);
+}

@@ -1,0 +1,30 @@
+# User-facing text comes from the translation catalogue.
+rules:
+  - id: i18n-hardcoded-loading-caption
+    message: >-
+      A hard-coded "Loading" caption is untranslated, and a caption stands where a
+      layout-preserving placeholder belongs. Render a spinner or a skeleton for the shape that
+      is loading; where a caption really is wanted, take its text from the catalogue.
+    severity: ERROR
+    languages:
+      - typescript
+    paths:
+      exclude:
+        - '**/*.test.ts'
+        - '**/*.test.tsx'
+    pattern-regex: '(?m)(>[ \t]*\r?\n?[ \t]*Loading[ \t.…]*\r?\n?[ \t]*<|=[ \t]*["''`]Loading)'
+
+  - id: i18n-placeholder-from-catalogue
+    message: >-
+      A literal `placeholder` is not localised and shows an example in one language and one
+      number format. Take it from the catalogue with `t('...')`.
+    severity: ERROR
+    languages:
+      - typescript
+    paths:
+      exclude:
+        - '**/*.test.tsx'
+    pattern-either:
+      - pattern: <$C ... placeholder="..." ... />
+      - pattern: <$C ... placeholder={"..."} ... />
+      - pattern: <$C ... placeholder={`...`} ... />

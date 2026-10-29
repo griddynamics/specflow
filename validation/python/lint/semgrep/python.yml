@@ -1,0 +1,36 @@
+rules:
+  # General Python safety rules from an upstream "python" rule pack. Patterns and
+  # messages are the upstream's; only the rule ids carry the kit's `kit.` namespace.
+  - id: kit.python.no-hardcoded-secrets
+    languages: [python]
+    severity: ERROR
+    message: "Hardcoded API keys, tokens, or secret credentials are forbidden in Python implementation code."
+    pattern-regex: (ghp_[A-Za-z0-9_]{36}|AKIA[0-9A-Z]{16}|sk_live_[0-9a-zA-Z]{24})
+
+  - id: kit.python.no-dynamic-code-execution
+    languages: [python]
+    severity: ERROR
+    message: "Do not execute dynamically constructed Python code."
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: exec(...)
+
+  - id: kit.python.no-subprocess-shell
+    languages: [python]
+    severity: ERROR
+    message: "Do not execute subprocesses through a shell; pass a validated argv sequence."
+    patterns:
+      - pattern-either:
+          - pattern: subprocess.$FUNC(..., shell=True, ...)
+          - pattern: $SUBPROCESS.$FUNC(..., shell=True, ...)
+      - metavariable-regex:
+          metavariable: $FUNC
+          regex: "^(?:call|check_call|check_output|Popen|run)$"
+
+  - id: kit.python.no-disabled-tls-validation
+    languages: [python]
+    severity: ERROR
+    message: "TLS certificate validation must not be disabled."
+    pattern-either:
+      - pattern: requests.$METHOD(..., verify=False, ...)
+      - pattern: httpx.$METHOD(..., verify=False, ...)

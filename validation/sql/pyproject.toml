@@ -1,0 +1,98 @@
+# The SQL validation kit: the `sqlcheck` package, the tools it drives, and the settings of
+# its own self-tests and code checks. Versions are the ones the rules were verified with.
+#
+# Static steps (sqlfluff, sql-rules, alembic-lint, orm-lint, inline-queries, semgrep) run from this
+# folder's own environment. The dynamic steps (schema-parity, migrations, sqlite-pragmas)
+# import the project's models, env.py and engine factory, so install the kit into the
+# project's environment for those (for example `uv add --dev --editable ./validation/sql`).
+[project]
+name = "sqlcheck"
+version = "0.1.0"
+description = "Project-agnostic SQL validations: SQLFluff, SQL policy rules, Alembic and ORM lint, inline-query lint, schema and migration parity, SQLite pragmas, Semgrep rules."
+readme = "RULES.md"
+requires-python = ">=3.12"
+dependencies = [
+    "sqlfluff==4.3.0",
+    "sqlalchemy[asyncio]==2.0.52",
+    "alembic==1.20.0",
+    "pyyaml==6.0.3",
+]
+
+[project.scripts]
+sqlcheck = "sqlcheck.cli:main"
+
+[dependency-groups]
+lint = [
+    "semgrep==1.177.0",
+    "ruff==0.16.7",
+    "mypy==2.3.1",
+    "types-pyyaml==6.0.12.20260906",
+]
+test = [
+    "pytest==9.1.1",
+    "pytest-randomly==5.0.0",
+    "pytest-timeout==2.4.0",
+    "pytest-cov==7.1.0",
+    "coverage==7.16.0",
+    "aiosqlite==0.22.1",
+    "greenlet==3.5.5",
+]
+
+[build-system]
+requires = ["hatchling==1.32.4"]
+build-backend = "hatchling.build"
+
+# The default `.sqlfluff` and `semgrep/` are read from this folder, so install the kit
+# editable (`uv add --dev --editable ./validation/sql`), or set `[sqlfluff].config` and
+# `[semgrep].rules` in sqlcheck.toml.
+[tool.hatch.build.targets.wheel]
+packages = ["sqlcheck"]
+
+[tool.uv]
+default-groups = ["lint", "test"]
+
+[tool.pytest.ini_options]
+addopts = ["--strict-markers", "--strict-config", "-ra", "--import-mode=importlib", "-p", "randomly"]
+xfail_strict = true
+filterwarnings = ["error"]
+timeout = 300
+python_files = ["test_*.py"]
+testpaths = ["tests"]
+pythonpath = [".", "tests/fixtures"]
+
+[tool.coverage.run]
+branch = true
+source = ["sqlcheck"]
+omit = ["sqlcheck/__main__.py"]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+skip_covered = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["tests/fixtures", "semgrep/fixtures"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "N", "UP", "B", "C4", "SIM", "RET", "PTH", "PT", "RUF", "S", "ASYNC", "PLC0415", "C90"]
+ignore = [
+    "S603",  # subprocess calls are the kit's purpose: fixed argument lists, no shell
+    "UP040", # generics are spelled with TypeVar/TypeAlias, not PEP 695
+    "UP046",
+    "UP047",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]  # pytest asserts
+
+[tool.ruff.lint.mccabe]
+max-complexity = 12
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+files = ["sqlcheck", "tests"]
+exclude = ["^tests/fixtures/", "^semgrep/fixtures/"]
+warn_unreachable = true

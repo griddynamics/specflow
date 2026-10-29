@@ -1,0 +1,78 @@
+{
+  "spreadsheet": {
+    "properties": {
+      "title": "Atlas Metrics"
+    },
+    "sheets": [
+      {
+        "properties": {
+          "sheetId": 0,
+          "title": "Summary",
+          "index": 0
+        }
+      },
+      {
+        "properties": {
+          "sheetId": 1,
+          "title": "Q4 | Regions",
+          "index": 1
+        }
+      },
+      {
+        "properties": {
+          "sheetId": 2,
+          "title": "Empty",
+          "index": 2
+        }
+      }
+    ]
+  },
+  "valueRanges": [
+    {
+      "range": "'Summary'!A1:Z3",
+      "majorDimension": "ROWS",
+      "values": [
+        [
+          "Metric",
+          "Value",
+          "Note"
+        ],
+        [
+          "Users",
+          "460",
+          ""
+        ],
+        [
+          "Errors",
+          "3"
+        ]
+      ]
+    },
+    {
+      "range": "'Q4 | Regions'!A1:Z4",
+      "majorDimension": "ROWS",
+      "values": [
+        [
+          "Region",
+          "Revenue"
+        ],
+        [
+          "EU",
+          "1,200"
+        ],
+        [
+          "",
+          "900"
+        ],
+        [
+          "US",
+          ""
+        ]
+      ]
+    },
+    {
+      "range": "'Empty'!A1:Z1",
+      "majorDimension": "ROWS"
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Card — GD Liquid Glass</title>
+<link rel="stylesheet" href="../tokens.css">
+<link rel="stylesheet" href="../components/bundle.css">
+<style>html,body{margin:0;background:var(--ground)}</style>
+<script>(function(){var t=new URLSearchParams(location.search).get('theme');document.documentElement.setAttribute('data-theme',t==='dark'?'dark':'light');})();</script>
+<script src="../components/lib/react.production.min.js"></script>
+<script src="../components/lib/react-dom.production.min.js"></script>
+<script src="../components/lib/jsx-runtime-shim.js"></script>
+<script src="../components/lib/xyflow-react.umd.js"></script>
+<script src="../components/bundle.js"></script>
+</head>
+<body>
+<div class="gdg-root gdg-scene" style="padding:28px;display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start" id="root"></div>
+<script>
+  var G = window.GDGlass, h = React.createElement;
+  ReactDOM.createRoot(document.getElementById('root')).render(h(React.Fragment,null,
+    h(G.Card,{eyebrow:'Case study', title:'Pilot to production in 12 weeks', style:{width:300},
+      footer:h(React.Fragment,null,h(G.Tag,null,'Retail'),h(G.Tag,{tone:'accent'},'GenAI'))},
+      'Senior, co-located teams took a search use-case from prototype to live traffic.'),
+    h(G.Card,{variant:'strong', eyebrow:'Engagement', title:'Data platform modernisation', style:{width:300},
+      footer:h(G.Button,{variant:'primary', size:'sm', arrow:true},'Open')},
+      'Migration of 340 pipelines to a lakehouse with no downtime.')));
+</script>
+</body>
+</html>

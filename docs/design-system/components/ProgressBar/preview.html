@@ -1,0 +1,20 @@
+<!-- @dsCard group="Status" height=200 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>ProgressBar — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-wash" style="padding:24px;min-height:200px;box-sizing:border-box;" id="root"></div>
+<script>
+var G = window.GDGlass, h = React.createElement;
+var PEOPLE = [
+  { id:'mk', name:'Sam Carter', role:'Product owner', email:'scarter@example.com' },
+  { id:'ak', name:'Alex Rivera', role:'Engineer', email:'arivera@example.com' },
+  { id:'nc', name:'Nina Walker', role:'Delivery manager', email:'nwalker@example.com' }];
+
+ReactDOM.createRoot(document.getElementById('root')).render(h(G.GlassSurface,{variant:'strong',style:{padding:24,display:'grid',gap:18,maxWidth:560}},
+  h(G.ProgressBar,{label:'Uploading 4 files', value:72}),
+  h(G.ProgressBar,{label:'Building knowledge graph', indeterminate:true}),
+  h('div',{style:{display:'flex',gap:12,alignItems:'center',fontSize:14}}, h(G.Spinner,null), 'Checking access…')));
+</script>
+</body>
+</html>

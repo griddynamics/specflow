@@ -1,0 +1,9 @@
+{
+  "tokens": [
+    { "name": "--background", "value": "oklch(0.968 0.003 250)" },
+    { "name": "--foreground", "value": "oklch(0.22   0.017 253)" },
+    { "name": "--muted", "value": "oklch(0.9 0.004 250)" },
+    { "name": "--chart-1" },
+    { "name": "--accent" }
+  ]
+}

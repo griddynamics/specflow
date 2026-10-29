@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://specflow.local/contracts/schemas/google-slides-presentation.schema.json",
+  "title": "Google Slides API Presentation (presentations.get)",
+  "description": "The part of the Slides API v1 Presentation resource that drive.convert.slides reads, with the API's field names and types. Other API fields may be present; the fields listed here must have the API's shape.",
+  "type": "object",
+  "required": ["presentationId", "title", "slides"],
+  "properties": {
+    "presentationId": { "type": "string", "minLength": 1 },
+    "title": { "type": "string" },
+    "pageSize": { "type": "object" },
+    "slides": { "type": "array", "items": { "$ref": "#/$defs/Page" } }
+  },
+  "$defs": {
+    "Page": {
+      "type": "object",
+      "required": ["objectId"],
+      "properties": {
+        "objectId": { "type": "string", "minLength": 1 },
+        "pageType": { "enum": ["SLIDE", "MASTER", "LAYOUT", "NOTES", "NOTES_MASTER"] },
+        "pageElements": { "type": "array", "items": { "$ref": "#/$defs/PageElement" } },
+        "slideProperties": {
+          "type": "object",
+          "properties": {
+            "layoutObjectId": { "type": "string" },
+            "masterObjectId": { "type": "string" },
+            "notesPage": { "$ref": "#/$defs/Page" }
+          }
+        },
+        "notesProperties": {
+          "type": "object",
+          "properties": { "speakerNotesObjectId": { "type": "string" } }
+        }
+      }
+    },
+    "PageElement": {
+      "description": "Exactly one element kind: shape, table, elementGroup, image, video, line, sheetsChart or wordArt.",
+      "type": "object",
+      "required": ["objectId"],
+      "properties": {
+        "objectId": { "type": "string", "minLength": 1 },
+        "shape": {
+          "type": "object",
+          "properties": {
+            "shapeType": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+            "placeholder": {
+              "type": "object",
+              "properties": {
+                "type": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+                "index": { "type": "integer", "minimum": 0 }
+              }
+            },
+            "text": { "$ref": "#/$defs/TextContent" }
+          }
+        },
+        "table": {
+          "type": "object",
+          "properties": {
+            "rows": { "type": "integer", "minimum": 0 },
+            "columns": { "type": "integer", "minimum": 0 },
+            "tableRows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "tableCells": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "location": {
+                          "type": "object",
+                          "properties": {
+                            "rowIndex": { "type": "integer", "minimum": 0 },
+                            "columnIndex": { "type": "integer", "minimum": 0 }
+                          }
+                        },
+                        "rowSpan": { "type": "integer", "minimum": 0 },
+                        "columnSpan": { "type": "integer", "minimum": 0 },
+                        "text": { "$ref": "#/$defs/TextContent" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "elementGroup": {
+          "type": "object",
+          "properties": {
+            "children": { "type": "array", "items": { "$ref": "#/$defs/PageElement" } }
+          }
+        },
+        "image": { "type": "object" },
+        "video": { "type": "object" },
+        "line": { "type": "object" },
+        "sheetsChart": { "type": "object" },
+        "wordArt": { "type": "object" }
+      },
+      "oneOf": [
+        { "required": ["shape"] },
+        { "required": ["table"] },
+        { "required": ["elementGroup"] },
+        { "required": ["image"] },
+        { "required": ["video"] },
+        { "required": ["line"] },
+        { "required": ["sheetsChart"] },
+        { "required": ["wordArt"] }
+      ]
+    },
+    "TextContent": {
+      "type": "object",
+      "properties": {
+        "textElements": {
+          "type": "array",
+          "items": {
+            "description": "Exactly one of paragraphMarker, textRun or autoText.",
+            "type": "object",
+            "properties": {
+              "startIndex": { "type": "integer", "minimum": 0 },
+              "endIndex": { "type": "integer", "minimum": 0 },
+              "paragraphMarker": {
+                "type": "object",
+                "properties": {
+                  "style": { "type": "object" },
+                  "bullet": {
+                    "type": "object",
+                    "properties": {
+                      "listId": { "type": "string" },
+                      "nestingLevel": { "type": "integer", "minimum": 0 },
+                      "glyph": { "type": "string" }
+                    }
+                  }
+                }
+              },
+              "textRun": {
+                "type": "object",
+                "properties": {
+                  "content": { "type": "string" },
+                  "style": {
+                    "type": "object",
+                    "properties": {
+                      "link": {
+                        "type": "object",
+                        "properties": {
+                          "url": { "type": "string" },
+                          "relativeLink": { "type": "string" },
+                          "pageObjectId": { "type": "string" },
+                          "slideIndex": { "type": "integer" }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "autoText": { "type": "object" }
+            },
+            "oneOf": [
+              { "required": ["paragraphMarker"] },
+              { "required": ["textRun"] },
+              { "required": ["autoText"] }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

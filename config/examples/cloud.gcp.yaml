@@ -1,0 +1,12 @@
+# Example cloud profile for Google Cloud: a GCS bucket.
+# Copy it, set the bucket and prefix, and point SPECFLOW_CONFIG_FILE at the copy.
+# Environment variables override every value. No secrets here: GCS uses
+# Application Default Credentials or Workload Identity.
+cloud: gcp
+services:
+  object_storage:
+    provider: gcs
+    bucket: your-bucket-name
+    prefix: prod/
+    gcs:
+      project: null   # null = the project of the credentials

@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+# Written by `archkit export-openapi --config examples/shop/archkit.toml`.
+examples/shop/contracts/

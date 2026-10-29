@@ -1,0 +1,23 @@
+<!-- @dsCard group="Chat" height=560 -->
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>ChatMessage — preview</title><style>html,body{margin:0}</style></head>
+<body>
+<div class="gdg-root gdg-scene" style="padding:24px;min-height:560px;box-sizing:border-box;" id="root"></div>
+<script>
+var G = window.GDGlass, h = React.createElement;
+var PEOPLE = [
+  { id:'mk', name:'Sam Carter', role:'Product owner', email:'scarter@example.com' },
+  { id:'ak', name:'Alex Rivera', role:'Engineer', email:'arivera@example.com' },
+  { id:'nc', name:'Nina Walker', role:'Delivery manager', email:'nwalker@example.com' }];
+
+ReactDOM.createRoot(document.getElementById('root')).render(h('div',{style:{display:'grid',gap:20,maxWidth:780,margin:'0 auto'}},
+  h(G.ChatMessage,{role:'user'},'There is a description somewhere regarding the permissions for users outside the organization, find this'),
+  h(G.ChatMessage,{role:'assistant', steps:[{label:'Searched 42 spec files', detail:'external users permissions', icon:'magnifying-glass'},{label:'Read', detail:'specs/security/access-control.md', icon:'file-md'},{label:'Cross-checked', detail:'specs/api-spec.md', status:'done'}],
+    citations:[{label:'access-control.md · External users'},{label:'api-spec.md · 4.2'}]},
+    h('p',null,'Found it in ', h('b',null,'access-control.md'), ', section "External users": guests sign in through the client identity provider, can read and comment on published specs, cannot see cost estimates, and lose access after 90 days.'),
+    h('p',null,'Note: api-spec.md still returns estimates to every role, so the two documents disagree.')),
+  h(G.ChatMessage,{role:'assistant', typing:true})));
+</script>
+</body>
+</html>

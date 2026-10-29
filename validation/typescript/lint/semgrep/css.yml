@@ -1,0 +1,67 @@
+# A horizontal scroller (a tab bar, a table, a code block) never captures the page's vertical
+# gesture. Semgrep generic mode reads a CSS file as text and `{ ... }` as one balanced declaration
+# block, so a declaration is checked against the siblings of its own block (a rule nested in
+# `@media` is judged by its own block). No native stylelint rule pairs sibling declarations.
+#
+# Scope: a single-value `overflow: auto|scroll` scrolls both axes, so it is a vertical region, not
+# a horizontal scroller; the stylelint `singleScroller` option owns it. These rules read only
+# `overflow-x` and the two-value shorthand whose first (x) value scrolls.
+rules:
+  - id: css-horizontal-scroller-without-overflow-y-hidden
+    message: >-
+      A horizontal scroller (`overflow-x: auto|scroll`) that does not state `overflow-y: hidden`
+      in the same block. CSS computes the unset axis to `auto` once the other is not `visible`, so
+      the box becomes a vertical scroller of its own and clips what it holds. Add
+      `overflow-y: hidden` next to the `overflow-x` declaration.
+    severity: ERROR
+    languages:
+      - generic
+    paths:
+      include:
+        - '*.css'
+    patterns:
+      - pattern-inside: |
+          { ... }
+      - pattern-either:
+          - pattern: 'overflow-x: auto'
+          - pattern: 'overflow-x: scroll'
+      - pattern-not-inside: |
+          { ... overflow-y: hidden ... }
+
+  - id: css-overflow-shorthand-scroller-without-y-hidden
+    message: >-
+      A two-value `overflow: auto|scroll ...` shorthand whose second value is not `hidden`. The
+      shorthand sets x then y, so the box scrolls vertically too. Write `overflow: auto hidden`, or
+      split it into `overflow-x` and `overflow-y: hidden`.
+    severity: ERROR
+    languages:
+      - generic
+    paths:
+      include:
+        - '*.css'
+    patterns:
+      - pattern-inside: |
+          { ... }
+      - pattern-regex: 'overflow:[ \t]*(auto|scroll)[ \t]+[a-z-]+'
+      - pattern-not-regex: 'overflow:[ \t]*(auto|scroll)[ \t]+hidden'
+
+  - id: css-horizontal-scroller-without-overscroll-contain
+    message: >-
+      A horizontal scroller (`overflow-x: auto|scroll`, or a two-value `overflow: auto|scroll ...`
+      shorthand) without `overscroll-behavior-x: contain` in the same block. Without it the end of
+      the scroll chains to the page and a sideways gesture over the box drags the page.
+    severity: ERROR
+    languages:
+      - generic
+    paths:
+      include:
+        - '*.css'
+    patterns:
+      - pattern-inside: |
+          { ... }
+      - pattern-either:
+          - pattern: 'overflow-x: auto'
+          - pattern: 'overflow-x: scroll'
+          - pattern-regex: 'overflow:[ \t]*(auto|scroll)[ \t]+[a-z-]+'
+      - pattern-not-inside: |
+          { ... overscroll-behavior-x: contain ... }

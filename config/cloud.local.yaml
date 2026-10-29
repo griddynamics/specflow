@@ -1,0 +1,13 @@
+# Cloud profile for the local compose stack: S3-compatible storage (RustFS).
+# Point SPECFLOW_CONFIG_FILE at this file. Environment variables override every value.
+# No secrets here: S3 keys come from the AWS credential chain.
+cloud: local
+services:
+  object_storage:
+    provider: s3
+    bucket: specflow-local
+    prefix: dev/local/
+    s3:
+      endpoint_url: http://rustfs:9000
+      region: us-east-1
+      addressing: path

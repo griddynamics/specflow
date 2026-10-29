@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://specflow.local/contracts/schemas/sources-contract.schema.json",
+  "title": "Sources contract shared by the API and the web app",
+  "description": "src/api/fixtures/sources-contract.json: the file states, reason codes, list order, page limit, outcomes, error codes and wire field names that backend tests and frontend parity tests read.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "file_states",
+    "reason_codes",
+    "group_order",
+    "page_limit",
+    "outcomes",
+    "error_codes",
+    "source_fields",
+    "file_fields",
+    "holder_fields"
+  ],
+  "properties": {
+    "file_states": { "$ref": "#/$defs/names" },
+    "reason_codes": { "$ref": "#/$defs/names" },
+    "group_order": {
+      "description": "File states grouped in list order; every group is a non-empty list of states.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/names" }
+    },
+    "page_limit": { "type": "integer", "minimum": 1 },
+    "outcomes": { "$ref": "#/$defs/names" },
+    "error_codes": { "$ref": "#/$defs/names" },
+    "source_fields": { "$ref": "#/$defs/names" },
+    "file_fields": { "$ref": "#/$defs/names" },
+    "holder_fields": { "$ref": "#/$defs/names" }
+  },
+  "$defs": {
+    "names": {
+      "description": "A non-empty list of distinct snake_case names.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+    }
+  }
+}

@@ -1,0 +1,233 @@
+/* GD Liquid Glass — generated from tokens.json. Do not edit by hand; change tokens.json and regenerate. */
+
+@font-face { font-family: 'Fira Sans'; font-style: normal; font-weight: 300; font-display: swap; src: url('fonts/FiraSans-Light.ttf') format('truetype'); }
+@font-face { font-family: 'Fira Sans'; font-style: normal; font-weight: 400; font-display: swap; src: url('fonts/FiraSans-Regular.ttf') format('truetype'); }
+@font-face { font-family: 'Fira Sans'; font-style: normal; font-weight: 500; font-display: swap; src: url('fonts/FiraSans-Medium.ttf') format('truetype'); }
+@font-face { font-family: 'Fira Sans'; font-style: normal; font-weight: 600; font-display: swap; src: url('fonts/FiraSans-SemiBold.ttf') format('truetype'); }
+@font-face { font-family: 'Fira Sans'; font-style: normal; font-weight: 700; font-display: swap; src: url('fonts/FiraSans-Bold.ttf') format('truetype'); }
+@font-face { font-family: 'Fira Sans'; font-style: normal; font-weight: 800; font-display: swap; src: url('fonts/FiraSans-ExtraBold.ttf') format('truetype'); }
+
+:root {
+  --font-sans: "Fira Sans", "Helvetica Neue", Arial, sans-serif;
+  --font-accent: Georgia, serif;
+  --space-2xs: 4px;
+  --space-xs: 8px;
+  --space-sm: 14px;
+  --space-md: 24px;
+  --space-lg: 36px;
+  --space-xl: 56px;
+  --space-2xl: 80px;
+  --radius-0: 0px;
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-xl: 32px;
+  --radius-pill: 999px;
+  --blur-sm: 8px;
+  --blur-md: 20px;
+  --blur-lg: 36px;
+  --saturate-glass: 180%;
+}
+
+/* Light theme (default) */
+:root, [data-theme="light"] {
+  --ground: #e2edf3;
+  --ground-alt: #f7f7f7;
+  --ink: #222222;
+  --ink-2: #4a4a4a;
+  --ink-3: #53575c;
+  --yellow: #ffc002;
+  --yellow-hover: #ffd659;
+  --yellow-pressed: #e6ad00;
+  --on-yellow: #222222;
+  --yellow-glass: rgba(255, 192, 2, 0.55);
+  --yellow-glass-hover: rgba(255, 192, 2, 0.68);
+  --yellow-glass-pressed: rgba(255, 192, 2, 0.80);
+  --yellow-glass-rim: rgba(255, 225, 134, 0.95);
+  --yellow-glass-rim-hover: rgba(255, 214, 89, 1);
+  --on-yellow-glass: var(--ink);
+  --yellow-tint: #fff1c8;
+  --coral: #f26530;
+  --sea-blue: #0071bc;
+  --sky-blue: #53b7e8;
+  --grass: #9da619;
+  --glass-fill: rgba(255, 255, 255, 0.64);
+  --glass-fill-strong: rgba(255, 255, 255, 0.86);
+  --glass-fill-subtle: rgba(255, 255, 255, 0.32);
+  --glass-tint: rgba(255, 192, 2, 0.30);
+  --glass-rim: rgba(255, 255, 255, 0.72);
+  --glass-sheen: rgba(255, 255, 255, 0.55);
+  --glass-rib: rgba(255, 255, 255, 0.22);
+  --hairline: #e5e3de;
+  --focus-ring: #0071bc;
+  --scrim: rgba(18, 20, 23, 0.32);
+  --info: #00508a;
+  --success: #4f5300;
+  --danger: #9e350a;
+  --canvas: #eef3f6;
+  --canvas-grid: rgba(34, 34, 34, 0.14);
+  --edge: var(--ink-2);
+  --edge-data: #0071bc;
+  --edge-highlight: var(--ink);
+  --edge-halo: rgba(255, 192, 2, 0.55);
+  --node-tint-service: rgba(34, 34, 34, 0.06);
+  --node-tint-data: rgba(83, 183, 232, 0.24);
+  --node-tint-queue: rgba(242, 101, 48, 0.18);
+  --node-tint-ai: var(--yellow-glass);
+  --group-fill: rgba(255, 255, 255, 0.40);
+  --group-border: var(--ink-3);
+  --severity-critical: #9e350a;
+  --on-severity-critical: #ffffff;
+  --severity-high-tint: rgba(242, 101, 48, 0.20);
+  --severity-medium-tint: var(--yellow-tint);
+  --severity-low-tint: var(--node-tint-service);
+  --warning-tint: var(--yellow-tint);
+  --mention-tint: rgba(0, 113, 188, 0.12);
+  --highlight-mark: rgba(255, 192, 2, 0.32);
+  --shadow-glass: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 -1px 1px rgba(34, 34, 34, 0.06), 0 1px 2px rgba(34, 34, 34, 0.06), 0 8px 24px rgba(34, 34, 34, 0.10);
+  --shadow-glass-float: inset 0 1px 0 rgba(255, 255, 255, 0.95), inset 0 -1px 1px rgba(34, 34, 34, 0.06), 0 2px 6px rgba(34, 34, 34, 0.08), 0 24px 56px rgba(34, 34, 34, 0.18);
+  --shadow-yellow: inset 0 1px 0 rgba(255, 255, 255, 0.70), inset 0 -1px 1px rgba(160, 110, 0, 0.18), 0 1px 2px rgba(34, 34, 34, 0.08), 0 6px 18px rgba(255, 192, 2, 0.30);
+  color-scheme: light;
+}
+
+/* Dark theme: set data-theme="dark" on <html> */
+[data-theme="dark"] {
+  --ground: #121417;
+  --ground-alt: #1b1e22;
+  --ink: #f4f4f1;
+  --ink-2: #c6cad0;
+  --ink-3: #aeb4bb;
+  --yellow: #ffc002;
+  --yellow-hover: #ffd659;
+  --yellow-pressed: #e6ad00;
+  --on-yellow: #222222;
+  --yellow-glass: rgba(255, 192, 2, 0.28);
+  --yellow-glass-hover: rgba(255, 192, 2, 0.28);
+  --yellow-glass-pressed: rgba(255, 192, 2, 0.20);
+  --yellow-glass-rim: rgba(255, 214, 89, 0.55);
+  --yellow-glass-rim-hover: rgba(255, 214, 89, 0.85);
+  --on-yellow-glass: var(--ink);
+  --yellow-tint: #3a3112;
+  --coral: #f26530;
+  --sea-blue: #0071bc;
+  --sky-blue: #53b7e8;
+  --grass: #9da619;
+  --glass-fill: rgba(26, 29, 33, 0.72);
+  --glass-fill-strong: rgba(26, 29, 33, 0.88);
+  --glass-fill-subtle: rgba(255, 255, 255, 0.08);
+  --glass-tint: rgba(255, 192, 2, 0.22);
+  --glass-rim: rgba(255, 255, 255, 0.16);
+  --glass-sheen: rgba(255, 255, 255, 0.10);
+  --glass-rib: rgba(255, 255, 255, 0.05);
+  --hairline: rgba(255, 255, 255, 0.12);
+  --focus-ring: #53b7e8;
+  --scrim: rgba(0, 0, 0, 0.55);
+  --info: #53b7e8;
+  --success: #bcc63c;
+  --danger: #ff8a5c;
+  --canvas: #16191d;
+  --canvas-grid: rgba(255, 255, 255, 0.10);
+  --edge: var(--ink-2);
+  --edge-data: #53b7e8;
+  --edge-highlight: var(--ink);
+  --edge-halo: rgba(255, 192, 2, 0.45);
+  --node-tint-service: rgba(255, 255, 255, 0.08);
+  --node-tint-data: rgba(83, 183, 232, 0.22);
+  --node-tint-queue: rgba(242, 101, 48, 0.24);
+  --node-tint-ai: var(--yellow-glass);
+  --group-fill: rgba(255, 255, 255, 0.03);
+  --group-border: var(--ink-3);
+  --severity-critical: #ff8a5c;
+  --on-severity-critical: #1a1a1a;
+  --severity-high-tint: rgba(242, 101, 48, 0.16);
+  --severity-medium-tint: var(--yellow-tint);
+  --severity-low-tint: var(--node-tint-service);
+  --warning-tint: var(--yellow-tint);
+  --mention-tint: rgba(83, 183, 232, 0.14);
+  --highlight-mark: rgba(255, 192, 2, 0.30);
+  --shadow-glass: inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 -1px 1px rgba(0, 0, 0, 0.40), 0 1px 2px rgba(0, 0, 0, 0.40), 0 10px 28px rgba(0, 0, 0, 0.45);
+  --shadow-glass-float: inset 0 1px 0 rgba(255, 255, 255, 0.24), inset 0 -1px 1px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.45), 0 28px 64px rgba(0, 0, 0, 0.60);
+  --shadow-yellow: inset 0 1px 0 rgba(255, 236, 170, 0.35), inset 0 -1px 1px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.40), 0 6px 20px rgba(255, 192, 2, 0.22);
+  color-scheme: dark;
+}
+
+/* Follow the OS when no theme is set */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --ground: #121417;
+    --ground-alt: #1b1e22;
+    --ink: #f4f4f1;
+    --ink-2: #c6cad0;
+    --ink-3: #aeb4bb;
+    --yellow: #ffc002;
+    --yellow-hover: #ffd659;
+    --yellow-pressed: #e6ad00;
+    --on-yellow: #222222;
+    --yellow-glass: rgba(255, 192, 2, 0.28);
+    --yellow-glass-hover: rgba(255, 192, 2, 0.28);
+    --yellow-glass-pressed: rgba(255, 192, 2, 0.20);
+    --yellow-glass-rim: rgba(255, 214, 89, 0.55);
+    --yellow-glass-rim-hover: rgba(255, 214, 89, 0.85);
+    --on-yellow-glass: var(--ink);
+    --yellow-tint: #3a3112;
+    --coral: #f26530;
+    --sea-blue: #0071bc;
+    --sky-blue: #53b7e8;
+    --grass: #9da619;
+    --glass-fill: rgba(26, 29, 33, 0.72);
+    --glass-fill-strong: rgba(26, 29, 33, 0.88);
+    --glass-fill-subtle: rgba(255, 255, 255, 0.08);
+    --glass-tint: rgba(255, 192, 2, 0.22);
+    --glass-rim: rgba(255, 255, 255, 0.16);
+    --glass-sheen: rgba(255, 255, 255, 0.10);
+    --glass-rib: rgba(255, 255, 255, 0.05);
+    --hairline: rgba(255, 255, 255, 0.12);
+    --focus-ring: #53b7e8;
+    --scrim: rgba(0, 0, 0, 0.55);
+    --info: #53b7e8;
+    --success: #bcc63c;
+    --danger: #ff8a5c;
+    --canvas: #16191d;
+    --canvas-grid: rgba(255, 255, 255, 0.10);
+    --edge: var(--ink-2);
+    --edge-data: #53b7e8;
+    --edge-highlight: var(--ink);
+    --edge-halo: rgba(255, 192, 2, 0.45);
+    --node-tint-service: rgba(255, 255, 255, 0.08);
+    --node-tint-data: rgba(83, 183, 232, 0.22);
+    --node-tint-queue: rgba(242, 101, 48, 0.24);
+    --node-tint-ai: var(--yellow-glass);
+    --group-fill: rgba(255, 255, 255, 0.03);
+    --group-border: var(--ink-3);
+    --severity-critical: #ff8a5c;
+    --on-severity-critical: #1a1a1a;
+    --severity-high-tint: rgba(242, 101, 48, 0.16);
+    --severity-medium-tint: var(--yellow-tint);
+    --severity-low-tint: var(--node-tint-service);
+    --warning-tint: var(--yellow-tint);
+    --mention-tint: rgba(83, 183, 232, 0.14);
+    --highlight-mark: rgba(255, 192, 2, 0.30);
+    --shadow-glass: inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 -1px 1px rgba(0, 0, 0, 0.40), 0 1px 2px rgba(0, 0, 0, 0.40), 0 10px 28px rgba(0, 0, 0, 0.45);
+    --shadow-glass-float: inset 0 1px 0 rgba(255, 255, 255, 0.24), inset 0 -1px 1px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.45), 0 28px 64px rgba(0, 0, 0, 0.60);
+    --shadow-yellow: inset 0 1px 0 rgba(255, 236, 170, 0.35), inset 0 -1px 1px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.40), 0 6px 20px rgba(255, 192, 2, 0.22);
+    color-scheme: dark;
+  }
+}
+
+/* Type styles */
+.display-hero { font-family: var(--font-sans); font-size: 72px; line-height: 0.95; font-weight: 800; letter-spacing: -0.02em; }
+.display { font-family: var(--font-sans); font-size: 48px; line-height: 1.0; font-weight: 800; letter-spacing: -0.015em; }
+.stat { font-family: var(--font-sans); font-size: 64px; line-height: 1.0; font-weight: 800; letter-spacing: -0.02em; }
+.title-1 { font-family: var(--font-sans); font-size: 32px; line-height: 38px; font-weight: 800; letter-spacing: -0.01em; }
+.title-2 { font-family: var(--font-sans); font-size: 24px; line-height: 30px; font-weight: 700; }
+.title-3 { font-family: var(--font-sans); font-size: 20px; line-height: 26px; font-weight: 700; }
+.headline { font-family: var(--font-sans); font-size: 17px; line-height: 24px; font-weight: 600; }
+.body-lg { font-family: var(--font-sans); font-size: 18px; line-height: 28px; font-weight: 400; }
+.body { font-family: var(--font-sans); font-size: 16px; line-height: 24px; font-weight: 400; }
+.body-sm { font-family: var(--font-sans); font-size: 14px; line-height: 20px; font-weight: 400; }
+.caption { font-family: var(--font-sans); font-size: 12px; line-height: 16px; font-weight: 500; letter-spacing: 0.01em; }
+.button { font-family: var(--font-sans); font-size: 14px; line-height: 20px; font-weight: 700; letter-spacing: 0.04em; }
+.eyebrow { font-family: var(--font-sans); font-size: 12px; line-height: 16px; font-weight: 600; letter-spacing: 0.18em; }
+.control { font-family: var(--font-sans); font-size: 14px; line-height: 20px; font-weight: 500; }
+.quote { font-family: var(--font-accent); font-size: 26px; line-height: 34px; font-weight: 400; font-style: italic; }
+.button, .eyebrow { text-transform: uppercase; }

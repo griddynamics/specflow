@@ -1,0 +1,22 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": ["src/main.tsx!", "**/*.test.mjs"],
+  "project": ["src/**/*.{ts,tsx}!", "tests/**/*.{ts,tsx}", "e2e/**/*.ts"],
+  "ignore": ["**/fixtures/**"],
+  "ignoreDependencies": ["prettier"],
+  "ignoreExportsUsedInFile": true,
+  "rules": {
+    "files": "error",
+    "dependencies": "error",
+    "devDependencies": "error",
+    "unlisted": "error",
+    "binaries": "error",
+    "unresolved": "error",
+    "exports": "error",
+    "nsExports": "error",
+    "types": "error",
+    "nsTypes": "error",
+    "enumMembers": "error",
+    "duplicates": "error"
+  }
+}

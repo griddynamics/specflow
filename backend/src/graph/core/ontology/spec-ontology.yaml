@@ -1,0 +1,527 @@
+# spec-ontology.yaml: initial template of the shipped ontology of the graph library (format: ontology.md).
+# Declares only the types and relations graph.build owns. Structure is fixed by the spec; prompt text
+# (framing, descriptions, guidance, examples, aliases, cues) may be improved during development under
+# the rules in ontology.md, "Shipped ontology".
+
+format_version: 1
+name: spec-ontology
+version: "1.3"
+owner: build
+
+corpus:
+  framing: a software specification
+  exclude:
+    - people
+    - dates
+    - page headers
+    - bare currency codes
+    - HTTP methods
+    - JSON keys, unless they are data requirements about stored or exchanged fields
+    - programming languages, frameworks, libraries, runtimes, tools and infrastructure products as
+      entities of their own (a technology the text mandates is a constraint; a running datastore
+      of the system is a module named by its role)
+
+vocabularies:
+  source_status: [stated, implied]
+  yes_no: ["yes", "no"]
+
+node_groups:
+  requirement:
+    origin: extracted
+    tier: spec
+    role: atomic
+    identity: {key: id, scope: group}    # explicit id, else the defining line; one scope for all six types
+    description: |
+      A requirement is a single commitment about the system: something it
+      must do or be, or a rule or boundary it must respect, testable in
+      principle; if it takes two test cases to prove, it is two requirements.
+      Informal wording still counts: "I want", "should", "will have", "must",
+      "never", bullet lists of obligations, table or schema fields, the fields
+      of a sample message or response, prohibitions, limits of an external
+      service and scope limits ("only X is supported").
+
+      A table gives one requirement per row, never one per cell: a row of a
+      settings, services or deployment table is one requirement with all its
+      cells, and the rows of a field or schema table together are one
+      DataRequirement.
+
+      Not a requirement: why something is wanted (rationale, background), an
+      example that only illustrates, how something will be tested or verified, a duty of people
+      (writing documentation, reviews, change process), meeting notes, an
+      open question, a TBD or an idea nobody committed to, what the document
+      itself does not cover, an out-of-scope or non-goal list ("gift cards are
+      out of scope", "no mobile app in v1", "not supported in v1"), or a
+      sentence that only describes what a part is or how it works today. An
+      out-of-scope item counts only when the text phrases it as a limit the
+      system must keep ("only card payments are accepted"); then it is a
+      Constraint, a scope limit. When in doubt, it is not a requirement.
+
+      A requirement about the whole system or about several modules
+      (deployment, security, operations, configuration) is part of none of
+      them: its module is empty, and it is linked to the modules it names or
+      concerns, never placed inside them.
+
+      Name it as the commitment itself, a short statement of 2-14 words, by
+      its type's naming template, keeping the text's qualifiers, numbers and
+      units; the template makes every statement of the same commitment get
+      the same name, so the same commitment stated again (a list item, a
+      summary, a table row) is the same node with the same name. Never a
+      bare topic, never the name of a feature or of another requirement, and
+      one commitment per node. A compound "must X and Y" keeps both halves:
+      split it into two requirements, or name both when one explicit id
+      holds them; "customers can cancel an unpaid order and get a
+      confirmation email" is "Customer can cancel an unpaid order" and
+      "System can email a confirmation of a cancelled order", never only the
+      first. Only the name follows the template: the quote stays verbatim.
+    attributes:
+      stmt: {type: text, max_chars: 600, description: "the commitment itself, as a single sentence"}
+      quote: {type: text, max_chars: 300, description: "verbatim source text supporting this requirement"}
+      acceptance_criteria: {type: text, max_chars: 1200, description: "how this requirement would be proven satisfied"}
+      source_status:
+        type: enum
+        values: source_status
+        aliases: {"explicit": "stated", "explicitly stated": "stated", "verbatim": "stated", "direct": "stated",
+                  "implicit": "implied", "implicitly stated": "implied", "inferred": "implied", "derived": "implied"}
+        description: "stated when the text says this outright, in any wording; implied when the text only implies it; always give one of the two words"
+      is_assumption:
+        type: enum
+        values: yes_no
+        aliases: {"true": "yes", "assumed": "yes", "assumption": "yes", "y": "yes",
+                  "false": "no", "not assumed": "no", "committed": "no", "n": "no"}
+        description: "yes when nobody has actually committed to this, else no; always give one"
+      module: {type: ref, target: module, store: false, description: "the one module this requirement is part of (for an integration contract, the module that sends or calls); null when it is about the whole system or several modules (deployment, security, operations, configuration)"}
+
+node_types:
+
+  module:
+    label: Module
+    origin: extracted
+    tier: context
+    role: anchor
+    id: {format: "MOD::{SLUG}"}
+    identity: {key: surface, scope: type}
+    description: |
+      A deployable or logically separable part of the delivered system: a
+      service, an app tier, a datastore or a deployment target. Also a
+      third-party system the delivered system talks to, outside the delivery
+      scope, marked external.
+
+      Name it as a singular noun phrase with no article: the part's own name
+      or its role, never its technology, and the name the documents use most
+      for it, in their words; never coin a name the text does not write;
+      reuse a known term exactly. A part called in several ways is
+      one module with one name. GOOD: "Checkout service", "Orders database",
+      "Stripe", "Mobile app". BAD: "Order store" for the store the text calls
+      "Orders database" (a coined name: name it "Orders database"); "The
+      checkout service" or "Checkout
+      services" (an article or a plural: name it "Checkout service"); a
+      behaviour such as "Export orders" (a FunctionalRequirement); a named
+      grouping of functionality such as "Order history" or "Checkout" (a
+      Feature); a cross-cutting concern such as "Authentication" (a
+      Capability); a programming language, framework, library, runtime, tool
+      or infrastructure product such as "Node.js", "React", "Docker" or
+      "PostgreSQL" (not an entity; a Constraint when the text mandates it),
+      while the database the system runs is a Module named by its role,
+      "Orders database"; "Node.js server" for the web tier (a Module named by
+      its technology: name it "Web app").
+    attributes:
+      stmt: {type: text, max_chars: 600, description: "what the text says this module is or does, as one sentence"}
+      quote: {type: text, max_chars: 300, description: "verbatim source text supporting this module"}
+      external:
+        type: enum
+        values: yes_no
+        aliases: {"true": "yes", "external": "yes", "third-party": "yes", "false": "no", "internal": "no"}
+        description: "yes when the module is outside the delivery scope"
+      type:
+        type: enum
+        values:
+          frontend: a user-facing app or tier
+          backend: a service or API something else calls
+          datastore: a database, cache, search index or object store
+          deployment: an environment or deployment target, not code
+          other: none of the above
+        aliases: {ui: frontend, web: frontend, mobile: frontend, service: backend, api: backend,
+                  worker: backend, database: datastore, db: datastore, cache: datastore,
+                  queue: datastore, infra: deployment, hosting: deployment}
+        description: "what kind of part of the system this is"
+
+  feature:
+    label: Feature
+    origin: extracted
+    tier: context
+    role: group
+    id: {format: "FEAT::{SLUG}"}
+    identity: {key: surface, scope: type}
+    description: |
+      A named piece of functionality a user or stakeholder would recognise by
+      name. It sits inside a module and groups requirements. A sub-heading
+      inside a feature's section is part of that feature, not a Feature of
+      its own.
+
+      Name it as a singular noun phrase for the grouping, with no article,
+      verb, modal or technology: the name the documents use most for it, in
+      their words, never a coined one; reuse a known term exactly. GOOD:
+      "Order history export", "Checkout".
+      BAD: "The order history export feature" (an article and a filler word:
+      name it "Order history export"); "Coupon limits" when it is a
+      sub-heading inside the "Coupons" section (part of the Feature
+      "Coupons": its commitments are requirements of it); "Export orders" (a
+      FunctionalRequirement); "Orders service" (a Module); "Authentication"
+      when no single module owns it (a Capability).
+    guidance: >-
+      A Feature is only a named grouping of functionality: also extract each
+      distinct commitment it contains as its own requirement, and never stop
+      at the Feature. A schedule or timing written in a feature's description
+      ("the sales report is sent daily at 06:00") is a FunctionalRequirement
+      of its own ("System can send the sales report daily at 06:00"), never
+      only the feature's statement.
+    attributes:
+      stmt: {type: text, max_chars: 600, description: "what the feature does, as one sentence"}
+      quote: {type: text, max_chars: 300, description: "verbatim source text supporting this feature"}
+      module: {type: ref, target: module, store: false, description: "the module this feature sits inside"}
+
+  capability:
+    label: Capability
+    origin: extracted
+    tier: context
+    role: group
+    id: {format: "CAP::{SLUG}"}
+    identity: {key: surface, scope: type}
+    description: |
+      A cross-cutting concern the system must provide that no single module
+      owns: authentication, search, notifications, audit. It groups the
+      features and requirements that would otherwise be written once per
+      module, and points at every module that realises it.
+
+      A capability groups; it never contains. If it lives in one module it is
+      a feature, not a capability. Name it as a singular noun phrase for the
+      concern, with no article or technology: the name the documents use
+      most for it, in their words, never a coined one; reuse a known term
+      exactly. GOOD: "Authentication",
+      "Audit logging". BAD: "OAuth login" (a technology: name it
+      "Authentication"); "User can log in" (a FunctionalRequirement);
+      "Identity service" (a Module).
+    attributes:
+      stmt: {type: text, max_chars: 600, description: "the concern, as one sentence"}
+      quote: {type: text, max_chars: 300, description: "verbatim source text supporting this capability"}
+      module: {type: ref, target: module, store: false, description: "a module realising this capability, if only one is named"}
+
+  functional_requirement:
+    label: FunctionalRequirement
+    group: requirement
+    id: {format: "REQ::FR::{SLUG}"}
+    id_families: [FR, UC, US]
+    description: |
+      A behaviour the system must perform: what an actor can do or what the
+      system does in response, also when it depends on a condition
+      (validation, errors, defaults, limits of a screen or an endpoint). The
+      team's own security, deployment and engineering rules about what the
+      system does or never does are functional requirements too.
+
+      Name it by the template "<Actor> can <verb> <object> [<qualifier>]":
+      always "can" in the present tense ("cannot" for a prohibition), never
+      must, should or will. The actor is one of User, Customer, Admin, Staff,
+      System or a named external system; what the system does by itself has
+      the actor System. GOOD: "Customer can export order history as CSV",
+      "System can reject an expired card at checkout with an error message",
+      "System cannot write API keys to logs", "System can expose only the web
+      port outside the server". BAD: "Customers should be able to export
+      their order history" (a modal and a plural: name it "Customer can
+      export order history"); "CSV export" (a bare topic); "Order history
+      export" (a Feature); "Order export completes within 5 s at p95" (a
+      QualityRequirement); "Order data must stay in the EU region, as the
+      client contract requires" (a Constraint: imposed from outside the
+      team); "Order over $1,000: needs manager approval" (a BusinessRule: the
+      business policy itself, while "Staff can approve held orders" is the
+      FunctionalRequirement that serves it); "The Orders service keeps order
+      history" (a description of the Module, not a requirement).
+
+  quality_requirement:
+    label: QualityRequirement
+    group: requirement
+    id: {format: "REQ::NFR::{SLUG}"}
+    id_families: [NFR, QR, PERF, SEC]
+    description: |
+      A quality target a behaviour or the system must meet: performance,
+      availability, security level, operability, usability, scalability.
+      Usually measurable; a security, availability or operability target
+      counts even without a number when the text states it as a quality level
+      the system keeps, rather than as one behaviour.
+
+      Name it by the template "<subject> <measure> <comparator> <value>
+      <unit>" with the number the text gives; a quality level without a
+      number is "<subject> <is or stays> <level>". GOOD: "Order export
+      completes within 5 s at p95", "Checkout availability is at least 99.9%
+      per month", "Payment data is encrypted at rest and in transit", "Shop
+      stays online during a deploy". BAD: "Order export should be fast" (a
+      modal and no value); "Export performance" or "Security" (no target);
+      "Customer can export order history as CSV" or "System cannot write API
+      keys to logs" (a FunctionalRequirement: a behaviour); "Card data must
+      be handled as PCI DSS requires" (a Constraint: imposed from outside the
+      team).
+
+  constraint:
+    label: Constraint
+    group: requirement
+    id: {format: "REQ::CON::{SLUG}"}
+    id_families: [CON]
+    description: |
+      A boundary imposed from outside the delivery team that the system must
+      respect: regulation, contract, a client mandate (mandated technology,
+      hosting, budget, location), a limit of an external service, or a scope
+      limit the system must keep ("only X is supported"). A rule the team
+      sets for itself is never a Constraint, however strict its wording
+      ("never", "must not"): the team's own security, deployment and
+      engineering rules are FunctionalRequirements when they say what the
+      system does or never does, and QualityRequirements when they state a
+      quality level.
+
+      Name it by the template "<subject> must <boundary>", adding ", as
+      <source> requires" when the text names the source. GOOD: "Order data
+      must stay in the EU region, as the client contract requires", "Full
+      card numbers must never be stored, as PCI DSS requires", "Payment
+      provider calls must stay at most 100 per minute", "Shop must run on
+      the client's cloud account", "Payments must be card payments only".
+      BAD: "Data residency" (a bare topic); "EU data residency is required"
+      (not the template: "Order data must stay in the EU region"); a team
+      rule such as "secrets are never logged", ".env is not committed" or
+      "port 8080 is not exposed" (a FunctionalRequirement, named like
+      "System cannot write secrets to logs": the team's own security or
+      deployment rule); "Admin traffic is encrypted" (a QualityRequirement: a
+      security level the team sets); "Gift cards are out of scope" (not a
+      requirement: an out-of-scope note); "Order page loads within 2 s" (a
+      QualityRequirement); "Discount: never exceeds 30%" (a BusinessRule: a
+      policy of the business, not a boundary imposed from outside).
+
+  business_rule:
+    label: BusinessRule
+    group: requirement
+    id: {format: "REQ::BR::{SLUG}"}
+    id_families: [BR]
+    description: |
+      A policy the business decides and the system must enforce: who may do
+      what, eligibility, approvals, limits per customer, user or order, and
+      business calculations. It would hold even if the work were done by hand.
+
+      Name it by the template "<condition>: <outcome>"; a rule that always
+      holds has the business object as its condition. GOOD: "Order over
+      $1,000: needs manager approval", "Discount: never exceeds 30%", "Order
+      total: sum of line totals plus tax", "Customer: at most three open
+      returns". BAD: "Orders over $1,000 must be approved by a manager" (not
+      the template: "Order over $1,000: needs manager approval"); "Approval
+      rules" (a bare topic); "Staff can approve held orders", "System can
+      reject an invalid date range with an error" or "System can export
+      amounts with two decimals" (a FunctionalRequirement: a behaviour or an
+      output format of the system, even with a condition); "Order number:
+      unique and required" (part of the DataRequirement of the order: fields
+      and their rules belong to the data requirement of that object); "Order
+      search answers within 2 s" or "Export workers run at most 5 at once"
+      (a QualityRequirement: a quality target or a capacity of the system,
+      not a limit per person); "Order data must stay in the EU region" (a
+      Constraint: a boundary imposed from outside).
+    guidance: >-
+      When a statement could be a BusinessRule or another requirement type,
+      it is the other type: a BusinessRule is only the business policy
+      itself.
+
+  integration_requirement:
+    label: IntegrationRequirement
+    group: requirement
+    id: {format: "REQ::INT::{SLUG}"}
+    id_families: [INT, IR]
+    description: |
+      An integration contract between two modules: what one side sends to,
+      calls on or receives from the other.
+
+      Name it by the template "<module> <sends, receives or calls> <what>
+      <to or from> <module>", each side by its module name. GOOD: "Checkout
+      service sends paid orders to ERP", "Orders service receives stock
+      levels from Warehouse system". BAD: "ERP integration" (a bare topic);
+      "Orders are exported" (no second side); "Checkout service integrates
+      with ERP" (nothing crosses: name what is sent or received).
+
+  data_requirement:
+    label: DataRequirement
+    group: requirement
+    id: {format: "REQ::DATA::{SLUG}"}
+    id_families: [DATA, DR]
+    description: |
+      A business object the system stores or exchanges (a record, a file, a
+      message, an API request or response), with the fields it must hold,
+      also when the text shows them as a sample. The rules of its fields (unique, required, default, format,
+      allowed values) belong to this requirement, not to requirements of
+      their own.
+
+      Name it by the template "<Object> holds <field, field, ...>", with the
+      object named as the text writes the entity or table, and the key fields
+      in the text's order, so that the same object restated in another
+      document gets the same name. GOOD: "Purchase order holds id, lines,
+      currency, total"; "product_reviews holds product_id, rating, text" for
+      the table the text writes as "product_reviews". BAD: "Customer review
+      record holds product id, rating, text" for that table (a renamed
+      object: name it "product_reviews holds ..."); "Purchase order" (the
+      object's name, not a commitment); "Each purchase order should contain an id and its lines"
+      (not the template: "Purchase order holds id, lines"); "Purchase order
+      id: unique" as a separate BusinessRule (a field rule: part of this
+      DataRequirement).
+
+edge_types:
+
+  PART_OF:
+    origin: extracted
+    tier: spec
+    description: |
+      The source is a part of the target: a requirement belongs to a feature
+      or module, a feature sits inside a module or a larger feature. Between
+      two modules, use PART_OF only when the text says one module is a
+      component of the other (a sub-service, an embedded store). A
+      requirement about the whole system or about several modules
+      (deployment, security, operations, configuration) is PART_OF none of
+      them: it RELATES_TO each module it names or concerns. An integration
+      requirement is PART_OF the module that sends or calls, and RELATES_TO
+      the module it calls.
+
+      Any other link between modules is INTEGRATES_WITH. Grouping under a
+      cross-cutting capability is GROUPED_BY. GOOD: "Customer can export order
+      history as CSV" PART_OF "Order history export"; "Order history export"
+      PART_OF "Orders service"; "Checkout service sends paid orders to ERP"
+      PART_OF "Checkout service" and RELATES_TO "ERP". BAD: "Checkout service
+      sends paid orders to ERP" PART_OF "ERP" (the module called: RELATES_TO
+      it); "Checkout service" PART_OF "Stripe"
+      because checkout calls Stripe (INTEGRATES_WITH); "Login with SSO"
+      PART_OF "Authentication" (GROUPED_BY); "System can restart every service
+      after a crash" PART_OF "Checkout service" and PART_OF "Orders service"
+      (a system-wide statement: RELATES_TO each module); "System can read all
+      settings from one environment file" PART_OF "Web app" (RELATES_TO).
+    pairs:
+      - {from: requirement, to: feature, exclusive: true}
+      - {from: functional_requirement, to: module, exclusive: true}
+      - {from: quality_requirement, to: module, exclusive: true}
+      - {from: constraint, to: module, exclusive: true}
+      - {from: integration_requirement, to: module}     # an integration contract names two modules
+      - {from: data_requirement, to: module, exclusive: true}
+      - {from: business_rule, to: module, exclusive: true}
+      - {from: feature, to: module, exclusive: true}
+      - {from: feature, to: feature}
+      - {from: module, to: module, cue_required: true}
+    cues:
+      - 'part of|component of|sub-?(service|module|system)|consists of|contains|embedded'
+    derive: [requirement.module, feature.module]
+
+  GROUPED_BY:
+    origin: extracted
+    tier: spec
+    description: |
+      The source is grouped under the target, a cross-cutting capability whose
+      concern it serves. Grouping is not containment: the source keeps its own
+      PART_OF parent.
+
+      GOOD: "Login with SSO" GROUPED_BY "Authentication". BAD:
+      "Authentication" GROUPED_BY "Login with SSO" (reversed); "Order history
+      export" GROUPED_BY "Orders service" (a module: PART_OF).
+    pairs:
+      - {from: feature, to: capability}
+      - {from: requirement, to: capability}
+
+  REALIZED_BY:
+    origin: extracted
+    tier: context
+    description: |
+      The source capability is realised by the target module: the module
+      implements part of the cross-cutting concern. A capability is usually
+      realised by several modules.
+
+      GOOD: "Authentication" REALIZED_BY "Identity service". BAD: "Identity
+      service" REALIZED_BY "Authentication" (reversed); a feature REALIZED_BY
+      a module (a feature is PART_OF its module).
+    pairs:
+      - {from: capability, to: module}
+    derive: [capability.module]
+
+  INTEGRATES_WITH:
+    origin: extracted
+    tier: context
+    description: |
+      An integration between two modules. Directed: the source initiates the
+      interaction or uses the other module, and the target is the module it
+      calls or depends on (for example, main app -> payment microservice).
+
+      A two-way integration is two edges. This is the default for any link
+      between modules; PART_OF between modules is only for explicit
+      containment. GOOD: "Checkout service" INTEGRATES_WITH "Stripe" when
+      checkout calls Stripe. BAD: "Stripe" INTEGRATES_WITH "Checkout service"
+      when only checkout calls Stripe (reversed).
+    pairs:
+      - {from: module, to: module, default: true}
+
+  RELATES_TO:
+    origin: extracted
+    tier: spec
+    symmetric: true
+    id_references: true
+    description: |
+      Either two requirements the text itself links: one refers to the other
+      ("see FR-012", "in addition to the export requirement"), depends on it,
+      or refines it. Or a requirement and a module it applies to without
+      being part of it: a system-wide or cross-module statement (deployment,
+      security, operations, configuration), linked to each module it names
+      or concerns and never PART_OF those modules. Symmetric: the order of
+      the two does not matter.
+
+      Only link what the text connects. Two requirements that merely sound
+      alike or share a topic are not related. GOOD: "Admin can bulk-export
+      orders" RELATES_TO "Customer can export order history as CSV" when the
+      text says the bulk export reuses the CSV export; "System can restart
+      every service after a crash" RELATES_TO "Checkout service" and
+      RELATES_TO "Orders service" when the deployment section lists both;
+      "Checkout service sends paid orders to ERP" RELATES_TO "ERP", the
+      module it calls. BAD: two unrelated
+      requirements of the same feature (they share a PART_OF parent, which
+      already says that); "Customer can export order history as CSV" RELATES_TO
+      "Orders service" when the requirement belongs to that one module
+      (PART_OF); "Checkout service" RELATES_TO "Stripe" (two modules:
+      INTEGRATES_WITH).
+    pairs:
+      - {from: requirement, to: requirement}
+      - {from: requirement, to: module}
+      - {from: module, to: requirement}
+
+
+spine:
+  sources: [requirement]
+  roots: [module]
+  paths:
+    - {via: [PART_OF], min: 1, max: 3}
+    - {sequence: [GROUPED_BY, REALIZED_BY]}
+    - {via: [RELATES_TO], min: 1, max: 1}
+
+inference:
+  cap: 50
+  floor: 0.7
+  rules:
+    - id: INF-INT-01
+      template: endpoints
+      prompt: judge_endpoints.2
+      subject: integration_requirement
+      via: [PART_OF, RELATES_TO]
+      mentions: true
+      target: module
+      min_targets: 2
+      max_targets: 4
+      writes: INTEGRATES_WITH
+    - id: INF-CAP-01
+      template: realization
+      prompt: judge_realization.1
+      subject: capability
+      member_relation: GROUPED_BY
+      container_relation: PART_OF
+      container: module
+      max_hops: 3
+      writes: REALIZED_BY
+    - id: INF-CONT-01
+      template: attach_orphan
+      prompt: judge_attach_orphan.2
+      subject: requirement
+      targets: [feature, module]
+      max_candidates: 3
+      writes: PART_OF
