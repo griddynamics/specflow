@@ -58,7 +58,7 @@ Depends on: 03, 05. Runs alone (whole stack; ports 8000, 8002, 8180, 8765).
 - [ ] NFR-MCP-01 measured (10 calls per second, 300 features) and recorded
 - [ ] Agent prompt 1: `list_projects` called, correct projects
 - [ ] Agent prompt 2: all 7 features gathered across pages, no `REQ::` ids
-- [ ] Agent prompt 3: `access_denied`, no foreign feature names anywhere in the run
+- [ ] Agent prompt 3: `project_not_found`, no foreign feature names anywhere in the run
 - [ ] Agent tier teardown verified (`claude mcp list` clean afterwards)
 - [ ] Evidence table in `06-handoff.md` (scenario, result, duration); no tokens
 - [ ] `docs/configuration.md` local stack rows; settings-env doc test green

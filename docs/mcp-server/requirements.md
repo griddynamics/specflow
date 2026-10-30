@@ -32,8 +32,8 @@ Verification is by test unless the row says otherwise.
 |---|---|---|
 | FR-MCP-ACC-01 | `list_projects` shall return only projects the caller is a member of. | Given alice owns two projects and bob one, when alice lists, then bob's project is absent. |
 | FR-MCP-ACC-02 | A tool with a `project_id` shall check membership before any other read and, when denied, shall run no graph query. | Given a non-member, then a recording executor records zero queries. |
-| FR-MCP-ACC-03 | If the project exists and the caller is not a member, then the tool shall answer `access_denied`; a malformed or unknown project id shall answer `project_not_found`. | Given bob's project and alice's token, then `access_denied` and a recording executor records zero graph queries; given a random UUID or `not-a-uuid`, then `project_not_found` and zero graph queries. |
-| FR-MCP-ACC-04 | Membership shall be read on every call. | Given alice removed from a project between two calls, then the second call answers `access_denied`. |
+| FR-MCP-ACC-03 | A malformed, unknown or foreign project id shall give the same `project_not_found` result, and none of them shall reach the graph. | Given bob's existing project id with alice's token, a random UUID and `not-a-uuid`, then the three results are byte-identical and a recording executor records zero graph queries. |
+| FR-MCP-ACC-04 | Membership shall be read on every call. | Given alice removed from a project between two calls, then the second call answers `project_not_found`. |
 | FR-MCP-ACC-05 | The caller's user row shall be provisioned or refreshed through `upsert_user` with the configured subject claim. | Given a new subject, when it calls twice, then exactly one user row exists. |
 | FR-MCP-ACC-06 | Every registered tool with a `project_id` argument shall pass through the one membership function. | Inspection: the structural test enumerates registered tools and passes. |
 

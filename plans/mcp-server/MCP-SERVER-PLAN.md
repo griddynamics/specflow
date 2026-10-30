@@ -54,7 +54,6 @@ without review gates.
 | `backend/uv.lock`, `backend/importlinter.toml`, `backend/cypher-checks.toml`, `backend/src/cli.py` | 04 | |
 | `backend/src/api/mcp/**` | 04 (app, runtime, guard, PRM), then 05 (tools, access, errors) | sequential |
 | `backend/src/db/session.py`, `backend/src/api/runtime.py` (moving `is_database_unreachable` only) | 05 | |
-| `backend/src/db/repositories.py` (adding `project_exists` only) | 05 | |
 | `backend/tests/mcp_support.py`, `backend/tests/test_mcp_*.py` (not `qa_lib`, `e2e`, `claude_qa`) | 04, then 05 | sequential |
 | `backend/tests/test_mcp_e2e.py`, `backend/tests/test_mcp_claude_qa.py` | 06 | |
 | `docs/mcp-server/**`, `backend/README.md`, `.env.example`, `QUICKSTART.md` | 06 | |
