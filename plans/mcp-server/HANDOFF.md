@@ -28,7 +28,8 @@ None.
 
 ## Deferred decisions
 
-None: every design question is locked in `docs/mcp-server/questions.md`. Items after version 1: `docs/mcp-server/later.md`.
+None blocking: the open questions in `docs/mcp-server/questions.md` carry defaults that sessions apply. Items after
+version 1: `docs/mcp-server/later.md`.
 
 ## Common issues
 

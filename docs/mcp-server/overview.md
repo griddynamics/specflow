@@ -65,9 +65,8 @@ flowchart LR
     api --> neo
 ```
 
-The web app and the API do not change, except that the shared token checks gain the claim profile of
-[auth.md](auth.md) (its defaults keep today's behavior). The graph library gains one paged read
-([../graph/api.md](../graph/api.md)).
+The API and the MCP service share the `auth` package, including the claim profile of [auth.md](auth.md). The paged
+graph read that `list_features` uses belongs to the graph library ([../graph/api.md](../graph/api.md)).
 
 ## Constraints
 

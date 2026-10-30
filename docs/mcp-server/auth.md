@@ -13,6 +13,9 @@ The MCP service is an OAuth 2.1 resource server. The organization's OIDC provide
 is the authorization server. The MCP client signs the developer in at the IdP with the authorization code flow and
 PKCE, and calls `/mcp` with the access token. SpecFlow issues no tokens, stores no tokens and holds no client secret.
 
+A deployment has exactly one IdP: tokens must come from `OIDC_ISSUER`, the issuer the web app signs people in with.
+Users are keyed by the token subject alone, so the same person reaches the same user row from the web app and from MCP.
+
 Standards in play: OAuth Protected Resource Metadata (RFC 9728), bearer tokens (RFC 6750), resource indicators
 (RFC 8707, sent by the client), JWT access tokens (RFC 9068 where the IdP supports it), PKCE (RFC 7636), loopback
 redirects for native apps (RFC 8252), the MCP authorization specification.
@@ -94,11 +97,11 @@ The guard runs on every request to `/mcp`, in this order; the first failure deci
 | 10 | Email: the `AUTH_EMAIL_VERIFIED_CLAIM` claim is `true` (skipped when that setting is empty), then the `AUTH_EMAIL_CLAIM` claim is a valid address, then its domain is in `AUTH_ALLOWED_EMAIL_DOMAINS` | 403 |
 | 11 | Scopes: the union of `scope` (space-delimited) and `scp` (string or list) contains every `MCP_REQUIRED_SCOPES` value | 403 `insufficient_scope` |
 
-Checks 1 to 10 are the existing `auth` path, in today's order (`bearer_token`, `OidcJwtVerifier`, `JwksCache`,
-`claims.validate`), run with an MCP `ClaimPolicy`; check 11 is new (`ClaimPolicy.required_scopes`,
-`Principal.scopes`). The REST policy requires no scopes, so REST behavior does not change. `bearer_token` moves from
-`auth.dependencies` (which imports FastAPI) to a framework-free `auth` module, unchanged, so the role does not load
-FastAPI. The result is a `Principal` the tools read from the request.
+Checks 1 to 10 run in this order through the `auth` package (`bearer_token`, `OidcJwtVerifier`, `JwksCache`,
+`claims.validate`) with an MCP `ClaimPolicy`, the same path the REST API uses with its own policy. Check 11 compares
+`Principal.scopes` with the policy's `required_scopes`; the REST policy requires none. `bearer_token` lives in a
+framework-free `auth` module, so the role never loads FastAPI. The result is a `Principal` the tools read from the
+request.
 
 Startup refuses three audience mix-ups, each of which would let one token pass where it must not:
 
@@ -110,9 +113,9 @@ Startup refuses three audience mix-ups, each of which would let one token pass w
 
 ## Claim profile for any OIDC provider
 
-Today's checks assume Keycloak's access-token shape. The claim profile names the claims instead. The settings are
-shared by the `api` and `mcp` roles, because the subject must be read the same way on both surfaces (one person, one
-user row). Every default equals today's behavior.
+The claim profile names the claims that carry each part of the identity, so the same checks fit any OIDC provider. The
+settings are shared by the `api` and `mcp` roles, because the subject must be read the same way on both surfaces (one
+person, one user row). The defaults describe a Keycloak access token.
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -164,8 +167,8 @@ request the API audience or scope (outside this design, see [later.md](later.md)
 
 Claude Code always asks for `offline_access`; advertising fewer scopes does not stop it. Whether offline tokens are
 issued is decided at the IdP, on the `specflow-mcp` client: production either removes `offline_access` from the
-client (developers sign in again when the SSO session ends) or keeps it with a limited offline session (30 days). The
-local QA realm keeps it. Keycloak may answer `refresh_expires_in: 0` for offline tokens; the server never sees refresh
+client (developers sign in again when the SSO session ends) or keeps it with a limited offline session (30 days; the
+default, see [questions.md](questions.md)). The local QA realm keeps it. Keycloak may answer `refresh_expires_in: 0` for offline tokens; the server never sees refresh
 tokens, so this is a client concern only.
 
 ## Failure responses
@@ -192,7 +195,7 @@ issuer and resource URL are accepted only when `APP_ENV=local`.
 |---|---|
 | S1 | No token passthrough: the MCP token is never sent anywhere; Postgres and Neo4j are reached with service credentials after the membership check. |
 | S2 | Tokens, `Authorization` headers and claims other than ids never reach logs or error bodies. |
-| S3 | JWKS only from the issuer's host (existing rule outside local). |
+| S3 | JWKS only from the issuer's host (enforced outside local). |
 | S4 | Issuer, resource URL and audience are configuration, never derived from `Host` or `X-Forwarded-*`. |
 | S5 | One audience per token: a REST token fails on `/mcp`, an MCP token fails on `/api/v1`. |
 | S6 | The client is public: no client secret exists in SpecFlow or on developer machines. |

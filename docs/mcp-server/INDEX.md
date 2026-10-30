@@ -29,9 +29,9 @@ and `list_features`.
 # requirements.md: requirement units FR-MCP-AUTH, FR-MCP-ACC, FR-MCP-TOOL, FR-MCP-OPS, NFR-MCP
 - [requirements.md](requirements.md)
 
-# later.md, questions.md: deferred features, decisions taken (all locked)
+# later.md, questions.md: deferred features, open questions
 - [later.md](later.md), [questions.md](questions.md)
 
 # Related
-- [../graph/api.md](../graph/api.md): `GraphReader`, which gains a paged read for `list_features`
+- [../graph/api.md](../graph/api.md): `GraphReader`, including the paged read `list_features` uses
 - [../configuration.md](../configuration.md): the configuration reference the new settings are added to

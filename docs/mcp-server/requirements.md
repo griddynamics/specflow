@@ -7,8 +7,8 @@ tags: [mcp]
 ---
 # requirements.md: requirement units of the MCP server (compact form), functional and non-functional
 
-Each row is one testable requirement in EARS form with one acceptance criterion. Status of every unit: Proposed, with
-the locked decisions of [questions.md](questions.md). Verification is by test unless the row says otherwise.
+Each row is one testable requirement in EARS form with one acceptance criterion. Status of every unit: Proposed.
+Verification is by test unless the row says otherwise.
 
 ## Authentication ([auth.md](auth.md))
 
@@ -21,7 +21,7 @@ the locked decisions of [questions.md](questions.md). Verification is by test un
 | FR-MCP-AUTH-05 | The service shall accept only tokens whose client claim is in `MCP_CLIENT_IDS`. | Given `azp=specflow-web`, then 401. |
 | FR-MCP-AUTH-06 | If a valid token lacks a scope of `MCP_REQUIRED_SCOPES`, then the service shall answer 403 with an `insufficient_scope` challenge. | Given `scope="email profile"`, then 403 and `error="insufficient_scope", scope="specflow:read"`. |
 | FR-MCP-AUTH-07 | If a valid token's email is unverified, invalid or outside `AUTH_ALLOWED_EMAIL_DOMAINS`, then the service shall answer 403 without a scope challenge. | Given `carol@other.example`, then 403 `domain_not_allowed` and no `error=` in `WWW-Authenticate`. |
-| FR-MCP-AUTH-08 | The token checks shall read subject, client, email, email-verified, token type and ignored audiences from the `AUTH_*` claim profile, whose defaults keep today's behavior. | Given defaults, then every existing auth test passes unchanged; given `AUTH_SUBJECT_CLAIM=oid`, then the `oid` value is the `Principal` subject. |
+| FR-MCP-AUTH-08 | The token checks shall read subject, client, email, email-verified, token type and ignored audiences from the `AUTH_*` claim profile, whose defaults describe a Keycloak access token. | Given defaults, then every existing auth test passes unchanged; given `AUTH_SUBJECT_CLAIM=oid`, then the `oid` value is the `Principal` subject. |
 | FR-MCP-AUTH-09 | The REST API shall reject tokens issued for the MCP audience. | Given a token with `aud=<MCP URL>`, when it calls `GET /api/v1/me`, then 401. |
 | FR-MCP-AUTH-10 | The role shall refuse to start with `AUTH_MODE=dev`, a dev signing key, no issuer, a resource URL whose path is not `/mcp` or that is not `https` outside local, no client id, no scope, an `MCP_AUDIENCE` equal to a client id or to `AUTH_API_AUDIENCE`, or ignored audiences that hold either surface's audience. | Given each case, then startup fails naming the variable. |
 | FR-MCP-AUTH-11 | The service shall never write a token, an `Authorization` value or an email to logs or error bodies. | Given the full auth matrix, then captured logs and bodies contain none of them. |

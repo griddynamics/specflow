@@ -19,6 +19,10 @@ tags: [mcp, testing]
 
 The end-to-end and agent tiers are not part of CI: they need the local stack and, for the agent tier, model calls.
 
+The harness is Python only. The QA library and its manual entry live in `backend/examples` (`mcp_qa_lib.py`,
+`mcp_qa.py`, run with `uv run --env-file ../.env.local python examples/mcp_qa.py`); the end-to-end and agent tiers are
+tests in `backend/tests`.
+
 ## Fixtures
 
 One idempotent QA seed prepares all three stores. It writes graph data through `graph.core.OwnedWriter` as the build

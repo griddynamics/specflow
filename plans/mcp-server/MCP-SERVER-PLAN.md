@@ -2,12 +2,13 @@
 
 Goal: the `mcp` backend role with `list_projects` and `list_features`, OAuth resource server for any OIDC provider,
 project-member isolation, proven with Claude Code and the MCP Python SDK against Keycloak.
-Design authority: [`docs/mcp-server/`](../../docs/mcp-server/INDEX.md). All design questions are locked in
-[`docs/mcp-server/questions.md`](../../docs/mcp-server/questions.md): sessions run without review gates.
+Design authority: [`docs/mcp-server/`](../../docs/mcp-server/INDEX.md), which describes the target system. Its open
+questions ([`questions.md`](../../docs/mcp-server/questions.md)) carry defaults that sessions apply, so sessions run
+without review gates.
 
 ## Read first (every session)
 
-1. `docs/mcp-server/INDEX.md`, then `questions.md`, `architecture.md`, `auth.md`, `access-control.md`, `tools.md`, `testing.md`
+1. `docs/mcp-server/INDEX.md`, then `overview.md`, `architecture.md`, `auth.md`, `access-control.md`, `tools.md`, `testing.md`, `questions.md`
 2. `plans/mcp-server/discovery.md`: cited facts, environment notes; `plans/mcp-server/spike.md`: working client code
    (sessions 03, 04, 06); `plans/mcp-server/draft-review.md`: what changed from the first draft and why
 3. `plans/mcp-server/HANDOFF.md` and the handoffs of the sessions this one depends on
@@ -18,7 +19,7 @@ Design authority: [`docs/mcp-server/`](../../docs/mcp-server/INDEX.md). All desi
 
 | Rule | Authority |
 |---|---|
-| Design decisions are locked; a session that finds one wrong records it under Deviations in its handoff and stops at that point | `docs/mcp-server/questions.md` |
+| The design is binding and open questions use their defaults; a session that finds the design wrong records it under Deviations in its handoff and stops at that point | `docs/mcp-server/` |
 | Absolute package imports; central logger (`get_logger`, `log_event`), no `print`, no stdlib logging setup | `backend/AGENTS.md` |
 | Cypher only in `.cypher` files of `graph/*/queries`; no ontology label literals in graph code | `docs/graph/architecture.md` (I3, I4) |
 | `neo4j` only in `graph`; FastAPI/Starlette only in `api`/`auth`; ORM only in `api`/`db`/`temporal` | `backend/importlinter.toml` |

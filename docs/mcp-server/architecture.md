@@ -80,15 +80,16 @@ The SDK package is also named `mcp`; absolute imports keep `import mcp` pointing
 | M3 | No Cypher and no `neo4j` import in `api.mcp`; every graph read is a `GraphReader` method. |
 | M4 | No SQL in `api.mcp`; every Postgres read or write is a `db.repositories` function. |
 
-M2 becomes import-linter contracts in `backend/importlinter.toml`. The `neo4j` part of M3 is the existing
-`graph-sdk-confined` contract. Query text in `api.mcp` is caught by the existing validation tracks, not by a test of
-its own: the SQL track already flags SQL text anywhere under `backend/src`, and the Cypher track does the same for the
-API layer once `api/**` leaves the `[python] exclude` list of `backend/cypher-checks.toml` (today it skips `api/`).
+Import-linter contracts in `backend/importlinter.toml` enforce M2, and the `graph-sdk-confined` contract enforces the
+`neo4j` part of M3. The validation tracks catch query text in `api.mcp`: the SQL track flags SQL text anywhere under
+`backend/src`, and the Cypher track scans the API layer for inline Cypher (`api/**` is not in the `[python] exclude`
+list of `backend/cypher-checks.toml`).
 
 ## Transport
 
 | Setting | Value | Why |
 |---|---|---|
+| SDK | the official MCP Python SDK (`mcp`), declared `>=2.3,<3` | 2.3 is the first release with the resource-validation setting; the agent SDKs depend on the same package, so one version serves the whole backend |
 | Transport | Streamable HTTP, path `/mcp` | the current remote MCP transport; Claude Code's `--transport http` |
 | Sessions | stateless (`stateless_http`) | any replica answers any request; no session affinity; no session store |
 | Responses | JSON (`json_response`), no SSE | read tools answer at once; no stream buffering issues at proxies |
@@ -144,7 +145,7 @@ Central logger only (`logger.get_logger`, `log_event`), dotted event names, no `
 | `mcp.tool.completed` | tool, user id, project id when given, outcome (`ok` or the error code), item count, duration ms |
 
 Logs never carry tokens, emails, feature text or cursors. `mcp.tool.completed` is the access audit trail: it answers
-which user read which project and when.
+which user read which project and when. There is no audit table; the log pipeline holds the record.
 
 ## Operations
 
