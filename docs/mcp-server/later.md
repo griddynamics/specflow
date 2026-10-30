@@ -9,7 +9,7 @@ tags: [mcp]
 
 | Feature | What it adds |
 |---|---|
-| `get_feature` | One feature with its module, the requirements in its scope (`GraphReader.scope`) and provenance (document, lines, quote) |
+| `get_feature` | The first tool to add when an agent needs more than the feature list: one feature with its module, the requirements in its scope (`GraphReader.scope`) and provenance (document, lines, quote) |
 | Search | `GraphReader.find_nodes` hybrid search; the role then needs the LLM gateway for query embeddings |
 | Impact | `GraphReader.impact` for "what else does this change touch" |
 | Other node types | Modules, capabilities, requirements through the same paged read |
