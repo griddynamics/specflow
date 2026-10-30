@@ -14,7 +14,8 @@ tags: [mcp]
 | Impact | `GraphReader.impact` for "what else does this change touch" |
 | Other node types | Modules, capabilities, requirements through the same paged read |
 | Plan tasks | Next-task and task detail tools once `graph.plan` exists; the web app's Develop tab flow |
-| Write tools | Claiming a task, reporting status; declared with `specflow:write` in the tool registry, with audit records and client confirmation |
+| Write tools | Claiming a task, reporting status; open to every project member like the read tools, with audit records and client confirmation |
+| Advertised scopes | Providers that choose the token's audience from the requested scope (Entra ID's `api://<app>/.default`) need the PRM to advertise that scope; a setting added with such a provider, never checked on the token |
 | Long-running tools | MCP tasks (the `io.modelcontextprotocol/tasks` extension, built on the SDK's extension mechanism): the tool call answers with a task, each task is a Temporal workflow, and `tasks/get` reports the workflow's status. Claude Code polls tasks from version 2.1.304. Needs a decision on how the public `mcp` process reaches Temporal: its own Temporal credentials, or a call through the internal API |
 | Streamed responses | Progress updates and elicitation (questions to the user) during a tool call: the SDK's streamed responses instead of JSON, and ingress that does not buffer `text/event-stream`. Built when a tool needs it |
 | FastMCP | Re-evaluated once FastMCP supports `mcp` 2.x: transforms, versioning and per-session visibility for a large tool library; the registry keeps tools independent of the framework |

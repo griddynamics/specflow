@@ -66,7 +66,7 @@ without review gates.
 | # | Session | Depends on | Parallel with |
 |---|---|---|---|
 | 01 | [Graph paged read](01-plan-graph-paged-read.md) | none | 02, 03 |
-| 02 | [Auth claim profile and scopes](02-plan-auth-claim-profile.md) | none | 01, 03 |
+| 02 | [Auth claim profile](02-plan-auth-claim-profile.md) | none | 01, 03 |
 | 03 | [Local OIDC provider and QA harness](03-plan-local-oidc-and-qa-harness.md) | none | 01, 02, 04 |
 
 ### Phase B: the role

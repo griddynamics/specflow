@@ -7,7 +7,7 @@ Master index of execution status. Plan: [MCP-SERVER-PLAN.md](MCP-SERVER-PLAN.md)
 | # | Session | Status | Handoff |
 |---|---|---|---|
 | 01 | Graph paged read | not started | `01-handoff.md` (created by the session) |
-| 02 | Auth claim profile and scopes | not started | `02-handoff.md` |
+| 02 | Auth claim profile | not started | `02-handoff.md` |
 | 03 | Local OIDC provider and QA harness | not started | `03-handoff.md` |
 | 04 | MCP role, transport and auth guard | not started (needs 02) | `04-handoff.md` |
 | 05 | Tools and access control | not started (needs 01, 04) | `05-handoff.md` |

@@ -11,7 +11,7 @@ tags: [mcp, testing]
 
 | Tier | Gate | Covers |
 |---|---|---|
-| Unit | always (`make check`) | settings and guards of the role; claim profile branches; scope parsing; cursor codecs; PRM document; error mapping and sanitizing; result shaping; the membership structural test; import contracts |
+| Unit | always (`make check`) | settings and guards of the role; claim profile branches; cursor codecs; PRM document; error mapping and sanitizing; result shaping; the membership structural test; import contracts |
 | HTTP boundary | always (`make check`) | the role's ASGI app over `httpx.ASGITransport` with the loopback JWKS stub of `specflow_auth_support` and a fake runtime: the full auth matrix, PRM, Host and Origin rules, body cap, 404 body, every tool through an MCP client session over HTTP, REST rejecting MCP tokens |
 | Live data | `SPECFLOW_TEST_POSTGRES=1`, `SPECFLOW_TEST_NEO4J=1` | repository reuse against Postgres; `count_nodes` and `nodes_page` against Neo4j, including a renamed ontology |
 | End to end | `SPECFLOW_TEST_MCP_E2E=1`, local stack with `WITH=mcp` | the real role, real Keycloak, the MCP Python SDK client running the OAuth flow; the scenario matrix below |
@@ -47,10 +47,9 @@ owner (the path the graph live tests use), never with ad hoc Cypher.
 | E7 | bob | `list_projects` | `P-Beta` only |
 | E8 | alice, removed from `P-Alpha` between two calls | `list_features(P-Alpha)` | second call `project_not_found` |
 | E9 | a `specflow-web` token (REST audience) | `POST /mcp` | 401 |
-| E10 | alice, token without `specflow:read` | `POST /mcp` | 403 `insufficient_scope` |
-| E11 | carol | `POST /mcp` | 403 `domain_not_allowed`, no scope challenge |
-| E12 | alice | `list_features` with a forged cursor | `invalid_cursor` |
-| E13 | alice | `POST /mcp` with a foreign `Host` | refused by transport security |
+| E10 | carol | `POST /mcp` | 403 `domain_not_allowed`, no challenge |
+| E11 | alice | `list_features` with a forged cursor | `invalid_cursor` |
+| E12 | alice | `POST /mcp` with a foreign `Host` | refused by transport security |
 
 The reverse audience case (an MCP token on `/api/v1`) is an HTTP-boundary test of the API, because the local API runs
 with dev login.

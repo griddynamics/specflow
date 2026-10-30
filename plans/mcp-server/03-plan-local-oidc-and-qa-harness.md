@@ -7,7 +7,7 @@ Depends on: none. Parallel with 01, 02, 04.
 1. Compose service `keycloak` in a new profile `mcp`, as specified in `docs/mcp-server/deployment.md` (section "Local
    stack"): pinned Keycloak 26.x image from `quay.io`, `start-dev`, realm import, healthcheck, `127.0.0.1:8180`,
    `KC_HOSTNAME=http://localhost:8180`. The `mcp` service itself is session 06.
-2. Realm file `config/keycloak/specflow-realm.json` with the clients, scope and audience mapper of deployment.md; no
+2. Realm file `config/keycloak/specflow-realm.json` with the clients and audience mapper of deployment.md; no
    users, no secrets, `offline_access` allowed for `specflow-mcp`.
 3. `Makefile`: `WITH` accepts `mcp`; `env-local` also generates `KEYCLOAK_ADMIN_PASSWORD`, `KEYCLOAK_QA_PASSWORD`,
    `KEYCLOAK_WEB_CLIENT_SECRET`, appending only names missing from an existing file.
@@ -46,7 +46,7 @@ Depends on: none. Parallel with 01, 02, 04.
 - `uv run --env-file ../.env.local python examples/mcp_qa.py seed` run twice leaves the same users, projects,
   memberships and node counts.
 - The token helper returns an alice token whose decoded claims (names and non-secret values) show
-  `aud=[http://localhost:8002/mcp, account]`, `azp=specflow-mcp`, `specflow:read` in `scope`, verified email.
+  `aud=[http://localhost:8002/mcp, account]`, `azp=specflow-mcp`, verified email.
 - The secret scan passes and the realm file holds no credential (NFR-MCP-05); the handoff records the evidence.
 
 ## Checklist
@@ -54,7 +54,7 @@ Depends on: none. Parallel with 01, 02, 04.
 - [ ] Keycloak image pinned (tag and digest), profile `mcp`, healthcheck, loopback port only
 - [ ] Realm: `specflow-mcp` public, standard flow only, PKCE S256, both loopback redirect URIs
 - [ ] Realm: `specflow-web` confidential, audience `specflow-api`, web redirect URI of the local frontend
-- [ ] Realm: client scope `specflow:read` optional on `specflow-mcp`; audience mapper `http://localhost:8002/mcp` (access token only)
+- [ ] Realm: audience mapper `http://localhost:8002/mcp` on `specflow-mcp` (access token only)
 - [ ] Realm file contains no `credentials`, `secret` or user entries
 - [ ] `WITH=mcp` accepted; error message lists `mcp`
 - [ ] `env-local` append logic: never rewrites existing lines, never prints values

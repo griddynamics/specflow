@@ -10,7 +10,7 @@ Depends on: 03, 05. Runs alone (whole stack; ports 8000, 8002, 8180, 8765).
    `make mcp` like `make api`, with the same dev-key override.
 2. Extend `backend/examples/mcp_qa_lib.py` with the MCP Python SDK client (pre-registered public client, login helper
    as redirect and callback handlers) and `examples/mcp_qa.py` with `check` and `claude` commands.
-3. End-to-end tier `backend/tests/test_mcp_e2e.py` (`SPECFLOW_TEST_MCP_E2E=1`): scenarios E1 to E13 of
+3. End-to-end tier `backend/tests/test_mcp_e2e.py` (`SPECFLOW_TEST_MCP_E2E=1`): scenarios E1 to E12 of
    `docs/mcp-server/testing.md`; NFR-MCP-01 latency measured and reported.
 4. Agent tier `backend/tests/test_mcp_claude_qa.py` (`SPECFLOW_TEST_MCP_CLAUDE=1`): the driver and the three persona
    prompts of testing.md (Agent QA with Claude Code), asserting on tool events only.
@@ -41,7 +41,7 @@ Depends on: 03, 05. Runs alone (whole stack; ports 8000, 8002, 8180, 8765).
 ## Done when
 
 - `make up WITH=mcp` (or the host fallback) serves the role healthy with the imported realm (FR-MCP-OPS-08).
-- E1 to E13 pass with the Python SDK client; the three agent prompts pass with Claude Code; p95 recorded (NFR-MCP-01).
+- E1 to E12 pass with the Python SDK client; the three agent prompts pass with Claude Code; p95 recorded (NFR-MCP-01).
 - The settings-env tests pass (every name read in code has a `docs/configuration.md` row; `.env.example` keys match),
   the docs bundle check passes, and no document in `docs/mcp-server/` still describes a deviation listed in 01 to 05 handoffs.
 - The four release commands pass (NFR-MCP-04); the handoff maps FR-MCP-OPS-08 and NFR-MCP-01, 04, 05 to evidence.
@@ -51,7 +51,7 @@ Depends on: 03, 05. Runs alone (whole stack; ports 8000, 8002, 8180, 8765).
 - [ ] Compose `mcp` service: image, command, env, dependencies, healthcheck, loopback port 8002
 - [ ] `AUTH_*` forwarding for `api` and `mcp`
 - [ ] SDK client in the QA library; `check` and `claude` commands
-- [ ] E1 to E13 implemented and passing
+- [ ] E1 to E12 implemented and passing
 - [ ] NFR-MCP-01 measured (10 calls per second, 300 features) and recorded
 - [ ] Agent prompt 1: `list_projects` called, correct projects
 - [ ] Agent prompt 2: all 7 features gathered across pages, no `REQ::` ids

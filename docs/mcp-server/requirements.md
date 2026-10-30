@@ -14,16 +14,15 @@ Verification is by test unless the row says otherwise.
 
 | ID | Requirement | Acceptance |
 |---|---|---|
-| FR-MCP-AUTH-01 | When a request to `/mcp` carries no bearer token, the service shall answer 401 with `WWW-Authenticate: Bearer` naming the PRM URL and the supported scopes. | Given no `Authorization` header, then 401 and `resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp"`. |
+| FR-MCP-AUTH-01 | When a request to `/mcp` carries no bearer token, the service shall answer 401 with `WWW-Authenticate: Bearer` naming the PRM URL. | Given no `Authorization` header, then 401 and `resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp"`. |
 | FR-MCP-AUTH-02 | The service shall serve the same PRM document at the path-inserted and the root well-known locations, built only from configuration. | Given a request with `Host: other.example` in the allowlist, then both documents name `MCP_RESOURCE_URL` and `[OIDC_ISSUER]`. |
 | FR-MCP-AUTH-03 | The service shall accept only tokens signed with RS256 or ES256 by a key of the issuer's JWKS. | Given an HS256 token or one signed by an unknown key, then 401. |
 | FR-MCP-AUTH-04 | The service shall accept only tokens whose issuer equals `OIDC_ISSUER` and whose audience, without the ignored audiences, is exactly `MCP_AUDIENCE`. | Given `aud=[MCP URL, account]`, then accepted; given `aud=specflow-api` or `aud=[MCP URL, specflow-api]`, then 401. |
 | FR-MCP-AUTH-05 | The service shall accept only tokens whose client claim is in `MCP_CLIENT_IDS`. | Given `azp=specflow-web`, then 401. |
-| FR-MCP-AUTH-06 | If a valid token lacks a scope of `MCP_REQUIRED_SCOPES`, then the service shall answer 403 with an `insufficient_scope` challenge. | Given `scope="email profile"`, then 403 and `error="insufficient_scope", scope="specflow:read"`. |
-| FR-MCP-AUTH-07 | If a valid token's email is unverified, invalid or outside `AUTH_ALLOWED_EMAIL_DOMAINS`, then the service shall answer 403 without a scope challenge. | Given `carol@other.example`, then 403 `domain_not_allowed` and no `error=` in `WWW-Authenticate`. |
+| FR-MCP-AUTH-07 | If a valid token's email is unverified, invalid or outside `AUTH_ALLOWED_EMAIL_DOMAINS`, then the service shall answer 403 without a challenge. | Given `carol@other.example`, then 403 `domain_not_allowed` and no `WWW-Authenticate` challenge. |
 | FR-MCP-AUTH-08 | The token checks shall read subject, client, email, email-verified, token type and ignored audiences from the `AUTH_*` claim profile, whose defaults describe a Keycloak access token. | Given defaults, then every existing auth test passes unchanged; given `AUTH_SUBJECT_CLAIM=oid`, then the `oid` value is the `Principal` subject. |
 | FR-MCP-AUTH-09 | The REST API shall reject tokens issued for the MCP audience. | Given a token with `aud=<MCP URL>`, when it calls `GET /api/v1/me`, then 401. |
-| FR-MCP-AUTH-10 | The role shall refuse to start with `AUTH_MODE=dev`, a dev signing key, no issuer, a resource URL whose path is not `/mcp` or that is not `https` outside local, no client id, no scope, an `MCP_AUDIENCE` equal to a client id or to `AUTH_API_AUDIENCE`, or ignored audiences that hold either surface's audience. | Given each case, then startup fails naming the variable. |
+| FR-MCP-AUTH-10 | The role shall refuse to start with `AUTH_MODE=dev`, a dev signing key, no issuer, a resource URL whose path is not `/mcp` or that is not `https` outside local, no client id, an `MCP_AUDIENCE` equal to a client id or to `AUTH_API_AUDIENCE`, or ignored audiences that hold either surface's audience. | Given each case, then startup fails naming the variable. |
 | FR-MCP-AUTH-11 | The service shall never write a token, an `Authorization` value or an email to logs or error bodies. | Given the full auth matrix, then captured logs and bodies contain none of them. |
 
 ## Access control ([access-control.md](access-control.md))

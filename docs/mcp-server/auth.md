@@ -1,7 +1,7 @@
 ---
 type: Design
 title: "MCP server authentication"
-description: "OAuth resource server design: discovery, client registration, token validation, the claim profile for any OIDC provider, provider recipes, scopes and revocation"
+description: "OAuth resource server design: discovery, client registration, token validation, the claim profile for any OIDC provider, provider recipes and revocation"
 status: draft
 tags: [mcp, auth]
 ---
@@ -32,19 +32,19 @@ sequenceDiagram
     C->>M: POST /mcp (no token)
     M-->>C: 401, WWW-Authenticate: Bearer resource_metadata=".../.well-known/oauth-protected-resource/mcp"
     C->>M: GET PRM
-    M-->>C: resource, authorization_servers=[OIDC_ISSUER], scopes_supported
+    M-->>C: resource, authorization_servers=[OIDC_ISSUER]
     C->>I: discovery (OIDC or RFC 8414 metadata)
-    C->>I: authorize: code, PKCE S256, client_id=specflow-mcp, scope, resource=<resource URL>, loopback redirect
+    C->>I: authorize: code, PKCE S256, client_id=specflow-mcp, resource=<resource URL>, loopback redirect
     I-->>C: code (developer signs in once)
     C->>I: token request with code_verifier
     I-->>C: access token (aud = MCP audience) and refresh token
     C->>M: POST /mcp, Authorization: Bearer <token>
-    M->>M: verify signature, issuer, audience, client, type, email, scopes
+    M->>M: verify signature, issuer, audience, client, type, email
     M-->>C: tool result
 ```
 
-Observed with Claude Code against Keycloak: the authorize request carries `scope=<scopes_supported> offline_access`,
-`prompt=consent`, `resource=<MCP_RESOURCE_URL>`, PKCE S256 and `redirect_uri=http://localhost:<callbackPort>/callback`.
+Observed with Claude Code against Keycloak: the authorize request carries `offline_access` in `scope` (plus any scope the PRM
+advertises), `prompt=consent`, `resource=<MCP_RESOURCE_URL>`, PKCE S256 and `redirect_uri=http://localhost:<callbackPort>/callback`.
 
 ## Protected resource metadata
 
@@ -55,14 +55,13 @@ identically, at `/.well-known/oauth-protected-resource`.
 {
   "resource": "https://specflow.example.com/mcp",
   "authorization_servers": ["https://idp.example.com/realms/specflow"],
-  "scopes_supported": ["specflow:read"],
   "bearer_methods_supported": ["header"],
   "resource_name": "SpecFlow"
 }
 ```
 
-`resource` is `MCP_RESOURCE_URL`, `authorization_servers` is `[OIDC_ISSUER]`, `scopes_supported` is
-`MCP_SCOPES_SUPPORTED`. Every value comes from configuration, never from request headers. The document is public.
+`resource` is `MCP_RESOURCE_URL` and `authorization_servers` is `[OIDC_ISSUER]`; the document advertises no scopes.
+Both values come from configuration, never from request headers. The document is public.
 
 ## Client registration
 
@@ -73,7 +72,7 @@ One pre-registered public client per deployment, `specflow-mcp` by default, shar
 | Type | public (no secret), authorization code flow only, PKCE S256 required |
 | Redirect URIs | `http://localhost:8765/callback`, `http://127.0.0.1:8765/callback` |
 | Access token audience | `MCP_AUDIENCE` (default `MCP_RESOURCE_URL`), and no SpecFlow API audience |
-| Scopes | `specflow:read` (optional client scope); `offline_access` per the revocation policy below |
+| Scopes | none of its own; `offline_access` per the revocation policy below |
 | Not allowed | implicit flow, password grant, client credentials, device flow |
 
 Claude Code takes the client id and fixed callback port at registration:
@@ -97,11 +96,11 @@ The guard runs on every request to `/mcp`, in this order; the first failure deci
 | 8 | Client: the `AUTH_CLIENT_ID_CLAIM` claim is in `MCP_CLIENT_IDS` | 401 |
 | 9 | Token type per `AUTH_TOKEN_TYPE` | 401 |
 | 10 | Email: the `AUTH_EMAIL_VERIFIED_CLAIM` claim is `true` (skipped when that setting is empty), then the `AUTH_EMAIL_CLAIM` claim is a valid address, then its domain is in `AUTH_ALLOWED_EMAIL_DOMAINS` | 403 |
-| 11 | Scopes: the union of `scope` (space-delimited) and `scp` (string or list) contains every `MCP_REQUIRED_SCOPES` value | 403 `insufficient_scope` |
 
 Checks 1 to 10 run in this order through the `auth` package (`bearer_token`, `OidcJwtVerifier`, `JwksCache`,
-`claims.validate`) with an MCP `ClaimPolicy`, the same path the REST API uses with its own policy. Check 11 compares
-`Principal.scopes` with the policy's `required_scopes`; the REST policy requires none. `bearer_token` lives in a
+`claims.validate`) with an MCP `ClaimPolicy`, the same path the REST API uses with its own policy. Scopes are not
+checked: the audience decides whether a token is for the MCP server, and project membership decides what its holder
+may read ([access-control.md](access-control.md)). `bearer_token` lives in a
 framework-free `auth` module, so the role never loads FastAPI. The result is a `Principal` the tools read from the
 request.
 
@@ -139,12 +138,12 @@ needs a data migration (not provided).
 Only the Keycloak recipe has been run (Keycloak 26.4, this repository's QA realm). The others follow the providers'
 documentation and are checked at deployment time with the QA harness of [testing.md](testing.md).
 
-| Provider | Audience | Client claim | Subject claim | Email | Token type | Scopes | Run here |
+| Provider | Audience | Client claim | Subject claim | Email | Token type | Scopes to request | Run here |
 |---|---|---|---|---|---|---|---|
-| Keycloak (reference) | audience mapper on `specflow-mcp` with `MCP_RESOURCE_URL` | `azp` | `sub` | `email`, `email_verified` (the `email` scope) | `keycloak` | client scope `specflow:read` | yes |
-| Auth0 | an API whose identifier is `MCP_RESOURCE_URL`; tenant default audience if the tenant ignores `resource`; `https://<tenant>/userinfo` (added when `openid` is requested) in `AUTH_IGNORED_AUDIENCES` | `azp` | `sub` | `email`, `email_verified` added by a post-login Action | `rfc9068` when the API uses that profile, else `none` | API permission `specflow:read` | no |
-| Okta (custom authorization server) | authorization server audience `MCP_RESOURCE_URL` | `cid` | `uid` | custom claim `email`; a custom verified claim where available, else empty (see below) | `none` | custom scope `specflow:read` | no |
-| Microsoft Entra ID | two app registrations (the API and the public client); v2 tokens carry the API registration's application id in `aud`: set `MCP_AUDIENCE` to that id | `azp` | `oid` (`sub` differs per application) | optional claim `email`; verified claim `xms_edov` (optional claim) | `none` | supported `api://<API app id URI>/specflow.read`, required `specflow.read` | no |
+| Keycloak (reference) | audience mapper on `specflow-mcp` with `MCP_RESOURCE_URL` | `azp` | `sub` | `email`, `email_verified` (the `email` scope) | `keycloak` | none | yes |
+| Auth0 | an API whose identifier is `MCP_RESOURCE_URL`; tenant default audience if the tenant ignores `resource`; `https://<tenant>/userinfo` (added when `openid` is requested) in `AUTH_IGNORED_AUDIENCES` | `azp` | `sub` | `email`, `email_verified` added by a post-login Action | `rfc9068` when the API uses that profile, else `none` | none | no |
+| Okta (custom authorization server) | authorization server audience `MCP_RESOURCE_URL` | `cid` | `uid` | custom claim `email`; a custom verified claim where available, else empty (see below) | `none` | none | no |
+| Microsoft Entra ID | two app registrations (the API and the public client); v2 tokens carry the API registration's application id in `aud`: set `MCP_AUDIENCE` to that id | `azp` | `oid` (`sub` differs per application) | optional claim `email`; verified claim `xms_edov` (optional claim) | `none` | `api://<API app id URI>/.default`, advertised by the PRM (a setting added with Entra ID, [later.md](later.md)) | no |
 | Amazon Cognito | not supported: access tokens carry no `aud` and no email | | | | | | no |
 | Google, GitHub sign-in | not supported: no JWT access token for a third-party API | | | | | | no |
 
@@ -170,7 +169,7 @@ request the API audience or scope (outside this design, see [later.md](later.md)
 | Client id removed from `MCP_CLIENT_IDS` | 401 | next call after the role restarts |
 | Offline refresh token (`offline_access`) | lives until the IdP's offline session limit; ends when the user is disabled or the session is revoked | IdP setting |
 
-Claude Code always asks for `offline_access`; advertising fewer scopes does not stop it. Whether offline tokens are
+Claude Code always asks for `offline_access`. Whether offline tokens are
 issued is decided at the IdP, on the `specflow-mcp` client: production either removes `offline_access` from the
 client (developers sign in again when the SSO session ends) or keeps it with a limited offline session (30 days; the
 default, see [questions.md](questions.md)). The local QA realm keeps it. Keycloak may answer `refresh_expires_in: 0` for offline tokens; the server never sees refresh
@@ -180,12 +179,11 @@ tokens, so this is a client concern only.
 
 | Case | Status | `WWW-Authenticate` | Body `error.code` |
 |---|---|---|---|
-| No token | 401 | `Bearer resource_metadata="<PRM URL>", scope="<scopes_supported>"` | `invalid_token` |
+| No token | 401 | `Bearer resource_metadata="<PRM URL>"` | `invalid_token` |
 | Invalid token (checks 1 to 9) | 401 | `Bearer error="invalid_token", resource_metadata="<PRM URL>"` | `invalid_token` |
-| Missing scope (check 11) | 403 | `Bearer error="insufficient_scope", scope="<required>", resource_metadata="<PRM URL>"` | `insufficient_scope` |
 | Email policy (check 10) | 403 | none | `email_not_verified`, `email_invalid` or `domain_not_allowed` |
 
-The email-policy 403 carries no scope challenge, so a client does not loop through sign-in for a person who will never
+The email-policy 403 carries no challenge, so a client does not loop through sign-in for a person who will never
 be allowed. Every rejection logs `mcp.auth.rejected` with the fixed reason and no token content.
 
 ## Local and development mode
@@ -215,3 +213,4 @@ issuer and resource URL are accepted only when `APP_ENV=local`.
 | AA4 | A separate MCP audience | Reusing `specflow-api`: a token stolen from one surface would work on the other; least privilege |
 | AA5 | No dev tokens on MCP | They would bypass the flow being tested and invite long-lived tokens in local configs |
 | AA6 | Claim profile as shared `AUTH_*` settings | MCP-only claim settings: the subject must be read the same way on both surfaces or users split |
+| AA7 | No scopes: the audience and project membership decide, and every member of a project has the same access | Read and write scopes (`specflow:read`, `specflow:write`): every provider would need a custom scope, and they add nothing while all members have equal access; the Rosetta MCP server likewise checks no permission scope |

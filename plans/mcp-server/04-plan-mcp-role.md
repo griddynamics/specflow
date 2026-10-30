@@ -48,7 +48,7 @@ Depends on: 02. Parallel with 01, 03.
 ## Done when
 
 - `specflow mcp --check-config` passes with only `APP_ENV`, database, Neo4j, `OIDC_ISSUER`, `AUTH_ALLOWED_EMAIL_DOMAINS`, `MCP_RESOURCE_URL`.
-- The handoff maps FR-MCP-AUTH-01 to 07, 09 to 11, FR-MCP-OPS-01 to 06 and NFR-MCP-02, 03 to passing tests.
+- The handoff maps FR-MCP-AUTH-01 to 05, 07, 09 to 11, FR-MCP-OPS-01 to 06 and NFR-MCP-02, 03 to passing tests.
 - `make check` and `make validate-python-*` green, including the settings-env doc test.
 
 ## Checklist
@@ -56,7 +56,7 @@ Depends on: 02. Parallel with 01, 03.
 - [ ] Dependency declared; lock updated; agent and Temporal tests green
 - [ ] Role `mcp` in `ROLES` and CLI metavar; `--check-config`
 - [ ] Settings: resource URL path exactly `/mcp`; https outside local; audience default; CSV lists; port default 8002
-- [ ] Refusals: dev mode, dev key, no issuer, empty clients or scopes, `MCP_AUDIENCE` equal to a client id or to
+- [ ] Refusals: dev mode, dev key, no issuer, empty client list, `MCP_AUDIENCE` equal to a client id or to
       `AUTH_API_AUDIENCE`, ignored audiences holding `MCP_AUDIENCE`; all bad names reported together
 - [ ] `docs/configuration.md` rows for every `MCP_*` variable; docs bundle check green
 - [ ] Runtime opens DB and Neo4j lazily; ontology loaded at startup; closes everything on shutdown
@@ -64,9 +64,9 @@ Depends on: 02. Parallel with 01, 03.
 - [ ] Stateless, JSON responses; body cap 1 MiB; Host allowlist; Origin refusal
 - [ ] Unknown path: 404 JSON `not_found`
 - [ ] PRM at both locations; identical; values from settings
-- [ ] 401 without token: `resource_metadata` and `scope` in the challenge
+- [ ] 401 without token: `resource_metadata` in the challenge
 - [ ] 401 invalid token: `error="invalid_token"`
-- [ ] 403 `insufficient_scope` with challenge; 403 email policy without challenge
+- [ ] 403 email policy without challenge
 - [ ] Principal reachable from a tool via the request (test-only tool or context probe)
 - [ ] REST rejects MCP-audience token; MCP rejects REST-audience token
 - [ ] No token, header or email in logs (log capture test)

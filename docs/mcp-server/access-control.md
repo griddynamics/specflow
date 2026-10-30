@@ -10,7 +10,8 @@ tags: [mcp, auth]
 ## Rule
 
 A caller may read a project when, and only when, a `project_members` row links the caller's user row to that project.
-Role does not matter in version 1 (`owner` is the only role). The rule is the one the REST API applies; the MCP server
+Every member has the same access to every tool: no role or scope distinguishes members (`owner` is the only role
+today). The rule is the one the REST API applies; the MCP server
 applies it through the same repository functions.
 
 ## Decision point

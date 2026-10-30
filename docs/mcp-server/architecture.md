@@ -40,7 +40,7 @@ flowchart TB
 | Auth guard | Bearer parsing, token verification, MCP claim policy, 401/403 responses with the RFC 9728 challenge; puts the `Principal` on the request | `auth` package ([auth.md](auth.md)) |
 | PRM endpoint | Serves the protected resource metadata document | own route |
 | MCP server | Tool registry, input schemas, tool annotations, JSON-RPC handling | `mcp` SDK `MCPServer` |
-| Tool registry | One declaration per tool; applies the scope check, membership check, error mapping and audit event to every tool in one place ([Tool registry](#tool-registry)) | MCP SDK `MCPServer` |
+| Tool registry | One declaration per tool; applies the membership check, error mapping and audit event to every tool in one place ([Tool registry](#tool-registry)) | MCP SDK `MCPServer` |
 | Tools | Validate arguments, read, shape the result; one module per domain ([tools.md](tools.md)) | access, reader |
 | Membership check | One function every project-scoped tool calls before any read ([access-control.md](access-control.md)) | `db.repositories.get_member_project` |
 | Graph read | Count and page spec nodes of given labels, ordered by `spec_id` | new `GraphReader` methods in `graph.core` |
@@ -76,21 +76,19 @@ The SDK package is also named `mcp`; absolute imports keep `import mcp` pointing
 ## Tool registry
 
 The tool library grows with every graph feature that ships (SpecPlan and the tools of [later.md](later.md)), so tools
-are declared, not wired one by one. A declaration names the tool and gives its required scopes, whether it takes a
-`project_id`, its annotations, its description and its handler. Registration wraps every handler the same way, in
+are declared, not wired one by one. A declaration names the tool and gives whether it takes a `project_id`, its annotations, its description and its handler. Registration wraps every handler the same way, in
 this order:
 
-1. scope check: the tool's scopes against `Principal.scopes` (403-equivalent tool error `insufficient_scope` when missing);
-2. user provisioning (`upsert_user`);
-3. for a project-scoped tool, the membership check ([access-control.md](access-control.md));
-4. the handler;
-5. error mapping ([tools.md](tools.md));
-6. the `mcp.tool.completed` audit event.
+1. user provisioning (`upsert_user`);
+2. for a project-scoped tool, the membership check ([access-control.md](access-control.md));
+3. the handler;
+4. error mapping ([tools.md](tools.md));
+5. the `mcp.tool.completed` audit event.
 
 Handlers are plain async functions of the `Principal`, the runtime and the validated arguments, and import nothing from
 the SDK. The registry is the only code that uses the SDK's tool API, so an SDK change, or a later move to another MCP
-framework, touches the registry and not the tools. Version 1 tools declare `specflow:read`; a write tool declares
-`specflow:write`, and a read-only token still reaches every read tool. The structural test of access-control.md reads
+framework, touches the registry and not the tools. Every project member has the same access to every tool: no scope or role
+distinguishes members. The structural test of access-control.md reads
 the declarations.
 
 ## Import rules
@@ -129,16 +127,14 @@ Role `mcp` reads the shared database, Neo4j and auth settings ([../configuration
 | `MCP_RESOURCE_URL` | required | Absolute URL whose path is exactly `/mcp`, no query or fragment; `https` unless `APP_ENV=local`. Published as the PRM `resource`; never derived from request headers |
 | `MCP_AUDIENCE` | `MCP_RESOURCE_URL` | The required token audience; set it when the IdP needs an API identifier (for example `api://specflow-mcp`) |
 | `MCP_CLIENT_IDS` | `specflow-mcp` | Comma-separated allowed client ids; at least one |
-| `MCP_REQUIRED_SCOPES` | `specflow:read` | Comma-separated scopes every token must carry |
-| `MCP_SCOPES_SUPPORTED` | `MCP_REQUIRED_SCOPES` | Comma-separated scopes the PRM advertises (what clients request); differs only for IdPs that prefix scopes |
 | `MCP_ALLOWED_HOSTS` | empty | Extra `host[:port]` values accepted besides the resource URL's host |
 | `MCP_ALLOWED_ORIGINS` | empty | Origins accepted on `/mcp` |
 | `MCP_PORT` | `8002` | Listen port |
 
 Shared settings the role requires: `APP_ENV`, `DATABASE_*`, `NEO4J_*`, `OIDC_ISSUER`, `AUTH_ALLOWED_EMAIL_DOMAINS`;
 optional: `AUTH_JWKS_URL` and the claim profile variables of [auth.md](auth.md). Startup refuses, naming every bad
-variable: `AUTH_MODE=dev`, a dev signing key, a missing issuer, an invalid resource URL, an empty client list or scope
-list, an `MCP_AUDIENCE` equal to an allowed client id or to `AUTH_API_AUDIENCE`, and `AUTH_IGNORED_AUDIENCES` holding
+variable: `AUTH_MODE=dev`, a dev signing key, a missing issuer, an invalid resource URL, an empty client list, an
+`MCP_AUDIENCE` equal to an allowed client id or to `AUTH_API_AUDIENCE`, and `AUTH_IGNORED_AUDIENCES` holding
 either surface's audience.
 
 Constants (not settings): page size default 50 and maximum 100; request body cap 1 MiB.
@@ -148,8 +144,7 @@ Constants (not settings): page size default 50 and maximum 100; request body cap
 | Layer | Failure | Answer |
 |---|---|---|
 | HTTP | missing, malformed, expired or wrong-audience token | `401`, `WWW-Authenticate: Bearer` with `resource_metadata` ([auth.md](auth.md)) |
-| HTTP | valid token without the required scope | `403`, `WWW-Authenticate: Bearer error="insufficient_scope"` |
-| HTTP | valid token, email not verified or domain not allowed | `403`, JSON error body, no scope challenge |
+| HTTP | valid token, email not verified or domain not allowed | `403`, JSON error body, no challenge |
 | HTTP | Host or Origin not allowed, body too large | SDK transport answer (`421`/`403`/`413` family) |
 | Tool | argument, membership or dependency failure | tool result with `isError: true` and a fixed code ([tools.md](tools.md)) |
 | Startup | bad settings, unreachable configuration, invalid ontology | exit non-zero with `config.validation.failed` or `mcp.startup.failed` |

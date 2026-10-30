@@ -39,13 +39,12 @@ Keycloak (reference). In the realm the web app uses:
 1. Client `specflow-mcp`: OpenID Connect, client authentication off, standard flow on; implicit, direct access grants,
    device and service accounts off; PKCE method `S256`; redirect URIs `http://localhost:8765/callback` and
    `http://127.0.0.1:8765/callback`; no web origins.
-2. Client scope `specflow:read`, included in the token scope, added to `specflow-mcp` as an optional scope.
-3. Audience mapper on `specflow-mcp`'s dedicated scope: included custom audience `MCP_RESOURCE_URL`, added to the
+2. Audience mapper on `specflow-mcp`'s dedicated scope: included custom audience `MCP_RESOURCE_URL`, added to the
    access token only.
-4. The `email` scope stays a default scope (the access token carries `email` and `email_verified`).
-5. `offline_access`: removed from the client, or kept with a limited offline session (30 days); see [auth.md](auth.md).
-6. Access token lifespan 5 to 10 minutes.
-7. `specflow-mcp` gets no `specflow-api` audience, and the web client gets no MCP audience.
+3. The `email` scope stays a default scope (the access token carries `email` and `email_verified`).
+4. `offline_access`: removed from the client, or kept with a limited offline session (30 days); see [auth.md](auth.md).
+5. Access token lifespan 5 to 10 minutes.
+6. `specflow-mcp` gets no `specflow-api` audience, and the web client gets no MCP audience.
 
 Other providers: the recipes in [auth.md](auth.md), with the matching `AUTH_*` claim profile on both roles.
 
@@ -92,7 +91,7 @@ sign-in.
 
 | Item | Local value |
 |---|---|
-| Realm file | `config/keycloak/specflow-realm.json`: clients `specflow-mcp` (public) and `specflow-web` (confidential, audience `specflow-api`), scope `specflow:read`, audience mapper `http://localhost:8002/mcp`. No users and no secrets in the file |
+| Realm file | `config/keycloak/specflow-realm.json`: clients `specflow-mcp` (public) and `specflow-web` (confidential, audience `specflow-api`), audience mapper `http://localhost:8002/mcp`. No users and no secrets in the file |
 | QA users | `alice@example.com`, `bob@example.com`, created by the QA seed with a password from `.env.local` |
 | Issuer | `http://localhost:8180/realms/specflow` for every token: Keycloak runs with `KC_HOSTNAME=http://localhost:8180` |
 | Keys from containers | `AUTH_JWKS_URL` on the compose network name (accepted in local only) |
