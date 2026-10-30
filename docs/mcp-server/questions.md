@@ -11,7 +11,6 @@ None of these blocks implementation: the specification and the plan follow each 
 
 | # | Question | Default until answered |
 |---|---|---|
-| Q1 | Does production issue offline refresh tokens to `specflow-mcp`? | Yes, with offline sessions limited to 30 days ([auth.md](auth.md), token lifetimes and revocation) |
 | Q2 | Which IdPs besides Keycloak must work at launch? | Keycloak only; the other recipes of [auth.md](auth.md) are checked with the QA harness when a deployment needs them |
 | Q3 | Which public host serves the MCP endpoint? | A dedicated host such as `mcp.specflow.example.com` ([deployment.md](deployment.md), P2) |
 | Q4 | Does the production identity provider accept a public client with PKCE and the loopback redirects `http://localhost:8765/callback` and `http://127.0.0.1:8765/callback`? Asked to the provider's operators, together with the audience, refresh-token and claim-name details the claim profile needs. | Yes: one pre-registered public client ([auth.md](auth.md), client registration). If not, the provider is brokered through Keycloak, which accepts the loopback redirects, and the design is revisited when the answer arrives |

@@ -42,7 +42,8 @@ Keycloak (reference). In the realm the web app uses:
 2. Audience mapper on `specflow-mcp`'s dedicated scope: included custom audience `MCP_RESOURCE_URL`, added to the
    access token only.
 3. The `email` scope stays a default scope (the access token carries `email` and `email_verified`).
-4. `offline_access`: removed from the client, or kept with a limited offline session (30 days); see [auth.md](auth.md).
+4. `offline_access` stays on the client, with the realm's offline sessions limited to 30 days (offline session max
+   limited, maximum 30 days); see [auth.md](auth.md).
 5. Access token lifespan 5 to 10 minutes.
 6. `specflow-mcp` gets no `specflow-api` audience, and the web client gets no MCP audience.
 

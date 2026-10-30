@@ -168,12 +168,12 @@ request the API audience or scope (outside this design, see [later.md](later.md)
 | Developer disabled at the IdP | refresh fails; the current access token works until it expires | access token lifetime (set 5 to 10 minutes) |
 | Email domain removed from `AUTH_ALLOWED_EMAIL_DOMAINS` | 403 | next call after the role restarts |
 | Client id removed from `MCP_CLIENT_IDS` | 401 | next call after the role restarts |
-| Offline refresh token (`offline_access`) | lives until the IdP's offline session limit; ends when the user is disabled or the session is revoked | IdP setting |
+| Offline refresh token (`offline_access`) | lives at most 30 days; ends at once when the user is disabled or the session is revoked | 30 days at most |
 
-Claude Code always asks for `offline_access`. Whether offline tokens are
-issued is decided at the IdP, on the `specflow-mcp` client: production either removes `offline_access` from the
-client (developers sign in again when the SSO session ends) or keeps it with a limited offline session (30 days; the
-default, see [questions.md](questions.md)). The local QA realm keeps it. Keycloak may answer `refresh_expires_in: 0` for offline tokens; the server never sees refresh
+Claude Code always asks for `offline_access`, and the `specflow-mcp` client grants it with offline sessions limited to
+30 days: developers sign in about once a month, and a lost laptop's refresh token stops working when the user is
+disabled or the session is revoked. The limit is IdP configuration, not SpecFlow code; an IdP used directly (without
+Keycloak) is set up to the same 30 days. The local QA realm keeps the same setting. Keycloak may answer `refresh_expires_in: 0` for offline tokens; the server never sees refresh
 tokens, so this is a client concern only.
 
 ## Failure responses
