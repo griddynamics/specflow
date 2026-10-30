@@ -19,6 +19,7 @@ tags: [mcp]
 | Streamed responses | Progress updates and elicitation (questions to the user) during a tool call: the SDK's streamed responses instead of JSON, and ingress that does not buffer `text/event-stream`. Built when a tool needs it |
 | FastMCP | Re-evaluated once FastMCP supports `mcp` 2.x: transforms, versioning and per-session visibility for a large tool library; the registry keeps tools independent of the framework |
 | OAuth proxy mode | The service acts as authorization server for MCP clients (registration, consent, own tokens) over an upstream IdP; covers IdPs without JWT access tokens or audience control (Google, GitHub, Cognito) and clients that only do dynamic registration |
+| A client id per MCP client type | Separate pre-registered clients (for example one for Claude Code, one for another MCP client), so each type can be revoked and audited on its own; added when a second MCP client is rolled out |
 | Dynamic registration and client metadata documents | Accept clients registered at the IdP (RFC 7591) or identified by a metadata URL; replaces the fixed client allowlist with a registration policy |
 | Token introspection | RFC 7662 for IdPs that issue opaque access tokens |
 | Several IdPs | Issuer stored with the subject in the user key; a data migration |
