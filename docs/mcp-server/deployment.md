@@ -11,7 +11,8 @@ tags: [mcp, deployment]
 
 | Item | Value |
 |---|---|
-| Command | `specflow mcp` (the backend image; overrides the image's default `migrate` then `api` command) |
+| Container | its own (compose service `mcp`, its own deployment), built from the same image as `api` |
+| Command | `specflow mcp` (overrides the image's default `migrate` then `api` command) |
 | Port | `MCP_PORT`, default `8002` |
 | Replicas | stateless; any number behind a load balancer, no affinity |
 | Depends on | Postgres, Neo4j, the IdP's JWKS endpoint |
@@ -29,7 +30,7 @@ tags: [mcp, deployment]
 | P4 | Pass the `Host` header through unchanged; add any internal host names the role is reached by to `MCP_ALLOWED_HOSTS`. |
 | P5 | TLS at the edge; request body limit at least 1 MiB; request timeout at least 30 s; no response buffering requirement (JSON responses). |
 | P6 | Rate limit per client address at the edge (suggested: 20 requests per second, burst 40). |
-| P7 | The REST API stays internal; no route from the public endpoint reaches it. |
+| P7 | The REST API (`api` service) never gets a public route; only the `mcp` service is published. The web app keeps reaching the API on the internal network. |
 
 ## Identity provider setup
 

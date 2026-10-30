@@ -12,7 +12,7 @@ it does not reopen the decision on its own.
 
 | # | Question | Decision (locked) | Basis |
 |---|---|---|---|
-| Q-MCP-01 | Where does the server run? | Its own role `specflow mcp`, same backend image, port 8002 | [architecture.md](architecture.md) AD1 |
+| Q-MCP-01 | Where does the server run? | Its own role `specflow mcp` in its own container, built from the same image as `api`, port 8002; the only backend service with a public route | [architecture.md](architecture.md) AD1 |
 | Q-MCP-02 | Which SDK? | Official `mcp`, declared `>=2.3,<3`, locked at 2.3.0 | AD2; 2.1.1 lacks the resource-validation setting |
 | Q-MCP-03 | Which transport mode? | Streamable HTTP at `/mcp`, stateless, JSON responses | AD3 |
 | Q-MCP-04 | Who issues tokens? | The IdP; the service is a resource server only | [auth.md](auth.md) AA1 |

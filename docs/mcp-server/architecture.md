@@ -10,8 +10,9 @@ tags: [mcp]
 ## Process
 
 The MCP server is a fourth backend role next to `api`, `worker` and `migrate`: `specflow mcp [--check-config]`. It runs
-from the same backend image with its own command, listens on `MCP_PORT` (default `8002`), and needs only Postgres,
-Neo4j and the IdP's JWKS. It never runs migrations (the `api` role owns them) and never starts Temporal, storage, Drive
+in its own container (compose service `mcp`), built from the same image as `api` with its own command, listens on
+`MCP_PORT` (default `8002`), and needs only Postgres, Neo4j and the IdP's JWKS. It is the only backend service with a
+public route; the `api` container stays internal. It never runs migrations (the `api` role owns them) and never starts Temporal, storage, Drive
 or LLM clients.
 
 ```mermaid
@@ -160,7 +161,7 @@ which user read which project and when.
 
 | # | Decision | Rejected alternatives and why |
 |---|---|---|
-| AD1 | A separate role and process | Mounting the SDK app in the FastAPI process: the API is internal and would have to be exposed publicly; its start depends on Temporal and storage, so MCP would fail with them; a catch-all mount changes the API's 404 behavior; a mounted app's lifespan never runs. A separate repository or service image: duplicates settings, auth and data access for no gain |
+| AD1 | A separate role in its own container (compose service `mcp`), built from the same image as `api` | Serving `/mcp` from the API process: MCP must be public, so the API process would sit behind a public route with only ingress path rules keeping `/api/v1` internal (one wrong rule exposes every REST method), and that process holds the storage, Temporal, Drive and LLM credentials. Its start also fails while Temporal is unreachable, and mounting needs extra wiring (a mounted app's lifespan never runs; a catch-all mount changes the API's 404). A separate repository or image: duplicates settings, auth and data access for no gain |
 | AD2 | The official `mcp` SDK, pinned `>=2.3,<3` | `fastmcp` 3 (Rosetta's choice): its value is the OAuth proxy, which this design does not use ([auth.md](auth.md)); one more framework on top of an SDK already in the lock |
 | AD3 | Stateless sessions, JSON responses | Stateful sessions need affinity or a shared event store across replicas and buy nothing for read tools without notifications |
 | AD4 | The paged read is a `GraphReader` method in `graph.core` | MCP-owned Cypher: a second Cypher home outside the validated query folders, and the graph library's rule that every query lives in its query modules |

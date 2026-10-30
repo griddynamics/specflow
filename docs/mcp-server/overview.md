@@ -26,7 +26,7 @@ an OAuth-protected remote MCP endpoint (Streamable HTTP) served by a dedicated b
 | G2 | One identity: the MCP caller is the same user row the web app creates for that person. |
 | G3 | A caller sees only projects they are a member of, and only those projects' graph data. |
 | G4 | Works with any OIDC provider that issues signed JWT access tokens with a configurable audience. |
-| G5 | Deployable, scalable and operable on its own, without the API's Temporal and storage dependencies. |
+| G5 | The public endpoint is its own process: it holds only Postgres and Neo4j credentials, and the internal API stays off the public network. |
 | G6 | Proven end to end with a real client (Claude Code and the MCP Python SDK) against a real OIDC provider. |
 
 ## Non-goals
