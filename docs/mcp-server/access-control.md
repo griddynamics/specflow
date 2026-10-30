@@ -19,9 +19,9 @@ applies it through the same repository functions.
 | # | Rule |
 |---|---|
 | AC1 | Every tool resolves the caller first: `upsert_user(principal)` provisions or refreshes the user row (same function as REST). |
-| AC2 | Every tool that takes a `project_id` calls one membership function before any other read. The function wraps `db.repositories.get_member_project`; there is no second membership query. |
-| AC3 | A project that does not exist, a malformed id and a project the caller is not a member of give the same `project_not_found` result, with the same message and no timing-relevant extra work. |
-| AC4 | When membership is denied, no Neo4j query runs. |
+| AC2 | Every tool that takes a `project_id` calls one membership function before any other read. The function wraps `db.repositories.get_member_project`; there is no second membership query. When membership is denied, `db.repositories.project_exists` decides between `access_denied` and `project_not_found` (AC3). |
+| AC3 | An existing project the caller is not a member of answers `access_denied`, the OAuth 2.0 error code for a refused request (RFC 6749), equivalent to HTTP 403 Forbidden. A malformed or unknown project id answers `project_not_found`. Telling the two apart reveals that a project id exists; project ids are random UUIDs, so they cannot be enumerated by guessing. |
+| AC4 | When membership is denied, for either reason, no Neo4j query runs. |
 | AC5 | `list_projects` lists only member projects (`db.repositories.list_projects`). |
 | AC6 | Membership is read on every call; nothing caches it. Removing a member takes effect on the next call. |
 | AC7 | A tool never accepts Cypher, labels, attribute filters, sort keys or another user's id from the caller. The node type of `list_features` is fixed by the tool. |
@@ -38,7 +38,11 @@ The tool registry applies the membership function to every tool declared as proj
 | Neo4j: project graph | `group_id = $project_id` in every scoped query; the executor refuses a scoped query without `$project_id` and injects the value itself | `graph.core` executor |
 | Postgres: project-scoped tables (documents, sources), when a later tool reads them | the row-level-security agent role, scoped to the project after the membership check | `db.agent_scope` |
 
-The project id given to the graph reader is the id the membership check returned, never the raw argument.
+Neo4j has no per-user or per-project permissions: every graph read uses the service's own credentials, and the
+database would return any project's nodes to any query. The membership check in code (AC2) is therefore the only guard
+in front of the graph, and it runs before every project-scoped read; the executor's `group_id` predicate then keeps
+the read inside that one project. The project id given to the graph reader is the id the membership check returned,
+never the raw argument.
 
 ## Identity mapping
 

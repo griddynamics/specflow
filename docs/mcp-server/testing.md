@@ -41,11 +41,11 @@ owner (the path the graph live tests use), never with ad hoc Cypher.
 | E1 | no token | `POST /mcp` | 401 with `resource_metadata`; the PRM names the resource URL and the issuer |
 | E2 | alice | `list_projects` | `P-Alpha`, `P-Empty`; never `P-Beta` |
 | E3 | alice | `list_features(P-Alpha, limit=5)`, then the next page | `total_count` 7; 5 then 2 items; only `FEAT::` ids; second `next_cursor` null |
-| E4 | alice | `list_features(P-Beta)` | `project_not_found` |
-| E5 | alice | `list_features(<random uuid>)` | `project_not_found`, same message as E4 |
+| E4 | alice | `list_features(P-Beta)` (exists, alice is not a member) | `access_denied`; no graph query |
+| E5 | alice | `list_features(<random uuid>)` | `project_not_found`; no graph query |
 | E6 | alice | `list_features(P-Empty)` | `total_count` 0, no items |
 | E7 | bob | `list_projects` | `P-Beta` only |
-| E8 | alice, removed from `P-Alpha` between two calls | `list_features(P-Alpha)` | second call `project_not_found` |
+| E8 | alice, removed from `P-Alpha` between two calls | `list_features(P-Alpha)` | second call `access_denied` |
 | E9 | a `specflow-web` token (REST audience) | `POST /mcp` | 401 |
 | E10 | carol | `POST /mcp` | 403 `domain_not_allowed`, no challenge |
 | E11 | alice | `list_features` with a forged cursor | `invalid_cursor` |
@@ -69,7 +69,7 @@ The driver acts as a developer at a terminal:
 |---|---|
 | Which SpecFlow projects can I work on? | `list_projects` called; results hold `P-Alpha` and `P-Empty`, not `P-Beta` |
 | List every feature of P-Alpha. | `list_features` called for `P-Alpha` until `next_cursor` is null, or with a limit covering all; the union holds the 7 feature ids and no `REQ::` id |
-| Show me the features of project `<P-Beta id>`. | `list_features` result is `project_not_found`; no `P-Beta` feature name appears anywhere in the run |
+| Show me the features of project `<P-Beta id>`. | `list_features` result is `access_denied`; no `P-Beta` feature name appears anywhere in the run |
 
 4. Tears down: `claude mcp logout <name>` and `claude mcp remove <name> --scope local` (the CLI stores MCP tokens in
    the user's real Claude configuration).

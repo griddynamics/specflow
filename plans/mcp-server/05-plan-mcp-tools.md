@@ -27,6 +27,9 @@ Depends on: 01, 04. Runs alone in its phase.
 
 - The graph reader gets `str(project.id)` from the membership result, never the raw argument.
 - A malformed `project_id` is `project_not_found`, not a schema error (tools.md); parse it inside the tool.
+- Neo4j has no per-user permissions: the membership check in code is the only guard in front of the graph. When it
+  denies, add `db.repositories.project_exists(session, project_id)` (one new function, no other change to the module)
+  to choose `access_denied` (exists) or `project_not_found` (does not); neither path touches Neo4j.
 - Startup fails when the ontology has no `feature` node type; check in the runtime built by 04.
 - `module` is `store: false` in the ontology: it is not an attribute.
 - Map `graph.core.InfrastructureUnavailableError` to `graph_unavailable`. Classify database errors with the API's
@@ -53,9 +56,11 @@ Depends on: 01, 04. Runs alone in its phase.
 - [ ] `list_features`: `total_count`, ordering, `limit + 1`, `next_cursor`, versioned cursor, `invalid_cursor`
 - [ ] Only `feature` nodes; modules and requirements never listed
 - [ ] Attributes from ontology stored specs; absent values omitted; no embeddings, statements, provenance
-- [ ] Malformed, unknown and foreign ids give byte-identical results
+- [ ] Foreign (existing, not a member) id: `access_denied`; malformed or unknown id: `project_not_found`; zero graph
+      queries in all three cases (recording executor)
+- [ ] `db.repositories.project_exists` with a live Postgres test
 - [ ] Denied membership: zero graph queries (recording executor)
-- [ ] Membership removed between calls: second call `project_not_found`
+- [ ] Membership removed between calls: second call `access_denied`
 - [ ] Empty graph: `total_count` 0
 - [ ] Neo4j failure: `graph_unavailable`; Postgres failure: `database_unavailable`; other: `internal_error`
 - [ ] Results carry structured content and the same JSON as text; errors carry `isError`
