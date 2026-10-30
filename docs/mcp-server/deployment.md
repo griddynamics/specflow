@@ -29,7 +29,7 @@ tags: [mcp, deployment]
 | P3 | No sign-in proxy (forward-auth, SSO redirect) in front of these paths: the client must receive the `401` and the metadata. |
 | P4 | Pass the `Host` header through unchanged; add any internal host names the role is reached by to `MCP_ALLOWED_HOSTS`. |
 | P5 | TLS at the edge; request body limit at least 1 MiB; request timeout at least 30 s; no response buffering requirement (JSON responses). |
-| P6 | Rate limit per client address at the edge (suggested: 20 requests per second, burst 40); the role has no rate limiter of its own. |
+| P6 | Rate limit per client address at the edge (suggested: 20 requests per second, burst 40, raised where many developers share one office address); the role has no rate limiter of its own. |
 | P7 | The REST API (`api` service) never gets a public route; only the `mcp` service is published. The web app keeps reaching the API on the internal network. |
 
 ## Identity provider setup
