@@ -24,6 +24,7 @@ tags: [mcp]
 | Dynamic registration and client metadata documents | Accept clients registered at the IdP (RFC 7591) or identified by a metadata URL; replaces the fixed client allowlist with a registration policy |
 | Token introspection | RFC 7662 for IdPs that issue opaque access tokens |
 | Several IdPs | Issuer stored with the subject in the user key; a data migration |
+| End-to-end tier in CI | CI starts Postgres, Neo4j, Keycloak and the role and runs the end-to-end scenarios on every pull request; considered once the stack is stable, weighing CI time and image pulls |
 | Local Keycloak everywhere | The bundled Keycloak becomes the local OIDC provider for every service and test suite, and dev login goes away; local MCP then uses the real sign-in flow too, and the MCP SDK's built-in token verification becomes possible (decision AA3 of [auth.md](auth.md) is re-evaluated) |
 | Service-side rate limits | Per-user limits in the role instead of only at the edge |
 | Develop tab | The web app shows the deployment's real `claude mcp add` command and `.mcp.json` |
