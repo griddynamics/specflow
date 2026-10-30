@@ -77,6 +77,7 @@ graph read that `list_features` uses belongs to the graph library ([../graph/api
 | C3 | Neo4j access and Cypher stay in the graph library; the web framework stays in `api` and `auth`; the ORM stays in `api`, `db` and `temporal`. | `backend/importlinter.toml`, [../graph/architecture.md](../graph/architecture.md) |
 | C4 | Settings are environment variables validated per role at startup; secrets are never logged. | [../configuration.md](../configuration.md) |
 | C5 | The MCP Python SDK is already a transitive dependency of the agent SDKs; the server pins the version it uses. | `backend/uv.lock` |
+| C6 | Only confirmed needs are built. A capability that only a possible future tool needs is listed in [later.md](later.md) with what it would take, not built ahead. | product direction |
 
 ## Assumed numbers
 
