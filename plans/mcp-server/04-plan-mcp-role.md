@@ -7,6 +7,8 @@ Depends on: 02. Parallel with 01, 03.
 1. Declare `mcp>=2.3,<3` in `backend/pyproject.toml`; update `uv.lock` (moves the transitive 2.1.1 to 2.3.x).
 2. Role `mcp` in `settings.py` with the settings and startup refusals of `docs/mcp-server/architecture.md` (Settings)
    and `auth.md` (Token validation, the audience guard from 02); no Temporal, storage, LLM or agent-database binding.
+   `AUTH_MODE=dev` works as for the API (local only) with the MCP dev-token policy of auth.md ("Local and development
+   mode"): no PRM, no `resource_metadata` in dev mode.
 3. `specflow mcp [--check-config]` in `cli.py`.
 4. Package `backend/src/api/mcp/`: app factory with the routes of architecture.md (HTTP surface of the role); SDK
    `MCPServer` without SDK auth; Streamable HTTP, stateless, JSON responses, 1 MiB body cap, Host and Origin rules.
@@ -48,7 +50,7 @@ Depends on: 02. Parallel with 01, 03.
 ## Done when
 
 - `specflow mcp --check-config` passes with only `APP_ENV`, database, Neo4j, `OIDC_ISSUER`, `AUTH_ALLOWED_EMAIL_DOMAINS`, `MCP_RESOURCE_URL`.
-- The handoff maps FR-MCP-AUTH-01 to 05, 07, 09 to 11, FR-MCP-OPS-01 to 06 and NFR-MCP-02, 03 to passing tests.
+- The handoff maps FR-MCP-AUTH-01 to 05, 07, 09 to 12, FR-MCP-OPS-01 to 06 and NFR-MCP-02, 03 to passing tests.
 - `make check` and `make validate-python-*` green, including the settings-env doc test.
 
 ## Checklist
@@ -56,14 +58,15 @@ Depends on: 02. Parallel with 01, 03.
 - [ ] Dependency declared; lock updated; agent and Temporal tests green
 - [ ] Role `mcp` in `ROLES` and CLI metavar; `--check-config`
 - [ ] Settings: resource URL path exactly `/mcp`; https outside local; audience default; CSV lists; port default 8002
-- [ ] Refusals: dev mode, dev key, no issuer, empty client list, `MCP_AUDIENCE` equal to a client id or to
+- [ ] Refusals: dev mode outside local or in Kubernetes; under `oidc` a dev key or no issuer; empty client list, `MCP_AUDIENCE` equal to a client id or to
       `AUTH_API_AUDIENCE`, ignored audiences holding `MCP_AUDIENCE`; all bad names reported together
 - [ ] `docs/configuration.md` rows for every `MCP_*` variable; docs bundle check green
 - [ ] Runtime opens DB and Neo4j lazily; ontology loaded at startup; closes everything on shutdown
 - [ ] `/healthz`, `/readyz` (database, Neo4j) reuse `health`
 - [ ] Stateless, JSON responses; body cap 1 MiB; Host allowlist; Origin refusal
 - [ ] Unknown path: 404 JSON `not_found`
-- [ ] PRM at both locations; identical; values from settings
+- [ ] PRM at both locations; identical; values from settings; 404 in dev mode
+- [ ] Dev mode: MCP dev token accepted with subject `dev:<email>`; web dev token refused; MCP dev token refused by REST
 - [ ] 401 without token: `resource_metadata` in the challenge
 - [ ] 401 invalid token: `error="invalid_token"`
 - [ ] 403 email policy without challenge

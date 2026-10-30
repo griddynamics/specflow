@@ -82,12 +82,14 @@ sign-in.
 
 ## Local stack
 
-`make up WITH=mcp` adds two services to the local stack (compose profile `mcp`):
+`make up WITH=mcp` adds the `mcp` role to the local stack in dev mode, like the web app: the same dev-login users and
+the same projects. `make up WITH=mcp,keycloak` also starts the bundled Keycloak and switches the role to `oidc`, for the
+real sign-in flow and the QA tiers.
 
-| Service | Image | Host port | Role |
-|---|---|---|---|
-| `keycloak` | `quay.io/keycloak/keycloak` 26.x, `start-dev` | `127.0.0.1:8180` | the local IdP, realm `specflow` imported at start |
-| `mcp` | the backend image, `specflow mcp` | `127.0.0.1:8002` | the MCP role |
+| Service | Compose profile | Image | Host port | Role |
+|---|---|---|---|---|
+| `mcp` | `mcp` | the backend image, `specflow mcp` | `127.0.0.1:8002` | the MCP role |
+| `keycloak` | `keycloak` | `quay.io/keycloak/keycloak` 26.x, `start-dev` | `127.0.0.1:8180` | local IdP for the real sign-in flow, realm `specflow` imported at start |
 
 | Item | Local value |
 |---|---|
@@ -95,8 +97,10 @@ sign-in.
 | QA users | `alice@example.com`, `bob@example.com`, created by the QA seed with a password from `.env.local` |
 | Issuer | `http://localhost:8180/realms/specflow` for every token: Keycloak runs with `KC_HOSTNAME=http://localhost:8180` |
 | Keys from containers | `AUTH_JWKS_URL` on the compose network name (accepted in local only) |
-| `mcp` settings | `APP_ENV=local`, `AUTH_MODE=oidc`, `MCP_RESOURCE_URL=http://localhost:8002/mcp`, `AUTH_ALLOWED_EMAIL_DOMAINS=example.com`, and `AUTH_DEV_SIGNING_KEY` empty: `.env.local` always holds a dev key for the web app, and the role refuses any dev key under `oidc` |
-| Web app and API | unchanged (dev login by default); QA data is seeded directly ([testing.md](testing.md)) |
+| `mcp` in dev mode | `APP_ENV=local`, `AUTH_MODE=dev`, `AUTH_DEV_SIGNING_KEY` from `.env.local`, `MCP_RESOURCE_URL=http://localhost:8002/mcp`, `AUTH_ALLOWED_EMAIL_DOMAINS=example.com` |
+| Dev token for Claude Code | from the QA helper command, through `headersHelper` in `.mcp.json` or `--header`; 8 hours ([auth.md](auth.md)) |
+| `mcp` with Keycloak | `AUTH_MODE=oidc`, `OIDC_ISSUER=http://localhost:8180/realms/specflow`, `AUTH_JWKS_URL` on the compose network name, and `AUTH_DEV_SIGNING_KEY` empty: `.env.local` always holds a dev key for the web app, and the role refuses any dev key under `oidc` |
+| Web app and API | dev login in both modes. With Keycloak, the MCP users are Keycloak users, so the QA seed provides their data ([testing.md](testing.md)) |
 
 Generated local secrets (Keycloak admin password, QA user password, `specflow-web` client secret) live in `.env.local`
 next to the other generated local secrets and are never committed.

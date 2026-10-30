@@ -14,7 +14,7 @@ tags: [mcp, testing]
 | Unit | always (`make check`) | settings and guards of the role; claim profile branches; cursor codecs; PRM document; error mapping and sanitizing; result shaping; the membership structural test; import contracts |
 | HTTP boundary | always (`make check`) | the role's ASGI app over `httpx.ASGITransport` with the loopback JWKS stub of `specflow_auth_support` and a fake runtime: the full auth matrix, PRM, Host and Origin rules, body cap, 404 body, every tool through an MCP client session over HTTP, REST rejecting MCP tokens |
 | Live data | `SPECFLOW_TEST_POSTGRES=1`, `SPECFLOW_TEST_NEO4J=1` | repository reuse against Postgres; `count_nodes` and `nodes_page` against Neo4j, including a renamed ontology |
-| End to end | `SPECFLOW_TEST_MCP_E2E=1`, local stack with `WITH=mcp` | the real role, real Keycloak, the MCP Python SDK client running the OAuth flow; the scenario matrix below |
+| End to end | `SPECFLOW_TEST_MCP_E2E=1`, local stack with `WITH=mcp,keycloak` (E13: `WITH=mcp`) | the real role, real Keycloak, the MCP Python SDK client running the OAuth flow; the scenario matrix below |
 | Agent QA | `SPECFLOW_TEST_MCP_CLAUDE=1` and a signed-in `claude` CLI | Claude Code signs in and answers developer prompts with the tools; assertions on tool calls and results |
 
 The end-to-end and agent tiers are not part of CI: they need the local stack and, for the agent tier, model calls.
@@ -31,7 +31,7 @@ owner (the path the graph live tests use), never with ad hoc Cypher.
 | Store | Data |
 |---|---|
 | Keycloak | `alice@example.com`, `bob@example.com` (verified); `carol@other.example` (verified, domain not allowed); one password from `.env.local` |
-| Postgres | users whose `auth_subject` is the Keycloak user id; `P-Alpha` and `P-Empty` owned by alice; `P-Beta` owned by bob |
+| Postgres | users whose `auth_subject` is the Keycloak user id (or `dev:<email>` in dev mode); `P-Alpha` and `P-Empty` owned by alice; `P-Beta` owned by bob |
 | Neo4j | `P-Alpha`: 7 features, 2 modules, 3 functional requirements; `P-Beta`: 3 features; `P-Empty`: nothing |
 
 ## End-to-end scenarios
@@ -50,6 +50,7 @@ owner (the path the graph live tests use), never with ad hoc Cypher.
 | E10 | carol | `POST /mcp` | 403 `domain_not_allowed`, no challenge |
 | E11 | alice | `list_features` with a forged cursor | `invalid_cursor` |
 | E12 | alice | `POST /mcp` with a foreign `Host` | refused by transport security |
+| E13 | alice, dev mode | creates a project through the REST API with her web dev token, then calls `list_projects` with her MCP dev token | the project is listed; her web dev token on `/mcp` gets 401 |
 
 The reverse audience case (an MCP token on `/api/v1`) is an HTTP-boundary test of the API, because the local API runs
 with dev login.

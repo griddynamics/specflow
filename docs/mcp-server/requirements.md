@@ -22,8 +22,9 @@ Verification is by test unless the row says otherwise.
 | FR-MCP-AUTH-07 | If a valid token's email is unverified, invalid or outside `AUTH_ALLOWED_EMAIL_DOMAINS`, then the service shall answer 403 without a challenge. | Given `carol@other.example`, then 403 `domain_not_allowed` and no `WWW-Authenticate` challenge. |
 | FR-MCP-AUTH-08 | The token checks shall read subject, client, email, email-verified, token type and ignored audiences from the `AUTH_*` claim profile, whose defaults describe a Keycloak access token. | Given defaults, then every existing auth test passes unchanged; given `AUTH_SUBJECT_CLAIM=oid`, then the `oid` value is the `Principal` subject. |
 | FR-MCP-AUTH-09 | The REST API shall reject tokens issued for the MCP audience. | Given a token with `aud=<MCP URL>`, when it calls `GET /api/v1/me`, then 401. |
-| FR-MCP-AUTH-10 | The role shall refuse to start with `AUTH_MODE=dev`, a dev signing key, no issuer, a resource URL whose path is not `/mcp` or that is not `https` outside local, no client id, an `MCP_AUDIENCE` equal to a client id or to `AUTH_API_AUDIENCE`, or ignored audiences that hold either surface's audience. | Given each case, then startup fails naming the variable. |
+| FR-MCP-AUTH-10 | The role shall refuse to start with `AUTH_MODE=dev` outside local or inside Kubernetes, a dev signing key or no issuer under `oidc`, a resource URL whose path is not `/mcp` or that is not `https` outside local, no client id, an `MCP_AUDIENCE` equal to a client id or to `AUTH_API_AUDIENCE`, or ignored audiences that hold either surface's audience. | Given each case, then startup fails naming the variable. |
 | FR-MCP-AUTH-11 | The service shall never write a token, an `Authorization` value or an email to logs or error bodies. | Given the full auth matrix, then captured logs and bodies contain none of them. |
+| FR-MCP-AUTH-12 | In local dev mode, the role shall accept dev tokens minted for the MCP audience and client, whose subject is the web dev login's subject for the same email. | Given alice creates a project through the REST API with her web dev token, when Claude Code calls `list_projects` with her MCP dev token, then the project is listed; her web dev token on `/mcp` gets 401. |
 
 ## Access control ([access-control.md](access-control.md))
 
@@ -62,7 +63,7 @@ Verification is by test unless the row says otherwise.
 | FR-MCP-OPS-05 | The service shall refuse request bodies over 1 MiB. | Given a 2 MiB body, then 413. |
 | FR-MCP-OPS-06 | An unknown path shall answer 404 with the JSON error body. | Given `GET /nope`, then 404 `not_found`. |
 | FR-MCP-OPS-07 | Every tool call shall log `mcp.tool.completed` with user id, tool, project id, outcome and duration, and no content. | Given one call of each tool, then two events with those fields and no feature text. |
-| FR-MCP-OPS-08 | `make up WITH=mcp` shall start Keycloak with the imported realm and the `mcp` role, both healthy. | Given a fresh `.env.local`, then both services report healthy and the PRM names the local issuer. |
+| FR-MCP-OPS-08 | `make up WITH=mcp` shall start the `mcp` role in dev mode; `WITH=mcp,keycloak` shall also start Keycloak with the imported realm and run the role in `oidc` mode. | Given a fresh `.env.local`, then in dev mode the role accepts a dev token, and with Keycloak both services are healthy and the PRM names the local issuer. |
 
 ## Non-functional
 

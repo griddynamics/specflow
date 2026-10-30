@@ -11,7 +11,8 @@ tags: [mcp, auth]
 
 The MCP service is an OAuth 2.1 resource server. The organization's OIDC provider (the IdP the web app already uses)
 is the authorization server. The MCP client signs the developer in at the IdP with the authorization code flow and
-PKCE, and calls `/mcp` with the access token. SpecFlow issues no tokens, stores no tokens and holds no client secret.
+PKCE, and calls `/mcp` with the access token. SpecFlow issues no tokens (apart from local dev tokens, below), stores no tokens and holds no client
+secret.
 
 A deployment has exactly one IdP: tokens must come from `OIDC_ISSUER`, the issuer the web app signs people in with.
 Users are keyed by the token subject alone, so the same person reaches the same user row from the web app and from MCP.
@@ -188,9 +189,20 @@ be allowed. Every rejection logs `mcp.auth.rejected` with the fixed reason and n
 
 ## Local and development mode
 
-The role refuses `AUTH_MODE=dev`: dev tokens are HS256 tokens minted by the web app for `specflow-api` and never valid
-for MCP. Local development and QA use the bundled Keycloak profile ([deployment.md](deployment.md)); an `http`
-issuer and resource URL are accepted only when `APP_ENV=local`.
+Locally the role follows the web app's `AUTH_MODE`. With `AUTH_MODE=dev` (refused outside `APP_ENV=local` and inside
+Kubernetes, as for the API) it accepts HS256 dev tokens signed with `AUTH_DEV_SIGNING_KEY`: issuer
+`specflow-dev-login`, audience `MCP_AUDIENCE`, client `specflow-mcp`, lifetime 8 hours like the web app's. Their
+subject is `dev:<email>`, the subject the web app's dev login uses, so the local UI and Claude Code act as the same user
+and see the same projects. A web dev token (audience `specflow-api`) fails on MCP, and an MCP dev token fails on the
+REST API. In dev mode there is no authorization server: the role publishes no protected resource metadata, and its 401
+carries no `resource_metadata`.
+
+A dev token comes from a QA helper command (`examples/mcp_qa.py dev-token`). Claude Code receives it through
+`headersHelper` in `.mcp.json` (a command whose output gives the request headers; Claude Code runs it only in a trusted
+workspace) or through `--header "Authorization: Bearer ..."`.
+
+The real sign-in flow runs locally with `AUTH_MODE=oidc` against the bundled Keycloak ([deployment.md](deployment.md));
+the end-to-end and agent QA tiers use it. An `http` issuer and resource URL are accepted only when `APP_ENV=local`.
 
 ## Security rules
 
@@ -211,6 +223,6 @@ issuer and resource URL are accepted only when `APP_ENV=local`.
 | AA2 | One pre-registered public client | Dynamic client registration at the IdP: a policy decision of the IdP owner, often unavailable, and registered clients would bypass the client allowlist. Client ID Metadata Documents: support across clients and IdPs is uneven; can be enabled at the IdP later with only an allowlist change here |
 | AA3 | Own guard on top of the `auth` package | The SDK's `TokenVerifier` and auth middleware: a verifier can only return a token or nothing, so every policy failure becomes a 401 and an email-policy failure becomes a sign-in loop; tools get no `Principal`; a second validation path beside `auth` |
 | AA4 | A separate MCP audience | Reusing `specflow-api`: a token stolen from one surface would work on the other; least privilege |
-| AA5 | No dev tokens on MCP | They would bypass the flow being tested and invite long-lived tokens in local configs |
+| AA5 | Locally, dev tokens on MCP as on the web app | Keycloak for MCP only: the local UI (dev login) and MCP would know the same person as two users, and projects made in the UI would be invisible to Claude Code. Keycloak for every local service: a separate change that also reworks the frontend's test sign-in (backlog). The real sign-in flow is still exercised locally by the QA tiers against the bundled Keycloak |
 | AA6 | Claim profile as shared `AUTH_*` settings | MCP-only claim settings: the subject must be read the same way on both surfaces or users split |
 | AA7 | No scopes: the audience and project membership decide, and every member of a project has the same access | Read and write scopes (`specflow:read`, `specflow:write`): every provider would need a custom scope, and they add nothing while all members have equal access; the Rosetta MCP server likewise checks no permission scope |

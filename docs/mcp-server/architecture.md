@@ -52,7 +52,7 @@ flowchart TB
 |---|---|---|---|
 | `/mcp` | `POST` | Bearer | MCP JSON-RPC; JSON responses |
 | `/mcp` | `GET`, `DELETE` | Bearer | whatever the SDK answers in stateless mode (no server-initiated stream, no session to delete) |
-| `/.well-known/oauth-protected-resource/mcp` | `GET` | none | PRM (RFC 9728 path-inserted location) |
+| `/.well-known/oauth-protected-resource/mcp` | `GET` | none | PRM (RFC 9728 path-inserted location); 404 in local dev mode |
 | `/.well-known/oauth-protected-resource` | `GET` | none | the same PRM (root fallback some clients try) |
 | `/healthz`, `/readyz` | `GET` | none | probes; not routed by the public ingress |
 | anything else | any | none | `404` with the JSON error body `{"error": {"code": "not_found", ...}}` |
@@ -133,8 +133,8 @@ Role `mcp` reads the shared database, Neo4j and auth settings ([../configuration
 
 Shared settings the role requires: `APP_ENV`, `DATABASE_*`, `NEO4J_*`, `OIDC_ISSUER`, `AUTH_ALLOWED_EMAIL_DOMAINS`;
 optional: `AUTH_JWKS_URL` and the claim profile variables of [auth.md](auth.md). Startup refuses, naming every bad
-variable: `AUTH_MODE=dev`, a dev signing key, a missing issuer, an invalid resource URL, an empty client list, an
-`MCP_AUDIENCE` equal to an allowed client id or to `AUTH_API_AUDIENCE`, and `AUTH_IGNORED_AUDIENCES` holding
+variable: `AUTH_MODE=dev` outside `APP_ENV=local` or inside Kubernetes; under `oidc`, a dev signing key or a missing
+issuer; an invalid resource URL, an empty client list, an `MCP_AUDIENCE` equal to an allowed client id or to `AUTH_API_AUDIENCE`, and `AUTH_IGNORED_AUDIENCES` holding
 either surface's audience.
 
 Constants (not settings): page size default 50 and maximum 100; request body cap 1 MiB.
