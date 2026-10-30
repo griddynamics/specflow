@@ -25,8 +25,9 @@ applies it through the same repository functions.
 | AC6 | Membership is read on every call; nothing caches it. Removing a member takes effect on the next call. |
 | AC7 | A tool never accepts Cypher, labels, attribute filters, sort keys or another user's id from the caller. The node type of `list_features` is fixed by the tool. |
 
-A structural test lists every registered tool and checks that each tool with a `project_id` argument goes through the
-membership function before reaching the graph reader.
+The tool registry applies the membership function to every tool declared as project-scoped
+([architecture.md](architecture.md)). A structural test reads the declarations and checks that every tool with a
+`project_id` argument is declared project-scoped, so none reaches the graph reader without the check.
 
 ## Tenant isolation
 

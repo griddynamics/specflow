@@ -40,7 +40,8 @@ flowchart TB
 | Auth guard | Bearer parsing, token verification, MCP claim policy, 401/403 responses with the RFC 9728 challenge; puts the `Principal` on the request | `auth` package ([auth.md](auth.md)) |
 | PRM endpoint | Serves the protected resource metadata document | own route |
 | MCP server | Tool registry, input schemas, tool annotations, JSON-RPC handling | `mcp` SDK `MCPServer` |
-| Tools | Validate arguments, provision the user, check membership, read, shape the result ([tools.md](tools.md)) | access, reader |
+| Tool registry | One declaration per tool; applies the scope check, membership check, error mapping and audit event to every tool in one place ([Tool registry](#tool-registry)) | MCP SDK `MCPServer` |
+| Tools | Validate arguments, read, shape the result; one module per domain ([tools.md](tools.md)) | access, reader |
 | Membership check | One function every project-scoped tool calls before any read ([access-control.md](access-control.md)) | `db.repositories.get_member_project` |
 | Graph read | Count and page spec nodes of given labels, ordered by `spec_id` | new `GraphReader` methods in `graph.core` |
 | Health | `/healthz` liveness; `/readyz` database and Neo4j probes | `health.Readiness` |
@@ -66,10 +67,31 @@ The code lives in a subpackage of the HTTP layer: `backend/src/api/mcp/`. Module
 | `api/mcp/app.py` | `create_mcp_app(settings, *, runtime_factory=...)`: routes, guard, lifespan |
 | `api/mcp/runtime.py` | The slim runtime and its factory |
 | `api/mcp/auth.py` | Guard and PRM |
-| `api/mcp/tools.py` | Tool functions and their registration |
+| `api/mcp/registry.py` | Tool declarations and their registration with the cross-cutting checks |
+| `api/mcp/tools/` | Tool handlers, one module per domain (`projects`, `graph`; later `plan`) |
 | `api/mcp/errors.py` | Tool error codes and the sanitizing mapper |
 
 The SDK package is also named `mcp`; absolute imports keep `import mcp` pointing at the SDK.
+
+## Tool registry
+
+The tool library grows with every graph feature that ships (SpecPlan and the tools of [later.md](later.md)), so tools
+are declared, not wired one by one. A declaration names the tool and gives its required scopes, whether it takes a
+`project_id`, its annotations, its description and its handler. Registration wraps every handler the same way, in
+this order:
+
+1. scope check: the tool's scopes against `Principal.scopes` (403-equivalent tool error `insufficient_scope` when missing);
+2. user provisioning (`upsert_user`);
+3. for a project-scoped tool, the membership check ([access-control.md](access-control.md));
+4. the handler;
+5. error mapping ([tools.md](tools.md));
+6. the `mcp.tool.completed` audit event.
+
+Handlers are plain async functions of the `Principal`, the runtime and the validated arguments, and import nothing from
+the SDK. The registry is the only code that uses the SDK's tool API, so an SDK change, or a later move to another MCP
+framework, touches the registry and not the tools. Version 1 tools declare `specflow:read`; a write tool declares
+`specflow:write`, and a read-only token still reaches every read tool. The structural test of access-control.md reads
+the declarations.
 
 ## Import rules
 
@@ -89,7 +111,7 @@ list of `backend/cypher-checks.toml`).
 
 | Setting | Value | Why |
 |---|---|---|
-| SDK | the official MCP Python SDK (`mcp`), declared `>=2.3,<3` | 2.3 is the first release with the resource-validation setting; the agent SDKs depend on the same package, so one version serves the whole backend |
+| SDK | the official MCP Python SDK (`mcp`), declared `>=2.3,<3` | the agent SDKs depend on the same package, so one version serves the whole backend; a public endpoint takes current releases; its extension mechanism (SEP-2133) carries the tasks extension for long-running tools ([later.md](later.md)) |
 | Transport | Streamable HTTP, path `/mcp` | the current remote MCP transport; Claude Code's `--transport http` |
 | Sessions | stateless (`stateless_http`) | any replica answers any request; no session affinity; no session store |
 | Responses | JSON (`json_response`), no SSE | read tools answer at once; no stream buffering issues at proxies |
@@ -163,7 +185,7 @@ which user read which project and when. There is no audit table; the log pipelin
 | # | Decision | Rejected alternatives and why |
 |---|---|---|
 | AD1 | A separate role in its own container (compose service `mcp`), built from the same image as `api` | Serving `/mcp` from the API process: MCP must be public, so the API process would sit behind a public route with only ingress path rules keeping `/api/v1` internal (one wrong rule exposes every REST method), and that process holds the storage, Temporal, Drive and LLM credentials. Its start also fails while Temporal is unreachable, and mounting needs extra wiring (a mounted app's lifespan never runs; a catch-all mount changes the API's 404). A separate repository or image: duplicates settings, auth and data access for no gain |
-| AD2 | The official `mcp` SDK, pinned `>=2.3,<3` | `fastmcp` 3 (Rosetta's choice): its value is the OAuth proxy, which this design does not use ([auth.md](auth.md)); one more framework on top of an SDK already in the lock |
+| AD2 | The official `mcp` SDK, `>=2.3,<3`, with a thin tool registry of our own | FastMCP 3 (Rosetta's choice): richer tool management (transforms, versioning, per-session visibility) and Redis-backed background tasks, but it requires `mcp` below 2, which moves the agent SDKs (`claude-agent-sdk`, `openai-agents`) from 2.x back to 1.x; its task workers would be a second job system next to Temporal; its OAuth proxy is not used ([auth.md](auth.md)). Revisited when FastMCP supports `mcp` 2.x ([later.md](later.md)) |
 | AD3 | Stateless sessions, JSON responses | Stateful sessions need affinity or a shared event store across replicas and buy nothing for read tools without notifications |
 | AD4 | The paged read is a `GraphReader` method in `graph.core` | MCP-owned Cypher: a second Cypher home outside the validated query folders, and the graph library's rule that every query lives in its query modules |
 | AD5 | Postgres access through `db.repositories` (`list_projects`, `get_member_project`, `upsert_user`) | MCP-owned SQL: a second membership query that can drift from the REST one, which is the access decision itself |

@@ -4,8 +4,10 @@ Depends on: 01, 04. Runs alone in its phase.
 
 ## Do
 
-1. The single membership function and user provisioning of `docs/mcp-server/access-control.md` (rules AC1 to AC7),
-   built on `db.repositories.upsert_user` and `get_member_project`.
+1. The tool registry of `docs/mcp-server/architecture.md` (section "Tool registry"): declarations, and one wrapper
+   applying scope check, user provisioning, membership check, error mapping and audit event to every tool. The single
+   membership function and user provisioning follow `docs/mcp-server/access-control.md` (rules AC1 to AC7), built on
+   `db.repositories.upsert_user` and `get_member_project`. Handlers import nothing from the SDK.
 2. `list_projects` per `docs/mcp-server/tools.md`, on `db.repositories.list_projects`.
 3. `list_features` per tools.md, on `GraphReader.count_nodes` and `nodes_page` (session 01); label from the ontology
    node type key `feature`; attributes from the ontology's stored attribute specs.
@@ -41,6 +43,10 @@ Depends on: 01, 04. Runs alone in its phase.
 
 ## Checklist
 
+- [ ] Registry: declarations with scopes, project-scoped flag, annotations, description, handler
+- [ ] Registry wrapper order: scope, provisioning, membership, handler, error mapping, audit
+- [ ] Per-tool scope check: a token without the declared scope gets `insufficient_scope`
+- [ ] Handlers import nothing from the `mcp` SDK (static check or import-linter contract)
 - [ ] Membership function; every project-scoped tool calls it first
 - [ ] Structural test over the registered tools
 - [ ] `upsert_user` once per call; one user row per subject under concurrency
