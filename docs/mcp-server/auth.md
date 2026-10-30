@@ -105,6 +105,9 @@ Checks 1 to 10 run in this order through the `auth` package (`bearer_token`, `Oi
 framework-free `auth` module, so the role never loads FastAPI. The result is a `Principal` the tools read from the
 request.
 
+The audience rule (check 5) is the REST API's rule with the MCP audience: a token is valid on exactly one surface. A
+provider that adds an audience of its own lists it in `AUTH_IGNORED_AUDIENCES`, as Keycloak's `account` is by default.
+
 Startup refuses three audience mix-ups, each of which would let one token pass where it must not:
 
 | Refused | Why |
@@ -139,7 +142,7 @@ documentation and are checked at deployment time with the QA harness of [testing
 | Provider | Audience | Client claim | Subject claim | Email | Token type | Scopes | Run here |
 |---|---|---|---|---|---|---|---|
 | Keycloak (reference) | audience mapper on `specflow-mcp` with `MCP_RESOURCE_URL` | `azp` | `sub` | `email`, `email_verified` (the `email` scope) | `keycloak` | client scope `specflow:read` | yes |
-| Auth0 | an API whose identifier is `MCP_RESOURCE_URL`; tenant default audience if the tenant ignores `resource` | `azp` | `sub` | `email`, `email_verified` added by a post-login Action | `rfc9068` when the API uses that profile, else `none` | API permission `specflow:read` | no |
+| Auth0 | an API whose identifier is `MCP_RESOURCE_URL`; tenant default audience if the tenant ignores `resource`; `https://<tenant>/userinfo` (added when `openid` is requested) in `AUTH_IGNORED_AUDIENCES` | `azp` | `sub` | `email`, `email_verified` added by a post-login Action | `rfc9068` when the API uses that profile, else `none` | API permission `specflow:read` | no |
 | Okta (custom authorization server) | authorization server audience `MCP_RESOURCE_URL` | `cid` | `uid` | custom claim `email`; a custom verified claim where available, else empty (see below) | `none` | custom scope `specflow:read` | no |
 | Microsoft Entra ID | two app registrations (the API and the public client); v2 tokens carry the API registration's application id in `aud`: set `MCP_AUDIENCE` to that id | `azp` | `oid` (`sub` differs per application) | optional claim `email`; verified claim `xms_edov` (optional claim) | `none` | supported `api://<API app id URI>/specflow.read`, required `specflow.read` | no |
 | Amazon Cognito | not supported: access tokens carry no `aud` and no email | | | | | | no |
