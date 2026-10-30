@@ -6,7 +6,8 @@ Depends on: none. Parallel with 01, 03.
 
 1. Add the claim profile settings to `AuthSettings` exactly as in `docs/mcp-server/auth.md` (section "Claim profile for
    any OIDC provider"): `AUTH_SUBJECT_CLAIM`, `AUTH_CLIENT_ID_CLAIM`, `AUTH_EMAIL_CLAIM`, `AUTH_EMAIL_VERIFIED_CLAIM`,
-   `AUTH_TOKEN_TYPE`, `AUTH_IGNORED_AUDIENCES`, with today's behavior as defaults.
+   `AUTH_TOKEN_TYPE`, `AUTH_IGNORED_AUDIENCES`, with the provider-neutral defaults of auth.md (`AUTH_TOKEN_TYPE=none`,
+   `AUTH_CLIENT_ID_CLAIM=azp,client_id`).
 2. `ClaimPolicy` carries the profile; `claims.validate` applies it in the order of auth.md "Token validation".
    Email-policy 403s carry no challenge (auth.md "Failure responses"). No scope is read or checked.
 3. `AUTH_TOKEN_TYPE=rfc9068` needs the JOSE header `typ`: the verifiers hand it to validation; signature-only decoding stays.
@@ -23,8 +24,9 @@ Depends on: none. Parallel with 01, 03.
 
 ## Rules
 
-- With default settings, every existing auth, settings and API test passes unchanged; dev tokens minted by
-  `frontend/lib/dev-token.ts` stay valid.
+- With `AUTH_TOKEN_TYPE=keycloak`, every existing auth, settings and API test passes unchanged; the existing tests of
+  the `typ` claim run with that setting. The neutral defaults change one REST behavior on purpose: a token without
+  `typ: Bearer` is no longer refused for that alone. Dev tokens minted by `frontend/lib/dev-token.ts` stay valid.
 - REST answers never change.
 - `IGNORED_AUDIENCES` stops being a constant only through the setting; default stays `account`.
 - Keep today's check order (auth.md "Token validation" documents it): subject, client, token type; then email
@@ -39,7 +41,8 @@ Depends on: none. Parallel with 01, 03.
 
 - A token shaped like each provider recipe in auth.md (Keycloak, Auth0, Okta, Entra ID) validates with the matching
   profile and fails with the default profile where the shapes differ.
-- Defaults keep REST behavior byte-identical in the existing test suite.
+- With `AUTH_TOKEN_TYPE=keycloak`, REST behavior is byte-identical in the existing test suite; with the defaults only the
+  `typ` check is gone.
 - `auth.dependencies` is the only `auth` module that imports FastAPI; the bearer parser is importable without it.
 - The handoff maps FR-MCP-AUTH-08 (and the REST half of FR-MCP-AUTH-07) to their tests.
 
@@ -48,9 +51,9 @@ Depends on: none. Parallel with 01, 03.
 - [ ] Six settings with validation (non-blank claim names; `AUTH_TOKEN_TYPE` enum; CSV audiences)
 - [ ] `ClaimPolicy.build`/`from_settings` take the profile
 - [ ] Subject read from `AUTH_SUBJECT_CLAIM`; blank or non-string refused (401)
-- [ ] Client read from `AUTH_CLIENT_ID_CLAIM`
+- [ ] Client read from the first present claim of `AUTH_CLIENT_ID_CLAIM` (default `azp,client_id`)
 - [ ] Email read from `AUTH_EMAIL_CLAIM`; verified flag skipped when the setting is empty
-- [ ] Token type: `keycloak` claim, `rfc9068` header (`at+jwt`, `application/at+jwt`), `none`
+- [ ] Token type: `none` (default), `keycloak` claim, `rfc9068` header (`at+jwt`, `application/at+jwt`)
 - [ ] Ignored audiences from settings; exact single audience rule kept
 - [ ] Email-policy 403s without challenge header
 - [ ] Audience-equals-client-id guard with a test

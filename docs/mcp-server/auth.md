@@ -94,7 +94,7 @@ The guard runs on every request to `/mcp`, in this order; the first failure deci
 | 5 | `aud` (string or list), minus `AUTH_IGNORED_AUDIENCES`, is exactly `[MCP_AUDIENCE]` | 401 |
 | 6 | `exp`, `iat`, `nbf` within 60 s leeway | 401 |
 | 7 | Subject: the `AUTH_SUBJECT_CLAIM` claim is a non-blank string | 401 |
-| 8 | Client: the `AUTH_CLIENT_ID_CLAIM` claim is in `MCP_CLIENT_IDS` | 401 |
+| 8 | Client: the first claim of `AUTH_CLIENT_ID_CLAIM` present in the token is in `MCP_CLIENT_IDS` | 401 |
 | 9 | Token type per `AUTH_TOKEN_TYPE` | 401 |
 | 10 | Email: the `AUTH_EMAIL_VERIFIED_CLAIM` claim is `true` (skipped when that setting is empty), then the `AUTH_EMAIL_CLAIM` claim is a valid address, then its domain is in `AUTH_ALLOWED_EMAIL_DOMAINS` | 403 |
 
@@ -120,15 +120,16 @@ Startup refuses three audience mix-ups, each of which would let one token pass w
 
 The claim profile names the claims that carry each part of the identity, so the same checks fit any OIDC provider. The
 settings are shared by the `api` and `mcp` roles, because the subject must be read the same way on both surfaces (one
-person, one user row). The defaults describe a Keycloak access token.
+person, one user row). The defaults follow the OIDC and JWT access-token standards rather than one provider's habits:
+Keycloak works with them unchanged, and a provider with other claim names is configured, not coded for.
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `AUTH_SUBJECT_CLAIM` | `sub` | Claim holding the stable user id stored in `users.auth_subject` |
-| `AUTH_CLIENT_ID_CLAIM` | `azp` | Claim holding the OAuth client id |
+| `AUTH_CLIENT_ID_CLAIM` | `azp,client_id` | Comma-separated claims that may hold the OAuth client id; the first one present in the token is used (`azp`: OIDC, Keycloak, Auth0, Entra ID; `client_id`: RFC 9068) |
 | `AUTH_EMAIL_CLAIM` | `email` | Claim holding the email address |
 | `AUTH_EMAIL_VERIFIED_CLAIM` | `email_verified` | Claim that must be `true`; empty = not checked (directory-managed emails) |
-| `AUTH_TOKEN_TYPE` | `keycloak` | `keycloak`: claim `typ` is `Bearer`; `rfc9068`: JOSE header `typ` is `at+jwt` or `application/at+jwt`; `none`: no type check |
+| `AUTH_TOKEN_TYPE` | `none` | `none`: no type check, because the audience rule already keeps ID tokens out (startup refuses an audience equal to a client id); `keycloak`: claim `typ` is `Bearer`, an optional extra check for Keycloak; `rfc9068`: JOSE header `typ` is `at+jwt` or `application/at+jwt` |
 | `AUTH_IGNORED_AUDIENCES` | `account` | Comma-separated audiences removed before the audience rule |
 
 The subject claim is chosen once per deployment, before the first sign-in: changing it later re-keys every user and
@@ -141,7 +142,7 @@ documentation and are checked at deployment time with the QA harness of [testing
 
 | Provider | Audience | Client claim | Subject claim | Email | Token type | Scopes to request | Run here |
 |---|---|---|---|---|---|---|---|
-| Keycloak (reference) | audience mapper on `specflow-mcp` with `MCP_RESOURCE_URL` | `azp` | `sub` | `email`, `email_verified` (the `email` scope) | `keycloak` | none | yes |
+| Keycloak (reference) | audience mapper on `specflow-mcp` with `MCP_RESOURCE_URL` | `azp` | `sub` | `email`, `email_verified` (the `email` scope) | `none` (default) or `keycloak` | none | yes |
 | Auth0 | an API whose identifier is `MCP_RESOURCE_URL`; tenant default audience if the tenant ignores `resource`; `https://<tenant>/userinfo` (added when `openid` is requested) in `AUTH_IGNORED_AUDIENCES` | `azp` | `sub` | `email`, `email_verified` added by a post-login Action | `rfc9068` when the API uses that profile, else `none` | none | no |
 | Okta (custom authorization server) | authorization server audience `MCP_RESOURCE_URL` | `cid` | `uid` | custom claim `email`; a custom verified claim where available, else empty (see below) | `none` | none | no |
 | Microsoft Entra ID | two app registrations (the API and the public client); v2 tokens carry the API registration's application id in `aud`: set `MCP_AUDIENCE` to that id | `azp` | `oid` (`sub` differs per application) | optional claim `email`; verified claim `xms_edov` (optional claim) | `none` | `api://<API app id URI>/.default`, advertised by the PRM (a setting added with Entra ID, [later.md](later.md)) | no |
@@ -224,5 +225,5 @@ the end-to-end and agent QA tiers use it. An `http` issuer and resource URL are 
 | AA3 | Own guard on top of the `auth` package | The SDK's `TokenVerifier` and auth middleware: a verifier can only return a token or nothing, so every policy failure becomes a 401 and an email-policy failure becomes a sign-in loop; tools get no `Principal`; a second validation path beside `auth` |
 | AA4 | A separate MCP audience | Reusing `specflow-api`: a token stolen from one surface would work on the other; least privilege |
 | AA5 | Locally, dev tokens on MCP as on the web app | Keycloak for MCP only: the local UI (dev login) and MCP would know the same person as two users, and projects made in the UI would be invisible to Claude Code. Keycloak for every local service: a separate change that also reworks the frontend's test sign-in (backlog). The real sign-in flow is still exercised locally by the QA tiers against the bundled Keycloak |
-| AA6 | Claim profile as shared `AUTH_*` settings | MCP-only claim settings: the subject must be read the same way on both surfaces or users split |
+| AA6 | Claim profile as shared `AUTH_*` settings with provider-neutral defaults | MCP-only claim settings: the subject must be read the same way on both surfaces or users split. Keycloak-shaped defaults (a required `typ: Bearer` claim, `azp` only): the first non-Keycloak provider, likely the production one, would fail on them |
 | AA7 | No scopes: the audience and project membership decide, and every member of a project has the same access | Read and write scopes (`specflow:read`, `specflow:write`): every provider would need a custom scope, and they add nothing while all members have equal access; the Rosetta MCP server likewise checks no permission scope |
