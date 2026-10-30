@@ -71,6 +71,6 @@ the locked decisions of [questions.md](questions.md). Verification is by test un
 |---|---|---|
 | NFR-MCP-01 | Tool calls shall answer within 500 ms at the 95th percentile at 10 calls per second on the local stack with 300 features. | Measured by the end-to-end run and recorded in its report. |
 | NFR-MCP-02 | The `mcp` SDK shall be a declared dependency `>=2.3,<3`, and the agent suites shall pass with the updated lock. | `make check` passes after the lock update. |
-| NFR-MCP-03 | Import rule M2 shall be import-linter contracts, and a static test shall find no Cypher and no SQL text in `api.mcp` (rules M3, M4). | `make validate-python-lint` and `make check` pass, and each fails on a planted violation. |
+| NFR-MCP-03 | Import rule M2 shall be import-linter contracts, and the Cypher and SQL validation tracks shall flag query text in `api.mcp` (rules M3, M4). | `make validate-python-lint`, `make validate-cypher` and `make validate-sql` pass, and each fails on a planted violation in `api.mcp`. |
 | NFR-MCP-04 | The repository's static validation shall pass. | `make validate` passes. |
 | NFR-MCP-05 | No secret shall be committed: the realm file holds no credential and local secrets are generated into `.env.local`. | The secret scan passes; the realm file has no `credentials` or `secret` value. |

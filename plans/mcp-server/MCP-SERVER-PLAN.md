@@ -50,7 +50,7 @@ Design authority: [`docs/mcp-server/`](../../docs/mcp-server/INDEX.md). All desi
 | `config/keycloak/**`, `backend/examples/mcp_qa*.py`, `backend/tests/test_mcp_qa_lib.py`, `.gitignore` | 03 | 06 extends `mcp_qa_lib.py` |
 | `docker-compose.yml`, `Makefile` | 03 (Keycloak, `WITH=mcp`, `env-local`), then 06 (`mcp` service, variable forwarding) | sequential |
 | `backend/pyproject.toml` | 03 (`[tool.deptry]` only), 04 (`[project]` dependencies) | parallel-safe: different tables |
-| `backend/uv.lock`, `backend/importlinter.toml`, `backend/src/cli.py` | 04 | |
+| `backend/uv.lock`, `backend/importlinter.toml`, `backend/cypher-checks.toml`, `backend/src/cli.py` | 04 | |
 | `backend/src/api/mcp/**` | 04 (app, runtime, guard, PRM), then 05 (tools, access, errors) | sequential |
 | `backend/src/db/session.py`, `backend/src/api/runtime.py` (moving `is_database_unreachable` only) | 05 | |
 | `backend/tests/mcp_support.py`, `backend/tests/test_mcp_*.py` (not `qa_lib`, `e2e`, `claude_qa`) | 04, then 05 | sequential |

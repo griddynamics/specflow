@@ -30,7 +30,7 @@ Depends on: 01, 04. Runs alone in its phase.
 - Map `graph.core.InfrastructureUnavailableError` to `graph_unavailable`. Classify database errors with the API's
   `is_database_unreachable`: move it unchanged from `api/runtime.py` to `db/session.py` and import it from both (no
   copy, and `api.mcp` never imports `api.runtime`). A `ConfigurationError` from the reader is a bug: `internal_error`.
-- No SQL and no Cypher in `api.mcp` (contracts from 04).
+- No SQL and no Cypher in `api.mcp`; the SQL and Cypher validation tracks flag them (set up in 04).
 - Messages are the fixed strings of tools.md; nothing from exceptions reaches a result.
 
 ## Done when

@@ -79,8 +79,10 @@ The SDK package is also named `mcp`; absolute imports keep `import mcp` pointing
 | M3 | No Cypher and no `neo4j` import in `api.mcp`; every graph read is a `GraphReader` method. |
 | M4 | No SQL in `api.mcp`; every Postgres read or write is a `db.repositories` function. |
 
-M2 becomes import-linter contracts in `backend/importlinter.toml`. The `neo4j` part of M3 is already the existing
-`graph-sdk-confined` contract. Cypher and SQL text cannot be an import rule: a static test scans `api.mcp` for them.
+M2 becomes import-linter contracts in `backend/importlinter.toml`. The `neo4j` part of M3 is the existing
+`graph-sdk-confined` contract. Query text in `api.mcp` is caught by the existing validation tracks, not by a test of
+its own: the SQL track already flags SQL text anywhere under `backend/src`, and the Cypher track does the same for the
+API layer once `api/**` leaves the `[python] exclude` list of `backend/cypher-checks.toml` (today it skips `api/`).
 
 ## Transport
 

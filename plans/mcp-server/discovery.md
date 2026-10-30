@@ -47,6 +47,8 @@ Line numbers drift; the symbol names are the stable anchor. Durable conclusions 
 | `GraphReader.nodes(project_id, labels, where)` returns every match, ordered by `spec_id`; no limit, offset, count | `graph/core/reader.py:283-300`, `graph/core/queries/read_nodes.cypher` |
 | Executor refuses a scoped query without `$project_id` and injects it | `graph/core/queries.py:1-12`, `graph/core/db.py:182-210` |
 | Cypher lives only in `.cypher` files under `graph/core/queries` and `graph/build/queries`; the cypher track scans only those | `backend/cypher-checks.toml`, `docs/graph/architecture.md` (I3) |
+| The Cypher track's Python scan excludes `api/**`: inline Cypher planted in `api/mcp` is missed today and caught once the exclusion goes; today's API code passes the scan | `cypher-checks no-inline-queries` on a scratch copy of `backend/src` |
+| The SQL track scans all of `backend/src` (only `src/graph/*` excluded): inline SQL planted in `api/mcp` is caught | `backend/sqlcheck.toml`; `sqlcheck run --step inline-queries` on a scratch copy |
 | `neo4j` and `graphiti_core` imports are forbidden outside `graph` | `backend/importlinter.toml` (`graph-sdk-confined`) |
 | `fastapi`/`starlette` only in `api` and `auth`; ORM only in `api`, `db`, `temporal` | `importlinter.toml` (`web-framework-confined`, `orm-confined`) |
 | Ontology: node type key `feature` → label `Feature`, id `FEAT::{SLUG}`, attributes `stmt`, `quote`, `module` (`store: false`) | `graph/core/ontology/spec-ontology.yaml:148-182` |

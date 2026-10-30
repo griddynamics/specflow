@@ -14,8 +14,8 @@ Depends on: 02. Parallel with 01, 03.
    gateway, readiness (database, Neo4j); lifespan also runs the SDK session manager.
 6. Auth guard and PRM per auth.md (Protected resource metadata, Token validation, Failure responses); the `Principal`
    is available to tools through the request.
-7. Import-linter contracts for rule M2 of architecture.md, and a static test that finds no Cypher and no SQL text in
-   `api.mcp` (rules M3, M4).
+7. Import-linter contracts for rule M2 of architecture.md. Remove `api/**` from the `[python] exclude` list of
+   `backend/cypher-checks.toml` so the Cypher track scans the API layer; the SQL track already does. No scan test of our own.
 8. Log events of architecture.md (startup, shutdown, `mcp.auth.rejected`).
 9. A `docs/configuration.md` row for every `MCP_*` variable (the settings-env test requires a row for every name the code reads).
 9. HTTP-boundary tests (`backend/tests/mcp_support.py`, `test_mcp_*.py`) with the loopback JWKS stub; the REST app
@@ -40,6 +40,8 @@ Depends on: 02. Parallel with 01, 03.
 - `.env.local` always holds `AUTH_DEV_SIGNING_KEY` (for the web app) and the role refuses a dev key under `oidc`:
   host runs of the role with `--env-file ../.env.local` must override it to empty.
 - Import `bearer_token` from the framework-free module created in 02, never from `auth.dependencies` (FastAPI).
+- The `[python] exclude` list of `cypher-checks.toml` feeds both `no-inline-queries` and `param-names`. Without
+  `api/**`, today's API code is clean and a planted inline query in `api/mcp` is caught (verified at `01a02b1`).
 - `api.app` must not import `api.mcp`; `api.mcp` must not import FastAPI or `api.routers`/`api.deps`.
 - No tools are registered yet (05); tests reach `initialize` and `tools/list` through an SDK client over HTTP.
 
@@ -70,7 +72,9 @@ Depends on: 02. Parallel with 01, 03.
 - [ ] No token, header or email in logs (log capture test)
 - [ ] `mcp.auth.rejected`, startup and shutdown events via the central logger
 - [ ] Two app instances: `initialize` on one, `tools/list` on the other succeeds (no session affinity)
-- [ ] Import-linter contracts for M2; static Cypher/SQL scan test for M3, M4; planted violations fail locally
+- [ ] Import-linter contracts for M2; planted violation fails `make validate-python-lint`
+- [ ] `api/**` removed from the Cypher track's exclusions; planted inline Cypher and SQL in `api/mcp` fail
+      `make validate-cypher` (static is enough) and `make validate-sql`; both green without them
 - [ ] deptry clean with the new dependency
 - [ ] `make check`; `make validate-python-lint`, `-arch`, `-scripts`
 - [ ] `04-handoff.md` (SDK facts confirmed, deviations); `HANDOFF.md` row updated
