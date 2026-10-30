@@ -140,6 +140,11 @@ documentation and are checked at deployment time with the QA harness of [testing
 | Amazon Cognito | not supported: access tokens carry no `aud` and no email | | | | | | no |
 | Google, GitHub sign-in | not supported: no JWT access token for a third-party API | | | | | | no |
 
+Logins brokered through Keycloak are supported: Google, GitHub or a corporate SAML or OIDC provider can authenticate
+the person while Keycloak issues the tokens, so the server sees only the Keycloak recipe. The unsupported rows mean
+using those providers directly as `OIDC_ISSUER`. When brokering, the upstream email must reach Keycloak as verified
+(the identity provider's "Trust Email" setting), or check 10 answers 403.
+
 With `AUTH_EMAIL_VERIFIED_CLAIM` empty, the email domain allowlist trusts whatever address the IdP puts in the token.
 Leave it empty only when the IdP issues nothing but verified addresses on domains the organization owns; otherwise a
 user who can set their own email could claim an allowed domain.
