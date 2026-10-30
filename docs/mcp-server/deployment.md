@@ -24,8 +24,8 @@ tags: [mcp, deployment]
 
 | # | Requirement |
 |---|---|
-| P1 | Route `https://<host>/mcp`, `https://<host>/.well-known/oauth-protected-resource/mcp` and `https://<host>/.well-known/oauth-protected-resource` to the `mcp` role. Nothing else of the role is public; the probes stay internal. |
-| P2 | `MCP_RESOURCE_URL` is exactly `https://<host>/mcp` as clients see it. A dedicated host (for example `mcp.specflow.example.com`) avoids path clashes with the web app. |
+| P1 | The MCP endpoint shares the web app's public host (`PUBLIC_URL`): no new DNS name or certificate. On that host the ingress sends `/mcp` (exact path) and `/.well-known/oauth-protected-resource` with everything below it to the `mcp` service, and every other path to the web app as today. The web app serves none of these paths. Nothing else of the role is public; the probes stay internal. |
+| P2 | `MCP_RESOURCE_URL` is exactly `https://<web app host>/mcp` as clients see it, for example `https://specflow.example.com/mcp`. The host-wide `/.well-known/oauth-protected-resource` path belongs to MCP from then on. |
 | P3 | No sign-in proxy (forward-auth, SSO redirect) in front of these paths: the client must receive the `401` and the metadata. |
 | P4 | Pass the `Host` header through unchanged; add any internal host names the role is reached by to `MCP_ALLOWED_HOSTS`. |
 | P5 | TLS at the edge; request body limit at least 1 MiB; request timeout at least 30 s; no response buffering requirement (JSON responses). |
