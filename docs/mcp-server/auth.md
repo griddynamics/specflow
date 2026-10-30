@@ -15,6 +15,8 @@ PKCE, and calls `/mcp` with the access token. SpecFlow issues no tokens, stores 
 
 A deployment has exactly one IdP: tokens must come from `OIDC_ISSUER`, the issuer the web app signs people in with.
 Users are keyed by the token subject alone, so the same person reaches the same user row from the web app and from MCP.
+The web app and the MCP server therefore change providers together; an MCP-only provider would split each person
+into two users ([later.md](later.md), several IdPs).
 
 Standards in play: OAuth Protected Resource Metadata (RFC 9728), bearer tokens (RFC 6750), resource indicators
 (RFC 8707, sent by the client), JWT access tokens (RFC 9068 where the IdP supports it), PKCE (RFC 7636), loopback
