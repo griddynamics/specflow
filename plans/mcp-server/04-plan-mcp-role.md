@@ -14,8 +14,10 @@ Depends on: 02. Parallel with 01, 03.
    gateway, readiness (database, Neo4j); lifespan also runs the SDK session manager.
 6. Auth guard and PRM per auth.md (Protected resource metadata, Token validation, Failure responses); the `Principal`
    is available to tools through the request.
-7. Import-linter contracts for rules M2 to M4 of architecture.md.
+7. Import-linter contracts for rule M2 of architecture.md, and a static test that finds no Cypher and no SQL text in
+   `api.mcp` (rules M3, M4).
 8. Log events of architecture.md (startup, shutdown, `mcp.auth.rejected`).
+9. A `docs/configuration.md` row for every `MCP_*` variable (the settings-env test requires a row for every name the code reads).
 9. HTTP-boundary tests (`backend/tests/mcp_support.py`, `test_mcp_*.py`) with the loopback JWKS stub; the REST app
    test that an MCP-audience token gets 401.
 
@@ -35,21 +37,26 @@ Depends on: 02. Parallel with 01, 03.
 - Bumping `mcp` reaches `claude-agent-sdk`, `openai-agents`, `temporalio-openai-agents`: the full suite, including
   agent and Temporal tests, must pass.
 - The image's default command migrates then starts `api`; the role never migrates.
+- `.env.local` always holds `AUTH_DEV_SIGNING_KEY` (for the web app) and the role refuses a dev key under `oidc`:
+  host runs of the role with `--env-file ../.env.local` must override it to empty.
+- Import `bearer_token` from the framework-free module created in 02, never from `auth.dependencies` (FastAPI).
 - `api.app` must not import `api.mcp`; `api.mcp` must not import FastAPI or `api.routers`/`api.deps`.
 - No tools are registered yet (05); tests reach `initialize` and `tools/list` through an SDK client over HTTP.
 
 ## Done when
 
 - `specflow mcp --check-config` passes with only `APP_ENV`, database, Neo4j, `OIDC_ISSUER`, `AUTH_ALLOWED_EMAIL_DOMAINS`, `MCP_RESOURCE_URL`.
-- Requirements FR-MCP-AUTH-01 to 07, 09 to 11 and FR-MCP-OPS-01 to 06 have passing tests.
-- `make check` and `make validate-python-*` green.
+- The handoff maps FR-MCP-AUTH-01 to 07, 09 to 11, FR-MCP-OPS-01 to 06 and NFR-MCP-02, 03 to passing tests.
+- `make check` and `make validate-python-*` green, including the settings-env doc test.
 
 ## Checklist
 
 - [ ] Dependency declared; lock updated; agent and Temporal tests green
 - [ ] Role `mcp` in `ROLES` and CLI metavar; `--check-config`
 - [ ] Settings: resource URL path exactly `/mcp`; https outside local; audience default; CSV lists; port default 8002
-- [ ] Refusals: dev mode, dev key, no issuer, empty clients or scopes, audience equals a client id; all bad names reported together
+- [ ] Refusals: dev mode, dev key, no issuer, empty clients or scopes, `MCP_AUDIENCE` equal to a client id or to
+      `AUTH_API_AUDIENCE`, ignored audiences holding `MCP_AUDIENCE`; all bad names reported together
+- [ ] `docs/configuration.md` rows for every `MCP_*` variable; docs bundle check green
 - [ ] Runtime opens DB and Neo4j lazily; ontology loaded at startup; closes everything on shutdown
 - [ ] `/healthz`, `/readyz` (database, Neo4j) reuse `health`
 - [ ] Stateless, JSON responses; body cap 1 MiB; Host allowlist; Origin refusal
@@ -63,7 +70,7 @@ Depends on: 02. Parallel with 01, 03.
 - [ ] No token, header or email in logs (log capture test)
 - [ ] `mcp.auth.rejected`, startup and shutdown events via the central logger
 - [ ] Two app instances: `initialize` on one, `tools/list` on the other succeeds (no session affinity)
-- [ ] Import-linter contracts M2 to M4; planted violation fails locally
+- [ ] Import-linter contracts for M2; static Cypher/SQL scan test for M3, M4; planted violations fail locally
 - [ ] deptry clean with the new dependency
 - [ ] `make check`; `make validate-python-lint`, `-arch`, `-scripts`
 - [ ] `04-handoff.md` (SDK facts confirmed, deviations); `HANDOFF.md` row updated

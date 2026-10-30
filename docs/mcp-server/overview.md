@@ -75,7 +75,7 @@ The web app and the API do not change, except that the shared token checks gain 
 |---|---|---|
 | C1 | Users are keyed by the token subject alone, without the issuer: MCP tokens must come from the web app's issuer and carry the same subject for the same person. | `users.auth_subject` |
 | C2 | The API is internal (the browser talks only to the web app's server); it is never exposed for MCP. | API design |
-| C3 | Neo4j access and Cypher stay in the graph library; the web framework and ORM stay in `api`, `auth`, `db`. | `backend/importlinter.toml`, [../graph/architecture.md](../graph/architecture.md) |
+| C3 | Neo4j access and Cypher stay in the graph library; the web framework stays in `api` and `auth`; the ORM stays in `api`, `db` and `temporal`. | `backend/importlinter.toml`, [../graph/architecture.md](../graph/architecture.md) |
 | C4 | Settings are environment variables validated per role at startup; secrets are never logged. | [../configuration.md](../configuration.md) |
 | C5 | The MCP Python SDK is already a transitive dependency of the agent SDKs; the server pins the version it uses. | `backend/uv.lock` |
 
@@ -87,7 +87,7 @@ The web app and the API do not change, except that the shared token checks gain 
 | Tool calls | bursts of up to 10 per second per developer while an agent works | stateless requests, short transactions |
 | Projects per developer | under 100 | one page in the common case |
 | Features per project | tens to a few hundred | pages of 50, two Neo4j queries per page |
-| Access token lifetime | 5 to 15 minutes (IdP setting) | bounds revocation latency for disabled users |
+| Access token lifetime | 5 to 10 minutes (IdP setting) | bounds revocation latency for disabled users |
 | Tool call latency | p95 under 500 ms | one Postgres transaction and two indexed Neo4j reads |
 
 ## Key terms

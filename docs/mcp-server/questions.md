@@ -33,7 +33,7 @@ it does not reopen the decision on its own.
 | Q-MCP-19 | What is the error model? | Tool errors with fixed codes and `isError`; HTTP 401 and 403 per auth.md | tools.md, auth.md |
 | Q-MCP-20 | Where does the code live? | `backend/src/api/mcp/` | AD6 |
 | Q-MCP-21 | What does the local stack add? | Compose profile `mcp` with Keycloak and the role; realm file without users or secrets; generated secrets in `.env.local` | [deployment.md](deployment.md) |
-| Q-MCP-22 | How is it tested as a user would? | Python harness under `backend/tests`: end-to-end tier with the MCP Python SDK and agent tier with the Claude Code CLI, both gated by environment variables and out of CI | [testing.md](testing.md) |
+| Q-MCP-22 | How is it tested as a user would? | Python only: a QA library and manual entry in `backend/examples`, an end-to-end tier (MCP Python SDK) and an agent tier (Claude Code CLI) in `backend/tests`, both gated by environment variables and out of CI | [testing.md](testing.md) |
 | Q-MCP-23 | How is access audited? | `mcp.tool.completed` and `mcp.auth.rejected` log events; no audit table | architecture.md |
 | Q-MCP-24 | Where are rate limits? | At the edge for version 1 | deployment.md |
 | Q-MCP-25 | What is the resource URL's path? | Exactly `/mcp`; a dedicated host is recommended | deployment.md |

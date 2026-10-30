@@ -75,11 +75,12 @@ The SDK package is also named `mcp`; absolute imports keep `import mcp` pointing
 | # | Rule |
 |---|---|
 | M1 | `api.mcp` may import `auth`, `db`, `graph` (public names of `graph.core` only), `health`, `logger`, `settings`, the `mcp` SDK and Starlette. |
-| M2 | `api.mcp` never imports `api.routers`, `api.deps`, `api.app` or FastAPI; the REST app never imports `api.mcp` or the `mcp` SDK. |
+| M2 | `api.mcp` never imports `api.routers`, `api.deps`, `api.app`, `api.runtime` or FastAPI; the REST app never imports `api.mcp` or the `mcp` SDK. |
 | M3 | No Cypher and no `neo4j` import in `api.mcp`; every graph read is a `GraphReader` method. |
 | M4 | No SQL in `api.mcp`; every Postgres read or write is a `db.repositories` function. |
 
-M2 to M4 become import-linter contracts next to the existing ones in `backend/importlinter.toml`.
+M2 becomes import-linter contracts in `backend/importlinter.toml`. The `neo4j` part of M3 is already the existing
+`graph-sdk-confined` contract. Cypher and SQL text cannot be an import rule: a static test scans `api.mcp` for them.
 
 ## Transport
 
@@ -110,7 +111,9 @@ Role `mcp` reads the shared database, Neo4j and auth settings ([../configuration
 
 Shared settings the role requires: `APP_ENV`, `DATABASE_*`, `NEO4J_*`, `OIDC_ISSUER`, `AUTH_ALLOWED_EMAIL_DOMAINS`;
 optional: `AUTH_JWKS_URL` and the claim profile variables of [auth.md](auth.md). Startup refuses, naming every bad
-variable: `AUTH_MODE=dev`, a dev signing key, a missing issuer, an invalid resource URL, an empty client list or scope list.
+variable: `AUTH_MODE=dev`, a dev signing key, a missing issuer, an invalid resource URL, an empty client list or scope
+list, an `MCP_AUDIENCE` equal to an allowed client id or to `AUTH_API_AUDIENCE`, and `AUTH_IGNORED_AUDIENCES` holding
+either surface's audience.
 
 Constants (not settings): page size default 50 and maximum 100; request body cap 1 MiB.
 

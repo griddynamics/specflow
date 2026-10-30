@@ -33,6 +33,7 @@ Design authority: [`docs/mcp-server/`](../../docs/mcp-server/INDEX.md). All desi
 | What | Where |
 |---|---|
 | Session status, evidence, blockers | `plans/mcp-server/<NN>-handoff.md` (created by the session) and its row in `HANDOFF.md` |
+| Requirement coverage | each handoff: a table of the requirement ids the session owns and the tests that prove them |
 | Design deviations | the session handoff, section Deviations; design docs change only in session 06 |
 | Cross-session issues and fixes | `HANDOFF.md`, section Common issues |
 | QA run reports | git-ignored report folder (session 03 adds it) |
@@ -44,7 +45,8 @@ Design authority: [`docs/mcp-server/`](../../docs/mcp-server/INDEX.md). All desi
 | `backend/src/graph/**`, `docs/graph/**`, `backend/tests/test_graph_reader*.py`, `backend/tests/test_graph_renamed_ontology_live.py` | 01 | read only |
 | `backend/src/auth/**`, `backend/tests/specflow_auth_support.py`, `backend/tests/test_specflow_auth*.py`, `backend/archkit.toml` | 02 | read only |
 | `backend/src/settings.py` | 02 (`AuthSettings`, auth guards), then 04 (role `mcp`) | sequential |
-| `docs/configuration.md` | 02 (auth rows), then 06 (MCP and local stack rows) | sequential |
+| `docs/configuration.md` | 02 (auth rows), then 04 (`MCP_*` rows), then 06 (local stack rows) | sequential; `test_specflow_settings_env.py` fails while a setting read in code has no row |
+| `backend/tests/test_specflow_settings_env.py` (`.env.example` key sets) | 06 | |
 | `config/keycloak/**`, `backend/examples/mcp_qa*.py`, `backend/tests/test_mcp_qa_lib.py`, `.gitignore` | 03 | 06 extends `mcp_qa_lib.py` |
 | `docker-compose.yml`, `Makefile` | 03 (Keycloak, `WITH=mcp`, `env-local`), then 06 (`mcp` service, variable forwarding) | sequential |
 | `backend/pyproject.toml` | 03 (`[tool.deptry]` only), 04 (`[project]` dependencies) | parallel-safe: different tables |

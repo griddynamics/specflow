@@ -12,8 +12,11 @@ Depends on: none. Parallel with 01, 03.
 3. Missing scope raises a 403 `insufficient_scope` `AuthError` whose headers carry the scope challenge; email-policy
    403s carry no challenge (auth.md "Failure responses").
 4. `AUTH_TOKEN_TYPE=rfc9068` needs the JOSE header `typ`: the verifiers hand it to validation; signature-only decoding stays.
-5. Settings guard: an audience equal to an allowed client id is refused (REST policy now; the MCP policy in 04 reuses it).
-6. Rows for the six variables in `docs/configuration.md`; the `insufficient_scope` code in `backend/archkit.toml`.
+5. Settings guards: an audience equal to an allowed client id, and `AUTH_IGNORED_AUDIENCES` holding
+   `AUTH_API_AUDIENCE`, are refused (REST policy now; 04 adds the MCP-side checks from auth.md).
+6. Move `bearer_token` (and its charset and size constants) from `auth.dependencies` into a framework-free `auth`
+   module, behavior unchanged; `auth.dependencies` uses it from there. The `mcp` role must import it without FastAPI.
+7. Rows for the six variables in `docs/configuration.md`; the `insufficient_scope` code in `backend/archkit.toml`.
 
 ## Subagents
 
@@ -26,7 +29,11 @@ Depends on: none. Parallel with 01, 03.
   `frontend/lib/dev-token.ts` stay valid.
 - The REST policy requires no scopes; REST answers never change.
 - `IGNORED_AUDIENCES` stops being a constant only through the setting; default stays `account`.
-- Do not change user keying (`users.auth_subject`), the bearer parser, `MAX_TOKEN_BYTES` or the JWKS cache.
+- Keep today's check order (auth.md "Token validation" documents it): subject, client, token type; then email
+  verified before email validity before domain. Reordering changes which 403 code REST returns.
+- Do not change user keying (`users.auth_subject`), the bearer parser's behavior, `MAX_TOKEN_BYTES` or the JWKS cache.
+- Entra ID v2 tokens carry the API registration's application id (a GUID) in `aud` and the client registration's id
+  in `azp`; test that shape, not an App ID URI audience.
 - `ConfigurationError` names every bad variable at once (existing `load_settings` pattern).
 - No frontend change.
 
@@ -36,6 +43,8 @@ Depends on: none. Parallel with 01, 03.
   profile and fails with the default profile where the shapes differ.
 - Scope union of `scope` string and `scp` string or list is on the `Principal`; missing required scope is 403 with the challenge.
 - Defaults keep REST behavior byte-identical in the existing test suite.
+- `auth.dependencies` is the only `auth` module that imports FastAPI; the bearer parser is importable without it.
+- The handoff maps FR-MCP-AUTH-08 (and the REST half of FR-MCP-AUTH-06, 07) to their tests.
 
 ## Checklist
 
@@ -50,6 +59,9 @@ Depends on: none. Parallel with 01, 03.
 - [ ] `insufficient_scope` 403 code, fixed message, challenge header with `scope=`
 - [ ] Email-policy 403s without challenge header
 - [ ] Audience-equals-client-id guard with a test
+- [ ] Ignored audiences may not hold `AUTH_API_AUDIENCE` (guard and test)
+- [ ] `bearer_token` moved to a framework-free module; existing parser tests unchanged and green
+- [ ] Check order unchanged: an unverified token without email still answers `email_not_verified`
 - [ ] Recipe-shaped token tests for the four providers (stub JWKS from `specflow_auth_support`)
 - [ ] ID token (aud = client id) rejected under `AUTH_TOKEN_TYPE=none`
 - [ ] Existing auth, settings, API tests unchanged and green

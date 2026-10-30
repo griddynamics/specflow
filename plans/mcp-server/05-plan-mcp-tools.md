@@ -35,7 +35,7 @@ Depends on: 01, 04. Runs alone in its phase.
 
 ## Done when
 
-- FR-MCP-ACC-01 to 06, FR-MCP-TOOL-01 to 10 and FR-MCP-OPS-07 have passing tests (TOOL-10 is session 01's).
+- The handoff maps FR-MCP-ACC-01 to 06, FR-MCP-TOOL-01 to 09 and FR-MCP-OPS-07 to passing tests (TOOL-10 is session 01's).
 - `tools/list` shows exactly the two tools with schemas, annotations and descriptions of tools.md.
 - `make check` and the validation tracks are green.
 

@@ -12,7 +12,7 @@ The result is the design in [`docs/mcp-server/`](../../docs/mcp-server/INDEX.md)
 | Add `list-projects` next to `list-features` | keep | Discovery is needed before a project id is known. Names become `list_projects`, `list_features` (snake_case) |
 | MCP owns its own Postgres and Neo4j queries; `graph.core` and `docs/graph` untouched | change | Postgres: `db.repositories.list_projects` and `get_member_project` already are the member-projects query with keyset paging; a second copy is a second access decision that can drift. Neo4j: Cypher outside `graph/*/queries` escapes the cypher validation track and breaks the graph library's one-home-for-Cypher rule. The paged read becomes `GraphReader.count_nodes` and `nodes_page` |
 | OIDC only, no dev-token path | keep | |
-| Real Claude Code smoke test waits for Infra | change | A local Keycloak profile plus a scripted `claude mcp login --no-browser` makes it testable now; proven in the spike |
+| Real Claude Code smoke test waits for the production route and IdP client | change | A local Keycloak profile plus a scripted `claude mcp login --no-browser` makes it testable now; proven in the spike |
 | Graph reads only; no Rosetta, workflow tools or writes | keep | |
 
 ## Step 0 (folder and ticketing)

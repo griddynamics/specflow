@@ -43,5 +43,6 @@ None: every design question is locked in `docs/mcp-server/questions.md`. Items a
 
 ## Session handoff template
 
-`<NN>-handoff.md`: status · what changed (paths) · evidence (commands and results) · deviations (decision, why,
-proposed change) · open issues · next-session notes. Terse, factual, no tokens or secrets.
+`<NN>-handoff.md`: status · what changed (paths) · requirement coverage (owned requirement id → test or evidence) ·
+evidence (commands and results) · deviations (decision, why, proposed change) · open issues · next-session notes.
+Terse, factual, no tokens or secrets.

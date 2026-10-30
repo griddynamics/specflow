@@ -88,18 +88,25 @@ The guard runs on every request to `/mcp`, in this order; the first failure deci
 | 4 | `iss` equals `OIDC_ISSUER` exactly | 401 |
 | 5 | `aud` (string or list), minus `AUTH_IGNORED_AUDIENCES`, is exactly `[MCP_AUDIENCE]` | 401 |
 | 6 | `exp`, `iat`, `nbf` within 60 s leeway | 401 |
-| 7 | Token type per `AUTH_TOKEN_TYPE` | 401 |
-| 8 | Subject: the `AUTH_SUBJECT_CLAIM` claim is a non-blank string | 401 |
-| 9 | Client: the `AUTH_CLIENT_ID_CLAIM` claim is in `MCP_CLIENT_IDS` | 401 |
-| 10 | Email: the `AUTH_EMAIL_CLAIM` claim is a valid address; the `AUTH_EMAIL_VERIFIED_CLAIM` claim is `true` (skipped when that setting is empty); the domain is in `AUTH_ALLOWED_EMAIL_DOMAINS` | 403 |
+| 7 | Subject: the `AUTH_SUBJECT_CLAIM` claim is a non-blank string | 401 |
+| 8 | Client: the `AUTH_CLIENT_ID_CLAIM` claim is in `MCP_CLIENT_IDS` | 401 |
+| 9 | Token type per `AUTH_TOKEN_TYPE` | 401 |
+| 10 | Email: the `AUTH_EMAIL_VERIFIED_CLAIM` claim is `true` (skipped when that setting is empty), then the `AUTH_EMAIL_CLAIM` claim is a valid address, then its domain is in `AUTH_ALLOWED_EMAIL_DOMAINS` | 403 |
 | 11 | Scopes: the union of `scope` (space-delimited) and `scp` (string or list) contains every `MCP_REQUIRED_SCOPES` value | 403 `insufficient_scope` |
 
-Checks 1 to 10 are the existing `auth` path (`bearer_token`, `OidcJwtVerifier`, `JwksCache`, `claims.validate`) run
-with an MCP `ClaimPolicy`; check 11 is new (`ClaimPolicy.required_scopes`, `Principal.scopes`). The REST policy
-requires no scopes, so REST behavior does not change. The result is a `Principal` the tools read from the request.
+Checks 1 to 10 are the existing `auth` path, in today's order (`bearer_token`, `OidcJwtVerifier`, `JwksCache`,
+`claims.validate`), run with an MCP `ClaimPolicy`; check 11 is new (`ClaimPolicy.required_scopes`,
+`Principal.scopes`). The REST policy requires no scopes, so REST behavior does not change. `bearer_token` moves from
+`auth.dependencies` (which imports FastAPI) to a framework-free `auth` module, unchanged, so the role does not load
+FastAPI. The result is a `Principal` the tools read from the request.
 
-Startup refuses an `MCP_AUDIENCE` that equals one of `MCP_CLIENT_IDS`: an ID token's audience is the client id, so
-the audience rule alone then keeps ID tokens out, whatever `AUTH_TOKEN_TYPE` says.
+Startup refuses three audience mix-ups, each of which would let one token pass where it must not:
+
+| Refused | Why |
+|---|---|
+| `MCP_AUDIENCE` equal to one of `MCP_CLIENT_IDS` | an ID token's audience is its client id; the audience rule alone then keeps ID tokens out, whatever `AUTH_TOKEN_TYPE` says |
+| `MCP_AUDIENCE` equal to `AUTH_API_AUDIENCE` | REST and MCP tokens would be interchangeable (rule S5) |
+| `AUTH_IGNORED_AUDIENCES` holding `MCP_AUDIENCE` or `AUTH_API_AUDIENCE` | a token for `[MCP URL, specflow-api]` would pass on both surfaces |
 
 ## Claim profile for any OIDC provider
 
@@ -128,10 +135,14 @@ documentation and are checked at deployment time with the QA harness of [testing
 |---|---|---|---|---|---|---|---|
 | Keycloak (reference) | audience mapper on `specflow-mcp` with `MCP_RESOURCE_URL` | `azp` | `sub` | `email`, `email_verified` (the `email` scope) | `keycloak` | client scope `specflow:read` | yes |
 | Auth0 | an API whose identifier is `MCP_RESOURCE_URL`; tenant default audience if the tenant ignores `resource` | `azp` | `sub` | `email`, `email_verified` added by a post-login Action | `rfc9068` when the API uses that profile, else `none` | API permission `specflow:read` | no |
-| Okta (custom authorization server) | authorization server audience `MCP_RESOURCE_URL` | `cid` | `uid` | custom claim `email`; verified claim empty | `none` | custom scope `specflow:read` | no |
-| Microsoft Entra ID | App ID URI as `MCP_AUDIENCE` (for example `api://specflow-mcp`), v2 tokens | `azp` | `oid` (`sub` differs per application) | optional claim `email`; verified claim empty | `none` | supported `api://specflow-mcp/specflow.read`, required `specflow.read` | no |
+| Okta (custom authorization server) | authorization server audience `MCP_RESOURCE_URL` | `cid` | `uid` | custom claim `email`; a custom verified claim where available, else empty (see below) | `none` | custom scope `specflow:read` | no |
+| Microsoft Entra ID | two app registrations (the API and the public client); v2 tokens carry the API registration's application id in `aud`: set `MCP_AUDIENCE` to that id | `azp` | `oid` (`sub` differs per application) | optional claim `email`; verified claim `xms_edov` (optional claim) | `none` | supported `api://<API app id URI>/specflow.read`, required `specflow.read` | no |
 | Amazon Cognito | not supported: access tokens carry no `aud` and no email | | | | | | no |
 | Google, GitHub sign-in | not supported: no JWT access token for a third-party API | | | | | | no |
+
+With `AUTH_EMAIL_VERIFIED_CLAIM` empty, the email domain allowlist trusts whatever address the IdP puts in the token.
+Leave it empty only when the IdP issues nothing but verified addresses on domains the organization owns; otherwise a
+user who can set their own email could claim an allowed domain.
 
 The same claim profile applies to the web app's tokens; a non-Keycloak web deployment may also need the frontend to
 request the API audience or scope (outside this design, see [later.md](later.md)).

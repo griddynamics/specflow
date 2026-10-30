@@ -6,8 +6,8 @@ Depends on: none. Parallel with 02, 03.
 
 1. Add `GraphReader.count_nodes(project_id, labels)` and `GraphReader.nodes_page(project_id, labels, *, limit=50, after=None) -> NodePage`
    with the contract in `docs/mcp-server/tools.md` (section "Graph read used by list_features"). Export `NodePage` from `graph.core`.
-2. Two `.cypher` files in `backend/src/graph/core/queries/` and their `Query` constants in `graph/core/queries.py`; same
-   filter and node projection as `read_nodes.cypher` plus `spec_id > $after`, `ORDER BY n.spec_id`, `LIMIT $limit`.
+2. Two `.cypher` files in `backend/src/graph/core/queries/` and their `Query` constants in `graph/core/queries.py`;
+   the node filter and projection match `nodes()` exactly, so a page holds what `nodes()` would return for those labels.
 3. Update `docs/graph/api.md` (Read and search table) and `docs/graph/requirements.md` (new `FR-READ-*` rows) for both methods.
 4. Unit tests (recording or offline executor) and live tests (`SPECFLOW_TEST_NEO4J=1`), including the renamed-ontology suite.
 
@@ -30,6 +30,7 @@ Depends on: none. Parallel with 02, 03.
 - Live: 120 nodes of one label page as 50, 50, 20 with `next_after` null at the end; count is 120; another project's
   nodes never appear; other labels never appear; the renamed ontology pages its renamed label.
 - `make check` and the cypher and python validation tracks pass.
+- The handoff maps FR-MCP-TOOL-10 and the new `FR-READ-*` rows to their tests.
 
 ## Checklist
 

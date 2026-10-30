@@ -23,7 +23,7 @@ the locked decisions of [questions.md](questions.md). Verification is by test un
 | FR-MCP-AUTH-07 | If a valid token's email is unverified, invalid or outside `AUTH_ALLOWED_EMAIL_DOMAINS`, then the service shall answer 403 without a scope challenge. | Given `carol@other.example`, then 403 `domain_not_allowed` and no `error=` in `WWW-Authenticate`. |
 | FR-MCP-AUTH-08 | The token checks shall read subject, client, email, email-verified, token type and ignored audiences from the `AUTH_*` claim profile, whose defaults keep today's behavior. | Given defaults, then every existing auth test passes unchanged; given `AUTH_SUBJECT_CLAIM=oid`, then the `oid` value is the `Principal` subject. |
 | FR-MCP-AUTH-09 | The REST API shall reject tokens issued for the MCP audience. | Given a token with `aud=<MCP URL>`, when it calls `GET /api/v1/me`, then 401. |
-| FR-MCP-AUTH-10 | The role shall refuse to start with `AUTH_MODE=dev`, a dev signing key, no issuer, a resource URL whose path is not `/mcp` or that is not `https` outside local, no client id, no scope, or an audience equal to a client id. | Given each case, then startup fails naming the variable. |
+| FR-MCP-AUTH-10 | The role shall refuse to start with `AUTH_MODE=dev`, a dev signing key, no issuer, a resource URL whose path is not `/mcp` or that is not `https` outside local, no client id, no scope, an `MCP_AUDIENCE` equal to a client id or to `AUTH_API_AUDIENCE`, or ignored audiences that hold either surface's audience. | Given each case, then startup fails naming the variable. |
 | FR-MCP-AUTH-11 | The service shall never write a token, an `Authorization` value or an email to logs or error bodies. | Given the full auth matrix, then captured logs and bodies contain none of them. |
 
 ## Access control ([access-control.md](access-control.md))
@@ -71,6 +71,6 @@ the locked decisions of [questions.md](questions.md). Verification is by test un
 |---|---|---|
 | NFR-MCP-01 | Tool calls shall answer within 500 ms at the 95th percentile at 10 calls per second on the local stack with 300 features. | Measured by the end-to-end run and recorded in its report. |
 | NFR-MCP-02 | The `mcp` SDK shall be a declared dependency `>=2.3,<3`, and the agent suites shall pass with the updated lock. | `make check` passes after the lock update. |
-| NFR-MCP-03 | Import rules M2 to M4 shall be import-linter contracts. | `make validate-python-lint` passes and fails on a planted violation. |
+| NFR-MCP-03 | Import rule M2 shall be import-linter contracts, and a static test shall find no Cypher and no SQL text in `api.mcp` (rules M3, M4). | `make validate-python-lint` and `make check` pass, and each fails on a planted violation. |
 | NFR-MCP-04 | The repository's static validation shall pass. | `make validate` passes. |
 | NFR-MCP-05 | No secret shall be committed: the realm file holds no credential and local secrets are generated into `.env.local`. | The secret scan passes; the realm file has no `credentials` or `secret` value. |

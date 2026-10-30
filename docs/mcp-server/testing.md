@@ -79,12 +79,10 @@ credentials, and returns the loopback redirect URL (with `code`, `state`, `iss`)
 `Secure` even on `http://localhost`, so the helper forwards them itself; a browser is not needed. The same helper
 serves the MCP Python SDK client (as its redirect and callback handlers) and the Claude Code driver.
 
-## Environment notes
+## Client notes
 
 | Note | Handling |
 |---|---|
-| The Docker daemon can be stopped in a fresh cloud container | start `dockerd` before `make up` |
-| Anonymous Docker Hub pulls can be rate-limited (429) | pull the same image from `mirror.gcr.io` and tag it; pinned digests match |
 | Claude Code asks for `offline_access` and sends `prompt=consent` | the QA realm allows both; no consent screen is configured |
 | A port held by an earlier sign-in | the driver checks that 8765 is free before it starts |
 

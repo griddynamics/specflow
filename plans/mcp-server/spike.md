@@ -6,6 +6,10 @@ unowned source file lands in the repository. Lightly cleaned after the run: unus
 the password read from `QA_PASSWORD`, and the driver's end-of-login match set to the CLI's actual success line (the run
 ended when the CLI exited). Delete this file with the rest of `plans/mcp-server/` after delivery.
 
+Differences from the design, on purpose: the spike served MCP on port 8001, which is the worker health port; the
+design uses 8002. The spike's environment names (`KC_ADMIN_PASSWORD`, `QA_PASSWORD`) are ad hoc; the harness uses the
+`KEYCLOAK_*` names of session 03. The spike used the SDK's verifier; the product uses its own guard.
+
 What it proved:
 
 1. Claude Code completes the MCP OAuth flow (PRM discovery, Keycloak authorize with PKCE, token) with a pre-registered

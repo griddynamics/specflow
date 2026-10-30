@@ -23,13 +23,13 @@ tags: [mcp, deployment]
 
 | # | Requirement |
 |---|---|
-| E1 | Route `https://<host>/mcp`, `https://<host>/.well-known/oauth-protected-resource/mcp` and `https://<host>/.well-known/oauth-protected-resource` to the `mcp` role. Nothing else of the role is public; the probes stay internal. |
-| E2 | `MCP_RESOURCE_URL` is exactly `https://<host>/mcp` as clients see it. A dedicated host (for example `mcp.specflow.example.com`) avoids path clashes with the web app. |
-| E3 | No sign-in proxy (forward-auth, SSO redirect) in front of these paths: the client must receive the `401` and the metadata. |
-| E4 | Pass the `Host` header through unchanged; add any internal host names the role is reached by to `MCP_ALLOWED_HOSTS`. |
-| E5 | TLS at the edge; request body limit at least 1 MiB; request timeout at least 30 s; no response buffering requirement (JSON responses). |
-| E6 | Rate limit per client address at the edge (suggested: 20 requests per second, burst 40). |
-| E7 | The REST API stays internal; no route from the public endpoint reaches it. |
+| P1 | Route `https://<host>/mcp`, `https://<host>/.well-known/oauth-protected-resource/mcp` and `https://<host>/.well-known/oauth-protected-resource` to the `mcp` role. Nothing else of the role is public; the probes stay internal. |
+| P2 | `MCP_RESOURCE_URL` is exactly `https://<host>/mcp` as clients see it. A dedicated host (for example `mcp.specflow.example.com`) avoids path clashes with the web app. |
+| P3 | No sign-in proxy (forward-auth, SSO redirect) in front of these paths: the client must receive the `401` and the metadata. |
+| P4 | Pass the `Host` header through unchanged; add any internal host names the role is reached by to `MCP_ALLOWED_HOSTS`. |
+| P5 | TLS at the edge; request body limit at least 1 MiB; request timeout at least 30 s; no response buffering requirement (JSON responses). |
+| P6 | Rate limit per client address at the edge (suggested: 20 requests per second, burst 40). |
+| P7 | The REST API stays internal; no route from the public endpoint reaches it. |
 
 ## Identity provider setup
 
@@ -95,7 +95,7 @@ sign-in.
 | QA users | `alice@example.com`, `bob@example.com`, created by the QA seed with a password from `.env.local` |
 | Issuer | `http://localhost:8180/realms/specflow` for every token: Keycloak runs with `KC_HOSTNAME=http://localhost:8180` |
 | Keys from containers | `AUTH_JWKS_URL` on the compose network name (accepted in local only) |
-| `mcp` settings | `APP_ENV=local`, `AUTH_MODE=oidc`, `MCP_RESOURCE_URL=http://localhost:8002/mcp`, `AUTH_ALLOWED_EMAIL_DOMAINS=example.com` |
+| `mcp` settings | `APP_ENV=local`, `AUTH_MODE=oidc`, `MCP_RESOURCE_URL=http://localhost:8002/mcp`, `AUTH_ALLOWED_EMAIL_DOMAINS=example.com`, and `AUTH_DEV_SIGNING_KEY` empty: `.env.local` always holds a dev key for the web app, and the role refuses any dev key under `oidc` |
 | Web app and API | unchanged (dev login by default); QA data is seeded directly ([testing.md](testing.md)) |
 
 Generated local secrets (Keycloak admin password, QA user password, `specflow-web` client secret) live in `.env.local`

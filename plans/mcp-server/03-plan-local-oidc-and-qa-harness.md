@@ -47,6 +47,7 @@ Depends on: none. Parallel with 01, 02, 04.
   memberships and node counts.
 - The token helper returns an alice token whose decoded claims (names and non-secret values) show
   `aud=[http://localhost:8002/mcp, account]`, `azp=specflow-mcp`, `specflow:read` in `scope`, verified email.
+- The secret scan passes and the realm file holds no credential (NFR-MCP-05); the handoff records the evidence.
 
 ## Checklist
 

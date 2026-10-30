@@ -22,7 +22,9 @@ Line numbers drift; the symbol names are the stable anchor. Durable conclusions 
 | `Principal` carries subject, email, name, issuer, client id; no scopes | `auth/claims.py:34-43` |
 | OIDC verifier: RS256/ES256 via JWKS, `kid` required; dev verifier: HS256, local only | `auth/verifiers.py:21-23,53-92` |
 | JWKS cache: 600 s key lifetime, negative cache, throttled single-flight refetch, issuer-host check on discovery | `auth/jwks.py:1-20,220-250` |
-| Bearer parsing with size cap and charset check | `auth/dependencies.py:25-34` |
+| Bearer parsing with size cap and charset check; the module imports FastAPI | `auth/dependencies.py:12,25-34` |
+| Check order today: iss, aud, exp, iat, nbf, sub, azp, typ; then email_verified, email validity, domain | `auth/claims.py:94-121,145-153` |
+| Every env name read in code must have a `docs/configuration.md` row; `.env.example` pinned to 22 required + 10 optional keys | `backend/tests/test_specflow_settings_env.py:130-152` |
 | Settings: `AUTH_MODE` (oidc default), `OIDC_ISSUER`, `AUTH_JWKS_URL`, `AUTH_API_AUDIENCE`=`specflow-api`, `AUTH_API_CLIENT_IDS`=`specflow-web`, `AUTH_ALLOWED_EMAIL_DOMAINS` | `backend/src/settings.py:263-285`, `docs/configuration.md:34-70` |
 | Guards: dev mode refused outside local and in Kubernetes; https issuer outside local; JWKS on issuer origin outside local; an `http` issuer is accepted in local | `settings.py:691-721` |
 | Web: Auth.js v5, PKCE+state+nonce, scopes `openid email profile`, forwards the raw access token to the API through a server-side proxy; browser never calls the API | `frontend/auth.ts:22-34,96-105`, `frontend/app/api/backend/[...path]/route.ts:59-64,122-140` |
@@ -32,7 +34,7 @@ Line numbers drift; the symbol names are the stable anchor. Durable conclusions 
 
 | Fact | Evidence |
 |---|---|
-| User row created or refreshed on every authenticated request, keyed by `users.auth_subject` (unique, issuer not stored) | `backend/src/api/deps.py:189-193`, `db/repositories.py:162-196`, `db/models.py` (`ix_users_auth_subject`) |
+| User row created or refreshed on every authenticated request, keyed by `users.auth_subject` (unique, issuer not stored) | `backend/src/api/deps.py:24-28`, `db/repositories.py:162-196`, `db/models.py` (`ix_users_auth_subject`) |
 | Project roles: `("owner",)` only; creator becomes owner | `db/models.py:34`, `db/repositories.py:199-208` |
 | Member projects: join on `project_members`; keyset paging on `(created_at desc, id desc)`, opaque base64url cursor, limit+1 probe | `db/repositories.py:101-158,211-228` |
 | Non-member and missing project answer the same 404 `project_not_found` | `api/routers/projects.py:63-69`, `api/routers/documents.py:62-65` |
