@@ -63,7 +63,7 @@ Verification is by test unless the row says otherwise.
 | FR-MCP-OPS-05 | The service shall refuse request bodies over 1 MiB. | Given a 2 MiB body, then 413. |
 | FR-MCP-OPS-06 | An unknown path shall answer 404 with the JSON error body. | Given `GET /nope`, then 404 `not_found`. |
 | FR-MCP-OPS-07 | Every tool call shall log `mcp.tool.completed` with user id, tool, project id, outcome and duration, and no content. | Given one call of each tool, then two events with those fields and no feature text. |
-| FR-MCP-OPS-08 | `make up WITH=mcp` shall start the `mcp` role in dev mode; `WITH=mcp,keycloak` shall also start Keycloak with the imported realm and run the role in `oidc` mode. | Given a fresh `.env.local`, then in dev mode the role accepts a dev token, and with Keycloak both services are healthy and the PRM names the local issuer. |
+| FR-MCP-OPS-08 | `make up` shall always start the `mcp` role, in dev mode; `make up WITH=keycloak` shall also start Keycloak with the imported realm and run the role in `oidc` mode. | Given a fresh `.env.local`, then in dev mode the role accepts a dev token, and with Keycloak both services are healthy and the PRM names the local issuer. |
 
 ## Non-functional
 

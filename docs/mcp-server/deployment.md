@@ -11,7 +11,7 @@ tags: [mcp, deployment]
 
 | Item | Value |
 |---|---|
-| Container | its own (compose service `mcp`, its own deployment), built from the same image as `api` |
+| Container | its own (compose service `mcp`, its own deployment), built from the same image as `api`; part of every SpecFlow deployment, like `api` and the workers |
 | Command | `specflow mcp` (overrides the image's default `migrate` then `api` command) |
 | Port | `MCP_PORT`, default `8002` |
 | Replicas | stateless; any number behind a load balancer, no affinity |
@@ -83,13 +83,13 @@ sign-in.
 
 ## Local stack
 
-`make up WITH=mcp` adds the `mcp` role to the local stack in dev mode, like the web app: the same dev-login users and
-the same projects. `make up WITH=mcp,keycloak` also starts the bundled Keycloak and switches the role to `oidc`, for the
-real sign-in flow and the QA tiers.
+`make up` always starts the `mcp` role, in dev mode like the web app: the same dev-login users and the same projects.
+`make up WITH=keycloak` also starts the bundled Keycloak and switches the role to `oidc`, for the real sign-in flow and
+the QA tiers.
 
 | Service | Compose profile | Image | Host port | Role |
 |---|---|---|---|---|
-| `mcp` | `mcp` | the backend image, `specflow mcp` | `127.0.0.1:8002` | the MCP role |
+| `mcp` | none (always on) | the backend image, `specflow mcp` | `127.0.0.1:8002` | the MCP role |
 | `keycloak` | `keycloak` | `quay.io/keycloak/keycloak` 26.x, `start-dev` | `127.0.0.1:8180` | local IdP for the real sign-in flow, realm `specflow` imported at start |
 
 | Item | Local value |

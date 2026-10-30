@@ -4,9 +4,10 @@ Depends on: 03, 05. Runs alone (whole stack; ports 8000, 8002, 8180, 8765).
 
 ## Do
 
-1. Compose service `mcp` in profile `mcp` per `docs/mcp-server/deployment.md` (Local stack): backend image, command
-   `specflow mcp`, dev mode by default; with `WITH=mcp,keycloak` the Makefile switches it to `oidc` with
-   `AUTH_DEV_SIGNING_KEY` empty. Depends on healthy Postgres and Neo4j (and Keycloak in `oidc` mode),
+1. Compose service `mcp`, always on (no profile), per `docs/mcp-server/deployment.md` (Local stack): backend image,
+   command `specflow mcp`, dev mode by default; with `WITH=keycloak` the Makefile switches it to `oidc` with
+   `AUTH_DEV_SIGNING_KEY` empty. Starts after `api` is healthy (the `api` container applies migrations), depends on
+   healthy Postgres and Neo4j (and Keycloak in `oidc` mode),
    readiness healthcheck; forward the `AUTH_*` claim profile variables to `api` and `mcp`. Optional host target
    `make mcp` like `make api`, with the same dev-key override.
 2. Extend `backend/examples/mcp_qa_lib.py` with the MCP Python SDK client (pre-registered public client, login helper
@@ -41,8 +42,8 @@ Depends on: 03, 05. Runs alone (whole stack; ports 8000, 8002, 8180, 8765).
 
 ## Done when
 
-- `make up WITH=mcp` serves the role healthy in dev mode, and `WITH=mcp,keycloak` in `oidc` mode with the imported
-  realm, or the host fallback for either (FR-MCP-OPS-08).
+- `make up` serves the role healthy in dev mode, and `make up WITH=keycloak` in `oidc` mode with the imported realm,
+  or the host fallback for either (FR-MCP-OPS-08); `make up`'s list of services it waits for includes `mcp`.
 - E1 to E13 pass with the Python SDK client; the three agent prompts pass with Claude Code; p95 recorded (NFR-MCP-01).
 - The settings-env tests pass (every name read in code has a `docs/configuration.md` row; `.env.example` keys match),
   the docs bundle check passes, and no document in `docs/mcp-server/` still describes a deviation listed in 01 to 05 handoffs.

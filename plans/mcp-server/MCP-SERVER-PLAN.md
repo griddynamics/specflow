@@ -49,7 +49,7 @@ without review gates.
 | `docs/configuration.md` | 02 (auth rows), then 04 (`MCP_*` rows), then 06 (local stack rows) | sequential; `test_specflow_settings_env.py` fails while a setting read in code has no row |
 | `backend/tests/test_specflow_settings_env.py` (`.env.example` key sets) | 06 | |
 | `config/keycloak/**`, `backend/examples/mcp_qa*.py`, `backend/tests/test_mcp_qa_lib.py`, `.gitignore` | 03 | 06 extends `mcp_qa_lib.py` |
-| `docker-compose.yml`, `Makefile` | 03 (Keycloak, `WITH=keycloak`, `env-local`), then 06 (`mcp` service, `WITH=mcp`, variable forwarding) | sequential |
+| `docker-compose.yml`, `Makefile` | 03 (Keycloak, `WITH=keycloak`, `env-local`), then 06 (always-on `mcp` service, variable forwarding) | sequential |
 | `backend/pyproject.toml` | 03 (`[tool.deptry]` only), 04 (`[project]` dependencies) | parallel-safe: different tables |
 | `backend/uv.lock`, `backend/importlinter.toml`, `backend/cypher-checks.toml`, `backend/src/cli.py` | 04 | |
 | `backend/src/api/mcp/**` | 04 (app, runtime, guard, PRM), then 05 (tools, access, errors) | sequential |

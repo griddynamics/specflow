@@ -13,6 +13,9 @@ Developers work in coding agents. The MCP server gives those agents read access 
 project: which projects the developer belongs to, and which features the project's specification graph holds. It is
 an OAuth-protected remote MCP endpoint (Streamable HTTP) served by a dedicated backend role.
 
+The MCP server is an integral part of SpecFlow, not an add-on: it is how coding agents reach a project's
+specification, and later its implementation plan. Every deployment and every local stack runs it.
+
 | Version | Tools | Status |
 |---|---|---|
 | 1 | `list_projects`, `list_features` | specified here |

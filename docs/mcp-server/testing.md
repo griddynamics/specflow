@@ -14,7 +14,7 @@ tags: [mcp, testing]
 | Unit | always (`make check`) | settings and guards of the role; claim profile branches; cursor codecs; PRM document; error mapping and sanitizing; result shaping; the membership structural test; import contracts |
 | HTTP boundary | always (`make check`) | the role's ASGI app over `httpx.ASGITransport` with the loopback JWKS stub of `specflow_auth_support` and a fake runtime: the full auth matrix, PRM, Host and Origin rules, body cap, 404 body, every tool through an MCP client session over HTTP, REST rejecting MCP tokens |
 | Live data | `SPECFLOW_TEST_POSTGRES=1`, `SPECFLOW_TEST_NEO4J=1` | repository reuse against Postgres; `count_nodes` and `nodes_page` against Neo4j, including a renamed ontology |
-| End to end | `SPECFLOW_TEST_MCP_E2E=1`, local stack with `WITH=mcp,keycloak` (E13: `WITH=mcp`) | the real role, real Keycloak, the MCP Python SDK client running the OAuth flow; the scenario matrix below |
+| End to end | `SPECFLOW_TEST_MCP_E2E=1`, local stack with `WITH=keycloak` (E13: plain `make up`) | the real role, real Keycloak, the MCP Python SDK client running the OAuth flow; the scenario matrix below |
 | Agent QA | `SPECFLOW_TEST_MCP_CLAUDE=1` and a signed-in `claude` CLI | Claude Code signs in and answers developer prompts with the tools; assertions on tool calls and results |
 
 The end-to-end and agent tiers are not part of CI: they need the local stack and, for the agent tier, model calls.
