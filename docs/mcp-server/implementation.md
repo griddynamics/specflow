@@ -52,7 +52,7 @@ Template:
 - Summary: the implementation plan was made from this bundle (eight milestones above). Planning found three gaps
   and fixed each in place with the smallest edit:
   - [requirements.md](requirements.md): the acceptance of NFR-MCP-05 named a "secret scan" that this repository does
-    not have; it now names the check (no tracked file holds a value of `.env.local`; the realm file has no
+    not have; it now names the check (no tracked file holds a secret value of `.env.local`; the realm file has no
     `credentials` or `secret` value).
   - [deployment.md](deployment.md#local-stack), realm file: the confidential `specflow-web` client had no redirect URI,
     which the token helper needs for scenario E9; it is now `http://localhost:3001/api/auth/callback/oidc`.
