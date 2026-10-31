@@ -18,6 +18,7 @@ from settings import (
     AuthSettings,
     GraphBuildSettings,
     LangfuseSettings,
+    McpSettings,
     Neo4jSettings,
     StorageSettings,
     TemporalSettings,
@@ -36,14 +37,16 @@ SETTINGS_CLASSES = (
     AgentSettings,
     GraphBuildSettings,
     LangfuseSettings,
+    McpSettings,
 )
 ROOT = Path(__file__).resolve().parents[2]
 DOC = (ROOT / "docs" / "configuration.md").read_text()
 
-# SPL-ENV-01: the 22 required and 10 optional keys, nothing else.
+# SPL-ENV-01: the 23 required and 10 optional keys, nothing else.
 REQUIRED_KEYS = frozenset(
     {
         "APP_ENV",
+        "MCP_RESOURCE_URL",
         "DATABASE_HOST",
         "DATABASE_NAME",
         "DATABASE_USER",
@@ -129,7 +132,7 @@ def _env_names_read_in_code() -> set[str]:
 
 def test_the_env_template_has_exactly_the_documented_keys():
     assert set(example_entries()) == REQUIRED_KEYS | OPTIONAL_KEYS
-    assert len(REQUIRED_KEYS) == 22
+    assert len(REQUIRED_KEYS) == 23
     assert len(OPTIONAL_KEYS) == 10
 
 

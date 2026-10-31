@@ -61,8 +61,8 @@ config-classes = ["DatabaseSettings", "CallBudget"]
 # the URL default ports come from http.client and the signing-key floor from hashlib.
 scan = ["src/settings.py"]
 # Lower-case configuration keys an UPPER_SNAKE constant of the scanned code may be named after:
-# the documented defaults of API_PORT, WORKER_HEALTH_PORT, DATABASE_PORT and GRAPH_EMBEDDING_DIM.
-keys = ["api_port", "worker_health_port", "database_port", "graph_embedding_dim"]
+# the documented defaults of API_PORT, WORKER_HEALTH_PORT, MCP_PORT, DATABASE_PORT and GRAPH_EMBEDDING_DIM.
+keys = ["api_port", "worker_health_port", "mcp_port", "database_port", "graph_embedding_dim"]
 
 # ---------------------------------------------------------------- runtime-defaults
 [runtime-defaults]

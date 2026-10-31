@@ -41,6 +41,7 @@ pytest_plugins = [
     "specflow_auth_support",
     "specflow_db_live_support",
     "specflow_sources_support",
+    "mcp_support",  # last: it imports the support modules above, which must register first
 ]
 
 
@@ -107,6 +108,7 @@ _SPECFLOW_ENV_PREFIXES = (
     "LANGFUSE_",
     "KUBERNETES_",
     "AWS_",
+    "MCP_",
 )
 # Exact names outside those prefixes. The cloud profile file: the root Makefile points host
 # targets at config/cloud.local.yaml, and a profile in the environment changes every storage check.

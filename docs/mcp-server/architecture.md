@@ -51,7 +51,7 @@ flowchart TB
 | Path | Method | Auth | Answer |
 |---|---|---|---|
 | `/mcp` | `POST` | Bearer | MCP JSON-RPC; JSON responses |
-| `/mcp` | `GET`, `DELETE` | Bearer | whatever the SDK answers in stateless mode (no server-initiated stream, no session to delete) |
+| `/mcp` | `GET`, `DELETE` | Bearer | `405`: stateless mode has no server-initiated stream and no session to delete |
 | `/.well-known/oauth-protected-resource/mcp` | `GET` | none | PRM (RFC 9728 path-inserted location); 404 in local dev mode |
 | `/.well-known/oauth-protected-resource` | `GET` | none | the same PRM (root fallback some clients try); 404 in local dev mode |
 | `/healthz`, `/readyz` | `GET` | none | probes; not routed by the public ingress |
@@ -151,7 +151,7 @@ Constants (not settings): page size default 50 and maximum 100; request body cap
 |---|---|---|
 | HTTP | missing, malformed, expired or wrong-audience token | `401`, `WWW-Authenticate: Bearer` with `resource_metadata` ([auth.md](auth.md)) |
 | HTTP | valid token, email not verified or domain not allowed | `403`, JSON error body, no challenge |
-| HTTP | Host or Origin not allowed, body too large | SDK transport answer (`421`/`403`/`413` family) |
+| HTTP | Host or Origin not allowed, body too large | SDK transport answer (`421`/`403`/`413` family); checked after the guard, so without a valid token the answer is `401` |
 | Tool | argument, membership or dependency failure | tool result with `isError: true` and a fixed code ([tools.md](tools.md)) |
 | Startup | bad settings, or an invalid or missing ontology (including one without a `feature` type); the JWKS and IdP discovery are fetched on the first request, not at startup | exit non-zero with `config.validation.failed` or `mcp.startup.failed` |
 
@@ -164,7 +164,7 @@ Central logger only (`logger.get_logger`, `log_event`), dotted event names, no `
 | Event | Fields |
 |---|---|
 | `mcp.startup.completed`, `mcp.startup.failed`, `mcp.shutdown.completed` | port, error type |
-| `mcp.auth.rejected` | reason, status, code, client id when known |
+| `mcp.auth.rejected` | reason, status, code |
 | `mcp.tool.completed` | tool, user id, project id when given, outcome (`ok` or the error code), item count, duration ms |
 
 Logs never carry tokens, emails, feature text or cursors. `mcp.tool.completed` is the access audit trail: it answers

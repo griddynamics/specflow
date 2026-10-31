@@ -66,6 +66,7 @@ def work(monkeypatch):
     install("api.server", "api")
     install("temporal.worker", "worker")
     install("db.migrate", "migrate")
+    install("api.mcp.server", "mcp")
     health = types.ModuleType("health")
 
     def run_checks(*args, **kwargs):
@@ -81,13 +82,13 @@ def work(monkeypatch):
 # --- parsing --------------------------------------------------------------
 
 
-def test_help_lists_exactly_the_three_roles(capsys, spy):
+def test_help_lists_exactly_the_four_roles(capsys, spy):
     with pytest.raises(SystemExit) as raised:
         cli.main(["--help"])
 
     assert raised.value.code == 0
     out = capsys.readouterr().out
-    assert "{api,worker,migrate}" in out
+    assert "{api,worker,migrate,mcp}" in out
     for other in ("check", "frontend", "all"):
         assert f"\n    {other} " not in out
     assert spy.closed == 1
