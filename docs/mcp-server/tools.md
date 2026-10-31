@@ -2,7 +2,7 @@
 type: API
 title: "MCP server tools"
 description: "Tool conventions and the contracts of list_projects and list_features: arguments, results, ordering, pagination and errors"
-status: draft
+status: stable
 tags: [mcp]
 ---
 # tools.md: MCP tool contracts: list_projects, list_features, pagination and errors

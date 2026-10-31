@@ -2,7 +2,7 @@
 type: Overview
 title: "MCP server overview"
 description: "Purpose, scope, goals, non-goals, actors, boundaries, constraints and key terms of the SpecFlow MCP server"
-status: draft
+status: stable
 tags: [mcp]
 ---
 # overview.md: purpose, scope, goals, non-goals, actors, boundaries, constraints and key terms of the MCP server

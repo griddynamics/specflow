@@ -2,12 +2,12 @@
 type: Requirements
 title: "MCP server requirements"
 description: "Requirement units of the MCP server (compact form): authentication, access control, tools, operations and non-functional"
-status: draft
+status: stable
 tags: [mcp]
 ---
 # requirements.md: requirement units of the MCP server (compact form), functional and non-functional
 
-Each row is one testable requirement in EARS form with one acceptance criterion. Status of every unit: Proposed.
+Each row is one testable requirement in EARS form with one acceptance criterion. Status of every unit: Implemented.
 Verification is by test unless the row says otherwise.
 
 ## Authentication ([auth.md](auth.md))

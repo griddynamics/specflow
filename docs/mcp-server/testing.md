@@ -2,7 +2,7 @@
 type: Design
 title: "MCP server testing"
 description: "Test tiers, QA fixtures, the end-to-end scenario matrix, and scripted QA with Claude Code and the MCP Python SDK against a real OIDC provider"
-status: draft
+status: stable
 tags: [mcp, testing]
 ---
 # testing.md: test tiers, fixtures, scenario matrix and end-to-end QA with a real client
@@ -12,7 +12,7 @@ tags: [mcp, testing]
 | Tier | Gate | Covers |
 |---|---|---|
 | Unit | always (`make check`) | settings and guards of both roles; claim profile branches; cursor codecs; PRM document; error mapping and sanitizing; result shaping; the membership structural test |
-| HTTP boundary | always (`make check`) | the role's ASGI app over `httpx.ASGITransport` with the loopback JWKS stub of `specflow_auth_support` and a fake runtime: the full auth matrix, PRM, Host and Origin rules, body cap, 404 body, every tool through an MCP client session over HTTP, REST rejecting MCP tokens |
+| HTTP boundary | always (`make check`) | the role's ASGI app over `httpx.ASGITransport` (the SDK client session over `httpx2.ASGITransport`) with the loopback JWKS stub of `specflow_auth_support` and a fake runtime: the full auth matrix, PRM, Host and Origin rules, body cap, 404 body, every tool through an MCP client session over HTTP, REST rejecting MCP tokens |
 | Live data | `SPECFLOW_TEST_POSTGRES=1`, `SPECFLOW_TEST_NEO4J=1` | repository reuse against Postgres; `count_nodes` and `nodes_page` against Neo4j, including an ontology whose `feature` label and prefix are renamed (the graph library's renamed-ontology fixture also renames type keys, so it is not used unchanged: [../graph/ontology.md](../graph/ontology.md#ontology-files-of-submodules)) |
 | End to end | `SPECFLOW_TEST_MCP_E2E=1`, local stack with `WITH=keycloak` (E13: plain `make up`) | the real role, real Keycloak, the MCP Python SDK client running the OAuth flow; the scenario matrix below |
 | Agent QA | `SPECFLOW_TEST_MCP_CLAUDE=1` and a signed-in `claude` CLI | Claude Code signs in and answers developer prompts with the tools; assertions on tool calls and results |
@@ -68,7 +68,7 @@ The driver acts as a developer at a terminal:
    `claude mcp add --transport http --scope local --client-id specflow-mcp --callback-port 8765 specflow-qa-<run id> http://localhost:8002/mcp`.
 2. Runs `claude mcp login <name> --no-browser` in a pseudo-terminal, reads the authorization URL (printed inside an
    OSC 8 hyperlink escape), completes the Keycloak sign-in with the HTTP login helper, and writes the redirect URL back.
-3. Runs persona prompts with `claude -p --output-format stream-json --verbose --allowedTools <the two tools>`:
+3. Runs persona prompts with `claude -p --output-format stream-json --verbose`, a model and spend guards (`--model`, `--max-turns`, `--max-budget-usd`), no prompts and no saved session (`--permission-mode dontAsk`, `--no-session-persistence`), the built-in tools denied (`--disallowedTools`) and `--allowedTools <the two tools>`:
 
 | Prompt (as a developer would type it) | Assert on tool events |
 |---|---|

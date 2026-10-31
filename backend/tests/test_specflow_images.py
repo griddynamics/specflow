@@ -749,3 +749,49 @@ async def test_ac_4_2_rss_for_100_mib_with_four_mib_chunks_against_a_fake_transp
     sys.stderr.write(f"\nAC-4.2 RSS growth for 100 MiB (fake transport, {sys.platform}): {growth:.1f} MiB\n")
     assert stored.size == 100 * MiB
     assert growth < 64, f"RSS grew {growth:.1f} MiB for 100 MiB (limit 64)"
+
+
+# --- SEC-M8-2: `make up WITH=keycloak` refuses an env file without the admin password ---------
+
+
+def _keycloak_check(tmp_path: Path, env_text: str, *, with_: str = "keycloak") -> subprocess.CompletedProcess[str]:
+    env_file = tmp_path / "scratch.env"
+    env_file.write_text(env_text)  # synthetic values only
+    return subprocess.run(
+        [
+            shutil.which("make") or "make",
+            "--no-print-directory",
+            "check-keycloak-env",
+            f"WITH={with_}",
+            f"ENV_FILE={env_file}",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+@pytest.mark.parametrize(
+    "env_text", ["OTHER=1\n", "OTHER=1\nKEYCLOAK_ADMIN_PASSWORD=\n", 'KEYCLOAK_ADMIN_PASSWORD=""\n']
+)
+def test_up_with_keycloak_fails_early_without_the_admin_password(tmp_path, env_text):
+    result = _keycloak_check(tmp_path, env_text)
+    assert result.returncode != 0
+    assert "KEYCLOAK_ADMIN_PASSWORD" in result.stderr and "make env-local" in result.stderr
+
+
+def test_up_with_keycloak_passes_the_check_with_the_admin_password_and_never_prints_it(tmp_path):
+    result = _keycloak_check(tmp_path, "KEYCLOAK_ADMIN_PASSWORD=synthetic-not-a-secret\n")
+    assert result.returncode == 0
+    assert "synthetic-not-a-secret" not in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("with_", ["", "temporal,langfuse"])
+def test_other_profiles_do_not_need_the_keycloak_admin_password(tmp_path, with_):
+    assert _keycloak_check(tmp_path, "OTHER=1\n", with_=with_).returncode == 0
+
+
+def test_up_depends_on_the_keycloak_check_and_compose_keeps_the_empty_default():
+    assert re.search(r"^up: .*check-keycloak-env", (ROOT / "Makefile").read_text(), re.MULTILINE)
+    assert "${KEYCLOAK_ADMIN_PASSWORD:-}" in COMPOSE.read_text()

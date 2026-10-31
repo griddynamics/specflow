@@ -7,7 +7,9 @@ from typing import Any, cast
 
 import httpx
 import pytest
+from mcp.server.mcpserver import MCPServer
 
+from logger.logger import INFO, get_logger, log_event
 from mcp_support import (
     JSON_HEADERS,
     MCP_HOST,
@@ -239,3 +241,36 @@ async def test_a_client_disconnect_mid_post_logs_no_request_failed(transport_app
 
     assert not [r for r in mcp_log.records if getattr(r, "event", "") == "mcp.request.failed"]
     assert again.status_code == 200  # the endpoint still answers after the aborted request
+
+
+# --- SEC-M8-1 / FR-MCP-OPS-07: one request_id per HTTP request ---------------------------------
+
+
+def probing_tools(server: MCPServer) -> None:
+    """A tool that logs two events: they must share the request's id."""
+
+    def probe() -> str:
+        log = get_logger("tests.probe")
+        log_event(log, INFO, "test.probe.first")
+        log_event(log, INFO, "test.probe.second")
+        return "ok"
+
+    server.add_tool(probe, name="probe", description="logs two events")
+
+
+async def test_each_request_binds_its_own_request_id(valid_env, token, central_log):
+    central_log.configure()
+    app = build_app(mcp_env(valid_env), tools=probing_tools)
+    call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "probe", "arguments": {}}}
+    async with serving(app) as client:
+        first = await rpc(client, token, call)
+        second = await rpc(client, token, call)
+        rejected = await rpc(client, None)  # 401 path: no token
+
+    assert (first.status_code, second.status_code, rejected.status_code) == (200, 200, 401)
+    first_ids = [e["request_id"] for e in central_log.events("test.probe.first")]
+    second_ids = [e["request_id"] for e in central_log.events("test.probe.second")]
+    assert len(first_ids) == len(second_ids) == 2
+    assert first_ids[0] == second_ids[0] and first_ids[1] == second_ids[1]  # within one request
+    (rejected_id,) = [e["request_id"] for e in central_log.events("mcp.auth.rejected")]
+    assert len({first_ids[0], first_ids[1], rejected_id}) == 3  # across requests

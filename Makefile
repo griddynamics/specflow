@@ -91,7 +91,7 @@ BACKEND_TARGETS := setup lint unit-test check \
 	db-upgrade db-revision \
 	api worker temporal-check rss-test
 
-.PHONY: $(BACKEND_TARGETS) env-local up down down-volumes logs ps images \
+.PHONY: $(BACKEND_TARGETS) env-local check-keycloak-env up down down-volumes logs ps images \
 	frontend-setup frontend-dev frontend-lint frontend-build e2e e2e-production e2e-all
 
 $(BACKEND_TARGETS):
@@ -128,11 +128,16 @@ env-local:
 	echo "env-local: wrote $(ENV_FILE) ($(ENV_LOCAL_NAMES))"; \
 	echo "env-local: add AGENT_MODEL, LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY to $(ENV_FILE) (docs/configuration.md)"
 
+# `WITH=keycloak` needs a non-empty KEYCLOAK_ADMIN_PASSWORD (compose defaults it to empty so that
+# other profiles still start). Names only, never the value; `make env-local` adds it.
+check-keycloak-env:
+	@$(if $(filter keycloak,$(WITH_LIST)),$(if $(call envval,KEYCLOAK_ADMIN_PASSWORD),:,echo "up: WITH=keycloak needs KEYCLOAK_ADMIN_PASSWORD in $(ENV_FILE); run make env-local" >&2; exit 1),:)
+
 # Build and start the stack and wait until all services are healthy: postgres, neo4j, rustfs,
 # rustfs-init, api, mcp (dev mode), worker-parse, worker-agents, frontend. `WITH=temporal,langfuse`
 # adds the bundled Temporal and Langfuse, `WITH=keycloak` the local Keycloak and switches mcp to
 # oidc against it. Logs are JSON on stdout only (`make logs`).
-up:
+up: check-keycloak-env
 	$(COMPOSE) up -d --build --wait --wait-timeout 600
 
 # Stops and removes the containers. The volumes (databases) stay; use `down-volumes` to drop them.

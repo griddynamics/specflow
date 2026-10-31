@@ -2,7 +2,7 @@
 type: Design
 title: "MCP server authentication"
 description: "OAuth resource server design: discovery, client registration, token validation, the claim profile for any OIDC provider, provider recipes and revocation"
-status: draft
+status: stable
 tags: [mcp, auth]
 ---
 # auth.md: OAuth resource server, discovery, client registration, token validation, claim profile and revocation
@@ -206,7 +206,7 @@ dev token fails on the REST API. In dev mode there is no authorization server: t
 metadata, and its 401 carries no `resource_metadata`.
 
 A dev token comes from a QA helper command (`examples/mcp_qa.py dev-token`). Claude Code receives it through
-`headersHelper` in `.mcp.json` (a command whose output gives the request headers; Claude Code runs it only in a trusted
+`headersHelper` in a local-scope server entry, not in the tracked `.mcp.json` (a command whose output gives the request headers; Claude Code runs it only in a trusted
 workspace) or through `--header "Authorization: Bearer ..."`.
 
 The real sign-in flow runs locally with `AUTH_MODE=oidc` against the bundled Keycloak ([deployment.md](deployment.md));
@@ -221,7 +221,7 @@ the end-to-end and agent QA tiers use it. An `http` issuer and resource URL are 
 | S3 | JWKS only from the issuer's host (enforced outside local). |
 | S4 | Issuer, resource URL and audience are configuration, never derived from `Host` or `X-Forwarded-*`. |
 | S5 | One audience per token: a REST token fails on `/mcp`, an MCP token fails on `/api/v1`. |
-| S6 | The client is public: no client secret exists in SpecFlow or on developer machines. |
+| S6 | The MCP client is public: no MCP client secret exists anywhere (SpecFlow, IdP or developer machines). |
 
 ## Decisions
 

@@ -17,7 +17,7 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from api.mcp.auth import McpGuard, ProtectedResourceMetadata, metadata_endpoint
-from api.mcp.http import CheckBody, ReadyzBody, error_response, required
+from api.mcp.http import CheckBody, McpStarlette, ReadyzBody, error_response, required
 from api.mcp.registry import install
 from api.mcp.runtime import RuntimeFactory, build_runtime, request_runtime
 from auth.verifiers import build_verifier
@@ -126,7 +126,7 @@ def create_mcp_app(
             )
         )
         routes += [Route(f"{PRM_PATH}/mcp", prm), Route(PRM_PATH, prm)]
-    app = Starlette(
+    app = McpStarlette(
         routes=routes,
         middleware=[
             Middleware(

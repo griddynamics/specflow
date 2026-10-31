@@ -2,7 +2,7 @@
 type: Design
 title: "MCP server access control"
 description: "Project membership as the single access decision, tenant isolation in Postgres and Neo4j, untrusted content and audit"
-status: draft
+status: stable
 tags: [mcp, auth]
 ---
 # access-control.md: project membership, tenant isolation, untrusted content and audit

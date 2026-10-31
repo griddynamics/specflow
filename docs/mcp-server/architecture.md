@@ -2,7 +2,7 @@
 type: Architecture
 title: "MCP server architecture"
 description: "Process, components, package layout, import rules, transport, settings, errors, logging and operations of the MCP server"
-status: draft
+status: stable
 tags: [mcp]
 ---
 # architecture.md: process, components, package layout, import rules, transport, settings, errors and operations
@@ -51,11 +51,11 @@ flowchart TB
 | Path | Method | Auth | Answer |
 |---|---|---|---|
 | `/mcp` | `POST` | Bearer | MCP JSON-RPC; JSON responses |
-| `/mcp` | `GET`, `DELETE` | Bearer | `405`: stateless mode has no server-initiated stream and no session to delete |
+| `/mcp` | `GET`, `DELETE` and any other method | Bearer | `405` with `Allow: POST` and the JSON error body `method_not_allowed`: stateless mode has no server-initiated stream and no session to delete |
 | `/.well-known/oauth-protected-resource/mcp` | `GET` | none | PRM (RFC 9728 path-inserted location); 404 in local dev mode |
 | `/.well-known/oauth-protected-resource` | `GET` | none | the same PRM (root fallback some clients try); 404 in local dev mode |
 | `/healthz`, `/readyz` | `GET` | none | probes; not routed by the public ingress |
-| anything else | any | none | `404` with the JSON error body `{"error": {"code": "not_found", ...}}` |
+| anything else | any | none | `404` with the JSON error body `{"error": {"code": "not_found", ...}}`; a known path with another method is `405` `method_not_allowed` |
 
 ## Package layout
 
@@ -63,9 +63,10 @@ The code lives in a subpackage of the HTTP layer: `backend/src/api/mcp/`. Module
 
 | Module | Holds |
 |---|---|
-| `api/mcp/server.py` | `run(settings)`: uvicorn on `0.0.0.0:$MCP_PORT`, central logger only (mirrors `api/server.py`) |
+| `api/mcp/server.py` | `run(settings)`: uvicorn on `0.0.0.0:$MCP_PORT`, central logger only; like `api/server.py`, except that SIGTERM ends with exit 0 after `mcp.shutdown.completed`; a failed startup exits 3 |
 | `api/mcp/app.py` | `create_mcp_app(settings, *, runtime_factory=...)`: routes, guard, lifespan |
 | `api/mcp/runtime.py` | The slim runtime and its factory |
+| `api/mcp/http.py` | The JSON error envelope, the probe bodies, the invariant check (`required`, `McpInvariantError`) and the per-request id middleware |
 | `api/mcp/auth.py` | Guard and PRM |
 | `api/mcp/registry.py` | Tool declarations and their registration with the cross-cutting checks |
 | `api/mcp/tools/` | Tool handlers, one module per domain (`projects`, `graph`; later `plan`) |
@@ -142,7 +143,7 @@ under `AUTH_MODE=oidc` (`https` unless `APP_ENV=local`); `AUTH_DEV_SIGNING_KEY` 
 `AUTH_MODE` (default `oidc`), `AUTH_JWKS_URL`, `AUTH_API_AUDIENCE` (default `specflow-api`, read for the audience
 refusals) and the claim profile variables of [auth.md](auth.md). Startup refuses, naming every bad variable:
 `AUTH_MODE=dev` outside `APP_ENV=local` or inside Kubernetes; under `oidc`, a dev signing key or a missing issuer; an
-invalid resource URL, an empty client list, an `MCP_AUDIENCE` equal to an allowed client id or to
+invalid resource URL, an empty client list (outside `APP_ENV=local` also one holding the QA client `specflow-smoke`), an `MCP_AUDIENCE` equal to an allowed client id or to
 `AUTH_API_AUDIENCE`, and `AUTH_IGNORED_AUDIENCES` holding either surface's audience.
 
 Constants (not settings): page size default 50 and maximum 100; request body cap 1 MiB.
@@ -153,7 +154,8 @@ Constants (not settings): page size default 50 and maximum 100; request body cap
 |---|---|---|
 | HTTP | missing, malformed, expired or wrong-audience token | `401`, `WWW-Authenticate: Bearer` with `resource_metadata` ([auth.md](auth.md)) |
 | HTTP | valid token, email not verified or domain not allowed | `403`, JSON error body, no challenge |
-| HTTP | Host or Origin not allowed, body too large | SDK transport answer (`421`/`403`/`413` family); checked after the guard, so without a valid token the answer is `401` |
+| HTTP | Host or Origin not allowed, body too large, non-JSON content type | SDK transport answer: `421` (Host), `403` (Origin), `413` (body), `400` (content type); checked after the guard, so without a valid token the answer is `401` |
+| HTTP | unexpected error outside a tool | `500`, JSON error body `internal_error`, `mcp.request.failed` logged |
 | Tool | argument, membership or dependency failure | tool result with `isError: true` and a fixed code ([tools.md](tools.md)) |
 | Startup | bad settings, or an invalid or missing ontology (including one without a `feature` type); the JWKS and IdP discovery are fetched on the first request, not at startup | exit non-zero with `config.validation.failed` or `mcp.startup.failed` |
 
@@ -165,9 +167,15 @@ Central logger only (`logger.get_logger`, `log_event`), dotted event names, no `
 
 | Event | Fields |
 |---|---|
-| `mcp.startup.completed`, `mcp.startup.failed`, `mcp.shutdown.completed` | port, error type |
+| `mcp.startup.completed` | port, auth mode |
+| `mcp.startup.failed` | error type and the central logger's exception fields |
+| `mcp.shutdown.completed` | port |
+| `mcp.auth.dev_mode` | none (a startup warning, dev mode only) |
 | `mcp.auth.rejected` | reason, status, code |
+| `mcp.request.failed` | method, path, error type and the exception fields |
 | `mcp.tool.completed` | tool, user id, project id when given as a valid UUID (canonical form), outcome (`ok` or the error code), item count, duration ms; error type (the exception class name, never its text) when the outcome is not `ok` |
+
+A fresh `request_id` is bound for each HTTP request by an ASGI wrapper outside `McpGuard`; every event of the request carries it (the guard's `mcp.auth.rejected`, the tool's `mcp.tool.completed`). The server never adopts a caller-supplied `X-Request-ID`. Startup and shutdown events keep the process id.
 
 Logs never carry tokens, emails, feature text or cursors. `mcp.tool.completed` is the access audit trail: it answers
 which user read which project and when. There is no audit table; the log pipeline holds the record.

@@ -2,7 +2,7 @@
 type: Design
 title: "MCP server deployment"
 description: "Running the mcp role, the public endpoint, identity provider setup, developer setup in Claude Code, and the local stack with Keycloak"
-status: draft
+status: stable
 tags: [mcp, deployment]
 ---
 # deployment.md: role and ingress, IdP setup, Claude Code setup and the local stack with Keycloak
@@ -49,6 +49,11 @@ Keycloak (reference). In the realm the web app uses:
 6. `specflow-mcp` gets no `specflow-api` audience, and the web client gets no MCP audience.
 
 Other providers: the recipes in [auth.md](auth.md), with the matching `AUTH_*` claim profile on both roles.
+
+MCP clients other than Claude Code: the protected resource metadata advertises no scopes, and a client that then
+requests every scope of the IdP's metadata (the MCP Python SDK does) is refused with `invalid_scope` by an IdP that
+rejects scopes not assigned to the client, as Keycloak does. Configure such a client to request only scopes assigned to
+`specflow-mcp`, for example `openid` ([testing.md](testing.md#client-notes)).
 
 ## Developer setup in Claude Code
 
@@ -97,12 +102,15 @@ Run the `dev-token` command alone first and check that it prints exactly one lin
 server with an empty header. The token is stored in the local Claude Code config. Keep the name and URL before
 `--header`, which takes every argument after it. `dev@example.com` is the default `LOCAL_TEST_USER_EMAIL`, the web
 app's dev-login user; use your value if you changed it, so Claude Code and the web app see the same projects. For a token
-that refreshes, use an uncommitted `.mcp.json` entry with a `headersHelper` (Claude Code runs it in a trusted workspace;
-the helper's working directory was not verified, so give the path of the repository explicitly):
+that refreshes, register a `headersHelper` entry at local scope with `claude mcp add-json --scope local specflow-local '<the JSON below>'`
+(run from the repository root, to whose local config the entry belongs; Claude Code runs the helper only after you accepted
+the workspace trust dialog once; the helper's working directory was not verified, so give the path of the repository
+explicitly). The `.mcp.json` at the repository root is tracked: never put a static token in it, and keep
+this entry out of it:
 
 ```json
-{"mcpServers": {"specflow-local": {"type": "http", "url": "http://localhost:8002/mcp",
-  "headersHelper": "cd <repository>/backend && uv run --quiet --env-file ../.env.local python examples/mcp_qa.py dev-token dev@example.com --headers"}}}
+{"type": "http", "url": "http://localhost:8002/mcp",
+ "headersHelper": "cd <repository>/backend && uv run --quiet --env-file ../.env.local python examples/mcp_qa.py dev-token dev@example.com --headers"}
 ```
 
 Keycloak (`make up WITH=keycloak`): seed the QA users once, and again after any Keycloak recreate, then add the server
@@ -132,9 +140,11 @@ the QA tiers.
 | Issuer | `http://localhost:8180/realms/specflow` for every token: Keycloak runs with `KC_HOSTNAME=http://localhost:8180` |
 | Keys from containers | `AUTH_JWKS_URL` on the compose network name (accepted in local only) |
 | `mcp` in dev mode | `APP_ENV=local`, `AUTH_MODE=dev`, `AUTH_DEV_SIGNING_KEY` from `.env.local`, `MCP_RESOURCE_URL=http://localhost:8002/mcp`, `AUTH_ALLOWED_EMAIL_DOMAINS=example.com` |
-| Dev token for Claude Code | from the QA helper command, through `headersHelper` in `.mcp.json` or `--header`; 8 hours ([auth.md](auth.md)) |
+| Dev token for Claude Code | from the QA helper command, through `headersHelper` (local scope) or `--header`; 8 hours ([auth.md](auth.md)) |
 | `mcp` with Keycloak | `AUTH_MODE=oidc`, `OIDC_ISSUER=http://localhost:8180/realms/specflow`, `AUTH_JWKS_URL` on the compose network name, and `AUTH_DEV_SIGNING_KEY` empty: `.env.local` always holds a dev key for the web app, and the role refuses any dev key under `oidc` |
 | Web app and API | dev login in both modes. With Keycloak, the MCP users are Keycloak users, so the QA seed provides their data ([testing.md](testing.md)) |
+
+`make up WITH=keycloak` refuses to start (`check-keycloak-env`) when the env file has no non-empty `KEYCLOAK_ADMIN_PASSWORD`; run `make env-local`. Compose keeps an empty default so other profiles are unaffected.
 
 Generated local secrets (Keycloak admin password, QA user password, `specflow-web` client secret) live in `.env.local`
 next to the other generated local secrets and are never committed.
