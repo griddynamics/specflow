@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
+from functools import partial
 from typing import Final, cast
 
 from mcp.server.mcpserver import MCPServer
@@ -16,6 +17,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
+from api.mcp import guidance
 from api.mcp.auth import McpGuard, ProtectedResourceMetadata, metadata_endpoint
 from api.mcp.http import CheckBody, McpStarlette, ReadyzBody, error_response, required
 from api.mcp.registry import install
@@ -72,18 +74,21 @@ def create_mcp_app(
     settings: RoleSettings,
     *,
     runtime_factory: RuntimeFactory = build_runtime,
-    tools: Callable[[MCPServer], None] = install,
+    tools: Callable[[MCPServer], None] | None = None,
 ) -> Starlette:
     """Build the app; no connection opens until the lifespan starts.
 
-    ``tools`` registers tools on the server before the app is built; the default is the tool registry.
+    ``tools`` registers tools on the server before the app is built; the default is the registry (tools and
+    prompts) with the deployment's resource URL, which a hook of the tests cannot know before the settings load.
     """
 
     auth = required(settings.auth, "the mcp role requires auth settings")
     mcp = required(settings.mcp, "the mcp role requires mcp settings")
     dev = auth.mode == "dev"  # dev mode: no PRM route, a challenge without resource_metadata
-    server = MCPServer("SpecFlow")  # never auth= or token_verifier=: the guard owns 401 and 403
-    tools(server)
+    resource_url = mcp.resource_url  # the one value of the PRM, the instructions and the prompt
+    # never auth= or token_verifier=: the guard owns 401 and 403
+    server = MCPServer("SpecFlow", instructions=guidance.server_instructions(resource_url))
+    (tools or partial(install, resource_url=resource_url))(server)
     server.streamable_http_app(  # called only to create the session manager; its Starlette is unused
         json_response=True,
         stateless_http=True,
@@ -122,7 +127,7 @@ def create_mcp_app(
     if not dev:  # dev mode has no PRM (404) and a challenge without resource_metadata
         prm = metadata_endpoint(
             ProtectedResourceMetadata(
-                resource=mcp.resource_url, authorization_servers=[required(auth.issuer, "oidc mode has an issuer")]
+                resource=resource_url, authorization_servers=[required(auth.issuer, "oidc mode has an issuer")]
             )
         )
         routes += [Route(f"{PRM_PATH}/mcp", prm), Route(PRM_PATH, prm)]

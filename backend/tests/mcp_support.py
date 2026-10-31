@@ -211,7 +211,9 @@ def tool_app(
     used = ontology or shipped_ontology()
     runtime = fake_runtime(reader=reader or GraphReader(executor, used), session_factory=repo, ontology=used)
     used_env = env or mcp_env(valid_env)
-    return build_app(used_env, runtime=runtime, tools=lambda server: install(server, declarations)), repo
+    return build_app(
+        used_env, runtime=runtime, tools=lambda server: install(server, declarations, resource_url=MCP_URL)
+    ), repo
 
 
 async def call(session: ClientSession, tool: str, **arguments: Any) -> CallToolResult:

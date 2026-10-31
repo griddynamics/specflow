@@ -1,9 +1,14 @@
-"""The tool registry: one declaration per tool and the wrapper every tool runs in (architecture.md, Tool registry).
+"""The registry: one declaration per tool and per prompt, and the wrapper every tool runs in (architecture.md, Tool
+registry).
 
 The wrapper runs, from the outside in: the ``mcp.tool.completed`` audit event (FR-MCP-OPS-07), error mapping
 (FR-MCP-TOOL-08), user provisioning (FR-MCP-ACC-05), the membership check of project-scoped tools (FR-MCP-ACC-02),
-the handler. This is the only module that uses the SDK's tool API (FR-MCP-ACC-06). A tool error is RETURNED
-as a result with ``isError``: an exception that left the wrapper would reach the client as SDK text.
+the handler. This is the only module that uses the SDK's tool and prompt API (FR-MCP-ACC-06). A tool error is
+RETURNED as a result with ``isError``: an exception that left the wrapper would reach the client as SDK text.
+
+A prompt (FR-MCP-BIND-02) is rendered from ``guidance`` text only: it runs no provisioning, no membership check and no
+audit event, and reads no data; the guard in front of ``/mcp`` is its only access control. The SDK keeps the first of
+two tools or prompts with one name and says nothing, so ``install`` refuses a duplicate.
 """
 
 from __future__ import annotations
@@ -15,11 +20,12 @@ from dataclasses import dataclass, field
 from typing import Annotated, Any, Final, cast
 
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.server.mcpserver.prompts.base import Prompt
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.requests import Request
 
-from api.mcp import access
+from api.mcp import access, guidance
 from api.mcp.auth import request_principal
 from api.mcp.errors import INTERNAL_ERROR, McpToolError, error_body, to_tool_error
 from api.mcp.http import McpInvariantError
@@ -68,6 +74,31 @@ TOOLS: Final[tuple[ToolDeclaration, ...]] = (
 )
 
 
+@dataclass(frozen=True)
+class PromptDeclaration:
+    """A prompt: its name and description, its one optional argument, and the render of its text.
+
+    ``render(resource_url, argument)`` gets ``None`` when the caller sent no argument.
+    """
+
+    name: str
+    description: str
+    argument: str
+    argument_description: str
+    render: Callable[[str, str | None], str]
+
+
+PROMPTS: Final[tuple[PromptDeclaration, ...]] = (
+    PromptDeclaration(
+        name=guidance.SELECT_PROJECT_NAME,
+        description=guidance.SELECT_PROJECT_DESCRIPTION,
+        argument=guidance.PROJECT_ARGUMENT,
+        argument_description=guidance.PROJECT_ARGUMENT_DESCRIPTION,
+        render=guidance.render_select_project,
+    ),
+)
+
+
 def _result(model: BaseModel) -> CallToolResult:
     """Structured content plus one text block holding the same JSON (FR-MCP-TOOL-05)."""
 
@@ -100,7 +131,8 @@ class _ToolFunction:
         parameters = [inspect.Parameter("ctx", inspect.Parameter.KEYWORD_ONLY, annotation=Context)]
         annotations: dict[str, Any] = {"ctx": Context}
         for name, info in declaration.arguments.model_fields.items():
-            annotation = Annotated[(info.annotation, *info.metadata)] if info.metadata else info.annotation
+            extras = [*info.metadata, *([Field(description=info.description)] if info.description else [])]
+            annotation = Annotated[(info.annotation, *extras)] if extras else info.annotation
             default = inspect.Parameter.empty if info.is_required() else info.default
             parameters.append(
                 inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY, default=default, annotation=annotation)
@@ -170,13 +202,57 @@ class _ToolFunction:
         return _result(result), len(cast(Listing, result).items)  # shape checked above
 
 
-def install(server: MCPServer, tools: Sequence[ToolDeclaration] = TOOLS) -> None:
-    """Register ``tools`` on ``server`` (the ``tools`` hook of ``create_mcp_app``)."""
+def _prompt_function(declaration: PromptDeclaration, resource_url: str) -> Callable[..., str]:
+    """The function the SDK registers for one prompt: one optional string keyword named by the declaration.
 
+    The SDK reads the argument list from the signature, so it is synthesized, as ``_ToolFunction`` does; a real
+    function, because the SDK wraps it in ``validate_call``.
+    """
+
+    annotation = Annotated[str | None, Field(description=declaration.argument_description)]
+
+    def prompt(**raw: str | None) -> str:
+        return declaration.render(resource_url, raw.get(declaration.argument))
+
+    parameter = inspect.Parameter(
+        declaration.argument, inspect.Parameter.KEYWORD_ONLY, default=None, annotation=annotation
+    )
+    prompt.__name__ = declaration.name
+    cast(Any, prompt).__signature__ = inspect.Signature([parameter], return_annotation=str)
+    prompt.__annotations__ = {declaration.argument: annotation, "return": str}
+    return prompt
+
+
+def _unique(names: Sequence[str], kind: str) -> None:
+    duplicates = sorted({name for name in names if names.count(name) > 1})
+    if duplicates:
+        raise McpInvariantError(f"duplicate {kind} names: {', '.join(duplicates)}")
+
+
+def install(
+    server: MCPServer,
+    tools: Sequence[ToolDeclaration] = TOOLS,
+    *,
+    resource_url: str,
+    prompts: Sequence[PromptDeclaration] = PROMPTS,
+) -> None:
+    """Register ``tools`` and ``prompts`` on ``server`` (the ``tools`` hook of ``create_mcp_app``).
+
+    ``resource_url`` is the deployment's ``MCP_RESOURCE_URL``, which the prompt text carries.
+    """
+
+    _unique([t.name for t in tools], "tool")
+    _unique([p.name for p in prompts], "prompt")
     for declaration in tools:
         server.add_tool(
             _ToolFunction(declaration),
             name=declaration.name,
             description=declaration.description,
             annotations=declaration.annotations,
+        )
+    for prompt in prompts:
+        server.add_prompt(
+            Prompt.from_function(
+                _prompt_function(prompt, resource_url), name=prompt.name, description=prompt.description
+            )
         )

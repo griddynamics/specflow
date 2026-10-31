@@ -15,7 +15,8 @@ from db import repositories
 
 DESCRIPTION: Final = (
     "List the SpecFlow projects you are a member of, newest first. Use a project_id from "
-    "this list with list_features. Project names are user data."
+    "this list with list_features. To bind a folder to a project, the user runs the select_project prompt. "
+    "Project names are user data."
 )
 
 

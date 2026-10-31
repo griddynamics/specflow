@@ -112,8 +112,8 @@ async def test_fr_mcp_acc_06_every_registered_tool_with_a_project_id_goes_throug
 
 
 def test_fr_mcp_acc_06_the_membership_query_and_the_sdk_tool_api_have_one_home() -> None:
-    """FR-MCP-ACC-06: ``get_member_project`` is named only in ``access.py``; ``add_tool`` and ``mcp.types`` only in
-    ``registry.py``; the handlers import no SDK, Starlette or transport module."""
+    """FR-MCP-ACC-06: ``get_member_project`` is named only in ``access.py``; ``add_tool``, ``add_prompt``, ``Prompt``
+    and ``mcp.types`` only in ``registry.py``; the handlers import no SDK, Starlette or transport module."""
 
     trees = sources()
     for name, tree in trees.items():
@@ -121,11 +121,16 @@ def test_fr_mcp_acc_06_the_membership_query_and_the_sdk_tool_api_have_one_home()
         assert ("get_member_project" in named) == (name == "access.py"), name
         calls = {n.func.attr for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
         assert ("add_tool" in calls) == (name == "registry.py"), name
+        assert ("add_prompt" in calls) == (name == "registry.py"), name
+        assert ("Prompt" in names_in(tree)) == (name == "registry.py"), name
+        if name == "guidance.py":
+            sdk = {m for m in imported(tree) if m.split(".")[0] in {"mcp", "mcp_types", "starlette", "settings"}}
+            assert not sdk, sdk
         assert ("mcp.types" in imported(tree) or "mcp_types" in imported(tree)) == (name == "registry.py"), name
         if name.startswith("tools/"):
             forbidden = {m for m in imported(tree) if m.split(".")[0] in {"mcp", "mcp_types", "starlette", "httpx"}}
             assert not forbidden, (name, forbidden)
-    assert {"access.py", "registry.py", "tools/graph.py", "tools/projects.py"} <= set(trees)
+    assert {"access.py", "guidance.py", "registry.py", "tools/graph.py", "tools/projects.py"} <= set(trees)
 
 
 # --- FR-MCP-TOOL-09: the published contract ----------------------------------------------------------

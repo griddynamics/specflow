@@ -32,6 +32,7 @@ from graph_support import (
 )
 from mcp_support import (
     EXTREME_PROJECT_CURSOR,
+    MCP_URL,
     build_app,
     call,
     code,
@@ -74,7 +75,7 @@ def postgres_app(
 
     ontology = shipped_ontology()
     runtime = fake_runtime(reader=GraphReader(executor, ontology), session_factory=factory, ontology=ontology)
-    return build_app(mcp_env(valid_env), runtime=runtime, tools=install)
+    return build_app(mcp_env(valid_env), runtime=runtime, tools=lambda server: install(server, resource_url=MCP_URL))
 
 
 async def users(factory: async_sessionmaker[AsyncSession]) -> list[User]:

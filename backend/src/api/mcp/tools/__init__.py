@@ -19,7 +19,12 @@ Limit = Annotated[int, Field(ge=1, le=MAX_LIMIT)]  # the input schema bounds (FR
 class ProjectArguments(BaseModel):
     """The arguments of a project-scoped tool start with the project id, a plain string (FR-MCP-ACC-03)."""
 
-    project_id: str
+    project_id: str = Field(
+        description=(
+            "The id of the SpecFlow project: the bound project's project_id from .specflow/config.json, "
+            "or one from list_projects."
+        )
+    )
 
 
 class Listing(Protocol):
