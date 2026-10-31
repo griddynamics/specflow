@@ -161,3 +161,17 @@ Template:
   (status)
 - Follow-ups: the REST role likely exits 143 on SIGTERM; Q4 of [questions.md](questions.md) stays open; a link in
   `docs/graph/api.md` to `implementation/tech-specs.md` was already broken before this work
+
+### Client-audience tokens with a token-type claim
+
+- Date and commits: 2026-10-31, the commit that adds this entry
+- Summary: `AUTH_TOKEN_TYPE=claim` accepts access tokens only when the claim named by `AUTH_TOKEN_TYPE_CLAIM` holds
+  exactly `AUTH_TOKEN_TYPE_VALUE`, and fails closed. Under a token-type check, `MCP_AUDIENCE` and `AUTH_API_AUDIENCE` may
+  equal a client id, so a provider whose code flow issues tokens for the client works; under `none` the refusals stay.
+  Startup keeps the two surfaces on separate clients and refuses a registered or identity claim as the marker.
+- Requirements proven: FR-MCP-AUTH-07, FR-MCP-AUTH-09, FR-MCP-AUTH-12
+- Design sections updated in place: [auth.md](auth.md) (client registration, audience refusals, claim profile,
+  provider recipes, token lifetimes, decision AA8), [requirements.md](requirements.md) (FR-MCP-AUTH-07, -09, -12),
+  [architecture.md](architecture.md#settings) (startup refusals), [later.md](later.md) (OAuth proxy mode),
+  [questions.md](questions.md) (Q4)
+- Follow-ups: the open items of Q4 in [questions.md](questions.md), verified in the production rollout

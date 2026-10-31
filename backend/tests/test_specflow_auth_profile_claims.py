@@ -238,3 +238,75 @@ def test_entra_recipe_uses_the_api_application_id_oid_and_xms_edov() -> None:
     # `sub` differs per application, so the default subject would silently key users by the wrong id
     default_subject = accepted(claims, policy(audience=app_id, email_verified_claim=""))
     assert default_subject.subject == "pairwise" != principal.subject
+
+
+# --- AUTH_TOKEN_TYPE=claim ---------------------------------------------------------
+
+
+MARKER = {"x_token_kind": "access"}
+
+
+def _claim_policy() -> ClaimPolicy:
+    return policy(
+        typ_rule="claim",
+        typ_claim="x_token_kind",
+        typ_value="access",
+        audience=CLIENT_ID,
+        email_claim="sub",
+        email_verified_claim="",
+    )
+
+
+def _client_token(**overrides: Any) -> dict[str, Any]:
+    return token(aud=CLIENT_ID, azp=CLIENT_ID, client_id=None, sub=f"alice@{DOMAIN}", email=None, **overrides)
+
+
+def test_the_claim_rule_accepts_the_configured_value() -> None:
+    """FR-MCP-AUTH-07: a client-audience access token passes."""
+
+    principal = accepted(_client_token(**MARKER), _claim_policy())
+
+    assert (principal.client_id, principal.email) == (CLIENT_ID, f"alice@{DOMAIN}")
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {},  # claim missing (ID-token shape)
+        {"x_token_kind": "id"},
+        {"x_token_kind": "Access"},  # case-sensitive
+        {"x_token_kind": " access"},
+        {"x_token_kind": ["access"]},
+        {"x_token_kind": 1},
+        {"x_token_kind": True},
+        {"x_token_kind": None},
+    ],
+)
+def test_the_claim_rule_refuses_anything_but_the_exact_string(overrides: dict[str, Any]) -> None:
+    """FR-MCP-AUTH-07: missing, other and non-string values are refused as ``typ``."""
+
+    claims = _client_token()
+    claims.update(overrides)
+
+    error = refused(claims, _claim_policy())
+
+    assert (error.status, error.reason) == (401, "typ")
+
+
+def test_an_unknown_rule_still_fails_closed_with_the_marker_present() -> None:
+    """FR-MCP-AUTH-07."""
+
+    pol = _claim_policy()
+    object.__setattr__(pol, "typ_rule", "claims")
+
+    assert refused(_client_token(**MARKER), pol).reason == "typ"
+
+
+def test_a_claim_rule_policy_built_directly_without_a_marker_fails_closed() -> None:
+    """FR-MCP-AUTH-07: empty name/value never match."""
+
+    pol = _claim_policy()
+    object.__setattr__(pol, "typ_claim", "")
+    object.__setattr__(pol, "typ_value", "")
+
+    assert refused(_client_token(**MARKER), pol).reason == "typ"

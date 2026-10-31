@@ -362,7 +362,12 @@ def test_the_mcp_role_runs_the_api_image_in_dev_mode_unless_make_switches_it():
     prefixes = ("TEMPORAL_", "AWS_", "LLM_", "LANGFUSE_", "GRAPH_", "AGENT_", "DATABASE_AGENT_")
     assert [key for key in env if key.startswith(prefixes) or key == "SPECFLOW_CONFIG_FILE"] == []
     claims = {"AUTH_SUBJECT_CLAIM", "AUTH_CLIENT_ID_CLAIM", "AUTH_EMAIL_CLAIM", "AUTH_EMAIL_VERIFIED_CLAIM"}
-    claims |= {"AUTH_TOKEN_TYPE", "AUTH_IGNORED_AUDIENCES"}  # an empty fallback would switch a check off
+    claims |= {
+        "AUTH_TOKEN_TYPE",
+        "AUTH_TOKEN_TYPE_CLAIM",
+        "AUTH_TOKEN_TYPE_VALUE",
+        "AUTH_IGNORED_AUDIENCES",
+    }  # an empty fallback would switch a check off
     assert [name for name, other in svcs.items() if claims & set(env_of(other))] == []
     assert sorted(key for key, value in env.items() if ":?" in str(value)) == ["DATABASE_PASSWORD", "NEO4J_PASSWORD"]
     for name in ("api", "frontend"):

@@ -72,7 +72,7 @@ One pre-registered public client per deployment, `specflow-mcp` by default, shar
 |---|---|
 | Type | public (no secret), authorization code flow only, PKCE S256 required |
 | Redirect URIs | `http://localhost:8765/callback`, `http://127.0.0.1:8765/callback` |
-| Access token audience | `MCP_AUDIENCE` (default `MCP_RESOURCE_URL`), and no SpecFlow API audience |
+| Access token audience | `MCP_AUDIENCE` (default `MCP_RESOURCE_URL`), or the client id itself when the provider's code flow issues no other audience and `AUTH_TOKEN_TYPE` is not `none` (decision AA8); never the SpecFlow API audience |
 | Scopes | none of its own; `offline_access` per the revocation policy below |
 | Not allowed | implicit flow, password grant, client credentials, device flow |
 
@@ -108,19 +108,25 @@ may read ([access-control.md](access-control.md)). `bearer_token` is in a framew
 
 The audience rule (check 5) is the REST API's rule with the MCP audience: a token is valid on exactly one surface. A
 provider that adds an audience of its own lists it in `AUTH_IGNORED_AUDIENCES`, as Keycloak's `account` is by default.
+A provider whose code flow gives the client a token with the client id as audience sets `MCP_AUDIENCE` to that client id;
+the audience rule then no longer separates ID tokens from access tokens, and the token-type check (check 9) does.
 
 Startup refuses these audience mix-ups, each of which would let one token pass where it must not:
 
 | Refused | Role | Why |
 |---|---|---|
-| `MCP_AUDIENCE` equal to one of `MCP_CLIENT_IDS` | `mcp` | an ID token's audience is its client id; the audience rule alone then keeps ID tokens out, whatever `AUTH_TOKEN_TYPE` says |
-| `AUTH_API_AUDIENCE` equal to one of `AUTH_API_CLIENT_IDS` | `api` | the same ID-token rule for the REST surface |
+| `MCP_AUDIENCE` equal to one of `MCP_CLIENT_IDS`, when `AUTH_TOKEN_TYPE=none` | `mcp` | an ID token's audience is its client id, and with no token-type check nothing else would keep ID tokens out |
+| `AUTH_API_AUDIENCE` equal to one of `AUTH_API_CLIENT_IDS`, when `AUTH_TOKEN_TYPE=none` | `api` | the same ID-token rule for the REST surface |
+| `MCP_AUDIENCE` equal to one of `AUTH_API_CLIENT_IDS` | `mcp` | an API client's token would pass on `/mcp` |
+| a value of `MCP_CLIENT_IDS` that is also in `AUTH_API_CLIENT_IDS`, when `MCP_AUDIENCE` is one of `MCP_CLIENT_IDS` | `mcp` | one client's token would carry the audience of both surfaces |
 | `MCP_AUDIENCE` equal to `AUTH_API_AUDIENCE` | `mcp` | REST and MCP tokens would be interchangeable (rule S5) |
 | `AUTH_IGNORED_AUDIENCES` holding `MCP_AUDIENCE` or `AUTH_API_AUDIENCE` | `mcp` | a token for `[MCP URL, specflow-api]` would pass on both surfaces |
 | `AUTH_IGNORED_AUDIENCES` holding `AUTH_API_AUDIENCE` | `api` | the REST audience rule would be emptied |
 
-The two `api` rows guard the REST API's startup: with the provider-neutral default `AUTH_TOKEN_TYPE=none`, they are
-what keeps ID tokens off the REST surface.
+The first two rows guard only the default `AUTH_TOKEN_TYPE=none`, where they are what keeps ID tokens off each surface.
+Under `claim`, `keycloak` or `rfc9068` an audience equal to the client id starts, because the token-type check refuses
+ID tokens. The other rows hold under every mode. The `mcp` role checks against the `AUTH_API_*` values it is given, so those must match
+the API role's.
 
 ## Claim profile for any OIDC provider
 
@@ -135,8 +141,16 @@ Keycloak works with them unchanged, and a provider with other claim names is con
 | `AUTH_CLIENT_ID_CLAIM` | `azp,client_id` | Comma-separated claims that may hold the OAuth client id; the first one present in the token is used (`azp`: OIDC, Keycloak, Auth0, Entra ID; `client_id`: RFC 9068) |
 | `AUTH_EMAIL_CLAIM` | `email` | Claim holding the email address |
 | `AUTH_EMAIL_VERIFIED_CLAIM` | `email_verified` | Claim that must be `true`; empty = not checked (directory-managed emails) |
-| `AUTH_TOKEN_TYPE` | `none` | `none`: no type check, because the audience rule already keeps ID tokens out (startup of both roles refuses an audience equal to one of that surface's client ids); `keycloak`: claim `typ` is `Bearer`, an optional extra check for Keycloak; `rfc9068`: JOSE header `typ` is `at+jwt` or `application/at+jwt` |
+| `AUTH_TOKEN_TYPE` | `none` | `none`: no type check, because the audience rule already keeps ID tokens out (startup of both roles refuses an audience equal to one of that surface's client ids); `keycloak`: claim `typ` is `Bearer`, an optional extra check for Keycloak; `rfc9068`: JOSE header `typ` is `at+jwt` or `application/at+jwt`; `claim`: the claim named by `AUTH_TOKEN_TYPE_CLAIM` is exactly the string `AUTH_TOKEN_TYPE_VALUE` |
+| `AUTH_TOKEN_TYPE_CLAIM` | unset | Name of the claim that marks an access token; required and non-blank under `claim`, refused under any other mode. Startup also refuses a registered or identity claim: `iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti`, `azp`, `client_id`, `email`, `email_verified`, `acr`, `amr`, `sid`, `auth_time`, `nonce`, `at_hash`, `c_hash`, `s_hash` and the configured subject, client and email claim names (`typ` is allowed) |
+| `AUTH_TOKEN_TYPE_VALUE` | unset | The string value that claim must hold; required and non-blank under `claim`, refused under any other mode |
 | `AUTH_IGNORED_AUDIENCES` | `account` | Comma-separated audiences removed before the audience rule |
+
+The `claim` check fails closed: a missing claim, a value that is not a string and any other string all answer 401. Startup
+refuses `AUTH_TOKEN_TYPE_CLAIM` or `AUTH_TOKEN_TYPE_VALUE` set under another mode, naming the variable. Unknown claims are
+ignored and never reach logs. The marker must be a claim that only access tokens carry, with that value: a claim that ID
+tokens also carry would let them through. A claim such as `x_token_kind` with the value `access` qualifies only if the
+provider puts it in access tokens and never in ID tokens.
 
 The subject claim is chosen once per deployment, before the first sign-in: changing it later re-keys every user and
 needs a data migration (not provided).
@@ -152,8 +166,12 @@ documentation and are checked at deployment time with the QA harness of [testing
 | Auth0 | an API whose identifier is `MCP_RESOURCE_URL`; tenant default audience if the tenant ignores `resource`; `https://<tenant>/userinfo` (added when `openid` is requested) in `AUTH_IGNORED_AUDIENCES` | `azp` | `sub` | `email`, `email_verified` added by a post-login Action | `rfc9068` when the API uses that profile, else `none` | none | no |
 | Okta (custom authorization server) | authorization server audience `MCP_RESOURCE_URL` | `cid` | `uid` | custom claim `email`; a custom verified claim where available, else empty (see below) | `none` | none | no |
 | Microsoft Entra ID | two app registrations (the API and the public client); v2 tokens carry the API registration's application id in `aud`: set `MCP_AUDIENCE` to that id | `azp` | `oid` (`sub` differs per application) | optional claim `email`; verified claim `xms_edov` (optional claim) | `none` | `api://<API app id URI>/.default`, advertised by the PRM: not usable in version 1, whose PRM advertises no scopes (the advertised-scopes setting of [later.md](later.md)) | no |
+| Provider whose code flow issues tokens for the client (resource-server tokens only through token exchange) | the MCP client id: `MCP_AUDIENCE` equals the client id | `azp` | the user's email when there is no separate stable id; `AUTH_EMAIL_CLAIM` names the same claim | the same claim; verified claim empty | `claim`, with the claim and value the provider puts in access tokens only | none | no |
 | Amazon Cognito | not supported: access tokens carry no `aud` and no email | | | | | | no |
 | Google, GitHub sign-in | not supported: no JWT access token for a third-party API | | | | | | no |
+
+When the subject is the email, a changed email creates a new user, and merging the two users needs a data migration, which
+is not provided.
 
 Logins brokered through Keycloak are supported: Google, GitHub or a corporate SAML or OIDC provider can authenticate
 the person while Keycloak issues the tokens, so the server sees only the Keycloak recipe. The unsupported rows mean
@@ -172,7 +190,7 @@ request the API audience or scope (outside this design, see [later.md](later.md)
 | Event | Effect on MCP access | Latency |
 |---|---|---|
 | Developer removed from a project, or project deleted | that project answers `project_not_found` | next tool call |
-| Developer disabled at the IdP | refresh fails; the current access token works until it expires | access token lifetime (set 5 to 10 minutes) |
+| Developer disabled at the IdP | refresh fails; the current access token works until it expires | access token lifetime (set 5 to 10 minutes where the provider allows; a provider with a fixed lifetime of about one hour makes it about one hour) |
 | Email domain removed from `AUTH_ALLOWED_EMAIL_DOMAINS` | 403 | next call after the role restarts |
 | Client id removed from `MCP_CLIENT_IDS` | 401 | next call after the role restarts |
 | Offline refresh token (`offline_access`) | lives at most 30 days; ends at once when the user is disabled or the session is revoked | 30 days at most |
@@ -234,3 +252,4 @@ the end-to-end and agent QA tiers use it. An `http` issuer and resource URL are 
 | AA5 | Locally, dev tokens on MCP as on the web app | Keycloak for MCP only: the local UI (dev login) and MCP would know the same person as two users, and projects made in the UI would be invisible to Claude Code. Keycloak for every local service: a separate change that also reworks the frontend's test sign-in ([later.md](later.md), local Keycloak everywhere). The real sign-in flow is still exercised locally by the QA tiers against the bundled Keycloak |
 | AA6 | Claim profile as shared `AUTH_*` settings with provider-neutral defaults | MCP-only claim settings: the subject must be read the same way on both surfaces or users split. Keycloak-shaped defaults (a required `typ: Bearer` claim, `azp` only): the first non-Keycloak provider, likely the production one, would fail on them |
 | AA7 | No scopes: the audience and project membership decide, and every member of a project has the same access | Read and write scopes (`specflow:read`, `specflow:write`): every provider would need a custom scope, and they add nothing while all members have equal access; the Rosetta MCP server likewise checks no permission scope |
+| AA8 | Client-audience access tokens accepted under a token-type check: `MCP_AUDIENCE` may equal the client id when `AUTH_TOKEN_TYPE` is not `none`, and `claim` tells access tokens from ID tokens by a configured claim | A token exchange in an OAuth proxy ([later.md](later.md)): the proxy work of AA1 for one provider. A developer-side helper that exchanges tokens through `headersHelper`: a tool to ship and maintain on every laptop. Resource-server tokens only: Claude Code cannot get them from such a provider. Rule S5 then depends on each surface having its own client, which startup enforces for the values it is given |

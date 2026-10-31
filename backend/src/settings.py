@@ -146,12 +146,17 @@ SMOKE_CLIENT_ID: Final = "specflow-smoke"
 
 # Claim profile defaults (FR-MCP-AUTH-07): provider neutral; one source for
 # ``AuthSettings`` and ``auth.claims.ClaimPolicy``.
-TokenType = Literal["none", "keycloak", "rfc9068"]
+TokenType = Literal["none", "keycloak", "rfc9068", "claim"]
 DEFAULT_SUBJECT_CLAIM: Final = "sub"
 DEFAULT_CLIENT_ID_CLAIMS: Final = ("azp", "client_id")
 DEFAULT_EMAIL_CLAIM: Final = "email"
 DEFAULT_EMAIL_VERIFIED_CLAIM: Final = "email_verified"
 DEFAULT_IGNORED_AUDIENCES: Final = ("account",)
+# Claims an ID token carries too: as the ``AUTH_TOKEN_TYPE=claim`` marker they would make the check vacuous.
+RESERVED_MARKER_CLAIMS: Final = frozenset(
+    {"iss", "sub", "aud", "exp", "nbf", "iat", "jti", "azp", "client_id", "email", "email_verified"}
+    | {"acr", "amr", "sid", "auth_time", "nonce", "at_hash", "c_hash", "s_hash"}
+)
 # HS256 signs with SHA-256: a key shorter than its digest weakens the MAC.
 DEV_SIGNING_KEY_MIN_BYTES: Final = hashlib.sha256().digest_size
 # The documented defaults of API_PORT and WORKER_HEALTH_PORT.
@@ -300,6 +305,8 @@ class AuthSettings(_MappedSettings):
         "AUTH_CLIENT_ID_CLAIM",
         "AUTH_EMAIL_CLAIM",
         "AUTH_TOKEN_TYPE",
+        "AUTH_TOKEN_TYPE_CLAIM",
+        "AUTH_TOKEN_TYPE_VALUE",
         "AUTH_IGNORED_AUDIENCES",
     )
 
@@ -319,12 +326,30 @@ class AuthSettings(_MappedSettings):
         default=DEFAULT_EMAIL_VERIFIED_CLAIM, validation_alias="AUTH_EMAIL_VERIFIED_CLAIM"
     )
     token_type: TokenType = Field(default="none", validation_alias="AUTH_TOKEN_TYPE")
+    # The marker claim and value of ``AUTH_TOKEN_TYPE=claim``; both required there, refused elsewhere.
+    typ_claim: StrippedOptionalText = Field(default=None, validation_alias="AUTH_TOKEN_TYPE_CLAIM")
+    typ_value: StrippedOptionalText = Field(default=None, validation_alias="AUTH_TOKEN_TYPE_VALUE")
     ignored_audiences: Csv = Field(default=DEFAULT_IGNORED_AUDIENCES, validation_alias="AUTH_IGNORED_AUDIENCES")
 
     @field_validator("api_client_ids", "allowed_email_domains", "client_id_claims")
     @classmethod
     def _at_least_one(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         return _non_empty(value)
+
+    # The two checks read ``token_type`` through a local name: ruff S105 flags a "token" name compared to a literal.
+    @property
+    def checks_token_type(self) -> bool:
+        """True for every ``AUTH_TOKEN_TYPE`` but ``none``: an access token is told from an ID token."""
+
+        rule = self.token_type
+        return rule != "none"
+
+    @property
+    def uses_type_claim(self) -> bool:
+        """True for ``AUTH_TOKEN_TYPE=claim``: the marker claim and value are required."""
+
+        rule = self.token_type
+        return rule == "claim"
 
 
 class StorageSettings(_MappedSettings):
@@ -855,16 +880,40 @@ def _guard_auth(env: Mapping[str, str], bad: list[str], auth: AuthSettings) -> N
             _flag(bad, "AUTH_DEV_SIGNING_KEY")
         if env.get("KUBERNETES_SERVICE_HOST", "").strip():
             _flag(bad, "AUTH_MODE")
+    _guard_token_type_marker(bad, auth)
+
+
+def _guard_token_type_marker(bad: list[str], auth: AuthSettings) -> None:
+    """``AUTH_TOKEN_TYPE_CLAIM`` and ``_VALUE``: both under ``claim``, neither under another mode (FR-MCP-AUTH-07)."""
+
+    for name, value in (("AUTH_TOKEN_TYPE_CLAIM", auth.typ_claim), ("AUTH_TOKEN_TYPE_VALUE", auth.typ_value)):
+        if (value is not None) != auth.uses_type_claim:
+            _flag(bad, name)
+    reserved = reserved_marker_claims(
+        auth.subject_claim, auth.client_id_claims, auth.email_claim, auth.email_verified_claim
+    )
+    if auth.typ_claim in reserved:  # ``typ`` stays allowed: ``typ`` = ``Bearer`` is the ``keycloak`` rule
+        _flag(bad, "AUTH_TOKEN_TYPE_CLAIM")
+
+
+def reserved_marker_claims(
+    subject_claim: str, client_id_claims: Sequence[str], email_claim: str, email_verified_claim: str
+) -> frozenset[str]:
+    """The names ``AUTH_TOKEN_TYPE_CLAIM`` must not take: registered and identity claims, and the configured ones."""
+
+    configured = {subject_claim, *client_id_claims, email_claim, email_verified_claim}
+    return RESERVED_MARKER_CLAIMS | {name for name in configured if name}
 
 
 def _guard_api_audience(bad: list[str], auth: AuthSettings) -> None:
     """The ``api`` audience guards, every environment and mode (FR-MCP-AUTH-12).
 
-    An audience equal to a client id would accept an ID token; an ignored
-    audience equal to the API audience would drop the audience rule.
+    An audience equal to a client id would accept an ID token, so it is refused
+    unless a token-type check (any mode but ``none``) tells the access token
+    apart; an ignored audience equal to the API audience would drop the rule.
     """
 
-    if auth.api_audience in auth.api_client_ids:
+    if not auth.checks_token_type and auth.api_audience in auth.api_client_ids:
         _flag(bad, "AUTH_API_AUDIENCE")
     if auth.api_audience in auth.ignored_audiences:
         _flag(bad, "AUTH_IGNORED_AUDIENCES")
@@ -884,15 +933,21 @@ def _guard_deployed_mcp(bad: list[str], mcp: McpSettings | None) -> None:
 def _guard_mcp_audience(bad: list[str], auth: AuthSettings, mcp: McpSettings | None) -> None:
     """The ``mcp`` audience guards, every environment and mode (FR-MCP-AUTH-09).
 
-    The audience must not be a client id (an ID token would pass), the REST API
-    audience (a REST token would pass), or an ignored audience (the rule drops).
+    The audience must not be a client id (an ID token would pass) unless a
+    token-type check is set (any mode but ``none``), the REST API audience or
+    one of the REST client ids (a REST token would pass), or an ignored
+    audience (the rule drops). A client audience also refuses any MCP client
+    id that is a REST client id: each surface needs its own client.
     Only the ``mcp`` role has the settings (``mcp`` is ``None`` for the others).
     """
 
     if mcp is None:
         return
-    if mcp.audience in mcp.client_ids or mcp.audience == auth.api_audience:
-        _flag(bad, "MCP_AUDIENCE")
+    client_audience = not auth.checks_token_type and mcp.audience in mcp.client_ids
+    if client_audience or mcp.audience == auth.api_audience or mcp.audience in auth.api_client_ids:
+        _flag(bad, "MCP_AUDIENCE")  # the last: a REST client's token would pass on ``/mcp``
+    if mcp.audience in mcp.client_ids and set(mcp.client_ids) & set(auth.api_client_ids):
+        _flag(bad, "MCP_CLIENT_IDS")  # a client audience: the surfaces must not share a client
     if {mcp.audience, auth.api_audience} & set(auth.ignored_audiences):
         _flag(bad, "AUTH_IGNORED_AUDIENCES")
 

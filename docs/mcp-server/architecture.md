@@ -143,8 +143,11 @@ under `AUTH_MODE=oidc` (`https` unless `APP_ENV=local`); `AUTH_DEV_SIGNING_KEY` 
 `AUTH_MODE` (default `oidc`), `AUTH_JWKS_URL`, `AUTH_API_AUDIENCE` (default `specflow-api`, read for the audience
 refusals) and the claim profile variables of [auth.md](auth.md). Startup refuses, naming every bad variable:
 `AUTH_MODE=dev` outside `APP_ENV=local` or inside Kubernetes; under `oidc`, a dev signing key or a missing issuer; an
-invalid resource URL, an empty client list (outside `APP_ENV=local` also one holding the QA client `specflow-smoke`), an `MCP_AUDIENCE` equal to an allowed client id or to
-`AUTH_API_AUDIENCE`, and `AUTH_IGNORED_AUDIENCES` holding either surface's audience.
+invalid resource URL, an empty client list (outside `APP_ENV=local` also one holding the QA client `specflow-smoke`), an `MCP_AUDIENCE` equal to an allowed client id (only under `AUTH_TOKEN_TYPE=none`) or to
+`AUTH_API_AUDIENCE`, an `MCP_AUDIENCE` equal to a value of `AUTH_API_CLIENT_IDS`, a client id in both `MCP_CLIENT_IDS` and
+`AUTH_API_CLIENT_IDS` when `MCP_AUDIENCE` is a client id, `AUTH_IGNORED_AUDIENCES` holding either surface's audience, and `AUTH_TOKEN_TYPE_CLAIM` or
+`AUTH_TOKEN_TYPE_VALUE` set under a mode other than `claim` (both are required under `claim`, and the claim may not be a
+registered or identity claim).
 
 Constants (not settings): page size default 50 and maximum 100; request body cap 1 MiB.
 

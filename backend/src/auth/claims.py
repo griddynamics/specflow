@@ -31,6 +31,7 @@ from settings import (
     AuthSettings,
     ConfigurationError,
     TokenType,
+    reserved_marker_claims,
 )
 
 LEEWAY_SECONDS: Final = 60
@@ -60,6 +61,8 @@ class ClaimProfile(TypedDict, total=False):
     email_claim: str
     email_verified_claim: str
     typ_rule: TokenType
+    typ_claim: str
+    typ_value: str
     ignored_audiences: Iterable[str]
 
 
@@ -78,6 +81,8 @@ class ClaimPolicy:
     email_claim: str = DEFAULT_EMAIL_CLAIM
     email_verified_claim: str = DEFAULT_EMAIL_VERIFIED_CLAIM  # empty: the flag is not checked
     typ_rule: TokenType = "none"  # ``AUTH_TOKEN_TYPE``
+    typ_claim: str = ""  # ``AUTH_TOKEN_TYPE_CLAIM``: the marker claim, for ``typ_rule="claim"``
+    typ_value: str = ""  # ``AUTH_TOKEN_TYPE_VALUE``: its exact value
     ignored_audiences: frozenset[str] = frozenset(DEFAULT_IGNORED_AUDIENCES)
 
     @classmethod
@@ -92,22 +97,36 @@ class ClaimPolicy:
     ) -> ClaimPolicy:
         """Normalise the allowlists (stripped; domains lower-cased) and the claim profile.
 
-        ``profile`` holds any of the six profile fields (``typ_rule`` is ``AUTH_TOKEN_TYPE``).
-        Raises ``ConfigurationError`` for a blank audience, an empty client-id set or an
-        unknown ``typ_rule``, so an override can never silently empty a rule. Here
+        ``profile`` holds any of the profile fields (``typ_rule`` is ``AUTH_TOKEN_TYPE``;
+        ``typ_claim`` and ``typ_value`` the claim marker of ``claim``).
+        Raises ``ConfigurationError`` for a blank audience, an empty client-id set, an
+        unknown ``typ_rule``, or ``claim`` without ``typ_value`` and a ``typ_claim`` that is neither blank nor a
+        registered, identity or configured profile claim, so an override can never silently empty a rule. Here
         ``ConfigurationError.variables`` holds the ARGUMENT names (``audience``, ``client_ids``,
-        ``typ_rule``), not environment variable names.
+        ``typ_rule``, ``typ_claim``, ``typ_value``), not environment variable names.
         """
 
         audience = audience.strip()
         clients = frozenset(c.strip() for c in client_ids if c.strip())
         typ_rule = profile.get("typ_rule", "none")
+        typ_claim = profile.get("typ_claim", "").strip()
+        typ_value = profile.get("typ_value", "").strip()
+        marker = typ_rule == "claim"
+        subject_claim = profile.get("subject_claim", DEFAULT_SUBJECT_CLAIM).strip()
+        client_id_claims = tuple(
+            dict.fromkeys(c.strip() for c in profile.get("client_id_claims", DEFAULT_CLIENT_ID_CLAIMS) if c.strip())
+        )
+        email_claim = profile.get("email_claim", DEFAULT_EMAIL_CLAIM).strip()
+        email_verified_claim = profile.get("email_verified_claim", DEFAULT_EMAIL_VERIFIED_CLAIM).strip()
+        reserved = reserved_marker_claims(subject_claim, client_id_claims, email_claim, email_verified_claim)
         bad = [
             name
             for name, ok in (
                 ("audience", bool(audience)),
                 ("client_ids", bool(clients)),
                 ("typ_rule", typ_rule in TOKEN_TYPES),
+                ("typ_claim", (bool(typ_claim) and typ_claim not in reserved) or not marker),
+                ("typ_value", bool(typ_value) or not marker),
             )
             if not ok
         ]
@@ -118,13 +137,13 @@ class ClaimPolicy:
             audience=audience,
             client_ids=clients,
             allowed_email_domains=frozenset(d.strip().lower() for d in allowed_email_domains if d.strip()),
-            subject_claim=profile.get("subject_claim", DEFAULT_SUBJECT_CLAIM).strip(),
-            client_id_claims=tuple(
-                dict.fromkeys(c.strip() for c in profile.get("client_id_claims", DEFAULT_CLIENT_ID_CLAIMS) if c.strip())
-            ),
-            email_claim=profile.get("email_claim", DEFAULT_EMAIL_CLAIM).strip(),
-            email_verified_claim=profile.get("email_verified_claim", DEFAULT_EMAIL_VERIFIED_CLAIM).strip(),
+            subject_claim=subject_claim,
+            client_id_claims=client_id_claims,
+            email_claim=email_claim,
+            email_verified_claim=email_verified_claim,
             typ_rule=typ_rule,
+            typ_claim=typ_claim,
+            typ_value=typ_value,
             ignored_audiences=frozenset(
                 a.strip() for a in profile.get("ignored_audiences", DEFAULT_IGNORED_AUDIENCES) if a.strip()
             ),
@@ -158,6 +177,8 @@ class ClaimPolicy:
             email_claim=auth.email_claim,
             email_verified_claim=auth.email_verified_claim,
             typ_rule=auth.token_type,
+            typ_claim=auth.typ_claim or "",
+            typ_value=auth.typ_value or "",
             ignored_audiences=auth.ignored_audiences,
         )
 
@@ -218,13 +239,17 @@ def _client_id(claims: Mapping[str, Any], policy: ClaimPolicy) -> str:
 
 
 def _token_type_ok(claims: Mapping[str, Any], policy: ClaimPolicy, header: Mapping[str, Any] | None) -> bool:
-    """``AUTH_TOKEN_TYPE``: ``none`` skips; ``keycloak`` the claim ``typ``; ``rfc9068`` the JOSE header ``typ``."""
+    """``AUTH_TOKEN_TYPE``: ``none`` skips; ``keycloak`` the claim ``typ``; ``rfc9068`` the JOSE header ``typ``;
+    ``claim`` the configured claim equal to the configured string."""
 
     if policy.typ_rule == "keycloak":
         return claims.get("typ") == BEARER_TYP
     if policy.typ_rule == "rfc9068":
         typ = header.get("typ") if header is not None else None
         return isinstance(typ, str) and typ.lower() in AT_JWT_TYPES  # media type: case-insensitive
+    if policy.typ_rule == "claim":
+        value = claims.get(policy.typ_claim) if policy.typ_claim and policy.typ_value else None
+        return isinstance(value, str) and value == policy.typ_value  # exact, case-sensitive
     return policy.typ_rule == "none"  # only an explicit ``none`` skips; an unknown rule fails closed
 
 

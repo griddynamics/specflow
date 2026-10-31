@@ -200,16 +200,18 @@ def tool_app(
     repo: FakeRepo | None = None,
     reader: GraphReader | None = None,
     declarations: Sequence[ToolDeclaration] = TOOLS,
+    env: dict[str, str] | None = None,
 ) -> tuple[Starlette, FakeRepo]:
     """The MCP app with the real tool registry over ``FakeRepo`` (the session factory; ``repo`` shares one between
     apps) and ``executor`` (or a live ``reader`` when it is ``None``); ``declarations`` replaces the shipped tools
-    (wrapper tests)."""
+    (wrapper tests); ``env`` replaces the dev-mode ``mcp_env`` (an oidc one, FR-MCP-AUTH-07)."""
 
     repo = repo or FakeRepo()
     repo.install(monkeypatch)
     used = ontology or shipped_ontology()
     runtime = fake_runtime(reader=reader or GraphReader(executor, used), session_factory=repo, ontology=used)
-    return build_app(mcp_env(valid_env), runtime=runtime, tools=lambda server: install(server, declarations)), repo
+    used_env = env or mcp_env(valid_env)
+    return build_app(used_env, runtime=runtime, tools=lambda server: install(server, declarations)), repo
 
 
 async def call(session: ClientSession, tool: str, **arguments: Any) -> CallToolResult:

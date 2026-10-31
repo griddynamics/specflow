@@ -84,3 +84,54 @@ def test_the_principal_reports_whether_the_verified_flag_was_checked() -> None:
     checked = validate(token, _build(), now=NOW)
 
     assert (unchecked.email_verified, checked.email_verified) == (False, True)
+
+
+@pytest.mark.parametrize(
+    ("profile", "variables"),
+    [
+        ({}, ("typ_claim", "typ_value")),
+        ({"typ_claim": "x_token_kind"}, ("typ_value",)),
+        ({"typ_value": "access"}, ("typ_claim",)),
+        ({"typ_claim": "  ", "typ_value": "access"}, ("typ_claim",)),
+    ],
+)
+def test_the_claim_rule_needs_its_claim_and_value(profile: dict[str, str], variables: tuple[str, ...]) -> None:
+    """FR-MCP-AUTH-07: ``claim`` without a claim name or value is refused by argument name."""
+
+    with pytest.raises(ConfigurationError) as raised:
+        _build(typ_rule="claim", **profile)
+
+    assert raised.value.variables == variables
+
+
+def test_the_claim_rule_is_built_from_settings() -> None:
+    """FR-MCP-AUTH-07."""
+
+    env = {"AUTH_TOKEN_TYPE": "claim", "AUTH_TOKEN_TYPE_CLAIM": "x_token_kind", "AUTH_TOKEN_TYPE_VALUE": "access"}
+    auth = auth_settings(**env)
+
+    policy = ClaimPolicy.from_settings(auth)
+
+    assert (policy.typ_rule, policy.typ_claim, policy.typ_value) == ("claim", "x_token_kind", "access")
+
+
+@pytest.mark.parametrize(
+    "name", ["iss", "sub", "azp", "email", "acr", "amr", "sid", "auth_time", "nonce", "at_hash", "c_hash", "s_hash"]
+)
+def test_the_claim_rule_refuses_a_registered_or_identity_claim_as_its_marker(name: str) -> None:
+    """FR-MCP-AUTH-07: ``typ_claim`` is named, as the settings guard names ``AUTH_TOKEN_TYPE_CLAIM``."""
+
+    with pytest.raises(ConfigurationError) as raised:
+        _build(typ_rule="claim", typ_claim=name, typ_value="access")
+
+    assert raised.value.variables == ("typ_claim",)
+
+
+def test_the_claim_rule_refuses_a_configured_profile_claim_and_keeps_typ() -> None:
+    """FR-MCP-AUTH-07."""
+
+    with pytest.raises(ConfigurationError) as raised:
+        _build(typ_rule="claim", typ_claim="oid", typ_value="access", subject_claim="oid")
+
+    assert raised.value.variables == ("typ_claim",)
+    assert _build(typ_rule="claim", typ_claim="typ", typ_value="Bearer").typ_claim == "typ"
