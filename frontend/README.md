@@ -11,7 +11,7 @@ before changing code.
 From the repo root (the stack, the normal way):
 
 ```shell
-make env-local                   # once: writes .env.local with random local secrets
+make env-local                   # writes .env.local: random local secrets, then asks for your LLM settings
 make up                          # the stack; the frontend container (the image Infra builds) on http://127.0.0.1:3001
 ```
 

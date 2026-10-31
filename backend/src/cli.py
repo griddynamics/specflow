@@ -2,7 +2,7 @@
 
 ``specflow api [--check-config]`` ·
 ``specflow worker [--queue parse|agents]... [--check] [--check-config]`` ·
-``specflow migrate``. A role's work lives in a module that is imported only
+``specflow migrate`` · ``specflow mcp [--check-config]``. A role's work lives in a module that is imported only
 when its command runs, so ``--check-config`` and ``--help`` never depend on it.
 Each work module exposes ``run(settings: RoleSettings)`` returning an exit
 code, ``None`` (success) or ``bool``.
@@ -37,13 +37,14 @@ EXIT_CONFIGURATION: Final = 2
 
 _API_MODULE: Final = "api.server"
 _WORKER_MODULE: Final = "temporal.worker"
+_MCP_MODULE: Final = "api.mcp.server"
 _MIGRATE_MODULE: Final = "db.migrate"
 _HEALTH_MODULE: Final = "health"
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="specflow", description="Run a specflow role.")
-    roles = parser.add_subparsers(dest="role", metavar="{api,worker,migrate}", required=True)
+    roles = parser.add_subparsers(dest="role", metavar="{api,worker,migrate,mcp}", required=True)
     api = roles.add_parser("api", help="serve the HTTP API")
     api.add_argument("--check-config", action="store_true", help="validate settings and exit")
     worker = roles.add_parser("worker", help="poll the Temporal task queues")
@@ -56,6 +57,8 @@ def _parser() -> argparse.ArgumentParser:
     worker.add_argument("--check", action="store_true", help="probe dependencies and exit 0 or 1")
     worker.add_argument("--check-config", action="store_true", help="validate settings and exit")
     roles.add_parser("migrate", help="apply database migrations")
+    mcp = roles.add_parser("mcp", help="serve the MCP endpoint")
+    mcp.add_argument("--check-config", action="store_true", help="validate settings and exit")
     return parser
 
 
@@ -124,6 +127,15 @@ def _api(args: argparse.Namespace) -> int:
     return _run(_API_MODULE, "run", settings)
 
 
+def _mcp(args: argparse.Namespace) -> int:
+    settings = _load("mcp")
+    if settings is None:
+        return EXIT_CONFIGURATION
+    if args.check_config:
+        return EXIT_OK
+    return _run(_MCP_MODULE, "run", settings)
+
+
 def _worker(args: argparse.Namespace) -> int:
     settings = _load("worker", args.queue)
     if settings is None:
@@ -147,6 +159,7 @@ _COMMANDS: Final[dict[str, Callable[[argparse.Namespace], int]]] = {
     "api": _api,
     "worker": _worker,
     "migrate": _migrate,
+    "mcp": _mcp,
 }
 
 

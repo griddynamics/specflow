@@ -66,6 +66,7 @@ def work(monkeypatch):
     install("api.server", "api")
     install("temporal.worker", "worker")
     install("db.migrate", "migrate")
+    install("api.mcp.server", "mcp")
     health = types.ModuleType("health")
 
     def run_checks(*args, **kwargs):
@@ -81,13 +82,13 @@ def work(monkeypatch):
 # --- parsing --------------------------------------------------------------
 
 
-def test_help_lists_exactly_the_three_roles(capsys, spy):
+def test_help_lists_exactly_the_four_roles(capsys, spy):
     with pytest.raises(SystemExit) as raised:
         cli.main(["--help"])
 
     assert raised.value.code == 0
     out = capsys.readouterr().out
-    assert "{api,worker,migrate}" in out
+    assert "{api,worker,migrate,mcp}" in out
     for other in ("check", "frontend", "all"):
         assert f"\n    {other} " not in out
     assert spy.closed == 1
@@ -335,3 +336,16 @@ class Check:
 )
 def test_a_mapping_of_checks_exits_0_only_when_all_are_ok(result, code):
     assert cli._exit_code(result) == code
+
+
+def test_check_config_refuses_an_api_audience_equal_to_a_client_id(env, work, spy):
+    """FR-MCP-AUTH-12: ``specflow api --check-config`` fails naming AUTH_API_AUDIENCE."""
+
+    env.setenv("AUTH_API_AUDIENCE", "specflow-web")
+
+    assert cli.main(["api", "--check-config"]) == cli.EXIT_CONFIGURATION
+
+    [(level, event, fields)] = spy.events
+    assert (level, event) == (ERROR, "config.validation.failed")
+    assert fields["variables"] == ["AUTH_API_AUDIENCE"]
+    assert work.calls == {}

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -23,6 +24,7 @@ from graph.core import (
     InfrastructureUnavailableError,
     LLMError,
     LLMFatalError,
+    NodePage,
     load_ontology,
 )
 from graph.core import reader as reader_module
@@ -38,7 +40,13 @@ from graph.core.reader import (
     _lucene_query,
     _query_terms,
 )
-from graph_support import llm_config
+from graph_support import (
+    RENAMED_FEATURE_LABEL,
+    RENAMED_FEATURE_PREFIX,
+    llm_config,
+    load_feature_renamed_ontology,
+    shipped_ontology,
+)
 
 ONT = load_ontology()
 FR = "FunctionalRequirement"
@@ -57,9 +65,11 @@ class ScriptedExecutor(Executor):
     def __init__(self, answers: Mapping[str, Answer]) -> None:
         self.answers = dict(answers)
         self.calls: list[tuple[str, dict[str, Any]]] = []
+        self.project_ids: list[str] = []
 
-    async def read(self, query: Any, _project_id: str, /, **params: Any) -> list[dict[str, Any]]:
+    async def read(self, query: Any, project_id: str, /, **params: Any) -> list[dict[str, Any]]:
         assert query.binds_project_id()
+        self.project_ids.append(project_id)
         self.calls.append((query.name, params))
         if query.name not in self.answers:
             raise AssertionError(f"unscripted query {query.name}")
@@ -708,3 +718,190 @@ async def test_text_without_ids_runs_no_id_lookup(text: str) -> None:
 async def test_an_id_naming_no_node_falls_back_to_the_fused_results() -> None:
     hits = await reader(id_executor([], fulltext=[hit("X", 1.0)])).find_nodes(PROJECT, "FR-404")
     assert [(h.node.spec_id, h.matched) for h in hits] == [("X", "fulltext")]
+
+
+# --- FR-MCP-TOOL-10: paged read -------------------------------------------------------------------
+
+
+def paged_executor(spec_ids: list[str], label: str = FR) -> ScriptedExecutor:
+    """Answers ``read_nodes_page`` like the database (ids after ``after``, sorted, the first ``limit``) and
+    ``count_nodes`` with the number of ids."""
+
+    def page_rows(params: Mapping[str, Any]) -> list[dict[str, Any]]:
+        after = params["after"]
+        ordered = sorted(i for i in spec_ids if after is None or i > after)
+        return [node_row(i, label) for i in ordered[: params["limit"]]]
+
+    return ScriptedExecutor({"read_nodes_page": page_rows, "count_nodes": lambda _params: [{"total": len(spec_ids)}]})
+
+
+def fr_ids(count: int) -> list[str]:
+    return [f"FR-{n:03d}" for n in range(1, count + 1)]
+
+
+async def test_fr_mcp_tool_10_the_page_reads_limit_plus_one_rows_with_its_parameters() -> None:
+    """FR-MCP-TOOL-10 / FR-MCP-TOOL-04: ``limit + 1`` is the query's limit, ``read_nodes`` is never used."""
+
+    executor = paged_executor(fr_ids(3))
+    result = await reader(executor).nodes_page(PROJECT, [FR])
+    assert executor.calls == [("read_nodes_page", {"labels": [FR], "after": None, "limit": 51, "retired": "retired"})]
+    assert executor.project_ids == [PROJECT]
+    assert [n.spec_id for n in result.items] == fr_ids(3)
+    assert "read_nodes" not in executor.names()
+
+
+async def test_fr_mcp_tool_10_the_page_limit_parameter_is_limit_plus_one_and_after_is_passed() -> None:
+    """FR-MCP-TOOL-10 / FR-MCP-TOOL-04: ``limit=2`` binds 3, ``after`` is passed as given."""
+
+    executor = paged_executor(fr_ids(3))
+    await reader(executor).nodes_page(PROJECT, [FR], limit=2, after="FR-001")
+    assert executor.calls[0][1]["limit"] == 3
+    assert executor.calls[0][1]["after"] == "FR-001"
+    assert "read_nodes" not in executor.names()
+
+
+async def test_fr_mcp_tool_10_count_binds_the_project_and_labels() -> None:
+    """FR-MCP-TOOL-10: ``count_nodes`` sends the labels, binds the project, and returns the total."""
+
+    executor = paged_executor(fr_ids(7))
+    assert await reader(executor).count_nodes(PROJECT, [FR]) == 7
+    assert executor.calls == [("count_nodes", {"labels": [FR]})]
+    assert executor.project_ids == [PROJECT]
+
+
+async def test_fr_mcp_tool_10_count_of_no_rows_is_zero() -> None:
+    """FR-MCP-TOOL-10: an answer without rows counts 0."""
+
+    executor = ScriptedExecutor({"count_nodes": lambda _params: []})
+    assert await reader(executor).count_nodes(PROJECT, [FR]) == 0
+
+
+async def test_fr_mcp_tool_10_120_nodes_page_as_50_50_20() -> None:
+    """FR-MCP-TOOL-10: 120 nodes by 50 give 50, 50, 20; ``next_after`` is None at the end; count 120."""
+
+    executor = paged_executor(fr_ids(120))
+    r = reader(executor)
+    pages: list[NodePage] = []
+    after: str | None = None
+    while True:
+        current = await r.nodes_page(PROJECT, [FR], limit=50, after=after)
+        pages.append(current)
+        after = current.next_after
+        if after is None:
+            break
+    assert [len(p.items) for p in pages] == [50, 50, 20]
+    assert [p.next_after for p in pages] == ["FR-050", "FR-100", None]
+    assert [n.spec_id for p in pages for n in p.items] == fr_ids(120)
+    assert await r.count_nodes(PROJECT, [FR]) == 120
+
+
+async def test_fr_mcp_tool_10_exactly_limit_rows_left_gives_no_next_after() -> None:
+    """FR-MCP-TOOL-10: exactly ``limit`` rows left is the last page."""
+
+    result = await reader(paged_executor(fr_ids(50))).nodes_page(PROJECT, [FR], limit=50)
+    assert (len(result.items), result.next_after) == (50, None)
+
+
+async def test_fr_mcp_tool_10_one_row_more_than_limit_gives_the_last_kept_spec_id() -> None:
+    """FR-MCP-TOOL-10: ``limit + 1`` rows give ``limit`` items and ``next_after`` their last ``spec_id``."""
+
+    result = await reader(paged_executor(fr_ids(51))).nodes_page(PROJECT, [FR], limit=50)
+    assert (len(result.items), result.next_after) == (50, "FR-050")
+
+
+async def test_fr_mcp_tool_10_an_empty_project_gives_an_empty_page() -> None:
+    """FR-MCP-TOOL-10: no nodes give no items, no ``next_after``, count 0."""
+
+    r = reader(paged_executor([]))
+    assert await r.nodes_page(PROJECT, [FR]) == NodePage(items=[], next_after=None)
+    assert await r.count_nodes(PROJECT, [FR]) == 0
+
+
+async def test_fr_mcp_tool_10_a_skipped_malformed_row_cannot_hide_the_next_page() -> None:
+    """FR-MCP-TOOL-10: ``next_after`` follows the raw rows; a row without a spec label is skipped from items only."""
+
+    rows = [node_row("FR-001"), {**node_row("FR-002"), "labels": ["SpecNode"]}, node_row("FR-003")]
+    executor = ScriptedExecutor({"read_nodes_page": lambda params: rows[: params["limit"]]})
+    result = await reader(executor).nodes_page(PROJECT, [FR], limit=2)
+    assert [n.spec_id for n in result.items] == ["FR-001"]
+    assert result.next_after == "FR-002"
+
+
+@pytest.mark.parametrize("limit", [0, -1, 501, True, 2.5, "10", None])
+async def test_fr_mcp_tool_10_an_invalid_limit_raises_before_any_query(limit: Any) -> None:
+    """FR-MCP-TOOL-10: ``limit`` is an integer from 1 to 500, else ``invalid_limit``."""
+
+    executor = paged_executor(fr_ids(3))
+    with pytest.raises(ConfigurationError) as raised:
+        await reader(executor).nodes_page(PROJECT, [FR], limit=limit)
+    assert raised.value.code == "invalid_limit"
+    assert executor.calls == []
+
+
+@pytest.mark.parametrize("limit", [1, 500])
+async def test_fr_mcp_tool_10_the_limit_bounds_are_accepted(limit: int) -> None:
+    """FR-MCP-TOOL-10: 1 and 500 are valid."""
+
+    executor = paged_executor(fr_ids(3))
+    await reader(executor).nodes_page(PROJECT, [FR], limit=limit)
+    assert executor.calls[0][1]["limit"] == limit + 1
+
+
+@pytest.mark.parametrize("labels", [["Finding"], ["Document"], [FR, "Nope"], "SpecNode"])
+async def test_fr_mcp_tool_10_unknown_and_non_spec_labels_raise_for_both_methods(labels: Any) -> None:
+    """FR-MCP-TOOL-10: labels are validated as in ``nodes`` (spec labels only); no query runs."""
+
+    executor = paged_executor(fr_ids(3))
+    r = reader(executor)
+    with pytest.raises(ConfigurationError) as page_error:
+        await r.nodes_page(PROJECT, labels)
+    with pytest.raises(ConfigurationError) as count_error:
+        await r.count_nodes(PROJECT, labels)
+    assert (page_error.value.code, count_error.value.code) == ("unknown_label", "unknown_label")
+    assert executor.calls == []
+
+
+async def test_fr_mcp_tool_10_none_means_every_spec_label_and_an_empty_list_none() -> None:
+    """FR-MCP-TOOL-10: ``labels`` None selects every spec label, ``[]`` matches nothing (as in ``nodes``)."""
+
+    executor = paged_executor([])
+    r = reader(executor)
+    await r.nodes_page(PROJECT, None)
+    await r.nodes_page(PROJECT, [])
+    assert executor.calls[0][1]["labels"] == list(r._spec_labels)
+    assert executor.calls[1][1]["labels"] == []
+
+
+async def test_fr_mcp_tool_10_an_invalid_project_id_raises_before_any_query() -> None:
+    """FR-MCP-TOOL-10: the project id is validated first."""
+
+    executor = paged_executor(fr_ids(1))
+    with pytest.raises(ConfigurationError):
+        await reader(executor).nodes_page("", [FR])
+    with pytest.raises(ConfigurationError):
+        await reader(executor).count_nodes("", [FR])
+    assert executor.calls == []
+
+
+async def test_fr_mcp_tool_10_the_renamed_feature_ontology_loads_and_pages_its_own_label(tmp_path: Path) -> None:
+    """FR-MCP-TOOL-10 / FR-MCP-TOOL-06: only the feature label and prefix change; the old label is unknown."""
+
+    renamed = load_feature_renamed_ontology(tmp_path)
+    shipped = shipped_ontology()
+    feature = renamed.node_types["feature"]
+    assert (feature.label, feature.id_prefix) == (RENAMED_FEATURE_LABEL, RENAMED_FEATURE_PREFIX)
+    assert shipped.node_types["feature"].label not in renamed.labels
+    for key, node_type in shipped.node_types.items():
+        if key != "feature":
+            assert (renamed.node_types[key].label, renamed.node_types[key].id_prefix) == (
+                node_type.label,
+                node_type.id_prefix,
+            )
+    executor = paged_executor(["FUNK::A"], RENAMED_FEATURE_LABEL)
+    r = GraphReader(executor, renamed)
+    result = await r.nodes_page(PROJECT, [RENAMED_FEATURE_LABEL])
+    assert [n.label for n in result.items] == [RENAMED_FEATURE_LABEL]
+    assert executor.calls[0][1]["labels"] == [RENAMED_FEATURE_LABEL]
+    with pytest.raises(ConfigurationError) as raised:
+        await r.nodes_page(PROJECT, [shipped.node_types["feature"].label])
+    assert raised.value.code == "unknown_label"

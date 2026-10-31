@@ -11,7 +11,9 @@ test passes an explicit mapping. Nothing here reads ``.env.local``;
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import os
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from http.client import HTTP_PORT, HTTPS_PORT
@@ -136,16 +138,35 @@ def _describe(error: ValidationError) -> str:
 
 # --- Role bindings ---------------------------------------------------------
 
-Role = Literal["api", "worker", "migrate"]
-ROLES: Final[tuple[str, ...]] = ("api", "worker", "migrate")
+Role = Literal["api", "worker", "migrate", "mcp"]
+ROLES: Final[tuple[str, ...]] = ("api", "worker", "migrate", "mcp")
 APP_ENVIRONMENTS: Final = ("local", "dev", "prod")
 WORKER_QUEUE_NAMES: Final = ("parse", "agents")
 SMOKE_CLIENT_ID: Final = "specflow-smoke"
+
+# Claim profile defaults (FR-MCP-AUTH-07): provider neutral; one source for
+# ``AuthSettings`` and ``auth.claims.ClaimPolicy``.
+TokenType = Literal["none", "keycloak", "rfc9068", "claim"]
+DEFAULT_SUBJECT_CLAIM: Final = "sub"
+DEFAULT_CLIENT_ID_CLAIMS: Final = ("azp", "client_id")
+DEFAULT_EMAIL_CLAIM: Final = "email"
+DEFAULT_EMAIL_VERIFIED_CLAIM: Final = "email_verified"
+DEFAULT_IGNORED_AUDIENCES: Final = ("account",)
+# Claims an ID token carries too: as the ``AUTH_TOKEN_TYPE=claim`` marker they would make the check vacuous.
+RESERVED_MARKER_CLAIMS: Final = frozenset(
+    {"iss", "sub", "aud", "exp", "nbf", "iat", "jti", "azp", "client_id", "email", "email_verified"}
+    | {"acr", "amr", "sid", "auth_time", "nonce", "at_hash", "c_hash", "s_hash"}
+)
 # HS256 signs with SHA-256: a key shorter than its digest weakens the MAC.
 DEV_SIGNING_KEY_MIN_BYTES: Final = hashlib.sha256().digest_size
 # The documented defaults of API_PORT and WORKER_HEALTH_PORT.
 API_PORT: Final = 8000
 WORKER_HEALTH_PORT: Final = 8001
+# The MCP role (FR-MCP-OPS-01): default port, the one endpoint path, the default client.
+MCP_PORT: Final = 8002
+MCP_PATH: Final = "/mcp"
+MCP_CLIENT_ID: Final = "specflow-mcp"
+PRM_PATH: Final = "/.well-known/oauth-protected-resource"
 _NO_PREFIX: Final = "__SPECFLOW_NO_ENV__"
 
 
@@ -181,6 +202,16 @@ def _text(value: Any) -> Any:
     return value
 
 
+def _strip(value: Any) -> Any:
+    return value.strip() if isinstance(value, str) else value
+
+
+def _strip_or_none(value: Any) -> Any:
+    """Stripped text, a blank one is unset: guards, policy and PRM then see one value."""
+
+    return _blank_to_none(_strip(value))
+
+
 def _csv(value: Any) -> Any:
     if isinstance(value, str):
         return tuple(item.strip() for item in value.split(",") if item.strip())
@@ -195,8 +226,11 @@ def _non_empty(value: tuple[str, ...]) -> tuple[str, ...]:
 
 Text = Annotated[str, BeforeValidator(_text)]
 OptionalText = Annotated[str | None, BeforeValidator(_blank_to_none)]
+StrippedOptionalText = Annotated[str | None, BeforeValidator(_strip_or_none)]
 OptionalSecret = Annotated[SecretStr | None, BeforeValidator(_blank_to_none)]
 Csv = Annotated[tuple[str, ...], BeforeValidator(_csv)]
+# Blank stays "": ``AUTH_EMAIL_VERIFIED_CLAIM`` empty means "no check", not "unset".
+BlankableText = Annotated[str, BeforeValidator(_strip)]
 
 
 class _MappedSettings(BaseSettings):
@@ -267,6 +301,13 @@ class AuthSettings(_MappedSettings):
         "AUTH_MODE",
         "AUTH_API_AUDIENCE",
         "AUTH_API_CLIENT_IDS",
+        "AUTH_SUBJECT_CLAIM",
+        "AUTH_CLIENT_ID_CLAIM",
+        "AUTH_EMAIL_CLAIM",
+        "AUTH_TOKEN_TYPE",
+        "AUTH_TOKEN_TYPE_CLAIM",
+        "AUTH_TOKEN_TYPE_VALUE",
+        "AUTH_IGNORED_AUDIENCES",
     )
 
     mode: Literal["oidc", "dev"] = Field(default="oidc", validation_alias="AUTH_MODE")
@@ -277,11 +318,38 @@ class AuthSettings(_MappedSettings):
     api_client_ids: Csv = Field(default=("specflow-web",), validation_alias="AUTH_API_CLIENT_IDS")
     allowed_email_domains: Csv = Field(validation_alias="AUTH_ALLOWED_EMAIL_DOMAINS")
     dev_signing_key: OptionalSecret = Field(default=None, validation_alias="AUTH_DEV_SIGNING_KEY")
+    # The claim profile (FR-MCP-AUTH-07). Only ``email_verified_claim`` is not blank-is-unset.
+    subject_claim: Text = Field(default=DEFAULT_SUBJECT_CLAIM, validation_alias="AUTH_SUBJECT_CLAIM")
+    client_id_claims: Csv = Field(default=DEFAULT_CLIENT_ID_CLAIMS, validation_alias="AUTH_CLIENT_ID_CLAIM")
+    email_claim: Text = Field(default=DEFAULT_EMAIL_CLAIM, validation_alias="AUTH_EMAIL_CLAIM")
+    email_verified_claim: BlankableText = Field(
+        default=DEFAULT_EMAIL_VERIFIED_CLAIM, validation_alias="AUTH_EMAIL_VERIFIED_CLAIM"
+    )
+    token_type: TokenType = Field(default="none", validation_alias="AUTH_TOKEN_TYPE")
+    # The marker claim and value of ``AUTH_TOKEN_TYPE=claim``; both required there, refused elsewhere.
+    typ_claim: StrippedOptionalText = Field(default=None, validation_alias="AUTH_TOKEN_TYPE_CLAIM")
+    typ_value: StrippedOptionalText = Field(default=None, validation_alias="AUTH_TOKEN_TYPE_VALUE")
+    ignored_audiences: Csv = Field(default=DEFAULT_IGNORED_AUDIENCES, validation_alias="AUTH_IGNORED_AUDIENCES")
 
-    @field_validator("api_client_ids", "allowed_email_domains")
+    @field_validator("api_client_ids", "allowed_email_domains", "client_id_claims")
     @classmethod
     def _at_least_one(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         return _non_empty(value)
+
+    # The two checks read ``token_type`` through a local name: ruff S105 flags a "token" name compared to a literal.
+    @property
+    def checks_token_type(self) -> bool:
+        """True for every ``AUTH_TOKEN_TYPE`` but ``none``: an access token is told from an ID token."""
+
+        rule = self.token_type
+        return rule != "none"
+
+    @property
+    def uses_type_claim(self) -> bool:
+        """True for ``AUTH_TOKEN_TYPE=claim``: the marker claim and value are required."""
+
+        rule = self.token_type
+        return rule == "claim"
 
 
 class StorageSettings(_MappedSettings):
@@ -367,6 +435,107 @@ class Neo4jSettings(_MappedSettings):
             password=self.password,
             database=self.database,
         )
+
+
+_DNS_NAME: Final = re.compile(r"[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*")
+
+
+def _is_host(netloc: str, host: str) -> bool:
+    """A DNS name of letter-digit-hyphen labels (no trailing dot), or a bracketed IP literal."""
+
+    if netloc.startswith("["):
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            return False
+        return True
+    return _DNS_NAME.fullmatch(host) is not None
+
+
+def _resource_url(value: Any) -> Any:
+    """``MCP_RESOURCE_URL``: a canonical http(s) URL with the path exactly ``/mcp`` (FR-MCP-AUTH-09).
+
+    Canonical means as a client normalizes it, so the PRM ``resource`` and the default audience agree.
+    """
+
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text.isascii() or not text.isprintable() or any(c in text for c in ' "\\?#'):
+        raise ValueError("must be a plain http(s) URL")
+    try:
+        parts = urlsplit(text)
+        _ = parts.port
+        host = parts.hostname
+    except ValueError as error:
+        raise ValueError("must be a valid URL") from error
+    if parts.scheme not in ("http", "https") or not host or "@" in parts.netloc:
+        raise ValueError("must be an http(s) URL with a host and no user information")
+    if parts.path != MCP_PATH:
+        raise ValueError(f"path must be exactly {MCP_PATH}")
+    if text != text.lower() or (parts.scheme, parts.port) in {("https", HTTPS_PORT), ("http", HTTP_PORT)}:
+        raise ValueError("must be canonical: lower-case scheme and host, no default port")
+    if parts.netloc.endswith(":") or not _is_host(parts.netloc, host):
+        raise ValueError("must have a DNS host name or a bracketed IP literal, and no empty port")
+    return text
+
+
+def _exact_entries(value: tuple[str, ...]) -> tuple[str, ...]:
+    """Host and origin allowlists match exactly: a wildcard or whitespace entry is refused."""
+
+    if any("*" in item or any(c.isspace() for c in item) for item in value):
+        raise ValueError("entries match exactly: no wildcard, no whitespace")
+    return tuple(dict.fromkeys(value))
+
+
+ResourceUrl = Annotated[str, BeforeValidator(_resource_url)]
+
+
+class McpSettings(_MappedSettings):
+    """The MCP role (FR-MCP-OPS-01): the public resource URL, audience, clients and transport allowlists."""
+
+    blank_is_unset: ClassVar[tuple[str, ...]] = ("MCP_AUDIENCE", "MCP_CLIENT_IDS", "MCP_PORT")
+
+    resource_url: ResourceUrl = Field(validation_alias="MCP_RESOURCE_URL")
+    audience_override: StrippedOptionalText = Field(default=None, validation_alias="MCP_AUDIENCE")
+    client_ids: Csv = Field(default=(MCP_CLIENT_ID,), validation_alias="MCP_CLIENT_IDS")
+    allowed_hosts: Csv = Field(default=(), validation_alias="MCP_ALLOWED_HOSTS")
+    allowed_origins: Csv = Field(default=(), validation_alias="MCP_ALLOWED_ORIGINS")
+    port: int = Field(default=MCP_PORT, ge=1, le=65535, validation_alias="MCP_PORT")
+
+    @field_validator("client_ids")
+    @classmethod
+    def _at_least_one(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        return _non_empty(value)
+
+    @field_validator("allowed_hosts", "allowed_origins")
+    @classmethod
+    def _exact(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        return _exact_entries(value)
+
+    @property
+    def audience(self) -> str:
+        """The token audience: ``MCP_AUDIENCE``, else the resource URL itself."""
+
+        return self.audience_override or self.resource_url
+
+    @property
+    def prm_url(self) -> str:
+        """The protected resource metadata URL (FR-MCP-AUTH-01): the origin plus the path-suffixed well-known path."""
+
+        parts = urlsplit(self.resource_url)
+        return f"{parts.scheme}://{parts.netloc}{PRM_PATH}{MCP_PATH}"
+
+    @property
+    def transport_hosts(self) -> tuple[str, ...]:
+        """Allowed ``Host`` values: the resource ``host[:port]`` as clients send it, then ``MCP_ALLOWED_HOSTS``."""
+
+        parts = urlsplit(self.resource_url)
+        host = (parts.hostname or "").lower()
+        host = f"[{host}]" if ":" in host else host
+        default = {"https": HTTPS_PORT, "http": HTTP_PORT}[parts.scheme]
+        resource = host if parts.port in (None, default) else f"{host}:{parts.port}"
+        return tuple(dict.fromkeys((resource, *self.allowed_hosts)))
 
 
 class AgentRunSettings(_MappedSettings):
@@ -462,6 +631,7 @@ class RoleSettings:
     agent: AgentSettings | None = None
     langfuse: LangfuseSettings | None = None
     graph_build: GraphBuildSettings | None = None  # api only; None = feature off
+    mcp: McpSettings | None = None  # mcp role only
 
 
 def _flag(bad: list[str], name: str) -> None:
@@ -527,6 +697,7 @@ class _Bindings:
     agent: AgentSettings | None = None
     langfuse: LangfuseSettings | None = None
     graph_build: GraphBuildSettings | None = None
+    mcp: McpSettings | None = None
 
 
 def _build_bindings(role: str, source: Mapping[str, str], bad: list[str]) -> _Bindings:
@@ -537,14 +708,17 @@ def _build_bindings(role: str, source: Mapping[str, str], bad: list[str]) -> _Bi
         database=_build_database(source, bad),
         agent_database=_build(AgentDatabaseSettings, source, bad),
     )
-    if role != "migrate":
+    if role not in ("migrate", "mcp"):  # the mcp role builds no Temporal, storage or Langfuse binding
         found.temporal = _build(TemporalSettings, source, bad)
         found.langfuse = _build(LangfuseSettings, source, bad)
         found.storage = _build_storage(source, bad)
-    if role == "api":
+    if role in ("api", "mcp"):
         found.auth = _build(AuthSettings, source, bad)
-        if GraphBuildSettings.enabled_in(source):
-            found.graph_build = _build(GraphBuildSettings, source, bad)
+    if role == "mcp":
+        found.neo4j = _build(Neo4jSettings, source, bad)
+        found.mcp = _build(McpSettings, source, bad)
+    if role == "api" and GraphBuildSettings.enabled_in(source):
+        found.graph_build = _build(GraphBuildSettings, source, bad)
     if role == "api" or (role == "worker" and "agents" in _worker_queues(source)):
         found.neo4j = _build(Neo4jSettings, source, bad)
         found.agent_run = _build(AgentRunSettings, source, bad)
@@ -593,7 +767,7 @@ def load_settings(
         raise ConfigurationError(bad)
     if role == "migrate":
         agent_database = agent_database.model_copy(update={"password": None})
-    elif role == "api":
+    elif role in ("api", "mcp"):
         agent_database = None
     return RoleSettings(
         role=role,
@@ -608,6 +782,7 @@ def load_settings(
         agent=found.agent,
         langfuse=found.langfuse,
         graph_build=found.graph_build,
+        mcp=found.mcp,
     )
 
 
@@ -653,12 +828,16 @@ def _apply_guards(
         _flag(bad, "LANGFUSE_BASE_URL")
     if auth is not None:
         _guard_auth(env, bad, auth)
+        if role == "api":
+            _guard_api_audience(bad, auth)
+        _guard_mcp_audience(bad, auth, found.mcp)
     _guard_storage(bad, storage)
     app_env = env.get("APP_ENV", "").strip()
     if app_env not in APP_ENVIRONMENTS or app_env == "local":
         return
     if auth is not None:
-        _guard_deployed_auth(bad, auth)
+        _guard_deployed_auth(bad, auth, smoke_client=role == "api")
+    _guard_deployed_mcp(bad, found.mcp)
     _guard_deployed_storage(bad, storage)
     if neo4j is not None and not neo4j.password.get_secret_value().strip():
         _flag(bad, "NEO4J_PASSWORD")
@@ -701,9 +880,79 @@ def _guard_auth(env: Mapping[str, str], bad: list[str], auth: AuthSettings) -> N
             _flag(bad, "AUTH_DEV_SIGNING_KEY")
         if env.get("KUBERNETES_SERVICE_HOST", "").strip():
             _flag(bad, "AUTH_MODE")
+    _guard_token_type_marker(bad, auth)
 
 
-def _guard_deployed_auth(bad: list[str], auth: AuthSettings) -> None:
+def _guard_token_type_marker(bad: list[str], auth: AuthSettings) -> None:
+    """``AUTH_TOKEN_TYPE_CLAIM`` and ``_VALUE``: both under ``claim``, neither under another mode (FR-MCP-AUTH-07)."""
+
+    for name, value in (("AUTH_TOKEN_TYPE_CLAIM", auth.typ_claim), ("AUTH_TOKEN_TYPE_VALUE", auth.typ_value)):
+        if (value is not None) != auth.uses_type_claim:
+            _flag(bad, name)
+    reserved = reserved_marker_claims(
+        auth.subject_claim, auth.client_id_claims, auth.email_claim, auth.email_verified_claim
+    )
+    if auth.typ_claim in reserved:  # ``typ`` stays allowed: ``typ`` = ``Bearer`` is the ``keycloak`` rule
+        _flag(bad, "AUTH_TOKEN_TYPE_CLAIM")
+
+
+def reserved_marker_claims(
+    subject_claim: str, client_id_claims: Sequence[str], email_claim: str, email_verified_claim: str
+) -> frozenset[str]:
+    """The names ``AUTH_TOKEN_TYPE_CLAIM`` must not take: registered and identity claims, and the configured ones."""
+
+    configured = {subject_claim, *client_id_claims, email_claim, email_verified_claim}
+    return RESERVED_MARKER_CLAIMS | {name for name in configured if name}
+
+
+def _guard_api_audience(bad: list[str], auth: AuthSettings) -> None:
+    """The ``api`` audience guards, every environment and mode (FR-MCP-AUTH-12).
+
+    An audience equal to a client id would accept an ID token, so it is refused
+    unless a token-type check (any mode but ``none``) tells the access token
+    apart; an ignored audience equal to the API audience would drop the rule.
+    """
+
+    if not auth.checks_token_type and auth.api_audience in auth.api_client_ids:
+        _flag(bad, "AUTH_API_AUDIENCE")
+    if auth.api_audience in auth.ignored_audiences:
+        _flag(bad, "AUTH_IGNORED_AUDIENCES")
+
+
+def _guard_deployed_mcp(bad: list[str], mcp: McpSettings | None) -> None:
+    """Outside local: an https resource URL and no smoke client in the MCP client list (FR-MCP-AUTH-09)."""
+
+    if mcp is None:
+        return
+    if urlsplit(mcp.resource_url).scheme != "https":
+        _flag(bad, "MCP_RESOURCE_URL")
+    if SMOKE_CLIENT_ID in mcp.client_ids:  # the QA direct-grant client, as AUTH_API_CLIENT_IDS refuses it
+        _flag(bad, "MCP_CLIENT_IDS")
+
+
+def _guard_mcp_audience(bad: list[str], auth: AuthSettings, mcp: McpSettings | None) -> None:
+    """The ``mcp`` audience guards, every environment and mode (FR-MCP-AUTH-09).
+
+    The audience must not be a client id (an ID token would pass) unless a
+    token-type check is set (any mode but ``none``), the REST API audience or
+    one of the REST client ids (a REST token would pass), or an ignored
+    audience (the rule drops). A client audience also refuses any MCP client
+    id that is a REST client id: each surface needs its own client.
+    Only the ``mcp`` role has the settings (``mcp`` is ``None`` for the others).
+    """
+
+    if mcp is None:
+        return
+    client_audience = not auth.checks_token_type and mcp.audience in mcp.client_ids
+    if client_audience or mcp.audience == auth.api_audience or mcp.audience in auth.api_client_ids:
+        _flag(bad, "MCP_AUDIENCE")  # the last: a REST client's token would pass on ``/mcp``
+    if mcp.audience in mcp.client_ids and set(mcp.client_ids) & set(auth.api_client_ids):
+        _flag(bad, "MCP_CLIENT_IDS")  # a client audience: the surfaces must not share a client
+    if {mcp.audience, auth.api_audience} & set(auth.ignored_audiences):
+        _flag(bad, "AUTH_IGNORED_AUDIENCES")
+
+
+def _guard_deployed_auth(bad: list[str], auth: AuthSettings, *, smoke_client: bool) -> None:
     """The auth guards that apply when ``APP_ENV`` is not ``local`` (AC-1.3)."""
 
     if auth.mode == "dev":
@@ -717,5 +966,5 @@ def _guard_deployed_auth(bad: list[str], auth: AuthSettings) -> None:
         jwks = urlsplit(auth.jwks_url)
         if jwks.scheme != "https" or auth.issuer is None or _origin(auth.jwks_url) != _origin(auth.issuer):
             _flag(bad, "AUTH_JWKS_URL")
-    if SMOKE_CLIENT_ID in auth.api_client_ids:
+    if smoke_client and SMOKE_CLIENT_ID in auth.api_client_ids:  # the api role only: mcp reads MCP_CLIENT_IDS
         _flag(bad, "AUTH_API_CLIENT_IDS")

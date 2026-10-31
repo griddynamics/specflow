@@ -292,6 +292,38 @@ services:
       rustfs:
         condition: service_healthy
 
+  # Local only (profile keycloak, `make up WITH=keycloak`): OIDC provider for the MCP sign-in flow and the MCP QA
+  # tiers (docs/mcp-server/deployment.md#local-stack). Pinned by digest. start-dev keeps its data (H2) inside the
+  # container, so it is not read_only: the realm file is imported only while the realm is absent, and
+  # `examples/mcp_qa.py seed` re-creates users and the specflow-web secret after every recreate. Variables fall back
+  # to empty, never ${...:?}: a required one would fail every compose command on an older .env.local.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4.7@sha256:9409c59bdfb65dbffa20b11e6f18b8abb9281d480c7ca402f51ed3d5977e6007
+    container_name: specflow-keycloak
+    profiles: ["keycloak"]
+    mem_limit: 1g
+    command: ["start-dev", "--import-realm"]
+    ports:
+      - "127.0.0.1:8180:8080"
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: "admin"
+      KC_BOOTSTRAP_ADMIN_PASSWORD: "${KEYCLOAK_ADMIN_PASSWORD:-}"
+      KC_HOSTNAME: "http://localhost:8180"
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ./config/keycloak:/opt/keycloak/data/import:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"status": "UP"' <&3
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
   # Runs `specflow migrate`, then the API on port 8000. Starts the Temporal workflows.
   api:
     build:
@@ -378,6 +410,58 @@ services:
       timeout: 6s
       retries: 6
       start_period: 60s
+
+  # The MCP role (docs/mcp-server/deployment.md#role-and-process): the api image with `specflow mcp` instead of its
+  # migrate-then-api command; starts after api has migrated the schema. Dev mode by default. `make up WITH=keycloak`
+  # sets the MCP_* compose names below, so only this service switches to oidc; api and frontend keep dev login.
+  # No claim-profile variable is forwarded: Keycloak tokens match the defaults, and an empty
+  # AUTH_EMAIL_VERIFIED_CLAIM would turn the verified-email check off.
+  mcp:
+    build:
+      context: ./backend
+      dockerfile: api.Dockerfile
+    image: specflow-api:local
+    container_name: specflow-mcp
+    command: ["specflow", "mcp"]
+    # Read-only root filesystem, as on Kubernetes: the role writes no files (logs go to stdout).
+    read_only: true
+    mem_limit: 512m
+    ports:
+      - "127.0.0.1:8002:8002"
+    environment:
+      APP_ENV: "${APP_ENV:-local}"
+      MCP_PORT: "8002"
+      MCP_RESOURCE_URL: "http://localhost:8002/mcp"   # local only; clients use localhost (the Host allowlist)
+      DATABASE_HOST: "specflow-postgres"
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: "specflow"
+      DATABASE_USER: "specflow"
+      DATABASE_PASSWORD: "${DATABASE_PASSWORD:?set DATABASE_PASSWORD in .env.local}"
+      NEO4J_URI: "bolt://specflow-neo4j:7687"
+      NEO4J_USER: "neo4j"
+      NEO4J_PASSWORD: "${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env.local}"
+      NEO4J_DATABASE: "neo4j"
+      AUTH_MODE: "${MCP_AUTH_MODE:-dev}"
+      AUTH_DEV_SIGNING_KEY: "${MCP_AUTH_DEV_SIGNING_KEY-${AUTH_DEV_SIGNING_KEY:-}}"   # local only; empty under WITH=keycloak
+      OIDC_ISSUER: "${MCP_OIDC_ISSUER:-}"
+      AUTH_JWKS_URL: "${MCP_AUTH_JWKS_URL:-}"
+      AUTH_ALLOWED_EMAIL_DOMAINS: "${AUTH_ALLOWED_EMAIL_DOMAINS:-example.com}"   # local only: matches the dev login user
+      LOGS_STDOUT_LEVEL: "INFO"
+      LOGS_LEVEL: "${LOGS_LEVEL:-INFO}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+      api:   # api runs `specflow migrate` first
+        condition: service_healthy
+    healthcheck:
+      # /readyz probes the database and Neo4j; the Host allowlist applies to /mcp only, so 127.0.0.1 is fine here.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/readyz', timeout=4)"]
+      interval: 10s
+      timeout: 6s
+      retries: 6
+      start_period: 30s
 
   # Polls the Temporal queue specflow-parse: PDF parsing. No Neo4j, LLM gateway or agent password.
   worker-parse:

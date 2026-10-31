@@ -25,7 +25,7 @@ root = "src"
 loaders = { load_core_query = "graph/core/queries", load_build_query = "graph/build/queries", load_core_ddl = "graph/core/ddl" }
 query_dirs = ["graph/core/queries", "graph/build/queries", "graph/core/ddl"]
 # The Postgres side is judged by the sql track (SQL strings in src/db and src/temporal).
-exclude = ["db/**", "temporal/**", "api/**", "drive/**", "storage/**", "auth/**", "llm/**", "logger/**", "file_parsers/**", "agent_runtime/**"]
+exclude = ["db/**", "temporal/**", "drive/**", "storage/**", "auth/**", "llm/**", "logger/**", "file_parsers/**", "agent_runtime/**"]
 
 [semgrep]
 enabled = true

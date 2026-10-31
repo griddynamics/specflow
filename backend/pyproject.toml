@@ -16,6 +16,7 @@ dependencies = [
     "httplib2>=0.22",
     "graphiti-core==0.30.2",
     "langfuse>=4,<5",
+    "mcp>=2.3,<3",
     "neo4j>=6.4.1",
     "numpy>=2.5.4",
     "openinference-instrumentation>=0.1.72",
@@ -63,10 +64,12 @@ select = ["S110"]
 dev = [
     "google-api-python-client-stubs>=1.40.0",
     "httpx>=0.28.1",
+    "jsonschema>=4.26.0",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.1",
     "ruff>=0.17.2",
     "types-httplib2>=0.32.0.20260720",
+    "types-jsonschema>=4.26.0.20261006",
     "types-pyyaml>=6.0.12.20260906",
 ]
 
@@ -76,7 +79,7 @@ dev = [
 known_first_party = [
     "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
     "cli", "cloud_profile", "health", "settings",
-    "example_lib", "graph_build",  # examples/
+    "example_lib", "graph_build", "mcp_qa_lib",  # examples/
 ]
 extend_exclude = ["(^|.*/)(test_[^/]+|conftest)\\.py$"]
 
@@ -93,5 +96,14 @@ openinference-instrumentation = ["openinference"]
 # temporalio-openai-agents ships the temporalio.openai_agents module inside the temporalio namespace,
 # which deptry attributes to the temporalio package.
 # botocore ships inside the `aws` extra's boto3 (same release train); storage/s3.py imports its Config and ClientError.
-DEP001 = ["botocore"]
+# The MCP SDK client takes an `httpx2.AsyncClient` (httpx2 is a dependency of mcp 2.x); used by examples/mcp_qa_lib.py.
+DEP001 = ["botocore", "httpx2"]
 DEP002 = ["asyncpg", "temporalio-openai-agents"]
+# examples/mcp_qa_lib.py catches anyio's BrokenResourceError/ClosedResourceError, which the MCP SDK client raises
+# (anyio is a dependency of mcp).
+DEP003 = ["anyio"]
+# examples/mcp_qa_lib.py uses httpx, a dev dependency here (the QA harness is dev-only; it is installed at runtime
+# through anthropic and openai).
+# examples/mcp_qa_lib.py also validates the workspace binding file with jsonschema, a dev dependency here (it is
+# installed at runtime through the agent SDKs).
+DEP004 = ["httpx", "jsonschema"]

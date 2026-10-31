@@ -317,3 +317,122 @@ def test_the_same_non_default_port_on_both_is_accepted(valid_env):
     env["AUTH_JWKS_URL"] = "https://sso.example.test:8443/certs"
 
     load_settings("api", env)
+
+
+# --- FR-MCP-AUTH-12 and the claim profile (FR-MCP-AUTH-07) ---------------------------
+
+
+@pytest.mark.parametrize("app_env", ["local", "dev"])
+def test_the_api_refuses_an_audience_equal_to_a_client_id(app_env, valid_env):
+    """FR-MCP-AUTH-12: names AUTH_API_AUDIENCE, locally and deployed."""
+
+    env = valid_env if app_env == "local" else deployed(valid_env, app_env)
+    env["AUTH_API_AUDIENCE"] = "specflow-web"
+
+    assert refused("api", env) == ("AUTH_API_AUDIENCE",)
+
+
+def test_the_api_audience_guard_holds_in_dev_mode(valid_env):
+    """FR-MCP-AUTH-12: every mode (the fixture is ``AUTH_MODE=dev``; the dev verifier uses the audience too)."""
+
+    assert valid_env["AUTH_MODE"] == "dev"
+    valid_env["AUTH_API_AUDIENCE"] = "specflow-web"
+
+    assert refused("api", valid_env) == ("AUTH_API_AUDIENCE",)
+
+
+def test_the_api_audience_guard_checks_every_client_id(valid_env):
+    """FR-MCP-AUTH-12: an audience equal to the second of several client ids is refused."""
+
+    valid_env["AUTH_API_CLIENT_IDS"] = "specflow-web,specflow-api"
+
+    assert refused("api", valid_env) == ("AUTH_API_AUDIENCE",)
+
+
+def test_the_api_refuses_ignored_audiences_holding_the_api_audience(valid_env):
+    """FR-MCP-AUTH-12."""
+
+    valid_env["AUTH_IGNORED_AUDIENCES"] = "account, specflow-api"
+
+    assert refused("api", valid_env) == ("AUTH_IGNORED_AUDIENCES",)
+
+
+def test_both_api_audience_guards_fire_at_once(valid_env):
+    """FR-MCP-AUTH-12: every bad name is reported together."""
+
+    valid_env["AUTH_API_AUDIENCE"] = "specflow-web"
+    valid_env["AUTH_IGNORED_AUDIENCES"] = "specflow-web"
+
+    assert set(refused("api", valid_env)) == {
+        "AUTH_API_AUDIENCE",
+        "AUTH_IGNORED_AUDIENCES",
+    }
+
+
+def test_the_api_audience_guards_do_not_apply_to_the_worker(valid_env):
+    """FR-MCP-AUTH-12: an api-role guard."""
+
+    valid_env["AUTH_API_AUDIENCE"] = "specflow-web"
+
+    load_settings("worker", valid_env)
+
+
+@pytest.mark.parametrize(
+    ("name", "field", "default"),
+    [
+        ("AUTH_SUBJECT_CLAIM", "subject_claim", "sub"),
+        ("AUTH_CLIENT_ID_CLAIM", "client_id_claims", ("azp", "client_id")),
+        ("AUTH_EMAIL_CLAIM", "email_claim", "email"),
+        ("AUTH_TOKEN_TYPE", "token_type", "none"),
+        ("AUTH_IGNORED_AUDIENCES", "ignored_audiences", ("account",)),
+    ],
+)
+def test_a_blank_claim_setting_falls_back_to_its_default(name, field, default, valid_env):
+    """FR-MCP-AUTH-07: blank is unset for these five."""
+
+    valid_env[name] = "  "
+
+    assert getattr(load_settings("api", valid_env).auth, field) == default
+
+
+def test_a_blank_email_verified_claim_stays_blank_and_means_no_check(valid_env):
+    """FR-MCP-AUTH-07: the one claim setting whose empty value has a meaning."""
+
+    valid_env["AUTH_EMAIL_VERIFIED_CLAIM"] = ""
+
+    assert load_settings("api", valid_env).auth.email_verified_claim == ""
+    assert load_settings("api", {**valid_env, "AUTH_EMAIL_VERIFIED_CLAIM": " xms_edov "}).auth.email_verified_claim == (
+        "xms_edov"
+    )
+
+
+def test_the_email_verified_claim_defaults_to_email_verified(valid_env):
+    """FR-MCP-AUTH-07."""
+
+    assert load_settings("api", valid_env).auth.email_verified_claim == "email_verified"
+
+
+@pytest.mark.parametrize("value", ["Keycloak", "bogus", "RFC9068"])
+def test_an_unknown_token_type_is_refused(value, valid_env):
+    """FR-MCP-AUTH-07: exact lowercase values only."""
+
+    valid_env["AUTH_TOKEN_TYPE"] = value
+
+    assert refused("api", valid_env) == ("AUTH_TOKEN_TYPE",)
+
+
+@pytest.mark.parametrize("value", ["keycloak", "rfc9068", "none"])
+def test_the_token_types_are_accepted(value, valid_env):
+    """FR-MCP-AUTH-07."""
+
+    valid_env["AUTH_TOKEN_TYPE"] = value
+
+    assert load_settings("api", valid_env).auth.token_type == value
+
+
+def test_the_client_id_claim_list_is_parsed_stripped_and_deduplicated(valid_env):
+    """FR-MCP-AUTH-07: order is kept (first present wins)."""
+
+    valid_env["AUTH_CLIENT_ID_CLAIM"] = " cid , azp,, cid "
+
+    assert load_settings("api", valid_env).auth.client_id_claims == ("cid", "azp")

@@ -8,7 +8,7 @@ together. For every setting, see [`docs/configuration.md`](docs/configuration.md
 | Need | Why | Notes |
 |---|---|---|
 | Docker with the Compose plugin | Runs the whole stack | Docker Desktop, OrbStack or Docker Engine |
-| `make` and `openssl` | `make env-local` writes random local secrets | Already on macOS and most Linux systems |
+| `make` and `openssl` | `make env-local` writes random local secrets and asks for your LLM settings | Already on macOS and most Linux systems |
 | An OpenAI-compatible LLM gateway | Summaries and the knowledge-graph build | You need its URL, an API key and a model name |
 | Temporal | Runs the background workflows | Use your own on `localhost:7233`, or start the bundled one (`WITH=temporal`) |
 | Langfuse (optional) | Shows the agent traces | Use your own, start the bundled one (`WITH=langfuse`), or leave it off |
@@ -18,18 +18,18 @@ Node.js 20.9 or newer.
 
 ## Run it
 
-1. Write the local env file once. It holds random local secrets only:
+1. Write the local env file. It generates the local secrets, then asks for your LLM settings: `AGENT_MODEL`,
+   `LLM_GATEWAY_URL` and `LLM_GATEWAY_API_KEY` (the key is not shown as you type; Enter skips a question). Run it
+   again after every update: it adds any secret a release introduced, asks only for settings that are still
+   missing, and never changes a value or prints one:
 
    ```shell
    make env-local
    ```
 
-2. Open `.env.local` and add your LLM settings:
+2. Optional: add the knowledge-graph settings to `.env.local`. You can also edit the LLM settings there by hand:
 
    ```dotenv
-   AGENT_MODEL=<model name>
-   LLM_GATEWAY_URL=<https://your-gateway/v1>
-   LLM_GATEWAY_API_KEY=<key>
    # The knowledge-graph build stays off until these three are set:
    GRAPH_LLM_MODEL=<model name>
    GRAPH_SMALL_MODEL=<smaller, cheaper model name>
@@ -42,6 +42,7 @@ Node.js 20.9 or newer.
    make up                          # you already run Temporal on localhost:7233
    make up WITH=temporal            # start a bundled Temporal too
    make up WITH=temporal,langfuse   # bundled Temporal and Langfuse
+   make up WITH=keycloak            # the local Keycloak too (MCP sign-in)
    ```
 
    `make up` builds the images, starts the services and waits until they are healthy.
@@ -63,6 +64,7 @@ the local databases and files: use it only for a clean start.
 |---|---|---|
 | `frontend` | 3001 | Next.js web app |
 | `api` | 8000 | FastAPI: projects, sources, uploads, workflow starts, the knowledge-graph build; runs the database migrations on start |
+| `mcp` | 8002 | MCP endpoint for coding agents such as Claude Code: read-only project tools; dev login, or Keycloak sign-in with `WITH=keycloak` |
 | `worker-parse` | - | Temporal worker: PDF to Markdown |
 | `worker-agents` | - | Temporal worker: AI summaries |
 | `postgres` | 5433 | Projects, documents, Markdown, summaries |
@@ -70,8 +72,28 @@ the local databases and files: use it only for a clean start.
 | `rustfs` | 19000 | Local S3-compatible object storage for uploaded files |
 | `temporal` (with `WITH=temporal`) | 7233, 8233 (UI) | Bundled Temporal dev server |
 | `langfuse-*` (with `WITH=langfuse`) | 3000 | Bundled Langfuse for traces |
+| `keycloak` (with `WITH=keycloak`) | 8180 | Local identity provider for the MCP sign-in |
 
 All ports bind to `127.0.0.1` only.
+
+Connect Claude Code to the local MCP endpoint (dev mode, from the repository root; the token is valid 8 hours and is
+stored in the Claude Code config). Run the `dev-token` command alone first and check that it prints exactly one line.
+The name and URL come before `--header`, which takes every argument after it. Use your `LOCAL_TEST_USER_EMAIL`
+(default `dev@example.com`) in place of `dev@example.com` if you changed it:
+
+```shell
+claude mcp add --transport http --scope local specflow-local http://localhost:8002/mcp --header "Authorization: Bearer $(cd backend && uv run --quiet --env-file ../.env.local python examples/mcp_qa.py dev-token dev@example.com)"
+```
+
+Then bind your repository to a SpecFlow project, once per repository, by running this in Claude Code:
+
+```text
+/mcp__specflow-local__select_project
+```
+
+The agent writes `.specflow/config.json`; see [Bind a repository to a project](docs/mcp-server/deployment.md#bind-a-repository-to-a-project).
+
+For the Keycloak sign-in, see [Local endpoint](docs/mcp-server/deployment.md#local-endpoint).
 
 ## Architecture
 
