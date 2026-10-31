@@ -28,7 +28,7 @@ tags: [mcp]
 | MCP-M5 | Tools and access control | done |
 | MCP-M6 | Local stack wiring and setup docs | done |
 | MCP-M7 | Real-client QA with the end-to-end and agent tiers | done |
-| MCP-M8 | Bundle verification, security review and release check | planned |
+| MCP-M8 | Bundle verification, security review and release check | done |
 
 ## Log
 
@@ -146,3 +146,18 @@ Template:
   scope to `openid`, because the PRM advertises no scopes)
 - Follow-ups: generic MCP clients against an IdP that refuses unknown scopes must request only assigned scopes; E13
   leaves one project in the local database per run
+
+### MCP-M8: Bundle verification, security review and release check
+
+- Date and commits: 2026-10-31, 6db8353
+- Summary: the eight design documents were checked against the code, corrected in place and marked `stable`. An
+  independent security review found four low findings, all fixed: a request id per HTTP request, a Keycloak admin
+  password check in `make up`, and two wording fixes. The release check passes (`make check`, `make validate`,
+  `make frontend-build`, `make e2e-production`), and no tracked file holds a secret of `.env.local`.
+- Requirements proven: NFR-MCP-04; NFR-MCP-05 checked again
+- Design sections updated in place: [architecture.md](architecture.md) (HTTP surface, package layout, errors,
+  logging and audit), [deployment.md](deployment.md) (identity provider setup, local endpoint, local stack),
+  [auth.md](auth.md) (local mode, S6), [testing.md](testing.md) (tiers, agent QA flags), [requirements.md](requirements.md)
+  (status)
+- Follow-ups: the REST role likely exits 143 on SIGTERM; Q4 of [questions.md](questions.md) stays open; a link in
+  `docs/graph/api.md` to `implementation/tech-specs.md` was already broken before this work
