@@ -25,7 +25,7 @@ tags: [mcp]
 | MCP-M2 | Auth claim profile for any OIDC provider | done |
 | MCP-M3 | Local Keycloak and QA harness | done |
 | MCP-M4 | MCP role, transport and auth guard | done |
-| MCP-M5 | Tools and access control | planned |
+| MCP-M5 | Tools and access control | done |
 | MCP-M6 | Local stack wiring and setup docs | planned |
 | MCP-M7 | Real-client QA with the end-to-end and agent tiers | planned |
 | MCP-M8 | Bundle verification, security review and release check | planned |
@@ -109,3 +109,17 @@ Template:
   answer 405), Errors (Host, Origin and body checks come after the guard), Logging (`mcp.auth.rejected` fields)
 - Follow-ups: the REST role likely exits 143 on SIGTERM and loses its shutdown log (the mcp role has a local fix);
   the SDK matches Host case-sensitively and logs a refused Host or Origin at warning level
+
+### MCP-M5: Tools and access control
+
+- Date and commits: 2026-10-31, 7c38002
+- Summary: `list_projects` and `list_features` are registered through one wrapper (audit, error mapping, user
+  provisioning, membership, handler) with read-only annotations and fixed error codes. Membership is read on every
+  call, and malformed, unknown and foreign project ids give the same `project_not_found` without a graph query. An
+  independent access audit found no path to another member's project.
+- Requirements proven: FR-MCP-ACC-01 to -06, FR-MCP-TOOL-01 to -09, FR-MCP-OPS-03, FR-MCP-OPS-07
+- Design sections updated in place: [architecture.md](architecture.md): package layout (`access.py`), tool registry
+  (handlers take the caller), Logging (`mcp.tool.completed` fields); [tools.md](tools.md): Paging (JSON-text cursors
+  are refused by the input schema)
+- Follow-ups: an out-of-range timestamp in a `list_projects` cursor is now `invalid_cursor` (the shared cursor
+  decoder, so the REST API benefits too); stored feature attributes are assumed to be text
