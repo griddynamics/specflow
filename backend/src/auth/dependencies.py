@@ -11,27 +11,15 @@ from typing import Final
 
 from fastapi import Request
 
+from auth.bearer import bearer_token
 from auth.claims import Principal
-from auth.errors import AuthError, invalid_token
-from auth.verifiers import MAX_TOKEN_BYTES, TokenVerifier
+from auth.errors import AuthError
+from auth.verifiers import TokenVerifier
 from logger.logger import INFO, WARNING, get_logger, log_event
 
 logger = get_logger("auth.dependencies")
 
 VERIFIER_STATE_ATTR: Final = "token_verifier"
-_TOKEN_CHARS: Final = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.=+/~")
-
-
-def bearer_token(authorization: str | None) -> str:
-    """The token from an ``Authorization: Bearer <token>`` value, else 401."""
-
-    if not authorization:
-        raise invalid_token("missing_header")
-    scheme, _, token = authorization.strip().partition(" ")
-    token = token.strip()
-    if scheme.lower() != "bearer" or not token or len(token) > MAX_TOKEN_BYTES or not set(token) <= _TOKEN_CHARS:
-        raise invalid_token("malformed_header")
-    return token
 
 
 async def current_principal(request: Request) -> Principal:

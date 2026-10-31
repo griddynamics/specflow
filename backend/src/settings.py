@@ -141,6 +141,15 @@ ROLES: Final[tuple[str, ...]] = ("api", "worker", "migrate")
 APP_ENVIRONMENTS: Final = ("local", "dev", "prod")
 WORKER_QUEUE_NAMES: Final = ("parse", "agents")
 SMOKE_CLIENT_ID: Final = "specflow-smoke"
+
+# Claim profile defaults (FR-MCP-AUTH-07): provider neutral; one source for
+# ``AuthSettings`` and ``auth.claims.ClaimPolicy``.
+TokenType = Literal["none", "keycloak", "rfc9068"]
+DEFAULT_SUBJECT_CLAIM: Final = "sub"
+DEFAULT_CLIENT_ID_CLAIMS: Final = ("azp", "client_id")
+DEFAULT_EMAIL_CLAIM: Final = "email"
+DEFAULT_EMAIL_VERIFIED_CLAIM: Final = "email_verified"
+DEFAULT_IGNORED_AUDIENCES: Final = ("account",)
 # HS256 signs with SHA-256: a key shorter than its digest weakens the MAC.
 DEV_SIGNING_KEY_MIN_BYTES: Final = hashlib.sha256().digest_size
 # The documented defaults of API_PORT and WORKER_HEALTH_PORT.
@@ -181,6 +190,10 @@ def _text(value: Any) -> Any:
     return value
 
 
+def _strip(value: Any) -> Any:
+    return value.strip() if isinstance(value, str) else value
+
+
 def _csv(value: Any) -> Any:
     if isinstance(value, str):
         return tuple(item.strip() for item in value.split(",") if item.strip())
@@ -197,6 +210,8 @@ Text = Annotated[str, BeforeValidator(_text)]
 OptionalText = Annotated[str | None, BeforeValidator(_blank_to_none)]
 OptionalSecret = Annotated[SecretStr | None, BeforeValidator(_blank_to_none)]
 Csv = Annotated[tuple[str, ...], BeforeValidator(_csv)]
+# Blank stays "": ``AUTH_EMAIL_VERIFIED_CLAIM`` empty means "no check", not "unset".
+BlankableText = Annotated[str, BeforeValidator(_strip)]
 
 
 class _MappedSettings(BaseSettings):
@@ -267,6 +282,11 @@ class AuthSettings(_MappedSettings):
         "AUTH_MODE",
         "AUTH_API_AUDIENCE",
         "AUTH_API_CLIENT_IDS",
+        "AUTH_SUBJECT_CLAIM",
+        "AUTH_CLIENT_ID_CLAIM",
+        "AUTH_EMAIL_CLAIM",
+        "AUTH_TOKEN_TYPE",
+        "AUTH_IGNORED_AUDIENCES",
     )
 
     mode: Literal["oidc", "dev"] = Field(default="oidc", validation_alias="AUTH_MODE")
@@ -277,8 +297,17 @@ class AuthSettings(_MappedSettings):
     api_client_ids: Csv = Field(default=("specflow-web",), validation_alias="AUTH_API_CLIENT_IDS")
     allowed_email_domains: Csv = Field(validation_alias="AUTH_ALLOWED_EMAIL_DOMAINS")
     dev_signing_key: OptionalSecret = Field(default=None, validation_alias="AUTH_DEV_SIGNING_KEY")
+    # The claim profile (FR-MCP-AUTH-07). Only ``email_verified_claim`` is not blank-is-unset.
+    subject_claim: Text = Field(default=DEFAULT_SUBJECT_CLAIM, validation_alias="AUTH_SUBJECT_CLAIM")
+    client_id_claims: Csv = Field(default=DEFAULT_CLIENT_ID_CLAIMS, validation_alias="AUTH_CLIENT_ID_CLAIM")
+    email_claim: Text = Field(default=DEFAULT_EMAIL_CLAIM, validation_alias="AUTH_EMAIL_CLAIM")
+    email_verified_claim: BlankableText = Field(
+        default=DEFAULT_EMAIL_VERIFIED_CLAIM, validation_alias="AUTH_EMAIL_VERIFIED_CLAIM"
+    )
+    token_type: TokenType = Field(default="none", validation_alias="AUTH_TOKEN_TYPE")
+    ignored_audiences: Csv = Field(default=DEFAULT_IGNORED_AUDIENCES, validation_alias="AUTH_IGNORED_AUDIENCES")
 
-    @field_validator("api_client_ids", "allowed_email_domains")
+    @field_validator("api_client_ids", "allowed_email_domains", "client_id_claims")
     @classmethod
     def _at_least_one(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         return _non_empty(value)
@@ -653,6 +682,8 @@ def _apply_guards(
         _flag(bad, "LANGFUSE_BASE_URL")
     if auth is not None:
         _guard_auth(env, bad, auth)
+        if role == "api":
+            _guard_api_audience(bad, auth)
     _guard_storage(bad, storage)
     app_env = env.get("APP_ENV", "").strip()
     if app_env not in APP_ENVIRONMENTS or app_env == "local":
@@ -701,6 +732,19 @@ def _guard_auth(env: Mapping[str, str], bad: list[str], auth: AuthSettings) -> N
             _flag(bad, "AUTH_DEV_SIGNING_KEY")
         if env.get("KUBERNETES_SERVICE_HOST", "").strip():
             _flag(bad, "AUTH_MODE")
+
+
+def _guard_api_audience(bad: list[str], auth: AuthSettings) -> None:
+    """The ``api`` audience guards, every environment and mode (FR-MCP-AUTH-12).
+
+    An audience equal to a client id would accept an ID token; an ignored
+    audience equal to the API audience would drop the audience rule.
+    """
+
+    if auth.api_audience in auth.api_client_ids:
+        _flag(bad, "AUTH_API_AUDIENCE")
+    if auth.api_audience in auth.ignored_audiences:
+        _flag(bad, "AUTH_IGNORED_AUDIENCES")
 
 
 def _guard_deployed_auth(bad: list[str], auth: AuthSettings) -> None:

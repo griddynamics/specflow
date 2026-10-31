@@ -7,6 +7,7 @@ failure is an ``AuthError``; PyJWT exceptions are never chained or exposed.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any, Final, Protocol, runtime_checkable
 
 import jwt
@@ -63,7 +64,7 @@ class OidcJwtVerifier:
         if not isinstance(kid, str) or not kid:
             raise invalid_token("kid_missing")
         key = await self._jwks.signing_key(kid)
-        return validate(_decode(token, key, OIDC_ALGORITHMS), self._policy)
+        return validate(_decode(token, key, OIDC_ALGORITHMS), self._policy, header=header)
 
 
 class DevTokenVerifier:
@@ -77,26 +78,34 @@ class DevTokenVerifier:
         self._key = secret.encode()
 
     async def verify(self, token: str) -> Principal:
-        _header(token, DEV_ALGORITHMS)
-        return validate(_decode(token, self._key, DEV_ALGORITHMS), self._policy)
+        header = _header(token, DEV_ALGORITHMS)
+        return validate(_decode(token, self._key, DEV_ALGORITHMS), self._policy, header=header)
 
 
-def build_verifier(auth: AuthSettings, *, jwks: JwksCache | None = None) -> TokenVerifier:
+def build_verifier(
+    auth: AuthSettings,
+    *,
+    jwks: JwksCache | None = None,
+    audience: str | None = None,
+    client_ids: Iterable[str] | None = None,
+) -> TokenVerifier:
     """The verifier for ``AUTH_MODE``; the dev verifier exists only in dev mode.
+
+    ``audience`` and ``client_ids`` override the API's (the MCP surface passes its own).
 
     ``load_settings`` guards already refuse dev mode outside local; the dev
     verifier re-checks the key length itself (AC-1.4).
     """
 
     if auth.mode == "dev":
-        policy = ClaimPolicy.from_settings(auth, issuer=DEV_ISSUER)
+        policy = ClaimPolicy.from_settings(auth, issuer=DEV_ISSUER, audience=audience, client_ids=client_ids)
         return DevTokenVerifier(policy, auth.dev_signing_key)
     if auth.mode != "oidc":
         raise VerifierConfigError("AUTH_MODE must be oidc or dev")
     if not auth.issuer:
         raise VerifierConfigError("OIDC_ISSUER is required when AUTH_MODE is oidc")
     cache = jwks or JwksCache(auth.jwks_url, issuer=auth.issuer)
-    return OidcJwtVerifier(ClaimPolicy.from_settings(auth), cache)
+    return OidcJwtVerifier(ClaimPolicy.from_settings(auth, audience=audience, client_ids=client_ids), cache)
 
 
 def _header(token: object, algorithms: tuple[str, ...]) -> dict[str, Any]:

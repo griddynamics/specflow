@@ -34,7 +34,7 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `AUTH_ALLOWED_EMAIL_DOMAINS` | api | Comma-separated list of allowed e-mail domains. |
 | `PUBLIC_URL` | frontend | Public URL of the app. |
 | `API_INTERNAL_URL` | frontend | URL at which the frontend reaches the API. |
-| `OIDC_ISSUER` | api, frontend | OpenID Connect issuer. Must be `https` when `AUTH_MODE=oidc` or `APP_ENV` is not `local`. |
+| `OIDC_ISSUER` | api, frontend | OpenID Connect issuer. Must be `https` when `APP_ENV` is not `local`. |
 | `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | frontend | OpenID Connect client. |
 | `SESSION_SECRET` | frontend | Signs the session cookie. At least 32 bytes. |
 | `DRIVE_IDENTITY_EMAIL` | api, worker-parse | E-mail address of the service identity that must have access to the shared folders. See below. |
@@ -66,8 +66,14 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `AUTH_MODE` | `oidc` | api, frontend | `oidc` or `dev`. `dev` is for `APP_ENV=local` only. |
 | `AUTH_JWKS_URL` | unset | api | JWKS override on the issuer host. |
 | `OIDC_INTERNAL_URL` | unset | frontend | URL at which the frontend reaches the issuer, when it differs from `OIDC_ISSUER`. |
-| `AUTH_API_AUDIENCE` | `specflow-api` | api | Expected token audience. |
+| `AUTH_API_AUDIENCE` | `specflow-api` | api | Expected token audience. Must differ from every `AUTH_API_CLIENT_IDS` value. |
 | `AUTH_API_CLIENT_IDS` | `specflow-web` | api | Comma-separated list of allowed token client ids. |
+| `AUTH_SUBJECT_CLAIM` | `sub` | api | Claim that holds the user id. Choose it before the first sign-in: changing it re-keys users. See [auth](mcp-server/auth.md#claim-profile-for-any-oidc-provider). |
+| `AUTH_CLIENT_ID_CLAIM` | `azp,client_id` | api | Comma-separated client id claims; the first one present in the token is used. See [auth](mcp-server/auth.md#claim-profile-for-any-oidc-provider). |
+| `AUTH_EMAIL_CLAIM` | `email` | api | Claim that holds the user email. See [auth](mcp-server/auth.md#claim-profile-for-any-oidc-provider). |
+| `AUTH_EMAIL_VERIFIED_CLAIM` | `email_verified` | api | Claim that must be `true`. Empty means no check (not "unset"); use it only for providers that issue verified addresses only. See [auth](mcp-server/auth.md#claim-profile-for-any-oidc-provider). |
+| `AUTH_TOKEN_TYPE` | `none` | api | Token type check: `none`, `keycloak` (claim `typ` is `Bearer`) or `rfc9068` (JOSE header `typ` is `at+jwt`). See [auth](mcp-server/auth.md#claim-profile-for-any-oidc-provider). |
+| `AUTH_IGNORED_AUDIENCES` | `account` | api | Comma-separated audiences dropped before the audience check. Empty means the default. Must not hold `AUTH_API_AUDIENCE`. See [auth](mcp-server/auth.md#claim-profile-for-any-oidc-provider). |
 | `ALEMBIC_CONFIG` | `/app/alembic.ini` | migration job | Path of the migration config. |
 | `WORKER_DIAG_STATE` | `<tmpdir>/specflow-worker-state.json` | workers | File for worker diagnostics. |
 | `OPENAI_AGENTS_DISABLE_TRACING` | agent SDK default | workers | Standard variable of the agent SDK. |

@@ -35,6 +35,7 @@ POLICY = ClaimPolicy.build(
     audience=AUDIENCE,
     client_ids=[CLIENT_ID],
     allowed_email_domains=[DOMAIN],
+    typ_rule="keycloak",  # the earlier tests assert the claim `typ` rule
 )
 
 
@@ -92,6 +93,7 @@ def auth_settings(**env: str) -> AuthSettings:
         "AUTH_API_AUDIENCE": AUDIENCE,
         "AUTH_API_CLIENT_IDS": CLIENT_ID,
         "AUTH_ALLOWED_EMAIL_DOMAINS": DOMAIN,
+        "AUTH_TOKEN_TYPE": "keycloak",
     }
     values.update(env)
     return AuthSettings(**values)

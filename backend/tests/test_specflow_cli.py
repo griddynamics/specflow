@@ -335,3 +335,16 @@ class Check:
 )
 def test_a_mapping_of_checks_exits_0_only_when_all_are_ok(result, code):
     assert cli._exit_code(result) == code
+
+
+def test_check_config_refuses_an_api_audience_equal_to_a_client_id(env, work, spy):
+    """FR-MCP-AUTH-12: ``specflow api --check-config`` fails naming AUTH_API_AUDIENCE."""
+
+    env.setenv("AUTH_API_AUDIENCE", "specflow-web")
+
+    assert cli.main(["api", "--check-config"]) == cli.EXIT_CONFIGURATION
+
+    [(level, event, fields)] = spy.events
+    assert (level, event) == (ERROR, "config.validation.failed")
+    assert fields["variables"] == ["AUTH_API_AUDIENCE"]
+    assert work.calls == {}
