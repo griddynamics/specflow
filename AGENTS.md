@@ -20,6 +20,8 @@ This file applies everywhere; an area file adds the rules for its code.
 
 ## Check a change
 
+Name branches `fix/<title>`, for example `fix/docling-pdf-parser`.
+
 Run these from the repo root before you open a pull request:
 
 | Command | What it checks |
