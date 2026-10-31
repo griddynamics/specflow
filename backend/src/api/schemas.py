@@ -108,6 +108,14 @@ class SummarizeStarted(BaseModel):
     summarization_status: str
 
 
+class GraphBuildRequest(BaseModel):
+    """Optional body of ``POST /graph_build``; the level is only validated and logged."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reasoning_level: int | None = Field(default=None, ge=1, le=5)
+
+
 class GraphBuildStatus(BaseModel):
     """``/graph_build``: ids, counts and codes only, never document text.
 
