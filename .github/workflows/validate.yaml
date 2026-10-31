@@ -6,10 +6,13 @@ name: Validate repository
 # or dispatched alone.
 # No concurrency group: a called workflow's github.workflow is the caller's, so a group here
 # would deadlock against the caller's own run.
+# Draft pull requests are not validated: every job is skipped while the pull request is a draft (no
+# runner starts), and marking it ready for review starts a run on its current commit.
 on:
   workflow_call:
   workflow_dispatch:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
@@ -17,6 +20,7 @@ permissions:
 jobs:
   static-python:
     name: Static (${{ matrix.track }})
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
@@ -98,6 +102,7 @@ jobs:
 
   static-typescript:
     name: Static (${{ matrix.track }})
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
@@ -133,6 +138,7 @@ jobs:
 
   unit-python:
     name: Unit (python services)
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -157,6 +163,7 @@ jobs:
 
   unit-typescript:
     name: Unit (frontend)
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -197,6 +204,7 @@ jobs:
   # spends LLM budget on every run.
   e2e-build:
     name: E2E (build)
+    if: ${{ !github.event.pull_request.draft }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     outputs:
@@ -319,7 +327,7 @@ jobs:
 
   validation-gate:
     name: Validation gate
-    if: always()
+    if: ${{ always() && !github.event.pull_request.draft }}
     needs: [static-python, static-typescript, unit-python, unit-typescript, e2e-build, e2e-production]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
