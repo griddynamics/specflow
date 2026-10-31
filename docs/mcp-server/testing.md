@@ -107,10 +107,12 @@ The driver acts as a developer at a terminal, in a fresh temp git repository per
    tools and that Edit rule, with no `Read` rule: under `dontAsk` the agent reads files inside the working folder
    without one, and the CLI denies reads elsewhere. The nearest-file lookup walks up from the working directory
    ([tools.md](tools.md#the-binding-file)), so a `Read` of `<an ancestor of the workspace>/.specflow/config.json` is the
-   designed lookup: the run check allows it whether or not the CLI denied it, and the step report records it as
-   `denied=Read(ancestor-binding)`. The run check is a second layer: it fails on any Write, Edit, MultiEdit or
-   NotebookEdit call whose target is not `<workspace>/.specflow/config.json`, on any other Read outside the workspace,
-   on any other built-in tool call, on a denied call of the SpecFlow tools or of a write tool (the flow is broken), and
+   designed lookup: the run check always allows it (the file or its `.specflow` folder), executed or denied.
+   The run check is a second layer: it fails on any Read the CLI executed outside the workspace (paths are normalized,
+   `..` resolved and symlinks not followed, before they are classified) and on any Write, Edit, MultiEdit or
+   NotebookEdit call whose target is not `<workspace>/.specflow/config.json`, denied or not. A Read the CLI denied is
+   recorded in the step report as `denied=Read(<kind>: <path>)` (workspace as `<ws>`, home as `~`), not failed, because
+   nothing was read. It also fails on any other built-in tool call, on a denied call of the SpecFlow tools or of a write tool (the flow is broken), and
    on a file created or changed anywhere else in the workspace or any symlink in it. A runner or parser error is a
    failed step with its reason, never a crash; the stream's `permission_denied` events (`message` is a string there)
    are recorded, never fatal.

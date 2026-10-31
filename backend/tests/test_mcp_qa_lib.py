@@ -149,6 +149,7 @@ from mcp_qa_lib import (
     stray_files,
     strip_ansi,
     switched_to_empty,
+    target_kind,
     tool_json,
     tool_violations,
     user_token,
@@ -2775,7 +2776,7 @@ async def test_check_run_refuses_a_timed_out_run_before_reading_anything_else(tm
     [
         (("Bash", {"command": "ls"}), r"\['Bash is not allowed'\]"),
         (("Write", {"file_path": "notes.txt"}), r"\['Write outside the binding file'\]"),
-        (("Read", {"file_path": "/etc/hostname"}), r"\['Read outside the workspace'\]"),
+        (("Read", {"file_path": "/etc/hostname"}), r"\['Read\(outside: /etc/hostname\)'\]"),
         (("WebFetch", {"url": "https://example.com"}), "WebFetch is not allowed"),
     ],
     ids=["bash", "write-elsewhere", "read-elsewhere", "network"],
@@ -2881,7 +2882,9 @@ def test_tool_violations_names_every_other_call(tmp_path: Path) -> None:
     assert tool_violations(events, AGENT_TOOLS, tmp_path) == [
         *["Write outside the binding file", "Edit outside the binding file", "Edit outside the binding file"],
         *["NotebookEdit outside the binding file", "Write outside the binding file"],
-        *["Read outside the workspace", "Read outside the workspace", "Read outside the workspace"],
+        f"Read(outside: {elsewhere})",
+        "Read(none)",
+        f"Read(outside: {tmp_path.resolve().parent / 'secrets.txt'})",
         *[
             "Bash is not allowed",
             "Glob is not allowed",
@@ -2891,7 +2894,7 @@ def test_tool_violations_names_every_other_call(tmp_path: Path) -> None:
     ]
 
 
-def test_tool_violations_follows_a_symlink_out_of_the_workspace(tmp_path: Path) -> None:
+def test_tool_violations_judges_the_path_as_written_and_never_follows_a_symlink(tmp_path: Path) -> None:
     workspace = tmp_path / "ws"
     (workspace / ".specflow").mkdir(parents=True)
     outside = tmp_path / "outside.txt"
@@ -2903,10 +2906,7 @@ def test_tool_violations_follows_a_symlink_out_of_the_workspace(tmp_path: Path) 
         call_of("Read", {"file_path": "link.txt"}),
     ]
 
-    assert tool_violations(events, AGENT_TOOLS, workspace) == [
-        "Write outside the binding file",
-        "Read outside the workspace",
-    ]
+    assert tool_violations(events, AGENT_TOOLS, workspace) == []  # a symlink in the workspace is stray_files' job
 
 
 CLAUDE_DENIAL_FIXTURE = json.loads(
@@ -2959,6 +2959,21 @@ def test_parse_denials_records_the_tool_and_the_target_of_the_linked_call() -> N
     assert denials == (ToolDenial("Read", "toolu_01", "/parent/.specflow/config.json"),)
 
 
+def test_parse_denials_reads_the_result_entries_and_counts_one_call_once() -> None:
+    lines = denial_lines()
+    result = json.loads(lines[-1])
+    entry = {"tool_name": "Read", "tool_use_id": "toolu_02", "tool_input": {"file_path": "/x"}}
+    result["permission_denials"].append(entry)
+    result["permission_denials"].append({"tool_name": 3, "tool_use_id": "bad"})
+    lines[-1] = json.dumps(result)
+
+    assert parse_denials(lines, parse_stream_json(lines)) == (
+        ToolDenial("Read", "toolu_01", "/parent/.specflow/config.json"),
+        ToolDenial("Read", "toolu_02", "/x"),
+    )
+    assert parse_denials([json.dumps({"type": "result", "permission_denials": "x"})], []) == ()
+
+
 def test_parse_denials_skips_a_malformed_denial_and_keeps_a_denial_without_a_linked_call() -> None:
     lines = [
         json.dumps({"type": "system", "subtype": "permission_denied", "tool_name": 3, "tool_use_id": "x"}),
@@ -2991,10 +3006,14 @@ def test_a_read_of_an_ancestors_binding_file_is_the_designed_lookup_and_is_not_a
     assert tool_violations(events, AGENT_TOOLS, workspace) == []
 
 
-def test_every_other_read_or_write_outside_the_workspace_stays_a_violation(tmp_path: Path) -> None:
+def nested_workspace(tmp_path: Path) -> Path:
     workspace = tmp_path / "parent" / "repo"
     workspace.mkdir(parents=True)
-    root = workspace.resolve()
+    return workspace.resolve()
+
+
+def test_an_executed_read_outside_the_workspace_is_a_violation_named_with_a_sanitized_path(tmp_path: Path) -> None:
+    root = nested_workspace(tmp_path)
     sibling = root.parent / "other-repo" / ".specflow" / "config.json"  # not an ancestor
     events = [
         call_of("Read", {"file_path": str(root.parent / "secrets.txt")}),
@@ -3002,36 +3021,132 @@ def test_every_other_read_or_write_outside_the_workspace_stays_a_violation(tmp_p
         call_of("Read", {"file_path": str(root.parent / ".specflow" / "config.json" / "x")}),
         call_of("Read", {"file_path": str(sibling)}),
         call_of("Read", {"file_path": "/etc/hostname"}),
-        call_of("Write", {"file_path": str(root.parent / ".specflow" / "config.json")}),  # a write is not a read
-        call_of("Edit", {"file_path": str(root.parent / ".specflow" / "config.json")}),
     ]
 
-    assert tool_violations(events, AGENT_TOOLS, workspace) == [
-        *["Read outside the workspace"] * 5,
-        *["Write outside the binding file", "Edit outside the binding file"],
+    assert tool_violations(events, AGENT_TOOLS, root) == [
+        f"Read(outside: {root.parent / 'secrets.txt'})",
+        f"Read(outside: {root.parent / '.specflow' / 'other.json'})",
+        f"Read(outside: {root.parent / '.specflow' / 'config.json' / 'x'})",
+        f"Read(outside: {sibling})",
+        "Read(outside: /etc/hostname)",
     ]
 
 
-def test_denial_labels_name_the_tool_and_where_the_target_is_never_the_path(tmp_path: Path) -> None:
-    workspace = tmp_path / "parent" / "repo"
-    workspace.mkdir(parents=True)
-    root = workspace.resolve()
+def test_a_read_the_cli_denied_is_not_a_violation_but_a_denied_write_outside_the_binding_still_is(
+    tmp_path: Path,
+) -> None:
+    root = nested_workspace(tmp_path)
+    events = [
+        ToolEvent("call", "r1", "Read", {"file_path": "/etc/hostname"}, is_error=False),
+        ToolEvent("call", "r2", "Read", {"file_path": "/etc/passwd"}, is_error=False),  # executed: not in `denied`
+        ToolEvent("call", "w1", "Write", {"file_path": "/etc/hostname"}, is_error=False),
+        ToolEvent("call", "e1", "Edit", {"file_path": str(root / "notes.txt")}, is_error=False),
+    ]
+
+    assert tool_violations(events, AGENT_TOOLS, root, {"r1", "w1", "e1"}) == [
+        "Read(outside: /etc/passwd)",
+        "Write outside the binding file",
+        "Edit outside the binding file",
+    ]
+
+
+def test_the_ancestor_binding_and_its_specflow_folder_are_never_violations_executed_or_denied(tmp_path: Path) -> None:
+    root = nested_workspace(tmp_path)
+    ancestors = [root.parent, root.parent.parent]
+    paths = [str(a / ".specflow" / "config.json") for a in ancestors] + [str(a / ".specflow") for a in ancestors]
+    events = [ToolEvent("call", f"u{n}", "Read", {"file_path": path}, is_error=False) for n, path in enumerate(paths)]
+    events.append(call_of("Read", {"file_path": str(root / "README.md")}))
+
+    assert tool_violations(events, AGENT_TOOLS, root) == []
+    assert tool_violations(events, AGENT_TOOLS, root, {f"u{n}" for n in range(len(paths))}) == []
+
+
+def test_a_write_to_an_ancestor_binding_is_a_violation_though_a_read_of_it_is_not(tmp_path: Path) -> None:
+    root = nested_workspace(tmp_path)
+    events = [
+        call_of("Write", {"file_path": str(root.parent / ".specflow" / "config.json")}),
+        call_of("Edit", {"file_path": str(root.parent / ".specflow")}),
+    ]
+
+    violations = tool_violations(events, AGENT_TOOLS, root)
+
+    assert violations == ["Write outside the binding file", "Edit outside the binding file"]
+
+
+def test_paths_are_normalized_lexically_before_they_are_classified(tmp_path: Path) -> None:
+    root = nested_workspace(tmp_path)
+    inside = root / ".." / root.name / "x"
+    outside = root / ".." / "other" / "x"
+
+    assert target_kind("Read", Path(str(root), "x"), root) == "workspace"
+    assert tool_violations([call_of("Read", {"file_path": str(inside)})], AGENT_TOOLS, root) == []
+    assert tool_violations([call_of("Read", {"file_path": f"../{root.name}/x"})], AGENT_TOOLS, root) == []
+    assert tool_violations([call_of("Read", {"file_path": str(outside)})], AGENT_TOOLS, root) == [
+        f"Read(outside: {root.parent / 'other' / 'x'})"
+    ]
+    assert tool_violations([call_of("Read", {"file_path": "../other/x"})], AGENT_TOOLS, root) == [
+        f"Read(outside: {root.parent / 'other' / 'x'})"
+    ]
+
+
+def test_denial_labels_name_the_tool_the_kind_and_a_sanitized_path(tmp_path: Path) -> None:
+    root = nested_workspace(tmp_path)
     denials = (
         ToolDenial("Read", "1", str(root.parent / ".specflow" / "config.json")),
         ToolDenial("Read", "2", "/etc/hostname"),
         ToolDenial("Read", "3", "README.md"),
         ToolDenial("Write", "4", ".specflow/config.json"),
         ToolDenial("Bash", "5", None),
+        ToolDenial("Read", "6", "/etc/a\x1b[31m\nb" + "x" * 300),
     )
     run = replace(canned(init_message(), result_message()), denials=denials)
 
-    assert denial_labels(run, workspace) == (
-        "Read(ancestor-binding)",
-        "Read(outside)",
-        "Read(workspace)",
-        "Write(binding)",
+    labels = denial_labels(run, root)
+
+    assert labels[:5] == (
+        f"Read(ancestor-binding: {root.parent / '.specflow' / 'config.json'})",
+        "Read(outside: /etc/hostname)",
+        "Read(workspace: <ws>/README.md)",
+        "Write(binding: <ws>/.specflow/config.json)",
         "Bash(none)",
     )
+    assert labels[5].startswith("Read(outside: /etc/a b") and "\x1b" not in labels[5]
+    assert len(labels[5]) <= len("Read(outside: )") + 200
+
+
+def test_denial_labels_replace_the_home_folder_with_a_tilde(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = nested_workspace(tmp_path)
+    home = tmp_path / "home" / "me"
+    monkeypatch.setenv("HOME", str(home))
+    run = replace(
+        canned(init_message(), result_message()),
+        denials=(ToolDenial("Read", "1", str(home / ".ssh" / "id")), ToolDenial("Read", "2", str(home))),
+    )
+
+    assert denial_labels(run, root) == ("Read(outside: ~/.ssh/id)", "Read(outside: ~)")
+
+
+async def test_check_run_passes_a_denied_outside_read_and_reports_it_but_fails_an_executed_one(
+    tmp_path: Path, ctx: FlowContext
+) -> None:
+    messages = projects_run()
+    messages.insert(-1, stream_call("u9", "Read", {"file_path": "/etc/hostname"}))
+    run = await streamed(tmp_path, *messages)
+    denied = replace(run, denials=(ToolDenial("Read", "u9", "/etc/hostname"),))
+
+    assert check_run(denied, ctx).turns == 3
+    assert denial_labels(denied, ctx.workspace) == ("Read(outside: /etc/hostname)",)
+    with pytest.raises(QaError, match=r"Read\(outside: /etc/hostname\)"):
+        check_run(run, ctx)
+
+
+async def test_check_run_fails_a_denied_write_outside_the_binding_file(tmp_path: Path, ctx: FlowContext) -> None:
+    messages = projects_run()
+    messages.insert(-1, stream_call("u9", "Edit", {"file_path": "/etc/hostname"}))
+    run = replace(await streamed(tmp_path, *messages), denials=(ToolDenial("Edit", "u9", "/etc/hostname"),))
+
+    with pytest.raises(QaError, match="the CLI denied calls the flow needs"):
+        check_run(run, ctx)
 
 
 @pytest.mark.parametrize("tool", [LIST_PROJECTS, LIST_FEATURES, "Write", "Edit"])
@@ -3053,7 +3168,7 @@ async def test_check_run_accepts_a_denied_read_of_the_ancestor_binding_file(ctx:
     assert check_run(run, ctx) == RunTotals(0.0421, 3)
 
 
-async def test_the_step_report_records_each_denied_call_by_kind(ctx: FlowContext) -> None:
+async def test_the_step_report_records_each_denied_call_by_kind_and_sanitized_path(ctx: FlowContext) -> None:
     target = str(ctx.workspace.resolve().parent / ".specflow" / "config.json")
 
     def denied_read() -> list[dict]:
@@ -3067,8 +3182,9 @@ async def test_the_step_report_records_each_denied_call_by_kind(ctx: FlowContext
 
     (record, *_) = await run_flow(ctx, Denying(ctx, denied_read, alpha_run))
 
-    assert record.outcome == "passed" and record.denied == ("Read(ancestor-binding)",)
-    assert "denied=Read(ancestor-binding)" in step_result(record, 1).note
+    label = f"Read(ancestor-binding: {target})"
+    assert record.outcome == "passed" and record.denied == (label,)
+    assert f"denied={label}" in step_result(record, 1).note
     assert str(ctx.workspace) not in step_result(record, 1).note
 
 

@@ -26,7 +26,7 @@ import stat
 import tempfile
 import time
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, MutableMapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Iterable, Mapping, MutableMapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from http import HTTPStatus
@@ -1278,20 +1278,31 @@ class ToolDenial:
 
 
 def parse_denials(lines: Iterable[str], events: Iterable[ToolEvent]) -> tuple[ToolDenial, ...]:
-    """The `permission_denied` events in order; any other line, and any field of an unexpected type, is ignored."""
+    """The denied calls in order: `permission_denied` events, then `permission_denials[]` entries of the result that
+    no event named (a `tool_use_id` counts once). Any other line, and any field of an unexpected type, is ignored.
+    """
 
     inputs = {e.tool_use_id: e.payload for e in events if e.kind == "call" and isinstance(e.payload, dict)}
-    found: list[ToolDenial] = []
+    found: dict[str, ToolDenial] = {}
+
+    def record(tool: object, identifier: object, arguments: object) -> None:
+        if not isinstance(tool, str) or not isinstance(identifier, str) or identifier in found:
+            return
+        given = arguments if isinstance(arguments, dict) else inputs.get(identifier, {})
+        target = given.get("file_path")
+        found[identifier] = ToolDenial(tool, identifier, target if isinstance(target, str) else None)
+
     for line in lines:
         message = _json_line(line)
-        if message is None or message.get("type") != "system" or message.get("subtype") != "permission_denied":
+        if message is None:
             continue
-        tool, identifier = message.get("tool_name"), message.get("tool_use_id")
-        if not isinstance(tool, str) or not isinstance(identifier, str):
-            continue
-        target = inputs.get(identifier, {}).get("file_path")
-        found.append(ToolDenial(tool, identifier, target if isinstance(target, str) else None))
-    return tuple(found)
+        if message.get("type") == "system" and message.get("subtype") == "permission_denied":
+            record(message.get("tool_name"), message.get("tool_use_id"), None)
+        elif message.get("type") == "result" and isinstance(message.get("permission_denials"), list):
+            for entry in message["permission_denials"]:
+                if isinstance(entry, dict):
+                    record(entry.get("tool_name"), entry.get("tool_use_id"), entry.get("tool_input"))
+    return tuple(found.values())
 
 
 def new_run_id() -> str:
@@ -1355,22 +1366,45 @@ def claude_prompt_argv(
     ]
 
 
+def _normalize(raw: object, root: Path) -> Path | None:
+    """`raw` made absolute against `root` and its `.` and `..` resolved lexically; symlinks are never followed (D10)."""
+
+    if not isinstance(raw, str) or not raw:
+        return None
+    parts: list[str] = []
+    for part in (root / raw).parts[1:]:
+        if part == "..":
+            if parts:
+                parts.pop()
+        elif part != ".":
+            parts.append(part)
+    return Path((root / raw).anchor, *parts)
+
+
 def _target(event: ToolEvent, root: Path) -> Path | None:
-    """The file a Read or write call names (`file_path`, or `notebook_path`), resolved against `root`."""
+    """The file a Read or write call names (`file_path`, or `notebook_path`), normalized against `root`."""
 
     payload = event.payload if isinstance(event.payload, dict) else {}
-    raw = payload.get("file_path") or payload.get("notebook_path")
-    return (root / raw).resolve() if isinstance(raw, str) and raw else None
+    return _normalize(payload.get("file_path") or payload.get("notebook_path"), root)
 
 
 def _ancestor_binding(target: Path, root: Path) -> bool:
-    """True for `<an ancestor of root>/.specflow/config.json`: the nearest-file lookup walks up to it (designed)."""
+    """True for `<an ancestor of root>/.specflow/config.json` or that `.specflow` folder (the walk up to it)."""
 
-    return target.parent.parent in root.parents and target == target.parent.parent / BINDING_FILE
+    folder = target if target.name == BINDING_FILE.parent.name else target.parent
+    return (
+        folder.name == BINDING_FILE.parent.name
+        and folder.parent in root.parents
+        and target
+        in (
+            folder,
+            folder / BINDING_FILE.name,
+        )
+    )
 
 
 def target_kind(tool: str, target: Path | None, root: Path) -> str:
-    """Where a call's file is, for reports (never the path): none, binding, workspace, ancestor-binding, outside."""
+    """Where a normalized call target is, for reports: none, binding, workspace, ancestor-binding, outside."""
 
     if target is None:
         return "none"
@@ -1381,36 +1415,64 @@ def target_kind(tool: str, target: Path | None, root: Path) -> str:
     return "ancestor-binding" if tool == "Read" and _ancestor_binding(target, root) else "outside"
 
 
-def tool_violations(events: Iterable[ToolEvent], tools: Iterable[str], workspace: Path) -> list[str]:
-    """What the run did that D7 does not allow (names only; empty: clean).
+def _under(path: str, prefix: str, mark: str) -> str:
+    return mark + path[len(prefix) :] if path == prefix or path.startswith(prefix.rstrip("/") + "/") else path
 
-    Allowed: our MCP tools, discovery tools, `Read` of a file inside the workspace or of an ancestor's
-    `.specflow/config.json` (the designed walk up, whether or not the CLI denied it) and a write tool whose target is
-    `<workspace>/.specflow/config.json`. Any other call is a violation.
+
+def sanitized_path(target: Path, root: Path) -> str:
+    """A target for a report: workspace as `<ws>`, home as `~`, any other path as is; one line, 200 characters."""
+
+    text = _under(str(target), str(root), "<ws>")
+    try:
+        home = str(Path.home())
+    except RuntimeError:
+        home = "/"
+    if home.rstrip("/") and not text.startswith("<ws>"):
+        text = _under(text, home, "~")
+    return report_note(text, 200)
+
+
+def call_label(tool: str, raw: object, root: Path) -> str:
+    """`Tool(kind: sanitized path)`, or `Tool(none)` when the call names no file."""
+
+    target = _normalize(raw, root)
+    if target is None:
+        return f"{tool}(none)"
+    return f"{tool}({target_kind(tool, target, root)}: {sanitized_path(target, root)})"
+
+
+def tool_violations(
+    events: Iterable[ToolEvent], tools: Iterable[str], workspace: Path, denied: Collection[str] = ()
+) -> list[str]:
+    """What the run did that D7 and D10 do not allow (names only; empty: clean).
+
+    Allowed: our MCP tools, discovery tools, a `Read` inside the workspace or of an ancestor's binding (D10: the file
+    or its `.specflow` folder), a `Read` the CLI denied (`denied` holds the `tool_use_id`s; nothing was read) and a
+    write tool whose target is `<workspace>/.specflow/config.json`. A write is judged denied or not. Any other call
+    is a violation; an executed outside `Read` is named `Read(outside: <sanitized path>)`.
     """
 
     root, ours = workspace.resolve(), {*tools, *DISCOVERY_TOOLS}
     found: list[str] = []
     for event in (e for e in events if e.kind == "call" and e.name not in ours):
-        kind, name = target_kind(str(event.name), _target(event, root), root), str(event.name)
+        target, name = _target(event, root), str(event.name)
+        kind = target_kind(name, target, root)
         if name in WRITE_TOOLS:
             if kind != "binding":
                 found.append(f"{name} outside the binding file")
         elif name == "Read":
-            if kind in ("none", "outside"):
-                found.append("Read outside the workspace")
+            if kind in ("none", "outside") and event.tool_use_id not in denied:
+                found.append(f"Read({kind}: {sanitized_path(target, root)})" if target else "Read(none)")
         else:
             found.append(f"{name} is not allowed")
     return found
 
 
 def denial_labels(run: PromptRun, workspace: Path) -> tuple[str, ...]:
-    """`Tool(kind)` for each denied call of a run, for the step report."""
+    """`Tool(kind: sanitized path)` for each denied call of a run, for the step report."""
 
     root = workspace.resolve()
-    return tuple(
-        f"{d.tool}({target_kind(d.tool, (root / d.target).resolve() if d.target else None, root)})" for d in run.denials
-    )
+    return tuple(call_label(d.tool, d.target, root) for d in run.denials)
 
 
 Snapshot = dict[str, str]
@@ -2040,7 +2102,8 @@ def check_run(run: PromptRun, ctx: FlowContext) -> RunTotals:
 
 
 def _no_violations(run: PromptRun, ctx: FlowContext) -> None:
-    violations = tool_violations(run.events, ctx.tools, ctx.workspace)
+    denied = {d.tool_use_id for d in run.denials}
+    violations = tool_violations(run.events, ctx.tools, ctx.workspace, denied)
     _require(f"tool calls D7 does not allow: {sorted(set(violations))}", ok=not violations)
 
 
