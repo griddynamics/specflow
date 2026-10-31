@@ -93,6 +93,8 @@ Then bind your repository to a SpecFlow project, once per repository, by running
 
 The agent writes `.specflow/config.json`; see [Bind a repository to a project](docs/mcp-server/deployment.md#bind-a-repository-to-a-project).
 
+The web app shows the local commands with copy buttons: open Guides › MCP server at `http://localhost:3001/guides/mcp-server`.
+
 For the Keycloak sign-in, see [Local endpoint](docs/mcp-server/deployment.md#local-endpoint).
 
 ## Architecture

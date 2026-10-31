@@ -81,6 +81,8 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `MCP_CLIENT_IDS` | `specflow-mcp` | mcp | Comma-separated list of allowed MCP token client ids; at least one. See [architecture](mcp-server/architecture.md#settings). |
 | `MCP_ALLOWED_HOSTS` | empty | mcp | Comma-separated `Host` values accepted besides the host of `MCP_RESOURCE_URL`. Exact match, no wildcard. |
 | `MCP_ALLOWED_ORIGINS` | empty | mcp | Comma-separated browser `Origin` values accepted. Exact match, no wildcard. Empty refuses every request that carries an `Origin`. |
+| `MCP_PUBLIC_URL` | `PUBLIC_URL` + `/mcp` | frontend | Address of the MCP endpoint that the Guides page shows. Use the value of `MCP_RESOURCE_URL`. An `http` or `https` URL, `https` unless `APP_ENV` is `local`. Server-only. Locally, compose sets `http://localhost:8002/mcp`. See [deployment](mcp-server/deployment.md#web-app-settings-for-the-guides). |
+| `MCP_CLIENT_ID` | `specflow-mcp` | frontend | Client id that the Guides page shows. Use the first entry of `MCP_CLIENT_IDS`. Must not be blank. Server-only. |
 | `MCP_PORT` | `8002` | mcp | Listen port of the MCP role. See [architecture](mcp-server/architecture.md#settings). |
 | `ALEMBIC_CONFIG` | `/app/alembic.ini` | migration job | Path of the migration config. |
 | `WORKER_DIAG_STATE` | `<tmpdir>/specflow-worker-state.json` | workers | File for worker diagnostics. |

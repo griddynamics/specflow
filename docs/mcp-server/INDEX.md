@@ -21,13 +21,13 @@ and `list_features`, and one prompt, `select_project`, which binds a product rep
 # tools.md: MCP tool contracts: list_projects, list_features, pagination, workspace binding (file, instructions, select_project prompt), errors
 - [tools.md](tools.md)
 
-# deployment.md: role and ingress, IdP setup, Claude Code setup and project binding, local stack with Keycloak
+# deployment.md: role and ingress, IdP setup, Claude Code setup and project binding, web app guides, local stack with Keycloak
 - [deployment.md](deployment.md)
 
 # testing.md: test tiers, fixtures and temp workspace, scenario matrix (E1 to E17), end-to-end QA with a real client
 - [testing.md](testing.md)
 
-# requirements.md: requirement units FR-MCP-AUTH, FR-MCP-ACC, FR-MCP-TOOL, FR-MCP-BIND, FR-MCP-OPS, NFR-MCP
+# requirements.md: requirement units FR-MCP-AUTH, FR-MCP-ACC, FR-MCP-TOOL, FR-MCP-BIND, FR-MCP-UI, FR-MCP-OPS, NFR-MCP
 - [requirements.md](requirements.md)
 
 # implementation.md: implementation log: milestone status and a quick summary per milestone or change

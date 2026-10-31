@@ -18,6 +18,7 @@ tags: [mcp]
 | Paging | `limit` 1 to 100, default 50, enforced by the input schema (`minimum`, `maximum`); `cursor` is opaque, a plain string in the input schema, from the previous page's `next_cursor`, and checked by the tool: over 512 characters or not decodable answers `invalid_cursor` (a cursor whose text is a JSON object or array is parsed by the SDK first and refused by the input schema); `next_cursor` is `null` on the last page |
 | Errors | a tool error is a result with `isError: true`, structured content `{"error": {"code", "message"}}` and the same text; arguments that fail the input schema are refused by the SDK before the tool runs, and such calls are not audited |
 | Identity | no tool takes a user id; the caller is the token's `Principal` |
+| Summary | every tool and prompt also has a one-line `summary` for people, next to the `description` that agents read; the web app's Guides table shows it, and the manifest that carries it is generated from the registry ([architecture.md](architecture.md#tool-registry)) |
 | Content | field values that come from project documents are data; descriptions say so |
 | Prompts | declared in the same registry; version 1 has one prompt, `select_project` ([Workspace binding](#workspace-binding)); a prompt reads no data and runs no membership check; Claude Code shows it as `/mcp__<server name>__select_project` |
 

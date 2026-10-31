@@ -30,6 +30,7 @@ tags: [mcp]
 | MCP-M7 | Real-client QA with the end-to-end and agent tiers | done |
 | MCP-M8 | Bundle verification, security review and release check | done |
 | MCP-M9 | Workspace project binding | done |
+| MCP-M10 | Guides page and slim Develop tab | planned |
 
 ## Log
 

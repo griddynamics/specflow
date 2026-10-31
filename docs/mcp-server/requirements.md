@@ -1,7 +1,7 @@
 ---
 type: Requirements
 title: "MCP server requirements"
-description: "Requirement units of the MCP server (compact form): authentication, access control, tools, workspace binding, operations and non-functional"
+description: "Requirement units of the MCP server (compact form): authentication, access control, tools, workspace binding, web app guides, operations and non-functional"
 status: stable
 tags: [mcp]
 ---
@@ -66,6 +66,20 @@ Each row states the behavior and links the section that defines it; values are d
 | FR-MCP-BIND-05 | Selecting again shall replace the whole file, as [tools.md](tools.md#rules) defines, and the next session shall use the new project. | E17 and agent tier step 4: the file names P-Empty and the next session lists features of P-Empty (`total_count` 0). |
 | FR-MCP-BIND-06 | A binding to a project the caller is not a member of shall be answered as rule 4 of [tools.md](tools.md#rules) defines. | E17 and agent tier step 3: a file bound to P-Beta answers `project_not_found`, no P-Beta feature name appears, and no other project is used. |
 | FR-MCP-BIND-07 | Project tools shall keep a required `project_id`, and the binding shall add no server state ([tools.md](tools.md#workspace-binding)). | `tools/list` input schemas are unchanged except descriptions; no new table or setting. |
+
+## Web app guides ([deployment.md](deployment.md#guides-in-the-web-app))
+
+| ID | Requirement | Acceptance |
+|---|---|---|
+| FR-MCP-UI-01 | The web app shall serve the pages that [deployment.md](deployment.md#guides-in-the-web-app) defines, reachable from a Help section at the bottom of the sidebar with or without an open project; any other topic shall answer 404. | Playwright: Guides shows on the home page and inside a project; `/guides`, `/guides/specflow-101`, `/guides/best-practices` and `/guides/mcp-server` open; `/guides/nope` answers 404. |
+| FR-MCP-UI-02 | The `/guides` hub shall show one card per topic, and each topic page shall link back to the hub through its breadcrumb. | Playwright: three cards; from `/guides/mcp-server` the breadcrumb link "Guides" opens `/guides`. |
+| FR-MCP-UI-03 | The MCP server guide shall show the address and client id of the [web app settings](deployment.md#web-app-settings-for-the-guides), with their defaults, never a placeholder. | Unit: with neither setting and `PUBLIC_URL=https://specflow.example.com`, the address is `https://specflow.example.com/mcp` and the client id `specflow-mcp`; a blank `MCP_CLIENT_ID` and an `ftp://` `MCP_PUBLIC_URL` are refused. Playwright with `MCP_PUBLIC_URL=https://mcp.example.com/mcp` and `MCP_CLIENT_ID=specflow-test`: both appear in the page. |
+| FR-MCP-UI-04 | Every snippet of the guides shall copy exactly its text with one click. | Playwright with clipboard permission: after the COPY button of each block, the clipboard equals the block's text. |
+| FR-MCP-UI-05 | Only tested agents shall show setup steps; the others shall show "Setup is in progress", and `?agent=` shall select the agent ([deployment.md](deployment.md#guides-in-the-web-app)). | Playwright: `?agent=claude-code` shows four steps; `?agent=codex` and `?agent=cursor` show the empty state and no step. |
+| FR-MCP-UI-06 | The tools table of the guide shall come from the registry's manifest ([architecture.md](architecture.md#tool-registry)), and a stale committed manifest shall fail a test. | Backend test: after a planted change to a tool summary, the comparison fails and names `make mcp-manifest`. Playwright: the table lists every name of the manifest. |
+| FR-MCP-UI-07 | Plan › Develop shall show, per project, the bind command with the project id, the binding file that validates against the contract ([tools.md](tools.md#the-binding-file)), and the link to the guide; no mock content shall remain. | Unit: for a project named `Checkout "v2"` and for a non-ASCII name, the built JSON validates against `specflow-workspace-config.schema.json`. Playwright: the command holds the project's id. |
+| FR-MCP-UI-08 | In dev mode, the MCP guide and Plan › Develop shall use the server name, address and token setup of the local variant ([deployment.md](deployment.md#guides-in-the-web-app)). | Unit: with `mode` `dev` the commands name `specflow-local` and `/mcp__specflow-local__select_project`, and no `.mcp.json` is built. Local stack check: the guide shows `http://localhost:8002/mcp`. |
+| FR-MCP-UI-09 | The guide pages shall follow the design-system rules and be usable by keyboard and at phone width. | `npm run check:tokens` passes; review against the design system; Playwright at 390 px width: no horizontal page scroll and every control reachable by Tab. |
 
 ## Operations ([architecture.md](architecture.md), [deployment.md](deployment.md))
 

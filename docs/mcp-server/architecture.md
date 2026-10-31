@@ -44,6 +44,7 @@ flowchart TB
 | PRM endpoint | Serves the protected resource metadata document | own route |
 | MCP server | Tool registry, input schemas, tool annotations, prompts, server instructions, JSON-RPC handling | `mcp` SDK `MCPServer` |
 | Tool registry | One declaration per tool; applies the audit event, error mapping, user provisioning and membership check to every tool in one place ([Tool registry](#tool-registry)) | MCP SDK `MCPServer` |
+| Manifest | Renders the tool and prompt summaries for the web app ([Tool registry](#tool-registry)); a plain function of the registry, no SDK types | Tool registry |
 | Guidance | The server instructions and the `select_project` prompt text that tell an agent how to use the workspace binding ([tools.md](tools.md#workspace-binding)); plain functions of `MCP_RESOURCE_URL` and the optional `project` argument, with no SDK import and no data access | none |
 | Tools | Validate arguments, read, shape the result; one module per domain ([tools.md](tools.md)) | access, reader |
 | Membership check | One function every project-scoped tool calls before any read ([access-control.md](access-control.md)) | `db.repositories.get_member_project` |
@@ -73,6 +74,7 @@ The code lives in a subpackage of the HTTP layer: `backend/src/api/mcp/`. Module
 | `api/mcp/http.py` | The JSON error envelope, the probe bodies, the invariant check (`required`, `McpInvariantError`) and the per-request id middleware |
 | `api/mcp/auth.py` | Guard and PRM |
 | `api/mcp/registry.py` | Tool declarations and their registration with the cross-cutting checks; the prompt declarations |
+| `api/mcp/manifest.py` | The manifest renderer: the summaries of the registry's tools and prompts as stable JSON; imports no SDK |
 | `api/mcp/guidance.py` | The server instructions and the prompt text, as plain functions; imports no SDK |
 | `api/mcp/tools/` | Tool handlers, one module per domain (`projects`, `graph`; later `plan`) |
 | `api/mcp/errors.py` | Tool error codes and the sanitizing mapper |
@@ -98,6 +100,13 @@ Prompts are declared in the same registry, from the render functions of the guid
 provisioning and no membership check and reads no data: it returns text, and the agent's own tool calls do the access
 work. Prompt names are unique; the registry checks that, because the SDK keeps the first of two prompts with one name.
 The server instructions are passed to the SDK server when the app is built.
+
+Each tool and prompt declaration also carries a one-line `summary` for people, separate from the `description` that
+agents read ([tools.md](tools.md#conventions)). The registry renders a manifest from the declarations: the name, the
+summary, and for a tool whether it is read-only, for a prompt its argument. The manifest is committed as
+`frontend/lib/guides/mcp-tools.json`, and the web app's guide builds its tools table from it
+([deployment.md](deployment.md#guides-in-the-web-app)). A backend test fails when the committed file differs from the
+registry; `make mcp-manifest` regenerates it.
 
 Handlers are plain async functions of the caller (the `Principal` and the id of the user row that provisioning
 returned), the runtime, the validated arguments and, for a project-scoped

@@ -1,11 +1,11 @@
 ---
 type: Design
 title: "MCP server deployment"
-description: "Running the mcp role, the public endpoint, identity provider setup, developer setup in Claude Code, and the local stack with Keycloak"
+description: "Running the mcp role, the public endpoint, identity provider setup, developer setup in Claude Code, the Guides pages of the web app, and the local stack with Keycloak"
 status: stable
 tags: [mcp, deployment]
 ---
-# deployment.md: role and ingress, IdP setup, Claude Code setup and the local stack with Keycloak
+# deployment.md: role and ingress, IdP setup, Claude Code setup, web app guides and the local stack with Keycloak
 
 ## Role and process
 
@@ -141,6 +141,44 @@ claude mcp add --transport http --scope local --client-id specflow-mcp --callbac
 claude mcp login specflow-local
 ```
 
+### Guides in the web app
+
+The web app shows this developer setup with the deployment's own values, so a developer copies commands instead of
+editing placeholders.
+
+| Page | What it shows |
+|---|---|
+| Guides › MCP server (`/guides/mcp-server`) | The server address and client id, then the steps of this section for Claude Code: add the server, sign in, bind a repository, check it. Each command has a copy button. A tools table lists the tools and the prompt ([architecture.md](architecture.md#tool-registry)) |
+| Plan › Develop | Per project: `/mcp__specflow__select_project <project id>` with the id filled in, the binding file as JSON ([tools.md](tools.md#the-binding-file)), and a link to the guide |
+
+Only Claude Code has setup steps; Codex and Cursor show "Setup is in progress" until each is tested end to end
+([later.md](later.md)). `/guides/mcp-server?agent=claude-code`, `codex` or `cursor` selects the agent.
+
+The page shows one of two variants, chosen by the web app's own `AUTH_MODE`:
+
+| Web app `AUTH_MODE` | Variant |
+|---|---|
+| `oidc` | The production steps of this section: server `specflow`, client id from `MCP_CLIENT_ID`, sign-in through the IdP, and the team `.mcp.json` |
+| `dev` | The local steps of [Local endpoint](#local-endpoint): server `specflow-local`, the `headersHelper` entry with the dev user's e-mail (`LOCAL_TEST_USER_EMAIL`), no sign-in step and no `.mcp.json` |
+
+Limit: with `make up WITH=keycloak` only the `mcp` role switches to `oidc`; the web app keeps dev login
+([Local stack](#local-stack)), so the guide shows the local variant there. That mode is for QA; use the commands of
+[Local endpoint](#local-endpoint) for it.
+
+### Web app settings for the guides
+
+Operators set two settings on the web app, from the same values as the `mcp` role. Both are read on the server only:
+no `NEXT_PUBLIC_` variable exists, and the pages pass the values to the browser as props.
+
+| Web app setting | Same value as the `mcp` role | Default | Rule |
+|---|---|---|---|
+| `MCP_PUBLIC_URL` | `MCP_RESOURCE_URL` | `PUBLIC_URL` + `/mcp` | An `http` or `https` URL; `https` unless `APP_ENV=local` |
+| `MCP_CLIENT_ID` | the first entry of `MCP_CLIENT_IDS` | `specflow-mcp` | Not blank |
+
+With the ingress of [Public endpoint](#public-endpoint) (P1, P2) the default already equals `MCP_RESOURCE_URL`; set the
+setting when the two differ. The web app refuses a value that breaks the rule, with an error that names the setting
+([../configuration.md](../configuration.md)).
+
 ## Local stack
 
 `make up` always starts the `mcp` role, in dev mode like the web app: the same dev-login users and the same projects.
@@ -161,6 +199,7 @@ the QA tiers.
 | `mcp` in dev mode | `APP_ENV=local`, `AUTH_MODE=dev`, `AUTH_DEV_SIGNING_KEY` from `.env.local`, `MCP_RESOURCE_URL=http://localhost:8002/mcp`, `AUTH_ALLOWED_EMAIL_DOMAINS=example.com` |
 | Dev token for Claude Code | from the QA helper command, through `headersHelper` (local scope) or `--header`; lifetime in [auth.md](auth.md#local-and-development-mode) |
 | `mcp` with Keycloak | `AUTH_MODE=oidc`, `OIDC_ISSUER=http://localhost:8180/realms/specflow`, `AUTH_JWKS_URL` on the compose network name, and `AUTH_DEV_SIGNING_KEY` empty: `.env.local` always holds a dev key for the web app, and the role refuses any dev key under `oidc` |
+| Web app guide values | compose gives the web app `MCP_PUBLIC_URL=http://localhost:8002/mcp` (the web app's `PUBLIC_URL` is `http://localhost:3001`, so the default would be wrong here) and leaves `MCP_CLIENT_ID` at its default. Guides › MCP server at `http://localhost:3001/guides/mcp-server` then shows the local variant ([Guides in the web app](#guides-in-the-web-app)) |
 | Web app and API | dev login in both modes. With Keycloak, the MCP users are Keycloak users, so the QA seed provides their data ([testing.md](testing.md)) |
 
 `make up WITH=keycloak` refuses to start (`check-keycloak-env`) when the env file has no non-empty `KEYCLOAK_ADMIN_PASSWORD`; run `make env-local`. Compose keeps an empty default so other profiles are unaffected.
