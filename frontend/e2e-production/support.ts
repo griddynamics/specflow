@@ -219,12 +219,19 @@ export async function stubLog(): Promise<StubEntry[]> {
   return (await control("GET", "/log")) as StubEntry[];
 }
 
-/** Stub timing knobs (parseMs, summarizeMs, parseOutcome); null = never finishes. */
+/** Stub knobs (parseMs, summarizeMs, parseOutcome, graphMs, graphOutcome, graphStartFail); a null time = never finishes. */
 export async function stubTiming(t: Record<string, number | string | null>): Promise<void> {
   await control("POST", "/timing", t);
 }
 
-export const STUB_TIMING = { parseMs: 1500, summarizeMs: 1500, parseOutcome: "parsed" };
+export const STUB_TIMING = {
+  parseMs: 1500,
+  summarizeMs: 1500,
+  parseOutcome: "parsed",
+  graphMs: 1500,
+  graphOutcome: "succeeded",
+  graphStartFail: null,
+};
 
 /** Seeds a source with chosen file states in the stub (the case control port; see tests/support/stub-sources.mjs `seed`). Returns its id. */
 export async function seedSource(pid: string, source: Record<string, unknown>): Promise<string> {
@@ -267,4 +274,49 @@ export async function expectGateNetwork(page: Page, requests: RequestLog[], from
     made.filter((r) => new RegExp(`^/api/backend/projects/${pid}/sources$`).test(r.path)).length,
     "one GET of the sources status (the gate)",
   ).toBeLessThanOrEqual(1);
+}
+
+// ---- the Build knowledge button (plans/connect-build-kg-button): helpers p17 and p18 share ----
+
+export type DocumentStatus = "uploaded" | "processing" | "parsed" | "failed" | "ingested" | "partially_ingested"; // backend DOCUMENT_STATUSES
+
+export const kbBuild = (page: Page): Locator => page.getByTestId("kb-build");
+export const confirmDialog = (page: Page): Locator => page.getByTestId("kb-build-dialog");
+
+/** A project with one parsed document (the stub parses at once), on its Mission Control with the first build offered. */
+export async function readyProject(page: Page, name: string): Promise<string> {
+  await login(page);
+  await stubTiming({ parseMs: 0 });
+  const pid = await createProjectApi(page, `${name} ${Date.now().toString(36)}${randomBytes(2).toString("hex")}`);
+  const id = await seedDocument(page, pid, "spec.pdf");
+  await expect
+    .poll(async () => ((await bff(page, "GET", `/projects/${pid}/documents/${id}`)).json as { status: DocumentStatus }).status)
+    .toBe("parsed");
+  await page.goto(`/projects/${pid}/mission-control`);
+  await expect(kbBuild(page)).toHaveAttribute("data-mode", "first");
+  return pid;
+}
+
+/** Opens the confirm the keyboard way: focus the button, press Enter. */
+export async function openConfirm(page: Page): Promise<void> {
+  await kbBuild(page).focus();
+  await page.keyboard.press("Enter");
+  await expect(confirmDialog(page)).toBeVisible();
+}
+
+/** Build -> Confirm, driven by the keyboard (focus the button, Enter; focus Confirm, Enter). */
+export async function startBuild(page: Page): Promise<void> {
+  await openConfirm(page);
+  await page.getByTestId("kb-build-dialog-confirm").focus();
+  await page.keyboard.press("Enter");
+}
+
+/**
+ * Lets the page render twice (two animation frames, no timer). Call it after the event a negative check is about, so a toast or a
+ * dialog that would appear one render later is already there when `toHaveCount(0)` runs.
+ */
+export async function settled(page: Page): Promise<void> {
+  const nextFrame = () => page.evaluate(() => new Promise<number>((done) => requestAnimationFrame(done)));
+  await nextFrame();
+  await nextFrame();
 }

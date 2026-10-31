@@ -3,7 +3,9 @@
 //   - frontend (standalone server.js): http://127.0.0.1:3260, APP_ENV=local, AUTH_MODE=dev (the dev sign-in form)
 //   - stub API: http://127.0.0.1:3261 (the BFF's API_INTERNAL_URL; it verifies the dev token with the same random key)
 //   - test control: http://127.0.0.1:3262  GET /log (method, path, content type, bytes, first bytes; never headers),
-//                                          POST /timing (JSON: parseMs, summarizeMs, parseOutcome; null = Infinity)
+//                                          POST /timing (JSON: parseMs, summarizeMs, parseOutcome; null = Infinity) and the knowledge
+//                                          build knobs: graphMs (null = Infinity: a build stays running), graphOutcome ("succeeded" |
+//                                          "partially_succeeded" | "failed"), graphStartFail (null | an API code: the POST answers 503)
 //                                          POST /seed-source ({pid, source}: a source with chosen file states; see stub-sources.mjs `seed`)
 //                                          POST /remove-source ({pid, sid}: the source is gone, as if removed in another tab)
 // Needs `npm run build` first. NEVER prints environment values or the generated secrets: it logs the URLs and "ready", passes
@@ -43,7 +45,7 @@ const control = http.createServer(async (req, res) => {
     const chunks = [];
     for await (const c of req) chunks.push(c);
     const t = JSON.parse(Buffer.concat(chunks).toString() || "{}");
-    for (const k of ["parseMs", "summarizeMs"]) if (t[k] === null) t[k] = Infinity; // JSON has no Infinity: null keeps work running
+    for (const k of ["parseMs", "summarizeMs", "graphMs"]) if (t[k] === null) t[k] = Infinity; // JSON has no Infinity: null keeps work running
     api.setTiming(t);
     return send(200, { ok: true });
   }

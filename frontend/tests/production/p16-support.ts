@@ -24,21 +24,42 @@ export interface Sent {
   faked?: boolean;
 }
 
+/** The stub's knobs; the graph ones belong to the knowledge build (a graphMs of Infinity keeps a build running). */
+export interface StubKnobs {
+  parseMs: number;
+  summarizeMs: number;
+  parseOutcome: ParseOutcome;
+  graphMs: number;
+  graphOutcome: string; // "succeeded" | "partially_succeeded" | "failed"
+  graphStartFail: string | null;
+}
+/** The graph knobs back to their defaults (call in `afterEach`). */
+export const GRAPH_DEFAULTS = { graphMs: 1500, graphOutcome: "succeeded", graphStartFail: null } as const;
+
 interface StubDoc {
   pid: string;
   row: Record<string, unknown> & { id: string; status: DocStatus; summarization_status: SummaryStatus };
 }
 export interface Stub {
   url: string;
-  log: { method: string; path: string; headers: Record<string, string>; contentType?: string; bytes?: number; head?: string }[];
-  state: { parseMs: number; summarizeMs: number; parseOutcome: ParseOutcome };
+  log: {
+    method: string;
+    path: string;
+    headers: Record<string, string>;
+    contentType?: string;
+    bytes?: number;
+    head?: string;
+    /** graph_build POST: the body text the stub received (set once the body passed validation). */
+    bodyText?: string;
+  }[];
+  state: StubKnobs;
   docs: Map<string, StubDoc>;
   /** Drive sources per project (SourceOut rows; tests mutate them to move an import along). */
   sources: Map<string, Record<string, unknown>[]>;
   drive: { identityReason: string | null; email: string };
   /** sources-ux model (tests/support/stub-sources.mjs): seed a source with chosen file states, or remove one as another tab would. */
   model: { seed: (pid: string, spec: Record<string, unknown>) => string; remove: (pid: string, sid: string) => void };
-  setTiming: (t: Partial<{ parseMs: number; summarizeMs: number; parseOutcome: ParseOutcome }>) => void;
+  setTiming: (t: Partial<StubKnobs>) => void;
   close: () => Promise<void>;
 }
 
@@ -173,6 +194,9 @@ export const EXISTING_ENDPOINTS: [string, RegExp][] = [
   ["GET", /^\/api\/v1\/drive\/identity$/],
   ["GET", new RegExp(`^/api/v1/projects/${UUID}/sources(\\?batches=1)?$`)],
   ["POST", new RegExp(`^/api/v1/projects/${UUID}/sources/gdrive(/test)?$`)],
+  // Knowledge build (plans/connect-build-kg-button)
+  ["GET", new RegExp(`^/api/v1/projects/${UUID}/graph_build$`)],
+  ["POST", new RegExp(`^/api/v1/projects/${UUID}/graph_build$`)],
   // sources-ux (INT-SRC-0002..0004)
   ["GET", new RegExp(`^/api/v1/projects/${UUID}/sources/${UUID}/files\\?limit=200(&cursor=[^&]+)?$`)],
   ["DELETE", new RegExp(`^/api/v1/projects/${UUID}/sources/${UUID}$`)],

@@ -263,8 +263,8 @@ test("FR-GDUI-0021, INT-GDUI-0004: the lock follows the project progress (listin
   assert.equal(part.phase, "collecting");
   const done = lean({}, { done: 30 });
   const v = buildButtonView(done);
-  assert.deepEqual([v.label, v.mode], ["Build knowledge", "first"], "unlocked: a click is possible (and says 'not available yet')");
-  assert.equal(done.ready, false, "no knowledge build exists in production (K1)");
+  assert.deepEqual([v.label, v.mode], ["Build knowledge", "first"], "unlocked: a click is possible (it opens the build confirm)");
+  assert.equal(done.ready, false, "no build has succeeded yet (graph_build idle)");
   // Stored-only or skipped files only: unlocked, but nothing to build.
   const none = lean({}, { skipped: 5 }, { processed_documents: 0 });
   assert.equal(buildButtonView(none).mode, null);
@@ -336,15 +336,10 @@ test("Ready rule (owner 2026-10-19): Plan and Decisions unlock with at least one
   }
 });
 
-test("Q12, K1: build never calls the API; after the unlock a click is DataError not_available (the screen shows the existing message)", async () => {
+test("K3: production reads PDF only and hides GitHub", async () => {
   const http = createHttpAdapter();
   const pid = await newProject(http, "Build");
-  const n = env.api.log.length;
-  assert.equal(http.knowledge.buildAvailable, false, 'the screen shows "Not available yet" (no "demo" wording)');
   assert.equal(http.sources.pdfOnly, true);
-  assert.equal((await rejection(http.knowledge.build(pid, "first"))).code, "not_available");
-  assert.equal((await rejection(http.knowledge.build(pid, "update"))).code, "not_available");
-  assert.equal(env.api.log.length, n, "no request at all, in particular no summarize");
   assert.equal(http.sources.githubEnabled, false, "K3: GitHub is hidden");
   assert.equal((await rejection(http.sources.add(pid, { kind: "github", url: "https://github.com/a/b" }))).code, "not_available");
 });

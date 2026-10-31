@@ -29,6 +29,9 @@ async function rejection(p: Promise<unknown>): Promise<DataError> {
 }
 const statusPath = (pid: string) => `/api/backend/projects/${pid}/sources?batches=1`;
 const isStatus = (pid: string) => (x: { method: string; path: string }) => x.method === "GET" && x.path === statusPath(pid);
+const isGraph = (pid: string) => (x: { method: string; path: string }) =>
+  x.method === "GET" && x.path === `/api/backend/projects/${pid}/graph_build`;
+const IDLE_GRAPH = JSON.stringify({ status: "idle", build_id: null, mode: null, started_at: null, finished_at: null, error_code: null });
 const flush = async (n = 40) => {
   for (let i = 0; i < n; i++) await new Promise((r) => setImmediate(r));
 };
@@ -429,7 +432,10 @@ test("FR-SRC-0007, FR-SRC-0012 [R13]: the status is read every 3 s while unfinis
   const off = http.knowledge.subscribe(pid, load);
   await withHook(
     env,
-    (x) => (isStatus(pid)(x) ? (gets++, jsonResponse(200, body)) : undefined),
+    (x) => {
+      if (isGraph(pid)(x)) return jsonResponse(200, IDLE_GRAPH); // every status read also reads graph_build: idle, answered here (fake clock)
+      return isStatus(pid)(x) ? (gets++, jsonResponse(200, body)) : undefined;
+    },
     async () => {
       mock.timers.enable({ apis: ["setTimeout"] });
       try {
