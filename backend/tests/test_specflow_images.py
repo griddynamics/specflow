@@ -64,6 +64,7 @@ PUBLIC = {"postgres": "postgres:17.11", "neo4j": "neo4j:5.26.30-community"}
 # Local-only platform services this file runs itself (a deployment provides them in its own cluster).
 LOCAL_PLATFORM = {
     "temporal",
+    "keycloak",
     "rustfs",
     "rustfs-init",
     "langfuse-postgres",
@@ -150,15 +151,15 @@ DEFAULT_SERVICES = {"postgres", "neo4j", "rustfs", "rustfs-init", "api", "worker
 LANGFUSE_SERVICES = {f"langfuse-{n}" for n in ("postgres", "clickhouse", "redis", "minio", "worker", "web")}
 
 
-def test_temporal_and_langfuse_are_optional_profiles():
-    """D32: the default stack starts no Temporal and no Langfuse; WITH=... turns them on."""
+def test_temporal_langfuse_and_keycloak_are_optional_profiles():
+    """D32: the default stack starts no Temporal, Langfuse or Keycloak; WITH=... turns them on."""
 
     svcs = services()
     by_profile = {}
     for name, svc in svcs.items():
         for profile in svc.get("profiles", []):
             by_profile.setdefault(profile, set()).add(name)
-    assert by_profile == {"temporal": {"temporal"}, "langfuse": LANGFUSE_SERVICES}
+    assert by_profile == {"temporal": {"temporal"}, "langfuse": LANGFUSE_SERVICES, "keycloak": {"keycloak"}}
     assert {n for n, svc in svcs.items() if "profiles" not in svc} == DEFAULT_SERVICES
 
 
@@ -177,7 +178,7 @@ def test_the_app_reaches_an_external_temporal_and_langfuse_by_default():
 
 def test_make_up_with_selects_the_profiles_and_points_the_app_at_them():
     makefile = (ROOT / "Makefile").read_text()
-    assert "COMPOSE_PROFILES=temporal,langfuse" in makefile  # down, ps, logs cover every profile
+    assert "COMPOSE_PROFILES=temporal,langfuse,keycloak" in makefile  # down, ps, logs cover every profile
     assert "specflow-temporal:7233" in makefile
     assert "LANGFUSE_BASE_URL=http://specflow-langfuse-web:3000" in makefile
     recipe_uses_all_profiles = r"^{}:.*\n(?:\t@?if[^\n]*\n(?:\t[^\n]*\n)*?)?\t[^\n]*\$\(COMPOSE_ALL\)"
@@ -202,9 +203,11 @@ def test_every_published_port_is_loopback_and_never_3000_8080_or_5432():
             host_port = text.split(":")[1]
             if (name, text) != ("langfuse-web", "127.0.0.1:3000:3000"):
                 assert not re.fullmatch(r"(3000|8080|5432)", host_port), (name, text)
-    assert {name for name, _ in seen} == {"postgres", "neo4j", "api", "frontend", "temporal", "langfuse-web", "rustfs"}
+    expected = {"postgres", "neo4j", "api", "frontend", "temporal", "langfuse-web", "rustfs", "keycloak"}
+    assert {name for name, _ in seen} == expected
     assert services()["frontend"]["ports"] == ["127.0.0.1:${FRONTEND_PORT:-3001}:3000"]
     assert services()["rustfs"]["ports"] == ["127.0.0.1:${RUSTFS_HOST_PORT:-19000}:9000"]
+    assert services()["keycloak"]["ports"] == ["127.0.0.1:8180:8080"]
 
 
 def test_services_list_their_variables_explicitly():
@@ -238,6 +241,7 @@ def test_secret_variables_reach_only_their_roles():
     assert holders("NEO4J_PASSWORD") == {"api", "worker-agents"}
     assert holders("POSTGRES_PASSWORD") == {"postgres", "langfuse-postgres"}  # the latter is its own store
     assert holders("AUTH_DEV_SIGNING_KEY") == {"api", "frontend"}
+    assert holders("KC_BOOTSTRAP_ADMIN_PASSWORD") == {"keycloak"}
     allowed = {"SESSION_SECRET", "OIDC_CLIENT_SECRET", "AUTH_DEV_SIGNING_KEY"}
     secrets = {
         var for var in names["frontend"] if re.search(r"(PASSWORD|SECRET|API_KEY|SIGNING_KEY|PUBLIC_KEY|TLS_KEY)$", var)
@@ -302,6 +306,27 @@ def test_rustfs_is_pinned_needs_both_keys_and_has_a_one_shot_bucket_init():
     assert init["restart"] == "no"
     assert init["depends_on"] == {"rustfs": {"condition": "service_healthy"}}
     assert env_of(init)["INIT_BUCKET"] == "specflow-local"
+
+
+def test_keycloak_is_pinned_optional_and_imports_the_realm_read_only():
+    """Local OIDC provider of the MCP QA tiers: digest-pinned, realm file mounted read-only, no secret in compose."""
+
+    svc = services()["keycloak"]
+    assert re.fullmatch(r"quay\.io/keycloak/keycloak:26\.4\.\d+@sha256:[0-9a-f]{64}", svc["image"])
+    assert svc["command"] == ["start-dev", "--import-realm"]
+    assert svc["volumes"] == ["./config/keycloak:/opt/keycloak/data/import:ro"]
+    assert "healthcheck" in svc
+    env = env_of(svc)
+    admin = [value for key, value in env.items() if key.endswith("_ADMIN_PASSWORD")]
+    assert admin == ["${KEYCLOAK_ADMIN_PASSWORD:-}"]  # an empty fallback, never a literal
+    assert env["KC_HOSTNAME"] == "http://localhost:8180"
+    assert env["KC_HEALTH_ENABLED"] == "true"
+    assert not any(":?" in str(value) for value in env.values())  # a required variable breaks older .env.local files
+    assert "read_only" not in svc  # start-dev writes its H2 data under /opt/keycloak/data
+    compose = (ROOT / "docker-compose.yml").read_text()
+    assert "KEYCLOAK_QA_PASSWORD" not in compose
+    assert "KEYCLOAK_WEB_CLIENT_SECRET" not in compose
+    assert (ROOT / "config/keycloak/specflow-realm.json").is_file()
 
 
 def test_the_backend_services_run_on_a_read_only_root_filesystem():

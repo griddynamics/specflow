@@ -8,7 +8,8 @@ envval = $(shell sed -n 's/^$(1)=//p' "$(ENV_FILE)" 2>/dev/null | tail -n 1 | tr
 FRONTEND_PORT ?= $(or $(call envval,FRONTEND_PORT),3001)
 E2E_BASE_URL ?= $(or $(call envval,E2E_BASE_URL),http://localhost:$(FRONTEND_PORT))
 
-# Optional bundled services (D32): `make up WITH=temporal,langfuse` (either one, or both). Without
+# Optional bundled services (D32): `make up WITH=temporal,langfuse` (either one, or both). `WITH=keycloak`
+# adds the local Keycloak of the MCP QA tiers (docs/mcp-server/deployment.md#local-stack). Without
 # WITH the stack uses your own Temporal (TEMPORAL_ADDRESS, default host.docker.internal:7233 in
 # the containers) and your own Langfuse (LANGFUSE_BASE_URL and keys, empty = no tracing).
 # down, ps and logs always cover every profile, so they act on what `up` started.
@@ -17,9 +18,9 @@ space := $(empty) $(empty)
 empty :=
 WITH ?=
 WITH_LIST := $(subst $(comma), ,$(WITH))
-BAD_WITH := $(filter-out temporal langfuse,$(WITH_LIST))
+BAD_WITH := $(filter-out temporal langfuse keycloak,$(WITH_LIST))
 ifneq ($(BAD_WITH),)
-$(error WITH accepts temporal and langfuse (comma separated), got: $(BAD_WITH))
+$(error WITH accepts temporal, langfuse and keycloak (comma separated), got: $(BAD_WITH))
 endif
 
 # Local values for the backend run on the host against the local stack (HOST_TARGETS only, so
@@ -62,7 +63,7 @@ COMPOSE_ENV = env -u TEMPORAL_ADDRESS \
 	$(if $(WITH_LIST),COMPOSE_PROFILES=$(subst $(space),$(comma),$(strip $(WITH_LIST))))
 COMPOSE_BASE := docker compose --env-file $(ENV_FILE) -f docker-compose.yml
 COMPOSE := $(COMPOSE_ENV) $(COMPOSE_BASE)
-COMPOSE_ALL := env COMPOSE_PROFILES=temporal,langfuse $(COMPOSE_BASE)
+COMPOSE_ALL := env COMPOSE_PROFILES=temporal,langfuse,keycloak $(COMPOSE_BASE)
 
 # Static validation kit (validation/README.md): one target per track, `make validate` runs all.
 # Project inputs of each track sit beside the code they describe: backend/ (importlinter.toml,
@@ -89,14 +90,27 @@ $(BACKEND_TARGETS):
 	$(MAKE) --no-print-directory -C backend ENV_FILE=$(ENV_FILE) $@
 
 # Writes the env file with random local secrets (Postgres, Neo4j, dev login and session keys,
-# RustFS keys). Does nothing when the file exists: it never overwrites and never prints a value.
+# RustFS keys, local Keycloak). It never overwrites and never prints a value. On an existing file it
+# appends only the missing Keycloak names (the other names belong to initialised volumes).
 # `make env-local ENV_FILE=/path` writes there instead.
+ENV_LOCAL_ADDED_NAMES := KEYCLOAK_ADMIN_PASSWORD KEYCLOAK_QA_PASSWORD KEYCLOAK_WEB_CLIENT_SECRET
 ENV_LOCAL_NAMES := POSTGRES_ADMIN_PASSWORD DATABASE_PASSWORD DATABASE_AGENT_PASSWORD NEO4J_PASSWORD \
-	AUTH_DEV_SIGNING_KEY SESSION_SECRET RUSTFS_ACCESS_KEY RUSTFS_SECRET_KEY
+	AUTH_DEV_SIGNING_KEY SESSION_SECRET RUSTFS_ACCESS_KEY RUSTFS_SECRET_KEY $(ENV_LOCAL_ADDED_NAMES)
 
 env-local:
-	@if [ -e "$(ENV_FILE)" ]; then echo "env-local: $(ENV_FILE) exists, left unchanged"; exit 0; fi; \
-	command -v openssl >/dev/null || { echo "env-local: openssl not found" >&2; exit 1; }; \
+	@command -v openssl >/dev/null || { echo "env-local: openssl not found" >&2; exit 1; }; \
+	if [ -e "$(ENV_FILE)" ]; then \
+		added=""; \
+		for name in $(ENV_LOCAL_ADDED_NAMES); do \
+			grep -q "^$$name=" "$(ENV_FILE)" && continue; \
+			if [ -s "$(ENV_FILE)" ] && [ -n "$$(tail -c 1 "$(ENV_FILE)")" ]; then echo >> "$(ENV_FILE)"; fi; \
+			printf '%s=%s\n' "$$name" "$$(openssl rand -hex 32)" >> "$(ENV_FILE)"; \
+			added="$$added $$name"; \
+		done; \
+		if [ -n "$$added" ]; then echo "env-local: appended$$added to $(ENV_FILE)"; \
+		else echo "env-local: $(ENV_FILE) exists, left unchanged"; fi; \
+		exit 0; \
+	fi; \
 	umask 077; tmp="$(ENV_FILE).tmp.$$$$"; : > "$$tmp"; \
 	for name in $(ENV_LOCAL_NAMES); do \
 		case $$name in RUSTFS_ACCESS_KEY) bytes=10;; *) bytes=32;; esac; \
@@ -108,7 +122,7 @@ env-local:
 
 # Build and start the stack and wait until all services are healthy: postgres, neo4j, rustfs,
 # rustfs-init, api, worker-parse, worker-agents, frontend. `WITH=temporal,langfuse` adds the
-# bundled Temporal and Langfuse. Logs are JSON on stdout only (`make logs`).
+# bundled Temporal and Langfuse, `WITH=keycloak` the local Keycloak. Logs are JSON on stdout only (`make logs`).
 up:
 	$(COMPOSE) up -d --build --wait --wait-timeout 600
 

@@ -76,7 +76,7 @@ dev = [
 known_first_party = [
     "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
     "cli", "cloud_profile", "health", "settings",
-    "example_lib", "graph_build",  # examples/
+    "example_lib", "graph_build", "mcp_qa_lib",  # examples/
 ]
 extend_exclude = ["(^|.*/)(test_[^/]+|conftest)\\.py$"]
 
@@ -95,3 +95,6 @@ openinference-instrumentation = ["openinference"]
 # botocore ships inside the `aws` extra's boto3 (same release train); storage/s3.py imports its Config and ClientError.
 DEP001 = ["botocore"]
 DEP002 = ["asyncpg", "temporalio-openai-agents"]
+# examples/mcp_qa_lib.py uses httpx, a dev dependency here (the QA harness is dev-only; it is installed at runtime
+# through anthropic and openai).
+DEP004 = ["httpx"]
