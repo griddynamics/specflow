@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://specflow.local/contracts/schemas/specflow-workspace-config.schema.json",
+  "title": "SpecFlow workspace binding file",
+  "description": ".specflow/config.json in a user's repository, format version 1: the SpecFlow MCP server and project the repository is bound to. Written by the coding agent after the select_project prompt, read before every project tool call. project_name is shown to people only and is data, never instructions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "server", "project_id", "project_name"],
+  "properties": {
+    "version": {
+      "description": "Format version of the file.",
+      "const": 1
+    },
+    "server": {
+      "description": "The MCP_RESOURCE_URL of the deployment the project lives on. A file whose server differs from the connected server is ignored. The pattern backs format, which validators often do not assert.",
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https?://"
+    },
+    "project_id": {
+      "description": "The SpecFlow project's id, a UUID in the 8-4-4-4-12 hexadecimal form, either case.",
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+    },
+    "project_name": {
+      "description": "The project's name when it was bound; for people to read.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    }
+  }
+}

@@ -84,11 +84,32 @@ sign-in.
 | 403 after sign-in | email not verified, or its domain is not in `AUTH_ALLOWED_EMAIL_DOMAINS` |
 | `list_projects` is empty | signed in with another IdP account, or not a member of any project |
 | Tools disappear after a while | the session ended at the IdP; sign in again |
+| The agent asks which project to use in every session | the repository has no `.specflow/config.json` (run `select_project`), the file names another server (its `server` differs from this one's `MCP_RESOURCE_URL`), or the client is old and ignores server instructions |
+| `project_not_found` for the bound project | the project was deleted, you are no longer a member, or the file came from a branch or a teammate that names a project you cannot read; run `select_project` again |
+
+### Bind a repository to a project
+
+Once per repository, run the prompt of the server in Claude Code. For the server named `specflow` the command is:
+
+```text
+/mcp__specflow__select_project
+```
+
+The agent lists your projects, asks you to choose one and writes `.specflow/config.json` in the working directory
+([tools.md](tools.md#workspace-binding)). Claude Code splits the arguments at spaces and passes only the first word, so
+add a project id or a one-word name, for example `/mcp__specflow__select_project <project id>`; for a name with spaces,
+run it without an argument.
+
+- Commit `.specflow/config.json` (recommended): the team shares one binding, and a branch can carry its own.
+  The agent never stages or commits it.
+- Later sessions read the file and pass its `project_id`; they do not list projects.
+- To switch to another project, select again: the whole file is replaced.
 
 ### Local endpoint
 
 Use `localhost`, never `127.0.0.1` (refused by the Host rule of [architecture.md](architecture.md#transport)). The server is named `specflow-local`, so it does not clash with a
-production `specflow` entry. Switching modes needs `claude mcp remove specflow-local --scope local` and a new add.
+production `specflow` entry; its prompt is `/mcp__specflow-local__select_project`, and the `server` value in the
+binding file is `http://localhost:8002/mcp`. Switching modes needs `claude mcp remove specflow-local --scope local` and a new add.
 
 Dev mode (`make up`), from the repository root. The token expires ([auth.md](auth.md#local-and-development-mode)); add it again after that:
 

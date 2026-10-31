@@ -1,7 +1,7 @@
 ---
 type: Architecture
 title: "MCP server architecture"
-description: "Process, components, package layout, import rules, transport, settings, errors, logging and operations of the MCP server"
+description: "Process, components, package layout, import rules, transport, settings, errors, logging and operations of the MCP server, including the guidance component"
 status: stable
 tags: [mcp]
 ---
@@ -20,6 +20,9 @@ flowchart TB
     subgraph role["role mcp (one process, N replicas)"]
         guard[Auth guard] --> sdk[MCP SDK: Streamable HTTP, stateless]
         sdk --> tools[Tools: list_projects, list_features]
+        sdk --> prompts[Prompt: select_project]
+        guidance[Guidance text] --> prompts
+        guidance --> sdk
         tools --> access[Membership check]
         tools --> reader[GraphReader paged read]
         prm[PRM endpoint]
@@ -39,8 +42,9 @@ flowchart TB
 | Runtime | DB engine and session factory, Neo4j driver, the ontology from `load_ontology()` (the one the graph build uses, loaded at startup, [../graph/api.md](../graph/api.md#core-setup)), one `GraphReader` without a gateway ([../graph/api.md](../graph/api.md#read-and-search)), readiness probes | `db.session`, `graph.core`, `health` |
 | Auth guard | Bearer parsing, token verification, MCP claim policy, 401/403 responses with the RFC 9728 challenge; puts the `Principal` on the request | `auth` package ([auth.md](auth.md)) |
 | PRM endpoint | Serves the protected resource metadata document | own route |
-| MCP server | Tool registry, input schemas, tool annotations, JSON-RPC handling | `mcp` SDK `MCPServer` |
+| MCP server | Tool registry, input schemas, tool annotations, prompts, server instructions, JSON-RPC handling | `mcp` SDK `MCPServer` |
 | Tool registry | One declaration per tool; applies the audit event, error mapping, user provisioning and membership check to every tool in one place ([Tool registry](#tool-registry)) | MCP SDK `MCPServer` |
+| Guidance | The server instructions and the `select_project` prompt text that tell an agent how to use the workspace binding ([tools.md](tools.md#workspace-binding)); plain functions of `MCP_RESOURCE_URL` and the optional `project` argument, with no SDK import and no data access | none |
 | Tools | Validate arguments, read, shape the result; one module per domain ([tools.md](tools.md)) | access, reader |
 | Membership check | One function every project-scoped tool calls before any read ([access-control.md](access-control.md)) | `db.repositories.get_member_project` |
 | Graph read | Count and page spec nodes of given labels, ordered by `spec_id` ([tools.md](tools.md#graph-read-used-by-list_features)) | new `GraphReader` methods in `graph.core` |
@@ -68,7 +72,8 @@ The code lives in a subpackage of the HTTP layer: `backend/src/api/mcp/`. Module
 | `api/mcp/runtime.py` | The slim runtime and its factory |
 | `api/mcp/http.py` | The JSON error envelope, the probe bodies, the invariant check (`required`, `McpInvariantError`) and the per-request id middleware |
 | `api/mcp/auth.py` | Guard and PRM |
-| `api/mcp/registry.py` | Tool declarations and their registration with the cross-cutting checks |
+| `api/mcp/registry.py` | Tool declarations and their registration with the cross-cutting checks; the prompt declarations |
+| `api/mcp/guidance.py` | The server instructions and the prompt text, as plain functions; imports no SDK |
 | `api/mcp/tools/` | Tool handlers, one module per domain (`projects`, `graph`; later `plan`) |
 | `api/mcp/errors.py` | Tool error codes and the sanitizing mapper |
 | `api/mcp/access.py` | User provisioning, the one membership function, and the short database transaction each runs in |
@@ -89,11 +94,16 @@ annotations, its description and its handler. Registration wraps every handler t
 
 Calls the SDK refuses on input-schema grounds never reach the wrapper and are not audited.
 
+Prompts are declared in the same registry, from the render functions of the guidance component. A prompt runs no
+provisioning and no membership check and reads no data: it returns text, and the agent's own tool calls do the access
+work. Prompt names are unique; the registry checks that, because the SDK keeps the first of two prompts with one name.
+The server instructions are passed to the SDK server when the app is built.
+
 Handlers are plain async functions of the caller (the `Principal` and the id of the user row that provisioning
 returned), the runtime, the validated arguments and, for a project-scoped
 tool, the `Project` the membership check returned; they pass `str(project.id)` (the canonical lower-case UUID, the
 graph's `group_id`) to the graph reader, never the `project_id` argument as given. Handlers import nothing from the
-SDK. The registry is the only code that uses the SDK's tool API, so an SDK change, or a later move to another MCP
+SDK. The registry is the only code that uses the SDK's tool and prompt API, so an SDK change, or a later move to another MCP
 framework, touches the registry and not the tools. Every project member has the same access to every tool: no scope or
 role distinguishes members. The structural test of access-control.md reads the declarations.
 
@@ -201,10 +211,13 @@ which user read which project and when. There is no audit table; the log pipelin
 | AD4 | The paged read is a `GraphReader` method in `graph.core` | MCP-owned Cypher: a second Cypher home outside the validated query folders, against the graph library's rule that every query lives in its query modules ([../graph/architecture.md](../graph/architecture.md#import-rules), rule I3) |
 | AD5 | Postgres access through `db.repositories` (`list_projects`, `get_member_project`, `upsert_user`) | MCP-owned SQL: a second membership query that can drift from the REST one, which is the access decision itself |
 | AD6 | Code in `api/mcp/` | A top-level package: needs new import-linter exceptions, because the web framework is confined to `api` and `auth`, and the ORM to `api`, `db` and `temporal` |
+| AD7 | The workspace binding is a file in the user's repository that the agent reads and writes; the server guides with instructions and a prompt ([tools.md](tools.md#workspace-binding)). The server stays stateless, every call keeps an explicit `project_id`, and it works with any client that loads server instructions and can write files | A server-side "current project": the server never sees the workspace, and the stateless JSON transport rules out roots and elicitation. A request header from `.mcp.json` with an optional `project_id`: it changes the tool contract and repeats the binding in each agent's own config; it is the fallback in [later.md](later.md). Only a section in `CLAUDE.md` or `AGENTS.md`: it mixes data into the user's own instruction files and needs a different file per agent. A `select_project` tool: it cannot write the file either, and the model could call it on its own, while choosing a project is the user's decision |
 
 ## What would invalidate this design
 
 - A need for server-initiated messages (progress, elicitation, sampling): revisit AD3.
 - An IdP that cannot put the MCP audience into an access token: the OAuth proxy of [later.md](later.md).
+- Agents that ignore the server instructions: move to the header binding of [later.md](later.md) (AD7).
+- A need for several projects in one workspace: the single-project file of version 1 would need a new format version (AD7).
 - More than one IdP per deployment: users would need the issuer in their key (constraint C1 of
   [overview.md](overview.md)).

@@ -13,12 +13,16 @@ Developers work in coding agents. The MCP server gives those agents read access 
 project: which projects the developer belongs to, and which features the project's specification graph holds. It is
 an OAuth-protected remote MCP endpoint (Streamable HTTP) served by a dedicated backend role.
 
+Developers work in their own product repositories, not in SpecFlow. A repository remembers its SpecFlow project in a
+small file, `.specflow/config.json`, so the agent knows which project to read in every session
+([tools.md](tools.md#workspace-binding)).
+
 The MCP server is an integral part of SpecFlow, not an add-on: it is how coding agents reach a project's
 specification, and later its implementation plan. Every deployment and every local stack runs it.
 
 | Version | Tools | Status |
 |---|---|---|
-| 1 | `list_projects`, `list_features` | specified here |
+| 1 | `list_projects`, `list_features`, and the prompt `select_project` | specified here |
 | later | feature detail, search, impact, plan tasks, writes | [later.md](later.md) |
 
 ## Goals
@@ -31,6 +35,7 @@ specification, and later its implementation plan. Every deployment and every loc
 | G4 | Works with any OIDC provider that issues signed JWT access tokens with a configurable audience that it puts into the token without a requested scope. |
 | G5 | The public endpoint is its own process: it holds only Postgres and Neo4j credentials, and the internal API stays off the public network. |
 | G6 | Proven end to end with a real client (Claude Code and the MCP Python SDK) against a real OIDC provider. |
+| G7 | A product repository is bound to one SpecFlow project by a file the agent reads, so a new session needs no project list and no question; the server stays stateless and every call keeps an explicit `project_id`. |
 
 ## Non-goals
 
@@ -104,4 +109,7 @@ graph read that `list_features` uses belongs to the graph library ([../graph/api
 | Member project | A project with a `project_members` row for the caller |
 | Feature | A graph node of the ontology node type `feature` (label `Feature`, id `FEAT::...`, [../graph/ontology.md](../graph/ontology.md#shipped-ontology)) |
 | Spec node, `spec_id` | A graph node extracted from project documents, and its stable external id ([../graph/overview.md](../graph/overview.md#key-terms)) |
+| Product repository | The developer's own repository (for example `ecommerce-platform`), where the code is written; it is not the SpecFlow repository |
+| Workspace binding | The link between a product repository and one SpecFlow project, held in the binding file and applied by the agent ([tools.md](tools.md#workspace-binding)) |
+| Binding file | `.specflow/config.json` in the product repository: format version 1 with `server`, `project_id` and `project_name` ([tools.md](tools.md#the-binding-file)) |
 | Rosetta | An open-source MCP server ([github.com/griddynamics/rosetta](https://github.com/griddynamics/rosetta)) this design was compared with; it uses FastMCP 3 and an OAuth proxy |

@@ -24,6 +24,7 @@ The rule is the one the REST API applies; the MCP server applies it through the 
 | AC5 | `list_projects` lists only member projects (`db.repositories.list_projects`). |
 | AC6 | Membership is read on every call; nothing caches it. Removing a member takes effect on the next call. |
 | AC7 | A tool never accepts Cypher, labels, attribute filters, sort keys or another user's id from the caller. The node type of `list_features` is fixed by the tool. |
+| AC8 | The workspace binding grants nothing. The `project_id` that an agent reads from a binding file is an ordinary argument: membership is checked on every call (AC2, AC6). |
 
 The tool registry applies the membership function to every tool declared as project-scoped
 ([architecture.md](architecture.md)). A structural test reads the declarations and checks that every tool with a
@@ -58,6 +59,12 @@ agent as tool output and may contain text that reads like instructions. Mitigati
 - Every tool is read-only; no tool output can make the server write anything.
 - Content is returned in named JSON fields, never mixed into server-authored instructions or tool descriptions.
 - Tool descriptions tell the model that field values are project data, not instructions.
+- The binding file is data from the user's repository, and a committed file can come from another person. The file and
+  its `project_name` are untrusted data, never instructions. A committed file that names a project the reader is not a
+  member of answers `project_not_found`, like any foreign id (AC3); the agent does not fall back to another project
+  ([tools.md](tools.md#rules)).
+- The server instructions are server-authored text built from `MCP_RESOURCE_URL`. They hold no project data and no
+  user data ([tools.md](tools.md#server-instructions)).
 - What the agent does next is governed by the client's own permission model (Claude Code asks before running tools
   and commands).
 

@@ -27,6 +27,10 @@ tags: [mcp]
 | End-to-end tier in CI | CI starts Postgres, Neo4j, Keycloak and the role and runs the end-to-end scenarios on every pull request; considered once the stack is stable, weighing CI time and image pulls |
 | Local Keycloak everywhere | The bundled Keycloak becomes the local OIDC provider for every service and test suite, and dev login goes away; local MCP then uses the real sign-in flow too, and the MCP SDK's built-in token verification becomes possible (decision AA3 of [auth.md](auth.md) is re-evaluated) |
 | Service-side rate limits | Per-user limits in the role instead of only at the edge |
-| Develop tab | The web app shows the deployment's real `claude mcp add` command and `.mcp.json` |
+| Develop tab | The web app shows the deployment's real `claude mcp add` command and `.mcp.json`, and produces the workspace binding file for a project ([tools.md](tools.md#the-binding-file)) |
+| Header binding | The fallback if agents ignore the server instructions: a request header set in the repository's `.mcp.json` carries the project id, and `project_id` becomes optional in the project tools. It changes the tool contract and repeats the binding in each agent's own config (AD7 of [architecture.md](architecture.md#decisions)) |
+| `init-specflow` command | One command that adds the server to the agent, signs in and selects a project, so a developer needs no separate setup steps ([deployment.md](deployment.md#developer-setup-in-claude-code)) |
+| Codex compatibility check | Verify that Codex loads the server instructions and can use the binding file; version 1 covers Codex by the instructions only, and no test runs it |
+| Several projects per workspace | A binding file that holds more than one project, and a rule for choosing among them; needs a new format version |
 | Web app on other IdPs | The frontend requests the API audience or scope, so the claim profile serves the web app on Auth0, Okta or Entra ID too |
 | Audience from `resource` | Where the IdP sets `aud` from the RFC 8707 `resource` parameter, the per-client audience mapper goes away |

@@ -85,6 +85,14 @@ The name and URL come before `--header`, which takes every argument after it. Us
 claude mcp add --transport http --scope local specflow-local http://localhost:8002/mcp --header "Authorization: Bearer $(cd backend && uv run --quiet --env-file ../.env.local python examples/mcp_qa.py dev-token dev@example.com)"
 ```
 
+Then bind your repository to a SpecFlow project, once per repository, by running this in Claude Code:
+
+```text
+/mcp__specflow-local__select_project
+```
+
+The agent writes `.specflow/config.json`; see [Bind a repository to a project](docs/mcp-server/deployment.md#bind-a-repository-to-a-project).
+
 For the Keycloak sign-in, see [Local endpoint](docs/mcp-server/deployment.md#local-endpoint).
 
 ## Architecture

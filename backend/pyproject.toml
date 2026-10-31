@@ -64,6 +64,7 @@ select = ["S110"]
 dev = [
     "google-api-python-client-stubs>=1.40.0",
     "httpx>=0.28.1",
+    "jsonschema>=4.26.0",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.1",
     "ruff>=0.17.2",
@@ -102,4 +103,6 @@ DEP002 = ["asyncpg", "temporalio-openai-agents"]
 DEP003 = ["anyio"]
 # examples/mcp_qa_lib.py uses httpx, a dev dependency here (the QA harness is dev-only; it is installed at runtime
 # through anthropic and openai).
-DEP004 = ["httpx"]
+# examples/mcp_qa_lib.py also validates the workspace binding file with jsonschema, a dev dependency here (it is
+# installed at runtime through the agent SDKs).
+DEP004 = ["httpx", "jsonschema"]

@@ -29,6 +29,7 @@ tags: [mcp]
 | MCP-M6 | Local stack wiring and setup docs | done |
 | MCP-M7 | Real-client QA with the end-to-end and agent tiers | done |
 | MCP-M8 | Bundle verification, security review and release check | done |
+| MCP-M9 | Workspace project binding | planned |
 
 ## Log
 

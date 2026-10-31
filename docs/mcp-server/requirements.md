@@ -1,7 +1,7 @@
 ---
 type: Requirements
 title: "MCP server requirements"
-description: "Requirement units of the MCP server (compact form): authentication, access control, tools, operations and non-functional"
+description: "Requirement units of the MCP server (compact form): authentication, access control, tools, workspace binding, operations and non-functional"
 status: stable
 tags: [mcp]
 ---
@@ -54,6 +54,18 @@ Each row states the behavior and links the section that defines it; values are d
 | FR-MCP-TOOL-08 | If Postgres or Neo4j fails, then the tool shall answer with the fixed error that [tools.md](tools.md#error-codes) defines. | Given Neo4j stopped, then `graph_unavailable` and no driver text. |
 | FR-MCP-TOOL-09 | Every version 1 tool shall declare the annotations that [tools.md](tools.md#conventions) defines. | Given `tools/list`, then `readOnlyHint` true, `destructiveHint` false, `idempotentHint` true and `openWorldHint` false on both tools. |
 | FR-MCP-TOOL-10 | `GraphReader.count_nodes` and `nodes_page` shall count and page as [tools.md](tools.md#graph-read-used-by-list_features) defines (contract owner: [graph/api.md](../graph/api.md#read-and-search)). | Given 120 nodes, when paged by 50, then 50, 50, 20, `next_after` `None` at the end, count 120; `limit=0` raises `invalid_limit`. |
+
+## Workspace binding ([tools.md](tools.md#workspace-binding))
+
+| ID | Requirement | Acceptance |
+|---|---|---|
+| FR-MCP-BIND-01 | The `initialize` result shall carry the instructions that [tools.md](tools.md#server-instructions) defines. | Given `initialize`, then the instructions contain `MCP_RESOURCE_URL` and `.specflow/config.json`, are under 2,048 characters and contain no project id, name or feature text. |
+| FR-MCP-BIND-02 | The server shall offer the prompt that [tools.md](tools.md#the-select_project-prompt) defines, behind the auth guard. | Given a valid token, then `prompts/list` lists `select_project` with an optional `project` argument, and `prompts/get` returns the steps and the exact version 1 JSON, with `project` `Checkout` kept as quoted data; given no token, then 401. |
+| FR-MCP-BIND-03 | After `select_project`, the folder shall hold a binding file that [tools.md](tools.md#the-binding-file) defines and that names the chosen project. | Agent tier step 1: the file validates against the contract schema and names P-Alpha. |
+| FR-MCP-BIND-04 | A new session in a bound folder shall apply rule 1 of [tools.md](tools.md#rules). | Agent tier step 2: `list_features` is called with P-Alpha's id and `list_projects` is never called. |
+| FR-MCP-BIND-05 | Selecting again shall replace the whole file, as [tools.md](tools.md#rules) defines, and the next session shall use the new project. | E17 and agent tier step 4: the file names P-Empty and the next session lists features of P-Empty (`total_count` 0). |
+| FR-MCP-BIND-06 | A binding to a project the caller is not a member of shall be answered as rule 4 of [tools.md](tools.md#rules) defines. | E17 and agent tier step 3: a file bound to P-Beta answers `project_not_found`, no P-Beta feature name appears, and no other project is used. |
+| FR-MCP-BIND-07 | Project tools shall keep a required `project_id`, and the binding shall add no server state ([tools.md](tools.md#workspace-binding)). | `tools/list` input schemas are unchanged except descriptions; no new table or setting. |
 
 ## Operations ([architecture.md](architecture.md), [deployment.md](deployment.md))
 
