@@ -29,7 +29,7 @@ tags: [mcp]
 | MCP-M6 | Local stack wiring and setup docs | done |
 | MCP-M7 | Real-client QA with the end-to-end and agent tiers | done |
 | MCP-M8 | Bundle verification, security review and release check | done |
-| MCP-M9 | Workspace project binding | planned |
+| MCP-M9 | Workspace project binding | done |
 
 ## Log
 
@@ -206,3 +206,19 @@ Template:
 - Design sections updated in place: none; [../configuration.md](../configuration.md#local-stack), the quickstart and
   the READMEs describe the command
 - Follow-ups: none
+
+### MCP-M9: Workspace project binding
+
+- Date and commits: 2026-10-31, 20f08f8, 3f94f5e, 93672e9, 2032860, db9d8e8, a60971a, 5b912d0
+- Summary: a product repository names its SpecFlow project in `.specflow/config.json` (format version 1, a JSON
+  Schema contract). The server sends instructions in the `initialize` result, built from `MCP_RESOURCE_URL`, and offers
+  the prompt `select_project`; the agent reads the file before a project tool call and replaces it on the user's choice.
+  Tools, auth, settings and the database are unchanged. The end-to-end tier reads every project id from a binding file
+  (E15 to E17 added), and the agent tier runs as a four-step workspace flow in a fresh git repository.
+- Requirements proven: FR-MCP-BIND-01 to FR-MCP-BIND-07 (agent tier 3 of 3 runs, slash path in every select step)
+- Design sections updated in place: [tools.md](tools.md#workspace-binding), [architecture.md](architecture.md#decisions)
+  (guidance component, prompts in the registry, AD7, invalidation), [overview.md](overview.md),
+  [access-control.md](access-control.md), [deployment.md](deployment.md#bind-a-repository-to-a-project),
+  [testing.md](testing.md), [requirements.md](requirements.md), [later.md](later.md), the quickstart
+- Follow-ups: Claude Code runs the prompt as `/mcp__<server>__select_project` and passes only the first word of an
+  argument, so a name with spaces is chosen from the list; a Codex compatibility check is in [later.md](later.md)
