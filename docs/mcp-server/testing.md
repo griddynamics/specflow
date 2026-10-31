@@ -72,7 +72,7 @@ test.
 | E14 | alice | `list_features(P-Large)` at the load NFR-MCP-01 names, for 60 s | p95 within the target of NFR-MCP-01 ([requirements.md](requirements.md#non-functional)), recorded in the run report |
 | E15 | alice | `initialize` | the result carries instructions that hold the resource URL and `.specflow/config.json`, are under 2,048 characters and hold no project data |
 | E16 | alice; then no token | `prompts/list`, then `prompts/get` of `select_project` with and without `project` | the prompt is listed with an optional argument; the text holds the steps and the exact version 1 JSON; without a token, 401 for both |
-| E17 | alice | bind `P-Alpha` in a temp workspace and call `list_features` with the id from the file; replace the file with `P-Empty` and call again; then write a file bound to `P-Beta` and call again | first call: 7 features; second call: `total_count` 0, and the file holds only the `P-Empty` binding; third call: `project_not_found` and no graph query |
+| E17 | alice | bind `P-Alpha` in a temp workspace and call `list_features` with the id from the file; replace the file with `P-Empty` and call again; then write a file bound to `P-Beta` and call again | first call: 7 features; second call: `total_count` 0, and the file holds only the `P-Empty` binding; third call: `project_not_found` |
 
 The reverse audience case (an MCP token on `/api/v1`) is an HTTP-boundary test of the API, because the local API runs
 with dev login.
@@ -90,20 +90,25 @@ The driver acts as a developer at a terminal, in a fresh temp git repository per
 
 | Step | Prompt (as a developer would type it) | Assert on tool events and the file |
 |---|---|---|
-| 1 Bind | `/mcp__specflow-qa-<run id>__select_project P-Alpha` | the file exists, validates against the schema and names `P-Alpha`; `list_projects` called |
+| 1 Bind | `/mcp__specflow-qa-<run id>__select_project P-Alpha` | the file exists, validates against the schema and names `P-Alpha` (id and name); it is written by a run that called `list_projects`, and is the only write target |
 | 2 Reuse | List every feature of this repository's SpecFlow project. | `list_features` called with `P-Alpha`'s id until `next_cursor` is null, or with a limit covering all; the union holds the 7 feature ids and no `REQ::` id; `list_projects` never called |
 | 3 Foreign | the harness writes a `P-Beta` binding, then the same prompt as step 2 | `list_features` result is `project_not_found`; no `P-Beta` feature name appears anywhere in the run; no other project's tool call |
-| 4 Switch | `/mcp__specflow-qa-<run id>__select_project P-Empty`, then a fresh session with the prompt of step 2 | the whole file is replaced and names `P-Empty`; `list_features` called with `P-Empty`'s id, `total_count` 0 |
+| 4 Switch | `/mcp__specflow-qa-<run id>__select_project P-Empty`, then a fresh session with the prompt of step 2 | the whole file is replaced and names `P-Empty` (id and name), written by the `select_project` run, which is the only write; `list_features` called with `P-Empty`'s id, `total_count` 0 |
 
-   The slash form is the Claude Code form of the prompt ([tools.md](tools.md#the-select_project-prompt)). If the
-   hyphenated server name fails to expand, steps 1 and 4 use the plain request "Bind this folder to the SpecFlow
+   The slash form is the Claude Code form of the prompt ([tools.md](tools.md#the-select_project-prompt)). Claude Code
+   2.1.316 does not echo the expanded prompt in the stream, so the outcome is proved by the file and the tool events,
+   and `slash` means that the typed command is a registered slash command of the session (`init.slash_commands`). If
+   the hyphenated server name is not registered, steps 1 and 4 use the plain request "Bind this folder to the SpecFlow
    project P-Alpha" (or `P-Empty`), and the run report records `slash` or `plain`.
 
-   Permissions: `Read` is allowed; writes are allowed only by `Edit(./.specflow/**)` (Claude Code applies Edit rules to
-   the Write tool, and scoped `Write(...)` allow rules are denied); `Bash` and the other built-in tools stay
-   disallowed (`--disallowedTools`). `--allowedTools` lists the two SpecFlow tools, `Read` and that Edit rule. The run
-   check fails on any Write, Edit, MultiEdit or NotebookEdit call whose target is not `<workspace>/.specflow/config.json`,
-   and on a file created anywhere else in the workspace.
+   Permissions: writes are allowed only by `Edit(./.specflow/**)` (Claude Code applies Edit rules to the Write tool,
+   and scoped `Write(...)` allow rules are denied); `Bash` and the other built-in tools stay disallowed
+   (`--disallowedTools`; `Read`, `Write` and `Edit` are not in that list). `--allowedTools` lists the two SpecFlow
+   tools and that Edit rule, with no `Read` rule: under `dontAsk` the agent reads files inside the working folder
+   without one, and the CLI denies reads elsewhere. The run check is a second layer: it fails on any Write, Edit,
+   MultiEdit or NotebookEdit call whose target is not `<workspace>/.specflow/config.json`, on a Read outside the
+   workspace, on any other built-in tool call, and on a file created or changed anywhere else in the workspace or any
+   symlink in it.
 4. Tears down: `claude mcp logout <name>`, `claude mcp remove <name> --scope local` (the CLI stores MCP tokens in
    the user's real Claude configuration) and deletes the workspace.
 
@@ -113,9 +118,11 @@ asserted. The gate is 3 runs, all passing.
 Running the gate: `uv run --env-file ../.env.local python examples/mcp_qa.py claude --runs 3` (exit status 1 when a
 step fails), or `SPECFLOW_QA_RUNS=3 SPECFLOW_TEST_MCP_CLAUDE=1 uv run --env-file ../.env.local pytest tests/test_mcp_claude_qa.py -q`
 (one test per run; the default is 1 run). Every run registers its own server and workspace. A flow is five prompts
-(step 4 is two); each prompt has `--model sonnet`, `--max-turns 10` and `--max-budget-usd 0.50`, so a run stays under
-3 USD even if every prompt spends its whole budget. The plain request is used only when the stream shows the slash prompt was not expanded: the init message's
-`slash_commands` does not list `mcp__<server>__select_project` (the stream never echoes the expanded text). The report records, per step, the outcome, our tool calls, duration, cost and `slash` or `plain`.
+(step 4 is two), or seven when both slash steps fall back to the plain request; each prompt has `--model sonnet`,
+`--max-turns 10` and `--max-budget-usd 0.50`, so a run costs at most 7 x 0.50 = 3.50 USD. The plain request is used
+only when the init message's `slash_commands` does not list `mcp__<server>__select_project`. `--runs N` stops after a
+run whose teardown was not clean. The report records, per step, the outcome, our tool calls, duration, cost and
+`slash` or `plain`.
 
 ## Login helper
 

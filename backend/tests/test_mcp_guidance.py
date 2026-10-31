@@ -119,10 +119,8 @@ def test_the_prompt_without_the_argument_asks_the_user_to_choose() -> None:
     assert "directory or its nearest parent folder that has one, read it" in text
     assert "2. Call list_projects and follow next_cursor until it is null." in text
     assert "3. Show the projects (name, created_at, newest first) and ask the user to choose." in text
-    assert (
-        f"4. Replace the whole nearest existing .specflow/config.json, else create it in the working directory, with exactly {TEMPLATE}"
-        in text
-    )
+    step_4 = "4. Replace the whole nearest existing .specflow/config.json, else create it in the working directory"
+    assert f"{step_4}, with exactly {TEMPLATE}" in text
     assert ", where <id> and <name> are the chosen project's id and name as JSON strings, the name cut to 200" in text
     assert text.endswith("Write no other file and do not commit.")
     assert "equals" not in text and "None" not in text

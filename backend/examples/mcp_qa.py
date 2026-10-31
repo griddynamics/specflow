@@ -241,6 +241,9 @@ async def _claude_run(
         if reason is not None:
             print(f"run {run_number} failed: {report_note(reason)}")
             passed = False
+        if metrics.get("teardown_clean") == "no":  # a server may be left behind: no further run registers another
+            print(f"stopping after run {run_number}: the teardown was not clean")
+            return False
     return passed
 
 

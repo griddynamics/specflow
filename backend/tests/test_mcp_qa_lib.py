@@ -1855,6 +1855,17 @@ def test_report_note_strips_escapes_collapses_whitespace_and_truncates() -> None
     assert report_note("x" * 500, 2000) == "x" * 500
 
 
+def test_report_note_strips_control_characters_but_keeps_tab_and_newline_as_spaces() -> None:
+    hostile = "a\x1bPdevice\x1b\\b\x1bcreset\x9bmore\x00\x07\x7f\x85end\tTAB\nLINE"
+
+    cleaned = report_note(hostile)
+
+    assert not [char for char in cleaned if (ord(char) < 32 and char not in "\t\n") or 0x7F <= ord(char) <= 0x9F]
+    assert "\x1b" not in cleaned and "\x9b" not in cleaned
+    assert report_note("a\tb\nc") == "a b c"
+    assert report_note("x\x9by\x1bcz") == "xycz"  # the control characters go; letters after an ESC stay
+
+
 async def test_run_scenario_records_the_outcome_and_the_error_type_only() -> None:
     report = RunReport("r", "e2e", [])
 
@@ -2146,14 +2157,13 @@ def test_the_prompt_argv_denies_the_builtin_tools_that_read_the_environment_othe
     assert not denied & {"mcp__a__x"}
 
 
-def test_the_allowed_tools_are_our_two_tools_read_and_the_binding_file_edit_rule_only() -> None:
+def test_the_allowed_tools_are_our_two_tools_and_the_binding_file_edit_rule_only() -> None:
     assert claude_allowed_tools("specflow-qa-abc") == [
         "mcp__specflow-qa-abc__list_projects",
         "mcp__specflow-qa-abc__list_features",
-        "Read",
         "Edit(./.specflow/**)",
     ]
-    assert not {"Write", "Bash", "Edit"} & set(claude_allowed_tools("s"))  # a bare Edit would allow every file
+    assert not {"Write", "Bash", "Edit", "Read"} & set(claude_allowed_tools("s"))  # a bare Edit would allow every file
 
 
 # Latency error handling (R7, R8) ---------------------------------------------------------------------------------
@@ -2522,6 +2532,24 @@ async def test_each_step_check_accepts_a_good_run(tmp_path: Path, ctx: FlowConte
     empty_reused(await streamed(tmp_path, *empty_run()), ctx, {})
 
 
+async def test_the_bind_check_compares_project_name_with_the_seeded_project_name(
+    tmp_path: Path, ctx: FlowContext
+) -> None:
+    write_binding(ctx.workspace, AGENT_IDS.projects["P-Alpha"], "Some Other Name")
+
+    with pytest.raises(QaError, match="project_name is not P-Alpha"):
+        bound_to_alpha(await streamed(tmp_path, *bind_run(ctx)), ctx, {})
+
+
+async def test_the_switch_check_compares_project_name_with_the_seeded_project_name(
+    tmp_path: Path, ctx: FlowContext
+) -> None:
+    write_binding(ctx.workspace, AGENT_IDS.projects["P-Empty"], "renamed")
+
+    with pytest.raises(QaError, match="project_name is not P-Empty"):
+        switched_to_empty(await streamed(tmp_path, *bind_run(ctx)), ctx, {})
+
+
 @pytest.mark.parametrize(
     ("project", "messages", "reason"),
     [
@@ -2878,6 +2906,38 @@ def test_tool_violations_follows_a_symlink_out_of_the_workspace(tmp_path: Path) 
     ]
 
 
+def test_workspace_snapshot_marks_a_symlink_without_following_it_and_stray_files_reports_it(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("outside content", encoding="utf-8")
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    before = workspace_snapshot(workspace)
+    (workspace / "link.txt").symlink_to(outside / "secret.txt")
+    (workspace / "linkdir").symlink_to(outside, target_is_directory=True)
+
+    after = workspace_snapshot(workspace)
+
+    assert after == {"link.txt": "symlink", "linkdir": "symlink"}  # nothing inside the linked folder is listed
+    assert stray_files(before, after) == ["link.txt", "linkdir"]
+    assert stray_files(after, after) == ["link.txt", "linkdir"]  # a symlink that was already there is still one
+
+
+def test_a_symlinked_binding_file_is_reported_as_stray(tmp_path: Path) -> None:
+    (tmp_path / "real.json").write_text("{}", encoding="utf-8")
+    (tmp_path / ".specflow").mkdir()
+    (tmp_path / BINDING_FILE).symlink_to(tmp_path / "real.json")
+
+    assert stray_files({}, workspace_snapshot(tmp_path)) == [".specflow/config.json", "real.json"]
+
+
+def test_workspace_snapshot_does_not_open_a_fifo(tmp_path: Path) -> None:
+    os.mkfifo(tmp_path / "pipe")  # reading it would block forever
+    (tmp_path / "plain.txt").write_text("x", encoding="utf-8")
+
+    assert sorted(workspace_snapshot(tmp_path)) == ["plain.txt"]
+
+
 def test_workspace_snapshot_skips_git_and_stray_files_ignores_only_the_binding_file(tmp_path: Path) -> None:
     (tmp_path / ".git").mkdir()
     (tmp_path / ".git" / "HEAD").write_text("ref", encoding="utf-8")
@@ -2953,7 +3013,7 @@ async def test_a_good_flow_passes_five_prompts_through_the_slash_path_and_the_ha
         f"/mcp__{AGENT_NAME}__select_project P-Empty",
         REUSE_PROMPT,
     ]
-    allowed = ",".join([*AGENT_TOOLS, "Read", "Edit(./.specflow/**)"])
+    allowed = ",".join([*AGENT_TOOLS, "Edit(./.specflow/**)"])
     assert all(argv[argv.index("--allowedTools") + 1] == allowed for argv in agent.argvs)
     assert all(
         argv[argv.index("--model") + 1 : argv.index("--model") + 5] == ["haiku", "--max-turns", "4", "--max-budget-usd"]
@@ -3060,7 +3120,7 @@ async def test_a_file_written_outside_the_binding_file_fails_the_step(ctx: FlowC
     handlers[1] = noisy
     records = await run_flow(ctx, ScriptedAgent(ctx, *handlers))
 
-    assert records[-1].outcome == "failed" and "outside the binding file: 1" in records[-1].note
+    assert records[-1].outcome == "failed" and "symlinked outside the binding file: 1" in records[-1].note
 
 
 async def test_a_run_that_cannot_answer_is_recorded_as_a_precondition(ctx: FlowContext) -> None:

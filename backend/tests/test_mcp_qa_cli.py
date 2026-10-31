@@ -568,6 +568,20 @@ async def test_claude_runs_each_requested_flow_in_its_own_workspace_and_registra
     assert not any(path.exists() for path in harness.workspaces)
 
 
+async def test_claude_stops_after_a_run_whose_teardown_was_not_clean(
+    harness: ClaudeHarness, capsys: pytest.CaptureFixture[str]
+) -> None:
+    harness.handlers = [*harness.good_flow(), *harness.good_flow()]
+    harness.teardown_clean = False  # the fake teardown reports a server left behind, without raising
+
+    assert await mcp_qa.claude_command(claude_args(runs="3")) == 1
+
+    out = capsys.readouterr().out
+    assert "stopping after run 1: the teardown was not clean" in out
+    assert len(harness.sessions) == 1 and len(harness.argvs) == 5  # no second registration
+    assert harness.report()["metrics"]["teardown_clean"] == "no" and harness.cwd.exists()
+
+
 async def test_claude_exits_1_when_a_step_fails_and_names_it_but_still_tears_down(
     harness: ClaudeHarness, capsys: pytest.CaptureFixture[str]
 ) -> None:

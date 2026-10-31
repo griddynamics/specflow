@@ -22,6 +22,7 @@ import secrets
 import shutil
 import signal
 import socket
+import stat
 import tempfile
 import time
 import uuid
@@ -1167,7 +1168,8 @@ _RUN_ID = re.compile(r"[A-Za-z0-9_-]+")
 _SECRET_SHAPE = re.compile(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|Bearer|Authorization|code=|@", re.IGNORECASE)
 CLAUDE_MODEL = "sonnet"
 CLAUDE_MAX_TURNS = 10
-CLAUDE_MAX_BUDGET_USD = "0.50"  # per prompt: five prompts per flow stay under 3 USD even when every one spends it all
+# Per prompt. A flow is 5 prompts, 7 when both slash steps fall back to the plain request: at most 7 x 0.50 = 3.50 USD.
+CLAUDE_MAX_BUDGET_USD = "0.50"
 PROMPT_TIMEOUT_S = 300.0
 # Built-in tools that could read other files, the environment or the network; denied on top of the allow list (a deny
 # rule beats user and project settings). `Read`, `Write` and `Edit` are not here: `Write` must stay undenied or the
@@ -1299,9 +1301,12 @@ def claude_tool_names(name: str) -> tuple[str, str]:
 
 
 def claude_allowed_tools(name: str) -> list[str]:
-    """What a flow prompt may use: our two MCP tools, `Read` and the binding-file edit rule (D7)."""
+    """What a flow prompt may use: our two MCP tools and the binding-file edit rule (D7).
 
-    return [*claude_tool_names(name), "Read", EDIT_RULE]
+    No `Read` rule: reads inside the working folder work without one under `dontAsk`, and the CLI denies the rest.
+    """
+
+    return [*claude_tool_names(name), EDIT_RULE]
 
 
 def claude_prompt_argv(
@@ -1355,26 +1360,35 @@ def tool_violations(events: Iterable[ToolEvent], tools: Iterable[str], workspace
 
 
 Snapshot = dict[str, str]
+SYMLINK: Final = "symlink"  # snapshot value of a symlink: never followed, never read
 
 
 def workspace_snapshot(workspace: Path) -> Snapshot:
-    """Relative path to SHA-256 of every file of the workspace except `.git/`."""
+    """Relative path to SHA-256 of every regular file of the workspace except `.git/`; a symlink is marked `SYMLINK`.
+
+    Entries are read with `lstat`: a symlink is not followed and a FIFO or other special file is not opened.
+    """
 
     found: Snapshot = {}
     for folder, dirs, files in os.walk(workspace):
         if Path(folder) == workspace:
             dirs[:] = [name for name in dirs if name != ".git"]
-        for name in files:
+        for name in (*dirs, *files):
             path = Path(folder) / name
-            found[path.relative_to(workspace).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+            mode = path.lstat().st_mode
+            if stat.S_ISLNK(mode):
+                found[path.relative_to(workspace).as_posix()] = SYMLINK
+            elif stat.S_ISREG(mode):
+                found[path.relative_to(workspace).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
     return found
 
 
 def stray_files(before: Snapshot, after: Snapshot) -> list[str]:
-    """Files created, changed or removed between two snapshots, other than the binding file."""
+    """Files created, changed or removed between two snapshots other than the binding file, and every symlink."""
 
     binding = BINDING_FILE.as_posix()
-    return sorted(path for path in {*before, *after} if path != binding and before.get(path) != after.get(path))
+    changed = {path for path in {*before, *after} if path != binding and before.get(path) != after.get(path)}
+    return sorted(changed | {path for path, digest in after.items() if digest == SYMLINK})
 
 
 def port_is_free(port: int = CALLBACK_PORT) -> bool:
@@ -1808,15 +1822,17 @@ _URL_SHAPE = re.compile(r"https?://\S+")
 _EMAIL_SHAPE = re.compile(r"\S+@\S+")
 _JWT_SHAPE = re.compile(r"eyJ[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*")
 _HEADER_WORDS = re.compile(r"Bearer|Authorization|code=", re.IGNORECASE)
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")  # C0 except tab and newline, DEL, C1
 
 
 def report_note(text: str, limit: int = 300) -> str:
-    """Model prose or an error text made safe for a report: no URL, email, token or header, one line, truncated."""
+    """Model prose or an error text made safe for a report: no URL, email, token, header or control char, one line."""
 
     cleaned = _URL_SHAPE.sub("[url]", strip_ansi(text))
     cleaned = _EMAIL_SHAPE.sub("[email]", cleaned)
     cleaned = _JWT_SHAPE.sub("[token]", cleaned)
     cleaned = _HEADER_WORDS.sub("", cleaned).replace("@", "")
+    cleaned = _CONTROL.sub("", cleaned)
     return " ".join(cleaned.split())[:limit]
 
 
@@ -1992,9 +2008,9 @@ def _bound_to(ctx: FlowContext, project: str) -> None:
     _require("the binding file does not exist", ok=ctx.binding.is_file())
     document = read_binding(ctx.binding)
     _require("the binding file names another server", ok=document["server"] == MCP_RESOURCE_URL)
-    _require(
-        f"the binding file does not name {project}", ok=uuid.UUID(document["project_id"]) == ctx.ids.projects[project]
-    )
+    named = uuid.UUID(document["project_id"]) == ctx.ids.projects[project]
+    _require(f"the binding file does not name {project}", ok=named)
+    _require(f"the binding file's project_name is not {project}", ok=document["project_name"] == project)
 
 
 def _sole_write(run: PromptRun, ctx: FlowContext) -> None:
@@ -2174,7 +2190,7 @@ class WorkspaceFlow:
                 _no_violations(earlier, self.ctx)
             check_run(run, self.ctx)
             strays = stray_files(before, workspace_snapshot(self.ctx.workspace))
-            _require(f"files created or changed outside the binding file: {len(strays)}", ok=not strays)
+            _require(f"files created, changed or symlinked outside the binding file: {len(strays)}", ok=not strays)
             step.check(run, self.ctx, before)
         except RunPreconditionError as reason:
             return f"precondition: {reason}"
