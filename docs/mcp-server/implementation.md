@@ -192,3 +192,16 @@ Template:
   returned, audit), [testing.md](testing.md) (scenario E14), [questions.md](questions.md) (Q4),
   [../configuration.md](../configuration.md) (MCP rows)
 - Follow-ups: none
+
+### `make env-local` completes an existing env file
+
+- Date and commits: 2026-10-31, the commit that adds this entry
+- Summary: on an existing env file, `make env-local` now appends every generated secret that is missing or empty, not
+  only the Keycloak ones, so a release that adds a secret needs no new file. On a terminal it also asks for
+  `AGENT_MODEL`, `LLM_GATEWAY_URL` and `LLM_GATEWAY_API_KEY` when they are missing or empty, the key without echo;
+  without a terminal it lists them. It never overwrites or prints a value. A local run had stopped at an `api` that
+  refused a missing `AGENT_MODEL`, which the hint printed after a new file did not prevent.
+- Requirements proven: none
+- Design sections updated in place: none; [../configuration.md](../configuration.md#local-stack), the quickstart and
+  the READMEs describe the command
+- Follow-ups: none

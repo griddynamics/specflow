@@ -98,35 +98,71 @@ $(BACKEND_TARGETS):
 	$(MAKE) --no-print-directory -C backend ENV_FILE=$(ENV_FILE) $@
 
 # Writes the env file with random local secrets (Postgres, Neo4j, dev login and session keys,
-# RustFS keys, local Keycloak). It never overwrites and never prints a value. On an existing file it
-# appends only the missing Keycloak names (the other names belong to initialised volumes).
+# RustFS keys, local Keycloak), then asks for the LLM settings it cannot generate. Safe to run again
+# after every update: it never overwrites a value and never prints one. A secret that is missing or
+# empty is generated and appended, so a release that adds a secret needs only this command. An LLM
+# setting that is missing or empty is asked for when stdin is a terminal (Enter skips it; the API key
+# is read without echo); without a terminal (CI, agents) nothing is asked and the missing names are
+# listed. A value outside [A-Za-z0-9._:/@+=-] is written single-quoted, so compose takes it literally.
+# A secret appended to a file whose volumes already hold data does not match them: `make down-volumes`.
 # `make env-local ENV_FILE=/path` writes there instead.
-ENV_LOCAL_ADDED_NAMES := KEYCLOAK_ADMIN_PASSWORD KEYCLOAK_QA_PASSWORD KEYCLOAK_WEB_CLIENT_SECRET
 ENV_LOCAL_NAMES := POSTGRES_ADMIN_PASSWORD DATABASE_PASSWORD DATABASE_AGENT_PASSWORD NEO4J_PASSWORD \
-	AUTH_DEV_SIGNING_KEY SESSION_SECRET RUSTFS_ACCESS_KEY RUSTFS_SECRET_KEY $(ENV_LOCAL_ADDED_NAMES)
+	AUTH_DEV_SIGNING_KEY SESSION_SECRET RUSTFS_ACCESS_KEY RUSTFS_SECRET_KEY \
+	KEYCLOAK_ADMIN_PASSWORD KEYCLOAK_QA_PASSWORD KEYCLOAK_WEB_CLIENT_SECRET
+ENV_LOCAL_INPUT_NAMES := AGENT_MODEL LLM_GATEWAY_URL LLM_GATEWAY_API_KEY
 
 env-local:
 	@command -v openssl >/dev/null || { echo "env-local: openssl not found" >&2; exit 1; }; \
-	if [ -e "$(ENV_FILE)" ]; then \
-		added=""; \
-		for name in $(ENV_LOCAL_ADDED_NAMES); do \
-			grep -q "^$$name=" "$(ENV_FILE)" && continue; \
-			if [ -s "$(ENV_FILE)" ] && [ -n "$$(tail -c 1 "$(ENV_FILE)")" ]; then echo >> "$(ENV_FILE)"; fi; \
-			printf '%s=%s\n' "$$name" "$$(openssl rand -hex 32)" >> "$(ENV_FILE)"; \
-			added="$$added $$name"; \
+	f="$(ENV_FILE)"; umask 077; \
+	val() { sed -n "s/^$$1=//p" "$$f" | tail -n 1 | tr -d "\"' \r"; }; \
+	nl() { if [ -s "$$f" ] && [ -n "$$(tail -c 1 "$$f")" ]; then echo >> "$$f"; fi; }; \
+	put() { \
+		if grep -q "^$$1=" "$$f"; then t="$$f.tmp.$$$$"; grep -v "^$$1=" "$$f" > "$$t" || :; cat "$$t" > "$$f"; rm -f "$$t"; fi; \
+		nl; printf '%s=%s\n' "$$1" "$$2" >> "$$f"; \
+	}; \
+	if [ ! -e "$$f" ]; then \
+		tmp="$$f.tmp.$$$$"; : > "$$tmp"; \
+		for name in $(ENV_LOCAL_NAMES); do \
+			case $$name in RUSTFS_ACCESS_KEY) bytes=10;; *) bytes=32;; esac; \
+			printf '%s=%s\n' "$$name" "$$(openssl rand -hex $$bytes)" >> "$$tmp"; \
 		done; \
-		if [ -n "$$added" ]; then echo "env-local: appended$$added to $(ENV_FILE)"; \
-		else echo "env-local: $(ENV_FILE) exists, left unchanged"; fi; \
-		exit 0; \
+		if ln "$$tmp" "$$f" 2>/dev/null; then echo "env-local: wrote $$f ($(ENV_LOCAL_NAMES))"; fi; \
+		rm -f "$$tmp"; \
 	fi; \
-	umask 077; tmp="$(ENV_FILE).tmp.$$$$"; : > "$$tmp"; \
+	added=""; \
 	for name in $(ENV_LOCAL_NAMES); do \
+		[ -n "$$(val $$name)" ] && continue; \
 		case $$name in RUSTFS_ACCESS_KEY) bytes=10;; *) bytes=32;; esac; \
-		printf '%s=%s\n' "$$name" "$$(openssl rand -hex $$bytes)" >> "$$tmp"; \
+		put "$$name" "$$(openssl rand -hex $$bytes)"; added="$$added $$name"; \
 	done; \
-	ln "$$tmp" "$(ENV_FILE)" 2>/dev/null && rm -f "$$tmp" || { rm -f "$$tmp"; echo "env-local: $(ENV_FILE) exists, left unchanged"; exit 0; }; \
-	echo "env-local: wrote $(ENV_FILE) ($(ENV_LOCAL_NAMES))"; \
-	echo "env-local: add AGENT_MODEL, LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY to $(ENV_FILE) (docs/configuration.md)"
+	[ -z "$$added" ] || echo "env-local: appended$$added to $$f"; \
+	set=""; missing=""; \
+	for name in $(ENV_LOCAL_INPUT_NAMES); do \
+		[ -n "$$(val $$name)" ] && continue; \
+		answer=""; \
+		if [ -t 0 ]; then \
+			case $$name in \
+				AGENT_MODEL) hint="the model name your LLM gateway serves";; \
+				LLM_GATEWAY_URL) hint="the URL of your OpenAI-compatible gateway";; \
+				*) hint="input hidden";; \
+			esac; \
+			printf 'env-local: %s (%s; Enter skips): ' "$$name" "$$hint" >&2; \
+			if [ "$$name" = LLM_GATEWAY_API_KEY ]; then \
+				trap 'stty echo 2>/dev/null; exit 130' INT TERM; stty -echo 2>/dev/null; \
+				IFS= read -r answer || answer=""; \
+				stty echo 2>/dev/null; trap - INT TERM; echo >&2; \
+			else IFS= read -r answer || answer=""; fi; \
+		fi; \
+		case "$$answer" in \
+			"") missing="$$missing $$name"; continue;; \
+			*"'"*) echo "env-local: $$name holds a single quote; set it in $$f by hand" >&2; missing="$$missing $$name"; continue;; \
+			*[!A-Za-z0-9._:/@+=-]*) answer="'$$answer'";; \
+		esac; \
+		put "$$name" "$$answer"; set="$$set $$name"; \
+	done; \
+	[ -z "$$set" ] || echo "env-local: set$$set in $$f"; \
+	[ -z "$$missing" ] || echo "env-local: add$$missing to $$f (docs/configuration.md)"; \
+	[ -n "$$added$$set$$missing" ] || echo "env-local: $$f is complete, left unchanged"
 
 # `WITH=keycloak` needs a non-empty KEYCLOAK_ADMIN_PASSWORD (compose defaults it to empty so that
 # other profiles still start). Names only, never the value; `make env-local` adds it.

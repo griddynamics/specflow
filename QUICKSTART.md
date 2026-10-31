@@ -8,7 +8,7 @@ together. For every setting, see [`docs/configuration.md`](docs/configuration.md
 | Need | Why | Notes |
 |---|---|---|
 | Docker with the Compose plugin | Runs the whole stack | Docker Desktop, OrbStack or Docker Engine |
-| `make` and `openssl` | `make env-local` writes random local secrets | Already on macOS and most Linux systems |
+| `make` and `openssl` | `make env-local` writes random local secrets and asks for your LLM settings | Already on macOS and most Linux systems |
 | An OpenAI-compatible LLM gateway | Summaries and the knowledge-graph build | You need its URL, an API key and a model name |
 | Temporal | Runs the background workflows | Use your own on `localhost:7233`, or start the bundled one (`WITH=temporal`) |
 | Langfuse (optional) | Shows the agent traces | Use your own, start the bundled one (`WITH=langfuse`), or leave it off |
@@ -18,18 +18,18 @@ Node.js 20.9 or newer.
 
 ## Run it
 
-1. Write the local env file once. It holds random local secrets only:
+1. Write the local env file. It generates the local secrets, then asks for your LLM settings: `AGENT_MODEL`,
+   `LLM_GATEWAY_URL` and `LLM_GATEWAY_API_KEY` (the key is not shown as you type; Enter skips a question). Run it
+   again after every update: it adds any secret a release introduced, asks only for settings that are still
+   missing, and never changes a value or prints one:
 
    ```shell
    make env-local
    ```
 
-2. Open `.env.local` and add your LLM settings:
+2. Optional: add the knowledge-graph settings to `.env.local`. You can also edit the LLM settings there by hand:
 
    ```dotenv
-   AGENT_MODEL=<model name>
-   LLM_GATEWAY_URL=<https://your-gateway/v1>
-   LLM_GATEWAY_API_KEY=<key>
    # The knowledge-graph build stays off until these three are set:
    GRAPH_LLM_MODEL=<model name>
    GRAPH_SMALL_MODEL=<smaller, cheaper model name>
