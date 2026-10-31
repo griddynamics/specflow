@@ -29,6 +29,9 @@ and `list_features`.
 # requirements.md: requirement units FR-MCP-AUTH, FR-MCP-ACC, FR-MCP-TOOL, FR-MCP-OPS, NFR-MCP
 - [requirements.md](requirements.md)
 
+# implementation.md: implementation log: milestone status and a quick summary per milestone or change
+- [implementation.md](implementation.md)
+
 # later.md, questions.md: deferred features, open questions
 - [later.md](later.md), [questions.md](questions.md)
 

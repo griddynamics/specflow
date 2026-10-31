@@ -95,8 +95,8 @@ the QA tiers.
 
 | Item | Local value |
 |---|---|
-| Realm file | `config/keycloak/specflow-realm.json`: clients `specflow-mcp` (public) and `specflow-web` (confidential, audience `specflow-api`), audience mapper `http://localhost:8002/mcp`. No users and no literal secret in the file: the QA seed sets the `specflow-web` secret from `.env.local` through the Keycloak admin API |
-| QA users | `alice@example.com`, `bob@example.com`, created by the QA seed with a password from `.env.local` |
+| Realm file | `config/keycloak/specflow-realm.json`: clients `specflow-mcp` (public) and `specflow-web` (confidential, audience `specflow-api`, redirect URI `http://localhost:3001/api/auth/callback/oidc`, the web app's sign-in callback, which the QA token helper uses), audience mapper `http://localhost:8002/mcp`. No users and no literal secret in the file: the QA seed sets the `specflow-web` secret from `.env.local` through the Keycloak admin API |
+| QA users | `alice@example.com`, `bob@example.com` and `carol@other.example` (a domain that is not allowed), created by the QA seed with a password from `.env.local` ([testing.md](testing.md#fixtures)) |
 | Issuer | `http://localhost:8180/realms/specflow` for every token: Keycloak runs with `KC_HOSTNAME=http://localhost:8180` |
 | Keys from containers | `AUTH_JWKS_URL` on the compose network name (accepted in local only) |
 | `mcp` in dev mode | `APP_ENV=local`, `AUTH_MODE=dev`, `AUTH_DEV_SIGNING_KEY` from `.env.local`, `MCP_RESOURCE_URL=http://localhost:8002/mcp`, `AUTH_ALLOWED_EMAIL_DOMAINS=example.com` |
