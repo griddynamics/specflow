@@ -1242,7 +1242,8 @@ def _blocks(line: str) -> list[dict[str, Any]]:
         message = json.loads(line)
     except json.JSONDecodeError:
         return []
-    content = message.get("message", {}).get("content") if isinstance(message, dict) else None
+    inner = message.get("message") if isinstance(message, dict) else None  # a system event's message is a string
+    content = inner.get("content") if isinstance(inner, dict) else None
     return [block for block in content if isinstance(block, dict)] if isinstance(content, list) else []
 
 
@@ -1265,6 +1266,32 @@ def parse_stream_json(lines: Iterable[str]) -> list[ToolEvent]:
                     )
                 )
     return events
+
+
+@dataclass(frozen=True)
+class ToolDenial:
+    """A `system` `permission_denied` event: the tool, its `tool_use_id` and the `file_path` of the linked call."""
+
+    tool: str
+    tool_use_id: str
+    target: str | None
+
+
+def parse_denials(lines: Iterable[str], events: Iterable[ToolEvent]) -> tuple[ToolDenial, ...]:
+    """The `permission_denied` events in order; any other line, and any field of an unexpected type, is ignored."""
+
+    inputs = {e.tool_use_id: e.payload for e in events if e.kind == "call" and isinstance(e.payload, dict)}
+    found: list[ToolDenial] = []
+    for line in lines:
+        message = _json_line(line)
+        if message is None or message.get("type") != "system" or message.get("subtype") != "permission_denied":
+            continue
+        tool, identifier = message.get("tool_name"), message.get("tool_use_id")
+        if not isinstance(tool, str) or not isinstance(identifier, str):
+            continue
+        target = inputs.get(identifier, {}).get("file_path")
+        found.append(ToolDenial(tool, identifier, target if isinstance(target, str) else None))
+    return tuple(found)
 
 
 def new_run_id() -> str:
@@ -1336,27 +1363,54 @@ def _target(event: ToolEvent, root: Path) -> Path | None:
     return (root / raw).resolve() if isinstance(raw, str) and raw else None
 
 
+def _ancestor_binding(target: Path, root: Path) -> bool:
+    """True for `<an ancestor of root>/.specflow/config.json`: the nearest-file lookup walks up to it (designed)."""
+
+    return target.parent.parent in root.parents and target == target.parent.parent / BINDING_FILE
+
+
+def target_kind(tool: str, target: Path | None, root: Path) -> str:
+    """Where a call's file is, for reports (never the path): none, binding, workspace, ancestor-binding, outside."""
+
+    if target is None:
+        return "none"
+    if target == root / BINDING_FILE:
+        return "binding"
+    if target.is_relative_to(root):
+        return "workspace"
+    return "ancestor-binding" if tool == "Read" and _ancestor_binding(target, root) else "outside"
+
+
 def tool_violations(events: Iterable[ToolEvent], tools: Iterable[str], workspace: Path) -> list[str]:
     """What the run did that D7 does not allow (names only; empty: clean).
 
-    Allowed: our MCP tools, discovery tools, `Read` of a file inside the workspace and a write tool whose target is
+    Allowed: our MCP tools, discovery tools, `Read` of a file inside the workspace or of an ancestor's
+    `.specflow/config.json` (the designed walk up, whether or not the CLI denied it) and a write tool whose target is
     `<workspace>/.specflow/config.json`. Any other call is a violation.
     """
 
     root, ours = workspace.resolve(), {*tools, *DISCOVERY_TOOLS}
-    binding = root / BINDING_FILE  # not resolved: a symlinked binding file resolves elsewhere and fails the match
     found: list[str] = []
     for event in (e for e in events if e.kind == "call" and e.name not in ours):
-        target, name = _target(event, root), str(event.name)
+        kind, name = target_kind(str(event.name), _target(event, root), root), str(event.name)
         if name in WRITE_TOOLS:
-            if target != binding:
+            if kind != "binding":
                 found.append(f"{name} outside the binding file")
         elif name == "Read":
-            if target is None or not target.is_relative_to(root):
+            if kind in ("none", "outside"):
                 found.append("Read outside the workspace")
         else:
             found.append(f"{name} is not allowed")
     return found
+
+
+def denial_labels(run: PromptRun, workspace: Path) -> tuple[str, ...]:
+    """`Tool(kind)` for each denied call of a run, for the step report."""
+
+    root = workspace.resolve()
+    return tuple(
+        f"{d.tool}({target_kind(d.tool, (root / d.target).resolve() if d.target else None, root)})" for d in run.denials
+    )
 
 
 Snapshot = dict[str, str]
@@ -1629,6 +1683,7 @@ class PromptRun:
     init: dict[str, Any] | None
     result: dict[str, Any] | None
     stderr_tail: str
+    denials: tuple[ToolDenial, ...] = ()
 
     @property
     def text(self) -> str:
@@ -1693,14 +1748,10 @@ async def run_prompt(argv: Sequence[str], cwd: Path, *, timeout_s: float = PROMP
     messages = [message for line in lines if (message := _json_line(line)) is not None]
     init = next((m for m in messages if m.get("type") == "system" and m.get("subtype") == "init"), None)
     result = next((m for m in reversed(messages) if m.get("type") == "result"), None)
+    events = parse_stream_json(lines)
+    stderr_tail = _tail(stderr.decode(errors="replace"))
     return PromptRun(
-        process.returncode,
-        timed_out,
-        lines,
-        parse_stream_json(lines),
-        init,
-        result,
-        _tail(stderr.decode(errors="replace")),
+        process.returncode, timed_out, lines, events, init, result, stderr_tail, parse_denials(lines, events)
     )
 
 
@@ -1982,6 +2033,8 @@ def check_run(run: PromptRun, ctx: FlowContext) -> RunTotals:
     result = run.result
     if result is None or result.get("is_error") or result.get("subtype") != "success":
         raise RunPreconditionError(f"no model access or budget: {(result or {}).get('subtype')}")
+    broken = sorted({d.tool for d in run.denials if d.tool in ctx.tools or d.tool in WRITE_TOOLS})
+    _require(f"the CLI denied calls the flow needs: {broken}", ok=not broken)
     _no_violations(run, ctx)
     return RunTotals(float(result.get("total_cost_usd") or 0), int(result.get("num_turns") or 0))
 
@@ -2111,12 +2164,16 @@ class StepRecord:
     mode: str
     note: str = ""
     prose: str = ""
+    denied: tuple[str, ...] = ()
 
 
 def step_result(record: StepRecord, run_number: int) -> ScenarioResult:
     """The report row of a step; the model's prose is recorded in the note, never asserted."""
 
-    detail = f"{record.mode} cost_usd={record.cost_usd:.4f} tools={','.join(record.tool_calls) or '-'} {record.note}"
+    denied = f" denied={','.join(record.denied)}" if record.denied else ""
+    detail = (
+        f"{record.mode} cost_usd={record.cost_usd:.4f} tools={','.join(record.tool_calls) or '-'}{denied} {record.note}"
+    )
     note = f"{detail} {report_note(record.prose)}".strip()
     return ScenarioResult(f"run{run_number}-{record.step}", record.outcome, round(record.duration_s * 1000, 1), note)
 
@@ -2154,6 +2211,7 @@ class WorkspaceFlow:
         self.records: list[StepRecord] = []  # fills as steps finish, so a step that raises keeps the earlier ones
         self._cost, self._mode = 0.0, "-"
         self._calls: list[str] = []
+        self._denied: list[str] = []
         self._runs: list[PromptRun] = []
         self._prose: list[str] = []
 
@@ -2167,6 +2225,7 @@ class WorkspaceFlow:
         self._calls += [str(e.name).rsplit("__", maxsplit=1)[-1] for e in run.events if e.kind == "call"]
         self._prose.append(run.prose)
         self._runs.append(run)
+        self._denied += denial_labels(run, self.ctx.workspace)
         return run
 
     async def _select(self, project: str) -> PromptRun:
@@ -2202,13 +2261,23 @@ class WorkspaceFlow:
         if step.prepare is not None:
             step.prepare()
         before = workspace_snapshot(self.ctx.workspace)
-        self._cost, self._calls, self._prose, self._runs, self._mode = 0.0, [], [], [], "-"
+        self._cost, self._calls, self._prose, self._runs, self._denied, self._mode = 0.0, [], [], [], [], "-"
         started = time.perf_counter()
-        run = await step.act()  # a runner that raises (no `claude`, no process) is not a verdict: it propagates
-        note = self._judge(run, step, before)
+        try:
+            note = self._judge(await step.act(), step, before)
+        except (
+            QaError,
+            OSError,
+            ValueError,
+            LookupError,
+            AttributeError,
+            TypeError,
+        ) as error:  # a verdict, not a crash
+            reason = str(error) if isinstance(error, QaError) else "unexpected error"
+            note = f"error: {type(error).__name__}: {reason}"
         outcome: Literal["passed", "failed"] = "failed" if note else "passed"
         elapsed, calls, prose = time.perf_counter() - started, tuple(self._calls), " | ".join(self._prose)
-        return StepRecord(step.key, outcome, calls, elapsed, self._cost, self._mode, note, prose)
+        return StepRecord(step.key, outcome, calls, elapsed, self._cost, self._mode, note, prose, tuple(self._denied))
 
     def _bind_beta(self) -> None:
         write_binding(self.ctx.workspace, self.ctx.ids.projects["P-Beta"], "P-Beta")

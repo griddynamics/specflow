@@ -105,10 +105,15 @@ The driver acts as a developer at a terminal, in a fresh temp git repository per
    and scoped `Write(...)` allow rules are denied); `Bash` and the other built-in tools stay disallowed
    (`--disallowedTools`; `Read`, `Write` and `Edit` are not in that list). `--allowedTools` lists the two SpecFlow
    tools and that Edit rule, with no `Read` rule: under `dontAsk` the agent reads files inside the working folder
-   without one, and the CLI denies reads elsewhere. The run check is a second layer: it fails on any Write, Edit,
-   MultiEdit or NotebookEdit call whose target is not `<workspace>/.specflow/config.json`, on a Read outside the
-   workspace, on any other built-in tool call, and on a file created or changed anywhere else in the workspace or any
-   symlink in it.
+   without one, and the CLI denies reads elsewhere. The nearest-file lookup walks up from the working directory
+   ([tools.md](tools.md#the-binding-file)), so a `Read` of `<an ancestor of the workspace>/.specflow/config.json` is the
+   designed lookup: the run check allows it whether or not the CLI denied it, and the step report records it as
+   `denied=Read(ancestor-binding)`. The run check is a second layer: it fails on any Write, Edit, MultiEdit or
+   NotebookEdit call whose target is not `<workspace>/.specflow/config.json`, on any other Read outside the workspace,
+   on any other built-in tool call, on a denied call of the SpecFlow tools or of a write tool (the flow is broken), and
+   on a file created or changed anywhere else in the workspace or any symlink in it. A runner or parser error is a
+   failed step with its reason, never a crash; the stream's `permission_denied` events (`message` is a string there)
+   are recorded, never fatal.
 4. Tears down: `claude mcp logout <name>`, `claude mcp remove <name> --scope local` (the CLI stores MCP tokens in
    the user's real Claude configuration) and deletes the workspace.
 

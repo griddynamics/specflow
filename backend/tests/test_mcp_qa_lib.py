@@ -71,6 +71,7 @@ from mcp_qa_lib import (
     ScenarioResult,
     StepRecord,
     TeardownVerdict,
+    ToolDenial,
     ToolEvent,
     ToolOutcome,
     WorkspaceFlow,
@@ -99,6 +100,7 @@ from mcp_qa_lib import (
     claude_tool_names,
     complete_login,
     create_project_rest,
+    denial_labels,
     dev_token,
     empty_reused,
     fetch_prm,
@@ -116,6 +118,7 @@ from mcp_qa_lib import (
     neo4j_driver,
     new_run_id,
     oauth_provider,
+    parse_denials,
     parse_runs,
     parse_stream_json,
     percentile,
@@ -2906,6 +2909,169 @@ def test_tool_violations_follows_a_symlink_out_of_the_workspace(tmp_path: Path) 
     ]
 
 
+CLAUDE_DENIAL_FIXTURE = json.loads(
+    (Path(__file__).parent / "fixtures" / "mcp" / "claude-permission-denied.json").read_text("utf-8")
+)
+
+
+def denial_lines() -> list[str]:
+    return [json.dumps(line) for line in CLAUDE_DENIAL_FIXTURE["lines"]]
+
+
+def test_the_recorded_permission_denied_event_has_a_string_message_linked_by_tool_use_id() -> None:
+    call, denied, result, final = CLAUDE_DENIAL_FIXTURE["lines"]
+
+    assert isinstance(denied["message"], str) and isinstance(call["message"], dict)  # the shape that crashed `_blocks`
+    link = call["message"]["content"][0]["id"]
+    assert denied["tool_use_id"] == link == result["message"]["content"][0]["tool_use_id"]
+    assert (denied["type"], denied["subtype"], denied["tool_name"]) == ("system", "permission_denied", "Read")
+    assert final["permission_denials"][0]["tool_use_id"] == link
+
+
+def test_parse_stream_json_ignores_a_system_event_whose_message_is_a_string() -> None:
+    events = parse_stream_json(denial_lines())
+
+    assert [(e.kind, e.name, e.is_error) for e in events] == [("call", "Read", False), ("result", "Read", True)]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        '{"type":"system","message":"text"}',
+        '{"message":7}',
+        '{"message":{"content":"str"}}',
+        '{"message":{"content":[1,"a"]}}',
+        "[]",
+        "null",
+        "not json",
+        "",
+    ],
+)
+def test_parse_stream_json_tolerates_any_event_shape(line: str) -> None:
+    assert parse_stream_json([line]) == []
+    assert parse_denials([line], []) == ()
+
+
+def test_parse_denials_records_the_tool_and_the_target_of_the_linked_call() -> None:
+    lines = denial_lines()
+    denials = parse_denials(lines, parse_stream_json(lines))
+
+    assert denials == (ToolDenial("Read", "toolu_01", "/parent/.specflow/config.json"),)
+
+
+def test_parse_denials_skips_a_malformed_denial_and_keeps_a_denial_without_a_linked_call() -> None:
+    lines = [
+        json.dumps({"type": "system", "subtype": "permission_denied", "tool_name": 3, "tool_use_id": "x"}),
+        json.dumps({"type": "system", "subtype": "permission_denied", "tool_name": "Bash", "tool_use_id": "b1"}),
+    ]
+
+    assert parse_denials(lines, []) == (ToolDenial("Bash", "b1", None),)
+
+
+async def test_run_prompt_carries_the_denials_of_the_stream(tmp_path: Path) -> None:
+    transcript = tmp_path / "stream.jsonl"
+    transcript.write_text("\n".join(denial_lines()) + "\n", encoding="utf-8")
+
+    run = await run_prompt([sys.executable, "-c", REPLAY_CHILD, str(transcript)], tmp_path, timeout_s=30)
+
+    assert [(d.tool, d.target) for d in run.denials] == [("Read", "/parent/.specflow/config.json")]
+    assert [e.name for e in run.events] == ["Read", "Read"]
+
+
+def test_a_read_of_an_ancestors_binding_file_is_the_designed_lookup_and_is_not_a_violation(tmp_path: Path) -> None:
+    workspace = tmp_path / "parent" / "repo"
+    workspace.mkdir(parents=True)
+    root = workspace.resolve()
+    events = [
+        call_of("Read", {"file_path": str(root.parent / ".specflow" / "config.json")}),
+        call_of("Read", {"file_path": str(root.parent.parent / ".specflow" / "config.json")}),
+        call_of("Read", {"file_path": str(root / "README.md")}),
+    ]
+
+    assert tool_violations(events, AGENT_TOOLS, workspace) == []
+
+
+def test_every_other_read_or_write_outside_the_workspace_stays_a_violation(tmp_path: Path) -> None:
+    workspace = tmp_path / "parent" / "repo"
+    workspace.mkdir(parents=True)
+    root = workspace.resolve()
+    sibling = root.parent / "other-repo" / ".specflow" / "config.json"  # not an ancestor
+    events = [
+        call_of("Read", {"file_path": str(root.parent / "secrets.txt")}),
+        call_of("Read", {"file_path": str(root.parent / ".specflow" / "other.json")}),
+        call_of("Read", {"file_path": str(root.parent / ".specflow" / "config.json" / "x")}),
+        call_of("Read", {"file_path": str(sibling)}),
+        call_of("Read", {"file_path": "/etc/hostname"}),
+        call_of("Write", {"file_path": str(root.parent / ".specflow" / "config.json")}),  # a write is not a read
+        call_of("Edit", {"file_path": str(root.parent / ".specflow" / "config.json")}),
+    ]
+
+    assert tool_violations(events, AGENT_TOOLS, workspace) == [
+        *["Read outside the workspace"] * 5,
+        *["Write outside the binding file", "Edit outside the binding file"],
+    ]
+
+
+def test_denial_labels_name_the_tool_and_where_the_target_is_never_the_path(tmp_path: Path) -> None:
+    workspace = tmp_path / "parent" / "repo"
+    workspace.mkdir(parents=True)
+    root = workspace.resolve()
+    denials = (
+        ToolDenial("Read", "1", str(root.parent / ".specflow" / "config.json")),
+        ToolDenial("Read", "2", "/etc/hostname"),
+        ToolDenial("Read", "3", "README.md"),
+        ToolDenial("Write", "4", ".specflow/config.json"),
+        ToolDenial("Bash", "5", None),
+    )
+    run = replace(canned(init_message(), result_message()), denials=denials)
+
+    assert denial_labels(run, workspace) == (
+        "Read(ancestor-binding)",
+        "Read(outside)",
+        "Read(workspace)",
+        "Write(binding)",
+        "Bash(none)",
+    )
+
+
+@pytest.mark.parametrize("tool", [LIST_PROJECTS, LIST_FEATURES, "Write", "Edit"])
+async def test_check_run_fails_when_the_cli_denied_a_call_the_flow_needs(ctx: FlowContext, tool: str) -> None:
+    run = canned(*projects_run())
+    run = replace(run, denials=(ToolDenial(tool, "u1", None),))
+
+    with pytest.raises(QaError, match="the CLI denied calls the flow needs") as failed:
+        check_run(run, ctx)
+
+    assert not isinstance(failed.value, RunPreconditionError)
+
+
+async def test_check_run_accepts_a_denied_read_of_the_ancestor_binding_file(ctx: FlowContext) -> None:
+    target = str(ctx.workspace.resolve().parent / ".specflow" / "config.json")
+    messages = [init_message(), stream_call("r1", "Read", {"file_path": target}), *projects_run()[1:]]
+    run = replace(canned(*messages), denials=(ToolDenial("Read", "r1", target),))
+
+    assert check_run(run, ctx) == RunTotals(0.0421, 3)
+
+
+async def test_the_step_report_records_each_denied_call_by_kind(ctx: FlowContext) -> None:
+    target = str(ctx.workspace.resolve().parent / ".specflow" / "config.json")
+
+    def denied_read() -> list[dict]:
+        bind(ctx, "P-Alpha")
+        return [init_message(), stream_call("r1", "Read", {"file_path": target}), *bind_run(ctx)[1:]]
+
+    class Denying(ScriptedAgent):
+        async def __call__(self, argv: Sequence[str], cwd: Path) -> PromptRun:
+            run = await super().__call__(argv, cwd)
+            return replace(run, denials=(ToolDenial("Read", "r1", target),))
+
+    (record, *_) = await run_flow(ctx, Denying(ctx, denied_read, alpha_run))
+
+    assert record.outcome == "passed" and record.denied == ("Read(ancestor-binding)",)
+    assert "denied=Read(ancestor-binding)" in step_result(record, 1).note
+    assert str(ctx.workspace) not in step_result(record, 1).note
+
+
 def test_workspace_snapshot_marks_a_symlink_without_following_it_and_stray_files_reports_it(tmp_path: Path) -> None:
     outside = tmp_path / "outside"
     outside.mkdir()
@@ -3077,15 +3243,26 @@ async def test_a_denied_call_in_the_unexpanded_slash_run_still_fails_the_step_af
     assert "Bash is not allowed" in records[0].note and len(agent.argvs) == 2
 
 
-async def test_a_runner_that_raises_propagates_and_keeps_the_steps_that_finished(ctx: FlowContext) -> None:
+@pytest.mark.parametrize(
+    ("failure", "note"),
+    [
+        (QaError("claude is not on PATH"), "error: QaError: claude is not on PATH"),
+        (OSError("/private/path spawn failed"), "error: OSError: unexpected error"),
+        (AttributeError("'str' object has no attribute 'get'"), "error: AttributeError: unexpected error"),
+    ],
+    ids=["qa-error", "os-error", "parser-crash"],
+)
+async def test_a_runner_that_raises_gives_a_failed_verdict_with_the_reason_and_keeps_earlier_steps(
+    ctx: FlowContext, failure: Exception, note: str
+) -> None:
     handlers = good_flow(ctx)
-    agent = ScriptedAgent(ctx, handlers[0], lambda: (_ for _ in ()).throw(QaError("claude is not on PATH")))
+    agent = ScriptedAgent(ctx, handlers[0], lambda: (_ for _ in ()).throw(failure))
     flow = WorkspaceFlow(ctx, agent)
 
-    with pytest.raises(QaError, match="not on PATH"):
-        await flow.run()
+    records = await flow.run()
 
-    assert [(r.step, r.outcome) for r in flow.records] == [("1-bind-alpha", "passed")]
+    assert [(r.step, r.outcome) for r in records] == [("1-bind-alpha", "passed"), ("2-reuse-alpha", "failed")]
+    assert records[-1].note == note and records is flow.records  # the error text of a non-QaError is never copied
 
 
 @pytest.mark.parametrize(

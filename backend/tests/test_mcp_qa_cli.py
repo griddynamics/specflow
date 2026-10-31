@@ -694,21 +694,24 @@ async def test_claude_stops_when_the_cli_is_not_signed_in_and_removes_the_worksp
 
 
 @pytest.mark.parametrize(
-    ("failure", "escapes_as"),
-    [(QaError("claude is not on PATH"), SystemExit), (OSError("spawn failed"), OSError)],
-    ids=["qa-error-exits-cleanly", "os-error-propagates"],
+    "failure",
+    [QaError("claude is not on PATH"), OSError("spawn failed")],
+    ids=["qa-error", "os-error"],
 )
-async def test_claude_keeps_the_first_result_and_still_tears_down_when_run_prompt_raises_mid_run(
-    harness: ClaudeHarness, capsys: pytest.CaptureFixture[str], failure: Exception, escapes_as: type[BaseException]
+async def test_claude_records_a_runner_error_as_a_failed_step_and_still_tears_down(
+    harness: ClaudeHarness, capsys: pytest.CaptureFixture[str], failure: Exception
 ) -> None:
     harness.handlers[1] = lambda _cwd: failure  # the second prompt's runner raises
 
-    with pytest.raises(escapes_as, match=str(failure)):
-        await mcp_qa.claude_command(claude_args())
+    assert await mcp_qa.claude_command(claude_args()) == 1
 
     out = capsys.readouterr().out
     report = harness.report()
-    assert [(r["scenario"], r["outcome"]) for r in report["results"]] == [("run1-1-bind-alpha", "passed")]
+    assert [(r["scenario"], r["outcome"]) for r in report["results"]] == [
+        ("run1-1-bind-alpha", "passed"),
+        ("run1-2-reuse-alpha", "failed"),
+    ]
+    assert "error: " in report["results"][1]["note"] and "spawn failed" not in report["results"][1]["note"]
     assert report["metrics"]["teardown_clean"] == "yes"  # the fake teardown ran in its own `finally`
     assert "teardown clean yes" in out and f"report {RUN_ID}.json" in out
     assert not harness.cwd.exists()
