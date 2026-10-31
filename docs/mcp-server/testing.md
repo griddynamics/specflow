@@ -94,6 +94,7 @@ serves the MCP Python SDK client (as its redirect and callback handlers) and the
 |---|---|
 | Claude Code asks for `offline_access` and sends `prompt=consent` | the QA realm allows both; no consent screen is configured |
 | A port held by an earlier sign-in | the driver checks that 8765 is free before it starts |
+| The MCP Python SDK finds no `scopes_supported` in the PRM and requests every scope of the provider's metadata; Keycloak answers `invalid_scope` for scopes not assigned to `specflow-mcp` | the SDK client's redirect handler narrows the request to `openid` before the login helper runs; Claude Code needs no change |
 
 Run reports (scenario, outcome, duration; never tokens) go to a git-ignored folder; screenshots are never taken or
 committed.

@@ -21,7 +21,7 @@ import pytest_asyncio
 from temporalio.client import Client
 from temporalio.service import RPCError
 
-LIVE_NAMES: Final = ("POSTGRES", "GCS", "S3", "NEO4J", "TEMPORAL", "LLM_GATEWAY")
+LIVE_NAMES: Final = ("POSTGRES", "GCS", "S3", "NEO4J", "TEMPORAL", "LLM_GATEWAY", "MCP_E2E", "MCP_CLAUDE")
 LOCAL_NAMESPACE: Final = "specflow-local"
 
 _RUN_ID: Final = uuid.uuid4().hex[:8]

@@ -13,6 +13,7 @@ import contextlib
 import hashlib
 import html
 import json
+import math
 import os
 import pty
 import re
@@ -25,14 +26,23 @@ import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, MutableMapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
+from http import HTTPStatus
 from pathlib import Path
-from typing import Any, Literal
-from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
+from typing import Any, Final, Literal
+from urllib.parse import parse_qs, parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
+import anyio
 import httpx
+import httpx2
 import jwt
+from mcp.client.auth import OAuthClientProvider
+from mcp.client.session import ClientSession
+from mcp.client.streamable_http import streamable_http_client
+from mcp.shared.auth import AuthorizationCodeResult, OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
+from mcp.shared.exceptions import MCPError
+from mcp.types import LATEST_PROTOCOL_VERSION, TextContent
 from neo4j import AsyncDriver
-from pydantic import SecretStr
+from pydantic import AnyUrl, SecretStr, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -78,7 +88,14 @@ WEB_AUDIENCE = "specflow-api"
 DEV_TOKEN_TTL_SECONDS = 8 * 3600
 KEYCLOAK_HINT = "run `make env-local`, then recreate keycloak (`... up -d --force-recreate keycloak`)"
 
+PRM_URL = "http://localhost:8002/.well-known/oauth-protected-resource/mcp"
+API_URL = "http://localhost:8000"
+QA_CLIENT_SCOPE = "openid"
+PUBLIC_CLIENT_AUTH: Final = "none"  # RFC 7591 token_endpoint_auth_method of a public client
+SERVER_PREFIX = "specflow-qa-"
+
 Client = Literal["mcp", "web"]
+StackMode = Literal["oidc", "dev"]
 _TOKEN_ENDPOINT = f"{ISSUER}/protocol/openid-connect/token"
 _FORM = re.compile(r'<form[^>]*\baction="([^"]+)"', re.IGNORECASE)
 _REDIRECT_STATUSES = (302, 303)
@@ -650,6 +667,378 @@ async def seed(mode: Mode, environ: Mapping[str, str] | None = None) -> SeedRepo
     return SeedReport(mode, None if keycloak_ids is None else len(keycloak_ids), users, projects, memberships, detail)
 
 
+# Stack, raw HTTP and the SDK client (E1 to E14) -------------------------------------------------------------------
+
+_MCP_ACCEPT = "application/json, text/event-stream"
+_OAUTH_ERROR = re.compile(r"[A-Za-z0-9_]{1,64}")
+
+
+async def _prm_response(transport: httpx.AsyncBaseTransport | None) -> httpx.Response:
+    try:
+        async with httpx.AsyncClient(timeout=15, transport=transport) as http:
+            return await http.get(PRM_URL)
+    except httpx.TransportError:
+        raise QaError("MCP endpoint not reachable: run make up") from None
+    except httpx.HTTPError as error:
+        raise QaError(f"prm failed: {type(error).__name__}") from None
+
+
+async def stack_mode(*, transport: httpx.AsyncBaseTransport | None = None) -> StackMode:
+    """`oidc` when the protected resource metadata names the resource URL, `dev` when it is absent (404)."""
+
+    response = await _prm_response(transport)
+    if response.status_code == HTTPStatus.NOT_FOUND:
+        return "dev"
+    if response.status_code != HTTPStatus.OK:
+        raise QaError(f"stack mode unknown: HTTP {response.status_code}")
+    if _json_object(response).get("resource") != MCP_RESOURCE_URL:
+        raise QaError("stack mode unknown: the metadata names another resource")
+    return "oidc"
+
+
+async def fetch_prm(*, transport: httpx.AsyncBaseTransport | None = None) -> dict[str, Any]:
+    """The protected resource metadata document (E1)."""
+
+    return _json_object(_expect(await _prm_response(transport), "prm", HTTPStatus.OK))
+
+
+def _json_object(response: httpx.Response) -> dict[str, Any]:
+    try:
+        body = response.json()
+    except ValueError:
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
+async def post_mcp(
+    token: str | None, *, host: str | None = None, transport: httpx.AsyncBaseTransport | None = None
+) -> httpx.Response:
+    """POST a JSON-RPC `initialize` to the MCP endpoint, with an optional bearer token and `Host` override."""
+
+    headers = {"Accept": _MCP_ACCEPT, "Content-Type": "application/json"}
+    if token is not None:
+        headers["Authorization"] = f"Bearer {token}"
+    if host is not None:
+        headers["Host"] = host
+    body = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": LATEST_PROTOCOL_VERSION,
+            "capabilities": {},
+            "clientInfo": {"name": "specflow-qa", "version": "0"},
+        },
+    }
+    async with httpx.AsyncClient(timeout=15, transport=transport) as http:
+        return await _send(http, "mcp request", "POST", MCP_RESOURCE_URL, json=body, headers=headers)
+
+
+async def create_project_rest(
+    name: str, web_token: str, *, transport: httpx.AsyncBaseTransport | None = None
+) -> uuid.UUID:
+    """E13: create a project through the REST API with a web-audience token; return its id."""
+
+    headers = {"Authorization": f"Bearer {web_token}"}
+    async with httpx.AsyncClient(timeout=15, transport=transport) as http:
+        response = await _send(
+            http, "project create", "POST", f"{API_URL}/api/v1/projects", json={"name": name}, headers=headers
+        )
+    try:
+        return uuid.UUID(str(_json_object(_expect(response, "project create", HTTPStatus.CREATED))["id"]))
+    except (KeyError, ValueError):
+        raise QaError("project create failed: no project id in the response") from None
+
+
+async def seeded_ids(mode: Mode, environ: Mapping[str, str] | None = None) -> FixtureIds:
+    """The Postgres ids of the seeded users and projects (read, never remembered: a Keycloak recreate changes them)."""
+
+    if mode == "dev":
+        async with postgres_session() as session:
+            return await fixture_ids(session, "dev")
+    source = dict(os.environ if environ is None else environ)
+    password = require_env("KEYCLOAK_ADMIN_PASSWORD", environ=source)["KEYCLOAK_ADMIN_PASSWORD"]
+    async with KeycloakAdmin(password) as admin:
+        found = {key: await admin.user_id(key) for key in SEED_USERS}
+    subjects = {key: subject for key, subject in found.items() if subject is not None}
+    if len(subjects) != len(SEED_USERS):
+        raise QaError("fixture lookup failed: the QA users are not in Keycloak (run the seed)")
+    async with postgres_session() as session:
+        return await fixture_ids(session, "keycloak", subjects)
+
+
+def preregistered_client() -> OAuthClientInformationFull:
+    """The `specflow-mcp` public client as the SDK stores a registered one: no registration request is sent."""
+
+    return OAuthClientInformationFull(
+        client_id=MCP_CLIENT_ID,
+        redirect_uris=[AnyUrl(MCP_REDIRECT_URI)],
+        token_endpoint_auth_method=PUBLIC_CLIENT_AUTH,
+    )
+
+
+class MemoryTokenStorage:
+    """The SDK's `TokenStorage` in memory, with the pre-registered client information from the start."""
+
+    def __init__(self) -> None:
+        self.tokens: OAuthToken | None = None
+        self.client_info: OAuthClientInformationFull | None = preregistered_client()
+
+    async def get_tokens(self) -> OAuthToken | None:
+        return self.tokens
+
+    async def set_tokens(self, tokens: OAuthToken) -> None:
+        self.tokens = tokens
+
+    async def get_client_info(self) -> OAuthClientInformationFull | None:
+        return self.client_info
+
+    async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
+        self.client_info = client_info
+
+
+def narrow_scope(authorize_url: str, scope: str = QA_CLIENT_SCOPE) -> str:
+    """The authorization URL with its `scope` replaced; every other parameter is kept.
+
+    The protected resource metadata has no `scopes_supported`, so the SDK asks for every scope of the provider
+    metadata and Keycloak answers `invalid_scope` for those not assigned to `specflow-mcp` (testing.md, Client notes).
+    """
+
+    parts = urlsplit(authorize_url)
+    pairs = parse_qsl(parts.query, keep_blank_values=True)
+    narrowed = [(name, scope if name == "scope" else value) for name, value in pairs]
+    if all(name != "scope" for name, _ in narrowed):
+        narrowed.append(("scope", scope))
+    return urlunsplit(parts._replace(query=urlencode(narrowed)))
+
+
+def oauth_provider(
+    key: str,
+    password: SecretStr,
+    *,
+    mcp_url: str = MCP_RESOURCE_URL,
+    login: Callable[[str], Awaitable[str]] | None = None,
+) -> OAuthClientProvider:
+    """The SDK's OAuth provider for QA user `key`: pre-registered client, scope narrowed, login over plain HTTP.
+
+    `login(authorization url) -> redirect url` is the test seam (default: `complete_login`). Requests through the
+    provider are serialized by the SDK, so load tests use a bearer header instead (`mcp_session(token=...)`).
+    """
+
+    async def sign_in(url: str) -> str:
+        return await complete_login(url, QA_USERS[key], password)
+
+    redirects: list[str] = []
+
+    async def redirect_handler(url: str) -> None:
+        redirects.append(await (login or sign_in)(narrow_scope(url)))
+
+    async def callback_handler() -> AuthorizationCodeResult:
+        query = parse_qs(urlsplit(redirects[-1] if redirects else "").query)
+        code = query.get("code", [""])[0]
+        if not code:
+            error = query.get("error", [""])[0]
+            raise QaError(f"sign-in failed: {error if _OAUTH_ERROR.fullmatch(error) else 'no code'}")
+        return AuthorizationCodeResult(code=code, state=query.get("state", [None])[0], iss=query.get("iss", [None])[0])
+
+    metadata = OAuthClientMetadata(
+        redirect_uris=[AnyUrl(MCP_REDIRECT_URI)],
+        token_endpoint_auth_method=PUBLIC_CLIENT_AUTH,
+        grant_types=["authorization_code", "refresh_token"],
+        response_types=["code"],
+    )
+    return OAuthClientProvider(mcp_url, metadata, MemoryTokenStorage(), redirect_handler, callback_handler)
+
+
+@asynccontextmanager
+async def mcp_session(
+    *,
+    auth: httpx2.Auth | None = None,
+    token: str | None = None,
+    mcp_url: str = MCP_RESOURCE_URL,
+    timeout_s: float = 30.0,
+) -> AsyncIterator[ClientSession]:
+    """An initialized SDK session over streamable HTTP; exactly one of `auth` (OAuth provider) or `token` (bearer)."""
+
+    if (auth is None) == (token is None):
+        raise QaError("mcp session needs exactly one of auth and token")
+    headers = None if token is None else {"Authorization": f"Bearer {token}"}
+    try:
+        async with (
+            httpx2.AsyncClient(auth=auth, headers=headers, timeout=timeout_s) as http,
+            streamable_http_client(mcp_url, http_client=http) as streams,
+            ClientSession(streams[0], streams[1]) as session,
+        ):
+            await session.initialize()
+            yield session
+    except BaseExceptionGroup as group:
+        # The SDK's task groups wrap an error of the body: hand the caller the error itself (an assertion, a QaError).
+        leaves = _leaves(group)
+        if len(leaves) != 1:
+            raise
+        raise leaves[0] from None
+
+
+def _leaves(group: BaseExceptionGroup[BaseException]) -> list[BaseException]:
+    found: list[BaseException] = []
+    for error in group.exceptions:
+        found.extend(_leaves(error) if isinstance(error, BaseExceptionGroup) else [error])
+    return found
+
+
+@dataclass(frozen=True)
+class ToolOutcome:
+    """A tool result: `data` is its structured content (or the JSON of its first text block)."""
+
+    is_error: bool
+    data: dict[str, Any]
+
+    @property
+    def code(self) -> str | None:
+        error = self.data.get("error")
+        return str(error["code"]) if isinstance(error, dict) and "code" in error else None
+
+
+async def call(session: ClientSession, tool: str, arguments: Mapping[str, Any]) -> ToolOutcome:
+    result = await session.call_tool(tool, dict(arguments))
+    data: Any = result.structured_content
+    if data is None:
+        text = next((block.text for block in result.content if isinstance(block, TextContent)), "")
+        try:
+            data = json.loads(text)
+        except ValueError:
+            data = {}
+    return ToolOutcome(bool(result.is_error), data if isinstance(data, dict) else {})
+
+
+async def all_projects(session: ClientSession) -> list[dict[str, Any]]:
+    """Every project of the caller: `list_projects` pages until `next_cursor` is null."""
+
+    items: list[dict[str, Any]] = []
+    cursor: str | None = None
+    while True:
+        outcome = await call(session, "list_projects", {} if cursor is None else {"cursor": cursor})
+        if outcome.is_error:
+            raise QaError(f"list_projects failed: {outcome.code}")
+        items.extend(outcome.data.get("items", []))
+        cursor = outcome.data.get("next_cursor")
+        if cursor is None:
+            return items
+
+
+# Latency runner (E14) --------------------------------------------------------------------------------------------
+
+
+def percentile(samples: Sequence[float], q: float) -> float:
+    """Nearest-rank percentile (`sorted[ceil(q * n) - 1]`)."""
+
+    if not samples:
+        raise QaError("percentile of no samples")
+    ordered = sorted(samples)
+    return ordered[max(math.ceil(q * len(ordered)) - 1, 0)]
+
+
+@dataclass
+class LatencyProgress:
+    """Counts of a latency run as it goes, so a run that raises still leaves its partial numbers."""
+
+    started: int = 0
+    completed: int = 0
+    errors: int = 0
+
+    def metrics(self, prefix: str) -> dict[str, int]:
+        return {
+            f"{prefix}_started": self.started,
+            f"{prefix}_completed": self.completed,
+            f"{prefix}_errors": self.errors,
+        }
+
+
+@dataclass(frozen=True)
+class LatencyStats:
+    calls: int
+    errors: int
+    p50_ms: float
+    p95_ms: float
+    max_ms: float
+    duration_s: float
+    samples: int = 0  # completed calls (errored ones included), counted from the samples themselves
+
+    def metrics(self, prefix: str) -> dict[str, float | int]:
+        rate = self.calls / self.duration_s if self.duration_s > 0 else 0.0
+        return {
+            f"{prefix}_calls": self.calls,
+            f"{prefix}_errors": self.errors,
+            f"{prefix}_p50_ms": round(self.p50_ms, 1),
+            f"{prefix}_p95_ms": round(self.p95_ms, 1),
+            f"{prefix}_max_ms": round(self.max_ms, 1),
+            f"{prefix}_rate_per_s": round(rate, 1),
+        }
+
+
+_CALL_ERRORS: Final = (
+    *(QaError, MCPError, httpx2.HTTPError, OSError),
+    *(anyio.BrokenResourceError, anyio.ClosedResourceError, ValidationError),
+)
+
+
+async def _timed(
+    call_once: Callable[[], Awaitable[bool]], progress: LatencyProgress | None = None
+) -> tuple[float, bool]:
+    started = time.perf_counter()
+    try:
+        ok = await call_once()
+    except _CALL_ERRORS:  # any failure of the call is an error; its text is dropped
+        ok = False
+    if progress is not None:
+        progress.completed += 1
+        progress.errors += 0 if ok else 1
+    return (time.perf_counter() - started) * 1000, ok
+
+
+async def run_latency(
+    call_once: Callable[[], Awaitable[bool]],
+    *,
+    rate_per_s: float = 10.0,
+    duration_s: float = 60.0,
+    progress: LatencyProgress | None = None,
+) -> LatencyStats:
+    """`rate_per_s * duration_s` calls on a fixed cadence, each started on time whatever the earlier ones are doing.
+
+    Each call is timed around its own await (client side); `False` or an exception is an error (still sampled).
+    `progress` (optional) is updated as calls start and finish, also when the run itself raises.
+    """
+
+    total = round(rate_per_s * duration_s)
+    if total < 1:
+        raise QaError("latency run needs at least one call")
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    tasks: list[asyncio.Task[tuple[float, bool]]] = []
+    try:
+        async with asyncio.timeout(duration_s + 30):
+            for index in range(total):
+                await asyncio.sleep(max(started + index / rate_per_s - loop.time(), 0))
+                tasks.append(asyncio.create_task(_timed(call_once, progress)))
+                if progress is not None:
+                    progress.started += 1
+            done = await asyncio.gather(*tasks)
+    finally:
+        for task in tasks:
+            task.cancel()
+    samples = [elapsed for elapsed, _ in done]
+    errors = sum(1 for _, ok in done if not ok)
+    return LatencyStats(
+        total,
+        errors,
+        percentile(samples, 0.5),
+        percentile(samples, 0.95),
+        max(samples),
+        loop.time() - started,
+        len(samples),
+    )
+
+
 # Claude Code plumbing ------------------------------------------------------------------------------------------
 
 _OSC = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
@@ -662,8 +1051,41 @@ _STOP_GRACE_S = 5.0
 _COMMAND_TIMEOUT_S = 60.0
 _RUN_ID = re.compile(r"[A-Za-z0-9_-]+")
 _SECRET_SHAPE = re.compile(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|Bearer|Authorization|code=|@", re.IGNORECASE)
+CLAUDE_MODEL = "sonnet"
+CLAUDE_MAX_TURNS = 8
+CLAUDE_MAX_BUDGET_USD = "1.00"
+PROMPT_TIMEOUT_S = 300.0
+# Built-in tools that could read files, the environment or the network; denied on top of the allow list (a deny rule
+# beats user and project settings). `--tools` and `--strict-mcp-config` are not used: see the 07-handoff review fixes.
+CLAUDE_DISALLOWED_TOOLS: Final = (
+    *("Bash", "BashOutput", "KillShell", "PowerShell", "Read", "Write", "Edit", "MultiEdit", "NotebookEdit"),
+    *("Glob", "Grep", "WebFetch", "WebSearch", "Task", "Agent"),
+)
+DISCOVERY_TOOLS: Final = ("ToolSearch",)  # may appear for MCP tool discovery; reads nothing
 REPORTS_DIR = Path(__file__).resolve().parents[2] / ".reports" / "mcp-qa"
 CommandRunner = Callable[[Sequence[str], Path], Awaitable[int]]
+_LIST_TIMEOUT_S = 120.0
+# What a `claude` child needs: its sign-in (home, config dir), a terminal, locale, and the network (proxy, CA bundle).
+# Never the stack's secrets (database, Keycloak, signing key, QA password): the child talks to a model.
+_CHILD_ENV_WORDS: Final = (
+    "PATH HOME USER LOGNAME SHELL TERM TMPDIR LANG LANGUAGE CLAUDE_CONFIG_DIR "
+    "XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_STATE_HOME XDG_RUNTIME_DIR "
+    "HTTPS_PROXY HTTP_PROXY NO_PROXY ALL_PROXY https_proxy http_proxy no_proxy all_proxy "
+    "SSL_CERT_FILE SSL_CERT_DIR NODE_EXTRA_CA_CERTS REQUESTS_CA_BUNDLE CURL_CA_BUNDLE"
+)
+_CHILD_ENV_NAMES: Final = frozenset(_CHILD_ENV_WORDS.split())
+_CHILD_ENV_PREFIXES: Final = ("LC_",)
+
+
+def child_env(environ: Mapping[str, str] | None = None) -> dict[str, str]:
+    """The environment of every spawned `claude` process: an allowlist of `environ` (default `os.environ`)."""
+
+    source = os.environ if environ is None else environ
+    return {
+        name: value
+        for name, value in source.items()
+        if name in _CHILD_ENV_NAMES or name.startswith(_CHILD_ENV_PREFIXES)
+    }
 
 
 def strip_ansi(text: str) -> str:
@@ -730,7 +1152,7 @@ def new_run_id() -> str:
 
 
 def server_name(run_id: str) -> str:
-    return f"specflow-qa-{run_id}"
+    return f"{SERVER_PREFIX}{run_id}"
 
 
 def claude_add_argv(name: str, mcp_url: str = MCP_RESOURCE_URL) -> list[str]:
@@ -752,17 +1174,36 @@ def claude_remove_argv(name: str) -> list[str]:
     return ["claude", "mcp", "remove", name, "--scope", "local"]
 
 
-def claude_prompt_argv(prompt: str, allowed_tools: Sequence[str]) -> list[str]:
+def claude_tool_names(name: str) -> tuple[str, str]:
+    """The two MCP tools of server `name` as Claude Code names them (`mcp__<server>__<tool>`)."""
+
+    return f"mcp__{name}__list_projects", f"mcp__{name}__list_features"
+
+
+def claude_prompt_argv(
+    prompt: str,
+    allowed_tools: Sequence[str],
+    *,
+    model: str = CLAUDE_MODEL,
+    max_turns: int = CLAUDE_MAX_TURNS,
+    max_budget_usd: str = CLAUDE_MAX_BUDGET_USD,
+) -> list[str]:
+    """`claude -p` with stream-json output, a model, spend guards and no prompts; `--allowedTools` is variadic: last."""
+
     return [
-        "claude",
-        "-p",
-        prompt,
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        "--allowedTools",
-        ",".join(allowed_tools),
+        *("claude", "-p", prompt, "--output-format", "stream-json", "--verbose"),
+        *("--model", model, "--max-turns", str(max_turns), "--max-budget-usd", max_budget_usd),
+        *("--permission-mode", "dontAsk", "--no-session-persistence"),
+        *("--disallowedTools", ",".join(CLAUDE_DISALLOWED_TOOLS)),
+        *("--allowedTools", ",".join(allowed_tools)),
     ]
+
+
+def foreign_tool_calls(events: Iterable[ToolEvent], allowed_tools: Iterable[str]) -> list[str]:
+    """Names of the tool calls that are neither one of `allowed_tools` nor a discovery tool (empty: only ours)."""
+
+    allowed = {*allowed_tools, *DISCOVERY_TOOLS}
+    return [str(event.name) for event in events if event.kind == "call" and event.name not in allowed]
 
 
 def port_is_free(port: int = CALLBACK_PORT) -> bool:
@@ -811,6 +1252,7 @@ async def run_command(argv: Sequence[str], cwd: Path, *, timeout_s: float = _COM
         _executable(argv),
         *argv[1:],
         cwd=cwd,
+        env=child_env(),
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
@@ -882,7 +1324,14 @@ async def run_pty(
     master, slave = pty.openpty()
     try:
         process = await asyncio.create_subprocess_exec(
-            executable, *argv[1:], cwd=cwd, stdin=slave, stdout=slave, stderr=slave, start_new_session=True
+            executable,
+            *argv[1:],
+            cwd=cwd,
+            env=child_env(),
+            stdin=slave,
+            stdout=slave,
+            stderr=slave,
+            start_new_session=True,
         )
     except BaseException:
         os.close(master)
@@ -973,6 +1422,196 @@ async def registered_server(
             raise QaError("claude teardown failed: " + ", ".join(failed))
 
 
+# Claude Code prompt runner (agent tier) --------------------------------------------------------------------------
+
+PERSONAS: Final = (
+    ("agent-1", "Which SpecFlow projects can I work on?"),
+    ("agent-2", "List every feature of P-Alpha."),
+    ("agent-3", "Show me the features of project {beta_id}."),
+)
+
+
+def persona_prompts(ids: FixtureIds) -> list[tuple[str, str]]:
+    """The three persona prompts; the third names the id of `P-Beta`, which alice is not a member of."""
+
+    return [(key, text.format(beta_id=ids.projects["P-Beta"])) for key, text in PERSONAS]
+
+
+def _json_line(line: str) -> dict[str, Any] | None:
+    try:
+        message = json.loads(line)
+    except ValueError:
+        return None
+    return message if isinstance(message, dict) else None
+
+
+@dataclass(frozen=True)
+class PromptRun:
+    """A `claude -p` run: `lines` are its stream-json lines (never logged), `events` the tool calls and results."""
+
+    exit_code: int | None
+    timed_out: bool
+    lines: list[str]
+    events: list[ToolEvent]
+    init: dict[str, Any] | None
+    result: dict[str, Any] | None
+    stderr_tail: str
+
+    @property
+    def text(self) -> str:
+        """Everything the run printed, for the check that a value appears nowhere in it."""
+
+        return "\n".join(self.lines)
+
+    @property
+    def prose(self) -> str:
+        return str(self.result.get("result", "")) if self.result else ""
+
+
+async def capture_command(argv: Sequence[str], cwd: Path, *, timeout_s: float = _COMMAND_TIMEOUT_S) -> tuple[int, str]:
+    """Run a command without a terminal; return its exit code and stdout (in memory only: never log it)."""
+
+    process = await asyncio.create_subprocess_exec(
+        _executable(argv),
+        *argv[1:],
+        cwd=cwd,
+        env=child_env(),
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    try:
+        async with asyncio.timeout(timeout_s):
+            stdout, _ = await process.communicate()
+    except TimeoutError:
+        raise QaError(f"{argv[0]} command timed out after {timeout_s:g}s") from None
+    finally:
+        await _stop(process)
+    return process.returncode or 0, stdout.decode(errors="replace")
+
+
+async def run_prompt(argv: Sequence[str], cwd: Path, *, timeout_s: float = PROMPT_TIMEOUT_S) -> PromptRun:
+    """Run a `claude -p` command to the end (or the timeout) and parse its stream-json output.
+
+    Output is read in one piece: stream-json lines can exceed the 64 KiB limit of a `StreamReader` line.
+    """
+
+    process = await asyncio.create_subprocess_exec(
+        _executable(argv),
+        *argv[1:],
+        cwd=cwd,
+        env=child_env(),
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
+    )
+    stdout = stderr = b""
+    timed_out = False
+    try:
+        async with asyncio.timeout(timeout_s):
+            stdout, stderr = await process.communicate()
+    except TimeoutError:
+        timed_out = True
+    finally:
+        await _stop(process)
+    lines = stdout.decode(errors="replace").splitlines()
+    messages = [message for line in lines if (message := _json_line(line)) is not None]
+    init = next((m for m in messages if m.get("type") == "system" and m.get("subtype") == "init"), None)
+    result = next((m for m in reversed(messages) if m.get("type") == "result"), None)
+    return PromptRun(
+        process.returncode,
+        timed_out,
+        lines,
+        parse_stream_json(lines),
+        init,
+        result,
+        _tail(stderr.decode(errors="replace")),
+    )
+
+
+def tool_json(event: ToolEvent) -> Any:
+    """The JSON a tool result carries (a string, or a list of text blocks); `None` when it is not JSON."""
+
+    payload = event.payload
+    if isinstance(payload, list):
+        payload = "".join(str(b.get("text", "")) for b in payload if isinstance(b, dict) and b.get("type") == "text")
+    if not isinstance(payload, str):
+        return payload if isinstance(payload, dict) else None
+    try:
+        return json.loads(payload)
+    except ValueError:
+        return None
+
+
+async def claude_signed_in(cwd: Path) -> bool:
+    """`claude auth status`: exit 0 and `loggedIn` true (nothing else is read)."""
+
+    try:
+        code, out = await capture_command(["claude", "auth", "status"], cwd)
+    except (QaError, OSError):
+        return False
+    status = _json_line(out)
+    return code == 0 and status is not None and status.get("loggedIn") is True
+
+
+async def claude_lists(prefix: str, cwd: Path) -> bool:
+    """True when `claude mcp list` (run in `cwd`) has a line that starts with a server name beginning `prefix`."""
+
+    code, out = await capture_command(["claude", "mcp", "list"], cwd, timeout_s=_LIST_TIMEOUT_S)
+    if code != 0:
+        raise QaError(f"claude mcp list failed: exit {code}")
+    return re.search(rf"^\s*{re.escape(prefix)}", out, re.MULTILINE) is not None
+
+
+@dataclass
+class TeardownVerdict:
+    """Whether the `claude mcp list` check after a signed-in run found no `specflow-qa-` server (None: not reached)."""
+
+    clean: bool | None = None
+
+    @property
+    def label(self) -> str:
+        return "not reached" if self.clean is None else ("yes" if self.clean else "no")
+
+
+@asynccontextmanager
+async def signed_in_claude(
+    key: str,
+    password: SecretStr,
+    *,
+    cwd: Path,
+    run_id: str,
+    runner: CommandRunner = run_command,
+    verdict: TeardownVerdict | None = None,
+) -> AsyncIterator[str]:
+    """Register `specflow-qa-<run id>`, sign in as `key`, yield the name; afterwards verify nothing is left behind.
+
+    Logout and removal always run (`registered_server`), and so does the `claude mcp list` check, also when the body
+    or the login failed. `verdict` (optional) receives its result (an unreadable listing is not clean). A leftover
+    `specflow-qa-` server raises, unless an earlier error is already propagating (that error wins).
+    """
+
+    failed = False
+    try:
+        async with registered_server(run_id, cwd=cwd, runner=runner) as name:
+            await claude_login(name, key, password, cwd=cwd)
+            yield name
+    except BaseException:
+        failed = True
+        raise
+    finally:
+        try:
+            clean = not await claude_lists(SERVER_PREFIX, cwd)
+        except (QaError, OSError):
+            clean = False
+        if verdict is not None:
+            verdict.clean = clean
+        if not clean and not failed:
+            raise QaError("claude teardown left a specflow-qa- server")
+
+
 # Run reports ---------------------------------------------------------------------------------------------------
 
 
@@ -1004,3 +1643,176 @@ def write_report(report: RunReport, directory: Path = REPORTS_DIR) -> Path:
     path = directory / f"{report.run_id}.json"
     path.write_text(text + "\n", encoding="utf-8")
     return path
+
+
+_URL_SHAPE = re.compile(r"https?://\S+")
+_EMAIL_SHAPE = re.compile(r"\S+@\S+")
+_JWT_SHAPE = re.compile(r"eyJ[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*")
+_HEADER_WORDS = re.compile(r"Bearer|Authorization|code=", re.IGNORECASE)
+
+
+def report_note(text: str, limit: int = 300) -> str:
+    """Model prose or an error text made safe for a report: no URL, email, token or header, one line, truncated."""
+
+    cleaned = _URL_SHAPE.sub("[url]", strip_ansi(text))
+    cleaned = _EMAIL_SHAPE.sub("[email]", cleaned)
+    cleaned = _JWT_SHAPE.sub("[token]", cleaned)
+    cleaned = _HEADER_WORDS.sub("", cleaned).replace("@", "")
+    return " ".join(cleaned.split())[:limit]
+
+
+async def run_scenario(report: RunReport, scenario: str, work: Awaitable[None]) -> None:
+    """Await `work`, record its outcome and duration in `report` (the error type only on failure), re-raise errors."""
+
+    started = time.perf_counter()
+    try:
+        await work
+    except BaseException as error:
+        elapsed = (time.perf_counter() - started) * 1000
+        report.results.append(ScenarioResult(scenario, "failed", round(elapsed, 1), type(error).__name__))
+        raise
+    report.results.append(ScenarioResult(scenario, "passed", round((time.perf_counter() - started) * 1000, 1)))
+
+
+# Report saving and the E14 numbers -------------------------------------------------------------------------------
+
+
+def save_report(report: RunReport, *, raise_on_refusal: bool) -> None:
+    """Write the report in its own step: a refused report is logged and never replaces an error already in flight."""
+
+    try:
+        path = write_report(report)
+    except QaError:
+        log_event(logger, INFO, "mcp_qa.report_refused", run_id=report.run_id)
+        if raise_on_refusal:
+            raise
+    else:
+        log_event(logger, INFO, "mcp_qa.report", report=path.name, results=len(report.results))
+
+
+async def run_latency_into(
+    metrics: dict[str, float | int | str],
+    call_once: Callable[[], Awaitable[bool]],
+    *,
+    prefix: str = "e14",
+    **pacing: Any,
+) -> LatencyStats:
+    """`run_latency` that leaves its numbers in `metrics`: the partial counts if the run dies, else the stats."""
+
+    progress = LatencyProgress()
+    try:
+        stats = await run_latency(call_once, progress=progress, **pacing)
+    except BaseException:
+        metrics.update(progress.metrics(prefix))
+        raise
+    metrics.update(stats.metrics(prefix))
+    return stats
+
+
+# Persona assertions of the agent tier (testing.md, Agent QA with Claude Code) -------------------------------------
+
+EXPECTED_PROJECTS: Final = frozenset({"P-Alpha", "P-Empty", "P-Large"})
+ALPHA_FEATURES: Final = 7
+BETA_FEATURES: Final = 3
+
+
+class RunPreconditionError(QaError):
+    """The run cannot answer the question (no connection, no model access, timed out): not a verdict on the server."""
+
+
+@dataclass(frozen=True)
+class RunTotals:
+    cost_usd: float
+    turns: int
+
+
+def _require(message: str, *, ok: bool) -> None:
+    if not ok:
+        raise QaError(message)
+
+
+def _ours(run: PromptRun, tools: tuple[str, str]) -> list[ToolEvent]:
+    """The events of our two tools; other calls (for example a tool search) only count in the note."""
+
+    return [event for event in run.events if event.name in tools]
+
+
+def _of_tool(events: Iterable[ToolEvent], tool: str, kind: str) -> list[ToolEvent]:
+    return [event for event in events if event.kind == kind and str(event.name).endswith(f"__{tool}")]
+
+
+def _payload(event: ToolEvent) -> dict[str, Any]:
+    data = tool_json(event)
+    return data if isinstance(data, dict) else {}
+
+
+def _feature_results(events: list[ToolEvent], project_id: str) -> list[ToolEvent]:
+    """Results of the `list_features` calls made for `project_id`, matched by `tool_use_id`."""
+
+    calls = {
+        call.tool_use_id
+        for call in _of_tool(events, "list_features", "call")
+        if isinstance(call.payload, dict) and call.payload.get("project_id") == project_id
+    }
+    _require(f"list_features was never called for {project_id}", ok=bool(calls))
+    return [event for event in _of_tool(events, "list_features", "result") if event.tool_use_id in calls]
+
+
+def check_run(run: PromptRun, name: str, tools: tuple[str, str]) -> RunTotals:
+    """What every prompt needs before its assertions mean anything; a precondition failure names the reason."""
+
+    if run.timed_out:
+        raise RunPreconditionError("the prompt timed out")
+    init = run.init or {}
+    servers = {str(item.get("name")): item.get("status") for item in init.get("mcp_servers", [])}
+    if servers.get(name) != "connected":
+        raise RunPreconditionError(f"the MCP server is not connected: {servers.get(name)}")
+    seen = [str(tool) for tool in init.get("tools", []) if str(tool).startswith("mcp__")]
+    if not set(tools) <= set(seen):
+        raise RunPreconditionError(f"tool names: {seen}")
+    result = run.result
+    if result is None or result.get("is_error") or result.get("subtype") != "success":
+        raise RunPreconditionError(f"no model access or budget: {(result or {}).get('subtype')}")
+    foreign = foreign_tool_calls(run.events, tools)
+    _require(f"tool calls outside our two tools: {sorted(set(foreign))}", ok=not foreign)
+    return RunTotals(float(result.get("total_cost_usd") or 0), int(result.get("num_turns") or 0))
+
+
+def projects_listed(run: PromptRun, tools: tuple[str, str], _ids: FixtureIds) -> None:
+    listed = _of_tool(_ours(run, tools), "list_projects", "result")
+    _require("list_projects was never called", ok=bool(listed))
+    names = {str(item["name"]) for event in listed for item in _payload(event).get("items", [])}
+    _require(f"projects listed: {sorted(names)}", ok=names >= EXPECTED_PROJECTS)
+    _require("P-Beta is listed", ok="P-Beta" not in names)
+
+
+def alpha_features_listed(run: PromptRun, tools: tuple[str, str], ids: FixtureIds) -> None:
+    alpha = str(ids.projects["P-Alpha"])
+    events = _ours(run, tools)
+    results = _feature_results(events, alpha)
+    _require("list_features gave no result for P-Alpha", ok=bool(results))
+    found = {str(item["spec_id"]) for event in results for item in _payload(event).get("items", [])}
+    expected = {node.spec_id for node in fixture_nodes("P-Alpha", alpha, load_ontology()) if node.label == "Feature"}
+    _require("the fixture does not hold 7 P-Alpha features", ok=len(expected) == ALPHA_FEATURES)
+    _require(f"P-Alpha features: {len(found)} found, {len(expected)} expected", ok=found == expected)
+    _require("the features were not read to the last page", ok=_payload(results[-1]).get("next_cursor") is None)
+    leaked = any("REQ::" in str(event.payload) for event in events if event.kind == "result")
+    _require("a REQ:: id was returned", ok=not leaked)
+
+
+def beta_refused(run: PromptRun, tools: tuple[str, str], ids: FixtureIds) -> None:
+    beta = str(ids.projects["P-Beta"])
+    refused = _feature_results(_ours(run, tools), beta)
+    _require("list_features gave no result for the P-Beta id", ok=bool(refused))
+    codes = [_payload(event).get("error", {}).get("code") for event in refused]
+    _require(f"P-Beta answers: {codes}", ok=all(code == "project_not_found" for code in codes))
+    names = [node.properties["name"] for node in fixture_nodes("P-Beta", beta, load_ontology())]
+    _require("the fixture does not hold 3 P-Beta features", ok=len(names) == BETA_FEATURES)
+    _require("a P-Beta feature name appears in the run", ok=not [name for name in names if name in run.text])
+
+
+PERSONA_CHECKS: Final[dict[str, Callable[[PromptRun, tuple[str, str], FixtureIds], None]]] = {
+    "agent-1": projects_listed,
+    "agent-2": alpha_features_listed,
+    "agent-3": beta_refused,
+}
