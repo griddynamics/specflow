@@ -23,7 +23,7 @@ tags: [mcp]
 |---|---|---|
 | MCP-M1 | Graph paged read (`count_nodes`, `nodes_page`) | done |
 | MCP-M2 | Auth claim profile for any OIDC provider | done |
-| MCP-M3 | Local Keycloak and QA harness | planned |
+| MCP-M3 | Local Keycloak and QA harness | done |
 | MCP-M4 | MCP role, transport and auth guard | planned |
 | MCP-M5 | Tools and access control | planned |
 | MCP-M6 | Local stack wiring and setup docs | planned |
@@ -83,3 +83,15 @@ Template:
 - Design sections updated in place: none; [../configuration.md](../configuration.md) has the six rows and the
   corrected `OIDC_ISSUER` row
 - Follow-ups: the local stack forwards the claim-profile variables in MCP-M6
+
+### MCP-M3: Local Keycloak and QA harness
+
+- Date and commits: 2026-10-31, 10ea78e
+- Summary: an optional, digest-pinned Keycloak service (`WITH=keycloak`) imports a realm with no users or secrets;
+  `make env-local` appends the Keycloak secrets to an existing `.env.local`. `examples/mcp_qa.py` and its library set
+  up the QA users and the web client secret through the admin API, log in without a browser, mint tokens and dev
+  tokens, seed the fixture projects idempotently, and drive Claude Code with teardown of its MCP registration.
+- Requirements proven: NFR-MCP-05
+- Design sections updated in place: none
+- Follow-ups: `KEYCLOAK_*` rows in the configuration reference come with MCP-M6; the seed is idempotent per Keycloak
+  container lifetime
