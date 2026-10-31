@@ -6,7 +6,7 @@ Run from backend/ with the local stack up (`make up WITH=keycloak`):
     uv run --env-file ../.env.local python examples/mcp_qa.py token alice [--client mcp|web]
     uv run --env-file ../.env.local python examples/mcp_qa.py dev-token alice@example.com [--client mcp|web] [--headers]
     uv run --env-file ../.env.local python examples/mcp_qa.py check [--user alice|bob] [--latency-seconds N]
-    uv run --env-file ../.env.local python examples/mcp_qa.py claude [--user alice] [--model sonnet] [--prompt TEXT ...]
+    uv run --env-file ../.env.local python examples/mcp_qa.py claude [--user alice] [--model sonnet] [--runs 3]
 
 `seed` prints ids and counts. `token` and `dev-token` are the only commands that print a token (nothing else on the
 line), so `TOKEN=$(... token alice)` works; `dev-token --headers` prints the `headersHelper` JSON instead. Passwords,
@@ -14,48 +14,51 @@ secrets and emails are never printed.
 
 `check` signs in with the MCP Python SDK (OAuth provider in `oidc` mode, a dev token in dev mode) and prints the mode,
 tool names, project names and counts, and milliseconds (`--latency-seconds` adds an E14-style run on `P-Large`).
-`claude` registers a temporary `specflow-qa-<run id>` server with the Claude Code CLI (`oidc` mode only), signs in,
-runs the three persona prompts (or each `--prompt`) and prints our tool calls and results; it spends model tokens,
-writes to the Claude configuration and always logs out and removes
-the server; the report is written even when the run fails. Only `claude` writes a report (to `.reports/mcp-qa/`).
+`claude` runs the workspace flow of the agent tier `--runs` times (default 1; the gate is 3). Each run is a fresh
+temporary git repository with a temporary `specflow-qa-<run id>` server registered with the Claude Code CLI (`oidc`
+mode only), a sign-in and four steps (bind P-Alpha, reuse it, a P-Beta binding the agent must not use, switch to
+P-Empty). It prints each step's outcome, tool calls, duration, cost and `slash` or `plain`; it spends model tokens,
+writes to the Claude configuration and always logs out, removes the server and deletes the repository. The exit
+status is 1 when a step fails. The report is written even when a run fails. Only `claude` writes a report (to
+`.reports/mcp-qa/`).
 """
 
 from __future__ import annotations
 
 import argparse
 import os
-import shutil
-import tempfile
 import time
-from pathlib import Path
-from typing import Any
 
 from mcp.client.session import ClientSession
+from pydantic import SecretStr
 
 from example_lib import run_example
 from mcp_qa_lib import (
     CLAUDE_MAX_BUDGET_USD,
     CLAUDE_MODEL,
     QA_USERS,
-    PromptRun,
+    SERVER_PREFIX,
+    FixtureIds,
+    FlowContext,
     QaError,
     RunReport,
     ScenarioResult,
     StackMode,
+    StepRecord,
     TeardownVerdict,
+    WorkspaceFlow,
     all_projects,
     apply_local_defaults,
     call,
-    claude_prompt_argv,
     claude_signed_in,
-    claude_tool_names,
     dev_token,
-    foreign_tool_calls,
+    flow_failure,
+    flow_workspace,
     headers_json,
     mcp_session,
     new_run_id,
     oauth_provider,
-    persona_prompts,
+    parse_runs,
     port_is_free,
     report_note,
     require_env,
@@ -65,7 +68,7 @@ from mcp_qa_lib import (
     seeded_ids,
     signed_in_claude,
     stack_mode,
-    tool_json,
+    step_result,
     user_token,
     write_report,
 )
@@ -170,111 +173,98 @@ async def check_command(args: argparse.Namespace) -> int:
     return 0
 
 
-def _print_run(label: str, run: PromptRun, tools: tuple[str, str]) -> None:
-    print(f"{label}: exit {run.exit_code}{' (timed out)' if run.timed_out else ''}")
-    for event in run.events:
-        if event.name not in tools:
-            continue
-        short = str(event.name).rsplit("__", maxsplit=1)[-1]
-        if event.kind == "call":
-            arguments: dict[str, Any] = event.payload if isinstance(event.payload, dict) else {}
-            cursor = "yes" if arguments.get("cursor") else "no"
-            print(f"  call {short} project_id={arguments.get('project_id', '-')} cursor={cursor}")
-            continue
-        data = tool_json(event)
-        error = data.get("error") if isinstance(data, dict) else None
-        count = len(data.get("items", [])) if isinstance(data, dict) else 0
-        print(f"  result {short} " + (f"error {error.get('code')}" if isinstance(error, dict) else f"items {count}"))
-    result = run.result or {}
-    print(f"  turns {result.get('num_turns', '-')} cost_usd {result.get('total_cost_usd', '-')}")
-    print(f"  prose {report_note(run.prose, 2000)}")
+def _print_step(run_number: int, record: StepRecord) -> None:
+    tools = ",".join(record.tool_calls) or "-"
+    print(
+        f"run {run_number} {record.step}: {record.outcome} ({record.mode}) {record.duration_s:.1f} s "
+        f"cost_usd {record.cost_usd:.4f} tools {tools}"
+    )
+    if record.note:
+        print(f"  {report_note(record.note)}")
+    print(f"  prose {report_note(record.prose, 2000)}")
 
 
-async def _run_prompts(
-    prompts: list[tuple[str, str]],
-    name: str,
-    cwd: Path,
+async def _one_flow(
     args: argparse.Namespace,
+    password: SecretStr,
+    ids: FixtureIds,
     *,
-    results: list[ScenarioResult],
+    run_number: int,
+    records: list[StepRecord],
     metrics: dict[str, float | int | str],
 ) -> None:
-    tools = claude_tool_names(name)
-    cost, turns = 0.0, 0
-    for label, text in prompts:
-        started = time.perf_counter()
-        run = await run_prompt(
-            claude_prompt_argv(text, tools, model=args.model, max_budget_usd=args.max_budget_usd), cwd
-        )
-        _print_run(label, run, tools)
-        foreign = sorted(set(foreign_tool_calls(run.events, tools)))
-        if foreign:
-            print(f"  tool calls outside our two tools: {foreign}")
-        done = run.result is not None and not run.result.get("is_error") and not foreign
-        cost += float((run.result or {}).get("total_cost_usd", 0) or 0)
-        turns += int((run.result or {}).get("num_turns", 0) or 0)
-        note = f"foreign tools {foreign} " if foreign else ""
-        results.append(
-            ScenarioResult(label, "passed" if done else "failed", _ms(started), note + report_note(run.prose))
-        )
-        metrics.update({"cost_usd": round(cost, 4), "turns": turns})
+    """One flow in a fresh repository; `records` fills as steps finish, so a failed teardown keeps them."""
+
+    verdict = TeardownVerdict()
+    try:
+        async with flow_workspace(verdict) as workspace:
+            if metrics.get("teardown_clean") != "no":
+                metrics["cwd"] = workspace.name  # the folder name only; it lives in the system temp folder
+            if not await claude_signed_in(workspace):
+                raise QaError("the claude CLI is not signed in")
+            async with signed_in_claude(
+                _user_key(args.user), password, cwd=workspace, run_id=new_run_id(), verdict=verdict
+            ) as name:
+                context = FlowContext(name, workspace, ids)
+                flow = WorkspaceFlow(context, run_prompt, model=args.model, max_budget_usd=args.max_budget_usd)
+                try:
+                    await flow.run()
+                finally:
+                    records.extend(flow.records)
+    finally:
+        unclean = verdict.label == "no" or metrics.get("teardown_clean") == "no"
+        metrics["teardown_clean"] = "no" if unclean else verdict.label
+        for record in records:
+            _print_step(run_number, record)
 
 
 async def _claude_run(
-    args: argparse.Namespace,
-    run_id: str,
-    results: list[ScenarioResult],
-    metrics: dict[str, float | int | str],
-) -> None:
+    args: argparse.Namespace, results: list[ScenarioResult], metrics: dict[str, float | int | str]
+) -> bool:
+    """Run the flows; True when every step of every run passed."""
+
     password = require_env("KEYCLOAK_QA_PASSWORD")["KEYCLOAK_QA_PASSWORD"]
     if await stack_mode() != "oidc":
         raise QaError("the claude command needs the oidc stack: run make up WITH=keycloak")
     if not port_is_free():
         raise QaError("port 8765 is in use: stop the process holding it")
-    verdict = TeardownVerdict()
-    cwd = Path(tempfile.mkdtemp(prefix="specflow-qa-claude-"))  # never the repo root: its tracked .mcp.json
-    metrics["cwd"] = cwd.name  # the folder name only; it lives in the system temp folder
-    try:
-        if not await claude_signed_in(cwd):
-            raise QaError("the claude CLI is not signed in")
-        prompts = (
-            [(f"manual-{n}", text) for n, text in enumerate(args.prompt, start=1)]
-            if args.prompt
-            else persona_prompts(await seeded_ids("keycloak"))
-        )
-
+    ids, cost, passed = await seeded_ids("keycloak"), 0.0, True
+    for run_number in range(1, parse_runs(str(args.runs)) + 1):
+        records: list[StepRecord] = []
         try:
-            async with signed_in_claude(
-                _user_key(args.user), password, cwd=cwd, run_id=run_id, verdict=verdict
-            ) as name:
-                await _run_prompts(prompts, name, cwd, args, results=results, metrics=metrics)
+            await _one_flow(args, password, ids, run_number=run_number, records=records, metrics=metrics)
         finally:
-            metrics["teardown_clean"] = verdict.label
-    finally:
-        if verdict.clean is not False:  # an unclean teardown keeps the folder: recovery runs from it
-            shutil.rmtree(cwd, ignore_errors=True)
+            results.extend(step_result(record, run_number) for record in records)
+            cost += sum(record.cost_usd for record in records)
+            metrics["cost_usd"] = round(cost, 4)
+        reason = flow_failure(records)
+        if reason is not None:
+            print(f"run {run_number} failed: {report_note(reason)}")
+            passed = False
+    return passed
 
 
 async def claude_command(args: argparse.Namespace) -> int:
     run_id = new_run_id()
     results: list[ScenarioResult] = []
-    metrics: dict[str, float | int | str] = {"model": args.model}
+    metrics: dict[str, float | int | str] = {"model": args.model, "runs": args.runs}
+    passed = False
     try:
-        await _claude_run(args, run_id, results, metrics)
+        passed = await _claude_run(args, results, metrics)
     except QaError as error:
         raise SystemExit(str(error)) from None
     finally:
         print(f"teardown clean {metrics.get('teardown_clean', 'not reached')}")
         if metrics.get("teardown_clean") == "no":
             print(
-                f"recovery: server specflow-qa-{run_id}; from the temp folder {metrics['cwd']} run "
-                f"`claude mcp logout specflow-qa-{run_id}` and `claude mcp remove specflow-qa-{run_id} --scope local`"
+                f"recovery: a server named {SERVER_PREFIX}<run id> may be left; from the temp folder {metrics['cwd']} "
+                "run `claude mcp list`, then `claude mcp logout <name>` and `claude mcp remove <name> --scope local`"
             )
         try:
-            print(f"report {write_report(RunReport(run_id, 'agent-manual', results, metrics)).name}")
+            print(f"report {write_report(RunReport(run_id, 'agent-flow', results, metrics)).name}")
         except QaError as refused:
             print(str(refused))
-    return 0
+    return 0 if passed else 1
 
 
 def parse_args() -> argparse.Namespace:
@@ -307,7 +297,7 @@ def parse_args() -> argparse.Namespace:
     agent.add_argument("--user", default="alice", help="the QA user to sign in as")
     agent.add_argument("--model", default=CLAUDE_MODEL)
     agent.add_argument("--max-budget-usd", default=CLAUDE_MAX_BUDGET_USD, help="spend limit per prompt")
-    agent.add_argument("--prompt", action="append", help="a prompt to run (repeatable); default: the three personas")
+    agent.add_argument("--runs", default="1", help="full flows to run, each in a fresh repository (the gate: 3)")
     agent.set_defaults(handler=claude_command)
     return parser.parse_args()
 

@@ -1,12 +1,14 @@
-"""End-to-end scenarios E1 to E14 of the MCP server against the local stack (docs/mcp-server/testing.md).
+"""End-to-end scenarios E1 to E17 of the MCP server against the local stack (docs/mcp-server/testing.md).
 
 Gated: ``SPECFLOW_TEST_MCP_E2E=1`` (run with ``--env-file ../.env.local``), with the stack up and seeded:
 
     make up WITH=keycloak && (cd backend && uv run --env-file ../.env.local python examples/mcp_qa.py seed)
     SPECFLOW_TEST_MCP_E2E=1 uv run --env-file ../.env.local pytest tests/test_mcp_e2e.py -q
 
-The tier detects the stack mode from the protected resource metadata: E1 to E12 and E14 run in ``oidc`` mode only,
-E13 in dev mode only. Scenarios of the other mode are not collected (no skip, no empty parameter set). Under
+Every project-scoped scenario reads its project id from a binding file the harness wrote in a temp workspace
+(``E2e.bind``): written, found from a subfolder up, validated against the contract schema, then read.
+The tier detects the stack mode from the protected resource metadata: E1 to E12 and E14 to E17 run in ``oidc``
+mode only, E13 in dev mode only. Scenarios of the other mode are not collected (no skip, no empty parameter set). Under
 ``make check`` nothing here does I/O: the module marker skips every test and the mode is not detected.
 Each run writes a report to ``.reports/mcp-qa/`` (never committed); E8 restores the membership it removes.
 """
@@ -18,10 +20,12 @@ import base64
 import functools
 import json
 import os
+import shutil
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Final
 
 import pytest
@@ -40,15 +44,21 @@ from mcp_qa_lib import (
     StackMode,
     ToolOutcome,
     all_projects,
+    binding_text,
+    bound_project_id,
     call,
     create_project_rest,
     dev_token,
     fetch_prm,
+    find_binding,
+    make_workspace,
     mcp_session,
     new_run_id,
     oauth_provider,
     post_mcp,
     postgres_session,
+    prompt_text,
+    read_binding,
     remove_member,
     require_env,
     restore_member,
@@ -57,6 +67,7 @@ from mcp_qa_lib import (
     seeded_ids,
     stack_mode,
     user_token,
+    write_binding,
     write_report,
 )
 from specflow_live import live_enabled, requires_live
@@ -71,6 +82,9 @@ LATENCY_CALLS: Final = 600
 LATENCY_P95_LIMIT_MS: Final = 500
 FEATURES: Final = 7
 PAGE: Final = 5
+BINDING_NAME: Final = ".specflow/config.json"
+INSTRUCTIONS_LIMIT: Final = 2048
+PROJECTS_BY_NAME: Final = ("P-Alpha", "P-Beta", "P-Empty", "P-Large")
 
 
 @functools.cache
@@ -87,6 +101,7 @@ class E2e:
     mode: StackMode
     env: dict[str, SecretStr]
     report: RunReport
+    workspace: Path
 
     @property
     def password(self) -> SecretStr:
@@ -102,6 +117,24 @@ class E2e:
 
     async def token(self, key: str, **kwargs: Any) -> str:
         return await user_token(key, self.password, **kwargs)
+
+    @property
+    def subfolder(self) -> Path:
+        """Where the scenario "works": below the workspace root, so reading the file walks up."""
+
+        return self.workspace / "src" / "app"
+
+    def bind_id(self, project_id: uuid.UUID, project_name: str) -> uuid.UUID:
+        """Write (or replace) the binding file; return the id read back from the subfolder (find, validate, read)."""
+
+        write_binding(self.workspace, project_id, project_name)
+        self.subfolder.mkdir(parents=True, exist_ok=True)
+        return bound_project_id(self.subfolder)
+
+    async def bind(self, project: str) -> uuid.UUID:
+        """Bind the workspace to the seeded project of this name (`P-Alpha`) and return the id the file gives."""
+
+        return self.bind_id((await self.ids()).projects[project], project)
 
     @staticmethod
     async def ids() -> FixtureIds:
@@ -129,7 +162,11 @@ async def e2e(report: RunReport, monkeypatch: pytest.MonkeyPatch) -> AsyncIterat
         env = require_env(*(OIDC_ENV if mode == "oidc" else DEV_ENV))
     except SystemExit as missing:
         pytest.fail(str(missing), pytrace=False)
-    yield E2e(mode, env, report)
+    workspace = make_workspace()
+    try:
+        yield E2e(mode, env, report, workspace)
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)
 
 
 def error_of(outcome: ToolOutcome) -> dict[str, Any]:
@@ -165,7 +202,7 @@ async def e2(e2e: E2e) -> None:
 
 
 async def e3(e2e: E2e) -> None:
-    alpha = (await e2e.ids()).projects["P-Alpha"]
+    alpha = await e2e.bind("P-Alpha")
     async with e2e.alice() as session:
         first = await features(session, alpha, limit=PAGE)
         assert (first.data["total_count"], len(first.data["items"])) == (FEATURES, PAGE)
@@ -178,22 +215,22 @@ async def e3(e2e: E2e) -> None:
 
 
 async def e4(e2e: E2e) -> None:
-    beta = (await e2e.ids()).projects["P-Beta"]
+    beta = await e2e.bind("P-Beta")
     async with e2e.alice() as session:
         assert error_of(await features(session, beta))["code"] == "project_not_found"
 
 
 async def e5(e2e: E2e) -> None:
-    beta = (await e2e.ids()).projects["P-Beta"]
+    beta = await e2e.bind("P-Beta")
     async with e2e.alice() as session:
         foreign = error_of(await features(session, beta))
-        unknown = error_of(await features(session, uuid.uuid4()))
+        unknown = error_of(await features(session, e2e.bind_id(uuid.uuid4(), "Unknown")))
     assert unknown["code"] == "project_not_found"
     assert unknown["message"] == foreign["message"]
 
 
 async def e6(e2e: E2e) -> None:
-    empty = (await e2e.ids()).projects["P-Empty"]
+    empty = await e2e.bind("P-Empty")
     async with e2e.alice() as session:
         outcome = await features(session, empty)
     assert (outcome.is_error, outcome.data["total_count"], outcome.data["items"]) == (False, 0, [])
@@ -206,8 +243,8 @@ async def e7(e2e: E2e) -> None:
 
 
 async def e8(e2e: E2e) -> None:
-    ids = await e2e.ids()
-    alpha, alice = ids.projects["P-Alpha"], ids.users["alice"]
+    alice = (await e2e.ids()).users["alice"]
+    alpha = await e2e.bind("P-Alpha")
     try:
         async with e2e.alice() as session:
             assert not (await features(session, alpha)).is_error
@@ -234,7 +271,7 @@ async def e10(e2e: E2e) -> None:
 
 
 async def e11(e2e: E2e) -> None:
-    alpha = (await e2e.ids()).projects["P-Alpha"]
+    alpha = await e2e.bind("P-Alpha")
     forged = base64.urlsafe_b64encode(json.dumps({"v": 2, "after": "FEAT::X"}).encode()).rstrip(b"=").decode()
     async with e2e.alice() as session:
         assert error_of(await features(session, alpha, cursor=forged))["code"] == "invalid_cursor"
@@ -246,7 +283,7 @@ async def e12(e2e: E2e) -> None:
 
 
 async def e14(e2e: E2e) -> None:
-    large = (await e2e.ids()).projects["P-Large"]
+    large = await e2e.bind("P-Large")
     token = await e2e.token("alice")  # fresh: the 300 s life outlasts the 60 s run
 
     async with mcp_session(token=token) as session:
@@ -268,8 +305,52 @@ async def e13(e2e: E2e) -> None:
     assert (await post_mcp(web)).status_code == 401
 
 
+async def e15(e2e: E2e) -> None:
+    ids = await e2e.ids()
+    async with e2e.alice() as session:
+        text = session.instructions or ""
+    assert MCP_RESOURCE_URL in text and BINDING_NAME in text
+    assert len(text) < INSTRUCTIONS_LIMIT
+    seeded = [*PROJECTS_BY_NAME, *(str(project_id) for project_id in ids.projects.values())]
+    assert not [value for value in seeded if value.lower() in text.lower()], "the instructions carry project data"
+
+
+async def e16(e2e: E2e) -> None:
+    template = binding_text("<id>", "<name>")
+    async with e2e.alice() as session:
+        prompts = {prompt.name: prompt for prompt in (await session.list_prompts()).prompts}
+        assert "select_project" in prompts
+        assert [(arg.name, bool(arg.required)) for arg in prompts["select_project"].arguments or []] == [
+            ("project", False)
+        ]
+        plain = prompt_text(await session.get_prompt("select_project"))
+        named = prompt_text(await session.get_prompt("select_project", {"project": "P-Alpha"}))
+    for text in (plain, named):
+        assert BINDING_NAME in text and template in text and "list_projects" in text
+    assert json.dumps("P-Alpha") in named and json.dumps("P-Alpha") not in plain
+    for method, params in (("prompts/list", {}), ("prompts/get", {"name": "select_project"})):
+        response = await post_mcp(None, method=method, params=params)
+        assert response.status_code == 401, method
+        assert f'resource_metadata="{PRM_URL}"' in response.headers["WWW-Authenticate"]
+
+
+async def e17(e2e: E2e) -> None:
+    alpha = await e2e.bind("P-Alpha")
+    async with e2e.alice() as session:
+        assert (await features(session, alpha)).data["total_count"] == FEATURES
+        empty = await e2e.bind("P-Empty")  # selecting again replaces the whole file
+        bound = read_binding(find_binding(e2e.subfolder) or e2e.workspace)
+        assert bound == json.loads(binding_text(empty, "P-Empty")) and uuid.UUID(bound["project_id"]) != alpha
+        assert (await features(session, empty)).data["total_count"] == 0
+        foreign = await e2e.bind("P-Beta")
+        assert error_of(await features(session, foreign))["code"] == "project_not_found"
+
+
 # E8 runs after every reader of P-Alpha; E14 is the last of oidc mode.
-ORDER: Final = ("E1", "E2", "E3", "E4", "E5", "E6", "E7", "E9", "E10", "E11", "E12", "E8", "E14", "E13")
+ORDER: Final = (
+    *("E1", "E2", "E3", "E4", "E5", "E6", "E7", "E9", "E10", "E11", "E12", "E15", "E16", "E17"),
+    *("E8", "E14", "E13"),
+)
 SCENARIOS: Final[dict[str, tuple[StackMode, Callable[[E2e], Awaitable[None]]]]] = {
     "E1": ("oidc", e1),
     "E2": ("oidc", e2),
@@ -285,6 +366,9 @@ SCENARIOS: Final[dict[str, tuple[StackMode, Callable[[E2e], Awaitable[None]]]]] 
     "E12": ("oidc", e12),
     "E13": ("dev", e13),
     "E14": ("oidc", e14),
+    "E15": ("oidc", e15),
+    "E16": ("oidc", e16),
+    "E17": ("oidc", e17),
 }
 
 

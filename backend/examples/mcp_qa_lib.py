@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
+import functools
 import hashlib
 import html
 import json
@@ -21,6 +22,7 @@ import secrets
 import shutil
 import signal
 import socket
+import tempfile
 import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, MutableMapping, Sequence
@@ -28,19 +30,20 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from http import HTTPStatus
 from pathlib import Path
-from typing import Any, Final, Literal
+from typing import Any, Final, Literal, NamedTuple, cast
 from urllib.parse import parse_qs, parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 import anyio
 import httpx
 import httpx2
 import jwt
+from jsonschema import Draft202012Validator
 from mcp.client.auth import OAuthClientProvider
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import AuthorizationCodeResult, OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 from mcp.shared.exceptions import MCPError
-from mcp.types import LATEST_PROTOCOL_VERSION, TextContent
+from mcp.types import LATEST_PROTOCOL_VERSION, GetPromptResult, TextContent
 from neo4j import AsyncDriver
 from pydantic import AnyUrl, SecretStr, ValidationError
 from sqlalchemy import func, select
@@ -711,24 +714,30 @@ def _json_object(response: httpx.Response) -> dict[str, Any]:
 
 
 async def post_mcp(
-    token: str | None, *, host: str | None = None, transport: httpx.AsyncBaseTransport | None = None
+    token: str | None,
+    *,
+    host: str | None = None,
+    transport: httpx.AsyncBaseTransport | None = None,
+    method: str = "initialize",
+    params: dict[str, Any] | None = None,
 ) -> httpx.Response:
-    """POST a JSON-RPC `initialize` to the MCP endpoint, with an optional bearer token and `Host` override."""
+    """POST a JSON-RPC request (default `initialize`) to the MCP endpoint, with an optional bearer token and `Host`."""
 
     headers = {"Accept": _MCP_ACCEPT, "Content-Type": "application/json"}
     if token is not None:
         headers["Authorization"] = f"Bearer {token}"
     if host is not None:
         headers["Host"] = host
+    initialize = {
+        "protocolVersion": LATEST_PROTOCOL_VERSION,
+        "capabilities": {},
+        "clientInfo": {"name": "specflow-qa", "version": "0"},
+    }
     body = {
         "jsonrpc": "2.0",
         "id": 1,
-        "method": "initialize",
-        "params": {
-            "protocolVersion": LATEST_PROTOCOL_VERSION,
-            "capabilities": {},
-            "clientInfo": {"name": "specflow-qa", "version": "0"},
-        },
+        "method": method,
+        "params": initialize if params is None else params,
     }
     async with httpx.AsyncClient(timeout=15, transport=transport) as http:
         return await _send(http, "mcp request", "POST", MCP_RESOURCE_URL, json=body, headers=headers)
@@ -911,6 +920,12 @@ async def call(session: ClientSession, tool: str, arguments: Mapping[str, Any]) 
     return ToolOutcome(bool(result.is_error), data if isinstance(data, dict) else {})
 
 
+def prompt_text(result: GetPromptResult) -> str:
+    """The text blocks of a `prompts/get` result, in order."""
+
+    return "\n".join(m.content.text for m in result.messages if isinstance(m.content, TextContent))
+
+
 async def all_projects(session: ClientSession) -> list[dict[str, Any]]:
     """Every project of the caller: `list_projects` pages until `next_cursor` is null."""
 
@@ -924,6 +939,105 @@ async def all_projects(session: ClientSession) -> list[dict[str, Any]]:
         cursor = outcome.data.get("next_cursor")
         if cursor is None:
             return items
+
+
+# Workspace binding (testing.md, Temp workspace) --------------------------------------------------------------------
+
+BINDING_FILE: Final = Path(".specflow") / "config.json"
+BINDING_VERSION: Final = 1
+BINDING_SCHEMA: Final = (
+    Path(__file__).resolve().parents[1] / "contracts" / "schemas" / "specflow-workspace-config.schema.json"
+)
+WORKSPACE_PREFIX: Final = "specflow-qa-ws-"
+
+
+def make_workspace() -> Path:
+    """A fresh folder under the system temp directory (the caller deletes it)."""
+
+    return Path(tempfile.mkdtemp(prefix=WORKSPACE_PREFIX)).resolve()
+
+
+def find_binding(start: Path) -> Path | None:
+    """The nearest `.specflow/config.json` from `start` up to the filesystem root, or None."""
+
+    origin = start.resolve()
+    return next(
+        (c for folder in (origin, *origin.parents) if (c := folder / BINDING_FILE).is_file()),
+        None,
+    )
+
+
+def binding_text(project_id: uuid.UUID | str, project_name: str, server: str = MCP_RESOURCE_URL) -> str:
+    """The exact version 1 JSON the server tells the agent to write (tools.md, Workspace binding)."""
+
+    document = {
+        "version": BINDING_VERSION,
+        "server": server,
+        "project_id": str(project_id),
+        "project_name": project_name,
+    }
+    return json.dumps(document)
+
+
+def write_binding(
+    workspace: Path,
+    project_id: uuid.UUID | str,
+    project_name: str,
+    *,
+    server: str = MCP_RESOURCE_URL,
+) -> Path:
+    """Write or replace the whole binding file (temp file in the same folder, then `os.replace`)."""
+
+    path = workspace / BINDING_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{secrets.token_hex(4)}.tmp")
+    try:
+        temporary.write_text(binding_text(project_id, project_name, server), encoding="utf-8")
+        temporary.replace(path)  # os.replace: atomic on one filesystem
+    finally:
+        temporary.unlink(missing_ok=True)
+    return path
+
+
+@functools.cache
+def _binding_validator() -> Draft202012Validator:
+    return Draft202012Validator(json.loads(BINDING_SCHEMA.read_text(encoding="utf-8")))
+
+
+def validate_binding(document: object) -> dict[str, Any]:
+    """`document` when it matches the contract schema; else a `QaError` naming the failed keys and rules only."""
+
+    problems = sorted(
+        {
+            f"{'/'.join(str(part) for part in error.absolute_path) or 'file'}: {error.validator}"
+            for error in _binding_validator().iter_errors(document)
+        }
+    )
+    if problems:
+        raise QaError("binding file invalid: " + "; ".join(problems))
+    return cast("dict[str, Any]", document)
+
+
+def read_binding(path: Path) -> dict[str, Any]:
+    """The validated content of a binding file (`QaError` for an unreadable, non-JSON or invalid file)."""
+
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise QaError("binding file unreadable or not JSON") from None
+    return validate_binding(document)
+
+
+def bound_project_id(start: Path, *, server: str = MCP_RESOURCE_URL) -> uuid.UUID:
+    """The `project_id` of the nearest binding file, only when its `server` is `server` (`QaError` otherwise)."""
+
+    path = find_binding(start)
+    if path is None:
+        raise QaError("no .specflow/config.json from the working folder up")
+    document = read_binding(path)
+    if document["server"] != server:
+        raise QaError("the binding file names another server")
+    return uuid.UUID(document["project_id"])
 
 
 # Latency runner (E14) --------------------------------------------------------------------------------------------
@@ -1052,15 +1166,19 @@ _COMMAND_TIMEOUT_S = 60.0
 _RUN_ID = re.compile(r"[A-Za-z0-9_-]+")
 _SECRET_SHAPE = re.compile(r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|Bearer|Authorization|code=|@", re.IGNORECASE)
 CLAUDE_MODEL = "sonnet"
-CLAUDE_MAX_TURNS = 8
-CLAUDE_MAX_BUDGET_USD = "1.00"
+CLAUDE_MAX_TURNS = 10
+CLAUDE_MAX_BUDGET_USD = "0.50"  # per prompt: five prompts per flow stay under 3 USD even when every one spends it all
 PROMPT_TIMEOUT_S = 300.0
-# Built-in tools that could read files, the environment or the network; denied on top of the allow list (a deny rule
-# beats user and project settings). `--tools` and `--strict-mcp-config` are not used: see the 07-handoff review fixes.
+# Built-in tools that could read other files, the environment or the network; denied on top of the allow list (a deny
+# rule beats user and project settings). `Read`, `Write` and `Edit` are not here: `Write` must stay undenied or the
+# `Edit` allow rule cannot cover it. `--tools` and `--strict-mcp-config` are not used: see the 07-handoff review fixes.
 CLAUDE_DISALLOWED_TOOLS: Final = (
-    *("Bash", "BashOutput", "KillShell", "PowerShell", "Read", "Write", "Edit", "MultiEdit", "NotebookEdit"),
+    *("Bash", "BashOutput", "KillShell", "PowerShell", "MultiEdit", "NotebookEdit"),
     *("Glob", "Grep", "WebFetch", "WebSearch", "Task", "Agent"),
 )
+# The only write permission: Claude Code applies Edit rules to the Write tool; scoped `Write(...)` rules do not match.
+EDIT_RULE: Final = "Edit(./.specflow/**)"
+WRITE_TOOLS: Final = ("Write", "Edit", "MultiEdit", "NotebookEdit")
 DISCOVERY_TOOLS: Final = ("ToolSearch",)  # may appear for MCP tool discovery; reads nothing
 REPORTS_DIR = Path(__file__).resolve().parents[2] / ".reports" / "mcp-qa"
 CommandRunner = Callable[[Sequence[str], Path], Awaitable[int]]
@@ -1180,6 +1298,12 @@ def claude_tool_names(name: str) -> tuple[str, str]:
     return f"mcp__{name}__list_projects", f"mcp__{name}__list_features"
 
 
+def claude_allowed_tools(name: str) -> list[str]:
+    """What a flow prompt may use: our two MCP tools, `Read` and the binding-file edit rule (D7)."""
+
+    return [*claude_tool_names(name), "Read", EDIT_RULE]
+
+
 def claude_prompt_argv(
     prompt: str,
     allowed_tools: Sequence[str],
@@ -1199,11 +1323,58 @@ def claude_prompt_argv(
     ]
 
 
-def foreign_tool_calls(events: Iterable[ToolEvent], allowed_tools: Iterable[str]) -> list[str]:
-    """Names of the tool calls that are neither one of `allowed_tools` nor a discovery tool (empty: only ours)."""
+def _target(event: ToolEvent, root: Path) -> Path | None:
+    """The file a Read or write call names (`file_path`, or `notebook_path`), resolved against `root`."""
 
-    allowed = {*allowed_tools, *DISCOVERY_TOOLS}
-    return [str(event.name) for event in events if event.kind == "call" and event.name not in allowed]
+    payload = event.payload if isinstance(event.payload, dict) else {}
+    raw = payload.get("file_path") or payload.get("notebook_path")
+    return (root / raw).resolve() if isinstance(raw, str) and raw else None
+
+
+def tool_violations(events: Iterable[ToolEvent], tools: Iterable[str], workspace: Path) -> list[str]:
+    """What the run did that D7 does not allow (names only; empty: clean).
+
+    Allowed: our MCP tools, discovery tools, `Read` of a file inside the workspace and a write tool whose target is
+    `<workspace>/.specflow/config.json`. Any other call is a violation.
+    """
+
+    root, ours = workspace.resolve(), {*tools, *DISCOVERY_TOOLS}
+    binding = root / BINDING_FILE  # not resolved: a symlinked binding file resolves elsewhere and fails the match
+    found: list[str] = []
+    for event in (e for e in events if e.kind == "call" and e.name not in ours):
+        target, name = _target(event, root), str(event.name)
+        if name in WRITE_TOOLS:
+            if target != binding:
+                found.append(f"{name} outside the binding file")
+        elif name == "Read":
+            if target is None or not target.is_relative_to(root):
+                found.append("Read outside the workspace")
+        else:
+            found.append(f"{name} is not allowed")
+    return found
+
+
+Snapshot = dict[str, str]
+
+
+def workspace_snapshot(workspace: Path) -> Snapshot:
+    """Relative path to SHA-256 of every file of the workspace except `.git/`."""
+
+    found: Snapshot = {}
+    for folder, dirs, files in os.walk(workspace):
+        if Path(folder) == workspace:
+            dirs[:] = [name for name in dirs if name != ".git"]
+        for name in files:
+            path = Path(folder) / name
+            found[path.relative_to(workspace).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+    return found
+
+
+def stray_files(before: Snapshot, after: Snapshot) -> list[str]:
+    """Files created, changed or removed between two snapshots, other than the binding file."""
+
+    binding = BINDING_FILE.as_posix()
+    return sorted(path for path in {*before, *after} if path != binding and before.get(path) != after.get(path))
 
 
 def port_is_free(port: int = CALLBACK_PORT) -> bool:
@@ -1423,18 +1594,6 @@ async def registered_server(
 
 
 # Claude Code prompt runner (agent tier) --------------------------------------------------------------------------
-
-PERSONAS: Final = (
-    ("agent-1", "Which SpecFlow projects can I work on?"),
-    ("agent-2", "List every feature of P-Alpha."),
-    ("agent-3", "Show me the features of project {beta_id}."),
-)
-
-
-def persona_prompts(ids: FixtureIds) -> list[tuple[str, str]]:
-    """The three persona prompts; the third names the id of `P-Beta`, which alice is not a member of."""
-
-    return [(key, text.format(beta_id=ids.projects["P-Beta"])) for key, text in PERSONAS]
 
 
 def _json_line(line: str) -> dict[str, Any] | None:
@@ -1709,11 +1868,15 @@ async def run_latency_into(
     return stats
 
 
-# Persona assertions of the agent tier (testing.md, Agent QA with Claude Code) -------------------------------------
+# Workspace flow of the agent tier (testing.md, Agent QA with Claude Code) ----------------------------------------
 
-EXPECTED_PROJECTS: Final = frozenset({"P-Alpha", "P-Empty", "P-Large"})
 ALPHA_FEATURES: Final = 7
 BETA_FEATURES: Final = 3
+FLOW_STEPS: Final = 5  # prompts of one flow: bind, reuse, foreign, switch, reuse
+SELECT_PROJECT: Final = "select_project"
+REUSE_PROMPT: Final = "List every feature of this repository's SpecFlow project."
+PLAIN_BIND_PROMPT: Final = "Bind this folder to the SpecFlow project {project}"
+PromptRunner = Callable[[Sequence[str], Path], Awaitable[PromptRun]]
 
 
 class RunPreconditionError(QaError):
@@ -1724,6 +1887,23 @@ class RunPreconditionError(QaError):
 class RunTotals:
     cost_usd: float
     turns: int
+
+
+@dataclass(frozen=True)
+class FlowContext:
+    """What a step check needs: the registered server, the workspace and the seeded ids."""
+
+    name: str
+    workspace: Path
+    ids: FixtureIds
+
+    @property
+    def tools(self) -> tuple[str, str]:
+        return claude_tool_names(self.name)
+
+    @property
+    def binding(self) -> Path:
+        return self.workspace / BINDING_FILE
 
 
 def _require(message: str, *, ok: bool) -> None:
@@ -1746,73 +1926,328 @@ def _payload(event: ToolEvent) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def _project_arg(event: ToolEvent) -> str:
+    return str(event.payload.get("project_id", "")).lower() if isinstance(event.payload, dict) else ""
+
+
 def _feature_results(events: list[ToolEvent], project_id: str) -> list[ToolEvent]:
     """Results of the `list_features` calls made for `project_id`, matched by `tool_use_id`."""
 
-    calls = {
-        call.tool_use_id
-        for call in _of_tool(events, "list_features", "call")
-        if isinstance(call.payload, dict) and call.payload.get("project_id") == project_id
-    }
+    calls = {call.tool_use_id for call in _of_tool(events, "list_features", "call") if _project_arg(call) == project_id}
     _require(f"list_features was never called for {project_id}", ok=bool(calls))
     return [event for event in _of_tool(events, "list_features", "result") if event.tool_use_id in calls]
 
 
-def check_run(run: PromptRun, name: str, tools: tuple[str, str]) -> RunTotals:
+def _only_project(events: list[ToolEvent], project_id: str) -> None:
+    """Every `list_features` call used this id and none used another."""
+
+    used = {_project_arg(call) for call in _of_tool(events, "list_features", "call")}
+    _require(f"list_features used {len(used)} distinct ids, expected only the bound one", ok=used == {project_id})
+
+
+def _write_targets(run: PromptRun, ctx: FlowContext) -> set[Path]:
+    root = ctx.workspace.resolve()
+    calls = [event for event in run.events if event.kind == "call" and event.name in WRITE_TOOLS]
+    return {target for event in calls if (target := _target(event, root)) is not None}
+
+
+def check_run(run: PromptRun, ctx: FlowContext) -> RunTotals:
     """What every prompt needs before its assertions mean anything; a precondition failure names the reason."""
 
     if run.timed_out:
         raise RunPreconditionError("the prompt timed out")
     init = run.init or {}
     servers = {str(item.get("name")): item.get("status") for item in init.get("mcp_servers", [])}
-    if servers.get(name) != "connected":
-        raise RunPreconditionError(f"the MCP server is not connected: {servers.get(name)}")
+    if servers.get(ctx.name) != "connected":
+        raise RunPreconditionError(f"the MCP server is not connected: {servers.get(ctx.name)}")
     seen = [str(tool) for tool in init.get("tools", []) if str(tool).startswith("mcp__")]
-    if not set(tools) <= set(seen):
+    if not set(ctx.tools) <= set(seen):
         raise RunPreconditionError(f"tool names: {seen}")
     result = run.result
     if result is None or result.get("is_error") or result.get("subtype") != "success":
         raise RunPreconditionError(f"no model access or budget: {(result or {}).get('subtype')}")
-    foreign = foreign_tool_calls(run.events, tools)
-    _require(f"tool calls outside our two tools: {sorted(set(foreign))}", ok=not foreign)
+    _no_violations(run, ctx)
     return RunTotals(float(result.get("total_cost_usd") or 0), int(result.get("num_turns") or 0))
 
 
-def projects_listed(run: PromptRun, tools: tuple[str, str], _ids: FixtureIds) -> None:
-    listed = _of_tool(_ours(run, tools), "list_projects", "result")
-    _require("list_projects was never called", ok=bool(listed))
-    names = {str(item["name"]) for event in listed for item in _payload(event).get("items", [])}
-    _require(f"projects listed: {sorted(names)}", ok=names >= EXPECTED_PROJECTS)
-    _require("P-Beta is listed", ok="P-Beta" not in names)
+def _no_violations(run: PromptRun, ctx: FlowContext) -> None:
+    violations = tool_violations(run.events, ctx.tools, ctx.workspace)
+    _require(f"tool calls D7 does not allow: {sorted(set(violations))}", ok=not violations)
 
 
-def alpha_features_listed(run: PromptRun, tools: tuple[str, str], ids: FixtureIds) -> None:
-    alpha = str(ids.projects["P-Alpha"])
-    events = _ours(run, tools)
-    results = _feature_results(events, alpha)
-    _require("list_features gave no result for P-Alpha", ok=bool(results))
+def slash_expanded(run: PromptRun, name: str) -> bool:
+    """True when the run's init lists `mcp__<name>__select_project` as a slash command.
+
+    The stream never echoes the expanded prompt text. The init `slash_commands` is the list Claude Code expands from;
+    a command not in it (a mistyped or unregistered prompt) reaches the model as plain text.
+    """
+
+    commands = {str(command).lstrip("/") for command in (run.init or {}).get("slash_commands", [])}
+    return f"mcp__{name}__{SELECT_PROJECT}" in commands
+
+
+def _bound_to(ctx: FlowContext, project: str) -> None:
+    """The workspace file validates, names this server and the seeded project (a missing file fails)."""
+
+    _require("the binding file does not exist", ok=ctx.binding.is_file())
+    document = read_binding(ctx.binding)
+    _require("the binding file names another server", ok=document["server"] == MCP_RESOURCE_URL)
+    _require(
+        f"the binding file does not name {project}", ok=uuid.UUID(document["project_id"]) == ctx.ids.projects[project]
+    )
+
+
+def _sole_write(run: PromptRun, ctx: FlowContext) -> None:
+    targets = _write_targets(run, ctx)
+    _require(
+        f"write targets: {len(targets)}, expected exactly the binding file",
+        ok=targets == {ctx.workspace.resolve() / BINDING_FILE},
+    )
+
+
+def _no_writes(run: PromptRun, ctx: FlowContext) -> None:
+    _require("the run wrote a file", ok=not _write_targets(run, ctx))
+
+
+def _binding_digest(snapshot: Snapshot) -> str | None:
+    return snapshot.get(BINDING_FILE.as_posix())
+
+
+def _reuse_results(run: PromptRun, ctx: FlowContext, project: str) -> list[ToolEvent]:
+    """Common to steps 2 and 4b: `list_features` only with this project's id, `list_projects` never, no write."""
+
+    project_id = str(ctx.ids.projects[project]).lower()
+    _require("list_projects was called in a bound folder", ok=not _of_tool(run.events, "list_projects", "call"))
+    _no_writes(run, ctx)
+    events = _ours(run, ctx.tools)
+    results = _feature_results(events, project_id)
+    _only_project(events, project_id)
+    return results
+
+
+def bound_to_alpha(run: PromptRun, ctx: FlowContext, _before: Snapshot) -> None:
+    """Step 1: `list_projects` called; the file is the only write target; it validates and names P-Alpha."""
+
+    _require("list_projects was never called", ok=bool(_of_tool(run.events, "list_projects", "call")))
+    _sole_write(run, ctx)
+    _bound_to(ctx, "P-Alpha")
+
+
+def alpha_reused(run: PromptRun, ctx: FlowContext, _before: Snapshot) -> None:
+    """Step 2: `list_features` for P-Alpha only; the union of the results holds its 7 feature ids."""
+
+    alpha = str(ctx.ids.projects["P-Alpha"])
+    results = _reuse_results(run, ctx, "P-Alpha")
     found = {str(item["spec_id"]) for event in results for item in _payload(event).get("items", [])}
     expected = {node.spec_id for node in fixture_nodes("P-Alpha", alpha, load_ontology()) if node.label == "Feature"}
     _require("the fixture does not hold 7 P-Alpha features", ok=len(expected) == ALPHA_FEATURES)
     _require(f"P-Alpha features: {len(found)} found, {len(expected)} expected", ok=found == expected)
-    _require("the features were not read to the last page", ok=_payload(results[-1]).get("next_cursor") is None)
-    leaked = any("REQ::" in str(event.payload) for event in events if event.kind == "result")
+    leaked = any("REQ::" in str(event.payload) for event in run.events if event.kind == "result")
     _require("a REQ:: id was returned", ok=not leaked)
 
 
-def beta_refused(run: PromptRun, tools: tuple[str, str], ids: FixtureIds) -> None:
-    beta = str(ids.projects["P-Beta"])
-    refused = _feature_results(_ours(run, tools), beta)
-    _require("list_features gave no result for the P-Beta id", ok=bool(refused))
+def beta_refused(run: PromptRun, ctx: FlowContext, before: Snapshot) -> None:
+    """Step 3: only the bound P-Beta id is used and answers `project_not_found`; the file is untouched."""
+
+    beta = str(ctx.ids.projects["P-Beta"]).lower()
+    events = _ours(run, ctx.tools)
+    refused = _feature_results(events, beta)
+    _only_project(events, beta)
     codes = [_payload(event).get("error", {}).get("code") for event in refused]
     _require(f"P-Beta answers: {codes}", ok=all(code == "project_not_found" for code in codes))
     names = [node.properties["name"] for node in fixture_nodes("P-Beta", beta, load_ontology())]
     _require("the fixture does not hold 3 P-Beta features", ok=len(names) == BETA_FEATURES)
     _require("a P-Beta feature name appears in the run", ok=not [name for name in names if name in run.text])
+    _no_writes(run, ctx)
+    kept = _binding_digest(workspace_snapshot(ctx.workspace)) == _binding_digest(before)
+    _require("the agent changed the binding file", ok=kept)
 
 
-PERSONA_CHECKS: Final[dict[str, Callable[[PromptRun, tuple[str, str], FixtureIds], None]]] = {
-    "agent-1": projects_listed,
-    "agent-2": alpha_features_listed,
-    "agent-3": beta_refused,
-}
+def switched_to_empty(run: PromptRun, ctx: FlowContext, before: Snapshot) -> None:
+    """Step 4: the file is the only write target, was replaced, validates and names P-Empty."""
+
+    _sole_write(run, ctx)
+    _bound_to(ctx, "P-Empty")
+    replaced = _binding_digest(workspace_snapshot(ctx.workspace)) != _binding_digest(before)
+    _require("the binding file was not replaced", ok=replaced)
+
+
+def empty_reused(run: PromptRun, ctx: FlowContext, _before: Snapshot) -> None:
+    """Step 4, second session: `list_features` for P-Empty only, `total_count` 0."""
+
+    results = _reuse_results(run, ctx, "P-Empty")
+    counts = [(_payload(event).get("total_count"), _payload(event).get("items")) for event in results]
+    _require(f"P-Empty answers: {counts}", ok=all(count == (0, []) for count in counts))
+
+
+Check = Callable[[PromptRun, FlowContext, Snapshot], None]
+
+
+@dataclass(frozen=True)
+class StepRecord:
+    """One step of a flow for the report: outcome, tool calls, duration, cost, `slash`, `plain` or `-`."""
+
+    step: str
+    outcome: Literal["passed", "failed"]
+    tool_calls: tuple[str, ...]
+    duration_s: float
+    cost_usd: float
+    mode: str
+    note: str = ""
+    prose: str = ""
+
+
+def step_result(record: StepRecord, run_number: int) -> ScenarioResult:
+    """The report row of a step; the model's prose is recorded in the note, never asserted."""
+
+    detail = f"{record.mode} cost_usd={record.cost_usd:.4f} tools={','.join(record.tool_calls) or '-'} {record.note}"
+    note = f"{detail} {report_note(record.prose)}".strip()
+    return ScenarioResult(f"run{run_number}-{record.step}", record.outcome, round(record.duration_s * 1000, 1), note)
+
+
+def flow_failure(records: Sequence[StepRecord]) -> str | None:
+    """The first failed step with its note, a short flow, or None when all `FLOW_STEPS` steps passed."""
+
+    failed = next((record for record in records if record.outcome != "passed"), None)
+    if failed is not None:
+        return f"{failed.step}: {failed.note}"
+    return None if len(records) == FLOW_STEPS else f"the flow stopped after {len(records)} of {FLOW_STEPS} steps"
+
+
+class FlowStep(NamedTuple):
+    key: str
+    act: Callable[[], Awaitable[PromptRun]]
+    check: Check
+    prepare: Callable[[], object] | None = None  # the harness's part, before the snapshot
+
+
+class WorkspaceFlow:
+    """The four steps (five prompts) of the agent tier in one workspace, with the harness playing the user's part."""
+
+    def __init__(
+        self,
+        ctx: FlowContext,
+        runner: PromptRunner = run_prompt,
+        *,
+        model: str = CLAUDE_MODEL,
+        max_turns: int = CLAUDE_MAX_TURNS,
+        max_budget_usd: str = CLAUDE_MAX_BUDGET_USD,
+    ) -> None:
+        self.ctx, self.runner = ctx, runner
+        self.model, self.max_turns, self.max_budget_usd = model, max_turns, max_budget_usd
+        self.records: list[StepRecord] = []  # fills as steps finish, so a step that raises keeps the earlier ones
+        self._cost, self._mode = 0.0, "-"
+        self._calls: list[str] = []
+        self._runs: list[PromptRun] = []
+        self._prose: list[str] = []
+
+    async def _run(self, prompt: str) -> PromptRun:
+        tools = claude_allowed_tools(self.ctx.name)
+        argv = claude_prompt_argv(
+            prompt, tools, model=self.model, max_turns=self.max_turns, max_budget_usd=self.max_budget_usd
+        )
+        run = await self.runner(argv, self.ctx.workspace)
+        self._cost += float((run.result or {}).get("total_cost_usd") or 0)
+        self._calls += [str(e.name).rsplit("__", maxsplit=1)[-1] for e in run.events if e.kind == "call"]
+        self._prose.append(run.prose)
+        self._runs.append(run)
+        return run
+
+    async def _select(self, project: str) -> PromptRun:
+        """The prompt as a slash command (D8); the plain request only when the stream shows it was not expanded."""
+
+        self._mode = "slash"
+        run = await self._run(f"/mcp__{self.ctx.name}__{SELECT_PROJECT} {project}")
+        if run.timed_out or slash_expanded(run, self.ctx.name):
+            return run
+        self._mode = "plain"
+        return await self._run(PLAIN_BIND_PROMPT.format(project=project))
+
+    async def _ask(self) -> PromptRun:
+        return await self._run(REUSE_PROMPT)
+
+    def _judge(self, run: PromptRun, step: FlowStep, before: Snapshot) -> str:
+        """The note of a failed check ("" when the step passed): D7 on every run of the step, then the step's own."""
+
+        try:
+            for earlier in self._runs[:-1]:  # the unexpanded slash run of a fallback
+                _no_violations(earlier, self.ctx)
+            check_run(run, self.ctx)
+            strays = stray_files(before, workspace_snapshot(self.ctx.workspace))
+            _require(f"files created or changed outside the binding file: {len(strays)}", ok=not strays)
+            step.check(run, self.ctx, before)
+        except RunPreconditionError as reason:
+            return f"precondition: {reason}"
+        except QaError as failed:
+            return f"assertion: {failed}"
+        return ""
+
+    async def _step(self, step: FlowStep) -> StepRecord:
+        if step.prepare is not None:
+            step.prepare()
+        before = workspace_snapshot(self.ctx.workspace)
+        self._cost, self._calls, self._prose, self._runs, self._mode = 0.0, [], [], [], "-"
+        started = time.perf_counter()
+        run = await step.act()  # a runner that raises (no `claude`, no process) is not a verdict: it propagates
+        note = self._judge(run, step, before)
+        outcome: Literal["passed", "failed"] = "failed" if note else "passed"
+        elapsed, calls, prose = time.perf_counter() - started, tuple(self._calls), " | ".join(self._prose)
+        return StepRecord(step.key, outcome, calls, elapsed, self._cost, self._mode, note, prose)
+
+    def _bind_beta(self) -> None:
+        write_binding(self.ctx.workspace, self.ctx.ids.projects["P-Beta"], "P-Beta")
+
+    async def run(self) -> list[StepRecord]:
+        """Run the steps in order and stop after the first that fails."""
+
+        steps = [
+            FlowStep("1-bind-alpha", lambda: self._select("P-Alpha"), bound_to_alpha),
+            FlowStep("2-reuse-alpha", self._ask, alpha_reused),
+            FlowStep("3-foreign-beta", self._ask, beta_refused, self._bind_beta),
+            FlowStep("4a-switch-empty", lambda: self._select("P-Empty"), switched_to_empty),
+            FlowStep("4b-reuse-empty", self._ask, empty_reused),
+        ]
+        for step in steps:
+            self.records.append(await self._step(step))
+            if self.records[-1].outcome != "passed":
+                break
+        return self.records
+
+
+async def make_git_workspace(runner: CommandRunner = run_command) -> Path:
+    """A fresh `git init` folder under the system temp directory; removed again when `git init` fails."""
+
+    workspace = make_workspace()
+    try:
+        code = await runner(["git", "init", "-q"], workspace)
+    except BaseException:
+        shutil.rmtree(workspace, ignore_errors=True)
+        raise
+    if code != 0:
+        shutil.rmtree(workspace, ignore_errors=True)
+        raise QaError("git init failed")
+    return workspace
+
+
+@asynccontextmanager
+async def flow_workspace(verdict: TeardownVerdict, runner: CommandRunner = run_command) -> AsyncIterator[Path]:
+    """A git workspace for one run; deleted afterwards unless the teardown left a server (recovery runs from it)."""
+
+    workspace = await make_git_workspace(runner)
+    try:
+        yield workspace
+    finally:
+        if verdict.clean is not False:
+            shutil.rmtree(workspace, ignore_errors=True)
+
+
+def parse_runs(text: str) -> int:
+    """The number of flows to run (`SPECFLOW_QA_RUNS`, `--runs`): a positive integer."""
+
+    try:
+        runs = int(text)
+    except ValueError:
+        runs = 0
+    if runs < 1:
+        raise QaError("the number of runs must be a positive integer")
+    return runs

@@ -10,13 +10,15 @@ from __future__ import annotations
 
 import functools
 import json
+import shutil
 import sys
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Literal
+from typing import Any
 
 import pytest
 from mcp.types import TextContent
@@ -24,16 +26,21 @@ from pydantic import SecretStr
 
 import mcp_qa
 import mcp_qa_lib
+from graph.core import load_ontology
 from mcp_qa_lib import (
     CLAUDE_MAX_BUDGET_USD,
     CLAUDE_MODEL,
+    REUSE_PROMPT,
     FixtureIds,
     LatencyStats,
     PromptRun,
     QaError,
+    StepRecord,
     TeardownVerdict,
     ToolEvent,
     claude_tool_names,
+    fixture_nodes,
+    parse_stream_json,
 )
 
 QA_CREDENTIAL = SecretStr("qa-credential-0001")
@@ -147,7 +154,7 @@ def parse(monkeypatch: pytest.MonkeyPatch, *argv: str) -> Any:
         (
             ["claude"],
             mcp_qa.claude_command,
-            {"user": "alice", "model": CLAUDE_MODEL, "max_budget_usd": CLAUDE_MAX_BUDGET_USD, "prompt": None},
+            {"user": "alice", "model": CLAUDE_MODEL, "max_budget_usd": CLAUDE_MAX_BUDGET_USD, "runs": "1"},
         ),
         (
             [
@@ -157,14 +164,12 @@ def parse(monkeypatch: pytest.MonkeyPatch, *argv: str) -> Any:
                 "--model",
                 "opus",
                 "--max-budget-usd",
-                "0.50",
-                "--prompt",
-                "a",
-                "--prompt",
-                "b",
+                "0.25",
+                "--runs",
+                "3",
             ],
             mcp_qa.claude_command,
-            {"user": "bob", "model": "opus", "max_budget_usd": "0.50", "prompt": ["a", "b"]},
+            {"user": "bob", "model": "opus", "max_budget_usd": "0.25", "runs": "3"},
         ),
     ],
     ids=[
@@ -316,94 +321,97 @@ async def test_check_turns_a_library_error_into_a_clean_exit_message(monkeypatch
         await mcp_qa.check_command(check_args())
 
 
-# _print_run -------------------------------------------------------------------------------------------------------
+# _print_step ------------------------------------------------------------------------------------------------------
 
 
-def stream_event(
-    kind: Literal["call", "result"], name: str | None, payload: Any, *, is_error: bool = False
-) -> ToolEvent:
-    return ToolEvent(kind, f"id-{name}", name, payload, is_error)
+def test_print_step_prints_outcome_mode_tools_and_a_safe_prose_line(capsys: pytest.CaptureFixture[str]) -> None:
+    record = StepRecord(
+        "2-reuse-alpha",
+        "failed",
+        ("Read", "list_features"),
+        1.26,
+        0.5,
+        "-",
+        "assertion: list_projects was called",
+        "see https://example.com or a@b.c and Bearer abc",
+    )
 
-
-def prompt_run(events: list[ToolEvent], result: dict[str, Any] | None, *, timed_out: bool = False) -> PromptRun:
-    return PromptRun(None if timed_out else 0, timed_out, [], events, None, result, "")
-
-
-def test_print_run_prints_tool_names_counts_codes_and_a_safe_prose_line(capsys: pytest.CaptureFixture[str]) -> None:
-    list_features, list_projects = TOOLS[1], TOOLS[0]
-    items = {"items": [{"name": "FEAT secret feature name"}, {"name": "other"}]}
-    events = [
-        stream_event("call", list_projects, {}),
-        stream_event("result", list_projects, json.dumps({"items": [{"name": "P-Alpha"}]})),
-        stream_event("call", list_features, {"project_id": ALPHA, "cursor": "opaque-cursor-value"}),
-        stream_event("result", list_features, [{"type": "text", "text": json.dumps(items)}]),
-        stream_event("call", list_features, {"project_id": BETA}),
-        stream_event("result", list_features, json.dumps({"error": {"code": "project_not_found"}}), is_error=True),
-        stream_event("call", "mcp__other__tool", {"project_id": "not-ours"}),
-    ]
-    leaked = BEARER.get_secret_value()
-    result = {
-        "num_turns": 4,
-        "total_cost_usd": 0.0123,
-        "result": f"Your projects: alice@example.com see https://x.example/?code=abc {leaked} Bearer abc",
-    }
-
-    mcp_qa._print_run("agent-1", prompt_run(events, result), TOOLS)
-
-    out = capsys.readouterr().out
-    lines = out.splitlines()
-    assert lines[:6] == [
-        "agent-1: exit 0",
-        "  call list_projects project_id=- cursor=no",
-        "  result list_projects items 1",
-        f"  call list_features project_id={ALPHA} cursor=yes",
-        "  result list_features items 2",
-        f"  call list_features project_id={BETA} cursor=no",
-    ]
-    assert lines[6] == "  result list_features error project_not_found"
-    assert lines[7] == "  turns 4 cost_usd 0.0123"
-    assert lines[8].startswith("  prose Your projects: ")
-    assert len(lines) == 9
-    for hidden in (
-        "secret feature name",
-        "opaque-cursor-value",
-        "not-ours",
-        "alice@example.com",
-        "x.example",
-        "code=",
-        "Bearer",
-    ):
-        assert hidden not in out
-
-
-def test_print_run_marks_a_timeout_and_a_run_without_a_result(capsys: pytest.CaptureFixture[str]) -> None:
-    mcp_qa._print_run("agent-2", prompt_run([], None, timed_out=True), TOOLS)
+    mcp_qa._print_step(2, record)
 
     assert capsys.readouterr().out.splitlines() == [
-        "agent-2: exit None (timed out)",
-        "  turns - cost_usd -",
+        "run 2 2-reuse-alpha: failed (-) 1.3 s cost_usd 0.5000 tools Read,list_features",
+        "  assertion: list_projects was called",
+        "  prose see [url] or [email] and abc",
+    ]
+
+
+def test_print_step_marks_a_step_without_tools_or_note(capsys: pytest.CaptureFixture[str]) -> None:
+    mcp_qa._print_step(1, StepRecord("1-bind-alpha", "passed", (), 0.0, 0.0, "slash"))
+
+    assert capsys.readouterr().out.splitlines() == [
+        "run 1 1-bind-alpha: passed (slash) 0.0 s cost_usd 0.0000 tools -",
         "  prose ",
     ]
 
 
-# claude: agent tier, report in `finally` ---------------------------------------------------------------------------
+# claude: the workspace flow, report in `finally` ------------------------------------------------------------------
+
+EMPTY = str(uuid.uuid4())
+SLASH = f"mcp__{SERVER}__select_project"
+
+
+def message_init() -> dict[str, Any]:
+    return {
+        "type": "system",
+        "subtype": "init",
+        "mcp_servers": [{"name": SERVER, "status": "connected"}],
+        "tools": list(TOOLS),
+        "slash_commands": [SLASH],
+    }
+
+
+def message_call(use_id: str, tool: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    block = {"type": "tool_use", "id": use_id, "name": tool, "input": arguments}
+    return {"type": "assistant", "message": {"content": [block]}}
+
+
+def message_result(use_id: str, data: dict[str, Any]) -> dict[str, Any]:
+    block = {"type": "tool_result", "tool_use_id": use_id, "content": [{"type": "text", "text": json.dumps(data)}]}
+    return {"type": "user", "message": {"content": [block]}}
+
+
+def message_done(prose: str = "done") -> dict[str, Any]:
+    return {"type": "result", "subtype": "success", "result": prose, "num_turns": 2, "total_cost_usd": 0.25}
+
+
+def canned_run(*messages: dict[str, Any]) -> PromptRun:
+    lines = [json.dumps(message) for message in messages]
+    init = next(m for m in messages if m.get("subtype") == "init")
+    result = next((m for m in reversed(messages) if m.get("type") == "result"), None)
+    return PromptRun(
+        0, timed_out=False, lines=lines, events=parse_stream_json(lines), init=init, result=result, stderr_tail=""
+    )
 
 
 class ClaudeHarness:
-    """The `claude` command with its external seams faked: stack probe, sign-in, runner, subprocess, temp folder."""
+    """The `claude` command with its external seams faked: stack probe, sign-in, runner, workspace, ids."""
 
     def __init__(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         self.reports = tmp_path / "reports"
-        self.cwd = tmp_path / "specflow-qa-claude-test"
-        self.runs: list[PromptRun] = []
+        self.root = tmp_path / "workspaces"
+        self.root.mkdir()
+        self.workspaces: list[Path] = []
+        self.handlers: list[Callable[[Path], PromptRun | Exception]] = []
         self.argvs: list[list[str]] = []
         self.sessions: list[dict[str, Any]] = []
         self.teardown_clean: bool | None = True
         self.body_error: Exception | None = None
-        self.prompt_error: Exception | None = None
         self.signed_in = True
         self.mode = "oidc"
         self.port_free = True
+        self.alpha_features = {
+            node.spec_id for node in fixture_nodes("P-Alpha", ALPHA, load_ontology()) if node.label == "Feature"
+        }
         patch = functools.partial(monkeypatch.setattr, mcp_qa)
         patch("new_run_id", lambda: RUN_ID)
         patch("write_report", functools.partial(mcp_qa_lib.write_report, directory=self.reports))
@@ -413,34 +421,88 @@ class ClaudeHarness:
         patch("seeded_ids", self._ids)
         patch("run_prompt", self._run_prompt)
         patch("signed_in_claude", self._signed_in_claude)
-        patch("tempfile", SimpleNamespace(mkdtemp=self._mkdtemp))
+        patch("flow_workspace", self._flow_workspace)
+        self.handlers = self.good_flow()
 
-    def _mkdtemp(self, prefix: str) -> str:
-        assert prefix == "specflow-qa-claude-"
-        self.cwd.mkdir()
-        return str(self.cwd)
+    @property
+    def cwd(self) -> Path:
+        return self.workspaces[-1]
+
+    def good_flow(self) -> list[Callable[[Path], PromptRun | Exception]]:
+        def binds(project_id: str, name: str) -> Callable[[Path], PromptRun | Exception]:
+            def handler(cwd: Path) -> PromptRun:
+                path = mcp_qa_lib.write_binding(cwd, project_id, name)
+                args = {"file_path": str(path), "content": "{}"}
+                listed = {"items": [{"project_id": project_id, "name": name}], "next_cursor": None}
+                return canned_run(
+                    message_init(),
+                    message_call("p1", TOOLS[0], {}),
+                    message_result("p1", listed),
+                    message_call("w1", "Write", args),
+                    message_done(),
+                )
+
+            return handler
+
+        def features(project_id: str, items: list[dict[str, Any]], total: int, error: str | None = None):
+            def handler(_cwd: Path) -> PromptRun:
+                page = (
+                    {"error": {"code": error}} if error else {"total_count": total, "items": items, "next_cursor": None}
+                )
+                return canned_run(
+                    message_init(),
+                    message_call("u1", TOOLS[1], {"project_id": project_id}),
+                    message_result("u1", page),
+                    message_done(),
+                )
+
+            return handler
+
+        alpha_items = [{"spec_id": spec_id} for spec_id in sorted(self.alpha_features)]
+        return [
+            binds(ALPHA, "P-Alpha"),
+            features(ALPHA, alpha_items, len(alpha_items)),
+            features(BETA, [], 0, "project_not_found"),
+            binds(EMPTY, "P-Empty"),
+            features(EMPTY, [], 0),
+        ]
 
     async def _stack_mode(self) -> str:
         return self.mode
 
     async def _signed_in(self, cwd: Path) -> bool:
-        assert cwd == self.cwd
+        assert cwd in self.workspaces
         return self.signed_in
 
     async def _ids(self, mode: str) -> FixtureIds:
         assert mode == "keycloak"
-        return FixtureIds({"alice": uuid.uuid4()}, {"P-Beta": uuid.UUID(BETA)})
+        projects = {"P-Alpha": uuid.UUID(ALPHA), "P-Beta": uuid.UUID(BETA), "P-Empty": uuid.UUID(EMPTY)}
+        return FixtureIds({"alice": uuid.uuid4()}, projects)
 
     async def _run_prompt(self, argv: list[str], cwd: Path) -> PromptRun:
         assert cwd == self.cwd
         self.argvs.append(argv)
-        if not self.runs:
-            raise self.prompt_error or AssertionError("no canned run left")
-        return self.runs.pop(0)
+        if not self.handlers:
+            raise AssertionError("no canned run left")
+        outcome = self.handlers.pop(0)(cwd)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    @asynccontextmanager
+    async def _flow_workspace(self, verdict: TeardownVerdict) -> AsyncIterator[Path]:
+        cwd = self.root / f"specflow-qa-ws-{len(self.workspaces) + 1}"
+        cwd.mkdir()
+        self.workspaces.append(cwd)
+        try:
+            yield cwd
+        finally:
+            if verdict.clean is not False:  # the real context manager keeps an unclean folder
+                shutil.rmtree(cwd, ignore_errors=True)
 
     @asynccontextmanager
     async def _signed_in_claude(self, key: str, password: Any, **kwargs: Any) -> AsyncIterator[str]:
-        self.sessions.append({"key": key, "password": password.get_secret_value(), "run_id": kwargs["run_id"]})
+        self.sessions.append({"key": key, "password": password.get_secret_value(), "cwd": kwargs["cwd"]})
         verdict: TeardownVerdict = kwargs["verdict"]
         try:
             yield SERVER
@@ -458,98 +520,117 @@ def harness(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> ClaudeHarness:
     return ClaudeHarness(monkeypatch, tmp_path)
 
 
-def claude_args(*prompts: str, user: str = "alice") -> SimpleNamespace:
-    return SimpleNamespace(user=user, model="sonnet", max_budget_usd="1.00", prompt=list(prompts) or None)
+def claude_args(runs: str = "1", user: str = "alice") -> SimpleNamespace:
+    return SimpleNamespace(user=user, model="sonnet", max_budget_usd="0.50", runs=runs)
 
 
-def good_run(items: int = 1) -> PromptRun:
-    events = [
-        stream_event("call", TOOLS[0], {}),
-        stream_event("result", TOOLS[0], json.dumps({"items": [{}] * items})),
-    ]
-    return prompt_run(events, {"is_error": False, "num_turns": 2, "total_cost_usd": 0.25, "result": "done"})
+STEPS = ["1-bind-alpha", "2-reuse-alpha", "3-foreign-beta", "4a-switch-empty", "4b-reuse-empty"]
 
 
-async def test_claude_records_a_passed_prompt_and_writes_the_report_with_a_clean_teardown(
+async def test_claude_runs_the_flow_in_a_fresh_workspace_and_writes_the_report_with_a_clean_teardown(
     harness: ClaudeHarness, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    harness.runs = [good_run(), good_run()]
-
-    assert await mcp_qa.claude_command(claude_args("first prompt", "second prompt")) == 0
+    assert await mcp_qa.claude_command(claude_args()) == 0
 
     out = capsys.readouterr().out
     report = harness.report()
-    assert (report["run_id"], report["kind"]) == (RUN_ID, "agent-manual")
-    assert [(r["scenario"], r["outcome"]) for r in report["results"]] == [
-        ("manual-1", "passed"),
-        ("manual-2", "passed"),
-    ]
+    assert (report["run_id"], report["kind"]) == (RUN_ID, "agent-flow")
+    assert [(r["scenario"], r["outcome"]) for r in report["results"]] == [(f"run1-{step}", "passed") for step in STEPS]
     assert report["metrics"] == {
         "model": "sonnet",
+        "runs": "1",
         "cwd": harness.cwd.name,
         "teardown_clean": "yes",
-        "cost_usd": 0.5,
-        "turns": 4,
+        "cost_usd": 1.25,
     }
     assert "teardown clean yes" in out and f"report {RUN_ID}.json" in out and "recovery" not in out
-    assert harness.sessions == [{"key": "alice", "password": PASSWORD, "run_id": RUN_ID}]
-    assert "first prompt" in harness.argvs[0] and "second prompt" in harness.argvs[1]
-    assert not harness.cwd.exists()  # a clean teardown removes the temp folder
+    assert "run 1 1-bind-alpha: passed (slash)" in out and "run 1 4b-reuse-empty: passed (-)" in out
+    assert [(s["key"], s["password"], s["cwd"]) for s in harness.sessions] == [("alice", PASSWORD, harness.cwd)]
+    assert harness.argvs[0][2] == f"/mcp__{SERVER}__select_project P-Alpha"
+    assert harness.argvs[3][2] == f"/mcp__{SERVER}__select_project P-Empty"
+    assert [argv[2] for argv in harness.argvs[1:3]] == [REUSE_PROMPT, REUSE_PROMPT]
+    assert all(argv[argv.index("--max-budget-usd") + 1] == "0.50" for argv in harness.argvs)
+    assert not harness.cwd.exists()  # a clean teardown removes the workspace
     assert_no_secret(out + json.dumps(report))
 
 
-async def test_claude_without_prompts_runs_the_three_personas_with_the_seeded_beta_id(
+async def test_claude_runs_each_requested_flow_in_its_own_workspace_and_registration(
     harness: ClaudeHarness,
 ) -> None:
-    harness.runs = [good_run(), good_run(), good_run()]
+    harness.handlers = [*harness.good_flow(), *harness.good_flow()]
 
-    await mcp_qa.claude_command(claude_args())
+    assert await mcp_qa.claude_command(claude_args(runs="2")) == 0
 
-    assert [r["scenario"] for r in harness.report()["results"]] == ["agent-1", "agent-2", "agent-3"]
-    assert BETA in harness.argvs[2][2]  # the prompt text of the third persona
-
-
-async def test_claude_marks_an_errored_result_and_a_missing_result_as_failed(harness: ClaudeHarness) -> None:
-    errored = prompt_run([], {"is_error": True, "num_turns": 1, "total_cost_usd": 0.1, "result": "boom"})
-    harness.runs = [errored, prompt_run([], None, timed_out=True)]
-
-    await mcp_qa.claude_command(claude_args("a", "b"))
-
-    assert [r["outcome"] for r in harness.report()["results"]] == ["failed", "failed"]
+    report = harness.report()
+    assert [r["scenario"] for r in report["results"]] == [f"run{n}-{step}" for n in (1, 2) for step in STEPS]
+    assert len(harness.sessions) == 2 and len(set(harness.workspaces)) == 2
+    assert report["metrics"]["cost_usd"] == 2.5 and report["metrics"]["runs"] == "2"
+    assert not any(path.exists() for path in harness.workspaces)
 
 
-async def test_claude_marks_foreign_tool_calls_as_failed_and_names_them(
+async def test_claude_exits_1_when_a_step_fails_and_names_it_but_still_tears_down(
     harness: ClaudeHarness, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run = good_run()
-    run.events.append(stream_event("call", "Bash", {"command": "ls"}))
-    harness.runs = [run]
+    harness.handlers[2] = lambda _cwd: canned_run(message_init(), message_done())  # step 3 never calls list_features
 
-    await mcp_qa.claude_command(claude_args("a"))
+    assert await mcp_qa.claude_command(claude_args()) == 1
+
+    out = capsys.readouterr().out
+    report = harness.report()
+    assert [(r["scenario"], r["outcome"]) for r in report["results"]] == [
+        *((f"run1-{step}", "passed") for step in STEPS[:2]),
+        ("run1-3-foreign-beta", "failed"),
+    ]
+    assert "run 1 failed: 3-foreign-beta: assertion: list_features was never called" in out
+    assert report["metrics"]["teardown_clean"] == "yes" and not harness.cwd.exists()
+    assert len(harness.argvs) == 3  # nothing after the failed step
+
+
+async def test_claude_runs_the_remaining_flows_after_a_failed_one_and_still_exits_1(harness: ClaudeHarness) -> None:
+    def no_write(_cwd: Path) -> PromptRun:
+        listed = {"items": [], "next_cursor": None}
+        calls = [message_call("p1", TOOLS[0], {}), message_result("p1", listed)]
+        return canned_run(message_init(), *calls, message_done())
+
+    harness.handlers = [no_write, *harness.good_flow()]
+
+    assert await mcp_qa.claude_command(claude_args(runs="2")) == 1
+
+    outcomes = [(r["scenario"], r["outcome"]) for r in harness.report()["results"]]
+    assert outcomes[0] == ("run1-1-bind-alpha", "failed") and outcomes[-1] == ("run2-4b-reuse-empty", "passed")
+
+
+async def test_claude_fails_a_step_whose_run_used_a_tool_d7_does_not_allow(harness: ClaudeHarness) -> None:
+    first = harness.handlers[0]
+
+    def with_bash(cwd: Path) -> PromptRun:
+        run = first(cwd)
+        assert isinstance(run, PromptRun)
+        return replace(run, events=[*run.events, ToolEvent("call", "b1", "Bash", {"command": "ls"}, is_error=False)])
+
+    harness.handlers[0] = with_bash
+
+    assert await mcp_qa.claude_command(claude_args()) == 1
 
     (result,) = harness.report()["results"]
-    assert result["outcome"] == "failed"
-    assert result["note"].startswith("foreign tools ['Bash']")
-    assert "tool calls outside our two tools: ['Bash']" in capsys.readouterr().out
+    assert result["outcome"] == "failed" and "Bash is not allowed" in result["note"]
 
 
-async def test_claude_writes_the_report_and_the_recovery_hint_and_keeps_the_folder_on_an_unclean_teardown(
+async def test_claude_writes_the_report_and_the_recovery_hint_and_keeps_the_workspace_on_an_unclean_teardown(
     harness: ClaudeHarness, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    harness.runs = [good_run()]
     harness.teardown_clean = False
     harness.body_error = QaError("claude teardown left a specflow-qa- server")
 
     with pytest.raises(SystemExit, match="claude teardown left"):
-        await mcp_qa.claude_command(claude_args("a"))
+        await mcp_qa.claude_command(claude_args())
 
     out = capsys.readouterr().out
-    assert harness.report()["metrics"]["teardown_clean"] == "no"
+    report = harness.report()
+    assert report["metrics"]["teardown_clean"] == "no"
+    assert [r["outcome"] for r in report["results"]] == ["passed"] * 5  # the steps ran; only the teardown failed
     assert "teardown clean no" in out
-    assert (
-        f"recovery: server {SERVER}; from the temp folder {harness.cwd.name} run "
-        f"`claude mcp logout {SERVER}` and `claude mcp remove {SERVER} --scope local`"
-    ) in out
+    assert f"from the temp folder {harness.cwd.name} run `claude mcp list`" in out
     assert str(harness.cwd.parent) not in out  # the folder name only, never the path
     assert harness.cwd.exists()  # kept: the recovery runs from it
 
@@ -560,12 +641,12 @@ async def test_claude_writes_the_report_when_the_run_fails_before_a_teardown_is_
     harness.mode = "dev"
 
     with pytest.raises(SystemExit, match="needs the oidc stack"):
-        await mcp_qa.claude_command(claude_args("a"))
+        await mcp_qa.claude_command(claude_args())
 
     assert "teardown clean not reached" in capsys.readouterr().out
     report = harness.report()
     assert report["results"] == [] and "teardown_clean" not in report["metrics"]
-    assert not harness.cwd.exists() and harness.sessions == []
+    assert harness.workspaces == [] and harness.sessions == []
 
 
 async def test_claude_refuses_a_busy_callback_port_before_touching_the_claude_configuration(
@@ -574,17 +655,25 @@ async def test_claude_refuses_a_busy_callback_port_before_touching_the_claude_co
     harness.port_free = False
 
     with pytest.raises(SystemExit, match="port 8765 is in use"):
-        await mcp_qa.claude_command(claude_args("a"))
+        await mcp_qa.claude_command(claude_args())
 
-    assert harness.sessions == [] and not harness.cwd.exists()
-    assert harness.report()["kind"] == "agent-manual"
+    assert harness.sessions == [] and harness.workspaces == []
+    assert harness.report()["kind"] == "agent-flow"
 
 
-async def test_claude_stops_when_the_cli_is_not_signed_in_and_removes_the_folder(harness: ClaudeHarness) -> None:
+@pytest.mark.parametrize("runs", ["0", "two", "-1"])
+async def test_claude_refuses_a_run_count_that_is_not_a_positive_integer(harness: ClaudeHarness, runs: str) -> None:
+    with pytest.raises(SystemExit, match="positive integer"):
+        await mcp_qa.claude_command(claude_args(runs=runs))
+
+    assert harness.sessions == [] and harness.workspaces == []
+
+
+async def test_claude_stops_when_the_cli_is_not_signed_in_and_removes_the_workspace(harness: ClaudeHarness) -> None:
     harness.signed_in = False
 
     with pytest.raises(SystemExit, match="the claude CLI is not signed in"):
-        await mcp_qa.claude_command(claude_args("a"))
+        await mcp_qa.claude_command(claude_args())
 
     assert harness.sessions == [] and not harness.cwd.exists()
     assert harness.report()["results"] == []
@@ -598,15 +687,14 @@ async def test_claude_stops_when_the_cli_is_not_signed_in_and_removes_the_folder
 async def test_claude_keeps_the_first_result_and_still_tears_down_when_run_prompt_raises_mid_run(
     harness: ClaudeHarness, capsys: pytest.CaptureFixture[str], failure: Exception, escapes_as: type[BaseException]
 ) -> None:
-    harness.runs = [good_run()]  # the second prompt finds no canned run and raises `failure`
-    harness.prompt_error = failure
+    harness.handlers[1] = lambda _cwd: failure  # the second prompt's runner raises
 
     with pytest.raises(escapes_as, match=str(failure)):
-        await mcp_qa.claude_command(claude_args("first", "second"))
+        await mcp_qa.claude_command(claude_args())
 
     out = capsys.readouterr().out
     report = harness.report()
-    assert [(r["scenario"], r["outcome"]) for r in report["results"]] == [("manual-1", "passed")]
+    assert [(r["scenario"], r["outcome"]) for r in report["results"]] == [("run1-1-bind-alpha", "passed")]
     assert report["metrics"]["teardown_clean"] == "yes"  # the fake teardown ran in its own `finally`
     assert "teardown clean yes" in out and f"report {RUN_ID}.json" in out
     assert not harness.cwd.exists()

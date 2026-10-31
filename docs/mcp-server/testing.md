@@ -110,6 +110,13 @@ The driver acts as a developer at a terminal, in a fresh temp git repository per
 Assertions read tool inputs and results from the stream and the binding file; the model's prose is recorded, never
 asserted. The gate is 3 runs, all passing.
 
+Running the gate: `uv run --env-file ../.env.local python examples/mcp_qa.py claude --runs 3` (exit status 1 when a
+step fails), or `SPECFLOW_QA_RUNS=3 SPECFLOW_TEST_MCP_CLAUDE=1 uv run --env-file ../.env.local pytest tests/test_mcp_claude_qa.py -q`
+(one test per run; the default is 1 run). Every run registers its own server and workspace. A flow is five prompts
+(step 4 is two); each prompt has `--model sonnet`, `--max-turns 10` and `--max-budget-usd 0.50`, so a run stays under
+3 USD even if every prompt spends its whole budget. The plain request is used only when the stream shows the slash prompt was not expanded: the init message's
+`slash_commands` does not list `mcp__<server>__select_project` (the stream never echoes the expanded text). The report records, per step, the outcome, our tool calls, duration, cost and `slash` or `plain`.
+
 ## Login helper
 
 The QA login helper finishes an authorization URL at Keycloak over plain HTTP: it loads the login form, posts the

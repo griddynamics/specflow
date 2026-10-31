@@ -20,6 +20,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import uuid
 from collections import Counter
 from collections.abc import Callable, Sequence
@@ -35,7 +36,7 @@ import jwt
 import pydantic
 import pytest
 from mcp.shared.exceptions import MCPError
-from mcp.types import TextContent
+from mcp.types import GetPromptResult, PromptMessage, TextContent
 from pydantic import BaseModel, SecretStr
 
 import mcp_qa_lib
@@ -43,18 +44,21 @@ from db.models import ProjectMember
 from graph.core import load_ontology
 from mcp_qa_lib import (
     _CALL_ERRORS,
+    BINDING_FILE,
+    BINDING_SCHEMA,
     CLAUDE_DISALLOWED_TOOLS,
     ISSUER,
     KEYCLOAK_URL,
     MCP_CLIENT_ID,
     MCP_REDIRECT_URI,
     MCP_RESOURCE_URL,
-    PERSONA_CHECKS,
     PRM_URL,
     QA_USERS,
     REPORTS_DIR,
+    REUSE_PROMPT,
     WEB_CLIENT_ID,
     FixtureIds,
+    FlowContext,
     KeycloakAdmin,
     LatencyProgress,
     LatencyStats,
@@ -65,20 +69,26 @@ from mcp_qa_lib import (
     RunReport,
     RunTotals,
     ScenarioResult,
+    StepRecord,
     TeardownVerdict,
     ToolEvent,
     ToolOutcome,
+    WorkspaceFlow,
     _add_server,
     _timed,
     all_projects,
-    alpha_features_listed,
+    alpha_reused,
     apply_local_defaults,
     beta_refused,
+    binding_text,
+    bound_project_id,
+    bound_to_alpha,
     call,
     capture_command,
     check_run,
     child_env,
     claude_add_argv,
+    claude_allowed_tools,
     claude_lists,
     claude_login,
     claude_login_argv,
@@ -90,24 +100,31 @@ from mcp_qa_lib import (
     complete_login,
     create_project_rest,
     dev_token,
+    empty_reused,
     fetch_prm,
     find_authorization_url,
+    find_binding,
     fixture_ids,
     fixture_nodes,
-    foreign_tool_calls,
+    flow_failure,
+    flow_workspace,
     headers_json,
+    make_git_workspace,
+    make_workspace,
     mcp_session,
     narrow_scope,
     neo4j_driver,
     new_run_id,
     oauth_provider,
+    parse_runs,
     parse_stream_json,
     percentile,
-    persona_prompts,
     pkce_pair,
     port_is_free,
     post_mcp,
     preregistered_client,
+    prompt_text,
+    read_binding,
     registered_server,
     remove_member,
     report_note,
@@ -123,10 +140,18 @@ from mcp_qa_lib import (
     seeded_ids,
     server_name,
     signed_in_claude,
+    slash_expanded,
     stack_mode,
+    step_result,
+    stray_files,
     strip_ansi,
+    switched_to_empty,
     tool_json,
+    tool_violations,
     user_token,
+    validate_binding,
+    workspace_snapshot,
+    write_binding,
     write_report,
 )
 
@@ -943,7 +968,7 @@ def test_argv_builders_give_the_exact_claude_commands() -> None:
     assert claude_remove_argv(name) == ["claude", "mcp", "remove", name, "--scope", "local"]
     assert claude_prompt_argv("hello", ["mcp__a__x", "mcp__a__y"]) == [
         *("claude", "-p", "hello", "--output-format", "stream-json", "--verbose"),
-        *("--model", "sonnet", "--max-turns", "8", "--max-budget-usd", "1.00"),
+        *("--model", "sonnet", "--max-turns", "10", "--max-budget-usd", "0.50"),
         *("--permission-mode", "dontAsk", "--no-session-persistence"),
         *("--disallowedTools", ",".join(CLAUDE_DISALLOWED_TOOLS)),
         *("--allowedTools", "mcp__a__x,mcp__a__y"),
@@ -1562,15 +1587,249 @@ def test_tool_json_reads_strings_text_blocks_and_gives_none_for_the_rest() -> No
     assert tool_json(event({"a": 3})) == {"a": 3}
 
 
-def test_persona_prompts_name_the_beta_id_in_the_third_prompt_only() -> None:
-    beta = uuid.uuid4()
-    ids = FixtureIds({}, {"P-Beta": beta})
+# Workspace binding helper (testing.md, Temp workspace) ---------------------------------------------------------------
 
-    prompts = persona_prompts(ids)
+BINDING_SERVER = "https://specflow.example.com/mcp"
+TEMP_ROOT = Path(tempfile.gettempdir()).resolve()
+CONFIDENTIAL_NAME = "super-secret-project-name"
 
-    assert [key for key, _ in prompts] == ["agent-1", "agent-2", "agent-3"]
-    assert prompts[2][1] == f"Show me the features of project {beta}."
-    assert not any(str(beta) in text for _, text in prompts[:2])
+
+def test_make_workspace_is_a_fresh_folder_under_the_system_temp_directory() -> None:
+    first, second = make_workspace(), make_workspace()
+    try:
+        assert first != second and first.is_dir() and first.name.startswith("specflow-qa-ws-")
+        assert first.parent == TEMP_ROOT
+        assert list(first.iterdir()) == []
+    finally:
+        shutil.rmtree(first, ignore_errors=True)
+        shutil.rmtree(second, ignore_errors=True)
+
+
+def test_write_binding_writes_the_exact_version_1_json_and_replaces_the_whole_file(tmp_path: Path) -> None:
+    alpha, empty = uuid.uuid4(), uuid.uuid4()
+
+    path = write_binding(tmp_path, alpha, "P-Alpha")
+    assert path == tmp_path / ".specflow" / "config.json" == tmp_path / BINDING_FILE
+    assert path.read_text(encoding="utf-8") == (
+        f'{{"version": 1, "server": "{MCP_RESOURCE_URL}", "project_id": "{alpha}", "project_name": "P-Alpha"}}'
+    )
+    write_binding(tmp_path, empty, "P-Empty", server=BINDING_SERVER)
+
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "version": 1,
+        "server": BINDING_SERVER,
+        "project_id": str(empty),
+        "project_name": "P-Empty",
+    }
+    assert [entry.name for entry in path.parent.iterdir()] == ["config.json"]  # no temp file left behind
+
+
+def test_write_binding_keeps_the_old_file_and_leaves_no_temp_file_when_the_replace_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    write_binding(tmp_path, ALPHA_ID, "P-Alpha")
+    before = (tmp_path / BINDING_FILE).read_text(encoding="utf-8")
+
+    def refuse(self: Path, target: Path) -> Path:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(Path, "replace", refuse)
+    with pytest.raises(OSError, match="disk full"):
+        write_binding(tmp_path, BETA_ID, "P-Beta")
+
+    assert (tmp_path / BINDING_FILE).read_text(encoding="utf-8") == before
+    assert [entry.name for entry in (tmp_path / ".specflow").iterdir()] == ["config.json"]
+
+
+def test_find_binding_returns_the_nearest_file_walking_up_and_none_when_there_is_none(tmp_path: Path) -> None:
+    sub = tmp_path / "repo" / "packages" / "app"
+    sub.mkdir(parents=True)
+    assert find_binding(sub) is None
+
+    write_binding(tmp_path, ALPHA_ID, "outer")
+    assert find_binding(sub) == (tmp_path / BINDING_FILE).resolve()
+    write_binding(tmp_path / "repo", BETA_ID, "inner")
+    assert find_binding(sub) == (tmp_path / "repo" / BINDING_FILE).resolve()
+    assert find_binding(tmp_path) == (tmp_path / BINDING_FILE).resolve()
+
+
+def test_find_binding_ignores_a_folder_named_like_the_file(tmp_path: Path) -> None:
+    (tmp_path / ".specflow" / "config.json").mkdir(parents=True)
+
+    assert find_binding(tmp_path) is None
+
+
+def test_the_binding_text_validates_against_the_contract_schema_and_the_schema_is_the_committed_one() -> None:
+    assert BINDING_SCHEMA.name == "specflow-workspace-config.schema.json" and BINDING_SCHEMA.is_file()
+
+    document = json.loads(binding_text(ALPHA_ID, "P-Alpha"))
+
+    assert validate_binding(document) == document
+    assert validate_binding(json.loads(binding_text(ALPHA_ID.upper(), "P-Alpha")))["project_id"] == ALPHA_ID.upper()
+
+
+@pytest.mark.parametrize(
+    ("change", "rule"),
+    [
+        ({"version": 2}, "version: const"),
+        ({"extra": CONFIDENTIAL_NAME}, "file: additionalProperties"),
+        ({"project_id": "not-a-uuid"}, "project_id: pattern"),
+        ({"server": "/mcp"}, "server: pattern"),
+        ({"project_name": ""}, "project_name: minLength"),
+        ({"project_name": "x" * 201}, "project_name: maxLength"),
+        ({"project_name": 7}, "project_name: type"),
+    ],
+    ids=["version-2", "extra-key", "bad-id", "relative-server", "empty-name", "long-name", "name-not-a-string"],
+)
+def test_validate_binding_refuses_a_file_the_schema_refuses_and_names_the_rule_only(
+    change: dict[str, Any], rule: str
+) -> None:
+    document = {**json.loads(binding_text(ALPHA_ID, CONFIDENTIAL_NAME)), **change}
+
+    with pytest.raises(QaError, match="binding file invalid") as failed:
+        validate_binding(document)
+
+    assert rule in str(failed.value)
+    assert CONFIDENTIAL_NAME not in str(failed.value) and "x" * 10 not in str(
+        failed.value
+    )  # keys and rules, never values
+
+
+@pytest.mark.parametrize(
+    "document", [[], "text", None, {}, {"version": 1}], ids=["list", "str", "none", "empty", "partial"]
+)
+def test_validate_binding_refuses_a_document_that_is_not_the_object(document: object) -> None:
+    with pytest.raises(QaError, match="binding file invalid"):
+        validate_binding(document)
+
+
+def test_read_binding_reads_a_valid_file_and_refuses_unreadable_or_non_json_content(tmp_path: Path) -> None:
+    path = write_binding(tmp_path, ALPHA_ID, "P-Alpha")
+    assert read_binding(path)["project_id"] == ALPHA_ID
+
+    path.write_text("{" + CONFIDENTIAL_NAME, encoding="utf-8")
+    with pytest.raises(QaError, match="unreadable or not JSON") as failed:
+        read_binding(path)
+    assert CONFIDENTIAL_NAME not in str(failed.value)
+    with pytest.raises(QaError, match="unreadable or not JSON"):
+        read_binding(tmp_path / "missing.json")
+
+
+def test_bound_project_id_returns_the_uuid_only_for_the_connected_server(tmp_path: Path) -> None:
+    sub = tmp_path / "src"
+    sub.mkdir()
+    write_binding(tmp_path, ALPHA_ID, "P-Alpha")
+
+    assert bound_project_id(sub) == uuid.UUID(ALPHA_ID)
+    with pytest.raises(QaError, match="another server") as other:
+        bound_project_id(sub, server=BINDING_SERVER)
+    assert ALPHA_ID not in str(other.value)
+
+    write_binding(tmp_path, ALPHA_ID, "P-Alpha", server=BINDING_SERVER)
+    with pytest.raises(QaError, match="another server"):
+        bound_project_id(sub)
+    assert bound_project_id(sub, server=BINDING_SERVER) == uuid.UUID(ALPHA_ID)
+
+
+def test_bound_project_id_refuses_a_workspace_without_a_file_and_an_invalid_file(tmp_path: Path) -> None:
+    with pytest.raises(QaError, match=r"no \.specflow/config\.json"):
+        bound_project_id(tmp_path)
+
+    (tmp_path / ".specflow").mkdir()
+    (tmp_path / BINDING_FILE).write_text(json.dumps({"version": 2}), encoding="utf-8")
+    with pytest.raises(QaError, match="binding file invalid"):
+        bound_project_id(tmp_path)
+
+
+async def test_make_git_workspace_runs_git_init_in_a_fresh_temp_folder() -> None:
+    calls: list[tuple[list[str], Path]] = []
+
+    async def runner(argv: Sequence[str], cwd: Path) -> int:
+        calls.append((list(argv), cwd))
+        return 0
+
+    workspace = await make_git_workspace(runner)
+    try:
+        assert calls == [(["git", "init", "-q"], workspace)]
+        assert workspace.parent == TEMP_ROOT
+        assert await anyio.Path(workspace).is_dir()
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)
+
+
+@pytest.mark.parametrize("failure", [1, OSError("no git")], ids=["exit-code", "os-error"])
+async def test_make_git_workspace_removes_the_folder_when_git_init_fails(failure: int | Exception) -> None:
+    made: list[Path] = []
+
+    async def runner(argv: Sequence[str], cwd: Path) -> int:
+        made.append(cwd)
+        if isinstance(failure, Exception):
+            raise failure
+        return failure
+
+    with pytest.raises((QaError, OSError), match=r"git init failed|no git"):
+        await make_git_workspace(runner)
+
+    assert len(made) == 1 and not made[0].exists()
+
+
+@pytest.mark.parametrize(
+    ("clean", "kept"), [(True, False), (None, False), (False, True)], ids=["clean", "unknown", "unclean"]
+)
+async def test_flow_workspace_deletes_the_folder_unless_the_teardown_left_a_server(
+    *, clean: bool | None, kept: bool
+) -> None:
+    async def runner(argv: Sequence[str], cwd: Path) -> int:
+        return 0
+
+    verdict = TeardownVerdict()
+    async with flow_workspace(verdict, runner) as workspace:
+        assert workspace.is_dir()
+        verdict.clean = clean
+    try:
+        assert workspace.exists() is kept
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)
+
+
+@pytest.mark.parametrize(("text", "runs"), [("1", 1), ("3", 3), (" 2 ", 2)])
+def test_parse_runs_reads_a_positive_integer(text: str, runs: int) -> None:
+    assert parse_runs(text) == runs
+
+
+@pytest.mark.parametrize("text", ["0", "-1", "three", "", "1.5"])
+def test_parse_runs_refuses_anything_else(text: str) -> None:
+    with pytest.raises(QaError, match="positive integer"):
+        parse_runs(text)
+
+
+async def test_post_mcp_sends_the_method_and_params_it_is_given() -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(401)
+
+    transport = httpx.MockTransport(handler)
+
+    await post_mcp(None, transport=transport, method="prompts/list", params={})
+    await post_mcp(None, transport=transport, method="prompts/get", params={"name": "select_project"})
+
+    assert [(json_of(r)["method"], json_of(r)["params"]) for r in seen] == [
+        ("prompts/list", {}),
+        ("prompts/get", {"name": "select_project"}),
+    ]
+
+
+def test_prompt_text_joins_the_text_blocks_of_a_prompt_result() -> None:
+    result = GetPromptResult(
+        messages=[
+            PromptMessage(role="user", content=TextContent(type="text", text="one")),
+            PromptMessage(role="user", content=TextContent(type="text", text="two")),
+        ]
+    )
+
+    assert prompt_text(result) == "one\ntwo"
 
 
 @pytest.mark.parametrize(
@@ -1876,33 +2135,25 @@ async def test_every_spawner_hands_the_child_the_allowlisted_environment_only(tm
 # Only our two tools (R2) -----------------------------------------------------------------------------------------
 
 
-def test_the_prompt_argv_denies_the_builtin_tools_that_read_files_the_environment_or_the_network() -> None:
+def test_the_prompt_argv_denies_the_builtin_tools_that_read_the_environment_other_files_or_the_network() -> None:
     argv = claude_prompt_argv("hello", ["mcp__a__x"])
     denied = set(argv[argv.index("--disallowedTools") + 1].split(","))
 
-    assert {"Bash", "Read", "Write", "Edit", "WebFetch", "WebSearch", "Glob", "Grep", "NotebookEdit", "Task"} <= denied
+    assert {"Bash", "WebFetch", "WebSearch", "Glob", "Grep", "MultiEdit", "NotebookEdit", "Task", "Agent"} <= denied
+    assert not denied & {"Read", "Write", "Edit"}  # Write undenied: a deny on it would beat the Edit allow rule
     assert argv.index("--disallowedTools") < argv.index("--allowedTools") == len(argv) - 2
     assert denied == set(CLAUDE_DISALLOWED_TOOLS)
     assert not denied & {"mcp__a__x"}
 
 
-def tool_call(name: str | None, identifier: str = "u") -> ToolEvent:
-    return ToolEvent("call", identifier, name, {}, is_error=False)
-
-
-def test_foreign_tool_calls_names_every_call_that_is_not_ours_or_a_tool_search() -> None:
-    ours = ("mcp__s__list_projects", "mcp__s__list_features")
-    events = [
-        tool_call("mcp__s__list_projects"),
-        tool_call("ToolSearch"),
-        tool_call("Bash"),
-        tool_call("mcp__other__list_projects"),
-        tool_call("mcp__s__list_features"),
-        ToolEvent("result", "u", "Read", "x", is_error=False),  # a result is not a call
+def test_the_allowed_tools_are_our_two_tools_read_and_the_binding_file_edit_rule_only() -> None:
+    assert claude_allowed_tools("specflow-qa-abc") == [
+        "mcp__specflow-qa-abc__list_projects",
+        "mcp__specflow-qa-abc__list_features",
+        "Read",
+        "Edit(./.specflow/**)",
     ]
-
-    assert foreign_tool_calls(events, ours) == ["Bash", "mcp__other__list_projects"]
-    assert foreign_tool_calls(events[:2] + events[4:], ours) == []
+    assert not {"Write", "Bash", "Edit"} & set(claude_allowed_tools("s"))  # a bare Edit would allow every file
 
 
 # Latency error handling (R7, R8) ---------------------------------------------------------------------------------
@@ -2106,7 +2357,7 @@ async def test_seeded_ids_needs_the_keycloak_admin_password_before_any_connectio
         await seeded_ids("keycloak", environ={})
 
 
-# T1: persona assertions of the agent tier, fed canned stream-json through the real `run_prompt` parser --------------
+# T1: workspace flow checks of the agent tier, fed canned stream-json ------------------------------------------------
 
 AGENT_NAME = "specflow-qa-run1"
 AGENT_TOOLS = claude_tool_names(AGENT_NAME)
@@ -2116,20 +2367,40 @@ AGENT_IDS = FixtureIds(
 )
 ALPHA_ID = str(AGENT_IDS.projects["P-Alpha"])
 BETA_ID = str(AGENT_IDS.projects["P-Beta"])
+EMPTY_ID = str(AGENT_IDS.projects["P-Empty"])
 ALPHA_SPEC_IDS = sorted(
     node.spec_id for node in fixture_nodes("P-Alpha", ALPHA_ID, load_ontology()) if node.label == "Feature"
 )
 BETA_FEATURE_NAME = "P-Beta Feature 001"
 NO_CURSOR: dict[str, Any] = {"next_cursor": None}
 REPLAY_CHILD = "import sys\nsys.stdout.write(open(sys.argv[1], encoding='utf-8').read())\n"
+SLASH = f"mcp__{AGENT_NAME}__select_project"
 
 
-def init_message(*, status: str = "connected", server: str = AGENT_NAME, tools: Sequence[str] = AGENT_TOOLS) -> dict:
+@pytest.fixture
+def ctx(tmp_path: Path) -> FlowContext:
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    return FlowContext(AGENT_NAME, workspace, AGENT_IDS)
+
+
+def bind(ctx: FlowContext, project: str, name: str | None = None) -> None:
+    write_binding(ctx.workspace, AGENT_IDS.projects[project], name or project)
+
+
+def init_message(
+    *,
+    status: str = "connected",
+    server: str = AGENT_NAME,
+    tools: Sequence[str] = AGENT_TOOLS,
+    slash: Sequence[str] = (SLASH,),
+) -> dict:
     return {
         "type": "system",
         "subtype": "init",
         "mcp_servers": [{"name": server, "status": status}],
         "tools": list(tools),
+        "slash_commands": list(slash),
     }
 
 
@@ -2167,18 +2438,36 @@ async def streamed(tmp_path: Path, *messages: dict) -> PromptRun:
     return await run_prompt([sys.executable, "-c", REPLAY_CHILD, str(transcript)], tmp_path, timeout_s=30)
 
 
-def projects_run(*names: str, tools: Sequence[str] = AGENT_TOOLS) -> list[dict]:
-    items = [{"project_id": str(uuid.uuid4()), "name": name} for name in names]
-    return [
-        init_message(tools=tools),
-        stream_call("u1", LIST_PROJECTS, {}),
-        stream_result("u1", {"items": items, **NO_CURSOR}),
-        result_message(),
-    ]
+def canned(*messages: dict, timed_out: bool = False) -> PromptRun:
+    """The same run without a child process (the flow driver tests)."""
+
+    lines = [json.dumps(message) for message in messages]
+    init = next((m for m in messages if m.get("subtype") == "init"), None)
+    result = next((m for m in reversed(messages) if m.get("type") == "result"), None)
+    return PromptRun(0, timed_out, lines, parse_stream_json(lines), init, result, "")
+
+
+def write_call(ctx: FlowContext, use_id: str = "w1", *, tool: str = "Write", path: Path | None = None) -> dict:
+    return stream_call(use_id, tool, {"file_path": str(path or ctx.binding), "content": "{}"})
+
+
+def list_projects_calls(use_id: str = "p1") -> list[dict]:
+    items = [{"project_id": ALPHA_ID, "name": "P-Alpha"}]
+    return [stream_call(use_id, LIST_PROJECTS, {}), stream_result(use_id, {"items": items, **NO_CURSOR})]
 
 
 def features_page(spec_ids: Sequence[str], cursor: str | None) -> dict[str, Any]:
     return {"items": [{"spec_id": spec_id, "name": spec_id} for spec_id in spec_ids], "next_cursor": cursor}
+
+
+def refusal(code: str = "project_not_found") -> dict[str, Any]:
+    return {"error": {"code": code, "message": "Project not found."}}
+
+
+def bind_run(ctx: FlowContext, *extra: dict) -> list[dict]:
+    """Step 1 or 4a: the slash prompt, `list_projects`, one write of the binding file."""
+
+    return [init_message(), *list_projects_calls(), write_call(ctx), *extra, result_message()]
 
 
 def alpha_run(*extra: dict, second_cursor: str | None = None) -> list[dict]:
@@ -2193,10 +2482,6 @@ def alpha_run(*extra: dict, second_cursor: str | None = None) -> list[dict]:
     ]
 
 
-def refusal(code: str = "project_not_found") -> dict[str, Any]:
-    return {"error": {"code": code, "message": "Project not found."}}
-
-
 def beta_run(*, code: str = "project_not_found", prose: str = "I cannot see that project.") -> list[dict]:
     return [
         init_message(),
@@ -2206,41 +2491,106 @@ def beta_run(*, code: str = "project_not_found", prose: str = "I cannot see that
     ]
 
 
-async def test_each_persona_check_accepts_a_good_run_agent_tier(tmp_path: Path) -> None:
-    runs = {
-        "agent-1": await streamed(tmp_path, *projects_run("P-Alpha", "P-Empty", "P-Large")),
-        "agent-2": await streamed(tmp_path, *alpha_run()),
-        "agent-3": await streamed(tmp_path, *beta_run()),
-    }
-
-    assert len(ALPHA_SPEC_IDS) == 7
-    for persona, run in runs.items():
-        assert check_run(run, AGENT_NAME, AGENT_TOOLS) == RunTotals(0.0421, 3)
-        PERSONA_CHECKS[persona](run, AGENT_TOOLS, AGENT_IDS)
-
-
-async def test_agent_2_matches_results_to_calls_by_tool_use_id(tmp_path: Path) -> None:
-    # A list_features call for another project (and its extra feature ids) must not leak into P-Alpha's set.
-    other = [
-        stream_call("u3", LIST_FEATURES, {"project_id": str(AGENT_IDS.projects["P-Empty"])}),
-        stream_result("u3", features_page(["FEAT::from-another-project"], None)),
+def empty_run(*, total: int = 0, project_id: str = EMPTY_ID) -> list[dict]:
+    page = {"project_id": project_id, "total_count": total, "items": [], **NO_CURSOR}
+    return [
+        init_message(),
+        stream_call("u1", LIST_FEATURES, {"project_id": project_id}),
+        stream_result("u1", page),
+        result_message(),
     ]
-    run = await streamed(tmp_path, *alpha_run(*other))
 
-    alpha_features_listed(run, AGENT_TOOLS, AGENT_IDS)
+
+def projects_run(*, tools: Sequence[str] = AGENT_TOOLS) -> list[dict]:
+    return [init_message(tools=tools), *list_projects_calls(), result_message()]
+
+
+async def test_each_step_check_accepts_a_good_run(tmp_path: Path, ctx: FlowContext) -> None:
+    assert len(ALPHA_SPEC_IDS) == 7
+    bind(ctx, "P-Alpha")
+    first = await streamed(tmp_path, *bind_run(ctx))
+    assert check_run(first, ctx) == RunTotals(0.0421, 3)
+    bound_to_alpha(first, ctx, {})
+    alpha_reused(await streamed(tmp_path, *alpha_run()), ctx, {})
+
+    bind(ctx, "P-Beta")
+    before = workspace_snapshot(ctx.workspace)
+    beta_refused(await streamed(tmp_path, *beta_run()), ctx, before)
+
+    bind(ctx, "P-Empty")
+    switched_to_empty(await streamed(tmp_path, *bind_run(ctx)), ctx, before)
+    empty_reused(await streamed(tmp_path, *empty_run()), ctx, {})
 
 
 @pytest.mark.parametrize(
-    ("persona", "messages", "reason"),
+    ("project", "messages", "reason"),
     [
-        ("agent-1", projects_run("P-Alpha", "P-Empty"), "projects listed"),
-        ("agent-1", projects_run("P-Alpha", "P-Empty", "P-Large", "P-Beta"), "P-Beta is listed"),
-        ("agent-1", [init_message(), result_message()], "list_projects was never called"),
-        ("agent-2", alpha_run(second_cursor="more"), "not read to the last page"),
-        ("agent-2", [init_message(), result_message()], "never called for"),
+        ("P-Alpha", lambda c: [init_message(), write_call(c), result_message()], "list_projects was never called"),
+        ("P-Alpha", lambda _c: [init_message(), *list_projects_calls(), result_message()], "write targets: 0"),
         (
-            "agent-2",
-            [
+            "P-Alpha",
+            lambda c: bind_run(c, write_call(c, "w2", path=c.workspace / "notes.txt")),
+            "write targets: 2",
+        ),
+        ("P-Beta", bind_run, "does not name P-Alpha"),
+        (None, bind_run, "binding file does not exist"),
+    ],
+    ids=["no-list-projects", "no-write", "second-write-target", "names-another-project", "no-file"],
+)
+async def test_the_bind_check_names_what_went_wrong(
+    tmp_path: Path, ctx: FlowContext, project: str | None, messages: Callable[[FlowContext], list[dict]], reason: str
+) -> None:
+    if project is not None:
+        bind(ctx, project)
+
+    with pytest.raises(QaError, match=reason) as failed:
+        bound_to_alpha(await streamed(tmp_path, *messages(ctx)), ctx, {})
+
+    assert not isinstance(failed.value, RunPreconditionError)
+
+
+@pytest.mark.parametrize(
+    ("document", "reason"),
+    [
+        (
+            {"version": 2, "server": MCP_RESOURCE_URL, "project_id": ALPHA_ID, "project_name": "P-Alpha"},
+            "version: const",
+        ),
+        (
+            {"version": 1, "server": MCP_RESOURCE_URL, "project_id": ALPHA_ID, "project_name": "P", "x": 1},
+            "additionalProperties",
+        ),
+        (
+            {"version": 1, "server": "https://other.example.com/mcp", "project_id": ALPHA_ID, "project_name": "P"},
+            "another server",
+        ),
+    ],
+    ids=["version-2", "extra-key", "other-server"],
+)
+async def test_the_bind_check_rejects_a_file_the_contract_or_the_server_refuses(
+    tmp_path: Path, ctx: FlowContext, document: dict, reason: str
+) -> None:
+    ctx.binding.parent.mkdir(parents=True)
+    ctx.binding.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(QaError, match=reason):
+        bound_to_alpha(await streamed(tmp_path, *bind_run(ctx)), ctx, {})
+
+
+@pytest.mark.parametrize(
+    ("messages", "reason"),
+    [
+        (lambda _c: alpha_run(*list_projects_calls("p9")), "list_projects was called in a bound folder"),
+        (lambda c: alpha_run(write_call(c, "w9")), "the run wrote a file"),
+        (
+            lambda _c: alpha_run(
+                stream_call("u3", LIST_FEATURES, {"project_id": EMPTY_ID}), stream_result("u3", features_page([], None))
+            ),
+            "2 distinct ids",
+        ),
+        (lambda _c: [init_message(), result_message()], "never called for"),
+        (
+            lambda _c: [
                 init_message(),
                 stream_call("u1", LIST_FEATURES, {"project_id": ALPHA_ID}),
                 stream_result("u1", features_page(ALPHA_SPEC_IDS[:5], None)),
@@ -2249,63 +2599,120 @@ async def test_agent_2_matches_results_to_calls_by_tool_use_id(tmp_path: Path) -
             "P-Alpha features: 5 found, 7 expected",
         ),
         (
-            "agent-2",
-            alpha_run(
-                stream_call("u3", LIST_PROJECTS, {}),
-                stream_result("u3", {"items": [{"spec_id": "REQ::FR1"}], **NO_CURSOR}),
+            lambda _c: alpha_run(
+                stream_call("u3", "Read", {"file_path": "notes.txt"}),
+                stream_result("u3", {"note": "REQ::FR1"}),
             ),
             "REQ:: id",
         ),
-        ("agent-3", beta_run(code="invalid_cursor"), "P-Beta answers"),
-        ("agent-3", beta_run(prose=f"The project holds {BETA_FEATURE_NAME}."), "P-Beta feature name appears"),
-        ("agent-3", [init_message(), result_message()], "never called for"),
     ],
-    ids=[
-        "p1-missing-project",
-        "p1-lists-beta",
-        "p1-never-called",
-        "p2-more-pages",
-        "p2-never-called",
-        "p2-short-set",
-        "p2-req-id",
-        "p3-wrong-code",
-        "p3-beta-name-in-the-stream",
-        "p3-never-called",
-    ],
+    ids=["lists-projects", "writes", "uses-another-id", "never-called", "short-set", "req-id"],
 )
-async def test_a_persona_check_names_what_went_wrong(
-    tmp_path: Path, persona: str, messages: list[dict], reason: str
+async def test_the_reuse_check_names_what_went_wrong(
+    tmp_path: Path, ctx: FlowContext, messages: Callable[[FlowContext], list[dict]], reason: str
 ) -> None:
-    run = await streamed(tmp_path, *messages)
-
     with pytest.raises(QaError, match=reason) as failed:
-        PERSONA_CHECKS[persona](run, AGENT_TOOLS, AGENT_IDS)
+        alpha_reused(await streamed(tmp_path, *messages(ctx)), ctx, {})
 
     assert not isinstance(failed.value, RunPreconditionError)
 
 
-async def test_a_p_beta_feature_name_in_a_tool_result_fails_agent_3(tmp_path: Path) -> None:
+async def test_the_reuse_check_matches_results_to_calls_by_tool_use_id_and_accepts_an_uppercase_id(
+    tmp_path: Path, ctx: FlowContext
+) -> None:
+    messages = alpha_run()
+    for message in (messages[1], messages[3]):  # the model may repeat the id in another case
+        message["message"]["content"][0]["input"]["project_id"] = ALPHA_ID.upper()
+
+    alpha_reused(await streamed(tmp_path, *messages), ctx, {})
+
+
+@pytest.mark.parametrize(
+    ("messages", "bound", "reason"),
+    [
+        (lambda _c: beta_run(code="invalid_cursor"), "P-Beta", "P-Beta answers"),
+        (lambda _c: beta_run(prose=f"The project holds {BETA_FEATURE_NAME}."), "P-Beta", "P-Beta feature name appears"),
+        (lambda _c: [init_message(), result_message()], "P-Beta", "never called for"),
+        (
+            lambda _c: [*beta_run()[:-1], *empty_run()[1:-1], result_message()],
+            "P-Beta",
+            "2 distinct ids",
+        ),
+        (lambda c: [*beta_run()[:-1], write_call(c), result_message()], "P-Beta", "the run wrote a file"),
+        (lambda _c: beta_run(), "P-Alpha", "agent changed the binding file"),
+    ],
+    ids=["wrong-code", "beta-name-in-the-stream", "never-called", "uses-another-id", "writes", "rebinds"],
+)
+async def test_the_foreign_check_names_what_went_wrong(
+    tmp_path: Path, ctx: FlowContext, messages: Callable[[FlowContext], list[dict]], bound: str, reason: str
+) -> None:
+    bind(ctx, "P-Beta")
+    before = workspace_snapshot(ctx.workspace)
+    bind(ctx, bound)  # the file as the run leaves it
+
+    with pytest.raises(QaError, match=reason):
+        beta_refused(await streamed(tmp_path, *messages(ctx)), ctx, before)
+
+
+async def test_a_p_beta_feature_name_in_a_tool_result_fails_the_foreign_check(tmp_path: Path, ctx: FlowContext) -> None:
+    bind(ctx, "P-Beta")
     leaked = beta_run()
     leaked[2] = stream_result("u1", {"error": refusal()["error"], "hint": BETA_FEATURE_NAME}, is_error=True)
 
     with pytest.raises(QaError, match="P-Beta feature name appears"):
-        beta_refused(await streamed(tmp_path, *leaked), AGENT_TOOLS, AGENT_IDS)
+        beta_refused(await streamed(tmp_path, *leaked), ctx, workspace_snapshot(ctx.workspace))
+
+
+@pytest.mark.parametrize(
+    ("file", "writes", "reason"),
+    [
+        ("P-Beta", True, "does not name P-Empty"),
+        ("P-Empty", False, "write targets: 0"),
+        ("P-Empty", True, "binding file was not replaced"),
+    ],
+    ids=["names-the-old-project", "no-write", "not-replaced"],
+)
+async def test_the_switch_check_names_what_went_wrong(
+    tmp_path: Path, ctx: FlowContext, file: str, *, writes: bool, reason: str
+) -> None:
+    before = workspace_snapshot(ctx.workspace)  # before: no file, or the same file the run leaves
+    if file == "P-Empty" and writes:
+        bind(ctx, "P-Empty")
+        before = workspace_snapshot(ctx.workspace)
+    bind(ctx, file)
+    messages = bind_run(ctx) if writes else [init_message(), *list_projects_calls(), result_message()]
+
+    with pytest.raises(QaError, match=reason):
+        switched_to_empty(await streamed(tmp_path, *messages), ctx, before)
 
 
 @pytest.mark.parametrize(
     ("messages", "reason"),
     [
-        (projects_run("P-Alpha")[:-1], "no model access or budget: None"),
-        (
-            [*projects_run("P-Alpha")[:-1], result_message("error_max_budget_usd", is_error=True)],
-            "error_max_budget_usd",
-        ),
-        ([*projects_run("P-Alpha")[:-1], result_message("error_during_execution")], "error_during_execution"),
-        ([init_message(status="failed"), result_message()], "not connected: failed"),
-        ([init_message(server="specflow-qa-other"), result_message()], "not connected: None"),
-        ([result_message()], "not connected: None"),
-        ([init_message(tools=[LIST_PROJECTS]), result_message()], "tool names"),
-        ([init_message(tools=["Bash", "Read"]), result_message()], "tool names"),
+        (lambda: empty_run(total=3), "P-Empty answers"),
+        (lambda: empty_run(project_id=ALPHA_ID), "never called for"),
+        (lambda: [*empty_run()[:-1], *list_projects_calls("p9"), result_message()], "list_projects was called"),
+    ],
+    ids=["not-empty", "uses-another-id", "lists-projects"],
+)
+async def test_the_empty_reuse_check_names_what_went_wrong(
+    tmp_path: Path, ctx: FlowContext, messages: Callable[[], list[dict]], reason: str
+) -> None:
+    with pytest.raises(QaError, match=reason):
+        empty_reused(await streamed(tmp_path, *messages()), ctx, {})
+
+
+@pytest.mark.parametrize(
+    ("messages", "reason"),
+    [
+        (lambda: projects_run()[:-1], "no model access or budget: None"),
+        (lambda: [*projects_run()[:-1], result_message("error_max_budget_usd", is_error=True)], "error_max_budget_usd"),
+        (lambda: [*projects_run()[:-1], result_message("error_during_execution")], "error_during_execution"),
+        (lambda: [init_message(status="failed"), result_message()], "not connected: failed"),
+        (lambda: [init_message(server="specflow-qa-other"), result_message()], "not connected: None"),
+        (lambda: [result_message()], "not connected: None"),
+        (lambda: [init_message(tools=[LIST_PROJECTS]), result_message()], "tool names"),
+        (lambda: [init_message(tools=["Bash", "Read"]), result_message()], "tool names"),
     ],
     ids=[
         "no-result",
@@ -2319,36 +2726,378 @@ async def test_a_p_beta_feature_name_in_a_tool_result_fails_agent_3(tmp_path: Pa
     ],
 )
 async def test_check_run_raises_a_precondition_for_a_run_that_cannot_answer(
-    tmp_path: Path, messages: list[dict], reason: str
+    tmp_path: Path, ctx: FlowContext, messages: Callable[[], list[dict]], reason: str
 ) -> None:
-    run = await streamed(tmp_path, *messages)
-
     with pytest.raises(RunPreconditionError, match=reason):
-        check_run(run, AGENT_NAME, AGENT_TOOLS)
+        check_run(await streamed(tmp_path, *messages()), ctx)
 
 
-async def test_check_run_refuses_a_timed_out_run_before_reading_anything_else(tmp_path: Path) -> None:
-    run = replace(await streamed(tmp_path, *projects_run("P-Alpha")), timed_out=True)
+async def test_check_run_refuses_a_timed_out_run_before_reading_anything_else(tmp_path: Path, ctx: FlowContext) -> None:
+    run = replace(await streamed(tmp_path, *projects_run()), timed_out=True)
 
     with pytest.raises(RunPreconditionError, match="timed out"):
-        check_run(run, AGENT_NAME, AGENT_TOOLS)
+        check_run(run, ctx)
 
 
-async def test_check_run_fails_a_foreign_tool_call_but_not_a_precondition(tmp_path: Path) -> None:
-    messages = projects_run("P-Alpha", "P-Empty", "P-Large")
-    messages.insert(-1, stream_call("u9", "Bash", {"command": "ls"}))
-    run = await streamed(tmp_path, *messages)
+@pytest.mark.parametrize(
+    ("call", "reason"),
+    [
+        (("Bash", {"command": "ls"}), r"\['Bash is not allowed'\]"),
+        (("Write", {"file_path": "notes.txt"}), r"\['Write outside the binding file'\]"),
+        (("Read", {"file_path": "/etc/hostname"}), r"\['Read outside the workspace'\]"),
+        (("WebFetch", {"url": "https://example.com"}), "WebFetch is not allowed"),
+    ],
+    ids=["bash", "write-elsewhere", "read-elsewhere", "network"],
+)
+async def test_check_run_fails_a_call_d7_does_not_allow_but_not_as_a_precondition(
+    tmp_path: Path, ctx: FlowContext, call: tuple[str, dict], reason: str
+) -> None:
+    messages = projects_run()
+    messages.insert(-1, stream_call("u9", *call))
 
-    with pytest.raises(QaError, match=r"outside our two tools: \['Bash'\]") as failed:
-        check_run(run, AGENT_NAME, AGENT_TOOLS)
+    with pytest.raises(QaError, match=reason) as failed:
+        check_run(await streamed(tmp_path, *messages), ctx)
 
     assert not isinstance(failed.value, RunPreconditionError)
 
 
-async def test_check_run_reads_the_init_tools_of_a_run_that_lists_extra_tools(tmp_path: Path) -> None:
-    run = await streamed(tmp_path, *projects_run("P-Alpha", tools=[*AGENT_TOOLS, "Bash", "mcp__other__tool"]))
+async def test_check_run_reads_the_init_tools_of_a_run_that_lists_extra_tools(tmp_path: Path, ctx: FlowContext) -> None:
+    run = await streamed(tmp_path, *projects_run(tools=[*AGENT_TOOLS, "Bash", "mcp__other__tool"]))
 
-    assert check_run(run, AGENT_NAME, AGENT_TOOLS).turns == 3
+    assert check_run(run, ctx).turns == 3
+
+
+# Slash detection and the D7 run check -----------------------------------------------------------------------------
+
+
+CLAUDE_INIT_FIXTURE = json.loads(
+    (Path(__file__).parent / "fixtures" / "mcp" / "claude-stream-init.json").read_text("utf-8")
+)
+
+
+def fixture_run(name: str = "specflow-qa-probe0001") -> PromptRun:
+    """A run whose init is the recorded real shape (placeholders only), with the server renamed to `name`."""
+
+    init = json.loads(json.dumps(CLAUDE_INIT_FIXTURE["init"]).replace("specflow-qa-probe0001", name))
+    return canned(init, result_message())
+
+
+def test_the_recorded_init_shape_lists_the_prompt_as_a_plain_command_name_without_the_slash() -> None:
+    init = CLAUDE_INIT_FIXTURE["init"]
+
+    assert init["slash_commands"][-1] == "mcp__specflow-qa-probe0001__select_project"
+    assert all(isinstance(command, str) and not command.startswith("/") for command in init["slash_commands"])
+    assert [server["status"] for server in init["mcp_servers"]] == ["connected"]
+    assert "select_project" not in json.dumps(init["tools"])  # a prompt is a command, never a tool
+
+
+def test_slash_expanded_reads_the_command_list_of_the_init_message_only() -> None:
+    assert slash_expanded(fixture_run(), "specflow-qa-probe0001")
+    assert slash_expanded(fixture_run("specflow-qa-run1"), "specflow-qa-run1")
+    assert not slash_expanded(fixture_run(), "specflow-qa-other")  # another server's prompt is not listed
+    assert not slash_expanded(canned(result_message()), AGENT_NAME)  # no init at all
+    assert not slash_expanded(canned(init_message(slash=()), result_message()), AGENT_NAME)
+
+
+def test_slash_expanded_tolerates_a_leading_slash_and_ignores_tool_calls() -> None:
+    assert slash_expanded(canned(init_message(slash=(f"/{SLASH}",)), result_message()), AGENT_NAME)
+    # an expanded prompt whose model never called list_projects is still expanded
+    assert slash_expanded(canned(init_message(), result_message()), AGENT_NAME)
+    # tool calls do not make an unlisted command expanded
+    assert not slash_expanded(canned(init_message(slash=()), *list_projects_calls(), result_message()), AGENT_NAME)
+
+
+def call_of(name: str, arguments: dict[str, Any] | None = None) -> ToolEvent:
+    return ToolEvent("call", "u", name, arguments, is_error=False)
+
+
+def test_tool_violations_allows_our_tools_reads_inside_the_workspace_and_writes_of_the_binding_file(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path.resolve()
+    events = [
+        call_of(LIST_PROJECTS),
+        call_of("ToolSearch"),
+        call_of("Read", {"file_path": str(root / ".specflow" / "config.json")}),
+        call_of("Read", {"file_path": "README.md"}),
+        call_of("Write", {"file_path": str(root / ".specflow" / "config.json")}),
+        call_of("Edit", {"file_path": ".specflow/config.json"}),
+        call_of("Edit", {"file_path": str(root / "src" / ".." / ".specflow" / "config.json")}),
+        call_of("MultiEdit", {"file_path": ".specflow/config.json"}),
+        ToolEvent("result", "u", "Bash", "x", is_error=False),  # a result is not a call
+    ]
+
+    assert tool_violations(events, AGENT_TOOLS, tmp_path) == []
+
+
+def test_tool_violations_names_every_other_call(tmp_path: Path) -> None:
+    elsewhere = str(tmp_path.parent / "elsewhere.txt")
+    events = [
+        call_of("Write", {"file_path": str(tmp_path / "other.txt")}),
+        call_of("Edit", {"file_path": elsewhere}),
+        call_of("Edit", {"file_path": "../.specflow/config.json"}),
+        call_of("NotebookEdit", {"notebook_path": "n.ipynb"}),
+        call_of("Write", {}),
+        call_of("Read", {"file_path": elsewhere}),
+        call_of("Read", {}),
+        call_of("Read", {"file_path": "../secrets.txt"}),
+        call_of("Bash", {"command": "ls"}),
+        call_of("Glob", {"pattern": "*"}),
+        call_of("mcp__other__list_projects"),
+        call_of(None),
+    ]
+
+    assert tool_violations(events, AGENT_TOOLS, tmp_path) == [
+        *["Write outside the binding file", "Edit outside the binding file", "Edit outside the binding file"],
+        *["NotebookEdit outside the binding file", "Write outside the binding file"],
+        *["Read outside the workspace", "Read outside the workspace", "Read outside the workspace"],
+        *[
+            "Bash is not allowed",
+            "Glob is not allowed",
+            "mcp__other__list_projects is not allowed",
+            "None is not allowed",
+        ],
+    ]
+
+
+def test_tool_violations_follows_a_symlink_out_of_the_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "ws"
+    (workspace / ".specflow").mkdir(parents=True)
+    outside = tmp_path / "outside.txt"
+    outside.write_text("x", encoding="utf-8")
+    (workspace / ".specflow" / "config.json").symlink_to(outside)
+    (workspace / "link.txt").symlink_to(outside)
+    events = [
+        call_of("Write", {"file_path": ".specflow/config.json"}),
+        call_of("Read", {"file_path": "link.txt"}),
+    ]
+
+    assert tool_violations(events, AGENT_TOOLS, workspace) == [
+        "Write outside the binding file",
+        "Read outside the workspace",
+    ]
+
+
+def test_workspace_snapshot_skips_git_and_stray_files_ignores_only_the_binding_file(tmp_path: Path) -> None:
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "HEAD").write_text("ref", encoding="utf-8")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.txt").write_text("a", encoding="utf-8")
+    (tmp_path / "keep.txt").write_text("k", encoding="utf-8")
+    write_binding(tmp_path, ALPHA_ID, "P-Alpha")
+    before = workspace_snapshot(tmp_path)
+
+    assert sorted(before) == [".specflow/config.json", "keep.txt", "src/a.txt"]
+    assert before["keep.txt"] == hashlib.sha256(b"k").hexdigest()
+    assert stray_files(before, workspace_snapshot(tmp_path)) == []
+
+    write_binding(tmp_path, BETA_ID, "P-Beta")
+    (tmp_path / "src" / "a.txt").write_text("changed", encoding="utf-8")
+    (tmp_path / "keep.txt").unlink()
+    (tmp_path / "new.txt").write_text("n", encoding="utf-8")
+    (tmp_path / ".git" / "HEAD").write_text("moved", encoding="utf-8")
+
+    assert stray_files(before, workspace_snapshot(tmp_path)) == ["keep.txt", "new.txt", "src/a.txt"]
+
+
+# The flow driver with a scripted agent --------------------------------------------------------------------------------
+
+
+class ScriptedAgent:
+    """A fake `run_prompt`: each prompt pops one handler, which may write files as the model would."""
+
+    def __init__(self, ctx: FlowContext, *handlers: Callable[[], list[dict]]) -> None:
+        self.ctx, self.handlers, self.argvs = ctx, list(handlers), list[list[str]]()
+
+    async def __call__(self, argv: Sequence[str], cwd: Path) -> PromptRun:
+        assert cwd == self.ctx.workspace
+        self.argvs.append(list(argv))
+        return canned(*self.handlers.pop(0)())
+
+    def prompts(self) -> list[str]:
+        return [argv[2] for argv in self.argvs]
+
+
+def good_flow(ctx: FlowContext) -> list[Callable[[], list[dict]]]:
+    def binds(project: str) -> Callable[[], list[dict]]:
+        def handler() -> list[dict]:
+            bind(ctx, project)
+            return bind_run(ctx)
+
+        return handler
+
+    return [binds("P-Alpha"), alpha_run, beta_run, binds("P-Empty"), empty_run]
+
+
+async def run_flow(ctx: FlowContext, agent: ScriptedAgent) -> list[StepRecord]:
+    return await WorkspaceFlow(ctx, agent, model="haiku", max_turns=4, max_budget_usd="0.25").run()
+
+
+async def test_a_good_flow_passes_five_prompts_through_the_slash_path_and_the_harness_binding(ctx: FlowContext) -> None:
+    agent = ScriptedAgent(ctx, *good_flow(ctx))
+
+    records = await run_flow(ctx, agent)
+
+    assert [(r.step, r.outcome, r.mode) for r in records] == [
+        ("1-bind-alpha", "passed", "slash"),
+        ("2-reuse-alpha", "passed", "-"),
+        ("3-foreign-beta", "passed", "-"),
+        ("4a-switch-empty", "passed", "slash"),
+        ("4b-reuse-empty", "passed", "-"),
+    ]
+    assert flow_failure(records) is None
+    assert agent.prompts() == [
+        f"/mcp__{AGENT_NAME}__select_project P-Alpha",
+        REUSE_PROMPT,
+        REUSE_PROMPT,
+        f"/mcp__{AGENT_NAME}__select_project P-Empty",
+        REUSE_PROMPT,
+    ]
+    allowed = ",".join([*AGENT_TOOLS, "Read", "Edit(./.specflow/**)"])
+    assert all(argv[argv.index("--allowedTools") + 1] == allowed for argv in agent.argvs)
+    assert all(
+        argv[argv.index("--model") + 1 : argv.index("--model") + 5] == ["haiku", "--max-turns", "4", "--max-budget-usd"]
+        for argv in agent.argvs
+    )
+    assert records[0].tool_calls == ("list_projects", "Write")
+    assert records[0].cost_usd == 0.0421 and records[1].duration_s >= 0
+    assert read_binding(ctx.binding)["project_id"] == EMPTY_ID
+
+
+async def test_the_harness_writes_the_p_beta_binding_before_step_3_and_the_agent_sees_it(ctx: FlowContext) -> None:
+    seen: list[str] = []
+
+    def beta_step() -> list[dict]:
+        seen.append(read_binding(ctx.binding)["project_name"])  # what the agent would read
+        return beta_run()
+
+    agent = ScriptedAgent(ctx, *good_flow(ctx))
+    agent.handlers[2] = beta_step
+
+    await run_flow(ctx, agent)
+
+    assert seen == ["P-Beta"]
+
+
+async def test_the_plain_request_is_used_only_when_the_stream_shows_the_slash_prompt_was_not_expanded(
+    ctx: FlowContext,
+) -> None:
+    def unexpanded() -> list[dict]:
+        return [init_message(slash=()), result_message(prose="That command is not installed.")]
+
+    handlers = good_flow(ctx)
+    agent = ScriptedAgent(ctx, unexpanded, *handlers)
+
+    records = await run_flow(ctx, agent)
+
+    assert [r.mode for r in records] == ["plain", "-", "-", "slash", "-"]
+    assert agent.prompts()[:2] == [
+        f"/mcp__{AGENT_NAME}__select_project P-Alpha",
+        "Bind this folder to the SpecFlow project P-Alpha",
+    ]
+    assert records[0].cost_usd == pytest.approx(0.0842)  # both runs are paid for
+    assert flow_failure(records) is None
+
+
+async def test_a_denied_call_in_the_unexpanded_slash_run_still_fails_the_step_after_the_plain_request(
+    ctx: FlowContext,
+) -> None:
+    def tries_bash() -> list[dict]:
+        return [init_message(slash=()), stream_call("b1", "Bash", {"command": "ls"}), result_message()]
+
+    def plain_bind() -> list[dict]:
+        bind(ctx, "P-Alpha")
+        return bind_run(ctx)
+
+    agent = ScriptedAgent(ctx, tries_bash, plain_bind)
+
+    records = await run_flow(ctx, agent)
+
+    assert [(r.step, r.outcome, r.mode) for r in records] == [("1-bind-alpha", "failed", "plain")]
+    assert "Bash is not allowed" in records[0].note and len(agent.argvs) == 2
+
+
+async def test_a_runner_that_raises_propagates_and_keeps_the_steps_that_finished(ctx: FlowContext) -> None:
+    handlers = good_flow(ctx)
+    agent = ScriptedAgent(ctx, handlers[0], lambda: (_ for _ in ()).throw(QaError("claude is not on PATH")))
+    flow = WorkspaceFlow(ctx, agent)
+
+    with pytest.raises(QaError, match="not on PATH"):
+        await flow.run()
+
+    assert [(r.step, r.outcome) for r in flow.records] == [("1-bind-alpha", "passed")]
+
+
+@pytest.mark.parametrize(
+    ("index", "replacement", "step", "reason"),
+    [
+        (1, lambda _ctx: alpha_run(*list_projects_calls("p9")), "2-reuse-alpha", "assertion: list_projects was called"),
+        (2, lambda _ctx: beta_run(code="invalid_cursor"), "3-foreign-beta", "assertion: P-Beta answers"),
+        (4, lambda _ctx: empty_run(total=2), "4b-reuse-empty", "assertion: P-Empty answers"),
+    ],
+    ids=["step-2", "step-3", "step-4b"],
+)
+async def test_the_flow_stops_at_the_first_failed_step_and_names_it(
+    ctx: FlowContext, index: int, replacement: Callable[[FlowContext], list[dict]], step: str, reason: str
+) -> None:
+    handlers = good_flow(ctx)
+    handlers[index] = lambda: replacement(ctx)
+    agent = ScriptedAgent(ctx, *handlers)
+
+    records = await run_flow(ctx, agent)
+
+    assert records[-1].step == step and records[-1].outcome == "failed" and reason in records[-1].note
+    assert len(agent.argvs) == len(records)  # nothing ran after the failed step
+    assert flow_failure(records) == f"{step}: {records[-1].note}"
+
+
+async def test_a_file_written_outside_the_binding_file_fails_the_step(ctx: FlowContext) -> None:
+    def noisy() -> list[dict]:
+        (ctx.workspace / "notes.txt").write_text("x", encoding="utf-8")
+        return alpha_run()
+
+    handlers = good_flow(ctx)
+    handlers[1] = noisy
+    records = await run_flow(ctx, ScriptedAgent(ctx, *handlers))
+
+    assert records[-1].outcome == "failed" and "outside the binding file: 1" in records[-1].note
+
+
+async def test_a_run_that_cannot_answer_is_recorded_as_a_precondition(ctx: FlowContext) -> None:
+    class TimedOut(ScriptedAgent):
+        async def __call__(self, _argv: Sequence[str], _cwd: Path) -> PromptRun:
+            return replace(canned(init_message(), result_message()), timed_out=True)
+
+    (record,) = await run_flow(ctx, TimedOut(ctx))
+
+    assert (record.outcome, record.note) == ("failed", "precondition: the prompt timed out")
+
+
+def test_flow_failure_names_a_short_flow() -> None:
+    record = StepRecord("1-bind-alpha", "passed", (), 0.1, 0.0, "slash")
+
+    assert flow_failure([record]) == "the flow stopped after 1 of 5 steps"
+    assert flow_failure([]) == "the flow stopped after 0 of 5 steps"
+
+
+def test_step_result_puts_mode_cost_tools_and_the_safe_prose_in_the_report_row(tmp_path: Path) -> None:
+    record = StepRecord(
+        "2-reuse-alpha",
+        "failed",
+        ("Read", "list_features"),
+        1.2345,
+        0.5,
+        "-",
+        "assertion: a",
+        "see https://example.com x@y.z",
+    )
+
+    row = step_result(record, 2)
+
+    assert (row.scenario, row.outcome, row.duration_ms) == ("run2-2-reuse-alpha", "failed", 1234.5)
+    assert row.note == "- cost_usd=0.5000 tools=Read,list_features assertion: a see [url] [email]"
+    path = write_report(RunReport("r1", "agent-flow", [row], {}), tmp_path)  # a report row never trips the secret guard
+    assert "run2-2-reuse-alpha" in path.read_text(encoding="utf-8")
 
 
 # T2 and T3: the E14 partial numbers and the report saver ----------------------------------------

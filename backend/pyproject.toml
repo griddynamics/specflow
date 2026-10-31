@@ -69,6 +69,7 @@ dev = [
     "pytest-asyncio>=1.4.1",
     "ruff>=0.17.2",
     "types-httplib2>=0.32.0.20260720",
+    "types-jsonschema>=4.26.0.20261006",
     "types-pyyaml>=6.0.12.20260906",
 ]
 
