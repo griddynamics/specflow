@@ -201,6 +201,7 @@ class UnserializableList(BaseModel):
 def probe(handler: Any, output: type[BaseModel] = ProbeList, *, scoped: bool = True) -> ToolDeclaration:
     return ToolDeclaration(
         name="probe",
+        summary="A test tool.",
         description="a test tool",
         arguments=graph.ListFeaturesArgs if scoped else projects.ListProjectsArgs,
         output=output,
@@ -343,6 +344,7 @@ async def test_a_scoped_declaration_without_a_project_id_argument_is_internal_er
     steps = Steps(monkeypatch)
     declaration = ToolDeclaration(
         name="probe",
+        summary="A test tool.",
         description="a test tool",
         arguments=projects.ListProjectsArgs,
         output=ProbeList,

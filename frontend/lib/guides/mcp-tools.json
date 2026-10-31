@@ -1,0 +1,26 @@
+{
+  "prompts": [
+    {
+      "arguments": [
+        {
+          "name": "project",
+          "required": false
+        }
+      ],
+      "name": "select_project",
+      "summary": "Binds the current repository to one of your SpecFlow projects."
+    }
+  ],
+  "tools": [
+    {
+      "name": "list_projects",
+      "read_only": true,
+      "summary": "Lists the SpecFlow projects you are a member of, newest first."
+    },
+    {
+      "name": "list_features",
+      "read_only": true,
+      "summary": "Lists the features in a project's specification graph."
+    }
+  ]
+}

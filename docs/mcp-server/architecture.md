@@ -44,7 +44,7 @@ flowchart TB
 | PRM endpoint | Serves the protected resource metadata document | own route |
 | MCP server | Tool registry, input schemas, tool annotations, prompts, server instructions, JSON-RPC handling | `mcp` SDK `MCPServer` |
 | Tool registry | One declaration per tool; applies the audit event, error mapping, user provisioning and membership check to every tool in one place ([Tool registry](#tool-registry)) | MCP SDK `MCPServer` |
-| Manifest | Renders the tool and prompt summaries for the web app ([Tool registry](#tool-registry)); a plain function of the registry, no SDK types | Tool registry |
+| Manifest | Renders the tool and prompt summaries for the web app ([Tool registry](#tool-registry)); `render_manifest` in `registry.py`, a plain function of the declarations, no SDK types | Tool registry |
 | Guidance | The server instructions and the `select_project` prompt text that tell an agent how to use the workspace binding ([tools.md](tools.md#workspace-binding)); plain functions of `MCP_RESOURCE_URL` and the optional `project` argument, with no SDK import and no data access | none |
 | Tools | Validate arguments, read, shape the result; one module per domain ([tools.md](tools.md)) | access, reader |
 | Membership check | One function every project-scoped tool calls before any read ([access-control.md](access-control.md)) | `db.repositories.get_member_project` |
@@ -73,8 +73,7 @@ The code lives in a subpackage of the HTTP layer: `backend/src/api/mcp/`. Module
 | `api/mcp/runtime.py` | The slim runtime and its factory |
 | `api/mcp/http.py` | The JSON error envelope, the probe bodies, the invariant check (`required`, `McpInvariantError`) and the per-request id middleware |
 | `api/mcp/auth.py` | Guard and PRM |
-| `api/mcp/registry.py` | Tool declarations and their registration with the cross-cutting checks; the prompt declarations |
-| `api/mcp/manifest.py` | The manifest renderer: the summaries of the registry's tools and prompts as stable JSON; imports no SDK |
+| `api/mcp/registry.py` | Tool declarations and their registration with the cross-cutting checks; the prompt declarations; the manifest renderer (`render_manifest`, plain data and stable JSON, no SDK types) |
 | `api/mcp/guidance.py` | The server instructions and the prompt text, as plain functions; imports no SDK |
 | `api/mcp/tools/` | Tool handlers, one module per domain (`projects`, `graph`; later `plan`) |
 | `api/mcp/errors.py` | Tool error codes and the sanitizing mapper |

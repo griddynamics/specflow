@@ -2,7 +2,7 @@
 ENV_FILE ?= ../.env.local
 
 .PHONY: setup lint unit-test check \
-	db-upgrade db-revision api worker temporal-check image-test rss-test
+	db-upgrade db-revision mcp-manifest api worker temporal-check image-test rss-test
 
 setup:
 	uv sync --extra gcp --extra aws
@@ -14,6 +14,10 @@ unit-test:
 	uv run pytest
 
 check: lint unit-test
+
+# Rewrites frontend/lib/guides/mcp-tools.json from the MCP registry (a test fails when it is stale).
+mcp-manifest:
+	uv run python tests/mcp_manifest_support.py
 
 db-upgrade:
 	uv run --env-file $(ENV_FILE) alembic upgrade head

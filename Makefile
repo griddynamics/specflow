@@ -88,7 +88,7 @@ KIT_ENV := env -u VIRTUAL_ENV
 
 # Python targets run in backend/ (ENV_FILE is passed down); compose is root-only.
 BACKEND_TARGETS := setup lint unit-test check \
-	db-upgrade db-revision \
+	db-upgrade db-revision mcp-manifest \
 	api worker temporal-check rss-test
 
 .PHONY: $(BACKEND_TARGETS) env-local check-keycloak-env up down down-volumes logs ps images \

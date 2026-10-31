@@ -14,6 +14,7 @@ two tools or prompts with one name and says nothing, so ``install`` refuses a du
 from __future__ import annotations
 
 import inspect
+import json
 import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
@@ -43,9 +44,13 @@ READ_ONLY: Final = ToolAnnotations(
 
 @dataclass(frozen=True)
 class ToolDeclaration:
-    """A tool: its name, whether it takes a ``project_id``, its schemas, description and handler."""
+    """A tool: its name, whether it takes a ``project_id``, its schemas, description and handler.
+
+    ``summary`` is the one line for people (the web app's guide); ``description`` is what agents read.
+    """
 
     name: str
+    summary: str
     description: str
     arguments: type[BaseModel]
     output: type[BaseModel]
@@ -57,6 +62,7 @@ class ToolDeclaration:
 TOOLS: Final[tuple[ToolDeclaration, ...]] = (
     ToolDeclaration(
         name="list_projects",
+        summary="Lists the SpecFlow projects you are a member of, newest first.",
         description=projects.DESCRIPTION,
         arguments=projects.ListProjectsArgs,
         output=projects.ProjectList,
@@ -65,6 +71,7 @@ TOOLS: Final[tuple[ToolDeclaration, ...]] = (
     ),
     ToolDeclaration(
         name="list_features",
+        summary="Lists the features in a project's specification graph.",
         description=graph.DESCRIPTION,
         arguments=graph.ListFeaturesArgs,
         output=graph.FeatureList,
@@ -76,12 +83,15 @@ TOOLS: Final[tuple[ToolDeclaration, ...]] = (
 
 @dataclass(frozen=True)
 class PromptDeclaration:
-    """A prompt: its name and description, its one optional argument, and the render of its text.
+    """A prompt: its name, summary and description, its one optional argument, and the render of its text.
+
+    ``summary`` is the one line for people; ``description`` is what agents read.
 
     ``render(resource_url, argument)`` gets ``None`` when the caller sent no argument.
     """
 
     name: str
+    summary: str
     description: str
     argument: str
     argument_description: str
@@ -91,12 +101,40 @@ class PromptDeclaration:
 PROMPTS: Final[tuple[PromptDeclaration, ...]] = (
     PromptDeclaration(
         name=guidance.SELECT_PROJECT_NAME,
+        summary="Binds the current repository to one of your SpecFlow projects.",
         description=guidance.SELECT_PROJECT_DESCRIPTION,
         argument=guidance.PROJECT_ARGUMENT,
         argument_description=guidance.PROJECT_ARGUMENT_DESCRIPTION,
         render=guidance.render_select_project,
     ),
 )
+
+
+def render_manifest(
+    tools: Sequence[ToolDeclaration] = TOOLS, prompts: Sequence[PromptDeclaration] = PROMPTS
+) -> dict[str, Any]:
+    """The manifest the web app's guide reads, as plain data in declaration order.
+
+    Names, summaries and flags only: no description (it carries the untrusted-content notices) and no schema.
+    """
+
+    return {
+        "tools": [
+            {"name": t.name, "summary": t.summary, "read_only": t.annotations.read_only_hint is True} for t in tools
+        ],
+        "prompts": [
+            {"name": p.name, "summary": p.summary, "arguments": [{"name": p.argument, "required": False}]}
+            for p in prompts
+        ],
+    }
+
+
+def render_manifest_json(
+    tools: Sequence[ToolDeclaration] = TOOLS, prompts: Sequence[PromptDeclaration] = PROMPTS
+) -> str:
+    """The committed file's exact text: sorted keys, two-space indent, UTF-8 characters, one trailing newline."""
+
+    return json.dumps(render_manifest(tools, prompts), indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 
 
 def _result(model: BaseModel) -> CallToolResult:
