@@ -82,6 +82,38 @@ sign-in.
 | `list_projects` is empty | signed in with another IdP account, or not a member of any project |
 | Tools disappear after a while | the session ended at the IdP; sign in again |
 
+### Local endpoint
+
+Use `localhost`, never `127.0.0.1` (`421`). The server is named `specflow-local`, so it does not clash with a
+production `specflow` entry. Switching modes needs `claude mcp remove specflow-local --scope local` and a new add.
+
+Dev mode (`make up`), from the repository root. The token is valid 8 hours; add it again after it expires:
+
+```bash
+claude mcp add --transport http --scope local specflow-local http://localhost:8002/mcp --header "Authorization: Bearer $(cd backend && uv run --quiet --env-file ../.env.local python examples/mcp_qa.py dev-token dev@example.com)"
+```
+
+Run the `dev-token` command alone first and check that it prints exactly one line: an empty token would register a
+server with an empty header. The token is stored in the local Claude Code config. Keep the name and URL before
+`--header`, which takes every argument after it. `dev@example.com` is the default `LOCAL_TEST_USER_EMAIL`, the web
+app's dev-login user; use your value if you changed it, so Claude Code and the web app see the same projects. For a token
+that refreshes, use an uncommitted `.mcp.json` entry with a `headersHelper` (Claude Code runs it in a trusted workspace;
+the helper's working directory was not verified, so give the path of the repository explicitly):
+
+```json
+{"mcpServers": {"specflow-local": {"type": "http", "url": "http://localhost:8002/mcp",
+  "headersHelper": "cd <repository>/backend && uv run --quiet --env-file ../.env.local python examples/mcp_qa.py dev-token dev@example.com --headers"}}}
+```
+
+Keycloak (`make up WITH=keycloak`): seed the QA users once, and again after any Keycloak recreate, then add the server
+and sign in as `alice@example.com` with `KEYCLOAK_QA_PASSWORD` from `.env.local`:
+
+```bash
+cd backend && uv run --env-file ../.env.local python examples/mcp_qa.py seed
+claude mcp add --transport http --scope local --client-id specflow-mcp --callback-port 8765 specflow-local http://localhost:8002/mcp
+claude mcp login specflow-local
+```
+
 ## Local stack
 
 `make up` always starts the `mcp` role, in dev mode like the web app: the same dev-login users and the same projects.

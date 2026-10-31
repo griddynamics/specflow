@@ -42,6 +42,7 @@ Node.js 20.9 or newer.
    make up                          # you already run Temporal on localhost:7233
    make up WITH=temporal            # start a bundled Temporal too
    make up WITH=temporal,langfuse   # bundled Temporal and Langfuse
+   make up WITH=keycloak            # the local Keycloak too (MCP sign-in)
    ```
 
    `make up` builds the images, starts the services and waits until they are healthy.
@@ -63,6 +64,7 @@ the local databases and files: use it only for a clean start.
 |---|---|---|
 | `frontend` | 3001 | Next.js web app |
 | `api` | 8000 | FastAPI: projects, sources, uploads, workflow starts, the knowledge-graph build; runs the database migrations on start |
+| `mcp` | 8002 | MCP endpoint for coding agents such as Claude Code: read-only project tools; dev login, or Keycloak sign-in with `WITH=keycloak` |
 | `worker-parse` | - | Temporal worker: PDF to Markdown |
 | `worker-agents` | - | Temporal worker: AI summaries |
 | `postgres` | 5433 | Projects, documents, Markdown, summaries |
@@ -70,8 +72,20 @@ the local databases and files: use it only for a clean start.
 | `rustfs` | 19000 | Local S3-compatible object storage for uploaded files |
 | `temporal` (with `WITH=temporal`) | 7233, 8233 (UI) | Bundled Temporal dev server |
 | `langfuse-*` (with `WITH=langfuse`) | 3000 | Bundled Langfuse for traces |
+| `keycloak` (with `WITH=keycloak`) | 8180 | Local identity provider for the MCP sign-in |
 
 All ports bind to `127.0.0.1` only.
+
+Connect Claude Code to the local MCP endpoint (dev mode, from the repository root; the token is valid 8 hours and is
+stored in the Claude Code config). Run the `dev-token` command alone first and check that it prints exactly one line.
+The name and URL come before `--header`, which takes every argument after it. Use your `LOCAL_TEST_USER_EMAIL`
+(default `dev@example.com`) in place of `dev@example.com` if you changed it:
+
+```shell
+claude mcp add --transport http --scope local specflow-local http://localhost:8002/mcp --header "Authorization: Bearer $(cd backend && uv run --quiet --env-file ../.env.local python examples/mcp_qa.py dev-token dev@example.com)"
+```
+
+For the Keycloak sign-in, see [Local endpoint](docs/mcp-server/deployment.md#local-endpoint).
 
 ## Architecture
 

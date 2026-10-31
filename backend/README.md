@@ -42,6 +42,8 @@ uv run --env-file ../.env.local specflow api                  # uvicorn on 0.0.0
 uv run --env-file ../.env.local specflow worker               # polls WORKER_QUEUES (default parse,agents)
 uv run --env-file ../.env.local specflow worker --queue parse # one queue only (repeatable)
 uv run --env-file ../.env.local specflow migrate              # alembic upgrade head; a second run is a no-op
+uv run --env-file ../.env.local specflow mcp                  # MCP endpoint on 0.0.0.0:$MCP_PORT (default 8002)
+uv run --env-file ../.env.local specflow mcp --check-config   # settings and guards only: exit 0, or 2
 uv run --env-file ../.env.local specflow api --check-config   # settings and guards only, no network: exit 0, or 2
 uv run --env-file ../.env.local specflow worker --check [--queue agents]   # live probes: exit 0 or 1
 ```
@@ -52,8 +54,10 @@ variables, never their values.
 
 ### Settings and guards
 
-Each role requires only its own variables (`api`, `worker`, `migrate`); a worker
+Each role requires only its own variables (`api`, `worker`, `migrate`, `mcp`); a worker
 that polls `agents` also needs Neo4j, the LLM gateway and the agent database password.
+`mcp` needs `MCP_RESOURCE_URL` (https outside local) plus the database, Neo4j and auth
+variables, never Temporal, storage or the LLM gateway.
 Outside `APP_ENV=local` startup is refused for: `AUTH_MODE=dev`, a dev signing
 key, a non-https issuer, a JWKS URL on another host, a `STORAGE_PREFIX` that does
 not end in `/` or starts with `dev/local/`, an empty secret, or `specflow-smoke`
@@ -136,6 +140,36 @@ MCP servers, hooks, sandbox configuration, extra environment values, stderr
 callbacks, additional directories, and streamed event controls. Subagents
 inherit the parent model by default; model mismatches and unconstrained
 subagent tools require their own explicit opt-ins.
+
+## MCP server
+
+The `mcp` role serves the read-only project tools to coding agents such as Claude Code over MCP
+(streamable HTTP, path `/mcp`). Design, auth and operations: [MCP server](../docs/mcp-server/INDEX.md).
+Its settings are in [configuration](../docs/configuration.md).
+
+Local run, from the repository root:
+
+```shell
+make up                  # mcp in dev mode on http://localhost:8002/mcp, with the dev-login users
+make up WITH=keycloak    # also the local Keycloak; only mcp switches to oidc against it
+```
+
+Probes: `GET /healthz` (liveness) and `GET /readyz` (database and Neo4j) on port 8002. Clients use
+`localhost`, not `127.0.0.1`: on `/mcp` another `Host` answers `421`.
+
+Claude Code, with a dev token (dev mode) or the Keycloak sign-in: see
+[Local endpoint](../docs/mcp-server/deployment.md#local-endpoint).
+
+QA commands, from `backend/` with the stack up (a token is printed alone on its line, nothing else is):
+
+```shell
+uv run --env-file ../.env.local python examples/mcp_qa.py seed [--mode keycloak|dev]
+uv run --env-file ../.env.local python examples/mcp_qa.py token alice [--client mcp|web]
+uv run --env-file ../.env.local python examples/mcp_qa.py dev-token alice@example.com [--client mcp|web] [--headers]
+```
+
+The live tiers `SPECFLOW_TEST_MCP_E2E` and `SPECFLOW_TEST_MCP_CLAUDE` are described in
+[testing](../docs/mcp-server/testing.md#tiers).
 
 ## Native OS sandbox
 

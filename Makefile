@@ -9,9 +9,9 @@ FRONTEND_PORT ?= $(or $(call envval,FRONTEND_PORT),3001)
 E2E_BASE_URL ?= $(or $(call envval,E2E_BASE_URL),http://localhost:$(FRONTEND_PORT))
 
 # Optional bundled services (D32): `make up WITH=temporal,langfuse` (either one, or both). `WITH=keycloak`
-# adds the local Keycloak of the MCP QA tiers (docs/mcp-server/deployment.md#local-stack). Without
-# WITH the stack uses your own Temporal (TEMPORAL_ADDRESS, default host.docker.internal:7233 in
-# the containers) and your own Langfuse (LANGFUSE_BASE_URL and keys, empty = no tracing).
+# adds the local Keycloak of the MCP QA tiers and switches only `mcp` to `oidc`
+# (docs/mcp-server/deployment.md#local-stack). Without WITH the stack uses your own Temporal
+# (TEMPORAL_ADDRESS, default host.docker.internal:7233 in the containers) and your own Langfuse (LANGFUSE_BASE_URL and keys, empty = no tracing).
 # down, ps and logs always cover every profile, so they act on what `up` started.
 comma := ,
 space := $(empty) $(empty)
@@ -57,7 +57,15 @@ COMPOSE_TEMPORAL_ADDRESS := $(if $(filter temporal,$(WITH_LIST)),specflow-tempor
 # host default above (localhost:7233) is NOT passed to the containers.
 LANGFUSE_PUBLIC_KEY_LOCAL = $(or $(call envval,LANGFUSE_PUBLIC_KEY),pk-lf-specflow-local)
 LANGFUSE_SECRET_KEY_LOCAL = $(or $(call envval,LANGFUSE_SECRET_KEY),sk-lf-specflow-local)
-COMPOSE_ENV = env -u TEMPORAL_ADDRESS \
+# The mcp service reads its own compose names (MCP_AUTH_MODE, MCP_OIDC_ISSUER, MCP_AUTH_JWKS_URL,
+# MCP_AUTH_DEV_SIGNING_KEY), never the shared AUTH_* and OIDC_* names that api and frontend
+# read (they keep dev login). They are cleared from your shell and set only by WITH=keycloak:
+# plain `make up` always runs mcp in dev mode.
+KEYCLOAK_ISSUER := http://localhost:8180/realms/specflow
+MCP_OIDC_ENV := MCP_AUTH_MODE=oidc MCP_OIDC_ISSUER=$(KEYCLOAK_ISSUER) \
+	MCP_AUTH_JWKS_URL=http://specflow-keycloak:8080/realms/specflow/protocol/openid-connect/certs MCP_AUTH_DEV_SIGNING_KEY=
+COMPOSE_ENV = env -u TEMPORAL_ADDRESS -u MCP_AUTH_MODE -u MCP_OIDC_ISSUER -u MCP_AUTH_JWKS_URL -u MCP_AUTH_DEV_SIGNING_KEY \
+	$(if $(filter keycloak,$(WITH_LIST)),$(MCP_OIDC_ENV)) \
 	$(if $(COMPOSE_TEMPORAL_ADDRESS),TEMPORAL_ADDRESS=$(COMPOSE_TEMPORAL_ADDRESS)) \
 	$(if $(filter langfuse,$(WITH_LIST)),LANGFUSE_BASE_URL=http://specflow-langfuse-web:3000 LANGFUSE_PUBLIC_KEY=$(LANGFUSE_PUBLIC_KEY_LOCAL) LANGFUSE_SECRET_KEY=$(LANGFUSE_SECRET_KEY_LOCAL)) \
 	$(if $(WITH_LIST),COMPOSE_PROFILES=$(subst $(space),$(comma),$(strip $(WITH_LIST))))
@@ -121,8 +129,9 @@ env-local:
 	echo "env-local: add AGENT_MODEL, LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY to $(ENV_FILE) (docs/configuration.md)"
 
 # Build and start the stack and wait until all services are healthy: postgres, neo4j, rustfs,
-# rustfs-init, api, worker-parse, worker-agents, frontend. `WITH=temporal,langfuse` adds the
-# bundled Temporal and Langfuse, `WITH=keycloak` the local Keycloak. Logs are JSON on stdout only (`make logs`).
+# rustfs-init, api, mcp (dev mode), worker-parse, worker-agents, frontend. `WITH=temporal,langfuse`
+# adds the bundled Temporal and Langfuse, `WITH=keycloak` the local Keycloak and switches mcp to
+# oidc against it. Logs are JSON on stdout only (`make logs`).
 up:
 	$(COMPOSE) up -d --build --wait --wait-timeout 600
 

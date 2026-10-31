@@ -99,6 +99,8 @@ ENV_READERS = (
     "examples/graph_build.py",
     "examples/gcs_connectivity.py",
     "examples/temporal_hello.py",
+    "examples/mcp_qa_lib.py",
+    "examples/mcp_qa.py",
 )
 ENV_NAME = re.compile(r"^[A-Z][A-Z0-9]*(_[A-Z0-9]+)+$")
 # Upper-case string constants in those files that are not environment names.

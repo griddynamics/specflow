@@ -1,7 +1,7 @@
 """Compose and image checks (AC-13.x static, AC-14.x, AC-16.5).
 
-The local stack (``docker-compose.yml``) mirrors the deployment: the same six services,
-images and variables.
+The local stack (``docker-compose.yml``) mirrors the deployment: the same services (``mcp`` runs
+from the api image), images and variables.
 Static checks read the repo files and need no docker. The image tests are gated by
 ``SPECFLOW_TEST_IMAGES=1`` (``make images`` builds the images and runs them): they start
 the built images with synthetic, otherwise valid NON-local settings and ``AUTH_MODE=dev``
@@ -34,6 +34,7 @@ import yaml
 from google.auth.credentials import AnonymousCredentials
 from google.cloud import storage
 
+from runtime_defaults_support import RUNTIME_DEFAULTS
 from settings import StorageSettings
 from storage.base import CHUNK_SIZE
 from storage.gcs import GcsObjectStore
@@ -75,6 +76,7 @@ LOCAL_PLATFORM = {
     "langfuse-web",
 }
 BACKEND_SERVICES = ("api", "worker-parse", "worker-agents")
+MCP_SERVICE = "mcp"  # the api image with `specflow mcp`; no Temporal, storage or LLM variables
 
 images_enabled = os.environ.get("SPECFLOW_TEST_IMAGES") == "1"
 needs_docker = pytest.mark.skipif(
@@ -106,9 +108,9 @@ def env_of(service: dict) -> dict[str, str]:
 # --- static: compose (no docker) -----------------------------------------------------
 
 
-def test_the_stack_is_the_six_deployments_plus_the_local_platform_services():
+def test_the_stack_is_the_built_services_the_databases_mcp_and_the_local_platform_services():
     svcs = services()
-    assert set(svcs) == set(BUILT) | set(PUBLIC) | LOCAL_PLATFORM
+    assert set(svcs) == set(BUILT) | set(PUBLIC) | LOCAL_PLATFORM | {MCP_SERVICE}
     for name, svc in svcs.items():
         assert svc["container_name"] == f"specflow-{name}", name
     assert compose()["name"] == "specflow"
@@ -147,7 +149,17 @@ def test_the_file_uses_no_anchors_merge_keys_or_extension_fields():
             assert current.startswith("langfuse-"), (current, line)
 
 
-DEFAULT_SERVICES = {"postgres", "neo4j", "rustfs", "rustfs-init", "api", "worker-parse", "worker-agents", "frontend"}
+DEFAULT_SERVICES = {
+    "postgres",
+    "neo4j",
+    "rustfs",
+    "rustfs-init",
+    "api",
+    "mcp",
+    "worker-parse",
+    "worker-agents",
+    "frontend",
+}
 LANGFUSE_SERVICES = {f"langfuse-{n}" for n in ("postgres", "clickhouse", "redis", "minio", "worker", "web")}
 
 
@@ -179,6 +191,20 @@ def test_the_app_reaches_an_external_temporal_and_langfuse_by_default():
 def test_make_up_with_selects_the_profiles_and_points_the_app_at_them():
     makefile = (ROOT / "Makefile").read_text()
     assert "COMPOSE_PROFILES=temporal,langfuse,keycloak" in makefile  # down, ps, logs cover every profile
+    for needle in (
+        "MCP_AUTH_MODE=oidc",
+        "MCP_OIDC_ISSUER=$(KEYCLOAK_ISSUER)",
+        "KEYCLOAK_ISSUER := http://localhost:8180/realms/specflow",
+        "specflow-keycloak:8080/realms/specflow/protocol/openid-connect/certs",
+        "-u MCP_AUTH_MODE",
+        "-u MCP_OIDC_ISSUER",
+        "-u MCP_AUTH_JWKS_URL",
+        "-u MCP_AUTH_DEV_SIGNING_KEY",
+    ):
+        assert needle in makefile, needle
+    assert re.search(r"MCP_AUTH_DEV_SIGNING_KEY=(\s|$)", makefile, re.MULTILINE)  # an empty dev key under oidc
+    # The shared names are never assigned: api and frontend read them too and would leave dev login.
+    assert not re.search(r"(?<![A-Z_])(AUTH_MODE|OIDC_ISSUER|AUTH_JWKS_URL|AUTH_DEV_SIGNING_KEY)=", makefile)
     assert "specflow-temporal:7233" in makefile
     assert "LANGFUSE_BASE_URL=http://specflow-langfuse-web:3000" in makefile
     recipe_uses_all_profiles = r"^{}:.*\n(?:\t@?if[^\n]*\n(?:\t[^\n]*\n)*?)?\t[^\n]*\$\(COMPOSE_ALL\)"
@@ -203,11 +229,12 @@ def test_every_published_port_is_loopback_and_never_3000_8080_or_5432():
             host_port = text.split(":")[1]
             if (name, text) != ("langfuse-web", "127.0.0.1:3000:3000"):
                 assert not re.fullmatch(r"(3000|8080|5432)", host_port), (name, text)
-    expected = {"postgres", "neo4j", "api", "frontend", "temporal", "langfuse-web", "rustfs", "keycloak"}
+    expected = {"postgres", "neo4j", "api", "frontend", "temporal", "langfuse-web", "rustfs", "keycloak", "mcp"}
     assert {name for name, _ in seen} == expected
     assert services()["frontend"]["ports"] == ["127.0.0.1:${FRONTEND_PORT:-3001}:3000"]
     assert services()["rustfs"]["ports"] == ["127.0.0.1:${RUSTFS_HOST_PORT:-19000}:9000"]
     assert services()["keycloak"]["ports"] == ["127.0.0.1:8180:8080"]
+    assert services()["mcp"]["ports"] == ["127.0.0.1:8002:8002"]
 
 
 def test_services_list_their_variables_explicitly():
@@ -238,9 +265,10 @@ def test_secret_variables_reach_only_their_roles():
     assert holders("DATABASE_AGENT_PASSWORD") == {"postgres", "worker-agents"}
     # The api runs the graph build in-process (POST /projects/{pid}/graph_build).
     assert holders("LLM_GATEWAY_API_KEY") == {"api", "worker-agents"}
-    assert holders("NEO4J_PASSWORD") == {"api", "worker-agents"}
+    assert holders("NEO4J_PASSWORD") == {"api", "worker-agents", "mcp"}
+    assert holders("DATABASE_PASSWORD") == {"postgres", "api", "worker-parse", "worker-agents", "mcp"}
     assert holders("POSTGRES_PASSWORD") == {"postgres", "langfuse-postgres"}  # the latter is its own store
-    assert holders("AUTH_DEV_SIGNING_KEY") == {"api", "frontend"}
+    assert holders("AUTH_DEV_SIGNING_KEY") == {"api", "frontend", "mcp"}
     assert holders("KC_BOOTSTRAP_ADMIN_PASSWORD") == {"keycloak"}
     allowed = {"SESSION_SECRET", "OIDC_CLIENT_SECRET", "AUTH_DEV_SIGNING_KEY"}
     secrets = {
@@ -308,6 +336,39 @@ def test_rustfs_is_pinned_needs_both_keys_and_has_a_one_shot_bucket_init():
     assert env_of(init)["INIT_BUCKET"] == "specflow-local"
 
 
+def test_the_mcp_role_runs_the_api_image_in_dev_mode_unless_make_switches_it():
+    """FR-MCP-OPS-08: dev mode by default; WITH=keycloak sets the MCP_* names, only this service changes."""
+
+    svcs = services()
+    svc = svcs[MCP_SERVICE]
+    env = env_of(svc)
+    port = RUNTIME_DEFAULTS["MCP_PORT"]
+    assert svc["build"] == svcs["api"]["build"]
+    assert svc["image"] == svcs["api"]["image"]
+    assert svc["command"] == ["specflow", "mcp"]
+    assert "volumes" not in svc and "extra_hosts" not in svc
+    assert f"http://127.0.0.1:{port}/readyz" in " ".join(svc["healthcheck"]["test"])
+    assert env["APP_ENV"] == "${APP_ENV:-local}"
+    assert env["MCP_PORT"] == str(port)
+    assert env["MCP_RESOURCE_URL"] == f"http://localhost:{port}/mcp"
+    assert env["DATABASE_HOST"] == "specflow-postgres"
+    assert env["NEO4J_URI"] == "bolt://specflow-neo4j:7687"
+    assert env["AUTH_MODE"] == "${MCP_AUTH_MODE:-dev}"
+    # Set-but-empty wins. The repo has no compose-interpolation renderer for unit tests (and `make check` takes no
+    # docker dependency), so unset/empty/set rendering is proven by the recorded stack evidence (06-handoff.md).
+    assert env["AUTH_DEV_SIGNING_KEY"] == "${MCP_AUTH_DEV_SIGNING_KEY-${AUTH_DEV_SIGNING_KEY:-}}"
+    assert env["OIDC_ISSUER"] == "${MCP_OIDC_ISSUER:-}"
+    assert env["AUTH_JWKS_URL"] == "${MCP_AUTH_JWKS_URL:-}"
+    prefixes = ("TEMPORAL_", "AWS_", "LLM_", "LANGFUSE_", "GRAPH_", "AGENT_", "DATABASE_AGENT_")
+    assert [key for key in env if key.startswith(prefixes) or key == "SPECFLOW_CONFIG_FILE"] == []
+    claims = {"AUTH_SUBJECT_CLAIM", "AUTH_CLIENT_ID_CLAIM", "AUTH_EMAIL_CLAIM", "AUTH_EMAIL_VERIFIED_CLAIM"}
+    claims |= {"AUTH_TOKEN_TYPE", "AUTH_IGNORED_AUDIENCES"}  # an empty fallback would switch a check off
+    assert [name for name, other in svcs.items() if claims & set(env_of(other))] == []
+    assert sorted(key for key, value in env.items() if ":?" in str(value)) == ["DATABASE_PASSWORD", "NEO4J_PASSWORD"]
+    for name in ("api", "frontend"):
+        assert env_of(svcs[name])["AUTH_MODE"] == "${AUTH_MODE:-dev}", name  # the web app and the API keep dev login
+
+
 def test_keycloak_is_pinned_optional_and_imports_the_realm_read_only():
     """Local OIDC provider of the MCP QA tiers: digest-pinned, realm file mounted read-only, no secret in compose."""
 
@@ -330,14 +391,15 @@ def test_keycloak_is_pinned_optional_and_imports_the_realm_read_only():
 
 
 def test_the_backend_services_run_on_a_read_only_root_filesystem():
-    """AC-15: read_only on exactly the three backend services, as on Kubernetes; tmpfs /tmp on the two workers only."""
+    """AC-15: read_only on the three backend services and mcp, as on Kubernetes; tmpfs /tmp on the two workers only."""
 
     svcs = services()
     readonly = {name for name, svc in svcs.items() if svc.get("read_only") is True}
-    assert readonly == set(BACKEND_SERVICES)
+    assert readonly == set(BACKEND_SERVICES) | {MCP_SERVICE}
     assert svcs["worker-parse"]["tmpfs"] == [f"{PurePosixPath('/', 'tmp')}:size=1g"]
     assert svcs["worker-agents"]["tmpfs"] == [f"{PurePosixPath('/', 'tmp')}:size=256m"]
     assert "tmpfs" not in svcs["api"]
+    assert "tmpfs" not in svcs[MCP_SERVICE]
     assert not (ROOT / "docker-compose.readonly.yml").exists()
     makefile = (ROOT / "Makefile").read_text()
     assert "logs/compose" not in makefile
@@ -360,6 +422,8 @@ def test_the_start_order_follows_the_blueprint():
             "rustfs-init": {"condition": "service_completed_successfully"},
         }, name
     assert svcs["frontend"]["depends_on"] == {"api": {"condition": "service_healthy"}}
+    healthy = {"condition": "service_healthy"}  # api has migrated; no keycloak (JWKS on first request)
+    assert svcs[MCP_SERVICE]["depends_on"] == {"postgres": healthy, "neo4j": healthy, "api": healthy}
 
 
 def test_each_worker_polls_one_queue_and_drains_on_stop():
@@ -498,6 +562,32 @@ def test_the_backend_control_runs_pass_check_config():
             "--check-config",
         )
         assert worker.returncode == 0, (queues, shown(worker)[-400:])
+
+
+MCP_ONLY_ENV = {
+    "APP_ENV": "dev",
+    "DATABASE_HOST": "db.invalid",
+    "DATABASE_NAME": "app",
+    "DATABASE_USER": "app_user",
+    "DATABASE_PASSWORD": "synthetic-db-password-1",
+    "NEO4J_URI": "bolt://neo4j.invalid:7687",
+    "NEO4J_USER": "neo4j",
+    "NEO4J_PASSWORD": "synthetic-neo4j-password-1",
+    "OIDC_ISSUER": "https://sso.invalid/realms/app",
+    "AUTH_JWKS_URL": "https://sso.invalid/realms/app/certs",
+    "AUTH_ALLOWED_EMAIL_DOMAINS": "example.com",
+    "MCP_RESOURCE_URL": "https://mcp.invalid/mcp",
+    "AUTH_MODE": "oidc",
+}
+
+
+@needs_docker
+def test_the_mcp_role_control_run_passes_check_config_with_only_its_own_variables():
+    """FR-MCP-OPS-08: the api image runs `specflow mcp --check-config` without Temporal, storage or LLM variables."""
+
+    assert not {"TEMPORAL_ADDRESS", "STORAGE_BACKEND", "AGENT_MODEL", "LLM_GATEWAY_URL"} & set(MCP_ONLY_ENV)
+    result = docker_run(API_IMAGE, MCP_ONLY_ENV, "specflow", "mcp", "--check-config")
+    assert result.returncode == 0, shown(result)[-400:]
 
 
 @needs_docker
