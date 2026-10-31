@@ -167,7 +167,7 @@ Constants (not settings): the page size limits of [tools.md](tools.md#convention
 | HTTP | Host or Origin not allowed, body too large, non-JSON content type | SDK transport answer: `421` (Host), `403` (Origin), `413` (body), `400` (content type); checked after the guard, so without a valid token the answer is `401` |
 | HTTP | unexpected error outside a tool | `500`, JSON error body `internal_error`, `mcp.request.failed` logged |
 | Tool | argument, membership or dependency failure | tool result with `isError: true` and a fixed code ([tools.md](tools.md)) |
-| Startup | bad settings, or an invalid or missing ontology (including one without a `feature` type); the JWKS and IdP discovery are fetched on the first request, not at startup | exit non-zero with `config.validation.failed` or `mcp.startup.failed` |
+| Startup | bad settings, or an invalid or missing ontology (including one without a `feature` type), or a `MCP_RESOURCE_URL` so long that the binding instructions would reach 2,048 characters; the JWKS and IdP discovery are fetched on the first request, not at startup | exit non-zero with `config.validation.failed` or `mcp.startup.failed` |
 
 Messages are fixed strings. No error carries Cypher, SQL, driver text, token content or another project's existence.
 

@@ -12,21 +12,26 @@
       "const": 1
     },
     "server": {
-      "description": "The MCP_RESOURCE_URL of the deployment the project lives on. A file whose server differs from the connected server is ignored. The pattern backs format, which validators often do not assert.",
+      "description": "The MCP_RESOURCE_URL of the deployment the project lives on. A file whose server differs from the connected server is ignored. An http or https URL with no whitespace and no user information; the pattern backs format, which validators often do not assert.",
       "type": "string",
       "format": "uri",
-      "pattern": "^https?://"
+      "pattern": "^https?://[^\\s@]+$",
+      "not": { "pattern": "\\s" }
     },
     "project_id": {
       "description": "The SpecFlow project's id, a UUID in the 8-4-4-4-12 hexadecimal form, either case.",
       "type": "string",
+      "minLength": 36,
+      "maxLength": 36,
       "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
     },
     "project_name": {
-      "description": "The project's name when it was bound; for people to read.",
+      "description": "The project's name when it was bound (1 to 200 characters, at least one non-space character, no control characters); for people to read.",
       "type": "string",
       "minLength": 1,
-      "maxLength": 200
+      "maxLength": 200,
+      "pattern": "\\S",
+      "not": { "pattern": "[\\u0000-\\u001f\\u007f-\\u009f]" }
     }
   }
 }
