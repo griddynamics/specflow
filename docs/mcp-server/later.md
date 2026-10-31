@@ -9,11 +9,11 @@ tags: [mcp]
 
 | Feature | What it adds |
 |---|---|
-| `get_feature` | The first tool to add when an agent needs more than the feature list: one feature with its module, the requirements in its scope (`GraphReader.scope`) and provenance (document, lines, quote) |
-| Search | `GraphReader.find_nodes` hybrid search; the role then needs the LLM gateway for query embeddings |
-| Impact | `GraphReader.impact` for "what else does this change touch" |
+| `get_feature` | The first tool to add when an agent needs more than the feature list: one feature with its module, the requirements in its scope (`GraphReader.scope`, [../graph/api.md](../graph/api.md#read-and-search)) and provenance (document, lines, quote) |
+| Search | `GraphReader.find_nodes` hybrid search; the role then needs the LLM gateway for query embeddings ([../graph/api.md](../graph/api.md#llm-gateway)) |
+| Impact | `GraphReader.impact` for "what else does this change touch" ([../graph/api.md](../graph/api.md#read-and-search)) |
 | Other node types | Modules, capabilities, requirements through the same paged read |
-| Plan tasks | Next-task and task detail tools once `graph.plan` exists; the web app's Develop tab flow |
+| Plan tasks | Next-task and task detail tools once `graph.plan` exists ([../graph/later.md](../graph/later.md)); the web app's Develop tab flow |
 | Write tools | Claiming a task, reporting status; open to every project member like the read tools, with audit records and client confirmation |
 | Advertised scopes | Providers that choose the token's audience from the requested scope (Entra ID's `api://<app>/.default`) need the PRM to advertise that scope; a setting added with such a provider, never checked on the token |
 | Long-running tools | MCP tasks (the `io.modelcontextprotocol/tasks` extension, built on the SDK's extension mechanism): the tool call answers with a task, each task is a Temporal workflow, and `tasks/get` reports the workflow's status. Claude Code polls tasks from version 2.1.304. Needs a decision on how the public `mcp` process reaches Temporal: its own Temporal credentials, or a call through the internal API |

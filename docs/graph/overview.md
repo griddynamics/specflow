@@ -55,7 +55,7 @@ Quality is shown by tests, verification checks and the metrics each build report
 | Corpus provider | Implements the corpus port: one snapshot of the current revision of every active document, with lineage id, version and immutable markdown. |
 | LLM endpoint | One OpenAI-compatible endpoint for chat and embeddings. |
 | Neo4j | One database for all projects, partitioned by project. |
-| Reader | Code that reads the graph through the core read API, including later `gap` and `plan`. |
+| Reader | Code that reads the graph through the core read API, including later `gap` and `plan`, and the MCP server ([../mcp-server/overview.md](../mcp-server/overview.md)). |
 
 ## Boundaries
 

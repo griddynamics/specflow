@@ -15,17 +15,17 @@ tags: [mcp, deployment]
 | Command | `specflow mcp` (overrides the image's default `migrate` then `api` command) |
 | Port | `MCP_PORT`, default `8002` |
 | Replicas | stateless; any number behind a load balancer, no affinity |
-| Depends on | Postgres, Neo4j, the IdP's JWKS endpoint |
+| Depends on | Postgres, Neo4j, the IdP's JWKS endpoint, and a migrated schema (locally: `api` healthy, since the `api` container runs `specflow migrate` first) |
 | Probes | liveness `GET /healthz`; readiness `GET /readyz` (database and Neo4j) |
-| Database migrations | never; the `api` role applies them, so `mcp` starts after `api` on a fresh schema |
+| Database migrations | never; the `api` container runs `specflow migrate` before `specflow api`, so `mcp` starts after `api` on a fresh schema |
 | Settings | [architecture.md](architecture.md), [auth.md](auth.md), and the shared database, Neo4j and auth variables |
 
 ## Public endpoint
 
 | # | Requirement |
 |---|---|
-| P1 | The MCP endpoint shares the web app's public host (`PUBLIC_URL`): no new DNS name or certificate. On that host the ingress sends `/mcp` (exact path) and `/.well-known/oauth-protected-resource` with everything below it to the `mcp` service, and every other path to the web app as today. The web app serves none of these paths. Nothing else of the role is public; the probes stay internal. |
-| P2 | `MCP_RESOURCE_URL` is exactly `https://<web app host>/mcp` as clients see it, for example `https://specflow.example.com/mcp`. The host-wide `/.well-known/oauth-protected-resource` path belongs to MCP from then on. |
+| P1 | The MCP endpoint shares the web app's public host (`PUBLIC_URL`): no new DNS name or certificate. On that host the ingress sends `/mcp` (exact path) and `/.well-known/oauth-protected-resource` with everything below it to the `mcp` service, and every other path to the web app. The web app serves none of these paths. Nothing else of the role is public; the probes stay internal. |
+| P2 | `MCP_RESOURCE_URL` is exactly `https://<web app host>/mcp` as clients see it, for example `https://specflow.example.com/mcp`. The host-wide `/.well-known/oauth-protected-resource` path belongs to MCP. |
 | P3 | No sign-in proxy (forward-auth, SSO redirect) in front of these paths: the client must receive the `401` and the metadata. |
 | P4 | Pass the `Host` header through unchanged; add any internal host names the role is reached by to `MCP_ALLOWED_HOSTS`. |
 | P5 | TLS at the edge; request body limit at least 1 MiB; request timeout at least 30 s; no response buffering requirement (JSON responses). |
@@ -39,11 +39,12 @@ Keycloak (reference). In the realm the web app uses:
 1. Client `specflow-mcp`: OpenID Connect, client authentication off, standard flow on; implicit, direct access grants,
    device and service accounts off; PKCE method `S256`; redirect URIs `http://localhost:8765/callback` and
    `http://127.0.0.1:8765/callback`; no web origins.
-2. Audience mapper on `specflow-mcp`'s dedicated scope: included custom audience `MCP_RESOURCE_URL`, added to the
-   access token only.
+2. Audience mapper on `specflow-mcp`'s dedicated scope: included custom audience = the value of `MCP_AUDIENCE` (by
+   default `MCP_RESOURCE_URL`), added to the access token only.
 3. The `email` scope stays a default scope (the access token carries `email` and `email_verified`).
-4. `offline_access` stays on the client, with the realm's offline sessions limited to 30 days (offline session max
-   limited, maximum 30 days); see [auth.md](auth.md).
+4. `offline_access` stays on the client. The realm's Offline Session Max Limited is on (its maximum at least 30 days),
+   and `specflow-mcp` sets Client Offline Session Max to 30 days, so other clients keep their own limits; see
+   [auth.md](auth.md).
 5. Access token lifespan 5 to 10 minutes.
 6. `specflow-mcp` gets no `specflow-api` audience, and the web client gets no MCP audience.
 
@@ -90,11 +91,11 @@ the QA tiers.
 | Service | Compose profile | Image | Host port | Role |
 |---|---|---|---|---|
 | `mcp` | none (always on) | the backend image, `specflow mcp` | `127.0.0.1:8002` | the MCP role |
-| `keycloak` | `keycloak` | `quay.io/keycloak/keycloak` 26.x, `start-dev` | `127.0.0.1:8180` | local IdP for the real sign-in flow, realm `specflow` imported at start |
+| `keycloak` | `keycloak` | `quay.io/keycloak/keycloak`, an exact 26.4 patch tag pinned like the other services, `start-dev` | `127.0.0.1:8180` | local IdP for the real sign-in flow, realm `specflow` imported at start |
 
 | Item | Local value |
 |---|---|
-| Realm file | `config/keycloak/specflow-realm.json`: clients `specflow-mcp` (public) and `specflow-web` (confidential, audience `specflow-api`), audience mapper `http://localhost:8002/mcp`. No users and no secrets in the file |
+| Realm file | `config/keycloak/specflow-realm.json`: clients `specflow-mcp` (public) and `specflow-web` (confidential, audience `specflow-api`), audience mapper `http://localhost:8002/mcp`. No users and no literal secret in the file: the QA seed sets the `specflow-web` secret from `.env.local` through the Keycloak admin API |
 | QA users | `alice@example.com`, `bob@example.com`, created by the QA seed with a password from `.env.local` |
 | Issuer | `http://localhost:8180/realms/specflow` for every token: Keycloak runs with `KC_HOSTNAME=http://localhost:8180` |
 | Keys from containers | `AUTH_JWKS_URL` on the compose network name (accepted in local only) |

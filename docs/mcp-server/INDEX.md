@@ -33,5 +33,6 @@ and `list_features`.
 - [later.md](later.md), [questions.md](questions.md)
 
 # Related
-- [../graph/api.md](../graph/api.md): `GraphReader`, including the paged read `list_features` uses
-- [../configuration.md](../configuration.md): the configuration reference the new settings are added to
+- [../graph/api.md](../graph/api.md#read-and-search): `GraphReader`, including the paged read `list_features` uses
+- [../configuration.md](../configuration.md): the configuration reference, which lists the `MCP_*` and claim-profile
+  settings
