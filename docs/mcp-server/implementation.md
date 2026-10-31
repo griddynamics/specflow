@@ -26,7 +26,7 @@ tags: [mcp]
 | MCP-M3 | Local Keycloak and QA harness | done |
 | MCP-M4 | MCP role, transport and auth guard | done |
 | MCP-M5 | Tools and access control | done |
-| MCP-M6 | Local stack wiring and setup docs | planned |
+| MCP-M6 | Local stack wiring and setup docs | done |
 | MCP-M7 | Real-client QA with the end-to-end and agent tiers | planned |
 | MCP-M8 | Bundle verification, security review and release check | planned |
 
@@ -123,3 +123,14 @@ Template:
   are refused by the input schema)
 - Follow-ups: an out-of-range timestamp in a `list_projects` cursor is now `invalid_cursor` (the shared cursor
   decoder, so the REST API benefits too); stored feature attributes are assumed to be text
+
+### MCP-M6: Local stack wiring and setup docs
+
+- Date and commits: 2026-10-31, 2690e7b
+- Summary: `make up` starts the `mcp` service in dev mode; `make up WITH=keycloak` switches only that service to
+  `oidc` against the local realm, while the web app and REST API keep their dev login. The configuration reference,
+  backend README, quickstart and deployment guide describe the role and how to connect Claude Code locally.
+- Requirements proven: FR-MCP-OPS-08 (both modes healthy and exercised; in the build environment the images were built
+  outside compose and the stack ran with the bundled Temporal)
+- Design sections updated in place: [deployment.md](deployment.md#local-endpoint) (local Claude Code recipe)
+- Follow-ups: the REST API still needs `AGENT_MODEL` and the LLM gateway names in `.env.local` before `make up`
