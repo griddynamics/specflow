@@ -21,7 +21,7 @@ tags: [mcp]
 
 | Id | Milestone | Status |
 |---|---|---|
-| MCP-M1 | Graph paged read (`count_nodes`, `nodes_page`) | planned |
+| MCP-M1 | Graph paged read (`count_nodes`, `nodes_page`) | done |
 | MCP-M2 | Auth claim profile for any OIDC provider | planned |
 | MCP-M3 | Local Keycloak and QA harness | planned |
 | MCP-M4 | MCP role, transport and auth guard | planned |
@@ -61,3 +61,13 @@ Template:
 - Requirements proven: none
 - Design sections updated in place: requirements.md (Non-functional), deployment.md (Local stack)
 - Follow-ups: Q4 of [questions.md](questions.md) stays open; the plan follows its default
+
+### MCP-M1: Graph paged read
+
+- Date and commits: 2026-10-31, c5cfeb6
+- Summary: `GraphReader.count_nodes` and `GraphReader.nodes_page` (model `NodePage`) count and page spec nodes of
+  given labels by `spec_id`; the page query reads `limit + 1` rows after an exclusive cursor and keeps the projection
+  and provenance of `nodes`. A test helper derives a renamed-feature ontology from the shipped one for FR-MCP-TOOL-06.
+- Requirements proven: FR-MCP-TOOL-10
+- Design sections updated in place: none; [../graph/api.md](../graph/api.md#read-and-search) lists both methods
+- Follow-ups: none
