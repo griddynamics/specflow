@@ -22,7 +22,7 @@ tags: [mcp]
 | Id | Milestone | Status |
 |---|---|---|
 | MCP-M1 | Graph paged read (`count_nodes`, `nodes_page`) | done |
-| MCP-M2 | Auth claim profile for any OIDC provider | planned |
+| MCP-M2 | Auth claim profile for any OIDC provider | done |
 | MCP-M3 | Local Keycloak and QA harness | planned |
 | MCP-M4 | MCP role, transport and auth guard | planned |
 | MCP-M5 | Tools and access control | planned |
@@ -71,3 +71,15 @@ Template:
 - Requirements proven: FR-MCP-TOOL-10
 - Design sections updated in place: none; [../graph/api.md](../graph/api.md#read-and-search) lists both methods
 - Follow-ups: none
+
+### MCP-M2: Auth claim profile
+
+- Date and commits: 2026-10-31, eaf5cb1
+- Summary: six `AUTH_*` settings (subject, client, email and verified-email claims, token type rule, ignored
+  audiences) drive token validation with provider-neutral defaults; the check order is unchanged and every rule fails
+  closed. The REST API refuses MCP-audience tokens, the `api` role refuses an audience equal to a client id or listed as
+  ignored, and the bearer parser is FastAPI-free.
+- Requirements proven: FR-MCP-AUTH-07, FR-MCP-AUTH-08, FR-MCP-AUTH-12
+- Design sections updated in place: none; [../configuration.md](../configuration.md) has the six rows and the
+  corrected `OIDC_ISSUER` row
+- Follow-ups: the local stack forwards the claim-profile variables in MCP-M6
