@@ -24,7 +24,7 @@ tags: [mcp]
 | MCP-M1 | Graph paged read (`count_nodes`, `nodes_page`) | done |
 | MCP-M2 | Auth claim profile for any OIDC provider | done |
 | MCP-M3 | Local Keycloak and QA harness | done |
-| MCP-M4 | MCP role, transport and auth guard | planned |
+| MCP-M4 | MCP role, transport and auth guard | done |
 | MCP-M5 | Tools and access control | planned |
 | MCP-M6 | Local stack wiring and setup docs | planned |
 | MCP-M7 | Real-client QA with the end-to-end and agent tiers | planned |
@@ -95,3 +95,17 @@ Template:
 - Design sections updated in place: none
 - Follow-ups: `KEYCLOAK_*` rows in the configuration reference come with MCP-M6; the seed is idempotent per Keycloak
   container lifetime
+
+### MCP-M4: MCP role, transport and auth guard
+
+- Date and commits: 2026-10-31, 32d3539
+- Summary: `specflow mcp` serves stateless Streamable HTTP with SDK 2.3 on port 8002 and starts with database, Neo4j,
+  auth and MCP settings only. A guard in front of `/mcp` checks the token (401 with the PRM challenge, 403 without
+  one), the PRM is served at both well-known paths, and Host, Origin, body-size and method checks, readiness probes
+  and import contracts complete the role. An independent security review found no high finding; its fixes are in.
+- Requirements proven: FR-MCP-AUTH-01 to -06, FR-MCP-AUTH-09, -10, -11 (subject and 401 halves), FR-MCP-OPS-01, -02,
+  -04, -05, -06, NFR-MCP-02, NFR-MCP-03
+- Design sections updated in place: [architecture.md](architecture.md): HTTP surface (`GET`, `DELETE` on `/mcp`
+  answer 405), Errors (Host, Origin and body checks come after the guard), Logging (`mcp.auth.rejected` fields)
+- Follow-ups: the REST role likely exits 143 on SIGTERM and loses its shutdown log (the mcp role has a local fix);
+  the SDK matches Host case-sensitively and logs a refused Host or Origin at warning level
