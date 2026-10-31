@@ -22,15 +22,18 @@ import numpy as np
 import pytest
 
 from graph.build import BuildContext, BuildSettings, open_file_stores, run_build
-from graph.core import ConfigurationError, GraphReader, LLMError, Ontology
+from graph.core import ConfigurationError, GraphReader, LLMError, NodePage, Ontology
 from graph.core import reader as reader_module
-from graph.core.queries import READ_NODES
+from graph.core.queries import READ_NODES, READ_NODES_PAGE
 from graph.core.reader import RRF_K, VECTOR_WEIGHT
 from graph_support import (
+    RENAMED_FEATURE_LABEL,
+    RENAMED_FEATURE_PREFIX,
     Neo4jProject,
     ScriptedGateway,
     live_embedding_dim,
     live_llm_config,
+    load_feature_renamed_ontology,
     shop_answers,
     shop_corpus,
 )
@@ -1012,3 +1015,150 @@ async def test_filters_apply_to_id_hits(neo4j_project: Neo4jProject) -> None:
     assert all(h.matched != "id" for h in await reader.find_nodes(pid, "FR-AUTH-012", labels=[MODULE, QR]))
     hits = await reader.find_nodes(pid, "FR-AUTH-012 FR-AUTH-013", where={"is_assumption": "yes"})
     assert [(h.node.name, h.matched) for h in hits] == [("FR-AUTH-013: Users log out", "id")]
+
+
+# --- FR-MCP-TOOL-10: count_nodes and nodes_page ---------------------------------------------------
+
+
+def feature_rows(count: int) -> list[dict[str, str]]:
+    return [{"key": f"FEAT::F{n:03d}"} for n in range(1, count + 1)]
+
+
+async def test_fr_mcp_tool_10_120_nodes_page_as_50_50_20_and_count_120(neo4j_project: Neo4jProject) -> None:
+    """FR-MCP-TOOL-10: pages 50, 50, 20 with ``next_after`` None at the end; count 120; the pages are what
+    ``nodes`` returns; nothing of another project or another label appears."""
+
+    pid, other = neo4j_project.project_id, neo4j_project.new_project()
+    await create(neo4j_project, pid, FEATURE, feature_rows(120))
+    await create(neo4j_project, pid, FR, [{"key": "FR-1"}, {"key": "FR-2"}])
+    await create(neo4j_project, pid, FINDING, [{"key": "GAP::1"}])
+    await create(neo4j_project, other, FEATURE, [{"key": "FEAT::OTHER1"}, {"key": "FEAT::OTHER2"}])
+    reader = reader_of(neo4j_project)
+
+    assert await reader.count_nodes(pid, [FEATURE]) == 120
+    assert await reader.count_nodes(other, [FEATURE]) == 2
+    pages = []
+    after: str | None = None
+    while True:
+        current = await reader.nodes_page(pid, [FEATURE], limit=50, after=after)
+        pages.append(current)
+        after = current.next_after
+        if after is None:
+            break
+    assert [len(p.items) for p in pages] == [50, 50, 20]
+    assert [p.next_after for p in pages] == ["FEAT::F050", "FEAT::F100", None]
+    paged = [node for p in pages for node in p.items]
+    assert paged == await reader.nodes(pid, [FEATURE])
+    assert ids(paged) == [row["key"] for row in feature_rows(120)]
+    assert {node.label for node in paged} == {FEATURE}
+    assert ids((await reader.nodes_page(other, [FEATURE])).items) == ["FEAT::OTHER1", "FEAT::OTHER2"]
+    both = await reader.nodes_page(pid, [FEATURE, FR], limit=500)
+    assert len(both.items) == 122 and both.next_after is None
+    assert await reader.count_nodes(pid, [FEATURE, FR]) == 122
+
+
+async def test_fr_mcp_tool_10_an_empty_project_and_an_after_past_the_end_give_empty_pages(
+    neo4j_project: Neo4jProject,
+) -> None:
+    """FR-MCP-TOOL-10: 0 nodes and an empty page; ``after`` at or past the last id is empty, ``next_after`` None."""
+
+    pid = neo4j_project.project_id
+    reader = reader_of(neo4j_project)
+    assert await reader.count_nodes(pid, [FEATURE]) == 0
+    assert await reader.nodes_page(pid, [FEATURE]) == NodePage(items=[], next_after=None)
+    await create(neo4j_project, pid, FEATURE, feature_rows(3))
+    assert (await reader.nodes_page(pid, [FEATURE], after="FEAT::F003")) == NodePage(items=[], next_after=None)
+    assert (await reader.nodes_page(pid, [FEATURE], after="FEAT::F999")) == NodePage(items=[], next_after=None)
+    assert ids((await reader.nodes_page(pid, [FEATURE], after="FEAT::F001")).items) == ["FEAT::F002", "FEAT::F003"]
+    assert (await reader.nodes_page(pid, [FEATURE], limit=3)).next_after is None
+    assert (await reader.nodes_page(pid, [FEATURE], limit=2)).next_after == "FEAT::F002"
+
+
+async def test_fr_mcp_tool_10_the_page_carries_active_provenance_only_and_no_vectors(
+    neo4j_project: Neo4jProject,
+) -> None:
+    """FR-MCP-TOOL-10: provenance is cut after the page (one node, many fragments), retired fragments are left
+    out, ``embedding`` and ``name_embedding`` are stripped; the items equal ``nodes``."""
+
+    pid = neo4j_project.project_id
+    await neo4j_project.run(
+        "CREATE (d:Document {group_id: $p, document_id: 'doc1', spec_id: 'DOC::doc1', path: 'a.md'}) "
+        "CREATE (d)-[:CONTAINS]->(fa:Fragment {group_id: $p, fragment_id: 'fa', document_id: 'doc1', status: "
+        "'active', line_start: 1, line_end: 4}) "
+        "CREATE (d)-[:CONTAINS]->(fr:Fragment {group_id: $p, fragment_id: 'fr', document_id: 'doc1', status: "
+        "'retired', line_start: 5, line_end: 9}) "
+        "CREATE (a:SpecNode:Feature {group_id: $p, uuid: $p + '-a', spec_id: 'FEAT::A', name: 'a', "
+        "embedding: [0.1, 0.2], name_embedding: [0.3, 0.4]}) "
+        "CREATE (a)-[:REFERENCED_BY {line_start: 2, line_end: 3}]->(fa) "
+        "CREATE (a)-[:REFERENCED_BY {line_start: 6, line_end: 7}]->(fr) "
+        "CREATE (:SpecNode:Feature {group_id: $p, uuid: $p + '-b', spec_id: 'FEAT::B', name: 'b'}) "
+        "CREATE (:SpecNode:Feature {group_id: $p, uuid: $p + '-c', spec_id: 'FEAT::C', name: 'c'})",
+        p=pid,
+    )
+    reader = reader_of(neo4j_project)
+    first = await reader.nodes_page(pid, [FEATURE], limit=1)
+    assert ids(first.items) == ["FEAT::A"] and first.next_after == "FEAT::A"
+    (node,) = first.items
+    assert [(p.fragment_id, p.document_id, p.path, p.line_start, p.line_end) for p in node.provenance] == [
+        ("fa", "doc1", "a.md", 2, 3)
+    ]
+    assert "embedding" not in node.attributes and "name_embedding" not in node.attributes
+    rows = await neo4j_project.executor.read(
+        READ_NODES_PAGE, pid, labels=[FEATURE], after=None, limit=2, retired="retired"
+    )
+    assert [r["props"]["spec_id"] for r in rows] == ["FEAT::A", "FEAT::B"]
+    assert rows[0]["props"]["embedding"] is None and rows[0]["props"]["name_embedding"] is None
+    everything = await reader.nodes_page(pid, [FEATURE], limit=500)
+    assert everything.items == await reader.nodes(pid, [FEATURE])
+
+
+async def test_fr_mcp_tool_10_the_renamed_feature_ontology_pages_its_own_label(
+    neo4j_project: Neo4jProject, tmp_path: Path
+) -> None:
+    """FR-MCP-TOOL-10 / FR-MCP-TOOL-06: under the derived ontology ``Funktion`` pages and counts, ``Feature``
+    is an unknown label."""
+
+    pid = neo4j_project.project_id
+    ontology = load_feature_renamed_ontology(tmp_path)
+    await create(neo4j_project, pid, RENAMED_FEATURE_LABEL, [{"key": f"{RENAMED_FEATURE_PREFIX}{c}"} for c in "ABC"])
+    await create(neo4j_project, pid, FEATURE, [{"key": "FEAT::X"}, {"key": "FEAT::Y"}])
+    reader = neo4j_project.reader(ontology=ontology)
+    assert await reader.count_nodes(pid, [RENAMED_FEATURE_LABEL]) == 3
+    first = await reader.nodes_page(pid, [RENAMED_FEATURE_LABEL], limit=2)
+    second = await reader.nodes_page(pid, [RENAMED_FEATURE_LABEL], limit=2, after=first.next_after)
+    assert (ids(first.items), first.next_after) == (["FUNK::A", "FUNK::B"], "FUNK::B")
+    assert (ids(second.items), second.next_after) == (["FUNK::C"], None)
+    assert {node.label for node in first.items + second.items} == {RENAMED_FEATURE_LABEL}
+    for call in (reader.nodes_page(pid, [FEATURE]), reader.count_nodes(pid, [FEATURE])):
+        with pytest.raises(ConfigurationError) as raised:
+            await call
+        assert raised.value.code == "unknown_label"
+
+
+async def test_fr_mcp_tool_10_after_is_a_string_comparison_not_a_numeric_one(neo4j_project: Neo4jProject) -> None:
+    """FR-MCP-TOOL-10: ``FEAT::F10`` sorts before ``FEAT::F9``; ``after`` is exclusive and compared as a string."""
+
+    pid = neo4j_project.project_id
+    await create(neo4j_project, pid, FEATURE, [{"key": "FEAT::F9"}, {"key": "FEAT::F10"}])
+    reader = reader_of(neo4j_project)
+    assert ids((await reader.nodes_page(pid, [FEATURE])).items) == ["FEAT::F10", "FEAT::F9"]
+    after_ten = await reader.nodes_page(pid, [FEATURE], after="FEAT::F10")
+    assert (ids(after_ten.items), after_ten.next_after) == (["FEAT::F9"], None)
+
+
+async def test_fr_mcp_tool_10_no_labels_match_nothing_and_none_means_every_spec_label(
+    neo4j_project: Neo4jProject,
+) -> None:
+    """FR-MCP-TOOL-10: ``[]`` counts 0 and pages empty; ``None`` counts every spec node (not foreign ones)."""
+
+    pid = neo4j_project.project_id
+    await create(neo4j_project, pid, FEATURE, feature_rows(3))
+    await create(neo4j_project, pid, FR, [{"key": "FR-1"}, {"key": "FR-2"}])
+    await create(neo4j_project, pid, FINDING, [{"key": "GAP::1"}])
+    reader = reader_of(neo4j_project)
+    assert await reader.count_nodes(pid, []) == 0
+    assert await reader.nodes_page(pid, []) == NodePage(items=[], next_after=None)
+    assert await reader.count_nodes(pid, None) == 5
+    everything = await reader.nodes_page(pid, None, limit=500)
+    assert len(everything.items) == 5 and everything.next_after is None
+    assert everything.items == await reader.nodes(pid)
