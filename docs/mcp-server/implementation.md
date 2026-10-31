@@ -27,7 +27,7 @@ tags: [mcp]
 | MCP-M4 | MCP role, transport and auth guard | done |
 | MCP-M5 | Tools and access control | done |
 | MCP-M6 | Local stack wiring and setup docs | done |
-| MCP-M7 | Real-client QA with the end-to-end and agent tiers | planned |
+| MCP-M7 | Real-client QA with the end-to-end and agent tiers | done |
 | MCP-M8 | Bundle verification, security review and release check | planned |
 
 ## Log
@@ -134,3 +134,15 @@ Template:
   outside compose and the stack ran with the bundled Temporal)
 - Design sections updated in place: [deployment.md](deployment.md#local-endpoint) (local Claude Code recipe)
 - Follow-ups: the REST API still needs `AGENT_MODEL` and the LLM gateway names in `.env.local` before `make up`
+
+### MCP-M7: Real-client QA with the end-to-end and agent tiers
+
+- Date and commits: 2026-10-31, 398e6f9
+- Summary: the end-to-end tier passes E1 to E12 and E14 in `oidc` mode and E13 in dev mode with the MCP Python SDK
+  and plain HTTP; E14 measured p95 37.5 ms over 600 calls with no errors. The agent tier passes the three persona
+  prompts in a signed-in Claude Code and leaves no `specflow-qa-` server behind.
+- Requirements proven: NFR-MCP-01, FR-MCP-AUTH-11 (E13 half); scenarios E1 to E14
+- Design sections updated in place: [testing.md](testing.md#client-notes) (the SDK client narrows the requested
+  scope to `openid`, because the PRM advertises no scopes)
+- Follow-ups: generic MCP clients against an IdP that refuses unknown scopes must request only assigned scopes; E13
+  leaves one project in the local database per run
