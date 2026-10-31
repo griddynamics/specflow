@@ -11,7 +11,7 @@ tags: [mcp]
 
 The MCP server is a fourth backend role next to `api`, `worker` and `migrate`: `specflow mcp [--check-config]`. It runs
 in its own container (compose service `mcp`), built from the same image as `api` with its own command, listens on
-`MCP_PORT` (default `8002`), and needs only Postgres, Neo4j and the IdP's JWKS. It is the only backend service with a
+`MCP_PORT` ([Settings](#settings)), and needs only Postgres, Neo4j and the IdP's JWKS. It is the only backend service with a
 public route; the `api` container stays internal. It never runs migrations (the `api` container runs `specflow migrate`
 before `specflow api`) and never starts Temporal, storage, Drive or LLM clients.
 
@@ -143,19 +143,16 @@ under `AUTH_MODE=oidc` (`https` unless `APP_ENV=local`); `AUTH_DEV_SIGNING_KEY` 
 `AUTH_MODE` (default `oidc`), `AUTH_JWKS_URL`, `AUTH_API_AUDIENCE` (default `specflow-api`, read for the audience
 refusals) and the claim profile variables of [auth.md](auth.md). Startup refuses, naming every bad variable:
 `AUTH_MODE=dev` outside `APP_ENV=local` or inside Kubernetes; under `oidc`, a dev signing key or a missing issuer; an
-invalid resource URL, an empty client list (outside `APP_ENV=local` also one holding the QA client `specflow-smoke`), an `MCP_AUDIENCE` equal to an allowed client id (only under `AUTH_TOKEN_TYPE=none`) or to
-`AUTH_API_AUDIENCE`, an `MCP_AUDIENCE` equal to a value of `AUTH_API_CLIENT_IDS`, a client id in both `MCP_CLIENT_IDS` and
-`AUTH_API_CLIENT_IDS` when `MCP_AUDIENCE` is a client id, `AUTH_IGNORED_AUDIENCES` holding either surface's audience, and `AUTH_TOKEN_TYPE_CLAIM` or
-`AUTH_TOKEN_TYPE_VALUE` set under a mode other than `claim` (both are required under `claim`, and the claim may not be a
-registered or identity claim).
+invalid resource URL, an empty client list (outside `APP_ENV=local` also one holding the QA client `specflow-smoke`), the audience mix-ups that the refusal table of [auth.md](auth.md#token-validation) lists, and the
+token-type settings that the [claim profile](auth.md#claim-profile-for-any-oidc-provider) rules out.
 
-Constants (not settings): page size default 50 and maximum 100; request body cap 1 MiB.
+Constants (not settings): the page size limits of [tools.md](tools.md#conventions) and the request body cap of [Transport](#transport).
 
 ## Errors
 
 | Layer | Failure | Answer |
 |---|---|---|
-| HTTP | missing, malformed, expired or wrong-audience token | `401`, `WWW-Authenticate: Bearer` with `resource_metadata` ([auth.md](auth.md)) |
+| HTTP | missing, malformed, expired or wrong-audience token | `401`, `WWW-Authenticate: Bearer` with `resource_metadata` ([auth.md](auth.md#failure-responses)) |
 | HTTP | valid token, email not verified or domain not allowed | `403`, JSON error body, no challenge |
 | HTTP | Host or Origin not allowed, body too large, non-JSON content type | SDK transport answer: `421` (Host), `403` (Origin), `413` (body), `400` (content type); checked after the guard, so without a valid token the answer is `401` |
 | HTTP | unexpected error outside a tool | `500`, JSON error body `internal_error`, `mcp.request.failed` logged |
@@ -180,7 +177,7 @@ Central logger only (`logger.get_logger`, `log_event`), dotted event names, no `
 
 A fresh `request_id` is bound for each HTTP request by an ASGI wrapper outside `McpGuard`; every event of the request carries it (the guard's `mcp.auth.rejected`, the tool's `mcp.tool.completed`). The server never adopts a caller-supplied `X-Request-ID`. Startup and shutdown events keep the process id.
 
-Logs never carry tokens, emails, feature text or cursors. `mcp.tool.completed` is the access audit trail: it answers
+Logs follow rule S2 of [auth.md](auth.md#security-rules) and carry no feature text or cursors. `mcp.tool.completed` is the access audit trail: it answers
 which user read which project and when. There is no audit table; the log pipeline holds the record.
 
 ## Operations
@@ -199,7 +196,7 @@ which user read which project and when. There is no audit table; the log pipelin
 | # | Decision | Rejected alternatives and why |
 |---|---|---|
 | AD1 | A separate role in its own container (compose service `mcp`), built from the same image as `api` | Serving `/mcp` from the API process: MCP must be public, so the API process would sit behind a public route with only ingress path rules keeping `/api/v1` internal (one wrong rule exposes every REST method), and that process holds the storage, Temporal, Drive and LLM credentials. Its start also fails while Temporal is unreachable, and mounting needs extra wiring (a mounted app's lifespan never runs; a catch-all mount changes the API's 404). A separate repository or image: duplicates settings, auth and data access for no gain |
-| AD2 | The official `mcp` SDK, `>=2.3,<3`, with a thin tool registry of our own | FastMCP 3 (Rosetta's choice, [overview.md](overview.md#key-terms)): richer tool management (transforms, versioning, per-session visibility) and Redis-backed background tasks, but it requires `mcp` below 2, which moves the agent SDKs' (`claude-agent-sdk`, `openai-agents`) `mcp` dependency from 2.x back to 1.x; its task workers would be a second job system next to Temporal; its OAuth proxy is not used ([auth.md](auth.md)). Revisited when FastMCP supports `mcp` 2.x ([later.md](later.md)) |
+| AD2 | The official `mcp` SDK, in the range of [Transport](#transport), with a thin tool registry of our own | FastMCP 3 (Rosetta's choice, [overview.md](overview.md#key-terms)): richer tool management (transforms, versioning, per-session visibility) and Redis-backed background tasks, but it requires `mcp` below 2, which moves the agent SDKs' (`claude-agent-sdk`, `openai-agents`) `mcp` dependency from 2.x back to 1.x; its task workers would be a second job system next to Temporal; its OAuth proxy is not used ([auth.md](auth.md)). Revisited when FastMCP supports `mcp` 2.x ([later.md](later.md)) |
 | AD3 | Stateless sessions, JSON responses | Streamed (SSE) responses: progress and elicitation during a call, which no planned tool needs yet; they are one SDK setting plus streaming-friendly ingress away ([later.md](later.md)). Stateful sessions: need affinity or a shared event store across replicas, for server messages outside a call that nothing uses |
 | AD4 | The paged read is a `GraphReader` method in `graph.core` | MCP-owned Cypher: a second Cypher home outside the validated query folders, against the graph library's rule that every query lives in its query modules ([../graph/architecture.md](../graph/architecture.md#import-rules), rule I3) |
 | AD5 | Postgres access through `db.repositories` (`list_projects`, `get_member_project`, `upsert_user`) | MCP-owned SQL: a second membership query that can drift from the REST one, which is the access decision itself |

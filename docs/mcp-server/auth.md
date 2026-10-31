@@ -72,7 +72,7 @@ One pre-registered public client per deployment, `specflow-mcp` by default, shar
 |---|---|
 | Type | public (no secret), authorization code flow only, PKCE S256 required |
 | Redirect URIs | `http://localhost:8765/callback`, `http://127.0.0.1:8765/callback` |
-| Access token audience | `MCP_AUDIENCE` (default `MCP_RESOURCE_URL`), or the client id itself when the provider's code flow issues no other audience and `AUTH_TOKEN_TYPE` is not `none` (decision AA8); never the SpecFlow API audience |
+| Access token audience | `MCP_AUDIENCE` ([architecture.md](architecture.md#settings)), or the client id itself when the provider's code flow issues no other audience and `AUTH_TOKEN_TYPE` is not `none` (decision AA8); never the SpecFlow API audience |
 | Scopes | none of its own; `offline_access` per the revocation policy below |
 | Not allowed | implicit flow, password grant, client credentials, device flow |
 
@@ -162,7 +162,7 @@ documentation and are checked at deployment time with the QA harness of [testing
 
 | Provider | Audience | Client claim | Subject claim | Email | Token type | Scopes to request | Run here |
 |---|---|---|---|---|---|---|---|
-| Keycloak (reference) | audience mapper on `specflow-mcp` with the value of `MCP_AUDIENCE` (default `MCP_RESOURCE_URL`) | `azp` | `sub` | `email`, `email_verified` (the `email` scope) | `none` (default) or `keycloak` | none | yes |
+| Keycloak (reference) | audience mapper on `specflow-mcp` with the value of `MCP_AUDIENCE` ([architecture.md](architecture.md#settings)) | `azp` | `sub` | `email`, `email_verified` (the `email` scope) | `none` (default) or `keycloak` | none | yes |
 | Auth0 | an API whose identifier is `MCP_RESOURCE_URL`; tenant default audience if the tenant ignores `resource`; `https://<tenant>/userinfo` (added when `openid` is requested) in `AUTH_IGNORED_AUDIENCES` | `azp` | `sub` | `email`, `email_verified` added by a post-login Action | `rfc9068` when the API uses that profile, else `none` | none | no |
 | Okta (custom authorization server) | authorization server audience `MCP_RESOURCE_URL` | `cid` | `uid` | custom claim `email`; a custom verified claim where available, else empty (see below) | `none` | none | no |
 | Microsoft Entra ID | two app registrations (the API and the public client); v2 tokens carry the API registration's application id in `aud`: set `MCP_AUDIENCE` to that id | `azp` | `oid` (`sub` differs per application) | optional claim `email`; verified claim `xms_edov` (optional claim) | `none` | `api://<API app id URI>/.default`, advertised by the PRM: not usable in version 1, whose PRM advertises no scopes (the advertised-scopes setting of [later.md](later.md)) | no |
@@ -235,7 +235,7 @@ the end-to-end and agent QA tiers use it. An `http` issuer and resource URL are 
 | # | Rule |
 |---|---|
 | S1 | No token passthrough: the MCP token is never sent anywhere; Postgres and Neo4j are reached with service credentials after the membership check. |
-| S2 | Tokens, `Authorization` headers and claims other than ids never reach logs or error bodies. |
+| S2 | Tokens, `Authorization` headers, emails and claims other than ids never reach logs or error bodies. |
 | S3 | JWKS only from the issuer's host (enforced outside local). |
 | S4 | Issuer, resource URL and audience are configuration, never derived from `Host` or `X-Forwarded-*`. |
 | S5 | One audience per token: a REST token fails on `/mcp`, an MCP token fails on `/api/v1`. |

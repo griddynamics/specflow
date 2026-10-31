@@ -55,7 +55,7 @@ Postgres id (`group_id` = `str(project.id)`), and the scenarios pass that id.
 | E11 | alice | `list_features` with a forged cursor | `invalid_cursor` |
 | E12 | alice | `POST /mcp` with a foreign `Host` | refused by transport security |
 | E13 | alice, dev mode | creates a project through the REST API with her web dev token, then calls `list_projects` with her MCP dev token | the project is listed; her web dev token on `/mcp` gets 401 |
-| E14 | alice | `list_features(P-Large)` at 10 calls per second for 60 s | p95 under 500 ms (NFR-MCP-01), recorded in the run report |
+| E14 | alice | `list_features(P-Large)` at the load NFR-MCP-01 names, for 60 s | p95 within the target of NFR-MCP-01 ([requirements.md](requirements.md#non-functional)), recorded in the run report |
 
 The reverse audience case (an MCP token on `/api/v1`) is an HTTP-boundary test of the API, because the local API runs
 with dev login.

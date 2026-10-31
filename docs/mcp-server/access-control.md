@@ -67,10 +67,10 @@ agent as tool output and may contain text that reads like instructions. Mitigati
 |---|---|---|
 | Project id, name, creation time | yes | member projects only |
 | Other members, emails, user ids | no | |
-| Feature `spec_id`, name, stored attributes (`stmt`, `quote`) | yes | `quote` is an excerpt of at most 300 characters of a project document |
+| Feature `spec_id`, name, stored attributes (`stmt`, `quote`) | yes | `quote` is an excerpt of a project document ([../graph/data-model.md](../graph/data-model.md#spec-node)) |
 | Embeddings, statements history, provenance, document paths | no | not needed for listing; a later detail tool may add provenance ([../graph/data-model.md](../graph/data-model.md#spec-node)) |
 
 ## Audit
 
-`mcp.tool.completed` records user id, tool, project id and outcome for every call; `mcp.auth.rejected` records every
-refused request ([architecture.md](architecture.md)). Together they answer who read which project, and when.
+`mcp.tool.completed` records every call and `mcp.auth.rejected` every refused request; the fields are those of
+[architecture.md](architecture.md#logging-and-audit). Together they answer who read which project, and when.

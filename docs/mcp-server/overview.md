@@ -79,7 +79,7 @@ graph read that `list_features` uses belongs to the graph library ([../graph/api
 | C2 | The API is internal (the browser talks only to the web app's server); it is never exposed for MCP. | API design |
 | C3 | Neo4j access and Cypher stay in the graph library; the web framework stays in `api` and `auth`; the ORM stays in `api`, `db` and `temporal`. | `backend/importlinter.toml`, [../graph/architecture.md](../graph/architecture.md#import-rules) |
 | C4 | Settings are environment variables validated per role at startup; secrets are never logged. | [../configuration.md](../configuration.md) |
-| C5 | The MCP Python SDK is already a transitive dependency of the agent SDKs; the server declares it directly (`>=2.3,<3`), and `uv.lock` fixes the exact version. | `backend/uv.lock` |
+| C5 | The MCP Python SDK is already a transitive dependency of the agent SDKs; the server declares it directly in the range that [architecture.md](architecture.md#transport) defines, and `uv.lock` fixes the exact version. | `backend/uv.lock` |
 | C6 | Only confirmed needs are built. A capability that only a possible future tool needs is listed in [later.md](later.md) with what it would take, not built ahead. | product direction |
 
 ## Assumed numbers
@@ -87,11 +87,11 @@ graph read that `list_features` uses belongs to the graph library ([../graph/api
 | Quantity | Assumption | Effect |
 |---|---|---|
 | Developers per deployment | up to a few hundred | one or two replicas suffice |
-| Tool calls | bursts of up to 10 per second per developer while an agent works | stateless requests, short transactions |
+| Tool calls | bursts at the rate NFR-MCP-01 assumes ([requirements.md](requirements.md#non-functional)) while an agent works | stateless requests, short transactions |
 | Projects per developer | under 100 | one page in the common case |
-| Features per project | tens to a few hundred | pages of 50, two Neo4j queries per page |
-| Access token lifetime | 5 to 10 minutes (IdP setting) | bounds revocation latency for disabled users |
-| Tool call latency | p95 under 500 ms | one Postgres transaction and two indexed Neo4j reads |
+| Features per project | tens to a few hundred | pages of the default size in [tools.md](tools.md#conventions), two Neo4j queries per page |
+| Access token lifetime | set at the IdP ([auth.md](auth.md#token-lifetimes-and-revocation)) | bounds revocation latency for disabled users |
+| Tool call latency | the target of NFR-MCP-01 ([requirements.md](requirements.md#non-functional)) | one Postgres transaction and two indexed Neo4j reads |
 
 ## Key terms
 

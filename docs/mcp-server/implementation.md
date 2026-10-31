@@ -175,3 +175,20 @@ Template:
   [architecture.md](architecture.md#settings) (startup refusals), [later.md](later.md) (OAuth proxy mode),
   [questions.md](questions.md) (Q4)
 - Follow-ups: the open items of Q4 in [questions.md](questions.md), verified in the production rollout
+
+### Requirements link to their defining sections
+
+- Date and commits: 2026-10-31, the commit that adds this entry
+- Summary: each requirement row now states the behavior and links the section that defines it, so contract values live
+  in one place and the acceptance column keeps the test values. The quality numbers are defined in
+  [requirements.md](requirements.md#non-functional) and linked from the other files; the SDK range is defined in
+  [architecture.md](architecture.md#transport). Copies of values in the other files became links.
+- Requirements proven: none
+- Design sections updated in place: [requirements.md](requirements.md) (all tables, introduction),
+  [overview.md](overview.md) (constraints, assumed numbers), [architecture.md](architecture.md) (process, settings,
+  constants, errors, logging, decision AD2), [auth.md](auth.md) (client registration, provider recipes, security
+  rules), [tools.md](tools.md) (argument tables, error codes, graph read), [deployment.md](deployment.md) (role,
+  public endpoint, identity provider setup, local endpoint, local stack), [access-control.md](access-control.md) (data
+  returned, audit), [testing.md](testing.md) (scenario E14), [questions.md](questions.md) (Q4),
+  [../configuration.md](../configuration.md) (MCP rows)
+- Follow-ups: none
