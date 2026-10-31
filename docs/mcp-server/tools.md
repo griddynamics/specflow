@@ -15,7 +15,7 @@ tags: [mcp]
 | Names | `snake_case`; Claude Code shows them as `mcp__<server name>__<tool>` |
 | Annotations | every version 1 tool: `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: false` |
 | Results | structured content (JSON object, with an output schema) plus one text block holding the same JSON |
-| Paging | `limit` 1 to 100, default 50, enforced by the input schema (`minimum`, `maximum`); `cursor` is opaque, a plain string in the input schema, from the previous page's `next_cursor`, and checked by the tool: over 512 characters or not decodable answers `invalid_cursor`; `next_cursor` is `null` on the last page |
+| Paging | `limit` 1 to 100, default 50, enforced by the input schema (`minimum`, `maximum`); `cursor` is opaque, a plain string in the input schema, from the previous page's `next_cursor`, and checked by the tool: over 512 characters or not decodable answers `invalid_cursor` (a cursor whose text is a JSON object or array is parsed by the SDK first and refused by the input schema); `next_cursor` is `null` on the last page |
 | Errors | a tool error is a result with `isError: true`, structured content `{"error": {"code", "message"}}` and the same text; arguments that fail the input schema are refused by the SDK before the tool runs, and such calls are not audited |
 | Identity | no tool takes a user id; the caller is the token's `Principal` |
 | Content | field values that come from project documents are data; descriptions say so |

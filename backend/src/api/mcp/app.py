@@ -18,6 +18,7 @@ from starlette.routing import Route
 
 from api.mcp.auth import McpGuard, ProtectedResourceMetadata, metadata_endpoint
 from api.mcp.http import CheckBody, ReadyzBody, error_response, required
+from api.mcp.registry import install
 from api.mcp.runtime import RuntimeFactory, build_runtime, request_runtime
 from auth.verifiers import build_verifier
 from logger.logger import ERROR, INFO, WARNING, get_logger, log_event
@@ -32,7 +33,7 @@ _CODES: Final = {404: "not_found", 405: "method_not_allowed"}
 
 
 def install_no_tools(server: MCPServer) -> None:
-    """The ``tools`` hook of this slice registers nothing (the tool registry installs through this hook)."""
+    """A ``tools`` hook that registers nothing (tests of the transport and the guard)."""
 
 
 async def _healthz(_: Request) -> JSONResponse:
@@ -71,11 +72,11 @@ def create_mcp_app(
     settings: RoleSettings,
     *,
     runtime_factory: RuntimeFactory = build_runtime,
-    tools: Callable[[MCPServer], None] = install_no_tools,
+    tools: Callable[[MCPServer], None] = install,
 ) -> Starlette:
     """Build the app; no connection opens until the lifespan starts.
 
-    ``tools`` is the seam of the tool registry: it registers tools on the server before the app is built.
+    ``tools`` registers tools on the server before the app is built; the default is the tool registry.
     """
 
     auth = required(settings.auth, "the mcp role requires auth settings")

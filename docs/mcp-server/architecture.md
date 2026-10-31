@@ -70,6 +70,7 @@ The code lives in a subpackage of the HTTP layer: `backend/src/api/mcp/`. Module
 | `api/mcp/registry.py` | Tool declarations and their registration with the cross-cutting checks |
 | `api/mcp/tools/` | Tool handlers, one module per domain (`projects`, `graph`; later `plan`) |
 | `api/mcp/errors.py` | Tool error codes and the sanitizing mapper |
+| `api/mcp/access.py` | User provisioning, the one membership function, and the short database transaction each runs in |
 
 The SDK package is also named `mcp`; absolute imports keep `import mcp` pointing at the SDK.
 
@@ -87,7 +88,8 @@ annotations, its description and its handler. Registration wraps every handler t
 
 Calls the SDK refuses on input-schema grounds never reach the wrapper and are not audited.
 
-Handlers are plain async functions of the `Principal`, the runtime, the validated arguments and, for a project-scoped
+Handlers are plain async functions of the caller (the `Principal` and the id of the user row that provisioning
+returned), the runtime, the validated arguments and, for a project-scoped
 tool, the `Project` the membership check returned; they pass `str(project.id)` (the canonical lower-case UUID, the
 graph's `group_id`) to the graph reader, never the `project_id` argument as given. Handlers import nothing from the
 SDK. The registry is the only code that uses the SDK's tool API, so an SDK change, or a later move to another MCP
@@ -165,7 +167,7 @@ Central logger only (`logger.get_logger`, `log_event`), dotted event names, no `
 |---|---|
 | `mcp.startup.completed`, `mcp.startup.failed`, `mcp.shutdown.completed` | port, error type |
 | `mcp.auth.rejected` | reason, status, code |
-| `mcp.tool.completed` | tool, user id, project id when given, outcome (`ok` or the error code), item count, duration ms |
+| `mcp.tool.completed` | tool, user id, project id when given as a valid UUID (canonical form), outcome (`ok` or the error code), item count, duration ms; error type (the exception class name, never its text) when the outcome is not `ok` |
 
 Logs never carry tokens, emails, feature text or cursors. `mcp.tool.completed` is the access audit trail: it answers
 which user read which project and when. There is no audit table; the log pipeline holds the record.

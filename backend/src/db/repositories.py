@@ -15,7 +15,7 @@ import re
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, make_dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Final, Protocol
 
 from sqlalchemy import ColumnElement, Select, and_, func, or_, select, update
@@ -111,7 +111,9 @@ def decode_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
         stamp, row_id = base64.urlsafe_b64decode(padded).decode().split("|")
         created_at = datetime.fromisoformat(stamp)
         parsed_id = uuid.UUID(row_id)
-    except (ValueError, binascii.Error, UnicodeDecodeError) as error:
+        if created_at.tzinfo is not None:
+            created_at.astimezone(UTC)  # OverflowError when the UTC instant is out of range (asyncpg would fail)
+    except (ValueError, OverflowError, binascii.Error, UnicodeDecodeError) as error:
         raise InvalidCursorError("invalid cursor") from error
     if created_at.tzinfo is None:
         raise InvalidCursorError("invalid cursor")

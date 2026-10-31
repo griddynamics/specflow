@@ -2,16 +2,20 @@
 
 Boundaries faked: the JWKS endpoint (``specflow_auth_support.StubIssuer``, loopback) and the runtime probes.
 Nothing here opens a socket to a real service. MCP-M5 extends it: ``build_app(..., tools=...)`` takes the tool
-installer and ``fake_runtime`` the reader and the graph executor.
+installer, ``fake_runtime`` the reader and the session factory, ``tool_app`` builds the registry app over the REST
+tests' ``FakeRepo`` and a recording graph executor, ``MethodRouter`` splits one client over two apps (FR-MCP-OPS-03).
 """
 
 from __future__ import annotations
 
+import base64
+import json
 import logging
-from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Callable, Sequence
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import httpx
@@ -20,15 +24,22 @@ import pytest
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server.mcpserver import Context, MCPServer
+from mcp.types import CallToolResult, TextContent
 from starlette.applications import Starlette
 
 from api.mcp.app import create_mcp_app, install_no_tools
 from api.mcp.auth import request_principal
+from api.mcp.registry import TOOLS, ToolDeclaration, install
 from api.mcp.runtime import McpRuntime, RuntimeFactory
+from graph.core import GraphReader, Ontology
+from graph_support import shipped_ontology
 from health import Readiness
 from settings import load_settings
 from specflow_api_support import token as dev_token
 from specflow_auth_support import StubIssuer, claims, jwk, rsa_key, sign
+from test_graph_reader import ScriptedExecutor
+from test_specflow_api_fakes import FakeRepo
+from test_specflow_db_units import EXTREME_CURSOR
 
 BACKEND = Path(__file__).resolve().parent.parent
 MCP_HOST = "localhost:8002"
@@ -129,22 +140,80 @@ async def serving(app: Starlette) -> AsyncIterator[httpx.AsyncClient]:
 
 
 @asynccontextmanager
-async def sdk_session(app: Starlette, token: str) -> AsyncIterator[ClientSession]:
-    """An initialized MCP SDK client session over the app, lifespan included (the SDK client uses ``httpx2``)."""
+async def connected(
+    transport: httpx2.AsyncBaseTransport, token: str, apps: Sequence[Starlette]
+) -> AsyncIterator[ClientSession]:
+    """An initialized SDK client session over ``transport``, the lifespan of every app in ``apps`` around it."""
 
     http = httpx2.AsyncClient(
-        transport=httpx2.ASGITransport(app=app),
+        transport=transport,
         base_url=f"http://{MCP_HOST}",
         headers={"Authorization": f"Bearer {token}"},
     )
-    async with (
-        app.router.lifespan_context(app),
-        http,
-        streamable_http_client(MCP_URL, http_client=http) as streams,
-        ClientSession(streams[0], streams[1]) as session,
-    ):
+    async with AsyncExitStack() as stack:
+        for app in apps:
+            await stack.enter_async_context(app.router.lifespan_context(app))
+        await stack.enter_async_context(http)
+        streams = await stack.enter_async_context(streamable_http_client(MCP_URL, http_client=http))
+        session = await stack.enter_async_context(ClientSession(streams[0], streams[1]))
         await session.initialize()
         yield session
+
+
+@asynccontextmanager
+async def sdk_session(app: Starlette, token: str) -> AsyncIterator[ClientSession]:
+    """An initialized MCP SDK client session over the app, lifespan included (the SDK client uses ``httpx2``)."""
+
+    async with connected(httpx2.ASGITransport(app=app), token, [app]) as session:
+        yield session
+
+
+class MethodRouter(httpx2.AsyncBaseTransport):
+    """One client, two stateless apps: ``initialize`` goes to ``first``, every other request to ``second``."""
+
+    def __init__(self, first: Starlette, second: Starlette) -> None:
+        self.first = httpx2.ASGITransport(app=first)
+        self.second = httpx2.ASGITransport(app=second)
+        self.routed: list[tuple[str, str]] = []  # (JSON-RPC method or HTTP verb, "first" or "second")
+
+    async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
+        body = await request.aread()
+        method = json.loads(body).get("method", "") if body else request.method
+        initial = method == "initialize"
+        self.routed.append((method, "first" if initial else "second"))
+        return await (self.first if initial else self.second).handle_async_request(request)
+
+
+async def owned_project(repo: FakeRepo, email: str, name: str) -> SimpleNamespace:
+    """A project ``email`` owns (member row included); the user is provisioned on the way, as the tools do."""
+
+    user = await repo.upsert_user(None, SimpleNamespace(subject=f"dev:{email}", email=email, name=None))
+    return await repo.create_project(None, user.id, name)
+
+
+def tool_app(
+    monkeypatch: pytest.MonkeyPatch,
+    valid_env: dict[str, str],
+    executor: ScriptedExecutor | None,
+    *,
+    ontology: Ontology | None = None,
+    repo: FakeRepo | None = None,
+    reader: GraphReader | None = None,
+    declarations: Sequence[ToolDeclaration] = TOOLS,
+) -> tuple[Starlette, FakeRepo]:
+    """The MCP app with the real tool registry over ``FakeRepo`` (the session factory; ``repo`` shares one between
+    apps) and ``executor`` (or a live ``reader`` when it is ``None``); ``declarations`` replaces the shipped tools
+    (wrapper tests)."""
+
+    repo = repo or FakeRepo()
+    repo.install(monkeypatch)
+    used = ontology or shipped_ontology()
+    runtime = fake_runtime(reader=reader or GraphReader(executor, used), session_factory=repo, ontology=used)
+    return build_app(mcp_env(valid_env), runtime=runtime, tools=lambda server: install(server, declarations)), repo
+
+
+async def call(session: ClientSession, tool: str, **arguments: Any) -> CallToolResult:
+    return await session.call_tool(tool, arguments)
 
 
 async def rpc(
@@ -194,13 +263,51 @@ def dev_app(valid_env: dict[str, str]) -> Starlette:
     return build_app(mcp_env(valid_env), tools=whoami_tools)
 
 
-def log_text(caplog: pytest.LogCaptureFixture) -> str:
-    """Every captured record as text: message and all record attributes (a leak shows up anywhere)."""
+def log_text(caplog: pytest.LogCaptureFixture, logger_prefix: str = "") -> str:
+    """Every captured record of the loggers under ``logger_prefix`` as text: message and all record attributes
+    (a leak shows up anywhere); the SDK client's own debug lines carry the caller's input, so tests narrow to ours."""
 
-    return "\n".join(f"{r.getMessage()} {sorted(vars(r).items(), key=str)}" for r in caplog.records)
+    records = [r for r in caplog.records if r.name.startswith(logger_prefix)]
+    return "\n".join(f"{r.getMessage()} {sorted(vars(r).items(), key=str)}" for r in records)
 
 
 @pytest.fixture
 def mcp_log(caplog: pytest.LogCaptureFixture) -> pytest.LogCaptureFixture:
     caplog.set_level(logging.DEBUG)
     return caplog
+
+
+# --- reading tool results (shared by the HTTP and live tiers) ---
+
+
+def structured(result: CallToolResult) -> dict[str, Any]:
+    assert result.structured_content is not None
+    return result.structured_content
+
+
+def text(result: CallToolResult) -> str:
+    return "".join(block.text for block in result.content if isinstance(block, TextContent))
+
+
+def code(result: CallToolResult) -> str:
+    assert result.is_error
+    return str(structured(result)["error"]["code"])
+
+
+def cursor_of(raw: str) -> str:
+    return base64.urlsafe_b64encode(raw.encode("utf-8", "surrogatepass")).decode().rstrip("=")
+
+
+def feature_ids(result: CallToolResult) -> list[str]:
+    return [item["spec_id"] for item in structured(result)["items"]]
+
+
+EXTREME_PROJECT_CURSOR = EXTREME_CURSOR  # the one builder lives with the repository tests (no UTC instant, F1)
+
+
+def assert_no_error_records(caplog: pytest.LogCaptureFixture) -> None:
+    """No record of any logger (ours, the SDK server's, starlette's) is ERROR or carries ``exc_info``: a tool failure is
+    a mapped result, never a logged traceback (the SDK server logs an exception that escapes a tool)."""
+
+    bad = [(r.name, r.levelname, r.getMessage()) for r in caplog.records if r.levelno >= logging.ERROR or r.exc_info]
+    assert bad == []
