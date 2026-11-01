@@ -553,7 +553,7 @@ async def test_edge_key_names_one_pair_of_endpoints(graph_project: GraphProject)
 
 
 async def test_reader_resolves_merged_node_through_alias(graph_project: GraphProject, gap_ontology: Ontology) -> None:
-    """FR-READ-01: given A merged into B, ``select(A)`` returns B."""
+    """FR-READ-01: given A merged into B, ``node(A)`` returns B."""
 
     project = graph_project
     build = project.writer("build", ontology=gap_ontology)

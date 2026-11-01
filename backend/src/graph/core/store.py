@@ -132,15 +132,24 @@ def foreign_labels(ontology: Ontology) -> tuple[str, ...]:
     return tuple(label for label in ontology.labels if ontology.owner_of(label) != BUILD_OWNER)
 
 
-def bind_project(query: Query, project_id: str, params: Mapping[str, Any]) -> dict[str, Any]:
+def bind_project(
+    query: Query,
+    project_id: str,
+    params: Mapping[str, Any],
+    *,
+    require_binding: Callable[[Query], None] | None = None,
+) -> dict[str, Any]:
     """Parameters of a scoped query with the validated ``project_id`` injected.
 
-    The dialect proves that the rendered statement binds the project id; this part is the same for
-    every backend: the query must be scoped, the caller may not pass ``project_id`` itself.
+    The checks run in a fixed order: the query must be scoped, its statement must bind the project id
+    (``require_binding``, the dialect's proof; raises ``ConformanceError``), the caller may not pass
+    ``project_id`` itself, and the project id must be valid.
     """
 
     if not query.project_scoped:
         raise ConformanceError("query_not_project_scoped", query=query.name)
+    if require_binding is not None:
+        require_binding(query)
     if PROJECT_ID_PARAMETER in params:
         raise ConformanceError("project_id_parameter_reserved", query=query.name)
     return {**params, PROJECT_ID_PARAMETER: validate_project_id(project_id)}

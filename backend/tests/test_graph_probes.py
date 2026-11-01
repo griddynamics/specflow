@@ -21,7 +21,10 @@ from graph_probes.base import (
     EdgeSpec,
     GraphProbe,
     NodeSpec,
+    ProbeEdge,
     ProbeError,
+    ProbeNode,
+    _SpineWalk,
     canonical_props,
     identifier,
     select,
@@ -580,3 +583,17 @@ def test_a_ranking_tolerance_lets_one_id_of_a_top_five_differ() -> None:
     assert tolerant.ok and len(tolerant.rank_differences) == 1
     two = ranking(["a", "b", "c", "x", "y", "z"])
     assert not compare_rankings(golden, two, tolerance=1).ok
+
+
+def spine_node(identity: str, *labels: str) -> ProbeNode:
+    return ProbeNode(identity, tuple(sorted(labels)), {})
+
+
+@pytest.mark.parametrize(("middle_labels", "reaches"), [(("SpecNode", "Capability"), True), (("Capability",), False)])
+def test_a_grouped_by_walk_needs_a_spec_node_in_the_middle(middle_labels: tuple[str, ...], *, reaches: bool) -> None:
+    start, middle, module = spine_node("a", "SpecNode"), spine_node("b", *middle_labels), spine_node("c", "Module")
+    edges = [
+        ProbeEdge("1", "GROUPED_BY", start, middle, {}),
+        ProbeEdge("2", "REALIZED_BY", middle, module, {}),
+    ]
+    assert _SpineWalk(edges).reaches_a_module(start) is reaches

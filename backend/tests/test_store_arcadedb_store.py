@@ -178,7 +178,13 @@ def test_a_fulltext_text_the_server_cannot_parse_is_a_neutral_complex_query(quer
     error = neo4j_error(ClientError, "Neo.ClientError.Statement.SyntaxError")
     mapped = map_error(error, query, write=False)
     assert isinstance(mapped, ConformanceError) and mapped.code == "query_too_complex"
-    assert mapped.fields == {"store": "arcadedb", "query": query}
+    assert mapped.fields == {
+        "store": "arcadedb",
+        "query": query,
+        "error_type": "CypherSyntaxError",
+        "backend_code": "Neo.ClientError.Statement.SyntaxError",
+        "attempts": 1,
+    }
 
 
 def test_a_syntax_error_of_any_other_query_or_of_a_write_is_not_a_complex_query() -> None:

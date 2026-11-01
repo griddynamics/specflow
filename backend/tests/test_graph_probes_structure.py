@@ -42,6 +42,17 @@ DIALECT_TESTS: Final = {
 }
 
 
+# The examples are backend-neutral too: they use the library's queries. The one raw statement allowed is
+# graph_eval.py's cleanup (a batched DETACH DELETE of a project, there is no library delete-project query
+# yet); graph_eval.py refuses a store that is not Neo4j because of it. The statement is matched exactly.
+EXAMPLES = BACKEND / "examples"
+EXAMPLE_STATEMENTS: Final = {
+    "examples/graph_eval.py": {
+        "MATCH (n {group_id: $project_id}) WITH n LIMIT 2000 DETACH DELETE n RETURN count(*) AS c",
+    },
+}
+
+
 def strings(path: Path) -> list[tuple[int, str]]:
     """String constants of a module outside docstrings, with their line."""
 
@@ -115,3 +126,16 @@ def test_live_modules_and_shared_support_are_never_exceptions() -> None:
 
 def test_only_probe_names_of_cypher_stores_are_exempt() -> None:
     assert all(name.startswith(("tests/graph_probes/neo4j", "tests/graph_probes/arcadedb")) for name in PROBE_FILES)
+
+
+@pytest.mark.parametrize("path", sorted(EXAMPLES.glob("*.py")), ids=relative)
+def test_no_cypher_string_in_the_examples_beyond_the_listed_statements(path: Path) -> None:
+    allowed = EXAMPLE_STATEMENTS.get(relative(path), set())
+    found = [text for _line, text in strings(path) if CYPHER.search(text) and text not in allowed]
+    assert found == [], f"{relative(path)} holds Cypher: use a library query"
+
+
+def test_the_example_statement_allowances_are_still_used() -> None:
+    for name, statements in EXAMPLE_STATEMENTS.items():
+        used = {text for _line, text in strings(BACKEND / name) if CYPHER.search(text)}
+        assert statements == used, f"{name}: update EXAMPLE_STATEMENTS"

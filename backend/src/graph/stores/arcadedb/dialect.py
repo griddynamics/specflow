@@ -257,6 +257,12 @@ class ArcadeDbDialect:
 
     name: Final = "arcadedb-cypher"
 
+    def require_project_binding(self, query: Query) -> None:
+        """Refuse a scoped query whose canonical statement does not bind the project id (``plan`` proves the
+        planned statements bind it too)."""
+
+        CYPHER_DIALECT.require_project_binding(query)
+
     def plan(self, query: Query, params: Mapping[str, Any], edge_types: Sequence[str] | None = None) -> ExecutionPlan:
         override = OVERRIDES.get(query.template)
         if override is None:

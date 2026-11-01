@@ -322,10 +322,13 @@ class CypherDialect:
 
     name: Final = "cypher"
 
-    def plan(self, query: Query, params: Mapping[str, Any]) -> ExecutionPlan:
-        text = render_cypher(query)
-        if query.project_scoped and not binds_project_id(text):
+    def require_project_binding(self, query: Query) -> None:
+        if query.project_scoped and not binds_project_id(render_cypher(query)):
             raise ConformanceError("query_missing_project_id", query=query.name)
+
+    def plan(self, query: Query, params: Mapping[str, Any]) -> ExecutionPlan:
+        self.require_project_binding(query)
+        text = render_cypher(query)
         return ExecutionPlan.single(text, params)
 
 

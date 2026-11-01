@@ -41,7 +41,14 @@ def map_error(
         and isinstance(error, ClientError)
         and getattr(error, "code", None) == _SYNTAX_ERROR
     ):
-        return ConformanceError(QUERY_TOO_COMPLEX, store=backend, query=query)
+        return ConformanceError(
+            QUERY_TOO_COMPLEX,
+            store=backend,
+            query=query,
+            error_type=type(error).__name__,
+            backend_code=_SYNTAX_ERROR,
+            attempts=attempts,
+        )
     return _map_error(error, query, write=write, attempts=attempts, backend=backend)
 
 
@@ -87,7 +94,7 @@ class ArcadeDbExecutor(BoltExecutor):
     async def _planned(self, query: Query, project_id: str, params: Mapping[str, Any]) -> ExecutionPlan:
         if query.template not in NEEDS_EDGE_TYPES:
             return self._plan(query, project_id, params)
-        bound = bind_project(query, project_id, params)
+        bound = bind_project(query, project_id, params, require_binding=self._dialect.require_project_binding)
         return ARCADEDB_DIALECT.plan(query, bound, await self._relationship_types())
 
     async def _relationship_types(self) -> tuple[str, ...]:
