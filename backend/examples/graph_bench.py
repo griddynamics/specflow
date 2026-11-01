@@ -73,7 +73,6 @@ from pydantic import BaseModel, SecretStr
 
 from example_lib import run_example
 from graph.build import BuildContext, BuildOptions, BuildResult, BuildSettings, open_file_stores, run_build
-from graph.build.persist import persist as persist_step
 from graph.build.verify import verify_project
 from graph.core import Gateway, GraphReader, LLMConfig, ensure_schema, load_ontology
 from graph.core.config import DEFAULT_BUDGETS, CallBudget, CallClass
@@ -872,12 +871,6 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             help="build without the inference step (its snapshot differs from the recorded one)",
         )
         command.add_argument(
-            "--persist-batch",
-            type=int,
-            default=None,
-            help="persist batch size (library default 500); smaller for a store that refuses large vector batches",
-        )
-        command.add_argument(
             "--call-timeout-s",
             type=float,
             default=None,
@@ -1254,8 +1247,6 @@ async def main() -> None:
         raise RuntimeError("file stores were opened without a corpus")
     store, probe = build_store(config), open_probe(config)
     try:
-        if args.persist_batch and persist_step.__kwdefaults__ is not None:
-            persist_step.__kwdefaults__["batch_size"] = args.persist_batch
         wiped = await announce_and_wipe(store, config, args.project) if args.wipe else None
         schema_started = time.monotonic()
         created = await ensure_schema(store, ontology, llm)
@@ -1295,7 +1286,6 @@ async def main() -> None:
             "namespace": config.name,
             "unit_tokens": unit_tokens,
             "inference": not args.no_inference,
-            "persist_batch": args.persist_batch,
             "wiped_nodes": wiped,
             "wall_s": round(wall_s, 2),
             "timings_s": {
