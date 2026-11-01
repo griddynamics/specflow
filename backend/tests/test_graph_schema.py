@@ -504,7 +504,7 @@ async def test_a_foreign_constraint_over_duplicate_nodes_fails_the_setup(tmp_pat
         await ensure_schema(driver, gap, config, ddl=ddl)
     assert raised.value.code == "schema_setup_failed"
     assert raised.value.fields["query"] == f"create_{item.name}"
-    assert raised.value.fields["neo4j_code"] == "Neo.ClientError.Schema.ConstraintCreationFailed"
+    assert raised.value.fields["backend_code"] == "Neo.ClientError.Schema.ConstraintCreationFailed"
     assert "secret-xyz" not in str(raised.value)
     assert driver.created == []
 
@@ -679,7 +679,7 @@ async def test_old_neo4j_creates_nothing(ontology: Ontology, config: LLMConfig) 
     driver = SchemaDriver(ontology, version="5.25.9")
     with pytest.raises(ConfigurationError) as raised:
         await ensure_schema(driver, ontology, config)
-    assert raised.value.code == "neo4j_version_unsupported"
+    assert raised.value.code == "store_version_unsupported"
     assert driver.texts == [render_cypher(SERVER_COMPONENTS)]
 
 
@@ -695,9 +695,9 @@ SERVER_REPLY = "server said secret-xyz"
 @pytest.mark.parametrize(
     ("make_error", "expected", "code"),
     [
-        (lambda: AuthError(SERVER_REPLY), ConfigurationError, "neo4j_auth_rejected"),
-        (lambda: ServiceUnavailable(SERVER_REPLY), InfrastructureUnavailableError, "neo4j_unreachable"),
-        (lambda: OSError(SERVER_REPLY), InfrastructureUnavailableError, "neo4j_unreachable"),
+        (lambda: AuthError(SERVER_REPLY), ConfigurationError, "store_auth_rejected"),
+        (lambda: ServiceUnavailable(SERVER_REPLY), InfrastructureUnavailableError, "store_unreachable"),
+        (lambda: OSError(SERVER_REPLY), InfrastructureUnavailableError, "store_unreachable"),
         (
             lambda: ClientError._hydrate_neo4j(
                 code="Neo.ClientError.Schema.EquivalentSchemaRuleAlreadyExists", message=SERVER_REPLY
@@ -726,9 +726,9 @@ async def test_driver_errors_map_to_graph_errors(
     assert raised.value.code == code
     if code == "schema_setup_failed":
         assert raised.value.fields["query"] == stage
-        assert raised.value.fields["neo4j_code"] == error.code
+        assert raised.value.fields["backend_code"] == error.code
         assert raised.value.fields["error_type"] == type(error).__name__
-    if code == "neo4j_unreachable":
+    if code == "store_unreachable":
         assert raised.value.fields["error_type"] == type(error).__name__
     assert "secret-xyz" not in str(raised.value)
     assert raised.value.__cause__ is None and raised.value.__suppress_context__

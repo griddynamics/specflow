@@ -9,9 +9,8 @@ from graph.core.ontology import Ontology
 from graph.core.store import RETRY_DELAYS_SECONDS, StoreCapabilities, StoreInfo
 from graph.stores._bolt.executor import BoltExecutor, check_connection, connect
 from graph.stores._bolt.schema import ensure_cypher_schema
-from graph.stores.neo4j.version import MINIMUM_VERSION, require_version
+from graph.stores.neo4j.version import BACKEND, MINIMUM_VERSION, require_version
 
-BACKEND: Final = "neo4j"
 CAPABILITIES: Final = StoreCapabilities(multi_statement_tx=True)
 
 
@@ -56,14 +55,18 @@ class Neo4jStore:
 
     def executor(self) -> BoltExecutor:
         if self._executor is None:
-            options: dict[str, Any] = {"retry_delays": self._retry_delays, "capabilities": CAPABILITIES}
-            if self._sleep is not None:
-                options["sleep"] = self._sleep
-            self._executor = BoltExecutor(self._driver, self._database, **options)
+            self._executor = BoltExecutor(
+                self._driver,
+                self._database,
+                retry_delays=self._retry_delays,
+                sleep=self._sleep,
+                capabilities=CAPABILITIES,
+                backend=BACKEND,
+            )
         return self._executor
 
     async def check(self) -> None:
-        await check_connection(self._driver, self._database)
+        await check_connection(self._driver, self._database, BACKEND)
 
     async def ensure_schema(
         self, ontology: Ontology, embedding_dim: int, *, ddl: Sequence[str] | None = None
@@ -76,7 +79,7 @@ class Neo4jStore:
             return version
 
         created = await ensure_cypher_schema(
-            self._driver, ontology, embedding_dim, self._database, ddl=ddl, require_version=gate
+            self._driver, ontology, embedding_dim, self._database, ddl=ddl, require_version=gate, backend=BACKEND
         )
         if found:
             self._version = ".".join(map(str, found[0]))

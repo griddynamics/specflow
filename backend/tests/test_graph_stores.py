@@ -18,6 +18,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from neo4j.exceptions import (
+    AuthError,
+    ClientError,
+    DatabaseError,
+    Forbidden,
+    ServiceUnavailable,
+)
 from pydantic import SecretStr
 
 import graph.stores as stores
@@ -29,7 +36,11 @@ from graph.core import (
     OwnedWriter,
     ensure_schema,
 )
-from graph.core.errors import ConformanceError
+from graph.core.errors import (
+    ConformanceError,
+    GraphWriteError,
+    InfrastructureUnavailableError,
+)
 from graph.core.queries import PING
 from graph.core.store import (
     GraphStore,
@@ -42,13 +53,21 @@ from graph.core.store import (
 )
 from graph.stores import BACKENDS, StoreConfig, build_store
 from graph.stores._bolt.cypher import render_cypher
-from graph.stores._bolt.executor import BoltExecutor
+from graph.stores._bolt.executor import BoltExecutor, _map_error
 from graph.stores.neo4j import Neo4jStore
 from graph_support import llm_config, shipped_ontology
 from test_graph_schema import DIM, SchemaDriver
 
 SECRET = "pw-never-in-errors-91"
 BACKEND_CONFIG = {"uri": "bolt://127.0.0.1:1", "user": "neo4j", "password": SECRET}
+
+
+def neo4j_error(cls: type[Exception], code: str) -> Exception:
+    """A server error as the driver builds it (code and a message that must never reach a GraphError)."""
+
+    return cls._hydrate_neo4j(code=code, message="message carrying a secret")  # type: ignore[attr-defined,no-any-return]
+
+
 SRC = Path(__file__).resolve().parents[1] / "src"
 
 
@@ -282,7 +301,7 @@ async def test_ensure_schema_refuses_an_unsupported_version() -> None:
     store = Neo4jStore(Driver(version="5.25.1"))
     with pytest.raises(ConfigurationError) as raised:
         await store.ensure_schema(shipped_ontology(), DIM)
-    assert raised.value.code == "neo4j_version_unsupported"
+    assert raised.value.code == "store_version_unsupported"
     assert store.info.server_version is None
 
 
@@ -456,3 +475,95 @@ def test_build_context_still_takes_a_driver_and_database() -> None:
         builds=object(),
     )
     assert isinstance(context.executor, BoltExecutor)
+
+
+# Neutral error codes (design D11, D6)
+
+
+@pytest.mark.parametrize("backend", ["neo4j", "arcadedb"])
+@pytest.mark.parametrize(
+    ("error", "write", "cls", "code"),
+    [
+        (AuthError("rejected"), False, ConfigurationError, "store_auth_rejected"),
+        (Forbidden("denied"), False, ConfigurationError, "store_access_denied"),
+        (
+            ServiceUnavailable("down"),
+            False,
+            InfrastructureUnavailableError,
+            "store_unreachable",
+        ),
+        (OSError("socket"), True, InfrastructureUnavailableError, "store_unreachable"),
+        (
+            neo4j_error(ClientError, "Neo.ClientError.Database.DatabaseNotFound"),
+            False,
+            ConfigurationError,
+            "store_database_not_found",
+        ),
+        (
+            neo4j_error(ClientError, "Neo.ClientError.Statement.SyntaxError"),
+            False,
+            ConformanceError,
+            "store_query_rejected",
+        ),
+        (
+            neo4j_error(ClientError, "Neo.ClientError.Statement.SyntaxError"),
+            True,
+            GraphWriteError,
+            "store_write_failed",
+        ),
+        (
+            neo4j_error(DatabaseError, "Neo.DatabaseError.General.UnknownError"),
+            False,
+            InfrastructureUnavailableError,
+            "store_read_failed",
+        ),
+        (
+            neo4j_error(ClientError, "Neo.ClientError.Procedure.ProcedureCallFailed"),
+            False,
+            ConformanceError,
+            "query_too_complex",
+        ),
+    ],
+)
+def test_a_driver_error_maps_to_a_neutral_code_carrying_the_store(
+    backend: str, error: Exception, write: bool, cls: type, code: str
+) -> None:
+    mapped = _map_error(error, "q", write=write, backend=backend)
+    assert type(mapped) is cls and mapped.code == code
+    assert mapped.fields["store"] == backend
+    assert "message carrying" not in str(mapped) and SECRET not in str(mapped)
+
+
+def test_a_write_that_fails_with_a_procedure_error_is_a_write_failure_not_a_complex_query() -> (
+    None
+):
+    mapped = _map_error(
+        neo4j_error(ClientError, "Neo.ClientError.Procedure.ProcedureCallFailed"),
+        "q",
+        write=True,
+    )
+    assert mapped.code == "store_write_failed"
+
+
+def test_the_neutral_codes_are_the_design_list() -> None:
+    from graph.core import store as port
+
+    assert {
+        port.STORE_UNREACHABLE,
+        port.STORE_AUTH_REJECTED,
+        port.STORE_ACCESS_DENIED,
+        port.STORE_DATABASE_NOT_FOUND,
+        port.STORE_VERSION_UNSUPPORTED,
+        port.STORE_WRITE_FAILED,
+        port.STORE_QUERY_REJECTED,
+        port.STORE_READ_FAILED,
+    } == {
+        "store_unreachable",
+        "store_auth_rejected",
+        "store_access_denied",
+        "store_database_not_found",
+        "store_version_unsupported",
+        "store_write_failed",
+        "store_query_rejected",
+        "store_read_failed",
+    }

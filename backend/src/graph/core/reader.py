@@ -62,6 +62,7 @@ from graph.core.queries import (
 )
 from graph.core.store import (
     FRAGMENT_TEXT_INDEX,
+    QUERY_TOO_COMPLEX,
     SPEC_NODE_EMBEDDING_INDEX,
     SPEC_NODE_TEXT_INDEX,
     as_executor,
@@ -114,7 +115,6 @@ _STOP_WORDS: Final = frozenset(
         "these they this to was will with",
     )
 )
-_PROCEDURE_FAILED: Final = "Neo.ClientError.Procedure.ProcedureCallFailed"
 
 
 class _Frozen(BaseModel):
@@ -624,7 +624,7 @@ class GraphReader:
                     query, project_id, index=index, query=terms, skip=skip, page=page, **params
                 )
             except ConformanceError as error:
-                if error.fields.get("neo4j_code") == _PROCEDURE_FAILED:
+                if error.code == QUERY_TOO_COMPLEX:
                     raise ConfigurationError("query_too_long", query=query.name) from None
                 raise
             fetched = rows[0]["fetched"]

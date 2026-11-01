@@ -44,7 +44,20 @@ from graph.core.errors import (
 )
 from graph.core.identity import validate_project_id
 from graph.core.queries import PING, Query
-from graph.core.store import RETRY_DELAYS_SECONDS, StoreCapabilities, bind_project, retry_transient
+from graph.core.store import (
+    QUERY_TOO_COMPLEX,
+    RETRY_DELAYS_SECONDS,
+    STORE_ACCESS_DENIED,
+    STORE_AUTH_REJECTED,
+    STORE_DATABASE_NOT_FOUND,
+    STORE_QUERY_REJECTED,
+    STORE_READ_FAILED,
+    STORE_UNREACHABLE,
+    STORE_WRITE_FAILED,
+    StoreCapabilities,
+    bind_project,
+    retry_transient,
+)
 from graph.stores._bolt.cypher import CYPHER_DIALECT, render_cypher
 from logger.logger import WARNING, get_logger, log_event
 
@@ -54,6 +67,8 @@ CONNECTION_TIMEOUT_SECONDS: Final = 5.0
 # The executor owns retries, so the driver's own managed-transaction retry loop is switched off.
 _SESSION_RETRY_OFF: Final = {"max_transaction_retry_time": 0.0, "initial_retry_delay": 0.0}
 _DATABASE_NOT_FOUND: Final = "Neo.ClientError.Database.DatabaseNotFound"
+_PROCEDURE_FAILED: Final = "Neo.ClientError.Procedure.ProcedureCallFailed"
+DEFAULT_BACKEND: Final = "neo4j"
 
 Record = dict[str, Any]
 
@@ -70,7 +85,7 @@ def connect(config: Any) -> AsyncDriver:
     )
 
 
-async def check_connection(driver: Any, database: str | None = None) -> None:
+async def check_connection(driver: Any, database: str | None = None, backend: str = DEFAULT_BACKEND) -> None:
     """Raise ``InfrastructureUnavailableError`` when Neo4j is unreachable, ``ConfigurationError`` on bad
     credentials, denied access or an unknown database; other driver errors map as in ``BoltExecutor``."""
 
@@ -78,7 +93,7 @@ async def check_connection(driver: Any, database: str | None = None) -> None:
         await driver.verify_connectivity()
         await driver.execute_query(render_cypher(PING), database_=database, routing_="r")
     except (Neo4jError, DriverError, OSError) as error:
-        raise _map_error(error, PING.name, write=False) from None
+        raise _map_error(error, PING.name, write=False, backend=backend) from None
 
 
 def _bind(query: Query, project_id: str, params: Mapping[str, Any], dialect: Dialect = CYPHER_DIALECT) -> dict[str, Any]:
@@ -90,38 +105,45 @@ def _bind(query: Query, project_id: str, params: Mapping[str, Any], dialect: Dia
     return bound
 
 
-def _configuration_error(error: BaseException, code: Any, query: str) -> ConfigurationError | None:
+def _configuration_error(error: BaseException, code: Any, query: str, backend: str) -> ConfigurationError | None:
     """The ``ConfigurationError`` of a rejected login, a forbidden access or a missing database, else None."""
 
     if isinstance(error, AuthError):
-        return ConfigurationError("neo4j_auth_rejected")
+        return ConfigurationError(STORE_AUTH_REJECTED, store=backend)
     if isinstance(error, Forbidden):
-        return ConfigurationError("neo4j_access_denied", query=query)
+        return ConfigurationError(STORE_ACCESS_DENIED, store=backend, query=query)
     if code == _DATABASE_NOT_FOUND:
-        return ConfigurationError("neo4j_database_not_found")
+        return ConfigurationError(STORE_DATABASE_NOT_FOUND, store=backend)
     return None
 
 
-def _map_error(error: BaseException, query: str, *, write: bool, attempts: int = 1) -> GraphError:
-    """The ``GraphError`` a driver error stands for (tech-specs.md section 7)."""
+def _map_error(
+    error: BaseException, query: str, *, write: bool, attempts: int = 1, backend: str = DEFAULT_BACKEND
+) -> GraphError:
+    """The ``GraphError`` a driver error stands for (tech-specs.md section 7), with neutral codes
+    (design D11) and ``store=<backend>``. A fulltext call the server refuses as too complex is
+    ``ConformanceError("query_too_complex")`` (design D6)."""
 
     code = getattr(error, "code", None)
     fields: dict[str, Any] = {
+        "store": backend,
         "query": query,
         "error_type": type(error).__name__,
-        "neo4j_code": code if isinstance(code, str) else None,
+        "backend_code": code if isinstance(code, str) else None,
         "attempts": attempts,
     }
-    configuration = _configuration_error(error, code, query)
+    configuration = _configuration_error(error, code, query, backend)
     if configuration is not None:
         return configuration
     if isinstance(error, (ServiceUnavailable, SessionExpired, OSError)):
-        return InfrastructureUnavailableError("neo4j_unreachable", error_type=type(error).__name__)
+        return InfrastructureUnavailableError(STORE_UNREACHABLE, store=backend, error_type=type(error).__name__)
     if write:
-        return GraphWriteError("neo4j_write_failed", **fields)
+        return GraphWriteError(STORE_WRITE_FAILED, **fields)
+    if code == _PROCEDURE_FAILED:
+        return ConformanceError(QUERY_TOO_COMPLEX, store=backend, query=query)
     if isinstance(error, (ClientError, DriverError)):
-        return ConformanceError("neo4j_query_rejected", **fields)
-    return InfrastructureUnavailableError("neo4j_read_failed", **fields)
+        return ConformanceError(STORE_QUERY_REJECTED, **fields)
+    return InfrastructureUnavailableError(STORE_READ_FAILED, **fields)
 
 
 def _is_transient(error: BaseException) -> bool:
@@ -131,10 +153,13 @@ def _is_transient(error: BaseException) -> bool:
 class BoltScopedTransaction:
     """One explicit write transaction of one project; ``run`` injects ``project_id``."""
 
-    def __init__(self, transaction: Any, project_id: str, dialect: Dialect = CYPHER_DIALECT) -> None:
+    def __init__(
+        self, transaction: Any, project_id: str, dialect: Dialect = CYPHER_DIALECT, backend: str = DEFAULT_BACKEND
+    ) -> None:
         self._transaction = transaction
         self._project_id = project_id
         self._dialect = dialect
+        self._backend = backend
 
     async def run(self, query: Query, /, **params: Any) -> list[Record]:
         plan = self._dialect.plan(query, bind_project(query, self._project_id, params))
@@ -147,7 +172,7 @@ class BoltScopedTransaction:
         try:
             return await run_plan(plan, statement)
         except (Neo4jError, DriverError, OSError) as error:
-            raise _map_error(error, query.name, write=True) from None
+            raise _map_error(error, query.name, write=True, backend=self._backend) from None
 
 
 class BoltExecutor:
@@ -163,16 +188,18 @@ class BoltExecutor:
         database: str | None = None,
         *,
         retry_delays: Sequence[float] = RETRY_DELAYS_SECONDS,
-        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        sleep: Callable[[float], Awaitable[None]] | None = None,
         dialect: Dialect = CYPHER_DIALECT,
         capabilities: StoreCapabilities = StoreCapabilities(),
+        backend: str = DEFAULT_BACKEND,
     ) -> None:
         self._driver = driver
         self._database = database
         self._retry_delays = tuple(retry_delays)
-        self._sleep = sleep
+        self._sleep = sleep or asyncio.sleep
         self._dialect = dialect
         self.capabilities = capabilities
+        self._backend = backend
 
     async def read(self, query: Query, project_id: str, /, **params: Any) -> list[Record]:
         """Run a read query of one project; return its records as dicts."""
@@ -193,13 +220,13 @@ class BoltExecutor:
             async with self._session(write=True) as session:
                 transaction = await session.begin_transaction()
                 try:
-                    yield BoltScopedTransaction(transaction, project_id, self._dialect)
+                    yield BoltScopedTransaction(transaction, project_id, self._dialect, self._backend)
                 except BaseException:
                     await _rollback(transaction)
                     raise
                 await transaction.commit()
         except (Neo4jError, DriverError, OSError) as error:
-            raise _map_error(error, "tx", write=True) from None
+            raise _map_error(error, "tx", write=True, backend=self._backend) from None
 
     def _session(self, *, write: bool) -> Any:
         return self._driver.session(
@@ -234,14 +261,16 @@ class BoltExecutor:
                 query=query.name,
                 attempt=number,
                 error_type=type(error).__name__,
-                neo4j_code=getattr(error, "code", None),
+                backend_code=getattr(error, "code", None),
             )
 
         return await retry_transient(
             attempt,
             errors=(Neo4jError, DriverError, OSError),
             is_transient=_is_transient,
-            map_error=lambda error, attempts: _map_error(error, query.name, write=write, attempts=attempts),
+            map_error=lambda error, attempts: _map_error(
+                error, query.name, write=write, attempts=attempts, backend=self._backend
+            ),
             delays=self._retry_delays,
             sleep=self._sleep,
             on_retry=retrying,

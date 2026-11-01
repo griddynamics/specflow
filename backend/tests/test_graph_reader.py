@@ -44,7 +44,6 @@ from graph_support import llm_config
 ONT = load_ontology()
 FR = "FunctionalRequirement"
 PROJECT = "offline-reader"
-PROCEDURE_FAILED = "Neo.ClientError.Procedure.ProcedureCallFailed"
 # Characters with a meaning in Lucene query syntax.
 LUCENE_SYNTAX = re.compile(r'[+\-!(){}\[\]^"~*?:\\/&|]')
 
@@ -449,7 +448,7 @@ async def test_stop_words_only_leave_the_vector_list() -> None:
 @pytest.mark.parametrize("method", ["find_nodes", "find_fragments"])
 async def test_a_query_lucene_rejects_is_query_too_long(method: str) -> None:
     def rejected(params: Mapping[str, Any]) -> list[dict[str, Any]]:
-        raise ConformanceError("neo4j_query_rejected", neo4j_code=PROCEDURE_FAILED)
+        raise ConformanceError("query_too_complex", store="neo4j")
 
     executor = ScriptedExecutor({"search_nodes_fulltext": rejected, "search_fragments": rejected})
     with pytest.raises(ConfigurationError) as raised:
@@ -459,10 +458,21 @@ async def test_a_query_lucene_rejects_is_query_too_long(method: str) -> None:
 
 async def test_other_query_rejections_stay_conformance_errors() -> None:
     def rejected(params: Mapping[str, Any]) -> list[dict[str, Any]]:
-        raise ConformanceError("neo4j_query_rejected", neo4j_code="Neo.ClientError.Statement.SyntaxError")
+        raise ConformanceError("store_query_rejected", backend_code="Neo.ClientError.Statement.SyntaxError")
 
     with pytest.raises(ConformanceError):
         await reader(ScriptedExecutor({"search_fragments": rejected})).find_fragments(PROJECT, "x")
+
+
+async def test_the_reader_no_longer_matches_a_backend_procedure_code() -> None:
+    def rejected(params: Mapping[str, Any]) -> list[dict[str, Any]]:
+        raise ConformanceError(
+            "store_query_rejected", backend_code="Neo.ClientError.Procedure.ProcedureCallFailed", store="neo4j"
+        )
+
+    with pytest.raises(ConformanceError) as raised:
+        await reader(ScriptedExecutor({"search_fragments": rejected})).find_fragments(PROJECT, "x")
+    assert raised.value.code == "store_query_rejected"
 
 
 # --- H4 / FR-READ-08: validation (before any query) ---------------------------------------------

@@ -189,7 +189,7 @@ async def test_version_gate_accepts_5_26_and_later(version: str, expected: tuple
 async def test_version_gate_refuses_older_than_5_26(version: str) -> None:
     with pytest.raises(ConfigurationError) as raised:
         await require_version(FakeDriver(version=version))
-    assert raised.value.code == "neo4j_version_unsupported"
+    assert raised.value.code == "store_version_unsupported"
     assert raised.value.fields["minimum"] == "5.26"
 
 
@@ -197,7 +197,7 @@ async def test_ensure_schema_on_5_25_raises_and_creates_nothing() -> None:
     driver = FakeDriver(version="5.25.0")
     with pytest.raises(ConfigurationError) as raised:
         await ensure_schema(driver, shipped_ontology(), llm_config())
-    assert raised.value.code == "neo4j_version_unsupported"
+    assert raised.value.code == "store_version_unsupported"
     assert driver.queries == [render_cypher(SERVER_COMPONENTS)]
 
 
@@ -205,14 +205,14 @@ async def test_server_version_unknown_kernel_is_configuration_error() -> None:
     driver = FakeDriver(version="not-a-version")
     with pytest.raises(ConfigurationError) as raised:
         await server_version(driver)
-    assert raised.value.code == "neo4j_version_unknown"
+    assert raised.value.code == "store_version_unknown"
 
 
 @pytest.mark.parametrize(
     ("error", "expected", "code"),
     [
-        (ServiceUnavailable("down"), InfrastructureUnavailableError, "neo4j_unreachable"),
-        (AuthError("rejected"), ConfigurationError, "neo4j_auth_rejected"),
+        (ServiceUnavailable("down"), InfrastructureUnavailableError, "store_unreachable"),
+        (AuthError("rejected"), ConfigurationError, "store_auth_rejected"),
     ],
 )
 async def test_server_version_maps_driver_errors(error: Exception, expected: type, code: str) -> None:
@@ -323,7 +323,7 @@ async def test_tx_driver_error_maps_and_rolls_back() -> None:
     with pytest.raises(GraphWriteError) as raised:
         async with executor(driver).tx("proj-1") as tx:
             await tx.run(SCOPED)
-    assert raised.value.code == "neo4j_write_failed"
+    assert raised.value.code == "store_write_failed"
     assert (driver.commits, driver.rollbacks) == (0, 1)
 
 
@@ -338,7 +338,7 @@ async def test_transient_write_error_is_retried_then_succeeds(central_log: LogHa
     assert sleeps.delays == [0.1, 0.3]
     # NFR-SEC-01: the retry is logged with ids and codes, never the server's message text.
     retries = central_log.events("graph.db.retry")
-    assert [(r["attempt"], r["neo4j_code"], r["query"]) for r in retries] == [
+    assert [(r["attempt"], r["backend_code"], r["query"]) for r in retries] == [
         (1, TRANSIENT_CODE, "scoped"),
         (2, TRANSIENT_CODE, "scoped"),
     ]
@@ -350,9 +350,9 @@ async def test_transient_write_error_exhausted_is_graph_write_error() -> None:
     driver, sleeps = FakeDriver(errors=[transient()] * 10), Sleeps()
     with pytest.raises(GraphWriteError) as raised:
         await executor(driver, sleeps).write(SCOPED, "p")
-    assert raised.value.code == "neo4j_write_failed"
+    assert raised.value.code == "store_write_failed"
     assert raised.value.fields["attempts"] == 4
-    assert raised.value.fields["neo4j_code"] == TRANSIENT_CODE
+    assert raised.value.fields["backend_code"] == TRANSIENT_CODE
     assert len(driver.runs) == 4
     assert sleeps.delays == [0.1, 0.3, 1.0]
 
@@ -370,7 +370,7 @@ async def test_client_error_on_read_is_conformance_error() -> None:
     driver = FakeDriver(errors=[client_error()])
     with pytest.raises(ConformanceError) as raised:
         await executor(driver).read(SCOPED, "p")
-    assert raised.value.code == "neo4j_query_rejected"
+    assert raised.value.code == "store_query_rejected"
     assert "secret" not in str(raised.value)
 
 
@@ -378,23 +378,23 @@ async def test_client_error_on_read_is_conformance_error() -> None:
 @pytest.mark.parametrize(
     ("make_error", "expected", "code"),
     [
-        (lambda: ServiceUnavailable("down"), InfrastructureUnavailableError, "neo4j_unreachable"),
-        (lambda: SessionExpired("gone"), InfrastructureUnavailableError, "neo4j_unreachable"),
-        (lambda: OSError("socket"), InfrastructureUnavailableError, "neo4j_unreachable"),
+        (lambda: ServiceUnavailable("down"), InfrastructureUnavailableError, "store_unreachable"),
+        (lambda: SessionExpired("gone"), InfrastructureUnavailableError, "store_unreachable"),
+        (lambda: OSError("socket"), InfrastructureUnavailableError, "store_unreachable"),
         (
             lambda: neo4j_error(AuthError, "Neo.ClientError.Security.Unauthorized"),
             ConfigurationError,
-            "neo4j_auth_rejected",
+            "store_auth_rejected",
         ),
         (
             lambda: neo4j_error(Forbidden, "Neo.ClientError.Security.Forbidden"),
             ConfigurationError,
-            "neo4j_access_denied",
+            "store_access_denied",
         ),
         (
             lambda: neo4j_error(ClientError, "Neo.ClientError.Database.DatabaseNotFound"),
             ConfigurationError,
-            "neo4j_database_not_found",
+            "store_database_not_found",
         ),
     ],
 )
@@ -418,19 +418,19 @@ async def test_check_succeeds_on_reachable_server() -> None:
 @pytest.mark.parametrize(
     ("make_error", "expected", "code"),
     [
-        (lambda: ServiceUnavailable("down"), InfrastructureUnavailableError, "neo4j_unreachable"),
-        (lambda: SessionExpired("gone"), InfrastructureUnavailableError, "neo4j_unreachable"),
-        (lambda: OSError("refused"), InfrastructureUnavailableError, "neo4j_unreachable"),
-        (lambda: AuthError("rejected"), ConfigurationError, "neo4j_auth_rejected"),
+        (lambda: ServiceUnavailable("down"), InfrastructureUnavailableError, "store_unreachable"),
+        (lambda: SessionExpired("gone"), InfrastructureUnavailableError, "store_unreachable"),
+        (lambda: OSError("refused"), InfrastructureUnavailableError, "store_unreachable"),
+        (lambda: AuthError("rejected"), ConfigurationError, "store_auth_rejected"),
         (
             lambda: neo4j_error(Forbidden, "Neo.ClientError.Security.Forbidden"),
             ConfigurationError,
-            "neo4j_access_denied",
+            "store_access_denied",
         ),
         (
             lambda: neo4j_error(ClientError, "Neo.ClientError.Database.DatabaseNotFound"),
             ConfigurationError,
-            "neo4j_database_not_found",
+            "store_database_not_found",
         ),
     ],
 )

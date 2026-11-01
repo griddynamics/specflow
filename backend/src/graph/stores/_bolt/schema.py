@@ -41,6 +41,8 @@ from graph.core.queries import (
 )
 from graph.core.store import (
     FRAGMENT_TEXT_INDEX,
+    STORE_AUTH_REJECTED,
+    STORE_UNREACHABLE,
     SPEC_NODE_EMBEDDING_INDEX,
     SPEC_NODE_TEXT_INDEX,
     foreign_labels,
@@ -204,6 +206,7 @@ async def ensure_cypher_schema(
     *,
     ddl: Sequence[str] | None = None,
     require_version: Callable[[Any, str | None], Awaitable[tuple[int, ...]]],
+    backend: str = "neo4j",
 ) -> tuple[str, ...]:
     """Create the missing ``graph_*`` constraints and indexes; return the names created.
 
@@ -221,8 +224,8 @@ async def ensure_cypher_schema(
     wanted = schema_objects(ontology, ddl)
     version = await require_version(driver, database)
     dimension = embedding_dim
-    constraints = await _run(driver, SHOW_CONSTRAINTS, database)
-    indexes = await _run(driver, SHOW_INDEXES, database)
+    constraints = await _run(driver, SHOW_CONSTRAINTS, database, backend)
+    indexes = await _run(driver, SHOW_INDEXES, database, backend)
     missing = [item for item in wanted if not _present(item, constraints, indexes, dimension)]
     taken = {row["name"] for row in [*constraints, *indexes]}
     for item in missing:
@@ -230,10 +233,10 @@ async def ensure_cypher_schema(
             raise ConfigurationError("schema_name_conflict", name=item.name)
     created: list[str] = []
     for item in missing:
-        await _run(driver, item.query(), database, dimension=dimension)
+        await _run(driver, item.query(), database, backend, dimension=dimension)
         created.append(item.name)
-    await _run(driver, AWAIT_INDEXES, database, timeout_s=INDEX_ONLINE_TIMEOUT_S)
-    _require_online(wanted, await _run(driver, SHOW_INDEXES, database))
+    await _run(driver, AWAIT_INDEXES, database, backend, timeout_s=INDEX_ONLINE_TIMEOUT_S)
+    _require_online(wanted, await _run(driver, SHOW_INDEXES, database, backend))
     log_event(
         logger,
         INFO,
@@ -296,19 +299,22 @@ def _require_online(wanted: Sequence[SchemaObject], indexes: Sequence[Mapping[st
             raise ConfigurationError("schema_index_not_online", index=row["name"], state=row["state"])
 
 
-async def _run(driver: Any, query: Query, database: str | None, **params: Any) -> list[dict[str, Any]]:
+async def _run(
+    driver: Any, query: Query, database: str | None, backend: str, **params: Any
+) -> list[dict[str, Any]]:
     try:
         result = await driver.execute_query(render_cypher(query), params, database_=database)
     except AuthError:
-        raise ConfigurationError("neo4j_auth_rejected") from None
+        raise ConfigurationError(STORE_AUTH_REJECTED, store=backend) from None
     except (ServiceUnavailable, SessionExpired, OSError) as error:
-        raise InfrastructureUnavailableError("neo4j_unreachable", error_type=type(error).__name__) from None
+        raise InfrastructureUnavailableError(STORE_UNREACHABLE, store=backend, error_type=type(error).__name__) from None
     except (Neo4jError, DriverError) as error:
         code = getattr(error, "code", None)
         raise ConfigurationError(
             "schema_setup_failed",
+            store=backend,
             query=query.name,
             error_type=type(error).__name__,
-            neo4j_code=code if isinstance(code, str) else None,
+            backend_code=code if isinstance(code, str) else None,
         ) from None
     return [dict(record) for record in result.records]

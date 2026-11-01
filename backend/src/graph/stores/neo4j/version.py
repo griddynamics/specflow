@@ -9,9 +9,12 @@ from neo4j.exceptions import DriverError, Neo4jError
 
 from graph.core.errors import ConfigurationError
 from graph.core.queries import SERVER_COMPONENTS
+from graph.core.store import STORE_VERSION_UNSUPPORTED
 from graph.stores._bolt.cypher import render_cypher
 from graph.stores._bolt.executor import _map_error
 
+BACKEND: Final = "neo4j"
+STORE_VERSION_UNKNOWN: Final = "store_version_unknown"
 MINIMUM_VERSION: Final = (5, 26)
 KERNEL_COMPONENT: Final = "Neo4j Kernel"
 _VERSION: Final = re.compile(r"^(\d+)\.(\d+)(?:\.(\d+))?")
@@ -23,14 +26,14 @@ async def server_version(driver: Any, database: str | None = None) -> tuple[int,
     try:
         result = await driver.execute_query(render_cypher(SERVER_COMPONENTS), database_=database, routing_="r")
     except (Neo4jError, DriverError, OSError) as error:
-        raise _map_error(error, SERVER_COMPONENTS.name, write=False) from None
+        raise _map_error(error, SERVER_COMPONENTS.name, write=False, backend=BACKEND) from None
     for record in result.records:
         if record["name"] == KERNEL_COMPONENT and record["versions"]:
             match = _VERSION.match(str(record["versions"][0]))
             if match:
                 major, minor, patch = match.groups()
                 return int(major), int(minor), int(patch or 0)
-    raise ConfigurationError("neo4j_version_unknown")
+    raise ConfigurationError(STORE_VERSION_UNKNOWN, store=BACKEND)
 
 
 async def require_version(
@@ -41,7 +44,8 @@ async def require_version(
     found = await server_version(driver, database)
     if found < tuple(minimum):
         raise ConfigurationError(
-            "neo4j_version_unsupported",
+            STORE_VERSION_UNSUPPORTED,
+            store=BACKEND,
             found=".".join(map(str, found)),
             minimum=".".join(map(str, minimum)),
         )
