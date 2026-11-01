@@ -1,68 +1,36 @@
-/* FE-PLAN-08 (GAPS.md "## P25", G-PLAN-3): the Develop tab. The design system has Card, Tag, Button, SegmentedControl and `.gdg-prose` code
-   blocks but no code block with a Copy bar, no workflow cards and no tool table. Additive, tokens only. */
+/* MCP-M10: Plan › Develop. The cards, copy blocks and disclosure come from the design system and guides.css; this is the page layout and the
+   closing line. Tokens only. */
 .dev {
   display: grid;
   gap: var(--space-md);
   min-width: 0;
+  max-width: calc(var(--space-2xl) * 12);
   font-family: var(--font-sans);
   color: var(--ink);
 }
-.dev-banner {
+.dev p {
+  margin: 0;
+}
+.dev-guide {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-xs);
-  margin: 0;
+  column-gap: var(--space-xs);
 }
-.dev-banner > span:last-child {
+.dev-guide > span {
   color: var(--ink-2);
 }
-.dev-steps,
-.dev-flows {
-  display: grid;
-  gap: var(--space-sm);
-  min-width: 0;
-}
-.dev-flows {
-  grid-template-columns: repeat(auto-fit, minmax(calc(var(--space-2xl) * 3), 1fr));
-}
-.dev h2 {
-  margin: var(--space-sm) 0 0;
-}
-.dev ol {
-  margin: 0;
-  padding-left: var(--space-md);
-  display: grid;
-  gap: var(--space-2xs);
-}
-.dev code {
-  overflow-wrap: anywhere;
-}
-.dev-example {
-  margin: var(--space-xs) 0 0;
-  color: var(--ink-2);
-}
-
-/* The tool table: a real table, hairline rows; it scrolls sideways inside its wrapper on a phone. */
-.dev-tools {
-  min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  overscroll-behavior-x: contain;
-}
-.dev-tools table {
-  width: 100%;
-  border-collapse: collapse;
-  text-align: left;
-}
-.dev-tools th {
+.dev-guide__link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--ink);
   font-weight: 600;
-  padding: var(--space-xs) var(--space-sm);
-  border-bottom: 2px solid var(--ink);
-  white-space: nowrap;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  border-radius: var(--radius-sm);
 }
-.dev-tools td {
-  padding: var(--space-xs) var(--space-sm);
-  border-bottom: 1px solid var(--hairline);
-  vertical-align: top;
+.dev-guide__link:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }

@@ -6,7 +6,7 @@
 //  - Stage = `plan.state` fed by `plan.subscribe` (store state, not URL, FE-DEMO-03): `data-stage` is `empty` (gate) | `idle` | `creating`
 //    | `ready`, one slot each. Slots read the ports themselves (`usePorts()`, `useRoutes()`); their props are fixed here (P21-5).
 //  - Leaving the screen (unmount) calls `plan.leave`: a run in progress goes back to idle, a ready plan stays (FE-PLAN-09).
-//  - The h1 is visually hidden: the sidebar names the page (G-HDR-3). Stage 0 puts "Create PLAN" in the shell header (P27-1), Stage 2 the Plan | Develop switch and "Recreate Plan"; Stage 1 nothing (GAPS "Header row").
+//  - The h1 is visually hidden: the sidebar names the page (G-HDR-3). Stage 0 puts the Plan | Develop switch and "Create PLAN" in the shell header (P27-1, U5), Stage 2 the Plan | Develop switch and "Recreate Plan"; Stage 1 nothing (GAPS "Header row").
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
@@ -19,13 +19,14 @@ import { usePlanPort, usePlanRoutes } from "./use-plan-ports";
 import type { PlanState } from "@/lib/domain/plan";
 import { BeforePlanView } from "./before/BeforePlanView";
 import { CreatingView } from "./progress/CreatingView";
+import type { DevelopInfo } from "./develop/DevelopTab";
 import { PlanReadyView } from "./ready/PlanReadyView";
 import "@/components/shell/ready-gate.css";
 import "./plan-gaps.css";
 
 /** `key={projectId}`: another project starts with a fresh gate and stage. */
-export function PlanScreen({ projectId }: Readonly<{ projectId: string }>) {
-  return <Plan key={projectId} projectId={projectId} />;
+export function PlanScreen({ projectId, develop }: Readonly<{ projectId: string; develop: DevelopInfo }>) {
+  return <Plan key={projectId} projectId={projectId} develop={develop} />;
 }
 
 /** What the plan screen shows for the gate and the stage: the "no plan yet" note, the failure with "Try again", the skeleton, or a stage view. */
@@ -33,12 +34,14 @@ function PlanStage({
   gate,
   state,
   projectId,
+  develop,
   onOpenMissionControl,
   onRetry,
 }: Readonly<{
   gate: ReadyGate;
   state: PlanState | "failed" | null;
   projectId: string;
+  develop: DevelopInfo;
   onOpenMissionControl: () => void;
   onRetry: () => void;
 }>) {
@@ -64,12 +67,12 @@ function PlanStage({
       </div>
     );
   }
-  if (state.phase === "idle") return <BeforePlanView projectId={projectId} />;
+  if (state.phase === "idle") return <BeforePlanView projectId={projectId} develop={develop} />;
   if (state.phase === "creating") return <CreatingView projectId={projectId} run={state} />;
-  return <PlanReadyView projectId={projectId} plan={state.plan} />;
+  return <PlanReadyView projectId={projectId} plan={state.plan} develop={develop} />;
 }
 
-function Plan({ projectId }: Readonly<{ projectId: string }>) {
+function Plan({ projectId, develop }: Readonly<{ projectId: string; develop: DevelopInfo }>) {
   const plan = usePlanPort();
   const routes = usePlanRoutes();
   const router = useRouter();
@@ -110,6 +113,7 @@ function Plan({ projectId }: Readonly<{ projectId: string }>) {
         gate={gate}
         state={state}
         projectId={projectId}
+        develop={develop}
         onOpenMissionControl={() => {
           router.push(routes.missionControl(projectId));
         }}

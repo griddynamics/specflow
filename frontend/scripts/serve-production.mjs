@@ -1,6 +1,7 @@
 // FE-BP-03, FE-BP-09, FE-DOD-03 (TECH-SPECS §10.4; P17): serve the BUILT app on its PRODUCTION routes for the Playwright run
 // `npm run e2e:production`, against the stub API (tests/support/stub-api.mjs), never the real backend: no model call is possible.
-//   - frontend (standalone server.js): http://127.0.0.1:3260, APP_ENV=local, AUTH_MODE=dev (the dev sign-in form)
+//   - frontend (standalone server.js): http://127.0.0.1:3260, APP_ENV=local, AUTH_MODE=dev (the dev sign-in form),
+//     MCP_PUBLIC_URL=https://mcp.example.com/mcp, MCP_CLIENT_ID=specflow-test (the Guides snippets)
 //   - stub API: http://127.0.0.1:3261 (the BFF's API_INTERNAL_URL; it verifies the dev token with the same random key)
 //   - test control: http://127.0.0.1:3262  GET /log (method, path, content type, bytes, first bytes; never headers),
 //                                          POST /timing (JSON: parseMs, summarizeMs, parseOutcome; null = Infinity)
@@ -73,6 +74,9 @@ const env = frontendEnv(PORT, {
   LOCAL_TEST_USER_EMAIL: "prod.user@example.test",
   API_INTERNAL_URL: api.url,
   PUBLIC_URL: `http://127.0.0.1:${PORT}`,
+  // The Guides and Plan › Develop build their snippets from these two (FR-MCP-UI-03); the specs read the same values.
+  MCP_PUBLIC_URL: "https://mcp.example.com/mcp",
+  MCP_CLIENT_ID: "specflow-test",
 });
 
 const child = spawnStandalone(env, secrets);

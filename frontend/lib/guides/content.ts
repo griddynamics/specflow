@@ -275,3 +275,27 @@ export const MCP_GUIDE = {
 export function troubleshootingFix(fix: string | ((server: string) => string), server: string): string {
   return typeof fix === "function" ? fix(server) : fix;
 }
+
+// ---------------------------------------------------------------- Plan › Develop
+
+export const DEVELOP = {
+  bind: {
+    eyebrow: "This project",
+    title: (projectName: string) => `Use ${projectName} in your repository`,
+    text: "Run this in Claude Code, inside the repository you will change. From then on, your agent works on this project in every session.",
+    caption: "In Claude Code, inside your repository",
+    file: {
+      summary: "Or save the binding file yourself",
+      caption: "Save as .specflow/config.json in the repository and commit it",
+    },
+  },
+  ask: {
+    eyebrow: "Ask your agent",
+    title: "Try these in Claude Code",
+    overview: "Get an overview",
+    start: "Start the work",
+  },
+  notConnected: "Claude Code not connected yet?",
+  guideLink: "Set up your coding agent in Guides",
+  nameMissing: "Could not load this project's name. Reload the page to try again.",
+} as const;
