@@ -51,6 +51,7 @@ async function discover(fresh = false): Promise<NonNullable<typeof discovery>> {
   const { issuer } = appConfig().oidc;
   const res = await fetch(toBackChannel(`${issuer}/.well-known/openid-configuration`), {
     signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
+    redirect: "error", // discovery is never redirected: the back channel must not be steered elsewhere
   });
   if (!res.ok) throw new Error("discovery_failed");
   const doc = (await res.json()) as { token_endpoint?: string; end_session_endpoint?: string };

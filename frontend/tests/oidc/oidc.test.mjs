@@ -4,7 +4,7 @@
 // Covers AC-6.5 (credentials callback yields no session), AC-6.8 (single-flight refresh,
 // failed refresh clears the session), AC-6.9 (login -> session, refresh, logout), B-08/B-09 (RP-initiated logout with and without
 // an end_session_endpoint). Ports 3220-3229.
-import { request } from "node:http";
+import { createServer, request } from "node:http";
 import { test, before, after } from "node:test";
 import { decodeJwt } from "jose";
 import assert from "node:assert/strict";
@@ -53,15 +53,15 @@ const claimsSeenByApi = () => {
 };
 
 /** Sign in the way a browser does; `expiresIn` shapes the first access token. */
-async function login({ expiresIn = 3600, email = "oidc.user@example.test" } = {}) {
+async function login({ expiresIn = 3600, email = "oidc.user@example.test", app = fe } = {}) {
   issuer.accessExpiresIn = expiresIn;
   const jar = new Jar();
-  const token = await csrf(fe.base, jar);
-  const start = await fetch(`${fe.base}/api/auth/signin/oidc`, {
+  const token = await csrf(app.base, jar);
+  const start = await fetch(`${app.base}/api/auth/signin/oidc`, {
     method: "POST",
     redirect: "manual",
     headers: { cookie: jar.header(), "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ csrfToken: token, callbackUrl: `${fe.base}/` }),
+    body: new URLSearchParams({ csrfToken: token, callbackUrl: `${app.base}/` }),
   });
   jar.absorb(start);
   assert.equal(start.status, 302);
@@ -394,10 +394,92 @@ test("M5: the OIDC redirect_uri comes from PUBLIC_URL, not from a spoofed Host o
   assert.doesNotMatch(res.location, /evil/, "no part of the redirect carries the forged host");
 });
 
+/**
+ * A second app whose back-channel discovery goes through a proxy to the stub issuer. `mode` shapes only the discovery answer:
+ * "ok" passes it through, "foreign" advertises an end_session_endpoint on another origin, "redirect" answers 302.
+ */
+async function startDiscoveryProxy(port) {
+  const proxy = { mode: "ok", discoveryCalls: 0 };
+  const server = createServer(async (req, res) => {
+    const isDiscovery = req.url.endsWith("/.well-known/openid-configuration");
+    if (isDiscovery) proxy.discoveryCalls += 1;
+    if (isDiscovery && proxy.mode === "redirect") {
+      res.writeHead(302, { location: `${issuer.url}/.well-known/openid-configuration` });
+      return res.end();
+    }
+    const body = ["GET", "HEAD"].includes(req.method) ? undefined : Buffer.concat(await req.toArray());
+    const upstream = await fetch(`http://127.0.0.1:${ISSUER_PORT}${req.url}`, {
+      method: req.method,
+      headers: { "content-type": req.headers["content-type"] ?? "", authorization: req.headers.authorization ?? "" },
+      body,
+    });
+    let text = await upstream.text();
+    if (isDiscovery && proxy.mode === "foreign") {
+      text = JSON.stringify({ ...JSON.parse(text), end_session_endpoint: "http://evil.example.test/logout" });
+    }
+    res.writeHead(upstream.status, { "content-type": upstream.headers.get("content-type") ?? "application/json" });
+    res.end(text);
+  });
+  await new Promise((resolve) => server.listen(port, "127.0.0.1", resolve));
+  return Object.assign(proxy, { url: `http://127.0.0.1:${port}/realms/stub`, close: () => new Promise((r) => server.close(r)) });
+}
+
+test("B-08 hardening: a discovery that advertises a foreign-origin endpoint, or redirects, yields the local sign-out URL (never the id_token off-origin)", async () => {
+  const proxy = await startDiscoveryProxy(3224);
+  const app = await startFrontend({
+    port: 3222,
+    env: frontendEnv(3222, {
+      APP_ENV: "local",
+      API_INTERNAL_URL: api.url,
+      SESSION_SECRET: randomSecret(),
+      OIDC_ISSUER: PUBLIC_ISSUER,
+      OIDC_INTERNAL_URL: proxy.url,
+      OIDC_CLIENT_ID: CLIENT_ID,
+      OIDC_CLIENT_SECRET: CLIENT_SECRET,
+    }),
+  });
+  try {
+    const { jar } = await login({ app });
+    const call = async () =>
+      (await fetch(`${app.base}/api/auth/end-session`, { method: "POST", headers: { cookie: jar.header() } })).json();
+    const fallback = { url: `${app.base}/login?signedout=1` };
+    assert.match((await call()).url, /\/protocol\/openid-connect\/logout\?/, "control: the same-origin endpoint is used");
+
+    proxy.mode = "foreign";
+    const out = app.output().length;
+    const foreign = await call();
+    assert.deepEqual(foreign, fallback);
+    assert.match(app.output().slice(out), /"event":"auth\.signout\.endpoint_origin_mismatch"/);
+    assert.ok(!app.output().slice(out).includes("evil.example.test"), "no URL in the log");
+
+    proxy.mode = "redirect";
+    const out2 = app.output().length;
+    assert.deepEqual(await call(), fallback, "a redirected discovery is not followed");
+    assert.match(app.output().slice(out2), /"event":"auth\.signout\.idp_unavailable"/);
+
+    proxy.mode = "ok";
+    const calls = proxy.discoveryCalls;
+    const res = await fetch(`${app.base}/api/auth/end-session`, {
+      method: "POST",
+      headers: { cookie: jar.header(), "sec-fetch-site": "cross-site" },
+    });
+    assert.deepEqual(await res.json(), fallback, "a cross-site caller gets the fallback");
+    assert.equal(proxy.discoveryCalls, calls, "...without a discovery fetch");
+    assert.deepEqual(await (await fetch(`${app.base}/api/auth/end-session`, { method: "POST" })).json(), fallback);
+    assert.equal(proxy.discoveryCalls, calls, "no session: no discovery fetch");
+  } finally {
+    await app.stop();
+    await proxy.close();
+  }
+});
+
 test("B-09 (keep last): an unreachable issuer at sign-out falls back to the local sign-out URL, logged without values", async () => {
   const { jar } = await login();
   const out = fe.output().length;
   await issuer.close(); // last test of the file: the issuer stays down
+  const anonymous = await endSessionCall(new Jar());
+  assert.deepEqual(await anonymous.json(), { url: `${fe.base}/login?signedout=1` });
+  assert.doesNotMatch(fe.output().slice(out), /idp_unavailable/, "no session: discovery was not even tried");
   const res = await endSessionCall(jar);
   assert.deepEqual(await res.json(), { url: `${fe.base}/login?signedout=1` });
   assert.match(fe.output().slice(out), /"event":"auth\.signout\.idp_unavailable"/);

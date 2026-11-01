@@ -13,11 +13,20 @@ const SIGNED_OUT_PATH = "/login?signedout=1";
 export async function endSessionUrlFor(req: Request): Promise<string> {
   const { publicOrigin, oidc } = appConfig();
   const fallback = new URL(SIGNED_OUT_PATH, publicOrigin).href;
+  // Nothing to end without a session (and no discovery fetch for an anonymous or cross-site caller).
+  const site = req.headers.get("sec-fetch-site");
+  if (site !== null && site !== "same-origin") return fallback;
   try {
-    const [endpoint, idToken] = await Promise.all([endSessionEndpoint(), idTokenFor(req)]);
-    if (endpoint === undefined || idToken === null || !URL.canParse(endpoint)) return fallback;
+    const idToken = await idTokenFor(req);
+    if (idToken === null) return fallback;
+    const endpoint = await endSessionEndpoint();
+    if (endpoint === undefined || !URL.canParse(endpoint)) return fallback;
     const url = new URL(endpoint);
-    if (url.protocol !== "https:" && url.protocol !== "http:") return fallback;
+    // The user agent is sent there with the id_token: only to the issuer's own origin.
+    if (url.origin !== new URL(oidc.issuer).origin) {
+      process.stdout.write(`${JSON.stringify({ event: "auth.signout.endpoint_origin_mismatch" })}\n`);
+      return fallback;
+    }
     url.searchParams.set("id_token_hint", idToken);
     url.searchParams.set("post_logout_redirect_uri", fallback);
     url.searchParams.set("client_id", oidc.clientId);
