@@ -1,6 +1,7 @@
 -- Persist: SET += row.props on the edge row.uuid stored under one of row.keys
 -- (an edge without a uuid is matched on its key alone). Parameters: rel_type,
--- rows: a JSON list of uuid, keys and props. written counts the edges that
+-- rows: a JSON list of uuid, keys and props. Every matching row is applied to
+-- an edge in order (the last one decides a key). written counts the edges that
 -- matched.
 WITH r AS (
     SELECT
@@ -14,17 +15,18 @@ WITH r AS (
 ),
 
 matched AS (
-    SELECT DISTINCT ON (x.id)
+    SELECT
         x.id,
-        r.props
+        graph.props_fold(array_agg(r.props ORDER BY r.ord)) AS props
     FROM r
+    CROSS JOIN LATERAL jsonb_array_elements_text(r.keys) AS k (edge_key)
     INNER JOIN graph.edge AS x
         ON
             x.group_id = :project_id
             AND x.rel_type = :rel_type
-            AND jsonb_exists(r.keys, x.edge_key)
+            AND x.edge_key = k.edge_key
             AND (x.props ->> 'uuid' = r.uuid OR x.props ->> 'uuid' IS NULL)
-    ORDER BY x.id ASC, r.ord DESC
+    GROUP BY x.id
 ),
 
 updated AS (

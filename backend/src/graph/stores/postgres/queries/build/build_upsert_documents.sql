@@ -44,7 +44,16 @@ inserted AS (
         ) AS props
     FROM folded AS f
     WHERE f.document_id NOT IN (SELECT u.document_id FROM updated AS u)
-    ON CONFLICT (group_id, document_id) WHERE kind = 'document' DO NOTHING
+    ON CONFLICT (group_id, document_id) WHERE kind = 'document' DO UPDATE
+        SET
+            props = graph.props_merge(
+                node.props,
+                (
+                    SELECT g.patch
+                    FROM folded AS g
+                    WHERE g.document_id = excluded.props ->> 'document_id'
+                )
+            )
     RETURNING node.document_id
 )
 

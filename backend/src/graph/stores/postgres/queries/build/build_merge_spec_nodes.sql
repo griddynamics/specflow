@@ -10,7 +10,11 @@
 -- earlier in the moved set (the sub-statements share one snapshot, so
 -- duplicates inside the set are folded here), and when it joins the merged
 -- node and the survivor or two nodes merged into one survivor. A self-loop of
--- a merged node becomes a self-loop of the survivor (canonical Cypher).
+-- a merged node becomes a self-loop of the survivor (canonical Cypher). Both
+-- ends of an edge go through the old -> survivor mapping in one pass, so an
+-- edge between nodes merged into different survivors ends as survivor ->
+-- survivor. Moved edges that share (type, ends) and an edge_key are one (the
+-- first by id), as are equal ones without a key.
 WITH r AS (
     SELECT
         e.ord,
@@ -54,29 +58,16 @@ cand AS (
         e.rel_type,
         e.props,
         e.edge_key,
-        p.new_id,
-        CASE WHEN e.source_id = p.old_id THEN p.new_id ELSE e.source_id END
-            AS new_src,
-        CASE WHEN e.target_id = p.old_id THEN p.new_id ELSE e.target_id END
-            AS new_tgt,
-        (
-            e.source_id = p.new_id
-            OR e.target_id = p.new_id
-            OR e.source_id IN (
-                SELECT q.old_id FROM pairs AS q
-                WHERE q.new_id = p.new_id AND q.old_id <> p.old_id
-            )
-            OR e.target_id IN (
-                SELECT q.old_id FROM pairs AS q
-                WHERE q.new_id = p.new_id AND q.old_id <> p.old_id
-            )
-        ) AS between_ends
-    FROM pairs AS p
-    INNER JOIN
-        graph.edge AS e
-        ON p.old_id = e.source_id OR p.old_id = e.target_id
+        e.source_id AS old_src,
+        e.target_id AS old_tgt,
+        coalesce(ps.new_id, e.source_id) AS new_src,
+        coalesce(pt.new_id, e.target_id) AS new_tgt
+    FROM graph.edge AS e
+    LEFT JOIN pairs AS ps ON e.source_id = ps.old_id
+    LEFT JOIN pairs AS pt ON e.target_id = pt.old_id
     WHERE
         e.group_id = :project_id
+        AND (ps.old_id IS NOT NULL OR pt.old_id IS NOT NULL)
         AND NOT (e.rel_type = any(cast(:owned_types AS text[])))
 ),
 
@@ -86,7 +77,7 @@ ranked AS (
         c.new_src,
         c.new_tgt,
         CASE
-            WHEN c.between_ends THEN FALSE
+            WHEN c.new_src = c.new_tgt AND c.old_src <> c.old_tgt THEN FALSE
             WHEN EXISTS (
                 SELECT 1
                 FROM graph.edge AS x
@@ -99,7 +90,13 @@ ranked AS (
             ) THEN FALSE
             ELSE row_number() OVER (
                 PARTITION BY
-                    c.between_ends, c.new_src, c.new_tgt, c.rel_type, c.props
+                    c.new_src,
+                    c.new_tgt,
+                    c.rel_type,
+                    CASE
+                        WHEN c.edge_key IS NOT NULL THEN 'k:' || c.edge_key
+                        ELSE 'p:' || cast(c.props AS text)
+                    END
                 ORDER BY c.id
             ) = 1
         END AS keep

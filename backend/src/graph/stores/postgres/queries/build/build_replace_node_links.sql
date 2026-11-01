@@ -3,13 +3,27 @@
 -- last phase. Parameters: project_id, rows: a JSON list of uuid, evidence
 -- (fragment_id, line_start, line_end) and mentions (fragment_id, count).
 -- Evidence and mentions create one relationship per entry, as CREATE does.
--- written counts the rows that found their node.
-WITH r AS (
+-- Existing fragments are left untouched (their ids are read, not rewritten);
+-- a repeated uuid in one batch keeps its last row. written counts the distinct
+-- uuids that found their node.
+WITH rows_in AS (
     SELECT
+        e.ord,
         e.item ->> 'uuid' AS uuid,
         coalesce(e.item -> 'evidence', cast('[]' AS jsonb)) AS evidence,
         coalesce(e.item -> 'mentions', cast('[]' AS jsonb)) AS mentions
-    FROM jsonb_array_elements(cast(:rows AS jsonb)) AS e (item)
+    FROM
+        jsonb_array_elements(cast(:rows AS jsonb)) WITH ORDINALITY
+            AS e (item, ord)
+),
+
+r AS (
+    SELECT DISTINCT ON (i.uuid)
+        i.uuid,
+        i.evidence,
+        i.mentions
+    FROM rows_in AS i
+    ORDER BY i.uuid ASC, i.ord DESC
 ),
 
 nodes AS (
@@ -29,7 +43,7 @@ removed AS (
         AND edge.rel_type IN ('REFERENCED_BY', 'MENTIONED_IN')
         AND edge.target_id IN (
             SELECT f.id FROM graph.node AS f
-            WHERE f.kind = 'fragment'
+            WHERE f.group_id = :project_id AND f.kind = 'fragment'
         )
     RETURNING edge.id
 ),
@@ -44,7 +58,7 @@ wanted AS (
     ) AS x
 ),
 
-fragments AS (
+created AS (
     INSERT INTO graph.node (group_id, kind, labels, props)
     SELECT
         :project_id AS group_id,
@@ -52,9 +66,24 @@ fragments AS (
         ARRAY['Fragment'] AS labels,
         jsonb_build_object('fragment_id', w.fragment_id) AS props
     FROM wanted AS w
-    ON CONFLICT (group_id, fragment_id) WHERE kind = 'fragment'
-    DO UPDATE SET props = node.props
+    ON CONFLICT (group_id, fragment_id) WHERE kind = 'fragment' DO NOTHING
     RETURNING node.id, node.fragment_id
+),
+
+fragments AS (
+    SELECT
+        n.id,
+        n.fragment_id
+    FROM graph.node AS n
+    WHERE
+        n.group_id = :project_id
+        AND n.kind = 'fragment'
+        AND n.fragment_id IN (SELECT w.fragment_id FROM wanted AS w)
+    UNION ALL
+    SELECT
+        c.id,
+        c.fragment_id
+    FROM created AS c
 ),
 
 evidence_edges AS (

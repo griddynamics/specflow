@@ -73,7 +73,19 @@ inserted AS (
                 AND x.source_id = f.source_id
                 AND x.target_id = f.target_id
         )
-    ON CONFLICT (group_id, rel_type, edge_key, source_id, target_id) DO NOTHING
+    ON CONFLICT (group_id, rel_type, edge_key, source_id, target_id) DO UPDATE
+        SET
+            props = graph.props_merge(
+                edge.props,
+                (
+                    SELECT g.patch
+                    FROM folded AS g
+                    WHERE
+                        g.edge_key = excluded.props ->> 'edge_key'
+                        AND g.source_id = excluded.source_id
+                        AND g.target_id = excluded.target_id
+                )
+            )
     RETURNING edge.id
 )
 

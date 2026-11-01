@@ -26,7 +26,7 @@ from graph.build import queries as bq
 from graph.core import ConfigurationError, ConformanceError, NodeRef, Ontology, OwnedWriter
 from graph.core import queries as q
 from graph.core.errors import GraphWriteError, InfrastructureUnavailableError
-from graph.core.queries import NodeShape
+from graph.core.queries import NodeShape, Query
 from graph.stores import StoreConfig, build_store
 from graph.stores.postgres import PostgresStore
 from graph.stores.postgres.dialect import render_schema
@@ -843,3 +843,287 @@ async def test_a_merge_moves_foreign_relationships_once_and_deletes_the_merged_n
     async with executor.tx(project) as tx:  # the batch applied again: the merged nodes are gone, the survivor stays
         again = await tx.run(bq.MERGE_SPEC_NODES, rows=[row], build_id="b10", owned_types=["PART_OF"])
     assert again == [{"written": 1}]
+
+
+# Review fixes
+
+
+async def _race(store: PostgresStore, project: str, first: Any, second: Any) -> None:
+    """Run ``first`` in a transaction that stays open while ``second`` starts in another one: ``second`` took
+    its snapshot before ``first`` committed, so its insert of the same key waits for ``first`` and then meets
+    the conflict. Both transactions commit."""
+
+    executor = store.executor()
+    opened = asyncio.Event()
+    release = asyncio.Event()
+
+    async def holder() -> None:
+        async with executor.tx(project) as tx:
+            await first(tx)
+            opened.set()
+            await release.wait()
+
+    async def follower() -> None:
+        async with executor.tx(project) as tx:
+            await second(tx)
+
+    held = asyncio.create_task(holder())
+    await opened.wait()
+    waiting = asyncio.create_task(follower())
+    await asyncio.sleep(0.7)
+    assert not waiting.done()  # blocked on the uncommitted row of the other writer
+    release.set()
+    await asyncio.gather(held, waiting)
+
+
+async def test_two_concurrent_writers_of_one_spec_node_both_land(
+    store: PostgresStore, ontology: Ontology, project: str
+) -> None:
+    def rows(props: dict[str, Any]) -> list[dict[str, Any]]:
+        return [{"uuid": "u1", "label": MODULE, "props": props}]
+
+    async def one(tx: Any) -> None:
+        await tx.run(bq.CREATE_SPEC_NODES, rows=rows({"spec_id": "M::1", "a": 1, "embedding": vec(1.0)}), build_id="b")
+
+    async def two(tx: Any) -> None:
+        assert await tx.run(bq.CREATE_SPEC_NODES, rows=rows({"b": 2, "a": None}), build_id="b") == [{"written": 1}]
+
+    await _race(store, project, one, two)
+    (node,) = await raw(
+        store, "SELECT props, embedding IS NOT NULL AS v FROM graph.node WHERE group_id = :p", p=project
+    )
+    assert node["props"] == {"uuid": "u1", "spec_id": "M::1", "b": 2}  # both patches, the later null removed a
+    assert node["v"] is True  # a patch without an embedding keeps the vector of the other writer
+
+
+async def test_two_concurrent_writers_of_one_document_and_one_fragment_both_land(
+    store: PostgresStore, ontology: Ontology, project: str
+) -> None:
+    async def docs(tx: Any, props: dict[str, Any]) -> None:
+        await tx.run(bq.UPSERT_DOCUMENTS, rows=[{"document_id": "d1", "props": props}], build_id="b")
+
+    await _race(store, project, lambda tx: docs(tx, {"path": "p"}), lambda tx: docs(tx, {"title": "t"}))
+    (doc,) = await raw(store, "SELECT props FROM graph.node WHERE group_id = :p AND kind = 'document'", p=project)
+    assert doc["props"] == {"document_id": "d1", "path": "p", "title": "t", "last_build_id": "b"}
+
+    async def frags(tx: Any, props: dict[str, Any]) -> None:
+        rows = [{"fragment_id": "f1", "document_id": "d1", "props": props}]
+        assert await tx.run(bq.UPSERT_FRAGMENTS, rows=rows, build_id="b") == [{"written": 1}]
+
+    await _race(store, project, lambda tx: frags(tx, {"text": "x"}), lambda tx: frags(tx, {"status": "current"}))
+    (frag,) = await raw(store, "SELECT props FROM graph.node WHERE group_id = :p AND kind = 'fragment'", p=project)
+    assert frag["props"] == {"fragment_id": "f1", "text": "x", "status": "current", "last_build_id": "b"}
+    (contains,) = await raw(store, "SELECT count(*) AS n FROM graph.edge WHERE group_id = :p", p=project)
+    assert contains["n"] == 1
+
+
+async def test_two_concurrent_writers_of_one_edge_both_land(
+    store: PostgresStore, ontology: Ontology, project: str
+) -> None:
+    build = writer(store, ontology, project)
+    for key in ("s", "t"):
+        await build.upsert_node(FR, key, {"spec_id": f"R::{key}", "name": key})
+
+    async def edge(tx: Any, props: dict[str, Any]) -> None:
+        row = {"source": "s", "target": "t", "edge_key": "k", "props": props}
+        assert await tx.run(bq.upsert_edges(RELATES), rows=[row]) == [{"written": 1}]
+
+    await _race(store, project, lambda tx: edge(tx, {"basis": "stated"}), lambda tx: edge(tx, {"note": "n"}))
+    (found,) = await raw(store, "SELECT props FROM graph.edge WHERE group_id = :p", p=project)
+    assert found["props"] == {"edge_key": "k", "basis": "stated", "note": "n"}
+
+    async def inferred(tx: Any, key: str, props: dict[str, Any]) -> None:
+        row = {
+            "source": "s",
+            "target": "t",
+            "edge_key": key,
+            "rule": "r",
+            "either_direction": False,
+            "uuid": f"e-{key}",
+            "created_at": 1,
+            "props": props,
+            "ref": key,
+        }
+        await tx.run(bq.infer_write_edges(INTEGRATES), rows=[row], inferred=INFERRED)
+
+    await _race(
+        store,
+        project,
+        lambda tx: inferred(tx, "ik", {"basis": INFERRED, "inference_rule": "r", "one": 1}),
+        lambda tx: inferred(tx, "ik", {"basis": INFERRED, "inference_rule": "r", "two": 2}),
+    )
+    (found,) = await raw(
+        store, "SELECT props FROM graph.edge WHERE group_id = :p AND rel_type = :t", p=project, t=INTEGRATES
+    )
+    assert found["props"]["one"] == 1 and found["props"]["two"] == 2
+
+
+async def test_a_merge_maps_both_ends_of_an_edge_between_nodes_merged_into_different_survivors(
+    store: PostgresStore, ontology: Ontology, project: str
+) -> None:
+    build = writer(store, ontology, project)
+    for key in ("a", "c", "s1", "s2"):
+        await build.upsert_node(FR, key, {"spec_id": f"R::{key}", "name": key})
+    props = {"basis": "stated", "weight": 3}
+    seeded = [{"source": "a", "target": "c", "edge_key": "k-ac", "props": props}]
+    async with store.executor().tx(project) as tx:
+        await tx.run(bq.upsert_edges(RELATES), rows=seeded)
+        rows = [{"survivor": "s1", "merged": ["a"], "aliases": []}, {"survivor": "s2", "merged": ["c"], "aliases": []}]
+        assert await tx.run(bq.MERGE_SPEC_NODES, rows=rows, build_id="b", owned_types=[]) == [{"written": 2}]
+    edges = await raw(
+        store,
+        "SELECT s.uuid AS s, t.uuid AS t, e.rel_type AS r, e.props AS p FROM graph.edge e "
+        "JOIN graph.node s ON s.id = e.source_id JOIN graph.node t ON t.id = e.target_id WHERE e.group_id = :p",
+        p=project,
+    )
+    assert edges == [{"s": "s1", "t": "s2", "r": RELATES, "p": {"edge_key": "k-ac", **props}}]
+
+
+async def test_moved_edges_with_one_key_and_one_pair_of_ends_collapse_to_one(
+    store: PostgresStore, ontology: Ontology, project: str
+) -> None:
+    build = writer(store, ontology, project)
+    for key in ("old1", "old2", "new", "other"):
+        await build.upsert_node(FR, key, {"spec_id": f"R::{key}", "name": key})
+    seeded = [
+        {"source": "old1", "target": "other", "edge_key": "k", "props": {"x": 1}},
+        {"source": "old2", "target": "other", "edge_key": "k", "props": {"x": 2}},  # same key, other props
+    ]
+    async with store.executor().tx(project) as tx:
+        await tx.run(bq.upsert_edges(RELATES), rows=seeded)
+        row = {"survivor": "new", "merged": ["old1", "old2"], "aliases": []}
+        assert await tx.run(bq.MERGE_SPEC_NODES, rows=[row], build_id="b", owned_types=[]) == [{"written": 1}]
+    (count,) = await raw(store, "SELECT count(*) AS n FROM graph.edge WHERE group_id = :p", p=project)
+    assert count["n"] == 1
+
+    other_project = project + "-2"
+    other = writer(store, ontology, other_project)
+    for key in ("old", "new", "t"):
+        await other.upsert_node(FR, key, {"spec_id": f"R::{key}", "name": key})
+    async with store.executor().tx(other_project) as tx:
+        await tx.run(
+            bq.upsert_edges(RELATES),
+            rows=[
+                {"source": "old", "target": "t", "edge_key": "k", "props": {"x": 1}},
+                {"source": "new", "target": "t", "edge_key": "k", "props": {"x": 2}},
+            ],
+        )
+        moved = await tx.run(
+            q.MOVE_FOREIGN_RELATIONSHIPS, from_key="old", from_label=FR, to_key="new", to_label=FR, owned_types=[]
+        )
+    assert moved == [{"moved": 1}]  # the key is already on the new ends: the moved edge is dropped, no 23505
+    (count,) = await raw(store, "SELECT count(*) AS n FROM graph.edge WHERE group_id = :p", p=other_project)
+    assert count["n"] == 1
+
+
+async def test_update_edges_applies_every_matching_row_in_order(
+    store: PostgresStore, ontology: Ontology, project: str
+) -> None:
+    build = writer(store, ontology, project)
+    for key in ("s", "t"):
+        await build.upsert_node(FR, key, {"spec_id": f"R::{key}", "name": key})
+    async with store.executor().tx(project) as tx:
+        await tx.run(
+            bq.upsert_edges(RELATES), rows=[{"source": "s", "target": "t", "edge_key": "k1", "props": {"uuid": "e1"}}]
+        )
+        rows = [
+            {"uuid": "e1", "keys": ["k1", "k2"], "props": {"a": 1, "b": 1}},
+            {"uuid": "e1", "keys": ["k1"], "props": {"b": 2, "c": 3}},
+            {"uuid": "other", "keys": ["k1"], "props": {"never": True}},
+        ]
+        assert await tx.run(bq.update_edges(RELATES), rows=rows) == [{"written": 1}]
+    (found,) = await raw(store, "SELECT props FROM graph.edge WHERE group_id = :p", p=project)
+    assert found["props"] == {"edge_key": "k1", "uuid": "e1", "a": 1, "b": 2, "c": 3}
+
+
+async def test_replacing_node_links_keeps_fragments_and_takes_the_last_row_of_a_node(
+    store: PostgresStore, ontology: Ontology, project: str
+) -> None:
+    build = writer(store, ontology, project)
+    await build.upsert_node(FR, "u1", {"spec_id": "R::1", "name": "one"})
+    executor = store.executor()
+    async with executor.tx(project) as tx:
+        await tx.run(bq.UPSERT_DOCUMENTS, rows=[{"document_id": "d1", "props": {}}], build_id="b")
+        await tx.run(
+            bq.UPSERT_FRAGMENTS,
+            rows=[{"fragment_id": "f1", "document_id": "d1", "props": {"text": "kept"}}],
+            build_id="b",
+        )
+        link = {"fragment_id": "f1", "line_start": 1, "line_end": 2}
+        rows = [
+            {"uuid": "u1", "evidence": [{"fragment_id": "gone", "line_start": 1, "line_end": 1}], "mentions": []},
+            {"uuid": "u1", "evidence": [link], "mentions": [{"fragment_id": "f2", "count": 2}]},
+        ]
+        assert await tx.run(bq.REPLACE_NODE_LINKS, rows=rows) == [{"written": 1}]
+    found = await raw(
+        store,
+        "SELECT f.fragment_id AS f, f.props AS fp, e.rel_type AS r FROM graph.edge e "
+        "JOIN graph.node f ON f.id = e.target_id WHERE e.group_id = :p AND e.rel_type <> 'CONTAINS' ORDER BY f.fragment_id",
+        p=project,
+    )
+    assert [(row["f"], row["r"]) for row in found] == [("f1", "REFERENCED_BY"), ("f2", "MENTIONED_IN")]
+    assert found[0]["fp"] == {"fragment_id": "f1", "text": "kept", "last_build_id": "b"}  # not rewritten
+    (stubs,) = await raw(
+        store, "SELECT count(*) AS n FROM graph.node WHERE group_id = :p AND fragment_id = 'gone'", p=project
+    )
+    assert stubs["n"] == 0  # the dropped row of the same uuid made no stub
+
+
+async def test_a_vector_search_skips_vectors_of_another_dimension(
+    store: PostgresStore, ontology: Ontology, project: str
+) -> None:
+    build = writer(store, ontology, project)
+    await build.upsert_node(FR, "u-a", {"spec_id": "R::a", "embedding": vec(1.0), "embedding_model": "m"})
+    await build.upsert_node(FR, "u-b", {"spec_id": "R::b", "embedding_model": "m"})
+    await raw(store, "UPDATE graph.node SET embedding = '[1,0,0,0]' WHERE group_id = :p AND uuid = 'u-b'", p=project)
+    params = {"model": "m", "vector": vec(1.0), "labels": [FR], "where": {}, "limit": 10}
+    page = await store.executor().read(q.SEARCH_NODES_VECTOR, project, index="i", k=10, **params)
+    assert [hit["spec_id"] for hit in page[0]["hits"]] == ["R::a"]
+
+
+async def test_connections_carry_a_statement_and_a_lock_timeout(ontology: Ontology) -> None:
+    default = postgres_store(live_config())
+    try:
+        async with default._engine.connect() as connection:
+            shown = await connection.execute(text("SHOW statement_timeout"))
+            assert shown.scalar_one() == "5min"
+            shown = await connection.execute(text("SHOW lock_timeout"))
+            assert shown.scalar_one() == "1min"
+    finally:
+        await default.close()
+    short = StoreConfig(
+        **{**live_config().model_dump(), "uri": os.environ["GRAPH_STORE_URI"] + "?statement_timeout=0.3"}
+    )
+    limited = postgres_store(short)
+    try:
+        with pytest.raises(GraphWriteError) as raised:
+            await limited.executor().write(
+                Query.literal("sleep", "SELECT pg_sleep(5) FROM (SELECT cast(:project_id AS text) AS p) AS x"), "p"
+            )
+        assert raised.value.fields["backend_code"] == "57014" and raised.value.fields["attempts"] == 1
+    finally:
+        await limited.close()
+
+
+async def test_an_existing_schema_of_another_version_is_refused(ontology: Ontology) -> None:
+    schema = f"pytest_pg_{uuid.uuid4().hex[:8]}"
+    first = postgres_store(live_config(schema))
+    try:
+        await first.ensure_schema(ontology, DIM)
+        assert await first.ensure_schema(ontology, DIM) == ()
+        for version in ("1", "99", None):
+            statement = (
+                f"UPDATE \"{schema}\".meta SET meta_value = :v WHERE meta_key = 'schema_version'"
+                if version
+                else f"DELETE FROM \"{schema}\".meta WHERE meta_key = 'schema_version'"
+            )
+            async with first._engine.begin() as connection:
+                await connection.execute(text(statement), {"v": version} if version else {})
+            with pytest.raises(ConfigurationError) as raised:
+                await first.ensure_schema(ontology, DIM)
+            assert raised.value.code == "store_schema_outdated"
+            assert raised.value.fields["found_version"] == version and raised.value.fields["expected_version"] == "2"
+    finally:
+        async with first._engine.begin() as connection:
+            await connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+        await first.close()

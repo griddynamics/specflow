@@ -3,7 +3,8 @@
 -- same uuid are folded in order first (the first label wins, the props merge
 -- left to right, a null removes a key), as MERGE does row by row. A node that
 -- exists is updated, a missing one inserted (the unique key stays the safety
--- net). The embedding goes to the vector column; written is the number of
+-- net: a row inserted by a concurrent writer after the snapshot is updated by
+-- ON CONFLICT DO UPDATE, as MERGE waits and applies SET +=). The embedding goes to the vector column; written is the number of
 -- input rows.
 WITH r AS (
     SELECT
@@ -59,7 +60,24 @@ inserted AS (
         END AS embedding
     FROM folded AS f
     WHERE f.uuid NOT IN (SELECT u.uuid FROM updated AS u)
-    ON CONFLICT (group_id, uuid) WHERE kind = 'spec' DO NOTHING
+    ON CONFLICT (group_id, uuid) WHERE kind = 'spec' DO UPDATE
+        SET
+            props = graph.props_merge(
+                node.props,
+                (
+                    SELECT g.patch - 'embedding'
+                    FROM folded AS g
+                    WHERE g.uuid = excluded.props ->> 'uuid'
+                )
+            ),
+            embedding = CASE
+                WHEN (
+                    SELECT jsonb_exists(g.patch, 'embedding')
+                    FROM folded AS g
+                    WHERE g.uuid = excluded.props ->> 'uuid'
+                ) THEN excluded.embedding
+                ELSE node.embedding
+            END
     RETURNING node.uuid
 )
 

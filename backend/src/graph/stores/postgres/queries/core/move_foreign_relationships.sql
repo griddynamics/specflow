@@ -71,7 +71,14 @@ ranked AS (
             ) THEN FALSE
             ELSE row_number() OVER (
                 PARTITION BY
-                    c.between_ends, c.new_src, c.new_tgt, c.rel_type, c.props
+                    c.between_ends,
+                    c.new_src,
+                    c.new_tgt,
+                    c.rel_type,
+                    CASE
+                        WHEN c.edge_key IS NOT NULL THEN 'k:' || c.edge_key
+                        ELSE 'p:' || cast(c.props AS text)
+                    END
                 ORDER BY c.id
             ) = 1
         END AS keep
