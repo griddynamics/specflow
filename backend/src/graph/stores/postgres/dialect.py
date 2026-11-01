@@ -50,6 +50,7 @@ from graph.stores.postgres.sqlfiles import load_build_sql, load_core_sql
 DEFAULT_SCHEMA: Final = "graph"
 BACKEND: Final = "postgres"
 PROJECT_ID: Final = "project_id"
+ROWS_PARAMETER: Final = "rows"  # the batch of a persist or infer query: a JSON list, even when empty
 SCHEMA_PARAMETER: Final = "schema"
 SCHEMA_NAME: Final = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 MAX_HOPS: Final = 32
@@ -387,6 +388,8 @@ def parameter_value(name: str, value: Any) -> Any:
 
     if name == "vector" and isinstance(value, (list, tuple)):
         return vector_text(value)
+    if name == ROWS_PARAMETER and isinstance(value, (list, tuple)):
+        return json_text(list(value))
     if isinstance(value, Mapping):
         return json_text(value)
     if isinstance(value, tuple):
