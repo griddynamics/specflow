@@ -111,6 +111,13 @@ rules:
           - pattern: sys.path.append(...)
           - pattern: sys.path.extend(...)
           - pattern: sys.path += ...
+    paths:
+      exclude:
+        # project: examples/graph_bench.py reads a store's nodes and edges through the store-neutral test
+        # probe (`tests/graph_probes`, one class per store), so every store's snapshot is produced by the same
+        # code. `tests/` is not an installed package and a script run as `python examples/graph_bench.py` does
+        # not have it on its path, so the script adds that one folder before it imports the probe.
+        - "**/examples/graph_bench.py"
 
   - id: kit.python.package-dunder-probe
     languages: [python]
@@ -152,6 +159,9 @@ rules:
       the lockfile or import-linter can see.
     paths:
       exclude:
+        # project: examples/graph_bench.py imports `tests/graph_probes` (see kit.python.sys-path-mutation)
+        # only after it has added `tests/` to its path, which cannot happen at the top of the module.
+        - "**/examples/graph_bench.py"
         # project: src/cli.py is the `specflow` entrypoint and its contract is that a role's
         # work module (constants `_API_MODULE`, `_WORKER_MODULE`, `_MIGRATE_MODULE`,
         # `_HEALTH_MODULE`, all first-party src/ modules of the same lockfile) is imported only

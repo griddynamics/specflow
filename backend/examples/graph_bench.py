@@ -31,8 +31,8 @@ The graph store comes from GRAPH_STORE (default neo4j), GRAPH_STORE_URI, GRAPH_S
 GRAPH_STORE_NAME and GRAPH_STORE_ADMIN_URI (NEO4J_URI/_USER/_PASSWORD/_DATABASE stand in for a Neo4j store);
 ``--namespace`` replaces the store name for one run (ArcadeDB: a new database, PostgreSQL: a new schema; ensure_schema
 creates it). ``--wipe`` (Neo4j only) deletes the project first. Nodes and edges are read through the store's test probe
-(``tests/graph_probes``), so the snapshot is the same code on every store. ``qa`` reports invariants and, given a question
-file, fulltext/vector/fused MRR, top-1 and top-5. Record also needs LLM_GATEWAY_URL,
+(``tests/graph_probes``), so the snapshot is the same code on every store. ``qa`` reports invariants and, given a
+question file, fulltext/vector/fused MRR, top-1 and top-5. Record also needs LLM_GATEWAY_URL,
 LLM_GATEWAY_API_KEY, GRAPH_LLM_MODEL, GRAPH_SMALL_MODEL, GRAPH_EMBEDDING_MODEL, GRAPH_EMBEDDING_DIM.
 """
 
@@ -49,7 +49,7 @@ import time
 from array import array
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Final, TypeVar
+from typing import Any, Final, Protocol, TypeVar
 
 import yaml
 from pydantic import BaseModel, SecretStr
@@ -62,7 +62,8 @@ from graph.core.config import DEFAULT_BUDGETS, CallBudget, CallClass
 from graph.core.errors import LLMError, LLMFatalError
 from graph.core.llm import UsageSnapshot, strict_json_schema, untrusted
 from graph.core.llm.usage import UsageRecorder
-from graph.core.queries import Query
+from graph.core.ontology.compiled import BUILD_OWNER
+from graph.core.queries import SEARCH_NODES_VECTOR_EXACT, Query
 from graph.core.store import Executor
 from graph.stores import StoreConfig, build_store
 from logger.logger import INFO, get_logger, log_event
@@ -84,6 +85,8 @@ LLM_ENVIRONMENT: Final = (
 REPLAY_ENDPOINT: Final = "http://replay.invalid/v1"
 """Placeholder endpoint of a replay's ``LLMConfig``: the replay gateway never opens a connection."""
 EMBED_PROMPT: Final = "embed"
+TOP_K: Final = 5
+SEARCH_LIMIT: Final = 20
 DEFAULT_UNIT_TOKENS: Final = BuildOptions().unit_tokens
 """Extraction unit size of the library default; a recording with another size stores it in its header."""
 
@@ -271,13 +274,36 @@ def raise_recorded(error: Mapping[str, Any]) -> None:
     raise LLMError(error["reason"], **error["fields"])
 
 
-def answer_structured(entry: Mapping[str, Any], output_type: type[T]) -> T:
+def answer_structured[T: BaseModel](entry: Mapping[str, Any], output_type: type[T]) -> T:
     if "error" in entry:
         raise_recorded(entry["error"])
     return output_type.model_validate_json(entry["response"]["json"])
 
 
 # Gateways (duck-typed stand-ins of graph.core.Gateway: structured, embed, usage, config, aclose, untrusted)
+
+
+class ChatBackend(Protocol):
+    """What ``RecordingGateway`` needs of the real gateway (``graph.core.Gateway`` is one)."""
+
+    @property
+    def config(self) -> LLMConfig: ...
+
+    def usage(self) -> UsageSnapshot: ...
+
+    async def aclose(self) -> None: ...
+
+    async def structured(
+        self,
+        call_class: CallClass,
+        model: str | None,
+        messages: Sequence[Mapping[str, Any]],
+        output_type: type[Any],
+        *,
+        prompt: str,
+    ) -> Any: ...
+
+    async def embed(self, texts: Sequence[str]) -> list[list[float]]: ...
 
 
 class RecordingGateway:
@@ -291,7 +317,7 @@ class RecordingGateway:
 
     untrusted = staticmethod(untrusted)
 
-    def __init__(self, real: Gateway, cassette: Cassette, unit_tokens: int = DEFAULT_UNIT_TOKENS) -> None:
+    def __init__(self, real: ChatBackend, cassette: Cassette, unit_tokens: int = DEFAULT_UNIT_TOKENS) -> None:
         self._real = real
         self._cassette = cassette
         cassette.open_for_append(real.config, unit_tokens)
@@ -362,7 +388,12 @@ class RecordingGateway:
                     {
                         "key": key,
                         "kind": "embed",
-                        "request": {"call_class": "embedding", "model": model, "prompt": EMBED_PROMPT, "chars": len(text)},
+                        "request": {
+                            "call_class": "embedding",
+                            "model": model,
+                            "prompt": EMBED_PROMPT,
+                            "chars": len(text),
+                        },
                         "response": {"b64": encode_vector(vector)},
                     }
                 )
@@ -389,7 +420,11 @@ class ReplayGateway:
 
     @property
     def unit_tokens(self) -> int:
-        return int(self._cassette.header.get("unit_tokens", DEFAULT_UNIT_TOKENS)) if self._cassette.header else DEFAULT_UNIT_TOKENS
+        return (
+            int(self._cassette.header.get("unit_tokens", DEFAULT_UNIT_TOKENS))
+            if self._cassette.header
+            else DEFAULT_UNIT_TOKENS
+        )
 
     def usage(self) -> UsageSnapshot:
         return self._usage.snapshot()
@@ -479,7 +514,9 @@ def node_identity(properties: Mapping[str, Any]) -> str:
     return ""
 
 
-def build_snapshot(project: str, node_rows: Sequence[Mapping[str, Any]], edge_rows: Sequence[Mapping[str, Any]]) -> dict:
+def build_snapshot(
+    project: str, node_rows: Sequence[Mapping[str, Any]], edge_rows: Sequence[Mapping[str, Any]]
+) -> dict[str, Any]:
     """The canonical snapshot of rows read from a store: nodes and edges sorted, volatile properties removed.
 
     A node row has ``labels`` and ``props`` (all properties); an edge row has ``type``, ``source`` and
@@ -507,20 +544,23 @@ def build_snapshot(project: str, node_rows: Sequence[Mapping[str, Any]], edge_ro
     return {"project_id": project, "nodes": nodes, "edges": edges}
 
 
-def probe_rows(
-    nodes: Sequence[Any], edges: Sequence[Any]
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def probe_rows(nodes: Sequence[Any], edges: Sequence[Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Rows for ``build_snapshot`` from a probe's ``ProbeNode`` and ``ProbeEdge`` lists."""
 
     node_rows = [{"labels": list(node.labels), "props": dict(node.props)} for node in nodes]
     edge_rows = [
-        {"type": edge.type, "source": dict(edge.source.props), "target": dict(edge.target.props), "props": dict(edge.props)}
+        {
+            "type": edge.type,
+            "source": dict(edge.source.props),
+            "target": dict(edge.target.props),
+            "props": dict(edge.props),
+        }
         for edge in edges
     ]
     return node_rows, edge_rows
 
 
-async def export_snapshot(probe: Any, project: str) -> dict:
+async def export_snapshot(probe: Any, project: str) -> dict[str, Any]:
     """The canonical snapshot of a project, read through the store's test probe (store-neutral)."""
 
     node_rows, edge_rows = probe_rows(await probe.nodes(project), await probe.edges(project))
@@ -708,7 +748,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             default=None,
             help="record only: per-attempt timeout of every chat call (keep below the proxy's 300 s cut)",
         )
-        command.add_argument("--min-attempts", type=int, default=1, help="record only: at least this many attempts per LLM call")
+        command.add_argument(
+            "--min-attempts", type=int, default=1, help="record only: at least this many attempts per LLM call"
+        )
         command.add_argument(
             "--unit-tokens",
             type=int,
@@ -717,10 +759,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "replay: must equal the header's value)",
         )
         command.add_argument("--questions", type=Path, help="replay: also run the search QA of this question file")
+        command.add_argument("--questions-meta", type=Path, help="question metadata (index -> type)")
         command.add_argument("--qa-cassette", type=Path, help="embeddings of the question texts (see the qa command)")
     qa = sub.add_parser("qa", help="invariants, timings and search QA of the graph a run left in the store")
     add_store_arguments(qa)
     qa.add_argument("--questions", type=Path, help="question file (YAML list of text + spec_id)")
+    qa.add_argument("--questions-meta", type=Path, help="question metadata (index -> type) for the by-type breakdown")
     qa.add_argument("--qa-cassette", type=Path, required=True, help="cassette of the question embeddings")
     qa.add_argument("--record-embeddings", action="store_true", help="embed the questions live and store them")
     return parser.parse_args(argv)
@@ -804,7 +848,7 @@ def rank_metrics(ranks: Sequence[int | None]) -> dict[str, Any]:
     return {
         "queries": len(ranks),
         "top1": sum(1 for rank in found if rank == 1),
-        "top5": sum(1 for rank in found if rank <= 5),
+        "top5": sum(1 for rank in found if rank <= TOP_K),
         "mrr": round(sum(1 / rank for rank in found) / max(1, len(ranks)), 4),
     }
 
@@ -813,49 +857,112 @@ def first_rank(spec_ids: Sequence[str], expected: Sequence[str]) -> int | None:
     return next((index for index, spec_id in enumerate(spec_ids, start=1) if spec_id in expected), None)
 
 
-async def search_qa(store: Any, gateway: Any, ontology: Any, project: str, questions: Sequence[dict[str, Any]]) -> dict:
-    """MRR, top-1 and top-5 of fulltext, vector and fused search over the questions, plus latency p50/p95 (ms).
+def load_question_types(path: Path | None) -> dict[int, str]:
+    """Question type by 0-based index from the metadata file (YAML mapping index -> {type: ...}); {} when absent."""
 
-    Vector-only ranks come from the reader's own vector step (``_vector_hits``, private: the public
-    ``find_nodes`` only fuses the lists)."""
+    if path is None or not path.exists():
+        return {}
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return {int(index): str(item["type"]) for index, item in data.items() if isinstance(item, dict) and "type" in item}
+
+
+def percentile_ms(ordered: Sequence[float], fraction: float) -> float | None:
+    """The ``fraction`` percentile of sorted seconds, in milliseconds (nearest rank)."""
+
+    if not ordered:
+        return None
+    return round(ordered[min(len(ordered) - 1, int(fraction * len(ordered)))] * 1000, 1)
+
+
+async def vector_spec_ids(executor: Executor, gateway: Any, ontology: Any, project: str, text: str) -> list[str]:
+    """Spec ids of the vector-only search (exact cosine over the project's vectors), best first."""
+
+    labels = [label for label in ontology.labels if ontology.owner_of(label) == BUILD_OWNER]
+    (vector,) = await gateway.embed([text.strip()])
+    rows = await executor.read(
+        SEARCH_NODES_VECTOR_EXACT,
+        project,
+        vector=vector,
+        model=gateway.config.embedding_model,
+        limit=SEARCH_LIMIT,
+        labels=labels,
+        where={},
+    )
+    return [row["spec_id"] for row in rows]
+
+
+async def search_qa(
+    store: Any,
+    gateway: Any,
+    ontology: Any,
+    project: str,
+    questions: Sequence[dict[str, Any]],
+    *,
+    types: Mapping[int, str] | None = None,
+) -> dict[str, Any]:
+    """MRR, top-1 and top-5 of fulltext, vector and fused search over the questions, plus latency p50/p95 (ms)
+    and, with ``types`` (question index -> type), the same metrics per question type."""
 
     fused_reader = GraphReader(store, ontology, gateway)
     text_reader = GraphReader(store, ontology, None)
-    labels = list(fused_reader._labels(None))  # noqa: SLF001
-    filters = {"labels": labels, "where": fused_reader._where(labels, {})}  # noqa: SLF001
     ranks: dict[str, list[int | None]] = {"fulltext": [], "vector": [], "fused": []}
     times: dict[str, list[float]] = {"fulltext": [], "vector": [], "fused": []}
     for question in questions:
         text, expected = question["text"], question["spec_ids"]
         started = time.monotonic()
-        hits = await text_reader.find_nodes(project, text, limit=20)
+        hits = await text_reader.find_nodes(project, text, limit=SEARCH_LIMIT)
         times["fulltext"].append(time.monotonic() - started)
         ranks["fulltext"].append(first_rank([hit.node.spec_id for hit in hits], expected))
         started = time.monotonic()
-        rows = await fused_reader._vector_hits(project, text, 20, 20 * 3, filters)  # noqa: SLF001
+        found = await vector_spec_ids(store.executor(), gateway, ontology, project, text)
         times["vector"].append(time.monotonic() - started)
-        ranks["vector"].append(first_rank([row["spec_id"] for row in rows or []], expected))
+        ranks["vector"].append(first_rank(found, expected))
         started = time.monotonic()
-        hits = await fused_reader.find_nodes(project, text, limit=20)
+        hits = await fused_reader.find_nodes(project, text, limit=SEARCH_LIMIT)
         times["fused"].append(time.monotonic() - started)
         ranks["fused"].append(first_rank([hit.node.spec_id for hit in hits], expected))
     out: dict[str, Any] = {}
-    for name in ranks:
+    for name, name_ranks in ranks.items():
         ordered = sorted(times[name])
-        pick = lambda q, ordered=ordered: round(ordered[min(len(ordered) - 1, int(q * len(ordered)))] * 1000, 1) if ordered else None  # noqa: E731
-        out[name] = {**rank_metrics(ranks[name]), "latency_ms": {"p50": pick(0.5), "p95": pick(0.95)}}
+        entry: dict[str, Any] = {
+            **rank_metrics(name_ranks),
+            "latency_ms": {"p50": percentile_ms(ordered, 0.5), "p95": percentile_ms(ordered, 0.95)},
+            "ranks": name_ranks,
+        }
+        if types:
+            by_type: dict[str, list[int | None]] = {}
+            for index, rank in enumerate(name_ranks):
+                by_type.setdefault(types.get(index, "other"), []).append(rank)
+            entry["by_type"] = {kind: rank_metrics(values) for kind, values in sorted(by_type.items())}
+        out[name] = entry
     return out
 
 
+def prepare_questions(
+    questions_path: Path | None, meta_path: Path | None
+) -> tuple[list[dict[str, Any]], dict[int, str]] | None:
+    """The questions and their types, None when there is no question file."""
+
+    if questions_path is None or not questions_path.exists():
+        return None
+    return load_questions(questions_path), load_question_types(meta_path)
+
+
 async def run_qa(
-    store: Any, probe: Any, gateway: Any, ontology: Any, project: str, questions_path: Path | None
+    store: Any,
+    probe: Any,
+    gateway: Any,
+    ontology: Any,
+    project: str,
+    *,
+    prepared: tuple[list[dict[str, Any]], dict[int, str]] | None,
 ) -> dict[str, Any]:
     report: dict[str, Any] = {"invariants": await invariants(probe, project, ontology)}
-    if questions_path is not None and questions_path.exists():
-        questions = load_questions(questions_path)
-        report["search"] = await search_qa(store, gateway, ontology, project, questions)
-    else:
+    if prepared is None:
         report["search"] = None
+    else:
+        questions, types = prepared
+        report["search"] = await search_qa(store, gateway, ontology, project, questions, types=types)
     return report
 
 
@@ -872,7 +979,14 @@ async def qa_main(args: argparse.Namespace) -> None:
         gateway = ReplayGateway(Cassette.load(args.qa_cassette))
     store, probe = build_store(config), open_probe(config)
     try:
-        report = await run_qa(store, probe, gateway, ontology, args.project, args.questions)
+        report = await run_qa(
+            store,
+            probe,
+            gateway,
+            ontology,
+            args.project,
+            prepared=prepare_questions(args.questions, args.questions_meta),
+        )
         report["store"] = config.backend
         report["llm"] = llm_report(gateway)
         args.out.mkdir(parents=True, exist_ok=True)
@@ -929,7 +1043,16 @@ async def main() -> None:
         search = None
         if args.command == "replay" and args.questions and args.qa_cassette:
             qa_gateway = ReplayGateway(Cassette.load(args.qa_cassette))
-            search = (await run_qa(store, probe, qa_gateway, ontology, args.project, args.questions))["search"]
+            search = (
+                await run_qa(
+                    store,
+                    probe,
+                    qa_gateway,
+                    ontology,
+                    args.project,
+                    prepared=prepare_questions(args.questions, args.questions_meta),
+                )
+            )["search"]
         summary = {
             "command": args.command,
             "label": args.label,
@@ -939,7 +1062,11 @@ async def main() -> None:
             "unit_tokens": unit_tokens,
             "wiped_nodes": wiped,
             "wall_s": round(wall_s, 2),
-            "timings_s": {"ensure_schema": round(schema_s, 2), "build": round(wall_s, 2), "snapshot_export": round(snapshot_s, 2)},
+            "timings_s": {
+                "ensure_schema": round(schema_s, 2),
+                "build": round(wall_s, 2),
+                "snapshot_export": round(snapshot_s, 2),
+            },
             "build": result_summary(result),
             "verify": verification.model_dump(mode="json"),
             "invariants": await invariants(probe, args.project, ontology),

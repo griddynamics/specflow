@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from pydantic import BaseModel, SecretStr
 
 from graph.core import LLMConfig
+from graph.core.config import DEFAULT_BUDGETS
 from graph.core.errors import LLMError, LLMFatalError
 from graph.core.llm.usage import UsageRecorder
+from graph.stores import StoreConfig
 from graph_bench import (
     Cassette,
     CassetteError,
@@ -19,9 +22,14 @@ from graph_bench import (
     RecordingGateway,
     ReplayGateway,
     build_snapshot,
+    capped_budgets,
+    check_wipe,
     decode_vector,
     embed_key,
     encode_vector,
+    first_rank,
+    load_questions,
+    rank_metrics,
     structured_key,
 )
 
@@ -67,7 +75,10 @@ class FakeReal:
     async def aclose(self) -> None:
         self.closed = True
 
-    async def structured(self, call_class: str, model: str | None, messages: Any, output_type: Any, *, prompt: str) -> Any:
+    async def structured(
+        self, call_class: str, model: str | None, messages: Any, output_type: Any, *, prompt: str
+    ) -> Any:
+        del call_class, model, prompt
         self.structured_calls += 1
         if self.fail is not None:
             raise self.fail
@@ -102,7 +113,7 @@ def test_vector_roundtrip_is_float32() -> None:
 async def test_record_then_replay(tmp_path: Path) -> None:
     path = tmp_path / "c" / "v1.jsonl"
     real = FakeReal()
-    recorder = RecordingGateway(real, Cassette(path))  # type: ignore[arg-type]
+    recorder = RecordingGateway(real, Cassette(path))
     first = await recorder.structured("extraction", None, MESSAGES, Answer, prompt="nodes")
     again = await recorder.structured("extraction", None, MESSAGES, Answer, prompt="nodes")
     vectors = await recorder.embed(["aa", "bbbb", "aa"])
@@ -121,9 +132,7 @@ async def test_record_then_replay(tmp_path: Path) -> None:
 
 async def test_replay_miss_names_prompt_and_call_class(tmp_path: Path) -> None:
     path = tmp_path / "v1.jsonl"
-    await RecordingGateway(FakeReal(), Cassette(path)).structured(  # type: ignore[arg-type]
-        "extraction", None, MESSAGES, Answer, prompt="nodes"
-    )
+    await RecordingGateway(FakeReal(), Cassette(path)).structured("extraction", None, MESSAGES, Answer, prompt="nodes")
     replay = ReplayGateway(Cassette.load(path))
     with pytest.raises(CassetteMissError, match=r"call_class=small prompt=edges"):
         await replay.structured("small", None, MESSAGES, Answer, prompt="edges")
@@ -134,7 +143,7 @@ async def test_replay_miss_names_prompt_and_call_class(tmp_path: Path) -> None:
 
 async def test_cassette_holds_no_secret_or_url(tmp_path: Path) -> None:
     path = tmp_path / "v1.jsonl"
-    recorder = RecordingGateway(FakeReal(), Cassette(path))  # type: ignore[arg-type]
+    recorder = RecordingGateway(FakeReal(), Cassette(path))
     await recorder.structured("small", None, MESSAGES, Answer, prompt="p")
     await recorder.embed(["x"])
     text = path.read_text(encoding="utf-8")
@@ -147,7 +156,7 @@ async def test_cassette_holds_no_secret_or_url(tmp_path: Path) -> None:
 async def test_recorded_llm_error_replays_and_fatal_is_not_stored(tmp_path: Path) -> None:
     path = tmp_path / "v1.jsonl"
     real = FakeReal()
-    recorder = RecordingGateway(real, Cassette(path))  # type: ignore[arg-type]
+    recorder = RecordingGateway(real, Cassette(path))
     real.fail = LLMError("refused", prompt="p", call_class="small", model="m-small")
     with pytest.raises(LLMError) as raised:
         await recorder.structured("small", None, MESSAGES, Answer, prompt="p")
@@ -165,15 +174,13 @@ async def test_recorded_llm_error_replays_and_fatal_is_not_stored(tmp_path: Path
 
 async def test_recording_resumes_from_an_existing_cassette(tmp_path: Path) -> None:
     path = tmp_path / "v1.jsonl"
-    await RecordingGateway(FakeReal(), Cassette(path)).structured(  # type: ignore[arg-type]
-        "small", None, MESSAGES, Answer, prompt="p"
-    )
+    await RecordingGateway(FakeReal(), Cassette(path)).structured("small", None, MESSAGES, Answer, prompt="p")
     real = FakeReal()
-    resumed = RecordingGateway(real, Cassette.load(path))  # type: ignore[arg-type]
+    resumed = RecordingGateway(real, Cassette.load(path))
     await resumed.structured("small", None, MESSAGES, Answer, prompt="p")
     assert real.structured_calls == 0 and resumed.served == 1
     with pytest.raises(CassetteError):
-        RecordingGateway(FakeReal(config(main_model="other")), Cassette.load(path))  # type: ignore[arg-type]
+        RecordingGateway(FakeReal(config(main_model="other")), Cassette.load(path))
 
 
 def test_snapshot_drops_volatile_properties_and_sorts() -> None:
@@ -208,31 +215,32 @@ def test_snapshot_drops_volatile_properties_and_sorts() -> None:
     assert set(properties) == {"spec_id", "uuid", "name", "statements"}
     assert properties["statements"] == [{"fragment_id": "f", "text": "x"}]
     assert snapshot["edges"] == [
-        {"type": "USES", "edge_key": "k", "source": "MOD::B", "target": "MOD::A", "properties": {"edge_key": "k", "fact": "f"}}
+        {
+            "type": "USES",
+            "edge_key": "k",
+            "source": "MOD::B",
+            "target": "MOD::A",
+            "properties": {"edge_key": "k", "fact": "f"},
+        }
     ]
     same = build_snapshot("p", list(reversed(nodes)), edges)
     assert same == snapshot
 
 
 def test_capped_budgets_and_unit_tokens_header(tmp_path: Path) -> None:
-    from graph.core.config import DEFAULT_BUDGETS
-    from graph_bench import capped_budgets
-
     capped = capped_budgets(270.0, 6)
     assert capped["extraction"].timeout_s == 270.0 and capped["small"].timeout_s == 270.0
     assert capped["embedding"].timeout_s == DEFAULT_BUDGETS["embedding"].timeout_s
     assert capped["extraction"].attempts == 6
     path = tmp_path / "v1.jsonl"
-    RecordingGateway(FakeReal(), Cassette(path), 10000)  # type: ignore[arg-type]
+    RecordingGateway(FakeReal(), Cassette(path), 10000)
     replay = ReplayGateway(Cassette.load(path))
     assert replay.unit_tokens == 10000
     with pytest.raises(CassetteError):
-        RecordingGateway(FakeReal(), Cassette.load(path), 8000)  # type: ignore[arg-type]
+        RecordingGateway(FakeReal(), Cassette.load(path), 8000)
 
 
 def test_question_file_and_rank_metrics(tmp_path: Path) -> None:
-    from graph_bench import first_rank, load_questions, rank_metrics
-
     path = tmp_path / "questions.yaml"
     path.write_text(
         "- text: how are runs cancelled\n  spec_id: FR::A\n- question: what is a gate\n  spec_ids: [FR::B, FR::C]\n",
@@ -244,15 +252,15 @@ def test_question_file_and_rank_metrics(tmp_path: Path) -> None:
         {"text": "what is a gate", "spec_ids": ["FR::B", "FR::C"]},
     ]
     assert first_rank(["X", "FR::C", "FR::B"], ["FR::B", "FR::C"]) == 2
-    assert rank_metrics([1, 3, None, 6]) == {"queries": 4, "top1": 1, "top5": 2, "mrr": round((1 + 1 / 3 + 1 / 6) / 4, 4)}
+    assert rank_metrics([1, 3, None, 6]) == {
+        "queries": 4,
+        "top1": 1,
+        "top5": 2,
+        "mrr": round((1 + 1 / 3 + 1 / 6) / 4, 4),
+    }
 
 
 def test_wipe_is_neo4j_only(tmp_path: Path) -> None:
-    from types import SimpleNamespace
-
-    from graph_bench import check_wipe
-    from graph.stores import StoreConfig
-
     arcade = StoreConfig(backend="arcadedb", uri="http://x", user="u", password=SecretStr("p"))
     with pytest.raises(SystemExit, match="Neo4j only"):
         check_wipe(SimpleNamespace(wipe=True, state=tmp_path), arcade)
