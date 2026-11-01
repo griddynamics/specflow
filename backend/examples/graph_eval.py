@@ -358,6 +358,8 @@ async def run_queries(reader: GraphReader, fulltext: GraphReader, project: str, 
     return out
 
 
+# The only raw Cypher outside the library's query files (tests/test_graph_probes_structure.py allows exactly
+# this statement): the eval runs on Neo4j only until the library has a delete-project query.
 CLEANUP = Query.literal(
     "example.cleanup",
     "MATCH (n {group_id: $project_id}) WITH n LIMIT 2000 DETACH DELETE n RETURN count(*) AS c",
@@ -381,6 +383,11 @@ async def main() -> None:
     args = parse_args()
     env = environment()
     store_settings, llm = store_config(), llm_config(env).model_copy(update={"concurrency": args.concurrency})
+    if store_settings.backend != "neo4j":
+        raise SystemExit(
+            f"graph_eval.py runs on a Neo4j store only (GRAPH_STORE={store_settings.backend}): "
+            "its cleanup is a raw Cypher statement"
+        )
     probe = Probe(args.progress)
     ontology, store = load_ontology(), build_store(store_settings)
     gateway = TimedGateway(llm, http_client=probe.client(), sleep=probe.sleep)

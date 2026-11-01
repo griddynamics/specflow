@@ -305,6 +305,18 @@ async def test_tx_refuses_unscoped_query_and_rolls_back() -> None:
     assert (driver.commits, driver.rollbacks) == (0, 1)
 
 
+async def test_a_statement_without_the_project_id_is_refused_before_the_project_id_is_validated() -> None:
+    driver = FakeDriver()
+    with pytest.raises(ConformanceError) as raised:
+        await executor(driver).read(UNBOUND, "bad id!")
+    assert raised.value.code == "query_missing_project_id"
+    with pytest.raises(ConformanceError) as in_tx:
+        async with executor(driver).tx("proj-1") as tx:
+            await tx.run(UNBOUND, project_id="x")
+    assert in_tx.value.code == "query_missing_project_id"
+    assert driver.runs == []
+
+
 async def test_tx_body_error_rolls_back() -> None:
     driver = FakeDriver()
 

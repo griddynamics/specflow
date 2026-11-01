@@ -39,7 +39,8 @@ Probe = Callable[[], Awaitable[None]]
 
 @dataclass(frozen=True, slots=True)
 class CheckResult:
-    """One dependency check: ``ok`` plus a fixed ``detail`` code (never exception text)."""
+    """One dependency check: ``ok`` plus a fixed ``detail`` code (never exception text). A library
+    ``ConfigurationError`` adds its own code, e.g. ``unavailable (store_sdk_missing)``."""
 
     name: str
     ok: bool
@@ -61,9 +62,10 @@ class CheckReport(dict[str, CheckResult]):
 class _ProbeFailedError(Exception):
     """A probe failure reduced to its exception type name; its text is never kept here."""
 
-    def __init__(self, error_type: str) -> None:
+    def __init__(self, error_type: str, code: str | None = None) -> None:
         super().__init__(error_type)
         self.error_type = error_type
+        self.code = code  # the code of a library ConfigurationError (a fixed string, never a value)
 
 
 async def _await_probe(probe: Probe, limit_seconds: float) -> None:
@@ -75,7 +77,8 @@ async def _await_probe(probe: Probe, limit_seconds: float) -> None:
     except TimeoutError:
         raise
     except Exception as error:  # any failure means not ready
-        raise _ProbeFailedError(type(error).__name__) from error
+        code = error.code if isinstance(error, ConfigurationError) else None
+        raise _ProbeFailedError(type(error).__name__, code) from error
 
 
 async def run_probe(name: str, probe: Probe, limit_seconds: float = CHECK_TIMEOUT_SECONDS) -> CheckResult:
@@ -87,13 +90,11 @@ async def run_probe(name: str, probe: Probe, limit_seconds: float = CHECK_TIMEOU
         ok, detail = False, DETAIL_TIMEOUT
     except _ProbeFailedError as failure:  # text is never exposed: only the type name is logged
         ok, detail = False, DETAIL_UNAVAILABLE
-        log_event(
-            logger,
-            WARNING,
-            "health.check.failed",
-            check=name,
-            error_type=failure.error_type,
-        )
+        fields: dict[str, Any] = {"error_type": failure.error_type}
+        if failure.code is not None:
+            detail = f"{DETAIL_UNAVAILABLE} ({failure.code})"
+            fields["code"] = failure.code
+        log_event(logger, WARNING, "health.check.failed", check=name, **fields)
     return CheckResult(name, ok, detail, int((time.perf_counter() - started) * 1000))
 
 
@@ -160,11 +161,12 @@ def graph_probe(store: Any) -> Probe:
     return check
 
 
-def _graph_unconfigured() -> Probe:
-    """A probe for a store that cannot be built (unknown adapter, missing SDK): reported as unavailable."""
+def _graph_unconfigured(code: str) -> Probe:
+    """A probe for a store that cannot be built (unknown adapter, missing SDK): reported as unavailable
+    with the ``ConfigurationError`` code ``build_store`` raised (``store_not_available``, ``store_sdk_missing``)."""
 
     async def probe() -> None:
-        raise ConfigurationError("store_not_available")
+        raise ConfigurationError(code)
 
     return probe
 
@@ -193,8 +195,9 @@ async def run_checks(role: Role, *, settings: RoleSettings | None = None) -> Che
         if settings.graph_store is not None:
             try:
                 graph = build_store(settings.graph_store.to_store_config())
-            except ConfigurationError:
-                probes["graph"] = _graph_unconfigured()
+            except ConfigurationError as error:
+                log_event(logger, WARNING, "health.graph.store_unbuildable", code=error.code)
+                probes["graph"] = _graph_unconfigured(error.code)
             else:
                 cleanups.append(graph.close)
                 probes["graph"] = graph_probe(graph)

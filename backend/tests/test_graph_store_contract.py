@@ -139,8 +139,10 @@ async def test_a_backend_failure_maps_to_a_neutral_error_carrying_the_store(
     ex = executor(harness)
     harness.fail(kind)
     cls, code = EXPECTED[kind][1 if write else 0]
+    # "too complex" is a fulltext search's failure only: any other query that fails so is a rejected query
+    query = core_queries.SEARCH_NODES_FULLTEXT if kind == "too_complex" else one_query()
     with pytest.raises(GraphError) as raised:
-        await (ex.write if write else ex.read)(one_query(), PID)
+        await (ex.write if write else ex.read)(query, PID)
     assert type(raised.value) is cls and raised.value.code == code
     assert raised.value.fields["store"] == harness.backend
     assert CANARY not in str(raised.value) and CANARY not in json.dumps(raised.value.fields, default=str)

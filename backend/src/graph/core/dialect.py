@@ -57,6 +57,10 @@ class Dialect(Protocol):
         """The backend language ("cypher")."""
         ...
 
+    def require_project_binding(self, query: Any) -> None:
+        """Raise ``ConformanceError("query_missing_project_id")`` when a scoped ``query`` does not bind it."""
+        ...
+
     def plan(self, query: Any, params: Mapping[str, Any]) -> ExecutionPlan:
         """The plan of ``query`` with ``params`` (the project id already injected for a scoped query).
 

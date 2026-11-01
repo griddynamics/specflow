@@ -43,7 +43,7 @@ from graph.core.errors import (
     InfrastructureUnavailableError,
 )
 from graph.core.identity import validate_project_id
-from graph.core.queries import PING, Query
+from graph.core.queries import PING, SEARCH_FRAGMENTS, SEARCH_NODES_FULLTEXT, Query
 from graph.core.store import (
     QUERY_TOO_COMPLEX,
     RETRY_DELAYS_SECONDS,
@@ -80,6 +80,9 @@ CONNECTION_TIMEOUT_SECONDS: Final = 5.0
 _SESSION_RETRY_OFF: Final = {"max_transaction_retry_time": 0.0, "initial_retry_delay": 0.0}
 _DATABASE_NOT_FOUND: Final = "Neo.ClientError.Database.DatabaseNotFound"
 _PROCEDURE_FAILED: Final = "Neo.ClientError.Procedure.ProcedureCallFailed"
+# Only a fulltext search can fail as "too complex" (Lucene's clause limit); any other procedure failure is a
+# rejected query.
+_FULLTEXT_QUERIES: Final = frozenset({SEARCH_NODES_FULLTEXT.name, SEARCH_FRAGMENTS.name})
 DEFAULT_BACKEND: Final = "neo4j"
 DEFAULT_CAPABILITIES: Final = StoreCapabilities()
 
@@ -87,14 +90,19 @@ Record = dict[str, Any]
 
 
 def connect(config: Any) -> AsyncDriver:
-    """Create the async driver of ``config`` (``uri``, ``user``, ``password`` secret); no connection is
-    opened until first use."""
+    """Create the async driver of ``config`` (``uri``, ``user``, ``password`` secret, optional ``pool_size``);
+    no connection is opened until first use."""
 
+    options: dict[str, Any] = {}
+    pool_size = getattr(config, "pool_size", None)
+    if pool_size is not None:  # unset keeps the driver's default
+        options["max_connection_pool_size"] = pool_size
     return AsyncGraphDatabase.driver(
         config.uri,
         auth=(config.user, config.password.get_secret_value()),
         connection_timeout=CONNECTION_TIMEOUT_SECONDS,
         warn_notification_severity=NotificationMinimumSeverity.OFF,
+        **options,
     )
 
 
@@ -109,13 +117,20 @@ async def check_connection(driver: Any, database: str | None = None, backend: st
         raise _map_error(error, PING.name, write=False, backend=backend) from None
 
 
+def _plan_scoped(dialect: Dialect, query: Query, project_id: str, params: Mapping[str, Any]) -> ExecutionPlan:
+    """The dialect's plan of a scoped query with the validated ``project_id`` injected."""
+
+    bound = bind_project(query, project_id, params, require_binding=dialect.require_project_binding)
+    return dialect.plan(query, bound)
+
+
 def _bind(
     query: Query, project_id: str, params: Mapping[str, Any], dialect: Dialect = CYPHER_DIALECT
 ) -> dict[str, Any]:
     """Parameters of a scoped query with the validated ``project_id`` injected; the dialect refuses a
     statement that does not bind it."""
 
-    bound = bind_project(query, project_id, params)
+    bound = bind_project(query, project_id, params, require_binding=dialect.require_project_binding)
     dialect.plan(query, bound)
     return bound
 
@@ -136,8 +151,9 @@ def _map_error(
     error: BaseException, query: str, *, write: bool, attempts: int = 1, backend: str = DEFAULT_BACKEND
 ) -> GraphError:
     """The ``GraphError`` a driver error stands for (tech-specs.md section 7), with neutral codes
-    (design D11) and ``store=<backend>``. A fulltext call the server refuses as too complex is
-    ``ConformanceError("query_too_complex")`` (design D6)."""
+    (design D11) and ``store=<backend>``. A fulltext search the server refuses with a failed procedure
+    call is ``ConformanceError("query_too_complex")`` (design D6); any other failed procedure call is
+    ``store_query_rejected``. Both carry ``error_type``, ``backend_code`` and ``attempts``."""
 
     code = getattr(error, "code", None)
     fields: dict[str, Any] = {
@@ -154,8 +170,8 @@ def _map_error(
         return InfrastructureUnavailableError(STORE_UNREACHABLE, store=backend, error_type=type(error).__name__)
     if write:
         return GraphWriteError(STORE_WRITE_FAILED, **fields)
-    if code == _PROCEDURE_FAILED:
-        return ConformanceError(QUERY_TOO_COMPLEX, store=backend, query=query)
+    if code == _PROCEDURE_FAILED and query in _FULLTEXT_QUERIES:
+        return ConformanceError(QUERY_TOO_COMPLEX, **fields)
     if isinstance(error, (ClientError, DriverError)):
         return ConformanceError(STORE_QUERY_REJECTED, **fields)
     return InfrastructureUnavailableError(STORE_READ_FAILED, **fields)
@@ -177,7 +193,7 @@ class BoltScopedTransaction:
         self._backend = backend
 
     async def run(self, query: Query, /, **params: Any) -> list[Record]:
-        plan = self._dialect.plan(query, bind_project(query, self._project_id, params))
+        plan = _plan_scoped(self._dialect, query, self._project_id, params)
 
         async def statement(text: str, bound: Mapping[str, Any]) -> list[Record]:
             result = await self._transaction.run(text, dict(bound))
@@ -251,7 +267,7 @@ class BoltExecutor:
         )
 
     def _plan(self, query: Query, project_id: str, params: Mapping[str, Any]) -> ExecutionPlan:
-        return self._dialect.plan(query, bind_project(query, project_id, params))
+        return _plan_scoped(self._dialect, query, project_id, params)
 
     async def _managed(self, query: Query, plan: ExecutionPlan, *, write: bool) -> list[Record]:
         async def work(transaction: Any) -> list[Record]:

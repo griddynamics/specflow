@@ -174,3 +174,12 @@ def test_as_executor_takes_a_store_or_an_executor() -> None:
     store, executor = FakeStore(), FakeExecutor()
     assert as_executor(store) is store.executor()
     assert as_executor(executor) is executor
+
+
+def test_bind_project_checks_the_binding_before_the_project_id() -> None:
+    def refuse(query: Any) -> None:
+        raise ConformanceError("query_missing_project_id", query=query.name)
+
+    with pytest.raises(ConformanceError) as raised:
+        bind_project(SCOPED, "bad id!", {"project_id": "x"}, require_binding=refuse)
+    assert raised.value.code == "query_missing_project_id"

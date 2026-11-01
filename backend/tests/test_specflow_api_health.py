@@ -164,12 +164,18 @@ def test_the_runtime_dataclass_is_the_only_shared_state():
     } <= set(Runtime.__dataclass_fields__)
 
 
-async def test_run_checks_reports_a_store_that_cannot_be_built_as_unavailable(monkeypatch, valid_env):
+@pytest.mark.parametrize("code", ["store_not_available", "store_sdk_missing"])
+async def test_run_checks_reports_a_store_that_cannot_be_built_as_unavailable_with_its_code(
+    monkeypatch, valid_env, code
+):
     async def ok() -> None:
         return None
 
     def refuse(_config):
-        raise ConfigurationError("store_not_available")
+        raise ConfigurationError(code, store="arcadedb", install_extra="secret-extra")
+
+    logged: list[dict] = []
+    monkeypatch.setattr(health, "log_event", lambda _l, _level, event, **f: logged.append({"event": event, **f}))
 
     monkeypatch.setattr("db.session.build_engine", lambda _s: SimpleNamespace(dispose=ok))
     monkeypatch.setattr("storage.factory.build_object_store", lambda _s, **_kw: SimpleNamespace(check=ok))
@@ -181,4 +187,6 @@ async def test_run_checks_reports_a_store_that_cannot_be_built_as_unavailable(mo
     report = await run_checks("worker", settings=load_settings("worker", valid_env))
 
     assert int(report) == 1
-    assert (report["graph"].ok, report["graph"].detail) == (False, "unavailable")
+    assert (report["graph"].ok, report["graph"].detail) == (False, f"unavailable ({code})")
+    assert {"event": "health.graph.store_unbuildable", "code": code} in logged
+    assert "secret-extra" not in repr(logged)
