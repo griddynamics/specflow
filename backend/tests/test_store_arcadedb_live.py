@@ -46,7 +46,7 @@ async def test_a_node_without_a_uuid_is_verified_and_repaired_by_its_element_id(
     nodes = await verified_nodes(project)
     assert nodes["MOD::KEEP"]["id"] == "u-keep"  # a node with a uuid is addressed by it
     loose = nodes["MOD::NOUUID"]["id"]
-    assert loose and loose != "u-keep" and loose != "MOD::NOUUID"
+    assert loose and loose not in {"u-keep", "MOD::NOUUID"}
     async with project.store.executor().tx(pid) as tx:
         written = await tx.run(
             build_queries.REPAIR_SET_SPEC_IDS, rows=[{"id": loose, "spec_id": "MOD::FIXED", "aliases": None}]
