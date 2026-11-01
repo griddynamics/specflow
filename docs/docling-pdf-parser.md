@@ -1,6 +1,6 @@
 # Docling as the default document parser (research and design)
 
-- Status: **Draft v2**. Owner decisions D1–D11 and the format scope are recorded (2026-11-01, §9). Four new questions (N1–N4) have defaults. After approval, this file is the input for the implementation plan.
+- Status: **Draft v2** (reviewed). Owner decisions D1–D11 and the format scope are recorded (2026-11-01, §9). Four new questions (N1–N4) have defaults. After approval, this file is the input for the implementation plan.
 - Measurements: 2026-10-31 and 2026-11-01.
 - How to review: edit this file in place, or answer N1–N4 in §9.
 - Terms: **source research** = the owner-provided report "SpecFlow Source-to-Markdown Parsing: Engine Shortlist by Source Type" (2026-10-31). **RED / AMBER / GREEN** = licence classes of the licence audit; "licence step 2" = its alternatives step. **FAST / ACCURATE** = Docling TableFormer modes. **Golden file** = `backend/tests/data/specs/extraction.md` (status `REVIEW_REQUIRED` in its header). **Office/web formats** = DOCX, PPTX, XLSX, HTML, Markdown, CSV.
@@ -16,6 +16,7 @@
 - **Memory:** a whole document peaks at 4.7 GB; **10-page ranges cap it at ⟪ACCM⟫** → worker-parse at 2 vCPU / 3 GiB.
 - **Unstructured (measured as asked):** rejected — `hi_res` is about 3× slower than Docling FAST, weak tables, a silent empty result on the fixture, and licence gaps (poppler GPL binary, layout weights without licence metadata).
 - **Graph:** a re-parsed document gets `revision_id = content_hash:parser`; legacy rows keep `content_hash`, so the deploy does not rebuild every graph (D10, a deviation from the ticket).
+- **Safety:** byte caps at upload; ZIP, cell and output limits in the parse activity, which both upload and Drive use; no remote or local fetch for HTML/Markdown (N2, §4.5).
 - **Out of scope:** OCR (scans, images), legacy `.doc/.ppt/.xls`, OpenDocument, EPUB, email, managed engines (GCP Document AI), parallel split.
 
 ## 1. Scope
@@ -56,7 +57,11 @@ Format facts (for the Office/web scope):
 
 - Uploads are PDF-only in three places: the content type (`api/uploads.py:30`, used by `api/routers/documents.py:101` and `api/routers/source_batches.py:127`), the `%PDF-` magic check (`api/uploads.py:20`), and the frontend (`frontend/components/mission-control/sources/source-logic.ts:250`, `SourcesMissionControl.tsx:223`, `frontend/lib/api.ts:125,142`).
 - `documents.media_type` and `documents.original_key` already exist (`db/models.py:202,205`), so no migration is needed. But five places rebuild the key `…/original.pdf` instead of reading `original_key` (`storage/keys.py:58`, used by `temporal/documents/activities.py:151`, `temporal/sources/activities.py:389`, `temporal/cleanup/activities.py:90`, `api/batch_files.py:190`, `db/removal.py:134`).
-- Drive categorises by MIME type (`drive/categories.py`): Word, PowerPoint and Excel (OOXML and legacy) are `stored_only`; HTML, Markdown and CSV fall into `other_files` (`stored_only`). Only `pdf` and the Google-native categories are `processed`.
+- Drive categorises by MIME type only (`drive/categories.py`, DATA-GDUI-0001.AC5): Word, PowerPoint and Excel (OOXML and legacy) are `stored_only`; HTML, Markdown and CSV fall into `other_files` (`stored_only`). Only `pdf` and the Google-native categories are `processed`. `connection_items.category` has a CHECK constraint over `ITEM_CATEGORIES` (`db/models.py:62,290`), so a new category needs a migration; the processing class has its own CHECK (`db/models.py:76`).
+- More PDF assumptions: `db/repositories.py:256` writes `media_type=PDF_MEDIA_TYPE`; `db/batches.py:399` hardcodes the MIME type and `category="pdf"` for batch items; the Drive import picks a path with `_kind` (`temporal/sources/activities.py:320`) and `_import_pdf` (`:382-405`), and `ItemKind` (`temporal/sources/models.py:14`) knows only PDF and Google files; `db/removal.py:85` re-reads only PDFs; `db/queries/repair/b2_items.sql:13` maps non-PDF files to `other_files`. The Drive import streams files without content checks (`temporal/sources/activities.py:390`).
+- Error reasons: `db/source_files.py:155,235,425` map only `pdf_parse_failed` to the reason `read_failed`. Non-retryable parse errors come from `FAILURE_CODES` (`temporal/documents/workflows.py:46`).
+- Limits that depend on the parse: `PARSE_RETRY` allows 3 attempts (`temporal/documents/workflows.py:50`); the Drive wait activity has a 65-min start-to-close (`temporal/sources/workflows.py:85`); drive-convert caps its Markdown at 5 MB (`MAX_MARKDOWN_BYTES`, `temporal/sources/activities.py:90`).
+- Key cleanup: `db/removal.py:132-135` and `temporal/cleanup/activities.py:90-92` delete fixed key variants (`.pdf`, `.json`, `.bin`), not a prefix.
 
 ## 3. Benchmarks
 
@@ -133,15 +138,15 @@ Notes: more tables than in the source = a table cut by a page break counts once 
 
 | Format (generated from the spec) | Convert | Word recall / precision | Headings found | Level exact | Tables (source 228) | Cell recall | Page markers |
 |---|---|---|---|---|---|---|---|
-| DOCX (pandoc) | 7.5 s | 0.984 / 1.00 | 358/358 | 0/358, 358/358 after the shift (§4.3) | 228 | 1.00 | none (no pages) |
-| PPTX (pandoc, 229 slides) | 10.0 s | F1 0.989 | 1/358 (the pandoc deck has no title placeholders) | – | 228 | 1.00 | one per slide |
-| PPTX (python-pptx, real title placeholders) | <1 s | all text | 3/3 slide titles as `#` | – | – | – | one per slide |
-| XLSX (40 tables, one sheet each) | 0.15 s | – | – | – | 40/40 | 1.00 | one per sheet |
+| DOCX (pandoc) | 7.5 s | 0.984 / 1.00 | 358/358 | 0/358 (all one level deep; the shift in §4.3 gives 358/358) | 228 | 1.00 | none (no pages) |
+| PPTX (pandoc, 229 slides) | 10.0 s | F1 0.989 | 1/358 (the pandoc deck has no title placeholders) | – | 228 | 1.00 | 229 pages in the document model |
+| PPTX (python-pptx, real title placeholders) | <1 s | all text | 3/3 slide titles as `#` | – | – | – | per-slide export (`page_no`) verified |
+| XLSX (40 tables, one sheet each) | 0.15 s | – | – | – | 40/40 | 1.00 | 40 pages (one per sheet) in the document model |
 | HTML (pandoc) | 5.7 s | 0.999 / 1.00 | 358/358 | 358/358 | 228 | 0.95 | none |
 | Markdown (the source) | 3.9 s | 0.999 / 1.00 | 358/358 | 358/358 | 228 | 0.95 | none |
 | CSV (3 rows) | <1 s | all cells | – | – | 1/1 | 1.00 | none |
 
-- No ML model runs for these formats (XML/HTML backends); peak RSS ≤ 0.6 GB.
+- No ML model runs for these formats (XML/HTML backends); peak RSS ≤ 0.6 GB on these small files (the largest, HTML, is 0.8 MB). The format runs exported each document in one block: the markers and the sheet-name headings in §4.3 are design, checked by G11, not measured here.
 - Packages: the `docling-slim` extras `format-docx, format-pptx, format-xlsx, format-html, format-markdown` add python-docx, python-pptx, openpyxl, beautifulsoup4, soupsieve, marko, et-xmlfile, xlsxwriter, pylatexenc: **+7 MB**, all MIT or BSD. Every format above converted in that minimal install.
 - HTML/Markdown cell recall 0.95: in cells with several inline-code spans, Docling writes a space before the comma (`FR-IAM , FR-PRJ` for `` `FR-IAM`, `FR-PRJ` ``). The text is present; a whitespace rule in the post-processing can remove the space if it matters.
 
@@ -207,7 +212,7 @@ Cost: 0.08 s for 8 pages; 2.2 s for 216 pages. Ranking needs every page, so it r
 
 Office/web (`OfficeStructure`):
 
-1. **Heading shift.** Docling keeps `#` for a document Title style and writes Word "Heading 1" as `##`. If the output has no `#`, shift every heading up one level. DOCX: 0/358 → 358/358 exact.
+1. **Heading shift.** In the measured DOCX, Docling wrote Word "Heading 1" as `##` (it keeps `#` for a Title style). If the output has no `#`, shift every heading up one level: 0/358 → 358/358 exact. The rule rests on one pandoc file; G11 adds a DOCX with a real Title style.
 2. **Markers.** `<!-- source-page: N -->` before each PPTX slide and each XLSX sheet (Docling pages); the sheet name follows as a heading. DOCX, HTML, Markdown and CSV have no pages and get no marker.
 
 ### 4.4 Long documents and time limits (D1 = sequential, D3 = 500, D11 = longer limits)
@@ -216,11 +221,15 @@ Office/web (`OfficeStructure`):
 - **Page cap 500 (D3, new):** before any conversion the activity counts pages with pypdfium2 (PDF) or slides (PPTX) and fails with a new non-retryable code `document_too_large`. The code is app-level (new entries in `FAILURE_CODES` and `PARSE_ERROR_CODES`), so no migration.
 - **Time limits (D11 = b, values = N4):** the longest allowed parse is 500 pages × ⟪ACCS⟫ s ≈ ⟪ACCMAX⟫ (+20 % noise ≈ ⟪ACCMAX12⟫). The wait for the slot still counts inside the activity, so the limits must also cover a short queue:
 
+Rule: workflow execution ≥ attempts × start-to-close (+ margin); Drive wait ≥ workflow execution; Drive wait activity > Drive wait. A timed-out attempt restarts from page 1, so a third attempt only adds time; two attempts keep one retry for a crashed worker.
+
 | Limit | Today | Proposed (N4) |
 |---|---|---|
 | `PARSE_START_TO_CLOSE` (`temporal/documents/workflows.py:37`) | 45 min | **120 min** |
-| `EXECUTION_TIMEOUT` (`temporal/documents/workflows.py:36`) | 60 min | **180 min** |
-| Drive import wait `WAIT_LIMIT_SECONDS` (`temporal/sources/activities.py:97`) | 60 min | **180 min** |
+| `PARSE_RETRY.maximum_attempts` (`temporal/documents/workflows.py:50`) | 3 | **2** |
+| `EXECUTION_TIMEOUT` (`temporal/documents/workflows.py:36`) | 60 min | **250 min** (2 × 120 + 10) |
+| Drive import wait `WAIT_LIMIT_SECONDS` (`temporal/sources/activities.py:97`) | 60 min | **250 min** |
+| Drive wait activity `WAIT_START_TO_CLOSE` (`temporal/sources/workflows.py:85`) | 65 min | **255 min** |
 | Heartbeat timeout | 60 s | 60 s (unchanged: detects a dead worker) |
 
 - With these limits one replica holds about one maximum-size PDF plus a short queue; a longer backlog needs more worker-parse replicas. The later external split (owner) removes this limit.
@@ -230,12 +239,12 @@ Office/web (`OfficeStructure`):
 | Area | Change |
 |---|---|
 | Accepted types | PDF + DOCX, PPTX, XLSX (OOXML), HTML, Markdown, CSV. One table of media types → format → file extension, shared by the API, the Drive import and the parser. |
-| Upload API | `is_pdf_content_type` → `accepted_media_type(header)`; the `%PDF-` check becomes a check per format: OOXML = ZIP magic + the right main part (`word/document.xml`, `ppt/presentation.xml`, `xl/workbook.xml`); HTML, Markdown, CSV = UTF-8 text. 415 `unsupported_format` names the accepted types. `documents.media_type` stores the type (the column exists). |
-| Storage keys | `document_original(pid, did, media_type)` → `original.<ext>`; PDF keeps `original.pdf`, so existing objects stay valid. Code that has the row reads `documents.original_key` instead of rebuilding the key (the five places in §2). |
-| Drive import | Processing class by MIME type, not only by category: OOXML Word/PowerPoint/Excel → `processed`; legacy `.doc/.ppt/.xls` stay `stored_only`; `text/html`, `text/markdown`, `text/csv` → `processed` in a new category (N1). Google-native files keep `drive-convert`. |
-| Parse activity | Downloads `original_key`, picks the path by `media_type` (§4.1), keeps the error contract. New fixed code `document_parse_failed` for non-PDF failures; `pdf_parse_failed` stays for PDF (N3). |
-| Frontend | `splitUpload` accepts the new types, the upload sends the file's own `Content-Type`, the picker `accept` list grows, the "PDF only" toast names the accepted types. Read `frontend/AGENTS.md` before the change (custom Next.js version). |
-| Limits and safety (N2) | No size limit exists today. Proposed: OOXML at most 50 MB compressed and 500 MB uncompressed (ZIP-bomb guard, checked from the ZIP directory before parsing); XLSX at most 1,000,000 cells; HTML/Markdown/CSV at most 20 MB; PPTX at most 500 slides (D3). XML parsers must not resolve external entities (security test, G12). HTML is parsed statically: no scripts, no remote fetch (`enable_remote_services=False`). |
+| Upload API | `is_pdf_content_type` → `accepted_media_type(header, filename)`: the server maps the file extension to a canonical type, because browsers send an empty type for `.md` and `application/vnd.ms-excel` for `.csv` on Windows. The stream checks only what the first bytes show: `%PDF-`, ZIP magic `PK\x03\x04` for OOXML, UTF-8 for text; plus a byte cap counted in `feed` (413). 415 `unsupported_format` names the accepted types. `documents.media_type` stores the type (the column exists; `db/repositories.py:256` and `db/batches.py:399` stop hardcoding PDF). |
+| Storage keys | `document_original(pid, did, media_type)` → `original.<ext>`; PDF keeps `original.pdf`, so existing objects stay valid. Code that has the row reads `documents.original_key` (the five places in §2). Removal and cleanup delete by the `documents/{did}/` prefix instead of fixed variants, so no `original.<ext>` object is orphaned. |
+| Drive import | Processing class by MIME type inside the existing categories (N1, no migration): OOXML Word/PowerPoint/Excel → `processed`; legacy `.doc/.ppt/.xls` stay `stored_only`; `text/html`, `text/markdown`, `text/csv` stay in `other_files` but become `processed`. `ItemKind`/`_kind` gain a document kind and `_import_pdf` becomes a general file import. Drive matches by MIME only (DATA-GDUI-0001.AC5): a `.md` file that Drive reports as `text/plain` stays `stored_only` (accepted limit). Google-native files keep `drive-convert`. |
+| Parse activity | Downloads `original_key`, picks the path by `media_type` (§4.1). It runs the deep checks for both upload and Drive files before conversion (N2): page or slide count, inflated ZIP bytes counted while reading (not the declared sizes), a per-entry compression ratio, XLSX and CSV cells counted while reading (not the sheet dimension tag), and the Markdown size after conversion. New fixed codes `document_too_large` and `document_parse_failed` (N3) with their exception types in `FAILURE_CODES` (non-retryable) and their reasons in `db/source_files.py`; `pdf_parse_failed` stays for PDF. |
+| Frontend | `splitUpload` accepts the new types by extension and sends the canonical `Content-Type` (not the browser's `file.type`); the picker `accept` list grows; the texts change: "PDF only" toast (`source-logic.ts:250`), `drive-logic.ts:60`, `HeaderActions.tsx:91`, `Dropzone.tsx:65` ("up to 20 MB" must match N2); the `sources.pdfOnly` flag goes. Read `frontend/AGENTS.md` before the change (custom Next.js version). |
+| Limits and safety (N2) | No size limit exists today. Proposed: upload byte caps PDF 100 MB, OOXML 50 MB, HTML/Markdown/CSV 10 MB (the frontend text says the same); OOXML at most 200 MB inflated and a 100:1 ratio per entry; XLSX and CSV at most 200,000 cells; Markdown output at most 5 MB (as drive-convert); PDF and PPTX at most 500 pages or slides (D3). XML parsers must not resolve external entities (G12). HTML and Markdown backends pinned to `enable_remote_fetch=False`, `enable_local_fetch=False`, `fetch_images=False` (the Docling 2.145 defaults, set explicitly); no script runs. |
 
 ### 4.6 Engine choice per deployment (GCP Document AI): later, through the port (D7 = a)
 
@@ -297,11 +306,11 @@ Branch by abstraction: each step changes one thing, so that parity is provable.
 | 1. Interim (ticket) | Move `pymupdf`/`pymupdf4llm` to an optional extra that only the worker-parse image installs. | api and worker-agents lose PyMuPDF (−186 MB each, ticket). | Redeploy the previous tags. |
 | 2. Port | Add `DocumentEngine` and `PdfStructure`; wrap the current extractor as the first engine. Output must stay byte-identical (existing tests). | No change. | Revert the commit. |
 | 3. Docling for PDF | Docling engine (ACCURATE, 10-page ranges), pypdfium2 wrapper, page cap 500, longer limits, graph revision rule. Gates G1–G10. | New worker-parse image: Docling, no PyMuPDF; `pymupdf`, `pymupdf4llm`, `pymupdf-layout` leave `uv.lock`. | Redeploy the previous worker-parse tag (internal only: an image with PyMuPDF must not be distributed). |
-| 4. Office/web formats | Upload API, storage keys, Drive processing classes, parse path by media type, frontend. Gates G11–G12. | Same worker-parse image (the format packages ship in step 3). | Revert: the API and Drive go back to PDF-only. Office/web documents already parsed keep their Markdown. |
+| 4. Office/web formats | Upload API, storage keys and prefix cleanup, Drive processing classes, parse path by media type, limits, frontend. Gates G11–G13. | Same worker-parse image (the format packages ship in step 3). | Revert: the API and Drive go back to PDF-only. Office/web documents already parsed keep their Markdown. |
 
 - No schema change and no data migration. A document keeps the Markdown of the engine that made it; `parser` tells which. No point of no return on data.
 - Existing PDF documents keep their pymupdf4llm Markdown (D5 = a). That Markdown is program output in Postgres; no AGPL code runs to serve it.
-- Drive files that were `stored_only` become `processed` on the next import after step 4; a reprocess of a source picks them up.
+- Drive files already imported as `stored_only` sit at `original.bin` without a document row. New imports after step 4 process them; turning the old ones into documents needs a re-import of the source (the implementation plan checks this path).
 
 ## 7. Blast radius
 
@@ -310,13 +319,13 @@ Branch by abstraction: each step changes one thing, so that parity is provable.
 | Dependencies | `backend/pyproject.toml`, `backend/uv.lock` | `parse` extra with `docling-slim[...]` and `opencv-python-headless<5`; torch from the PyTorch **CPU** index; remove `pymupdf*`; deptry map. |
 | Images | `backend/worker.Dockerfile` (+ a worker-parse variant), `docker-compose.yml` | Separate worker-parse image; models baked in (`artifacts_path`), `HF_HUB_OFFLINE=1`, `MALLOC_ARENA_MAX=2`; `mem_limit` 2g → 3g. |
 | Parser | `src/file_parsers/` | `engines/docling.py` (port + engine), `pdf/structure.py`, `office/` (heading shift, markers); `pdf/markdown_extractor.py` replaced; `pdf/pymupdf_typed.py` → `pdf/pdfium_typed.py`; `pdf/math_enricher.py` uses pypdfium2 renders and Docling table boxes; `pdf/to_markdown.py` → `file_to_markdown`; `pdf/schema.py` gains optional table boxes. |
-| Activity and workflow | `src/temporal/documents/activities.py`, `src/temporal/documents/workflows.py`, `src/temporal/sources/activities.py` | Path by media type, read `original_key`, page cap, progress heartbeat, new codes; the three time limits (§4.4). |
-| Upload API | `src/api/uploads.py`, `src/api/routers/documents.py`, `src/api/routers/source_batches.py`, `src/api/batch_files.py` | Accepted media types, per-format magic checks, limits (N2). |
-| Storage and removal | `src/storage/keys.py`, `src/temporal/cleanup/activities.py`, `src/db/removal.py` | Key by media type; read `original_key`. |
-| Drive | `src/drive/categories.py`, `src/db/sources.py` | Processing class by MIME type; new category (N1). |
-| Errors | `src/db/repositories.py`, `src/temporal/documents/workflows.py` | `document_too_large`, `document_parse_failed` (N3). |
+| Activity and workflow | `src/temporal/documents/activities.py`, `src/temporal/documents/workflows.py`, `src/temporal/sources/activities.py`, `src/temporal/sources/workflows.py`, `src/temporal/sources/models.py` | Path by media type, read `original_key`, deep checks and caps, progress heartbeat, new codes; the five limits (§4.4); `ItemKind`, `_kind`, a general file import. |
+| Upload API and batches | `src/api/uploads.py`, `src/api/routers/documents.py`, `src/api/routers/source_batches.py`, `src/api/batch_files.py`, `src/db/repositories.py`, `src/db/batches.py` | Canonical types by extension, first-byte checks, byte caps (N2); no PDF hardcodes. |
+| Storage and removal | `src/storage/keys.py`, `src/temporal/cleanup/activities.py`, `src/db/removal.py` | Key by media type; read `original_key`; delete by prefix; re-read rule not PDF-only. |
+| Drive | `src/drive/categories.py`, `src/db/sources.py`, `src/db/queries/repair/b2_items.sql` | Processing class by MIME type inside the existing categories (N1). |
+| Errors | `src/db/repositories.py`, `src/temporal/documents/workflows.py`, `src/db/source_files.py` | `document_too_large`, `document_parse_failed` (N3), their exception types and reasons. |
 | Graph | `src/api/graph_build/corpus.py`, `src/db/sources.py` (`GraphCorpusRow` gains `parser`) | Revision rule §4.8. |
-| Frontend | `frontend/components/mission-control/sources/source-logic.ts`, `SourcesMissionControl.tsx`, `frontend/lib/api.ts`, the Drive category labels, tests | Accepted types, Content-Type, toast text, category label. |
+| Frontend | `frontend/components/mission-control/sources/source-logic.ts`, `SourcesMissionControl.tsx`, `drive-logic.ts`, `HeaderActions.tsx`, `frontend/components/ui/Dropzone.tsx`, `frontend/lib/api.ts`, tests | Types by extension, canonical Content-Type, texts, `pdfOnly` flag removed. No category enum change (N1). |
 | Lint and stubs | `src/pymupdf4llm.pyi` (delete), `validation/python/lint/ruff.toml` | Remove the pymupdf4llm entries. |
 | Tests | `tests/test_specflow_parsing.py`, `tests/test_pdf_parser_logging.py`, upload and Drive category tests, new format fixtures | Docling engine id; structural quality tests (D6: `extraction.md` stays); one small fixture per new format. Sample data with the literal `"pymupdf4llm"` can stay (legal legacy value). |
 | Licence files | `NOTICE` | Remove PyMuPDF; add Docling, docling-parse, docling-core, docling-ibm-models (MIT), model weights (Apache-2.0, CDLA-Permissive-2.0), torch (BSD-3, bundled `libgomp`), OpenCV (Apache-2.0, bundled FFmpeg LGPL), pypdfium2 and PDFium (Apache-2.0 / BSD-3-Clause), python-docx, python-pptx, openpyxl, beautifulsoup4, soupsieve, marko, et-xmlfile, pylatexenc (MIT), xlsxwriter (BSD-2-Clause), lxml (BSD-3-Clause), tqdm and certifi (MPL-2.0). |
@@ -332,7 +341,7 @@ Branch by abstraction: each step changes one thing, so that parity is provable.
 | Scanned PDFs and images | No text (same as today) | Out of scope (D2). Log pages without a text layer, so the need is measured. |
 | The font-size heading rule fails where headings use body size | Flat or wrong levels | Fallback: font size → numbering depth → `##`. Gate G3. |
 | Glued-word repair splits a real compound word | Rare false split | Only tokens absent from the pdfium word list that equal 2–3 consecutive pdfium words on the same page; never in tables or code. |
-| Large spreadsheets and ZIP bombs | Huge Markdown, memory spikes | Limits N2, checked before parsing. |
+| Large spreadsheets and ZIP bombs | Huge Markdown, memory spikes, OOM of the 3 GiB single-slot worker | Byte caps at upload; inflated bytes, ratio and cells counted while reading in the parse activity (both paths); output cap; G10 with a maximum-size Office file. |
 | XML external entities in OOXML | Data leak | Parsers without entity resolution; security fixtures (G12). |
 | Docling release churn | Output drift | Exact pins (package and model revisions); the engine id holds both; an upgrade passes G1, G2, G11. |
 | Torch wheels | CUDA wheels from the default index have proprietary terms | Pin the PyTorch CPU index; licence gate in CI. |
@@ -366,10 +375,10 @@ The decision is invalid if: the corpus gate G3 shows a systematic loss; a custom
 
 | # | Question | Options | Default |
 |---|---|---|---|
-| N1 | Drive category for HTML, Markdown and CSV files | (a) new category "Web and text files", `processed`; (b) keep them in "Other files" (`stored_only`), upload only | (a) — S2 asks for Drive files too; a separate category keeps the Drive picker counts honest. |
-| N2 | Limits for the new formats (none exist today) | (a) the values in §4.5; (b) other values; (c) no limits | (a) — they guard memory and ZIP bombs; PDF keeps only the 500-page cap. |
+| N1 | Drive: how HTML, Markdown and CSV files become `processed` | (a) processing class by MIME type inside the existing categories (`other_files`); (b) a new category "Web and text files" | (a) — no migration: (b) needs a migration of the `ITEM_CATEGORIES` CHECK constraint, the Drive contract fixture and the frontend enums (`frontend/lib/domain/sources.ts`, `lib/data/http/sources-wire.ts`). The Word/PowerPoint/Excel split (OOXML vs legacy) needs class by MIME anyway. |
+| N2 | Limits (none exist today) | (a) the values in §4.5; (b) other values; (c) no limits | (a) — they protect a 3 GiB single-slot worker from ZIP bombs and huge sheets; the upload caps match the frontend text. |
 | N3 | Error code for a failed non-PDF parse | (a) new `document_parse_failed`, `pdf_parse_failed` stays for PDF; (b) reuse `pdf_parse_failed`; (c) rename to one `parse_failed` for all | (a) — existing rows and clients keep their values. |
-| N4 | New time limits | (a) start-to-close 120 min, workflow 180 min, Drive wait 180 min (§4.4); (b) other values | (a) — one maximum-size parse (⟪ACCMAX12⟫ with noise) plus a short queue. |
+| N4 | New time limits | (a) start-to-close 120 min, 2 attempts, workflow 250 min, Drive wait 250 min, Drive wait activity 255 min (§4.4); (b) other values | (a) — one maximum-size parse (⟪ACCMAX12⟫ with noise) plus a short queue, and the retry rule holds. |
 
 ## 10. Acceptance gates for the implementation
 
@@ -381,12 +390,13 @@ The decision is invalid if: the corpus gate G3 shows a systematic loss; a custom
 | G4 Speed | 216-page spec PDF, worker-parse sizing, median of 3 runs | ≤ ⟪G4MAX⟫ on one 2-vCPU replica (measured ⟪ACCT⟫, noise ±20 %). |
 | G5 Memory | Peak RSS on the spec PDF | ≤ 2.5 GB per worker process with 10-page ranges (measured ⟪ACCM⟫); pod limit 3 GiB. |
 | G6 Licence | `pip-licenses` allowlist in CI on each image; `pymupdf`, `pymupdf4llm`, `pymupdf-layout` absent from all images; NOTICE updated | Pass. |
-| G7 Offline | worker-parse parses with network egress blocked | Pass (models baked). |
+| G7 Offline | worker-parse parses with network egress blocked, including HTML and Markdown with remote images | Pass (models baked, no fetch). |
 | G8 Determinism | Same file twice, every format | Byte-identical Markdown. |
 | G9 Graph | One re-parsed document and one legacy document in a graph build | Re-parsed: revised once; legacy: unchanged revision. |
-| G10 Real container | worker-parse image, read-only root filesystem, uid 10001, `mem_limit` 3g (the 1 GB tmpfs counts against it), the full worker process; the spec PDF and one image-heavy PDF | No OOM kill; peak memory and time recorded; no apt package missing. |
-| G11 Office/web quality (CI, offline) | One small fixture per format (DOCX, PPTX with title placeholders, XLSX, HTML, Markdown, CSV) with known content | Word recall ≥ 0.98; every table with cell recall ≥ 0.95; DOCX/HTML/MD heading levels exact; one marker per slide and per sheet. |
-| G12 Security fixtures | OOXML with an external entity, a ZIP bomb, an oversized XLSX, HTML with scripts and remote images | Refused or parsed without the entity, without fetching, within the limits. |
+| G10 Real container | worker-parse image, read-only root filesystem, uid 10001, `mem_limit` 3g (the 1 GB tmpfs counts against it), the full worker process; the spec PDF, one image-heavy PDF and one Office file at each N2 limit | No OOM kill; peak memory and time recorded; no apt package missing. |
+| G11 Office/web quality (CI, offline) | One small fixture per format (DOCX with headings and one with a real Title style, PPTX with title placeholders, XLSX, HTML, Markdown, CSV) with known content; upload names `.md`/`.csv` with empty or odd browser types | Word recall ≥ 0.98; every table with cell recall ≥ 0.95; DOCX/HTML/MD heading levels exact; one marker per slide and per sheet, sheet name as heading; canonical types accepted. |
+| G12 Security fixtures | OOXML with an external entity, a ZIP bomb with false declared sizes, an XLSX with a false dimension tag, HTML with scripts and remote images; each through the upload path and the Drive path | Refused with a fixed code, or parsed without the entity and without fetching, within the limits. |
+| G13 Caps and limits | A 501-page PDF and a 501-slide PPTX; the time-limit settings | `document_too_large`, shown with its reason; execution ≥ attempts × start-to-close and Drive wait ≥ execution (a unit test). |
 
 ## Appendix A. Reproduce the measurements
 
