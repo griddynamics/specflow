@@ -128,24 +128,43 @@ export const test = base.extend<Fixtures>({
 });
 
 // ---------------------------------------------------------------- UI helpers (P17: the new production screens)
-/** Dev sign-in on the design-system /login; lands on `/` (the newest project's Mission Control, or the empty state). */
-export async function devLogin(page: Page): Promise<void> {
+/** The QA user of the live pack (the realm's `alice`); the password is `KEYCLOAK_QA_PASSWORD`, read from the env file or the shell. */
+export const QA_USER = "alice";
+const KEYCLOAK_PASSWORD_FIELD = 'input[name="password"]';
+export const KEYCLOAK_USERNAME_FIELD = 'input[name="username"]';
+
+/** The Keycloak password of the QA users: shell first, then the env file; never printed. */
+function qaPassword(): string {
+  const value = process.env.KEYCLOAK_QA_PASSWORD ?? readEnvFile(["KEYCLOAK_QA_PASSWORD"]).KEYCLOAK_QA_PASSWORD;
+  if (!value) throw new Error("KEYCLOAK_QA_PASSWORD is not set (shell or E2E_ENV_FILE)");
+  return value;
+}
+
+/** Fills the Keycloak sign-in form (already on screen) as the QA user and submits it. */
+export async function submitKeycloakForm(page: Page): Promise<void> {
+  const username = page.locator(KEYCLOAK_USERNAME_FIELD);
+  await expect(username, "the Keycloak sign-in form is shown").toBeVisible();
+  await username.fill(QA_USER);
+  await page.locator(KEYCLOAK_PASSWORD_FIELD).fill(qaPassword());
+  await page.locator("#kc-login").click();
+}
+
+/** Sign-in on /login: "Sign in" -> the Keycloak form as alice -> back in the app; lands on `/` (the newest project's Mission Control, or the empty state). */
+export async function login(page: Page): Promise<void> {
   await page.goto("/login");
-  // The live specs need a stack started with AUTH_MODE=dev (APP_ENV=local): in OIDC mode /login has only "login-oidc" (AC-6.5).
-  const submit = page.getByTestId("login-dev-submit");
-  await expect(submit, "the stack at E2E_BASE_URL runs AUTH_MODE=dev (the dev sign-in form is shown)").toBeVisible();
-  await submit.click(); // the form is pre-filled with the dev user
+  await page.getByTestId("login-oidc").click();
+  await submitKeycloakForm(page);
   await expect(page.getByTestId("app-shell")).toBeVisible();
   // `/` settles on the newest project's Mission Control, or the empty state when there is no project (O12).
   await expect(page.getByTestId("screen-mission-control").or(page.getByTestId("home-empty"))).toBeVisible();
 }
 
-/** FE-BP-03.AC4: "Sign out" from the avatar menu ends the session and shows /login. */
+/** FE-BP-03.AC4, B-08: "Sign out" from the avatar menu ends the app session and the Keycloak one, and shows /login?signedout=1. */
 export async function signOut(page: Page): Promise<void> {
   await networkQuiet(page); // a BFF response in flight after the sign-out could write the session cookie again (GAPS G-P17-4)
   await page.getByRole("button", { name: /^Account/ }).click();
   await page.getByRole("menuitem", { name: "Sign out" }).click();
-  await expect(page).toHaveURL(/\/login/);
+  await expect(page).toHaveURL(/\/login\?signedout=1$/);
 }
 
 /** Creates a project through the top bar's "New" modal (name only, A9) and returns its id from the Mission Control URL. */
@@ -277,7 +296,9 @@ export class Langfuse {
       "LANGFUSE_PUBLIC_KEY",
       "LANGFUSE_SECRET_KEY",
       "LLM_GATEWAY_API_KEY",
-      "AUTH_DEV_SIGNING_KEY",
+      "KEYCLOAK_QA_PASSWORD",
+      "KEYCLOAK_WEB_CLIENT_SECRET",
+      "LOCAL_TEST_USER_PASSWORD",
       "SESSION_SECRET",
       "DATABASE_PASSWORD",
       "NEO4J_PASSWORD",
