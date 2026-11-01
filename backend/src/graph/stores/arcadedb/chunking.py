@@ -8,9 +8,15 @@ rows). The chunks of one statement are consecutive statements of the same plan, 
 caller's transaction (a managed write or an explicit ``tx``), in order, and ``chunked`` folds their results back
 into the rows the unchunked statement would have returned, before the plan's own reducer sees them.
 
-The mechanism is generic: it knows nothing of a template. It relies on one property of every template that takes
-``rows`` (they are all ``UNWIND $rows``): rows are independent and processed in order, and the statement returns at
-most one aggregate row (``count``, ``collect``) or none.
+The mechanism is generic: it knows nothing of a template. It relies on two properties of every template that takes
+``rows`` (they are all ``UNWIND $rows``): the statement returns at most one aggregate row (``count``, ``collect``) or
+none, and the rows of one batch are independent of each other. The second is an assumption, not a guarantee: inside
+one statement a later row sees the writes of an earlier one, and across chunks it does too (the chunks share the
+transaction), but a read that the planner makes once for the whole statement does not see them. A template whose
+rows depend on each other (for example ``infer_write_edges``: a ``NOT EXISTS`` on the edge key, with the same key
+in two rows of different rules) can therefore answer differently as one statement and as chunks. The library
+builds each batch from independent operations, and the offline guard in ``test_store_arcadedb_chunking`` pins the
+result columns ``combine`` knows, so a template that changes either property is a deliberate change.
 """
 
 from __future__ import annotations
@@ -27,19 +33,36 @@ MAX_MESSAGE_BYTES: Final = 4 * 1024 * 1024
 #: The most rows of one chunk, whatever their size (the library's persist batch).
 MAX_ROWS_PER_MESSAGE: Final = 500
 
+#: The result columns ``combine`` is written for: counts that add up and lists that concatenate. A template with
+#: ``rows`` that returns another column is a decision to take (``tests/test_store_arcadedb_dialect.py`` fails on it).
+AGGREGATE_COLUMNS: Final = frozenset({"written", "refs", "left"})
+
 _SCALAR_BYTES: Final = 9  # a Bolt float64 (marker + 8 bytes); an int, bool or null is smaller
+_NUMBER_TYPES: Final = frozenset({int, float, bool})
 _CONTAINER_BYTES: Final = 5  # marker and size
 
 
 def estimate_bytes(value: Any) -> int:
     """The approximate size of ``value`` as a Bolt message part: 9 bytes per number, the UTF-8 length plus a
-    header per string, the sum of the parts for a list or a map. An estimate, kept slightly high on purpose."""
+    header per string, the sum of the parts for a list or a map. An estimate, kept slightly high on purpose.
+
+    Other sequences count like lists: a tuple, ``array.array`` or ``range`` by its parts, a numpy array (anything with
+    a numeric ``size``) as ``size`` numbers, bytes by their length."""
 
     if isinstance(value, str):
         return len(value.encode("utf-8")) + _CONTAINER_BYTES
+    if isinstance(value, (bytes, bytearray)):
+        return len(value) + _CONTAINER_BYTES
     if isinstance(value, Mapping):
         return _CONTAINER_BYTES + sum(estimate_bytes(key) + estimate_bytes(item) for key, item in value.items())
-    if isinstance(value, (list, tuple)):
+    size = getattr(value, "size", None)
+    if isinstance(size, int) and hasattr(value, "tolist"):  # a numpy array: every element is one number
+        return _CONTAINER_BYTES + size * _SCALAR_BYTES
+    if hasattr(value, "tolist") and hasattr(value, "__len__"):  # array.array
+        return _CONTAINER_BYTES + len(value) * _SCALAR_BYTES
+    if isinstance(value, Sequence):
+        if set(map(type, value)) <= _NUMBER_TYPES:  # a vector: counted at C speed, not item by item
+            return _CONTAINER_BYTES + len(value) * _SCALAR_BYTES
         return _CONTAINER_BYTES + sum(estimate_bytes(item) for item in value)
     return _SCALAR_BYTES
 
