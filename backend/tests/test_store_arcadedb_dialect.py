@@ -7,6 +7,7 @@ factory output the callers use, for three ontologies), then planned through the 
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping
 from typing import Any
@@ -415,10 +416,26 @@ def test_edge_repairs_address_an_edge_by_its_uuid_with_the_element_id_as_fallbac
 
 
 def test_a_replacement_that_no_longer_matches_the_canonical_text_fails_loudly(monkeypatch: pytest.MonkeyPatch) -> None:
-    override = arcade._replacing(("text that is not in the query", "x"))
+    monkeypatch.setattr(arcade, "_replacements", lambda _template: (("text that is not in the query", "x"),))
     with pytest.raises(ConformanceError) as raised:
-        override(core_queries.SEARCH_NODES_VECTOR_EXACT, PARAMS, None)
+        arcade._derived()(core_queries.SEARCH_NODES_VECTOR_EXACT, PARAMS, None)
     assert raised.value.code == "arcadedb_override_stale"
+
+
+def test_every_derived_override_is_its_canonical_text_with_the_listed_replacements(all_queries: list[Query]) -> None:
+    """The replacements file is the whole difference: nothing else of the canonical statement is changed."""
+
+    table = json.loads((arcade.OVERRIDE_DIRECTORY / "derived.json").read_text(encoding="utf-8"))
+    assert set(table) <= set(OVERRIDES)
+    for query in all_queries:
+        pairs = table.get(query.template)
+        if not pairs:
+            continue
+        expected = render_cypher(query)
+        for old, new in pairs:
+            assert expected.count(old) == 1, (query.name, old)
+            expected = expected.replace(old, new)
+        assert texts(query) == [expected], query.name
 
 
 def test_the_override_files_hold_no_unfilled_token(all_queries: list[Query]) -> None:

@@ -65,10 +65,8 @@ ONLY_IN: Final = {
 }
 QUERY_MODULES: Final = frozenset({"core/queries.py", "build/queries.py"})
 # The Cypher dialect renders the canonical files and builds the run-time parts of a statement; the ArcadeDB
-# dialect holds the exact fragments it replaces in them, its schema module the SQL and Cypher DDL of its indexes.
-CYPHER_MODULES: Final = QUERY_MODULES | frozenset(
-    {"stores/_bolt/cypher.py", "stores/arcadedb/dialect.py", "stores/arcadedb/schema.py"}
-)
+# dialect also reads statements for the clauses it refuses a dynamic name in (its statements are files).
+CYPHER_MODULES: Final = QUERY_MODULES | frozenset({"stores/_bolt/cypher.py", "stores/arcadedb/dialect.py"})
 FILE_MODULES: Final = frozenset({"core/files.py", "build/files.py"})
 
 # A string looks like Cypher when a clause keyword (any case) stands in a Cypher shape: followed by a

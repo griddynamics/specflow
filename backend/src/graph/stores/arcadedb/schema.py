@@ -35,6 +35,7 @@ from graph.stores._bolt.schema import SchemaObject
 from graph.stores._bolt.schema import schema_objects as canonical_objects
 from graph.stores.arcadedb.admin import AdminClient
 from graph.stores.arcadedb.names import SERVER_NAMED_KINDS
+from graph.stores.arcadedb.statements import cypher, sql
 from logger.logger import INFO, get_logger, log_event
 
 logger = get_logger("graph.stores.arcadedb.schema")
@@ -43,7 +44,7 @@ BACKEND: Final = "arcadedb"
 SPEC_KEY: Final = "spec_key"
 SPEC_KEY_INDEX: Final = "graph_spec_node_spec_key"
 SPEC_ID_INDEX: Final = "graph_spec_node_spec_id"
-_SPEC_ID_STATEMENT: Final = f"CREATE INDEX {SPEC_ID_INDEX} IF NOT EXISTS FOR (n:{SPEC_NODE}) ON (n.group_id, n.spec_id)"
+_SPEC_ID_STATEMENT: Final = cypher("ddl", "spec_id_index.cypher")
 _VECTOR: Final = "LSM_VECTOR"
 _FULLTEXT: Final = "FULL_TEXT"
 _PROPERTY_TYPES: Final = {"vector": "ARRAY_OF_FLOATS", "fulltext": "STRING", "spec_key": "STRING"}
@@ -157,18 +158,18 @@ def _check_vector(item: ArcadeObject, index: Mapping[str, Any], dimension: int) 
 def _sql(item: ArcadeObject, dimension: int) -> tuple[str, ...]:
     """The SQL commands that create ``item``: its type, its properties, then the index."""
 
-    steps = [f"CREATE VERTEX TYPE {item.label} IF NOT EXISTS"]
+    steps = [sql("create_vertex_type.sql", type=item.label)]
     steps += [
-        f"CREATE PROPERTY {item.label}.{name} IF NOT EXISTS {_PROPERTY_TYPES[item.kind]}" for name in item.properties
+        sql("create_property.sql", type=item.label, property=name, kind=_PROPERTY_TYPES[item.kind])
+        for name in item.properties
     ]
-    columns = ", ".join(item.properties)
+    names = {"type": item.label, "columns": ", ".join(item.properties)}
     if item.kind == "vector":
-        metadata = f'{{"dimensions": {int(dimension)}, "similarity": "COSINE"}}'
-        steps.append(f"CREATE INDEX IF NOT EXISTS ON {item.label} ({columns}) {_VECTOR} METADATA {metadata}")
+        steps.append(sql("create_index_vector.sql", dimension=str(int(dimension)), **names))
     elif item.kind == "fulltext":
-        steps.append(f"CREATE INDEX IF NOT EXISTS ON {item.label} ({columns}) {_FULLTEXT}")
+        steps.append(sql("create_index_fulltext.sql", **names))
     else:
-        steps.append(f"CREATE INDEX IF NOT EXISTS ON {item.label} ({columns}) UNIQUE NULL_STRATEGY SKIP")
+        steps.append(sql("create_index_unique.sql", **names))
     return tuple(steps)
 
 
@@ -251,8 +252,6 @@ async def ensure_arcadedb_schema(
 # retry does not cure (measured: 5 of 18 concurrent first writes). A placeholder node, created and deleted
 # once per domain label, makes every type exist before a build writes.
 PLACEHOLDER_GROUP: Final = "__schema__"
-_CREATE_PLACEHOLDER: Final = "CREATE (n:SpecNode:{label} {{group_id: $group, uuid: $uuid}})"
-_DELETE_PLACEHOLDER: Final = "MATCH (n:SpecNode:{label} {{group_id: $group, uuid: $uuid}}) DETACH DELETE n"
 
 
 async def _ensure_composite_types(driver: Any, admin: AdminClient, database: str, labels: Sequence[str]) -> int:
@@ -267,12 +266,16 @@ async def _ensure_composite_types(driver: Any, admin: AdminClient, database: str
             continue
         name, params = f"composite_{label}", {"group": PLACEHOLDER_GROUP, "uuid": f"__{label}__"}
         try:
-            await _cypher(driver, database, name, _CREATE_PLACEHOLDER.format(label=safe_name(label)), **params)
+            await _cypher(
+                driver, database, name, cypher("ddl", "placeholder_create.cypher", label=safe_name(label)), **params
+            )
             created += 1
         except ConfigurationError:
             if not _has_composite(await admin.types(database), label):
                 raise
-        await _cypher(driver, database, name, _DELETE_PLACEHOLDER.format(label=safe_name(label)), **params)
+        await _cypher(
+            driver, database, name, cypher("ddl", "placeholder_delete.cypher", label=safe_name(label)), **params
+        )
     return created
 
 

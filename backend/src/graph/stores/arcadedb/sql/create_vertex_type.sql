@@ -1,0 +1,2 @@
+-- ArcadeDB SQL (HTTP admin API), not PostgreSQL.
+CREATE VERTEX TYPE __TYPE__ IF NOT EXISTS

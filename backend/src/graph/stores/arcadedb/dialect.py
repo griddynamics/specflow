@@ -19,25 +19,23 @@ owner's types), so the executor reads the database's relationship types first an
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable, Mapping, Sequence
 from functools import cache
-from pathlib import Path
 from typing import Any, Final
 
 from graph.core.dialect import ExecutionPlan, PlannedStatement, Record
 from graph.core.errors import ConformanceError
 from graph.core.queries import SAFE_NAME, Query, safe_name
-from graph.core.query_files import read_query_file, render_query
+from graph.core.query_files import render_query
 from graph.stores._bolt.cypher import CYPHER_DIALECT, binds_project_id, render_cypher, template_ids
 from graph.stores.arcadedb.names import index_fields, index_names
+from graph.stores.arcadedb.statements import OVERRIDE_DIRECTORY, cypher
 
-OVERRIDE_DIRECTORY: Final = Path(__file__).resolve().parent / "overrides"
 NEEDS_EDGE_TYPES: Final = frozenset({"core.move_foreign_relationships", "build.build_merge_spec_nodes"})
 # What the executor runs to learn them (unscoped: it reads the schema, not project data).
-RELATIONSHIP_TYPES: Final = (
-    "CALL db.relationshipTypes() YIELD relationshipType RETURN relationshipType ORDER BY relationshipType"
-)
+RELATIONSHIP_TYPES: Final = cypher("core", "relationship_types.cypher")
 
 # A statement that has ``$(`` inside FOREACH, or after one of these clauses, creates with a dynamic name.
 _CREATING_CLAUSES: Final = frozenset({"CREATE", "MERGE", "ON CREATE SET", "ON MATCH SET"})
@@ -87,13 +85,8 @@ def _sum(column: str) -> Callable[[Sequence[list[Record]]], list[Record]]:
     return reduce
 
 
-@cache
-def _file(group: str, name: str) -> str:
-    return read_query_file(OVERRIDE_DIRECTORY / group, name)
-
-
 def _plan_upsert_spec_node(_query: Query, params: Mapping[str, Any], _types: Sequence[str] | None) -> ExecutionPlan:
-    text = render_query(_file("core", "upsert_spec_node.cypher"), label=safe_name(params.get("label")))
+    text = render_query(cypher("core", "upsert_spec_node.cypher"), label=safe_name(params.get("label")))
     return ExecutionPlan.single(text, params)
 
 
@@ -101,7 +94,7 @@ def _plan_create_spec_nodes(_query: Query, params: Mapping[str, Any], _types: Se
     groups: dict[str, list[Any]] = {}
     for row in params["rows"]:
         groups.setdefault(safe_name(row.get("label")), []).append(row)
-    text = _file("build", "build_create_spec_nodes.cypher")
+    text = cypher("build", "build_create_spec_nodes.cypher")
     statements = tuple(
         PlannedStatement(render_query(text, label=label), {**params, "rows": rows})
         for label, rows in sorted(groups.items())
@@ -122,14 +115,14 @@ def foreign_types(edge_types: Sequence[str], owned: Sequence[str]) -> list[str]:
 def _plan_merge_spec_nodes(query: Query, params: Mapping[str, Any], types: Sequence[str] | None) -> ExecutionPlan:
     if types is None:
         raise ConformanceError("arcadedb_edge_types_missing", query=query.name)
-    move = _file("build", "build_merge_spec_nodes_move.cypher")
+    move = cypher("build", "build_merge_spec_nodes_move.cypher")
     statements = (
-        PlannedStatement(_file("build", "build_merge_spec_nodes_aliases.cypher"), params),
+        PlannedStatement(cypher("build", "build_merge_spec_nodes_aliases.cypher"), params),
         *(
             PlannedStatement(render_query(move, type=name), params)
             for name in foreign_types(types, params.get("owned_types", ()))
         ),
-        PlannedStatement(_file("build", "build_merge_spec_nodes_delete.cypher"), params),
+        PlannedStatement(cypher("build", "build_merge_spec_nodes_delete.cypher"), params),
     )
     return ExecutionPlan(statements)  # the first statement's row: the survivors found
 
@@ -137,7 +130,7 @@ def _plan_merge_spec_nodes(query: Query, params: Mapping[str, Any], types: Seque
 def _plan_move_foreign(query: Query, params: Mapping[str, Any], types: Sequence[str] | None) -> ExecutionPlan:
     if types is None:
         raise ConformanceError("arcadedb_edge_types_missing", query=query.name)
-    text = _file("core", "move_foreign_relationships.cypher")
+    text = cypher("core", "move_foreign_relationships.cypher")
     statements = tuple(
         PlannedStatement(render_query(text, type=name), params)
         for name in foreign_types(types, params.get("owned_types", ()))
@@ -165,13 +158,22 @@ def search_params(params: Mapping[str, Any], *, per_field: bool = False) -> Mapp
     return bound
 
 
-def _replacing(*pairs: tuple[str, str], index: bool = False, per_field: bool = False) -> Override:
-    """Override: the canonical text with each ``old`` replaced once by ``new``; ``index`` also maps the
-    ``$index`` parameter (a library index name) to the server's name for it (``search_params``)."""
+@cache
+def _replacements(template: str) -> tuple[tuple[str, str], ...]:
+    """The exact replacements of the canonical text of ``template`` (``overrides/derived.json``)."""
+
+    table = json.loads((OVERRIDE_DIRECTORY / "derived.json").read_text(encoding="utf-8"))
+    return tuple((old, new) for old, new in table.get(template, ()))
+
+
+def _derived(template: str | None = None, *, index: bool = False, per_field: bool = False) -> Override:
+    """Override: the canonical text with each replacement of ``overrides/derived.json`` for ``template``
+    applied once (no match, or several: ``arcadedb_override_stale``); ``index`` also maps the ``$index``
+    parameter (a library index name) to the server's name for it (``search_params``)."""
 
     def plan(query: Query, params: Mapping[str, Any], _types: Sequence[str] | None) -> ExecutionPlan:
         text = render_cypher(query)
-        for old, new in pairs:
+        for old, new in _replacements(template or query.template):
             if text.count(old) != 1:
                 raise ConformanceError("arcadedb_override_stale", template=query.template)
             text = text.replace(old, new)
@@ -180,73 +182,37 @@ def _replacing(*pairs: tuple[str, str], index: bool = False, per_field: bool = F
     return plan
 
 
-_ELEMENT_NODE: Final = "MATCH (n:SpecNode) WHERE elementId(n) = "
-_VERIFY_ENDS: Final = (
-    "elementId(startNode(r)) AS source, elementId(endNode(r)) AS target",
-    (
-        "CASE WHEN 'SpecNode' IN labels(startNode(r)) THEN startNode(r).uuid "
-        "ELSE elementId(startNode(r)) END AS source, "
-        "CASE WHEN 'SpecNode' IN labels(endNode(r)) THEN endNode(r).uuid "
-        "ELSE elementId(endNode(r)) END AS target"
-    ),
-)
-# A label write moves a vertex and its edges get new record ids too: an edge is addressed by its uuid (build
-# writes one on every domain edge) and only falls back to its element id when it has none.
-_EDGE_ID: Final = "coalesce(r.uuid, elementId(r))"
-
 # template id -> override. The first group are the ones the canonical text cannot do on ArcadeDB (REQUIRED);
 # the rest only map a name or a score and would also run unchanged except for a wrong result.
 OVERRIDES: Final[Mapping[str, Override]] = {
     "core.upsert_spec_node": _plan_upsert_spec_node,
     "build.build_create_spec_nodes": _plan_create_spec_nodes,
     "build.build_update_spec_nodes": lambda _query, params, _types: ExecutionPlan.single(
-        _file("build", "build_update_spec_nodes.cypher"), params
+        cypher("build", "build_update_spec_nodes.cypher"), params
     ),
     "build.build_repair_set_spec_ids": lambda _query, params, _types: ExecutionPlan.single(
-        _file("build", "build_repair_set_spec_ids.cypher"), params
+        cypher("build", "build_repair_set_spec_ids.cypher"), params
     ),
     "build.build_merge_spec_nodes": _plan_merge_spec_nodes,
     "core.move_foreign_relationships": _plan_move_foreign,
     # a quantified path with ``nodes(p)[1..]`` in a WHERE returns no rows on ArcadeDB
-    "core.scope_via": _replacing(
-        (
-            "all(b IN nodes(p)[1..] WHERE b = root OR none(",
-            "all(b IN nodes(p) WHERE b = n OR b = root OR none(",
-        )
-    ),
+    "core.scope_via": _derived(),
     # ArcadeDB's Cypher has no CYPHER 5 prefix; its procedure scores are already on the (1 + cos) / 2 scale
-    "core.search_nodes_vector": _replacing(("CYPHER 5 ", ""), index=True),
+    "core.search_nodes_vector": _derived(index=True),
     # vector.similarity.cosine is the raw cosine on ArcadeDB; the reader's floor is on (1 + cos) / 2
-    "core.search_nodes_vector_exact": _replacing(
-        (
-            "vector.similarity.cosine(n.embedding, $vector) AS score",
-            "(1 + vector.similarity.cosine(n.embedding, $vector)) / 2 AS score",
-        )
-    ),
-    "core.search_nodes_fulltext": _replacing(index=True, per_field=True),
-    "core.search_fragments": _replacing(index=True, per_field=True),
+    "core.search_nodes_vector_exact": _derived(),
+    "core.search_nodes_fulltext": _derived(index=True, per_field=True),
+    "core.search_fragments": _derived(index=True, per_field=True),
     # index state is ONLINE when a SQL index create returns: nothing to wait for
-    "core.await_indexes": lambda _query, _params, _types: ExecutionPlan.single("RETURN 1 AS online", {}),
+    "core.await_indexes": lambda _query, _params, _types: ExecutionPlan.single(cypher("core", "online.cypher"), {}),
     # a label write moves the record (its element id changes): verify and repair address nodes by uuid, edges by uuid
-    "build.build_verify_spec_nodes": _replacing(("elementId(n) AS id", "n.uuid AS id")),
-    "build.build_verify_domain_edges": _replacing(_VERIFY_ENDS, ("elementId(r) AS id", f"{_EDGE_ID} AS id")),
-    "build.build_repair_delete_edges": _replacing(("elementId(r) = id", f"{_EDGE_ID} = id")),
-    "build.build_repair_edge_evidence": _replacing(("elementId(r) = row.id", f"{_EDGE_ID} = row.id")),
-    "build.build_repair_delete_nodes": _replacing(
-        (_ELEMENT_NODE + "id AND n.group_id = $project_id", "MATCH (n:SpecNode {group_id: $project_id, uuid: id})")
-    ),
-    "build.build_repair_set_labels": _replacing(
-        (
-            _ELEMENT_NODE + "row.id AND n.group_id = $project_id",
-            "MATCH (n:SpecNode {group_id: $project_id, uuid: row.id})",
-        )
-    ),
-    "build.build_repair_node_evidence": _replacing(
-        (
-            _ELEMENT_NODE + "row.id AND n.group_id = $project_id",
-            "MATCH (n:SpecNode {group_id: $project_id, uuid: row.id})",
-        )
-    ),
+    "build.build_verify_spec_nodes": _derived(),
+    "build.build_verify_domain_edges": _derived(),
+    "build.build_repair_delete_edges": _derived(),
+    "build.build_repair_edge_evidence": _derived(),
+    "build.build_repair_delete_nodes": _derived(),
+    "build.build_repair_set_labels": _derived(),
+    "build.build_repair_node_evidence": _derived(),
 }
 
 # Overrides without which the statement fails or writes wrong data on ArcadeDB. A store refuses to start

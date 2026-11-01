@@ -1,0 +1,2 @@
+-- ArcadeDB SQL (HTTP admin API), not PostgreSQL.
+CREATE PROPERTY __TYPE__.__PROPERTY__ IF NOT EXISTS __KIND__
