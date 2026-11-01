@@ -12,6 +12,7 @@ import asyncpg
 import pytest
 from pydantic import SecretStr
 from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 import graph.build.queries as build_queries
@@ -445,6 +446,37 @@ def test_serialization_failures_deadlocks_lost_connections_and_a_starting_server
         assert not is_transient(error), error
 
 
+def test_a_pool_timeout_and_a_cancelled_statement_are_not_retried() -> None:
+    pool = PoolTimeoutError("QueuePool limit reached")
+    pool.__cause__ = TimeoutError()  # the wait that expired must not make it look like a socket timeout
+    assert not is_transient(pool)
+    assert not is_transient(wrapped(asyncpg.QueryCanceledError()))  # statement_timeout (57014)
+    assert not is_transient(wrapped(asyncpg.LockNotAvailableError()))  # lock_timeout (55P03)
+    mapped = map_error(pool, "read_nodes", write=False)
+    assert isinstance(mapped, InfrastructureUnavailableError) and mapped.code == "store_read_failed"
+    assert is_transient(TimeoutError())  # a connect timeout still is
+
+
+def test_every_connection_gets_a_statement_and_a_lock_timeout_that_the_uri_can_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[dict[str, Any]] = []
+
+    def capture(url: Any, **kwargs: Any) -> None:
+        seen.append(kwargs["connect_args"])
+
+    monkeypatch.setattr(pg_executor, "create_async_engine", capture)
+    pg_executor.build_engine(config())
+    server = seen[0]["server_settings"]
+    assert server == {"application_name": "specflow-graph", "statement_timeout": "300000", "lock_timeout": "60000"}
+    _, args = connection_url(config(uri="postgresql://h/d?statement_timeout=12.5&lock_timeout=0&sslmode=require"))
+    assert args["server_settings"] == {"statement_timeout": "12500", "lock_timeout": "0"} and args["ssl"] == "require"
+    for bad in ("statement_timeout=soon", "lock_timeout=-1", "statement_timeout=999999"):
+        with pytest.raises(ConfigurationError) as raised:
+            connection_url(config(uri=f"postgresql://h/d?{bad}"))
+        assert raised.value.code == "store_uri_invalid"
+
+
 class FakeResult:
     returns_rows = True
 
@@ -619,7 +651,9 @@ def test_the_same_failure_of_any_other_query_keeps_its_normal_code(query: str) -
     mapped = map_error(wrapped(asyncpg.StatementTooComplexError()), query, write=False, attempts=2)
     assert isinstance(mapped, InfrastructureUnavailableError) and mapped.code == "store_read_failed"
     assert mapped.fields["backend_code"] == "54001" and mapped.fields["attempts"] == 2
-    written = map_error(wrapped(asyncpg.StatementTooComplexError()), core_queries.SEARCH_NODES_FULLTEXT.name, write=True)
+    written = map_error(
+        wrapped(asyncpg.StatementTooComplexError()), core_queries.SEARCH_NODES_FULLTEXT.name, write=True
+    )
     assert isinstance(written, GraphWriteError) and written.code == "store_write_failed"
 
 

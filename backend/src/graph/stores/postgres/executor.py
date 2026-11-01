@@ -72,6 +72,12 @@ MAX_OVERFLOW: Final = 0
 POOL_TIMEOUT_SECONDS: Final = 30.0
 DRIVER: Final = "postgresql+asyncpg"
 APPLICATION_NAME: Final = "specflow-graph"
+# Server-side limits set on every connection (asyncpg ``server_settings``): a statement that runs longer is
+# cancelled (SQLSTATE 57014) and a statement waiting longer for a lock fails (55P03); neither is retried.
+# ``?statement_timeout=<seconds>`` and ``?lock_timeout=<seconds>`` in the store URI override them, 0 disables.
+STATEMENT_TIMEOUT_SECONDS: Final = 300.0
+LOCK_TIMEOUT_SECONDS: Final = 60.0
+MAX_TIMEOUT_SECONDS: Final = 86_400.0
 # asyncpg takes the libpq ``sslmode`` values as its ``ssl`` argument.
 _SSL_MODES: Final = frozenset({"disable", "allow", "prefer", "require", "verify-ca", "verify-full"})
 
@@ -116,7 +122,8 @@ def sqlstate(error: BaseException) -> str | None:
 
 
 def _is_connection_failure(error: BaseException) -> bool:
-    """Whether the error is a lost or refused connection (no SQLSTATE, or class 08)."""
+    """Whether the error is a lost or refused connection (no SQLSTATE, or class 08). A pool timeout
+    (``SQLAlchemyTimeoutError``) is not: it is a busy pool, not a broken connection, and is not retried."""
 
     code = sqlstate(error)
     if code is not None:
@@ -128,9 +135,10 @@ def _is_connection_failure(error: BaseException) -> bool:
         if current is None or id(current) in seen:
             continue
         seen.add(id(current))
-        if isinstance(
-            current, (OSError, InterfaceError, DisconnectionError, SQLAlchemyTimeoutError, asyncio.TimeoutError)
-        ):
+        if isinstance(current, SQLAlchemyTimeoutError):
+            # the pool is exhausted (every connection is busy): waiting again would only double the wait
+            return False
+        if isinstance(current, (OSError, InterfaceError, DisconnectionError, asyncio.TimeoutError)):
             return True
         pending.extend([getattr(current, "orig", None), current.__cause__])
     return False
@@ -189,9 +197,22 @@ def map_error(
     return InfrastructureUnavailableError(STORE_READ_FAILED, **fields)
 
 
+def _milliseconds(value: Any) -> str:
+    """A timeout of the URI query in seconds as the server's milliseconds; invalid values are a URI error."""
+
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        raise ConfigurationError("store_uri_invalid", store=BACKEND) from None
+    if not 0 <= seconds < MAX_TIMEOUT_SECONDS:
+        raise ConfigurationError("store_uri_invalid", store=BACKEND)
+    return str(round(seconds * 1000))
+
+
 def connection_url(config: StoreConfig) -> tuple[URL, dict[str, Any]]:
     """The asyncpg URL of ``config`` (the host, port and database of ``uri``, the login of ``user`` and
-    ``password``) and the connect arguments its query string asked for (``sslmode``)."""
+    ``password``) and the connect arguments its query string asked for (``sslmode``, ``statement_timeout`` and
+    ``lock_timeout`` in seconds)."""
 
     try:
         url = make_url(config.uri)
@@ -201,6 +222,10 @@ def connection_url(config: StoreConfig) -> tuple[URL, dict[str, Any]]:
         raise ConfigurationError("store_uri_invalid", store=BACKEND)
     query = dict(url.query)
     connect_args: dict[str, Any] = {}
+    for option in ("statement_timeout", "lock_timeout"):
+        value = query.pop(option, None)
+        if value is not None:
+            connect_args.setdefault("server_settings", {})[option] = _milliseconds(value)
     mode = query.pop("sslmode", None)
     if mode is not None:
         if not isinstance(mode, str) or mode not in _SSL_MODES:
@@ -213,6 +238,14 @@ def connection_url(config: StoreConfig) -> tuple[URL, dict[str, Any]]:
         query=query,
     )
     return url, connect_args
+
+
+def _server_settings() -> dict[str, str]:
+    return {
+        "application_name": APPLICATION_NAME,
+        "statement_timeout": _milliseconds(STATEMENT_TIMEOUT_SECONDS),
+        "lock_timeout": _milliseconds(LOCK_TIMEOUT_SECONDS),
+    }
 
 
 def build_engine(config: StoreConfig, *, pool_size: int | None = None) -> AsyncEngine:
@@ -232,8 +265,8 @@ def build_engine(config: StoreConfig, *, pool_size: int | None = None) -> AsyncE
         hide_parameters=True,
         connect_args={
             "timeout": CONNECTION_TIMEOUT_SECONDS,
-            "server_settings": {"application_name": APPLICATION_NAME},
             **connect_args,
+            "server_settings": {**_server_settings(), **connect_args.get("server_settings", {})},
         },
     )
 
