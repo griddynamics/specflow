@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { Tag } from "@/components/ui/Tag";
 import { usePlanPort } from "../use-plan-ports";
 import type { AgentId, DevelopContent } from "@/lib/domain/plan";
-import { CodeBlock } from "./CodeBlock";
+import { CodeBlock } from "@/components/ui/CodeBlock";
 import { AGENT_OPTIONS, CONNECT_CAPTION, teachCaption } from "./labels";
 import "./develop.css";
 import { DataTable } from "@/components/ui/DataTable";

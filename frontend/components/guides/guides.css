@@ -1,0 +1,312 @@
+/* MCP-M10 (FR-MCP-UI-09): the Guides pages. The design system has Card, Tag, SegmentedControl, EmptyState and Breadcrumbs, but no page
+   layout, topic grid, step selector, disclosure or reference table. Additive, tokens only. */
+.guides {
+  display: grid;
+  gap: var(--space-md);
+  align-content: start;
+  min-width: 0;
+  max-width: calc(var(--space-2xl) * 12);
+  font-family: var(--font-sans);
+  color: var(--ink);
+}
+.guides-header {
+  display: grid;
+  gap: var(--space-xs);
+  max-width: calc(var(--space-2xl) * 9);
+}
+.guides-header > * {
+  margin: 0;
+}
+.guides-lead {
+  max-width: calc(var(--space-2xl) * 9);
+}
+.guides-muted {
+  color: var(--ink-2);
+}
+.guides p {
+  margin: 0;
+}
+.guides-page {
+  display: grid;
+  gap: var(--space-sm);
+  align-content: start;
+  min-width: 0;
+}
+.guides-stack {
+  display: grid;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+a.gdg-btn {
+  text-decoration: none;
+}
+
+/* Hub: three columns that stack on a phone. */
+.guides-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-sm);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--space-2xl) * 3)), 1fr));
+}
+.guides-grid > li {
+  display: grid;
+  min-width: 0;
+}
+.guides-topic {
+  display: flex;
+  flex-direction: column;
+}
+.guides-topic > .gdg-card__body {
+  flex: 1;
+  display: flex;
+}
+.guides-topic__body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  flex: 1;
+}
+.guides-topic__open {
+  margin-top: auto;
+}
+
+/* Steps of the MCP guide and other card bodies. */
+.guides-step {
+  display: grid;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+.guides-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+}
+
+/* Disclosures: the summary is a 44px target with a visible focus ring. */
+.guides-details {
+  border-top: 1px solid var(--hairline);
+}
+.guides-details > summary {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+}
+.guides-details > summary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.guides-details__body {
+  display: grid;
+  gap: var(--space-sm);
+  padding-bottom: var(--space-sm);
+}
+.guides-trouble {
+  display: grid;
+}
+
+/* Reference table: hairline rows; it scrolls sideways inside its box on a phone. */
+.guides-table {
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  border-radius: var(--radius-sm);
+}
+.guides-table:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.guides-table table {
+  width: 100%;
+  min-width: calc(var(--space-2xl) * 6);
+  border-collapse: collapse;
+  text-align: left;
+}
+.guides-table th {
+  font-weight: 600;
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: 2px solid var(--ink);
+  white-space: nowrap;
+}
+.guides-table td {
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: 1px solid var(--hairline);
+  vertical-align: top;
+}
+.guides-table td:nth-child(-n + 2) {
+  white-space: nowrap;
+}
+.guides-table code {
+  white-space: nowrap;
+}
+
+/* Best practices: rows with hairlines. */
+.guides-tips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+}
+.guides-tip {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-sm);
+  align-items: start;
+  padding: var(--space-sm) 0;
+  border-top: 1px solid var(--hairline);
+}
+.guides-tip:first-child {
+  border-top: 0;
+}
+.guides-tip > svg {
+  margin-top: var(--space-2xs);
+}
+
+/* SpecFlow 101 (U4): five tiles in one row joined by a connector; on a phone one column, joined by a vertical connector. Each tile is a
+   large icon in a glass medallion (the number badge on its corner) over the step name. */
+.guides-flow {
+  display: grid;
+  gap: var(--space-md);
+  min-width: 0;
+}
+.guides-flow__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-lg);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+.guides-flow__list > li {
+  position: relative;
+  display: grid;
+  min-width: 0;
+}
+.guides-flow__step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  align-items: center;
+  justify-content: center;
+  min-height: calc(var(--space-2xl) * 2);
+  padding: var(--space-md) var(--space-sm);
+  text-align: center;
+  font: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  background: var(--glass-fill-strong);
+  border: 1px solid var(--glass-rim);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-glass);
+}
+.guides-flow__step:hover {
+  background: var(--glass-fill);
+}
+/* Selected: the glass card with a yellow tint that fades out toward the right, and a faint yellow rim. This is the view's one accent on
+   steps 1 to 4 (the badge turns neutral); on step 5 the primary button is the yellow, so the tint is a neutral ink wash. */
+.guides-flow__step--selected,
+.guides-flow__step--selected:hover {
+  background: linear-gradient(100deg, color-mix(in srgb, var(--yellow) 36%, transparent) 0%, transparent 85%), var(--glass-fill-strong);
+  border-color: var(--yellow-glass-rim);
+}
+.guides-flow__step--selected.guides-flow__step--last,
+.guides-flow__step--selected.guides-flow__step--last:hover {
+  background: linear-gradient(100deg, color-mix(in srgb, var(--ink) 8%, transparent) 0%, transparent 85%), var(--glass-fill-strong);
+  border-color: var(--glass-rim);
+}
+.guides-flow__step:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.guides-flow__medal {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: var(--space-2xl);
+  height: var(--space-2xl);
+  border-radius: var(--radius-pill);
+  background: var(--glass-fill);
+  border: 1px solid var(--glass-rim);
+  box-shadow: var(--shadow-glass);
+}
+.guides-flow__step--selected .guides-flow__medal {
+  background: var(--glass-fill-strong);
+  border-color: var(--ink);
+}
+.guides-flow__num {
+  position: absolute;
+  top: calc(var(--space-2xs) * -1);
+  right: calc(var(--space-2xs) * -1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-lg);
+  height: var(--space-lg);
+  border-radius: var(--radius-pill);
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--glass-fill-strong);
+  border: 1px solid var(--ink-3);
+}
+/* The selected badge: a ring, never yellow (the tile's tint, or on step 5 the primary button, is the one accent). */
+.guides-flow__num--ring {
+  border: 2px solid var(--ink);
+}
+/* The connector: a small glass disc with a chevron, centred in the gap after each tile but the last. */
+.guides-flow__link {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + (var(--space-lg) - var(--space-md)) / 2);
+  width: var(--space-md);
+  height: var(--space-md);
+  margin-top: calc(var(--space-md) / -2);
+  display: grid;
+  place-items: center;
+  color: var(--ink);
+  background: var(--glass-fill-strong);
+  border: 1px solid var(--ink-3);
+  border-radius: var(--radius-pill);
+  pointer-events: none;
+}
+@media (max-width: 64rem) {
+  .guides-flow__list {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-md);
+  }
+  .guides-flow__step {
+    flex-direction: row;
+    justify-content: flex-start;
+    min-height: calc(var(--space-2xl) + var(--space-md));
+    padding: var(--space-sm) var(--space-md);
+    text-align: left;
+  }
+  .guides-flow__link {
+    top: 100%;
+    left: calc(var(--space-md) + var(--space-2xl) / 2 - var(--space-md) / 2);
+    margin: 0;
+  }
+  .guides-flow__link svg {
+    transform: rotate(90deg);
+  }
+}
+.guides-flow__detail {
+  display: grid;
+  gap: var(--space-md);
+}
+.guides-flow__boxes {
+  display: grid;
+  gap: var(--space-sm);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, calc(var(--space-2xl) * 3)), 1fr));
+}
+.guides-flow__box {
+  display: grid;
+  gap: var(--space-2xs);
+  padding: var(--space-sm);
+  border-radius: var(--radius-md);
+}

@@ -148,7 +148,7 @@ editing placeholders.
 
 | Page | What it shows |
 |---|---|
-| Guides › MCP server (`/guides/mcp-server`) | The server address and client id, then the steps of this section for Claude Code: add the server, sign in, bind a repository, check it. Each command has a copy button. A tools table lists the tools and the prompt ([architecture.md](architecture.md#tool-registry)) |
+| Guides › MCP server (`/guides/mcp-server`) | The steps of this section for Claude Code, with the address and client id inside the commands and the team file: add the server, sign in, bind a repository, check it. Each command has a copy button. A tools table lists the tools and the prompt ([architecture.md](architecture.md#tool-registry)) |
 | Plan › Develop | Per project: `/mcp__specflow__select_project <project id>` with the id filled in, the binding file as JSON ([tools.md](tools.md#the-binding-file)), and a link to the guide |
 
 Only Claude Code has setup steps; Codex and Cursor show "Setup is in progress" until each is tested end to end

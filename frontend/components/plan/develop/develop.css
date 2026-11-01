@@ -43,44 +43,6 @@
   color: var(--ink-2);
 }
 
-/* G-PLAN-3: the Copy bar above a block; the block scrolls inside its card, the page does not. */
-.dev-block {
-  display: grid;
-  gap: var(--space-xs);
-  min-width: 0;
-}
-.dev-block__bar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-  min-width: 0;
-}
-.dev-block__caption {
-  margin: 0;
-  flex: 1;
-  min-width: 0;
-  color: var(--ink-2);
-}
-.dev-block__status {
-  color: var(--ink-2);
-  white-space: nowrap;
-}
-.dev-code {
-  min-width: 0;
-  max-width: none;
-}
-.dev-code pre {
-  margin: 0;
-  max-height: calc(var(--space-2xl) * 4);
-  max-width: 100%;
-  overflow: auto;
-  border-radius: var(--radius-sm);
-}
-.dev-code pre:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
 /* The tool table: a real table, hairline rows; it scrolls sideways inside its wrapper on a phone. */
 .dev-tools {
   min-width: 0;
@@ -103,14 +65,4 @@
   padding: var(--space-xs) var(--space-sm);
   border-bottom: 1px solid var(--hairline);
   vertical-align: top;
-}
-
-/* R25-04: the polite announcement of "Copied" (the button label already shows it). */
-.dev-sr {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
 }

@@ -14,12 +14,6 @@ export const CONNECT_CAPTION: Record<AgentId, string> = {
   codex: "Run this in your terminal",
 };
 
-export const COPY_LABEL = "Copy";
-export const COPIED_LABEL = "Copied"; // MOCKS §15.8 copyDone
-export const COPIED_TOAST = "Copied to clipboard"; // MOCKS §15.8 snippetCopied
-export const COPY_FALLBACK = "Press Ctrl/Cmd+C"; // MOCKS §15.8 copyFallback
-export const COPIED_MS = 2000;
-
 /** The "Teach the agent" caption: Codex gets a section for an AGENTS.md that may already hold the user's rules (R25-08). */
 export function teachCaption(agent: AgentId, path: string): string {
   return agent === "codex" ? `Add this section to ${path}` : `Save as ${path}`;
