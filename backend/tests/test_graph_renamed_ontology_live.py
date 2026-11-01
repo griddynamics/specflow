@@ -23,8 +23,9 @@ same basis, evidence and facts; the same ``spec_id`` registry; the same build re
 metrics, verification) and inference reports; the same model calls per prompt. And no original label,
 relation name, id prefix or rule id reaches a prompt of the renamed builds outside document blocks.
 
-Gate: ``SPECFLOW_TEST_NEO4J=1`` and ``uv run --env-file ../.env.local`` (the ontology checks at the
-top run offline). The chains are built once per module (``open_neo4j_project``) into two
+Gate: ``SPECFLOW_TEST_GRAPH_STORE=<store>`` (or ``SPECFLOW_TEST_NEO4J=1``)
+and ``uv run --env-file ../.env.local`` (the ontology checks at the
+top run offline). The chains are built once per module (``open_graph_project``) into two
 ``pytest-graph-<hex>`` projects, deleted after the module.
 """
 
@@ -50,13 +51,13 @@ from graph_support import (
     ScriptedGateway,
     ShopBuilds,
     assert_all_scripted,
-    open_neo4j_project,
+    open_graph_project,
     outside_untrusted,
     shipped_ontology,
 )
-from specflow_live import requires_live
+from graph_probes import requires_live_graph
 
-live = requires_live("NEO4J")
+live = requires_live_graph()
 
 # Rename tables: original name -> renamed name.
 
@@ -455,14 +456,19 @@ async def read_graph(builds: ShopBuilds) -> Graph:
     ontology = builds.ontology
     assert ontology is not None
     nodes = {}
-    for row in await project.run(
-        "MATCH (n:SpecNode) WHERE n.group_id = $p "
-        "RETURN [l IN labels(n) WHERE l <> 'SpecNode'] AS labels, properties(n) AS props, "
-        "COLLECT { MATCH (n)-[:REFERENCED_BY]->(f:Fragment) RETURN f.fragment_id ORDER BY f.fragment_id } AS "
-        "referenced, "
-        "COLLECT { MATCH (n)-[:MENTIONED_IN]->(f:Fragment) RETURN f.fragment_id ORDER BY f.fragment_id } AS mentioned",
-        p=pid,
-    ):
+    linked: dict[tuple[str, str], list[str]] = {}
+    for e in await project.edges(project_id=pid):
+        if e.type in ("REFERENCED_BY", "MENTIONED_IN") and "Fragment" in e.target.labels:
+            linked.setdefault((e.source.id, e.type), []).append(e.target["fragment_id"])
+    for row in [
+        {
+            "labels": list(n.kinds),
+            "props": n.props,
+            "referenced": sorted(linked.get((n.id, "REFERENCED_BY"), [])),
+            "mentioned": sorted(linked.get((n.id, "MENTIONED_IN"), [])),
+        }
+        for n in await project.nodes("SpecNode", project_id=pid)
+    ]:
         assert len(row["labels"]) == 1, row["labels"]
         props = {key: value for key, value in row["props"].items() if key not in VOLATILE_NODE}
         if "statements" in props:  # JSON statements: their times differ
@@ -473,11 +479,11 @@ async def read_graph(builds: ShopBuilds) -> Graph:
             {"label": row["labels"][0], "props": props, "referenced": row["referenced"], "mentioned": row["mentioned"]}
         )
     edges = []
-    for row in await project.run(
-        "MATCH (s:SpecNode)-[r]->(t:SpecNode) WHERE r.group_id = $p "
-        "RETURN type(r) AS relation, s.spec_id AS source, t.spec_id AS target, properties(r) AS props",
-        p=pid,
-    ):
+    for row in [
+        {"relation": e.type, "source": e.source.get("spec_id"), "target": e.target.get("spec_id"), "props": e.props}
+        for e in await project.edges(project_id=pid, group_id=pid)
+        if "SpecNode" in e.source.labels and "SpecNode" in e.target.labels
+    ]:
         symmetric = ontology.relations[row["relation"]].symmetric
         ends = (row["source"], row["target"])
         props = {key: value for key, value in row["props"].items() if key not in VOLATILE_EDGE}
@@ -495,15 +501,17 @@ async def read_graph(builds: ShopBuilds) -> Graph:
         )
     documents = [
         _plain({key: value for key, value in row["props"].items() if key not in VOLATILE_NODE})
-        for row in await project.run(
-            "MATCH (d:Document) WHERE d.group_id = $p RETURN properties(d) AS props ORDER BY d.document_id", p=pid
-        )
+        for row in [
+            {"props": d.props}
+            for d in sorted(await project.nodes("Document", project_id=pid), key=lambda d: d["document_id"])
+        ]
     ]
     fragments = [
         _plain({key: value for key, value in row["props"].items() if key not in VOLATILE_NODE})
-        for row in await project.run(
-            "MATCH (f:Fragment) WHERE f.group_id = $p RETURN properties(f) AS props ORDER BY f.fragment_id", p=pid
-        )
+        for row in [
+            {"props": f.props}
+            for f in sorted(await project.nodes("Fragment", project_id=pid), key=lambda f: f["fragment_id"])
+        ]
     ]
     registry = sorted(
         (row.spec_id, row.identity_key, row.state) for row in (await builds.stores.registry.taken(pid)).values()
@@ -698,7 +706,7 @@ async def chains(renamed_ontology: Ontology, tmp_path_factory: pytest.TempPathFa
         gateways.append(gateway)
         return gateway
 
-    async with open_neo4j_project() as project:
+    async with open_graph_project() as project:
         shipped = ShopBuilds(project, factory, root / "shipped")
         renamed = ShopBuilds(
             project,

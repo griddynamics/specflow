@@ -38,7 +38,7 @@ from graph.core.schema import schema_objects
 from graph.stores._bolt.cypher import render_cypher
 from graph_support import load_gap_ddl, shipped_ontology
 
-# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, neo4j_project) live in graph_support.
+# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, graph_project) live in graph_support.
 pytest_plugins = ["graph_support"]
 
 PROJECT = "proj-1"
