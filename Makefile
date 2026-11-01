@@ -23,6 +23,10 @@ WITH_LIST := $(subst $(comma), ,$(WITH))
 GRAPH_STORE_PROFILES :=
 # graph-store: neo4j
 # graph-store: arcadedb
+GRAPH_STORE_PROFILES += arcadedb
+# What the containers of `make up WITH=arcadedb` get as store settings (docker-compose.yml, STACK_GRAPH_STORE*);
+# the database is the one `arcadedb-init` creates. The password is GRAPH_STORE_PASSWORD of the env file.
+ARCADEDB_COMPOSE_ENV = $(if $(filter arcadedb,$(WITH_LIST)),STACK_GRAPH_STORE=arcadedb STACK_GRAPH_STORE_URI=bolt://specflow-arcadedb:7687 STACK_GRAPH_STORE_USER=root STACK_GRAPH_STORE_NAME=specflow)
 # graph-store: postgres
 # graph-store: tigergraph
 # end graph-store
@@ -71,6 +75,7 @@ LANGFUSE_SECRET_KEY_LOCAL = $(or $(call envval,LANGFUSE_SECRET_KEY),sk-lf-specfl
 COMPOSE_ENV = env -u TEMPORAL_ADDRESS \
 	$(if $(COMPOSE_TEMPORAL_ADDRESS),TEMPORAL_ADDRESS=$(COMPOSE_TEMPORAL_ADDRESS)) \
 	$(if $(filter langfuse,$(WITH_LIST)),LANGFUSE_BASE_URL=http://specflow-langfuse-web:3000 LANGFUSE_PUBLIC_KEY=$(LANGFUSE_PUBLIC_KEY_LOCAL) LANGFUSE_SECRET_KEY=$(LANGFUSE_SECRET_KEY_LOCAL)) \
+	$(ARCADEDB_COMPOSE_ENV) \
 	$(if $(WITH_LIST),COMPOSE_PROFILES=$(subst $(space),$(comma),$(strip $(WITH_LIST))))
 COMPOSE_BASE := docker compose --env-file $(ENV_FILE) -f docker-compose.yml
 COMPOSE := $(COMPOSE_ENV) $(COMPOSE_BASE)
