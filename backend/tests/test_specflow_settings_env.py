@@ -82,6 +82,8 @@ OPTIONAL_KEYS = frozenset(
         "LANGFUSE_BASE_URL",
         "LANGFUSE_PUBLIC_KEY",
         "LANGFUSE_SECRET_KEY",
+        "MCP_PUBLIC_URL",
+        "MCP_CLIENT_ID",
     }
 )
 
@@ -135,7 +137,7 @@ def _env_names_read_in_code() -> set[str]:
 def test_the_env_template_has_exactly_the_documented_keys():
     assert set(example_entries()) == REQUIRED_KEYS | OPTIONAL_KEYS
     assert len(REQUIRED_KEYS) == 23
-    assert len(OPTIONAL_KEYS) == 10
+    assert len(OPTIONAL_KEYS) == 12
 
 
 def test_every_key_of_the_env_template_is_a_known_setting():
