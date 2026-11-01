@@ -243,7 +243,7 @@ async def test_a_merge_reads_the_relationship_types_then_runs_one_move_per_forei
     assert rows == [{"written": 1, "moved": 1}]
     texts = [text for text, _ in driver.runs]
     assert texts[0].startswith("CALL db.relationshipTypes()")
-    assert [("[r:FLAGS]" in t) for t in texts[1:]] == [False, True, False]
+    assert [("[r:FLAGS]" in t) for t in texts[1:]] == [False, True, False, False]
     assert "SET new.spec_id_aliases" in texts[1] and texts[-1].endswith("DETACH DELETE old")
     assert [(o["database"], o["default_access_mode"]) for o in driver.sessions] == [
         ("graphdb", "READ"),
@@ -265,7 +265,7 @@ async def test_a_move_in_a_transaction_reads_the_types_in_that_transaction() -> 
         )
     assert rows == [{"moved": 1}]
     assert driver.modes == [] and driver.commits == 1  # no managed read: everything ran inside the one transaction
-    assert [t.startswith("CALL db.relationshipTypes()") for t, _ in driver.runs] == [True, False]
+    assert [t.startswith("CALL db.relationshipTypes()") for t, _ in driver.runs] == [True, False, False]
 
 
 async def test_a_read_that_needs_no_types_does_not_ask_for_them() -> None:

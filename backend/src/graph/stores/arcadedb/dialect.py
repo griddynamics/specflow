@@ -60,12 +60,25 @@ def _foreach_spans(text: str) -> list[tuple[int, int]]:
     return spans
 
 
+_STRING: Final = re.compile(r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"")
+_MAP_KEY: Final = re.compile(r"(?<![\w$.:])\w+(?=\s*:)")
+_PROPERTY: Final = re.compile(r"(?<=\.)\s*\w+")
+
+
+def _scrub(text: str) -> str:
+    """``text`` with string literals, map keys and property names blanked, so a word inside them (a key
+    ``{limit: 1}``, a property ``n.skip``, a string ``'MERGE'``) is never read as a clause keyword."""
+
+    return _PROPERTY.sub("_", _MAP_KEY.sub("_", _STRING.sub("''", text)))
+
+
 @cache
 def dynamic_name_in_write(text: str) -> bool:
     """Whether ``text`` has a dynamic ``$(...)`` label or type where ArcadeDB silently drops it: inside
     ``FOREACH``, or after ``CREATE``, ``MERGE``, ``ON CREATE SET`` or ``ON MATCH SET``. A ``SET`` or
     ``REMOVE`` of a dynamic label on a stored node works and is allowed."""
 
+    text = _scrub(text)
     spans = _foreach_spans(text)
     for found in re.finditer(r"\$\(", text):
         if any(start <= found.start() < end for start, end in spans):
@@ -105,37 +118,57 @@ def _plan_create_spec_nodes(_query: Query, params: Mapping[str, Any], _types: Se
 def foreign_types(edge_types: Sequence[str], owned: Sequence[str]) -> list[str]:
     """The relationship types a merge or move carries over: those of the database build does not own.
 
-    A type whose name cannot be rendered is left out: the library never creates one, so no node of the
-    project can hold it."""
+    A type whose name cannot be rendered into a statement is left out here; the plan's guard statement then
+    finds its edges on the old node and the reducer refuses the merge or move (``arcadedb_unrenderable_edge_type``),
+    so no edge is lost. A type of that kind elsewhere in the database does no harm."""
 
     kept = {name for name in edge_types if SAFE_NAME.fullmatch(name) and name not in set(owned)}
     return sorted(kept)
+
+
+def _refuse_left_over(rows: Sequence[Record], query: str) -> None:
+    """Raise when the guard statement counted a relationship no per-type statement carried over."""
+
+    if rows and int(rows[0].get("left") or 0) > 0:
+        raise ConformanceError("arcadedb_unrenderable_edge_type", query=query)
 
 
 def _plan_merge_spec_nodes(query: Query, params: Mapping[str, Any], types: Sequence[str] | None) -> ExecutionPlan:
     if types is None:
         raise ConformanceError("arcadedb_edge_types_missing", query=query.name)
     move = cypher("build", "build_merge_spec_nodes_move.cypher")
+    names = foreign_types(types, params.get("owned_types", ()))
     statements = (
         PlannedStatement(cypher("build", "build_merge_spec_nodes_aliases.cypher"), params),
-        *(
-            PlannedStatement(render_query(move, type=name), params)
-            for name in foreign_types(types, params.get("owned_types", ()))
-        ),
+        *(PlannedStatement(render_query(move, type=name), params) for name in names),
+        PlannedStatement(cypher("build", "build_merge_spec_nodes_guard.cypher"), params),
         PlannedStatement(cypher("build", "build_merge_spec_nodes_delete.cypher"), params),
     )
-    return ExecutionPlan(statements)  # the first statement's row: the survivors found
+    guard = len(names) + 1
+
+    def reduce(results: Sequence[list[Record]]) -> list[Record]:
+        _refuse_left_over(results[guard] if len(results) > guard else [], query.name)
+        return results[0]  # the first statement's row: the survivors found
+
+    return ExecutionPlan(statements, reduce)
 
 
 def _plan_move_foreign(query: Query, params: Mapping[str, Any], types: Sequence[str] | None) -> ExecutionPlan:
     if types is None:
         raise ConformanceError("arcadedb_edge_types_missing", query=query.name)
     text = cypher("core", "move_foreign_relationships.cypher")
-    statements = tuple(
-        PlannedStatement(render_query(text, type=name), params)
-        for name in foreign_types(types, params.get("owned_types", ()))
+    names = foreign_types(types, params.get("owned_types", ()))
+    statements = (
+        *(PlannedStatement(render_query(text, type=name), params) for name in names),
+        PlannedStatement(cypher("core", "move_foreign_relationships_guard.cypher"), params),
     )
-    return ExecutionPlan(statements, _sum("moved"))
+    summed = _sum("moved")
+
+    def reduce(results: Sequence[list[Record]]) -> list[Record]:
+        _refuse_left_over(results[len(names)] if len(results) > len(names) else [], query.name)
+        return summed(results[: len(names)])
+
+    return ExecutionPlan(statements, reduce)
 
 
 def search_params(params: Mapping[str, Any], *, per_field: bool = False) -> Mapping[str, Any]:

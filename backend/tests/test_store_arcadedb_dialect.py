@@ -138,6 +138,10 @@ def test_every_template_has_its_canonical_text_or_an_override(all_queries: list[
         ("MATCH (n:SpecNode) SET n:$($label) RETURN n", False),
         ("MATCH (n:SpecNode) WHERE n.x = 1 RETURN n", False),
         ("MERGE (n:SpecNode:Module {uuid: $k}) SET n.x = '$('", False),
+        ("MATCH (a) CREATE (n:X {limit: 1, k: $(l)})", True),  # a map key named like a clause
+        ("MATCH (a) WITH a.skip AS s CREATE (n:$(s))", True),  # a property named like a clause
+        ("MATCH (a) SET a.merge = 'CREATE' REMOVE a:$(l)", False),  # keywords inside a string and a property
+        ("MERGE (n:X {k: 'a\\'b'}) ON CREATE SET n:$(l)", True),  # an escaped quote inside a string
     ],
 )
 def test_the_detector_finds_a_dynamic_name_in_a_creating_clause(text: str, *, dynamic: bool) -> None:
@@ -276,39 +280,60 @@ def test_foreign_types_are_the_database_types_build_does_not_own_and_that_can_be
     assert foreign_types((), OWNED) == []
 
 
-def test_merge_spec_nodes_is_aliases_then_one_move_per_foreign_type_then_delete() -> None:
+def test_merge_spec_nodes_is_aliases_then_one_move_per_foreign_type_then_guard_then_delete() -> None:
     planned = plan(build_queries.MERGE_SPEC_NODES, rows=[], build_id="b")
-    kinds = [s.text.split(" ", 4)[-1][:60] for s in planned.statements]
-    assert len(planned.statements) == 4
-    first, *moves, last = (s.text for s in planned.statements)
+    assert len(planned.statements) == 5
+    first, *moves, guard, last = (s.text for s in planned.statements)
     assert "SET new.spec_id_aliases = row.aliases, new.last_build_id = $build_id RETURN count(new) AS written" in first
     assert [("[r:FLAGS]" in m, "[r:ZETA]" in m) for m in moves] == [(True, False), (False, True)]
     for move, name in zip(moves, ("FLAGS", "ZETA"), strict=True):
         assert f"CREATE (new)-[moved:{name}]->(other)" in move and f"CREATE (other)-[moved:{name}]->(new)" in move
         assert f"MATCH (new)-[x:{name}]->(other)" in move and "type(" not in move
         assert "DELETE r" in move and "DETACH" not in move
+    assert "NOT type(x) IN $owned_types RETURN count(x) AS left" in guard
     assert last.endswith("DETACH DELETE old") and "old <> new" in last
-    assert kinds  # texts are plain strings
-    assert planned.reduce([[{"written": 4}], [], [], []]) == [{"written": 4}]  # the survivors found
+    nothing_left = [{"left": 0}]
+    assert planned.reduce([[{"written": 4}], [], [], nothing_left, []]) == [{"written": 4}]  # the survivors found
 
 
-def test_merge_with_no_foreign_type_is_aliases_and_delete_only() -> None:
+def test_a_merge_refuses_when_a_relationship_could_not_be_carried_over() -> None:
+    """A type whose name cannot be rendered has no move statement: its edges would go with the node."""
+
+    planned = ARCADEDB_DIALECT.plan(
+        build_queries.MERGE_SPEC_NODES, {**PARAMS, "build_id": "b"}, ("PART_OF", "weird-name")
+    )
+    assert len(planned.statements) == 3  # aliases, guard, delete: no statement for the weird type
+    with pytest.raises(ConformanceError) as raised:
+        planned.reduce([[{"written": 1}], [{"left": 2}], []])
+    assert raised.value.code == "arcadedb_unrenderable_edge_type"
+
+
+def test_a_move_refuses_when_a_relationship_could_not_be_carried_over() -> None:
+    planned = ARCADEDB_DIALECT.plan(core_queries.MOVE_FOREIGN_RELATIONSHIPS, PARAMS, ("weird-name",))
+    assert len(planned.statements) == 1
+    with pytest.raises(ConformanceError) as raised:
+        planned.reduce([[{"left": 1}]])
+    assert raised.value.code == "arcadedb_unrenderable_edge_type"
+
+
+def test_merge_with_no_foreign_type_is_aliases_guard_and_delete() -> None:
     planned = ARCADEDB_DIALECT.plan(build_queries.MERGE_SPEC_NODES, {**PARAMS, "build_id": "b"}, ("PART_OF",))
-    assert len(planned.statements) == 2
+    assert len(planned.statements) == 3
 
 
-def test_move_foreign_relationships_is_one_statement_per_foreign_type_summed() -> None:
+def test_move_foreign_relationships_is_one_statement_per_foreign_type_summed_then_a_guard() -> None:
     planned = plan(core_queries.MOVE_FOREIGN_RELATIONSHIPS, from_key="a", from_label="X", to_key="b", to_label="Y")
-    assert len(planned.statements) == 2
+    assert len(planned.statements) == 3
     assert "MATCH (old)-[r:FLAGS]-(other)" in planned.statements[0].text
     assert "RETURN count(r) AS moved" in planned.statements[1].text
-    assert planned.reduce([[{"moved": 2}], [{"moved": 1}]]) == [{"moved": 3}]
-    assert planned.reduce([[], [{"moved": 1}]]) == [{"moved": 1}]
+    assert "RETURN count(x) AS left" in planned.statements[2].text
+    assert planned.reduce([[{"moved": 2}], [{"moved": 1}], [{"left": 0}]]) == [{"moved": 3}]
+    assert planned.reduce([[], [{"moved": 1}], []]) == [{"moved": 1}]
 
 
 def test_move_with_nothing_to_carry_over_reports_zero() -> None:
     planned = ARCADEDB_DIALECT.plan(core_queries.MOVE_FOREIGN_RELATIONSHIPS, PARAMS, ())
-    assert planned.statements == () and planned.reduce([]) == [{"moved": 0}]
+    assert len(planned.statements) == 1 and planned.reduce([[{"left": 0}]]) == [{"moved": 0}]
 
 
 @pytest.mark.parametrize("query", [core_queries.MOVE_FOREIGN_RELATIONSHIPS, build_queries.MERGE_SPEC_NODES])
@@ -387,32 +412,37 @@ def test_there_is_nothing_to_wait_for_after_a_sql_index_create() -> None:
 
 def test_verify_reads_nodes_by_uuid_and_edge_ends_by_the_same_ids() -> None:
     (nodes,) = texts(build_queries.VERIFY_SPEC_NODES)
-    assert "n.uuid AS id" in nodes and "elementId" not in nodes
+    assert "coalesce(n.uuid, elementId(n)) AS id" in nodes
     (edges,) = texts(build_queries.VERIFY_DOMAIN_EDGES)
-    assert "coalesce(r.uuid, elementId(r)) AS id" in edges  # an edge moves with its end: addressed by uuid
-    assert "THEN startNode(r).uuid ELSE elementId(startNode(r)) END AS source" in edges
-    assert "THEN endNode(r).uuid ELSE elementId(endNode(r)) END AS target" in edges
+    # an edge moves with its end: addressed by uuid, else by type and edge key, else by element id
+    assert "coalesce(r.uuid, type(r) + '|' + r.edge_key, elementId(r)) AS id" in edges
+    assert (
+        "THEN coalesce(startNode(r).uuid, elementId(startNode(r))) ELSE elementId(startNode(r)) END AS source" in edges
+    )
+    assert "THEN coalesce(endNode(r).uuid, elementId(endNode(r))) ELSE elementId(endNode(r)) END AS target" in edges
 
 
 @pytest.mark.parametrize(
     ("query", "key"),
     [
-        (build_queries.REPAIR_DELETE_NODES, "uuid: id"),
-        (build_queries.REPAIR_SET_LABELS, "uuid: row.id"),
-        (build_queries.REPAIR_NODE_EVIDENCE, "uuid: row.id"),
-        (build_queries.REPAIR_SET_SPEC_IDS, "uuid: row.id"),
+        (build_queries.REPAIR_DELETE_NODES, "= id"),
+        (build_queries.REPAIR_SET_LABELS, "= row.id"),
+        (build_queries.REPAIR_NODE_EVIDENCE, "= row.id"),
+        (build_queries.REPAIR_SET_SPEC_IDS, "= row.id"),
     ],
 )
-def test_repairs_address_nodes_by_group_and_uuid_not_by_element_id(query: Query, key: str) -> None:
+def test_repairs_address_a_node_by_its_uuid_and_a_node_without_one_by_element_id(query: Query, key: str) -> None:
     (text,) = texts(query)
-    assert f"MATCH (n:SpecNode {{group_id: $project_id, {key}}})" in text
-    assert "elementId" not in text
+    assert "MATCH (n:SpecNode {group_id: $project_id})" in text
+    assert f"coalesce(n.uuid, elementId(n)) {key}" in text
+    assert text.count("elementId(n)") == 1  # only as the fallback
 
 
-def test_edge_repairs_address_an_edge_by_its_uuid_with_the_element_id_as_fallback() -> None:
+def test_edge_repairs_address_an_edge_by_uuid_then_type_and_edge_key_never_by_a_stale_element_id_first() -> None:
+    expression = "coalesce(r.uuid, type(r) + '|' + r.edge_key, elementId(r))"
     for query, key in ((build_queries.REPAIR_DELETE_EDGES, "id"), (build_queries.REPAIR_EDGE_EVIDENCE, "row.id")):
         (text,) = texts(query)
-        assert f"coalesce(r.uuid, elementId(r)) = {key}" in text
+        assert f"{expression} = {key}" in text
 
 
 def test_a_replacement_that_no_longer_matches_the_canonical_text_fails_loudly(monkeypatch: pytest.MonkeyPatch) -> None:
