@@ -442,11 +442,16 @@ class PostgresDialect:
 
         return render_schema(self._rendered(query, params).text, self.schema)
 
+    def require_project_binding(self, query: Query) -> None:
+        """Refuse a scoped ``query`` whose statement does not reference ``:project_id`` (needs no parameters)."""
+
+        if query.project_scoped and not binds_project_id(self._base(query).text):
+            raise ConformanceError("query_missing_project_id", query=query.name)
+
     def plan(self, query: Query, params: Mapping[str, Any]) -> ExecutionPlan:
+        self.require_project_binding(query)
         rendered = self._rendered(query, params)
         text = render_schema(rendered.text, self.schema)
-        if query.project_scoped and not binds_project_id(text):
-            raise ConformanceError("query_missing_project_id", query=query.name)
         available = {**params, **rendered.extra, SCHEMA_PARAMETER: self.schema}
         statements = [PlannedStatement(text, self._bind(query, text, available))]
         if rendered.setup is not None:
@@ -456,17 +461,7 @@ class PostgresDialect:
 
     def _rendered(self, query: Query, params: Mapping[str, Any]) -> _Rendered:
         template = query.template
-        if template in _STATIC:
-            rendered = _Rendered(_STATIC[template]())
-        elif template == LITERAL_TEMPLATE:
-            # A literal query is one fixed statement (tests and probes); here it is SQL, and the guard
-            # below still requires a scoped one to bind :project_id.
-            rendered = _Rendered(_expect(query.args, LiteralText, template).text)
-        else:
-            renderer = _RENDERERS.get(template)
-            if renderer is None:
-                raise ConformanceError("query_template_unknown", template=template, store=BACKEND)
-            rendered = renderer(query.args)
+        rendered = self._base(query)
         if template in _FULLTEXT:
             rendered = self._fulltext(rendered, params)
         elif template == "core.search_nodes_vector":
@@ -474,6 +469,22 @@ class PostgresDialect:
         elif template == "core.search_nodes_vector_exact":
             rendered = _with_setup(rendered, load_core_sql("plan_settings.sql"), {"plan_cache_mode": PLAN_CACHE_MODE})
         return rendered
+
+    @staticmethod
+    def _base(query: Query) -> _Rendered:
+        """The statement text of ``query`` before any parameter-dependent step (the guard reads this)."""
+
+        template = query.template
+        if template in _STATIC:
+            return _Rendered(_STATIC[template]())
+        if template == LITERAL_TEMPLATE:
+            # A literal query is one fixed statement (tests and probes); here it is SQL, and the guard
+            # still requires a scoped one to bind :project_id.
+            return _Rendered(_expect(query.args, LiteralText, template).text)
+        renderer = _RENDERERS.get(template)
+        if renderer is None:
+            raise ConformanceError("query_template_unknown", template=template, store=BACKEND)
+        return renderer(query.args)
 
     @staticmethod
     def _fulltext(rendered: _Rendered, params: Mapping[str, Any]) -> _Rendered:

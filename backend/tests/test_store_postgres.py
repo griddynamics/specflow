@@ -576,6 +576,53 @@ async def test_a_read_validates_the_project_id_and_refuses_an_unscoped_query() -
     assert reserved.value.code == "project_id_parameter_reserved"
 
 
+async def test_a_missing_project_binding_is_refused_before_the_project_id_is_validated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(pg_dialect._STATIC, "core.ping", lambda: "SELECT 1 AS ok")
+    unbound = Query("ping_scoped", "core.ping")
+    executor, engine, _ = fake_executor([])
+    with pytest.raises(ConformanceError) as read:
+        await executor.read(unbound, "bad id with spaces")
+    assert read.value.code == "query_missing_project_id"
+    with pytest.raises(ConformanceError) as write:
+        await executor.write(unbound, "bad id with spaces")
+    assert write.value.code == "query_missing_project_id"
+    with pytest.raises(ConformanceError) as inside:
+        async with executor.tx("p") as transaction:  # the transaction's project id is valid here
+            await transaction.run(unbound)
+    assert inside.value.code == "query_missing_project_id"
+    assert engine.connections <= 1  # nothing reached the server for the two refused calls
+
+
+def test_the_dialect_checks_the_binding_without_parameters(monkeypatch: pytest.MonkeyPatch) -> None:
+    dialect = PostgresDialect()
+    dialect.require_project_binding(core_queries.SEARCH_NODES_FULLTEXT)  # needs no query text or terms
+    dialect.require_project_binding(core_queries.SEARCH_NODES_VECTOR)  # nor a vector
+    monkeypatch.setitem(pg_dialect._STATIC, "core.ping", lambda: "SELECT 1 AS ok")
+    with pytest.raises(ConformanceError) as raised:
+        dialect.require_project_binding(Query("ping_scoped", "core.ping"))
+    assert raised.value.code == "query_missing_project_id"
+
+
+@pytest.mark.parametrize("query", [core_queries.SEARCH_NODES_FULLTEXT.name, core_queries.SEARCH_FRAGMENTS.name])
+def test_only_a_fulltext_search_is_too_complex(query: str) -> None:
+    mapped = map_error(wrapped(asyncpg.StatementTooComplexError()), query, write=False, attempts=1)
+    assert isinstance(mapped, ConformanceError) and mapped.code == "query_too_complex"
+    assert mapped.fields["store"] == "postgres" and mapped.fields["query"] == query
+    assert mapped.fields["backend_code"] == "54001" and mapped.fields["attempts"] == 1
+    assert mapped.fields["error_type"] == "DBAPIError"
+
+
+@pytest.mark.parametrize("query", ["read_nodes", core_queries.SEARCH_NODES_VECTOR.name, "ping"])
+def test_the_same_failure_of_any_other_query_keeps_its_normal_code(query: str) -> None:
+    mapped = map_error(wrapped(asyncpg.StatementTooComplexError()), query, write=False, attempts=2)
+    assert isinstance(mapped, InfrastructureUnavailableError) and mapped.code == "store_read_failed"
+    assert mapped.fields["backend_code"] == "54001" and mapped.fields["attempts"] == 2
+    written = map_error(wrapped(asyncpg.StatementTooComplexError()), core_queries.SEARCH_NODES_FULLTEXT.name, write=True)
+    assert isinstance(written, GraphWriteError) and written.code == "store_write_failed"
+
+
 async def test_an_explicit_transaction_commits_and_rolls_back_without_retrying() -> None:
     executor, engine, waits = fake_executor([[{"written": 1}], asyncpg.DeadlockDetectedError()])
     async with executor.tx("p") as tx:

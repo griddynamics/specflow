@@ -32,7 +32,7 @@ from graph.core.errors import (
     InfrastructureUnavailableError,
 )
 from graph.core.identity import validate_project_id
-from graph.core.queries import PING, Query
+from graph.core.queries import PING, SEARCH_FRAGMENTS, SEARCH_NODES_FULLTEXT, Query
 from graph.core.store import (
     QUERY_TOO_COMPLEX,
     RETRY_DELAYS_SECONDS,
@@ -85,6 +85,8 @@ CANNOT_CONNECT_NOW: Final = "57P03"
 CONNECTION_CLASS: Final = "08"
 # A statement the server refuses as too complex (stack depth, too many arguments): design D6.
 STATEMENT_TOO_COMPLEX: Final = "54001"
+# Only a fulltext search is reported as too complex; the same SQLSTATE elsewhere keeps its normal code.
+_FULLTEXT_QUERIES: Final = frozenset({SEARCH_NODES_FULLTEXT.name, SEARCH_FRAGMENTS.name})
 # Classes of a statement the server refuses: syntax or access rule (42), data exception (22), feature (0A).
 REJECTED_CLASSES: Final = frozenset({"42", "22", "0A"})
 # An administrator or a crash ended the session, or the server is out of connections: unreachable now.
@@ -180,8 +182,8 @@ def map_error(
     }
     if write:
         return GraphWriteError(STORE_WRITE_FAILED, **fields)
-    if code == STATEMENT_TOO_COMPLEX:
-        return ConformanceError(QUERY_TOO_COMPLEX, store=backend, query=query)
+    if code == STATEMENT_TOO_COMPLEX and query in _FULLTEXT_QUERIES:
+        return ConformanceError(QUERY_TOO_COMPLEX, **fields)
     if code is not None and code[:2] in REJECTED_CLASSES:
         return ConformanceError(STORE_QUERY_REJECTED, **fields)
     return InfrastructureUnavailableError(STORE_READ_FAILED, **fields)
@@ -271,7 +273,9 @@ class PostgresScopedTransaction:
         self._backend = backend
 
     async def run(self, query: Query, /, **params: Any) -> list[Record]:
-        plan = self._dialect.plan(query, bind_project(query, self._project_id, params))
+        plan = self._dialect.plan(
+            query, bind_project(query, self._project_id, params, require_binding=self._dialect.require_project_binding)
+        )
         try:
             return await _run(self._connection, plan)
         except DATABASE_ERRORS as error:
@@ -314,7 +318,9 @@ class PostgresExecutor:
         return await self._run(query, project_id, params, write=True)
 
     async def _run(self, query: Query, project_id: str, params: Mapping[str, Any], *, write: bool) -> list[Record]:
-        plan = self._dialect.plan(query, bind_project(query, project_id, params))
+        plan = self._dialect.plan(
+            query, bind_project(query, project_id, params, require_binding=self._dialect.require_project_binding)
+        )
         return await self._managed(query, plan, write=write)
 
     @asynccontextmanager
