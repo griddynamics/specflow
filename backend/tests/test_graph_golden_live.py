@@ -30,6 +30,7 @@ from graph.core import load_ontology
 from graph_probes import requires_live_graph, selected_backend
 from graph_probes import scenarios as scenario_module
 from graph_probes.golden import (
+    EXPLAINED_SET_DIFFERENCES,
     compare_rankings,
     load_rankings,
     load_snapshot,
@@ -151,9 +152,10 @@ RANKING_TOLERANCE = {"arcadedb": 1}
 
 
 def test_search_rankings_have_the_golden_top_five_sets(runs: Runs, capsys: pytest.CaptureFixture[str]) -> None:
+    explained = EXPLAINED_SET_DIFFERENCES.get(selected_backend() or "", {})
     tolerance = RANKING_TOLERANCE.get(selected_backend() or "", 0)
-    parity = compare_rankings(load_rankings(), runs.first.rankings, tolerance=tolerance)
-    if parity.rank_differences:
+    parity = compare_rankings(load_rankings(), runs.first.rankings, explained=explained, tolerance=tolerance)
+    if parity.rank_differences or parity.explained:
         with capsys.disabled():
             sys.stderr.write("\n" + parity.report() + "\n")
     assert parity.ok, parity.report()

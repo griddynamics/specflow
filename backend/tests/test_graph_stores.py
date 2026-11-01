@@ -8,6 +8,7 @@ driver (deprecated arguments) or owns one. No database: drivers are hand-written
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import os
 import subprocess
 import sys
@@ -134,7 +135,13 @@ def test_the_routing_table_names_all_four_backends() -> None:
     assert set(stores._ADAPTERS) == set(BACKENDS)
 
 
-@pytest.mark.parametrize("backend", ["postgres", "tigergraph"])
+def _without_adapter() -> list[str]:
+    """The backends whose adapter module is not shipped yet (each adapter's milestone ships its own)."""
+
+    return [name for name in BACKENDS if importlib.util.find_spec(stores._ADAPTERS[name].module) is None]
+
+
+@pytest.mark.parametrize("backend", _without_adapter())
 def test_a_backend_without_an_adapter_is_not_available(backend: str) -> None:
     with pytest.raises(ConfigurationError) as raised:
         build_store(config(backend=backend))
@@ -224,6 +231,7 @@ def test_an_adapter_module_builds_its_store_from_the_config(
         "graph.core.schema",
         "graph.core.store",
         "graph.stores.neo4j.store",
+        "graph.stores.postgres",
         "graph.build",
     ],
 )
@@ -272,6 +280,29 @@ def test_importing_a_module_does_not_load_the_neo4j_driver(module: str) -> None:
     done = run_fresh(f"import sys, {module}; print('neo4j' in sys.modules, {BOLT_MODULES})")
     assert done.returncode == 0, done.stderr[-400:]
     assert done.stdout.strip() == "False []"
+
+
+POSTGRES_MODULES = "[m for m in sys.modules if m.startswith('graph.stores.postgres')]"
+
+
+@pytest.mark.parametrize(
+    "module",
+    ["graph.core", "graph.stores", "graph.stores.config", "settings", "health"],
+)
+def test_importing_a_module_does_not_load_the_postgres_adapter_or_its_driver(module: str) -> None:
+    done = run_fresh(f"import sys, {module}; print('asyncpg' in sys.modules, {POSTGRES_MODULES})")
+    assert done.returncode == 0, done.stderr[-400:]
+    assert done.stdout.strip() == "False []"
+
+
+def test_building_a_postgres_store_loads_the_adapter() -> None:
+    build = run_fresh(
+        "import sys, graph.stores as s; assert 'graph.stores.postgres' not in sys.modules;"
+        " s.build_store(s.StoreConfig(backend='postgres', uri='postgresql://127.0.0.1:1/x', user='u', password='p'));"
+        " print('graph.stores.postgres' in sys.modules, 'asyncpg' in sys.modules, 'neo4j' in sys.modules)"
+    )
+    assert build.returncode == 0, build.stderr[-400:]
+    assert build.stdout.strip() == "True True False"
 
 
 @pytest.mark.parametrize("module", ["graph.build", "api.runtime"])

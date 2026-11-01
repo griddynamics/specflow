@@ -30,8 +30,10 @@ from graph_probes.base import (
     select,
 )
 from graph_probes.golden import (
+    EXPLAINED_SET_DIFFERENCES,
     GOLDEN_DIR,
     RANKINGS_FILE,
+    ExplainedDifference,
     compare_rankings,
     dump_json,
     load_rankings,
@@ -108,8 +110,8 @@ def test_a_mistyped_store_is_an_error_not_a_skip(clean_env: pytest.MonkeyPatch) 
 
 
 def test_a_store_without_a_probe_cannot_be_opened(clean_env: pytest.MonkeyPatch) -> None:
-    clean_env.setenv("SPECFLOW_TEST_GRAPH_STORE", "postgres")
-    clean_env.setenv("GRAPH_STORE_URI", "bolt://arcade.example.test:2480")
+    clean_env.setenv("SPECFLOW_TEST_GRAPH_STORE", "tigergraph")
+    clean_env.setenv("GRAPH_STORE_URI", "http://tg.example.test:14240")
     clean_env.setenv("GRAPH_STORE_USER", "svc")
     with pytest.raises(RuntimeError, match="no live probe"):
         open_probe()
@@ -556,6 +558,45 @@ def test_rankings_with_the_same_top_five_set_are_equal_up_to_rank_differences() 
     assert not compare_rankings(want, {"queries": {"other": {}}}).ok
     fragments = rankings(fragments=ranking("f1", "f2", key="fragment_id"))
     assert compare_rankings(fragments, fragments).ok
+
+
+def test_the_set_comparison_is_symmetric_a_subset_or_a_superset_fails_at_zero_tolerance() -> None:
+    want = rankings(fulltext=ranking("a", "b", "c"))
+    superset = rankings(fulltext=ranking("a", "b", "c", "d", "e"))
+    subset = rankings(fulltext=ranking("a", "b"))
+    for golden, run in ((want, superset), (superset, want), (want, subset), (subset, want)):
+        parity = compare_rankings(golden, run)
+        assert not parity.ok and len(parity.set_mismatches) == 1
+    assert "['d', 'e']" in compare_rankings(want, superset).set_mismatches[0]
+    assert compare_rankings(want, superset, tolerance=2).ok
+    assert not compare_rankings(want, superset, tolerance=1).ok
+    assert compare_rankings(subset, want, tolerance=1).ok and not compare_rankings(subset, want, tolerance=0).ok
+    swap = rankings(fulltext=ranking("a", "b", "x"))
+    assert compare_rankings(want, swap, tolerance=1).ok and not compare_rankings(want, swap).ok
+    explained = {("fulltext", "q"): ExplainedDifference("a near tie", frozenset({"d", "e"}))}
+    assert compare_rankings(want, superset, explained=explained).ok
+    assert len(compare_rankings(want, superset, explained=explained).explained) == 1
+
+
+def test_an_explained_set_difference_is_reported_and_any_other_still_fails() -> None:
+    want = rankings(fulltext=ranking("a", "b", "c", "d", "e", "f"))
+    different = rankings(fulltext=ranking("a", "b", "c", "d", "x", "f"))
+    tie = {("fulltext", "q"): ExplainedDifference("a near tie at the cut", frozenset({"e", "x"}))}
+    parity = compare_rankings(want, different, explained=tie)
+    assert parity.ok and parity.set_mismatches == [] and len(parity.explained) == 1
+    assert "a near tie at the cut" in parity.report() and parity.report().count("EXPL") == 1
+    assert not compare_rankings(want, different, explained={("fulltext", "other"): tie[("fulltext", "q")]}).ok
+    assert not compare_rankings(want, different, explained={("fragments", "q"): tie[("fulltext", "q")]}).ok
+    other_ids = {("fulltext", "q"): ExplainedDifference("a near tie", frozenset({"e", "y"}))}
+    assert not compare_rankings(want, different, explained=other_ids).ok  # another difference is not explained
+
+
+def test_every_explained_difference_names_a_golden_query() -> None:
+    queries = load_rankings()["queries"]
+    for backend, entries in EXPLAINED_SET_DIFFERENCES.items():
+        assert backend == "postgres", backend
+        for mode, text in entries:
+            assert text in queries and mode in queries[text]["modes"], (backend, mode, text)
 
 
 def test_the_golden_rankings_are_well_formed() -> None:

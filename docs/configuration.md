@@ -188,7 +188,57 @@ Known differences from Neo4j (the adapter handles them; they matter when you rea
 <!-- graph-store: postgres -->
 ### PostgreSQL
 
-Admin steps: to be written with the adapter.
+The graph lives in one schema (`GRAPH_STORE_NAME`, default `graph`) of a PostgreSQL 15 or newer database
+with the `vector` extension (pgvector 0.8 or newer): the main database, or another one named by
+`GRAPH_STORE_URI` (`postgresql://host:port/database`, `?sslmode=require` for TLS). Managed flavours (RDS,
+Aurora, Cloud SQL) work when they offer pgvector. The store keeps its own small connection pool
+(`GRAPH_STORE_POOL_SIZE`, default 5) and uses the writer endpoint for reads and writes.
+
+Admin steps, once per database:
+
+1. An administrator installs the extension: `CREATE EXTENSION vector;` (the store only checks for it and
+   answers `store_extension_missing` when it is not there; it never creates it).
+2. The login (`DATABASE_USER`, or `GRAPH_STORE_USER`) needs `CREATE` on the database, so that the first
+   graph build can create the schema, its tables and indexes; it owns them afterwards. The role that owns the
+   database has this by default.
+3. The agent role (`DATABASE_AGENT_USER`) gets no grant on the schema: its tools never read the graph.
+
+Notes:
+
+- Alembic does not own the graph tables (it would force pgvector on every deployment); the store creates
+  them with `CREATE ... IF NOT EXISTS` under an advisory lock, so several processes may start together.
+- The vector size is fixed per schema (`GRAPH_EMBEDDING_DIM`); another size is refused with
+  `vector_index_mismatch`. Up to 2000 vectors per project are compared exactly; a project with more gets a
+  partial HNSW `halfvec` index at the next schema setup (embedding size up to 4000).
+- Text search is BM25 computed in SQL over the project's own texts (k1 1.2, b 0.75), so its scores differ
+  slightly from Neo4j's Lucene scores.
+- Timeouts: every connection sets `statement_timeout` (300 s) and `lock_timeout` (60 s) as startup
+  parameters; a statement that hits one fails with `store_read_failed` / `store_write_failed` and is not retried
+  (neither is an exhausted pool). Change them with `?statement_timeout=<seconds>` and `?lock_timeout=<seconds>` in
+  `GRAPH_STORE_URI` (`0` disables). A pooler that refuses startup parameters (pgbouncer) needs
+  `ignore_startup_parameters = statement_timeout,lock_timeout`.
+- Schema version: the schema carries a version in its `meta` table. A schema of an older or unknown version is
+  not upgraded in place: schema setup stops with `store_schema_outdated`; drop the schema (development) or migrate
+  it before use.
+- Known limits:
+  - Text search is O(project) per query (it scores every matching row of the project in SQL); that is fine at the
+    documented sizes. A GIN prefilter on the tsvector columns is a later optimisation.
+  - Tokenisation differs from Lucene's standard analyzer at the edges: e-mail addresses, URLs and file paths
+    split differently, lower-casing follows the database locale, a tsvector keeps at most 256 positions per word
+    and its text is limited to 1 MB (`tsvector` size limit), so a very long text is refused by the write
+    (`store_write_failed`, SQLSTATE 54000). There is no write-side length cap; keep texts below that.
+  - A repair batch that swaps `spec_id` between two nodes raises a unique violation (the unique index is checked
+    per row); it was not seen in practice, split such a swap into two batches through a temporary value.
+  - The graph tables have the generic names `node`, `edge` and `meta`. Inside the schema they are unambiguous,
+    but the shared SQL configuration (`backend/sql-schema.json`, `backend/sqlcheck.toml`) lists them by those
+    names, so a host table with one of these names in its own schema would be matched by the SQL checks too.
+  - Building an HNSW index takes a `SHARE` lock on `node`: writes to it wait while the index builds (schema
+    setup creates it for a project over 2000 vectors); run that setup in a quiet moment.
+- Locally the `postgres` service of `docker-compose.yml` uses the `pgvector/pgvector` image and
+  `backend/postgres-init` creates the extension on a new data volume; on an existing volume run
+  `make postgres-vector` once. To run the host targets against it, export
+  `GRAPH_STORE=postgres GRAPH_STORE_URI=postgresql://localhost:5433/specflow GRAPH_STORE_USER=specflow`
+  (the password is `DATABASE_PASSWORD` from `.env.local`; `GRAPH_STORE_PASSWORD` takes it).
 
 <!-- graph-store: tigergraph -->
 ### TigerGraph
