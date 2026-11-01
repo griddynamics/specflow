@@ -105,6 +105,7 @@ def test_a_mistyped_store_is_an_error_not_a_skip(clean_env: pytest.MonkeyPatch) 
 def test_a_store_without_a_probe_cannot_be_opened(clean_env: pytest.MonkeyPatch) -> None:
     clean_env.setenv("SPECFLOW_TEST_GRAPH_STORE", "arcadedb")
     clean_env.setenv("GRAPH_STORE_URI", "bolt://arcade.example.test:2480")
+    clean_env.setenv("GRAPH_STORE_USER", "svc")
     with pytest.raises(RuntimeError, match="no live probe"):
         open_probe()
 
@@ -195,7 +196,7 @@ async def test_created_nodes_carry_the_project_and_sorted_labels(probe: GraphPro
     assert await probe.nodes(project, "Module", uuid="other") == []
     assert await probe.count_nodes(project) == 2
     module = await probe.one_node(project, "Module")
-    assert (module.kind, module.ref) == ("Module", None)
+    assert (module.kind, module.ref) == ("Module", "u1")  # no spec id: the uuid names it
     with pytest.raises(ProbeError):
         await probe.one_node(project)
 
@@ -375,8 +376,8 @@ async def test_the_canonical_snapshot_ignores_ids_clocks_vectors_and_creation_or
 
 def test_canonical_props_drop_vectors_and_unstable_names_by_suffix() -> None:
     props = {"name": "n", "embedding": [1.0], "name_embedding": [1.0], "uuid": "u", "group_id": "g", "build_id": "b",
-             "last_build_id": "b", "created_build_id": "b", "inferred_at": "t", "judge_model": "m", "statements": "[1]"}
-    assert canonical_props(props) == {"name": "n", "judge_model": "m", "statements": "[1]"}
+             "last_build_id": "b", "created_build_id": "b", "inferred_at": "t", "judge_model": "m", "statements": [1]}
+    assert canonical_props(props) == {"name": "n", "judge_model": "m", "statements": [1]}
     assert canonical_props({"a": 1, "b": 2}, skip=("a",)) == {"b": 2}
 
 
@@ -392,13 +393,13 @@ async def test_spine_reachability_counts_sources_without_a_spine_path(probe: Gra
             NodeSpec(("SpecNode", "FunctionalRequirement"), {"uuid": "r2"}),
         ],
     )
-    assert await probe.spine_unreachable_count(project, ontology) == 4
+    assert await probe.spine_unreachable_count(project, ontology) == 2  # r1, r2 (a Feature is no spine source)
     link = lambda kind, a, b, **p: EdgeSpec(kind, select("SpecNode", uuid=a), select("SpecNode", uuid=b), {"group_id": project, **p})  # noqa: E731
     await probe.create_edges(project, [link("PART_OF", "f1", "m"), link("PART_OF", "r1", "f1", basis="inferred")])
-    assert await probe.spine_unreachable_count(project, ontology) == 2  # f2, r2
-    assert await probe.spine_unreachable_count(project, ontology, bases=["stated"]) == 3  # r1's edge is inferred
+    assert await probe.spine_unreachable_count(project, ontology) == 1  # r2
+    assert await probe.spine_unreachable_count(project, ontology, bases=["stated"]) == 2  # r1's edge is inferred
     await probe.create_edges(project, [link("RELATES_TO", "m", "r2")])
-    assert await probe.spine_unreachable_count(project, ontology) == 1  # f2
+    assert await probe.spine_unreachable_count(project, ontology) == 0
 
 
 # The golden data -------------------------------------------------------------------------------------
