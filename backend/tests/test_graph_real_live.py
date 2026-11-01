@@ -1,14 +1,14 @@
-"""Live e2e of the graph builder with the REAL model (LLM gateway) and the real Neo4j (tech-specs 9.2).
+"""Live e2e of the graph builder with the REAL model (LLM gateway) and the real graph store (tech-specs 9.2).
 
 Builds shop 1, updates to 2, updates to 3 and runs two no-change updates, wiring the library like
 ``examples/graph_build.py`` (host-style configs from the environment). Only what is stable with a
 real model is asserted; calls and tokens per build are printed, asserted only as the update/first
-ratio of snapshot 2 and 0 calls for a no-change update. Gate: ``SPECFLOW_TEST_NEO4J=1`` and
-``SPECFLOW_TEST_LLM_GATEWAY=1`` with
+ratio of snapshot 2 and 0 calls for a no-change update. Gate: ``SPECFLOW_TEST_GRAPH_STORE=<store>``
+(or ``SPECFLOW_TEST_NEO4J=1``) and ``SPECFLOW_TEST_LLM_GATEWAY=1`` with
 ``uv run --env-file ../.env.local`` (never part of ``make check``). It costs real tokens and minutes.
 
 One scratch corpus folder whose contents are replaced between builds, file stores under ``tmp_path``,
-a unique ``pytest-graph-`` project id; ``neo4j_project`` deletes the project by ``group_id`` afterwards.
+a unique ``pytest-graph-`` project id; ``graph_project`` deletes the project by ``group_id`` afterwards.
 """
 
 from __future__ import annotations
@@ -37,10 +37,13 @@ from graph.build import (
 )
 from graph.build.models import DiffArtifact, NodesArtifact, PlanArtifact, SpecChanges
 from graph.core import Gateway, LLMConfig
-from graph_support import SHOP_DIR, Neo4jProject
+from graph_probes import requires_live_graph
+from graph_probes.views import domain_edges, identity_counts, spec_edges, ungrounded_spec_ids
+from graph_probes.views import fragment_ids as fragment_ids_of
+from graph_support import SHOP_DIR, GraphProject
 from specflow_live import requires_live
 
-# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, neo4j_project) live in graph_support.
+# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, graph_project) live in graph_support.
 pytest_plugins = ["graph_support"]
 
 LLM_ENVIRONMENT = (
@@ -58,7 +61,7 @@ def missing_llm_environment() -> list[str]:
 
 
 pytestmark = [
-    requires_live("NEO4J"),
+    requires_live_graph(),
     requires_live("LLM_GATEWAY"),
     pytest.mark.skipif(
         bool(missing_llm_environment()),
@@ -158,21 +161,31 @@ def load_corpus(folder: Path, snapshot: int) -> None:
     shutil.copytree(SHOP_DIR / str(snapshot), folder)
 
 
-async def take_snapshot(project: Neo4jProject) -> Snapshot:
+async def take_snapshot(project: GraphProject) -> Snapshot:
     p = project.project_id
-    node_rows = await project.run(
-        "MATCH (n:SpecNode) WHERE n.group_id = $p "
-        "OPTIONAL MATCH (n)-[:REFERENCED_BY]->(f:Fragment) WHERE f.group_id = $p "
-        "RETURN n.spec_id AS spec_id, n.uuid AS uuid, n.name AS name, [l IN labels(n) WHERE l <> 'SpecNode'] AS "
-        "labels, "
-        "collect(f.fragment_id) AS fragments",
-        p=p,
-    )
-    fragment_rows = await project.run(
-        "MATCH (f:Fragment) WHERE f.group_id = $p "
-        "RETURN f.fragment_id AS id, f.document_id AS document_id, f.status AS status, f.text AS text",
-        p=p,
-    )
+    grounded: dict[str, list[str]] = {}
+    for e in await project.edges("REFERENCED_BY"):
+        if e.target.get("group_id") == p and "Fragment" in e.target.labels:
+            grounded.setdefault(e.source.id, []).append(e.target["fragment_id"])
+    node_rows = [
+        {
+            "spec_id": n.get("spec_id"),
+            "uuid": n.get("uuid"),
+            "name": n.get("name"),
+            "labels": list(n.kinds),
+            "fragments": grounded.get(n.id, []),
+        }
+        for n in await project.nodes("SpecNode")
+    ]
+    fragment_rows = [
+        {
+            "id": f.get("fragment_id"),
+            "document_id": f.get("document_id"),
+            "status": f.get("status"),
+            "text": f.get("text"),
+        }
+        for f in await project.nodes("Fragment")
+    ]
     return Snapshot(
         nodes={
             row["spec_id"]: {
@@ -224,7 +237,7 @@ class RunLog:
 
 
 async def build_once(
-    project: Neo4jProject,
+    project: GraphProject,
     stores: FileStores,
     llm: LLMConfig,
     expected_mode: str,
@@ -239,13 +252,12 @@ async def build_once(
         ctx = BuildContext(
             project_id=project.project_id,
             ontology=project.ontology,
-            driver=project.driver,
+            driver=project.store,
             gateway=gateway,
             registry=stores.registry,
             corpus=stores.corpus,
             extraction=stores.extraction,
             builds=stores.builds,
-            database=project.database,
         )
         result = await run_build(ctx)
     finally:
@@ -298,18 +310,15 @@ async def build_once(
     return Built(result, usage, snapshot, seconds, plan, nodes, diff_operations)
 
 
-# D1-D4 (data-model.md) by Cypher
+# D1-D4 (data-model.md) by reading the stored graph
 
 
-async def check_invariants(project: Neo4jProject, name: str, log: RunLog) -> None:
+async def check_invariants(project: GraphProject, name: str, log: RunLog) -> None:
     p = project.project_id
     domain_labels = set(project.ontology.labels)
 
     # D1: SpecNode plus exactly one domain label
-    nodes = await project.run(
-        "MATCH (n:SpecNode) WHERE n.group_id = $p RETURN n.spec_id AS spec_id, labels(n) AS labels",
-        p=p,
-    )
+    nodes = [{"spec_id": n.get("spec_id"), "labels": list(n.labels)} for n in await project.nodes("SpecNode")]
     d1 = sorted(
         row["spec_id"]
         for row in nodes
@@ -318,13 +327,7 @@ async def check_invariants(project: Neo4jProject, name: str, log: RunLog) -> Non
 
     # D2: every domain edge has a declared type on a legal pair
     legal = project.ontology.edge_type_map()
-    edges = await project.run(
-        "MATCH (s:SpecNode)-[r]->(t:SpecNode) WHERE s.group_id = $p "
-        "RETURN type(r) AS relation, [l IN labels(s) WHERE l <> 'SpecNode'][0] AS source, "
-        "[l IN labels(t) WHERE l <> 'SpecNode'][0] AS target, r.group_id AS group_id, r.uuid AS uuid, "
-        "r.edge_key AS edge_key, r.basis AS basis, r.source_fragment_ids AS fragments",
-        p=p,
-    )
+    edges = await domain_edges(project.probe, p)
     d2 = sorted(
         row["edge_key"]
         for row in edges
@@ -334,30 +337,12 @@ async def check_invariants(project: Neo4jProject, name: str, log: RunLog) -> Non
     edge_uuids = Counter(row["uuid"] for row in edges)
 
     # D3: spec_id, uuid and identity key unique per project
-    counts = (
-        await project.run(
-            "MATCH (n:SpecNode) WHERE n.group_id = $p "
-            "RETURN count(n) AS nodes, count(DISTINCT n.spec_id) AS spec_ids, count(DISTINCT n.uuid) AS uuids, "
-            "count(DISTINCT n.identity_key) AS identity_keys",
-            p=p,
-        )
-    )[0]
+    counts = await identity_counts(project.probe, p)
 
     # D4: every spec node grounded in an active or skipped fragment; every stated or implied edge has
     # evidence fragments that exist in the project
-    ungrounded = sorted(
-        row["spec_id"]
-        for row in await project.run(
-            "MATCH (n:SpecNode) WHERE n.group_id = $p AND NOT EXISTS { "
-            "MATCH (n)-[:REFERENCED_BY]->(f:Fragment) WHERE f.group_id = $p AND f.status IN ['active', 'skipped'] } "
-            "RETURN n.spec_id AS spec_id",
-            p=p,
-        )
-    )
-    fragment_ids = {
-        row["id"]
-        for row in await project.run("MATCH (f:Fragment) WHERE f.group_id = $p RETURN f.fragment_id AS id", p=p)
-    }
+    ungrounded = sorted(row["spec_id"] for row in await ungrounded_spec_ids(project.probe, p))
+    fragment_ids = await fragment_ids_of(project.probe, p)
     no_evidence = sorted(
         row["edge_key"]
         for row in edges
@@ -409,26 +394,42 @@ async def check_invariants(project: Neo4jProject, name: str, log: RunLog) -> Non
     )
 
 
-async def check_provenance(project: Neo4jProject, name: str, log: RunLog) -> None:
+async def check_provenance(project: GraphProject, name: str, log: RunLog) -> None:
     """Every node quote and edge fact is a substring (whitespace squashed) of its evidence fragment text."""
 
     p = project.project_id
-    quotes = await project.run(
-        "MATCH (n:SpecNode)-[:REFERENCED_BY]->(f:Fragment) WHERE n.group_id = $p AND n.quote IS NOT NULL "
-        "RETURN n.spec_id AS spec_id, n.quote AS quote, collect(f.text) AS texts, collect(f.fragment_id) AS fragments",
-        p=p,
-    )
+    evidence: dict[str, dict[str, list[Any]]] = {}
+    for e in await project.edges("REFERENCED_BY"):
+        if e.source.get("group_id") == p and e.source.get("quote") is not None and "Fragment" in e.target.labels:
+            found = evidence.setdefault(e.source.id, {"texts": [], "fragments": []})
+            found["texts"].append(e.target.get("text"))
+            found["fragments"].append(e.target.get("fragment_id"))
+    quotes = [
+        {
+            "spec_id": n.get("spec_id"),
+            "quote": n["quote"],
+            "texts": evidence[n.id]["texts"],
+            "fragments": evidence[n.id]["fragments"],
+        }
+        for n in await project.nodes("SpecNode")
+        if n.id in evidence
+    ]
     bad_quotes = sorted(
         (row["spec_id"], row["fragments"])
         for row in quotes
         if not any(squash(row["quote"]) in squash(text) for text in row["texts"])
     )
-    facts = await project.run(
-        "MATCH (s:SpecNode)-[r]->(:SpecNode) WHERE s.group_id = $p AND r.fact IS NOT NULL "
-        "MATCH (f:Fragment) WHERE f.group_id = $p AND f.fragment_id IN r.source_fragment_ids "
-        "RETURN r.edge_key AS edge_key, r.fact AS fact, collect(f.text) AS texts, collect(f.fragment_id) AS fragments",
-        p=p,
-    )
+    fragment_text = {f.get("fragment_id"): f.get("text") for f in await project.nodes("Fragment")}
+    facts = [
+        {
+            "edge_key": e.get("edge_key"),
+            "fact": e["fact"],
+            "texts": [fragment_text[i] for i in e.get("source_fragment_ids") or [] if i in fragment_text],
+            "fragments": [i for i in e.get("source_fragment_ids") or [] if i in fragment_text],
+        }
+        for e in await spec_edges(project.probe, p)
+        if e.get("fact") is not None and any(i in fragment_text for i in e.get("source_fragment_ids") or [])
+    ]
     bad_facts = sorted(
         (row["edge_key"], row["fragments"])
         for row in facts
@@ -606,25 +607,25 @@ def check_no_change(
         )
 
 
-async def test_real_model_builds_and_updates_the_shop_corpus(neo4j_project: Neo4jProject, tmp_path: Path) -> None:
+async def test_real_model_builds_and_updates_the_shop_corpus(graph_project: GraphProject, tmp_path: Path) -> None:
     llm = real_llm_config()
     log = RunLog()
     try:
-        await scenario(neo4j_project, tmp_path, llm, log)
+        await scenario(graph_project, tmp_path, llm, log)
     finally:
         show(f"\n[run log] {log.directory}")
 
 
-async def check_admin_removed(log: RunLog, name: str, neo4j_project: Neo4jProject, third: Built) -> None:
+async def check_admin_removed(log: RunLog, name: str, graph_project: GraphProject, third: Built) -> None:
     """After update 3 no node is grounded in the removed admin.md and none of its fragments is live."""
 
     admin_grounded = [
-        row["spec_id"]
-        for row in await neo4j_project.run(
-            "MATCH (n:SpecNode)-[:REFERENCED_BY]->(f:Fragment) "
-            "WHERE n.group_id = $p AND f.document_id = 'admin.md' RETURN n.spec_id AS spec_id",
-            p=neo4j_project.project_id,
-        )
+        e.source.get("spec_id")
+        for e in await graph_project.edges("REFERENCED_BY")
+        if e.source.get("group_id") == graph_project.project_id
+        and "SpecNode" in e.source.labels
+        and "Fragment" in e.target.labels
+        and e.target.get("document_id") == "admin.md"
     ]
     log.record(name, admin_grounded_nodes=sorted(admin_grounded))
     log.ensure(
@@ -696,13 +697,13 @@ def check_rename(log: RunLog, name: str, snapshot: Snapshot, orders_spec_id: str
     )
 
 
-async def scenario(neo4j_project: Neo4jProject, tmp_path: Path, llm: LLMConfig, log: RunLog) -> None:
+async def scenario(graph_project: GraphProject, tmp_path: Path, llm: LLMConfig, log: RunLog) -> None:
     corpus = tmp_path / "corpus"
     stores = open_file_stores(tmp_path / "state", corpus)
 
     # Build 1: first, shop/1
     load_corpus(corpus, 1)
-    first = await build_once(neo4j_project, stores, llm, "first", "1-first", log=log)
+    first = await build_once(graph_project, stores, llm, "first", "1-first", log=log)
     report("1 first", first, first)
     log.ensure("1-first", f"calls {first.usage.calls} not > 0", condition=first.usage.calls > 0)
     found = module_spec_ids(first.snapshot, OLD_NAME)
@@ -720,7 +721,7 @@ async def scenario(neo4j_project: Neo4jProject, tmp_path: Path, llm: LLMConfig, 
     # Update 2: shop/2 (only checkout.md changes)
     name = "2-update"
     load_corpus(corpus, 2)
-    second = await build_once(neo4j_project, stores, llm, "update", name, log=log)
+    second = await build_once(graph_project, stores, llm, "update", name, log=log)
     report("2 update", second, first)
     ratio = second.usage.calls / first.usage.calls
     show(f"[{name}] update/first calls ratio = {ratio:.1%}")
@@ -759,12 +760,12 @@ async def scenario(neo4j_project: Neo4jProject, tmp_path: Path, llm: LLMConfig, 
     # Update 3: shop/3 (admin.md removed, "Orders service" renamed)
     name = "3-update"
     load_corpus(corpus, 3)
-    third = await build_once(neo4j_project, stores, llm, "update", name, log=log)
+    third = await build_once(graph_project, stores, llm, "update", name, log=log)
     report("3 update", third, first)
     ratio = third.usage.calls / first.usage.calls
     show(f"[{name}] update/first calls ratio = {ratio:.1%}")
     log.record(name, calls_ratio=round(ratio, 3))
-    await check_admin_removed(log, name, neo4j_project, third)
+    await check_admin_removed(log, name, graph_project, third)
     # The rename: only the identity is stable with a real model. The module keeps spec_id and uuid
     # and stays one node; whether its name follows the text (FR-BLD-23 known terms map the new
     # wording onto the old name) is model behaviour, printed, never asserted.
@@ -774,11 +775,11 @@ async def scenario(neo4j_project: Neo4jProject, tmp_path: Path, llm: LLMConfig, 
     # Updates 4 and 5: no change. Both make 0 model calls and have empty spec_changes; the second
     # is fully idle (0 diff operations).
     name = "4-no-change"
-    fourth = await build_once(neo4j_project, stores, llm, "update", name, log=log)
+    fourth = await build_once(graph_project, stores, llm, "update", name, log=log)
     report("4 no-change", fourth, first)
     check_no_change(log, name, fourth, third, max_calls=0, require_no_diff=False)
     name = "5-no-change"
-    fifth = await build_once(neo4j_project, stores, llm, "update", name, log=log)
+    fifth = await build_once(graph_project, stores, llm, "update", name, log=log)
     report("5 no-change", fifth, first)
     check_no_change(log, name, fifth, fourth, max_calls=0, require_no_diff=True)
     builds = (first, second, third, fourth, fifth)

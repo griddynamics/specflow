@@ -1,4 +1,4 @@
-"""Live Neo4j e2e of ``update`` and ``rebuild`` builds of the shop corpus with the scripted gateway
+"""Live graph-store e2e of ``update`` and ``rebuild`` builds of the shop corpus with the scripted gateway
 (plan 3.T2, 3.T3).
 
 FR-BLD-02..06, 10, 12..14, 22, 23 (update half), 25, FR-CORE-06; NFR-PERF-01 is reported, not
@@ -12,8 +12,9 @@ The chain: ``first`` of snapshot 1, ``update`` to 2 (checkout.md edited, a secti
 added), ``update`` to 3 (admin.md removed, "Orders service" renamed), an ``update`` without change,
 then a ``rebuild`` of 3. D1-D4 (data-model.md) are checked after every build.
 
-Gate: ``SPECFLOW_TEST_NEO4J=1`` and ``uv run --env-file ../.env.local``. Every test builds into its
-own ``pytest-graph-<hex>`` project ids; ``neo4j_project`` deletes them afterwards.
+Gate: ``SPECFLOW_TEST_GRAPH_STORE=<store>`` (or ``SPECFLOW_TEST_NEO4J=1``)
+and ``uv run --env-file ../.env.local``. Every test builds into its
+own ``pytest-graph-<hex>`` project ids; ``graph_project`` deletes them afterwards.
 """
 
 from __future__ import annotations
@@ -50,9 +51,13 @@ from graph.build.prompts import ATTRIBUTES_PROMPT, HUB_CATALOG_PROMPT, KNOWN_TER
 from graph.core import ConfigurationError, Ontology, load_ontology
 from graph.core.identity import SpecIdRow
 from graph.core.writer import NodeRef
+from graph_probes import requires_live_graph
+from graph_probes.base import EdgeSpec, Match, ProbeNode
+from graph_probes.views import domain_edges, identity_counts, spec_edges, ungrounded_spec_ids
+from graph_probes.views import fragment_ids as fragment_ids_of
 from graph_support import (
     GAP_ONTOLOGY,
-    Neo4jProject,
+    GraphProject,
     ScriptedGateway,
     ShopAnswers,
     live_llm_config,
@@ -62,12 +67,11 @@ from graph_support import (
     untrusted_blocks,
 )
 from logger.logger import INFO, get_logger, log_event
-from specflow_live import requires_live
 
-# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, neo4j_project) live in graph_support.
+# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, graph_project) live in graph_support.
 pytest_plugins = ["graph_support"]
 
-pytestmark = requires_live("NEO4J")
+pytestmark = requires_live_graph()
 
 logger = get_logger("tests.graph_update_live")
 
@@ -210,7 +214,7 @@ class Shop:
 
     def __init__(
         self,
-        project: Neo4jProject,
+        project: GraphProject,
         gateways: Callable[..., ScriptedGateway],
         root: Path,
         *,
@@ -239,7 +243,7 @@ class Shop:
         return BuildContext(
             project_id=self.project_id,
             ontology=self.ontology,
-            driver=self.project.driver,
+            driver=self.project.store,
             gateway=gateway,
             registry=self.stores.registry,
             corpus=shop_corpus(snapshot, self.root),
@@ -248,7 +252,6 @@ class Shop:
             rebuild=rebuild,
             options=options,
             retry_lineages=retry,
-            database=self.project.database,
             settings=BuildSettings(inference=False),  # judge answers are scripted by the inference tests (4.T1)
         )
 
@@ -275,68 +278,59 @@ class Shop:
         built = Built(snapshot, ctx, result, gateway, self.stores)
         plan = await built.artifact("plan", PlanArtifact)
         built.handles = answers.fragment_ids(plan)
+        documents_of: dict[str, set[str]] = {}
+        for e in await self.project.edges("REFERENCED_BY", project_id=self.project_id):
+            if "Fragment" in e.target.labels and e.target.get("document_id") is not None:
+                documents_of.setdefault(e.source.id, set()).add(e.target["document_id"])
         built.nodes = {
-            row["spec_id"]: row
-            for row in await self.project.run(
-                "MATCH (n:SpecNode) WHERE n.group_id = $p "
-                "RETURN n.spec_id AS spec_id, n.uuid AS uuid, n.name AS name, n.identity_key AS key, "
-                "coalesce(n.identity_aliases, []) AS aliases, coalesce(n.spec_id_aliases, []) AS spec_id_aliases, "
-                "[l IN labels(n) WHERE l <> 'SpecNode'][0] AS label, "
-                "COLLECT { MATCH (n)-[:REFERENCED_BY]->(f:Fragment) RETURN DISTINCT f.document_id ORDER BY "
-                "f.document_id } "
-                "AS documents",
-                p=self.project_id,
-            )
+            n.get("spec_id"): {
+                "spec_id": n.get("spec_id"),
+                "uuid": n.get("uuid"),
+                "name": n.get("name"),
+                "key": n.get("identity_key"),
+                "aliases": n.get("identity_aliases") or [],
+                "spec_id_aliases": n.get("spec_id_aliases") or [],
+                "label": n.kind,
+                "documents": sorted(documents_of.get(n.id, ())),
+            }
+            for n in await self.project.nodes("SpecNode", project_id=self.project_id)
         }
         built.fragments = {
-            row["fragment_id"]: row
-            for row in await self.project.run(
-                "MATCH (f:Fragment) WHERE f.group_id = $p "
-                "RETURN f.fragment_id AS fragment_id, f.document_id AS document, f.status AS status, "
-                "f.error_code AS code, f.content_hash AS content, f.extracted_hash AS extracted",
-                p=self.project_id,
-            )
+            f.get("fragment_id"): {
+                "fragment_id": f.get("fragment_id"),
+                "document": f.get("document_id"),
+                "status": f.get("status"),
+                "code": f.get("error_code"),
+                "content": f.get("content_hash"),
+                "extracted": f.get("extracted_hash"),
+            }
+            for f in await self.project.nodes("Fragment", project_id=self.project_id)
         }
         built.documents = {
-            row["document"]: row["status"]
-            for row in await self.project.run(
-                "MATCH (d:Document) WHERE d.group_id = $p RETURN d.document_id AS document, d.status AS status",
-                p=self.project_id,
-            )
+            d.get("document_id"): d.get("status")
+            for d in await self.project.nodes("Document", project_id=self.project_id)
         }
         built.registry = await self.stores.registry.taken(self.project_id)
         assert await invariant_violations(self.project, self.project_id, self.ontology) == {}
         return built
 
 
-async def invariant_violations(project: Neo4jProject, project_id: str, ontology: Ontology) -> dict[str, list[Any]]:
+async def invariant_violations(project: GraphProject, project_id: str, ontology: Ontology) -> dict[str, list[Any]]:
     """D1-D4 (data-model.md) of one project by query; an empty mapping when all hold."""
 
     found: dict[str, list[Any]] = {}
     domain = set(ontology.labels)
     # D1: SpecNode plus exactly one domain label
-    rows = await project.run(
-        "MATCH (n:SpecNode) WHERE n.group_id = $p AND size([l IN labels(n) WHERE l <> 'SpecNode']) <> 1 "
-        "RETURN n.spec_id AS spec_id, labels(n) AS labels",
-        p=project_id,
-    )
-    rows += [
-        row
-        for row in await project.run(
-            "MATCH (n:SpecNode) WHERE n.group_id = $p RETURN n.spec_id AS spec_id, labels(n) AS labels", p=project_id
-        )
-        if not set(row["labels"]) - {"SpecNode"} <= domain
+    spec_nodes = [
+        {"spec_id": n.get("spec_id"), "labels": list(n.labels)}
+        for n in await project.nodes("SpecNode", project_id=project_id)
     ]
+    rows = [row for row in spec_nodes if len(set(row["labels"]) - {"SpecNode"}) != 1]
+    rows += [row for row in spec_nodes if not set(row["labels"]) - {"SpecNode"} <= domain]
     found["D1 labels"] = rows
     # D2: every build-owned domain edge on a legal pair; edge keys and uuids unique
     legal = ontology.edge_type_map()
-    edges = await project.run(
-        "MATCH (s:SpecNode)-[r]->(t:SpecNode) WHERE s.group_id = $p "
-        "RETURN type(r) AS relation, [l IN labels(s) WHERE l <> 'SpecNode'][0] AS source, "
-        "[l IN labels(t) WHERE l <> 'SpecNode'][0] AS target, r.group_id AS group_id, r.uuid AS uuid, "
-        "r.edge_key AS edge_key, r.basis AS basis, r.source_fragment_ids AS fragments",
-        p=project_id,
-    )
+    edges = await domain_edges(project.probe, project_id)
     owned = [row for row in edges if ontology.owner_of(row["relation"]) == "build"]
     found["D2 illegal edges"] = [
         row
@@ -350,44 +344,34 @@ async def invariant_violations(project: Neo4jProject, project_id: str, ontology:
         key for key, n in Counter(row["uuid"] for row in owned).items() if n > 1 or not key
     ]
     # D3: spec_id, uuid and identity key unique per project
-    keys = await project.run(
-        "MATCH (n:SpecNode) WHERE n.group_id = $p "
-        "RETURN count(n) AS nodes, count(DISTINCT n.spec_id) AS spec_ids, count(DISTINCT n.uuid) AS uuids, "
-        "count(DISTINCT n.identity_key) AS identity_keys",
-        p=project_id,
-    )
-    if len(set(keys[0].values())) != 1:
-        found["D3 duplicates"] = keys
+    keys = await identity_counts(project.probe, project_id)
+    if len(set(keys.values())) != 1:
+        found["D3 duplicates"] = [keys]
     # D4: every spec node grounded in an active or skipped fragment, never pointing at a retired one;
     # every stated or implied edge with evidence in non-retired fragments of the project
-    found["D4 ungrounded nodes"] = await project.run(
-        "MATCH (n:SpecNode) WHERE n.group_id = $p AND NOT EXISTS { "
-        "MATCH (n)-[:REFERENCED_BY]->(f:Fragment) WHERE f.group_id = $p AND f.status IN ['active', 'skipped'] } "
-        "RETURN n.spec_id AS spec_id",
-        p=project_id,
-    )
-    found["D4 links to retired fragments"] = await project.run(
-        "MATCH (n:SpecNode)-[r:REFERENCED_BY|MENTIONED_IN]->(f:Fragment) WHERE n.group_id = $p AND f.status = "
-        "'retired' "
-        "RETURN n.spec_id AS spec_id, type(r) AS link, f.fragment_id AS fragment",
-        p=project_id,
-    )
-    live = {
-        row["id"]
-        for row in await project.run(
-            "MATCH (f:Fragment) WHERE f.group_id = $p AND f.status <> 'retired' RETURN f.fragment_id AS id",
-            p=project_id,
-        )
-    }
+    found["D4 ungrounded nodes"] = await ungrounded_spec_ids(project.probe, project_id)
+    found["D4 links to retired fragments"] = [
+        {"spec_id": e.source.get("spec_id"), "link": e.type, "fragment": e.target.get("fragment_id")}
+        for e in await project.edges(project_id=project_id)
+        if e.type in ("REFERENCED_BY", "MENTIONED_IN")
+        and "SpecNode" in e.source.labels
+        and e.source.get("group_id") == project_id
+        and "Fragment" in e.target.labels
+        and e.target.get("status") == "retired"
+    ]
+    live = await fragment_ids_of(project.probe, project_id, not_status="retired")
     found["D4 edges without live evidence"] = [
         row
         for row in owned
         if row["basis"] not in ("stated", "implied") or not row["fragments"] or not set(row["fragments"]) <= live
     ]
-    found["cross-project relationships"] = await project.run(
-        "MATCH (s)-[r]-(t) WHERE s.group_id = $p AND (t.group_id <> $p OR r.group_id <> $p) RETURN type(r) AS type",
-        p=project_id,
-    )
+    found["cross-project relationships"] = [
+        {"type": e.type}
+        for e in await project.edges(project_id=project_id)
+        for near, far in ((e.source, e.target), (e.target, e.source))  # the pattern is undirected
+        if near.get("group_id") == project_id
+        and (far.get("group_id") not in (None, project_id) or e.get("group_id") not in (None, project_id))
+    ]
     return {name: rows for name, rows in found.items() if rows}
 
 
@@ -401,8 +385,8 @@ class Chain:
 
 
 @pytest.fixture
-async def chain(neo4j_project: Neo4jProject, scripted_gateway: Any, tmp_path: Path) -> Chain:
-    shop = Shop(neo4j_project, scripted_gateway, tmp_path / "stores")
+async def chain(graph_project: GraphProject, scripted_gateway: Any, tmp_path: Path) -> Chain:
+    shop = Shop(graph_project, scripted_gateway, tmp_path / "stores")
     first = await shop.build(1)
     second = await shop.build(2)
     third = await shop.build(3)
@@ -597,7 +581,7 @@ async def test_update_2_edits_removes_and_adds_with_stable_identities(chain: Cha
 
 
 async def test_update_3_removes_a_document_and_carries_the_renamed_module_over(
-    chain: Chain, neo4j_project: Neo4jProject
+    chain: Chain, graph_project: GraphProject
 ) -> None:
     second, third = chain.second, chain.third
     changes = third.result.spec_changes
@@ -636,11 +620,14 @@ async def test_update_3_removes_a_document_and_carries_the_renamed_module_over(
     ]
     assert {handle: third.handles[handle] for handle in same} == {handle: second.handles[handle] for handle in same}
     assert third.fragment("ord.details2")["status"] == "skipped"
-    assert not await neo4j_project.run(
-        "MATCH (n:SpecNode)-[:REFERENCED_BY]->(f:Fragment) WHERE n.group_id = $p AND f.document_id = 'admin.md' "
-        "RETURN n",
-        p=neo4j_project.project_id,
-    )
+    assert not [
+        e
+        for e in await graph_project.edges("REFERENCED_BY")
+        if "SpecNode" in e.source.labels
+        and e.source.get("group_id") == graph_project.project_id
+        and "Fragment" in e.target.labels
+        and e.target.get("document_id") == "admin.md"
+    ]
 
     # only-admin nodes are gone; the node admin.md shared with orders.md stays, under its orders.md key
     assert not set(ADMIN_ONLY) & set(third.nodes)
@@ -664,11 +651,13 @@ async def test_update_3_removes_a_document_and_carries_the_renamed_module_over(
     # "Orders database" is a different module and stays one
     assert third.named("Orders database")["uuid"] == second.named("Orders database")["uuid"]
     # the module keeps its relationships: PART_OF from the export feature, INTEGRATES_WITH from checkout
-    rows = await neo4j_project.run(
-        "MATCH (s:SpecNode)-[r]->(t:SpecNode {spec_id: $module}) WHERE t.group_id = $p "
-        "RETURN s.name AS source, type(r) AS relation ORDER BY source, relation",
-        p=neo4j_project.project_id,
-        module=ORDERS_SERVICE,
+    rows = sorted(
+        (
+            {"source": e.source.get("name"), "relation": e.type}
+            for e in await spec_edges(graph_project.probe, graph_project.project_id)
+            if e.target.get("spec_id") == ORDERS_SERVICE and e.target.get("group_id") == graph_project.project_id
+        ),
+        key=lambda row: (row["source"], row["relation"]),
     )
     assert {(row["source"], row["relation"]) for row in rows} >= {
         ("Order history export", "PART_OF"),
@@ -681,7 +670,7 @@ async def test_update_3_removes_a_document_and_carries_the_renamed_module_over(
 
 
 async def test_no_change_update_changes_nothing_and_rebuild_keeps_every_identity(
-    chain: Chain, neo4j_project: Neo4jProject
+    chain: Chain, graph_project: GraphProject
 ) -> None:
     third, unchanged, rebuilt = chain.third, chain.unchanged, chain.rebuilt
     empty = dict.fromkeys(unchanged.result.spec_changes.model_dump(), ())
@@ -752,10 +741,10 @@ FINDING = "finding"
 
 
 async def test_foreign_relationships_survive_updates_and_move_to_a_merge_survivor(
-    neo4j_project: Neo4jProject, scripted_gateway: Any, tmp_path: Path
+    graph_project: GraphProject, scripted_gateway: Any, tmp_path: Path
 ) -> None:
     ontology = gap_variant(tmp_path)
-    shop = Shop(neo4j_project, scripted_gateway, tmp_path / "stores", ontology=ontology)
+    shop = Shop(graph_project, scripted_gateway, tmp_path / "stores", ontology=ontology)
     # build 1: the judge keeps "Audit trail" apart, so orders.md links its requirement to it
     data = shop_answer_data(1)
     data["consolidation"][0]["groups"] = []
@@ -770,7 +759,7 @@ async def test_foreign_relationships_survive_updates_and_move_to_a_merge_survivo
     first = await shop.build(1, answers=ShopAnswers(data, source="1.yaml (Audit trail kept apart)"))
     trail, logging_ = first.named("Audit trail"), first.named("Audit logging")
     orders = first.named("Orders service")
-    gap = neo4j_project.writer("gap", ontology=ontology)
+    gap = graph_project.writer("gap", ontology=ontology)
     finding = NodeRef("Finding", "gap-finding-1")
     trail_ref, logging_ref = NodeRef("Capability", trail["uuid"]), NodeRef("Capability", logging_["uuid"])
     await gap.upsert_node("Finding", finding.key, {"title": "Audit coverage"})
@@ -783,16 +772,25 @@ async def test_foreign_relationships_survive_updates_and_move_to_a_merge_survivo
     await gap.upsert_relationship("FLAGS", trail_ref, logging_ref, "gap|between", {"severity": "low"})
     # one the survivor already has an equal copy of (same type, direction, other end and properties)
     await gap.upsert_relationship("FLAGS", finding, trail_ref, "gap|both", {"severity": "high"})
-    await neo4j_project.run(
-        "MATCH (f:Finding)-[r:FLAGS {edge_key: 'gap|both'}]->(:SpecNode) WHERE r.group_id = $p "
-        "MATCH (s:SpecNode {group_id: $p, uuid: $survivor}) CREATE (f)-[x:FLAGS]->(s) SET x = properties(r)",
-        p=neo4j_project.project_id,
-        survivor=logging_["uuid"],
+    (both,) = [
+        e
+        for e in await graph_project.edges("FLAGS", group_id=graph_project.project_id, edge_key="gap|both")
+        if "Finding" in e.source.labels and "SpecNode" in e.target.labels
+    ]
+    await graph_project.create_edges(
+        [
+            EdgeSpec(
+                "FLAGS",
+                Match("Finding", {"uuid": both.source["uuid"]}),
+                Match("SpecNode", {"uuid": logging_["uuid"]}),
+                both.props,
+            )
+        ]
     )
     await gap.upsert_relationship(
         "FLAGS", finding, NodeRef("Module", orders["uuid"]), "gap|orders", {"severity": "high"}
     )
-    assert len(await foreign_flags(neo4j_project)) == 6
+    assert len(await foreign_flags(graph_project)) == 6
 
     # update 2: the judge now groups the two capabilities, so two current nodes meet one target: a merge
     # (the merged node's attributes are asked again, and the two orders.md units whose catalogs held
@@ -809,7 +807,7 @@ async def test_foreign_relationships_survive_updates_and_move_to_a_merge_survivo
     assert trail["spec_id"] in survivor["spec_id_aliases"]
     assert trail["spec_id"] in second.result.spec_changes.rekeyed
     assert second.registry[trail["spec_id"]].state == "alias"
-    flags = await foreign_flags(neo4j_project)
+    flags = await foreign_flags(graph_project)
     # each moved to the survivor with its direction and properties; the equal one is not duplicated;
     # the one between the merged nodes is dropped
     assert flags == [
@@ -818,30 +816,28 @@ async def test_foreign_relationships_survive_updates_and_move_to_a_merge_survivo
         ("gap|trail", FINDING, logging_["uuid"], "low"),
         ("gap|trail-out", logging_["uuid"], orders["uuid"], "mid"),
     ]
-    assert not await neo4j_project.run(
-        "MATCH (n:SpecNode {group_id: $p, uuid: $uuid}) RETURN n", p=neo4j_project.project_id, uuid=trail["uuid"]
-    )
+    assert not await graph_project.nodes("SpecNode", uuid=trail["uuid"])
 
     # update 3: the renamed module is carried over and keeps its foreign relationships, both directions
     third = await shop.build(3)
     assert third.nodes[ORDERS_SERVICE]["uuid"] == orders["uuid"]
-    assert await foreign_flags(neo4j_project) == flags
-    assert await neo4j_project.run(
-        "MATCH (f:Finding) WHERE f.group_id = $p RETURN f.title AS title", p=neo4j_project.project_id
-    ) == [{"title": "Audit coverage"}]
+    assert await foreign_flags(graph_project) == flags
+    assert [{"title": f.get("title")} for f in await graph_project.nodes("Finding")] == [{"title": "Audit coverage"}]
 
 
-async def foreign_flags(project: Neo4jProject) -> list[tuple[str, str, str, str]]:
+async def foreign_flags(project: GraphProject) -> list[tuple[str, str, str, str]]:
     """Every ``FLAGS`` relationship of the project as ``(edge_key, source, target, severity)``, sorted
     (a list, so a duplicate shows); a spec node end is its uuid, the finding ``FINDING``."""
 
-    rows = await project.run(
-        "MATCH (s)-[r:FLAGS]->(t) WHERE r.group_id = $p "
-        "RETURN r.edge_key AS key, CASE WHEN s:SpecNode THEN s.uuid ELSE $finding END AS source, "
-        "CASE WHEN t:SpecNode THEN t.uuid ELSE $finding END AS target, r.severity AS severity",
-        p=project.project_id,
-        finding=FINDING,
-    )
+    rows = [
+        {
+            "key": e.get("edge_key"),
+            "source": e.source.get("uuid") if "SpecNode" in e.source.labels else FINDING,
+            "target": e.target.get("uuid") if "SpecNode" in e.target.labels else FINDING,
+            "severity": e.get("severity"),
+        }
+        for e in await project.edges("FLAGS", group_id=project.project_id)
+    ]
     return sorted((row["key"], row["source"], row["target"], row["severity"]) for row in rows)
 
 
@@ -882,33 +878,35 @@ def canonical_graph(rows_nodes: list[dict[str, Any]], rows_edges: list[dict[str,
     return nodes, edges
 
 
-async def project_graph(project: Neo4jProject, project_id: str) -> tuple[list[str], list[str]]:
-    nodes = await project.run(
-        "MATCH (n) WHERE n.group_id = $p RETURN labels(n) AS labels, properties(n) AS props", p=project_id
-    )
-    edges = await project.run(
-        "MATCH (s)-[r]->(t) WHERE s.group_id = $p "
-        "RETURN coalesce(s.spec_id, s.fragment_id, s.document_id) AS source, type(r) AS type, "
-        "coalesce(t.spec_id, t.fragment_id, t.document_id) AS target, properties(r) AS props",
-        p=project_id,
-    )
+async def project_graph(project: GraphProject, project_id: str) -> tuple[list[str], list[str]]:
+    def ref(n: ProbeNode) -> Any:
+        return next(
+            (n.get(name) for name in ("spec_id", "fragment_id", "document_id") if n.get(name) is not None), None
+        )
+
+    nodes = [{"labels": list(n.labels), "props": n.props} for n in await project.nodes(project_id=project_id)]
+    edges = [
+        {"source": ref(e.source), "type": e.type, "target": ref(e.target), "props": e.props}
+        for e in await project.edges(project_id=project_id)
+        if e.source.get("group_id") == project_id
+    ]
     return canonical_graph(nodes, edges)
 
 
 async def test_interrupted_update_persist_resumes_to_the_uninterrupted_graph(
-    neo4j_project: Neo4jProject, scripted_gateway: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    graph_project: GraphProject, scripted_gateway: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     batches = writing.batches
     monkeypatch.setattr(writing, "batches", lambda operations, *_: batches(operations, PERSIST_TEST_BATCH))
     # uninterrupted: 1 -> 2 in one project
-    plain = Shop(neo4j_project, scripted_gateway, tmp_path / "plain")
+    plain = Shop(graph_project, scripted_gateway, tmp_path / "plain")
     await plain.build(1)
     expected = await plain.build(2)
     cursor = await expected.artifact("persist", PersistCursor)
     assert cursor.done and cursor.batches >= 4
 
     # interrupted: the same builds in another project, the update's persist crashing after batch 2
-    crashed = Shop(neo4j_project, scripted_gateway, tmp_path / "crashed", project_id=neo4j_project.new_project())
+    crashed = Shop(graph_project, scripted_gateway, tmp_path / "crashed", project_id=graph_project.new_project())
     await crashed.build(1)
     applied: list[int] = []
 
@@ -950,18 +948,18 @@ async def test_interrupted_update_persist_resumes_to_the_uninterrupted_graph(
     assert len(gateway.calls) == calls
     assert result.spec_changes == expected.result.spec_changes
     await crashed.observe(2, shop_answers(2), result, gateway)
-    resumed_graph = await project_graph(neo4j_project, crashed.project_id)
+    resumed_graph = await project_graph(graph_project, crashed.project_id)
     assert len(resumed_graph[0]) == len(expected.nodes) + len(expected.fragments) + len(expected.documents)
-    assert resumed_graph == await project_graph(neo4j_project, plain.project_id)
+    assert resumed_graph == await project_graph(graph_project, plain.project_id)
 
 
 # FR-BLD-12: a failed window keeps the fragment's last extracted version, a retry recovers it
 
 
 async def test_failed_window_keeps_the_last_version_until_a_retry_recovers_it(
-    neo4j_project: Neo4jProject, scripted_gateway: Any, tmp_path: Path
+    graph_project: GraphProject, scripted_gateway: Any, tmp_path: Path
 ) -> None:
-    shop = Shop(neo4j_project, scripted_gateway, tmp_path / "stores")
+    shop = Shop(graph_project, scripted_gateway, tmp_path / "stores")
     first = await shop.build(1)
     # update 2 with the "Payment flow" window failing: the edge and attribute requests show the
     # fragment's stored (last extracted) nodes, so they are answered without the new payment nodes
@@ -993,17 +991,22 @@ async def test_failed_window_keeps_the_last_version_until_a_retry_recovers_it(
     assert "REQ::FR::SYSTEM_OFFER_RETRY_ANOTHER_CARD" not in failed.nodes
     assert kept(first, failed, set(first.nodes) - {BUSINESS_RULE, *APPROVAL_FRS}) == {}
     # its evidence is the old version's line in the skipped fragment, its edge to the feature stays
-    evidence = await neo4j_project.run(
-        "MATCH (n:SpecNode {spec_id: 'REQ::FR::FR_CHK_004_SYSTEM_SHOW_ERROR_KEEP'})-[r:REFERENCED_BY]->(f:Fragment) "
-        "WHERE n.group_id = $p RETURN f.fragment_id AS fragment, r.line_start AS start, r.line_end AS end",
-        p=neo4j_project.project_id,
-    )
+    show_error = "REQ::FR::FR_CHK_004_SYSTEM_SHOW_ERROR_KEEP"
+    evidence = [
+        {"fragment": e.target.get("fragment_id"), "start": e.get("line_start"), "end": e.get("line_end")}
+        for e in await graph_project.edges("REFERENCED_BY")
+        if e.source.get("spec_id") == show_error
+        and e.source.get("group_id") == graph_project.project_id
+        and "Fragment" in e.target.labels
+    ]
     assert evidence == [{"fragment": failed.handles["chk.payment"], "start": 22, "end": 22}]
-    assert await neo4j_project.run(
-        "MATCH (n:SpecNode {spec_id: 'REQ::FR::FR_CHK_004_SYSTEM_SHOW_ERROR_KEEP'})-[r:PART_OF]->(t:SpecNode) "
-        "WHERE n.group_id = $p RETURN t.name AS target, r.fact AS fact",
-        p=neo4j_project.project_id,
-    ) == [
+    assert [
+        {"target": e.target.get("name"), "fact": e.get("fact")}
+        for e in await graph_project.edges("PART_OF")
+        if e.source.get("spec_id") == show_error
+        and e.source.get("group_id") == graph_project.project_id
+        and "SpecNode" in e.target.labels
+    ] == [
         {
             "target": "Payment flow",
             "fact": "FR-CHK-004: The Checkout service must show a clear error message and keep the basket when a "
@@ -1041,11 +1044,11 @@ async def test_failed_window_keeps_the_last_version_until_a_retry_recovers_it(
     ],
 )
 async def test_update_with_changed_options_raises_before_any_call(
-    neo4j_project: Neo4jProject, scripted_gateway: Any, tmp_path: Path, change: dict[str, Any]
+    graph_project: GraphProject, scripted_gateway: Any, tmp_path: Path, change: dict[str, Any]
 ) -> None:
-    shop = Shop(neo4j_project, scripted_gateway, tmp_path / "stores")
+    shop = Shop(graph_project, scripted_gateway, tmp_path / "stores")
     first = await shop.build(1)
-    before = await neo4j_project.snapshot()
+    before = await graph_project.snapshot()
     gateway = shop.gateway(shop_answers(2))
     options = BuildOptions.model_validate({**OPTIONS.model_dump(), **change})
     with pytest.raises(ConfigurationError) as raised:
@@ -1053,7 +1056,7 @@ async def test_update_with_changed_options_raises_before_any_call(
     assert raised.value.code == "frozen_options_changed"
     assert gateway.calls == []
     assert (await shop.stores.builds.latest_build(shop.project_id)).build_id == first.result.build_id
-    assert await neo4j_project.snapshot() == before
+    assert await graph_project.snapshot() == before
 
 
 # Scale report F1: stored nodes on several fragments come back once each
@@ -1083,15 +1086,15 @@ def spanning_answers() -> ShopAnswers:
 
 
 async def test_a_no_change_update_over_nodes_on_several_fragments_is_a_no_op(
-    neo4j_project: Neo4jProject, scripted_gateway: Any, tmp_path: Path
+    graph_project: GraphProject, scripted_gateway: Any, tmp_path: Path
 ) -> None:
-    shop = Shop(neo4j_project, scripted_gateway, tmp_path)
+    shop = Shop(graph_project, scripted_gateway, tmp_path)
     answers = spanning_answers()
     first = await shop.build(1, answers=answers)
     raw = await first.artifact("extract_nodes", NodesArtifact)
     assert any(len(node.fragment_ids) > 1 for node in raw.raw_nodes)
     assert first.named("Payment flow")["label"] == "Capability"
-    graph = await project_graph(neo4j_project, shop.project_id)
+    graph = await project_graph(graph_project, shop.project_id)
 
     unchanged = await shop.build(1, answers=answers)
     reused = await unchanged.artifact("extract_nodes", NodesArtifact)
@@ -1103,4 +1106,4 @@ async def test_a_no_change_update_over_nodes_on_several_fragments_is_a_no_op(
     assert unchanged.gateway.calls == []
     assert unchanged.result.spec_changes.model_dump() == dict.fromkeys(unchanged.result.spec_changes.model_dump(), ())
     assert (await unchanged.artifact("diff", DiffArtifact)).operations == ()
-    assert await project_graph(neo4j_project, shop.project_id) == graph
+    assert await project_graph(graph_project, shop.project_id) == graph
