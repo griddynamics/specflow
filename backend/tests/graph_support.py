@@ -1541,6 +1541,7 @@ class ShopBuilds:
     ontology: Ontology | None = None
     rename: Mapping[str, str] | None = None
     llm: LLMConfig | None = None
+    inference: bool = True
     stores: FileStores = field(init=False)
 
     def __post_init__(self) -> None:
@@ -1565,7 +1566,7 @@ class ShopBuilds:
             extraction=self.stores.extraction,
             builds=self.stores.builds,
             options=shop_answers(snapshot).options,
-            settings=BuildSettings(inference=True),
+            settings=BuildSettings(inference=self.inference),
         )
 
     async def build(self, snapshot: int) -> tuple[BuildResult, ScriptedGateway]:

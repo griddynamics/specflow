@@ -176,6 +176,16 @@ class Neo4jProbe(GraphProbe):
                     row.update({f"s_{i}": v for i, v in enumerate(spec.source.props.values())})
                     row.update({f"t_{i}": v for i, v in enumerate(spec.target.props.values())})
                     rows.append(row)
+                bad = await self.run(
+                    "UNWIND $rows AS row "
+                    f"CALL (row) {{ MATCH {source_pattern} WHERE {source_where} RETURN count(s) AS sources }} "
+                    f"CALL (row) {{ MATCH {target_pattern} WHERE {target_where} RETURN count(t) AS targets }} "
+                    "WITH row, sources, targets WHERE sources <> 1 OR targets <> 1 RETURN count(row) AS n",
+                    p=project_id,
+                    rows=rows,
+                )
+                if bad[0]["n"]:
+                    raise ProbeError(f"{kind}: {bad[0]['n']} of {len(batch)} edges have an end that is not one node")
                 result = await self.run(
                     f"UNWIND $rows AS row MATCH {source_pattern} WHERE {source_where} "
                     f"MATCH {target_pattern} WHERE {target_where} "
