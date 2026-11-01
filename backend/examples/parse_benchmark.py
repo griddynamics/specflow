@@ -1,4 +1,4 @@
-"""Benchmark of the PDF parser (gates G2, G4, G5 of docs/docling-pdf-parser.md).
+"""Benchmark of the PDF parser (gates G2, G4, G5 of docs/file-parsers/acceptance-gates.md).
 
 Converts one PDF with the production path (``file_to_markdown``: Docling in 10-page ranges, then
 ``PdfStructure``) and prints the wall time, the peak RSS and, when a ground-truth Markdown is given,

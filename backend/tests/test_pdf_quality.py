@@ -1,4 +1,4 @@
-"""G1 (fixture quality) and G8 (determinism) of docs/docling-pdf-parser.md, offline.
+"""G1 (fixture quality) and G8 (determinism) of docs/file-parsers/acceptance-gates.md, offline.
 
 ``extraction.pdf`` goes through the real ``file_to_markdown`` (Docling FAST, then PdfStructure) and is
 scored against the unchanged golden file ``extraction.md`` (D6) with the structural metrics of

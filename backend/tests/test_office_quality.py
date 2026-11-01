@@ -1,4 +1,4 @@
-"""G11 (Office/web quality, offline) of docs/docling-pdf-parser.md, and G8 for these formats.
+"""G11 (Office/web quality, offline) of docs/file-parsers/acceptance-gates.md, and G8 for these formats.
 
 One small generated file per format goes through the real ``file_to_markdown`` (Docling, then
 ``OfficeStructure``) and is scored with the metrics of ``examples/parse_benchmark.py`` against the Markdown a

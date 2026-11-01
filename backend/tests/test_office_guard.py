@@ -1,4 +1,4 @@
-"""G12 (parser-level) and N2 limits of docs/docling-pdf-parser.md for the Office and web formats.
+"""G12 (parser-level) and the limits of docs/file-parsers/limits.md for the Office and web formats.
 
 No Docling here: ``file_parsers.office.guard`` is the code that reads a file first. Hostile fixtures are made in
 the test (nothing large or dangerous is committed): a ZIP bomb whose headers lie about its sizes, an OOXML part

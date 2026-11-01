@@ -23,7 +23,7 @@ COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-dev --no-install-project --extra gcp --extra aws --extra parse
 
 # models: the Docling models, fetched at build time from Hugging Face at pinned commits
-# (docs/docling-pdf-parser.md, 'Docling configuration'). Layout: the artifacts_path
+# (docs/file-parsers/engines/docling.md, 'Models'). Layout: the artifacts_path
 # folders Docling looks for (<repo with / as -->). Only TableFormer v1 FAST is used (D4); V2 and ACCURATE are not fetched.
 #   docling-project/docling-layout-heron  Apache-2.0
 #   docling-project/docling-models        CDLA-Permissive-2.0 / Apache-2.0 (tag v2.3.0)

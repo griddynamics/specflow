@@ -141,8 +141,9 @@ schema = "contracts/schemas/runtime-defaults.schema.json"
 files = ["tests/fixtures/runtime-defaults.json"]
 
 # ---------------------------------------------------------------- docs-bundle
-# The repository documentation tree (../docs): the graph library specification (docs/graph, its
-# table of contents is INDEX.md) and the GD Liquid Glass design system (docs/design-system).
+# The repository documentation tree (../docs): the graph library specification (docs/graph), the file
+# parsers (docs/file-parsers; each has its table of contents in INDEX.md) and the GD Liquid Glass design
+# system (docs/design-system).
 [docs-bundle]
 root = "../docs"
 index-name = "INDEX.md"

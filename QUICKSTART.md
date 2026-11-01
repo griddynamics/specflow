@@ -55,8 +55,8 @@ Node.js 20.9 or newer.
    Markdown or CSV files), then press the build button on the project page to
    build the knowledge graph. Google Drive folders also work as a source; they
    need a Google service identity (see `DRIVE_IDENTITY_EMAIL` in
-   [`docs/configuration.md`](docs/configuration.md)). Sizes, limits and error
-   codes are in the "Document parsing" section there.
+   [`docs/configuration.md`](docs/configuration.md)). Formats, limits and error
+   codes are in [`docs/file-parsers/`](docs/file-parsers/INDEX.md).
 
 Stop the stack with `make down`. This keeps your data. `make down-volumes` deletes
 the local databases and files: use it only for a clean start.

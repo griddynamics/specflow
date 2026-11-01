@@ -38,7 +38,7 @@ dependencies = [
 gcp = ["google-cloud-storage>=3.17.1"]
 aws = ["boto3>=1.43,<2"]
 # The document parser (worker-parse image and dev/CI only; never the api or worker-agents image).
-# Docling pin and set of format packages: docs/docling-pdf-parser.md, 'Docling configuration'.
+# Docling pin and set of format packages: docs/file-parsers/engines/docling.md, 'Packages'.
 # opencv-python-headless: imported by docling_ibm_models (TableFormer v1) without being declared by docling-slim.
 # docling-core, pypdfium2, defusedxml: imported directly by file_parsers (docling-core is also a dependency of docling-slim;
 # defusedxml streams the XLSX sheets in file_parsers.office.guard with DTDs forbidden).

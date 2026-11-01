@@ -8,7 +8,7 @@ Rules for anyone, person or coding agent, who changes this repository.
   Rules: `backend/AGENTS.md`.
 - `frontend/` - Next.js web app. Rules: `frontend/AGENTS.md`.
 - `validation/` - the static checks that CI runs (`make validate`).
-- `docs/` - configuration reference, graph design, design system.
+- `docs/` - configuration reference, graph design, file parsers, design system.
 - Repo root - `docker-compose.yml`, `.env.example`, `config/` and the `Makefile` that runs
   everything.
 

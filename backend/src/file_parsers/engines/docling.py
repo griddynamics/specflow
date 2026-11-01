@@ -1,7 +1,7 @@
 """``DoclingEngine``: PDF to per-page Markdown, Office and web files to sections, with Docling, behind the port.
 
-The configuration is the one measured in the design (docs/docling-pdf-parser.md,
-'Docling configuration'): docling-parse backend, TableFormer v1 in FAST mode with cell matching, no
+The configuration is the one in docs/file-parsers/engines/docling.md (section
+'Configuration'): docling-parse backend, TableFormer v1 in FAST mode with cell matching, no
 OCR, no picture or formula enrichment, no remote services, no Docling heading hierarchy (SpecFlow
 ranks the headings in ``file_parsers.pdf.structure``), Markdown with raw ``_``/``<``/``>`` and compact
 tables. One engine holds one converter per format, so the models load once per process (about 4 s, PDF only);
