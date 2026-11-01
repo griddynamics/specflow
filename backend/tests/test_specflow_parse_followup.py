@@ -190,7 +190,7 @@ async def test_a_document_waiting_for_the_parse_slot_keeps_heartbeating(data, st
         if not started.is_set():  # the first caller holds the slot until released
             started.set()
             release.wait(10)
-        return ParsedMarkdown(markdown="ok")
+        return ParsedMarkdown(markdown="ok", parser="pymupdf4llm")
 
     pool = ThreadPoolExecutor(max_workers=1)
     try:
@@ -233,7 +233,7 @@ async def test_only_expected_failures_are_benign(scenario, benign, data, store, 
             raise PdfParseError("x")
         if scenario == "io":
             raise OSError("x")
-        return ParsedMarkdown(markdown="ok")
+        return ParsedMarkdown(markdown="ok", parser="pymupdf4llm")
 
     if scenario == "missing_row":
         repository.exists = False

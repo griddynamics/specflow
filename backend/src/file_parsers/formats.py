@@ -1,7 +1,7 @@
 """The one table of document formats SpecFlow accepts.
 
 Shared by the upload API, the Drive import and the parser. It imports only the standard library
-(no docling, torch or pymupdf) because the api image imports it.
+(no docling, torch or pypdfium2) because the api image imports it.
 
 Two lookups with different strictness:
 

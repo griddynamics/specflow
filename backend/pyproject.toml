@@ -40,12 +40,11 @@ aws = ["boto3>=1.43,<2"]
 # The document parser (worker-parse image and dev/CI only; never the api or worker-agents image).
 # Docling pin and set of format packages: docs/docling-pdf-parser.md, 'Docling configuration'.
 # opencv-python-headless: imported by docling_ibm_models (TableFormer v1) without being declared by docling-slim.
-# pypdfium2: imported directly by file_parsers. pymupdf and pymupdf4llm leave when the Docling engine lands.
+# docling-core, pypdfium2: imported directly by file_parsers (docling-core is also a dependency of docling-slim).
 parse = [
     "docling-slim[convert-core,format-pdf,models-local,format-docx,format-pptx,format-xlsx,format-html,format-markdown]==2.145.0",
+    "docling-core>=2.105,<3",
     "opencv-python-headless<5",
-    "pymupdf>=2.0",
-    "pymupdf4llm>=2.0",
     "pypdfium2",
     # CPU wheels only: the default PyPI Linux wheels of torch pull nvidia-* (CUDA) packages with proprietary terms.
     "torch==2.15.0",
@@ -119,8 +118,4 @@ openinference-instrumentation = ["openinference"]
 DEP001 = ["botocore"]
 # opencv-python-headless is imported by docling_ibm_models (TableFormer v1), not by our code; torch and
 # torchvision are docling's runtime and pinned here only to select the CPU wheels.
-DEP002 = [
-    "asyncpg", "temporalio-openai-agents", "opencv-python-headless", "torch", "torchvision",
-    # TEMPORARY: removed when file_parsers imports them (the Docling engine).
-    "docling-slim", "pypdfium2",
-]
+DEP002 = ["asyncpg", "temporalio-openai-agents", "opencv-python-headless", "torch", "torchvision"]

@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import os
 
-# onnxruntime (imported by the PDF parser) sends telemetry and its exit-time thread can
-# abort the interpreter (rare exit-134 after all tests passed): opt out for the suite.
-os.environ.setdefault("ORT_DISABLE_TELEMETRY", "1")
-# The Docling models come from the local cache or the worker-parse image; a test never downloads them.
+# The Docling models come from the local Hugging Face cache or DOCLING_ARTIFACTS_PATH (the worker-parse
+# image, the CI prefetch); a test never downloads them.
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
 # Central-logger env guard. Force these before any

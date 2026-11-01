@@ -54,7 +54,6 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:${PATH}" \
     HOME=/home/specflow \
-    ORT_DISABLE_TELEMETRY=1 \
     HF_HUB_OFFLINE=1 \
     DOCLING_ARTIFACTS_PATH=/opt/docling-models \
     MALLOC_ARENA_MAX=2

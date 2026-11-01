@@ -61,7 +61,7 @@ def build(store, executor, parse, **kwargs) -> ParseActivities:
 
 
 def ok_parse(path: Path) -> ParsedMarkdown:
-    return ParsedMarkdown(markdown="# Title\n\nbody")
+    return ParsedMarkdown(markdown="# Title\n\nbody", parser="pymupdf4llm")
 
 
 async def run_parse(activities: ParseActivities, data, env: ActivityEnvironment | None = None):
@@ -98,7 +98,7 @@ async def test_the_real_parser_handles_the_fixture_pdf(data, repository, executo
 
 async def test_nul_characters_are_removed_before_the_write(data, store, repository, executor):
     def parse(_path: Path) -> ParsedMarkdown:
-        return ParsedMarkdown(markdown="a\x00b")
+        return ParsedMarkdown(markdown="a\x00b", parser="pymupdf4llm")
 
     result = await run_parse(build(store, executor, parse), data)
 
@@ -184,7 +184,7 @@ async def test_the_temp_directory_is_removed_on_success_and_failure(data, store,
         seen.append(path.parent)
         if len(seen) == 2:
             raise PdfParseError("x")
-        return ParsedMarkdown(markdown="ok")
+        return ParsedMarkdown(markdown="ok", parser="pymupdf4llm")
 
     activities = build(store, executor, spy)
     await run_parse(activities, data)
@@ -211,7 +211,7 @@ async def test_heartbeats_are_sent_while_the_parse_runs(data, store, repository,
 
     def slow(path: Path) -> ParsedMarkdown:
         release.wait(10)  # held until the test saw enough heartbeats
-        return ParsedMarkdown(markdown="ok")
+        return ParsedMarkdown(markdown="ok", parser="pymupdf4llm")
 
     run = asyncio.create_task(run_parse(build(store, executor, slow, heartbeat_interval=0.05), data, env))
     try:
@@ -239,7 +239,7 @@ async def test_the_parse_runs_off_the_event_loop_and_one_at_a_time(data, store, 
         threading.Event().wait(HOLD_SECONDS)
         with lock:
             active["now"] -= 1
-        return ParsedMarkdown(markdown="ok")
+        return ParsedMarkdown(markdown="ok", parser="pymupdf4llm")
 
     activities = build(store, executor, tracked)
     ticks = 0

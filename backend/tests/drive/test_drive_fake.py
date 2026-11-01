@@ -9,7 +9,6 @@ import socket
 import time
 from importlib.resources import files
 
-import pymupdf
 import pytest
 
 from drive import fake as fake_module
@@ -18,6 +17,7 @@ from drive.fake import FakeDriveGateway
 from drive.gateway import FAKE_DRIVE_EMAIL, DriveError
 from drive.model import summarize
 from drive.reasons import Reason
+from file_parsers.pdf.pdfium_typed import open_document
 from settings import ConfigurationError
 
 CONTRACT = json.loads(files("drive").joinpath("fixtures/contract.json").read_text("utf-8"))
@@ -141,12 +141,14 @@ def test_every_reserved_id_in_the_contract_is_answered(gw):
     assert len(CONTRACT["reserved_folder_ids"]) == 11
 
 
-def test_pdf_download_is_a_valid_one_page_pdf(gw):
+def test_pdf_download_is_a_valid_one_page_pdf(gw, tmp_path):
     pdf = next(i for i in gw.list_all("fake-synthetic-30").items if i.mime_type == "application/pdf")
     data = b"".join(gw.iter_download(pdf.id))
-    with pymupdf.open(stream=data, filetype="pdf") as doc:
-        assert doc.page_count == 1
-        assert "Fake Drive" in doc[0].get_text()
+    pdf_path = tmp_path / "download.pdf"
+    pdf_path.write_bytes(data)
+    with open_document(pdf_path) as doc:
+        assert len(doc) == 1
+        assert "Fake Drive" in doc.page_text(0, with_sizes=False).text
 
 
 def test_other_download_is_tiny_and_chunked(gw):

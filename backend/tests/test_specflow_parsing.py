@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from engine_stub_support import StubEngine, one_page
+from file_parsers import convert as convert_module
 from file_parsers.pdf import parser as parser_module
 from file_parsers.pdf.to_markdown import ParsedMarkdown, PdfParseError, pdf_file_to_markdown
 
@@ -28,18 +30,20 @@ def test_parses_the_fixture_without_llm_or_leftovers(temp_root, monkeypatch):
     monkeypatch.setattr(parser_module.PDFParser, "enrich", forbidden)
     result = pdf_file_to_markdown(FIXTURE)
     assert isinstance(result, ParsedMarkdown)
-    assert result.parser == "pymupdf4llm"
+    assert result.parser == "docling@2.145.0+sf1"
     assert result.markdown.strip()
-    assert list(temp_root.iterdir()) == []
+    # torch may create its own cache folder (torchinductor_*) in the temp dir: only ours must be gone
+    assert [p.name for p in temp_root.iterdir() if p.name.startswith("specflow-")] == []
 
 
 def test_uses_parse_then_render_only(monkeypatch, temp_root):
+    monkeypatch.setattr(convert_module, "default_engine", lambda: StubEngine(one_page("body")))
     calls = []
     real_parse, real_render = parser_module.PDFParser.parse, parser_module.PDFParser.render
 
-    def parse(self):
+    def parse(self, *args):
         calls.append("parse")
-        return real_parse(self)
+        return real_parse(self, *args)
 
     def render(self):
         calls.append("render")

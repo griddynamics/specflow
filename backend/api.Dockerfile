@@ -28,8 +28,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:${PATH}" \
     HOME=/home/specflow \
-    ALEMBIC_CONFIG=/app/alembic.ini \
-    ORT_DISABLE_TELEMETRY=1
+    ALEMBIC_CONFIG=/app/alembic.ini
 RUN groupadd --gid 10001 specflow \
     && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/specflow \
         --shell /usr/sbin/nologin specflow \

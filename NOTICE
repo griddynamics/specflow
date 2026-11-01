@@ -243,15 +243,6 @@ https://github.com/jpadilla/pyjwt
 ----------------------------------------------------------------------------
 
 ----------------------------------------------------------------------------
-PyMuPDF (pymupdf), PyMuPDF4LLM (pymupdf4llm)
-Copyright Artifex Software, Inc.
-Licensed under GNU Affero General Public License 3.0 (or an Artifex
-commercial license)
-https://github.com/pymupdf/pymupdf
-https://github.com/pymupdf/pymupdf4llm
-----------------------------------------------------------------------------
-
-----------------------------------------------------------------------------
 python-dotenv (installed through the dotenv package)
 Copyright Saurabh Kumar
 Licensed under BSD 3-Clause License
@@ -280,6 +271,108 @@ Copyright Temporal Technologies Inc.
 Licensed under MIT License
 https://github.com/temporalio/sdk-python
 https://github.com/temporalio/ai-integrations
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+Docling (docling-slim), docling-parse, docling-core, docling-ibm-models
+(optional extra "parse")
+Copyright The Docling Contributors; Copyright International Business Machines
+Licensed under MIT License
+https://github.com/docling-project/docling
+https://github.com/docling-project/docling-parse
+https://github.com/docling-project/docling-core
+https://github.com/docling-project/docling-ibm-models
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+Docling model weights (downloaded from Hugging Face at pinned revisions and baked into
+the worker-parse image): docling-project/docling-layout-heron,
+docling-project/docling-models (TableFormer)
+docling-layout-heron: Licensed under Apache License 2.0
+docling-models: Licensed under Apache License 2.0 and CDLA Permissive 2.0
+https://huggingface.co/docling-project/docling-layout-heron
+https://huggingface.co/docling-project/docling-models
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+PyTorch (torch), torchvision (optional extra "parse"; CPU wheels from the PyTorch index)
+Copyright Facebook, Inc. and the PyTorch contributors
+Licensed under BSD 3-Clause License (bundled parts: Apache-2.0, MIT, BSL-1.0, Zlib,
+ISC; the wheel bundles libgomp under the GCC Runtime Library Exception)
+https://github.com/pytorch/pytorch
+https://github.com/pytorch/vision
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+OpenCV (opencv-python-headless) (optional extra "parse")
+Copyright the OpenCV team and the opencv-python contributors
+Licensed under Apache License 2.0 (the wheel bundles FFmpeg under
+LGPL 2.1 and other third-party libraries listed in its LICENSE-3RD-PARTY.txt)
+https://github.com/opencv/opencv-python
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+pypdfium2 (optional extra "parse") and PDFium
+Copyright pypdfium2-team; Copyright The PDFium Authors
+Licensed under Apache License 2.0 OR BSD 3-Clause License (pypdfium2);
+Apache License 2.0 and BSD 3-Clause License (PDFium and its bundled libraries)
+https://github.com/pypdfium2-team/pypdfium2
+https://pdfium.googlesource.com/pdfium
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+python-docx (python-docx), python-pptx (python-pptx)
+(through the Docling format-docx and format-pptx packages)
+Copyright Steve Canny
+Licensed under MIT License
+https://github.com/python-openxml/python-docx
+https://github.com/scanny/python-pptx
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+openpyxl, et-xmlfile (through the Docling format-xlsx package)
+Copyright the openpyxl contributors
+Licensed under MIT License
+https://foss.heptapod.net/openpyxl/openpyxl
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+XlsxWriter (xlsxwriter) (through the Docling format-xlsx package)
+Copyright John McNamara
+Licensed under BSD 2-Clause License
+https://github.com/jmcnamara/XlsxWriter
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+Beautiful Soup (beautifulsoup4), Soup Sieve (soupsieve), Marko (marko)
+(through the Docling format-html and format-markdown packages)
+Copyright Leonard Richardson, Isaac Muse, Frost Ming
+Licensed under MIT License
+https://www.crummy.com/software/BeautifulSoup/
+https://github.com/facelessuser/soupsieve
+https://github.com/frostming/marko
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+pylatexenc (through Docling)
+Copyright Philippe Faist
+Licensed under MIT License
+https://github.com/phfaist/pylatexenc
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+lxml (through Docling and python-docx / python-pptx)
+Copyright Infrae and the lxml dev team
+Licensed under BSD 3-Clause License
+https://github.com/lxml/lxml
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+tqdm, certifi (through Docling and Hugging Face tooling)
+Copyright tqdm developers (MPL-2.0 and MIT); Copyright Kenneth Reitz (certifi, MPL-2.0)
+Licensed under Mozilla Public License 2.0 (tqdm also under MIT License)
+https://github.com/tqdm/tqdm
+https://github.com/certifi/python-certifi
 ----------------------------------------------------------------------------
 
 ============================================================================

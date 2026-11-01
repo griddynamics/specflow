@@ -6,18 +6,23 @@ from pathlib import Path
 
 from anthropic import AnthropicError
 
-from file_parsers.engines.port import DocumentEngine
-from file_parsers.engines.pymupdf4llm_engine import PyMuPDF4LLMEngine
+from file_parsers.engines.default import default_engine
+from file_parsers.engines.port import DocumentEngine, ProgressCallback
 from file_parsers.formats import PDF_MEDIA_TYPE
+from file_parsers.limits import check_pdf_file
 from file_parsers.pdf.enricher import DEFAULT_MODEL, PdfFigureEnricher
 from file_parsers.pdf.math_enricher import PdfMathEnricher
 from file_parsers.pdf.mermaid_enricher import PdfMermaidEnricher
 from file_parsers.pdf.renderer import PDFRenderer
-from file_parsers.pdf.schema import PDFDocument
+from file_parsers.pdf.schema import PDFDocument, PDFPageContent
+from file_parsers.pdf.structure import PdfStructure
 from llm.client import Client
 from logger.logger import INFO, WARNING, get_logger, log_event
 
 logger = get_logger("file_parsers.pdf.parser")
+
+RANGE_PAGES = 10
+"""Pages per engine call: bounds the memory of the conversion (1.8 GB instead of 4.7 GB for 216 pages)."""
 
 
 class _StageTracker:
@@ -93,8 +98,22 @@ class _StageTracker:
 
 
 class PDFParser:
-    def __init__(self, pdf_path: Path, output_dir: Path, engine: DocumentEngine | None = None) -> None:
-        self.engine: DocumentEngine = engine if engine is not None else PyMuPDF4LLMEngine()
+    """PDF to Markdown: the engine extracts page ranges, ``PdfStructure`` repairs the whole document.
+
+    ``images=True`` (the CLI, the LLM enrichers) writes the figure PNGs under ``output_dir/images``;
+    the stored-Markdown path of ``file_to_markdown`` uses ``images=False`` and keeps placeholders only.
+    """
+
+    def __init__(
+        self,
+        pdf_path: Path,
+        output_dir: Path,
+        engine: DocumentEngine | None = None,
+        *,
+        images: bool = True,
+    ) -> None:
+        self.engine: DocumentEngine = engine if engine is not None else default_engine()
+        self.images = images
         self.pdf_path = pdf_path
         self.output_dir = output_dir
         self.assets_dir = output_dir / "images"
@@ -105,9 +124,28 @@ class PDFParser:
         self.enrichment_error: str | None = None
         self.stages = _StageTracker()
 
-    def parse(self) -> PDFDocument:
+    def parse(self, on_progress: ProgressCallback | None = None) -> PDFDocument:
+        """Check the page cap, extract the document in ranges of ``RANGE_PAGES``, then repair its structure.
+
+        ``on_progress(pages_done, pages_total)`` is called after every range (``pages_total`` is the
+        page count of the document). Raises ``DocumentTooLargeError`` over ``MAX_PDF_PAGES``.
+        """
+
         self.stages.enter("parse")
-        self.document = self.engine.extract(self.pdf_path, PDF_MEDIA_TYPE, images=True, assets_dir=self.assets_dir)
+        total = check_pdf_file(self.pdf_path)
+        assets = self.assets_dir if self.images else None
+        pages: list[PDFPageContent] = []
+        for first in range(1, total + 1, RANGE_PAGES):
+            last = min(total, first + RANGE_PAGES - 1)
+            part = self.engine.extract(
+                self.pdf_path, PDF_MEDIA_TYPE, (first, last), images=self.images, assets_dir=assets
+            )
+            pages.extend(part.pages)
+            if on_progress is not None:
+                on_progress(last, total)
+        self.stages.enter("structure")
+        extracted = PDFDocument(source_path=self.pdf_path, pages=pages)
+        self.document = PdfStructure(self.pdf_path).apply(extracted)
         return self.document
 
     def enrich(self, model: str = DEFAULT_MODEL) -> PDFDocument:

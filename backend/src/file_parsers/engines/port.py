@@ -1,6 +1,6 @@
 """The ``DocumentEngine`` port: what a document-to-content engine offers the parser.
 
-Implementations (pymupdf4llm now, Docling next) return per-page content and do not rank headings
+Implementations (Docling) return per-page content and do not rank headings
 or render Markdown; the facade (``file_parsers.convert``) and ``PDFParser`` do that.
 """
 

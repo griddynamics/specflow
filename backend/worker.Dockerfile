@@ -29,8 +29,7 @@ FROM python:3.12.13-slim-bookworm
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:${PATH}" \
-    HOME=/home/specflow \
-    ORT_DISABLE_TELEMETRY=1
+    HOME=/home/specflow
 RUN groupadd --gid 10001 specflow \
     && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/specflow \
         --shell /usr/sbin/nologin specflow
