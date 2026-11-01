@@ -58,10 +58,14 @@ ifneq ($(word 2,$(STACK_STORES)),)
 $(error WITH names more than one graph store ($(STACK_STORES)): pick one of $(GRAPH_STORE_NAMES))
 endif
 STACK_STORE := $(or $(STACK_STORES),neo4j)
-# GRAPH_STORE on the command line must agree with WITH (the stack has one store).
+# For the compose targets, GRAPH_STORE on the command line must agree with WITH (the stack has one store).
+# The host targets (api, worker, test-graph-live, ...) take any GRAPH_STORE.
+COMPOSE_GOALS := up down down-volumes logs ps images postgres-vector
 ifeq ($(origin GRAPH_STORE),command line)
+ifneq ($(filter $(COMPOSE_GOALS),$(MAKECMDGOALS)),)
 ifneq ($(GRAPH_STORE),$(STACK_STORE))
 $(error GRAPH_STORE=$(GRAPH_STORE) does not match the stack store $(STACK_STORE): use WITH=$(GRAPH_STORE))
+endif
 endif
 endif
 # The profiles `up` starts: those of WITH, plus neo4j when WITH names no other store (the default).
@@ -158,6 +162,7 @@ env-local:
 	echo "env-local: wrote $(ENV_FILE) ($(ENV_LOCAL_NAMES))"; \
 	echo "env-local: add AGENT_MODEL, LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY to $(ENV_FILE) (docs/configuration.md)"
 
+# Needs Docker Compose 2.24 or later (`!reset` of WITH=postgres; `required: false` needs 2.20).
 # Build and start the stack and wait until all services are healthy: postgres, the graph store (neo4j;
 # `WITH=arcadedb` starts arcadedb and arcadedb-init instead, `WITH=postgres` no server: the graph lives in
 # postgres), rustfs, rustfs-init, api, worker-parse, worker-agents, frontend. `WITH=temporal,langfuse` adds the

@@ -96,7 +96,7 @@ pgvector 0.8 or later. TigerGraph is planned: its name is accepted, but no adapt
 | `GRAPH_STORE_USER`, `GRAPH_STORE_PASSWORD` | server login | server login | unset = the app role (`DATABASE_USER`, `DATABASE_PASSWORD`); with a URI both are required | server login |
 | `GRAPH_STORE_NAME` | database (default `neo4j`) | database | schema (default `graph`) | graph name |
 | `GRAPH_STORE_ADMIN_URI` | not used | HTTP admin endpoint when it is not the Bolt host | not used | per adapter |
-| `GRAPH_STORE_POOL_SIZE` | cap on the adapter's pool (unset = the driver default) | per adapter | per adapter | per adapter |
+| `GRAPH_STORE_POOL_SIZE` | cap on the driver pool (unset = the driver default) | not used | cap on the engine pool (default 5) | per adapter |
 
 Rules:
 
@@ -323,7 +323,9 @@ tools (`make api`, `make worker`) use `TEMPORAL_ADDRESS`, default `localhost:723
 server of that store only, and sets `GRAPH_STORE`, `GRAPH_STORE_URI`, `GRAPH_STORE_USER` and `GRAPH_STORE_NAME` in the api
 and the agents worker (the values win over `.env.local`, whose `GRAPH_STORE_URI` is a host address). The password is
 `GRAPH_STORE_PASSWORD` in every case. Two stores in one `WITH`, or a `GRAPH_STORE=` on the `make` line that
-differs from `WITH`, stop with an error. `make down`, `make ps` and `make logs` cover every store.
+differs from `WITH`, stop with an error (host targets such as `make api` take any `GRAPH_STORE`). `make down`, `make ps`
+and `make logs` cover every store. Run `make down` before you switch stores: the old store's container keeps running
+otherwise, and keeps its host ports. The stack needs Docker Compose 2.24 or later.
 
 | `WITH` | Server started | Containers use |
 |---|---|---|
@@ -360,7 +362,8 @@ make up WITH=postgres
 
 The graph lives in the schema `graph` of the `specflow` database, over the `DATABASE_*` login. On a data volume that
 existed before the pgvector image, run `make postgres-vector` once first (it needs the admin login; a new volume
-gets the extension from `backend/postgres-init`). `WITH=postgres` adds `config/compose.graph-postgres.yaml`, which needs
+gets the extension from `backend/postgres-init`). `.env.local` still needs `GRAPH_STORE_PASSWORD` (or `NEO4J_PASSWORD`),
+which `make env-local` writes: compose checks it although the PostgreSQL store does not use it. `WITH=postgres` adds `config/compose.graph-postgres.yaml`, which needs
 Docker Compose 2.24 or newer.
 
 Running `docker compose` yourself (not `make`): the services read `GRAPH_STORE*` from the shell and the env file,
@@ -411,7 +414,9 @@ update, verify, infer, renamed ontology, estimate, golden parity, and the store-
 store and skips the suites of the others. It reads `GRAPH_STORE_URI`, `GRAPH_STORE_USER`, `GRAPH_STORE_PASSWORD`,
 `GRAPH_STORE_NAME` (and `GRAPH_STORE_ADMIN_URI` for ArcadeDB) from the shell or the env file
 (`make test-graph-live STORE=arcadedb ENV_FILE=/path/to/file`); for neo4j the `NEO4J_*` names still work and the URI
-defaults to `bolt://localhost:7687`. It starts no server. CI runs no live graph job: run the suites by hand before a
+defaults to `bolt://localhost:7687`. It starts no server. It leaves out the logging suite (`test_graph_logging.py`, which
+is mostly offline) and the gateway and real-corpus suites (`test_graph_gateway_live.py`, `test_graph_real_live.py`: they
+need an LLM gateway and spend model calls); run those by hand with `SPECFLOW_TEST_GRAPH_STORE=<store>`. CI runs no live graph job: run the suites by hand before a
 release, once per store, against a database, schema or graph that holds nothing you need.
 
 | Store | Setting up the run |

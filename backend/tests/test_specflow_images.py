@@ -752,6 +752,8 @@ def test_make_up_refuses_two_stores_and_a_graph_store_that_disagrees_with_with()
     mismatch = make_dry_run("up", GRAPH_STORE="arcadedb")
     assert mismatch.returncode != 0 and "use WITH=arcadedb" in mismatch.stderr
     assert make_dry_run("up", WITH="arcadedb", GRAPH_STORE="arcadedb").returncode == 0
+    for host_target in ("api", "worker", "test-graph-live"):  # host targets take any store
+        assert make_dry_run(host_target, GRAPH_STORE="arcadedb").returncode == 0, host_target
 
 
 def test_the_postgres_override_leaves_the_graph_connection_to_the_database_settings() -> None:

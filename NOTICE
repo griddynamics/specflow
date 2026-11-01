@@ -177,8 +177,8 @@ HTTPX (httpx)
 Copyright Encode OSS Ltd.
 Licensed under BSD 3-Clause License
 https://github.com/encode/httpx
-Used by the ArcadeDB graph store adapter (HTTP admin API) and by the model
-gateway client.
+Used by the ArcadeDB graph store adapter (HTTP admin client). It is also a
+dependency of the OpenAI SDK.
 ----------------------------------------------------------------------------
 
 ----------------------------------------------------------------------------

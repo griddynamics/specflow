@@ -7,7 +7,7 @@ together. For every setting, see [`docs/configuration.md`](docs/configuration.md
 
 | Need | Why | Notes |
 |---|---|---|
-| Docker with the Compose plugin | Runs the whole stack | Docker Desktop, OrbStack or Docker Engine |
+| Docker with the Compose plugin (Compose 2.24 or later) | Runs the whole stack | Docker Desktop, OrbStack or Docker Engine |
 | `make` and `openssl` | `make env-local` writes random local secrets | Already on macOS and most Linux systems |
 | An OpenAI-compatible LLM gateway | Summaries and the knowledge-graph build | You need its URL, an API key and a model name |
 | Temporal | Runs the background workflows | Use your own on `localhost:7233`, or start the bundled one (`WITH=temporal`) |
