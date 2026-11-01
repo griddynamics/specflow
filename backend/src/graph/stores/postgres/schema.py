@@ -43,7 +43,8 @@ HNSW_MAX_DIMENSIONS: Final = 4000
 META_SCHEMA_VERSION: Final = "schema_version"
 META_EMBEDDING_DIM: Final = "embedding_dim"
 META_TABLE: Final = "meta"
-SCHEMA_VERSION: Final = "1"
+SCHEMA_VERSION: Final = "2"
+SCHEMA_OUTDATED: Final = "store_schema_outdated"
 SIMILARITY: Final = "cosine"
 # Codes of the errors the schema manager raises beyond the executor's neutral ones.
 SCHEMA_SETUP_FAILED: Final = "schema_setup_failed"
@@ -245,6 +246,19 @@ async def _recorded_dimension(connection: AsyncConnection, schema: str) -> int |
     return int(rows[0]["meta_value"]) if rows else None
 
 
+async def _require_current_version(connection: AsyncConnection, schema: str) -> None:
+    """Raise ``store_schema_outdated`` when an existing schema carries no version or another one than this
+    adapter's: its functions and tables are not upgraded in place (no silent half-upgrade); drop the schema
+    (development) or migrate it before use."""
+
+    rows = await _rows(connection, render_schema(load_ddl_sql("read_meta.sql"), schema), key=META_SCHEMA_VERSION)
+    found = str(rows[0]["meta_value"]) if rows else None
+    if found != SCHEMA_VERSION:
+        raise ConfigurationError(
+            SCHEMA_OUTDATED, store=BACKEND, schema=schema, found_version=found, expected_version=SCHEMA_VERSION
+        )
+
+
 async def ensure_postgres_schema(
     engine: AsyncEngine,
     dialect: PostgresDialect,
@@ -260,7 +274,8 @@ async def ensure_postgres_schema(
     server). Everything runs in one transaction under the schema advisory lock. Raises
     ``ConfigurationError`` when the ``vector`` extension is missing (``store_extension_missing``), when the
     server or the extension is too old, or when the schema was created for another vector dimension
-    (``vector_index_mismatch``); all checks run before the first create.
+    (``vector_index_mismatch``), or when an existing schema has no or another schema version
+    (``store_schema_outdated``); all checks run before the first create.
     """
 
     wanted = schema_objects(ontology, ddl)
@@ -276,6 +291,7 @@ async def ensure_postgres_schema(
                 row["object_name"] for row in await _rows(connection, load_ddl_sql("catalog.sql"), schema=schema)
             }
             if META_TABLE in present:
+                await _require_current_version(connection, schema)
                 _require_dimension(await _recorded_dimension(connection, schema), embedding_dim)
             for item in wanted:
                 if (schema if item.kind == "schema" else item.name) in present:
@@ -302,7 +318,9 @@ async def ensure_postgres_schema(
 
 async def _ensure_hnsw(connection: AsyncConnection, schema: str, embedding_dim: int) -> list[str]:
     """Create the HNSW index of each embedding model of ``embedding_dim`` dimensions that a project holds
-    more than ``HNSW_MIN_VECTORS`` vectors of (dimension up to ``HNSW_MAX_DIMENSIONS``); return the names."""
+    more than ``HNSW_MIN_VECTORS`` vectors of (dimension up to ``HNSW_MAX_DIMENSIONS``); return the names.
+
+    Building an index holds a ``SHARE`` lock on the node table: writes wait meanwhile."""
 
     if embedding_dim > HNSW_MAX_DIMENSIONS:
         return []
