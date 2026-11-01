@@ -34,6 +34,8 @@ logger = get_logger("db.repositories")
 PARSE_ERROR_CODES: Final = frozenset(
     {
         "pdf_parse_failed",
+        "document_too_large",
+        "document_parse_failed",
         "document_not_found",
         "original_not_found",
         "workflow_start_failed",

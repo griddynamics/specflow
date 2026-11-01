@@ -12,7 +12,7 @@ import pytest
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
-from file_parsers.pdf.to_markdown import ParsedMarkdown, PdfParseError, pdf_file_to_markdown
+from file_parsers.convert import ParsedMarkdown, PdfParseError
 from specflow_parse_support import (
     PDF_FIXTURE,
     FakeRepository,
@@ -22,6 +22,7 @@ from specflow_parse_support import (
 from storage.keys import document_original
 from storage.memory import InMemoryObjectStore
 from temporal.documents.activities import ParseActivities
+from temporal.documents.conversion import convert
 from temporal.documents.models import MarkFailedInput, ParseDocumentInput
 
 PRIVATE_NAME = "confidential-contract-name.pdf"
@@ -60,7 +61,7 @@ def build(store, executor, parse, **kwargs) -> ParseActivities:
     return ParseActivities(FakeSessions(), store, executor, parse=parse, **kwargs)
 
 
-def ok_parse(path: Path) -> ParsedMarkdown:
+def ok_parse(path: Path, *_args: object) -> ParsedMarkdown:
     return ParsedMarkdown(markdown="# Title\n\nbody", parser="pymupdf4llm")
 
 
@@ -90,14 +91,14 @@ async def test_the_real_parser_handles_the_fixture_pdf(data, repository, executo
     key = document_original(str(data.project_id), str(data.document_id))
     store.objects[key] = PDF_FIXTURE.read_bytes()
 
-    result = await run_parse(build(store, executor, pdf_file_to_markdown), data)
+    result = await run_parse(build(store, executor, convert), data)
 
     assert result.markdown_chars > 0
     assert repository.parsed[0][0].strip()
 
 
 async def test_nul_characters_are_removed_before_the_write(data, store, repository, executor):
-    def parse(_path: Path) -> ParsedMarkdown:
+    def parse(_path: Path, *_args: object) -> ParsedMarkdown:
         return ParsedMarkdown(markdown="a\x00b", parser="pymupdf4llm")
 
     result = await run_parse(build(store, executor, parse), data)
@@ -127,7 +128,7 @@ async def test_rerunning_is_idempotent(data, store, repository, executor):
 async def test_known_failures_are_non_retryable_fixed_codes(
     *, scenario, error_type, message, data, store, repository, executor
 ):
-    def corrupt(path: Path) -> ParsedMarkdown:
+    def corrupt(path: Path, *_args: object) -> ParsedMarkdown:
         raise PdfParseError(f"cannot parse {PRIVATE_NAME} at /Users/someone/{PRIVATE_NAME}")
 
     parse = ok_parse
@@ -157,7 +158,7 @@ async def test_unexpected_errors_are_retryable_and_carry_no_data(data, store, re
     class BoomError(OSError):
         pass
 
-    def broken(path: Path) -> ParsedMarkdown:
+    def broken(path: Path, *_args: object) -> ParsedMarkdown:
         raise BoomError(f"disk error on /Users/someone/{PRIVATE_NAME} password=hunter2")
 
     error = await failure_of(run_parse(build(store, executor, broken), data))
@@ -179,7 +180,7 @@ async def test_a_database_error_on_the_write_is_retryable_and_sanitized(data, st
 async def test_the_temp_directory_is_removed_on_success_and_failure(data, store, repository, executor):
     seen: list[Path] = []
 
-    def spy(path: Path) -> ParsedMarkdown:
+    def spy(path: Path, *_args: object) -> ParsedMarkdown:
         assert path.exists()
         seen.append(path.parent)
         if len(seen) == 2:
@@ -209,7 +210,7 @@ async def test_heartbeats_are_sent_while_the_parse_runs(data, store, repository,
 
     release = threading.Event()
 
-    def slow(path: Path) -> ParsedMarkdown:
+    def slow(path: Path, *_args: object) -> ParsedMarkdown:
         release.wait(10)  # held until the test saw enough heartbeats
         return ParsedMarkdown(markdown="ok", parser="pymupdf4llm")
 
@@ -223,7 +224,15 @@ async def test_heartbeats_are_sent_while_the_parse_runs(data, store, repository,
     assert len(beats) >= BEATS_NEEDED
     # TEMPORARY (freeze investigation): numbers-only progress details.
     assert beats[-1][0]["stage"] == "parse"
-    assert set(beats[-1][0]) == {"stage", "elapsed_s", "stage_elapsed_s", "rss_mb", "loop_lag_ms"}
+    assert set(beats[-1][0]) == {
+        "pages_done",
+        "pages_total",
+        "stage",
+        "elapsed_s",
+        "stage_elapsed_s",
+        "rss_mb",
+        "loop_lag_ms",
+    }
 
 
 async def test_the_parse_runs_off_the_event_loop_and_one_at_a_time(data, store, repository, executor):
@@ -231,7 +240,7 @@ async def test_the_parse_runs_off_the_event_loop_and_one_at_a_time(data, store, 
     active = {"now": 0, "max": 0}
     lock = threading.Lock()
 
-    def tracked(path: Path) -> ParsedMarkdown:
+    def tracked(path: Path, *_args: object) -> ParsedMarkdown:
         with lock:
             active["now"] += 1
             active["max"] = max(active["max"], active["now"])

@@ -70,11 +70,11 @@ RULE_CASES = [
     (12, facts(source_failed=True, item_state="error", item_error_reason="no_access"), ("failed", "access_lost")),
     # rule 2
     (2, facts(holds=True, doc_status="uploaded", doc_age=FRESH), ("waiting", None)),
-    (2, facts(holds=True, doc_status="uploaded", doc_age=timedelta(minutes=59)), ("waiting", None)),
+    (2, facts(holds=True, doc_status="uploaded", doc_age=timedelta(minutes=249)), ("waiting", None)),
     (2, facts(holds=True, doc_status="uploaded", doc_age=UPLOAD_STALE_AFTER), ("waiting", None)),
     (2, facts(item_state="processed", holds=True, doc_status="uploaded", doc_age=FRESH), ("waiting", None)),
     # a stale ``uploaded`` document (the parse never started) is failed, like stale processing
-    (5, facts(holds=True, doc_status="uploaded", doc_age=timedelta(minutes=61)), ("failed", "unknown")),
+    (5, facts(holds=True, doc_status="uploaded", doc_age=timedelta(minutes=251)), ("failed", "unknown")),
     (
         5,
         facts(holds=True, doc_status="uploaded", doc_age=STALE, doc_error="pdf_parse_failed"),

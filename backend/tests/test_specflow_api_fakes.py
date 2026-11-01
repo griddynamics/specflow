@@ -167,7 +167,7 @@ class FakeRepo:
             stale = (
                 include_stale
                 and doc.status in ("processing", "uploaded")
-                and datetime.now(UTC) - doc.updated_at > timedelta(minutes=60)
+                and datetime.now(UTC) - doc.updated_at > repo.UPLOAD_STALE_AFTER
             )
             return doc.status in ("uploaded", "failed") or stale
 
