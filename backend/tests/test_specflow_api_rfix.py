@@ -7,7 +7,6 @@ import uuid
 from types import SimpleNamespace
 
 import db.session as session_module
-import graph.core as graph_module
 import storage.gcs as gcs_module
 import temporal.client as temporal_module
 from api import runtime as runtime_module
@@ -70,9 +69,12 @@ async def test_the_store_is_closed_when_the_api_runtime_shuts_down(monkeypatch, 
         async def dispose(self):
             order.append("engine")
 
-    class Driver:
+    class GraphStore:
         async def close(self):
-            order.append("driver")
+            order.append("graph")
+
+        async def check(self):
+            return None
 
     class Store:
         def __init__(self, settings, *, app_env):
@@ -90,7 +92,7 @@ async def test_the_store_is_closed_when_the_api_runtime_shuts_down(monkeypatch, 
         )
 
     monkeypatch.setattr(session_module, "build_engine", lambda _settings: Engine())
-    monkeypatch.setattr(graph_module, "connect", lambda _config: Driver())
+    monkeypatch.setattr(runtime_module, "build_store", lambda _config: GraphStore())
     monkeypatch.setattr("storage.factory.build_object_store", Store)
     monkeypatch.setattr(temporal_module, "open_connection", open_connection)
 
@@ -99,7 +101,7 @@ async def test_the_store_is_closed_when_the_api_runtime_shuts_down(monkeypatch, 
     await runtime.aclose()
     await runtime.aclose()  # a second close changes nothing
 
-    assert sorted(order) == ["driver", "engine", "store", "tracing"]
+    assert sorted(order) == ["engine", "graph", "store", "tracing"]
     assert order.index("store") < order.index("engine")
 
 

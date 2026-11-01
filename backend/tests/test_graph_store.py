@@ -28,22 +28,18 @@ from graph.core.store import (
 SCOPED = Query("scoped", "core.read_nodes")
 
 
-class Boom(Exception):
-    def __init__(self, transient: bool) -> None:
+class BoomError(Exception):
+    def __init__(self, *, transient: bool) -> None:
         super().__init__("boom")
         self.transient = transient
 
 
 def mapped(error: BaseException, attempts: int) -> GraphError:
-    return InfrastructureUnavailableError(
-        "store_read_failed", attempts=attempts, error_type=type(error).__name__
-    )
+    return InfrastructureUnavailableError("store_read_failed", attempts=attempts, error_type=type(error).__name__)
 
 
-async def run(
-    failures: list[bool], *, delays: tuple[float, ...] = (0.1, 0.3)
-) -> tuple[Any, list[float], list[int]]:
-    """Run an operation that raises ``Boom(transient)`` per entry of ``failures``, then returns ``"ok"``."""
+async def run(failures: list[bool], *, delays: tuple[float, ...] = (0.1, 0.3)) -> tuple[Any, list[float], list[int]]:
+    """Run an operation that raises ``BoomError(transient)`` per entry of ``failures``, then returns ``"ok"``."""
 
     waits: list[float] = []
     retried: list[int] = []
@@ -51,7 +47,7 @@ async def run(
 
     async def operation() -> str:
         if pending:
-            raise Boom(pending.pop(0))
+            raise BoomError(transient=pending.pop(0))
         return "ok"
 
     async def sleep(delay: float) -> None:
@@ -59,8 +55,8 @@ async def run(
 
     result = await retry_transient(
         operation,
-        errors=(Boom,),
-        is_transient=lambda error: isinstance(error, Boom) and error.transient,
+        errors=(BoomError,),
+        is_transient=lambda error: isinstance(error, BoomError) and error.transient,
         map_error=mapped,
         delays=delays,
         sleep=sleep,
@@ -81,9 +77,7 @@ async def test_a_transient_failure_is_retried_after_each_delay() -> None:
     assert await run([True, True]) == ("ok", [0.1, 0.3], [1, 2])
 
 
-async def test_a_transient_failure_after_the_last_retry_is_mapped_with_the_attempt_count() -> (
-    None
-):
+async def test_a_transient_failure_after_the_last_retry_is_mapped_with_the_attempt_count() -> None:
     with pytest.raises(InfrastructureUnavailableError) as raised:
         await run([True, True, True])
     assert raised.value.fields["attempts"] == 3
@@ -103,7 +97,7 @@ async def test_a_failure_outside_errors_propagates_unmapped() -> None:
     with pytest.raises(KeyError):
         await retry_transient(
             operation,
-            errors=(Boom,),
+            errors=(BoomError,),
             is_transient=lambda _error: True,
             map_error=mapped,
             delays=(0.0,),
@@ -141,14 +135,10 @@ def test_store_info_defaults_to_a_transactional_store_without_version() -> None:
 
 
 class FakeExecutor:
-    async def read(
-        self, query: Query, project_id: str, /, **params: Any
-    ) -> list[dict[str, Any]]:
+    async def read(self, _query: Query, _project_id: str, /, **_params: Any) -> list[dict[str, Any]]:
         return []
 
-    async def write(
-        self, query: Query, project_id: str, /, **params: Any
-    ) -> list[dict[str, Any]]:
+    async def write(self, _query: Query, _project_id: str, /, **_params: Any) -> list[dict[str, Any]]:
         return []
 
     def tx(self, project_id: str) -> Any:
@@ -166,9 +156,7 @@ class FakeStore:
     async def check(self) -> None:
         return None
 
-    async def ensure_schema(
-        self, ontology: Any, embedding_dim: int, *, ddl: Any = None
-    ) -> tuple[str, ...]:
+    async def ensure_schema(self, *_args: Any, **_kwargs: Any) -> tuple[str, ...]:
         return ()
 
     async def close(self) -> None:

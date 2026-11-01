@@ -12,7 +12,7 @@ import os
 import subprocess
 import sys
 import types
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -23,11 +23,12 @@ from neo4j.exceptions import (
     ClientError,
     DatabaseError,
     Forbidden,
+    Neo4jError,
     ServiceUnavailable,
 )
 from pydantic import SecretStr
 
-import graph.stores as stores
+from graph import stores
 from graph.build import BuildContext
 from graph.core import (
     ConfigurationError,
@@ -36,6 +37,7 @@ from graph.core import (
     OwnedWriter,
     ensure_schema,
 )
+from graph.core import store as port
 from graph.core.errors import (
     ConformanceError,
     GraphWriteError,
@@ -52,20 +54,21 @@ from graph.core.store import (
     multi_statement_tx,
 )
 from graph.stores import BACKENDS, StoreConfig, build_store
+from graph.stores._bolt import executor as bolt
 from graph.stores._bolt.cypher import render_cypher
 from graph.stores._bolt.executor import BoltExecutor, _map_error
 from graph.stores.neo4j import Neo4jStore
 from graph_support import llm_config, shipped_ontology
 from test_graph_schema import DIM, SchemaDriver
 
-SECRET = "pw-never-in-errors-91"
-BACKEND_CONFIG = {"uri": "bolt://127.0.0.1:1", "user": "neo4j", "password": SECRET}
+CANARY_VALUE = "pw-never-in-errors-91"
+BACKEND_CONFIG = {"uri": "bolt://127.0.0.1:1", "user": "neo4j", "password": CANARY_VALUE}
 
 
-def neo4j_error(cls: type[Exception], code: str) -> Exception:
+def neo4j_error(cls: type[Neo4jError], code: str) -> Neo4jError:
     """A server error as the driver builds it (code and a message that must never reach a GraphError)."""
 
-    return cls._hydrate_neo4j(code=code, message="message carrying a secret")  # type: ignore[attr-defined,no-any-return]
+    return cls._hydrate_neo4j(code=code, message="message carrying a secret")
 
 
 SRC = Path(__file__).resolve().parents[1] / "src"
@@ -82,8 +85,8 @@ def test_a_store_config_defaults_to_neo4j_and_hides_its_secret() -> None:
     settings = config()
     assert settings.backend == "neo4j" and settings.name is None
     assert settings.admin_uri is None and settings.pool_size is None
-    assert SECRET not in repr(settings) and SECRET not in str(settings.model_dump())
-    assert settings.password.get_secret_value() == SECRET
+    assert CANARY_VALUE not in repr(settings) and CANARY_VALUE not in str(settings.model_dump())
+    assert settings.password.get_secret_value() == CANARY_VALUE
 
 
 @pytest.mark.parametrize(
@@ -97,25 +100,22 @@ def test_a_store_config_defaults_to_neo4j_and_hides_its_secret() -> None:
         ({"unknown": 1}, "unknown"),
     ],
 )
-def test_an_invalid_store_config_names_the_field_and_never_a_value(
-    overrides: dict[str, Any], field: str
-) -> None:
+def test_an_invalid_store_config_names_the_field_and_never_a_value(overrides: dict[str, Any], field: str) -> None:
     with pytest.raises(ConfigurationError) as raised:
         config(**overrides)
     assert raised.value.code == "invalid_settings"
     assert raised.value.fields["fields"] == field
-    assert SECRET not in str(raised.value) and "mysql" not in str(raised.value)
+    assert CANARY_VALUE not in str(raised.value) and "mysql" not in str(raised.value)
 
 
 def test_a_store_config_is_frozen() -> None:
+    frozen: Any = config()
     with pytest.raises(ValueError, match="frozen"):
-        config().uri = "x"  # type: ignore[misc]
+        frozen.uri = "x"
 
 
 def test_a_neo4j_config_converts_to_store_settings() -> None:
-    legacy = Neo4jConfig(
-        uri="bolt://h:7687", user="u", password=SecretStr(SECRET), database="graph"
-    )
+    legacy = Neo4jConfig(uri="bolt://h:7687", user="u", password=SecretStr(CANARY_VALUE), database="graph")
     converted = StoreConfig.from_neo4j(legacy)
     assert (converted.backend, converted.uri, converted.user, converted.name) == (
         "neo4j",
@@ -123,7 +123,7 @@ def test_a_neo4j_config_converts_to_store_settings() -> None:
         "u",
         "graph",
     )
-    assert converted.password.get_secret_value() == SECRET
+    assert converted.password.get_secret_value() == CANARY_VALUE
 
 
 # Routing
@@ -145,15 +145,11 @@ def test_a_backend_without_an_adapter_is_not_available(backend: str) -> None:
 def test_neo4j_routes_to_the_neo4j_store_without_connecting() -> None:
     store = build_store(config(name="graph"))
     assert isinstance(store, Neo4jStore) and isinstance(store, GraphStore)
-    assert store.info == StoreInfo(
-        "neo4j", StoreCapabilities(multi_statement_tx=True), None
-    )
+    assert store.info == StoreInfo("neo4j", StoreCapabilities(multi_statement_tx=True), None)
 
 
 def test_a_neo4j_config_is_still_accepted() -> None:
-    store = build_store(
-        Neo4jConfig(uri="bolt://127.0.0.1:1", user="u", password=SecretStr(SECRET))
-    )
+    store = build_store(Neo4jConfig(uri="bolt://127.0.0.1:1", user="u", password=SecretStr(CANARY_VALUE)))
     assert isinstance(store, Neo4jStore)
 
 
@@ -189,9 +185,7 @@ def test_any_other_import_failure_is_a_bug_and_propagates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def broken(name: str, package: str | None = None) -> Any:
-        raise ModuleNotFoundError(
-            "No module named 'something_else'", name="something_else"
-        )
+        raise ModuleNotFoundError("No module named 'something_else'", name="something_else")
 
     monkeypatch.setattr(stores.importlib, "import_module", broken)
     with pytest.raises(ModuleNotFoundError):
@@ -203,11 +197,10 @@ def test_an_adapter_module_builds_its_store_from_the_config(
 ) -> None:
     class FakeStore:
         @classmethod
-        def from_config(cls, settings: StoreConfig) -> FakeStore:
+        def from_config(cls, _settings: StoreConfig) -> FakeStore:
             return cls()
 
-    module = types.ModuleType("graph.stores.fake_adapter")
-    module.FakeStore = FakeStore  # type: ignore[attr-defined]
+    module = types.SimpleNamespace(FakeStore=FakeStore)
     monkeypatch.setitem(sys.modules, "graph.stores.fake_adapter", module)
     monkeypatch.setitem(
         stores._ADAPTERS,
@@ -259,9 +252,7 @@ class Driver(SchemaDriver):
     async def verify_connectivity(self) -> None:
         self.verified += 1
 
-    async def execute_query(
-        self, text: str, params: dict[str, Any] | None = None, **kwargs: Any
-    ) -> Any:
+    async def execute_query(self, text: str, params: dict[str, Any] | None = None, **kwargs: Any) -> Any:
         if text == render_cypher(PING):
             self.texts.append(text)
             return types.SimpleNamespace(records=[{"ok": 1}])
@@ -273,9 +264,7 @@ class Driver(SchemaDriver):
 
 def test_the_neo4j_store_reports_a_transactional_backend() -> None:
     store = Neo4jStore(Driver(), "graph")
-    assert store.info == StoreInfo(
-        "neo4j", StoreCapabilities(multi_statement_tx=True), None
-    )
+    assert store.info == StoreInfo("neo4j", StoreCapabilities(multi_statement_tx=True), None)
     assert store.executor() is store.executor()
     assert isinstance(store.executor(), BoltExecutor)
     assert store.executor().capabilities.multi_statement_tx is True
@@ -309,12 +298,8 @@ async def test_the_module_functions_accept_a_store_or_a_driver() -> None:
     first, second = Driver(), Driver()
     for driver in (first, second):
         driver.add_all()
-    created_by_store = await ensure_schema(
-        Neo4jStore(first), shipped_ontology(), llm_config(embedding_dim=DIM)
-    )
-    created_by_driver = await ensure_schema(
-        second, shipped_ontology(), llm_config(embedding_dim=DIM), "neo4j"
-    )
+    created_by_store = await ensure_schema(Neo4jStore(first), shipped_ontology(), llm_config(embedding_dim=DIM))
+    created_by_driver = await ensure_schema(second, shipped_ontology(), llm_config(embedding_dim=DIM), "neo4j")
     assert created_by_store == created_by_driver == ()
     await check(Neo4jStore(first))
     await check(second, "neo4j")
@@ -334,8 +319,6 @@ async def test_a_store_wrapping_a_driver_leaves_it_open_and_one_from_config_clos
         made.append(Driver())
         return made[0]
 
-    import graph.stores._bolt.executor as bolt
-
     monkeypatch.setattr(bolt.AsyncGraphDatabase, "driver", factory)
     owned = Neo4jStore.from_config(config(name="graph"))
     await owned.close()
@@ -349,19 +332,17 @@ class FakeTransactions:
     def __init__(self) -> None:
         self.writes: list[str] = []
 
-    async def read(
-        self, query: Any, project_id: str, /, **params: Any
-    ) -> list[dict[str, Any]]:
+    capabilities: StoreCapabilities | None = None
+
+    async def read(self, _query: Any, _project_id: str, /, **_params: Any) -> list[dict[str, Any]]:
         return []
 
-    async def write(
-        self, query: Any, project_id: str, /, **params: Any
-    ) -> list[dict[str, Any]]:
+    async def write(self, query: Any, _project_id: str, /, **_params: Any) -> list[dict[str, Any]]:
         self.writes.append(query.name)
         return [{"written": 1, "label_mismatch": False, "spec_id_changed": False}]
 
     @asynccontextmanager
-    async def tx(self, project_id: str) -> Iterator[Any]:  # type: ignore[misc]
+    async def tx(self, _project_id: str) -> AsyncIterator[Any]:
         raise AssertionError("no transaction expected")
         yield
 
@@ -370,9 +351,7 @@ class FakeStore:
     """A store without multi-statement transactions."""
 
     def __init__(self, *, transactional: bool) -> None:
-        self.info = StoreInfo(
-            "fake", StoreCapabilities(multi_statement_tx=transactional)
-        )
+        self.info = StoreInfo("fake", StoreCapabilities(multi_statement_tx=transactional))
         self._executor = FakeTransactions()
 
     def executor(self) -> FakeTransactions:
@@ -381,9 +360,7 @@ class FakeStore:
     async def check(self) -> None:
         return None
 
-    async def ensure_schema(
-        self, ontology: Any, embedding_dim: int, *, ddl: Any = None
-    ) -> tuple[str, ...]:
+    async def ensure_schema(self, *_args: Any, **_kwargs: Any) -> tuple[str, ...]:
         return ("created",)
 
     async def close(self) -> None:
@@ -405,39 +382,31 @@ def test_capabilities_come_from_the_store_or_the_executor_else_true() -> None:
     assert multi_statement_tx(limited, limited.executor()) is False
     bare = FakeTransactions()
     assert multi_statement_tx(bare, bare) is True
-    bare.capabilities = StoreCapabilities(multi_statement_tx=False)  # type: ignore[attr-defined]
+    bare.capabilities = StoreCapabilities(multi_statement_tx=False)
     assert multi_statement_tx(bare, bare) is False
 
 
-async def test_writer_transaction_is_refused_on_a_store_without_multi_statement_transactions() -> (
-    None
-):
+async def test_writer_transaction_is_refused_on_a_store_without_multi_statement_transactions() -> None:
     store = FakeStore(transactional=False)
     writer = OwnedWriter(store, shipped_ontology(), "build", "proj-1")
     with pytest.raises(ConfigurationError) as raised:
         async with writer.transaction():
             raise AssertionError("the block must not run")
     assert raised.value.code == "store_transactions_unsupported"
-    await writer.upsert_node(
-        "Document", "doc-1", {"title": "x"}
-    )  # a single operation is still fine
+    await writer.upsert_node("Document", "doc-1", {"title": "x"})  # a single operation is still fine
     assert store.executor().writes == ["upsert_node_Document"]
 
 
 async def test_writer_transaction_is_refused_on_an_executor_that_says_so() -> None:
     executor = FakeTransactions()
-    executor.capabilities = StoreCapabilities(multi_statement_tx=False)  # type: ignore[attr-defined]
+    executor.capabilities = StoreCapabilities(multi_statement_tx=False)
     with pytest.raises(ConfigurationError) as raised:
-        async with OwnedWriter(
-            executor, shipped_ontology(), "build", "proj-1"
-        ).transaction():
+        async with OwnedWriter(executor, shipped_ontology(), "build", "proj-1").transaction():
             raise AssertionError("the block must not run")
     assert raised.value.code == "store_transactions_unsupported"
 
 
-async def test_writer_transaction_on_a_transactional_store_reaches_the_executor() -> (
-    None
-):
+async def test_writer_transaction_on_a_transactional_store_reaches_the_executor() -> None:
     store = FakeStore(transactional=True)
     writer = OwnedWriter(store, shipped_ontology(), "build", "proj-1")
     with pytest.raises(AssertionError, match="no transaction expected"):
@@ -526,17 +495,15 @@ def test_build_context_still_takes_a_driver_and_database() -> None:
     ],
 )
 def test_a_driver_error_maps_to_a_neutral_code_carrying_the_store(
-    backend: str, error: Exception, write: bool, cls: type, code: str
+    backend: str, error: Exception, *, write: bool, cls: type, code: str
 ) -> None:
     mapped = _map_error(error, "q", write=write, backend=backend)
     assert type(mapped) is cls and mapped.code == code
     assert mapped.fields["store"] == backend
-    assert "message carrying" not in str(mapped) and SECRET not in str(mapped)
+    assert "message carrying" not in str(mapped) and CANARY_VALUE not in str(mapped)
 
 
-def test_a_write_that_fails_with_a_procedure_error_is_a_write_failure_not_a_complex_query() -> (
-    None
-):
+def test_a_write_that_fails_with_a_procedure_error_is_a_write_failure_not_a_complex_query() -> None:
     mapped = _map_error(
         neo4j_error(ClientError, "Neo.ClientError.Procedure.ProcedureCallFailed"),
         "q",
@@ -546,8 +513,6 @@ def test_a_write_that_fails_with_a_procedure_error_is_a_write_failure_not_a_comp
 
 
 def test_the_neutral_codes_are_the_design_list() -> None:
-    from graph.core import store as port
-
     assert {
         port.STORE_UNREACHABLE,
         port.STORE_AUTH_REJECTED,

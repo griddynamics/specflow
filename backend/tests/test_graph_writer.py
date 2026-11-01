@@ -97,7 +97,9 @@ class FakeExecutor(Executor):
     def dump(self) -> str:
         """Every query text and parameter of the run, as one string to search."""
 
-        return json.dumps([[render_cypher(query), params] for _, query, params in self.runs], sort_keys=True, default=str)
+        return json.dumps(
+            [[render_cypher(query), params] for _, query, params in self.runs], sort_keys=True, default=str
+        )
 
 
 def writer(

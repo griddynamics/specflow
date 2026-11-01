@@ -17,7 +17,8 @@ from typing import Any, Final
 from sqlalchemy import text
 
 from db import session as db_session
-from graph import core as graph_core
+from graph.core.errors import ConfigurationError
+from graph.stores import build_store
 from logger.logger import INFO, WARNING, get_logger, log_event
 from settings import Role, RoleSettings, load_settings
 from storage import factory as storage_factory
@@ -31,7 +32,7 @@ CLI_TIMEOUT_SECONDS: Final = 5.0  # `worker --check` connects from scratch
 DETAIL_OK: Final = "ok"
 DETAIL_TIMEOUT: Final = "timeout"
 DETAIL_UNAVAILABLE: Final = "unavailable"
-CHECK_NAMES: Final = ("database", "temporal", "storage", "neo4j")
+CHECK_NAMES: Final = ("database", "temporal", "storage", "graph")
 
 Probe = Callable[[], Awaitable[None]]
 
@@ -152,9 +153,18 @@ def storage_probe(store: Any) -> Probe:
     return check
 
 
-def neo4j_probe(driver: Any, database: str | None) -> Probe:
+def graph_probe(store: Any) -> Probe:
+    """The graph store's own reachability check (``GraphStore.check``)."""
+
+    check: Probe = store.check
+    return check
+
+
+def _graph_unconfigured() -> Probe:
+    """A probe for a store that cannot be built (unknown adapter, missing SDK): reported as unavailable."""
+
     async def probe() -> None:
-        await graph_core.check(driver, database)
+        raise ConfigurationError("store_not_available")
 
     return probe
 
@@ -180,10 +190,14 @@ async def run_checks(role: Role, *, settings: RoleSettings | None = None) -> Che
             probes["storage"] = storage_probe(
                 storage_factory.build_object_store(settings.storage, app_env=settings.app.app_env)
             )
-        if settings.neo4j is not None:
-            driver = graph_core.connect(settings.neo4j.to_graph_config())
-            cleanups.append(driver.close)
-            probes["neo4j"] = neo4j_probe(driver, settings.neo4j.database)
+        if settings.graph_store is not None:
+            try:
+                graph = build_store(settings.graph_store.to_store_config())
+            except ConfigurationError:
+                probes["graph"] = _graph_unconfigured()
+            else:
+                cleanups.append(graph.close)
+                probes["graph"] = graph_probe(graph)
         report = await run_probes(probes, CLI_TIMEOUT_SECONDS)
     finally:
         for cleanup in cleanups:

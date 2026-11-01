@@ -21,7 +21,7 @@ import asyncio
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
-from typing import Any, Final, Protocol, TypeVar, runtime_checkable
+from typing import Any, Final, Protocol, cast, runtime_checkable
 
 from graph.core.errors import ConformanceError, GraphError
 from graph.core.identity import validate_project_id
@@ -30,7 +30,6 @@ from graph.core.ontology.compiled import BUILD_OWNER
 from graph.core.queries import PROJECT_ID_PARAMETER, Query
 
 Record = dict[str, Any]
-T = TypeVar("T")
 
 # Neutral error codes (design D11); each error also carries ``store=<backend name>``.
 STORE_UNREACHABLE: Final = "store_unreachable"
@@ -91,13 +90,9 @@ class Executor(Protocol):
     transaction (committed when the block ends, rolled back when it raises) and is not retried.
     """
 
-    async def read(
-        self, query: Query, project_id: str, /, **params: Any
-    ) -> list[Record]: ...
+    async def read(self, query: Query, project_id: str, /, **params: Any) -> list[Record]: ...
 
-    async def write(
-        self, query: Query, project_id: str, /, **params: Any
-    ) -> list[Record]: ...
+    async def write(self, query: Query, project_id: str, /, **params: Any) -> list[Record]: ...
 
     def tx(self, project_id: str) -> AbstractAsyncContextManager[ScopedTransaction]: ...
 
@@ -134,14 +129,10 @@ class GraphStore(Protocol):
 def foreign_labels(ontology: Ontology) -> tuple[str, ...]:
     """The declared labels owned by another owner than build, sorted (stored without ``SpecNode``)."""
 
-    return tuple(
-        label for label in ontology.labels if ontology.owner_of(label) != BUILD_OWNER
-    )
+    return tuple(label for label in ontology.labels if ontology.owner_of(label) != BUILD_OWNER)
 
 
-def bind_project(
-    query: Query, project_id: str, params: Mapping[str, Any]
-) -> dict[str, Any]:
+def bind_project(query: Query, project_id: str, params: Mapping[str, Any]) -> dict[str, Any]:
     """Parameters of a scoped query with the validated ``project_id`` injected.
 
     The dialect proves that the rendered statement binds the project id; this part is the same for
@@ -155,7 +146,7 @@ def bind_project(
     return {**params, PROJECT_ID_PARAMETER: validate_project_id(project_id)}
 
 
-async def retry_transient(
+async def retry_transient[T](
     operation: Callable[[], Awaitable[T]],
     *,
     errors: tuple[type[BaseException], ...],
@@ -191,17 +182,13 @@ async def retry_transient(
 def is_store(source: Any) -> bool:
     """Whether ``source`` is a ``GraphStore`` (it hands out an executor and owns the schema)."""
 
-    return callable(getattr(source, "executor", None)) and callable(
-        getattr(source, "ensure_schema", None)
-    )
+    return callable(getattr(source, "executor", None)) and callable(getattr(source, "ensure_schema", None))
 
 
 def is_executor(source: Any) -> bool:
     """Whether ``source`` is an ``Executor`` (read, write and tx)."""
 
-    return all(
-        callable(getattr(source, name, None)) for name in ("read", "write", "tx")
-    )
+    return all(callable(getattr(source, name, None)) for name in ("read", "write", "tx"))
 
 
 def _wrap_driver(driver: Any, database: str | None) -> GraphStore:
@@ -209,14 +196,14 @@ def _wrap_driver(driver: Any, database: str | None) -> GraphStore:
 
     from graph.stores.neo4j import Neo4jStore  # imported late: core never needs a backend otherwise
 
-    return Neo4jStore(driver, database)  # type: ignore[no-any-return]
+    return cast(GraphStore, Neo4jStore(driver, database))
 
 
 def as_store(source: Any, database: str | None = None) -> GraphStore:
     """``source`` when it is a store; otherwise, deprecated, a Neo4j driver wrapped in the Neo4j store."""
 
     if is_store(source):
-        return source  # type: ignore[no-any-return]
+        return cast(GraphStore, source)
     return _wrap_driver(source, database)
 
 
@@ -235,7 +222,7 @@ def as_executor(source: Any, database: str | None = None) -> Executor:
     a Neo4j driver wrapped in the Neo4j adapter (``database`` names its database; ignored otherwise)."""
 
     if is_executor(source) and not is_store(source):
-        return source  # type: ignore[no-any-return]
+        return cast(Executor, source)
     executor: Executor = as_store(source, database).executor()
     return executor
 

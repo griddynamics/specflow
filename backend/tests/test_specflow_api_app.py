@@ -14,7 +14,7 @@ from api.app import create_app, untraced
 from api.runtime import Runtime
 from health import Readiness
 from settings import load_settings
-from specflow_api_support import FakeDriver, FakeRepo, FakeTemporal
+from specflow_api_support import FakeGraphStore, FakeRepo, FakeTemporal
 
 
 def test_run_serves_uvicorn_on_all_interfaces_with_the_central_logger_only(monkeypatch, valid_env):
@@ -48,7 +48,7 @@ async def lifespan_run(monkeypatch, env):
             session_factory=FakeRepo(),
             store=None,
             temporal=FakeTemporal(),
-            driver=FakeDriver(),
+            graph_store=FakeGraphStore(),
             readiness=Readiness({}),
             cleanups=[cleanup],
         )
@@ -119,7 +119,7 @@ async def test_probe_requests_make_no_spans_but_other_requests_do(monkeypatch, v
             session_factory=FakeRepo(),
             store=None,
             temporal=FakeTemporal(),
-            driver=FakeDriver(),
+            graph_store=FakeGraphStore(),
             readiness=Readiness({}, ttl=0),
         )
 

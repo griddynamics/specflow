@@ -23,7 +23,7 @@ from api.app import create_app
 from api.runtime import Runtime
 from health import Readiness
 from settings import StorageSettings, load_settings
-from specflow_api_support import PDF, FakeDriver, FakeRepo, FakeTemporal, bearer
+from specflow_api_support import PDF, FakeGraphStore, FakeRepo, FakeTemporal, bearer
 from specflow_api_wait_support import wait_until
 from specflow_live import requires_live
 from storage.gcs import GcsObjectStore
@@ -70,7 +70,7 @@ async def server(request, valid_env, monkeypatch):
             session_factory=fake,
             store=store,
             temporal=FakeTemporal(),
-            driver=FakeDriver(),
+            graph_store=FakeGraphStore(),
             readiness=Readiness({"storage": ok}, ttl=0),
         )
 

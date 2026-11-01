@@ -23,7 +23,6 @@ from graph.core.queries import (
     SimilarTargets,
     safe_name,
 )
-from graph.core.query_files import load_build_query as load_build_query  # noqa: PLC0414 (re-export)
 
 _MAX_HOPS: Final = 16
 

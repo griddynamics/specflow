@@ -26,10 +26,10 @@ three roles. It also holds the libraries the service reuses (`llm`, `file_parser
 | `auth/` | Token claims, OIDC verifier with a throttled JWKS cache, dev-token verifier |
 | `db/` | Models, repositories, async engine, `agent_scope` (RLS session), `migrate` |
 | `storage/` | `ObjectStore` protocol, GCS adapter (create-only resumable writes), in-memory store (tests only) |
-| `graph/` | The graph library (in progress, `docs/graph/`); the host uses `graph.core` for the Neo4j driver and readiness |
+| `graph/` | The graph library (in progress, `docs/graph/`); the host builds the graph store (`graph.stores.build_store`) and uses it for readiness |
 | `temporal/` | Client, worker runner, queues, ids, registry; `documents/` (parse workflow) and `agents/` (summarize workflow, tools, activities) |
 | `agent_runtime/` | Summarizer agent, LLM gateway model provider, Temporal plugin, Langfuse tracing |
-| `health.py` | The checks behind `/readyz` and `worker --check` (database, temporal, storage, neo4j) |
+| `health.py` | The checks behind `/readyz` and `worker --check` (database, temporal, storage, graph) |
 
 The PDF entry point of the service, `file_parsers.pdf.to_markdown`
 (`pdf_file_to_markdown`, `PdfParseError`, no LLM), lives in the `file_parsers`
@@ -53,7 +53,7 @@ variables, never their values.
 ### Settings and guards
 
 Each role requires only its own variables (`api`, `worker`, `migrate`); a worker
-that polls `agents` also needs Neo4j, the LLM gateway and the agent database password.
+that polls `agents` also needs the graph store, the LLM gateway and the agent database password.
 Outside `APP_ENV=local` startup is refused for: `AUTH_MODE=dev`, a dev signing
 key, a non-https issuer, a JWKS URL on another host, a `STORAGE_PREFIX` that does
 not end in `/` or starts with `dev/local/`, an empty secret, or `specflow-smoke`

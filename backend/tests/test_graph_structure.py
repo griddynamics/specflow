@@ -30,17 +30,38 @@ from graph_support import shipped_ontology
 
 GRAPH_ROOT: Final = Path(__file__).resolve().parents[1] / "src" / "graph"
 
+# Packages any graph module may import; the vendor SDKs below are allowed only where ONLY_IN says.
 THIRD_PARTY_ALLOWED: Final = frozenset(
-    {"graph", "logger", "pydantic", "yaml", "numpy", "neo4j", "openai", "graphiti_core"}
+    {
+        "graph",
+        "logger",
+        "pydantic",
+        "yaml",
+        "numpy",
+        "openai",
+        "graphiti_core",
+        "neo4j",
+        "sqlalchemy",
+        "asyncpg",
+        "httpx",
+        "pyTigerGraph",
+    }
 )
 HOST_PACKAGES: Final = frozenset(
     {"api", "temporal", "settings", "health", "db", "storage", "drive", "llm", "agent_runtime", "file_parsers", "cli"}
 )
-# A package listed here may be imported only by these modules (paths relative to src/graph).
+# A package listed here may be imported only by these modules (paths relative to src/graph); an entry
+# that ends with "/" stands for every module of that adapter folder (design D3). One folder per SDK
+# user: the Bolt layer and the Neo4j and ArcadeDB adapters speak Bolt, PostgreSQL has the SQL SDKs,
+# ArcadeDB the HTTP client for its admin API, TigerGraph its own SDK.
 ONLY_IN: Final = {
     "openai": frozenset({"core/llm/gateway.py"}),
     "graphiti_core": frozenset({"build/graphiti.py"}),
-    "httpx": frozenset(),
+    "neo4j": frozenset({"stores/_bolt/", "stores/neo4j/", "stores/arcadedb/"}),
+    "sqlalchemy": frozenset({"stores/postgres/"}),
+    "asyncpg": frozenset({"stores/postgres/"}),
+    "httpx": frozenset({"stores/arcadedb/"}),
+    "pyTigerGraph": frozenset({"stores/tigergraph/"}),
 }
 QUERY_MODULES: Final = frozenset({"core/queries.py", "build/queries.py"})
 # The Cypher dialect renders the canonical files and builds the run-time parts of a statement.
@@ -172,14 +193,42 @@ def test_fr_core_07_no_host_package_imports() -> None:
     assert violations == []
 
 
-def test_i2_openai_graphiti_and_httpx_confined() -> None:
+def allowed_in(rel: str, entries: frozenset[str]) -> bool:
+    """Whether the module path ``rel`` is one of ``entries`` (a file) or inside one (a folder ending in "/")."""
+
+    return any(rel == entry or (entry.endswith("/") and rel.startswith(entry)) for entry in entries)
+
+
+def test_i2_vendor_sdks_confined() -> None:
     violations = [
         f"{module.where(node)} imports {name!r}"
         for module in modules()
         for node, name in imports(module)
-        if name in ONLY_IN and module.rel not in ONLY_IN[name]
+        if name in ONLY_IN and not allowed_in(module.rel, ONLY_IN[name])
     ]
     assert violations == []
+
+
+@pytest.mark.parametrize(
+    ("rel", "allowed"),
+    [
+        ("stores/_bolt/executor.py", True),
+        ("stores/neo4j/store.py", True),
+        ("stores/arcadedb/store.py", True),
+        ("stores/neo4j_helpers.py", False),  # a folder entry never matches a sibling that shares its prefix
+        ("stores/__init__.py", False),
+        ("core/db.py", False),
+    ],
+)
+def test_a_folder_entry_allows_only_its_own_modules(rel: str, *, allowed: bool) -> None:
+    assert allowed_in(rel, ONLY_IN["neo4j"]) is allowed
+
+
+def test_every_sdk_the_graph_may_import_is_confined() -> None:
+    """A third-party package beyond the base set must have a place in ONLY_IN (no SDK is allowed everywhere)."""
+
+    base = {"graph", "logger", "pydantic", "yaml", "numpy"}
+    assert THIRD_PARTY_ALLOWED - base == set(ONLY_IN)
 
 
 def test_i2_graphiti_never_in_core() -> None:

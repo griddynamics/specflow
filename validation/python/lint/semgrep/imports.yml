@@ -168,6 +168,13 @@ rules:
         # (tests/test_storage_factory.py pins both). A top-level import cannot be lazy and an
         # inline one is PLC0415, so the rule's premise does not hold for this file.
         - "**/src/storage/factory.py"
+        # project: src/graph/stores/__init__.py (`build_store`) loads the adapter of the configured
+        # graph backend (`graph.stores.neo4j`, `.arcadedb`, `.postgres` or `.tigergraph`; first-party
+        # modules of the same lockfile) only when that backend is built, so a process never imports
+        # the SDK of a backend it does not use, an adapter that is not shipped is the
+        # `store_not_available` configuration error and a missing SDK is `store_sdk_missing`
+        # (tests/test_graph_stores.py pins all three). Same premise as src/storage/factory.py.
+        - "**/src/graph/stores/__init__.py"
     patterns:
       - pattern-either:
           - pattern: importlib.util.spec_from_file_location(...)
