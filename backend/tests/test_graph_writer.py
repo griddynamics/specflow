@@ -35,9 +35,11 @@ from graph.core.db import _bind
 from graph.core.queries import CORE_DDL, CORE_DDL_FILES, UPSERT_DOCUMENT, UPSERT_FRAGMENT, Query, upsert_foreign_node
 from graph.core.query_files import read_ddl_file
 from graph.core.schema import schema_objects
-from graph_support import load_gap_ddl, shipped_ontology
+from graph.stores._bolt.cypher import render_cypher
+from graph_ddl_support import load_gap_ddl
+from graph_support import shipped_ontology
 
-# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, neo4j_project) live in graph_support.
+# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, graph_project) live in graph_support.
 pytest_plugins = ["graph_support"]
 
 PROJECT = "proj-1"
@@ -91,12 +93,14 @@ class FakeExecutor(Executor):
         yield Transaction()
 
     def texts(self) -> list[str]:
-        return [query.text for _, query, _ in self.runs]
+        return [render_cypher(query) for _, query, _ in self.runs]
 
     def dump(self) -> str:
         """Every query text and parameter of the run, as one string to search."""
 
-        return json.dumps([[query.text, params] for _, query, params in self.runs], sort_keys=True, default=str)
+        return json.dumps(
+            [[render_cypher(query), params] for _, query, params in self.runs], sort_keys=True, default=str
+        )
 
 
 def writer(
@@ -210,9 +214,9 @@ async def test_keyed_node_upserts_merge_on_a_uniquely_constrained_key(gap_ontolo
     queries = [query for _, query, _ in [*build_runs.runs, *gap_runs.runs]]
     assert [query.name for query in queries] == [UPSERT_DOCUMENT.name, UPSERT_FRAGMENT.name, "upsert_node_Finding"]
     assert queries[:2] == [UPSERT_DOCUMENT, UPSERT_FRAGMENT]
-    assert "MERGE (n:Document {group_id: $project_id, document_id: $key})" in queries[0].text
-    assert "MERGE (n:Fragment {group_id: $project_id, fragment_id: $key})" in queries[1].text
-    assert "MERGE (n:Finding {group_id: $project_id, uuid: $key})" in queries[2].text
+    assert "MERGE (n:Document {group_id: $project_id, document_id: $key})" in render_cypher(queries[0])
+    assert "MERGE (n:Fragment {group_id: $project_id, fragment_id: $key})" in render_cypher(queries[1])
+    assert "MERGE (n:Finding {group_id: $project_id, uuid: $key})" in render_cypher(queries[2])
     assert [params["key"] for _, _, params in [*build_runs.runs, *gap_runs.runs]] == ["d1", "f1", "g1"]
     ddl = load_gap_ddl(tmp_path)
     unique = {(item.label, item.properties) for item in schema_objects(gap_ontology, ddl) if item.kind == "unique"}
@@ -364,7 +368,7 @@ def test_renamed_schema_objects_use_the_renamed_relations(renamed: Ontology, ren
     objects = schema_objects(renamed, renamed_ddl)
     edge_indexes = {item.label: item.name for item in objects if item.entity == "RELATIONSHIP"}
     assert edge_indexes == {new: f"graph_edge_key_{new.lower()}" for new in RELATIONS.values()}
-    texts = " ".join(item.query().text for item in objects)
+    texts = " ".join(render_cypher(item.query()) for item in objects)
     assert OLD_NAMES.search(texts) is None
     assert ":BELONGS_TO]" in texts
 

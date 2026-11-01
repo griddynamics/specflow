@@ -2,8 +2,9 @@
 
 Gated by ``SPECFLOW_TEST_LLM_GATEWAY=1``; run with ``uv run --env-file ../.env.local``. One structured
 call per chat class with a tiny output model, and one embedding whose vector must have
-``GRAPH_EMBEDDING_DIM`` entries and fit the vector indexes: the dimension of the live Neo4j
-``graph_spec_node_embedding`` index when ``SPECFLOW_TEST_NEO4J=1`` too, else the data model's 3072.
+``GRAPH_EMBEDDING_DIM`` entries and fit the vector indexes: the dimension of the live store's
+``graph_spec_node_embedding`` index when a live graph store is selected too (``SPECFLOW_TEST_GRAPH_STORE``
+or ``SPECFLOW_TEST_NEO4J=1``), else the data model's 3072.
 The API key is never printed or asserted into a message.
 """
 
@@ -16,10 +17,10 @@ import pytest
 import pytest_asyncio
 from pydantic import BaseModel
 
-from graph.core import LLMConfig, connect
+from graph.core import LLMConfig
 from graph.core.llm import Gateway
-from graph_support import neo4j_config_from_env
-from specflow_live import live_enabled, requires_live
+from graph_probes import live_graph_enabled, open_probe
+from specflow_live import requires_live
 
 pytestmark = requires_live("LLM_GATEWAY")
 
@@ -40,22 +41,16 @@ EMBEDDING_INDEX = "graph_spec_node_embedding"
 async def vector_index_dimension() -> int:
     """The dimension the embeddings must have: the live index's, or the data model's default."""
 
-    if not live_enabled("NEO4J"):
+    if not live_graph_enabled():
         return DATA_MODEL_EMBEDDING_DIM
-    config = neo4j_config_from_env()
-    driver = connect(config)
+    probe = open_probe()
     try:
-        result = await driver.execute_query(
-            "SHOW VECTOR INDEXES YIELD name, options WHERE name = $name "
-            "RETURN options.indexConfig['vector.dimensions'] AS dimension",
-            {"name": EMBEDDING_INDEX},
-            database_=config.database,
-        )
+        dimension = await probe.vector_index_dimension(EMBEDDING_INDEX)
     finally:
-        await driver.close()
-    if not result.records:
-        pytest.fail(f"no {EMBEDDING_INDEX} index on the live Neo4j: run the live Neo4j tests first")
-    return int(result.records[0]["dimension"])
+        await probe.close()
+    if dimension is None:
+        pytest.fail(f"no {EMBEDDING_INDEX} index on the live graph store: run the live graph tests first")
+    return dimension
 
 
 class Greeting(BaseModel):

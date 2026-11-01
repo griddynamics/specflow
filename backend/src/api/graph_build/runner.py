@@ -1,7 +1,7 @@
 """In-process graph builds of the API: one background task per project (no Temporal yet).
 
 Wired like ``examples/graph_build.py``: file stores under ``GRAPH_STATE_DIR`` with the Postgres
-corpus, the runtime's Neo4j driver, ``load_ontology()``, one ``Gateway`` per build, ``ensure_schema``
+corpus, the runtime's graph store, ``load_ontology()``, one ``Gateway`` per build, ``ensure_schema``
 once per process, then ``run_build``. A project's unfinished build (interrupted by a shutdown, or
 failed) is resumed by the next start; a new build retries the follow-up lineages of the latest
 finished one. ``status`` combines the running task with the build store, so it survives a restart.
@@ -23,6 +23,7 @@ from api.graph_build.corpus import PostgresCorpusSource
 from api.graph_build.state import BuildState
 from graph.build import BuildContext, BuildResult, BuildStore, FileStores, open_file_stores, run_build
 from graph.core import Gateway, GraphError, LLMConfig, Ontology, ensure_schema, load_ontology
+from graph.core.store import GraphStore
 from logger.logger import ERROR, INFO, WARNING, get_logger, log_event
 from settings import GraphBuildSettings
 
@@ -91,16 +92,14 @@ class GraphBuildRunner:
         self,
         settings: GraphBuildSettings,
         *,
-        driver: Any,
+        store: GraphStore,
         session_factory: Callable[[], Any],
-        database: str | None,
         dependencies: RunnerDependencies | None = None,
     ) -> None:
         deps = dependencies or RunnerDependencies()
         self._llm: LLMConfig = settings.to_llm_config()
         self._state_dir = Path(settings.state_dir)
-        self._driver = driver
-        self._database = database
+        self._store = store
         self._corpus = PostgresCorpusSource(session_factory)
         self._build = deps.build
         self._ensure = deps.ensure
@@ -178,7 +177,7 @@ class GraphBuildRunner:
             if self._lazy.ontology is None:
                 self._lazy.ontology = await asyncio.to_thread(load_ontology)
             if not self._lazy.schema_ready:
-                await self._ensure(self._driver, self._lazy.ontology, self._llm, self._database)
+                await self._ensure(self._store, self._lazy.ontology, self._llm)
                 self._lazy.schema_ready = True
         return self._lazy.ontology, self._stores()
 
@@ -232,7 +231,7 @@ class GraphBuildRunner:
             ctx = BuildContext(
                 project_id=project_id,
                 ontology=ontology,
-                driver=self._driver,
+                driver=self._store,  # BuildContext takes the store in its (historic) driver field
                 gateway=gateway,
                 registry=stores.registry,
                 corpus=self._corpus,
@@ -240,7 +239,6 @@ class GraphBuildRunner:
                 builds=stores.builds,
                 retry_lineages=retry,
                 build_id=resume,
-                database=self._database,
             )
             result = await self._build(ctx)
         finally:

@@ -17,9 +17,20 @@ space := $(empty) $(empty)
 empty :=
 WITH ?=
 WITH_LIST := $(subst $(comma), ,$(WITH))
-BAD_WITH := $(filter-out temporal langfuse,$(WITH_LIST))
+# Graph store backends other than the default neo4j start with their own compose profile:
+# `make up WITH=arcadedb`. Each backend owns one section below and adds its profile name to
+# GRAPH_STORE_PROFILES (docs/configuration.md "Graph store"); neo4j has no profile (always on).
+GRAPH_STORE_PROFILES :=
+# graph-store: neo4j
+# graph-store: arcadedb
+GRAPH_STORE_PROFILES += arcadedb
+# graph-store: postgres
+# graph-store: tigergraph
+# end graph-store
+WITH_NAMES := $(strip temporal langfuse $(GRAPH_STORE_PROFILES))
+BAD_WITH := $(filter-out $(WITH_NAMES),$(WITH_LIST))
 ifneq ($(BAD_WITH),)
-$(error WITH accepts temporal and langfuse (comma separated), got: $(BAD_WITH))
+$(error WITH accepts $(WITH_NAMES) (comma separated), got: $(BAD_WITH))
 endif
 
 # Local values for the backend run on the host against the local stack (HOST_TARGETS only, so
@@ -43,8 +54,10 @@ $(HOST_TARGETS): export DATABASE_PORT ?= 5433
 $(HOST_TARGETS): export DATABASE_NAME ?= specflow
 $(HOST_TARGETS): export DATABASE_USER ?= specflow
 $(HOST_TARGETS): export DATABASE_AGENT_USER ?= specflow_agent
-$(HOST_TARGETS): export NEO4J_URI ?= bolt://localhost:7687
-$(HOST_TARGETS): export NEO4J_USER ?= neo4j
+# The graph store of the local stack is neo4j. A NEO4J_URI or NEO4J_USER from your shell still counts;
+# the password comes from the env file (GRAPH_STORE_PASSWORD, or NEO4J_PASSWORD in an older one).
+$(HOST_TARGETS): export GRAPH_STORE_URI ?= $(or $(NEO4J_URI),bolt://localhost:7687)
+$(HOST_TARGETS): export GRAPH_STORE_USER ?= $(or $(NEO4J_USER),neo4j)
 $(HOST_TARGETS): export TEMPORAL_ADDRESS ?= localhost:7233
 $(HOST_TARGETS): export TEMPORAL_NAMESPACE ?= specflow-local
 # What compose passes to the containers as TEMPORAL_ADDRESS (the host default above is not).
@@ -62,7 +75,7 @@ COMPOSE_ENV = env -u TEMPORAL_ADDRESS \
 	$(if $(WITH_LIST),COMPOSE_PROFILES=$(subst $(space),$(comma),$(strip $(WITH_LIST))))
 COMPOSE_BASE := docker compose --env-file $(ENV_FILE) -f docker-compose.yml
 COMPOSE := $(COMPOSE_ENV) $(COMPOSE_BASE)
-COMPOSE_ALL := env COMPOSE_PROFILES=temporal,langfuse $(COMPOSE_BASE)
+COMPOSE_ALL := env COMPOSE_PROFILES=$(subst $(space),$(comma),$(strip $(WITH_NAMES))) $(COMPOSE_BASE)
 
 # Static validation kit (validation/README.md): one target per track, `make validate` runs all.
 # Project inputs of each track sit beside the code they describe: backend/ (importlinter.toml,
@@ -88,10 +101,10 @@ BACKEND_TARGETS := setup lint unit-test check \
 $(BACKEND_TARGETS):
 	$(MAKE) --no-print-directory -C backend ENV_FILE=$(ENV_FILE) $@
 
-# Writes the env file with random local secrets (Postgres, Neo4j, dev login and session keys,
+# Writes the env file with random local secrets (Postgres, the graph store, dev login and session keys,
 # RustFS keys). Does nothing when the file exists: it never overwrites and never prints a value.
 # `make env-local ENV_FILE=/path` writes there instead.
-ENV_LOCAL_NAMES := POSTGRES_ADMIN_PASSWORD DATABASE_PASSWORD DATABASE_AGENT_PASSWORD NEO4J_PASSWORD \
+ENV_LOCAL_NAMES := POSTGRES_ADMIN_PASSWORD DATABASE_PASSWORD DATABASE_AGENT_PASSWORD GRAPH_STORE_PASSWORD \
 	AUTH_DEV_SIGNING_KEY SESSION_SECRET RUSTFS_ACCESS_KEY RUSTFS_SECRET_KEY
 
 env-local:

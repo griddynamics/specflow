@@ -16,7 +16,7 @@
 #               the project and its API keys are created on first start from
 #               LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY (login: LANGFUSE_INIT_USER_*)
 #
-# Start order: postgres + neo4j + rustfs (+ temporal, langfuse-web when on) healthy, rustfs-init done -> api (runs
+# Start order: postgres + the graph store (neo4j) + rustfs (+ temporal, langfuse-web when on) healthy, rustfs-init done -> api (runs
 # `specflow migrate`, then serves) healthy -> worker-parse, worker-agents, frontend.
 name: specflow
 
@@ -45,6 +45,9 @@ services:
       timeout: 5s
       retries: 12
 
+  # The graph store backends. Each backend owns one section (marker lines); neo4j is the default
+  # (GRAPH_STORE=neo4j). The api and worker-agents env below says which one they use.
+  # graph-store: neo4j
   neo4j:
     image: neo4j:5.26.30-community
     container_name: specflow-neo4j
@@ -53,7 +56,7 @@ services:
       - "127.0.0.1:7474:7474"   # local only: the Neo4j browser
       - "127.0.0.1:7687:7687"
     environment:
-      NEO4J_AUTH: "neo4j/${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env.local}"
+      NEO4J_AUTH: "neo4j/${GRAPH_STORE_PASSWORD:-${NEO4J_PASSWORD:?set GRAPH_STORE_PASSWORD in .env.local}}"
       NEO4J_server_memory_heap_initial__size: "512m"
       NEO4J_server_memory_heap_max__size: "768m"
       NEO4J_server_memory_pagecache_size: "256m"
@@ -65,6 +68,63 @@ services:
       timeout: 5s
       retries: 12
       start_period: 30s
+
+  # graph-store: arcadedb
+  # ArcadeDB 26.10 with the Bolt plugin (`make up WITH=arcadedb`; the api and the agents worker above still
+  # name neo4j: pointing them at it is the integration step). The root password is GRAPH_STORE_PASSWORD, handed over as a file
+  # (arcadedb.server.rootPasswordPath), never as a Java option (JAVA_OPTS shows in `docker inspect`).
+  # neo4j keeps its host port 7687, so the Bolt port of ArcadeDB on the host is 7688 (ARCADEDB_BOLT_HOST_PORT).
+  arcadedb:
+    image: arcadedata/arcadedb:26.10.2
+    container_name: specflow-arcadedb
+    profiles: ["arcadedb"]
+    mem_limit: 4g
+    ports:
+      - "127.0.0.1:${ARCADEDB_BOLT_HOST_PORT:-7688}:7687"   # Bolt
+      - "127.0.0.1:${ARCADEDB_HTTP_HOST_PORT:-2480}:2480"   # HTTP API and Studio
+    environment:
+      JAVA_OPTS: "-Darcadedb.server.rootPasswordPath=/run/secrets/arcadedb_root_password -Darcadedb.server.plugins=Bolt:com.arcadedb.bolt.BoltProtocolPlugin"
+    secrets:
+      - arcadedb_root_password
+    volumes:
+      - specflow-arcadedb-data:/home/arcadedb/databases
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:2480/api/v1/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  # Creates the database (ARCADEDB_DATABASE, default `specflow`) once; the app creates the schema.
+  arcadedb-init:
+    image: arcadedata/arcadedb:26.10.2
+    container_name: specflow-arcadedb-init
+    profiles: ["arcadedb"]
+    mem_limit: 128m
+    restart: "no"
+    environment:
+      ARCADEDB_DATABASE: "${ARCADEDB_DATABASE:-specflow}"
+    secrets:
+      - arcadedb_root_password
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        AUTH=$$(printf 'root:%s' "$$(cat /run/secrets/arcadedb_root_password)" | base64 -w0);
+        BASE=http://arcadedb:2480/api/v1;
+        if wget -q -O- --header "Authorization: Basic $$AUTH" $$BASE/exists/$$ARCADEDB_DATABASE | grep -q true; then
+        echo "arcadedb-init: database $$ARCADEDB_DATABASE exists"; exit 0; fi;
+        wget -q -O- --header "Authorization: Basic $$AUTH" --header "Content-Type: application/json"
+        --post-data "{\"command\":\"create database $$ARCADEDB_DATABASE\"}" $$BASE/server
+    depends_on:
+      arcadedb:
+        condition: service_healthy
+
+  # graph-store: postgres
+
+  # graph-store: tigergraph
+
+  # end graph-store
 
   # Local only: Temporal dev server with the namespace created on start. SQLite lives on
   # a volume, so workflow history survives `make down`.
@@ -329,10 +389,11 @@ services:
       TEMPORAL_NAMESPACE: "${TEMPORAL_NAMESPACE:-specflow-local}"
       TEMPORAL_QUEUE_PARSE: "specflow-parse"
       TEMPORAL_QUEUE_AGENTS: "specflow-agents"
-      NEO4J_URI: "bolt://specflow-neo4j:7687"
-      NEO4J_USER: "neo4j"
-      NEO4J_PASSWORD: "${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env.local}"
-      NEO4J_DATABASE: "neo4j"
+      GRAPH_STORE: "neo4j"
+      GRAPH_STORE_URI: "bolt://specflow-neo4j:7687"
+      GRAPH_STORE_USER: "neo4j"
+      GRAPH_STORE_PASSWORD: "${GRAPH_STORE_PASSWORD:-${NEO4J_PASSWORD:?set GRAPH_STORE_PASSWORD in .env.local}}"   # an older .env.local with only NEO4J_PASSWORD still works
+      GRAPH_STORE_NAME: "neo4j"
       AGENT_MODEL: "${AGENT_MODEL:-}"
       AGENT_TRACE_SENSITIVE_DATA: "${AGENT_TRACE_SENSITIVE_DATA:-true}"
       # POST /projects/{pid}/graph_build runs the graph build in this process: off while the
@@ -431,7 +492,7 @@ services:
       retries: 3
       start_period: 30s
 
-  # Polls the Temporal queue specflow-agents: the summary agent (LLM gateway, Neo4j, Langfuse).
+  # Polls the Temporal queue specflow-agents: the summary agent (LLM gateway, graph store, Langfuse).
   worker-agents:
     build:
       context: ./backend
@@ -464,10 +525,11 @@ services:
       TEMPORAL_NAMESPACE: "${TEMPORAL_NAMESPACE:-specflow-local}"
       TEMPORAL_QUEUE_PARSE: "specflow-parse"
       TEMPORAL_QUEUE_AGENTS: "specflow-agents"
-      NEO4J_URI: "bolt://specflow-neo4j:7687"
-      NEO4J_USER: "neo4j"
-      NEO4J_PASSWORD: "${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env.local}"
-      NEO4J_DATABASE: "neo4j"
+      GRAPH_STORE: "neo4j"
+      GRAPH_STORE_URI: "bolt://specflow-neo4j:7687"
+      GRAPH_STORE_USER: "neo4j"
+      GRAPH_STORE_PASSWORD: "${GRAPH_STORE_PASSWORD:-${NEO4J_PASSWORD:?set GRAPH_STORE_PASSWORD in .env.local}}"   # an older .env.local with only NEO4J_PASSWORD still works
+      GRAPH_STORE_NAME: "neo4j"
       LLM_GATEWAY_URL: "${LLM_GATEWAY_URL:-}"
       LLM_GATEWAY_API_KEY: "${LLM_GATEWAY_API_KEY:-}"
       AGENT_MODEL: "${AGENT_MODEL:-}"
@@ -488,7 +550,7 @@ services:
       rustfs-init:
         condition: service_completed_successfully
     healthcheck:
-      # Readiness: database, Temporal, storage and Neo4j; exit 0 = ok. Liveness is GET /healthz on 8001.
+      # Readiness: database, Temporal, storage and the graph store; exit 0 = ok. Liveness is GET /healthz on 8001.
       test: ["CMD", "specflow", "worker", "--check"]
       interval: 30s
       timeout: 25s
@@ -539,7 +601,20 @@ volumes:
     name: specflow-langfuse-minio-data
   specflow-postgres-data:
     name: specflow-postgres-data
+  # graph-store: neo4j
   specflow-neo4j-data:
     name: specflow-neo4j-data
+  # graph-store: arcadedb
+  specflow-arcadedb-data:
+    name: specflow-arcadedb-data
+  # graph-store: postgres
+  # graph-store: tigergraph
+  # end graph-store
   specflow-graph-state:
     name: specflow-graph-state
+
+# Secrets of the graph store backends (a value of the env file, mounted as a file: never a Java option or env var).
+secrets:
+  # graph-store: arcadedb
+  arcadedb_root_password:
+    environment: GRAPH_STORE_PASSWORD

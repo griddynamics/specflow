@@ -20,7 +20,7 @@ from health import Readiness
 from logger.correlation import current_request_id, new_request_context
 from logger.logger import INFO, get_logger, log_event
 from settings import load_settings
-from specflow_api_support import FakeDriver, FakeTemporal, bearer
+from specflow_api_support import FakeGraphStore, FakeTemporal, bearer
 from specflow_sources_support import SYNTHETIC, new_project
 from storage.memory import InMemoryObjectStore
 from test_specflow_api_fakes import FakeRepo
@@ -101,7 +101,7 @@ async def test_startup_lines_keep_the_process_id(logs, valid_env, monkeypatch):
             session_factory=repo,
             store=InMemoryObjectStore(app_env="local"),
             temporal=FakeTemporal(),
-            driver=FakeDriver(),
+            graph_store=FakeGraphStore(),
             readiness=Readiness({"database": ok}, ttl=0),
         )
 

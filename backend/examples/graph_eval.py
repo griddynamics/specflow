@@ -42,8 +42,10 @@ from graph.build.conform import DEDUP_PROMPT
 from graph.build.consolidate import HUBS_PROMPT
 from graph.build.graphiti import EDGES_PROMPT, NODES_PROMPT
 from graph.build.prompts import ATTRIBUTES_PROMPT, HUB_CATALOG_PROMPT
-from graph.core import Gateway, GraphReader, connect, ensure_schema, load_ontology
-from graph_build import environment, llm_config, neo4j_config
+from graph.core import Gateway, GraphReader, Query, ensure_schema, load_ontology
+from graph.core.store import Executor
+from graph.stores import build_store
+from graph_build import environment, llm_config, store_config
 
 ESTIMATE_STEP = {
     HUB_CATALOG_PROMPT: "hub_catalog",
@@ -356,14 +358,20 @@ async def run_queries(reader: GraphReader, fulltext: GraphReader, project: str, 
     return out
 
 
-async def cleanup(driver: Any, database: str | None, project: str, state: Path) -> int:
+# The only raw Cypher outside the library's query files (tests/test_graph_probes_structure.py allows exactly
+# this statement): the eval runs on Neo4j only until the library has a delete-project query.
+CLEANUP = Query.literal(
+    "example.cleanup",
+    "MATCH (n {group_id: $project_id}) WITH n LIMIT 2000 DETACH DELETE n RETURN count(*) AS c",
+)
+
+
+async def cleanup(executor: Executor, project: str, state: Path) -> int:
+    """Delete the project's nodes in batches (a Cypher store only: the query is literal Cypher)."""
+
     deleted: int = 0
     while True:
-        records, _, _ = await driver.execute_query(
-            "MATCH (n {group_id: $p}) WITH n LIMIT 2000 DETACH DELETE n RETURN count(*) AS c",
-            {"p": project},
-            database_=database,
-        )
+        records = await executor.write(CLEANUP, project)
         deleted += int(records[0]["c"])
         if not records[0]["c"]:
             break
@@ -374,13 +382,18 @@ async def cleanup(driver: Any, database: str | None, project: str, state: Path) 
 async def main() -> None:
     args = parse_args()
     env = environment()
-    neo4j, llm = neo4j_config(env), llm_config(env).model_copy(update={"concurrency": args.concurrency})
+    store_settings, llm = store_config(), llm_config(env).model_copy(update={"concurrency": args.concurrency})
+    if store_settings.backend != "neo4j":
+        raise SystemExit(
+            f"graph_eval.py runs on a Neo4j store only (GRAPH_STORE={store_settings.backend}): "
+            "its cleanup is a raw Cypher statement"
+        )
     probe = Probe(args.progress)
-    ontology, driver = load_ontology(), connect(neo4j)
+    ontology, store = load_ontology(), build_store(store_settings)
     gateway = TimedGateway(llm, http_client=probe.client(), sleep=probe.sleep)
     report: dict[str, Any] = {"project_id": args.project, "concurrency": llm.concurrency, "builds": {}}
     try:
-        await ensure_schema(driver, ontology, llm, neo4j.database)
+        await ensure_schema(store, ontology, llm)
         for index, snapshot in enumerate(args.snapshots, start=1):
             rebuild = snapshot.startswith("rebuild:")
             folder = Path(snapshot.removeprefix("rebuild:"))
@@ -391,7 +404,7 @@ async def main() -> None:
             ctx = BuildContext(
                 project_id=args.project,
                 ontology=ontology,
-                driver=driver,
+                driver=store,
                 gateway=gateway,
                 registry=stores.registry,
                 corpus=stores.corpus,
@@ -399,7 +412,6 @@ async def main() -> None:
                 builds=stores.builds,
                 rebuild=rebuild,
                 settings=BuildSettings(inference=not args.no_inference),
-                database=neo4j.database,
             )
             build = report["builds"][label] = {"snapshot": str(folder), "rebuild": rebuild}
             await build_one(ctx, stores, probe, gateway, build, estimate_only=args.estimate_only)
@@ -413,8 +425,8 @@ async def main() -> None:
         if args.queries:
             probe.step = "queries"
             report["queries"] = await run_queries(
-                GraphReader(driver, ontology, gateway, database=neo4j.database),
-                GraphReader(driver, ontology, None, database=neo4j.database),
+                GraphReader(store, ontology, gateway),
+                GraphReader(store, ontology, None),
                 args.project,
                 args.queries,
             )
@@ -425,12 +437,12 @@ async def main() -> None:
             )
     finally:
         if args.cleanup:
-            report["cleanup_deleted_nodes"] = await cleanup(driver, neo4j.database, args.project, args.state)
+            report["cleanup_deleted_nodes"] = await cleanup(store.executor(), args.project, args.state)
             probe.log("cleanup", deleted=report["cleanup_deleted_nodes"])
         if args.out:
             args.out.write_text(json.dumps(report, indent=1, default=str))
         await gateway.aclose()
-        await driver.close()
+        await store.close()
 
 
 if __name__ == "__main__":

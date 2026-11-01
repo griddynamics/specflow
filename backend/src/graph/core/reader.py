@@ -23,7 +23,6 @@ from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from graph.core.db import Executor
 from graph.core.errors import (
     ConfigurationError,
     ConformanceError,
@@ -61,7 +60,13 @@ from graph.core.queries import (
     scope_sequence,
     scope_via,
 )
-from graph.core.schema import FRAGMENT_TEXT_INDEX, SPEC_NODE_EMBEDDING_INDEX, SPEC_NODE_TEXT_INDEX
+from graph.core.store import (
+    FRAGMENT_TEXT_INDEX,
+    QUERY_TOO_COMPLEX,
+    SPEC_NODE_EMBEDDING_INDEX,
+    SPEC_NODE_TEXT_INDEX,
+    as_executor,
+)
 from logger.logger import DEBUG, WARNING, get_logger, log_event
 
 logger = get_logger("graph.core.reader")
@@ -110,7 +115,6 @@ _STOP_WORDS: Final = frozenset(
         "these they this to was will with",
     )
 )
-_PROCEDURE_FAILED: Final = "Neo.ClientError.Procedure.ProcedureCallFailed"
 
 
 class _Frozen(BaseModel):
@@ -244,9 +248,7 @@ class GraphReader:
         if not _is_fraction(vector_floor):
             raise ConfigurationError("invalid_vector_floor")
         self._vector_floor = float(vector_floor)
-        self._executor = (
-            driver_or_executor if isinstance(driver_or_executor, Executor) else Executor(driver_or_executor, database)
-        )
+        self._executor = as_executor(driver_or_executor, database)
         self._ontology = ontology
         self._gateway = gateway
         self._spec_labels = tuple(label for label in ontology.labels if ontology.owner_of(label) == BUILD)
@@ -622,7 +624,7 @@ class GraphReader:
                     query, project_id, index=index, query=terms, skip=skip, page=page, **params
                 )
             except ConformanceError as error:
-                if error.fields.get("neo4j_code") == _PROCEDURE_FAILED:
+                if error.code == QUERY_TOO_COMPLEX:
                     raise ConfigurationError("query_too_long", query=query.name) from None
                 raise
             fetched = rows[0]["fetched"]
@@ -692,21 +694,21 @@ class GraphReader:
         of a ``sequence`` path (for a module, ``REALIZED_BY`` alone gives the capabilities realising
         it). Only build-owned relations are rendered."""
 
-        queries: dict[str, Query] = {}
+        queries: dict[tuple[str, Any], Query] = {}
         for path in self._ontology.spine.paths:
             relations = tuple(path.relations)
             if not relations or not set(relations) <= set(self._domain_relations):
                 raise ConfigurationError("spine_relation_not_domain")
             if not path.sequence:
                 query = scope_via(tuple(sorted(set(relations))), path.min_hops, path.max_hops)
-                queries[query.text] = query
+                queries[query.identity] = query
                 self._scope_params[query.name] = {"max_hops": path.max_hops}
                 continue
             symmetric = tuple(name for name in self._symmetric if name in relations)
             for start in range(len(relations)):
                 for end in range(start + 1, len(relations) + 1):
                     query = scope_sequence(relations[start:end], symmetric)
-                    queries[query.text] = query
+                    queries[query.identity] = query
         return tuple(queries.values())
 
     # Validation

@@ -13,10 +13,10 @@ from typing import Any
 
 from graph.build.option_models import BuildOptions, BuildSettings, FragmentTokens, Locality
 from graph.build.ports import BuildStore, CorpusSource, ExtractionStore
-from graph.core.db import Executor
 from graph.core.identity import SpecIdRegistry, validate_project_id
 from graph.core.llm import Gateway
 from graph.core.ontology import Ontology
+from graph.core.store import Executor, as_executor
 
 __all__ = ["BuildContext", "BuildOptions", "BuildSettings", "FragmentTokens", "Locality", "StepServices"]
 
@@ -34,8 +34,10 @@ class StepServices:
 class BuildContext:
     """Everything a build step needs (api.md "Build"); holds live objects, so it is never serialised.
 
-    ``build_id`` None starts a new build; set, the steps read and resume that build. ``executor``
-    None is replaced by ``Executor(driver, database)``; a test may pass its own.
+    ``build_id`` None starts a new build; set, the steps read and resume that build. ``driver`` is the
+    ``GraphStore`` of the build (a Neo4j driver still works, deprecated; None when ``executor`` is
+    given). ``executor`` None is replaced by the store's executor (for a driver: the Neo4j store's, on
+    ``database``); a test may pass its own.
     """
 
     project_id: str
@@ -58,7 +60,7 @@ class BuildContext:
         validate_project_id(self.project_id)
         object.__setattr__(self, "retry_lineages", tuple(dict.fromkeys(self.retry_lineages)))
         if self.executor is None:
-            object.__setattr__(self, "executor", Executor(self.driver, self.database))
+            object.__setattr__(self, "executor", as_executor(self.driver, self.database))
 
     def with_build_id(self, build_id: str) -> BuildContext:
         """The same context bound to ``build_id`` (the executor is shared)."""
