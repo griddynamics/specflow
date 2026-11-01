@@ -40,6 +40,7 @@ PARAMS: dict[str, Any] = {
     "key": "k",
     "props": {"spec_id": "M-1"},
     "rows": [{"label": "Module", "uuid": "u1", "props": {}}],
+    "uuids": ["u1"],
     "owned_types": OWNED,
     "index": "graph_spec_node_text",
 }
