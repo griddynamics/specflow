@@ -158,18 +158,18 @@ def _check_vector(item: ArcadeObject, index: Mapping[str, Any], dimension: int) 
 def _sql(item: ArcadeObject, dimension: int) -> tuple[str, ...]:
     """The SQL commands that create ``item``: its type, its properties, then the index."""
 
-    steps = [sql("create_vertex_type.sql", type=item.label)]
+    steps = [sql("create_vertex_type", type=item.label)]
     steps += [
-        sql("create_property.sql", type=item.label, property=name, kind=_PROPERTY_TYPES[item.kind])
+        sql("create_property", type=item.label, property=name, kind=_PROPERTY_TYPES[item.kind])
         for name in item.properties
     ]
     names = {"type": item.label, "columns": ", ".join(item.properties)}
     if item.kind == "vector":
-        steps.append(sql("create_index_vector.sql", dimension=str(int(dimension)), **names))
+        steps.append(sql("create_index_vector", dimension=str(int(dimension)), **names))
     elif item.kind == "fulltext":
-        steps.append(sql("create_index_fulltext.sql", **names))
+        steps.append(sql("create_index_fulltext", **names))
     else:
-        steps.append(sql("create_index_unique.sql", **names))
+        steps.append(sql("create_index_unique", **names))
     return tuple(steps)
 
 

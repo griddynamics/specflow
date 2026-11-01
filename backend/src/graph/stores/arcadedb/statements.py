@@ -1,12 +1,14 @@
-"""The statement files of the ArcadeDB adapter: Cypher under ``overrides/`` and ArcadeDB SQL under ``sql/``.
+"""The statement files of the ArcadeDB adapter: Cypher under ``overrides/`` and ArcadeDB SQL in ``sql/commands.json``.
 
 No statement text is a string constant in the adapter's modules: each is a file, read once and filled with
-validated names (``__NAME__`` tokens, as the canonical query files do). SQL here is ArcadeDB's SQL, sent over
-the HTTP admin API; it is not PostgreSQL and no SQL track checks it.
+validated names (``__NAME__`` tokens, as the canonical query files do). The ArcadeDB SQL of the schema steps is
+a JSON table of commands (sent over the HTTP admin API): it is not PostgreSQL, so it is not a ``.sql`` file the
+SQL track would try to parse.
 """
 
 from __future__ import annotations
 
+import json
 from functools import cache
 from pathlib import Path
 from typing import Final
@@ -16,7 +18,6 @@ from graph.core.query_files import read_query_file, render_query
 ROOT: Final = Path(__file__).resolve().parent
 OVERRIDE_DIRECTORY: Final = ROOT / "overrides"
 SQL_DIRECTORY: Final = ROOT / "sql"
-COMMENT_PREFIX: Final = "--"
 
 
 @cache
@@ -33,13 +34,17 @@ def cypher(group: str, name: str, **names: str) -> str:
 
 
 @cache
-def _sql_file(name: str) -> str:
-    lines = (line.strip() for line in (SQL_DIRECTORY / name).read_text(encoding="utf-8").splitlines())
-    return " ".join(line for line in lines if line and not line.startswith(COMMENT_PREFIX))
+def _sql_commands() -> dict[str, str]:
+    return {
+        name: text
+        for name, text in json.loads((SQL_DIRECTORY / "commands.json").read_text(encoding="utf-8")).items()
+        if not name.startswith("_")
+    }
 
 
 def sql(name: str, **names: str) -> str:
-    """The ArcadeDB SQL command of ``sql/<name>`` with its ``__NAME__`` tokens filled (values are validated
-    names or integers the caller built; never user text)."""
+    """The ArcadeDB SQL command ``name`` of ``sql/commands.json`` with its ``__NAME__`` tokens filled (values
+    are validated names or integers the caller built; never user text)."""
 
-    return render_query(_sql_file(name), **names) if names else _sql_file(name)
+    text = _sql_commands()[name]
+    return render_query(text, **names) if names else text

@@ -1,2 +1,0 @@
--- ArcadeDB SQL (HTTP admin API), not PostgreSQL.
-CREATE INDEX IF NOT EXISTS ON __TYPE__ (__COLUMNS__) FULL_TEXT

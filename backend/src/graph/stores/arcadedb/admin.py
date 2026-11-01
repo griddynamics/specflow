@@ -21,7 +21,6 @@ import httpx
 from pydantic import SecretStr
 
 from graph.core.errors import ConfigurationError, InfrastructureUnavailableError
-from graph.stores.arcadedb.statements import sql as sql_text
 from graph.core.store import (
     STORE_ACCESS_DENIED,
     STORE_AUTH_REJECTED,
@@ -29,6 +28,7 @@ from graph.core.store import (
     STORE_UNREACHABLE,
     STORE_VERSION_UNSUPPORTED,
 )
+from graph.stores.arcadedb.statements import sql as sql_text
 
 BACKEND: Final = "arcadedb"
 DEFAULT_ADMIN_PORT: Final = 2480
@@ -160,7 +160,7 @@ class AdminClient:
     async def types(self, database: str) -> list[dict[str, Any]]:
         """The schema's types with their properties and indexes (``SELECT FROM schema:types``)."""
 
-        return await self.sql(database, sql_text("schema_types.sql"))
+        return await self.sql(database, sql_text("schema_types"))
 
     async def _send(self, method: str, path: str, payload: Mapping[str, Any] | None = None) -> dict[str, Any]:
         try:
