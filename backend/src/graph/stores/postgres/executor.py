@@ -17,10 +17,10 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequenc
 from contextlib import asynccontextmanager
 from typing import Any, Final
 
-import asyncpg
 from sqlalchemy import text
 from sqlalchemy.engine import URL, make_url
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import ArgumentError, DisconnectionError, InterfaceError, SQLAlchemyError
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
 from graph.core.dialect import ExecutionPlan, Record, run_plan
@@ -68,6 +68,8 @@ __all__ = [
 CAPABILITIES: Final = StoreCapabilities(multi_statement_tx=True)
 CONNECTION_TIMEOUT_SECONDS: Final = 5.0
 DEFAULT_POOL_SIZE: Final = 5
+MAX_OVERFLOW: Final = 0
+POOL_TIMEOUT_SECONDS: Final = 30.0
 DRIVER: Final = "postgresql+asyncpg"
 APPLICATION_NAME: Final = "specflow-graph"
 # asyncpg takes the libpq ``sslmode`` values as its ``ssl`` argument.
@@ -89,8 +91,8 @@ REJECTED_CLASSES: Final = frozenset({"42", "22", "0A"})
 UNREACHABLE: Final = frozenset({"57P01", "57P02", "53300", "53400"})
 _TRANSIENT: Final = frozenset({SERIALIZATION_FAILURE, DEADLOCK, CANNOT_CONNECT_NOW})
 
-# What a database call may raise: the SQLAlchemy layer, asyncpg itself and the socket.
-DATABASE_ERRORS: Final = (SQLAlchemyError, asyncpg.PostgresError, asyncpg.InterfaceError, OSError)
+# What a database call may raise: the SQLAlchemy layer (it wraps every asyncpg error) and the socket.
+DATABASE_ERRORS: Final = (SQLAlchemyError, OSError)
 
 
 def sqlstate(error: BaseException) -> str | None:
@@ -124,7 +126,9 @@ def _is_connection_failure(error: BaseException) -> bool:
         if current is None or id(current) in seen:
             continue
         seen.add(id(current))
-        if isinstance(current, (OSError, asyncpg.InterfaceError, asyncio.TimeoutError)):
+        if isinstance(
+            current, (OSError, InterfaceError, DisconnectionError, SQLAlchemyTimeoutError, asyncio.TimeoutError)
+        ):
             return True
         pending.extend([getattr(current, "orig", None), current.__cause__])
     return False
@@ -140,21 +144,9 @@ def is_transient(error: BaseException) -> bool:
     return _is_connection_failure(error)
 
 
-def map_error(error: BaseException, query: str, *, write: bool, attempts: int = 1, backend: str = BACKEND) -> GraphError:
-    """The ``GraphError`` a database error stands for, with neutral codes (design D11) and ``store=<backend>``.
+def _configuration_error(error: BaseException, code: str | None, query: str, backend: str) -> GraphError | None:
+    """The error of a rejected login, a denied access, a missing database or an unreachable server, else None."""
 
-    28P01 and 28000 are a rejected login, 42501 a denied access, 3D000 and 3F000 an unknown database or
-    schema, a lost or refused connection is unreachable; anything else is a write or a read failure (a
-    statement the server refuses as malformed is a query rejection)."""
-
-    code = sqlstate(error)
-    fields: dict[str, Any] = {
-        "store": backend,
-        "query": query,
-        "error_type": type(error).__name__,
-        "backend_code": code,
-        "attempts": attempts,
-    }
     if code in AUTH_FAILED:
         return ConfigurationError(STORE_AUTH_REJECTED, store=backend)
     if code == ACCESS_DENIED:
@@ -163,6 +155,29 @@ def map_error(error: BaseException, query: str, *, write: bool, attempts: int = 
         return ConfigurationError(STORE_DATABASE_NOT_FOUND, store=backend)
     if _is_connection_failure(error):
         return InfrastructureUnavailableError(STORE_UNREACHABLE, store=backend, error_type=type(error).__name__)
+    return None
+
+
+def map_error(
+    error: BaseException, query: str, *, write: bool, attempts: int = 1, backend: str = BACKEND
+) -> GraphError:
+    """The ``GraphError`` a database error stands for, with neutral codes (design D11) and ``store=<backend>``.
+
+    28P01 and 28000 are a rejected login, 42501 a denied access, 3D000 and 3F000 an unknown database or
+    schema, a lost or refused connection is unreachable; anything else is a write or a read failure (a
+    statement the server refuses as malformed is a query rejection)."""
+
+    code = sqlstate(error)
+    configuration = _configuration_error(error, code, query, backend)
+    if configuration is not None:
+        return configuration
+    fields: dict[str, Any] = {
+        "store": backend,
+        "query": query,
+        "error_type": type(error).__name__,
+        "backend_code": code,
+        "attempts": attempts,
+    }
     if write:
         return GraphWriteError(STORE_WRITE_FAILED, **fields)
     if code == STATEMENT_TOO_COMPLEX:
@@ -178,7 +193,7 @@ def connection_url(config: StoreConfig) -> tuple[URL, dict[str, Any]]:
 
     try:
         url = make_url(config.uri)
-    except Exception:
+    except ArgumentError:
         raise ConfigurationError("store_uri_invalid", store=BACKEND) from None
     if not url.drivername.startswith("postgres"):
         raise ConfigurationError("store_uri_invalid", store=BACKEND)
@@ -209,9 +224,9 @@ def build_engine(config: StoreConfig, *, pool_size: int | None = None) -> AsyncE
     return create_async_engine(
         url,
         pool_size=size,
-        max_overflow=0,
+        max_overflow=MAX_OVERFLOW,
         pool_pre_ping=True,
-        pool_timeout=CONNECTION_TIMEOUT_SECONDS * 6,
+        pool_timeout=POOL_TIMEOUT_SECONDS,
         hide_parameters=True,
         connect_args={
             "timeout": CONNECTION_TIMEOUT_SECONDS,
@@ -320,9 +335,9 @@ class PostgresExecutor:
 
     async def _managed(self, query: Query, plan: ExecutionPlan, *, write: bool) -> list[Record]:
         async def attempt() -> list[Record]:
-            async with self._engine.connect() as connection:
-                if not write:  # a read cannot change data, whatever its statement says
-                    await connection.execution_options(postgresql_readonly=True)
+            async with self._engine.connect() as opened:
+                # a read cannot change data, whatever its statement says
+                connection = opened if write else await opened.execution_options(postgresql_readonly=True)
                 async with connection.begin():
                     return await _run(connection, plan)
 

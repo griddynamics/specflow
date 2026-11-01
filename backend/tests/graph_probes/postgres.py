@@ -33,6 +33,7 @@ from graph_probes.base import (
     ProbeNode,
     SchemaObject,
     check_flat,
+    identifier,
 )
 
 SPEC_NODE: Final = "SpecNode"
@@ -49,7 +50,27 @@ DATA_MODEL_DIM: Final = "3072"
 _KINDS: Final = {"Document": "document", "Fragment": "fragment"}
 
 # The rows of one node and of the two ends of an edge (the vector columns are read as real arrays).
-NODE_COLUMNS: Final = "n.id, n.kind, n.labels, n.props, n.group_id, CAST(n.embedding AS real[]) AS vec"
+NODES_QUERY: Final = (
+    "SELECT n.id, n.kind, n.labels, n.props, n.group_id, CAST(n.embedding AS real[]) AS vec FROM graph.node AS n"
+)
+EDGES_QUERY: Final = (
+    "SELECT e.id, e.rel_type, e.group_id, e.props, "
+    "s.id AS sid, s.kind AS skind, s.labels AS slabels, s.props AS sprops, s.group_id AS sgroup, "
+    "t.id AS tid, t.kind AS tkind, t.labels AS tlabels, t.props AS tprops, t.group_id AS tgroup "
+    "FROM graph.edge AS e JOIN graph.node AS s ON s.id = e.source_id JOIN graph.node AS t ON t.id = e.target_id"
+)
+UPDATE_NODES: Final = (
+    "UPDATE graph.node AS n SET props = graph.props_merge(n.props, CAST(:patch AS jsonb)), "
+    "embedding = CASE WHEN :has_vector THEN CAST(:vec AS vector) ELSE n.embedding END, "
+    "labels = ARRAY(SELECT DISTINCT l FROM unnest(n.labels || CAST(:added AS text[])) AS l "
+    "WHERE NOT l = ANY(CAST(:removed AS text[])) ORDER BY l)"
+)
+
+
+def _sql(head: str, conditions: Sequence[str], tail: str = "") -> str:
+    """``head`` WHERE the conditions (fixed text with bind parameters, never a value) ``tail``."""
+
+    return " ".join(part for part in (head, "WHERE", " AND ".join(conditions), tail) if part)
 
 
 def _json(value: Any) -> str:
@@ -75,7 +96,9 @@ def _vector_text(values: Sequence[float]) -> str:
     return "[" + ",".join(repr(float(value)) for value in values) + "]"
 
 
-def _node_conditions(alias: str, label: str | None, where: Mapping[str, Any], tag: str) -> tuple[list[str], dict[str, Any]]:
+def _node_conditions(
+    alias: str, label: str | None, where: Mapping[str, Any], tag: str
+) -> tuple[list[str], dict[str, Any]]:
     """Conditions selecting nodes of one project (parameter ``p``) by label and equal properties."""
 
     conditions = [f"{alias}.group_id = :p"]
@@ -141,7 +164,9 @@ class PostgresProbe(GraphProbe):
             {"schema": self._schema},
         )
         if not found:
-            await self.store.ensure_schema(load_ontology(submodule_files=[]), int(os.environ.get(DIMENSION_ENV, DATA_MODEL_DIM)))
+            await self.store.ensure_schema(
+                load_ontology(submodule_files=[]), int(os.environ.get(DIMENSION_ENV, DATA_MODEL_DIM))
+            )
         self._ready = True
 
     async def run(
@@ -157,9 +182,7 @@ class PostgresProbe(GraphProbe):
 
     async def nodes(self, project_id: str, label: str | None = None, **where: Any) -> list[ProbeNode]:
         conditions, params = _node_conditions("n", label, where, "w")
-        rows = await self.run(
-            f"SELECT {NODE_COLUMNS} FROM graph.node AS n WHERE {' AND '.join(conditions)}", {"p": project_id, **params}
-        )
+        rows = await self.run(_sql(NODES_QUERY, conditions), {"p": project_id, **params})
         return sorted((_node(row) for row in rows), key=lambda n: n.id)
 
     async def edges(self, project_id: str, relation: str | None = None, **where: Any) -> list[ProbeEdge]:
@@ -178,14 +201,7 @@ class PostgresProbe(GraphProbe):
                 clauses.append(f"e.props -> :k{index} = CAST(:v{index} AS jsonb)")
                 params[f"k{index}"] = name
                 params[f"v{index}"] = _json(value)
-        rows = await self.run(
-            "SELECT e.id, e.rel_type, e.group_id, e.props, "
-            "s.id AS sid, s.kind AS skind, s.labels AS slabels, s.props AS sprops, s.group_id AS sgroup, "
-            "t.id AS tid, t.kind AS tkind, t.labels AS tlabels, t.props AS tprops, t.group_id AS tgroup "
-            "FROM graph.edge AS e JOIN graph.node AS s ON s.id = e.source_id JOIN graph.node AS t ON t.id = e.target_id "
-            f"WHERE {' AND '.join(clauses)}",
-            params,
-        )
+        rows = await self.run(_sql(EDGES_QUERY, clauses), params)
 
         def end(row: Mapping[str, Any], side: str) -> ProbeNode:
             return _node(
@@ -245,7 +261,7 @@ class PostgresProbe(GraphProbe):
     async def _one_id(self, project_id: str, match: Match, what: str) -> int:
         conditions, params = _node_conditions("n", match.label, match.props, "w")
         rows = await self.run(
-            f"SELECT n.id FROM graph.node AS n WHERE {' AND '.join(conditions)} LIMIT 2", {"p": project_id, **params}
+            _sql("SELECT n.id FROM graph.node AS n", conditions, "LIMIT 2"), {"p": project_id, **params}
         )
         if len(rows) != 1:
             raise ProbeError(f"{what}: the end must match one node, found {len(rows)}")
@@ -289,11 +305,7 @@ class PostgresProbe(GraphProbe):
         vector = patch.pop(EMBEDDING, None)
         conditions, params = _node_conditions("n", match.label, match.props, "w")
         rows = await self.run(
-            "UPDATE graph.node AS n SET props = graph.props_merge(n.props, CAST(:patch AS jsonb)), "
-            "embedding = CASE WHEN :has_vector THEN CAST(:vec AS vector) ELSE n.embedding END, "
-            "labels = ARRAY(SELECT DISTINCT l FROM unnest(n.labels || CAST(:added AS text[])) AS l "
-            "WHERE NOT l = ANY(CAST(:removed AS text[])) ORDER BY l) "
-            f"WHERE {' AND '.join(conditions)} RETURNING n.id",
+            _sql(UPDATE_NODES, conditions, "RETURNING n.id"),
             {
                 "p": project_id,
                 "patch": _json(patch),
@@ -309,7 +321,7 @@ class PostgresProbe(GraphProbe):
     async def delete_nodes(self, project_id: str, match: Match) -> int:
         conditions, params = _node_conditions("n", match.label, match.props, "w")
         rows = await self.run(
-            f"DELETE FROM graph.node AS n WHERE {' AND '.join(conditions)} RETURNING n.id", {"p": project_id, **params}
+            _sql("DELETE FROM graph.node AS n", conditions, "RETURNING n.id"), {"p": project_id, **params}
         )
         return len(rows)
 
@@ -370,7 +382,7 @@ class PostgresProbe(GraphProbe):
         def unique(name: str, label: str, properties: tuple[str, ...]) -> None:
             row = by_name.get(name)
             if row is not None:
-                objects.append(SchemaObject(name, "unique", "node", label, properties, bool(row["is_valid"])))
+                objects.append(SchemaObject(name, "unique", "node", label, properties, online=bool(row["is_valid"])))
 
         unique("node_spec_specid_uq", SPEC_NODE, ("group_id", "spec_id"))
         unique("node_spec_uuid_uq", SPEC_NODE, ("group_id", "uuid"))
@@ -380,7 +392,12 @@ class PostgresProbe(GraphProbe):
         if identity is not None:
             objects.append(
                 SchemaObject(
-                    "node_identity_key_idx", "range", "node", SPEC_NODE, ("group_id", "identity_key"), bool(identity["is_valid"])
+                    "node_identity_key_idx",
+                    "range",
+                    "node",
+                    SPEC_NODE,
+                    ("group_id", "identity_key"),
+                    bool(identity["is_valid"]),
                 )
             )
         columns = {
@@ -393,22 +410,33 @@ class PostgresProbe(GraphProbe):
             )
         }
         if {"name_tsv", "stmt_tsv"} <= columns:
-            objects.append(SchemaObject("node.name_tsv+stmt_tsv", "fulltext", "node", SPEC_NODE, ("name", "statement_text"), True))
+            objects.append(
+                SchemaObject(
+                    "node.name_tsv+stmt_tsv", "fulltext", "node", SPEC_NODE, ("name", "statement_text"), online=True
+                )
+            )
         if "text_tsv" in columns:
-            objects.append(SchemaObject("node.text_tsv", "fulltext", "node", "Fragment", ("text",), True))
+            objects.append(SchemaObject("node.text_tsv", "fulltext", "node", "Fragment", ("text",), online=True))
         dimension = await self._recorded_dimension()
         if "embedding" in columns and dimension is not None:
-            for name, prop in ((EMBEDDING_INDEX, EMBEDDING), (NAME_EMBEDDING_INDEX, NAME_EMBEDDING)):
-                objects.append(SchemaObject(name, "vector", "node", SPEC_NODE, (prop,), True, dimension, "cosine"))
+            objects.extend(
+                SchemaObject(
+                    name, "vector", "node", SPEC_NODE, (prop,), online=True, dimensions=dimension, similarity="cosine"
+                )
+                for name, prop in ((EMBEDDING_INDEX, EMBEDDING), (NAME_EMBEDDING_INDEX, NAME_EMBEDDING))
+            )
         if EDGE_KEY_INDEX in by_name:
             online = bool(by_name[EDGE_KEY_INDEX]["is_valid"])
             seen = {row["rel_type"] for row in await self.run("SELECT DISTINCT rel_type FROM graph.edge")}
             relations = {*load_ontology(submodule_files=[]).relations, *seen}
-            for relation in sorted(relations):
-                objects.append(SchemaObject(EDGE_KEY_INDEX, "range", "relationship", relation, ("group_id", "edge_key"), online))
+            objects.extend(
+                SchemaObject(EDGE_KEY_INDEX, "range", "relationship", relation, ("group_id", "edge_key"), online)
+                for relation in sorted(relations)
+            )
         return objects
 
     async def drop_edge_key_index(self, relation: str) -> str | None:
+        identifier(relation)
         return None  # one index serves every relation type, under a name that is not the library's per-relation one
 
     async def vector_index_dimension(self, name: str) -> int | None:
@@ -417,7 +445,8 @@ class PostgresProbe(GraphProbe):
         return await self._recorded_dimension()
 
     async def await_indexes(self, timeout_s: float = 60.0) -> None:
-        return None  # indexes are built inside the statement that creates them; a read sees every committed write
+        # Indexes are built inside the statement that creates them and a read sees every committed write.
+        assert timeout_s >= 0
 
     async def server_edition(self) -> str:
         return "postgresql"
@@ -428,7 +457,9 @@ class PostgresProbe(GraphProbe):
         ids = list(project_ids)
         await self.run("DELETE FROM graph.node WHERE group_id = ANY(CAST(:ids AS text[]))", {"ids": ids})
         await self.run("DELETE FROM graph.edge WHERE group_id = ANY(CAST(:ids AS text[]))", {"ids": ids})
-        rows = await self.run("SELECT count(*) AS n FROM graph.node WHERE group_id = ANY(CAST(:ids AS text[]))", {"ids": ids})
+        rows = await self.run(
+            "SELECT count(*) AS n FROM graph.node WHERE group_id = ANY(CAST(:ids AS text[]))", {"ids": ids}
+        )
         return int(rows[0]["n"])
 
     async def outside_counts(self, prefix: str) -> dict[str, int]:

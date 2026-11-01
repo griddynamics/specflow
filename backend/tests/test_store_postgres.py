@@ -6,14 +6,14 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, cast
 
 import asyncpg
 import pytest
 from pydantic import SecretStr
 from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import AsyncEngine
 
-import graph.build.queries as build_queries
 import graph.core.queries as core_queries
 from graph.core.errors import (
     ConfigurationError,
@@ -69,7 +69,7 @@ def config(**overrides: Any) -> StoreConfig:
 
 
 def cypher_core_templates() -> set[str]:
-    found = {name for name in (*cypher._STATIC, *cypher._RENDERERS) if name.startswith("core.")}  # noqa: SLF001
+    found = {name for name in (*cypher._STATIC, *cypher._RENDERERS) if name.startswith("core.")}
     return found - CYPHER_ONLY
 
 
@@ -87,11 +87,11 @@ def test_every_core_template_of_the_catalog_has_a_sql_file() -> None:
 def test_the_core_sql_folder_holds_exactly_the_templates_fragments_and_settings() -> None:
     stems = {f"core.{name.removesuffix('.sql')}" for name in CORE_FILES if name not in FRAGMENT_FILES}
     assert stems == templates()
-    assert FRAGMENT_FILES <= set(CORE_FILES)
+    assert set(CORE_FILES) >= FRAGMENT_FILES
 
 
 def test_the_catalog_has_thirty_nine_core_templates_of_which_postgres_runs_thirty_seven() -> None:
-    all_core = {name for name in (*cypher._STATIC, *cypher._RENDERERS) if name.startswith("core.")}  # noqa: SLF001
+    all_core = {name for name in (*cypher._STATIC, *cypher._RENDERERS) if name.startswith("core.")}
     assert len(all_core) == 39
     assert len(templates()) == 37
     assert all_core - templates() == CYPHER_ONLY
@@ -105,7 +105,9 @@ def catalog_queries() -> list[Query]:
         core_queries.scope_sequence(("GROUPED_BY", "REALIZED_BY"), ("REALIZED_BY",)),
         core_queries.upsert_relationship("PART_OF", spec, spec),
         core_queries.upsert_relationship("MENTIONED_IN", spec, NodeShape("Fragment", "fragment_id")),
-        core_queries.upsert_relationship("CONTAINS", NodeShape("Document", "document_id"), NodeShape("Fragment", "fragment_id")),
+        core_queries.upsert_relationship(
+            "CONTAINS", NodeShape("Document", "document_id"), NodeShape("Fragment", "fragment_id")
+        ),
         core_queries.upsert_relationship("ABOUT", NodeShape("Finding", "uuid"), spec),
         core_queries.delete_relationship("PART_OF"),
         core_queries.delete_keyed_node("Document", "document_id"),
@@ -120,10 +122,21 @@ def catalog_queries() -> list[Query]:
 def params_for(text: str) -> dict[str, Any]:
     """A value for every parameter a statement binds (the library's own names)."""
 
-    values: dict[str, Any] = {name: "x" for name in referenced_parameters(text)}
+    values: dict[str, Any] = dict.fromkeys(referenced_parameters(text), "x")
     values.update(
-        project_id="p", props={"a": 1}, where={}, labels=["L"], vector=[0.5, 0.25], limit=3, skip=0, page=5, k=10,
-        terms=["a"], max_hops=3, timeout_s=1, include_inferred=True,
+        project_id="p",
+        props={"a": 1},
+        where={},
+        labels=["L"],
+        vector=[0.5, 0.25],
+        limit=3,
+        skip=0,
+        page=5,
+        k=10,
+        terms=["a"],
+        max_hops=3,
+        timeout_s=1,
+        include_inferred=True,
     )
     return values
 
@@ -132,7 +145,7 @@ def test_every_catalog_query_plans_one_statement_binding_the_project_id() -> Non
     dialect = PostgresDialect()
     for query in catalog_queries():
         text = dialect.render(query, {"vector": [0.5, 0.25], "k": 10, "query": "a b", "terms": ["a"]})
-        params = {name: "x" for name in referenced_parameters(text)}
+        params = dict.fromkeys(referenced_parameters(text), "x")
         params.update({"vector": [0.5, 0.25], "k": 10, "query": "a b", "terms": ["a"], "project_id": "p"})
         plan = dialect.plan(query, params)
         main = plan.statements[-1]
@@ -146,14 +159,16 @@ def test_every_catalog_query_plans_one_statement_binding_the_project_id() -> Non
 
 def test_a_scoped_statement_binds_the_project_id_and_unscoped_ones_do_not_need_it() -> None:
     dialect = PostgresDialect()
-    plan = dialect.plan(core_queries.READ_NODES, {"project_id": "p", "labels": ["L"], "where": {"a": "b"}, "retired": "r"})
+    plan = dialect.plan(
+        core_queries.READ_NODES, {"project_id": "p", "labels": ["L"], "where": {"a": "b"}, "retired": "r"}
+    )
     assert plan.statements[0].params == {"project_id": "p", "labels": ["L"], "where": '{"a":"b"}', "retired": "r"}
     ping = dialect.plan(core_queries.PING, {})
     assert ping.statements[0].params == {}
 
 
 def test_a_scoped_template_that_does_not_reference_the_project_id_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setitem(pg_dialect._STATIC, "core.ping", lambda: "SELECT 1 AS ok")  # noqa: SLF001
+    monkeypatch.setitem(pg_dialect._STATIC, "core.ping", lambda: "SELECT 1 AS ok")
     with pytest.raises(ConformanceError) as raised:
         PostgresDialect().plan(Query("ping_scoped", "core.ping"), {"project_id": "p"})
     assert raised.value.code == "query_missing_project_id"
@@ -209,9 +224,7 @@ def test_relationship_types_and_labels_are_bind_values_not_text() -> None:
     query = core_queries.upsert_relationship("PART_OF", spec, NodeShape("Finding", "uuid"))
     text = dialect.render(query, {})
     assert "PART_OF" not in text and "Finding" not in text
-    plan = dialect.plan(
-        query, {"project_id": "p", "s_key": "a", "s_label": "L", "t_key": "b", "key": "k", "props": {}}
-    )
+    plan = dialect.plan(query, {"project_id": "p", "s_key": "a", "s_label": "L", "t_key": "b", "key": "k", "props": {}})
     params = plan.statements[0].params
     assert params["rel_type"] == "PART_OF" and params["t_key_shape"] == "Finding"
 
@@ -255,7 +268,15 @@ def test_scope_walks_render_a_literal_depth_cap_and_bind_the_relations() -> None
 
 def test_the_fulltext_term_list_is_derived_from_the_lucene_string() -> None:
     dialect = PostgresDialect()
-    params = {"project_id": "p", "index": "i", "query": "pay  card checkout", "labels": [], "where": {}, "skip": 0, "page": 5}
+    params = {
+        "project_id": "p",
+        "index": "i",
+        "query": "pay  card checkout",
+        "labels": [],
+        "where": {},
+        "skip": 0,
+        "page": 5,
+    }
     plan = dialect.plan(core_queries.SEARCH_NODES_FULLTEXT, params)
     assert plan.statements[0].params["terms"] == ["pay", "card", "checkout"]
     text = plan.statements[0].text
@@ -267,8 +288,14 @@ def test_the_fulltext_term_list_is_derived_from_the_lucene_string() -> None:
 def test_a_vector_search_sets_the_plan_cache_mode_and_the_hnsw_settings_before_it() -> None:
     dialect = PostgresDialect()
     params = {
-        "project_id": "p", "index": "i", "model": "m", "vector": [0.1] * 12, "labels": ["L"], "where": {},
-        "limit": 5, "k": 7,
+        "project_id": "p",
+        "index": "i",
+        "model": "m",
+        "vector": [0.1] * 12,
+        "labels": ["L"],
+        "where": {},
+        "limit": 5,
+        "k": 7,
     }
     plan = dialect.plan(core_queries.SEARCH_NODES_VECTOR, params)
     setup, main = plan.statements
@@ -331,7 +358,7 @@ def test_text_ordering_always_uses_the_code_point_collation() -> None:
 # Error mapping and retry
 
 
-class Boom(Exception):
+class BoomError(Exception):
     """A statement error that carries a SQLSTATE, as asyncpg's do."""
 
     def __init__(self, code: str) -> None:
@@ -376,7 +403,7 @@ def test_other_failures_are_write_or_read_failures_and_malformed_statements_are_
     assert isinstance(rejected, ConformanceError) and rejected.code == "store_query_rejected"
     other = map_error(asyncpg.DiskFullError(), "q", write=False)
     assert isinstance(other, InfrastructureUnavailableError) and other.code == "store_read_failed"
-    assert sqlstate(Boom("40001")) == "40001" and sqlstate(wrapped(Boom("40P01"))) == "40P01"
+    assert sqlstate(BoomError("40001")) == "40001" and sqlstate(wrapped(BoomError("40P01"))) == "40P01"
     assert sqlstate(ValueError("x")) is None
 
 
@@ -455,9 +482,11 @@ class FakeConnection:
         self.log.append(f"options {sorted(options)}")
         return self
 
-    async def execute(self, statement: Any, params: dict[str, Any]) -> FakeResult:
+    async def execute(self, _statement: Any, params: dict[str, Any]) -> FakeResult:
         self.log.append(f"execute {sorted(params)}")
         outcome = self.script.pop(0) if self.script else []
+        if isinstance(outcome, asyncpg.PostgresError):
+            raise wrapped(outcome)  # SQLAlchemy wraps every driver error
         if isinstance(outcome, BaseException):
             raise outcome
         return FakeResult(outcome)
@@ -474,18 +503,22 @@ class FakeEngine:
         return FakeConnection(self.script, self.log)
 
 
-def fake_executor(script: list[Any], *, delays: Sequence[float] = (0.1, 0.3, 1.0)) -> tuple[PostgresExecutor, FakeEngine, list[float]]:
+def fake_executor(
+    script: list[Any], *, delays: Sequence[float] = (0.1, 0.3, 1.0)
+) -> tuple[PostgresExecutor, FakeEngine, list[float]]:
     waits: list[float] = []
 
     async def sleep(delay: float) -> None:
         waits.append(delay)
 
     engine = FakeEngine(script)
-    return PostgresExecutor(engine, retry_delays=delays, sleep=sleep), engine, waits  # type: ignore[arg-type]
+    return PostgresExecutor(cast(AsyncEngine, engine), retry_delays=delays, sleep=sleep), engine, waits
 
 
 async def test_a_transient_read_failure_is_retried_with_the_shared_delays() -> None:
-    executor, engine, waits = fake_executor([asyncpg.DeadlockDetectedError(), asyncpg.CannotConnectNowError(), [{"ok": 1}]])
+    executor, engine, waits = fake_executor(
+        [asyncpg.DeadlockDetectedError(), asyncpg.CannotConnectNowError(), [{"ok": 1}]]
+    )
     rows = await executor.read(core_queries.PING.__class__("ping_scoped", "core.read_documents"), "p")
     assert rows == [{"ok": 1}]
     assert waits == [0.1, 0.3] and engine.connections == 3
@@ -509,9 +542,9 @@ async def test_a_permanent_failure_is_not_retried() -> None:
 
 async def test_a_read_validates_the_project_id_and_refuses_an_unscoped_query() -> None:
     executor, _, _ = fake_executor([])
-    with pytest.raises(Exception) as raised:
+    with pytest.raises(ConfigurationError) as raised:
         await executor.read(core_queries.READ_DOCUMENTS, "bad id with spaces")
-    assert getattr(raised.value, "code", "") == "invalid_project_id" or "project" in str(raised.value)
+    assert raised.value.code == "invalid_project_id"
     with pytest.raises(ConformanceError) as unscoped:
         await executor.read(core_queries.PING, "p")
     assert unscoped.value.code == "query_not_project_scoped"
@@ -544,7 +577,7 @@ def test_the_shipped_ddl_covers_the_ontology() -> None:
     objects = schema_objects(shipped_ontology())
     names = {item.name for item in objects}
     assert {"node", "edge", "meta", "fts_norm", "tsv_len", "props_merge", "edge_key_uq", "node_spec_uuid_uq"} <= names
-    assert [item.kind for item in objects][0] == "schema"
+    assert next(item.kind for item in objects) == "schema"
 
 
 def test_a_ddl_missing_a_key_fails_with_schema_ddl_incomplete() -> None:
@@ -618,9 +651,15 @@ def test_routing_builds_the_postgres_store_without_connecting() -> None:
     assert as_executor(store) is store.executor()
 
 
+def postgres_store(settings: StoreConfig) -> PostgresStore:
+    built = build_store(settings)
+    assert isinstance(built, PostgresStore)
+    return built
+
+
 def test_the_store_name_is_the_schema_and_must_be_a_plain_name() -> None:
-    assert build_store(config(name=None)).schema == "graph"  # type: ignore[attr-defined]
-    assert build_store(config(name="graph_v2")).schema == "graph_v2"  # type: ignore[attr-defined]
+    assert postgres_store(config(name=None)).schema == "graph"
+    assert postgres_store(config(name="graph_v2")).schema == "graph_v2"
     for bad in ("a b", "x;y", "1x", "a" * 64):
         with pytest.raises(ConfigurationError) as raised:
             build_store(config(name=bad))
@@ -634,9 +673,9 @@ async def test_a_store_with_its_own_engine_disposes_it_and_a_borrowed_one_stays_
         async def dispose(self) -> None:
             disposed.append(True)
 
-    await PostgresStore(Engine(), "graph").close()  # type: ignore[arg-type]
+    await PostgresStore(cast(AsyncEngine, Engine()), "graph").close()
     assert disposed == []
-    await PostgresStore(Engine(), "graph", owns_engine=True).close()  # type: ignore[arg-type]
+    await PostgresStore(cast(AsyncEngine, Engine()), "graph", owns_engine=True).close()
     assert disposed == [True]
 
 
@@ -653,4 +692,6 @@ def test_the_sql_files_ship_without_sql_text_in_python() -> None:
     root = Path(pg_dialect.__file__).parent
     for module in root.glob("*.py"):
         text = module.read_text(encoding="utf-8")
-        assert not re.search(r"\b(SELECT|INSERT INTO|DELETE FROM|CREATE (TABLE|INDEX|SCHEMA))\b.{20,}", text), module.name
+        assert not re.search(r"\b(SELECT|INSERT INTO|DELETE FROM|CREATE (TABLE|INDEX|SCHEMA))\b.{20,}", text), (
+            module.name
+        )

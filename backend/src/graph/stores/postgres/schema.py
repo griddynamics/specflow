@@ -50,6 +50,7 @@ SCHEMA_SETUP_FAILED: Final = "schema_setup_failed"
 EXTENSION_MISSING: Final = "store_extension_missing"
 
 ObjectKind = Literal["schema", "function", "table", "index"]
+_KINDS: Final[dict[str, ObjectKind]] = {"schema": "schema", "function": "function", "table": "table", "index": "index"}
 _VERSION: Final = re.compile(r"^(\d+)(?:\.(\d+))?(?:\.(\d+))?")
 _HEAD: Final = re.compile(
     r"CREATE\s+(?:OR\s+REPLACE\s+)?(?P<unique>UNIQUE\s+)?(?P<kind>SCHEMA|FUNCTION|TABLE|INDEX)\s+"
@@ -91,7 +92,7 @@ def parse_ddl_statement(statement: str, *, position: int = 0) -> SchemaObject:
     head = _HEAD.match(statement)
     if head is None:
         raise ConfigurationError("schema_ddl_unrecognised", position=position)
-    kind: ObjectKind = head["kind"].lower()  # type: ignore[assignment]
+    kind = _KINDS[head["kind"].lower()]
     if kind == "index":
         index = _INDEX.match(_collapse(statement))
         if index is None:
@@ -168,7 +169,9 @@ def schema_objects(ontology: Ontology, ddl: Sequence[str] | None = None) -> tupl
     node_tables = [_collapse(item.statement) for item in objects if item.kind == "table" and item.name == "node"]
     for column in _REQUIRED_COLUMNS:
         if not node_tables or column not in node_tables[0]:
-            raise ConfigurationError("schema_ddl_incomplete", missing=1, kind="column", entity="node", properties=column)
+            raise ConfigurationError(
+                "schema_ddl_incomplete", missing=1, kind="column", entity="node", properties=column
+            )
     return objects
 
 
@@ -224,6 +227,19 @@ def _require_environment(server: str, vector: str) -> None:
         raise ConfigurationError(STORE_VERSION_UNSUPPORTED, store=BACKEND, extension=EXTENSION, found=vector)
 
 
+def _require_dimension(recorded: int | None, embedding_dim: int) -> None:
+    """Raise ``vector_index_mismatch`` when the schema was created for another vector dimension."""
+
+    if recorded is not None and recorded != embedding_dim:
+        raise ConfigurationError(
+            "vector_index_mismatch",
+            index=META_EMBEDDING_DIM,
+            found_dimension=recorded,
+            expected_dimension=embedding_dim,
+            similarity=SIMILARITY,
+        )
+
+
 async def _recorded_dimension(connection: AsyncConnection, schema: str) -> int | None:
     rows = await _rows(connection, render_schema(load_ddl_sql("read_meta.sql"), schema), key=META_EMBEDDING_DIM)
     return int(rows[0]["meta_value"]) if rows else None
@@ -260,15 +276,7 @@ async def ensure_postgres_schema(
                 row["object_name"] for row in await _rows(connection, load_ddl_sql("catalog.sql"), schema=schema)
             }
             if META_TABLE in present:
-                recorded = await _recorded_dimension(connection, schema)
-                if recorded is not None and recorded != embedding_dim:
-                    raise ConfigurationError(
-                        "vector_index_mismatch",
-                        index=META_EMBEDDING_DIM,
-                        found_dimension=recorded,
-                        expected_dimension=embedding_dim,
-                        similarity=SIMILARITY,
-                    )
+                _require_dimension(await _recorded_dimension(connection, schema), embedding_dim)
             for item in wanted:
                 if (schema if item.kind == "schema" else item.name) in present:
                     continue
@@ -290,7 +298,6 @@ async def ensure_postgres_schema(
         server_version=server,
     )
     return tuple(created), server
-
 
 
 async def _ensure_hnsw(connection: AsyncConnection, schema: str, embedding_dim: int) -> list[str]:

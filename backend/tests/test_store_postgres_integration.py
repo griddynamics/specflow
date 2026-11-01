@@ -28,6 +28,7 @@ from graph.core.errors import GraphWriteError, InfrastructureUnavailableError
 from graph.core.queries import NodeShape
 from graph.stores import StoreConfig, build_store
 from graph.stores.postgres import PostgresStore
+from graph.stores.postgres.dialect import render_schema
 from graph_support import shipped_ontology
 
 pytestmark = pytest.mark.skipif(
@@ -51,6 +52,12 @@ def live_config(name: str | None = None) -> StoreConfig:
     )
 
 
+def postgres_store(config: StoreConfig) -> PostgresStore:
+    built = build_store(config)
+    assert isinstance(built, PostgresStore)
+    return built
+
+
 @pytest.fixture(scope="module")
 def ontology() -> Ontology:
     return shipped_ontology()
@@ -69,9 +76,9 @@ async def store(ontology: Ontology) -> AsyncIterator[PostgresStore]:
 async def project(store: PostgresStore) -> AsyncIterator[str]:
     project_id = f"pytest-pg-{uuid.uuid4().hex[:10]}"
     yield project_id
-    async with store._engine.begin() as connection:  # noqa: SLF001 test cleanup of the store's own tables
+    async with store._engine.begin() as connection:
         await connection.execute(
-            text(f'DELETE FROM "{store.schema}".node WHERE group_id LIKE :p'), {"p": f"{project_id}%"}
+            text(render_schema("DELETE FROM graph.node WHERE group_id LIKE :p", store.schema)), {"p": f"{project_id}%"}
         )
 
 
@@ -87,7 +94,7 @@ def writer(store: PostgresStore, ontology: Ontology, project_id: str, owner: str
 
 
 async def raw(store: PostgresStore, sql: str, **params: Any) -> list[dict[str, Any]]:
-    async with store._engine.begin() as connection:  # noqa: SLF001 test inspection of the store's own tables
+    async with store._engine.begin() as connection:
         result = await connection.execute(text(sql.replace("graph.", f'"{store.schema}".')), params)
         return [dict(row) for row in result.mappings().all()] if result.returns_rows else []
 
@@ -97,22 +104,53 @@ async def seed(store: PostgresStore, ontology: Ontology, project_id: str) -> Own
 
     build = writer(store, ontology, project_id)
     async with build.transaction() as tx:
-        await tx.upsert_node(MODULE, "u-mod", {"spec_id": "MOD::CHECKOUT", "name": "Checkout", "external": "no",
-                                               "spec_id_aliases": ["MOD::OLD"], "embedding": vec(1.0),
-                                               "embedding_model": "m"})
+        await tx.upsert_node(
+            MODULE,
+            "u-mod",
+            {
+                "spec_id": "MOD::CHECKOUT",
+                "name": "Checkout",
+                "external": "no",
+                "spec_id_aliases": ["MOD::OLD"],
+                "embedding": vec(1.0),
+                "embedding_model": "m",
+            },
+        )
         await tx.upsert_node(MODULE, "u-stripe", {"spec_id": "MOD::STRIPE", "name": "Stripe", "external": "yes"})
-        await tx.upsert_node(FR, "u-fr", {"spec_id": "REQ::PAY", "name": "Users can pay by card",
-                                          "is_assumption": "no", "embedding": vec(0.0, 1.0), "embedding_model": "m",
-                                          "statements": json.dumps([{"fragment_id": "f1", "text": "pay"}])})
+        await tx.upsert_node(
+            FR,
+            "u-fr",
+            {
+                "spec_id": "REQ::PAY",
+                "name": "Users can pay by card",
+                "is_assumption": "no",
+                "embedding": vec(0.0, 1.0),
+                "embedding_model": "m",
+                "statements": json.dumps([{"fragment_id": "f1", "text": "pay"}]),
+            },
+        )
         await tx.upsert_node(FR, "u-fr2", {"spec_id": "REQ::MAYBE", "name": "Maybe SSO", "is_assumption": "yes"})
         await tx.upsert_node("Document", "d1", {"path": "checkout.md", "status": "active"})
-        await tx.upsert_node("Fragment", "f1", {"document_id": "d1", "text": "Users can pay by card", "status": "active",
-                                                "ordinal": 0, "line_start": 3, "line_end": 4})
+        await tx.upsert_node(
+            "Fragment",
+            "f1",
+            {
+                "document_id": "d1",
+                "text": "Users can pay by card",
+                "status": "active",
+                "ordinal": 0,
+                "line_start": 3,
+                "line_end": 4,
+            },
+        )
         await tx.upsert_relationship(
             PART_OF, NodeRef(FR, "u-fr"), NodeRef(MODULE, "u-mod"), "k-part", {"basis": "stated", "fact": "pay"}
         )
         await tx.upsert_relationship(
-            INTEGRATES, NodeRef(MODULE, "u-mod"), NodeRef(MODULE, "u-stripe"), "k-int",
+            INTEGRATES,
+            NodeRef(MODULE, "u-mod"),
+            NodeRef(MODULE, "u-stripe"),
+            "k-int",
             {"basis": INFERRED, "inference_rule": "INF-INT-01", "confidence": 0.9},
         )
     await raw(
@@ -140,7 +178,7 @@ async def test_the_store_is_a_postgres_store_with_transactions(store: PostgresSt
 
 async def test_ensure_schema_is_idempotent_and_reports_what_it_created(ontology: Ontology) -> None:
     schema = f"pytest_pg_{uuid.uuid4().hex[:8]}"
-    first = build_store(live_config(schema))
+    first = postgres_store(live_config(schema))
     try:
         created = await first.ensure_schema(ontology, DIM)
         assert {"node", "edge", "meta", "node_spec_uuid_uq", "edge_key_uq", "fts_norm"} <= set(created)
@@ -150,20 +188,20 @@ async def test_ensure_schema_is_idempotent_and_reports_what_it_created(ontology:
         assert raised.value.code == "vector_index_mismatch"
         assert raised.value.fields["found_dimension"] == DIM
     finally:
-        async with first._engine.begin() as connection:  # type: ignore[attr-defined]  # noqa: SLF001
+        async with first._engine.begin() as connection:
             await connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
         await first.close()
 
 
 async def test_concurrent_schema_setup_does_not_collide(ontology: Ontology) -> None:
     schema = f"pytest_pg_{uuid.uuid4().hex[:8]}"
-    stores = [build_store(live_config(schema)) for _ in range(8)]
+    stores = [postgres_store(live_config(schema)) for _ in range(8)]
     try:
         results = await asyncio.gather(*(item.ensure_schema(ontology, DIM) for item in stores), return_exceptions=True)
         assert [item for item in results if isinstance(item, BaseException)] == []
         assert sum(1 for item in results if item) == 1  # one session created it, the others found it
     finally:
-        async with stores[0]._engine.begin() as connection:  # type: ignore[attr-defined]  # noqa: SLF001
+        async with stores[0]._engine.begin() as connection:
             await connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
         for item in stores:
             await item.close()
@@ -183,7 +221,9 @@ async def test_a_wrong_password_is_a_rejected_login() -> None:
 
 async def test_an_unknown_database_is_reported(ontology: Ontology) -> None:
     config = live_config()
-    other = config.model_copy(update={"uri": re.sub(r"/[^/?]*(\?|$)", r"/no_such_database_pytest\1", config.uri, count=1)})
+    other = config.model_copy(
+        update={"uri": re.sub(r"/[^/?]*(\?|$)", r"/no_such_database_pytest\1", config.uri, count=1)}
+    )
     store = build_store(other)
     try:
         with pytest.raises(ConfigurationError) as raised:
@@ -213,7 +253,9 @@ async def test_a_spec_node_upsert_creates_merges_and_refuses(
     build = writer(store, ontology, project)
     await build.upsert_node(MODULE, "u1", {"spec_id": "MOD::A", "name": "A", "extra": 1})
     await build.upsert_node(MODULE, "u1", {"name": "A2", "extra": None, "list": ["x", "y"]})
-    rows = await raw(store, "SELECT labels, props, spec_id FROM graph.node WHERE group_id = :p AND uuid = 'u1'", p=project)
+    rows = await raw(
+        store, "SELECT labels, props, spec_id FROM graph.node WHERE group_id = :p AND uuid = 'u1'", p=project
+    )
     assert rows[0]["labels"] == [MODULE]
     assert rows[0]["props"] == {"uuid": "u1", "spec_id": "MOD::A", "name": "A2", "list": ["x", "y"]}
     with pytest.raises(ConformanceError) as mismatch:
@@ -225,7 +267,9 @@ async def test_a_spec_node_upsert_creates_merges_and_refuses(
     await build.upsert_node(MODULE, "u1", {"spec_id": "MOD::A"})
     with pytest.raises(GraphWriteError):
         await build.upsert_node(MODULE, "u2", {"spec_id": "MOD::A", "name": "dup"})
-    assert (await raw(store, "SELECT count(*) AS n FROM graph.node WHERE group_id = :p AND kind = 'spec'", p=project))[0]["n"] == 1
+    assert (await raw(store, "SELECT count(*) AS n FROM graph.node WHERE group_id = :p AND kind = 'spec'", p=project))[
+        0
+    ]["n"] == 1
 
 
 async def test_the_embedding_is_a_vector_column_and_null_clears_it(
@@ -233,7 +277,11 @@ async def test_the_embedding_is_a_vector_column_and_null_clears_it(
 ) -> None:
     build = writer(store, ontology, project)
     await build.upsert_node(MODULE, "u1", {"spec_id": "MOD::A", "embedding": vec(1.0, 2.0), "embedding_model": "m"})
-    rows = await raw(store, "SELECT embedding::text AS e, props ? 'embedding' AS inprops FROM graph.node WHERE group_id = :p", p=project)
+    rows = await raw(
+        store,
+        "SELECT embedding::text AS e, props ? 'embedding' AS inprops FROM graph.node WHERE group_id = :p",
+        p=project,
+    )
     assert rows[0]["e"].startswith("[1,2,0") and rows[0]["inprops"] is False
     await build.upsert_node(MODULE, "u1", {"embedding": None})
     rows = await raw(store, "SELECT embedding IS NULL AS gone FROM graph.node WHERE group_id = :p", p=project)
@@ -265,7 +313,9 @@ async def test_a_relationship_is_written_once_conflicts_are_flagged_and_deletes_
     build = writer(store, ontology, project)
     mod, stripe, fr = NodeRef(MODULE, "u-mod"), NodeRef(MODULE, "u-stripe"), NodeRef(FR, "u-fr")
     await build.upsert_relationship(INTEGRATES, mod, stripe, "k-int", {"confidence": 0.5})
-    rows = await raw(store, "SELECT props FROM graph.edge WHERE group_id = :p AND rel_type = 'INTEGRATES_WITH'", p=project)
+    rows = await raw(
+        store, "SELECT props FROM graph.edge WHERE group_id = :p AND rel_type = 'INTEGRATES_WITH'", p=project
+    )
     assert len(rows) == 1 and rows[0]["props"]["confidence"] == 0.5 and rows[0]["props"]["basis"] == INFERRED
     with pytest.raises(ConformanceError) as conflict:
         await build.upsert_relationship(INTEGRATES, stripe, mod, "k-int", {})
@@ -290,14 +340,18 @@ async def test_delete_node_removes_its_edges_and_a_foreign_owner_is_refused(
     assert await build.delete_node("Document", "d1") is True
 
 
+async def write_then_fail(build: OwnedWriter) -> None:
+    async with build.transaction() as tx:
+        await tx.upsert_node(MODULE, "u1", {"spec_id": "MOD::A"})
+        raise RuntimeError("stop")
+
+
 async def test_an_explicit_transaction_rolls_back_when_it_raises(
     store: PostgresStore, ontology: Ontology, project: str
 ) -> None:
     build = writer(store, ontology, project)
     with pytest.raises(RuntimeError):
-        async with build.transaction() as tx:
-            await tx.upsert_node(MODULE, "u1", {"spec_id": "MOD::A"})
-            raise RuntimeError("stop")
+        await write_then_fail(build)
     assert (await raw(store, "SELECT count(*) AS n FROM graph.node WHERE group_id = :p", p=project))[0]["n"] == 0
     async with build.transaction() as tx:
         await tx.upsert_node(MODULE, "u1", {"spec_id": "MOD::A"})
@@ -322,7 +376,11 @@ async def test_move_foreign_relationships_keeps_type_direction_and_self_loops(
     executor = store.executor()
     async with executor.tx(project) as tx:
         rows = await tx.run(
-            q.MOVE_FOREIGN_RELATIONSHIPS, from_key="old", from_label=FR, to_key="new", to_label=FR,
+            q.MOVE_FOREIGN_RELATIONSHIPS,
+            from_key="old",
+            from_label=FR,
+            to_key="new",
+            to_label=FR,
             owned_types=[],
         )
     assert rows == [{"moved": 4}]
@@ -358,7 +416,9 @@ async def test_reads_return_the_row_contract_of_the_cypher_queries(
     assert row["provenance"] == [
         {"fragment_id": "f1", "document_id": "d1", "path": "checkout.md", "line_start": 3, "line_end": 4}
     ]
-    assert (await executor.read(q.READ_NODE_BY_ALIAS, project, spec_id="MOD::OLD", retired=RETIRED))[0]["props"]["spec_id"] == "MOD::CHECKOUT"
+    assert (await executor.read(q.READ_NODE_BY_ALIAS, project, spec_id="MOD::OLD", retired=RETIRED))[0]["props"][
+        "spec_id"
+    ] == "MOD::CHECKOUT"
     nodes = await executor.read(q.READ_NODES, project, labels=labels, where={"external": "no"}, retired=RETIRED)
     assert [item["props"]["spec_id"] for item in nodes] == ["MOD::CHECKOUT"]
     by_uuid = await executor.read(q.READ_NODES_BY_UUID, project, uuids=["u-stripe", "u-fr"], retired=RETIRED)
@@ -425,7 +485,9 @@ async def test_edges_neighbours_and_impact(store: PostgresStore, ontology: Ontol
         q.READ_EDGES, project, relations=relations, labels=labels, include_inferred=False, inferred=INFERRED
     )
     assert [e["relation"] for e in stated] == [PART_OF]
-    around = await executor.read(q.READ_NEIGHBOURS, project, spec_id="MOD::CHECKOUT", relations=relations, labels=labels)
+    around = await executor.read(
+        q.READ_NEIGHBOURS, project, spec_id="MOD::CHECKOUT", relations=relations, labels=labels
+    )
     assert [(e["relation"], e["source"], e["target"]) for e in around] == [
         (INTEGRATES, "MOD::CHECKOUT", "MOD::STRIPE"),
         (PART_OF, "REQ::PAY", "MOD::CHECKOUT"),
@@ -435,8 +497,13 @@ async def test_edges_neighbours_and_impact(store: PostgresStore, ontology: Ontol
     )
     assert [item["spec_id"] for item in hop] == ["MOD::STRIPE", "REQ::PAY"]
     limited = await executor.read(
-        q.READ_IMPACT_HOP, project, frontier=["u-mod"], seen=["u-mod", "u-stripe"], relations=relations,
-        labels=labels, limit=1,
+        q.READ_IMPACT_HOP,
+        project,
+        frontier=["u-mod"],
+        seen=["u-mod", "u-stripe"],
+        relations=relations,
+        labels=labels,
+        limit=1,
     )
     assert [item["spec_id"] for item in limited] == ["REQ::PAY"]
 
@@ -455,7 +522,11 @@ async def test_scope_walks_follow_direction_symmetry_and_the_root_barrier(
     await build.upsert_relationship(RELATES, NodeRef(MODULE, "u-m2"), NodeRef(FR, "u-r1"), "k5", {"basis": "stated"})
     executor = store.executor()
     params: dict[str, Any] = {
-        "spec_id": "S::m", "labels": [MODULE, FR, FEATURE], "roots": [MODULE], "symmetric": [RELATES], "max_hops": 3,
+        "spec_id": "S::m",
+        "labels": [MODULE, FR, FEATURE],
+        "roots": [MODULE],
+        "symmetric": [RELATES],
+        "max_hops": 3,
     }
     via = await executor.read(q.scope_via((PART_OF,), 1, 3), project, **params)
     assert sorted(row["uuid"] for row in via) == ["u-f1", "u-f2", "u-r1"]
@@ -525,11 +596,11 @@ async def test_fulltext_search_is_bm25_with_known_scores(
     for key, score in expected.items():
         assert got[key] == pytest.approx(score, rel=1e-9)
     assert [hit["spec_id"] for hit in rows[0]["hits"]] == sorted(expected, key=lambda key: (-expected[key], key))
-    paged = await executor.read(q.SEARCH_NODES_FULLTEXT, project, query="card checkout", **{**base, "skip": 1, "page": 1})
-    assert paged[0]["fetched"] == 1 and paged[0]["hits"][0]["spec_id"] == rows[0]["hits"][1]["spec_id"]
-    filtered = await executor.read(
-        q.SEARCH_NODES_FULLTEXT, project, query="card", **{**base, "labels": [MODULE]}
+    paged = await executor.read(
+        q.SEARCH_NODES_FULLTEXT, project, query="card checkout", **{**base, "skip": 1, "page": 1}
     )
+    assert paged[0]["fetched"] == 1 and paged[0]["hits"][0]["spec_id"] == rows[0]["hits"][1]["spec_id"]
+    filtered = await executor.read(q.SEARCH_NODES_FULLTEXT, project, query="card", **{**base, "labels": [MODULE]})
     assert filtered[0]["fetched"] == 0 and filtered[0]["hits"] == []
     isolated = await executor.read(q.SEARCH_NODES_FULLTEXT, project + "x", query="card", **base)
     assert isolated[0]["hits"] == []
@@ -590,7 +661,9 @@ async def test_a_vector_query_keeps_its_plan_after_many_executions(
 
     build = writer(store, ontology, project)
     for index in range(30):
-        await build.upsert_node(FR, f"u-{index}", {"spec_id": f"R::{index:02d}", "embedding": vec(1.0, index / 30), "embedding_model": "m"})
+        await build.upsert_node(
+            FR, f"u-{index}", {"spec_id": f"R::{index:02d}", "embedding": vec(1.0, index / 30), "embedding_model": "m"}
+        )
     executor = store.executor()
     params = {"model": "m", "vector": vec(1.0, 0.5), "labels": [FR], "where": {}, "limit": 5}
     first = await executor.read(q.SEARCH_NODES_VECTOR_EXACT, project, **params)
@@ -606,7 +679,7 @@ async def test_a_vector_query_keeps_its_plan_after_many_executions(
 
 
 async def raw_in(tx: Any, store: PostgresStore, sql: str) -> Any:
-    rows = await tx._connection.execute(text(sql))  # noqa: SLF001 inspect the transaction's own settings
+    rows = await tx._connection.execute(text(sql))
     return rows.scalar_one()
 
 
@@ -616,16 +689,16 @@ async def test_a_deadlock_is_retried(store: PostgresStore, ontology: Ontology, p
     executor = store.executor()
     for key in ("a", "b"):
         await executor.write(q.UPSERT_DOCUMENT, project, key=key, props={"path": key})
-    barrier = asyncio.Event()
 
-    async def locker(first: str, second: str) -> None:
+    async def locker(first: str, second: str, mine: asyncio.Event, theirs: asyncio.Event) -> None:
         async with executor.tx(project) as tx:
             await tx.run(q.UPSERT_DOCUMENT, key=first, props={"path": first + "1"})
-            barrier.set()
-            await asyncio.sleep(0.3)
+            mine.set()
+            await theirs.wait()
             await tx.run(q.UPSERT_DOCUMENT, key=second, props={"path": second + "1"})
 
-    results = await asyncio.gather(locker("a", "b"), locker("b", "a"), return_exceptions=True)
+    one, two = asyncio.Event(), asyncio.Event()
+    results = await asyncio.gather(locker("a", "b", one, two), locker("b", "a", two, one), return_exceptions=True)
     failures = [item for item in results if isinstance(item, BaseException)]
     assert len(failures) <= 1  # an explicit transaction is not retried: at most the deadlock victim fails
     if failures:
@@ -634,7 +707,7 @@ async def test_a_deadlock_is_retried(store: PostgresStore, ontology: Ontology, p
 
 
 def test_the_shape_helper_is_importable() -> None:
-    assert NodeShape("SpecNode", "uuid", True).checked().label == "SpecNode"
+    assert NodeShape("SpecNode", "uuid", check_label=True).checked().label == "SpecNode"
 
 
 async def test_a_project_over_two_thousand_vectors_gets_an_hnsw_index_that_the_search_uses(
@@ -642,7 +715,11 @@ async def test_a_project_over_two_thousand_vectors_gets_an_hnsw_index_that_the_s
 ) -> None:
     """ensure_schema adds a partial halfvec HNSW index for the model; the vector page keeps answering as before."""
 
-    for stale in await raw(store, "SELECT indexname FROM pg_indexes WHERE schemaname = :s AND indexname LIKE 'node_emb_hnsw_%'", s=store.schema):
+    for stale in await raw(
+        store,
+        "SELECT indexname FROM pg_indexes WHERE schemaname = :s AND indexname LIKE 'node_emb_hnsw_%'",
+        s=store.schema,
+    ):
         await raw(store, f'DROP INDEX "{store.schema}".{stale["indexname"]}')
     await raw(
         store,
@@ -667,7 +744,9 @@ async def test_a_project_over_two_thousand_vectors_gets_an_hnsw_index_that_the_s
         assert len(got & wanted) >= 4  # approximate index: at least four of the five exact neighbours
         assert page[0]["fetched"] == 60
     indexes = await raw(
-        store, "SELECT indexdef FROM pg_indexes WHERE schemaname = :s AND indexname LIKE 'node_emb_hnsw_%'", s=store.schema
+        store,
+        "SELECT indexdef FROM pg_indexes WHERE schemaname = :s AND indexname LIKE 'node_emb_hnsw_%'",
+        s=store.schema,
     )
     assert len(indexes) == 1
     assert "hnsw" in indexes[0]["indexdef"] and "halfvec(8)" in indexes[0]["indexdef"]

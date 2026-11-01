@@ -30,15 +30,15 @@ from graph.core.dialect import ExecutionPlan, PlannedStatement, Record
 from graph.core.errors import ConformanceError
 from graph.core.queries import (
     LITERAL_TEMPLATE,
+    ForeignLabel,
     LabelKey,
     LiteralText,
     NodeShape,
+    Query,
     Relation,
     RelationEnds,
     ScopeSequence,
     ScopeVia,
-    ForeignLabel,
-    Query,
     safe_name,
 )
 from graph.core.query_files import render_query
@@ -151,7 +151,7 @@ _FRAGMENTS: Final[Mapping[str, Callable[[], str]]] = {
 }
 
 
-def _match_fragment(label: str, key: str, check_label: bool, template: str) -> tuple[str, bool]:
+def _match_fragment(label: str, key: str, template: str, *, check_label: bool) -> tuple[str, bool]:
     """The fragment that finds a node by its label and key property, and whether it binds the label."""
 
     if label == _SPEC_NODE and key == _UUID:
@@ -171,7 +171,7 @@ def _node_match(
     """The statement that selects the ids of one node, and the parameters it needs beyond its key."""
 
     safe_label, safe_key = safe_name(label), safe_name(key)
-    name, foreign = _match_fragment(safe_label, safe_key, check_label, template)
+    name, foreign = _match_fragment(safe_label, safe_key, template, check_label=check_label)
     text = render_query(
         _FRAGMENTS[name](),
         key=key_parameter,
@@ -295,7 +295,7 @@ def parameter_value(name: str, value: Any) -> Any:
 def schema_identifier(name: str) -> str:
     """``name`` as a schema identifier of statement text; ``ConformanceError`` when it is not a plain name."""
 
-    if not isinstance(name, str) or not SCHEMA_NAME.fullmatch(name):
+    if not SCHEMA_NAME.fullmatch(name):
         raise ConformanceError("schema_name_unsafe")
     return name if name == name.lower() else f'"{name}"'
 
