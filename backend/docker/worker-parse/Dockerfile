@@ -4,7 +4,7 @@
 # Port 8001 is liveness only (GET /healthz, WORKER_HEALTH_PORT); readiness is the exec
 # probe `specflow worker --check`. No migrations here: the API image runs them.
 # Build context: backend/ (the last stage is the image; no --target needed):
-#   docker build -f backend/worker-parse.Dockerfile -t <registry>/specflow-worker-parse:<tag> backend
+#   docker build -f backend/docker/worker-parse/Dockerfile -t <registry>/specflow-worker-parse:<tag> backend
 # The base tag is a literal (no ARG); uv is pinned to an exact version.
 # The build needs the network (PyPI, the PyTorch CPU index, huggingface.co); the container does not:
 # the models are in the image and HF_HUB_OFFLINE=1.

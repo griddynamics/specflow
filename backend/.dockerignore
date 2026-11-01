@@ -15,5 +15,5 @@ scripts
 examples
 ontology
 postgres-init
-*.Dockerfile
+docker
 .dockerignore

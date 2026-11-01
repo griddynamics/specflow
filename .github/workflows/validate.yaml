@@ -160,7 +160,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     # The Docling models the parser tests need (PDF quality gate G1), at the revisions pinned in
-    # backend/scripts/fetch_docling_models.py (the single source; a test keeps backend/worker-parse.Dockerfile equal to
+    # backend/scripts/fetch_docling_models.py (the single source; a test keeps backend/docker/worker-parse/Dockerfile equal to
     # it). They are fetched once, cached by the hash of that script, and read from DOCLING_ARTIFACTS_PATH:
     # the tests themselves run offline (tests/conftest.py sets HF_HUB_OFFLINE=1).
     env:

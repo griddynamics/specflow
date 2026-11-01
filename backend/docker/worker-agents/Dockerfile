@@ -1,10 +1,10 @@
 # Worker image for the agents queue: `specflow worker` with WORKER_QUEUES=agents (worker-agents).
 # It never installs the `parse` extra (Docling, torch, PDFium, PyMuPDF): the parse queue has its own
-# image, backend/worker-parse.Dockerfile.
+# image, backend/docker/worker-parse/Dockerfile.
 # Port 8001 is liveness only (GET /healthz, WORKER_HEALTH_PORT); readiness is the exec
 # probe `specflow worker --check`. No migrations here: the API image runs them.
 # Build context: backend/ (the last stage is the image; no --target needed):
-#   docker build -f backend/worker.Dockerfile -t <registry>/specflow-worker:<tag> backend
+#   docker build -f backend/docker/worker-agents/Dockerfile -t <registry>/specflow-worker-agents:<tag> backend
 # The base tag is a literal (no ARG); uv is pinned to an exact version.
 
 # build: the locked runtime dependencies, then the project itself NON-editable, so the

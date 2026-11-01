@@ -15,7 +15,7 @@ make unit-test
 ## The service (`src/`)
 
 `src/` holds the deployable service (the top-level packages below): one code base, three roles, each with
-its own image (`api.Dockerfile`, `worker.Dockerfile` for worker-agents, `worker-parse.Dockerfile`). It also holds the libraries the service reuses (`llm`, `file_parsers`,
+its own image (`docker/api`, `docker/worker-agents`, `docker/worker-parse`, each with a `Dockerfile`). It also holds the libraries the service reuses (`llm`, `file_parsers`,
 `logger`; `file_parsers` for document parsing, `logger` for logging).
 
 | Module | What it holds |

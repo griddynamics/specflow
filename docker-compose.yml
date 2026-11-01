@@ -260,12 +260,9 @@ services:
       start_period: 10s
 
   # Local only: one-shot. Creates the bucket of config/cloud.local.yaml, then exits 0 (also when
-  # it exists). Uses the api image (boto3 is in it); api and workers wait for it.
+  # it exists: create-bucket may fail on a second run, then head-bucket must succeed). api and workers wait for it.
   rustfs-init:
-    build:
-      context: ./backend
-      dockerfile: api.Dockerfile
-    image: specflow-api:local
+    image: amazon/aws-cli:2.38.0@sha256:ed3233c28ad56d6a66e9e7623a495ab2d7eb08d425f8eea0fdbdfacb12de2ba8
     container_name: specflow-rustfs-init
     restart: "no"
     mem_limit: 256m
@@ -276,18 +273,10 @@ services:
       AWS_REGION: "us-east-1"
       INIT_BUCKET: "specflow-local"
     entrypoint:
-      - python
+      - /bin/sh
       - -c
       - |
-        import os
-        import boto3
-        from botocore.exceptions import ClientError
-        try:
-            boto3.client("s3").create_bucket(Bucket=os.environ["INIT_BUCKET"])
-        except ClientError as error:
-            # RustFS 1.0.1 answers 200 for an existing bucket of ours; S3 itself says BucketAlreadyOwnedByYou.
-            if error.response["Error"]["Code"] != "BucketAlreadyOwnedByYou":
-                raise
+        aws s3api create-bucket --bucket "$$INIT_BUCKET" || aws s3api head-bucket --bucket "$$INIT_BUCKET"
     depends_on:
       rustfs:
         condition: service_healthy
@@ -296,7 +285,7 @@ services:
   api:
     build:
       context: ./backend
-      dockerfile: api.Dockerfile
+      dockerfile: docker/api/Dockerfile
     image: specflow-api:local
     container_name: specflow-api
     # Read-only root filesystem, as on Kubernetes: the service writes no files (logs go to stdout).
@@ -381,11 +370,11 @@ services:
 
   # Polls the Temporal queue specflow-parse: parsing of every supported format (PDF, Word, PowerPoint, Excel, HTML, Markdown, CSV). No Neo4j, LLM gateway or agent password.
   worker-parse:
-    # Own image (Docling, torch CPU and the baked models): backend/worker-parse.Dockerfile. 3g: a 10-page
-    # Docling range peaks near 1.8 GB; the 1 GB /tmp tmpfs counts against the limit.
+    # Own image (Docling, torch CPU and the baked models): backend/docker/worker-parse/Dockerfile. 3g: page ranges
+    # keep the peak under it (gate G5, docs/file-parsers/acceptance-gates.md); the 1 GB /tmp tmpfs counts against it.
     build:
       context: ./backend
-      dockerfile: worker-parse.Dockerfile
+      dockerfile: docker/worker-parse/Dockerfile
     image: specflow-worker-parse:local
     container_name: specflow-worker-parse
     # Read-only root filesystem, as on Kubernetes; /tmp is the only writable place (the pod's emptyDir).
@@ -437,8 +426,8 @@ services:
   worker-agents:
     build:
       context: ./backend
-      dockerfile: worker.Dockerfile
-    image: specflow-worker:local
+      dockerfile: docker/worker-agents/Dockerfile
+    image: specflow-worker-agents:local
     container_name: specflow-worker-agents
     # Read-only root filesystem, as on Kubernetes; /tmp is the only writable place (the pod's emptyDir).
     read_only: true

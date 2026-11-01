@@ -155,7 +155,7 @@ started before the deploy keep the old 60-minute execution limit while the stale
 | Area | Where | Change |
 |---|---|---|
 | Dependencies | `backend/pyproject.toml`, `backend/uv.lock` | `parse` extra; PyTorch from the CPU index; PyMuPDF removed ([engines/docling.md](../engines/docling.md#packages)). |
-| Images | `backend/worker-parse.Dockerfile` (new), `backend/worker.Dockerfile`, `docker-compose.yml`, `Makefile` | A worker-parse image with baked models; 3 GiB ([runtime.md](../runtime.md#images)). |
+| Images | `backend/docker/` (new: one Dockerfile per image), `docker-compose.yml`, `Makefile` | A worker-parse image with baked models; 3 GiB ([runtime.md](../runtime.md#images)). |
 | Parser | `backend/src/file_parsers/` | Formats table, facade, limits, engines, structure pass and word repairs, pypdfium2 wrapper, guard and Office structure; PyMuPDF modules and the stub removed ([architecture.md](../architecture.md#modules)). |
 | Parse runtime | `backend/src/temporal/documents/`, `backend/src/temporal/sources/` | Pipeline by media type, `original_key`, progress, new codes, time limits, a general Drive file import. |
 | Upload API and batches | `backend/src/api/uploads.py`, the documents and source-batch routers, `backend/src/api/batch_files.py`, `backend/src/db/repositories.py`, `backend/src/db/batches.py` | Canonical types, first-byte checks, byte caps, no PDF hardcodes ([formats.md](../formats.md#upload-api)). |

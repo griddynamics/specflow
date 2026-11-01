@@ -6,7 +6,7 @@ The default target is ``backend/.docling-models`` (git-ignored), the folder ``te
 ``DOCLING_ARTIFACTS_PATH`` at when it exists. CI passes its own target. A repository whose marker file
 (``.fetched``, holding the revision and the file patterns) is already there is skipped, so a second run does
 no network call. The revisions here are the single source: ``tests/test_docling_models_ci.py`` keeps the
-``worker-parse.Dockerfile`` ARGs equal to them, and the CI cache key hashes this file.
+``docker/worker-parse/Dockerfile`` ARGs equal to them, and the CI cache key hashes this file.
 """
 
 from __future__ import annotations

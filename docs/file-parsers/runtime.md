@@ -52,8 +52,9 @@ Each service image carries only its own dependencies (decision D8): Docling, PyT
 in the worker-parse image only. The api and worker-agents images need no code change for that, because the
 queue registration is imported lazily (`temporal/registry.py`). What the image contains, its variables, its
 memory limit, its filesystem and its grace period are deployment settings:
-[configuration.md](../configuration.md#the-worker-parse-image). Containers that still reuse the api image
-(compose `rustfs-init`) are a follow-up ([roadmap.md](roadmap.md#deferred-features)).
+[configuration.md](../configuration.md#the-worker-parse-image). The Dockerfiles are
+`backend/docker/<service>/Dockerfile` for `api`, `worker-agents` and `worker-parse`; the image of each is
+`specflow-<service>:local` in compose.
 
 ## Sizing
 

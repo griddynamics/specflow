@@ -18,7 +18,6 @@ tags: [file-parsers]
 | A second engine and an engine config key | [Engine choice per deployment](#engine-choice-per-deployment) (D7). |
 | Re-parse of documents made by pymupdf4llm | They keep their Markdown (D5). |
 | Documents for Drive files stored before their type was read | Needs a re-import of the source ([formats.md](formats.md#drive-import)). |
-| Containers that still reuse the api image (compose `rustfs-init`) | Follow-up of the per-role images (D8). |
 
 Decisions D1–D8: [decisions/docling-replaces-pymupdf.md](decisions/docling-replaces-pymupdf.md#owner-decisions).
 
@@ -45,6 +44,6 @@ revision ([architecture.md](architecture.md#graph-revision-rule)).
 - A byte cap while the Drive import streams a file, so a very large file is not stored first
   ([formats.md](formats.md#drive-import)).
 - An image build in CI: `.github/workflows/validate.yaml` builds no Docker image, so only `make images` finds a
-  broken `worker-parse.Dockerfile`.
+  broken `backend/docker/worker-parse/Dockerfile`.
 - Text files that Docling's format sniffing skips ([office-web.md](office-web.md#known-limits)).
 - A whitespace rule for the space before commas in table cells ([pdf.md](pdf.md#known-defects)).

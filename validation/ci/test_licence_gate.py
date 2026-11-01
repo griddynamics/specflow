@@ -122,7 +122,7 @@ def test_an_override_must_match_an_installed_package_at_its_pinned_version(confi
     assert gone == [f"override {licence_gate.normalise(pinned[0]['Name'])} matches no installed package: drop it from the config"]
 
 
-DOCKERFILES = {"api": "api.Dockerfile", "worker-agents": "worker.Dockerfile", "worker-parse": "worker-parse.Dockerfile"}
+DOCKERFILES = {role: f"docker/{role}/Dockerfile" for role in ("api", "worker-agents", "worker-parse")}
 
 
 @pytest.mark.parametrize("role", DOCKERFILES)

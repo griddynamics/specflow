@@ -180,7 +180,7 @@ is no setting for the engine, the formats or the limits: they are fixed in the c
 
 ### The worker-parse image
 
-- `backend/worker-parse.Dockerfile` builds the only image that holds Docling, PyTorch (CPU wheels),
+- `backend/docker/worker-parse/Dockerfile` builds the only image that holds Docling, PyTorch (CPU wheels),
   OpenCV and the layout and table models. The api and worker-agents images do not contain them and
   never contain PyMuPDF. `make images` builds the four images.
 - Size it at 2 vCPU and **3 GiB** (`mem_limit: 3g` in `docker-compose.yml`). A parse works through a PDF in ranges

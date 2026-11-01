@@ -44,21 +44,21 @@ OWNED = [
     COMPOSE,
     ROOT / "Makefile",
     ROOT / "backend" / "Makefile",
-    ROOT / "backend" / "api.Dockerfile",
-    ROOT / "backend" / "worker.Dockerfile",
-    ROOT / "backend" / "worker-parse.Dockerfile",
+    ROOT / "backend" / "docker" / "api" / "Dockerfile",
+    ROOT / "backend" / "docker" / "worker-agents" / "Dockerfile",
+    ROOT / "backend" / "docker" / "worker-parse" / "Dockerfile",
     ROOT / "backend" / ".dockerignore",
 ]
 API_IMAGE = os.environ.get("SPECFLOW_API_IMAGE", "specflow-api:local")
-WORKER_IMAGE = os.environ.get("SPECFLOW_WORKER_IMAGE", "specflow-worker:local")  # worker-agents
+WORKER_IMAGE = os.environ.get("SPECFLOW_WORKER_AGENTS_IMAGE", "specflow-worker-agents:local")
 WORKER_PARSE_IMAGE = os.environ.get("SPECFLOW_WORKER_PARSE_IMAGE", "specflow-worker-parse:local")
 FRONTEND_IMAGE = os.environ.get("SPECFLOW_FRONTEND_IMAGE", "specflow-frontend:local")
 
 # App service -> (build context, Dockerfile), as in the deployment.
 BUILT = {
-    "api": ("./backend", "api.Dockerfile"),
-    "worker-parse": ("./backend", "worker-parse.Dockerfile"),
-    "worker-agents": ("./backend", "worker.Dockerfile"),
+    "api": ("./backend", "docker/api/Dockerfile"),
+    "worker-parse": ("./backend", "docker/worker-parse/Dockerfile"),
+    "worker-agents": ("./backend", "docker/worker-agents/Dockerfile"),
     "frontend": ("./frontend", "Dockerfile"),
 }
 # Database service -> public image.
@@ -76,7 +76,13 @@ LOCAL_PLATFORM = {
     "langfuse-web",
 }
 BACKEND_SERVICES = ("api", "worker-parse", "worker-agents")
-DOCKERFILES = ("api.Dockerfile", "worker.Dockerfile", "worker-parse.Dockerfile")
+DOCKERFILES = ("api", "worker-agents", "worker-parse")  # service = directory under backend/docker/
+
+
+def dockerfile_of(service: str) -> Path:
+    return ROOT / "backend" / "docker" / service / "Dockerfile"
+
+
 # Packages only the worker-parse image may carry (the `parse` extra and what it pulls in).
 PARSE_ONLY_MODULES = ("docling", "torch", "pymupdf", "pymupdf4llm", "cv2", "pypdfium2")
 
@@ -263,7 +269,7 @@ def test_base_images_are_pinned_to_exact_tags():
         for image, _ in bases:
             assert image in stages or pin.match(image), (path.name, image)
     for name in DOCKERFILES:
-        assert re.search(r"pip install uv==\d+\.\d+\.\d+\b", (ROOT / "backend" / name).read_text()), name
+        assert re.search(r"pip install uv==\d+\.\d+\.\d+\b", dockerfile_of(name).read_text()), name
 
 
 def test_the_cloud_profile_mount_no_adc_and_no_log_files_for_the_backend_services():
@@ -307,6 +313,12 @@ def test_rustfs_is_pinned_needs_both_keys_and_has_a_one_shot_bucket_init():
     assert init["restart"] == "no"
     assert init["depends_on"] == {"rustfs": {"condition": "service_healthy"}}
     assert env_of(init)["INIT_BUCKET"] == "specflow-local"
+    # Off-the-shelf image pinned by tag and digest; it builds nothing and reuses no image of ours.
+    assert re.fullmatch(r"amazon/aws-cli:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}", init["image"])
+    assert "build" not in init
+    script = init["entrypoint"]
+    assert script[:2] == ["/bin/sh", "-c"]
+    assert "aws s3api create-bucket" in script[2] and "|| aws s3api head-bucket" in script[2]
 
 
 def test_the_backend_services_run_on_a_read_only_root_filesystem():
@@ -378,33 +390,33 @@ def test_the_backend_dockerfiles_have_the_runtime_contract():
     """AC-14.1 (static part) for the api and the two worker images."""
 
     for name in DOCKERFILES:
-        text = (ROOT / "backend" / name).read_text()
+        text = dockerfile_of(name).read_text()
         runtime = text[text.rindex("\nFROM ") :]
         assert "uv sync --frozen --no-dev" in text and "--extra gcp --extra aws" in text, name
         assert "USER 10001:10001" in runtime, name
         assert "LOGS_" not in text and "/app/logs" not in text, name
         assert "COPY tests" not in text and ".env" not in runtime, name
-    api = (ROOT / "backend" / "api.Dockerfile").read_text()
+    api = dockerfile_of("api").read_text()
     assert 'CMD ["sh", "-c", "specflow migrate && exec specflow api"]' in api
     assert "COPY alembic.ini" in api and "COPY migrations" in api
-    for name in ("worker.Dockerfile", "worker-parse.Dockerfile"):
-        worker = (ROOT / "backend" / name).read_text()
+    for name in ("worker-agents", "worker-parse"):
+        worker = dockerfile_of(name).read_text()
         assert 'CMD ["specflow", "worker"]' in worker and "EXPOSE 8001" in worker, name
 
 
 def test_only_the_worker_parse_image_installs_the_parse_extra():
     """Per-role images: Docling, torch and PyMuPDF reach no other image through any extra."""
 
-    for name in ("api.Dockerfile", "worker.Dockerfile"):
-        text = (ROOT / "backend" / name).read_text()
+    for name in ("api", "worker-agents"):
+        text = dockerfile_of(name).read_text()
         assert "--extra parse" not in text and "--all-extras" not in text, name
-    parse = (ROOT / "backend" / "worker-parse.Dockerfile").read_text()
+    parse = dockerfile_of("worker-parse").read_text()
     assert parse.count("uv sync --frozen --no-dev") == 2
     assert parse.count("--extra gcp --extra aws --extra parse") == 2
 
 
 def test_the_worker_parse_image_bakes_the_pinned_models_and_runs_offline():
-    text = (ROOT / "backend" / "worker-parse.Dockerfile").read_text()
+    text = dockerfile_of("worker-parse").read_text()
     runtime = text[text.rindex("\nFROM ") :]
     for repo in ("docling-project/docling-layout-heron", "docling-project/docling-models"):
         assert repo in text, repo
@@ -593,8 +605,9 @@ def test_the_worker_parse_image_imports_the_parser_and_converts_a_pdf_offline():
 
     pdf = ROOT / "backend" / "tests" / "data" / "specs" / "extraction.pdf"
     code = (
-        "import os, docling, cv2, pymupdf4llm, pypdfium2; "
+        "import importlib.util, os, docling, cv2, pypdfium2; "
         "assert os.environ['HF_HUB_OFFLINE'] == '1'; "
+        "assert importlib.util.find_spec('pymupdf') is None and importlib.util.find_spec('pymupdf4llm') is None; "
         "from docling.datamodel.base_models import InputFormat; "
         "from docling.datamodel.pipeline_options import PdfPipelineOptions, TableFormerMode; "
         "from docling.document_converter import DocumentConverter, PdfFormatOption; "

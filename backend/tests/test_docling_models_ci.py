@@ -10,7 +10,7 @@ import yaml
 from scripts import fetch_docling_models as fetch_script
 
 ROOT = Path(__file__).resolve().parents[2]
-DOCKERFILE = ROOT / "backend" / "worker-parse.Dockerfile"
+DOCKERFILE = ROOT / "backend" / "docker" / "worker-parse" / "Dockerfile"
 WORKFLOW = ROOT / ".github" / "workflows" / "validate.yaml"
 
 

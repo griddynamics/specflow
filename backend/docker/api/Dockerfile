@@ -1,7 +1,7 @@
 # API image. On every start: `specflow migrate` (Alembic upgrade to head; a no-op when
 # the schema is current), then the API on port 8000. A failed migration stops the start.
 # Build context: backend/ (the last stage is the image; no --target needed):
-#   docker build -f backend/api.Dockerfile -t <registry>/specflow-api:<tag> backend
+#   docker build -f backend/docker/api/Dockerfile -t <registry>/specflow-api:<tag> backend
 # Run ONE replica: the migration takes no lock.
 # The base tag is a literal (no ARG); uv is pinned to an exact version.
 

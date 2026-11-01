@@ -57,7 +57,7 @@ packages = [
     "python-docx", "python-pptx", "openpyxl", "et-xmlfile", "xlsxwriter",
     "beautifulsoup4", "soupsieve", "marko", "pylatexenc", "lxml", "tqdm", "certifi",
 ]
-# Not packages: the model weights baked into the image (backend/worker-parse.Dockerfile).
+# Not packages: the model weights baked into the image (backend/docker/worker-parse/Dockerfile).
 text = ["docling-layout-heron", "docling-models", "CDLA Permissive 2.0"]
 
 # The images (roles): the extras their Dockerfiles install.
