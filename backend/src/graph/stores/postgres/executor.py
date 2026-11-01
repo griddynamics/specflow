@@ -34,6 +34,7 @@ from graph.core.errors import (
 from graph.core.identity import validate_project_id
 from graph.core.queries import PING, Query
 from graph.core.store import (
+    QUERY_TOO_COMPLEX,
     RETRY_DELAYS_SECONDS,
     STORE_ACCESS_DENIED,
     STORE_AUTH_REJECTED,
@@ -80,6 +81,8 @@ SERIALIZATION_FAILURE: Final = "40001"
 DEADLOCK: Final = "40P01"
 CANNOT_CONNECT_NOW: Final = "57P03"
 CONNECTION_CLASS: Final = "08"
+# A statement the server refuses as too complex (stack depth, too many arguments): design D6.
+STATEMENT_TOO_COMPLEX: Final = "54001"
 # Classes of a statement the server refuses: syntax or access rule (42), data exception (22), feature (0A).
 REJECTED_CLASSES: Final = frozenset({"42", "22", "0A"})
 # An administrator or a crash ended the session, or the server is out of connections: unreachable now.
@@ -162,6 +165,8 @@ def map_error(error: BaseException, query: str, *, write: bool, attempts: int = 
         return InfrastructureUnavailableError(STORE_UNREACHABLE, store=backend, error_type=type(error).__name__)
     if write:
         return GraphWriteError(STORE_WRITE_FAILED, **fields)
+    if code == STATEMENT_TOO_COMPLEX:
+        return ConformanceError(QUERY_TOO_COMPLEX, store=backend, query=query)
     if code is not None and code[:2] in REJECTED_CLASSES:
         return ConformanceError(STORE_QUERY_REJECTED, **fields)
     return InfrastructureUnavailableError(STORE_READ_FAILED, **fields)
@@ -315,8 +320,11 @@ class PostgresExecutor:
 
     async def _managed(self, query: Query, plan: ExecutionPlan, *, write: bool) -> list[Record]:
         async def attempt() -> list[Record]:
-            async with self._engine.connect() as connection, connection.begin():
-                return await _run(connection, plan)
+            async with self._engine.connect() as connection:
+                if not write:  # a read cannot change data, whatever its statement says
+                    await connection.execution_options(postgresql_readonly=True)
+                async with connection.begin():
+                    return await _run(connection, plan)
 
         def retrying(error: BaseException, number: int) -> None:
             log_event(

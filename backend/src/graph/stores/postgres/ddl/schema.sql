@@ -128,9 +128,15 @@ CREATE TABLE IF NOT EXISTS graph.edge (
     edge_key text GENERATED ALWAYS AS (props ->> 'edge_key') STORED
 );
 
--- A relationship is found by (group_id, rel_type, edge_key); an edge without
--- a key never conflicts (NULLs are distinct).
+-- A relationship is one row per (type, edge_key, ends): the upsert conflicts
+-- on it. Like the Cypher store, the database does not forbid the same key on
+-- other ends (the owned writer refuses it); an edge without a key never
+-- conflicts (NULLs are distinct). A relationship is found by its key through
+-- edge_key_idx.
 CREATE UNIQUE INDEX IF NOT EXISTS edge_key_uq
+ON graph.edge (group_id, rel_type, edge_key, source_id, target_id);
+
+CREATE INDEX IF NOT EXISTS edge_key_idx
 ON graph.edge (group_id, rel_type, edge_key);
 
 CREATE INDEX IF NOT EXISTS edge_source_idx ON graph.edge (source_id, rel_type);

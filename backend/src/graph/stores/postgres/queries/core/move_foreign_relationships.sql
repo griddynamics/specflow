@@ -2,9 +2,10 @@
 -- project_id, from_key, from_label, to_key, to_label, owned_types (text[]).
 -- Moves every relationship of the old node whose type is not owned onto the
 -- new node, keeping type, direction and properties (the row is re-pointed, so
--- edge_key and id survive). An equal edge already on the new node, an equal
--- edge earlier in the moved set and an edge between old and new are only
--- deleted; a self-loop of old becomes a self-loop of new (canonical).
+-- edge_key and id survive). An equal edge (or one with the same edge_key)
+-- already on the new node, an equal edge earlier in the moved set and an edge
+-- between old and new are only deleted; a self-loop of old becomes a
+-- self-loop of new (canonical).
 -- One row always: moved counts every relationship taken off old.
 WITH old AS (
     SELECT n.id
@@ -33,6 +34,7 @@ cand AS (
         e.id,
         e.rel_type,
         e.props,
+        e.edge_key,
         CASE WHEN e.source_id = old.id THEN new.id ELSE e.source_id END
             AS new_src,
         CASE WHEN e.target_id = old.id THEN new.id ELSE e.target_id END
@@ -62,7 +64,10 @@ ranked AS (
                     AND x.source_id = c.new_src
                     AND x.target_id = c.new_tgt
                     AND x.rel_type = c.rel_type
-                    AND x.props = c.props
+                    AND (
+                        x.props = c.props
+                        OR x.edge_key = c.edge_key
+                    )
             ) THEN FALSE
             ELSE row_number() OVER (
                 PARTITION BY

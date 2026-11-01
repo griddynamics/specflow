@@ -23,6 +23,7 @@ from pydantic import SecretStr
 from graph.stores.config import BACKENDS, StoreConfig
 from graph_probes.base import GraphProbe
 from graph_probes.neo4j import Neo4jProbe
+from graph_probes.postgres import PostgresProbe
 
 SWITCH: Final = "SPECFLOW_TEST_GRAPH_STORE"
 ALIAS: Final = "SPECFLOW_TEST_NEO4J"
@@ -32,6 +33,7 @@ DEFAULT_NEO4J_URI: Final = "bolt://localhost:7687"
 # probe module above and adds one row.
 PROBES: Final[dict[str, Callable[[StoreConfig], GraphProbe]]] = {
     "neo4j": Neo4jProbe,
+    "postgres": PostgresProbe,
 }
 
 

@@ -170,12 +170,23 @@ def test_a_missing_parameter_is_named_and_extra_parameters_are_dropped() -> None
     assert plan.statements[0].params == {"project_id": "p", "n_key": "k", "n_label": "L"}
 
 
-@pytest.mark.parametrize("template", ["core.nothing_like_this", "build.build_upsert_documents", "core.ddl", "core.literal"])
+@pytest.mark.parametrize("template", ["core.nothing_like_this", "build.build_upsert_documents", "core.ddl"])
 def test_an_unknown_or_cypher_only_template_is_refused(template: str) -> None:
     with pytest.raises(ConformanceError) as raised:
         PostgresDialect().plan(Query("x", template, project_scoped=False), {})
     assert raised.value.code == "query_template_unknown"
     assert raised.value.fields["store"] == "postgres"
+
+
+def test_a_literal_query_is_one_sql_statement_that_still_has_to_bind_the_project_id() -> None:
+    dialect = PostgresDialect()
+    bound = Query.literal("probe", "SELECT cast(:project_id AS text) AS p, cast(:rows AS jsonb) AS r")
+    plan = dialect.plan(bound, {"project_id": "p", "rows": [{"a": 1}]})
+    assert plan.statements[0].params == {"project_id": "p", "rows": '[{"a":1}]'}
+    with pytest.raises(ConformanceError) as raised:
+        dialect.plan(Query.literal("probe", "SELECT 1 AS one"), {})
+    assert raised.value.code == "query_missing_project_id"
+    assert dialect.plan(Query.literal("open", "SELECT 1 AS one", project_scoped=False), {}).statements
 
 
 def test_a_hand_built_query_cannot_smuggle_names_into_the_text() -> None:
@@ -440,6 +451,10 @@ class FakeConnection:
     def begin(self) -> FakeTransaction:
         return FakeTransaction(self)
 
+    async def execution_options(self, **options: Any) -> FakeConnection:
+        self.log.append(f"options {sorted(options)}")
+        return self
+
     async def execute(self, statement: Any, params: dict[str, Any]) -> FakeResult:
         self.log.append(f"execute {sorted(params)}")
         outcome = self.script.pop(0) if self.script else []
@@ -574,7 +589,7 @@ def test_statements_split_at_semicolons_outside_dollar_quotes() -> None:
 
 def test_the_schema_file_is_split_into_statements_that_each_create_one_object() -> None:
     statements = split_statements(load_ddl_sql("schema.sql"))
-    assert len(statements) == 18
+    assert len(statements) == 19
     assert {parse_ddl_statement(item).kind for item in statements} == {"schema", "function", "table", "index"}
 
 

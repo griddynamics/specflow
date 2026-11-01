@@ -193,6 +193,11 @@ class GraphProbe(ABC):
     #: The backend name (``neo4j``, ``arcadedb``, ``postgres``, ``tigergraph``).
     backend: str
 
+    #: Whether the store's full-text search has Lucene's behaviour: indexes that span the whole database (a page
+    #: is filtered by project afterwards, so the reader may need several pages) and a clause limit that makes it
+    #: refuse a very long query. A store that scores per project (PostgreSQL) answers in one page and has no limit.
+    lucene_semantics: bool = True
+
     def __init__(self, config: StoreConfig) -> None:
         self.config = config
         self._store: GraphStore | None = None

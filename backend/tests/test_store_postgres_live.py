@@ -642,6 +642,8 @@ async def test_a_project_over_two_thousand_vectors_gets_an_hnsw_index_that_the_s
 ) -> None:
     """ensure_schema adds a partial halfvec HNSW index for the model; the vector page keeps answering as before."""
 
+    for stale in await raw(store, "SELECT indexname FROM pg_indexes WHERE schemaname = :s AND indexname LIKE 'node_emb_hnsw_%'", s=store.schema):
+        await raw(store, f'DROP INDEX "{store.schema}".{stale["indexname"]}')
     await raw(
         store,
         "INSERT INTO graph.node (group_id, kind, labels, props, embedding) "

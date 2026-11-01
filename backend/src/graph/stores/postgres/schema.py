@@ -120,7 +120,8 @@ _REQUIRED_INDEXES: Final = (
     ("node", "group_id, spec_id", "kind = 'spec' AND spec_id IS NOT NULL", True),
     ("node", "group_id, document_id", "kind = 'document'", True),
     ("node", "group_id, fragment_id", "kind = 'fragment'", True),
-    ("edge", "group_id, rel_type, edge_key", "", True),
+    ("edge", "group_id, rel_type, edge_key, source_id, target_id", "", True),
+    ("edge", "group_id, rel_type, edge_key", "", False),
     ("edge", "source_id, rel_type", "", False),
     ("edge", "target_id, rel_type", "", False),
 )
@@ -139,7 +140,7 @@ def schema_objects(ontology: Ontology, ddl: Sequence[str] | None = None) -> tupl
 
     ``ddl`` None reads the shipped file (``ddl/schema.sql``); a sequence of statements (tests) replaces it.
     The DDL must define the unique keys of spec nodes (``uuid`` and ``spec_id``), documents, fragments and
-    relationships (``rel_type`` and ``edge_key``, which covers every relation the ontology declares), the key
+    relationships (``rel_type``, ``edge_key`` and the ends, which covers every relation the ontology declares), the key
     of foreign nodes when the ontology declares a foreign label, the two traversal indexes of the edge
     table and the vector and full-text columns. A gap raises ``ConfigurationError("schema_ddl_incomplete")``.
     """

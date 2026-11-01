@@ -29,7 +29,9 @@ from typing import Any, Final
 from graph.core.dialect import ExecutionPlan, PlannedStatement, Record
 from graph.core.errors import ConformanceError
 from graph.core.queries import (
+    LITERAL_TEMPLATE,
     LabelKey,
+    LiteralText,
     NodeShape,
     Relation,
     RelationEnds,
@@ -285,6 +287,8 @@ def parameter_value(name: str, value: Any) -> Any:
         return json_text(value)
     if isinstance(value, tuple):
         return list(value)
+    if isinstance(value, list) and any(isinstance(item, Mapping) for item in value):
+        return json_text(value)
     return value
 
 
@@ -347,6 +351,10 @@ class PostgresDialect:
         template = query.template
         if template in _STATIC:
             rendered = _Rendered(_STATIC[template]())
+        elif template == LITERAL_TEMPLATE:
+            # A literal query is one fixed statement (tests and probes); here it is SQL, and the guard
+            # below still requires a scoped one to bind :project_id.
+            rendered = _Rendered(_expect(query.args, LiteralText, template).text)
         else:
             renderer = _RENDERERS.get(template)
             if renderer is None:

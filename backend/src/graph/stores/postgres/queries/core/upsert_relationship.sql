@@ -56,14 +56,11 @@ written AS (
     FROM ends
     CROSS JOIN other
     WHERE other.conflicts = 0
-    ON CONFLICT (group_id, rel_type, edge_key)
+    ON CONFLICT (group_id, rel_type, edge_key, source_id, target_id)
     DO UPDATE
         SET
             props
             = graph.props_merge(edge.props, cast(:props AS jsonb) - 'edge_key')
-        WHERE
-        edge.source_id = (SELECT ends.sid FROM ends)
-        AND edge.target_id = (SELECT ends.tid FROM ends)
     RETURNING edge.id
 )
 
