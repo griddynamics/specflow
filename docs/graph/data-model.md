@@ -7,10 +7,15 @@ tags: [graph]
 ---
 # data-model.md: Neo4j graph model, identity, provenance, constraints and invariants
 
+This chapter describes the Neo4j model. It is canonical: every store keeps the same nodes, relationships,
+properties, identities and invariants, and each store's mapping to its own structures is in
+[Per-store mapping](#per-store-mapping). Statements here that name labels, Cypher or `CREATE ... IF NOT EXISTS`
+objects are the Neo4j form.
+
 ## Partition
 
-All projects share one Neo4j database. Every node and relationship carries `group_id = project_id`,
-and every query filters on it. `project_id` matches `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`.
+All projects share one database (one schema on PostgreSQL). Every node and relationship carries
+`group_id = project_id`, and every query filters on it. `project_id` matches `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`.
 
 ## Spec node
 
@@ -138,9 +143,34 @@ uuid)`: setup then stops with `schema_setup_failed` naming the constraint's crea
 create the server refuses (the objects created before it stay). Merge or delete the duplicates, then
 run setup again.
 
-Vector and fulltext searches span the whole database, so search filters index hits by `group_id`,
-fetches more while too few remain, and cuts to the requested limit; a project with at most 2000
-candidate vectors is scored by exact cosine instead ([api.md](api.md)).
+On Neo4j and ArcadeDB, vector and fulltext searches span the whole database, so search filters index hits
+by `group_id`, fetches more while too few remain, and cuts to the requested limit; a project with at most
+2000 candidate vectors is scored by exact cosine instead ([api.md](api.md)). PostgreSQL scores per project in SQL.
+
+## Per-store mapping
+
+The stores differ only in how they hold the model above. Property names, `uuid`, `spec_id`, `edge_key` and
+the invariants are the same; the canonical snapshots of the test suites are equal on every store.
+
+| Model | Neo4j | ArcadeDB 26.10 | PostgreSQL 15 + pgvector 0.8 |
+|---|---|---|---|
+| Database | One database (`GRAPH_STORE_NAME`) | One database (`GRAPH_STORE_NAME`, default `specflow`) | One schema (`GRAPH_STORE_NAME`, default `graph`) |
+| Node | Node with labels; `SpecNode` plus one domain label | Vertex of a composite type named by its sorted labels (`Module~SpecNode`); setting a label moves the record | Row of `graph.node`: `kind` (`spec`, `fragment`, `document`, `foreign`), `labels` (without `SpecNode`), `props` (JSONB), `group_id` |
+| Relationship | Typed relationship | Edge of a type per relation | Row of `graph.edge`: `rel_type`, `source_id`, `target_id`, `props` (JSONB), `group_id` |
+| Keys | Unique constraints on `(group_id, ...)` | Unique indexes; `(group_id, spec_id)` through a derived property `spec_key` (`<project id>:<spec id>`, set on spec nodes only, hidden from reads) | Partial unique indexes; `uuid`, `spec_id`, `fragment_id`, `document_id`, `edge_key` are generated columns of `props` |
+| Vectors | Vector index, cosine | Vector index (LSM), cosine; created through the HTTP API | `vector` column, exact scan up to 2000 vectors per project, a partial HNSW `halfvec` index above that; the dimension is fixed per schema |
+| Fulltext | Lucene fulltext index | Fulltext index (BM25-like scores) | BM25 computed in SQL over `tsvector` columns (k1 1.2, b 0.75) |
+| Setup state | Constraints and indexes named `graph_*` | Types, indexes named `graph_*`, the `spec_key` property | Tables `node`, `edge`, `meta` (schema version, vector dimension), indexes, an advisory lock during setup |
+
+Differences a reader of the stored data must know:
+
+- ArcadeDB and Neo4j element ids are not stable across writes (a label change moves the ArcadeDB record). Key on
+  `uuid`, `spec_id` and `edge_key`.
+- PostgreSQL node and edge ids are internal `bigint` values of the tables; they are not part of the model either.
+- Text search scores differ between stores (Lucene, BM25-like, SQL BM25); the order of hits that match only the
+  text can differ. Vector scores use one scale, `(1 + cosine) / 2`.
+- ArcadeDB and PostgreSQL ranking differences against Neo4j are small and listed in
+  [configuration.md](../configuration.md#graph-store).
 
 ## Invariants
 
