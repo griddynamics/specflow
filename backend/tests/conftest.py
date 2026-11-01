@@ -26,11 +26,13 @@ os.environ.update(
 from collections.abc import Iterator
 from pathlib import Path
 
+import httpx
 import pytest
 
 import llm.sandbox as sandbox_module
 import logger._stderr as stderr_module
 import logger.correlation as correlation_module
+from graph.core.errors import GraphError
 from graph_probes.arcadedb import drop_session_databases
 
 # Registers the `central_log` harness fixture and the tier-2 `temporal_live` fixture
@@ -166,5 +168,5 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
     del session, exitstatus
     try:
         asyncio.run(drop_session_databases())
-    except Exception as error:  # noqa: BLE001 - a failed cleanup must not fail a finished run
+    except (GraphError, httpx.HTTPError, OSError) as error:  # a failed cleanup must not fail a finished run
         sys.stderr.write(f"graph test cleanup: could not drop a test database ({type(error).__name__})\n")

@@ -22,6 +22,7 @@ import multiprocessing
 import os
 import re
 import resource
+import shlex
 import shutil
 import subprocess
 import sys
@@ -83,6 +84,12 @@ needs_docker = pytest.mark.skipif(
     reason="SPECFLOW_TEST_IMAGES=1 and the docker CLI are needed",
 )
 
+
+# `docker compose config` resolves a file without a daemon: the CLI is all the stack-selection tests need.
+needs_compose_cli = pytest.mark.skipif(
+    shutil.which("docker") is None,
+    reason="the docker CLI is needed (compose config needs no daemon)",
+)
 
 needs_rss = pytest.mark.skipif(
     os.environ.get("SPECFLOW_IMAGE_RSS") != "1",
@@ -715,6 +722,7 @@ def make_dry_run(target: str, **variables: str) -> subprocess.CompletedProcess[s
         capture_output=True,
         text=True,
         env=environment,
+        check=False,
     )
 
 
@@ -730,7 +738,9 @@ def test_make_up_with_a_store_starts_its_profile_and_hands_its_settings_to_the_c
     assert result.returncode == 0, result.stderr
     assert f"GRAPH_STORE={store} " in result.stdout + " "
     assert (f"GRAPH_STORE_URI={uri} " in result.stdout) is (uri is not None)
-    assert [name for name in profiles_of(result.stdout) if name in GRAPH_STORE_PROFILES] == ([profile] if profile else [])
+    assert [name for name in profiles_of(result.stdout) if name in GRAPH_STORE_PROFILES] == (
+        [profile] if profile else []
+    )
     assert ("-f config/compose.graph-postgres.yaml" in result.stdout) is (store == "postgres")
     if store == "arcadedb":
         assert "GRAPH_STORE_USER=root GRAPH_STORE_NAME=" in result.stdout
@@ -745,42 +755,52 @@ def test_make_up_refuses_two_stores_and_a_graph_store_that_disagrees_with_with()
 
 
 def test_the_postgres_override_leaves_the_graph_connection_to_the_database_settings() -> None:
-    class Loader(yaml.SafeLoader):
-        pass
-
-    Loader.add_constructor("!reset", lambda loader, node: "RESET")
-    override = yaml.load(POSTGRES_OVERRIDE.read_text(), Loader=Loader)["services"]  # noqa: S506 - SafeLoader subclass
+    text = POSTGRES_OVERRIDE.read_text()
+    override = yaml.safe_load(text.replace("!reset null", "null"))["services"]  # `!reset null` reads as null
     assert set(override) == {"api", "worker-agents"}
+    reset = ("GRAPH_STORE_URI", "GRAPH_STORE_USER", "GRAPH_STORE_PASSWORD", "GRAPH_STORE_NAME")
     for name, svc in override.items():
         env = svc["environment"]
         assert env["GRAPH_STORE"] == "postgres", name
-        assert {key: value for key, value in env.items() if value == "RESET"} == dict.fromkeys(
-            ("GRAPH_STORE_URI", "GRAPH_STORE_USER", "GRAPH_STORE_PASSWORD", "GRAPH_STORE_NAME"), "RESET"
-        ), name
+        assert {key for key, value in env.items() if value is None} == set(reset), name
+    assert text.count("!reset null") == 2 * len(reset)
 
 
-@pytest.mark.skipif(shutil.which("docker") is None, reason="the docker CLI is needed (compose config needs no daemon)")
+@needs_compose_cli
 @pytest.mark.parametrize("selection", ["", "arcadedb", "postgres"])
 def test_compose_config_resolves_for_each_store_with_synthetic_values(selection: str, tmp_path: Path) -> None:
     """The stack resolves on neo4j (default), ArcadeDB and PostgreSQL; the PostgreSQL one carries no graph login."""
 
     env_file = tmp_path / "stack.env"
     env_file.write_text(
-        "\n".join(f"{name}=synthetic-{name.lower()}" for name in (
-            "POSTGRES_ADMIN_PASSWORD", "DATABASE_PASSWORD", "DATABASE_AGENT_PASSWORD", "GRAPH_STORE_PASSWORD",
-            "AUTH_DEV_SIGNING_KEY", "SESSION_SECRET", "RUSTFS_ACCESS_KEY", "RUSTFS_SECRET_KEY",
-        ))
+        "\n".join(
+            f"{name}=synthetic-{name.lower()}"
+            for name in (
+                "POSTGRES_ADMIN_PASSWORD",
+                "DATABASE_PASSWORD",
+                "DATABASE_AGENT_PASSWORD",
+                "GRAPH_STORE_PASSWORD",
+                "AUTH_DEV_SIGNING_KEY",
+                "SESSION_SECRET",
+                "RUSTFS_ACCESS_KEY",
+                "RUSTFS_SECRET_KEY",
+            )
+        )
         + "\nGRAPH_STORE_URI=bolt://localhost:7687\n"  # a host address in the env file never reaches the containers
     )
     dry_run = make_dry_run("up", WITH=selection, ENV_FILE=str(env_file)).stdout
     command = re.search(r"^(env .*docker compose .*) up", dry_run, re.MULTILINE)
     assert command is not None, dry_run
     shell = subprocess.run(
-        f"{command.group(1)} config --format json", shell=True, cwd=ROOT, capture_output=True, text=True, check=False
+        [*shlex.split(command.group(1)), "config", "--format", "json"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
     )
     assert shell.returncode == 0, shell.stderr
     resolved = json.loads(shell.stdout)["services"]
-    store, profile, uri = STORE_SELECTIONS[selection]
+    store, _, uri = STORE_SELECTIONS[selection]
     assert ("neo4j" in resolved) is (store == "neo4j") and ("arcadedb" in resolved) is (store == "arcadedb")
     for name in ("api", "worker-agents"):
         env = resolved[name]["environment"]

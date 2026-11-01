@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -15,6 +15,7 @@ from graph.stores.arcadedb.admin import AdminClient
 from graph.stores.config import StoreConfig
 from graph_probes import arcadedb as probe_module
 from graph_probes.arcadedb import ArcadeDbProbe, drop_session_databases
+from graph_probes.base import GraphProbe
 
 URI = "bolt://arcade.invalid:7687"
 ADMIN = "http://arcade.invalid:2480"
@@ -45,19 +46,19 @@ def probe_for(database: str, server: FakeServer) -> ArcadeDbProbe:
         {"backend": "arcadedb", "uri": URI, "user": "root", "password": SecretStr("synthetic"), "name": database}
     )
     probe = ArcadeDbProbe(config)
-    probe._admin = AdminClient(ADMIN, "root", SecretStr("synthetic"), transport=server.transport())  # noqa: SLF001
+    probe._admin = AdminClient(ADMIN, "root", SecretStr("synthetic"), transport=server.transport())
     return probe
 
 
 @pytest.fixture(autouse=True)
 def empty_registry() -> Any:
-    probe_module._CREATED.clear()  # noqa: SLF001
+    probe_module._CREATED.clear()
     yield
-    probe_module._CREATED.clear()  # noqa: SLF001
+    probe_module._CREATED.clear()
 
 
 def patched_transport(monkeypatch: pytest.MonkeyPatch, server: FakeServer) -> None:
-    original = probe_module._SessionAdmin  # noqa: SLF001
+    original = probe_module._SessionAdmin
 
     def build(url: str, user: str, password: SecretStr, *, transport: Any = None) -> Any:
         return original(url, user, password, transport=transport or server.transport())
@@ -88,8 +89,8 @@ async def test_a_database_that_existed_before_the_session_is_kept(monkeypatch: p
 async def test_specflow_is_never_noted_and_never_dropped(monkeypatch: pytest.MonkeyPatch) -> None:
     server = FakeServer()  # even a missing specflow is not the session's to remove
     await probe_for("specflow", server).before_session_schema()
-    assert probe_module._CREATED == {}  # noqa: SLF001
-    probe_module._CREATED[(URI, "specflow")] = probe_for("specflow", server).config  # noqa: SLF001
+    assert probe_module._CREATED == {}
+    probe_module._CREATED[(URI, "specflow")] = probe_for("specflow", server).config
     server.databases.add("specflow")
     patched_transport(monkeypatch, server)
     assert await drop_session_databases() == []
@@ -110,12 +111,14 @@ async def test_a_probe_without_a_database_name_notes_nothing() -> None:
         {"backend": "arcadedb", "uri": URI, "user": "root", "password": SecretStr("synthetic")}
     )
     probe = ArcadeDbProbe(config)
-    probe._admin = AdminClient(ADMIN, "root", SecretStr("synthetic"), transport=server.transport())  # noqa: SLF001
+    probe._admin = AdminClient(ADMIN, "root", SecretStr("synthetic"), transport=server.transport())
     await probe.before_session_schema()
-    assert probe_module._CREATED == {}  # noqa: SLF001
+    assert probe_module._CREATED == {}
 
 
-async def test_the_session_schema_setup_notes_the_database_before_it_creates_it(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_the_session_schema_setup_notes_the_database_before_it_creates_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     calls: list[str] = []
 
     async def note() -> None:
@@ -125,16 +128,20 @@ async def test_the_session_schema_setup_notes_the_database_before_it_creates_it(
         calls.append("setup")
         return ()
 
-    probe = SimpleNamespace(
-        backend="arcadedb", config=SimpleNamespace(uri="bolt://order.invalid:7687"), database="pytest_order",
-        store=object(), before_session_schema=note,
+    probe = cast(
+        GraphProbe,
+        SimpleNamespace(
+            backend="arcadedb",
+            config=SimpleNamespace(uri="bolt://order.invalid:7687"),
+            database="pytest_order",
+            store=object(),
+            before_session_schema=note,
+        ),
     )
     monkeypatch.setattr(graph_support, "ensure_schema", setup)
     monkeypatch.setattr(graph_support, "shipped_ontology", lambda: None)
     monkeypatch.setattr(graph_support, "live_llm_config", lambda: None)
     monkeypatch.setattr(graph_support, "_SCHEMA_READY", set())
-    await graph_support.ensure_session_schema(probe)  # type: ignore[arg-type]
-    await graph_support.ensure_session_schema(probe)  # type: ignore[arg-type]
+    await graph_support.ensure_session_schema(probe)
+    await graph_support.ensure_session_schema(probe)
     assert calls == ["note", "setup"]  # once per store, the note first
-
-

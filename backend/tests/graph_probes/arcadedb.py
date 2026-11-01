@@ -54,7 +54,9 @@ async def drop_session_databases(transport: httpx.AsyncBaseTransport | None = No
         del _CREATED[key]
         if name in PROTECTED_DATABASES:
             continue
-        admin = _SessionAdmin(admin_url(config.uri, config.admin_uri), config.user, config.password, transport=transport)
+        admin = _SessionAdmin(
+            admin_url(config.uri, config.admin_uri), config.user, config.password, transport=transport
+        )
         try:
             if await admin.database_exists(name):
                 await admin.drop_database(name)
