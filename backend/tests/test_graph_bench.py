@@ -228,3 +228,36 @@ def test_capped_budgets_and_unit_tokens_header(tmp_path: Path) -> None:
     assert replay.unit_tokens == 10000
     with pytest.raises(CassetteError):
         RecordingGateway(FakeReal(), Cassette.load(path), 8000)  # type: ignore[arg-type]
+
+
+def test_question_file_and_rank_metrics(tmp_path: Path) -> None:
+    from graph_bench import first_rank, load_questions, rank_metrics
+
+    path = tmp_path / "questions.yaml"
+    path.write_text(
+        "- text: how are runs cancelled\n  spec_id: FR::A\n- question: what is a gate\n  spec_ids: [FR::B, FR::C]\n",
+        encoding="utf-8",
+    )
+    questions = load_questions(path)
+    assert questions == [
+        {"text": "how are runs cancelled", "spec_ids": ["FR::A"]},
+        {"text": "what is a gate", "spec_ids": ["FR::B", "FR::C"]},
+    ]
+    assert first_rank(["X", "FR::C", "FR::B"], ["FR::B", "FR::C"]) == 2
+    assert rank_metrics([1, 3, None, 6]) == {"queries": 4, "top1": 1, "top5": 2, "mrr": round((1 + 1 / 3 + 1 / 6) / 4, 4)}
+
+
+def test_wipe_is_neo4j_only(tmp_path: Path) -> None:
+    from types import SimpleNamespace
+
+    from graph_bench import check_wipe
+    from graph.stores import StoreConfig
+
+    arcade = StoreConfig(backend="arcadedb", uri="http://x", user="u", password=SecretStr("p"))
+    with pytest.raises(SystemExit, match="Neo4j only"):
+        check_wipe(SimpleNamespace(wipe=True, state=tmp_path), arcade)
+    neo = StoreConfig(backend="neo4j", uri="bolt://x", user="u", password=SecretStr("p"))
+    (tmp_path / "stale").write_text("x")
+    with pytest.raises(SystemExit, match="empty"):
+        check_wipe(SimpleNamespace(wipe=True, state=tmp_path), neo)
+    check_wipe(SimpleNamespace(wipe=False, state=tmp_path), arcade)

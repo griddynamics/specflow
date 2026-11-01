@@ -27,7 +27,12 @@ Both commands leave ``<out>/<label>.snapshot.json`` (canonical graph: nodes and 
 timestamps and vectors, sorted) and ``<out>/<label>.summary.json`` (build result, verification report, counts,
 wall time, LLM usage) and print the summary, never document text or keys.
 
-Environment: NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD, NEO4J_DATABASE (optional); record also LLM_GATEWAY_URL,
+The graph store comes from GRAPH_STORE (default neo4j), GRAPH_STORE_URI, GRAPH_STORE_USER, GRAPH_STORE_PASSWORD,
+GRAPH_STORE_NAME and GRAPH_STORE_ADMIN_URI (NEO4J_URI/_USER/_PASSWORD/_DATABASE stand in for a Neo4j store);
+``--namespace`` replaces the store name for one run (ArcadeDB: a new database, PostgreSQL: a new schema; ensure_schema
+creates it). ``--wipe`` (Neo4j only) deletes the project first. Nodes and edges are read through the store's test probe
+(``tests/graph_probes``), so the snapshot is the same code on every store. ``qa`` reports invariants and, given a question
+file, fulltext/vector/fused MRR, top-1 and top-5. Record also needs LLM_GATEWAY_URL,
 LLM_GATEWAY_API_KEY, GRAPH_LLM_MODEL, GRAPH_SMALL_MODEL, GRAPH_EMBEDDING_MODEL, GRAPH_EMBEDDING_DIM.
 """
 
@@ -36,25 +41,32 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
+import importlib
 import json
 import os
+import sys
 import time
 from array import array
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Final, TypeVar
 
+import yaml
 from pydantic import BaseModel, SecretStr
 
 from example_lib import run_example
 from graph.build import BuildContext, BuildOptions, BuildResult, open_file_stores, run_build
 from graph.build.verify import verify_project
-from graph.core import Gateway, LLMConfig, Neo4jConfig, connect, ensure_schema, load_ontology
+from graph.core import Gateway, GraphReader, LLMConfig, ensure_schema, load_ontology
 from graph.core.config import DEFAULT_BUDGETS, CallBudget, CallClass
 from graph.core.errors import LLMError, LLMFatalError
 from graph.core.llm import UsageSnapshot, strict_json_schema, untrusted
 from graph.core.llm.usage import UsageRecorder
+from graph.core.queries import Query
+from graph.core.store import Executor
+from graph.stores import StoreConfig, build_store
 from logger.logger import INFO, get_logger, log_event
+from settings import ConfigurationError, load_graph_store_settings
 
 logger = get_logger("examples.graph_bench")
 
@@ -69,7 +81,6 @@ LLM_ENVIRONMENT: Final = (
     "GRAPH_EMBEDDING_MODEL",
     "GRAPH_EMBEDDING_DIM",
 )
-NEO4J_ENVIRONMENT: Final = ("NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD")
 REPLAY_ENDPOINT: Final = "http://replay.invalid/v1"
 """Placeholder endpoint of a replay's ``LLMConfig``: the replay gateway never opens a connection."""
 EMBED_PROMPT: Final = "embed"
@@ -496,38 +507,24 @@ def build_snapshot(project: str, node_rows: Sequence[Mapping[str, Any]], edge_ro
     return {"project_id": project, "nodes": nodes, "edges": edges}
 
 
-NODE_QUERY: Final = (
-    "MATCH (n {group_id: $p}) RETURN labels(n) AS labels, "
-    "[k IN keys(n) WHERE NOT k IN $skip | [k, n[k]]] AS props"
-)
-EDGE_QUERY: Final = (
-    "MATCH (a {group_id: $p})-[r]->(b {group_id: $p}) RETURN type(r) AS type, "
-    "[k IN keys(a) WHERE k IN ['spec_id', 'uuid', 'document_id'] | [k, a[k]]] AS source, "
-    "[k IN keys(b) WHERE k IN ['spec_id', 'uuid', 'document_id'] | [k, b[k]]] AS target, "
-    "[k IN keys(r) WHERE NOT k IN $skip | [k, r[k]]] AS props"
-)
+def probe_rows(
+    nodes: Sequence[Any], edges: Sequence[Any]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Rows for ``build_snapshot`` from a probe's ``ProbeNode`` and ``ProbeEdge`` lists."""
 
-
-async def read_rows(driver: Any, database: str | None, project: str) -> tuple[list[dict], list[dict]]:
-    skip = list(SKIPPED_PROPERTIES)
-    records, _, _ = await driver.execute_query(NODE_QUERY, {"p": project, "skip": skip}, database_=database)
-    nodes = [{"labels": list(record["labels"]), "props": dict(record["props"])} for record in records]
-    records, _, _ = await driver.execute_query(EDGE_QUERY, {"p": project, "skip": skip}, database_=database)
-    edges = [
-        {
-            "type": record["type"],
-            "source": dict(record["source"]),
-            "target": dict(record["target"]),
-            "props": dict(record["props"]),
-        }
-        for record in records
+    node_rows = [{"labels": list(node.labels), "props": dict(node.props)} for node in nodes]
+    edge_rows = [
+        {"type": edge.type, "source": dict(edge.source.props), "target": dict(edge.target.props), "props": dict(edge.props)}
+        for edge in edges
     ]
-    return nodes, edges
+    return node_rows, edge_rows
 
 
-async def export_snapshot(driver: Any, database: str | None, project: str) -> dict:
-    nodes, edges = await read_rows(driver, database, project)
-    return build_snapshot(project, nodes, edges)
+async def export_snapshot(probe: Any, project: str) -> dict:
+    """The canonical snapshot of a project, read through the store's test probe (store-neutral)."""
+
+    node_rows, edge_rows = probe_rows(await probe.nodes(project), await probe.edges(project))
+    return build_snapshot(project, node_rows, edge_rows)
 
 
 def snapshot_bytes(snapshot: Mapping[str, Any]) -> bytes:
@@ -607,15 +604,6 @@ def require_environment(names: Sequence[str]) -> dict[str, str]:
     return {name: os.environ[name].strip() for name in names}
 
 
-def neo4j_config(env: Mapping[str, str]) -> Neo4jConfig:
-    return Neo4jConfig(
-        uri=env["NEO4J_URI"],
-        user=env["NEO4J_USER"],
-        password=SecretStr(env["NEO4J_PASSWORD"]),
-        database=os.environ.get("NEO4J_DATABASE", "").strip() or None,
-    )
-
-
 def capped_budgets(timeout_s: float | None, min_attempts: int = 1) -> dict[CallClass, CallBudget]:
     """The default budgets with every chat class's per-attempt timeout set to ``timeout_s`` (None: defaults) and
     at least ``min_attempts`` attempts per call. The proxy cuts a connection at 300 s, so a slow call should
@@ -642,34 +630,77 @@ def llm_config(env: Mapping[str, str], timeout_s: float | None = None, min_attem
     )
 
 
-async def wipe_project(driver: Any, database: str | None, project: str) -> int:
-    """Delete every node (and relationship) of the project by ``group_id``; returns the node count."""
+# The only raw Cypher of this file (tests/test_graph_probes_structure.py allows exactly this statement): wiping
+# a project is Neo4j only (one database on the Community edition); other stores isolate runs with --namespace.
+WIPE = Query.literal(
+    "example.wipe",
+    "MATCH (n {group_id: $project_id}) WITH n LIMIT 2000 DETACH DELETE n RETURN count(*) AS c",
+)
+
+
+async def wipe_project(executor: Executor, project: str) -> int:
+    """Delete every node (and relationship) of the project in batches; returns the node count."""
 
     deleted = 0
     while True:
-        records, _, _ = await driver.execute_query(
-            "MATCH (n {group_id: $p}) WITH n LIMIT 2000 DETACH DELETE n RETURN count(*) AS c",
-            {"p": project},
-            database_=database,
-        )
+        records = await executor.write(WIPE, project)
         count = int(records[0]["c"])
         if not count:
             return deleted
         deleted += count
 
 
+def store_settings(namespace: str | None) -> StoreConfig:
+    """The graph store of the environment (``GRAPH_STORE``, ``GRAPH_STORE_URI/_USER/_PASSWORD/_NAME/_ADMIN_URI``;
+    ``NEO4J_*`` stand in for a Neo4j store), with ``namespace`` as the store name when given."""
+
+    try:
+        config = load_graph_store_settings().to_store_config()
+    except ConfigurationError as error:
+        raise SystemExit(str(error)) from None
+    return config.model_copy(update={"name": namespace}) if namespace else config
+
+
+def open_probe(config: StoreConfig) -> Any:
+    """The test probe of the store (``tests/graph_probes``): the store-neutral reader of nodes and edges."""
+
+    tests = str(Path(__file__).resolve().parents[1] / "tests")
+    if tests not in sys.path:
+        sys.path.insert(0, tests)
+    graph_probes = importlib.import_module("graph_probes")
+    if config.backend not in graph_probes.PROBES:
+        raise SystemExit(f"no snapshot probe for graph store {config.backend!r} yet")
+    return graph_probes.PROBES[config.backend](config)
+
+
+def add_store_arguments(command: argparse.ArgumentParser) -> None:
+    command.add_argument("--project", required=True, help="project id (graph partition)")
+    command.add_argument(
+        "--namespace",
+        help="store name of this run (ArcadeDB: a database, PostgreSQL: a schema; created by ensure_schema); "
+        "default GRAPH_STORE_NAME",
+    )
+    command.add_argument("--out", required=True, type=Path, help="folder for the output files")
+    command.add_argument("--label", required=True, help="file name stem of the outputs, e.g. v1")
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
-    for name, text in (("record", "build with the real gateway and record a cassette"), ("replay", "build from a cassette")):
+    for name, text in (
+        ("record", "build with the real gateway and record a cassette"),
+        ("replay", "build from a cassette"),
+    ):
         command = sub.add_parser(name, help=text)
-        command.add_argument("--project", required=True, help="project id (graph partition)")
+        add_store_arguments(command)
         command.add_argument("--corpus", required=True, type=Path, help="folder of .md documents")
         command.add_argument("--state", required=True, type=Path, help="folder of the file stores")
         command.add_argument("--cassette", required=True, type=Path, help="cassette file (.jsonl)")
-        command.add_argument("--out", required=True, type=Path, help="folder for the snapshot and summary files")
-        command.add_argument("--label", required=True, help="file name stem of the outputs, e.g. v1")
-        command.add_argument("--wipe", action="store_true", help="delete the project from Neo4j first (needs an empty state)")
+        command.add_argument(
+            "--wipe",
+            action="store_true",
+            help="Neo4j only: delete the project first (needs an empty state); other stores use --namespace",
+        )
         command.add_argument("--rebuild", action="store_true", help="ask for a rebuild")
         command.add_argument(
             "--call-timeout-s",
@@ -677,6 +708,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             default=None,
             help="record only: per-attempt timeout of every chat call (keep below the proxy's 300 s cut)",
         )
+        command.add_argument("--min-attempts", type=int, default=1, help="record only: at least this many attempts per LLM call")
         command.add_argument(
             "--unit-tokens",
             type=int,
@@ -684,12 +716,22 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             help=f"extraction unit size (record: default {DEFAULT_UNIT_TOKENS}, stored in the cassette header; "
             "replay: must equal the header's value)",
         )
-        command.add_argument("--min-attempts", type=int, default=1, help="record only: at least this many attempts per LLM call")
+        command.add_argument("--questions", type=Path, help="replay: also run the search QA of this question file")
+        command.add_argument("--qa-cassette", type=Path, help="embeddings of the question texts (see the qa command)")
+    qa = sub.add_parser("qa", help="invariants, timings and search QA of the graph a run left in the store")
+    add_store_arguments(qa)
+    qa.add_argument("--questions", type=Path, help="question file (YAML list of text + spec_id)")
+    qa.add_argument("--qa-cassette", type=Path, required=True, help="cassette of the question embeddings")
+    qa.add_argument("--record-embeddings", action="store_true", help="embed the questions live and store them")
     return parser.parse_args(argv)
 
 
-def check_wipe(args: argparse.Namespace) -> None:
-    if args.wipe and args.state.exists() and any(args.state.iterdir()):
+def check_wipe(args: argparse.Namespace, config: StoreConfig) -> None:
+    if not args.wipe:
+        return
+    if config.backend != "neo4j":
+        raise SystemExit(f"--wipe is Neo4j only (GRAPH_STORE={config.backend}); use --namespace for a fresh store")
+    if args.state.exists() and any(args.state.iterdir()):
         raise SystemExit("--wipe needs a missing or empty --state folder (stale state does not fit a wiped graph)")
 
 
@@ -723,25 +765,149 @@ def llm_report(gateway: Any) -> dict[str, Any]:
     return report
 
 
+# QA: invariants of the graph and search quality
+
+
+async def invariants(probe: Any, project: str, ontology: Any) -> dict[str, int]:
+    """Counts a sound graph keeps at zero (except the totals), read through the probe's views."""
+
+    views = importlib.import_module("graph_probes.views")
+    counts = await views.identity_counts(probe, project)
+    return {
+        "spec_nodes": counts["nodes"],
+        "duplicate_spec_ids": counts["nodes"] - counts["spec_ids"],
+        "duplicate_uuids": counts["nodes"] - counts["uuids"],
+        "duplicate_identity_keys": counts["nodes"] - counts["identity_keys"],
+        "ungrounded_spec_nodes": len(await views.ungrounded_spec_ids(probe, project)),
+        "spine_unreachable": await probe.spine_unreachable_count(project, ontology),
+    }
+
+
+def load_questions(path: Path) -> list[dict[str, Any]]:
+    """Questions as ``{"text", "spec_ids"}``: a YAML list (or ``{questions: [...]}``) of items with ``text`` (or
+    ``question``) and ``spec_id`` (or ``spec_ids``)."""
+
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    items = data["questions"] if isinstance(data, dict) else data
+    questions = []
+    for item in items:
+        text = item.get("text") or item.get("question")
+        expected = item.get("spec_ids") or [item["spec_id"]]
+        questions.append({"text": text, "spec_ids": list(expected)})
+    return questions
+
+
+def rank_metrics(ranks: Sequence[int | None]) -> dict[str, Any]:
+    """Top-1, top-5 and MRR of 1-based ranks (None: not found)."""
+
+    found = [rank for rank in ranks if rank]
+    return {
+        "queries": len(ranks),
+        "top1": sum(1 for rank in found if rank == 1),
+        "top5": sum(1 for rank in found if rank <= 5),
+        "mrr": round(sum(1 / rank for rank in found) / max(1, len(ranks)), 4),
+    }
+
+
+def first_rank(spec_ids: Sequence[str], expected: Sequence[str]) -> int | None:
+    return next((index for index, spec_id in enumerate(spec_ids, start=1) if spec_id in expected), None)
+
+
+async def search_qa(store: Any, gateway: Any, ontology: Any, project: str, questions: Sequence[dict[str, Any]]) -> dict:
+    """MRR, top-1 and top-5 of fulltext, vector and fused search over the questions, plus latency p50/p95 (ms).
+
+    Vector-only ranks come from the reader's own vector step (``_vector_hits``, private: the public
+    ``find_nodes`` only fuses the lists)."""
+
+    fused_reader = GraphReader(store, ontology, gateway)
+    text_reader = GraphReader(store, ontology, None)
+    labels = list(fused_reader._labels(None))  # noqa: SLF001
+    filters = {"labels": labels, "where": fused_reader._where(labels, {})}  # noqa: SLF001
+    ranks: dict[str, list[int | None]] = {"fulltext": [], "vector": [], "fused": []}
+    times: dict[str, list[float]] = {"fulltext": [], "vector": [], "fused": []}
+    for question in questions:
+        text, expected = question["text"], question["spec_ids"]
+        started = time.monotonic()
+        hits = await text_reader.find_nodes(project, text, limit=20)
+        times["fulltext"].append(time.monotonic() - started)
+        ranks["fulltext"].append(first_rank([hit.node.spec_id for hit in hits], expected))
+        started = time.monotonic()
+        rows = await fused_reader._vector_hits(project, text, 20, 20 * 3, filters)  # noqa: SLF001
+        times["vector"].append(time.monotonic() - started)
+        ranks["vector"].append(first_rank([row["spec_id"] for row in rows or []], expected))
+        started = time.monotonic()
+        hits = await fused_reader.find_nodes(project, text, limit=20)
+        times["fused"].append(time.monotonic() - started)
+        ranks["fused"].append(first_rank([hit.node.spec_id for hit in hits], expected))
+    out: dict[str, Any] = {}
+    for name in ranks:
+        ordered = sorted(times[name])
+        pick = lambda q, ordered=ordered: round(ordered[min(len(ordered) - 1, int(q * len(ordered)))] * 1000, 1) if ordered else None  # noqa: E731
+        out[name] = {**rank_metrics(ranks[name]), "latency_ms": {"p50": pick(0.5), "p95": pick(0.95)}}
+    return out
+
+
+async def run_qa(
+    store: Any, probe: Any, gateway: Any, ontology: Any, project: str, questions_path: Path | None
+) -> dict[str, Any]:
+    report: dict[str, Any] = {"invariants": await invariants(probe, project, ontology)}
+    if questions_path is not None and questions_path.exists():
+        questions = load_questions(questions_path)
+        report["search"] = await search_qa(store, gateway, ontology, project, questions)
+    else:
+        report["search"] = None
+    return report
+
+
+async def qa_main(args: argparse.Namespace) -> None:
+    """``qa``: invariants and search QA of the graph already in the store (no build)."""
+
+    config = store_settings(args.namespace)
+    ontology = load_ontology()
+    if args.record_embeddings:
+        llm = llm_config(require_environment(LLM_ENVIRONMENT))
+        cassette = Cassette.load(args.qa_cassette) if args.qa_cassette.exists() else Cassette(args.qa_cassette)
+        gateway: Any = RecordingGateway(Gateway(llm), cassette)
+    else:
+        gateway = ReplayGateway(Cassette.load(args.qa_cassette))
+    store, probe = build_store(config), open_probe(config)
+    try:
+        report = await run_qa(store, probe, gateway, ontology, args.project, args.questions)
+        report["store"] = config.backend
+        report["llm"] = llm_report(gateway)
+        args.out.mkdir(parents=True, exist_ok=True)
+        (args.out / f"{args.label}.qa.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        print(json.dumps(report, indent=2))
+    finally:
+        await gateway.aclose()
+        await store.close()
+        await probe.close()
+
+
 async def main() -> None:
     args = parse_args()
-    check_wipe(args)
-    neo4j = neo4j_config(require_environment(NEO4J_ENVIRONMENT))
+    if args.command == "qa":
+        await qa_main(args)
+        return
+    config = store_settings(args.namespace)
+    check_wipe(args, config)
     gateway, llm = open_gateway(args)
     ontology = load_ontology()
     unit_tokens = gateway.unit_tokens
     stores = open_file_stores(args.state, args.corpus)
     if stores.corpus is None:
         raise RuntimeError("file stores were opened without a corpus")
-    driver = connect(neo4j)
+    store, probe = build_store(config), open_probe(config)
     try:
-        wiped = await wipe_project(driver, neo4j.database, args.project) if args.wipe else None
-        created = await ensure_schema(driver, ontology, llm, neo4j.database)
+        wiped = await wipe_project(store.executor(), args.project) if args.wipe else None
+        schema_started = time.monotonic()
+        created = await ensure_schema(store, ontology, llm)
+        schema_s = time.monotonic() - schema_started
         log_event(logger, INFO, "example.graph_bench.schema", created=len(created), command=args.command)
         ctx = BuildContext(
             project_id=args.project,
             ontology=ontology,
-            driver=driver,
+            driver=store,
             gateway=gateway,
             registry=stores.registry,
             corpus=stores.corpus,
@@ -749,26 +915,36 @@ async def main() -> None:
             builds=stores.builds,
             rebuild=args.rebuild,
             options=BuildOptions(unit_tokens=unit_tokens),
-            database=neo4j.database,
         )
         started = time.monotonic()
         result = await run_build(ctx)
         wall_s = time.monotonic() - started
         verification = await verify_project(ctx.with_build_id(result.build_id))
-        snapshot = await export_snapshot(driver, neo4j.database, args.project)
+        snapshot_started = time.monotonic()
+        snapshot = await export_snapshot(probe, args.project)
+        snapshot_s = time.monotonic() - snapshot_started
         data = snapshot_bytes(snapshot)
         args.out.mkdir(parents=True, exist_ok=True)
         (args.out / f"{args.label}.snapshot.json").write_bytes(data)
+        search = None
+        if args.command == "replay" and args.questions and args.qa_cassette:
+            qa_gateway = ReplayGateway(Cassette.load(args.qa_cassette))
+            search = (await run_qa(store, probe, qa_gateway, ontology, args.project, args.questions))["search"]
         summary = {
             "command": args.command,
             "label": args.label,
             "project_id": args.project,
+            "store": config.backend,
+            "namespace": config.name,
             "unit_tokens": unit_tokens,
             "wiped_nodes": wiped,
             "wall_s": round(wall_s, 2),
+            "timings_s": {"ensure_schema": round(schema_s, 2), "build": round(wall_s, 2), "snapshot_export": round(snapshot_s, 2)},
             "build": result_summary(result),
             "verify": verification.model_dump(mode="json"),
+            "invariants": await invariants(probe, args.project, ontology),
             "snapshot": {"sha256": hashlib.sha256(data).hexdigest(), **snapshot_counts(snapshot)},
+            "search": search,
             "llm": llm_report(gateway),
         }
         (args.out / f"{args.label}.summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
@@ -777,7 +953,8 @@ async def main() -> None:
             raise CassetteMissError(f"{len(gateway.misses)} cassette misses during replay")
     finally:
         await gateway.aclose()
-        await driver.close()
+        await store.close()
+        await probe.close()
 
 
 if __name__ == "__main__":

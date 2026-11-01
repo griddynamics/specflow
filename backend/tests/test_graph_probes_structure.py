@@ -50,6 +50,9 @@ EXAMPLE_STATEMENTS: Final = {
     "examples/graph_eval.py": {
         "MATCH (n {group_id: $project_id}) WITH n LIMIT 2000 DETACH DELETE n RETURN count(*) AS c",
     },
+    "examples/graph_bench.py": {
+        "MATCH (n {group_id: $project_id}) WITH n LIMIT 2000 DETACH DELETE n RETURN count(*) AS c",
+    },
 }
 
 
