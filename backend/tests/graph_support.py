@@ -104,6 +104,7 @@ from graph.core.llm import untrusted
 from graph.core.llm.usage import UsageRecorder
 from graph.core.queries import CORE_DDL
 from graph.core.query_files import read_ddl_file
+from graph.stores.neo4j import Neo4jStore
 
 # ScriptedGateway
 
@@ -905,7 +906,7 @@ class Neo4jProject:
 
     @property
     def executor(self) -> Executor:
-        return Executor(self.driver, self.database)
+        return Neo4jStore(self.driver, self.database).executor()
 
     def writer(
         self, owner: str = "build", *, project_id: str | None = None, ontology: Ontology | None = None
