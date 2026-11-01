@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from http import HTTPStatus
 from typing import Any, Final
 from urllib.parse import urlsplit
 
@@ -168,15 +169,15 @@ class AdminClient:
                 STORE_UNREACHABLE, store=BACKEND, error_type=type(error).__name__
             ) from None
         status = response.status_code
-        if status == 401:
+        if status == HTTPStatus.UNAUTHORIZED:
             raise ConfigurationError(STORE_AUTH_REJECTED, store=BACKEND)
-        if status == 403:
+        if status == HTTPStatus.FORBIDDEN:
             raise ConfigurationError(STORE_ACCESS_DENIED, store=BACKEND)
-        if status >= 400:
+        if status >= HTTPStatus.BAD_REQUEST:
             if _is_missing_database(response):
                 raise ConfigurationError(STORE_DATABASE_NOT_FOUND, store=BACKEND)
             raise ConfigurationError(SCHEMA_SETUP_FAILED, store=BACKEND, status=status, error_type=_exception(response))
-        if status == 204 or not response.content:
+        if status == HTTPStatus.NO_CONTENT or not response.content:
             return {}
         try:
             body = response.json()

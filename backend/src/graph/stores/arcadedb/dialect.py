@@ -92,12 +92,12 @@ def _file(group: str, name: str) -> str:
     return read_query_file(OVERRIDE_DIRECTORY / group, name)
 
 
-def _plan_upsert_spec_node(query: Query, params: Mapping[str, Any], _types: Sequence[str] | None) -> ExecutionPlan:
+def _plan_upsert_spec_node(_query: Query, params: Mapping[str, Any], _types: Sequence[str] | None) -> ExecutionPlan:
     text = render_query(_file("core", "upsert_spec_node.cypher"), label=safe_name(params.get("label")))
     return ExecutionPlan.single(text, params)
 
 
-def _plan_create_spec_nodes(query: Query, params: Mapping[str, Any], _types: Sequence[str] | None) -> ExecutionPlan:
+def _plan_create_spec_nodes(_query: Query, params: Mapping[str, Any], _types: Sequence[str] | None) -> ExecutionPlan:
     groups: dict[str, list[Any]] = {}
     for row in params["rows"]:
         groups.setdefault(safe_name(row.get("label")), []).append(row)
@@ -183,8 +183,12 @@ def _replacing(*pairs: tuple[str, str], index: bool = False, per_field: bool = F
 _ELEMENT_NODE: Final = "MATCH (n:SpecNode) WHERE elementId(n) = "
 _VERIFY_ENDS: Final = (
     "elementId(startNode(r)) AS source, elementId(endNode(r)) AS target",
-    "CASE WHEN 'SpecNode' IN labels(startNode(r)) THEN startNode(r).uuid ELSE elementId(startNode(r)) END AS source, "
-    "CASE WHEN 'SpecNode' IN labels(endNode(r)) THEN endNode(r).uuid ELSE elementId(endNode(r)) END AS target",
+    (
+        "CASE WHEN 'SpecNode' IN labels(startNode(r)) THEN startNode(r).uuid "
+        "ELSE elementId(startNode(r)) END AS source, "
+        "CASE WHEN 'SpecNode' IN labels(endNode(r)) THEN endNode(r).uuid "
+        "ELSE elementId(endNode(r)) END AS target"
+    ),
 )
 # A label write moves a vertex and its edges get new record ids too: an edge is addressed by its uuid (build
 # writes one on every domain edge) and only falls back to its element id when it has none.
@@ -195,10 +199,10 @@ _EDGE_ID: Final = "coalesce(r.uuid, elementId(r))"
 OVERRIDES: Final[Mapping[str, Override]] = {
     "core.upsert_spec_node": _plan_upsert_spec_node,
     "build.build_create_spec_nodes": _plan_create_spec_nodes,
-    "build.build_update_spec_nodes": lambda query, params, _types: ExecutionPlan.single(
+    "build.build_update_spec_nodes": lambda _query, params, _types: ExecutionPlan.single(
         _file("build", "build_update_spec_nodes.cypher"), params
     ),
-    "build.build_repair_set_spec_ids": lambda query, params, _types: ExecutionPlan.single(
+    "build.build_repair_set_spec_ids": lambda _query, params, _types: ExecutionPlan.single(
         _file("build", "build_repair_set_spec_ids.cypher"), params
     ),
     "build.build_merge_spec_nodes": _plan_merge_spec_nodes,
@@ -222,7 +226,7 @@ OVERRIDES: Final[Mapping[str, Override]] = {
     "core.search_nodes_fulltext": _replacing(index=True, per_field=True),
     "core.search_fragments": _replacing(index=True, per_field=True),
     # index state is ONLINE when a SQL index create returns: nothing to wait for
-    "core.await_indexes": lambda query, params, _types: ExecutionPlan.single("RETURN 1 AS online", {}),
+    "core.await_indexes": lambda _query, _params, _types: ExecutionPlan.single("RETURN 1 AS online", {}),
     # a label write moves the record (its element id changes): verify and repair address nodes by uuid, edges by uuid
     "build.build_verify_spec_nodes": _replacing(("elementId(n) AS id", "n.uuid AS id")),
     "build.build_verify_domain_edges": _replacing(_VERIFY_ENDS, ("elementId(r) AS id", f"{_EDGE_ID} AS id")),

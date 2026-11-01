@@ -150,9 +150,13 @@ def _ids(entries: Sequence[Mapping[str, Any]]) -> list[str]:
     return [e["spec_id"] if "spec_id" in e else e["fragment_id"] for e in entries]
 
 
-def compare_rankings(expected: Mapping[str, Any], actual: Mapping[str, Any], *, top: int = TOP) -> RankingParity:
-    """Per query and mode: the first ``top`` ids must be the same set (else a set mismatch); a different
-    order, or a different tail, is a rank difference. Queries and modes must be the same."""
+def compare_rankings(
+    expected: Mapping[str, Any], actual: Mapping[str, Any], *, top: int = TOP, tolerance: int = 0
+) -> RankingParity:
+    """Per query and mode: the first ``top`` ids must be the same set, up to ``tolerance`` ids that the other
+    run has instead (else a set mismatch); a different order, or a different tail, is a rank difference.
+    ``tolerance`` is for a store whose text scoring is not Lucene's (a documented, per-store allowance; 0
+    for Neo4j). Queries and modes must be the same."""
 
     parity = RankingParity()
     if sorted(expected["queries"]) != sorted(actual["queries"]):
@@ -163,7 +167,7 @@ def compare_rankings(expected: Mapping[str, Any], actual: Mapping[str, Any], *, 
         for mode in want_entry["modes"]:
             parity.queries += 1
             want, have = _ids(want_entry[mode]), _ids(have_entry[mode])
-            if set(want[:top]) != set(have[:top]):
+            if len(set(want[:top]) - set(have[:top])) > tolerance:
                 parity.set_mismatches.append(
                     f"{mode} {text!r}: top {top} {sorted(set(want[:top]) ^ set(have[:top]))} not in both"
                 )

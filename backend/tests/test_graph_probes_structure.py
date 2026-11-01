@@ -25,7 +25,7 @@ CYPHER: Final = re.compile(
     r"SHOW\s+(\w+\s+)?(INDEXES|CONSTRAINTS)|DROP\s+(INDEX|CONSTRAINT)|CALL\s+(db|dbms)\.|RETURN\s+[\w\[\(\$'\"]+\s+AS\b)",
 )
 
-PROBE_FILES: Final = {"tests/graph_probes/neo4j.py"}
+PROBE_FILES: Final = {"tests/graph_probes/neo4j.py", "tests/graph_probes/arcadedb.py"}
 
 # Offline tests whose subject is the Cypher dialect, the Bolt adapter or the library's query modules
 # (the text of a statement is what they assert). Live tests and shared support are never listed.
@@ -113,5 +113,5 @@ def test_live_modules_and_shared_support_are_never_exceptions() -> None:
         assert cypher_lines(BACKEND / name) == [], name
 
 
-def test_only_the_neo4j_probe_names_are_exempt() -> None:
-    assert all(name.startswith("tests/graph_probes/neo4j") for name in PROBE_FILES)
+def test_only_probe_names_of_cypher_stores_are_exempt() -> None:
+    assert all(name.startswith(("tests/graph_probes/neo4j", "tests/graph_probes/arcadedb")) for name in PROBE_FILES)

@@ -11,7 +11,7 @@ deadlock or a concurrent change is a ``TransientError`` and stays retryable.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from typing import Any, Final
+from typing import Any, Final, override
 
 from neo4j.exceptions import ClientError, DriverError, Neo4jError
 
@@ -52,6 +52,7 @@ def _types(rows: Sequence[Mapping[str, Any]]) -> tuple[str, ...]:
 class ArcadeDbScopedTransaction(BoltScopedTransaction):
     """The explicit transaction of one project; it reads the relationship types in the same transaction."""
 
+    @override
     async def _plan(self, query: Query, params: Mapping[str, Any]) -> ExecutionPlan:
         types = None
         if query.template in NEEDS_EDGE_TYPES:
@@ -82,6 +83,7 @@ class ArcadeDbExecutor(BoltExecutor):
             error_mapper=map_error,
         )
 
+    @override
     async def _planned(self, query: Query, project_id: str, params: Mapping[str, Any]) -> ExecutionPlan:
         if query.template not in NEEDS_EDGE_TYPES:
             return self._plan(query, project_id, params)
@@ -100,5 +102,6 @@ class ArcadeDbExecutor(BoltExecutor):
         except (Neo4jError, DriverError, OSError) as error:
             raise self._error_mapper(error, "relationship_types", write=False, backend=BACKEND) from None
 
+    @override
     def _scoped(self, transaction: Any, project_id: str) -> ArcadeDbScopedTransaction:
         return ArcadeDbScopedTransaction(transaction, project_id, self._dialect, self._backend, self._error_mapper)

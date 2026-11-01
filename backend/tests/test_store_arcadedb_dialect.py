@@ -92,7 +92,7 @@ def test_every_override_is_for_a_template_the_cypher_dialect_knows() -> None:
 
 
 def test_every_required_override_is_registered_and_the_coverage_check_passes() -> None:
-    assert REQUIRED <= set(OVERRIDES)
+    assert set(OVERRIDES) >= REQUIRED
     verify_coverage()
 
 
@@ -214,7 +214,10 @@ def test_every_statement_that_writes_spec_id_of_a_spec_node_writes_spec_key(all_
 
 def test_spec_key_is_the_group_and_the_spec_id_and_follows_a_removed_spec_id() -> None:
     (text,) = texts(core_queries.UPSERT_SPEC_NODE)
-    assert "n.spec_key = CASE WHEN 'spec_id' IN keys($props) THEN $project_id + ':' + $props.spec_id ELSE n.spec_key END" in text
+    assert (
+        "n.spec_key = CASE WHEN 'spec_id' IN keys($props) THEN $project_id + ':' + $props.spec_id ELSE n.spec_key END"
+        in text
+    )
     (text,) = texts(build_queries.UPDATE_SPEC_NODES)
     assert "n.spec_key = CASE WHEN 'spec_id' IN keys(row.props) THEN $project_id + ':' + row.props.spec_id" in text
     (text,) = texts(build_queries.REPAIR_SET_SPEC_IDS)

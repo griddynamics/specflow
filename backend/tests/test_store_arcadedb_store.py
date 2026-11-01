@@ -7,7 +7,7 @@ Drivers and the admin server are hand-written fakes; nothing connects anywhere.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -20,14 +20,15 @@ from graph.core.errors import ConfigurationError, ConformanceError, GraphWriteEr
 from graph.core.store import GraphStore, StoreCapabilities, StoreInfo
 from graph.stores import StoreConfig, build_store
 from graph.stores._bolt import executor as bolt
-from graph.stores.arcadedb import ArcadeDbStore, AdminClient
+from graph.stores.arcadedb import AdminClient, ArcadeDbStore
 from graph.stores.arcadedb import dialect as arcade_dialect
 from graph.stores.arcadedb.executor import ArcadeDbExecutor, ArcadeDbScopedTransaction, map_error
 from graph.stores.arcadedb.store import DEFAULT_DATABASE
+from graph.stores.neo4j import Neo4jStore
 from graph_support import shipped_ontology
 from test_graph_core import FakeDriver, Sleeps, neo4j_error
 
-SECRET = "pw-never-in-errors-55"
+LEAK_PROBE = "pw-never-in-errors-55"
 TYPES = [{"relationshipType": name} for name in ("FLAGS", "PART_OF", "REFERENCED_BY")]
 
 
@@ -80,7 +81,7 @@ def admin(handler: Any = None) -> AdminClient:
         return httpx.Response(200, json={"result": []})
 
     return AdminClient(
-        "http://arcade:2480", "root", SecretStr(SECRET), transport=httpx.MockTransport(handler or respond)
+        "http://arcade:2480", "root", SecretStr(LEAK_PROBE), transport=httpx.MockTransport(handler or respond)
     )
 
 
@@ -92,7 +93,9 @@ def executor(driver: FakeDriver, sleeps: Sleeps | None = None) -> ArcadeDbExecut
 
 
 def test_the_routing_row_resolves_to_the_arcadedb_store() -> None:
-    store = build_store(StoreConfig(backend="arcadedb", uri="bolt://127.0.0.1:1", user="root", password=SecretStr(SECRET)))
+    store = build_store(
+        StoreConfig(backend="arcadedb", uri="bolt://127.0.0.1:1", user="root", password=SecretStr(LEAK_PROBE))
+    )
     assert isinstance(store, ArcadeDbStore) and isinstance(store, GraphStore)
     assert store.info == StoreInfo("arcadedb", StoreCapabilities(multi_statement_tx=True), None)
     assert store.executor() is store.executor() and isinstance(store.executor(), ArcadeDbExecutor)
@@ -107,9 +110,9 @@ def test_from_config_derives_the_admin_endpoint_and_defaults_the_database(monkey
         return admin()
 
     monkeypatch.setattr("graph.stores.arcadedb.store.AdminClient", make_admin)
-    config = StoreConfig(backend="arcadedb", uri="bolt+ssc://db:7687", user="root", password=SecretStr(SECRET))
+    config = StoreConfig(backend="arcadedb", uri="bolt+ssc://db:7687", user="root", password=SecretStr(LEAK_PROBE))
     store = ArcadeDbStore.from_config(config)
-    assert seen == [("https://db:2480", "root", SECRET, {"verify": False})]
+    assert seen == [("https://db:2480", "root", LEAK_PROBE, {"verify": False})]
     assert store._database == DEFAULT_DATABASE == "specflow"
     named = ArcadeDbStore.from_config(config.model_copy(update={"name": "graph1", "admin_uri": "http://other:9"}))
     assert named._database == "graph1" and seen[1][0] == "http://other:9" and seen[1][3] == {"verify": False}
@@ -133,7 +136,7 @@ def test_the_store_refuses_to_start_when_a_required_override_is_missing(monkeypa
 
 async def test_check_is_one_cheap_bolt_round_trip() -> None:
     driver = FakeDriver()
-    store = ArcadeDbStore(driver, admin(lambda request: pytest.fail("check must not use HTTP")))
+    store = ArcadeDbStore(driver, admin(lambda _request: pytest.fail("check must not use HTTP")))
     await store.check()
     assert len(driver.queries) == 1 and "RETURN" in driver.queries[0]
 
@@ -158,9 +161,9 @@ async def test_a_store_that_wraps_its_clients_leaves_them_open_and_one_from_conf
         async def close(self) -> None:
             closed.append("admin")
 
-    await ArcadeDbStore(Closing(), ClosingAdmin()).close()  # type: ignore[arg-type]
+    await ArcadeDbStore(Closing(), cast(AdminClient, ClosingAdmin())).close()
     assert closed == []
-    await ArcadeDbStore(Closing(), ClosingAdmin(), owns_clients=True).close()  # type: ignore[arg-type]
+    await ArcadeDbStore(Closing(), cast(AdminClient, ClosingAdmin()), owns_clients=True).close()
     assert closed == ["driver", "admin"]
 
 
@@ -236,7 +239,10 @@ async def test_a_merge_reads_the_relationship_types_then_runs_one_move_per_forei
     assert texts[0].startswith("CALL db.relationshipTypes()")
     assert [("[r:FLAGS]" in t) for t in texts[1:]] == [False, True, False]
     assert "SET new.spec_id_aliases" in texts[1] and texts[-1].endswith("DETACH DELETE old")
-    assert [(o["database"], o["default_access_mode"]) for o in driver.sessions] == [("graphdb", "READ"), ("graphdb", "WRITE")]
+    assert [(o["database"], o["default_access_mode"]) for o in driver.sessions] == [
+        ("graphdb", "READ"),
+        ("graphdb", "WRITE"),
+    ]
 
 
 async def test_a_move_in_a_transaction_reads_the_types_in_that_transaction() -> None:
@@ -262,7 +268,7 @@ async def test_a_read_that_needs_no_types_does_not_ask_for_them() -> None:
     assert not any("relationshipTypes" in text for text, _ in driver.runs)
 
 
-async def test_a_failure_reading_the_types_is_mapped_like_any_other() -> None:
+async def test_a_failure_reading_the_types_is_mapped_like_any_other(monkeypatch: pytest.MonkeyPatch) -> None:
     driver = TypesDriver(errors=[])
     original = driver.session
 
@@ -275,16 +281,12 @@ async def test_a_failure_reading_the_types_is_mapped_like_any_other() -> None:
         session.execute_read = fail
         return session
 
-    driver.session = broken  # type: ignore[method-assign]
+    monkeypatch.setattr(driver, "session", broken)
     with pytest.raises(InfrastructureUnavailableError):
-        await executor(driver).write(
-            build_queries.MERGE_SPEC_NODES, "p", rows=[], build_id="b", owned_types=[]
-        )
+        await executor(driver).write(build_queries.MERGE_SPEC_NODES, "p", rows=[], build_id="b", owned_types=[])
 
 
 def test_the_shared_bolt_machinery_is_unchanged_for_neo4j() -> None:
-    from graph.stores.neo4j import Neo4jStore
-
     neo4j_executor = Neo4jStore(FakeDriver(), "neo4j").executor()
     assert type(neo4j_executor) is bolt.BoltExecutor
     assert neo4j_executor._error_mapper is bolt._map_error

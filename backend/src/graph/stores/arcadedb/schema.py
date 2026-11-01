@@ -43,9 +43,7 @@ BACKEND: Final = "arcadedb"
 SPEC_KEY: Final = "spec_key"
 SPEC_KEY_INDEX: Final = "graph_spec_node_spec_key"
 SPEC_ID_INDEX: Final = "graph_spec_node_spec_id"
-_SPEC_ID_STATEMENT: Final = (
-    f"CREATE INDEX {SPEC_ID_INDEX} IF NOT EXISTS FOR (n:{SPEC_NODE}) ON (n.group_id, n.spec_id)"
-)
+_SPEC_ID_STATEMENT: Final = f"CREATE INDEX {SPEC_ID_INDEX} IF NOT EXISTS FOR (n:{SPEC_NODE}) ON (n.group_id, n.spec_id)"
 _VECTOR: Final = "LSM_VECTOR"
 _FULLTEXT: Final = "FULL_TEXT"
 _PROPERTY_TYPES: Final = {"vector": "ARRAY_OF_FLOATS", "fulltext": "STRING", "spec_key": "STRING"}
@@ -160,7 +158,9 @@ def _sql(item: ArcadeObject, dimension: int) -> tuple[str, ...]:
     """The SQL commands that create ``item``: its type, its properties, then the index."""
 
     steps = [f"CREATE VERTEX TYPE {item.label} IF NOT EXISTS"]
-    steps += [f"CREATE PROPERTY {item.label}.{name} IF NOT EXISTS {_PROPERTY_TYPES[item.kind]}" for name in item.properties]
+    steps += [
+        f"CREATE PROPERTY {item.label}.{name} IF NOT EXISTS {_PROPERTY_TYPES[item.kind]}" for name in item.properties
+    ]
     columns = ", ".join(item.properties)
     if item.kind == "vector":
         metadata = f'{{"dimensions": {int(dimension)}, "similarity": "COSINE"}}'

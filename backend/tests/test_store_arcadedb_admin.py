@@ -16,7 +16,7 @@ from pydantic import SecretStr
 from graph.core.errors import ConfigurationError, InfrastructureUnavailableError
 from graph.stores.arcadedb.admin import AdminClient, admin_url, check_database_name, parse_version
 
-SECRET = "pw-never-in-errors-77"
+LEAK_PROBE = "pw-never-in-errors-77"
 
 
 class Server:
@@ -35,7 +35,7 @@ class Server:
 
 
 def client(server: Server | Callable[[httpx.Request], httpx.Response]) -> AdminClient:
-    return AdminClient("http://arcade:2480", "root", SecretStr(SECRET), transport=httpx.MockTransport(server))
+    return AdminClient("http://arcade:2480", "root", SecretStr(LEAK_PROBE), transport=httpx.MockTransport(server))
 
 
 def ok(body: Any) -> Callable[[httpx.Request], httpx.Response]:
@@ -155,7 +155,7 @@ async def test_ensure_database_creates_only_a_missing_one() -> None:
         {
             ("GET", "/api/v1/exists/there"): ok({"result": True}),
             ("GET", "/api/v1/exists/gone"): ok({"result": False}),
-            ("POST", "/api/v1/server"): lambda r: (calls.append("create"), httpx.Response(200, json={}))[1],
+            ("POST", "/api/v1/server"): lambda _r: (calls.append("create"), httpx.Response(200, json={}))[1],
         }
     )
     admin = client(server)
@@ -167,8 +167,8 @@ async def test_ensure_database_accepts_one_a_concurrent_start_created() -> None:
     answers = iter([False, True])
     server = Server(
         {
-            ("GET", "/api/v1/exists/db1"): lambda r: httpx.Response(200, json={"result": next(answers)}),
-            ("POST", "/api/v1/server"): lambda r: httpx.Response(
+            ("GET", "/api/v1/exists/db1"): lambda _r: httpx.Response(200, json={"result": next(answers)}),
+            ("POST", "/api/v1/server"): lambda _r: httpx.Response(
                 500, json={"exception": "java.lang.IllegalArgumentException", "detail": "already exists"}
             ),
         }
@@ -180,7 +180,7 @@ async def test_ensure_database_raises_when_the_create_fails_and_the_database_is_
     server = Server(
         {
             ("GET", "/api/v1/exists/db1"): ok({"result": False}),
-            ("POST", "/api/v1/server"): lambda r: httpx.Response(500, json={"exception": "java.io.IOException"}),
+            ("POST", "/api/v1/server"): lambda _r: httpx.Response(500, json={"exception": "java.io.IOException"}),
         }
     )
     with pytest.raises(ConfigurationError) as raised:
@@ -213,7 +213,7 @@ async def test_types_reads_the_schema_types() -> None:
 async def test_an_empty_or_unexpected_body_is_an_empty_result() -> None:
     server = Server(
         {
-            ("POST", "/api/v1/command/a"): lambda r: httpx.Response(204),
+            ("POST", "/api/v1/command/a"): lambda _r: httpx.Response(204),
             ("POST", "/api/v1/command/b"): ok({"result": "ok"}),
             ("POST", "/api/v1/command/c"): ok(["not", "a", "dict"]),
         }
@@ -223,7 +223,7 @@ async def test_an_empty_or_unexpected_body_is_an_empty_result() -> None:
 
 
 async def test_a_body_that_is_not_json_is_a_setup_failure() -> None:
-    server = Server({("GET", "/api/v1/server"): lambda r: httpx.Response(200, content=b"<html>")})
+    server = Server({("GET", "/api/v1/server"): lambda _r: httpx.Response(200, content=b"<html>")})
     with pytest.raises(ConfigurationError) as raised:
         await client(server).server_version()
     assert raised.value.code == "schema_setup_failed"
@@ -237,24 +237,24 @@ async def test_a_body_that_is_not_json_is_a_setup_failure() -> None:
     [(401, "store_auth_rejected"), (403, "store_access_denied")],
 )
 async def test_a_rejected_login_or_denied_access_is_a_configuration_error(status: int, code: str) -> None:
-    server = Server({("GET", "/api/v1/server"): lambda r: httpx.Response(status, json={"detail": SECRET})})
+    server = Server({("GET", "/api/v1/server"): lambda _r: httpx.Response(status, json={"detail": LEAK_PROBE})})
     with pytest.raises(ConfigurationError) as raised:
         await client(server).server_version()
     assert raised.value.code == code and raised.value.fields["store"] == "arcadedb"
-    assert SECRET not in str(raised.value) and SECRET not in repr(raised.value.fields)
+    assert LEAK_PROBE not in str(raised.value) and LEAK_PROBE not in repr(raised.value.fields)
 
 
 async def test_a_missing_database_is_a_neutral_configuration_error() -> None:
     body = {"exception": "java.lang.IllegalArgumentException", "detail": "Database 'nope' does not exist"}
-    server = Server({("POST", "/api/v1/command/nope"): lambda r: httpx.Response(500, json=body)})
+    server = Server({("POST", "/api/v1/command/nope"): lambda _r: httpx.Response(500, json=body)})
     with pytest.raises(ConfigurationError) as raised:
         await client(server).sql("nope", "SELECT 1")
     assert raised.value.code == "store_database_not_found"
 
 
 async def test_a_refused_command_carries_the_status_and_exception_class_only() -> None:
-    body = {"exception": "com.arcadedb.exception.SchemaException", "detail": f"Type 'X' not found {SECRET}"}
-    server = Server({("POST", "/api/v1/command/graphdb"): lambda r: httpx.Response(400, json=body)})
+    body = {"exception": "com.arcadedb.exception.SchemaException", "detail": f"Type 'X' not found {LEAK_PROBE}"}
+    server = Server({("POST", "/api/v1/command/graphdb"): lambda _r: httpx.Response(400, json=body)})
     with pytest.raises(ConfigurationError) as raised:
         await client(server).sql("graphdb", "CREATE INDEX ...")
     assert raised.value.code == "schema_setup_failed"
@@ -263,14 +263,14 @@ async def test_a_refused_command_carries_the_status_and_exception_class_only() -
         "status": 400,
         "error_type": "com.arcadedb.exception.SchemaException",
     }
-    assert SECRET not in str(raised.value) and "Type 'X'" not in str(raised.value)
+    assert LEAK_PROBE not in str(raised.value) and "Type 'X'" not in str(raised.value)
 
 
 async def test_an_error_response_with_no_usable_exception_name_has_none() -> None:
     server = Server(
         {
-            ("POST", "/api/v1/command/a"): lambda r: httpx.Response(500, content=b"boom"),
-            ("POST", "/api/v1/command/b"): lambda r: httpx.Response(500, json={"exception": "bad name!"}),
+            ("POST", "/api/v1/command/a"): lambda _r: httpx.Response(500, content=b"boom"),
+            ("POST", "/api/v1/command/b"): lambda _r: httpx.Response(500, json={"exception": "bad name!"}),
         }
     )
     for database in ("a", "b"):
@@ -281,13 +281,13 @@ async def test_an_error_response_with_no_usable_exception_name_has_none() -> Non
 
 async def test_an_unreachable_server_is_an_infrastructure_error_without_the_url_or_password() -> None:
     def refuse(request: httpx.Request) -> httpx.Response:
-        raise httpx.ConnectError(f"connection refused {SECRET}")
+        raise httpx.ConnectError(f"connection refused {LEAK_PROBE}")
 
     with pytest.raises(InfrastructureUnavailableError) as raised:
         await client(refuse).server_version()
     assert raised.value.code == "store_unreachable"
     assert raised.value.fields == {"store": "arcadedb", "error_type": "ConnectError"}
-    assert SECRET not in str(raised.value)
+    assert LEAK_PROBE not in str(raised.value)
 
 
 async def test_close_closes_the_http_client() -> None:

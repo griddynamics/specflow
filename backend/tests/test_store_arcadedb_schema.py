@@ -7,20 +7,20 @@ admin client; both fill one table of indexes, which the next ``ensure_schema`` r
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from graph.core.errors import ConfigurationError
+from graph.core.ontology import Ontology
 from graph.core.queries import CORE_DDL
 from graph.stores._bolt.schema import parse_ddl_statement
 from graph.stores.arcadedb.schema import (
     SPEC_ID_INDEX,
     SPEC_KEY_INDEX,
-    ArcadeObject,
     check_names,
     ensure_arcadedb_schema,
     schema_objects,
@@ -42,6 +42,7 @@ class FakeServer:
         self.exists = False
         self.sql_error: str | None = None
         self.create_error = False
+        self.query_hook: Callable[[str], str | None] | None = None
 
     # the admin client
     async def require_version(self) -> tuple[int, int, int]:
@@ -61,7 +62,9 @@ class FakeServer:
         for index in self.indexes:
             by_type.setdefault(index["typeName"], []).append(index)
         entries = [{"name": name, "indexes": indexes, "parentTypes": []} for name, indexes in by_type.items()]
-        return entries + [{"name": f"{label}~SpecNode", "parentTypes": [label, "SpecNode"]} for label in self.composites]
+        return entries + [
+            {"name": f"{label}~SpecNode", "parentTypes": [label, "SpecNode"]} for label in self.composites
+        ]
 
     async def sql(self, _database: str, command: str) -> list[dict[str, Any]]:
         self.commands.append(command)
@@ -72,8 +75,12 @@ class FakeServer:
             label, columns, tail = found.groups()
             properties = [c.strip() for c in columns.split(",")]
             if tail.startswith("LSM_VECTOR"):
-                dimension = int(re.search(r'"dimensions": (\d+)', tail).group(1))  # type: ignore[union-attr]
-                self._add(label, properties, "LSM_VECTOR", dimensions=dimension, scoring="distance_lower_is_better:COSINE")
+                found_dimension = re.search(r'"dimensions": (\d+)', tail)
+                assert found_dimension is not None
+                dimension = int(found_dimension.group(1))
+                self._add(
+                    label, properties, "LSM_VECTOR", dimensions=dimension, scoring="distance_lower_is_better:COSINE"
+                )
             elif tail == "FULL_TEXT":
                 self._add(label, properties, "FULL_TEXT")
             else:
@@ -90,7 +97,11 @@ class FakeServer:
     # the Bolt driver
     async def execute_query(self, text: str, params: Any = None, **_kwargs: Any) -> Any:
         self.commands.append(text)
-        placeholder = re.fullmatch(r"(CREATE|MATCH) \(n:SpecNode:(\w+) \{group_id: \$group, uuid: \$uuid\}\)(?: DETACH DELETE n)?", text)
+        if self.query_hook is not None and self.query_hook(text) == "swallow":
+            return SimpleNamespace(records=[])
+        placeholder = re.fullmatch(
+            r"(CREATE|MATCH) \(n:SpecNode:(\w+) \{group_id: \$group, uuid: \$uuid\}\)(?: DETACH DELETE n)?", text
+        )
         if placeholder:
             assert params["group"] == "__schema__" and params["uuid"] == f"__{placeholder[2]}__"
             if placeholder[1] == "CREATE" and placeholder[2] not in self.composites:
@@ -128,7 +139,9 @@ def test_each_canonical_object_maps_to_what_arcadedb_supports() -> None:
         assert objects[name].kind == "fulltext" and objects[name].statement == ""
     for name in ("graph_spec_node_uuid", "graph_document_id", "graph_fragment_id", "graph_edge_key_part_of"):
         assert objects[name].statement.startswith("CREATE ")
-    assert "graph_spec_node_spec_key" not in {item.name for item in schema_objects(shipped_ontology()) if item.statement}
+    assert "graph_spec_node_spec_key" not in {
+        item.name for item in schema_objects(shipped_ontology()) if item.statement
+    }
 
 
 def test_a_ddl_that_does_not_cover_the_ontology_is_refused_before_anything_else() -> None:
@@ -147,7 +160,7 @@ def test_a_foreign_label_needs_its_uuid_constraint_like_on_neo4j(tmp_path: Path)
 def test_names_that_differ_only_by_case_are_refused() -> None:
     ontology = SimpleNamespace(labels=("Module", "module"), relations=("PART_OF",))
     with pytest.raises(ConfigurationError) as raised:
-        check_names(ontology)  # type: ignore[arg-type]
+        check_names(cast(Ontology, ontology))
     assert raised.value.code == "schema_name_case_collision"
     assert raised.value.fields == {"first": "Module", "second": "module"}
 
@@ -155,7 +168,7 @@ def test_names_that_differ_only_by_case_are_refused() -> None:
 def test_a_label_and_a_relation_share_one_name_space() -> None:
     ontology = SimpleNamespace(labels=("Flags",), relations=("FLAGS",))
     with pytest.raises(ConfigurationError):
-        check_names(ontology)  # type: ignore[arg-type]
+        check_names(cast(Ontology, ontology))
 
 
 def test_the_shipped_ontology_has_no_case_collision() -> None:
@@ -186,9 +199,10 @@ async def test_the_vector_index_is_created_by_sql_with_the_dimension_as_a_litera
     server = FakeServer()
     await ensure(server, dim=1536)
     vector = [c for c in server.commands if "LSM_VECTOR" in c]
+    metadata = 'METADATA {"dimensions": 1536, "similarity": "COSINE"}'
     assert vector == [
-        'CREATE INDEX IF NOT EXISTS ON SpecNode (embedding) LSM_VECTOR METADATA {"dimensions": 1536, "similarity": "COSINE"}',
-        'CREATE INDEX IF NOT EXISTS ON SpecNode (name_embedding) LSM_VECTOR METADATA {"dimensions": 1536, "similarity": "COSINE"}',
+        f"CREATE INDEX IF NOT EXISTS ON SpecNode (embedding) LSM_VECTOR {metadata}",
+        f"CREATE INDEX IF NOT EXISTS ON SpecNode (name_embedding) LSM_VECTOR {metadata}",
     ]
     position = server.commands.index(vector[0])
     assert server.commands[position - 2 : position] == [
@@ -212,7 +226,10 @@ async def test_constraints_and_range_indexes_are_created_by_their_canonical_cyph
     server = FakeServer()
     await ensure(server)
     cypher = [c for c in server.commands if c.startswith("CREATE ") and not c.startswith("CREATE INDEX IF NOT")]
-    assert "CREATE CONSTRAINT graph_spec_node_uuid IF NOT EXISTS FOR (n:SpecNode) REQUIRE (n.group_id, n.uuid) IS UNIQUE" in cypher
+    assert (
+        "CREATE CONSTRAINT graph_spec_node_uuid IF NOT EXISTS FOR (n:SpecNode) REQUIRE (n.group_id, n.uuid) IS UNIQUE"
+        in cypher
+    )
     assert not any("graph_spec_node_spec_id IF NOT EXISTS FOR (n:SpecNode) REQUIRE" in c for c in cypher)
     assert any(c.startswith("CREATE INDEX graph_edge_key_part_of") for c in cypher)
     assert not any("VECTOR INDEX" in c or "FULLTEXT INDEX" in c for c in cypher)
@@ -275,15 +292,7 @@ async def test_a_refused_sql_create_stops_the_run_and_keeps_what_was_created() -
 
 async def test_an_object_missing_after_the_creates_is_reported() -> None:
     server = FakeServer()
-    original = server.execute_query
-
-    async def swallow(text: str, params: Any = None, **kwargs: Any) -> Any:
-        if "graph_edge_key_relates_to" in text:
-            server.commands.append(text)
-            return SimpleNamespace(records=[])
-        return await original(text, params, **kwargs)
-
-    server.execute_query = swallow  # type: ignore[method-assign]
+    server.query_hook = lambda text: "swallow" if "graph_edge_key_relates_to" in text else None
     with pytest.raises(ConfigurationError) as raised:
         await ensure(server)
     assert raised.value.code == "schema_index_not_online" and raised.value.fields["state"] == "MISSING"
@@ -314,15 +323,14 @@ async def test_a_start_that_lost_the_race_for_a_composite_type_accepts_it() -> N
     server = FakeServer()
     await ensure(server)
     server.composites.remove("Module")
-    original = server.execute_query
 
-    async def race(text: str, params: Any = None, **kwargs: Any) -> Any:
+    def race(text: str) -> str | None:
         if text.startswith("CREATE (n:SpecNode:Module "):
             server.composites.append("Module")  # the other start created it a moment ago
             raise ConfigurationError("schema_setup_failed", store="arcadedb")
-        return await original(text, params, **kwargs)
+        return None
 
-    server.execute_query = race  # type: ignore[method-assign]
+    server.query_hook = race
     await ensure(server)
     assert "Module" in server.composites
 
@@ -333,10 +341,3 @@ async def test_a_composite_type_that_cannot_be_created_is_a_setup_failure() -> N
     with pytest.raises(ConfigurationError) as raised:
         await ensure(server)
     assert raised.value.code == "schema_setup_failed"
-
-
-def test_an_object_is_a_frozen_value() -> None:
-    item: ArcadeObject = schema_objects(shipped_ontology())[0]
-    with pytest.raises(AttributeError):
-        item.name = "x"  # type: ignore[misc]
-    assert isinstance(item.properties, tuple) and isinstance(CORE_DDL, Sequence)

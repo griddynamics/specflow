@@ -69,9 +69,9 @@ __all__ = [
     "DEFAULT_BACKEND",
     "DEFAULT_CAPABILITIES",
     "AsyncGraphDatabase",
-    "ErrorMapper",
     "BoltExecutor",
     "BoltScopedTransaction",
+    "ErrorMapper",
     "check_connection",
     "connect",
 ]

@@ -54,9 +54,7 @@ class ArcadeDbStore:
         the Bolt host on port 2480)."""
 
         insecure = urlsplit(config.uri).scheme.endswith("+ssc")
-        admin = AdminClient(
-            admin_url(config.uri, config.admin_uri), config.user, config.password, verify=not insecure
-        )
+        admin = AdminClient(admin_url(config.uri, config.admin_uri), config.user, config.password, verify=not insecure)
         return cls(connect(config), admin, config.name or DEFAULT_DATABASE, owns_clients=True)
 
     @property
