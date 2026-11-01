@@ -21,7 +21,21 @@ The request key is the sha256 of the call's semantic content: call class, model,
 response schema for a structured call; model and text for each embedded text. Never timestamps, ids,
 headers, keys or the endpoint. The cassette stores a request summary (counts, names) and the response; its
 header names the models and the embedding dimension, never the gateway URL or key, so replay needs only
-the Neo4j environment.
+the graph store environment (GRAPH_STORE_*). A recorded error is scrubbed of the key, the endpoint and its host.
+
+Cassette rules: the first stored answer of a key wins, and a stored error answers its key from then on (in
+recording and in replay): to retry a failed call, delete its line from the cassette. A malformed line or entry
+raises ``CassetteError``. A final line cut off by a killed recording (no trailing newline, not valid JSON) is
+tolerated with a warning on stderr; a resumed recording truncates it before appending. A stored vector must
+have the header's embedding dimension.
+
+A replay with cassette misses is a failed run: it writes ``<label>.snapshot.FAILED.json`` (never the normal
+snapshot, and a stale one of the label is removed first), sets ``"ok": false`` in the summary and exits non-zero.
+
+Output paths are corpus-derived data (cassettes hold prompts, snapshots hold document text): ``--out``, a
+recording ``--cassette`` and a recorded ``--qa-cassette`` must be git-ignored when they are inside a git
+repository (``git check-ignore``), or outside any repository; anything else is refused. ``--wipe`` prints
+the store backend, host and project before it deletes.
 
 Both commands leave ``<out>/<label>.snapshot.json`` (canonical graph: nodes and edges without build ids,
 timestamps and vectors, sorted) and ``<out>/<label>.summary.json`` (build result, verification report, counts,
@@ -44,12 +58,15 @@ import hashlib
 import importlib
 import json
 import os
+import shutil
+import subprocess
 import sys
 import time
 from array import array
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, Final, Protocol, TypeVar
+from urllib.parse import urlsplit
 
 import yaml
 from pydantic import BaseModel, SecretStr
@@ -117,7 +134,7 @@ class CassetteError(RuntimeError):
 
 
 def canonical_json(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=str)
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
 def digest(value: Any) -> str:
@@ -165,6 +182,9 @@ def decode_vector(encoded: str) -> list[float]:
 # Cassette
 
 
+HEADER_FIELDS: Final = ("main_model", "small_model", "embedding_model", "embedding_dim")
+
+
 def header_of(config: LLMConfig, unit_tokens: int = DEFAULT_UNIT_TOKENS) -> dict[str, Any]:
     """The cassette header: models, dimension and build unit size, never the endpoint or the key."""
 
@@ -195,7 +215,9 @@ def config_from_header(header: Mapping[str, Any]) -> LLMConfig:
 class Cassette:
     """A JSONL file of ``{"key", "kind", "request", "response" | "error"}`` lines after a header line.
 
-    The first stored answer of a key wins; later puts of the same key are ignored.
+    The first stored answer of a key wins; later puts of the same key are ignored. A stored error is an answer:
+    delete its line from the file to retry the call. ``load`` raises ``CassetteError`` for anything unusable
+    and tolerates only a final line cut off by a killed recording (``partial_tail``; see the module docstring).
     """
 
     def __init__(self, path: Path) -> None:
@@ -203,29 +225,91 @@ class Cassette:
         self.header: dict[str, Any] | None = None
         self.entries: dict[str, dict[str, Any]] = {}
         self.duplicates = 0
+        self.partial_tail = False
+        self.valid_bytes: int | None = None
+        self.ends_with_newline = True
 
     @classmethod
     def load(cls, path: Path) -> Cassette:
         cassette = cls(path)
-        with path.open(encoding="utf-8") as handle:
-            for number, line in enumerate(handle, start=1):
-                if not line.strip():
-                    continue
-                try:
-                    item = json.loads(line)
-                except json.JSONDecodeError as error:
-                    raise CassetteError(f"cassette line {number} is not JSON") from error
-                if item.get("kind") == "header":
-                    if item.get("version") != CASSETTE_VERSION:
-                        raise CassetteError("cassette version unsupported")
-                    cassette.header = item
-                elif item["key"] in cassette.entries:
-                    cassette.duplicates += 1
-                else:
-                    cassette.entries[item["key"]] = item
+        data = path.read_bytes()
+        pieces = data.split(b"\n")
+        offset = 0
+        for index, piece in enumerate(pieces):
+            last = index == len(pieces) - 1
+            number = index + 1
+            if not piece.strip():
+                offset += len(piece) + (0 if last else 1)
+                continue
+            try:
+                item = json.loads(piece)
+            except (json.JSONDecodeError, UnicodeDecodeError) as error:
+                if last:
+                    cassette.partial_tail = True
+                    print(
+                        f"warning: cassette {path} ends with an incomplete line ({len(piece)} bytes, from a "
+                        "killed recording); ignoring it",
+                        file=sys.stderr,
+                    )
+                    break
+                raise CassetteError(f"cassette line {number} is not JSON") from error
+            cassette._accept(item, number)
+            offset += len(piece) + (0 if last else 1)
+            cassette.ends_with_newline = not last
+        cassette.valid_bytes = offset
         if cassette.header is None:
             raise CassetteError("cassette has no header")
         return cassette
+
+    def _accept(self, item: Any, number: int) -> None:
+        if not isinstance(item, dict):
+            raise CassetteError(f"cassette line {number} is not an object")
+        if item.get("kind") == "header":
+            if item.get("version") != CASSETTE_VERSION:
+                raise CassetteError("cassette version unsupported")
+            missing = [name for name in HEADER_FIELDS if name not in item]
+            if missing:
+                raise CassetteError(f"cassette header lacks {', '.join(missing)}")
+            if self.header is not None and self.header != item:
+                raise CassetteError(f"cassette line {number}: a second, different header")
+            self.header = item
+            return
+        if self.header is None:
+            raise CassetteError(f"cassette line {number}: entry before the header")
+        self._check_entry(item, number)
+        if item["key"] in self.entries:
+            self.duplicates += 1
+        else:
+            self.entries[item["key"]] = item
+
+    def _check_entry(self, item: dict[str, Any], number: int) -> None:
+        if not isinstance(item.get("key"), str) or not item["key"]:
+            raise CassetteError(f"cassette line {number}: entry without a key")
+        kind = item.get("kind")
+        if kind not in ("structured", "embed"):
+            raise CassetteError(f"cassette line {number}: unknown entry kind")
+        stored_error, response = item.get("error"), item.get("response")
+        if (stored_error is None) == (response is None):
+            raise CassetteError(f"cassette line {number}: entry needs exactly one of response and error")
+        if stored_error is not None and not (
+            isinstance(stored_error, dict)
+            and isinstance(stored_error.get("reason"), str)
+            and isinstance(stored_error.get("fields"), dict)
+        ):
+            raise CassetteError(f"cassette line {number}: malformed error")
+        if response is None:
+            return
+        field = "b64" if kind == "embed" else "json"
+        if not isinstance(response, dict) or not isinstance(response.get(field), str):
+            raise CassetteError(f"cassette line {number}: response lacks {field}")
+        if kind == "embed":
+            try:
+                size = len(base64.b64decode(response["b64"], validate=True))
+            except ValueError as error:
+                raise CassetteError(f"cassette line {number}: vector is not base64") from error
+            dim = int(self.header["embedding_dim"]) if self.header else 0
+            if size != dim * 4:
+                raise CassetteError(f"cassette line {number}: vector has {size // 4} values, header says {dim}")
 
     def open_for_append(self, config: LLMConfig, unit_tokens: int = DEFAULT_UNIT_TOKENS) -> None:
         """Start the file with its header, or check an existing header against ``config``."""
@@ -235,6 +319,15 @@ class Cassette:
             raise CassetteError("cassette header differs from the recording configuration")
         self.header = header
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        if self.path.exists() and self.partial_tail and self.valid_bytes is not None:
+            with self.path.open("r+b") as handle:
+                handle.truncate(self.valid_bytes)
+            self.partial_tail = False
+            print(f"warning: truncated the incomplete last line of {self.path} before appending", file=sys.stderr)
+        elif self.path.exists() and not self.ends_with_newline:
+            with self.path.open("a", encoding="utf-8") as handle:
+                handle.write("\n")
+            self.ends_with_newline = True
         if not self.path.exists() or self.path.stat().st_size == 0:
             self._append(header)
 
@@ -267,8 +360,34 @@ def request_summary(
     }
 
 
-def error_entry(error: LLMError) -> dict[str, Any]:
-    return {"reason": error.reason, "fields": dict(error.fields)}
+REDACTED: Final = "[redacted]"
+
+
+def scrub(value: Any, forbidden: Sequence[str]) -> Any:
+    """``value`` with every ``forbidden`` text replaced by ``[redacted]`` (strings, lists and dicts, recursively)."""
+
+    if isinstance(value, str):
+        for text in forbidden:
+            value = value.replace(text, REDACTED)
+        return value
+    if isinstance(value, list):
+        return [scrub(item, forbidden) for item in value]
+    if isinstance(value, dict):
+        return {scrub(key, forbidden): scrub(item, forbidden) for key, item in value.items()}
+    return value
+
+
+def secrets_of(config: LLMConfig) -> list[str]:
+    """Texts that must never reach a cassette: the key, the endpoint and its host."""
+
+    endpoint = str(config.endpoint)
+    texts = [config.api_key.get_secret_value(), endpoint, urlsplit(endpoint).hostname or ""]
+    return sorted({text for text in texts if text}, key=len, reverse=True)
+
+
+def error_entry(error: LLMError, forbidden: Sequence[str] = ()) -> dict[str, Any]:
+    entry: dict[str, Any] = scrub({"reason": error.reason, "fields": dict(error.fields)}, forbidden)
+    return entry
 
 
 def raise_recorded(error: Mapping[str, Any]) -> None:
@@ -328,6 +447,7 @@ class RecordingGateway:
         self.live_embed_calls = 0
         self.served = 0
         self.live_by_prompt: dict[str, int] = {}
+        self._forbidden = secrets_of(real.config)
 
     @property
     def config(self) -> LLMConfig:
@@ -366,7 +486,7 @@ class RecordingGateway:
         except LLMFatalError:
             raise
         except LLMError as error:
-            entry["error"] = error_entry(error)
+            entry["error"] = error_entry(error, self._forbidden)
             self._cassette.put(entry)
             raise
         entry["response"] = {"json": result.model_dump_json(by_alias=True)}
@@ -384,6 +504,9 @@ class RecordingGateway:
             self.live_embed_calls += 1
             self.live_embed_texts += len(missing)
             vectors = await self._real.embed(list(missing.values()))
+            dim = self._real.config.embedding_dim
+            if len(vectors) != len(missing) or any(len(vector) != dim for vector in vectors):
+                raise CassetteError(f"the gateway returned vectors that do not match embedding_dim={dim}")
             for (key, text), vector in zip(missing.items(), vectors, strict=True):
                 self._cassette.put(
                     {
@@ -635,7 +758,7 @@ def snapshot_counts(snapshot: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-# Neo4j and the environment
+# The environment, the LLM configuration and the graph store
 
 
 def require_environment(names: Sequence[str]) -> dict[str, str]:
@@ -780,6 +903,107 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     qa.add_argument("--qa-cassette", type=Path, required=True, help="cassette of the question embeddings")
     qa.add_argument("--record-embeddings", action="store_true", help="embed the questions live and store them")
     return parser.parse_args(argv)
+
+
+def require_ignored_path(path: Path, role: str) -> None:
+    """Refuse ``path`` when it is inside a git repository and not ignored (corpus-derived data must never land in
+    a tracked place). A path outside any repository passes."""
+
+    target = path.resolve()
+    directory = target
+    while not directory.exists():
+        directory = directory.parent
+    if directory.is_file():
+        directory = directory.parent
+    git = shutil.which("git")
+    if git is None:
+        raise SystemExit(f"cannot check {role} {path}: git is not installed")
+    inside = subprocess.run(
+        [git, "-C", str(directory), "rev-parse", "--is-inside-work-tree"], capture_output=True, check=False
+    )
+    if inside.returncode != 0:
+        return
+    ignored = subprocess.run(
+        [git, "-C", str(directory), "check-ignore", "-q", "--", str(target)], capture_output=True, check=False
+    )
+    if ignored.returncode != 0:
+        raise SystemExit(
+            f"refusing {role} {path}: it is inside a git repository and not git-ignored "
+            "(corpus-derived data must stay out of tracked paths)"
+        )
+
+
+def check_output_paths(args: argparse.Namespace) -> None:
+    """Every file this command writes must be in an ignored place (see ``require_ignored_path``)."""
+
+    require_ignored_path(args.out / f"{args.label}.summary.json", "--out")
+    if args.command == "record":
+        require_ignored_path(args.cassette, "--cassette")
+    if args.command == "qa" and args.record_embeddings:
+        require_ignored_path(args.qa_cassette, "--qa-cassette")
+
+
+def check_question_arguments(args: argparse.Namespace) -> None:
+    """A question run needs its files: no silent ``search: null``."""
+
+    if args.questions is not None and not args.questions.is_file():
+        raise SystemExit(f"--questions {args.questions} does not exist")
+    if args.questions_meta is not None and not args.questions_meta.is_file():
+        raise SystemExit(f"--questions-meta {args.questions_meta} does not exist")
+    if args.command == "replay" and args.questions is not None:
+        if args.qa_cassette is None:
+            raise SystemExit("replay --questions needs --qa-cassette (the question embeddings)")
+        if not args.qa_cassette.is_file():
+            raise SystemExit(f"--qa-cassette {args.qa_cassette} does not exist")
+    if (
+        args.command == "qa"
+        and args.questions is not None
+        and not args.record_embeddings
+        and not args.qa_cassette.is_file()
+    ):
+        raise SystemExit(f"--qa-cassette {args.qa_cassette} does not exist (use --record-embeddings to create it)")
+
+
+def wipe_notice(config: StoreConfig, project: str) -> str:
+    """What ``--wipe`` is about to delete: backend, host and project (never credentials)."""
+
+    parts = urlsplit(config.uri)
+    host = f"{parts.hostname or config.uri}" + (f":{parts.port}" if parts.port else "")
+    return f"--wipe: deleting project {project!r} from {config.backend} at {host}"
+
+
+def write_snapshot(args: argparse.Namespace, data: bytes, *, ok: bool) -> str:
+    """Write the snapshot; a failed run gets ``<label>.snapshot.FAILED.json``, never the normal name."""
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    name = f"{args.label}.snapshot.json" if ok else f"{args.label}.snapshot.FAILED.json"
+    (args.out / name).write_bytes(data)
+    return name
+
+
+async def replay_search(args: argparse.Namespace, store: Any, probe: Any, ontology: Any) -> dict[str, Any] | None:
+    """The search QA of a replay run (None without ``--questions``)."""
+
+    if args.command != "replay" or not args.questions:
+        return None
+    gateway = ReplayGateway(Cassette.load(args.qa_cassette))
+    prepared = prepare_questions(args.questions, args.questions_meta)
+    report = await run_qa(store, probe, gateway, ontology, args.project, prepared=prepared)
+    search: dict[str, Any] | None = report["search"]
+    return search
+
+
+def clear_outputs(args: argparse.Namespace) -> None:
+    """Remove this label's earlier snapshot, failed snapshot and summary, so a failed run leaves no stale pass."""
+
+    for name in (f"{args.label}.snapshot.json", f"{args.label}.snapshot.FAILED.json", f"{args.label}.summary.json"):
+        (args.out / name).unlink(missing_ok=True)
+
+
+async def announce_and_wipe(store: Any, config: StoreConfig, project: str) -> int:
+    print(wipe_notice(config, project), file=sys.stderr)
+    log_event(logger, INFO, "example.graph_bench.wipe", store=config.backend, project=project)
+    return await wipe_project(store.executor(), project)
 
 
 def check_wipe(args: argparse.Namespace, config: StoreConfig) -> None:
@@ -981,6 +1205,8 @@ async def run_qa(
 async def qa_main(args: argparse.Namespace) -> None:
     """``qa``: invariants and search QA of the graph already in the store (no build)."""
 
+    check_question_arguments(args)
+    check_output_paths(args)
     config = store_settings(args.namespace)
     ontology = load_ontology()
     if args.record_embeddings:
@@ -1015,9 +1241,12 @@ async def main() -> None:
     if args.command == "qa":
         await qa_main(args)
         return
+    check_question_arguments(args)
+    check_output_paths(args)
     config = store_settings(args.namespace)
     check_wipe(args, config)
     gateway, llm = open_gateway(args)
+    clear_outputs(args)
     ontology = load_ontology()
     unit_tokens = gateway.unit_tokens
     stores = open_file_stores(args.state, args.corpus)
@@ -1027,7 +1256,7 @@ async def main() -> None:
     try:
         if args.persist_batch and persist_step.__kwdefaults__ is not None:
             persist_step.__kwdefaults__["batch_size"] = args.persist_batch
-        wiped = await wipe_project(store.executor(), args.project) if args.wipe else None
+        wiped = await announce_and_wipe(store, config, args.project) if args.wipe else None
         schema_started = time.monotonic()
         created = await ensure_schema(store, ontology, llm)
         schema_s = time.monotonic() - schema_started
@@ -1053,22 +1282,12 @@ async def main() -> None:
         snapshot = await export_snapshot(probe, args.project)
         snapshot_s = time.monotonic() - snapshot_started
         data = snapshot_bytes(snapshot)
-        args.out.mkdir(parents=True, exist_ok=True)
-        (args.out / f"{args.label}.snapshot.json").write_bytes(data)
-        search = None
-        if args.command == "replay" and args.questions and args.qa_cassette:
-            qa_gateway = ReplayGateway(Cassette.load(args.qa_cassette))
-            search = (
-                await run_qa(
-                    store,
-                    probe,
-                    qa_gateway,
-                    ontology,
-                    args.project,
-                    prepared=prepare_questions(args.questions, args.questions_meta),
-                )
-            )["search"]
+        misses = list(gateway.misses) if isinstance(gateway, ReplayGateway) else []
+        ok = not misses
+        snapshot_file = write_snapshot(args, data, ok=ok)
+        search = await replay_search(args, store, probe, ontology) if ok else None
         summary = {
+            "ok": ok,
             "command": args.command,
             "label": args.label,
             "project_id": args.project,
@@ -1093,8 +1312,8 @@ async def main() -> None:
         }
         (args.out / f"{args.label}.summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
         print(json.dumps(summary, indent=2))
-        if isinstance(gateway, ReplayGateway) and gateway.misses:
-            raise CassetteMissError(f"{len(gateway.misses)} cassette misses during replay")
+        if not ok:
+            raise CassetteMissError(f"{len(misses)} cassette misses during replay (snapshot is {snapshot_file})")
     finally:
         await gateway.aclose()
         await store.close()

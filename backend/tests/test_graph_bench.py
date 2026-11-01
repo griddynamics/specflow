@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -23,14 +25,19 @@ from graph_bench import (
     ReplayGateway,
     build_snapshot,
     capped_budgets,
+    check_output_paths,
+    check_question_arguments,
     check_wipe,
     decode_vector,
     embed_key,
     encode_vector,
     first_rank,
     load_questions,
+    open_gateway,
     rank_metrics,
+    require_ignored_path,
     structured_key,
+    wipe_notice,
 )
 
 API_KEY = "sk-test-not-a-real-key"
@@ -269,3 +276,206 @@ def test_wipe_is_neo4j_only(tmp_path: Path) -> None:
     with pytest.raises(SystemExit, match="empty"):
         check_wipe(SimpleNamespace(wipe=True, state=tmp_path), neo)
     check_wipe(SimpleNamespace(wipe=False, state=tmp_path), arcade)
+
+
+def write_cassette(path: Path, *lines: str) -> None:
+    path.write_text("".join(line + "\n" for line in lines), encoding="utf-8")
+
+
+def header_line(**overrides: Any) -> str:
+    header = {
+        "kind": "header",
+        "version": 1,
+        "main_model": "m",
+        "small_model": "s",
+        "judge_model": None,
+        "embedding_model": "e",
+        "embedding_dim": 4,
+        "unit_tokens": 100,
+    }
+    return json.dumps(header | overrides)
+
+
+def structured_line(key: str = "k1", **overrides: Any) -> str:
+    entry = {"key": key, "kind": "structured", "request": {}, "response": {"json": '{"text":"a"}'}}
+    return json.dumps(entry | overrides)
+
+
+def test_cassette_load_error_cases(tmp_path: Path) -> None:
+    path = tmp_path / "c.jsonl"
+    cases = {
+        "has no header": [],
+        "unsupported": [header_line(version=99)],
+        "lacks small_model": [json.dumps({"kind": "header", "version": 1, "main_model": "m"})],
+        "line 2 is not JSON": [header_line(), "{broken", structured_line()],
+        "not an object": [header_line(), "[1]"],
+        "without a key": [header_line(), json.dumps({"kind": "structured", "response": {"json": "{}"}})],
+        "unknown entry kind": [header_line(), structured_line(kind="other")],
+        "exactly one of": [header_line(), json.dumps({"key": "k", "kind": "structured"})],
+        "malformed error": [header_line(), structured_line(response=None, error={"reason": 1})],
+        "lacks json": [header_line(), structured_line(response={"x": 1})],
+        "entry before the header": [structured_line(), header_line()],
+        "second, different header": [header_line(), header_line(main_model="other")],
+        "not base64": [header_line(), json.dumps({"key": "k", "kind": "embed", "response": {"b64": "!!"}})],
+    }
+    for message, lines in cases.items():
+        write_cassette(path, *lines)
+        with pytest.raises(CassetteError, match=message):
+            Cassette.load(path)
+
+
+async def test_cassette_vector_must_match_the_header_dimension(tmp_path: Path) -> None:
+    path = tmp_path / "c.jsonl"
+    entry = {"key": "k", "kind": "embed", "response": {"b64": encode_vector([0.1, 0.2, 0.3])}}
+    write_cassette(path, header_line(), json.dumps(entry))
+    with pytest.raises(CassetteError, match="3 values, header says 4"):
+        Cassette.load(path)
+    # a gateway whose vectors are 4 long while its config says 5 is refused before anything is stored
+    recorder = RecordingGateway(FakeReal(config(embedding_dim=5)), Cassette(tmp_path / "n.jsonl"))
+    with pytest.raises(CassetteError, match="embedding_dim=5"):
+        await recorder.embed(["x"])
+    assert len((tmp_path / "n.jsonl").read_text(encoding="utf-8").splitlines()) == 1
+
+
+def test_header_dimension_mismatch_against_the_recording_configuration(tmp_path: Path) -> None:
+    path = tmp_path / "c.jsonl"
+    RecordingGateway(FakeReal(), Cassette(path))
+    with pytest.raises(CassetteError, match="differs"):
+        RecordingGateway(FakeReal(config(embedding_dim=8)), Cassette.load(path))
+
+
+def test_partial_last_line_is_tolerated_and_truncated_on_resume(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = tmp_path / "c.jsonl"
+    good = structured_line("k1")
+    path.write_text(header_line() + "\n" + good + "\n" + '{"key": "k2", "kind": "struct', encoding="utf-8")
+    cassette = Cassette.load(path)
+    assert list(cassette.entries) == ["k1"] and cassette.partial_tail
+    assert "incomplete line" in capsys.readouterr().err
+    replay = ReplayGateway(cassette)
+    assert replay.config.main_model == "m"
+    cassette.open_for_append(config(main_model="m", small_model="s", embedding_model="e", embedding_dim=4), 100)
+    assert path.read_text(encoding="utf-8") == header_line() + "\n" + good + "\n"
+    assert "truncated" in capsys.readouterr().err
+
+
+def test_a_broken_line_in_the_middle_is_an_error_not_a_partial_tail(tmp_path: Path) -> None:
+    path = tmp_path / "c.jsonl"
+    write_cassette(path, header_line(), "{broken", structured_line())
+    with pytest.raises(CassetteError, match="line 2"):
+        Cassette.load(path)
+    path.write_text(header_line() + "\n" + "{broken\n", encoding="utf-8")
+    with pytest.raises(CassetteError, match="line 2"):
+        Cassette.load(path)
+
+
+def test_first_answer_wins(tmp_path: Path) -> None:
+    path = tmp_path / "c.jsonl"
+    write_cassette(
+        path,
+        header_line(),
+        structured_line("k1", response={"json": '{"text":"first"}'}),
+        structured_line("k1", response={"json": '{"text":"second"}'}),
+    )
+    loaded = Cassette.load(path)
+    assert loaded.duplicates == 1 and loaded.entries["k1"]["response"]["json"] == '{"text":"first"}'
+    stored = loaded.put({"key": "k1", "kind": "structured", "response": {"json": '{"text":"third"}'}})
+    assert stored["response"]["json"] == '{"text":"first"}'
+    assert path.read_text(encoding="utf-8").count("third") == 0
+
+
+def test_open_gateway_checks_unit_tokens_and_the_cassette_file(tmp_path: Path) -> None:
+    path = tmp_path / "c.jsonl"
+    RecordingGateway(FakeReal(), Cassette(path), 10000)
+    gateway, _ = open_gateway(SimpleNamespace(command="replay", cassette=path, unit_tokens=None))
+    assert gateway.unit_tokens == 10000
+    open_gateway(SimpleNamespace(command="replay", cassette=path, unit_tokens=10000))
+    with pytest.raises(SystemExit, match="differs from the cassette's 10000"):
+        open_gateway(SimpleNamespace(command="replay", cassette=path, unit_tokens=8000))
+    with pytest.raises(SystemExit, match="existing --cassette"):
+        open_gateway(SimpleNamespace(command="replay", cassette=tmp_path / "missing.jsonl", unit_tokens=None))
+
+
+async def test_recorder_never_stores_the_key_or_the_endpoint_even_when_an_error_echoes_them(tmp_path: Path) -> None:
+    path = tmp_path / "v1.jsonl"
+    real = FakeReal()
+    recorder = RecordingGateway(real, Cassette(path))
+    real.fail = LLMError(
+        "refused",
+        prompt="p",
+        call_class="small",
+        model="m-small",
+        detail=f"POST {ENDPOINT}/chat failed for key {API_KEY} at llm.example.invalid",
+    )
+    with pytest.raises(LLMError):
+        await recorder.structured("small", None, MESSAGES, Answer, prompt="p")
+    text = path.read_text(encoding="utf-8")
+    for forbidden in (API_KEY, ENDPOINT, "llm.example.invalid"):
+        assert forbidden not in text
+    assert "[redacted]" in text
+    replay = ReplayGateway(Cassette.load(path))
+    with pytest.raises(LLMError) as replayed:
+        await replay.structured("small", None, MESSAGES, Answer, prompt="p")
+    assert replayed.value.fields["prompt"] == "p" and API_KEY not in str(replayed.value.fields)
+
+
+def git(directory: Path, *arguments: str) -> None:
+    subprocess.run([shutil.which("git") or "git", "-C", str(directory), *arguments], check=True, capture_output=True)
+
+
+def test_output_paths_must_be_ignored_inside_a_repository(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git(repo, "init", "-q")
+    (repo / ".gitignore").write_text("data/\n", encoding="utf-8")
+    require_ignored_path(repo / "data" / "run" / "v1.summary.json", "--out")
+    with pytest.raises(SystemExit, match="not git-ignored"):
+        require_ignored_path(repo / "reports" / "v1.summary.json", "--out")
+    tracked = repo / "tracked.jsonl"
+    tracked.write_text("x", encoding="utf-8")
+    git(repo, "add", "-f", "tracked.jsonl")
+    with pytest.raises(SystemExit, match="not git-ignored"):
+        require_ignored_path(tracked, "--cassette")
+    require_ignored_path(tmp_path / "outside" / "v1.jsonl", "--cassette")
+    args = SimpleNamespace(
+        command="record", out=repo / "reports", label="v1", cassette=repo / "data" / "v1.jsonl", record_embeddings=False
+    )
+    with pytest.raises(SystemExit, match="--out"):
+        check_output_paths(args)
+    args.out = repo / "data" / "reports"
+    check_output_paths(args)
+    args.cassette = repo / "cassettes" / "v1.jsonl"
+    with pytest.raises(SystemExit, match="--cassette"):
+        check_output_paths(args)
+
+
+def test_question_arguments_fail_loudly(tmp_path: Path) -> None:
+    questions = tmp_path / "q.yaml"
+    questions.write_text("- text: a\n  spec_id: X\n", encoding="utf-8")
+    cassette = tmp_path / "qa.jsonl"
+    base = {"questions_meta": None, "qa_cassette": None, "record_embeddings": False}
+    with pytest.raises(SystemExit, match="does not exist"):
+        check_question_arguments(SimpleNamespace(command="replay", questions=tmp_path / "none.yaml", **base))
+    with pytest.raises(SystemExit, match="needs --qa-cassette"):
+        check_question_arguments(SimpleNamespace(command="replay", questions=questions, **base))
+    with pytest.raises(SystemExit, match="--qa-cassette"):
+        check_question_arguments(
+            SimpleNamespace(command="replay", questions=questions, **(base | {"qa_cassette": cassette}))
+        )
+    with pytest.raises(SystemExit, match="--questions-meta"):
+        check_question_arguments(
+            SimpleNamespace(command="qa", questions=None, **(base | {"questions_meta": tmp_path / "m.yaml"}))
+        )
+    cassette.write_text("x", encoding="utf-8")
+    check_question_arguments(
+        SimpleNamespace(command="replay", questions=questions, **(base | {"qa_cassette": cassette}))
+    )
+    check_question_arguments(SimpleNamespace(command="replay", questions=None, **base))
+
+
+def test_wipe_notice_names_backend_host_and_project_without_credentials() -> None:
+    neo = StoreConfig(backend="neo4j", uri="bolt://user:hunter2@db.internal:7688", user="u", password=SecretStr("pw"))
+    notice = wipe_notice(neo, "bench-demo")
+    assert "neo4j" in notice and "db.internal:7688" in notice and "'bench-demo'" in notice
+    assert "hunter2" not in notice and "pw" not in notice.replace("project", "")
