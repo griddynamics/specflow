@@ -23,15 +23,9 @@ from graph.core.queries import (
     SimilarTargets,
     safe_name,
 )
-from graph.core.query_files import BUILD_QUERY_DIRECTORY, read_query_file
+from graph.core.query_files import load_build_query as load_build_query  # noqa: PLC0414 (re-export)
 
 _MAX_HOPS: Final = 16
-
-
-def load_build_query(name: str) -> str:
-    """The text of the build query file ``name`` (relative to ``queries/``)."""
-
-    return read_query_file(BUILD_QUERY_DIRECTORY, name)
 
 
 # Plan (build.md step 1.2): the persisted documents the snapshot is compared with. Missing

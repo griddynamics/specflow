@@ -22,17 +22,12 @@ from functools import cache
 from typing import Any, Final
 
 from graph.core.errors import ConformanceError
-from graph.core.query_files import CORE_DDL_DIRECTORY, CORE_QUERY_DIRECTORY, read_ddl_file, read_query_file, render_query
+from graph.core.query_files import CORE_DDL_DIRECTORY, read_ddl_file, render_query
+from graph.core.query_files import load_core_query as load_core_query  # noqa: PLC0414 (re-export)
 
 PROJECT_ID_PARAMETER: Final = "project_id"
 LITERAL_TEMPLATE: Final = "core.literal"
 DDL_TEMPLATE: Final = "core.ddl"
-
-
-def load_core_query(name: str) -> str:
-    """The text of the core query file ``name`` (relative to ``queries/``)."""
-
-    return read_query_file(CORE_QUERY_DIRECTORY, name)
 
 
 @dataclass(frozen=True, slots=True)

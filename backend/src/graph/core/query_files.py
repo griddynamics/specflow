@@ -57,6 +57,18 @@ def read_ddl_file(path: Path) -> tuple[str, ...]:
     return tuple(part.strip() for part in body.split(STATEMENT_END) if part.strip())
 
 
+def load_core_query(name: str) -> str:
+    """The text of the core query file ``name`` (relative to ``core/queries/``)."""
+
+    return read_query_file(CORE_QUERY_DIRECTORY, name)
+
+
+def load_build_query(name: str) -> str:
+    """The text of the build query file ``name`` (relative to ``build/queries/``)."""
+
+    return read_query_file(BUILD_QUERY_DIRECTORY, name)
+
+
 def render_query(template: str, **names: str) -> str:
     """``template`` with each ``/*__<NAME>__*/default/*__<NAME>__*/`` slot, then each ``__<NAME>__``
     token, replaced by the (already validated) value; a slot or token left unfilled raises
