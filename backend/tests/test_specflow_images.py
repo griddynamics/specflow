@@ -61,6 +61,8 @@ BUILT = {
 }
 # Database service -> public image.
 PUBLIC = {"postgres": "postgres:17.11", "neo4j": "neo4j:5.26.30-community"}
+# The services of the graph store backends that have a compose profile (`make up WITH=<backend>`), by profile.
+GRAPH_STORE_PROFILES = {"arcadedb": {"arcadedb", "arcadedb-init"}}
 # Local-only platform services this file runs itself (a deployment provides them in its own cluster).
 LOCAL_PLATFORM = {
     "temporal",
@@ -107,7 +109,8 @@ def env_of(service: dict) -> dict[str, str]:
 
 def test_the_stack_is_the_six_deployments_plus_the_local_platform_services():
     svcs = services()
-    assert set(svcs) == set(BUILT) | set(PUBLIC) | LOCAL_PLATFORM
+    extra = set().union(*GRAPH_STORE_PROFILES.values())
+    assert set(svcs) == set(BUILT) | set(PUBLIC) | LOCAL_PLATFORM | extra
     for name, svc in svcs.items():
         assert svc["container_name"] == f"specflow-{name}", name
     assert compose()["name"] == "specflow"
@@ -158,7 +161,7 @@ def test_temporal_and_langfuse_are_optional_profiles():
     for name, svc in svcs.items():
         for profile in svc.get("profiles", []):
             by_profile.setdefault(profile, set()).add(name)
-    assert by_profile == {"temporal": {"temporal"}, "langfuse": LANGFUSE_SERVICES}
+    assert by_profile == {"temporal": {"temporal"}, "langfuse": LANGFUSE_SERVICES, **GRAPH_STORE_PROFILES}
     assert {n for n, svc in svcs.items() if "profiles" not in svc} == DEFAULT_SERVICES
 
 
@@ -183,7 +186,7 @@ def test_make_up_with_selects_the_profiles_and_points_the_app_at_them():
     dry_run = subprocess.run(
         [make, "-n", "down"], cwd=ROOT, capture_output=True, text=True, check=True, env=environment
     ).stdout
-    assert "COMPOSE_PROFILES=temporal,langfuse " in dry_run
+    assert f"COMPOSE_PROFILES=temporal,langfuse,{','.join(GRAPH_STORE_PROFILES)} " in dry_run
     assert "specflow-temporal:7233" in makefile
     assert "LANGFUSE_BASE_URL=http://specflow-langfuse-web:3000" in makefile
     recipe_uses_all_profiles = r"^{}:.*\n(?:\t@?if[^\n]*\n(?:\t[^\n]*\n)*?)?\t[^\n]*\$\(COMPOSE_ALL\)"
@@ -208,7 +211,16 @@ def test_every_published_port_is_loopback_and_never_3000_8080_or_5432():
             host_port = text.split(":")[1]
             if (name, text) != ("langfuse-web", "127.0.0.1:3000:3000"):
                 assert not re.fullmatch(r"(3000|8080|5432)", host_port), (name, text)
-    assert {name for name, _ in seen} == {"postgres", "neo4j", "api", "frontend", "temporal", "langfuse-web", "rustfs"}
+    assert {name for name, _ in seen} == {
+        "postgres",
+        "neo4j",
+        "api",
+        "frontend",
+        "temporal",
+        "langfuse-web",
+        "rustfs",
+        "arcadedb",
+    }
     assert services()["frontend"]["ports"] == ["127.0.0.1:${FRONTEND_PORT:-3001}:3000"]
     assert services()["rustfs"]["ports"] == ["127.0.0.1:${RUSTFS_HOST_PORT:-19000}:9000"]
 
@@ -357,7 +369,7 @@ def test_each_worker_polls_one_queue_and_drains_on_stop():
 
 
 def test_no_host_absolute_path_in_the_files_this_step_owns():
-    pattern = re.compile(r"/[U]sers/|/private/|/home/(?!specflow)|[A-Z]:\\\\")
+    pattern = re.compile(r"/[U]sers/|/private/|/home/(?!specflow|arcadedb)|[A-Z]:\\\\")
     for path in [*OWNED, Path(__file__)]:
         for number, line in enumerate(path.read_text().splitlines(), 1):
             if path == Path(__file__) and "pattern = re.compile" in line:
@@ -653,3 +665,28 @@ def test_the_graph_store_password_falls_back_to_the_older_env_file_name():
     for name in ("api", "worker-agents"):
         assert fallback in env_of(services()[name])["GRAPH_STORE_PASSWORD"]
     assert fallback in env_of(services()["neo4j"])["NEO4J_AUTH"]
+
+
+def test_the_arcadedb_profile_is_pinned_limited_loopback_only_and_keeps_its_password_in_a_secret() -> None:
+    """ArcadeDB runs the pinned image with 4g, publishes on loopback only and gets the root password as a file."""
+
+    svcs = services()
+    server, init = svcs["arcadedb"], svcs["arcadedb-init"]
+    assert server["image"] == init["image"] == "arcadedata/arcadedb:26.10.2"  # never latest
+    assert server["mem_limit"] == "4g" and init["mem_limit"]
+    assert server["profiles"] == init["profiles"] == ["arcadedb"]
+    assert all(str(port).startswith("127.0.0.1:") for port in server["ports"])
+    assert server["ports"] == [
+        "127.0.0.1:${ARCADEDB_BOLT_HOST_PORT:-7688}:7687",
+        "127.0.0.1:${ARCADEDB_HTTP_HOST_PORT:-2480}:2480",
+    ]
+    java = env_of(server)["JAVA_OPTS"]
+    assert "-Darcadedb.server.rootPasswordPath=/run/secrets/arcadedb_root_password" in java
+    assert "rootPassword=" not in java  # the password is never a Java option
+    assert "BoltProtocolPlugin" in java
+    for service in (server, init):
+        assert service["secrets"] == ["arcadedb_root_password"]
+        assert not any("PASSWORD" in key for key in env_of(service)), "no password in environment"
+        assert "GRAPH_STORE_PASSWORD" not in str(service.get("environment"))
+    assert compose()["secrets"]["arcadedb_root_password"] == {"environment": "GRAPH_STORE_PASSWORD"}
+    assert server["volumes"] == ["specflow-arcadedb-data:/home/arcadedb/databases"]

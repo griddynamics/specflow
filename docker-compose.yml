@@ -70,6 +70,55 @@ services:
       start_period: 30s
 
   # graph-store: arcadedb
+  # ArcadeDB 26.10 with the Bolt plugin (`make up WITH=arcadedb`; the api and the agents worker above still
+  # name neo4j: pointing them at it is the integration step). The root password is GRAPH_STORE_PASSWORD, handed over as a file
+  # (arcadedb.server.rootPasswordPath), never as a Java option (JAVA_OPTS shows in `docker inspect`).
+  # neo4j keeps its host port 7687, so the Bolt port of ArcadeDB on the host is 7688 (ARCADEDB_BOLT_HOST_PORT).
+  arcadedb:
+    image: arcadedata/arcadedb:26.10.2
+    container_name: specflow-arcadedb
+    profiles: ["arcadedb"]
+    mem_limit: 4g
+    ports:
+      - "127.0.0.1:${ARCADEDB_BOLT_HOST_PORT:-7688}:7687"   # Bolt
+      - "127.0.0.1:${ARCADEDB_HTTP_HOST_PORT:-2480}:2480"   # HTTP API and Studio
+    environment:
+      JAVA_OPTS: "-Darcadedb.server.rootPasswordPath=/run/secrets/arcadedb_root_password -Darcadedb.server.plugins=Bolt:com.arcadedb.bolt.BoltProtocolPlugin"
+    secrets:
+      - arcadedb_root_password
+    volumes:
+      - specflow-arcadedb-data:/home/arcadedb/databases
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:2480/api/v1/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  # Creates the database (ARCADEDB_DATABASE, default `specflow`) once; the app creates the schema.
+  arcadedb-init:
+    image: arcadedata/arcadedb:26.10.2
+    container_name: specflow-arcadedb-init
+    profiles: ["arcadedb"]
+    mem_limit: 128m
+    restart: "no"
+    environment:
+      ARCADEDB_DATABASE: "${ARCADEDB_DATABASE:-specflow}"
+    secrets:
+      - arcadedb_root_password
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        AUTH=$$(printf 'root:%s' "$$(cat /run/secrets/arcadedb_root_password)" | base64 -w0);
+        BASE=http://arcadedb:2480/api/v1;
+        if wget -q -O- --header "Authorization: Basic $$AUTH" $$BASE/exists/$$ARCADEDB_DATABASE | grep -q true; then
+        echo "arcadedb-init: database $$ARCADEDB_DATABASE exists"; exit 0; fi;
+        wget -q -O- --header "Authorization: Basic $$AUTH" --header "Content-Type: application/json"
+        --post-data "{\"command\":\"create database $$ARCADEDB_DATABASE\"}" $$BASE/server
+    depends_on:
+      arcadedb:
+        condition: service_healthy
 
   # graph-store: postgres
 
@@ -556,8 +605,16 @@ volumes:
   specflow-neo4j-data:
     name: specflow-neo4j-data
   # graph-store: arcadedb
+  specflow-arcadedb-data:
+    name: specflow-arcadedb-data
   # graph-store: postgres
   # graph-store: tigergraph
   # end graph-store
   specflow-graph-state:
     name: specflow-graph-state
+
+# Secrets of the graph store backends (a value of the env file, mounted as a file: never a Java option or env var).
+secrets:
+  # graph-store: arcadedb
+  arcadedb_root_password:
+    environment: GRAPH_STORE_PASSWORD

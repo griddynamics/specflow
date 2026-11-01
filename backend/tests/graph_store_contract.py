@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any, Final, Protocol
 
+import httpx
 from neo4j.exceptions import (
     AuthError,
     ClientError,
@@ -28,6 +29,7 @@ from neo4j.exceptions import (
     ServiceUnavailable,
     TransientError,
 )
+from pydantic import SecretStr
 
 from graph.core import (
     ConfigurationError,
@@ -49,6 +51,8 @@ from graph.core.store import (
     StoreCapabilities,
 )
 from graph.stores._bolt.cypher import render_cypher
+from graph.stores.arcadedb import AdminClient, ArcadeDbStore
+from graph.stores.arcadedb.dialect import RELATIONSHIP_TYPES
 from graph.stores.neo4j import Neo4jStore
 
 CANARY: Final = "message carrying secret-value-123"
@@ -148,8 +152,11 @@ class _Transaction:
         self._closed = False
         harness.events.append("begin")
 
-    async def run(self, _text: str, params: dict[str, Any]) -> _Result:
+    async def run(self, text: str, params: dict[str, Any] | None = None) -> _Result:
         h = self._harness
+        if text == RELATIONSHIP_TYPES:  # ArcadeDB: read before a merge or a move, not a library query
+            return _Result([{"relationshipType": name} for name in h.relationship_types])
+        params = params or {}
         h.events.append("statement")
         h.statements.append(Executed(self._mode, dict(params)))
         kind = h.failures.pop(0) if h.failures else None
@@ -237,6 +244,7 @@ class BoltHarness:
     rows: list[dict[str, Any]] = field(default_factory=list)
     failures: list[str | None] = field(default_factory=list)
     check_failure: str | None = None
+    relationship_types: tuple[str, ...] = ()
 
     def store(self) -> GraphStore:
         async def sleep(delay: float) -> None:
@@ -254,6 +262,27 @@ class BoltHarness:
         self.check_failure = kind
 
 
+@dataclass
+class ArcadeDbHarness(BoltHarness):
+    """The ArcadeDB adapter over the same fake driver (it speaks Bolt); its admin client is never reached."""
+
+    backend: str = "arcadedb"
+    relationship_types: tuple[str, ...] = ("FLAGS", "PART_OF")
+
+    def store(self) -> GraphStore:
+        async def sleep(delay: float) -> None:
+            self.sleeps.append(delay)
+
+        def unreachable(_request: httpx.Request) -> httpx.Response:
+            raise AssertionError("a query must not use the HTTP admin API")
+
+        admin = AdminClient(
+            "http://arcadedb.invalid:2480", "root", SecretStr("x"), transport=httpx.MockTransport(unreachable)
+        )
+        return ArcadeDbStore(_Driver(self), admin, "graphdb", sleep=sleep)
+
+
 HARNESSES: Final[dict[str, Callable[[], AdapterHarness]]] = {
     "neo4j": BoltHarness,
+    "arcadedb": ArcadeDbHarness,
 }

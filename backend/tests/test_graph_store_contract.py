@@ -40,6 +40,23 @@ SCOPED_QUERIES = sorted(
     key=lambda q: q.name,
 )
 UNSCOPED = core_queries.PING
+# Templates a store may plan from their parameters or as several statements (ArcadeDB: one statement per
+# label or relationship type); the suite runs them with PLAN_PARAMS and checks that every statement is bound
+# to the project. Every other query is exactly one statement whose rows come back as the backend answered.
+PLANNED_TEMPLATES = frozenset(
+    {
+        "core.upsert_spec_node",
+        "build.build_create_spec_nodes",
+        "build.build_merge_spec_nodes",
+        "core.move_foreign_relationships",
+    }
+)
+PLAN_PARAMS: dict[str, Any] = {
+    "label": "Module",
+    "rows": [{"label": "Module", "uuid": "u1", "props": {}}],
+    "owned_types": ["PART_OF"],
+}
+PLAIN_QUERIES = [query for query in SCOPED_QUERIES if query.template not in PLANNED_TEMPLATES]
 
 
 TRANSACTIONAL = sorted(name for name, make in HARNESSES.items() if make().capabilities.multi_statement_tx)
@@ -70,7 +87,7 @@ def executor(harness: AdapterHarness) -> Executor:
 
 
 def one_query() -> Query:
-    return SCOPED_QUERIES[0]
+    return PLAIN_QUERIES[0]
 
 
 class RollbackError(Exception):
@@ -113,17 +130,24 @@ async def test_every_scoped_library_query_reaches_the_backend_bound_to_the_proje
     harness: AdapterHarness, query: Query
 ) -> None:
     ex = executor(harness)
-    await ex.read(query, PID)
-    await ex.write(query, PID)
-    assert [(s.mode, s.params["project_id"]) for s in harness.statements] == [("read", PID), ("write", PID)]
+    params = PLAN_PARAMS if query.template in PLANNED_TEMPLATES else {}
+    await ex.read(query, PID, **params)
+    reads = len(harness.statements)
+    await ex.write(query, PID, **params)
+    seen = [(s.mode, s.params["project_id"]) for s in harness.statements]
+    if query.template in PLANNED_TEMPLATES:
+        assert reads >= 1 and len(seen) > reads  # one statement or several, each bound to the project
+        assert set(seen[:reads]) == {("read", PID)} and set(seen[reads:]) == {("write", PID)}
+    else:
+        assert seen == [("read", PID), ("write", PID)]
 
 
 async def test_a_transaction_binds_every_statement_to_its_project(harness: AdapterHarness) -> None:
     async with executor(harness).tx(PID) as tx:
-        await tx.run(SCOPED_QUERIES[0])
-        await tx.run(SCOPED_QUERIES[1], key="k")
+        await tx.run(PLAIN_QUERIES[0])
+        await tx.run(PLAIN_QUERIES[1], key="k")
         with pytest.raises(ConformanceError):
-            await tx.run(SCOPED_QUERIES[1], project_id="other")
+            await tx.run(PLAIN_QUERIES[1], project_id="other")
     assert [s.params["project_id"] for s in harness.statements] == [PID, PID]
     assert harness.statements[1].params["key"] == "k"
 
@@ -236,15 +260,15 @@ async def test_a_transaction_commits_its_statements_together_when_the_block_ends
     transactional: AdapterHarness,
 ) -> None:
     async with executor(transactional).tx(PID) as tx:
-        await tx.run(SCOPED_QUERIES[0])
-        await tx.run(SCOPED_QUERIES[1])
+        await tx.run(PLAIN_QUERIES[0])
+        await tx.run(PLAIN_QUERIES[1])
         assert "commit" not in transactional.events
     assert transactional.events == ["begin", "statement", "statement", "commit"]
 
 
 async def run_then_raise(harness: AdapterHarness) -> None:
     async with executor(harness).tx(PID) as tx:
-        await tx.run(SCOPED_QUERIES[0])
+        await tx.run(PLAIN_QUERIES[0])
         raise RollbackError
 
 
@@ -258,8 +282,8 @@ async def test_a_store_without_multi_statement_transactions_commits_every_statem
     per_statement: AdapterHarness,
 ) -> None:
     async with executor(per_statement).tx(PID) as tx:
-        await tx.run(SCOPED_QUERIES[0])
-        await tx.run(SCOPED_QUERIES[1])
+        await tx.run(PLAIN_QUERIES[0])
+        await tx.run(PLAIN_QUERIES[1])
     assert per_statement.events == ["begin", "statement", "commit", "begin", "statement", "commit"]
 
 
@@ -293,7 +317,7 @@ def assert_plain(value: Any) -> None:
             assert_plain(item)
 
 
-@pytest.mark.parametrize("query", SCOPED_QUERIES, ids=lambda q: q.name)
+@pytest.mark.parametrize("query", PLAIN_QUERIES, ids=lambda q: q.name)
 async def test_rows_come_back_as_plain_dicts_exactly_as_the_backend_answered(
     harness: AdapterHarness, query: Query
 ) -> None:

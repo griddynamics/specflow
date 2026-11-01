@@ -125,7 +125,65 @@ the database. `make up` starts a local server whose password is `GRAPH_STORE_PAS
 <!-- graph-store: arcadedb -->
 ### ArcadeDB
 
-Admin steps: to be written with the adapter.
+ArcadeDB 26.10 or newer (the tested image is `arcadedata/arcadedb:26.10.2`; never `latest`) with the
+**Bolt plugin** on. The adapter reaches it two ways: Bolt (`GRAPH_STORE_URI`, for every query) and the HTTP
+admin API (for the real server version, the database, and the vector and fulltext indexes, which ArcadeDB
+only creates through SQL). The HTTP endpoint is the Bolt host on port 2480; set `GRAPH_STORE_ADMIN_URI`
+(`http://host:2480`, `https://...`) when it is somewhere else (a proxy, a TLS endpoint, a different port).
+
+| Variable | Value |
+|---|---|
+| `GRAPH_STORE` | `arcadedb` |
+| `GRAPH_STORE_URI` | `bolt://host:7687` (`bolt+s://` and `neo4j+s://` select `https` for the admin API) |
+| `GRAPH_STORE_USER`, `GRAPH_STORE_PASSWORD` | `root` and its password, or a user that may create types and indexes |
+| `GRAPH_STORE_NAME` | the database; default `specflow` |
+| `GRAPH_STORE_ADMIN_URI` | optional, the HTTP admin API |
+
+One-time admin steps (a production server):
+
+1. Run the server with the Bolt plugin: `-Darcadedb.server.plugins=Bolt:com.arcadedb.bolt.BoltProtocolPlugin`
+   (the log says `Listening for incoming BOLT connections`). Give it at least 4 GB of memory: the page cache
+   grows to the heap, and about 20 000 vectors of 1536 or 3072 floats already fill 2 GB.
+2. Set the root password from a file, not from a Java option (`JAVA_OPTS` shows in `docker inspect` and in
+   process listings): `-Darcadedb.server.rootPasswordPath=/run/secrets/arcadedb_root_password`. The file must be
+   readable by the server's user (mode `0444` inside the container).
+3. Create the database once, with the root login (the app creates everything else on first use):
+   `curl -u root -H 'Content-Type: application/json' -d '{"command":"create database specflow"}' http://host:2480/api/v1/server`.
+   `ensure_schema` also creates a missing database when its login may, but the readiness check at start
+   needs the database before the first graph build, so create it as part of the deployment.
+4. Start the app. The first graph build (or any `ensure_schema`) creates the types, the uniqueness
+   constraints, the range, vector and fulltext indexes and a derived `spec_key` property on `SpecNode`
+   (`<project id>:<spec id>`, uniquely indexed with null skipped: ArcadeDB cannot make a composite unique
+   key over a property that is sometimes absent). It refuses to run when a vector index exists with another
+   dimension or similarity than `GRAPH_EMBEDDING_DIM` and cosine; drop the index (`DROP INDEX` over the HTTP
+   API) and rebuild to change the dimension.
+
+Local stack: `make up WITH=arcadedb` starts `arcadedata/arcadedb:26.10.2` (4 GB, volume `specflow-arcadedb-data`) and
+creates the database once (`arcadedb-init`; its name is `ARCADEDB_DATABASE`, default `specflow`). It does **not** yet point
+the api and the agents worker at it: their compose environment still names neo4j (that wiring is a later step), so run the
+backend against it from the host. neo4j stays up beside it on 7687, so the published ports of ArcadeDB are configurable:
+`ARCADEDB_BOLT_HOST_PORT` (default `7688`, Bolt) and `ARCADEDB_HTTP_HOST_PORT` (default `2480`, HTTP API and Studio), both bound
+to `127.0.0.1` only. The root password is `GRAPH_STORE_PASSWORD` from `.env.local`, mounted as a Docker secret file (it is not in
+`docker inspect`). Host run:
+`GRAPH_STORE=arcadedb GRAPH_STORE_URI=bolt://localhost:7688 GRAPH_STORE_ADMIN_URI=http://localhost:2480 GRAPH_STORE_USER=root
+GRAPH_STORE_NAME=specflow make api`. The admin endpoint is derived as the Bolt host on port 2480, so set
+`GRAPH_STORE_ADMIN_URI` whenever the published ports differ. Use `https` for the admin API outside a trusted network: the client
+sends the login as HTTP Basic authentication and warns (a log event, never a value) when the admin URI is plain `http` to a host
+that is not loopback. `bolt+ssc://` and `neo4j+ssc://` (self-signed) turn TLS verification of the admin API off as well as Bolt's.
+The HTTP client never uses `HTTP_PROXY`/`HTTPS_PROXY`.
+
+Known differences from Neo4j (the adapter handles them; they matter when you read the data directly):
+
+- A node with several labels is one type named `A~B` and `labels(n)` returns them sorted alphabetically.
+  Setting a label moves the record, so its record id (and its edges') changes: use `uuid` and `edge_key`,
+  never an element id kept across transactions.
+- `scope` walks: ArcadeDB returns no rows for `all(b IN nodes(p)[1..] ...)` after a quantified path (a slice or an indexed `range` form also failed), so the adapter checks every node of the path and exempts `n`, the start node, by identity. The canonical query exempts the first position only. The two differ only for a path that comes back through `n` in its interior while `n` itself carries a spine-root label: the canonical text rejects it, the adapter accepts it (`n <> root` and the bounded hop count keep such paths rare; a root-labelled start node is not a spine source).
+- Search scores: vector scores are on the same `(1 + cosine) / 2` scale; fulltext scores are BM25-like and
+  not comparable with Neo4j's Lucene numbers, so the order of fulltext-only hits can differ.
+- Extra stored property `spec_key` on spec nodes (see above); the canonical snapshots ignore it.
+- A search text the fulltext index cannot parse is refused as `query_too_complex`, as on Neo4j.
+- The Bolt plugin makes `dbms.components()` answer a fake Neo4j 5.26; the adapter reads the real version from
+  `GET /api/v1/server`.
 
 <!-- graph-store: postgres -->
 ### PostgreSQL

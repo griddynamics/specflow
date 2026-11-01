@@ -23,6 +23,7 @@ WITH_LIST := $(subst $(comma), ,$(WITH))
 GRAPH_STORE_PROFILES :=
 # graph-store: neo4j
 # graph-store: arcadedb
+GRAPH_STORE_PROFILES += arcadedb
 # graph-store: postgres
 # graph-store: tigergraph
 # end graph-store
