@@ -18,7 +18,7 @@ from settings import (
     AuthSettings,
     GraphBuildSettings,
     LangfuseSettings,
-    Neo4jSettings,
+    GraphStoreSettings,
     StorageSettings,
     TemporalSettings,
 )
@@ -31,7 +31,7 @@ SETTINGS_CLASSES = (
     AuthSettings,
     StorageSettings,
     TemporalSettings,
-    Neo4jSettings,
+    GraphStoreSettings,
     AgentRunSettings,
     AgentSettings,
     GraphBuildSettings,
@@ -40,7 +40,7 @@ SETTINGS_CLASSES = (
 ROOT = Path(__file__).resolve().parents[2]
 DOC = (ROOT / "docs" / "configuration.md").read_text()
 
-# SPL-ENV-01: the 22 required and 10 optional keys, nothing else.
+# SPL-ENV-01: the 22 required and 14 optional keys, nothing else.
 REQUIRED_KEYS = frozenset(
     {
         "APP_ENV",
@@ -49,9 +49,9 @@ REQUIRED_KEYS = frozenset(
         "DATABASE_USER",
         "DATABASE_PASSWORD",
         "DATABASE_AGENT_PASSWORD",
-        "NEO4J_URI",
-        "NEO4J_USER",
-        "NEO4J_PASSWORD",
+        "GRAPH_STORE_URI",
+        "GRAPH_STORE_USER",
+        "GRAPH_STORE_PASSWORD",
         "TEMPORAL_ADDRESS",
         "TEMPORAL_NAMESPACE",
         "LLM_GATEWAY_URL",
@@ -72,6 +72,10 @@ OPTIONAL_KEYS = frozenset(
         "TEMPORAL_API_KEY",
         "TEMPORAL_TLS_CERT",
         "TEMPORAL_TLS_KEY",
+        "GRAPH_STORE",
+        "GRAPH_STORE_NAME",
+        "GRAPH_STORE_ADMIN_URI",
+        "GRAPH_STORE_POOL_SIZE",
         "GRAPH_LLM_MODEL",
         "GRAPH_SMALL_MODEL",
         "GRAPH_EMBEDDING_MODEL",
@@ -130,7 +134,7 @@ def _env_names_read_in_code() -> set[str]:
 def test_the_env_template_has_exactly_the_documented_keys():
     assert set(example_entries()) == REQUIRED_KEYS | OPTIONAL_KEYS
     assert len(REQUIRED_KEYS) == 22
-    assert len(OPTIONAL_KEYS) == 10
+    assert len(OPTIONAL_KEYS) == 14
 
 
 def test_every_key_of_the_env_template_is_a_known_setting():
