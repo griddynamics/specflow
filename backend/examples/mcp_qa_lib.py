@@ -618,7 +618,9 @@ def preregistered_client() -> OAuthClientInformationFull:
     """The `specflow-mcp` public client as the SDK stores a registered one: no registration request is sent."""
 
     return OAuthClientInformationFull(
-        client_id=MCP_CLIENT_ID, redirect_uris=[AnyUrl(MCP_REDIRECT_URI)], token_endpoint_auth_method=PUBLIC_CLIENT_AUTH
+        client_id=MCP_CLIENT_ID,
+        redirect_uris=[AnyUrl(MCP_REDIRECT_URI)],
+        token_endpoint_auth_method=PUBLIC_CLIENT_AUTH,
     )
 
 
@@ -816,7 +818,11 @@ def binding_text(project_id: uuid.UUID | str, project_name: str, server: str = M
 
 
 def write_binding(
-    workspace: Path, project_id: uuid.UUID | str, project_name: str, *, server: str = MCP_RESOURCE_URL
+    workspace: Path,
+    project_id: uuid.UUID | str,
+    project_name: str,
+    *,
+    server: str = MCP_RESOURCE_URL,
 ) -> Path:
     """Write or replace the whole binding file (temp file in the same folder, then `os.replace`)."""
 
@@ -2101,7 +2107,7 @@ class WorkspaceFlow:
         max_budget_usd: str = CLAUDE_MAX_BUDGET_USD,
     ) -> None:
         self.ctx, self.runner = ctx, runner
-        self.model, self.max_turns, self.max_budget_usd = (model, max_turns, max_budget_usd)
+        self.model, self.max_turns, self.max_budget_usd = model, max_turns, max_budget_usd
         self.records: list[StepRecord] = []  # fills as steps finish, so a step that raises keeps the earlier ones
         self._cost, self._mode = 0.0, "-"
         self._calls: list[str] = []
@@ -2155,7 +2161,7 @@ class WorkspaceFlow:
         if step.prepare is not None:
             step.prepare()
         before = workspace_snapshot(self.ctx.workspace)
-        self._cost, self._calls, self._prose, self._runs, self._denied, self._mode = (0.0, [], [], [], [], "-")
+        self._cost, self._calls, self._prose, self._runs, self._denied, self._mode = 0.0, [], [], [], [], "-"
         started = time.perf_counter()
         try:
             note = self._judge(await step.act(), step, before)
@@ -2170,7 +2176,7 @@ class WorkspaceFlow:
             reason = str(error) if isinstance(error, QaError) else "unexpected error"
             note = f"error: {type(error).__name__}: {reason}"
         outcome: Literal["passed", "failed"] = "failed" if note else "passed"
-        elapsed, calls, prose = (time.perf_counter() - started, tuple(self._calls), " | ".join(self._prose))
+        elapsed, calls, prose = time.perf_counter() - started, tuple(self._calls), " | ".join(self._prose)
         return StepRecord(step.key, outcome, calls, elapsed, self._cost, self._mode, note, prose, tuple(self._denied))
 
     def _bind_beta(self) -> None:

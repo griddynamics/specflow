@@ -15,7 +15,8 @@ Passwords, secrets and emails are never printed.
 milliseconds (`--latency-seconds` adds an E14-style run on `P-Large`).
 `claude` runs the workspace flow of the agent tier `--runs` times (default 1; the gate is 3). Each run is a fresh
 temporary git repository with a temporary `specflow-qa-<run id>` server registered with the Claude Code CLI, a
-sign-in and four steps (bind P-Alpha, reuse it, a P-Beta binding the agent must not use, switch to P-Empty). It prints each step's outcome, tool calls, duration, cost and `slash` or `plain`; it spends model tokens,
+sign-in and four steps (bind P-Alpha, reuse it, a P-Beta binding the agent must not use, switch to
+P-Empty). It prints each step's outcome, tool calls, duration, cost and `slash` or `plain`; it spends model tokens,
 writes to the Claude configuration and always logs out, removes the server and deletes the repository. The exit
 status is 1 when a step fails. The report is written even when a run fails. Only `claude` writes a report (to
 `.reports/mcp-qa/`).

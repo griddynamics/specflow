@@ -166,13 +166,7 @@ def test_parse_args_reads_every_command_and_flag(
 
 @pytest.mark.parametrize(
     "argv",
-    [
-        [],
-        ["nope"],
-        ["seed", "--mode", "keycloak"],
-        ["token"],
-        ["token", "alice", "--client", "x"],
-    ],
+    [[], ["nope"], ["seed", "--mode", "keycloak"], ["token"], ["token", "alice", "--client", "x"]],
     ids=["no-command", "unknown-command", "seed-has-no-mode", "token-needs-user", "bad-client"],
 )
 def test_parse_args_refuses_bad_input(monkeypatch: pytest.MonkeyPatch, argv: list[str]) -> None:

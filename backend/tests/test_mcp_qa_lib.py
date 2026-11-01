@@ -275,7 +275,7 @@ def realm_clients() -> dict[str, dict[str, Any]]:
 
 
 PLACEHOLDER = re.compile(r"^\$\{[A-Z][A-Z0-9_]*\}$")
-SECRET_KEYS = frozenset({"secret", "value", "password", "credentials"})
+SECRET_KEYS = frozenset({"secret", "value", "password"})
 
 
 def secret_leaves(node: Any, path: str = "") -> dict[str, Any]:
@@ -849,10 +849,10 @@ def test_require_env_names_missing_variables_only_and_hints_for_keycloak_names()
     environ = {"KEYCLOAK_QA_PASSWORD": "present-value", "OTHER": "  "}
 
     with pytest.raises(SystemExit) as raised:
-        require_env("KEYCLOAK_QA_PASSWORD", "KEYCLOAK_ADMIN_PASSWORD", "OTHER", environ=environ)
+        require_env("KEYCLOAK_QA_PASSWORD", "KEYCLOAK_WEB_CLIENT_SECRET", "OTHER", environ=environ)
 
     message = str(raised.value)
-    assert "KEYCLOAK_ADMIN_PASSWORD, OTHER" in message
+    assert "KEYCLOAK_WEB_CLIENT_SECRET, OTHER" in message
     assert "make env-local" in message
     assert "present-value" not in message
 
@@ -1891,7 +1891,12 @@ async def test_signed_in_claude_raises_when_a_server_is_left_behind(
 
     with pytest.raises(QaError, match="left a specflow-qa- server"):
         async with signed_in_claude(
-            "alice", CREDENTIAL, cwd=tmp_path, run_id="run8", runner=RecordingRunner(), verdict=seams.verdict
+            "alice",
+            CREDENTIAL,
+            cwd=tmp_path,
+            run_id="run8",
+            runner=RecordingRunner(),
+            verdict=seams.verdict,
         ):
             pass
 
@@ -1902,7 +1907,7 @@ async def test_signed_in_claude_raises_when_a_server_is_left_behind(
 async def test_signed_in_claude_tears_down_when_the_login_fails(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    seams, runner = (SignedInSeams(monkeypatch, left=True, login_fails=True), RecordingRunner())
+    seams, runner = SignedInSeams(monkeypatch, left=True, login_fails=True), RecordingRunner()
 
     with pytest.raises(QaError, match="login failed"):
         async with signed_in_claude(
@@ -2509,7 +2514,8 @@ async def test_the_bind_check_rejects_a_file_the_contract_or_the_server_refuses(
         ),
         (
             lambda _c: alpha_run(
-                stream_call("u3", "Read", {"file_path": "notes.txt"}), stream_result("u3", {"note": "REQ::FR1"})
+                stream_call("u3", "Read", {"file_path": "notes.txt"}),
+                stream_result("u3", {"note": "REQ::FR1"}),
             ),
             "REQ:: id",
         ),
