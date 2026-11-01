@@ -595,7 +595,7 @@ def runtime_factory(drive=None):
             session_factory=None,
             store=Store(),
             temporal=None,
-            driver=None,
+            graph_store=None,
             readiness=Readiness({"x": ok}, ttl=0),
             drive=drive,
         )

@@ -665,6 +665,23 @@ def load_storage_settings(env: Mapping[str, str] | None = None) -> StorageSettin
     return found
 
 
+def load_graph_store_settings(env: Mapping[str, str] | None = None) -> GraphStoreSettings:
+    """Build only the graph store binding (examples, tooling). Raises ``ConfigurationError`` naming each bad variable.
+
+    Reads ``DATABASE_*`` too, but only a PostgreSQL store without ``GRAPH_STORE_URI`` needs them.
+    """
+
+    source: Mapping[str, str] = os.environ if env is None else env
+    bad: list[str] = []
+    database_bad: list[str] = []
+    found = _build_graph_store(source, bad, _build_database(source, database_bad))
+    if found is None and not bad:
+        bad.extend(database_bad)
+    if bad or found is None:
+        raise ConfigurationError(bad)
+    return found
+
+
 def load_settings(
     role: Role,
     env: Mapping[str, str] | None = None,

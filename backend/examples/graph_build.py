@@ -1,4 +1,4 @@
-"""Build the knowledge graph of a folder of markdown documents into Neo4j (graph library, plan 2.20).
+"""Build the knowledge graph of a folder of markdown documents into the configured graph store (graph library, plan 2.20).
 
 Run from backend/:
 
@@ -6,7 +6,8 @@ Run from backend/:
         --project shop-demo --corpus tests/fixtures/graph/shop/1 --state ../.graph-build/state
 
 Host-style wiring: this script reads the environment (the library never does) and passes configs:
-NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD, NEO4J_DATABASE (optional), LLM_GATEWAY_URL, LLM_GATEWAY_API_KEY,
+GRAPH_STORE (default neo4j), GRAPH_STORE_URI, GRAPH_STORE_USER, GRAPH_STORE_PASSWORD, GRAPH_STORE_NAME (optional;
+the NEO4J_* names work as aliases for neo4j; docs/configuration.md), LLM_GATEWAY_URL, LLM_GATEWAY_API_KEY,
 GRAPH_LLM_MODEL, GRAPH_SMALL_MODEL, GRAPH_EMBEDDING_MODEL, GRAPH_EMBEDDING_DIM. Build records,
 artifacts, reusable extraction results, the spec_id registry and the corpus index live under
 --state (file stores). It runs ensure_schema, then run_build (or only the plan step with
@@ -30,15 +31,14 @@ from pydantic import SecretStr
 from example_lib import run_example
 from graph.build import BuildContext, BuildResult, FileStores, open_file_stores, plan, run_build
 from graph.build.models import PlanArtifact
-from graph.core import Gateway, LLMConfig, Neo4jConfig, connect, ensure_schema, load_ontology
+from graph.core import Gateway, LLMConfig, ensure_schema, load_ontology
+from graph.stores import StoreConfig, build_store
 from logger.logger import INFO, get_logger, log_event
+from settings import ConfigurationError, load_graph_store_settings
 
 logger = get_logger("examples.graph_build")
 
 REQUIRED_ENVIRONMENT = (
-    "NEO4J_URI",
-    "NEO4J_USER",
-    "NEO4J_PASSWORD",
     "LLM_GATEWAY_URL",
     "LLM_GATEWAY_API_KEY",
     "GRAPH_LLM_MODEL",
@@ -80,13 +80,13 @@ def environment() -> dict[str, str]:
     return {name: os.environ[name].strip() for name in REQUIRED_ENVIRONMENT}
 
 
-def neo4j_config(env: dict[str, str]) -> Neo4jConfig:
-    return Neo4jConfig(
-        uri=env["NEO4J_URI"],
-        user=env["NEO4J_USER"],
-        password=SecretStr(env["NEO4J_PASSWORD"]),
-        database=os.environ.get("NEO4J_DATABASE", "").strip() or None,
-    )
+def store_config() -> StoreConfig:
+    """The graph store settings of the environment, through the host's own settings loader."""
+
+    try:
+        return load_graph_store_settings().to_store_config()
+    except ConfigurationError as error:
+        raise SystemExit(f"{error} (run with `uv run --env-file ../.env.local`)") from None
 
 
 def llm_config(env: dict[str, str]) -> LLMConfig:
@@ -157,23 +157,23 @@ async def retry_lineages(stores: FileStores, project_id: str, args: argparse.Nam
 async def main() -> None:
     args = parse_args()
     env = environment()
-    neo4j = neo4j_config(env)
+    store_settings = store_config()
     llm = llm_config(env)
     ontology = load_ontology()
     stores = open_file_stores(args.state, args.corpus)
     if stores.corpus is None:
         raise RuntimeError("file stores were opened without a corpus")
-    driver = connect(neo4j)
+    store = build_store(store_settings)
     gateway = Gateway(llm)
     try:
         retry = await retry_lineages(stores, args.project, args)
         log_event(logger, INFO, "example.graph_build.retry", lineages=len(retry))
-        created = await ensure_schema(driver, ontology, llm, neo4j.database)
+        created = await ensure_schema(store, ontology, llm)
         log_event(logger, INFO, "example.graph_build.schema", created=len(created))
         ctx = BuildContext(
             project_id=args.project,
             ontology=ontology,
-            driver=driver,
+            driver=store,
             gateway=gateway,
             registry=stores.registry,
             corpus=stores.corpus,
@@ -182,7 +182,6 @@ async def main() -> None:
             rebuild=args.rebuild,
             retry_lineages=retry,
             build_id=args.build_id,
-            database=neo4j.database,
         )
         if args.plan_only:
             build_id = await plan(ctx)
@@ -193,7 +192,7 @@ async def main() -> None:
         print(json.dumps(summary, indent=2, sort_keys=False))
     finally:
         await gateway.aclose()
-        await driver.close()
+        await store.close()
 
 
 if __name__ == "__main__":
