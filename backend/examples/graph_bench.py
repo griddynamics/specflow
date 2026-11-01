@@ -72,7 +72,7 @@ import yaml
 from pydantic import BaseModel, SecretStr
 
 from example_lib import build_result_summary, run_example
-from graph.build import BuildContext, BuildOptions, BuildResult, BuildSettings, open_file_stores, run_build
+from graph.build import BuildContext, BuildOptions, BuildSettings, open_file_stores, run_build
 from graph.build.verify import verify_project
 from graph.core import Gateway, GraphReader, LLMConfig, ensure_schema, load_ontology
 from graph.core.config import DEFAULT_BUDGETS, CallBudget, CallClass
