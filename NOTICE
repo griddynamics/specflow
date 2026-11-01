@@ -173,6 +173,15 @@ https://github.com/httplib2/httplib2
 ----------------------------------------------------------------------------
 
 ----------------------------------------------------------------------------
+HTTPX (httpx)
+Copyright Encode OSS Ltd.
+Licensed under BSD 3-Clause License
+https://github.com/encode/httpx
+Used by the ArcadeDB graph store adapter (HTTP admin API) and by the model
+gateway client.
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
 Langfuse (langfuse)
 Copyright Finto Technologies
 Licensed under MIT License
@@ -256,6 +265,17 @@ python-dotenv (installed through the dotenv package)
 Copyright Saurabh Kumar
 Licensed under BSD 3-Clause License
 https://github.com/theskumar/python-dotenv
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+pyTigerGraph (optional extra "tigergraph"), with its dependencies aiohttp
+(Apache License 2.0 and MIT License), requests (Apache License 2.0) and
+validators (MIT License)
+Copyright TigerGraph Inc.
+Licensed under Apache License 2.0
+https://github.com/tigergraph/pyTigerGraph
+Reserved for the planned TigerGraph graph store; no shipped graph store imports
+it, and the images do not install the extra.
 ----------------------------------------------------------------------------
 
 ----------------------------------------------------------------------------
@@ -352,3 +372,35 @@ found by running:
   frontend: npx license-checker --production --summary (in frontend/)
 
 Please refer to each dependency's own license file for full terms.
+
+============================================================================
+Container images of the local stack (not distributed with this repository)
+============================================================================
+
+docker-compose.yml pulls these images for local development. They are separate
+works under their own licences; check the image for its full notices before
+you redistribute it or run it in production.
+
+----------------------------------------------------------------------------
+Neo4j Community Edition (neo4j:5.26.30-community), default graph store
+Licensed under GNU General Public License 3.0
+https://github.com/neo4j/neo4j
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+ArcadeDB (arcadedata/arcadedb:26.10.2), optional graph store (profile
+"arcadedb")
+Copyright ArcadeData Ltd.
+Licensed under Apache License 2.0
+The image bundles third-party libraries that are under their own licences.
+https://github.com/ArcadeData/arcadedb
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+pgvector (pgvector/pgvector:0.8.7-pg17), the local PostgreSQL, also the store
+of the PostgreSQL graph store
+pgvector: Copyright Andrew Kane, licensed under the PostgreSQL License.
+The image also holds PostgreSQL (PostgreSQL License) and the packages of its
+base distribution, each under its own licence.
+https://github.com/pgvector/pgvector
+----------------------------------------------------------------------------
