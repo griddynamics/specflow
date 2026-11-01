@@ -1,4 +1,4 @@
-"""FastAPI wiring: the ``current_principal`` dependency and the dev-mode warning.
+"""FastAPI wiring: the ``current_principal`` dependency.
 
 The app (S7) stores one ``TokenVerifier`` at ``app.state.token_verifier``
 (``VERIFIER_STATE_ATTR``) in its lifespan and maps ``AuthError`` onto the API
@@ -15,7 +15,7 @@ from auth.bearer import bearer_token
 from auth.claims import Principal
 from auth.errors import AuthError
 from auth.verifiers import TokenVerifier
-from logger.logger import INFO, WARNING, get_logger, log_event
+from logger.logger import INFO, get_logger, log_event
 
 logger = get_logger("auth.dependencies")
 
@@ -38,15 +38,3 @@ async def current_principal(request: Request) -> Principal:
             code=error.code,
         )
         raise
-
-
-def log_dev_mode_warning() -> None:
-    """Log the startup WARNING for ``AUTH_MODE=dev`` (the API lifespan calls it)."""
-
-    log_event(
-        logger,
-        WARNING,
-        "auth.mode.dev_enabled",
-        "AUTH_MODE=dev: locally signed dev tokens are accepted (local only)",
-        mode="dev",
-    )

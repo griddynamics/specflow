@@ -1,4 +1,4 @@
-"""``current_principal``, the dev-mode warning, and the no-token-in-logs canary.
+"""``current_principal`` and the no-token-in-logs canary.
 
 A minimal FastAPI app stands in for S7's wiring: the verifier lives at
 ``app.state.token_verifier`` and an ``AuthError`` handler copies the status,
@@ -17,36 +17,28 @@ import httpx
 import pytest
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
-from pydantic import SecretStr
 
 from auth.claims import ClaimPolicy, Principal
-from auth.dependencies import (
-    VERIFIER_STATE_ATTR,
-    bearer_token,
-    current_principal,
-    log_dev_mode_warning,
-)
+from auth.dependencies import VERIFIER_STATE_ATTR, bearer_token, current_principal
 from auth.errors import AuthError
 from auth.jwks import JwksCache
-from auth.verifiers import (
-    DEV_ISSUER,
-    DevTokenVerifier,
-    OidcJwtVerifier,
-    TokenVerifier,
-)
+from auth.verifiers import OidcJwtVerifier, TokenVerifier
 from logger_harness import events, fields
 from specflow_api_wait_support import wait_until
 from specflow_auth_support import (
-    DEV_KEY,
     POLICY,
+    RETIRED_DEV_KEY,
     StubIssuer,
     claims,
+    retired_dev_token,
     rsa_key,
+    session_idp,
     sign,
 )
 
-DEV_POLICY = ClaimPolicy.build(
-    issuer=DEV_ISSUER,
+IDP = session_idp()
+SESSION_POLICY = ClaimPolicy.build(
+    issuer=IDP.issuer,
     audience=POLICY.audience,
     client_ids=POLICY.client_ids,
     allowed_email_domains=POLICY.allowed_email_domains,
@@ -76,15 +68,18 @@ def _app(verifier: TokenVerifier) -> FastAPI:
 
 @pytest.fixture
 async def client() -> AsyncIterator[httpx.AsyncClient]:
-    app = _app(DevTokenVerifier(DEV_POLICY, SecretStr(DEV_KEY)))
+    app = _app(_session_verifier())
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
         yield http
 
 
-def _dev_token(**overrides: object) -> str:
-    payload = claims(**{"iss": DEV_ISSUER, "sub": "dev:alice@example.com", **overrides})
-    return sign(payload, DEV_KEY, kid=None, alg="HS256")
+def _session_verifier() -> OidcJwtVerifier:
+    return OidcJwtVerifier(SESSION_POLICY, JwksCache(IDP.jwks_url))
+
+
+def _token(**overrides: object) -> str:
+    return IDP.sign(claims(**{"iss": IDP.issuer, "sub": "alice-sub", **overrides}))
 
 
 @pytest.mark.parametrize(
@@ -113,11 +108,11 @@ def test_the_bearer_scheme_is_case_insensitive() -> None:
 
 
 async def test_a_valid_token_yields_the_principal(client: httpx.AsyncClient) -> None:
-    response = await client.get("/me", headers={"Authorization": f"Bearer {_dev_token()}"})
+    response = await client.get("/me", headers={"Authorization": f"Bearer {_token()}"})
 
     assert response.status_code == 200
     assert response.json() == {
-        "subject": "dev:alice@example.com",
+        "subject": "alice-sub",
         "email": "alice@example.com",
     }
 
@@ -129,7 +124,7 @@ async def test_failures_map_to_401_with_www_authenticate_and_403_without(
     missing = await client.get("/me")
     bad_domain = await client.get(
         "/me",
-        headers={"Authorization": f"Bearer {_dev_token(email='eve@evil.example')}"},
+        headers={"Authorization": f"Bearer {_token(email='eve@evil.example')}"},
     )
 
     assert missing.status_code == 401
@@ -165,13 +160,12 @@ async def test_healthz_answers_while_the_jwks_endpoint_hangs(
     assert rejected.status_code == 401
 
 
-def test_dev_mode_logs_a_warning(caplog: pytest.LogCaptureFixture) -> None:
-    caplog.set_level(logging.INFO, logger="auth.dependencies")
+async def test_a_removed_dev_login_token_is_a_401_with_the_challenge(client: httpx.AsyncClient) -> None:
+    response = await client.get("/me", headers={"Authorization": f"Bearer {retired_dev_token()}"})
 
-    log_dev_mode_warning()
-
-    [record] = events(caplog, "auth.mode.dev_enabled")
-    assert record.levelno == logging.WARNING
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == "Bearer"
+    assert response.json()["error"]["code"] == "invalid_token"
 
 
 async def test_token_content_never_reaches_logs_or_errors(
@@ -181,15 +175,15 @@ async def test_token_content_never_reaches_logs_or_errors(
 ) -> None:
     caplog.set_level(logging.DEBUG)
     tokens = [
-        _dev_token(sub=f"dev:{CANARY}", email=f"{CANARY}@evil.example"),
-        _dev_token(email_verified=False, name=CANARY),
-        _dev_token(iss=f"https://{CANARY}.example"),
-        _dev_token(exp=int(time.time()) - 3600, sub=CANARY),
+        _token(sub=f"dev:{CANARY}", email=f"{CANARY}@evil.example"),
+        _token(email_verified=False, name=CANARY),
+        _token(iss=f"https://{CANARY}.example"),
+        _token(exp=int(time.time()) - 3600, sub=CANARY),
         sign(claims(sub=CANARY), "w" * 40, kid=CANARY, alg="HS256"),
         sign(claims(sub=CANARY), rsa_key(), kid=CANARY),
         f"{CANARY}.{CANARY}.{CANARY}",
     ]
-    verifier = DevTokenVerifier(DEV_POLICY, SecretStr(DEV_KEY))
+    verifier = _session_verifier()
     errors: list[AuthError] = []
     for token in tokens:
         response = await client.get("/me", headers={"Authorization": f"Bearer {token}"})
@@ -207,6 +201,6 @@ async def test_token_content_never_reaches_logs_or_errors(
     )
     assert CANARY not in haystack
     assert all(e.__context__ is None and e.__cause__ is None for e in errors)
-    assert DEV_KEY not in haystack
+    assert RETIRED_DEV_KEY not in haystack
     for token in tokens:
         assert token not in haystack

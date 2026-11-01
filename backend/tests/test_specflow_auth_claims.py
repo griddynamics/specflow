@@ -144,9 +144,8 @@ def test_the_policy_comes_from_auth_settings() -> None:
     )
 
     policy = ClaimPolicy.from_settings(settings)
-    dev = ClaimPolicy.from_settings(settings, issuer="specflow-dev-login")
 
-    assert policy.issuer == ISSUER and dev.issuer == "specflow-dev-login"
+    assert policy.issuer == ISSUER
     assert policy.audience == AUDIENCE
     assert policy.client_ids == frozenset({"specflow-web", "specflow-smoke"})
     assert policy.allowed_email_domains == frozenset({"example.com", "gd.example"})

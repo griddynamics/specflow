@@ -27,8 +27,11 @@ AUDIENCE = "specflow-api"
 CLIENT_ID = "specflow-web"
 DOMAIN = "example.com"
 EMAIL = f"alice@{DOMAIN}"
-# Synthetic, test-only HS256 key material (not a real secret).
-DEV_KEY = "k" * 40
+
+# The removed dev login, kept only to prove its tokens are refused: its issuer name and a synthetic HS256 key
+# (not a secret). Nothing signs with them but ``retired_dev_token``.
+RETIRED_DEV_ISSUER = "specflow-dev-login"
+RETIRED_DEV_KEY = "k" * 40
 
 POLICY = ClaimPolicy.build(
     issuer=ISSUER,
@@ -57,6 +60,13 @@ def claims(**overrides: Any) -> dict[str, Any]:
     }
     base.update(overrides)
     return {key: value for key, value in base.items() if value is not None}
+
+
+def retired_dev_token(email: str = EMAIL, **overrides: Any) -> str:
+    """An HS256 token of the removed dev login (claims valid for the API); every surface must answer 401."""
+
+    payload = claims(**{"iss": RETIRED_DEV_ISSUER, "sub": f"dev:{email}", "email": email, **overrides})
+    return jwt.encode(payload, RETIRED_DEV_KEY, algorithm="HS256")
 
 
 def rsa_key() -> rsa.RSAPrivateKey:
@@ -88,7 +98,6 @@ def auth_settings(**env: str) -> AuthSettings:
     """``AuthSettings`` built directly (no ``load_settings`` guards)."""
 
     values = {
-        "AUTH_MODE": "oidc",
         "OIDC_ISSUER": ISSUER,
         "AUTH_API_AUDIENCE": AUDIENCE,
         "AUTH_API_CLIENT_IDS": CLIENT_ID,
@@ -218,6 +227,51 @@ def stub_issuer() -> Iterator[StubIssuer]:
         yield stub
     finally:
         stub.close()
+
+
+class SessionIdp:
+    """The one loopback IdP of the whole run: ``valid_env`` points every app at it, ``token()`` signs for it.
+
+    Module state set once (``token()`` is a plain function, not a fixture): a generated RS256 key published
+    through a ``StubIssuer``. Tests that change the key set or the answers use their own ``stub_issuer``.
+    """
+
+    KID = "session"
+
+    def __init__(self) -> None:
+        self.stub = StubIssuer()
+        self.key = rsa_key()
+        self.stub.keys = [jwk(self.key, self.KID)]
+
+    @property
+    def issuer(self) -> str:
+        return self.stub.issuer
+
+    @property
+    def jwks_url(self) -> str:
+        return self.stub.jwks_url
+
+    def sign(self, payload: dict[str, Any]) -> str:
+        return sign(payload, self.key, kid=self.KID)
+
+
+_session_idp: SessionIdp | None = None
+
+
+def session_idp() -> SessionIdp:
+    """The run's IdP, started on first use."""
+
+    global _session_idp
+    if _session_idp is None:
+        _session_idp = SessionIdp()
+    return _session_idp
+
+
+def close_session_idp() -> None:
+    global _session_idp
+    if _session_idp is not None:
+        _session_idp.stub.close()
+        _session_idp = None
 
 
 class FakeClock:

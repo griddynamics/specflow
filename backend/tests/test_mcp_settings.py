@@ -16,16 +16,15 @@ def refused(env: dict[str, str]) -> tuple[str, ...]:
 
 
 def deployed(valid_env: dict[str, str], **over: str) -> dict[str, str]:
-    """A valid non-local ``mcp`` environment (oidc, https)."""
+    """A valid non-local ``mcp`` environment (https issuer, no local JWKS address)."""
 
     base = {
         "APP_ENV": "dev",
-        "AUTH_MODE": "oidc",
         "OIDC_ISSUER": "https://sso.example.test/realms/app",
         "MCP_RESOURCE_URL": "https://mcp.example.test/mcp",
     }
     env = mcp_env(valid_env, **{**base, **over})
-    env.pop("AUTH_DEV_SIGNING_KEY")
+    env.pop("AUTH_JWKS_URL")
     return env
 
 
@@ -110,14 +109,6 @@ def test_the_api_audience_in_the_ignored_list_is_refused(valid_env):
     assert refused(mcp_env(valid_env, AUTH_IGNORED_AUDIENCES="specflow-api")) == ("AUTH_IGNORED_AUDIENCES",)
 
 
-def test_dev_auth_is_refused_inside_kubernetes_for_the_mcp_role(valid_env):
-    """FR-MCP-AUTH-09: ``AUTH_MODE=dev`` with ``KUBERNETES_SERVICE_HOST`` set, in a local environment."""
-
-    load_settings("mcp", mcp_env(valid_env))
-
-    assert refused(mcp_env(valid_env, KUBERNETES_SERVICE_HOST="10.0.0.1")) == ("AUTH_MODE",)
-
-
 def test_oidc_is_accepted_inside_kubernetes_for_the_mcp_role(valid_env):
     load_settings("mcp", deployed(valid_env, KUBERNETES_SERVICE_HOST="10.0.0.1"))
 
@@ -125,14 +116,20 @@ def test_oidc_is_accepted_inside_kubernetes_for_the_mcp_role(valid_env):
 @pytest.mark.parametrize(
     ("over", "refused_variables"),
     [
-        ({"AUTH_MODE": "dev", "AUTH_DEV_SIGNING_KEY": "k" * 40}, ("AUTH_MODE", "AUTH_DEV_SIGNING_KEY")),
+        ({"AUTH_MODE": "dev"}, ("AUTH_MODE",)),
         ({"OIDC_ISSUER": ""}, ("OIDC_ISSUER",)),
-        ({"AUTH_DEV_SIGNING_KEY": "k" * 40}, ("AUTH_DEV_SIGNING_KEY",)),
+        ({"AUTH_JWKS_URL": "http://sso.example.test/certs"}, ("AUTH_JWKS_URL",)),
     ],
-    ids=["dev mode when deployed", "no issuer", "dev key in oidc mode"],
+    ids=["removed dev mode", "no issuer", "jwks over http when deployed"],
 )
 def test_the_shared_auth_refusals_apply_to_the_mcp_role(valid_env, over, refused_variables):
     assert refused({**deployed(valid_env), **over}) == refused_variables
+
+
+@pytest.mark.parametrize("over", [{"AUTH_MODE": "oidc"}, {"AUTH_DEV_SIGNING_KEY": "k" * 40}], ids=["oidc", "stale key"])
+def test_a_stale_auth_mode_oidc_and_dev_key_variable_are_ignored_by_the_mcp_role(valid_env, over):
+    load_settings("mcp", mcp_env(valid_env, **over))
+    load_settings("mcp", deployed(valid_env, **over))
 
 
 def test_every_bad_variable_is_named_at_once(valid_env):
@@ -141,7 +138,6 @@ def test_every_bad_variable_is_named_at_once(valid_env):
     env = deployed(
         valid_env,
         AUTH_MODE="dev",
-        AUTH_DEV_SIGNING_KEY="k" * 40,
         MCP_RESOURCE_URL=MCP_URL.replace("/mcp", "/other"),
         MCP_ALLOWED_HOSTS="*",
         MCP_PORT="0",
@@ -149,7 +145,6 @@ def test_every_bad_variable_is_named_at_once(valid_env):
 
     assert set(refused(env)) == {
         "AUTH_MODE",
-        "AUTH_DEV_SIGNING_KEY",
         "MCP_RESOURCE_URL",
         "MCP_ALLOWED_HOSTS",
         "MCP_PORT",
@@ -232,5 +227,5 @@ def test_transport_hosts_are_the_resource_host_as_clients_send_it_plus_the_extra
     assert load_settings("mcp", env).mcp.transport_hosts == expected
 
 
-def test_oidc_mode_settings_accept_the_loopback_stub(valid_env, stub_issuer):
-    assert load_settings("mcp", oidc_env(valid_env, stub_issuer)).auth.mode == "oidc"
+def test_settings_accept_a_loopback_stub_issuer(valid_env, stub_issuer):
+    assert load_settings("mcp", oidc_env(valid_env, stub_issuer)).auth.issuer == stub_issuer.issuer

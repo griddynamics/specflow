@@ -1,11 +1,10 @@
-"""The ``/mcp`` bearer guard in oidc mode (loopback JWKS stub) and dev mode (FR-MCP-AUTH-01 to -06, -10, -11)."""
+"""The ``/mcp`` bearer guard: a test's own loopback JWKS stub and the run's IdP (FR-MCP-AUTH-01 to -06, -10; B-05)."""
 
 from __future__ import annotations
 
 import json
 import time
 
-import jwt
 import pytest
 
 from logger.logger import INFO
@@ -15,14 +14,14 @@ from mcp_support import (
     TOOLS_LIST,
     build_app,
     log_text,
-    mcp_dev_token,
+    mcp_token,
     oidc_env,
     rpc,
     sdk_session,
     serving,
 )
-from specflow_api_support import token as web_dev_token
-from specflow_auth_support import DEV_KEY, claims, rsa_key, sign
+from specflow_api_support import token as web_token
+from specflow_auth_support import claims, retired_dev_token, rsa_key, sign
 
 CHALLENGE = f'Bearer resource_metadata="{PRM_URL}"'
 REJECTED = f'Bearer error="invalid_token", resource_metadata="{PRM_URL}"'
@@ -32,7 +31,7 @@ def error_code(response) -> str:
     return response.json()["error"]["code"]
 
 
-# --- oidc mode ----------------------------------------------------------------
+# --- a test's own JWKS stub ---------------------------------------------------
 
 
 async def test_no_token_gets_401_with_the_prm_challenge(oidc_app):
@@ -63,14 +62,15 @@ async def test_a_non_bearer_scheme_and_a_malformed_value_are_401(oidc_app):
 
 
 async def test_an_hs256_token_and_an_unknown_kid_are_401(oidc_app, oidc_rig):
-    """FR-MCP-AUTH-03: only asymmetric algorithms and a published kid verify."""
+    """FR-MCP-AUTH-03, B-05: only asymmetric algorithms and a published kid verify; the removed dev login's tokens never do."""
 
-    hs256 = jwt.encode(claims(iss=oidc_rig.stub.issuer, aud=MCP_URL, azp="specflow-mcp"), DEV_KEY, "HS256")
-    unknown = sign(claims(iss=oidc_rig.stub.issuer, aud=MCP_URL, azp="specflow-mcp"), oidc_rig.key, kid="nope")
+    shaped = {"aud": MCP_URL, "azp": "specflow-mcp"}
+    hs256 = [retired_dev_token(**shaped), retired_dev_token(**shaped, iss=oidc_rig.stub.issuer)]
+    unknown = sign(claims(iss=oidc_rig.stub.issuer, **shaped), oidc_rig.key, kid="nope")
     async with serving(oidc_app) as client:
-        responses = [await rpc(client, token) for token in (hs256, unknown)]
+        responses = [await rpc(client, token) for token in (*hs256, unknown)]
 
-    assert [r.status_code for r in responses] == [401, 401]
+    assert [r.status_code for r in responses] == [401, 401, 401]
     assert {r.headers["www-authenticate"] for r in responses} == {REJECTED}
 
 
@@ -196,18 +196,18 @@ async def test_two_authorization_headers_are_401_in_either_order(oidc_app, oidc_
 # --- FR-MCP-AUTH-10: nothing secret reaches logs or bodies --------------------
 
 
-async def test_no_token_authorization_value_or_email_reaches_logs_or_bodies(oidc_app, oidc_rig, dev_app, mcp_log):
-    """The oidc matrix and the dev-mode matrix: no token, header value or email in logs, bodies or headers."""
+async def test_no_token_authorization_value_or_email_reaches_logs_or_bodies(oidc_app, oidc_rig, whoami_app, mcp_log):
+    """The own-stub matrix and the run-IdP matrix: no token, header value or email in logs, bodies or headers."""
 
     tokens = {
         "good": oidc_rig.token(email="alice@example.com"),
         "other-domain": oidc_rig.token(email="carol@other.example"),
         "wrong-aud": oidc_rig.token(aud="specflow-api", email="bob@example.com"),
         "web-client": oidc_rig.token(azp="specflow-web", email="dave@example.com"),
-        "hs256": jwt.encode(claims(email="erin@example.com"), DEV_KEY, "HS256"),
-        "dev-good": mcp_dev_token("frank@example.com"),
-        "dev-web": web_dev_token("grace@example.com"),
-        "dev-wrong-aud": mcp_dev_token("heidi@example.com", aud="specflow-api"),
+        "hs256": retired_dev_token("erin@example.com"),
+        "idp-good": mcp_token("frank@example.com"),
+        "idp-web": web_token("grace@example.com"),
+        "idp-wrong-aud": mcp_token("heidi@example.com", aud="specflow-api"),
     }
     emails = (
         "alice@example.com",
@@ -230,8 +230,8 @@ async def test_no_token_authorization_value_or_email_reaches_logs_or_bodies(oidc
         await record(await rpc(client))
         pair = [("authorization", f"Bearer {tokens['good']}"), ("authorization", f"Bearer {tokens['hs256']}")]
         await record(await client.post("/mcp", json=TOOLS_LIST, headers=[("content-type", "application/json"), *pair]))
-    async with serving(dev_app) as client:
-        for name in ("dev-good", "dev-web", "dev-wrong-aud"):
+    async with serving(whoami_app) as client:
+        for name in ("idp-good", "idp-web", "idp-wrong-aud"):
             await record(await rpc(client, tokens[name]))
         await record(await rpc(client))
     secrets_ = {
@@ -249,32 +249,54 @@ async def test_no_token_authorization_value_or_email_reaches_logs_or_bodies(oidc
     assert all(set(vars(r)) & {"token", "authorization", "email"} == set() for r in rejected)
 
 
-# --- dev mode (FR-MCP-AUTH-11) -----------------------------------------------
+# --- the run's IdP (valid_env): the default of every other test -------------------
 
 
-async def test_an_mcp_dev_token_is_accepted_and_the_subject_is_dev_email(dev_app):
-    """FR-MCP-AUTH-11: subject dev:<email>, readable by a tool through the request (Principal seam)."""
+async def test_an_mcp_token_is_accepted_and_the_subject_is_the_token_sub(whoami_app):
+    """The subject is the ``sub`` claim, readable by a tool through the request (Principal seam)."""
 
-    async with sdk_session(dev_app, mcp_dev_token("alice@example.com")) as session:
+    async with sdk_session(whoami_app, mcp_token("alice@example.com")) as session:
         result = await session.call_tool("whoami", {})
 
-    assert result.content[0].text == "dev:alice@example.com"
+    assert result.content[0].text == "user:alice@example.com"
 
 
-async def test_a_web_dev_token_and_no_token_are_401_without_resource_metadata(dev_app):
-    """FR-MCP-AUTH-11: dev mode has no PRM, so the challenge carries none."""
+async def test_a_web_token_and_no_token_are_401_with_the_prm_challenge(whoami_app):
+    """FR-MCP-AUTH-01/-05: the PRM is served and named in every 401 challenge."""
 
-    async with serving(dev_app) as client:
-        web = await rpc(client, web_dev_token("alice@example.com"))
+    async with serving(whoami_app) as client:
+        web = await rpc(client, web_token("alice@example.com"))
         none = await rpc(client)
 
-    assert (web.status_code, web.headers["www-authenticate"]) == (401, 'Bearer error="invalid_token"')
-    assert (none.status_code, none.headers["www-authenticate"]) == (401, "Bearer")
+    assert (web.status_code, web.headers["www-authenticate"]) == (401, REJECTED)
+    assert (none.status_code, none.headers["www-authenticate"]) == (401, CHALLENGE)
 
 
-async def test_a_dev_token_with_another_client_or_audience_is_401(dev_app):
-    async with serving(dev_app) as client:
-        wrong_client = await rpc(client, mcp_dev_token(azp="specflow-web"))
-        wrong_aud = await rpc(client, mcp_dev_token(aud="specflow-api"))
+async def test_a_token_with_another_client_or_audience_is_401(whoami_app):
+    async with serving(whoami_app) as client:
+        wrong_client = await rpc(client, mcp_token(azp="specflow-web"))
+        wrong_aud = await rpc(client, mcp_token(aud="specflow-api"))
 
     assert (wrong_client.status_code, wrong_aud.status_code) == (401, 401)
+
+
+async def test_a_domain_refusal_is_403_without_a_challenge(whoami_app):
+    """FR-MCP-AUTH-06: carol (other.example) is refused by policy, not asked to sign in again."""
+
+    async with serving(whoami_app) as client:
+        response = await rpc(client, mcp_token("carol@other.example"))
+
+    assert response.status_code == 403
+    assert error_code(response) == "domain_not_allowed"
+    assert "www-authenticate" not in response.headers
+
+
+async def test_a_token_of_the_removed_dev_login_is_401_with_the_challenge(whoami_app):
+    """B-05: HS256 and the removed dev login issuer never pass, even with the MCP audience and client."""
+
+    async with serving(whoami_app) as client:
+        response = await rpc(client, retired_dev_token(aud=MCP_URL, azp="specflow-mcp"))
+
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == REJECTED
+    assert error_code(response) == "invalid_token"

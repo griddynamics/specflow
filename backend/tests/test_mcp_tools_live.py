@@ -38,7 +38,7 @@ from mcp_support import (
     code,
     fake_runtime,
     feature_ids,
-    mcp_dev_token,
+    mcp_token,
     mcp_env,
     owned_project,
     sdk_session,
@@ -52,7 +52,7 @@ from test_graph_reader_live import create
 
 pytest_plugins = ["graph_support"]
 
-ALICE = mcp_dev_token("alice@example.com")
+ALICE = mcp_token("alice@example.com")
 FEATURE = "Feature"
 
 
@@ -93,7 +93,7 @@ async def test_fr_mcp_acc_04_a_membership_row_deleted_between_two_calls_denies_t
     executor = paged_executor(["FEAT::A"], FEATURE)
     app = postgres_app(valid_env, factory, executor)
     async with factory() as session, session.begin():
-        user = await repositories.upsert_user(session, SimplePrincipal("dev:alice@example.com", "alice@example.com"))
+        user = await repositories.upsert_user(session, SimplePrincipal("user:alice@example.com", "alice@example.com"))
         project = await repositories.create_project(session, user.id, "Alpha")
     async with sdk_session(app, ALICE) as client:
         first = await call(client, "list_features", project_id=str(project.id))
@@ -119,8 +119,8 @@ async def test_fr_mcp_acc_03_a_foreign_project_is_denied_by_the_real_membership_
     executor = paged_executor(["FEAT::A"], FEATURE)
     app = postgres_app(valid_env, factory, executor)
     async with factory() as session, session.begin():
-        alice = await repositories.upsert_user(session, SimplePrincipal("dev:alice@example.com", "alice@example.com"))
-        bob = await repositories.upsert_user(session, SimplePrincipal("dev:bob@example.com", "bob@example.com"))
+        alice = await repositories.upsert_user(session, SimplePrincipal("user:alice@example.com", "alice@example.com"))
+        bob = await repositories.upsert_user(session, SimplePrincipal("user:bob@example.com", "bob@example.com"))
         mine = await repositories.create_project(session, alice.id, "Alpha")
         theirs = await repositories.create_project(session, bob.id, "Beta")
     async with sdk_session(app, ALICE) as client:
@@ -149,7 +149,7 @@ async def test_fr_mcp_acc_05_a_new_subject_has_one_user_row_even_when_every_call
     assert [code(r) for r in denied] == ["project_not_found"] * 2
     assert [structured(r)["items"] for r in listed] == [[], []]
     (row,) = await users(factory)
-    assert row.auth_subject == "dev:alice@example.com"
+    assert row.auth_subject == "user:alice@example.com"
 
 
 @requires_live("POSTGRES")
@@ -160,8 +160,8 @@ async def test_fr_mcp_tool_01_list_projects_pages_real_rows_newest_first_and_onl
 
     app = postgres_app(valid_env, factory, paged_executor([], FEATURE))
     async with factory() as session, session.begin():
-        alice = await repositories.upsert_user(session, SimplePrincipal("dev:alice@example.com", "alice@example.com"))
-        bob = await repositories.upsert_user(session, SimplePrincipal("dev:bob@example.com", "bob@example.com"))
+        alice = await repositories.upsert_user(session, SimplePrincipal("user:alice@example.com", "alice@example.com"))
+        bob = await repositories.upsert_user(session, SimplePrincipal("user:bob@example.com", "bob@example.com"))
         theirs = await repositories.create_project(session, bob.id, "bobs")
     for name in ("one", "two", "three"):  # one transaction each: ``created_at`` is the transaction's time
         async with factory() as session, session.begin():

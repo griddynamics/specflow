@@ -154,21 +154,19 @@ class ClaimPolicy:
         cls,
         auth: AuthSettings,
         *,
-        issuer: str | None = None,
         audience: str | None = None,
         client_ids: Iterable[str] | None = None,
     ) -> ClaimPolicy:
         """The policy from ``AuthSettings`` (the API's unless overridden).
 
-        ``issuer`` overrides ``OIDC_ISSUER``; ``audience`` and ``client_ids``
-        override ``AUTH_API_AUDIENCE`` and ``AUTH_API_CLIENT_IDS`` (the MCP surface).
+        ``audience`` and ``client_ids`` override ``AUTH_API_AUDIENCE`` and
+        ``AUTH_API_CLIENT_IDS`` (the MCP surface).
         """
 
-        resolved = auth.issuer if issuer is None else issuer
-        if not resolved:
+        if not auth.issuer:
             raise ConfigurationError(("OIDC_ISSUER",))
         return cls.build(
-            issuer=resolved,
+            issuer=auth.issuer,
             audience=auth.api_audience if audience is None else audience,
             client_ids=auth.api_client_ids if client_ids is None else client_ids,
             allowed_email_domains=auth.allowed_email_domains,

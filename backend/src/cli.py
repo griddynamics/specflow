@@ -72,6 +72,7 @@ def _load(role: Role, queues: Sequence[str] | None = None) -> RoleSettings | Non
             logger,
             ERROR,
             "config.validation.failed",
+            error.hint or None,
             role=role,
             variables=list(error.variables),
         )

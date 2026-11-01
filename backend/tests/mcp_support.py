@@ -35,7 +35,7 @@ from graph.core import GraphReader, Ontology
 from graph_support import shipped_ontology
 from health import Readiness
 from settings import load_settings
-from specflow_api_support import token as dev_token
+from specflow_api_support import token
 from specflow_auth_support import StubIssuer, claims, jwk, rsa_key, sign
 from test_graph_reader import ScriptedExecutor
 from test_specflow_api_fakes import FakeRepo
@@ -58,17 +58,15 @@ ONE_MIB = 1024 * 1024
 
 
 def mcp_env(valid_env: dict[str, str], **over: str) -> dict[str, str]:
-    """A valid local environment for role ``mcp`` (dev mode, ``MCP_RESOURCE_URL`` set)."""
+    """A valid local environment for role ``mcp``: the run's loopback IdP, ``MCP_RESOURCE_URL`` set."""
 
     return {**valid_env, "MCP_RESOURCE_URL": MCP_URL, **over}
 
 
 def oidc_env(valid_env: dict[str, str], stub: StubIssuer, **over: str) -> dict[str, str]:
-    """``mcp_env`` in oidc mode against the loopback JWKS stub (no dev key)."""
+    """``mcp_env`` against a test's own loopback JWKS stub (a key set the test controls)."""
 
-    env = mcp_env(valid_env, AUTH_MODE="oidc", OIDC_ISSUER=stub.issuer, AUTH_JWKS_URL=stub.jwks_url, **over)
-    env.pop("AUTH_DEV_SIGNING_KEY")
-    return env
+    return mcp_env(valid_env, OIDC_ISSUER=stub.issuer, AUTH_JWKS_URL=stub.jwks_url, **over)
 
 
 def fake_runtime(
@@ -187,7 +185,7 @@ class MethodRouter(httpx2.AsyncBaseTransport):
 async def owned_project(repo: FakeRepo, email: str, name: str) -> SimpleNamespace:
     """A project ``email`` owns (member row included); the user is provisioned on the way, as the tools do."""
 
-    user = await repo.upsert_user(None, SimpleNamespace(subject=f"dev:{email}", email=email, name=None))
+    user = await repo.upsert_user(None, SimpleNamespace(subject=f"user:{email}", email=email, name=None))
     return await repo.create_project(None, user.id, name)
 
 
@@ -204,7 +202,7 @@ def tool_app(
 ) -> tuple[Starlette, FakeRepo]:
     """The MCP app with the real tool registry over ``FakeRepo`` (the session factory; ``repo`` shares one between
     apps) and ``executor`` (or a live ``reader`` when it is ``None``); ``declarations`` replaces the shipped tools
-    (wrapper tests); ``env`` replaces the dev-mode ``mcp_env`` (an oidc one, FR-MCP-AUTH-07)."""
+    (wrapper tests); ``env`` replaces the default ``mcp_env`` (FR-MCP-AUTH-07)."""
 
     repo = repo or FakeRepo()
     repo.install(monkeypatch)
@@ -232,10 +230,10 @@ async def rpc(
     return await client.post("/mcp", json=body, headers=sent)
 
 
-def mcp_dev_token(email: str = "alice@example.com", **over: Any) -> str:
-    """A dev token for the MCP surface: the web dev token with the MCP audience and client."""
+def mcp_token(email: str = "alice@example.com", **over: Any) -> str:
+    """A token of the run's loopback IdP for the MCP surface: the API token with the MCP audience and client."""
 
-    return dev_token(email, **{"aud": MCP_URL, "azp": MCP_CLIENT, **over})
+    return token(email, **{"aud": MCP_URL, "azp": MCP_CLIENT, **over})
 
 
 @dataclass
@@ -263,7 +261,9 @@ def oidc_app(valid_env: dict[str, str], oidc_rig: OidcRig) -> Starlette:
 
 
 @pytest.fixture
-def dev_app(valid_env: dict[str, str]) -> Starlette:
+def whoami_app(valid_env: dict[str, str]) -> Starlette:
+    """The app on the run's IdP with the ``whoami`` tool (tokens: ``mcp_token``)."""
+
     return build_app(mcp_env(valid_env), tools=whoami_tools)
 
 

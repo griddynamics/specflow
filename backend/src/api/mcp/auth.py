@@ -67,7 +67,7 @@ def _single_bearer(values: list[str]) -> str:
 class McpGuard:
     """Checks 1 to 10 of auth.md for ``/mcp`` (any method); every other path passes through."""
 
-    def __init__(self, app: ASGIApp, *, verifier: TokenVerifier, resource_metadata: str | None) -> None:
+    def __init__(self, app: ASGIApp, *, verifier: TokenVerifier, resource_metadata: str) -> None:
         self.app = app
         self.verifier = verifier
         self.resource_metadata = resource_metadata
@@ -89,9 +89,8 @@ class McpGuard:
         await self.app(scope, receive, send)
 
     def _challenge(self, authorization: str | None) -> str:
-        """``Bearer`` plus ``error`` (a token was presented) and ``resource_metadata`` (not in dev mode)."""
+        """``Bearer`` plus ``error`` (a token was presented) and ``resource_metadata``."""
 
         params = ['error="invalid_token"'] if authorization else []
-        if self.resource_metadata:
-            params.append(f'resource_metadata="{self.resource_metadata}"')
+        params.append(f'resource_metadata="{self.resource_metadata}"')
         return " ".join(["Bearer", ", ".join(params)]).strip()

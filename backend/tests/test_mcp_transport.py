@@ -16,7 +16,7 @@ from mcp_support import (
     ONE_MIB,
     build_app,
     fake_runtime,
-    mcp_dev_token,
+    mcp_token,
     mcp_env,
     rpc,
     serving,
@@ -27,7 +27,7 @@ ORIGIN = "https://client.example"
 
 @pytest.fixture
 def token() -> str:
-    return mcp_dev_token()
+    return mcp_token()
 
 
 @pytest.fixture

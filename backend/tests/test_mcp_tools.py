@@ -27,7 +27,7 @@ from mcp_support import (
     cursor_of,
     feature_ids,
     log_text,
-    mcp_dev_token,
+    mcp_token,
     owned_project,
     sdk_session,
     structured,
@@ -37,8 +37,8 @@ from mcp_support import (
 from test_graph_reader import ScriptedExecutor, node_row, paged_executor
 
 FEATURE = "Feature"
-ALICE = mcp_dev_token("alice@example.com")
-BOB = mcp_dev_token("bob@example.com")
+ALICE = mcp_token("alice@example.com")
+BOB = mcp_token("bob@example.com")
 SEVEN = [f"FEAT::F{n}" for n in range(1, 8)]
 
 
@@ -512,7 +512,7 @@ async def test_fr_mcp_ops_07_three_calls_write_three_events_without_content(monk
     assert [e.item_count for e in events] == [1, 1, 0]
     assert all(set(vars(e)) >= AUDIT_FIELDS and isinstance(e.duration_ms, int) for e in events)
     user_ids = {e.user_id for e in events}
-    assert user_ids == {str(repo.users["dev:alice@example.com"].id)}
+    assert user_ids == {str(repo.users["user:alice@example.com"].id)}
     assert [getattr(e, "project_id", None) for e in events] == [
         None,
         str(own.id),

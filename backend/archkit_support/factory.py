@@ -35,9 +35,8 @@ ENVIRONMENT: Final = {
     "NEO4J_USER": "neo4j",
     "NEO4J_PASSWORD": "archkit-hermetic-value",
     "AGENT_MODEL": "archkit/model",
-    "AUTH_MODE": "dev",
-    "OIDC_ISSUER": "archkit-dev-login",
-    "AUTH_DEV_SIGNING_KEY": "archkit-hermetic-signing-key-0123456789abcdef",
+    "OIDC_ISSUER": "https://idp.archkit.invalid/realms/archkit",
+    "AUTH_JWKS_URL": "https://idp.archkit.invalid/realms/archkit/certs",
     "AUTH_ALLOWED_EMAIL_DOMAINS": "example.com",
 }
 
@@ -46,7 +45,7 @@ def create_app() -> FastAPI:
     """The API app as ``specflow api`` builds it, on the hermetic settings above.
 
     The lifespan is not entered, so the state it would set is stubbed: the token verifier
-    (built offline in dev mode) and an empty runtime, enough for requests that fail
+    (its JWKS cache fetches lazily: nothing is fetched here) and an empty runtime, enough for requests that fail
     authentication before any store is used.
     """
     settings = load_settings("api", ENVIRONMENT)

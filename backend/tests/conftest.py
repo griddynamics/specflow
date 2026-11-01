@@ -36,9 +36,9 @@ import logger.correlation as correlation_module
 pytest_plugins = [
     "logger_harness",
     "specflow_live",
+    "specflow_auth_support",  # before specflow_api_support, which imports it
     "specflow_api_support",
     "specflow_api_live_support",
-    "specflow_auth_support",
     "specflow_db_live_support",
     "specflow_sources_support",
     "mcp_support",  # last: it imports the support modules above, which must register first
@@ -115,6 +115,16 @@ _SPECFLOW_ENV_PREFIXES = (
 _SPECFLOW_ENV_NAMES = frozenset({"SPECFLOW_CONFIG_FILE"})
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _close_session_idp() -> Iterator[None]:
+    """Stop the run's loopback IdP (started on first use by ``valid_env`` or ``token()``)."""
+
+    yield
+    from specflow_auth_support import close_session_idp  # a plugin module: imported late, not at collection of conftest
+
+    close_session_idp()
+
+
 @pytest.fixture
 def clean_specflow_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
     """Remove every specflow setting from the process environment."""
@@ -127,8 +137,11 @@ def clean_specflow_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
 
 @pytest.fixture
 def valid_env() -> dict[str, str]:
-    """A fresh, valid local environment for every role (dummy values only)."""
+    """A fresh, valid local environment for every role (dummy values only): OIDC against the run's loopback IdP."""
 
+    from specflow_auth_support import session_idp  # a plugin module: imported late, not at collection of conftest
+
+    idp = session_idp()
     return {
         "APP_ENV": "local",
         "API_PORT": "8000",
@@ -139,10 +152,9 @@ def valid_env() -> dict[str, str]:
         "DATABASE_PASSWORD": "db-pass-9f1c",
         "DATABASE_AGENT_USER": "agent_user",
         "DATABASE_AGENT_PASSWORD": "agent-pass-7b2d",
-        "AUTH_MODE": "dev",
-        "OIDC_ISSUER": "specflow-dev-login",
+        "OIDC_ISSUER": idp.issuer,
+        "AUTH_JWKS_URL": idp.jwks_url,
         "AUTH_ALLOWED_EMAIL_DOMAINS": "example.com",
-        "AUTH_DEV_SIGNING_KEY": "k" * 40,
         "STORAGE_BACKEND": "gcs",
         "STORAGE_BUCKET": "test-bucket",
         "STORAGE_PREFIX": "dev/local/",

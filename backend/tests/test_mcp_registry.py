@@ -19,12 +19,12 @@ from api.mcp.errors import MESSAGES
 from api.mcp.registry import READ_ONLY, TOOLS, ToolDeclaration
 from api.mcp.tools import graph, projects
 from graph.core import InfrastructureUnavailableError
-from mcp_support import BACKEND, call, log_text, mcp_dev_token, owned_project, sdk_session, tool_app
+from mcp_support import BACKEND, call, log_text, mcp_token, owned_project, sdk_session, tool_app
 from test_graph_reader import ScriptedExecutor, paged_executor
 
 SOURCE = BACKEND / "src" / "api" / "mcp"
 TOOLS_DOC = BACKEND.parent / "docs" / "mcp-server" / "tools.md"
-ALICE = mcp_dev_token("alice@example.com")
+ALICE = mcp_token("alice@example.com")
 ANNOTATIONS = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}
 
 
@@ -298,7 +298,7 @@ async def test_a_denied_project_keeps_the_user_row_and_never_runs_the_handler(mo
     )
     assert result.structured_content["error"]["code"] == "project_not_found"
     assert steps.order == ["provision", "member"]
-    assert list(repo.users) == ["dev:alice@example.com"]
+    assert list(repo.users) == ["user:alice@example.com"]
     assert events(mcp_log)[0].outcome == "project_not_found"
 
 

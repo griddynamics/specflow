@@ -10,7 +10,6 @@ test passes an explicit mapping. Nothing here reads ``.env.local``;
 
 from __future__ import annotations
 
-import hashlib
 import ipaddress
 import os
 import re
@@ -157,8 +156,6 @@ RESERVED_MARKER_CLAIMS: Final = frozenset(
     {"iss", "sub", "aud", "exp", "nbf", "iat", "jti", "azp", "client_id", "email", "email_verified"}
     | {"acr", "amr", "sid", "auth_time", "nonce", "at_hash", "c_hash", "s_hash"}
 )
-# HS256 signs with SHA-256: a key shorter than its digest weakens the MAC.
-DEV_SIGNING_KEY_MIN_BYTES: Final = hashlib.sha256().digest_size
 # The documented defaults of API_PORT and WORKER_HEALTH_PORT.
 API_PORT: Final = 8000
 WORKER_HEALTH_PORT: Final = 8001
@@ -167,6 +164,11 @@ MCP_PORT: Final = 8002
 MCP_PATH: Final = "/mcp"
 MCP_CLIENT_ID: Final = "specflow-mcp"
 PRM_PATH: Final = "/.well-known/oauth-protected-resource"
+# ``AUTH_MODE`` is no setting any more; ``AUTH_MODE=dev`` is refused with this hint (AUTH_DEV_SIGNING_KEY is ignored).
+AUTH_MODE_REMOVED_HINT: Final = (
+    "AUTH_MODE=dev was removed: delete AUTH_MODE and AUTH_DEV_SIGNING_KEY from your env file; "
+    "local sign-in uses the bundled Keycloak (QUICKSTART.md)"
+)
 _NO_PREFIX: Final = "__SPECFLOW_NO_ENV__"
 
 
@@ -295,10 +297,9 @@ class AgentDatabaseSettings(_MappedSettings):
 
 
 class AuthSettings(_MappedSettings):
-    """Token verification settings; ``AUTH_MODE=dev`` is local only."""
+    """Token verification settings: OIDC only."""
 
     blank_is_unset: ClassVar[tuple[str, ...]] = (
-        "AUTH_MODE",
         "AUTH_API_AUDIENCE",
         "AUTH_API_CLIENT_IDS",
         "AUTH_SUBJECT_CLAIM",
@@ -310,14 +311,12 @@ class AuthSettings(_MappedSettings):
         "AUTH_IGNORED_AUDIENCES",
     )
 
-    mode: Literal["oidc", "dev"] = Field(default="oidc", validation_alias="AUTH_MODE")
-    # Required (and https outside local) when ``mode`` is ``oidc``; see ``_guard_auth``.
+    # Required (and https outside local); see ``_apply_guards`` and ``_guard_deployed_auth``.
     issuer: OptionalText = Field(default=None, validation_alias="OIDC_ISSUER")
     jwks_url: OptionalText = Field(default=None, validation_alias="AUTH_JWKS_URL")
     api_audience: Text = Field(default="specflow-api", validation_alias="AUTH_API_AUDIENCE")
     api_client_ids: Csv = Field(default=("specflow-web",), validation_alias="AUTH_API_CLIENT_IDS")
     allowed_email_domains: Csv = Field(validation_alias="AUTH_ALLOWED_EMAIL_DOMAINS")
-    dev_signing_key: OptionalSecret = Field(default=None, validation_alias="AUTH_DEV_SIGNING_KEY")
     # The claim profile (FR-MCP-AUTH-07). Only ``email_verified_claim`` is not blank-is-unset.
     subject_claim: Text = Field(default=DEFAULT_SUBJECT_CLAIM, validation_alias="AUTH_SUBJECT_CLAIM")
     client_id_claims: Csv = Field(default=DEFAULT_CLIENT_ID_CLAIMS, validation_alias="AUTH_CLIENT_ID_CLAIM")
@@ -764,7 +763,7 @@ def load_settings(
     _apply_guards(role, source, bad, found)
     app, database, agent_database = found.app, found.database, found.agent_database
     if bad or app is None or database is None or agent_database is None:
-        raise ConfigurationError(bad)
+        raise ConfigurationError(bad, AUTH_MODE_REMOVED_HINT if "AUTH_MODE" in bad else "")
     if role == "migrate":
         agent_database = agent_database.model_copy(update={"password": None})
     elif role in ("api", "mcp"):
@@ -826,8 +825,13 @@ def _apply_guards(
         _flag(bad, "DATABASE_AGENT_USER")
     if langfuse is not None and langfuse.enabled and langfuse.base_url is None:
         _flag(bad, "LANGFUSE_BASE_URL")
+    if role in ("api", "mcp"):
+        if env.get("AUTH_MODE", "").strip().lower() == "dev":
+            _flag(bad, "AUTH_MODE")  # removed: load_settings adds the hint
+        if not env.get("OIDC_ISSUER", "").strip():
+            _flag(bad, "OIDC_ISSUER")
     if auth is not None:
-        _guard_auth(env, bad, auth)
+        _guard_token_type_marker(bad, auth)
         if role == "api":
             _guard_api_audience(bad, auth)
         _guard_mcp_audience(bad, auth, found.mcp)
@@ -865,22 +869,6 @@ def _guard_storage(bad: list[str], storage: StorageSettings | None) -> None:
         _flag(bad, "STORAGE_BACKEND")
     if not storage.prefix.endswith("/"):
         _flag(bad, "STORAGE_PREFIX")
-
-
-def _guard_auth(env: Mapping[str, str], bad: list[str], auth: AuthSettings) -> None:
-    """The auth guards that hold in every environment (AC-1.4)."""
-
-    key = auth.dev_signing_key
-    if auth.mode == "oidc" and key is not None:
-        _flag(bad, "AUTH_DEV_SIGNING_KEY")
-    if auth.mode == "oidc" and auth.issuer is None:
-        _flag(bad, "OIDC_ISSUER")
-    if auth.mode == "dev":
-        if key is None or len(key.get_secret_value().encode()) < DEV_SIGNING_KEY_MIN_BYTES:
-            _flag(bad, "AUTH_DEV_SIGNING_KEY")
-        if env.get("KUBERNETES_SERVICE_HOST", "").strip():
-            _flag(bad, "AUTH_MODE")
-    _guard_token_type_marker(bad, auth)
 
 
 def _guard_token_type_marker(bad: list[str], auth: AuthSettings) -> None:
@@ -955,10 +943,6 @@ def _guard_mcp_audience(bad: list[str], auth: AuthSettings, mcp: McpSettings | N
 def _guard_deployed_auth(bad: list[str], auth: AuthSettings, *, smoke_client: bool) -> None:
     """The auth guards that apply when ``APP_ENV`` is not ``local`` (AC-1.3)."""
 
-    if auth.mode == "dev":
-        _flag(bad, "AUTH_MODE")
-    if auth.dev_signing_key is not None:
-        _flag(bad, "AUTH_DEV_SIGNING_KEY")
     issuer = urlsplit(auth.issuer or "")
     if auth.issuer is not None and (issuer.scheme != "https" or not issuer.hostname):
         _flag(bad, "OIDC_ISSUER")

@@ -19,8 +19,8 @@ from mcp_support import (
     ONE_MIB,
     build_app,
     fake_runtime,
-    mcp_dev_token,
     mcp_env,
+    mcp_token,
     oidc_env,
     rpc,
     sdk_session,
@@ -28,6 +28,7 @@ from mcp_support import (
     whoami_tools,
 )
 from settings import load_settings
+from specflow_auth_support import session_idp
 
 NO_FEATURE_ONTOLOGY = types.SimpleNamespace(node_types={"module": 1})
 PRM_PATHS = ("/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-protected-resource")
@@ -82,21 +83,21 @@ async def test_the_prm_answers_get_only_and_has_no_trailing_slash_variant(oidc_a
     assert (posted.status_code, slash.status_code) == (405, 404)
 
 
-async def test_dev_mode_has_no_prm(dev_app):
-    """FR-MCP-AUTH-11: both well-known paths are 404 in dev mode."""
+async def test_the_prm_is_always_served_and_names_the_configured_issuer(whoami_app):
+    """FR-MCP-AUTH-02: both well-known paths answer 200 on the run's IdP too (no mode without a PRM)."""
 
-    async with serving(dev_app) as client:
+    async with serving(whoami_app) as client:
         responses = [await client.get(path) for path in PRM_PATHS]
 
-    assert [r.status_code for r in responses] == [404, 404]
-    assert responses[0].json()["error"]["code"] == "not_found"
+    assert [r.status_code for r in responses] == [200, 200]
+    assert responses[0].json()["authorization_servers"] == [session_idp().issuer]
 
 
 # --- FR-MCP-OPS-02: probes -----------------------------------------------------
 
 
-async def test_healthz_and_a_ready_readyz(dev_app):
-    async with serving(dev_app) as client:
+async def test_healthz_and_a_ready_readyz(whoami_app):
+    async with serving(whoami_app) as client:
         health = await client.get("/healthz")
         ready = await client.get("/readyz")
 
@@ -141,12 +142,12 @@ async def test_the_sdk_client_lists_no_tools_over_http(oidc_app, oidc_rig):
 
 async def test_the_tools_hook_registers_tools_the_sdk_lists_and_calls(valid_env):
     app = build_app(mcp_env(valid_env), tools=whoami_tools)
-    async with sdk_session(app, mcp_dev_token("bob@example.com")) as session:
+    async with sdk_session(app, mcp_token("bob@example.com")) as session:
         listed = await session.list_tools()
         called = await session.call_tool("whoami", {})
 
     assert [t.name for t in listed.tools] == ["whoami"]
-    assert called.content[0].text == "dev:bob@example.com"
+    assert called.content[0].text == "user:bob@example.com"
 
 
 # --- D2: the explicit transport settings -------------------------------------------
@@ -206,7 +207,8 @@ async def test_startup_and_shutdown_events_and_the_runtime_is_closed(valid_env, 
     names = event_names(mcp_log)
     assert names.index("mcp.startup.completed") < names.index("mcp.shutdown.completed")
     started = next(r for r in mcp_log.records if getattr(r, "event", "") == "mcp.startup.completed")
-    assert (started.port, started.auth_mode) == (8002, "dev")
+    assert started.port == 8002
+    assert not hasattr(started, "auth_mode")  # one auth path: nothing to name
 
 
 async def test_a_runtime_factory_that_raises_logs_startup_failed(valid_env, mcp_log):

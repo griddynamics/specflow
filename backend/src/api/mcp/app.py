@@ -84,7 +84,6 @@ def create_mcp_app(
 
     auth = required(settings.auth, "the mcp role requires auth settings")
     mcp = required(settings.mcp, "the mcp role requires mcp settings")
-    dev = auth.mode == "dev"  # dev mode: no PRM route, a challenge without resource_metadata
     resource_url = mcp.resource_url  # the one value of the PRM, the instructions and the prompt
     # never auth= or token_verifier=: the guard owns 401 and 403
     server = MCPServer("SpecFlow", instructions=guidance.server_instructions(resource_url))
@@ -113,9 +112,7 @@ def create_mcp_app(
                 log_event(logger, ERROR, "mcp.startup.failed", error_type=type(error).__name__, exc_info=True)
                 raise
             app.state.runtime = runtime
-            if dev:
-                log_event(logger, WARNING, "mcp.auth.dev_mode", "AUTH_MODE=dev: locally signed dev tokens are accepted")
-            log_event(logger, INFO, "mcp.startup.completed", port=mcp.port, auth_mode=auth.mode)
+            log_event(logger, INFO, "mcp.startup.completed", port=mcp.port)
             yield
         log_event(logger, INFO, "mcp.shutdown.completed", port=mcp.port)
 
@@ -124,20 +121,19 @@ def create_mcp_app(
         Route("/healthz", _healthz),
         Route("/readyz", _readyz),
     ]
-    if not dev:  # dev mode has no PRM (404) and a challenge without resource_metadata
-        prm = metadata_endpoint(
-            ProtectedResourceMetadata(
-                resource=resource_url, authorization_servers=[required(auth.issuer, "oidc mode has an issuer")]
-            )
+    prm = metadata_endpoint(
+        ProtectedResourceMetadata(
+            resource=resource_url, authorization_servers=[required(auth.issuer, "the mcp role has an issuer")]
         )
-        routes += [Route(f"{PRM_PATH}/mcp", prm), Route(PRM_PATH, prm)]
+    )
+    routes += [Route(f"{PRM_PATH}/mcp", prm), Route(PRM_PATH, prm)]
     app = McpStarlette(
         routes=routes,
         middleware=[
             Middleware(
                 McpGuard,
                 verifier=build_verifier(auth, audience=mcp.audience, client_ids=mcp.client_ids),
-                resource_metadata=None if dev else mcp.prm_url,
+                resource_metadata=mcp.prm_url,
             )
         ],
         exception_handlers={HTTPException: _http_error, Exception: _unhandled},
