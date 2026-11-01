@@ -197,8 +197,8 @@ temporal operator namespace create --address <host>:7233 --namespace specflow-lo
 ### Removed names
 
 `AUTH_MODE` is not a setting any more: the API, the MCP server and the web app always use OpenID Connect. A value
-`AUTH_MODE=dev` (any case) in the environment (a host run such as `make api` or `make frontend-dev`; compose does not pass it on) stops the API, the MCP server and the web app with a line that names
-`AUTH_MODE` and says to delete `AUTH_MODE` and `AUTH_DEV_SIGNING_KEY` from your env file; any other value is ignored,
+`AUTH_MODE=dev` in the environment stops the API, the MCP server and the web app with a line that names
+`AUTH_MODE` and says to delete `AUTH_MODE` and `AUTH_DEV_SIGNING_KEY` from your env file. Only host runs see it (`make api`, `make frontend-dev`); compose does not pass it on. Both ignore the case of `dev` and surrounding spaces. Any other value is ignored,
 so a deployment that still sets `AUTH_MODE=oidc` keeps starting. `AUTH_DEV_SIGNING_KEY` and the old
 `MCP_AUTH_*` and `MCP_OIDC_*` compose variables are not read: delete them from `.env.local`. If you used the dev
 login before, see [Upgrading from the dev login](../QUICKSTART.md#upgrading-from-the-dev-login).

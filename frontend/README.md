@@ -83,9 +83,13 @@ Install the browser once: `npx --prefix frontend playwright install chromium`.
 
 ### End-to-end (Playwright)
 
-`make e2e` runs `frontend/e2e/hello.spec.ts` and `edge.spec.ts` on the new screens:
+`make e2e` is the live pack, run against the stack from `make up`. Every spec signs in as `alice@example.com` through the Keycloak
+form, with `KEYCLOAK_QA_PASSWORD` from the shell or from `.env.local` (`make e2e` passes it as `E2E_ENV_FILE`; values are never
+printed). It runs `frontend/e2e/signin.spec.ts`, `signout-expired-hint.spec.ts`, `hello.spec.ts` and `edge.spec.ts`:
 
-- `hello.spec.ts`: sign-in as `alice@example.com` through the Keycloak form (`KEYCLOAK_QA_PASSWORD` from `.env.local`, read through `E2E_ENV_FILE`), "New" project (name only), upload the fixture PDF in Mission Control, parse and summarize
+- `signin.spec.ts`: sign in as alice, sign out to `/login?signedout=1`, and the next "Sign in" shows the Keycloak form again (the Keycloak session ended).
+- `signout-expired-hint.spec.ts`: the same sign-out with an expired `id_token_hint` (about 5 minutes; the tab goes offline while idle so the page does not refresh its tokens): Keycloak shows no confirmation page.
+- `hello.spec.ts`: "New" project (name only), upload the fixture PDF in Mission Control, parse and summarize
   run on their own until Ready, then the summary is read through the API (real document contents have no screen), the
   Langfuse trace is checked, and "Sign out" from the avatar menu.
 - `edge.spec.ts`: duplicate upload and a 200 MiB upload through the BFF (API level), non-PDF through the API and in an Empty
@@ -97,6 +101,10 @@ retries). Use a cheap model for the run, set through the environment only, for e
 `AGENT_MODEL=<haiku model id> make up` then `make e2e`, then `make down`. Base URL:
 `E2E_BASE_URL` (default `http://localhost:3001`). Reports and screenshots go to `frontend/logs/e2e/` (git-ignored). Each
 created project's storage objects are deleted by project prefix afterwards.
+
+Status: `signin.spec.ts` and `signout-expired-hint.spec.ts` pass. `hello.spec.ts` and `edge.spec.ts` currently fail: their
+project-creation helper uses Mission Control test ids that the app no longer has (a failure that predates the Keycloak
+sign-in), and `hello.spec.ts` also needs a real LLM gateway.
 
 ## Environment variable names
 
@@ -115,9 +123,13 @@ One provider, in every environment: OpenID Connect (Authorization Code with PKCE
 redirect URI is `<PUBLIC_URL>/api/auth/callback/oidc`. Refresh is single-flight per refresh token. Locally the provider is
 the bundled Keycloak; the CI browser tests use a stub issuer that signs RS256 JWTs (`tests/oidc/stub-issuer.mjs`).
 
-Sign-out is RP-initiated logout: the app asks the IdP to end its session when the IdP advertises an `end_session_endpoint`,
-and returns to `<PUBLIC_URL>/login?signedout=1`. When the IdP has no end-session endpoint (Google has none), or the session
-holds no ID token, it only ends the app session and goes to the same page.
+Sign-out is RP-initiated logout. The browser calls `POST /api/auth/end-session`, which answers `{"url": ...}`. The URL is the
+IdP's logout URL (with `id_token_hint`, `client_id` and `post_logout_redirect_uri` = `<PUBLIC_URL>/login?signedout=1`) only
+when the session holds an ID token and the `end_session_endpoint` in the issuer's discovery document is on the origin of
+`OIDC_ISSUER`. In every other case the URL is the local `<PUBLIC_URL>/login?signedout=1`: no session, a cross-site caller, an
+IdP without an end-session endpoint (Google has none), an endpoint on a foreign origin, or a discovery error. The app
+session ends either way. Keycloak 26 accepts an expired `id_token_hint`, so a sign-out after a long idle time still ends the
+Keycloak session.
 
 The browser holds only the session cookie (`specflow-session`, or `__Host-specflow-session` on https), never a token. Tokens are used only inside the BFF. The one exception is the ID token in the logout redirect URL, which RP-initiated logout needs.
 

@@ -31,7 +31,7 @@ tags: [mcp]
 | MCP-M8 | Bundle verification, security review and release check | done |
 | MCP-M9 | Workspace project binding | done |
 | MCP-M10 | Guides page and slim Develop tab | planned |
-| MCP-M11 | Keycloak as the local identity provider; dev login removed (CTORNDGAIN-2233) | planned |
+| MCP-M11 | Keycloak as the local identity provider; dev login removed (CTORNDGAIN-2233) | done |
 
 ## Log
 
@@ -227,7 +227,7 @@ Template:
 
 ### MCP-M11: Keycloak as the local identity provider; dev login removed
 
-- Date and commits: 2026-11-01, branch `fix/keycloak-local-everywhere` (commit ids are added when the branch merges)
+- Date and commits: 2026-11-01, bb9d506, ef2eca2, c0fd57e, da4303e, d8efbea, 21fdabc, 079a92e, 51f3168, 75a0279, f7f2a02, 6c92dc2, 0f0e650, 89d49dc, d1d9dc5
 - Summary: the bundled Keycloak starts with every `make up` and signs in the web app, the REST API and the `mcp` role.
   The dev login, the dev tokens, `AUTH_MODE` and `AUTH_DEV_SIGNING_KEY` are removed; `AUTH_MODE=dev` is refused with a
   hint. `make env-local` asks for your sign-in email and generates the password and id; the realm file is a template
