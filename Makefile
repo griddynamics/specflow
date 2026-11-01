@@ -130,7 +130,7 @@ KIT_ENV := env -u VIRTUAL_ENV
 .PHONY: validate validate-list validate-install validate-install-python validate-install-python-clones validate-install-typescript validate-selftest validate-ci-selftest $(VALIDATE_TARGETS)
 
 # Python targets run in backend/ (ENV_FILE is passed down); compose is root-only.
-BACKEND_TARGETS := setup lint unit-test check \
+BACKEND_TARGETS := setup lint unit-test check test-graph-live \
 	db-upgrade db-revision \
 	api worker temporal-check rss-test
 

@@ -229,6 +229,10 @@ class GraphProbe(ABC):
     @abstractmethod
     async def _close(self) -> None: ...
 
+    async def before_session_schema(self) -> None:
+        """Called once per store before the session's schema setup; a probe notes what the setup will create
+        and the session removes at its end (the ArcadeDB probe: a database that does not exist yet)."""
+
     # -- reads -------------------------------------------------------------------------------------
 
     @abstractmethod
