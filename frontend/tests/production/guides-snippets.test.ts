@@ -7,6 +7,7 @@ import Ajv2020 from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import {
   bindCommand,
+  connectPrompt,
   bindingFileJson,
   CHECK_PROMPT,
   claudeAddCommand,
@@ -63,6 +64,12 @@ test("bind command: production and dev names, with and without a project id", ()
   assert.equal(bindCommand("oidc", ID), `/mcp__specflow__select_project ${ID}`);
   assert.equal(bindCommand("dev", ID), `/mcp__specflow-local__select_project ${ID}`);
   assert.equal(bindCommand("oidc", ""), "/mcp__specflow__select_project");
+});
+
+test("connect prompt: with a name, without one, and with a quote in the name", () => {
+  assert.equal(connectPrompt("Checkout refactor"), 'Connect this repository to the SpecFlow project "Checkout refactor".');
+  assert.equal(connectPrompt(null), "Connect this repository to the SpecFlow project <project name>.");
+  assert.equal(connectPrompt('The "big" one'), 'Connect this repository to the SpecFlow project "The "big" one".');
 });
 
 test("dev add-json command: headersHelper with the dev e-mail and the checkout placeholder", () => {

@@ -219,9 +219,9 @@ export const MCP_GUIDE = {
     bind: {
       eyebrow: "Step 3",
       title: "Bind your repository to a project",
-      text: "Open Claude Code in the repository you will work on and run this once. Choose your SpecFlow project; Claude Code saves the choice in .specflow/config.json, and every later session uses it. Commit that file so your team works on the same project.",
-      caption: "In Claude Code, inside your repository",
-      note: "Moved on to a new SpecFlow project in the same repository? Run it again: it replaces the old choice. Plan › Develop shows the command with each project's id, which skips the list.",
+      text: "Open Claude Code in the repository you will work on and say this once. Claude Code finds the project, saves the choice in .specflow/config.json, and every later session uses it. Commit that file so your team works on the same project.",
+      caption: "Say this to Claude Code, inside your repository",
+      note: "Moved on to a new SpecFlow project in the same repository? Say it again with the new project's name: it replaces the old choice. Plan › Develop shows a ready command for each project.",
     },
     check: {
       eyebrow: "Step 4",
@@ -261,7 +261,7 @@ export const MCP_GUIDE = {
       },
       {
         symptom: "The agent asks for the project in every session",
-        fix: (server: string) => `Run /mcp__${server}__select_project in the repository, and commit .specflow/config.json.`,
+        fix: "Ask Claude Code to connect the repository to your SpecFlow project, and commit .specflow/config.json.",
       },
       {
         symptom: "SpecFlow tools disappeared",
@@ -270,11 +270,6 @@ export const MCP_GUIDE = {
     ],
   },
 } as const;
-
-/** The bound-server name, for the "agent asks in every session" fix. */
-export function troubleshootingFix(fix: string | ((server: string) => string), server: string): string {
-  return typeof fix === "function" ? fix(server) : fix;
-}
 
 // ---------------------------------------------------------------- Plan › Develop
 

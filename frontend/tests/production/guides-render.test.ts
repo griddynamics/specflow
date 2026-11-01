@@ -69,7 +69,9 @@ test("oidc, Claude Code: no address card, four production steps, team .mcp.json,
   assert.match(t, /For your whole team: commit a \.mcp\.json instead/);
   assert.match(t, /"mcpServers"/);
   assert.match(t, /Authenticate/);
-  assert.match(t, /\/mcp__specflow__select_project/);
+  assert.match(t, /Connect this repository to the SpecFlow project <project name>\./);
+  assert.match(t, /Say this to Claude Code, inside your repository/);
+  assert.match(t, /Ask Claude Code to connect the repository to your SpecFlow project, and commit \.specflow\/config\.json\./);
   assert.doesNotMatch(t, /specflow-local/);
   assert.match(t, /Which SpecFlow projects can I work on\?/);
   assert.match(t, /Troubleshooting/);
@@ -89,7 +91,7 @@ test("dev, Claude Code: the local variant, specflow-local, no team disclosure, n
   assert.match(t, /<path to your SpecFlow checkout>/);
   assert.match(t, /workspace trust dialog/);
   assert.match(t, /No sign-in in local development: the token comes from your local dev login\./);
-  assert.match(t, /\/mcp__specflow-local__select_project/);
+  assert.match(t, /Connect this repository to the SpecFlow project <project name>\./);
   assert.doesNotMatch(t, /commit a \.mcp\.json instead/);
   assert.doesNotMatch(t, /Your browser opens your company sign-in/);
   assert.match(t, /Step 4/);

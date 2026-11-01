@@ -60,6 +60,15 @@ export function bindCommand(mode: GuideMode, projectId?: string): string {
   return projectId === undefined || projectId === "" ? base : `${base} ${projectId}`;
 }
 
+/** The project-name placeholder of the step 3 prompt, shown when the app does not know the active project. */
+export const PROJECT_NAME_PLACEHOLDER = "<project name>";
+
+/** Step 3: what to say to Claude Code to bind a repository. The name goes in verbatim inside double quotes (a chat prompt, not JSON). */
+export function connectPrompt(projectName: string | null): string {
+  const project = projectName === null || projectName === "" ? PROJECT_NAME_PLACEHOLDER : `"${projectName}"`;
+  return `Connect this repository to the SpecFlow project ${project}.`;
+}
+
 /** Step 4: what to say to check the connection. */
 export const CHECK_PROMPT = "Which SpecFlow projects can I work on?";
 

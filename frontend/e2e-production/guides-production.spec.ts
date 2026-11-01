@@ -7,6 +7,7 @@ import type { Locator, Page } from "@playwright/test";
 import { allowConsoleErrors, createProjectApi, expect, login, rail, seedDocument, test } from "./support";
 
 const MCP_URL = "https://mcp.example.com/mcp";
+const MCP_GUIDE = "/guides/mcp-server";
 const TOPICS = [
   { slug: "specflow-101", title: "SpecFlow 101" },
   { slug: "best-practices", title: "Best practices" },
@@ -75,7 +76,7 @@ test.describe("Guides on production routes", { tag: "@production" }, () => {
   // FR-MCP-UI-03
   test("FR-MCP-UI-03: the step-1 command holds the configured address", async ({ page }) => {
     await login(page);
-    await page.goto("/guides/mcp-server");
+    await page.goto(MCP_GUIDE);
     const step1 = blocks(page).first();
     await expect(step1).toContainText("claude mcp add-json --scope local specflow-local");
     await expect(step1).toContainText(`"url":"${MCP_URL}"`);
@@ -88,8 +89,8 @@ test.describe("Guides on production routes", { tag: "@production" }, () => {
   test("FR-MCP-UI-04: COPY puts exactly the snippet on the clipboard and shows Copied", async ({ page, context }) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await login(page);
-    await page.goto("/guides/mcp-server");
-    for (const part of ["claude mcp add-json --scope local", "/mcp__specflow-local__select_project"]) {
+    await page.goto(MCP_GUIDE);
+    for (const part of ["claude mcp add-json --scope local", "Connect this repository to the SpecFlow project"]) {
       const { pre, copy } = await block(page, part);
       const shown = (await pre.textContent()) ?? "";
       expect(shown.length).toBeGreaterThan(0);
@@ -102,7 +103,7 @@ test.describe("Guides on production routes", { tag: "@production" }, () => {
   // FR-MCP-UI-05
   test("FR-MCP-UI-05: Claude Code shows the steps; Codex and Cursor show 'Setup is in progress'; ?agent= deep-links", async ({ page }) => {
     await login(page);
-    await page.goto("/guides/mcp-server");
+    await page.goto(MCP_GUIDE);
     await expect(page.getByTestId("mcp-steps")).toBeVisible();
     await expect(page.getByTestId("mcp-in-progress")).toHaveCount(0);
     for (const agent of ["Codex", "Cursor"]) {
@@ -122,7 +123,7 @@ test.describe("Guides on production routes", { tag: "@production" }, () => {
     page,
   }) => {
     await login(page);
-    await page.goto("/guides/mcp-server");
+    await page.goto(MCP_GUIDE);
     const table = page.getByRole("table");
     for (const t of manifest.tools) await expect(table.getByRole("cell", { name: t.name, exact: true })).toBeVisible();
     for (const p of manifest.prompts)
@@ -183,7 +184,7 @@ test.describe("Plan › Develop on production routes (idle stage, U5)", { tag: "
     const texts = await develop.getByTestId("code-block").allTextContents();
     const json = texts.find((t) => t.trimStart().startsWith("{"));
     expect(JSON.parse(json ?? "null")).toEqual({ version: 1, server: MCP_URL, project_id: pid, project_name: NAME });
-    await expect(develop.getByRole("link", { name: /guide/i })).toHaveAttribute("href", "/guides/mcp-server");
+    await expect(develop.getByRole("link", { name: /guide/i })).toHaveAttribute("href", MCP_GUIDE);
     const shown = (await develop.textContent()) ?? "";
     for (const mock of ["illustrative", "Codex", "Cursor"]) expect(shown.toLowerCase(), mock).not.toContain(mock.toLowerCase());
     await expect(develop.getByText(/^(Teach|Run|Connect your agent)$/)).toHaveCount(0); // the old mock tab's headings
@@ -216,6 +217,7 @@ test.describe("Plan › Develop on production routes (idle stage, U5)", { tag: "
     await page.setViewportSize({ width: 390, height: 844 });
     await openDevelop(page);
     await page.getByText("Or save the binding file yourself").click();
+    await expect(page.getByText('"project_name"')).toBeVisible();
     await noHorizontalScroll(page);
   });
 });

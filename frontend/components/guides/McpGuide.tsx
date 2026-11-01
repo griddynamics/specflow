@@ -8,10 +8,9 @@ import { DataTable } from "@/components/ui/DataTable";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { tabStop } from "@/components/ui/utils";
 import { agentLabel, isTested, type AgentId } from "@/lib/guides/agent";
-import { MCP_GUIDE, troubleshootingFix } from "@/lib/guides/content";
+import { MCP_GUIDE } from "@/lib/guides/content";
 import manifest from "@/lib/guides/mcp-tools.json";
 import {
-  bindCommand,
   CHECK_PROMPT,
   claudeAddCommand,
   localAddCommand,
@@ -22,6 +21,7 @@ import {
 } from "@/lib/guides/snippets";
 import { routesFor } from "@/lib/routes";
 import { AgentPicker } from "./AgentPicker";
+import { ConnectPrompt } from "./ConnectPrompt";
 import { GuideHeader } from "./GuideHeader";
 import "@/components/ui/ui-gaps.css";
 import "./guides.css";
@@ -96,7 +96,7 @@ function ClaudeCodeSteps(props: Readonly<Omit<McpGuideProps, "agent">>) {
       <SignInStep mode={props.mode} />
       <Step eyebrow={s.bind.eyebrow} title={s.bind.title}>
         <p>{s.bind.text}</p>
-        <CodeBlock caption={s.bind.caption} text={bindCommand(props.mode)} />
+        <ConnectPrompt caption={s.bind.caption} />
         <Note>{s.bind.note}</Note>
       </Step>
       <Step eyebrow={s.check.eyebrow} title={s.check.title}>
@@ -151,7 +151,7 @@ function Reference({ mode }: Readonly<{ mode: GuideMode }>) {
   );
 }
 
-function Troubleshooting({ mode }: Readonly<{ mode: GuideMode }>) {
+function Troubleshooting() {
   const t = MCP_GUIDE.troubleshooting;
   return (
     <Card variant="strong" eyebrow={t.eyebrow} title={t.title}>
@@ -160,7 +160,7 @@ function Troubleshooting({ mode }: Readonly<{ mode: GuideMode }>) {
           <details key={item.symptom} className="guides-details">
             <summary className="gdg-hit guides-details__summary">{item.symptom}</summary>
             <div className="guides-details__body">
-              <p>{troubleshootingFix(item.fix, serverName(mode))}</p>
+              <p>{item.fix}</p>
             </div>
           </details>
         ))}
@@ -185,7 +185,7 @@ export function McpGuide({ mode, mcpUrl, clientId, devEmail, agent }: Readonly<M
         </div>
       )}
       <Reference mode={mode} />
-      <Troubleshooting mode={mode} />
+      <Troubleshooting />
     </div>
   );
 }
