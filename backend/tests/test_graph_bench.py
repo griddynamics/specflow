@@ -212,3 +212,12 @@ def test_snapshot_drops_volatile_properties_and_sorts() -> None:
     ]
     same = build_snapshot("p", list(reversed(nodes)), edges)
     assert same == snapshot
+
+
+def test_timeout_scale_multiplies_defaults() -> None:
+    from graph.core.config import DEFAULT_BUDGETS
+    from graph_bench import scaled_budgets
+
+    scaled = scaled_budgets(6.0)
+    assert scaled["extraction"].timeout_s == DEFAULT_BUDGETS["extraction"].timeout_s * 6
+    assert scaled["extraction"].attempts == DEFAULT_BUDGETS["extraction"].attempts

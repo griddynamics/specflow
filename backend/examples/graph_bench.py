@@ -50,7 +50,7 @@ from example_lib import run_example
 from graph.build import BuildContext, BuildResult, open_file_stores, run_build
 from graph.build.verify import verify_project
 from graph.core import Gateway, LLMConfig, Neo4jConfig, connect, ensure_schema, load_ontology
-from graph.core.config import CallClass
+from graph.core.config import DEFAULT_BUDGETS, CallBudget, CallClass
 from graph.core.errors import LLMError, LLMFatalError
 from graph.core.llm import UsageSnapshot, strict_json_schema, untrusted
 from graph.core.llm.usage import UsageRecorder
@@ -608,8 +608,19 @@ def neo4j_config(env: Mapping[str, str]) -> Neo4jConfig:
     )
 
 
-def llm_config(env: Mapping[str, str]) -> LLMConfig:
+def scaled_budgets(scale: float, min_attempts: int = 1) -> dict[CallClass, CallBudget]:
+    """The default per-attempt timeouts times ``scale`` (slow reasoning models need longer than the defaults)
+    and at least ``min_attempts`` attempts per call (a relay restart may take a minute)."""
+
+    return {
+        call_class: CallBudget(timeout_s=budget.timeout_s * scale, attempts=max(budget.attempts, min_attempts))
+        for call_class, budget in DEFAULT_BUDGETS.items()
+    }
+
+
+def llm_config(env: Mapping[str, str], timeout_scale: float = 1.0, min_attempts: int = 1) -> LLMConfig:
     return LLMConfig(
+        budgets=scaled_budgets(timeout_scale, min_attempts),
         endpoint=env["LLM_GATEWAY_URL"],
         api_key=SecretStr(env["LLM_GATEWAY_API_KEY"]),
         main_model=env["GRAPH_LLM_MODEL"],
@@ -648,6 +659,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         command.add_argument("--label", required=True, help="file name stem of the outputs, e.g. v1")
         command.add_argument("--wipe", action="store_true", help="delete the project from Neo4j first (needs an empty state)")
         command.add_argument("--rebuild", action="store_true", help="ask for a rebuild")
+        command.add_argument(
+            "--timeout-scale",
+            type=float,
+            default=1.0,
+            help="record only: multiply the default per-attempt LLM timeouts (cassette keys do not depend on it)",
+        )
+        command.add_argument("--min-attempts", type=int, default=1, help="record only: at least this many attempts per LLM call")
     return parser.parse_args(argv)
 
 
@@ -660,7 +678,7 @@ def open_gateway(args: argparse.Namespace) -> tuple[Any, LLMConfig]:
     """The recording or replaying gateway of the command, and the ``LLMConfig`` the build runs with."""
 
     if args.command == "record":
-        config = llm_config(require_environment(LLM_ENVIRONMENT))
+        config = llm_config(require_environment(LLM_ENVIRONMENT), args.timeout_scale, args.min_attempts)
         cassette = Cassette.load(args.cassette) if args.cassette.exists() else Cassette(args.cassette)
         return RecordingGateway(Gateway(config), cassette), config
     if not args.cassette.exists():
