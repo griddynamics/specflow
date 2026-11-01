@@ -231,6 +231,7 @@ def test_an_adapter_module_builds_its_store_from_the_config(
         "graph.core.schema",
         "graph.core.store",
         "graph.stores.neo4j.store",
+        "graph.stores.postgres",
         "graph.build",
     ],
 )
@@ -277,6 +278,29 @@ def test_importing_a_module_does_not_load_the_neo4j_driver(module: str) -> None:
     done = run_fresh(f"import sys, {module}; print('neo4j' in sys.modules, {BOLT_MODULES})")
     assert done.returncode == 0, done.stderr[-400:]
     assert done.stdout.strip() == "False []"
+
+
+POSTGRES_MODULES = "[m for m in sys.modules if m.startswith('graph.stores.postgres')]"
+
+
+@pytest.mark.parametrize(
+    "module",
+    ["graph.core", "graph.stores", "graph.stores.config", "settings", "health"],
+)
+def test_importing_a_module_does_not_load_the_postgres_adapter_or_its_driver(module: str) -> None:
+    done = run_fresh(f"import sys, {module}; print('asyncpg' in sys.modules, {POSTGRES_MODULES})")
+    assert done.returncode == 0, done.stderr[-400:]
+    assert done.stdout.strip() == "False []"
+
+
+def test_building_a_postgres_store_loads_the_adapter() -> None:
+    build = run_fresh(
+        "import sys, graph.stores as s; assert 'graph.stores.postgres' not in sys.modules;"
+        " s.build_store(s.StoreConfig(backend='postgres', uri='postgresql://127.0.0.1:1/x', user='u', password='p'));"
+        " print('graph.stores.postgres' in sys.modules, 'asyncpg' in sys.modules, 'neo4j' in sys.modules)"
+    )
+    assert build.returncode == 0, build.stderr[-400:]
+    assert build.stdout.strip() == "True True False"
 
 
 @pytest.mark.parametrize("module", ["graph.build", "api.runtime"])
