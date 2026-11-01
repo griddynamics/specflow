@@ -32,7 +32,6 @@ from urllib.parse import parse_qs, parse_qsl, urlsplit
 import anyio
 import httpx
 import httpx2
-import jwt
 import pydantic
 import pytest
 from mcp.shared.exceptions import MCPError
@@ -362,7 +361,8 @@ def test_realm_file_matches_the_identity_provider_setup() -> None:
     assert mcp["redirectUris"] == ["http://localhost:8765/callback", "http://127.0.0.1:8765/callback"]
     assert mcp["webOrigins"] == []
     assert web["publicClient"] is False
-    assert web["secret"] == "${KEYCLOAK_WEB_CLIENT_SECRET}"
+    web_client_ref = "${KEYCLOAK_WEB_CLIENT_SECRET}"
+    assert web["secret"] == web_client_ref
     assert web["standardFlowEnabled"] is True
     assert not any(web[flag] for flag in ("implicitFlowEnabled", "directAccessGrantsEnabled", "serviceAccountsEnabled"))
     assert web["redirectUris"] == ["${SPECFLOW_WEB_URL}/api/auth/callback/oidc"]

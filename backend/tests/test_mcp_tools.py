@@ -1,5 +1,6 @@
-"""The MCP tools over HTTP (docs/mcp-server/testing.md, HTTP boundary): the SDK client session, dev tokens, the real
-tool registry over the REST ``FakeRepo`` and a recording graph executor (``ScriptedExecutor``).
+"""The MCP tools over HTTP (docs/mcp-server/testing.md, HTTP boundary): the SDK client session, tokens
+from the loopback OIDC IdP, the real tool registry over the REST ``FakeRepo`` and a recording graph
+executor (``ScriptedExecutor``).
 
 Boundaries faked: Postgres (``FakeRepo``) and Neo4j (the executor, which records every graph query).
 """

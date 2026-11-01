@@ -7,6 +7,7 @@ and can hang. Nothing here touches the network beyond that loopback stub.
 
 from __future__ import annotations
 
+import functools
 import json
 import threading
 import time
@@ -255,23 +256,25 @@ class SessionIdp:
         return sign(payload, self.key, kid=self.KID)
 
 
-_session_idp: SessionIdp | None = None
-
-
+@functools.cache
 def session_idp() -> SessionIdp:
     """The run's IdP, started on first use."""
 
-    global _session_idp
-    if _session_idp is None:
-        _session_idp = SessionIdp()
-    return _session_idp
+    return SessionIdp()
 
 
-def close_session_idp() -> None:
-    global _session_idp
-    if _session_idp is not None:
-        _session_idp.stub.close()
-        _session_idp = None
+@pytest.fixture(scope="session")
+def run_idp() -> SessionIdp:
+    return session_idp()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _close_session_idp() -> Iterator[None]:
+    """Stop the run's loopback IdP when it was started (on first use by ``valid_env`` or a module import)."""
+
+    yield
+    if session_idp.cache_info().currsize:
+        session_idp().stub.close()
 
 
 class FakeClock:

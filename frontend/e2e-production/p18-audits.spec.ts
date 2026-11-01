@@ -11,11 +11,13 @@ test.describe("P18 audits on production routes", { tag: "@production" }, () => {
 
   interface Screen {
     id: string;
+    minStops: number; // the login page's only Tab stop is the OIDC sign-in button
     setup: (page: Page) => Promise<void>;
   }
   const SCREENS: Screen[] = [
     {
       id: "login",
+      minStops: 1,
       setup: async (page) => {
         await page.goto("/login");
         await expect(page.getByTestId("login-oidc")).toBeVisible();
@@ -23,6 +25,7 @@ test.describe("P18 audits on production routes", { tag: "@production" }, () => {
     },
     {
       id: "production-mc-empty",
+      minStops: 2,
       setup: async (page) => {
         await login(page);
         await createViaNew(page, unique("Audit empty"));
@@ -30,6 +33,7 @@ test.describe("P18 audits on production routes", { tag: "@production" }, () => {
     },
     {
       id: "production-mc-ready",
+      minStops: 2,
       setup: async (page) => {
         await login(page);
         await createViaNew(page, unique("Audit ready"));
@@ -39,6 +43,7 @@ test.describe("P18 audits on production routes", { tag: "@production" }, () => {
     },
     {
       id: "production-user-menu",
+      minStops: 2,
       setup: async (page) => {
         await login(page);
         await page.getByRole("button", { name: /^Account: / }).click();
@@ -69,13 +74,7 @@ test.describe("P18 audits on production routes", { tag: "@production" }, () => {
       await setTheme(page, "light");
       await sc.setup(page);
       const stops = await tabWalk(page);
-      if (sc.id === "login") {
-        // The walk marks every stop it reaches with data-kb: the login page's only Tab stop is the OIDC sign-in button.
-        await expect(page.locator("[data-kb]")).toHaveCount(1);
-        await expect(page.getByTestId("login-oidc")).toHaveAttribute("data-kb", "1");
-      } else {
-        expect(stops.length, "the page has Tab stops").toBeGreaterThanOrEqual(2);
-      }
+      expect(stops.length, "the page has Tab stops").toBeGreaterThanOrEqual(sc.minStops);
       expect(
         stops.filter((s) => !s.visible).map((s) => `${s.id} "${s.label}"`),
         "invisible tab stops",

@@ -16,8 +16,8 @@ from mcp_support import (
     ONE_MIB,
     build_app,
     fake_runtime,
-    mcp_token,
     mcp_env,
+    mcp_token,
     rpc,
     serving,
 )

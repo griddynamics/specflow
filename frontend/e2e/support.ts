@@ -5,7 +5,16 @@ import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { request, test as base, expect, type BrowserContext, type FileChooser, type Page, type Request } from "@playwright/test";
+import {
+  request,
+  test as base,
+  expect,
+  type BrowserContext,
+  type FileChooser,
+  type Locator,
+  type Page,
+  type Request,
+} from "@playwright/test";
 
 export { expect };
 
@@ -130,8 +139,9 @@ export const test = base.extend<Fixtures>({
 // ---------------------------------------------------------------- UI helpers (P17: the new production screens)
 /** The QA user of the live pack (the realm's `alice`); the password is `KEYCLOAK_QA_PASSWORD`, read from the env file or the shell. */
 export const QA_USER = "alice";
-const KEYCLOAK_PASSWORD_FIELD = 'input[name="password"]';
-export const KEYCLOAK_USERNAME_FIELD = 'input[name="username"]';
+
+/** The username field of Keycloak's sign-in form, found by its label (third-party markup). */
+export const keycloakUsername = (page: Page): Locator => page.getByLabel("Username or email");
 
 /** The Keycloak password of the QA users: shell first, then the env file; never printed. */
 function qaPassword(): string {
@@ -142,11 +152,11 @@ function qaPassword(): string {
 
 /** Fills the Keycloak sign-in form (already on screen) as the QA user and submits it. */
 export async function submitKeycloakForm(page: Page): Promise<void> {
-  const username = page.locator(KEYCLOAK_USERNAME_FIELD);
+  const username = keycloakUsername(page);
   await expect(username, "the Keycloak sign-in form is shown").toBeVisible();
   await username.fill(QA_USER);
-  await page.locator(KEYCLOAK_PASSWORD_FIELD).fill(qaPassword());
-  await page.locator("#kc-login").click();
+  await page.getByLabel("Password", { exact: true }).fill(qaPassword());
+  await page.getByRole("button", { name: "Sign In" }).click();
 }
 
 /** Sign-in on /login: "Sign in" -> the Keycloak form as alice -> back in the app; lands on `/` (the newest project's Mission Control, or the empty state). */

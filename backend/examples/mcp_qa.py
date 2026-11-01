@@ -78,7 +78,7 @@ def _user_key(user: str) -> str:
     return key
 
 
-async def seed_command(args: argparse.Namespace) -> int:
+async def seed_command(_args: argparse.Namespace) -> int:
     report = await seed()
     print("\n".join(report.lines()))
     return 0

@@ -826,10 +826,7 @@ def _apply_guards(
     if langfuse is not None and langfuse.enabled and langfuse.base_url is None:
         _flag(bad, "LANGFUSE_BASE_URL")
     if role in ("api", "mcp"):
-        if env.get("AUTH_MODE", "").strip().lower() == "dev":
-            _flag(bad, "AUTH_MODE")  # removed: load_settings adds the hint
-        if not env.get("OIDC_ISSUER", "").strip():
-            _flag(bad, "OIDC_ISSUER")
+        _guard_oidc_env(bad, env)
     if auth is not None:
         _guard_token_type_marker(bad, auth)
         if role == "api":
@@ -843,6 +840,26 @@ def _apply_guards(
         _guard_deployed_auth(bad, auth, smoke_client=role == "api")
     _guard_deployed_mcp(bad, found.mcp)
     _guard_deployed_storage(bad, storage)
+    _guard_deployed_secrets(bad, neo4j, agent, graph_build)
+
+
+def _guard_oidc_env(bad: list[str], env: Mapping[str, str]) -> None:
+    """The api and mcp roles: ``AUTH_MODE=dev`` is refused, and ``OIDC_ISSUER`` is required."""
+
+    if env.get("AUTH_MODE", "").strip().lower() == "dev":
+        _flag(bad, "AUTH_MODE")  # removed: load_settings adds the hint
+    if not env.get("OIDC_ISSUER", "").strip():
+        _flag(bad, "OIDC_ISSUER")
+
+
+def _guard_deployed_secrets(
+    bad: list[str],
+    neo4j: Neo4jSettings | None,
+    agent: AgentSettings | None,
+    graph_build: GraphBuildSettings | None,
+) -> None:
+    """The secrets that must be non-empty when ``APP_ENV`` is not ``local``."""
+
     if neo4j is not None and not neo4j.password.get_secret_value().strip():
         _flag(bad, "NEO4J_PASSWORD")
     if agent is not None and not agent.llm_gateway_api_key.get_secret_value().strip():

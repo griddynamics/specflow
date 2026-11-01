@@ -200,7 +200,8 @@ export const MCP_GUIDE = {
     signIn: {
       eyebrow: "Step 2",
       title: "Sign in",
-      text: (serverName: string) => `In Claude Code, type /mcp, choose ${serverName}, then Authenticate. Your browser opens your company sign-in. After that, Claude Code keeps you signed in.`,
+      text: (serverName: string) =>
+        `In Claude Code, type /mcp, choose ${serverName}, then Authenticate. Your browser opens your company sign-in. After that, Claude Code keeps you signed in.`,
       caption: "In Claude Code",
       note: (serverName: string) =>
         `Working over SSH? Run claude mcp login ${serverName} --no-browser, open the address it prints, and paste back the address your browser ends on. Keep port 8765 free while you sign in.`,

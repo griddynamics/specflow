@@ -83,7 +83,7 @@ def test_a_non_https_issuer_is_accepted_locally(valid_env):
 
 
 def test_a_local_issuer_with_an_internal_jwks_origin_is_accepted_locally(valid_env):
-    """The bundled Keycloak: public issuer on localhost, JWKS through the compose network (same-origin applies outside local)."""
+    """The bundled Keycloak: public issuer on localhost, JWKS via the compose network (same origin elsewhere)."""
 
     valid_env["OIDC_ISSUER"] = "http://localhost:8180/realms/specflow"
     valid_env["AUTH_JWKS_URL"] = "http://specflow-keycloak:8080/realms/specflow/protocol/openid-connect/certs"

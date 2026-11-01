@@ -2,7 +2,7 @@
 // Sign in, stay idle and offline past the id_token lifetime (the realm's accessTokenLifespan, 300 s), then sign out. The logout request the
 // browser sends carries the hint; its `exp` (read from the payload, never printed) must be in the past, and the browser must still land
 // on /login?signedout=1 with the Keycloak session ended (the next "Sign in" shows the form). A confirmation page would stop at Keycloak.
-import { evidence, expect, KEYCLOAK_USERNAME_FIELD, login, test } from "./support";
+import { evidence, expect, keycloakUsername, login, test } from "./support";
 
 const IDLE_MS = 5 * 60_000 + 15_000; // accessTokenLifespan 300 s + margin; the realm lifetime is not raised for tests
 
@@ -25,7 +25,8 @@ test("sign-out with an expired id_token_hint needs no Keycloak confirmation page
   });
   // Idle and offline: the page's own polling would reach the app and refresh the tokens (a new id_token), so nothing may be sent.
   await context.setOffline(true);
-  await page.waitForTimeout(IDLE_MS);
+  const idleUntil = Date.now() + IDLE_MS;
+  await expect.poll(() => Date.now() >= idleUntil, { timeout: IDLE_MS + 30_000, intervals: [5_000] }).toBe(true);
   await context.setOffline(false);
   await page.getByRole("button", { name: /^Account:/ }).click();
   await page.getByRole("menu", { name: "Account" }).getByRole("menuitem", { name: "Sign out" }).click();
@@ -33,6 +34,6 @@ test("sign-out with an expired id_token_hint needs no Keycloak confirmation page
   const expiredSeconds = Math.floor(Date.now() / 1000) - hintExpiry(logout.url ?? "");
   expect(expiredSeconds, "the id_token_hint was already expired when it was sent").toBeGreaterThan(0);
   await page.getByTestId("login-oidc").click();
-  await expect(page.locator(KEYCLOAK_USERNAME_FIELD), "the Keycloak session ended").toBeVisible();
+  await expect(keycloakUsername(page), "the Keycloak session ended").toBeVisible();
   evidence({ event: "signout.expired_hint", logout_status: logout.status, hint_expired_seconds_ago: expiredSeconds });
 });

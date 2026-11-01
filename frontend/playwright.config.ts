@@ -9,7 +9,7 @@ import { packReporters } from "./playwright.reporter";
 // `E2E_ENV_FILE` (the stack's env file, e.g. `.env.local`) supplies the secrets the specs need (KEYCLOAK_QA_PASSWORD, ...):
 // each KEY=VALUE line is read into the environment unless the shell already sets it. Nothing is printed.
 function loadEnvFile(file: string | undefined): void {
-  if (!file) return;
+  if (file === undefined || file === "") return;
   for (const line of fs.readFileSync(file, "utf8").split("\n")) {
     const m = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
     if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^["']|["']$/g, "");

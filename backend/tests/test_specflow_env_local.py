@@ -49,14 +49,26 @@ def _run(env_file: Path, answers: list[str] | None = None) -> subprocess.Complet
     command = [shutil.which("make") or "make", "--no-print-directory", "env-local", f"ENV_FILE={env_file}"]
     if answers is None:
         return subprocess.run(
-            command, cwd=ROOT, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60, check=False,
+            command,
+            cwd=ROOT,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
             env=os.environ | GIT_ENV,
         )
     leader, follower = os.openpty()
     try:
         os.write(leader, "".join(f"{answer}\n" for answer in answers).encode())
         return subprocess.run(
-            command, cwd=ROOT, stdin=follower, capture_output=True, text=True, timeout=60, check=False,
+            command,
+            cwd=ROOT,
+            stdin=follower,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
             env=os.environ | GIT_ENV,
         )
     finally:
@@ -221,7 +233,9 @@ def test_a_list_with_both_domains_gives_no_warning(tmp_path):
 
 def test_an_empty_domains_line_is_replaced_and_an_existing_email_is_kept(tmp_path):
     env_file = tmp_path / "scratch.env"
-    env_file.write_text(COMPLETE.replace("AUTH_ALLOWED_EMAIL_DOMAINS=corp.io,example.com", "AUTH_ALLOWED_EMAIL_DOMAINS="))
+    env_file.write_text(
+        COMPLETE.replace("AUTH_ALLOWED_EMAIL_DOMAINS=corp.io,example.com", "AUTH_ALLOWED_EMAIL_DOMAINS=")
+    )
     _run(env_file)
     values = _values(env_file)
 
@@ -240,10 +254,16 @@ def test_nothing_the_target_generates_or_asks_is_printed(tmp_path):
         assert values[name][0] not in shown
 
 
-@pytest.mark.parametrize("existing", ["no-at-sign", "a@nodot", "two@@x.io", "me@x.io;rm", "Alice@Example.com", "carol@other.example"])
+@pytest.mark.parametrize(
+    "existing", ["no-at-sign", "a@nodot", "two@@x.io", "me@x.io;rm", "Alice@Example.com", "carol@other.example"]
+)
 def test_a_pre_existing_unusable_email_is_warned_about_by_name_kept_and_gives_no_domains(tmp_path, existing):
     env_file = tmp_path / "scratch.env"
-    env_file.write_text(COMPLETE.replace("LOCAL_TEST_USER_EMAIL=me@corp.io", f"LOCAL_TEST_USER_EMAIL={existing}").replace("AUTH_ALLOWED_EMAIL_DOMAINS=corp.io,example.com\n", ""))
+    env_file.write_text(
+        COMPLETE.replace("LOCAL_TEST_USER_EMAIL=me@corp.io", f"LOCAL_TEST_USER_EMAIL={existing}").replace(
+            "AUTH_ALLOWED_EMAIL_DOMAINS=corp.io,example.com\n", ""
+        )
+    )
     result = _run(env_file)
 
     assert result.returncode == 0, result.stderr

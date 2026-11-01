@@ -8,6 +8,7 @@ import { oidcLogin } from "../support/session.mjs";
 import { frontendEnv, startFrontend } from "../support/servers.mjs";
 import { startOidcStack } from "../support/oidc-stack.mjs";
 import { syntheticPdf } from "../support/pdf.mjs";
+import { defined } from "../support/defined";
 
 type ParseOutcome = "parsed" | "failed";
 type DocStatus = "processing" | ParseOutcome;
@@ -57,7 +58,7 @@ export async function startEnv(fePort: number, apiPort: number): Promise<Env> {
   const email = "p16.user@example.test";
   // One stub issuer per environment, on the port 20 above the stub API's (3250-3259 -> 3270-3279).
   const stack = await startOidcStack({ issuerPort: apiPort + 20, apiPort, api: { parseMs: 1500, summarizeMs: 1500 } });
-  const api: Stub = stack.api!;
+  const api: Stub = defined(stack.api, "the stub API");
   const fe = await startFrontend({ port: fePort, env: frontendEnv(fePort, { APP_ENV: "local", ...stack.env }) });
   const jar = await oidcLogin(fe.base, email);
   const realFetch = globalThis.fetch;

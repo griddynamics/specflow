@@ -23,7 +23,7 @@ from api.mcp.http import CheckBody, McpStarlette, ReadyzBody, error_response, re
 from api.mcp.registry import install
 from api.mcp.runtime import RuntimeFactory, build_runtime, request_runtime
 from auth.verifiers import build_verifier
-from logger.logger import ERROR, INFO, WARNING, get_logger, log_event
+from logger.logger import ERROR, INFO, get_logger, log_event
 from settings import MCP_PATH, PRM_PATH, RoleSettings
 
 # Module-level logger first: the central logger owns the root handler before MCPServer

@@ -383,7 +383,8 @@ def test_api_and_frontend_are_wired_to_keycloak_by_config_only():
     assert frontend["OIDC_ISSUER"] == KEYCLOAK_ISSUER
     assert frontend["OIDC_INTERNAL_URL"] == "http://specflow-keycloak:8080/realms/specflow"
     assert frontend["OIDC_CLIENT_ID"] == "specflow-web"
-    assert frontend["OIDC_CLIENT_SECRET"] == "${KEYCLOAK_WEB_CLIENT_SECRET:-}"
+    web_client_ref = "${KEYCLOAK_WEB_CLIENT_SECRET:-}"
+    assert frontend["OIDC_CLIENT_SECRET"] == web_client_ref
     assert frontend["MCP_SERVER_NAME"] == "${MCP_SERVER_NAME:-specflow-local}"
     assert "LOCAL_TEST_USER_EMAIL" not in frontend
     text = COMPOSE.read_text()
@@ -391,7 +392,7 @@ def test_api_and_frontend_are_wired_to_keycloak_by_config_only():
 
 
 def test_keycloak_is_pinned_always_started_and_imports_the_realm_read_only():
-    """Local OIDC provider: digest-pinned, no profile, no data volume, realm file mounted read-only, no literal secret."""
+    """Local OIDC provider: digest-pinned, no profile, no data volume, realm mounted read-only, no literal secret."""
 
     svc = services()["keycloak"]
     assert re.fullmatch(r"quay\.io/keycloak/keycloak:26\.4\.\d+@sha256:[0-9a-f]{64}", svc["image"])
@@ -453,7 +454,12 @@ def test_the_start_order_follows_the_blueprint():
         }, name
     healthy = {"condition": "service_healthy"}  # api has migrated; keycloak holds the realm they check tokens against
     assert svcs["frontend"]["depends_on"] == {"api": healthy, "keycloak": healthy}
-    assert svcs[MCP_SERVICE]["depends_on"] == {"postgres": healthy, "neo4j": healthy, "api": healthy, "keycloak": healthy}
+    assert svcs[MCP_SERVICE]["depends_on"] == {
+        "postgres": healthy,
+        "neo4j": healthy,
+        "api": healthy,
+        "keycloak": healthy,
+    }
 
 
 def test_each_worker_polls_one_queue_and_drains_on_stop():
@@ -811,7 +817,7 @@ def _keycloak_check(tmp_path: Path, env_text: str, *extra: str) -> subprocess.Co
 
 
 def _env_with(**overrides: str | None) -> str:
-    values = {name: SYNTHETIC for name in KEYCLOAK_NAMES} | {"LOCAL_TEST_USER_EMAIL": "me@corp.io"} | overrides
+    values = dict.fromkeys(KEYCLOAK_NAMES, SYNTHETIC) | {"LOCAL_TEST_USER_EMAIL": "me@corp.io"} | overrides
     return "".join(f"{name}={value}\n" for name, value in values.items() if value is not None)
 
 
@@ -827,7 +833,10 @@ def test_up_fails_early_naming_the_missing_keycloak_name(tmp_path, missing, form
     assert SYNTHETIC not in result.stdout + result.stderr
 
 
-@pytest.mark.parametrize("email", ["no-at-sign", "a@nodot", "two@@x.io", "me@x.io;rm", "alice@example.com", "Bob@Example.com", "carol@other.example"])
+@pytest.mark.parametrize(
+    "email",
+    ["no-at-sign", "a@nodot", "two@@x.io", "me@x.io;rm", "alice@example.com", "Bob@Example.com", "carol@other.example"],
+)
 def test_up_refuses_an_unusable_personal_email_naming_the_variable_only(tmp_path, email):
     result = _keycloak_check(tmp_path, _env_with(LOCAL_TEST_USER_EMAIL=email))
 

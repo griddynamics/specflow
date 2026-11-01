@@ -9,12 +9,7 @@ import { tabStop } from "@/components/ui/utils";
 import { agentLabel, isTested, type AgentId } from "@/lib/guides/agent";
 import { MCP_GUIDE } from "@/lib/guides/content";
 import manifest from "@/lib/guides/mcp-tools.json";
-import {
-  CHECK_PROMPT,
-  claudeAddCommand,
-  SIGN_IN_COMMAND,
-  teamMcpJson,
-} from "@/lib/guides/snippets";
+import { CHECK_PROMPT, claudeAddCommand, SIGN_IN_COMMAND, teamMcpJson } from "@/lib/guides/snippets";
 import { routesFor } from "@/lib/routes";
 import { AgentPicker } from "./AgentPicker";
 import { ConnectPrompt } from "./ConnectPrompt";

@@ -54,7 +54,8 @@ export const test = base.extend<{ requests: RequestLog[]; guards: undefined }>({
           postData: r.postData(),
           headers: r.headers(),
         });
-        if (u.origin !== appOrigin && u.origin !== ISSUER_ORIGIN && !ALLOWED_EXTRA_HOSTS.includes(u.hostname)) problems.push(`foreign origin: ${u.origin}`);
+        if (u.origin !== appOrigin && u.origin !== ISSUER_ORIGIN && !ALLOWED_EXTRA_HOSTS.includes(u.hostname))
+          problems.push(`foreign origin: ${u.origin}`);
         if (u.origin === appOrigin && u.pathname.startsWith("/api/") && !/^\/api\/(?:backend|auth)\//.test(u.pathname))
           problems.push(`API path: ${u.pathname}`);
       });
@@ -241,7 +242,13 @@ export async function removeSourceElsewhere(pid: string, sid: string): Promise<v
 export interface OidcObservations {
   endSession: boolean;
   endSessionCalls: number;
-  endSessionRequests: { hasIdTokenHint: boolean; idTokenHintValid: boolean; postLogoutRedirectUri: string; clientId?: string; ok: boolean }[];
+  endSessionRequests: {
+    hasIdTokenHint: boolean;
+    idTokenHintValid: boolean;
+    postLogoutRedirectUri: string;
+    clientId?: string;
+    ok: boolean;
+  }[];
   signIns: number;
   refreshCount: number;
 }

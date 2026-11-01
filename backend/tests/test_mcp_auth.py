@@ -62,7 +62,7 @@ async def test_a_non_bearer_scheme_and_a_malformed_value_are_401(oidc_app):
 
 
 async def test_an_hs256_token_and_an_unknown_kid_are_401(oidc_app, oidc_rig):
-    """FR-MCP-AUTH-03, B-05: only asymmetric algorithms and a published kid verify; the removed dev login's tokens never do."""
+    """FR-MCP-AUTH-03, B-05: only asymmetric algorithms and a published kid verify; dev-login tokens never do."""
 
     shaped = {"aud": MCP_URL, "azp": "specflow-mcp"}
     hs256 = [retired_dev_token(**shaped), retired_dev_token(**shaped, iss=oidc_rig.stub.issuer)]

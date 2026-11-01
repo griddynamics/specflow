@@ -23,6 +23,7 @@ os.environ.update(
 
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -115,16 +116,6 @@ _SPECFLOW_ENV_PREFIXES = (
 _SPECFLOW_ENV_NAMES = frozenset({"SPECFLOW_CONFIG_FILE"})
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _close_session_idp() -> Iterator[None]:
-    """Stop the run's loopback IdP (started on first use by ``valid_env`` or ``token()``)."""
-
-    yield
-    from specflow_auth_support import close_session_idp  # a plugin module: imported late, not at collection of conftest
-
-    close_session_idp()
-
-
 @pytest.fixture
 def clean_specflow_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
     """Remove every specflow setting from the process environment."""
@@ -136,12 +127,9 @@ def clean_specflow_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
 
 
 @pytest.fixture
-def valid_env() -> dict[str, str]:
+def valid_env(run_idp: Any) -> dict[str, str]:
     """A fresh, valid local environment for every role (dummy values only): OIDC against the run's loopback IdP."""
 
-    from specflow_auth_support import session_idp  # a plugin module: imported late, not at collection of conftest
-
-    idp = session_idp()
     return {
         "APP_ENV": "local",
         "API_PORT": "8000",
@@ -152,8 +140,8 @@ def valid_env() -> dict[str, str]:
         "DATABASE_PASSWORD": "db-pass-9f1c",
         "DATABASE_AGENT_USER": "agent_user",
         "DATABASE_AGENT_PASSWORD": "agent-pass-7b2d",
-        "OIDC_ISSUER": idp.issuer,
-        "AUTH_JWKS_URL": idp.jwks_url,
+        "OIDC_ISSUER": run_idp.issuer,
+        "AUTH_JWKS_URL": run_idp.jwks_url,
         "AUTH_ALLOWED_EMAIL_DOMAINS": "example.com",
         "STORAGE_BACKEND": "gcs",
         "STORAGE_BUCKET": "test-bucket",
