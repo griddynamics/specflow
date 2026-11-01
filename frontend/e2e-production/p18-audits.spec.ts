@@ -11,7 +11,7 @@ test.describe("P18 audits on production routes", { tag: "@production" }, () => {
 
   interface Screen {
     id: string;
-    minStops: number; // the login page's only Tab stop is the OIDC sign-in button
+    minStops: number;
     setup: (page: Page) => Promise<void>;
   }
   const SCREENS: Screen[] = [
@@ -97,6 +97,15 @@ test.describe("P18 audits on production routes", { tag: "@production" }, () => {
       expect(m.body).toBeLessThanOrEqual(m.cw);
     });
   }
+
+  test("FE-DOD-05.AC1 [login]: the page's only Tab stop is the OIDC sign-in button", async ({ page }) => {
+    await setTheme(page, "light");
+    await page.goto("/login");
+    await expect(page.getByTestId("login-oidc")).toBeVisible();
+    expect(await tabWalk(page), "the Tab stops of /login").toHaveLength(1);
+    // The walk marks every stop it reaches with data-kb.
+    await expect(page.getByTestId("login-oidc")).toHaveAttribute("data-kb", "1");
+  });
 
   test.describe("OS prefers dark, no theme cookie", () => {
     test.use({ colorScheme: "dark" });
