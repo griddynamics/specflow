@@ -22,6 +22,7 @@ from graph.core.errors import ConformanceError
 from graph.core.queries import ScopeVia
 from graph.stores._bolt.cypher import render_cypher, template_ids
 from graph.stores.arcadedb import dialect as arcade
+from graph.stores.arcadedb.chunking import AGGREGATE_COLUMNS
 from graph.stores.arcadedb.dialect import (
     ARCADEDB_DIALECT,
     OVERRIDES,
@@ -484,3 +485,62 @@ def test_the_dialect_is_stateless_and_returns_equal_plans_for_equal_input() -> N
 def test_params_are_passed_unchanged_to_the_statements() -> None:
     params: Mapping[str, Any] = plan(core_queries.UPSERT_SPEC_NODE).statements[0].params
     assert params["key"] == "k" and params["props"] == {"spec_id": "M-1"}
+
+
+# Row chunking over every template that takes ``rows`` (graph.stores.arcadedb.chunking)
+
+PAD = "x" * 300_000  # 60 rows are about 18 MB: well over one message
+_RETURN = re.compile(r"\bRETURN\b", re.IGNORECASE)
+_ALIAS = re.compile(r"\bAS\s+(\w+)", re.IGNORECASE)
+
+
+def _rows(count: int) -> list[dict[str, Any]]:
+    return [{"label": "Module", "uuid": f"u{i}", "props": {"pad": PAD}, "pad": PAD} for i in range(count)]
+
+
+def _templates_with_rows(queries: list[Query]) -> list[Query]:
+    found = {}
+    for query in queries:
+        statements = plan(query, rows=_rows(1)).statements
+        if any("rows" in statement.params and "$rows" in statement.text for statement in statements):
+            found.setdefault(query.name, query)
+    return list(found.values())
+
+
+def test_every_template_with_rows_is_cut_into_chunks_that_hold_every_row_once_in_order(
+    all_queries: list[Query],
+) -> None:
+    templates = _templates_with_rows(all_queries)
+    assert len({q.template for q in templates}) >= 18  # persist, infer, repair: a new template is covered as well
+    rows = _rows(60)
+    for query in templates:
+        small, big = plan(query, rows=_rows(1)).statements, plan(query, rows=rows).statements
+        assert len(big) > len(small), query.name
+        by_text: dict[str, list[Any]] = {}
+        for statement in big:
+            if "$rows" in statement.text:
+                by_text.setdefault(statement.text, []).extend(statement.params["rows"])
+        assert by_text and all(grouped == rows for grouped in by_text.values()), query.name
+
+
+def test_the_result_columns_of_every_template_with_rows_are_the_ones_chunking_combines(
+    all_queries: list[Query],
+) -> None:
+    """A template that returns another column must be reviewed: ``combine`` adds counts and concatenates lists."""
+
+    unknown = {}
+    for query in _templates_with_rows(all_queries):
+        for statement in plan(query, rows=_rows(1)).statements:
+            if "$rows" not in statement.text:
+                continue
+            tail = (
+                statement.text[list(_RETURN.finditer(statement.text))[-1].end() :]
+                if _RETURN.search(statement.text)
+                else ""
+            )
+            columns = set(_ALIAS.findall(tail))
+            if tail.strip() and not columns:
+                columns = {tail.strip()}  # a RETURN without an alias
+            if not columns <= AGGREGATE_COLUMNS:
+                unknown[query.name] = sorted(columns - AGGREGATE_COLUMNS)
+    assert unknown == {}
