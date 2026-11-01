@@ -30,6 +30,7 @@ from graph.core.errors import ConformanceError
 from graph.core.queries import SAFE_NAME, Query, safe_name
 from graph.core.query_files import render_query
 from graph.stores._bolt.cypher import CYPHER_DIALECT, binds_project_id, render_cypher, template_ids
+from graph.stores.arcadedb.chunking import chunked
 from graph.stores.arcadedb.names import index_fields, index_names
 from graph.stores.arcadedb.statements import OVERRIDE_DIRECTORY, cypher
 
@@ -113,6 +114,37 @@ def _plan_create_spec_nodes(_query: Query, params: Mapping[str, Any], _types: Se
         for label, rows in sorted(groups.items())
     )
     return ExecutionPlan(statements, _sum("written"))
+
+
+# Subjects per statement of ``infer_similar_targets``. Each statement reads the project's targets once and scores
+# every subject of its chunk against them; the statements of one call run one after the other.
+SIMILAR_SUBJECTS_PER_STATEMENT: Final = 50
+
+
+def _plan_similar_targets(query: Query, params: Mapping[str, Any], _types: Sequence[str] | None) -> ExecutionPlan:
+    """Nearest targets per subject on ArcadeDB, with a bounded heap.
+
+    The canonical statement ends with ``ORDER BY uuid`` over one row per subject. ArcadeDB sorts those rows in
+    heap with every variable of the row, and each row carries the list of all target nodes (embeddings
+    included): measured on 1300 targets of 3072 floats, about 31 MB per subject, so a call with 20 or more subjects
+    exceeded the 768 MB query heap budget (``arcadedb.queryMaxHeapRAM``). The override leaves that sort out
+    (the per-subject top-k sort inside the subquery is bounded by the targets of one subject), cuts ``$uuids``
+    into chunks of ``SIMILAR_SUBJECTS_PER_STATEMENT`` and restores the order in the reducer. The score is on the
+    (1 + cosine) / 2 scale of the other stores (ArcadeDB's cosine function is the raw cosine); the order is
+    unchanged by that (best first, ties by spec_id, then uuid, inside the statement; subjects by uuid here)."""
+
+    text = _derived_text(query)
+    uuids = list(params["uuids"])
+    size = SIMILAR_SUBJECTS_PER_STATEMENT
+    statements = tuple(
+        PlannedStatement(text, {**params, "uuids": uuids[start : start + size]})
+        for start in range(0, max(len(uuids), 1), size)
+    )
+
+    def reduce(results: Sequence[list[Record]]) -> list[Record]:
+        return sorted((row for rows in results for row in rows), key=lambda row: str(row["uuid"]))
+
+    return ExecutionPlan(statements, reduce)
 
 
 def foreign_types(edge_types: Sequence[str], owned: Sequence[str]) -> list[str]:
@@ -199,17 +231,25 @@ def _replacements(template: str) -> tuple[tuple[str, str], ...]:
     return tuple((old, new) for old, new in table.get(template, ()))
 
 
+def _derived_text(query: Query, template: str | None = None) -> str:
+    """The canonical text of ``query`` with the replacements of ``overrides/derived.json`` applied once each (no
+    match, or several: ``arcadedb_override_stale``)."""
+
+    text = render_cypher(query)
+    for old, new in _replacements(template or query.template):
+        if text.count(old) != 1:
+            raise ConformanceError("arcadedb_override_stale", template=query.template)
+        text = text.replace(old, new)
+    return text
+
+
 def _derived(template: str | None = None, *, index: bool = False, per_field: bool = False) -> Override:
     """Override: the canonical text with each replacement of ``overrides/derived.json`` for ``template``
     applied once (no match, or several: ``arcadedb_override_stale``); ``index`` also maps the ``$index``
     parameter (a library index name) to the server's name for it (``search_params``)."""
 
     def plan(query: Query, params: Mapping[str, Any], _types: Sequence[str] | None) -> ExecutionPlan:
-        text = render_cypher(query)
-        for old, new in _replacements(template or query.template):
-            if text.count(old) != 1:
-                raise ConformanceError("arcadedb_override_stale", template=query.template)
-            text = text.replace(old, new)
+        text = _derived_text(query, template)
         return ExecutionPlan.single(text, search_params(params, per_field=per_field) if index else params)
 
     return plan
@@ -230,6 +270,7 @@ OVERRIDES: Final[Mapping[str, Override]] = {
     "core.move_foreign_relationships": _plan_move_foreign,
     # a quantified path with ``nodes(p)[1..]`` in a WHERE returns no rows on ArcadeDB
     "core.scope_via": _derived(),
+    "build.infer_similar_targets": _plan_similar_targets,
     # ArcadeDB's Cypher has no CYPHER 5 prefix; its procedure scores are already on the (1 + cos) / 2 scale
     "core.search_nodes_vector": _derived(index=True),
     # vector.similarity.cosine is the raw cosine on ArcadeDB; the reader's floor is on (1 + cos) / 2
@@ -261,6 +302,7 @@ REQUIRED: Final = frozenset(
         "core.scope_via",
         "core.search_nodes_vector",
         "core.search_nodes_vector_exact",
+        "build.infer_similar_targets",
         "core.await_indexes",
         "build.build_verify_spec_nodes",
         "build.build_verify_domain_edges",
@@ -285,8 +327,9 @@ def verify_coverage() -> None:
 
 
 class ArcadeDbDialect:
-    """Plans every query as its canonical Cypher or its ArcadeDB override, refusing a scoped statement that
-    does not bind ``$project_id`` and a statement that creates with a dynamic name."""
+    """Plans every query as its canonical Cypher or its ArcadeDB override, cuts a large ``rows`` parameter into
+    chunks (``graph.stores.arcadedb.chunking``), refusing a scoped statement that does not bind ``$project_id``
+    and a statement that creates with a dynamic name."""
 
     name: Final = "arcadedb-cypher"
 
@@ -304,6 +347,7 @@ class ArcadeDbDialect:
             if query.template in NEEDS_EDGE_TYPES and edge_types is None:
                 raise ConformanceError("arcadedb_edge_types_missing", query=query.name)
             plan = override(query, params, edge_types)
+        plan = chunked(plan)
         for statement in plan.statements:
             if dynamic_name_in_write(statement.text):
                 raise ConformanceError("arcadedb_dynamic_name", query=query.name)

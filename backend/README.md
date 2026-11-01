@@ -26,7 +26,7 @@ three roles. It also holds the libraries the service reuses (`llm`, `file_parser
 | `auth/` | Token claims, OIDC verifier with a throttled JWKS cache, dev-token verifier |
 | `db/` | Models, repositories, async engine, `agent_scope` (RLS session), `migrate` |
 | `storage/` | `ObjectStore` protocol, GCS adapter (create-only resumable writes), in-memory store (tests only) |
-| `graph/` | The graph library (in progress, `docs/graph/`); the host builds the graph store (`graph.stores.build_store`) and uses it for readiness |
+| `graph/` | The graph library (`docs/graph/`); the host builds the graph store (`graph.stores.build_store`: Neo4j, ArcadeDB or PostgreSQL, chosen by `GRAPH_STORE`) and uses it for readiness |
 | `temporal/` | Client, worker runner, queues, ids, registry; `documents/` (parse workflow) and `agents/` (summarize workflow, tools, activities) |
 | `agent_runtime/` | Summarizer agent, LLM gateway model provider, Temporal plugin, Langfuse tracing |
 | `health.py` | The checks behind `/readyz` and `worker --check` (database, temporal, storage, graph) |
@@ -77,7 +77,7 @@ variable is `1`, and need the stack and `--env-file ../.env.local`:
 |---|---|
 | `SPECFLOW_TEST_POSTGRES=1` | Postgres up, agent role created (scratch databases, a per-run test role) |
 | `SPECFLOW_TEST_GCS=1` | bucket and ADC; objects only under `dev/local/pytest/<run-id>/`, deleted in teardown |
-| `SPECFLOW_TEST_NEO4J=1` | Neo4j up |
+| `SPECFLOW_TEST_GRAPH_STORE=neo4j\|arcadedb\|postgres` | that store up (`SPECFLOW_TEST_NEO4J=1` is an alias of `neo4j`); `make test-graph-live STORE=...` sets it and runs the live graph suites (`docs/configuration.md`, "Live graph suites per store") |
 | `SPECFLOW_TEST_TEMPORAL=1` | the external Temporal stack, namespace `specflow-local` |
 | `SPECFLOW_TEST_LLM_GATEWAY=1` | spends real model calls (a few per run) |
 | `SPECFLOW_TEST_IMAGES=1` | built images (`make images` from the root runs these) |

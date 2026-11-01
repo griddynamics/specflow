@@ -75,6 +75,9 @@ def _end(row: Mapping[str, Any]) -> ProbeNode:
 class Neo4jProbe(GraphProbe):
     backend = "neo4j"
 
+    async def before_session_schema(self) -> None:
+        """Nothing to note: the schema setup creates no database the session must remove."""
+
     def __init__(self, config: StoreConfig) -> None:
         super().__init__(config)
         self._driver = connect(config)

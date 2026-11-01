@@ -10,13 +10,13 @@ tags: [graph]
 ## Purpose
 
 The graph library (Python package `graph`) turns the parsed documents of a project into a typed
-knowledge graph in Neo4j and keeps it current as documents are added, revised and removed. The graph
+knowledge graph in a graph database and keeps it current as documents are added, revised and removed. The graph
 shows what a software specification commits to: modules, features, capabilities and requirements, how
 they relate, and which lines of which documents state them.
 
 | Submodule | Role | In this specification |
 |---|---|---|
-| `graph.core` | What every submodule needs: Neo4j access, ontology, identity, read and search, owned writes, LLM gateway | specified |
+| `graph.core` | What every submodule needs: graph store access, ontology, identity, read and search, owned writes, LLM gateway | specified |
 | `graph.build` | Builds and updates the graph from documents; light inference; verification and repair | specified |
 | `graph.gap` | Gaps, contradictions, findings | reserved, designed later |
 | `graph.plan` | Implementation plans | reserved, designed later |
@@ -51,10 +51,10 @@ Quality is shown by tests, verification checks and the metrics each build report
 
 | Actor | Responsibility |
 |---|---|
-| Host | Program that runs the library (service, test, script): creates settings, Neo4j driver and port implementations, passes the ontology, calls builds, keeps build results, guarantees one writer per project at a time. |
+| Host | Program that runs the library (service, test, script): creates settings, the graph store and port implementations, passes the ontology, calls builds, keeps build results, guarantees one writer per project at a time. |
 | Corpus provider | Implements the corpus port: one snapshot of the current revision of every active document, with lineage id, version and immutable markdown. |
 | LLM endpoint | One OpenAI-compatible endpoint for chat and embeddings. |
-| Neo4j | One database for all projects, partitioned by project. |
+| Graph store | One database (Neo4j, ArcadeDB) or schema (PostgreSQL) for all projects, partitioned by project. |
 | Reader | Code that reads the graph through the core read API, including later `gap` and `plan`. |
 
 ## Boundaries
@@ -76,7 +76,7 @@ Quality is shown by tests, verification checks and the metrics each build report
 | C4 | No build deletes a project's graph wholesale; a build deletes only what it owns. |
 | C5 | Document text and model output never become Cypher or instructions: values are query parameters, names come from the validated ontology, prompts mark document text as untrusted. |
 | C6 | The library reads no environment variables and writes to disk only through file port implementations. |
-| C7 | Neo4j 5.26 or later; Community edition is enough. |
+| C7 | One of the supported graph stores: Neo4j Community 5.26 or later, ArcadeDB 26.10 or later, PostgreSQL 15 or later with pgvector 0.8 or later. TigerGraph is planned, not supported. |
 
 ## Key terms
 
@@ -97,4 +97,4 @@ Quality is shown by tests, verification checks and the metrics each build report
 | Delta build | An `update` build: re-extracts only changed content and reuses stored results for the rest. |
 | Owner | The submodule that may write a node or relationship type, given by the ontology `origin`. |
 | Spine | Ontology paths by which a requirement should reach a module. |
-| Host, port | The program running the library; an async interface the library defines for state outside Neo4j. |
+| Host, port | The program running the library; an async interface the library defines for state outside the graph store. |

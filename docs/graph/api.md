@@ -47,8 +47,15 @@ backend. Fields never hold server messages, queries' text or secrets.
 | `query_too_complex` | `ConformanceError` | The backend refuses a search text as too complex; the reader turns it into `ConfigurationError("query_too_long")` |
 | `store_not_available`, `store_sdk_missing` | `ConfigurationError` | Routing: no adapter for the backend, or its SDK is not installed |
 | `store_transactions_unsupported` | `ConfigurationError` | `OwnedWriter.transaction()` on a store without multi-statement transactions |
+| `store_uri_invalid` | `ConfigurationError` | The URI (or admin URI) is not valid for the backend (ArcadeDB, PostgreSQL) |
+| `store_name_invalid`, `store_database_name_invalid` | `ConfigurationError` | The schema name (PostgreSQL) or database name (ArcadeDB) is not a safe identifier |
+| `store_extension_missing` | `ConfigurationError` | PostgreSQL: the `vector` extension is not installed in the database |
+| `store_schema_outdated` | `ConfigurationError` | PostgreSQL: the schema carries no or another schema version; it is not upgraded in place |
+| `vector_index_mismatch` | `ConfigurationError` | The vector index or column has another dimension or similarity than the settings |
+| `schema_setup_failed` | `ConfigurationError` | The server refused a schema statement (names the statement, never the server text) |
+| `arcadedb_edge_types_missing`, `arcadedb_unrenderable_edge_type` | `ConformanceError` | ArcadeDB: a merge or move was planned without the relationship types, or a record move would drop an edge of a type the dialect cannot render: a bug |
 
-`backend_code` carries the server's own error code (for Neo4j `Neo.ClientError...`). Transient failures
+`backend_code` carries the server's own error code (for Neo4j and ArcadeDB `Neo.ClientError...`, for PostgreSQL the SQLSTATE). Transient failures
 are retried inside the executor (delays 0.1, 0.3 and 1.0 s) before they surface.
 
 ## Owned writes
@@ -130,7 +137,7 @@ Graphiti is given adapters, never its own OpenAI client (in the build's Graphiti
 |---|---|
 | LLM client | Subclasses Graphiti's `OpenAIGenericClient` and overrides its request method, so every request goes through the gateway: limiter, retries, error classes, usage, untrusted-text marking |
 | Embedder | Implements Graphiti's `EmbedderClient` on `Gateway.embed` |
-| Graph driver, cross-encoder | Stubs that fail if called: the library calls only `extract_nodes` and `extract_edges`, and Graphiti never touches Neo4j |
+| Graph driver, cross-encoder | Stubs that fail if called: the library calls only `extract_nodes` and `extract_edges`, and Graphiti never touches the graph database |
 
 ## Judges
 

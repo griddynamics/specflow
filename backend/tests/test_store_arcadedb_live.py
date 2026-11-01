@@ -8,7 +8,11 @@ probe and run the library's own verify and repair queries.
 
 from __future__ import annotations
 
+import os
 from typing import Any
+
+import numpy as np
+import pytest
 
 from graph.build import queries as build_queries
 from graph_probes import requires_live_graph
@@ -130,3 +134,80 @@ async def test_an_edge_without_uuid_or_edge_key_falls_back_to_its_element_id(gra
             build_queries.REPAIR_EDGE_EVIDENCE, rows=[{"id": edge["id"], "fragment_ids": ["z"]}], relations=RELATIONS
         )
     assert fixed == [{"written": 1}]
+
+
+# Scale: a library-size persist batch carrying vectors, and inference over many candidates (D1, D2).
+BATCH_ROWS = int(os.environ.get("ARCADEDB_LIVE_SCALE_ROWS", "500"))
+DIMENSION = int(os.environ.get("GRAPH_EMBEDDING_DIM", "3072"))
+TIED_ROWS = 6  # the first rows share one vector, so their scores tie and only spec_id, then uuid, order them
+TOP = 5
+
+
+def scale_rows() -> list[dict[str, Any]]:
+    """``BATCH_ROWS`` create rows of ``Feature`` nodes with two ``DIMENSION``-float vectors each (what the library
+    writes: ``embedding`` and ``name_embedding`` inside ``props``)."""
+
+    generator = np.random.default_rng(7)
+    vectors = generator.standard_normal((BATCH_ROWS, DIMENSION)).astype(np.float32)
+    vectors[:TIED_ROWS] = vectors[0]
+    names = generator.standard_normal((BATCH_ROWS, DIMENSION)).astype(np.float32)
+    rows = []
+    for index in range(BATCH_ROWS):
+        uuid = f"u-{index:04d}"
+        props = {
+            "uuid": uuid,
+            "spec_id": f"FEAT::T{TIED_ROWS - index}"
+            if index < TIED_ROWS
+            else f"FEAT::{index:04d}",  # ties: reversed ids
+            "name": f"feature {index}",
+            "embedding": vectors[index].tolist(),
+            "name_embedding": names[index].tolist(),
+        }
+        rows.append({"uuid": uuid, "label": "Feature", "props": props})
+    return rows
+
+
+def expected_top(rows: list[dict[str, Any]], limit: int) -> dict[str, list[tuple[str, float]]]:
+    """The canonical answer: per subject the ``limit`` best other nodes by (1 + cosine) / 2, ties by spec_id, uuid."""
+
+    matrix = np.array([row["props"]["embedding"] for row in rows], dtype=np.float64)
+    matrix /= np.linalg.norm(matrix, axis=1, keepdims=True)
+    scores = (1 + matrix @ matrix.T) / 2
+    answer = {}
+    for index, row in enumerate(rows):
+        ranked = sorted(
+            (-round(float(scores[index, other]), 7), rows[other]["props"]["spec_id"], rows[other]["uuid"])
+            for other in range(len(rows))
+            if other != index
+        )
+        answer[row["uuid"]] = [(uuid, -score) for score, _spec, uuid in ranked[:limit]]
+    return answer
+
+
+async def test_a_library_size_batch_of_vector_rows_is_written_and_similar_targets_are_found(
+    graph_project: GraphProject,
+) -> None:
+    project, pid = graph_project, graph_project.project_id
+    executor = project.store.executor()
+    rows = scale_rows()
+    async with executor.tx(pid) as tx:  # one explicit transaction, as persist does: the chunks share it
+        written = await tx.run(build_queries.CREATE_SPEC_NODES, rows=rows, build_id="b-scale")
+    assert written == [{"written": len(rows)}]
+    stored = await project.probe.nodes(pid, "Feature")
+    assert len(stored) == len(rows)
+
+    query = build_queries.infer_similar_targets("PART_OF", symmetric=False)
+    found = await executor.read(
+        query,
+        pid,
+        uuids=[row["uuid"] for row in rows],
+        target_labels=["Feature"],
+        bases=["stated", "implied"],
+        limit=TOP,
+    )
+    assert [row["uuid"] for row in found] == [row["uuid"] for row in rows]  # one row per subject, by uuid
+    expected = expected_top(rows, TOP)
+    for row in found:
+        got = [(item["uuid"], round(item["score"], 5)) for item in row["candidates"]]
+        assert [uuid for uuid, _ in got] == [uuid for uuid, _ in expected[row["uuid"]]], row["uuid"]
+        assert [score for _, score in got] == pytest.approx([score for _, score in expected[row["uuid"]]], abs=1e-4)

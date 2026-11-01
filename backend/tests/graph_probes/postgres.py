@@ -138,6 +138,9 @@ class PostgresProbe(GraphProbe):
     backend = "postgres"
     lucene_semantics = False
 
+    async def before_session_schema(self) -> None:
+        """Nothing to note: the schema setup creates no database the session must remove."""
+
     def __init__(self, config: StoreConfig) -> None:
         super().__init__(config)
         self._schema = config.name or DEFAULT_SCHEMA

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import os
+import sys
 
 # onnxruntime (imported by the PDF parser) sends telemetry and its exit-time thread can
 # abort the interpreter (rare exit-134 after all tests passed): opt out for the suite.
@@ -24,11 +26,14 @@ os.environ.update(
 from collections.abc import Iterator
 from pathlib import Path
 
+import httpx
 import pytest
 
 import llm.sandbox as sandbox_module
 import logger._stderr as stderr_module
 import logger.correlation as correlation_module
+from graph.core.errors import GraphError
+from graph_probes.arcadedb import drop_session_databases
 
 # Registers the `central_log` harness fixture and the tier-2 `temporal_live` fixture
 # for every test module (plain imports of a fixture into a test module are unused-import
@@ -155,3 +160,13 @@ def valid_env() -> dict[str, str]:
         "LLM_GATEWAY_URL": "https://gateway.example.test/openai",
         "LLM_GATEWAY_API_KEY": "gateway-key-3c6e",
     }
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """Drop the ArcadeDB databases the live graph tests created (none unless that store ran)."""
+
+    del session, exitstatus
+    try:
+        asyncio.run(drop_session_databases())
+    except (GraphError, httpx.HTTPError, OSError) as error:  # a failed cleanup must not fail a finished run
+        sys.stderr.write(f"graph test cleanup: could not drop a test database ({type(error).__name__})\n")

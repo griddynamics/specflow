@@ -1,6 +1,6 @@
 # INDEX.md: table of contents of the graph library specification
 
-The graph library (`graph`) builds a typed knowledge graph of a software specification in Neo4j from a
+The graph library (`graph`) builds a typed knowledge graph of a software specification in a graph database (Neo4j, ArcadeDB or PostgreSQL) from a
 project's documents and keeps it current. Shared core `graph.core`, build submodule `graph.build`;
 `graph.gap` and `graph.plan` come later.
 
@@ -13,7 +13,7 @@ project's documents and keeps it current. Shared core `graph.core`, build submod
 # architecture.md: packages, components, import rules, write ownership, ports, settings, errors
 - [architecture.md](architecture.md)
 
-# data-model.md: Neo4j model, identity, statements, provenance, constraints and indexes, invariants
+# data-model.md: Neo4j model (canonical), per-store mapping, identity, statements, provenance, constraints and indexes, invariants
 - [data-model.md](data-model.md)
 
 # ontology.md: ontology format, loading and validation, submodule files, the shipped ontology and what may change in it

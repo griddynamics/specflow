@@ -6,14 +6,20 @@ no options for a vector index), the derived ``spec_key`` property the adapter ke
 from every read (it is the adapter's, not data), an index drop is SQL, and there is nothing to wait for
 after an index create (it is synchronous). ``(group_id, spec_id)`` uniqueness is reported as the logical
 unique object it realises.
+
+The schema setup of a session creates the database ``GRAPH_STORE_NAME`` when it is missing. The probe notes
+such a database (``before_session_schema``) and ``drop_session_databases`` drops it when the session ends
+(``pytest_sessionfinish`` in ``conftest.py``): only a database this session created, never ``specflow``.
 """
 
 from __future__ import annotations
 
 from typing import Any, Final
 
+import httpx
+
 from graph.core.queries import Query
-from graph.stores.arcadedb.admin import AdminClient, admin_url
+from graph.stores.arcadedb.admin import AdminClient, admin_url, check_database_name
 from graph.stores.arcadedb.names import index_names
 from graph.stores.arcadedb.schema import SPEC_KEY, SPEC_KEY_INDEX
 from graph.stores.config import StoreConfig
@@ -23,6 +29,41 @@ from graph_probes.neo4j import Neo4jProbe
 _LIBRARY_EDGE_KEY_INDEX: Final = "graph_edge_key_{}"
 _FULLTEXT: Final = "FULL_TEXT"
 _VECTOR: Final = "LSM_VECTOR"
+
+#: Databases the tests never drop, whatever the registry says (the compose and deployment default).
+PROTECTED_DATABASES: Final = frozenset({"specflow"})
+# (Bolt URI, database) -> the config of a database the session found missing and its schema setup creates.
+_CREATED: Final[dict[tuple[str, str], StoreConfig]] = {}
+
+
+class _SessionAdmin(AdminClient):
+    """The admin client with the one destructive call the test session needs (the adapter never drops)."""
+
+    async def drop_database(self, name: str) -> None:
+        await self._send("POST", "/api/v1/server", {"command": f"drop database {check_database_name(name)}"})
+
+
+async def drop_session_databases(transport: httpx.AsyncBaseTransport | None = None) -> list[str]:
+    """Drop the databases this session created (noted by ``before_session_schema``); return their names.
+
+    A database that exists no more is skipped, one named in ``PROTECTED_DATABASES`` is never dropped."""
+
+    dropped: list[str] = []
+    for key, config in list(_CREATED.items()):
+        name = key[1]
+        del _CREATED[key]
+        if name in PROTECTED_DATABASES:
+            continue
+        admin = _SessionAdmin(
+            admin_url(config.uri, config.admin_uri), config.user, config.password, transport=transport
+        )
+        try:
+            if await admin.database_exists(name):
+                await admin.drop_database(name)
+                dropped.append(name)
+        finally:
+            await admin.close()
+    return dropped
 
 
 def _visible(node: ProbeNode) -> ProbeNode:
@@ -43,6 +84,14 @@ class ArcadeDbProbe(Neo4jProbe):
     async def _close(self) -> None:
         await self._admin.close()
         await super()._close()
+
+    async def before_session_schema(self) -> None:
+        name = self.database
+        key = (self.config.uri, name or "")
+        if not name or name in PROTECTED_DATABASES or key in _CREATED:
+            return
+        if not await self._admin.database_exists(name):
+            _CREATED[key] = self.config
 
     # -- reads -------------------------------------------------------------------------------------
 

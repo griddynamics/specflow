@@ -16,7 +16,7 @@ This is an explainer for engineers and product people. It covers four things:
 4. what verification checks, how it repairs, and the rules it follows.
 
 The reference files hold the exact contracts: [ontology.md](ontology.md) (format),
-[data-model.md](data-model.md) (Neo4j model, identity), [build.md](build.md) (steps, modes, reuse),
+[data-model.md](data-model.md) (Neo4j model, per-store mapping, identity), [build.md](build.md) (steps, modes, reuse),
 [analysis.md](analysis.md) (inference, verification), [api.md](api.md) (public API). The shipped
 ontology is `backend/src/graph/core/ontology/spec-ontology.yaml`, version 1.3. All numbers below
 are the ones the code uses.
@@ -234,7 +234,7 @@ section over the range is cut at the paragraph boundary with the lowest content 
 window, so the cut depends on the content around it and an edit elsewhere does not move it. Fenced
 code blocks are never split. The fragment id is `<document_id>#<heading path slug>#<8 hex chars
 from the first body line>`, so an unchanged section keeps its id across revisions. A fragment is
-the unit of evidence (`:Fragment` in Neo4j).
+the unit of evidence (`:Fragment` in the Neo4j model).
 
 **Change set.** Plan compares the snapshot with the persisted `Document`s: each document is new,
 revised or removed. Fragments of a revised document are matched to the persisted ones: the same
@@ -268,7 +268,7 @@ flowchart TD
     ES -. reuse .-> E
     ES -. reuse .-> C
     ES -. judge memory .-> I
-    W --> NEO[(Neo4j)]
+    W --> NEO[(Graph store)]
     NEO --> I
     NEO --> V
     BS[(BuildStore<br/>record, progress, artifacts)] -. every step .- P
@@ -288,10 +288,10 @@ looked up in the vector store by text first; only a text not seen before is embe
 | 3 | `resolve` | Plan, raw nodes; in `update`, persisted identities; decision memory | Canonical nodes with identity keys, aliases, names, labels, `name_embedding` texts | `judge`: one hub consolidation call per block of up to 400 hubs not already decided. `embedding`: name vectors |
 | 4 | `extract_edges` | Plan, canonical nodes, raw nodes; in `update`, hub aliases and last catalogs | Raw edges per unit; attribute values per node | `extraction`: one Graphiti `extract_edges` call per unit whose content or catalog changed. `small`: attributes for new and changed nodes, batches of at most 20 nodes and about 12,000 tokens of fragment text, up to 3 fragments per node |
 | 5 | `conform` | Plan, canonical nodes, raw edges and attributes; dedup memory; in `update`, persisted identities | Target graph: grounded nodes, legal edges, statements, `MENTIONED_IN`, counters | `small`: one dedup verdict per candidate pair not merged directly and not remembered. `embedding`: search `embedding` |
-| 6 | `diff` | Plan, target graph, current graph from Neo4j, `spec_id` registry | Diff: operations in persist order, `spec_changes`, registry rows | None |
-| 7 | `persist` | Diff; persist cursor | Neo4j writes; `spec_id` registry rows (before the first batch); cursor after each batch | `embedding` only for a vector missing from the store |
-| 8 | `infer` | Neo4j (`stated` and `implied` edges only); judge memory | Inferred edges (one transaction); inference report | `judge`: at most 50 subjects per rule per build |
-| 9 | `verify` | Neo4j; this build's diff and target graph (to restore evidence); registry | Repairs; verification report | None |
+| 6 | `diff` | Plan, target graph, current graph from the store, `spec_id` registry | Diff: operations in persist order, `spec_changes`, registry rows | None |
+| 7 | `persist` | Diff; persist cursor | Graph store writes; `spec_id` registry rows (before the first batch); cursor after each batch | `embedding` only for a vector missing from the store |
+| 8 | `infer` | Graph store (`stated` and `implied` edges only); judge memory | Inferred edges (one transaction); inference report | `judge`: at most 50 subjects per rule per build |
+| 9 | `verify` | Graph store; this build's diff and target graph (to restore evidence); registry | Repairs; verification report | None |
 
 Notes per step:
 

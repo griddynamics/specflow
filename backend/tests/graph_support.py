@@ -972,6 +972,7 @@ async def ensure_session_schema(probe: GraphProbe) -> None:
     marker = (probe.backend, probe.config.uri, probe.database)
     if marker in _SCHEMA_READY:
         return
+    await probe.before_session_schema()
     await ensure_schema(probe.store, shipped_ontology(), live_llm_config())
     _SCHEMA_READY.add(marker)
 
