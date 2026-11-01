@@ -24,7 +24,7 @@ services:
   # On its first start (empty volume) backend/postgres-init/10-specflow-roles.sh creates the
   # app role, the database and the agent role.
   postgres:
-    image: postgres:17.11
+    image: pgvector/pgvector:0.8.7-pg17
     container_name: specflow-postgres
     mem_limit: 512m
     ports:
@@ -121,6 +121,10 @@ services:
         condition: service_healthy
 
   # graph-store: postgres
+  # No service of its own: the PostgreSQL graph store lives in the schema GRAPH_STORE_NAME (default graph)
+  # of the main postgres service above, whose image (pgvector/pgvector, PostgreSQL 17) carries the vector
+  # extension. backend/postgres-init creates it on a new data volume; `make postgres-vector` does it on
+  # an existing one. Select the store with GRAPH_STORE=postgres (docs/configuration.md "PostgreSQL").
 
   # graph-store: tigergraph
 
@@ -608,6 +612,7 @@ volumes:
   specflow-arcadedb-data:
     name: specflow-arcadedb-data
   # graph-store: postgres
+  # (none: the PostgreSQL graph store uses specflow-postgres-data)
   # graph-store: tigergraph
   # end graph-store
   specflow-graph-state:

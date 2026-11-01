@@ -461,7 +461,10 @@ async def test_fulltext_pages_past_another_projects_matches(graph_project: Graph
     # Only B passes the filter: the pages go past the 400 matches elsewhere and F.
     hits = await reader.find_nodes(pid, SEARCH_WORD, where={"is_assumption": "yes"}, limit=1)
     assert [(h.node.spec_id, h.matched) for h in hits] == [("FUS::B", "fulltext")]
-    assert counts["search_nodes_fulltext"] > 1
+    if graph_project.probe.lucene_semantics:  # database-wide indexes need several pages
+        assert counts["search_nodes_fulltext"] > 1
+    else:  # a store that scores per project returns the page already filtered: one page is enough
+        assert counts["search_nodes_fulltext"] == 1
 
 
 async def test_vector_index_path_above_2000_candidates(graph_project: GraphProject) -> None:
@@ -538,6 +541,9 @@ async def test_text_lucene_rejects_raises_query_too_long(
     graph_project: GraphProject, monkeypatch: pytest.MonkeyPatch, method: str
 ) -> None:
     monkeypatch.setattr(reader_module, "_lucene_query", lambda _text: " ".join(["w"] * 1100))
+    if not graph_project.probe.lucene_semantics:  # no clause limit: the store answers a long term list, no match here
+        assert await getattr(reader_of(graph_project), method)(graph_project.project_id, "x") == []
+        return
     with pytest.raises(ConfigurationError) as raised:
         await getattr(reader_of(graph_project), method)(graph_project.project_id, "x")
     assert raised.value.code == "query_too_long"
@@ -901,7 +907,10 @@ async def test_find_fragments_pages_past_many_matches_elsewhere(graph_project: G
     reader = reader_of(graph_project)
     counts = spy(reader)
     assert [h.fragment.fragment_id for h in await reader.find_fragments(pid, "zqcommon", limit=5)] == ["mine"]
-    assert counts["search_fragments"] > 1
+    if graph_project.probe.lucene_semantics:
+        assert counts["search_fragments"] > 1
+    else:
+        assert counts["search_fragments"] == 1
 
 
 # --- shop graph: independent walks, two identical projects, no vectors (FR-READ-04..07, H7) ------
