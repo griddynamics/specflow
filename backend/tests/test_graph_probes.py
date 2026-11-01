@@ -116,8 +116,8 @@ def test_a_mistyped_store_is_an_error_not_a_skip(clean_env: pytest.MonkeyPatch) 
 
 
 def test_a_store_without_a_probe_cannot_be_opened(clean_env: pytest.MonkeyPatch) -> None:
-    clean_env.setenv("SPECFLOW_TEST_GRAPH_STORE", "postgres")
-    clean_env.setenv("GRAPH_STORE_URI", "bolt://arcade.example.test:2480")
+    clean_env.setenv("SPECFLOW_TEST_GRAPH_STORE", "tigergraph")
+    clean_env.setenv("GRAPH_STORE_URI", "http://tg.example.test:14240")
     clean_env.setenv("GRAPH_STORE_USER", "svc")
     with pytest.raises(RuntimeError, match="no live probe"):
         open_probe()
