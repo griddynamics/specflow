@@ -42,17 +42,12 @@ pytestmark = requires_live("POSTGRES")
 MIN = timedelta(minutes=1)
 
 
-def bin_key(project, source, ext) -> str:
-    return keys.document_original_bin(str(project), str(drive_document_id(source, ext)))
+def prefix(project, document_id) -> str:
+    return keys.document_prefix(str(project), str(document_id))
 
 
-def variants(project, source, ext) -> set[str]:
-    did = str(drive_document_id(source, ext))
-    return {
-        keys.document_original(str(project), did),
-        keys.document_original_json(str(project), did),
-        keys.document_original_bin(str(project), did),
-    }
+def drive_prefix(project, source, ext) -> str:
+    return prefix(project, drive_document_id(source, ext))
 
 
 async def removed_files(session, project) -> int:
@@ -92,9 +87,8 @@ async def test_a_drive_source_of_11_files_goes_with_its_rows_and_counts_them(sou
 
     assert (result.kind, result.file_count, result.drive_import_open) == ("gdrive", 11, True)
     assert result.handed_over == [] and result.reparse == []
-    want = {bin_key(p, src, "s1")} | variants(p, src, "w2") | variants(p, src, "w3")
-    want |= {f"projects/{p}/documents/{d}/original.pdf" for d in held}
-    assert set(result.object_keys) == want
+    want = {drive_prefix(p, src, e) for e in ("s1", "w2", "w3")} | {prefix(p, d) for d in held}
+    assert set(result.object_prefixes) == want
     assert set(result.sweep_document_ids) == set(held) | {drive_document_id(src, e) for e in ("s1", "w2", "w3")}
 
     async def check(s):
@@ -170,13 +164,12 @@ async def test_an_upload_batch_is_removed_with_its_documents(sources_world) -> N
         for n in range(2):
             docs.append(await add_doc(s, p, f"u{n}", status="parsed", source_id=batch))
             await add_item(s, batch, p, f"u{n}", "pending", document_id=docs[-1])
-        keys_ = [await scalar(s, "SELECT original_key FROM documents WHERE id = :i", i=d) for d in docs]
-        return batch, docs, keys_
+        return batch, docs
 
-    batch, docs, original_keys = await tx(w, build)
+    batch, docs = await tx(w, build)
     result = await tx(w, lambda s: remove_source(s, p, batch))
     assert (result.kind, result.file_count, result.drive_import_open) == ("upload", 2, False)
-    assert result.object_keys == sorted(original_keys)
+    assert result.object_prefixes == sorted(prefix(p, d) for d in docs)
     assert set(result.sweep_document_ids) == set(docs)
 
     async def check(s):
@@ -239,7 +232,7 @@ async def test_the_document_goes_to_the_oldest_of_two_listers(sources_world) -> 
     result = await tx(w, lambda s: remove_source(s, p, src))
 
     assert result.handed_over == [doc] and result.reparse == []
-    assert result.object_keys == [] and result.sweep_document_ids == []
+    assert result.object_prefixes == [] and result.sweep_document_ids == []
     row = await tx(w, lambda s: doc_row(s, doc))
     assert (row.source_id, row.status) == (oldest, "parsed")  # a Done file stays Done (SD7)
     assert await tx(w, lambda s: item_count(s, oldest)) == 1  # the listers keep their items
@@ -285,7 +278,7 @@ async def test_r01_a_processing_item_handed_over_keeps_its_object_key(sources_wo
     result = await tx(w, lambda s: remove_source(s, p, src))
 
     assert result.handed_over == [doc] and result.reparse == [doc]
-    assert set(result.object_keys) == variants(p, src, "early")  # nothing of "busy"
+    assert set(result.object_prefixes) == {drive_prefix(p, src, "early")}  # nothing of "busy"
     assert drive_document_id(src, "busy") in result.sweep_document_ids  # the sweep re-checks
     row = await tx(w, lambda s: doc_row(s, doc))
     assert (row.source_id, row.status) == (second, "processing")
@@ -303,7 +296,7 @@ async def test_r01_an_id_that_still_has_a_document_row_contributes_no_key(source
 
     src, doc = await tx(w, build)
     result = await tx(w, lambda s: remove_source(s, p, src))
-    assert result.object_keys == [] and await tx(w, lambda s: doc_row(s, doc)) is not None
+    assert result.object_prefixes == [] and await tx(w, lambda s: doc_row(s, doc)) is not None
 
 
 async def test_a_listed_document_is_never_deleted_without_a_lister(sources_world) -> None:

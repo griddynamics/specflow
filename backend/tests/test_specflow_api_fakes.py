@@ -126,7 +126,7 @@ class FakeRepo:
             original_key=file.original_key,
             uploaded_by=fields["uploaded_by"],
             status="uploaded",
-            media_type="application/pdf",
+            media_type=fields.get("media_type", "application/pdf"),
             source_id=fields.get("source_id"),
             updated_at=datetime.now(UTC),
             error=None,

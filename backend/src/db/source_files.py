@@ -114,6 +114,7 @@ API_ERROR_CODES: Final = (
     "missing_filename",
     "empty_file",
     "unsupported_format",
+    "file_too_large",
     "database_unavailable",
 )
 SOURCE_FIELDS: Final = (

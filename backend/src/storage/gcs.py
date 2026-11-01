@@ -28,7 +28,7 @@ from storage.base import (
     StorageUnavailableError,
     StoredObject,
 )
-from storage.keys import validate_key
+from storage.keys import validate_key, validate_prefix
 
 logger = get_logger("storage.gcs")
 
@@ -160,6 +160,24 @@ class GcsObjectStore:
         except gexc.NotFound:
             return
         log_event(logger, INFO, "storage.object.deleted", key=key)
+
+    async def delete_by_prefix(self, prefix: str) -> int:
+        """Delete every object under ``STORAGE_PREFIX`` + ``prefix`` (ends with ``/``); returns the count."""
+
+        full = self._prefix + validate_prefix(prefix)
+        deleted = await asyncio.to_thread(self._delete_under, full)
+        log_event(logger, INFO, "storage.prefix.deleted", prefix=prefix, count=deleted)
+        return deleted
+
+    def _delete_under(self, full_prefix: str) -> int:
+        deleted = 0
+        for blob in list(self._client.list_blobs(self._bucket, prefix=full_prefix, timeout=REQUEST_TIMEOUT_SECONDS)):
+            try:
+                blob.delete(timeout=REQUEST_TIMEOUT_SECONDS)
+            except gexc.NotFound:  # deleted by a racing call
+                continue
+            deleted += 1
+        return deleted
 
     async def check(self) -> None:
         """Readiness: list one object under the prefix (never reads an object), cached 10 s."""

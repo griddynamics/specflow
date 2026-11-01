@@ -648,8 +648,8 @@ async def test_removing_a_source_during_an_import_fences_the_remaining_files(dri
         await wait_until(midway, max_wait_s=90, what="6 finished files")
         async with s.session_factory_tx() as session:
             removed = await removal.remove_source(session, s.project_id, cid)
-        for key in removed.object_keys:  # what the API deletes inline after the commit
-            await store.delete(key)
+        for prefix in removed.object_prefixes:  # what the API deletes inline after the commit
+            await store.delete_by_prefix(prefix)
         before = set(store.object_keys())
         # ends quietly, or fails when a child parse lost its document: both are fine
         with contextlib.suppress(WorkflowFailureError):

@@ -238,8 +238,9 @@ async def insert_document(
     file: DocumentFile,
     uploaded_by: uuid.UUID | None,
     source_id: uuid.UUID | None = None,
+    media_type: str = PDF_MEDIA_TYPE,
 ) -> Document:
-    """Insert an uploaded PDF in status ``uploaded``.
+    """Insert an uploaded file in status ``uploaded``; ``media_type`` is the canonical type (PDF by default).
 
     ``source_id`` is the holder: the Local files batch the file arrived in
     (DATA-SRC-0002). ``None`` only for callers that predate batches.
@@ -253,7 +254,7 @@ async def insert_document(
         project_id=project_id,
         content_hash=file.content_hash,
         original_filename=file.filename,
-        media_type=PDF_MEDIA_TYPE,
+        media_type=media_type,
         size_bytes=file.size_bytes,
         origin=UPLOAD_ORIGIN,
         original_key=file.original_key,
