@@ -8,9 +8,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from file_parsers.pdf.pdfium_typed import PageText
 from file_parsers.pdf.schema import PDFDocument, PDFPageContent, PDFTableBox
-from file_parsers.pdf.structure import PdfStructure, _repair_glued
+from file_parsers.pdf.structure import PdfStructure
 from pdf_builder_support import Line, write_pdf
 
 
@@ -167,31 +166,23 @@ def test_the_result_is_deterministic(tmp_path: Path):
     assert _apply(tmp_path, pdf, markdown) == _apply(tmp_path, pdf, markdown)
 
 
-def test_a_word_hyphenated_across_lines_in_the_pdf_is_not_split(tmp_path: Path):
-    # Review M2: pdfium keeps "data-\r\nbase", Docling writes "database"; "database" is a word, not a glue.
+def test_line_break_hyphens_in_a_real_pdf_are_kept_or_restored(tmp_path: Path):
+    # pdfium marks the two breaks; "database" is written whole on the page too (a soft hyphen: stays joined),
+    # "timestamp" is not, but "time" and "stamp" are (a compound: the hyphen comes back); "fromthe" is a glue.
     pdf = [
         [
             Line("The service writes to the data-", 12),
             Line("base every night and the time-", 12),
-            Line("stamp is kept from the start.", 12),
+            Line("stamp is kept from the start; the database is small, every stamp counts in time.", 12),
         ]
     ]
-    [page] = _apply(
-        tmp_path, pdf, "The service writes to the database every night and the timestamp is kept fromthe start."
-    )
-    assert page == "The service writes to the database every night and the timestamp is kept from the start."
+    markdown = "The service writes to the database every night and the timestamp is kept fromthe start."
+    [page] = _apply(tmp_path, pdf, markdown)
+    assert page == "The service writes to the database every night and the time-stamp is kept from the start."
 
 
-def test_the_review_repro_text_keeps_its_de_hyphenated_words():
-    page = PageText("The service writes to the data-\r\nbase every night and the time-\r\nstamp is kept.", [])
-    lines = ["The service writes to the database every night and the timestamp is kept."]
-    assert _repair_glued(lines, page) == 0
-    assert lines == ["The service writes to the database every night and the timestamp is kept."]
-
-
-def test_a_hyphen_inside_a_line_still_lets_the_glue_be_repaired():
-    # Only a hyphen at a line break joins: "data-base" on one line is two words, so "database" is a glue.
-    page = PageText("the data-base and the time stamp", [])
-    lines = ["the database and the timestamp"]
-    assert _repair_glued(lines, page) == 2
-    assert lines == ["the data base and the time stamp"]
+def test_a_wrapped_requirement_id_in_a_table_cell_gets_its_hyphen_back(tmp_path: Path):
+    pdf = [[Line("ID Requirement", 12), Line("FR-", 12), Line("EXT-001 The export is signed.", 12)]]
+    table = "| ID | Requirement |\n| --- | --- |\n| FR- EXT-001 | The export is signed. |"
+    [page] = _apply(tmp_path, pdf, table)
+    assert page == "| ID | Requirement |\n| --- | --- |\n| FR-EXT-001 | The export is signed. |"

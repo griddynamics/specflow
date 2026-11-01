@@ -8,10 +8,9 @@ repaired against the text layer of the PDF read with pdfium:
    0.5 pt buckets, are ranked: the largest is ``#``, the next ``##``, down to ``######``. A heading
    whose text is not found takes the level of the numbered headings of the same depth, else
    ``depth + 1`` (``1 Intro`` is ``##``); an unnumbered one keeps the level Docling gave it.
-2. Glued words. A prose token that is not a word of the page, but equals two or three consecutive
-   words of the page, gets the spaced form. Tables, code, comments and image lines are left alone.
-   A word hyphenated across a line break (pdfium: ``data-`` and a line break, or ``data`` U+FFFE ``base``)
-   is a word of the page in its joined form too, because Docling joins it (``database``): never split.
+2. Words (``file_parsers.pdf.word_repair``): a hyphen at a line break that Docling wrote as hyphen and
+   space (``FR- EXT``) or dropped (``thirdparty``) is restored, and glued words get their space back
+   (``judgesmove``). Tables, code, comments and image lines are left alone.
 
 Ranking needs every page, so ``apply`` runs once on the whole document, after the last range. It is
 deterministic and uses no model (about 2 s for 216 pages). Bump ``POST_PROCESSING_VERSION``
@@ -27,6 +26,7 @@ from pathlib import Path
 
 from file_parsers.pdf.pdfium_typed import PageText, PdfiumDocument, open_document
 from file_parsers.pdf.schema import PDFDocument
+from file_parsers.pdf.word_repair import WordRepairs, document_words, repair_words
 from logger.logger import INFO, get_logger, log_event
 
 logger = get_logger("file_parsers.pdf.structure")
@@ -36,14 +36,8 @@ _BUCKET = 2  # sizes are rounded to 1/_BUCKET pt
 _HEADING = re.compile(r"^(?P<hashes>#{1,6})[ \t]+(?P<text>\S.*?)[ \t]*$")
 _NUMBERING = re.compile(r"^(?:(?:appendix|section|chapter)\s+)?(?P<number>\d+(?:\.\d+)*)[.)]?(?:\s|$)", re.IGNORECASE)
 _FENCE = re.compile(r"^\s*(```|~~~)")
-_TOKEN = re.compile(r"[A-Za-z]{4,}")
-_WORD = re.compile(r"[A-Za-z]+")
 _MARKUP = re.compile(r"[*_`]")
 _NEEDLE_MIN, _NEEDLE_MAX = 8, 40
-_MIN_JOINED_WORDS, _MAX_JOINED_WORDS = 2, 3
-# A hyphen at a line break: pdfium writes "-" and a line break, or its own marker U+FFFE (a soft hyphen, U+00AD,
-# also joins).
-_HYPHEN_BREAK = re.compile(r"-[ \t]*[\r\n]+\s*|[\ufffe\u00ad][ \t]*[\r\n]*[ \t]*")
 
 
 @dataclass(slots=True)
@@ -115,41 +109,6 @@ def _numbering_depth(text: str) -> int | None:
     return match["number"].count(".") + 1 if match else None
 
 
-def _repair_glued(lines: list[str], page: PageText) -> int:
-    """Insert the missing spaces in prose lines, in place; return the number of repairs."""
-
-    words = _WORD.findall(page.text)
-    # Docling de-hyphenates a word broken across lines; its joined form is a word, not a glue of two.
-    vocabulary = {word.lower() for word in words} | {
-        word.lower() for word in _WORD.findall(_HYPHEN_BREAK.sub("", page.text))
-    }
-    joined: dict[str, str] = {}
-    for size in range(_MIN_JOINED_WORDS, _MAX_JOINED_WORDS + 1):
-        for start in range(len(words) - size + 1):
-            run = words[start : start + size]
-            joined.setdefault("".join(run).lower(), " ".join(run))
-    repairs = 0
-
-    def fix(match: re.Match[str]) -> str:
-        nonlocal repairs
-        token = match[0]
-        if token.lower() in vocabulary:
-            return token
-        spaced = joined.get(token.lower())
-        if spaced is not None and spaced.replace(" ", "") == token:
-            repairs += 1
-            return spaced
-        return token
-
-    in_fence = False
-    for number, line in enumerate(lines):
-        if _FENCE.match(line):
-            in_fence = not in_fence
-        elif not in_fence and not line.startswith(("|", "![", "<!--")):
-            lines[number] = _TOKEN.sub(fix, line)
-    return repairs
-
-
 class PdfStructure:
     """Repairs the heading levels and the glued words of a parsed PDF, using the PDF's own text layer."""
 
@@ -159,17 +118,20 @@ class PdfStructure:
     def apply(self, document: PDFDocument) -> PDFDocument:
         """Return ``document`` with repaired page Markdown (figures, boxes and numbers unchanged)."""
 
-        scanned: list[_Page] = []
-        repairs = 0
+        scanned = [_scan(page.markdown) for page in document.pages]
         with open_document(self.pdf_path) as pdf:
-            for page in document.pages:
-                parsed = _scan(page.markdown)
-                text = self._page_text(pdf, page.page_number, with_sizes=bool(parsed.headings))
-                index = _PageIndex(text)
-                for heading in parsed.headings:
-                    heading.size = index.heading_size(heading.text)
-                repairs += _repair_glued(parsed.lines, text)
-                scanned.append(parsed)
+            texts = [
+                self._page_text(pdf, page.page_number, with_sizes=bool(parsed.headings))
+                for page, parsed in zip(document.pages, scanned, strict=True)
+            ]
+        # A joined word written unhyphenated anywhere in the document is a word, not a compound.
+        words = document_words(text.text for text in texts)
+        repairs = WordRepairs()
+        for parsed, text in zip(scanned, texts, strict=True):
+            index = _PageIndex(text)
+            for heading in parsed.headings:
+                heading.size = index.heading_size(heading.text)
+            repairs.add(repair_words(parsed.lines, text.text, words))
         ranking = _Ranking(scanned)
         pages = []
         for page, parsed in zip(document.pages, scanned, strict=True):
@@ -185,7 +147,10 @@ class PdfStructure:
             pages=len(pages),
             headings=len(headings),
             headings_by_size=sum(heading.size is not None for heading in headings),
-            glue_repairs=repairs,
+            glue_repairs=repairs.glue,
+            hyphen_space_repairs=repairs.hyphen_spaces,
+            hyphens_restored=repairs.hyphens_restored,
+            soft_hyphens_kept=repairs.soft_hyphens_kept,
         )
         return document.model_copy(update={"pages": pages})
 
