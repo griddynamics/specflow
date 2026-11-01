@@ -38,6 +38,8 @@ pytestmark = pytest.mark.skipif(
 )
 
 DIM = 8
+LOCK_WAIT_POLLS = 200
+LOCK_WAIT_POLL_SECONDS = 0.05
 MODULE, FR, FEATURE = "Module", "FunctionalRequirement", "Feature"
 PART_OF, INTEGRATES, RELATES = "PART_OF", "INTEGRATES_WITH", "RELATES_TO"
 RETIRED, INFERRED = "retired", "inferred"
@@ -870,8 +872,16 @@ async def _race(store: PostgresStore, project: str, first: Any, second: Any) -> 
     held = asyncio.create_task(holder())
     await opened.wait()
     waiting = asyncio.create_task(follower())
-    await asyncio.sleep(0.7)
-    assert not waiting.done()  # blocked on the uncommitted row of the other writer
+    for _ in range(LOCK_WAIT_POLLS):  # until the second writer waits for the uncommitted row of the first
+        blocked = await raw(
+            store,
+            "SELECT count(*) AS n FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND application_name = :app",
+            app="specflow-graph",
+        )
+        if blocked[0]["n"] or waiting.done():
+            break
+        await asyncio.sleep(LOCK_WAIT_POLL_SECONDS)
+    assert not waiting.done() and blocked[0]["n"] == 1
     release.set()
     await asyncio.gather(held, waiting)
 
