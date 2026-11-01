@@ -2,7 +2,8 @@
 // OIDC_INTERNAL_URL (the public issuer host does not resolve, so every back-channel call must
 // go through the internal URL). The stub API verifies the bearer against the issuer's JWKS. Ports 3220-3229.
 // Covers AC-6.5 (credentials callback yields no session), AC-6.8 (single-flight refresh,
-// failed refresh clears the session), AC-6.9 (login -> session, refresh, logout).
+// failed refresh clears the session), AC-6.9 (login -> session, refresh, logout), B-08/B-09 (RP-initiated logout with and without
+// an end_session_endpoint). Ports 3220-3229.
 import { request } from "node:http";
 import { test, before, after } from "node:test";
 import { decodeJwt } from "jose";
@@ -41,7 +42,7 @@ before(async () => {
 after(async () => {
   await fe?.stop();
   await api?.close();
-  await issuer?.close();
+  await issuer?.close().catch(() => undefined); // already down after the last test
 });
 
 const bearerSeenByApi = () => api.log.at(-1).headers.authorization;
@@ -67,10 +68,7 @@ async function login({ expiresIn = 3600, email = "oidc.user@example.test" } = {}
   const authorize = new URL(start.headers.get("location"));
   authorize.searchParams.set("login_hint", email); // the stub issuer signs this user in
   // The "browser" cannot resolve the public host: talk to the stub directly.
-  const approved = await fetch(
-    `http://127.0.0.1:${ISSUER_PORT}${authorize.pathname.replace("/realms/stub", "/realms/stub")}${authorize.search}`,
-    { redirect: "manual" },
-  );
+  const approved = await fetch(`http://127.0.0.1:${ISSUER_PORT}${authorize.pathname}${authorize.search}`, { redirect: "manual" });
   assert.equal(approved.status, 302);
   const callback = await fetch(approved.headers.get("location"), { redirect: "manual", headers: { cookie: jar.header() } });
   jar.absorb(callback);
@@ -78,10 +76,11 @@ async function login({ expiresIn = 3600, email = "oidc.user@example.test" } = {}
   return { jar, authorize };
 }
 
-test("AC-6.5: the login page shows the OIDC button and no email form", async () => {
+test("AC-6.5/R3.2: the login page shows one neutral Sign in OIDC button and no email form", async () => {
   const html = await (await fetch(fe.base + "/login")).text();
   assert.match(html, /data-testid="login-oidc"/);
-  assert.match(html, /Sign in with Google/);
+  assert.match(html, />Sign in</);
+  assert.doesNotMatch(html, /Google|Keycloak/, "the label names no identity provider");
   assert.doesNotMatch(html, /login-dev-email|login-dev-submit/);
 });
 
@@ -229,7 +228,114 @@ test("AC-6.9: logout ends the session", async () => {
   assert.equal((await fetch(fe.base + "/", { headers: { cookie: jar.header() }, redirect: "manual" })).status, 307);
 });
 
-test("AC-6.5: POST /api/auth/callback/credentials with a valid CSRF token yields no session in oidc mode", async () => {
+const endSessionCall = (jar) => fetch(`${fe.base}/api/auth/end-session`, { method: "POST", headers: { cookie: jar.header() } });
+
+test("B-08: with an end_session_endpoint, the end-session route answers the issuer's logout URL and the IdP session ends", async () => {
+  const { jar } = await login();
+  const res = await endSessionCall(jar);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("cache-control"), "no-store");
+  const body = await res.json();
+  assert.deepEqual(Object.keys(body), ["url"], "nothing but the URL is returned");
+  const url = new URL(body.url);
+  assert.equal(url.origin + url.pathname, `${PUBLIC_ISSUER}/protocol/openid-connect/logout`);
+  assert.equal(url.searchParams.get("id_token_hint"), issuer.idTokens.at(-1), "the id_token of this sign-in");
+  assert.equal(url.searchParams.get("post_logout_redirect_uri"), `${fe.base}/login?signedout=1`);
+  assert.equal(url.searchParams.get("client_id"), CLIENT_ID);
+  assert.ok(!body.url.includes(issuer.accessTokens.at(-1)) && !body.url.includes("rt-"), "no access or refresh token in the URL");
+
+  // The browser follows it (the public host does not resolve here: talk to the stub directly).
+  const before = issuer.endSessionRequests.length;
+  const idp = await fetch(`http://127.0.0.1:${ISSUER_PORT}${url.pathname}${url.search}`, { redirect: "manual" });
+  assert.equal(idp.status, 302);
+  assert.equal(idp.headers.get("location"), `${fe.base}/login?signedout=1`);
+  assert.equal(issuer.endSessionRequests.length - before, 1);
+  assert.deepEqual(
+    { ...issuer.endSessionRequests.at(-1), idTokenHint: undefined },
+    {
+      idTokenHint: undefined,
+      idTokenHintValid: true,
+      postLogoutRedirectUri: `${fe.base}/login?signedout=1`,
+      clientId: CLIENT_ID,
+      ok: true,
+    },
+  );
+  const session = await sessionOf(fe.base, jar);
+  assert.deepEqual(Object.keys(session.user).sort(), ["email", "name"], "the id_token never reaches the session JSON");
+  assert.ok(!JSON.stringify(session).includes(issuer.idTokens.at(-1)));
+});
+
+test("B-08: a refresh replaces the stored id_token, so the logout hint is the newest one", async () => {
+  const { jar } = await login({ expiresIn: 1, email: "dave.refresh@example.test" });
+  issuer.accessExpiresIn = 3600;
+  const first = issuer.idTokens.at(-1);
+  const res = await fetch(`${fe.base}/api/backend/me`, { headers: { cookie: jar.header() } });
+  assert.equal(res.status, 200);
+  const rotated = new Jar();
+  rotated.absorb(res);
+  const second = issuer.idTokens.at(-1);
+  assert.notEqual(second, first, "the refresh brought a new id_token");
+  const { url } = await (await endSessionCall(rotated)).json();
+  assert.equal(new URL(url).searchParams.get("id_token_hint"), second);
+});
+
+test("B-08: the return address comes from PUBLIC_URL only: no query, header or Host reaches it", async () => {
+  const { jar } = await login();
+  const res = await fetch(
+    `${fe.base}/api/auth/end-session?post_logout_redirect_uri=https://evil.example.test/&callbackUrl=https://evil.example.test/`,
+    {
+      method: "POST",
+      headers: {
+        cookie: jar.header(),
+        "x-forwarded-host": "evil.example.test",
+        "x-forwarded-proto": "https",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ url: "https://evil.example.test/", post_logout_redirect_uri: "https://evil.example.test/" }),
+    },
+  );
+  const { url } = await res.json();
+  assert.doesNotMatch(url, /evil/);
+  assert.equal(new URL(url).searchParams.get("post_logout_redirect_uri"), `${fe.base}/login?signedout=1`);
+});
+
+test("B-08: without a session the end-session route answers the local sign-out URL; GET is not allowed", async () => {
+  const res = await endSessionCall(new Jar());
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("cache-control"), "no-store");
+  assert.deepEqual(await res.json(), { url: `${fe.base}/login?signedout=1` });
+  const get = await fetch(`${fe.base}/api/auth/end-session`, { redirect: "manual" });
+  assert.equal(get.status, 405, "the static route handles it, not the Auth.js catch-all");
+});
+
+test("B-09: without an end_session_endpoint (Google) the end-session route answers the local sign-out URL and nothing reaches the IdP", async () => {
+  const { jar } = await login();
+  issuer.endSession = false; // the issuer stops advertising it: discovery is read at sign-out, not remembered
+  try {
+    const discovery = await (await fetch(`${issuer.url}/.well-known/openid-configuration`)).json();
+    assert.equal(discovery.end_session_endpoint, undefined, "the issuer advertises none");
+    const before = issuer.endSessionRequests.length;
+    const res = await endSessionCall(jar);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { url: `${fe.base}/login?signedout=1` });
+    assert.equal(issuer.endSessionRequests.length, before, "nothing reached the IdP");
+  } finally {
+    issuer.endSession = true;
+  }
+  // The local sign-out still ends the session.
+  const token = await csrf(fe.base, jar);
+  jar.absorb(
+    await fetch(`${fe.base}/api/auth/signout`, {
+      method: "POST",
+      redirect: "manual",
+      headers: { cookie: jar.header(), "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ csrfToken: token, callbackUrl: `${fe.base}/login` }),
+    }),
+  );
+  assert.equal(await sessionOf(fe.base, jar), null);
+});
+
+test("AC-6.5: there is no credentials provider: POST /api/auth/callback/credentials with a valid CSRF token yields no session", async () => {
   const jar = new Jar();
   const token = await csrf(fe.base, jar);
   const res = await fetch(`${fe.base}/api/auth/callback/credentials`, {
@@ -286,4 +392,13 @@ test("M5: the OIDC redirect_uri comes from PUBLIC_URL, not from a spoofed Host o
   const authorize = new URL(res.location);
   assert.equal(authorize.searchParams.get("redirect_uri"), `${fe.base}/api/auth/callback/oidc`);
   assert.doesNotMatch(res.location, /evil/, "no part of the redirect carries the forged host");
+});
+
+test("B-09 (keep last): an unreachable issuer at sign-out falls back to the local sign-out URL, logged without values", async () => {
+  const { jar } = await login();
+  const out = fe.output().length;
+  await issuer.close(); // last test of the file: the issuer stays down
+  const res = await endSessionCall(jar);
+  assert.deepEqual(await res.json(), { url: `${fe.base}/login?signedout=1` });
+  assert.match(fe.output().slice(out), /"event":"auth\.signout\.idp_unavailable"/);
 });

@@ -1,6 +1,6 @@
 // Server-only: the one module that reads the server's environment (the proxy, Auth.js, the BFF and the server layouts read it
 // through here). It never reaches the browser bundle.
-import { authModeOf, devModeAllowed, mcpClientIdOf, mcpPublicUrlOf, mcpServerNameOf, normalizeInternalUrl, validateEnv } from "./env-rules.mjs";
+import { mcpClientIdOf, mcpPublicUrlOf, mcpServerNameOf, normalizeInternalUrl, validateEnv } from "./env-rules.mjs";
 
 /** The server process environment, read at call time (never inlined at build: these are runtime variables). */
 export function serverEnv(): NodeJS.ProcessEnv {
@@ -8,14 +8,11 @@ export function serverEnv(): NodeJS.ProcessEnv {
 }
 
 export interface AppConfig {
-  authMode: "oidc" | "dev";
   publicUrl: string;
   publicOrigin: string;
   secure: boolean;
   apiInternalUrl: string;
   sessionSecret: string;
-  devSigningKey: string;
-  localTestUserEmail: string;
   oidc: { issuer: string; internalUrl: string; clientId: string; clientSecret: string };
   /** What the Guides page shows: the MCP address, the OAuth client id and the server name. Server-only: pages pass them on as props. */
   mcp: { publicUrl: string; clientId: string; serverName: string };
@@ -41,20 +38,13 @@ export function appConfig(): AppConfig {
   if (bad.length > 0) {
     throw new Error(`config.validation.failed variables=${bad.join(",")}`);
   }
-  const authMode = authModeOf(env) as "oidc" | "dev";
-  if (authMode === "dev" && !devModeAllowed(env)) {
-    throw new Error("config.validation.failed variables=AUTH_MODE");
-  }
   const publicUrl = env.PUBLIC_URL ?? ""; // validateEnv above guarantees it is set
   cached = {
-    authMode,
     publicUrl,
     publicOrigin: new URL(publicUrl).origin,
     secure: publicUrl.startsWith("https://"),
     apiInternalUrl: normalizeInternalUrl(env.API_INTERNAL_URL),
     sessionSecret: env.SESSION_SECRET ?? "",
-    devSigningKey: env.AUTH_DEV_SIGNING_KEY ?? "",
-    localTestUserEmail: env.LOCAL_TEST_USER_EMAIL ?? "",
     oidc: {
       issuer: stripTrailingSlashes(env.OIDC_ISSUER ?? ""),
       internalUrl: stripTrailingSlashes(env.OIDC_INTERNAL_URL ?? ""),
