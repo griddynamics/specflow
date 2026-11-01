@@ -33,7 +33,9 @@ from pydantic_settings import (
 from sqlalchemy import URL
 
 from cloud_profile import CLOUD_PROVIDERS, CONFIG_FILE_VARIABLE, Cloud, load_profile
-from graph.core import LLMConfig, Neo4jConfig
+from graph.core import LLMConfig
+from graph.stores.config import BACKENDS, DEFAULT_BACKEND, StoreConfig
+from logger.logger import WARNING, get_logger, log_event
 
 DATABASE_ENVIRONMENT: Final = (
     "DATABASE_HOST",
@@ -348,24 +350,53 @@ class TemporalSettings(_MappedSettings):
         return _non_empty(value)
 
 
-class Neo4jSettings(_MappedSettings):
-    """Neo4j connection. The password may be empty locally, never elsewhere."""
+# GRAPH_STORE_* name -> the NEO4J_* name accepted in its place while GRAPH_STORE is neo4j (one release).
+NEO4J_ALIASES: Final = {
+    "GRAPH_STORE_URI": "NEO4J_URI",
+    "GRAPH_STORE_USER": "NEO4J_USER",
+    "GRAPH_STORE_PASSWORD": "NEO4J_PASSWORD",
+    "GRAPH_STORE_NAME": "NEO4J_DATABASE",
+}
+# The documented default of GRAPH_STORE_NAME per backend; the others leave it to the adapter.
+GRAPH_STORE_DEFAULT_NAMES: Final = {"neo4j": "neo4j", "postgres": "graph"}
+_ALIAS_LOGGER = get_logger("settings")
 
-    blank_is_unset: ClassVar[tuple[str, ...]] = ("NEO4J_DATABASE",)
 
-    uri: Text = Field(validation_alias="NEO4J_URI")
-    user: Text = Field(validation_alias="NEO4J_USER")
-    password: SecretStr = Field(validation_alias="NEO4J_PASSWORD")
-    database: Text = Field(default="neo4j", validation_alias="NEO4J_DATABASE")
+class GraphStoreSettings(_MappedSettings):
+    """The graph store: which backend and how to reach it. The password may be empty locally, never elsewhere.
 
-    def to_graph_config(self) -> Neo4jConfig:
-        """The graph library's connection settings (``graph.core.Neo4jConfig``)."""
+    Built by ``_build_graph_store`` (aliases, the PostgreSQL ``DATABASE_*`` reuse), never read from the
+    environment directly. ``to_store_config`` maps it onto the graph library's ``StoreConfig``.
+    """
 
-        return Neo4jConfig(
+    blank_is_unset: ClassVar[tuple[str, ...]] = (
+        "GRAPH_STORE",
+        "GRAPH_STORE_NAME",
+        "GRAPH_STORE_ADMIN_URI",
+        "GRAPH_STORE_POOL_SIZE",
+    )
+
+    backend: Literal["neo4j", "arcadedb", "postgres", "tigergraph"] = Field(
+        default=DEFAULT_BACKEND, validation_alias="GRAPH_STORE"
+    )
+    uri: Text = Field(validation_alias="GRAPH_STORE_URI")
+    user: Text = Field(validation_alias="GRAPH_STORE_USER")
+    password: SecretStr = Field(validation_alias="GRAPH_STORE_PASSWORD")
+    name: OptionalText = Field(default=None, validation_alias="GRAPH_STORE_NAME")
+    admin_uri: OptionalText = Field(default=None, validation_alias="GRAPH_STORE_ADMIN_URI")
+    pool_size: int | None = Field(default=None, gt=0, validation_alias="GRAPH_STORE_POOL_SIZE")
+
+    def to_store_config(self) -> StoreConfig:
+        """The graph library's store settings (``graph.stores.config.StoreConfig``)."""
+
+        return StoreConfig(
+            backend=self.backend,
             uri=self.uri,
             user=self.user,
             password=self.password,
-            database=self.database,
+            name=self.name,
+            admin_uri=self.admin_uri,
+            pool_size=self.pool_size,
         )
 
 
@@ -457,7 +488,7 @@ class RoleSettings:
     auth: AuthSettings | None = None
     storage: StorageSettings | None = None
     temporal: TemporalSettings | None = None
-    neo4j: Neo4jSettings | None = None
+    graph_store: GraphStoreSettings | None = None
     agent_run: AgentRunSettings | None = None
     agent: AgentSettings | None = None
     langfuse: LangfuseSettings | None = None
@@ -522,7 +553,7 @@ class _Bindings:
     auth: AuthSettings | None = None
     storage: StorageSettings | None = None
     temporal: TemporalSettings | None = None
-    neo4j: Neo4jSettings | None = None
+    graph_store: GraphStoreSettings | None = None
     agent_run: AgentRunSettings | None = None
     agent: AgentSettings | None = None
     langfuse: LangfuseSettings | None = None
@@ -546,12 +577,80 @@ def _build_bindings(role: str, source: Mapping[str, str], bad: list[str]) -> _Bi
         if GraphBuildSettings.enabled_in(source):
             found.graph_build = _build(GraphBuildSettings, source, bad)
     if role == "api" or (role == "worker" and "agents" in _worker_queues(source)):
-        found.neo4j = _build(Neo4jSettings, source, bad)
+        found.graph_store = _build_graph_store(source, bad, found.database)
         found.agent_run = _build(AgentRunSettings, source, bad)
         if role == "worker":
             found.agent = _build(AgentSettings, source, bad)
             if not source.get("DATABASE_AGENT_PASSWORD", "").strip():
                 _flag(bad, "DATABASE_AGENT_PASSWORD")
+    return found
+
+
+def _graph_store_value(name: str, env: Mapping[str, str], backend: str) -> tuple[str | None, str]:
+    """The value and the variable it came from: ``name``, else its NEO4J_* alias when the backend is neo4j."""
+
+    if env.get(name, "").strip():
+        return env[name], name
+    alias = NEO4J_ALIASES[name]
+    if backend == "neo4j" and env.get(alias, "").strip():
+        return env[alias], alias
+    # A blank password is a value (the guard refuses it outside local); keep it when the name is set.
+    if name == "GRAPH_STORE_PASSWORD":
+        for candidate in (name, alias if backend == "neo4j" else None):
+            if candidate is not None and candidate in env:
+                return env[candidate], candidate
+    return None, name
+
+
+def _graph_store_variable(name: str, env: Mapping[str, str]) -> str:
+    """The variable to name in a refusal about ``name``: the alias when that is where the value came from."""
+
+    backend = env.get("GRAPH_STORE", "").strip() or DEFAULT_BACKEND
+    return _graph_store_value(name, env, backend)[1]
+
+
+def _build_graph_store(
+    env: Mapping[str, str], bad: list[str], database: DatabaseSettings | None
+) -> GraphStoreSettings | None:
+    """Build the graph store binding.
+
+    ``GRAPH_STORE`` (default neo4j) picks the backend. For neo4j each ``NEO4J_*`` name stands in for its
+    ``GRAPH_STORE_*`` name when that one is unset (``graph.settings.alias_used`` lists the names, once).
+    For postgres an unset ``GRAPH_STORE_URI`` reuses the ``DATABASE_*`` connection (``GRAPH_STORE_NAME`` is
+    the schema, default ``graph``); user and password then default to the app role's.
+    """
+
+    backend = env.get("GRAPH_STORE", "").strip() or DEFAULT_BACKEND
+    if backend not in BACKENDS:
+        _flag(bad, "GRAPH_STORE")
+        return None
+    resolved: dict[str, str] = {"GRAPH_STORE": backend}
+    used: list[str] = []
+    for name in (*NEO4J_ALIASES, "GRAPH_STORE_ADMIN_URI", "GRAPH_STORE_POOL_SIZE"):
+        if name in NEO4J_ALIASES:
+            value, source = _graph_store_value(name, env, backend)
+            if source != name:
+                used.append(source)
+        else:
+            value = env.get(name)
+        if value is not None:
+            resolved[name] = value
+    if "GRAPH_STORE_NAME" not in resolved and backend in GRAPH_STORE_DEFAULT_NAMES:
+        resolved["GRAPH_STORE_NAME"] = GRAPH_STORE_DEFAULT_NAMES[backend]
+    reused = backend == "postgres" and "GRAPH_STORE_URI" not in resolved
+    if reused:
+        if database is None:  # DATABASE_* are already flagged
+            return None
+        resolved["GRAPH_STORE_URI"] = f"postgresql://{database.host}:{database.port}/{database.name}"
+        resolved.setdefault("GRAPH_STORE_USER", database.user)
+        resolved.setdefault("GRAPH_STORE_PASSWORD", database.password.get_secret_value())
+    problems: list[str] = []
+    found = _build(GraphStoreSettings, resolved, problems)
+    for name in problems:
+        # A refusal names the variable the operator set (the alias), else the GRAPH_STORE_* name.
+        _flag(bad, _graph_store_value(name, env, backend)[1] if name in NEO4J_ALIASES else name)
+    if used:
+        log_event(_ALIAS_LOGGER, WARNING, "graph.settings.alias_used", aliases=sorted(used))
     return found
 
 
@@ -603,7 +702,7 @@ def load_settings(
         auth=found.auth,
         storage=found.storage,
         temporal=found.temporal,
-        neo4j=found.neo4j,
+        graph_store=found.graph_store,
         agent_run=found.agent_run,
         agent=found.agent,
         langfuse=found.langfuse,
@@ -641,7 +740,7 @@ def _apply_guards(
     """
 
     database, agent_database, auth, storage = found.database, found.agent_database, found.auth, found.storage
-    neo4j, agent, langfuse, graph_build = found.neo4j, found.agent, found.langfuse, found.graph_build
+    graph_store, agent, langfuse, graph_build = found.graph_store, found.agent, found.langfuse, found.graph_build
     if (
         role == "worker"
         and database is not None
@@ -660,8 +759,8 @@ def _apply_guards(
     if auth is not None:
         _guard_deployed_auth(bad, auth)
     _guard_deployed_storage(bad, storage)
-    if neo4j is not None and not neo4j.password.get_secret_value().strip():
-        _flag(bad, "NEO4J_PASSWORD")
+    if graph_store is not None and not graph_store.password.get_secret_value().strip():
+        _flag(bad, _graph_store_variable("GRAPH_STORE_PASSWORD", env))
     if agent is not None and not agent.llm_gateway_api_key.get_secret_value().strip():
         _flag(bad, "LLM_GATEWAY_API_KEY")
     if graph_build is not None and not graph_build.llm_gateway_api_key.get_secret_value().strip():
