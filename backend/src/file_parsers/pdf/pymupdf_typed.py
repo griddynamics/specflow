@@ -47,6 +47,8 @@ class DocumentView(Protocol):
 
     def __getitem__(self, index: int) -> PageView: ...
 
+    def __len__(self) -> int: ...
+
 
 _open_document = cast(Callable[[Path], AbstractContextManager[DocumentView]], pymupdf.open)
 _open_pixmap = cast(Callable[[str], PixmapView], pymupdf.Pixmap)
@@ -57,6 +59,13 @@ def open_document(path: Path) -> AbstractContextManager[DocumentView]:
     """Open the PDF at ``path`` as a context manager."""
 
     return _open_document(path)
+
+
+def page_count(path: Path) -> int:
+    """Number of pages of the PDF at ``path`` (reads the page tree only)."""
+
+    with _open_document(path) as document:
+        return len(document)
 
 
 def open_pixmap(path: Path) -> PixmapView:

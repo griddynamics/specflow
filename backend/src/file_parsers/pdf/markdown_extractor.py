@@ -12,6 +12,7 @@ No LLM calls happen here.
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, cast
 
@@ -46,18 +47,25 @@ class PdfMarkdownExtractor:
         self.dpi = dpi
         self.min_figure_px = min_figure_px
 
-    def extract(self) -> PDFDocument:
+    def extract(self, page_indexes: Sequence[int] | None = None, *, images: bool = True) -> PDFDocument:
+        """Extract the whole document, or only ``page_indexes`` (zero-based indexes).
+
+        ``images=False`` writes no figure files, so the Markdown carries no figure placeholders.
+        """
+
         self.assets_dir.mkdir(parents=True, exist_ok=True)
+        selection: dict[str, Any] = {} if page_indexes is None else {"pages": list(page_indexes)}
         chunks = cast(
             list[dict[str, Any]],
             pymupdf4llm.to_markdown(
                 str(self.pdf_path),
                 page_chunks=True,
-                write_images=True,
+                write_images=images,
                 image_path=str(self.assets_dir),
                 image_format="png",
                 dpi=self.dpi,
                 table_output="markdown",
+                **selection,
             ),
         )
 

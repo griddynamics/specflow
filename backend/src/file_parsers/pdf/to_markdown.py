@@ -1,40 +1,16 @@
-"""PDF to Markdown (SPECS §8): deterministic parse and render, no LLM, no enrichment."""
+"""Compatibility alias for ``file_parsers.convert`` (S04 switches the callers, S09 removes this)."""
 
 from __future__ import annotations
 
-import tempfile
-from dataclasses import dataclass
 from pathlib import Path
 
-from file_parsers.pdf.parser import PDFParser
+from file_parsers.convert import ParsedMarkdown, PdfParseError, file_to_markdown
+from file_parsers.formats import PDF_MEDIA_TYPE
 
-
-class PdfParseError(Exception):
-    """The file is not a parseable PDF."""
-
-
-@dataclass(frozen=True, slots=True)
-class ParsedMarkdown:
-    markdown: str
-    parser: str = "pymupdf4llm"
+__all__ = ["ParsedMarkdown", "PdfParseError", "pdf_file_to_markdown"]
 
 
 def pdf_file_to_markdown(path: Path) -> ParsedMarkdown:
-    """Parse ``path`` with the shared ``PDFParser`` (``parse`` then ``render``).
+    """``file_to_markdown(path, "application/pdf")``."""
 
-    Figures are written to a temporary directory that is always removed. This is
-    blocking and CPU-bound: call it from a worker thread. Importing this module
-    imports the shared parser, which pulls in the ``anthropic``/LLM client
-    packages; nothing from them is called here.
-    """
-
-    with tempfile.TemporaryDirectory(prefix="specflow-parse-") as tmp:
-        parser = PDFParser(Path(path), Path(tmp))
-        try:
-            parser.parse()
-            markdown = parser.render()
-        except Exception as exc:
-            raise PdfParseError(f"cannot parse PDF: {type(exc).__name__}") from exc
-        finally:
-            parser.stages.finish()
-    return ParsedMarkdown(markdown=markdown)
+    return file_to_markdown(path, PDF_MEDIA_TYPE)

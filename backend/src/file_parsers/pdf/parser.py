@@ -6,8 +6,10 @@ from pathlib import Path
 
 from anthropic import AnthropicError
 
+from file_parsers.engines.port import DocumentEngine
+from file_parsers.engines.pymupdf4llm_engine import PyMuPDF4LLMEngine
+from file_parsers.formats import PDF_MEDIA_TYPE
 from file_parsers.pdf.enricher import DEFAULT_MODEL, PdfFigureEnricher
-from file_parsers.pdf.markdown_extractor import PdfMarkdownExtractor
 from file_parsers.pdf.math_enricher import PdfMathEnricher
 from file_parsers.pdf.mermaid_enricher import PdfMermaidEnricher
 from file_parsers.pdf.renderer import PDFRenderer
@@ -91,7 +93,8 @@ class _StageTracker:
 
 
 class PDFParser:
-    def __init__(self, pdf_path: Path, output_dir: Path) -> None:
+    def __init__(self, pdf_path: Path, output_dir: Path, engine: DocumentEngine | None = None) -> None:
+        self.engine: DocumentEngine = engine if engine is not None else PyMuPDF4LLMEngine()
         self.pdf_path = pdf_path
         self.output_dir = output_dir
         self.assets_dir = output_dir / "images"
@@ -104,8 +107,7 @@ class PDFParser:
 
     def parse(self) -> PDFDocument:
         self.stages.enter("parse")
-        extractor = PdfMarkdownExtractor(self.pdf_path, self.assets_dir)
-        self.document = extractor.extract()
+        self.document = self.engine.extract(self.pdf_path, PDF_MEDIA_TYPE, images=True, assets_dir=self.assets_dir)
         return self.document
 
     def enrich(self, model: str = DEFAULT_MODEL) -> PDFDocument:
