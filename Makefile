@@ -8,9 +8,8 @@ envval = $(shell sed -n 's/^$(1)=//p' "$(ENV_FILE)" 2>/dev/null | tail -n 1 | tr
 FRONTEND_PORT ?= $(or $(call envval,FRONTEND_PORT),3001)
 E2E_BASE_URL ?= $(or $(call envval,E2E_BASE_URL),http://localhost:$(FRONTEND_PORT))
 
-# Optional bundled services (D32): `make up WITH=temporal,langfuse` (either one, or both). `WITH=keycloak`
-# adds the local Keycloak of the MCP QA tiers and switches only `mcp` to `oidc`
-# (docs/mcp-server/deployment.md#local-stack). Without WITH the stack uses your own Temporal
+# Optional bundled services (D32): `make up WITH=temporal,langfuse` (either one, or both). Keycloak is not
+# optional: it is always part of `make up` (docs/mcp-server/deployment.md#local-stack). Without WITH the stack uses your own Temporal
 # (TEMPORAL_ADDRESS, default host.docker.internal:7233 in the containers) and your own Langfuse (LANGFUSE_BASE_URL and keys, empty = no tracing).
 # down, ps and logs always cover every profile, so they act on what `up` started.
 comma := ,
@@ -18,9 +17,9 @@ space := $(empty) $(empty)
 empty :=
 WITH ?=
 WITH_LIST := $(subst $(comma), ,$(WITH))
-BAD_WITH := $(filter-out temporal langfuse keycloak,$(WITH_LIST))
+BAD_WITH := $(filter-out temporal langfuse,$(WITH_LIST))
 ifneq ($(BAD_WITH),)
-$(error WITH accepts temporal, langfuse and keycloak (comma separated), got: $(BAD_WITH))
+$(error WITH accepts temporal and langfuse (comma separated), got: $(BAD_WITH))
 endif
 
 # Local values for the backend run on the host against the local stack (HOST_TARGETS only, so
@@ -57,21 +56,13 @@ COMPOSE_TEMPORAL_ADDRESS := $(if $(filter temporal,$(WITH_LIST)),specflow-tempor
 # host default above (localhost:7233) is NOT passed to the containers.
 LANGFUSE_PUBLIC_KEY_LOCAL = $(or $(call envval,LANGFUSE_PUBLIC_KEY),pk-lf-specflow-local)
 LANGFUSE_SECRET_KEY_LOCAL = $(or $(call envval,LANGFUSE_SECRET_KEY),sk-lf-specflow-local)
-# The mcp service reads its own compose names (MCP_AUTH_MODE, MCP_OIDC_ISSUER, MCP_AUTH_JWKS_URL,
-# MCP_AUTH_DEV_SIGNING_KEY), never the shared AUTH_* and OIDC_* names that api and frontend
-# read (they keep dev login). They are cleared from your shell and set only by WITH=keycloak:
-# plain `make up` always runs mcp in dev mode.
-KEYCLOAK_ISSUER := http://localhost:8180/realms/specflow
-MCP_OIDC_ENV := MCP_AUTH_MODE=oidc MCP_OIDC_ISSUER=$(KEYCLOAK_ISSUER) \
-	MCP_AUTH_JWKS_URL=http://specflow-keycloak:8080/realms/specflow/protocol/openid-connect/certs MCP_AUTH_DEV_SIGNING_KEY=
-COMPOSE_ENV = env -u TEMPORAL_ADDRESS -u MCP_AUTH_MODE -u MCP_OIDC_ISSUER -u MCP_AUTH_JWKS_URL -u MCP_AUTH_DEV_SIGNING_KEY \
-	$(if $(filter keycloak,$(WITH_LIST)),$(MCP_OIDC_ENV)) \
+COMPOSE_ENV = env -u TEMPORAL_ADDRESS \
 	$(if $(COMPOSE_TEMPORAL_ADDRESS),TEMPORAL_ADDRESS=$(COMPOSE_TEMPORAL_ADDRESS)) \
 	$(if $(filter langfuse,$(WITH_LIST)),LANGFUSE_BASE_URL=http://specflow-langfuse-web:3000 LANGFUSE_PUBLIC_KEY=$(LANGFUSE_PUBLIC_KEY_LOCAL) LANGFUSE_SECRET_KEY=$(LANGFUSE_SECRET_KEY_LOCAL)) \
 	$(if $(WITH_LIST),COMPOSE_PROFILES=$(subst $(space),$(comma),$(strip $(WITH_LIST))))
 COMPOSE_BASE := docker compose --env-file $(ENV_FILE) -f docker-compose.yml
 COMPOSE := $(COMPOSE_ENV) $(COMPOSE_BASE)
-COMPOSE_ALL := env COMPOSE_PROFILES=temporal,langfuse,keycloak $(COMPOSE_BASE)
+COMPOSE_ALL := env COMPOSE_PROFILES=temporal,langfuse $(COMPOSE_BASE)
 
 # Static validation kit (validation/README.md): one target per track, `make validate` runs all.
 # Project inputs of each track sit beside the code they describe: backend/ (importlinter.toml,
@@ -97,8 +88,11 @@ BACKEND_TARGETS := setup lint unit-test check \
 $(BACKEND_TARGETS):
 	$(MAKE) --no-print-directory -C backend ENV_FILE=$(ENV_FILE) $@
 
-# Writes the env file with random local secrets (Postgres, Neo4j, dev login and session keys,
-# RustFS keys, local Keycloak), then asks for the LLM settings it cannot generate. Safe to run again
+# Writes the env file with random local secrets (Postgres, Neo4j, session key, RustFS keys, the bundled
+# Keycloak's admin, QA, web-client and personal-user passwords) and a fixed id for the personal user. It asks
+# for your email (LOCAL_TEST_USER_EMAIL; Enter = git user.email; without a terminal dev@example.com), derives
+# AUTH_ALLOWED_EMAIL_DOMAINS from it (your domain and example.com, written only when missing) and asks for the
+# LLM settings it cannot generate. Keycloak imports these values as your sign-in at container creation. Safe to run again
 # after every update: it never overwrites a value and never prints one. A secret that is missing or
 # empty is generated and appended, so a release that adds a secret needs only this command. An LLM
 # setting that is missing or empty is asked for when stdin is a terminal (Enter skips it; the API key
@@ -107,8 +101,12 @@ $(BACKEND_TARGETS):
 # A secret appended to a file whose volumes already hold data does not match them: `make down-volumes`.
 # `make env-local ENV_FILE=/path` writes there instead.
 ENV_LOCAL_NAMES := POSTGRES_ADMIN_PASSWORD DATABASE_PASSWORD DATABASE_AGENT_PASSWORD NEO4J_PASSWORD \
-	AUTH_DEV_SIGNING_KEY SESSION_SECRET RUSTFS_ACCESS_KEY RUSTFS_SECRET_KEY \
-	KEYCLOAK_ADMIN_PASSWORD KEYCLOAK_QA_PASSWORD KEYCLOAK_WEB_CLIENT_SECRET
+	SESSION_SECRET RUSTFS_ACCESS_KEY RUSTFS_SECRET_KEY \
+	KEYCLOAK_ADMIN_PASSWORD KEYCLOAK_QA_PASSWORD KEYCLOAK_WEB_CLIENT_SECRET \
+	LOCAL_TEST_USER_PASSWORD LOCAL_TEST_USER_ID
+# The names `make up` needs in the env file (the Keycloak realm is imported from them).
+KEYCLOAK_ENV_NAMES := KEYCLOAK_ADMIN_PASSWORD KEYCLOAK_QA_PASSWORD KEYCLOAK_WEB_CLIENT_SECRET \
+	LOCAL_TEST_USER_EMAIL LOCAL_TEST_USER_PASSWORD LOCAL_TEST_USER_ID
 ENV_LOCAL_INPUT_NAMES := AGENT_MODEL LLM_GATEWAY_URL LLM_GATEWAY_API_KEY
 
 env-local:
@@ -116,6 +114,19 @@ env-local:
 	f="$(ENV_FILE)"; umask 077; \
 	val() { sed -n "s/^$$1=//p" "$$f" | tail -n 1 | tr -d "\"' \r"; }; \
 	nl() { if [ -s "$$f" ] && [ -n "$$(tail -c 1 "$$f")" ]; then echo >> "$$f"; fi; }; \
+	email_ok() { \
+		case "$$1" in *@*) ;; *) return 1;; esac; \
+		case "$$1" in *[!A-Za-z0-9._:/@+=-]*|@*|*@|*@*@*) return 1;; esac; \
+		case "$${1#*@}" in .*|*.|*..*) return 1;; *.*) ;; *) return 1;; esac; \
+		case "$$1" in alice@example.com|bob@example.com|carol@other.example) return 1;; esac; \
+	}; \
+	gen() { \
+		case $$1 in \
+			RUSTFS_ACCESS_KEY) openssl rand -hex 10;; \
+			LOCAL_TEST_USER_ID) openssl rand -hex 16 | sed -E 's/^(.{8})(.{4})(.{4})(.{4})(.{12})$$/\1-\2-\3-\4-\5/';; \
+			*) openssl rand -hex 32;; \
+		esac; \
+	}; \
 	put() { \
 		if grep -q "^$$1=" "$$f"; then t="$$f.tmp.$$$$"; grep -v "^$$1=" "$$f" > "$$t" || :; cat "$$t" > "$$f"; rm -f "$$t"; fi; \
 		nl; printf '%s=%s\n' "$$1" "$$2" >> "$$f"; \
@@ -123,8 +134,7 @@ env-local:
 	if [ ! -e "$$f" ]; then \
 		tmp="$$f.tmp.$$$$"; : > "$$tmp"; \
 		for name in $(ENV_LOCAL_NAMES); do \
-			case $$name in RUSTFS_ACCESS_KEY) bytes=10;; *) bytes=32;; esac; \
-			printf '%s=%s\n' "$$name" "$$(openssl rand -hex $$bytes)" >> "$$tmp"; \
+			printf '%s=%s\n' "$$name" "$$(gen $$name)" >> "$$tmp"; \
 		done; \
 		if ln "$$tmp" "$$f" 2>/dev/null; then echo "env-local: wrote $$f ($(ENV_LOCAL_NAMES))"; fi; \
 		rm -f "$$tmp"; \
@@ -132,9 +142,36 @@ env-local:
 	added=""; \
 	for name in $(ENV_LOCAL_NAMES); do \
 		[ -n "$$(val $$name)" ] && continue; \
-		case $$name in RUSTFS_ACCESS_KEY) bytes=10;; *) bytes=32;; esac; \
-		put "$$name" "$$(openssl rand -hex $$bytes)"; added="$$added $$name"; \
+		put "$$name" "$$(gen $$name)"; added="$$added $$name"; \
 	done; \
+	if [ -z "$$(val LOCAL_TEST_USER_EMAIL)" ]; then \
+		email=""; gitmail="$$(git config user.email 2>/dev/null | tr 'A-Z' 'a-z' | tr -d ' \r')"; \
+		if [ -t 0 ]; then \
+			tries=0; \
+			while [ -z "$$email" ] && [ $$tries -lt 3 ]; do \
+				printf 'env-local: LOCAL_TEST_USER_EMAIL (Enter = %s): ' "$${gitmail:-no default}" >&2; \
+				IFS= read -r answer || answer=""; \
+				answer="$$(printf '%s' "$${answer:-$$gitmail}" | tr 'A-Z' 'a-z' | tr -d ' \r')"; \
+				if email_ok "$$answer"; then email="$$answer"; \
+				else echo "env-local: not usable as your sign-in email (one @, a dotted domain, characters A-Za-z0-9._:/@+=-, not a QA user)" >&2; fi; \
+				tries=$$((tries + 1)); \
+			done; \
+		fi; \
+		if [ -z "$$email" ]; then email=dev@example.com; [ ! -t 0 ] || echo "env-local: no usable email given, using $$email" >&2; fi; \
+		put LOCAL_TEST_USER_EMAIL "$$email"; added="$$added LOCAL_TEST_USER_EMAIL"; \
+	fi; \
+	domain="$$(val LOCAL_TEST_USER_EMAIL | tr 'A-Z' 'a-z')"; domain="$${domain#*@}"; \
+	domains="$$(val AUTH_ALLOWED_EMAIL_DOMAINS)"; \
+	if [ -z "$$domains" ] && [ -n "$$domain" ]; then \
+		if [ "$$domain" = example.com ]; then want=example.com; else want="$$domain,example.com"; fi; \
+		put AUTH_ALLOWED_EMAIL_DOMAINS "$$want"; added="$$added AUTH_ALLOWED_EMAIL_DOMAINS"; \
+	elif [ -n "$$domain" ]; then \
+		lacks=""; \
+		for d in $$(printf '%s\n' "$$domain" example.com | sort -u); do \
+			case ",$$(printf '%s' "$$domains" | tr 'A-Z' 'a-z')," in *",$$d,"*) ;; *) lacks="$$lacks $$d";; esac; \
+		done; \
+		[ -z "$$lacks" ] || echo "env-local: AUTH_ALLOWED_EMAIL_DOMAINS in $$f lacks$$lacks; sign-in of those users is refused (domain_not_allowed)" >&2; \
+	fi; \
 	[ -z "$$added" ] || echo "env-local: appended$$added to $$f"; \
 	set=""; missing=""; \
 	for name in $(ENV_LOCAL_INPUT_NAMES); do \
@@ -164,15 +201,18 @@ env-local:
 	[ -z "$$missing" ] || echo "env-local: add$$missing to $$f (docs/configuration.md)"; \
 	[ -n "$$added$$set$$missing" ] || echo "env-local: $$f is complete, left unchanged"
 
-# `WITH=keycloak` needs a non-empty KEYCLOAK_ADMIN_PASSWORD (compose defaults it to empty so that
-# other profiles still start). Names only, never the value; `make env-local` adds it.
+# `make up` stops here, before compose, when the env file lacks a name the Keycloak realm is imported from
+# (compose defaults them to empty so that other commands still work). Names only, never a value.
 check-keycloak-env:
-	@$(if $(filter keycloak,$(WITH_LIST)),$(if $(call envval,KEYCLOAK_ADMIN_PASSWORD),:,echo "up: WITH=keycloak needs KEYCLOAK_ADMIN_PASSWORD in $(ENV_FILE); run make env-local" >&2; exit 1),:)
+	@missing=""; \
+	for name in $(KEYCLOAK_ENV_NAMES); do \
+		[ -n "$$(sed -n "s/^$$name=//p" "$(ENV_FILE)" 2>/dev/null | tail -n 1 | tr -d "\"' \r")" ] || missing="$$missing $$name"; \
+	done; \
+	[ -z "$$missing" ] || { echo "up: $(ENV_FILE) lacks$$missing; run make env-local" >&2; exit 1; }
 
 # Build and start the stack and wait until all services are healthy: postgres, neo4j, rustfs,
-# rustfs-init, api, mcp (dev mode), worker-parse, worker-agents, frontend. `WITH=temporal,langfuse`
-# adds the bundled Temporal and Langfuse, `WITH=keycloak` the local Keycloak and switches mcp to
-# oidc against it. Logs are JSON on stdout only (`make logs`).
+# rustfs-init, keycloak (the realm is imported from the env file), api, mcp, worker-parse, worker-agents, frontend.
+# `WITH=temporal,langfuse` adds the bundled Temporal and Langfuse. Logs are JSON on stdout only (`make logs`).
 up: check-keycloak-env
 	$(COMPOSE) up -d --build --wait --wait-timeout 600
 
@@ -225,7 +265,7 @@ frontend-build:
 
 # Playwright against the running stack (the live pack: needs `make up` and spends model budget, so CI never runs it).
 e2e:
-	E2E_BASE_URL=$(E2E_BASE_URL) npm --prefix frontend run e2e
+	E2E_BASE_URL=$(E2E_BASE_URL) E2E_ENV_FILE=$(ENV_FILE) npm --prefix frontend run e2e
 
 # The offline browser pack, as the e2e-production job of .github/workflows/validate.yaml runs it: against
 # the BUILT app (`make frontend-build` first) and a stub API, never the real backend. SHARD=i/N runs one shard

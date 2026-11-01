@@ -42,7 +42,7 @@ SETTINGS_CLASSES = (
 ROOT = Path(__file__).resolve().parents[2]
 DOC = (ROOT / "docs" / "configuration.md").read_text()
 
-# SPL-ENV-01: the 23 required and 10 optional keys, nothing else.
+# SPL-ENV-01: the 23 required, 15 optional and 6 local-stack keys, nothing else.
 REQUIRED_KEYS = frozenset(
     {
         "APP_ENV",
@@ -82,6 +82,22 @@ OPTIONAL_KEYS = frozenset(
         "LANGFUSE_BASE_URL",
         "LANGFUSE_PUBLIC_KEY",
         "LANGFUSE_SECRET_KEY",
+        "OIDC_INTERNAL_URL",
+        "AUTH_JWKS_URL",
+        "MCP_PUBLIC_URL",
+        "MCP_CLIENT_ID",
+        "MCP_SERVER_NAME",
+    }
+)
+# Names only the local stack reads (`make env-local` writes them, docker-compose.yml and the Keycloak realm use them).
+STACK_KEYS = frozenset(
+    {
+        "LOCAL_TEST_USER_EMAIL",
+        "LOCAL_TEST_USER_PASSWORD",
+        "LOCAL_TEST_USER_ID",
+        "KEYCLOAK_ADMIN_PASSWORD",
+        "KEYCLOAK_QA_PASSWORD",
+        "KEYCLOAK_WEB_CLIENT_SECRET",
     }
 )
 
@@ -133,9 +149,16 @@ def _env_names_read_in_code() -> set[str]:
 
 
 def test_the_env_template_has_exactly_the_documented_keys():
-    assert set(example_entries()) == REQUIRED_KEYS | OPTIONAL_KEYS
+    assert set(example_entries()) == REQUIRED_KEYS | OPTIONAL_KEYS | STACK_KEYS
     assert len(REQUIRED_KEYS) == 23
-    assert len(OPTIONAL_KEYS) == 10
+    assert len(OPTIONAL_KEYS) == 15
+    assert len(STACK_KEYS) == 6
+
+
+def test_every_local_stack_key_is_used_by_the_compose_file():
+    compose = (ROOT / "docker-compose.yml").read_text()
+
+    assert sorted(name for name in STACK_KEYS if name not in compose) == []
 
 
 def test_every_key_of_the_env_template_is_a_known_setting():

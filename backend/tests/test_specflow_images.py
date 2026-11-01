@@ -76,6 +76,8 @@ LOCAL_PLATFORM = {
     "langfuse-web",
 }
 BACKEND_SERVICES = ("api", "worker-parse", "worker-agents")
+KEYCLOAK_ISSUER = "http://localhost:8180/realms/specflow"
+KEYCLOAK_JWKS_URL = "http://specflow-keycloak:8080/realms/specflow/protocol/openid-connect/certs"
 MCP_SERVICE = "mcp"  # the api image with `specflow mcp`; no Temporal, storage or LLM variables
 
 images_enabled = os.environ.get("SPECFLOW_TEST_IMAGES") == "1"
@@ -152,6 +154,7 @@ def test_the_file_uses_no_anchors_merge_keys_or_extension_fields():
 DEFAULT_SERVICES = {
     "postgres",
     "neo4j",
+    "keycloak",
     "rustfs",
     "rustfs-init",
     "api",
@@ -163,15 +166,15 @@ DEFAULT_SERVICES = {
 LANGFUSE_SERVICES = {f"langfuse-{n}" for n in ("postgres", "clickhouse", "redis", "minio", "worker", "web")}
 
 
-def test_temporal_langfuse_and_keycloak_are_optional_profiles():
-    """D32: the default stack starts no Temporal, Langfuse or Keycloak; WITH=... turns them on."""
+def test_temporal_and_langfuse_are_optional_profiles_and_keycloak_is_always_started():
+    """D32: the default stack starts no Temporal or Langfuse (WITH=... turns them on); Keycloak has no profile."""
 
     svcs = services()
     by_profile = {}
     for name, svc in svcs.items():
         for profile in svc.get("profiles", []):
             by_profile.setdefault(profile, set()).add(name)
-    assert by_profile == {"temporal": {"temporal"}, "langfuse": LANGFUSE_SERVICES, "keycloak": {"keycloak"}}
+    assert by_profile == {"temporal": {"temporal"}, "langfuse": LANGFUSE_SERVICES}
     assert {n for n, svc in svcs.items() if "profiles" not in svc} == DEFAULT_SERVICES
 
 
@@ -190,21 +193,12 @@ def test_the_app_reaches_an_external_temporal_and_langfuse_by_default():
 
 def test_make_up_with_selects_the_profiles_and_points_the_app_at_them():
     makefile = (ROOT / "Makefile").read_text()
-    assert "COMPOSE_PROFILES=temporal,langfuse,keycloak" in makefile  # down, ps, logs cover every profile
-    for needle in (
-        "MCP_AUTH_MODE=oidc",
-        "MCP_OIDC_ISSUER=$(KEYCLOAK_ISSUER)",
-        "KEYCLOAK_ISSUER := http://localhost:8180/realms/specflow",
-        "specflow-keycloak:8080/realms/specflow/protocol/openid-connect/certs",
-        "-u MCP_AUTH_MODE",
-        "-u MCP_OIDC_ISSUER",
-        "-u MCP_AUTH_JWKS_URL",
-        "-u MCP_AUTH_DEV_SIGNING_KEY",
-    ):
-        assert needle in makefile, needle
-    assert re.search(r"MCP_AUTH_DEV_SIGNING_KEY=(\s|$)", makefile, re.MULTILINE)  # an empty dev key under oidc
-    # The shared names are never assigned: api and frontend read them too and would leave dev login.
-    assert not re.search(r"(?<![A-Z_])(AUTH_MODE|OIDC_ISSUER|AUTH_JWKS_URL|AUTH_DEV_SIGNING_KEY)=", makefile)
+    assert "COMPOSE_PROFILES=temporal,langfuse $(COMPOSE_BASE)" in makefile  # down, ps, logs cover every profile
+    assert "keycloak" not in re.search(r"^BAD_WITH :=.*$", makefile, re.MULTILINE).group(0)  # WITH=keycloak is refused
+    assert "WITH accepts temporal and langfuse" in makefile
+    # Local sign-in is always Keycloak: no override block, no names make assigns for the services.
+    assert not re.search(r"MCP_OIDC_ENV|KEYCLOAK_ISSUER|-u MCP_|MCP_AUTH_|AUTH_DEV_SIGNING_KEY|AUTH_MODE", makefile)
+    assert not re.search(r"(?<![A-Z_])(OIDC_ISSUER|AUTH_JWKS_URL)=", makefile)
     assert "specflow-temporal:7233" in makefile
     assert "LANGFUSE_BASE_URL=http://specflow-langfuse-web:3000" in makefile
     recipe_uses_all_profiles = r"^{}:.*\n(?:\t@?if[^\n]*\n(?:\t[^\n]*\n)*?)?\t[^\n]*\$\(COMPOSE_ALL\)"
@@ -268,9 +262,14 @@ def test_secret_variables_reach_only_their_roles():
     assert holders("NEO4J_PASSWORD") == {"api", "worker-agents", "mcp"}
     assert holders("DATABASE_PASSWORD") == {"postgres", "api", "worker-parse", "worker-agents", "mcp"}
     assert holders("POSTGRES_PASSWORD") == {"postgres", "langfuse-postgres"}  # the latter is its own store
-    assert holders("AUTH_DEV_SIGNING_KEY") == {"api", "frontend", "mcp"}
+    assert holders("AUTH_DEV_SIGNING_KEY") == set()
+    assert holders("AUTH_MODE") == set()
     assert holders("KC_BOOTSTRAP_ADMIN_PASSWORD") == {"keycloak"}
-    allowed = {"SESSION_SECRET", "OIDC_CLIENT_SECRET", "AUTH_DEV_SIGNING_KEY"}
+    assert holders("KEYCLOAK_WEB_CLIENT_SECRET") == {"keycloak"}
+    assert holders("OIDC_CLIENT_SECRET") == {"frontend"}
+    assert holders("KEYCLOAK_QA_PASSWORD") == {"keycloak"}
+    assert holders("LOCAL_TEST_USER_PASSWORD") == {"keycloak"}
+    allowed = {"SESSION_SECRET", "OIDC_CLIENT_SECRET"}
     secrets = {
         var for var in names["frontend"] if re.search(r"(PASSWORD|SECRET|API_KEY|SIGNING_KEY|PUBLIC_KEY|TLS_KEY)$", var)
     }
@@ -336,8 +335,8 @@ def test_rustfs_is_pinned_needs_both_keys_and_has_a_one_shot_bucket_init():
     assert env_of(init)["INIT_BUCKET"] == "specflow-local"
 
 
-def test_the_mcp_role_runs_the_api_image_in_dev_mode_unless_make_switches_it():
-    """FR-MCP-OPS-08: dev mode by default; WITH=keycloak sets the MCP_* names, only this service changes."""
+def test_the_mcp_role_runs_the_api_image_against_the_bundled_keycloak():
+    """FR-MCP-OPS-08: the same image as the api, token checks against the local Keycloak by literals."""
 
     svcs = services()
     svc = svcs[MCP_SERVICE]
@@ -353,12 +352,10 @@ def test_the_mcp_role_runs_the_api_image_in_dev_mode_unless_make_switches_it():
     assert env["MCP_RESOURCE_URL"] == f"http://localhost:{port}/mcp"
     assert env["DATABASE_HOST"] == "specflow-postgres"
     assert env["NEO4J_URI"] == "bolt://specflow-neo4j:7687"
-    assert env["AUTH_MODE"] == "${MCP_AUTH_MODE:-dev}"
-    # Set-but-empty wins. The repo has no compose-interpolation renderer for unit tests (and `make check` takes no
-    # docker dependency), so unset/empty/set rendering is proven by the recorded stack evidence (06-handoff.md).
-    assert env["AUTH_DEV_SIGNING_KEY"] == "${MCP_AUTH_DEV_SIGNING_KEY-${AUTH_DEV_SIGNING_KEY:-}}"
-    assert env["OIDC_ISSUER"] == "${MCP_OIDC_ISSUER:-}"
-    assert env["AUTH_JWKS_URL"] == "${MCP_AUTH_JWKS_URL:-}"
+    assert env["OIDC_ISSUER"] == KEYCLOAK_ISSUER
+    assert env["AUTH_JWKS_URL"] == KEYCLOAK_JWKS_URL
+    assert env["AUTH_ALLOWED_EMAIL_DOMAINS"] == "${AUTH_ALLOWED_EMAIL_DOMAINS:-example.com}"
+    assert not {"AUTH_MODE", "AUTH_DEV_SIGNING_KEY"} & set(env)
     prefixes = ("TEMPORAL_", "AWS_", "LLM_", "LANGFUSE_", "GRAPH_", "AGENT_", "DATABASE_AGENT_")
     assert [key for key in env if key.startswith(prefixes) or key == "SPECFLOW_CONFIG_FILE"] == []
     claims = {"AUTH_SUBJECT_CLAIM", "AUTH_CLIENT_ID_CLAIM", "AUTH_EMAIL_CLAIM", "AUTH_EMAIL_VERIFIED_CLAIM"}
@@ -371,16 +368,36 @@ def test_the_mcp_role_runs_the_api_image_in_dev_mode_unless_make_switches_it():
     assert [name for name, other in svcs.items() if claims & set(env_of(other))] == []
     assert sorted(key for key, value in env.items() if ":?" in str(value)) == ["DATABASE_PASSWORD", "NEO4J_PASSWORD"]
     for name in ("api", "frontend"):
-        assert env_of(svcs[name])["AUTH_MODE"] == "${AUTH_MODE:-dev}", name  # the web app and the API keep dev login
+        assert not {"AUTH_MODE", "AUTH_DEV_SIGNING_KEY"} & set(env_of(svcs[name])), name
 
 
-def test_keycloak_is_pinned_optional_and_imports_the_realm_read_only():
-    """Local OIDC provider of the MCP QA tiers: digest-pinned, realm file mounted read-only, no secret in compose."""
+def test_api_and_frontend_are_wired_to_keycloak_by_config_only():
+    """SPECS 4.1: literals for the issuer and client, the web secret from the Keycloak name, a local server name."""
+
+    svcs = services()
+    for name in ("api", MCP_SERVICE):
+        env = env_of(svcs[name])
+        assert env["OIDC_ISSUER"] == KEYCLOAK_ISSUER, name
+        assert env["AUTH_JWKS_URL"] == KEYCLOAK_JWKS_URL, name
+    frontend = env_of(svcs["frontend"])
+    assert frontend["OIDC_ISSUER"] == KEYCLOAK_ISSUER
+    assert frontend["OIDC_INTERNAL_URL"] == "http://specflow-keycloak:8080/realms/specflow"
+    assert frontend["OIDC_CLIENT_ID"] == "specflow-web"
+    assert frontend["OIDC_CLIENT_SECRET"] == "${KEYCLOAK_WEB_CLIENT_SECRET:-}"
+    assert frontend["MCP_SERVER_NAME"] == "${MCP_SERVER_NAME:-specflow-local}"
+    assert "LOCAL_TEST_USER_EMAIL" not in frontend
+    text = COMPOSE.read_text()
+    assert not re.search(r"AUTH_MODE|AUTH_DEV_SIGNING_KEY|MCP_AUTH_|MCP_OIDC_", text)
+
+
+def test_keycloak_is_pinned_always_started_and_imports_the_realm_read_only():
+    """Local OIDC provider: digest-pinned, no profile, no data volume, realm file mounted read-only, no literal secret."""
 
     svc = services()["keycloak"]
     assert re.fullmatch(r"quay\.io/keycloak/keycloak:26\.4\.\d+@sha256:[0-9a-f]{64}", svc["image"])
     assert svc["command"] == ["start-dev", "--import-realm"]
-    assert svc["volumes"] == ["./config/keycloak:/opt/keycloak/data/import:ro"]
+    assert svc["volumes"] == ["./config/keycloak:/opt/keycloak/data/import:ro"]  # no data volume: a recreate re-imports
+    assert "profiles" not in svc
     assert "healthcheck" in svc
     env = env_of(svc)
     admin = [value for key, value in env.items() if key.endswith("_ADMIN_PASSWORD")]
@@ -389,9 +406,16 @@ def test_keycloak_is_pinned_optional_and_imports_the_realm_read_only():
     assert env["KC_HEALTH_ENABLED"] == "true"
     assert not any(":?" in str(value) for value in env.values())  # a required variable breaks older .env.local files
     assert "read_only" not in svc  # start-dev writes its H2 data under /opt/keycloak/data
-    compose = (ROOT / "docker-compose.yml").read_text()
-    assert "KEYCLOAK_QA_PASSWORD" not in compose
-    assert "KEYCLOAK_WEB_CLIENT_SECRET" not in compose
+    for name in (
+        "KEYCLOAK_WEB_CLIENT_SECRET",
+        "KEYCLOAK_QA_PASSWORD",
+        "LOCAL_TEST_USER_EMAIL",
+        "LOCAL_TEST_USER_PASSWORD",
+        "LOCAL_TEST_USER_ID",
+    ):
+        assert env[name] == f"${{{name}:-}}", name  # realm placeholders, empty fallback
+    assert env["SPECFLOW_WEB_URL"] == "${PUBLIC_URL:-http://localhost:3001}"
+    assert env["SPECFLOW_WEB_URL"].split(":-", 1) == env_of(services()["frontend"])["PUBLIC_URL"].split(":-", 1)
     assert (ROOT / "config/keycloak/specflow-realm.json").is_file()
 
 
@@ -416,6 +440,7 @@ def test_the_start_order_follows_the_blueprint():
     assert svcs["api"]["depends_on"] == {
         "postgres": {"condition": "service_healthy"},
         "neo4j": {"condition": "service_healthy"},
+        "keycloak": {"condition": "service_healthy"},
         # Present only when the temporal / langfuse profile is on.
         "temporal": {"condition": "service_healthy", "required": False},
         "langfuse-web": {"condition": "service_healthy", "required": False},
@@ -426,9 +451,9 @@ def test_the_start_order_follows_the_blueprint():
             "api": {"condition": "service_healthy"},
             "rustfs-init": {"condition": "service_completed_successfully"},
         }, name
-    assert svcs["frontend"]["depends_on"] == {"api": {"condition": "service_healthy"}}
-    healthy = {"condition": "service_healthy"}  # api has migrated; no keycloak (JWKS on first request)
-    assert svcs[MCP_SERVICE]["depends_on"] == {"postgres": healthy, "neo4j": healthy, "api": healthy}
+    healthy = {"condition": "service_healthy"}  # api has migrated; keycloak holds the realm they check tokens against
+    assert svcs["frontend"]["depends_on"] == {"api": healthy, "keycloak": healthy}
+    assert svcs[MCP_SERVICE]["depends_on"] == {"postgres": healthy, "neo4j": healthy, "api": healthy, "keycloak": healthy}
 
 
 def test_each_worker_polls_one_queue_and_drains_on_stop():
@@ -756,20 +781,24 @@ async def test_ac_4_2_rss_for_100_mib_with_four_mib_chunks_against_a_fake_transp
     assert growth < 64, f"RSS grew {growth:.1f} MiB for 100 MiB (limit 64)"
 
 
-# --- SEC-M8-2: `make up WITH=keycloak` refuses an env file without the admin password ---------
+# --- `make up` refuses an env file without the Keycloak and personal-user names ---------------
+
+KEYCLOAK_NAMES = (
+    "KEYCLOAK_ADMIN_PASSWORD",
+    "KEYCLOAK_QA_PASSWORD",
+    "KEYCLOAK_WEB_CLIENT_SECRET",
+    "LOCAL_TEST_USER_EMAIL",
+    "LOCAL_TEST_USER_PASSWORD",
+    "LOCAL_TEST_USER_ID",
+)
+SYNTHETIC = "synthetic-not-a-secret"
 
 
-def _keycloak_check(tmp_path: Path, env_text: str, *, with_: str = "keycloak") -> subprocess.CompletedProcess[str]:
+def _make(tmp_path: Path, env_text: str, *args: str) -> subprocess.CompletedProcess[str]:
     env_file = tmp_path / "scratch.env"
     env_file.write_text(env_text)  # synthetic values only
     return subprocess.run(
-        [
-            shutil.which("make") or "make",
-            "--no-print-directory",
-            "check-keycloak-env",
-            f"WITH={with_}",
-            f"ENV_FILE={env_file}",
-        ],
+        [shutil.which("make") or "make", "--no-print-directory", *args, f"ENV_FILE={env_file}"],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -777,26 +806,62 @@ def _keycloak_check(tmp_path: Path, env_text: str, *, with_: str = "keycloak") -
     )
 
 
-@pytest.mark.parametrize(
-    "env_text", ["OTHER=1\n", "OTHER=1\nKEYCLOAK_ADMIN_PASSWORD=\n", 'KEYCLOAK_ADMIN_PASSWORD=""\n']
-)
-def test_up_with_keycloak_fails_early_without_the_admin_password(tmp_path, env_text):
-    result = _keycloak_check(tmp_path, env_text)
+def _keycloak_check(tmp_path: Path, env_text: str, *extra: str) -> subprocess.CompletedProcess[str]:
+    return _make(tmp_path, env_text, "check-keycloak-env", *extra)
+
+
+def _env_with(**overrides: str | None) -> str:
+    values = {name: SYNTHETIC for name in KEYCLOAK_NAMES} | overrides
+    return "".join(f"{name}={value}\n" for name, value in values.items() if value is not None)
+
+
+@pytest.mark.parametrize("missing", KEYCLOAK_NAMES)
+@pytest.mark.parametrize("form", ["absent", "empty", "quoted-empty"])
+def test_up_fails_early_naming_the_missing_keycloak_name(tmp_path, missing, form):
+    value = {"absent": None, "empty": "", "quoted-empty": '""'}[form]
+    result = _keycloak_check(tmp_path, "OTHER=1\n" + _env_with(**{missing: value}))
+
     assert result.returncode != 0
-    assert "KEYCLOAK_ADMIN_PASSWORD" in result.stderr and "make env-local" in result.stderr
+    assert [line for line in result.stderr.splitlines() if line.startswith("up:")] == [result.stderr.splitlines()[0]]
+    assert f"lacks {missing};" in result.stderr and "make env-local" in result.stderr
+    assert SYNTHETIC not in result.stdout + result.stderr
 
 
-def test_up_with_keycloak_passes_the_check_with_the_admin_password_and_never_prints_it(tmp_path):
-    result = _keycloak_check(tmp_path, "KEYCLOAK_ADMIN_PASSWORD=synthetic-not-a-secret\n")
+def test_up_names_every_missing_name_in_one_line(tmp_path):
+    result = _keycloak_check(tmp_path, "OTHER=1\n")
+
+    assert result.returncode != 0 and result.stderr.splitlines()[0].startswith("up: ")
+    assert all(name in result.stderr for name in KEYCLOAK_NAMES)
+
+
+@pytest.mark.parametrize("with_", [[], ["WITH=temporal,langfuse"]])
+def test_up_passes_the_check_with_every_name_and_never_prints_a_value(tmp_path, with_):
+    result = _keycloak_check(tmp_path, _env_with(), *with_)
+
     assert result.returncode == 0
-    assert "synthetic-not-a-secret" not in result.stdout + result.stderr
+    assert SYNTHETIC not in result.stdout + result.stderr
 
 
-@pytest.mark.parametrize("with_", ["", "temporal,langfuse"])
-def test_other_profiles_do_not_need_the_keycloak_admin_password(tmp_path, with_):
-    assert _keycloak_check(tmp_path, "OTHER=1\n", with_=with_).returncode == 0
+def test_up_without_with_still_needs_the_keycloak_names(tmp_path):
+    """The check is unconditional: no WITH value skips it."""
+
+    assert _keycloak_check(tmp_path, "OTHER=1\n", "WITH=").returncode != 0
+    assert _keycloak_check(tmp_path, "OTHER=1\n", "WITH=temporal").returncode != 0
 
 
-def test_up_depends_on_the_keycloak_check_and_compose_keeps_the_empty_default():
+def test_with_keycloak_is_refused(tmp_path):
+    result = _make(tmp_path, _env_with(), "check-keycloak-env", "WITH=keycloak")
+
+    assert result.returncode != 0
+    assert "WITH accepts temporal and langfuse" in result.stderr and "keycloak" in result.stderr
+
+
+def test_up_depends_on_the_keycloak_check_and_compose_keeps_the_empty_defaults():
     assert re.search(r"^up: .*check-keycloak-env", (ROOT / "Makefile").read_text(), re.MULTILINE)
     assert "${KEYCLOAK_ADMIN_PASSWORD:-}" in COMPOSE.read_text()
+
+
+def test_the_e2e_recipe_passes_the_env_file_to_the_live_pack():
+    makefile = (ROOT / "Makefile").read_text()
+
+    assert re.search(r"^e2e:\n\tE2E_BASE_URL=\$\(E2E_BASE_URL\) E2E_ENV_FILE=\$\(ENV_FILE\) ", makefile, re.MULTILINE)

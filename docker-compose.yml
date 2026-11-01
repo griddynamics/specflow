@@ -292,15 +292,15 @@ services:
       rustfs:
         condition: service_healthy
 
-  # Local only (profile keycloak, `make up WITH=keycloak`): OIDC provider for the MCP sign-in flow and the MCP QA
-  # tiers (docs/mcp-server/deployment.md#local-stack). Pinned by digest. start-dev keeps its data (H2) inside the
-  # container, so it is not read_only: the realm file is imported only while the realm is absent, and
-  # `examples/mcp_qa.py seed` re-creates users and the specflow-web secret after every recreate. Variables fall back
-  # to empty, never ${...:?}: a required one would fail every compose command on an older .env.local.
+  # Local OIDC provider for every service and test suite (docs/mcp-server/deployment.md#local-stack). Always part of
+  # `make up`, pinned by digest. No data volume: start-dev keeps its H2 data inside the container, so it is not
+  # read_only, and a recreate imports the realm again from the template (config/keycloak/specflow-realm.json) with the
+  # ${NAME} values below, which `make env-local` generated. Users and their ids stay the same across a recreate; sessions
+  # and the Claude Code sign-in reset. No seed step. Variables fall back to empty, never ${...:?}: a required one would
+  # fail every compose command on an older .env.local; `make up` checks them first (check-keycloak-env).
   keycloak:
     image: quay.io/keycloak/keycloak:26.4.7@sha256:9409c59bdfb65dbffa20b11e6f18b8abb9281d480c7ca402f51ed3d5977e6007
     container_name: specflow-keycloak
-    profiles: ["keycloak"]
     mem_limit: 1g
     command: ["start-dev", "--import-realm"]
     ports:
@@ -310,6 +310,13 @@ services:
       KC_BOOTSTRAP_ADMIN_PASSWORD: "${KEYCLOAK_ADMIN_PASSWORD:-}"
       KC_HOSTNAME: "http://localhost:8180"
       KC_HEALTH_ENABLED: "true"
+      # Realm template placeholders (imported at container creation).
+      KEYCLOAK_WEB_CLIENT_SECRET: "${KEYCLOAK_WEB_CLIENT_SECRET:-}"
+      KEYCLOAK_QA_PASSWORD: "${KEYCLOAK_QA_PASSWORD:-}"
+      LOCAL_TEST_USER_EMAIL: "${LOCAL_TEST_USER_EMAIL:-}"
+      LOCAL_TEST_USER_PASSWORD: "${LOCAL_TEST_USER_PASSWORD:-}"
+      LOCAL_TEST_USER_ID: "${LOCAL_TEST_USER_ID:-}"
+      SPECFLOW_WEB_URL: "${PUBLIC_URL:-http://localhost:3001}"   # the web app's address, as the frontend's PUBLIC_URL
     volumes:
       - ./config/keycloak:/opt/keycloak/data/import:ro
     healthcheck:
@@ -347,13 +354,11 @@ services:
       DATABASE_USER: "specflow"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:?set DATABASE_PASSWORD in .env.local}"
       DATABASE_AGENT_USER: "specflow_agent"
-      AUTH_MODE: "${AUTH_MODE:-dev}"
-      AUTH_DEV_SIGNING_KEY: "${AUTH_DEV_SIGNING_KEY:-}"   # local only: dev login
-      OIDC_ISSUER: "${OIDC_ISSUER:-}"
-      AUTH_JWKS_URL: "${AUTH_JWKS_URL:-}"
+      OIDC_ISSUER: "http://localhost:8180/realms/specflow"   # local only: the bundled Keycloak (public issuer)
+      AUTH_JWKS_URL: "http://specflow-keycloak:8080/realms/specflow/protocol/openid-connect/certs"
       AUTH_API_AUDIENCE: "${AUTH_API_AUDIENCE:-}"
       AUTH_API_CLIENT_IDS: "${AUTH_API_CLIENT_IDS:-}"
-      AUTH_ALLOWED_EMAIL_DOMAINS: "${AUTH_ALLOWED_EMAIL_DOMAINS:-example.com}"   # local only: matches the dev login user
+      AUTH_ALLOWED_EMAIL_DOMAINS: "${AUTH_ALLOWED_EMAIL_DOMAINS:-example.com}"   # local only: QA users (example.com) + your domain (make env-local)
       SPECFLOW_CONFIG_FILE: "/etc/specflow/cloud.yaml"   # local only: S3 storage on RustFS (config/cloud.local.yaml)
       AWS_ACCESS_KEY_ID: "${RUSTFS_ACCESS_KEY:?set RUSTFS_ACCESS_KEY (run make env-local)}"   # local only: the RustFS keys
       AWS_SECRET_ACCESS_KEY: "${RUSTFS_SECRET_KEY:?set RUSTFS_SECRET_KEY (run make env-local)}"
@@ -391,6 +396,8 @@ services:
         source: specflow-graph-state
         target: /var/lib/specflow/graph
     depends_on:
+      keycloak:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       neo4j:
@@ -412,8 +419,7 @@ services:
       start_period: 60s
 
   # The MCP role (docs/mcp-server/deployment.md#role-and-process): the api image with `specflow mcp` instead of its
-  # migrate-then-api command; starts after api has migrated the schema. Dev mode by default. `make up WITH=keycloak`
-  # sets the MCP_* compose names below, so only this service switches to oidc; api and frontend keep dev login.
+  # migrate-then-api command; starts after api has migrated the schema. Tokens come from the bundled Keycloak.
   # No claim-profile variable is forwarded: Keycloak tokens match the defaults, and an empty
   # AUTH_EMAIL_VERIFIED_CLAIM would turn the verified-email check off.
   mcp:
@@ -441,14 +447,14 @@ services:
       NEO4J_USER: "neo4j"
       NEO4J_PASSWORD: "${NEO4J_PASSWORD:?set NEO4J_PASSWORD in .env.local}"
       NEO4J_DATABASE: "neo4j"
-      AUTH_MODE: "${MCP_AUTH_MODE:-dev}"
-      AUTH_DEV_SIGNING_KEY: "${MCP_AUTH_DEV_SIGNING_KEY-${AUTH_DEV_SIGNING_KEY:-}}"   # local only; empty under WITH=keycloak
-      OIDC_ISSUER: "${MCP_OIDC_ISSUER:-}"
-      AUTH_JWKS_URL: "${MCP_AUTH_JWKS_URL:-}"
-      AUTH_ALLOWED_EMAIL_DOMAINS: "${AUTH_ALLOWED_EMAIL_DOMAINS:-example.com}"   # local only: matches the dev login user
+      OIDC_ISSUER: "http://localhost:8180/realms/specflow"   # local only: the bundled Keycloak (public issuer)
+      AUTH_JWKS_URL: "http://specflow-keycloak:8080/realms/specflow/protocol/openid-connect/certs"
+      AUTH_ALLOWED_EMAIL_DOMAINS: "${AUTH_ALLOWED_EMAIL_DOMAINS:-example.com}"   # local only: QA users (example.com) + your domain (make env-local)
       LOGS_STDOUT_LEVEL: "INFO"
       LOGS_LEVEL: "${LOGS_LEVEL:-INFO}"
     depends_on:
+      keycloak:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       neo4j:
@@ -590,20 +596,20 @@ services:
       - "127.0.0.1:${FRONTEND_PORT:-3001}:3000"
     environment:
       APP_ENV: "${APP_ENV:-local}"
-      AUTH_MODE: "${AUTH_MODE:-dev}"
-      AUTH_DEV_SIGNING_KEY: "${AUTH_DEV_SIGNING_KEY:-}"     # local only: dev login
-      LOCAL_TEST_USER_EMAIL: "${LOCAL_TEST_USER_EMAIL:-dev@example.com}"   # local only: dev login
       PUBLIC_URL: "${PUBLIC_URL:-http://localhost:3001}"
       API_INTERNAL_URL: "http://specflow-api:8000"
-      OIDC_ISSUER: "${OIDC_ISSUER:-}"
-      OIDC_INTERNAL_URL: "${OIDC_INTERNAL_URL:-}"
-      OIDC_CLIENT_ID: "${OIDC_CLIENT_ID:-}"
-      OIDC_CLIENT_SECRET: "${OIDC_CLIENT_SECRET:-}"
+      OIDC_ISSUER: "http://localhost:8180/realms/specflow"   # local only: the bundled Keycloak
+      OIDC_INTERNAL_URL: "http://specflow-keycloak:8080/realms/specflow"   # back channel inside the compose network
+      OIDC_CLIENT_ID: "specflow-web"
+      OIDC_CLIENT_SECRET: "${KEYCLOAK_WEB_CLIENT_SECRET:-}"
       SESSION_SECRET: "${SESSION_SECRET:-}"
       # What the Guides page shows: the mcp service's address (PUBLIC_URL is the web app, so the default would be wrong) and client id.
       MCP_PUBLIC_URL: "${MCP_PUBLIC_URL:-http://localhost:8002/mcp}"
       MCP_CLIENT_ID: "${MCP_CLIENT_ID:-specflow-mcp}"
+      MCP_SERVER_NAME: "${MCP_SERVER_NAME:-specflow-local}"
     depends_on:
+      keycloak:
+        condition: service_healthy
       api:
         condition: service_healthy
     healthcheck:
