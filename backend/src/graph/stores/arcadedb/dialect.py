@@ -30,7 +30,7 @@ from graph.core.errors import ConformanceError
 from graph.core.queries import SAFE_NAME, Query, safe_name
 from graph.core.query_files import read_query_file, render_query
 from graph.stores._bolt.cypher import CYPHER_DIALECT, binds_project_id, render_cypher, template_ids
-from graph.stores.arcadedb.names import index_names
+from graph.stores.arcadedb.names import index_fields, index_names
 
 OVERRIDE_DIRECTORY: Final = Path(__file__).resolve().parent / "overrides"
 NEEDS_EDGE_TYPES: Final = frozenset({"core.move_foreign_relationships", "build.build_merge_spec_nodes"})
@@ -145,9 +145,29 @@ def _plan_move_foreign(query: Query, params: Mapping[str, Any], types: Sequence[
     return ExecutionPlan(statements, _sum("moved"))
 
 
-def _replacing(*pairs: tuple[str, str], index: bool = False) -> Override:
+def search_params(params: Mapping[str, Any], *, per_field: bool = False) -> Mapping[str, Any]:
+    """The parameters of an index search with ``$index`` (a library index name) mapped to the server's name.
+
+    ``per_field``: a fulltext ``$query`` of plain terms over an index of several fields becomes one
+    group per field, ``name:(a b) statement_text:(a b)``. ArcadeDB's unqualified terms are scored over
+    all fields together (one document length, one idf), which ranks a node whose long text mentions the
+    terms above one whose short name is the match; per-field groups restore Lucene's per-field BM25 that
+    Neo4j gives. On the shop fixture it moves the top three of the fulltext-only search from 29 to 33 of 36
+    places agreeing with Neo4j (the 12 golden queries); it does not make the two orders equal."""
+
+    index = params.get("index")
+    if index is None:
+        return params
+    bound = {**params, "index": index_names().get(index, index)}
+    fields = index_fields().get(index, ())
+    if per_field and len(fields) > 1 and isinstance(params.get("query"), str) and params["query"].strip():
+        bound["query"] = " ".join(f"{field}:({params['query']})" for field in fields)
+    return bound
+
+
+def _replacing(*pairs: tuple[str, str], index: bool = False, per_field: bool = False) -> Override:
     """Override: the canonical text with each ``old`` replaced once by ``new``; ``index`` also maps the
-    ``$index`` parameter (a library index name) to the server's name for it."""
+    ``$index`` parameter (a library index name) to the server's name for it (``search_params``)."""
 
     def plan(query: Query, params: Mapping[str, Any], _types: Sequence[str] | None) -> ExecutionPlan:
         text = render_cypher(query)
@@ -155,10 +175,7 @@ def _replacing(*pairs: tuple[str, str], index: bool = False) -> Override:
             if text.count(old) != 1:
                 raise ConformanceError("arcadedb_override_stale", template=query.template)
             text = text.replace(old, new)
-        bound = params
-        if index and "index" in params:
-            bound = {**params, "index": index_names().get(params["index"], params["index"])}
-        return ExecutionPlan.single(text, bound)
+        return ExecutionPlan.single(text, search_params(params, per_field=per_field) if index else params)
 
     return plan
 
@@ -202,8 +219,8 @@ OVERRIDES: Final[Mapping[str, Override]] = {
             "(1 + vector.similarity.cosine(n.embedding, $vector)) / 2 AS score",
         )
     ),
-    "core.search_nodes_fulltext": _replacing(index=True),
-    "core.search_fragments": _replacing(index=True),
+    "core.search_nodes_fulltext": _replacing(index=True, per_field=True),
+    "core.search_fragments": _replacing(index=True, per_field=True),
     # index state is ONLINE when a SQL index create returns: nothing to wait for
     "core.await_indexes": lambda query, params, _types: ExecutionPlan.single("RETURN 1 AS online", {}),
     # a label write moves the record (its element id changes): verify and repair address nodes by uuid, edges by uuid

@@ -20,12 +20,22 @@ def server_index_name(label: str, properties: tuple[str, ...]) -> str:
 
 
 @cache
-def index_names() -> dict[str, str]:
-    """Library index name (``graph_spec_node_embedding``) -> the name of that index on the server."""
-
-    found: dict[str, str] = {}
+def _server_named() -> dict[str, tuple[str, tuple[str, ...]]]:
+    found: dict[str, tuple[str, tuple[str, ...]]] = {}
     for position, statement in enumerate(CORE_DDL):
         item = parse_ddl_statement(statement, position=position)
         if item.kind in SERVER_NAMED_KINDS:
-            found[item.name] = server_index_name(item.label, item.properties)
+            found[item.name] = (item.label, item.properties)
     return found
+
+
+def index_names() -> dict[str, str]:
+    """Library index name (``graph_spec_node_embedding``) -> the name of that index on the server."""
+
+    return {name: server_index_name(label, properties) for name, (label, properties) in _server_named().items()}
+
+
+def index_fields() -> dict[str, tuple[str, ...]]:
+    """Library index name -> the properties it spans (the fields of a fulltext index)."""
+
+    return {name: properties for name, (_label, properties) in _server_named().items()}

@@ -63,11 +63,11 @@ def all_queries(tmp_path_factory: pytest.TempPathFactory) -> list[Query]:
     return seen
 
 
-def plan(query: Query, **params: Any):
+def plan(query: Query, /, **params: Any):
     return ARCADEDB_DIALECT.plan(query, {**PARAMS, **params}, EDGE_TYPES)
 
 
-def texts(query: Query, **params: Any) -> list[str]:
+def texts(query: Query, /, **params: Any) -> list[str]:
     return [statement.text for statement in plan(query, **params).statements]
 
 
@@ -349,6 +349,27 @@ def test_the_exact_vector_search_is_on_the_same_scale_as_the_index() -> None:
 def test_the_library_index_names_map_to_the_names_the_server_fixes(query: Query, library: str, server: str) -> None:
     assert plan(query, index=library).statements[0].params["index"] == server
     assert index_names()[library] == server
+
+
+def test_a_node_search_text_becomes_one_group_per_field_of_the_index() -> None:
+    planned = plan(core_queries.SEARCH_NODES_FULLTEXT, index="graph_spec_node_text", query="checkout service")
+    assert planned.statements[0].params["query"] == "name:(checkout service) statement_text:(checkout service)"
+
+
+def test_a_search_text_over_an_index_of_one_field_is_left_as_it_is() -> None:
+    planned = plan(core_queries.SEARCH_FRAGMENTS, index="graph_fragment_text", query="audit logging")
+    assert planned.statements[0].params["query"] == "audit logging"
+
+
+@pytest.mark.parametrize("query", ["", "  ", None])
+def test_a_blank_or_missing_search_text_is_not_grouped(query: Any) -> None:
+    planned = plan(core_queries.SEARCH_NODES_FULLTEXT, index="graph_spec_node_text", query=query)
+    assert planned.statements[0].params["query"] == query
+
+
+def test_a_text_the_server_cannot_parse_stays_unparseable_inside_the_groups() -> None:
+    planned = plan(core_queries.SEARCH_NODES_FULLTEXT, index="graph_spec_node_text", query="payment AND (")
+    assert planned.statements[0].params["query"].startswith("name:(payment AND ()")
 
 
 def test_an_index_name_of_another_owner_is_passed_through() -> None:
