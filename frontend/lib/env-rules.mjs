@@ -71,7 +71,7 @@ export function validateEnv(env) {
 
   need("APP_ENV", (v) => APP_ENVS.includes(v));
   // The dev sign-in is gone: a stale AUTH_MODE=dev is refused, any other value (or none) is ignored.
-  if (env.AUTH_MODE?.trim() === "dev") bad.add("AUTH_MODE");
+  if (env.AUTH_MODE?.trim().toLowerCase() === "dev") bad.add("AUTH_MODE");
   need("PUBLIC_URL", isHttpUrl);
   need("API_INTERNAL_URL", (v) => isHttpUrl(normalizeInternalUrl(v)));
   need("SESSION_SECRET", (v) => isSet(v) && Buffer.byteLength(v) >= MIN_SECRET_BYTES);

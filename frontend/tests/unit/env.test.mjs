@@ -65,6 +65,10 @@ test("AUTH_MODE=dev is refused in every environment, with a one-line hint and no
   }
 });
 
+test("AUTH_MODE=dev is refused in any case and with surrounding spaces, as in the backend", () => {
+  for (const mode of ["DEV", " dev ", "Dev"]) assert.deepEqual(validateEnv({ ...nonLocalOidc, AUTH_MODE: mode }), ["AUTH_MODE"], mode);
+});
+
 test("AUTH_MODE=oidc, any other value and an empty one are ignored", () => {
   for (const mode of ["oidc", "", "bogus", undefined])
     assert.deepEqual(validateEnv({ ...nonLocalOidc, AUTH_MODE: mode }), [], String(mode));
