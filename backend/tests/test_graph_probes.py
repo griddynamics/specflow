@@ -14,13 +14,10 @@ from typing import Any
 import graph_probes
 import pytest
 import pytest_asyncio
-from graph_probes import (
-    PROBES,
-    open_probe,
-    selected_backend,
-    skip_reason,
-    store_config_from_env,
-)
+
+import graph_probes
+from graph.stores.config import BACKENDS
+from graph_probes import PROBES, open_probe, selected_backend, skip_reason, store_config_from_env
 from graph_probes.base import (
     EdgeSpec,
     GraphProbe,
@@ -53,8 +50,6 @@ from graph_support import PROJECT_PREFIX, live_llm_config, new_project_id, shipp
 
 # A search vector of the dimension the live store's vector indexes hold (ArcadeDB refuses another length).
 VECTOR = [0.25] * live_llm_config().embedding_dim
-
-from graph.stores.config import BACKENDS
 
 SWITCH_ENV = ("SPECFLOW_TEST_GRAPH_STORE", "SPECFLOW_TEST_NEO4J")
 CONNECTION_ENV = (
