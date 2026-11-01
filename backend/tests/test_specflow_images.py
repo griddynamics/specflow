@@ -62,7 +62,7 @@ BUILT = {
 # Database service -> public image.
 PUBLIC = {"postgres": "pgvector/pgvector:0.8.7-pg17", "neo4j": "neo4j:5.26.30-community"}
 # The services of the graph store backends that have a compose profile (`make up WITH=<backend>`), by profile.
-GRAPH_STORE_PROFILES = {"arcadedb": {"arcadedb", "arcadedb-init"}}
+GRAPH_STORE_PROFILES = {"neo4j": {"neo4j"}, "arcadedb": {"arcadedb", "arcadedb-init"}}
 # Local-only platform services this file runs itself (a deployment provides them in its own cluster).
 LOCAL_PLATFORM = {
     "temporal",
@@ -149,12 +149,13 @@ def test_the_file_uses_no_anchors_merge_keys_or_extension_fields():
             assert current.startswith("langfuse-"), (current, line)
 
 
-DEFAULT_SERVICES = {"postgres", "neo4j", "rustfs", "rustfs-init", "api", "worker-parse", "worker-agents", "frontend"}
+DEFAULT_SERVICES = {"postgres", "rustfs", "rustfs-init", "api", "worker-parse", "worker-agents", "frontend"}
 LANGFUSE_SERVICES = {f"langfuse-{n}" for n in ("postgres", "clickhouse", "redis", "minio", "worker", "web")}
 
 
 def test_temporal_and_langfuse_are_optional_profiles():
-    """D32: the default stack starts no Temporal and no Langfuse; WITH=... turns them on."""
+    """D32: the default stack starts no Temporal and no Langfuse; WITH=... turns them on. A graph store
+    with a server of its own is a profile too: the Makefile starts neo4j unless WITH names another store."""
 
     svcs = services()
     by_profile = {}
@@ -239,7 +240,11 @@ def test_in_network_values_use_the_deployment_host_names():
         assert env["DATABASE_NAME"] == env["DATABASE_USER"] == "specflow", name
     for name in ("api", "worker-agents"):
         env = env_of(services()[name])
-        assert (env["GRAPH_STORE"], env["GRAPH_STORE_URI"]) == ("neo4j", "bolt://specflow-neo4j:7687"), name
+        # The defaults are the neo4j of the stack; `make up WITH=<store>` passes the values of another store.
+        assert env["GRAPH_STORE"] == "${GRAPH_STORE:-neo4j}", name
+        assert env["GRAPH_STORE_URI"] == "${GRAPH_STORE_URI:-bolt://specflow-neo4j:7687}", name
+        assert env["GRAPH_STORE_USER"] == "${GRAPH_STORE_USER:-neo4j}", name
+        assert env["GRAPH_STORE_NAME"] == "${GRAPH_STORE_NAME:-neo4j}", name
     assert env_of(services()["frontend"])["API_INTERNAL_URL"] == "http://specflow-api:8000"
 
 
@@ -342,8 +347,9 @@ def test_the_start_order_follows_the_blueprint():
     svcs = services()
     assert svcs["api"]["depends_on"] == {
         "postgres": {"condition": "service_healthy"},
-        "neo4j": {"condition": "service_healthy"},
-        # Present only when the temporal / langfuse profile is on.
+        # Present only when the profile of the store (neo4j, arcadedb) or of temporal / langfuse is on.
+        "neo4j": {"condition": "service_healthy", "required": False},
+        "arcadedb-init": {"condition": "service_completed_successfully", "required": False},
         "temporal": {"condition": "service_healthy", "required": False},
         "langfuse-web": {"condition": "service_healthy", "required": False},
         "rustfs-init": {"condition": "service_completed_successfully"},
@@ -690,3 +696,94 @@ def test_the_arcadedb_profile_is_pinned_limited_loopback_only_and_keeps_its_pass
         assert "GRAPH_STORE_PASSWORD" not in str(service.get("environment"))
     assert compose()["secrets"]["arcadedb_root_password"] == {"environment": "GRAPH_STORE_PASSWORD"}
     assert server["volumes"] == ["specflow-arcadedb-data:/home/arcadedb/databases"]
+
+
+POSTGRES_OVERRIDE = ROOT / "config" / "compose.graph-postgres.yaml"
+STORE_SELECTIONS = {
+    "": ("neo4j", "neo4j", "bolt://specflow-neo4j:7687"),
+    "neo4j": ("neo4j", "neo4j", "bolt://specflow-neo4j:7687"),
+    "arcadedb": ("arcadedb", "arcadedb", "bolt://specflow-arcadedb:7687"),
+    "postgres": ("postgres", None, None),
+}
+
+
+def make_dry_run(target: str, **variables: str) -> subprocess.CompletedProcess[str]:
+    environment = {name: value for name, value in os.environ.items() if name not in ("GRAPH_STORE", "WITH")}
+    return subprocess.run(
+        [str(shutil.which("make")), "-n", target, *(f"{k}={v}" for k, v in variables.items())],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+
+def profiles_of(dry_run: str) -> list[str]:
+    found = re.search(r"COMPOSE_PROFILES=([\w,-]*)", dry_run)
+    return found.group(1).split(",") if found else []
+
+
+@pytest.mark.parametrize("selection", list(STORE_SELECTIONS))
+def test_make_up_with_a_store_starts_its_profile_and_hands_its_settings_to_the_containers(selection: str) -> None:
+    store, profile, uri = STORE_SELECTIONS[selection]
+    result = make_dry_run("up", WITH=selection)
+    assert result.returncode == 0, result.stderr
+    assert f"GRAPH_STORE={store} " in result.stdout + " "
+    assert (f"GRAPH_STORE_URI={uri} " in result.stdout) is (uri is not None)
+    assert [name for name in profiles_of(result.stdout) if name in GRAPH_STORE_PROFILES] == ([profile] if profile else [])
+    assert ("-f config/compose.graph-postgres.yaml" in result.stdout) is (store == "postgres")
+    if store == "arcadedb":
+        assert "GRAPH_STORE_USER=root GRAPH_STORE_NAME=" in result.stdout
+
+
+def test_make_up_refuses_two_stores_and_a_graph_store_that_disagrees_with_with() -> None:
+    both = make_dry_run("up", WITH="arcadedb,postgres")
+    assert both.returncode != 0 and "more than one graph store" in both.stderr
+    mismatch = make_dry_run("up", GRAPH_STORE="arcadedb")
+    assert mismatch.returncode != 0 and "use WITH=arcadedb" in mismatch.stderr
+    assert make_dry_run("up", WITH="arcadedb", GRAPH_STORE="arcadedb").returncode == 0
+
+
+def test_the_postgres_override_leaves_the_graph_connection_to_the_database_settings() -> None:
+    class Loader(yaml.SafeLoader):
+        pass
+
+    Loader.add_constructor("!reset", lambda loader, node: "RESET")
+    override = yaml.load(POSTGRES_OVERRIDE.read_text(), Loader=Loader)["services"]  # noqa: S506 - SafeLoader subclass
+    assert set(override) == {"api", "worker-agents"}
+    for name, svc in override.items():
+        env = svc["environment"]
+        assert env["GRAPH_STORE"] == "postgres", name
+        assert {key: value for key, value in env.items() if value == "RESET"} == dict.fromkeys(
+            ("GRAPH_STORE_URI", "GRAPH_STORE_USER", "GRAPH_STORE_PASSWORD", "GRAPH_STORE_NAME"), "RESET"
+        ), name
+
+
+@pytest.mark.skipif(shutil.which("docker") is None, reason="the docker CLI is needed (compose config needs no daemon)")
+@pytest.mark.parametrize("selection", ["", "arcadedb", "postgres"])
+def test_compose_config_resolves_for_each_store_with_synthetic_values(selection: str, tmp_path: Path) -> None:
+    """The stack resolves on neo4j (default), ArcadeDB and PostgreSQL; the PostgreSQL one carries no graph login."""
+
+    env_file = tmp_path / "stack.env"
+    env_file.write_text(
+        "\n".join(f"{name}=synthetic-{name.lower()}" for name in (
+            "POSTGRES_ADMIN_PASSWORD", "DATABASE_PASSWORD", "DATABASE_AGENT_PASSWORD", "GRAPH_STORE_PASSWORD",
+            "AUTH_DEV_SIGNING_KEY", "SESSION_SECRET", "RUSTFS_ACCESS_KEY", "RUSTFS_SECRET_KEY",
+        ))
+        + "\nGRAPH_STORE_URI=bolt://localhost:7687\n"  # a host address in the env file never reaches the containers
+    )
+    dry_run = make_dry_run("up", WITH=selection, ENV_FILE=str(env_file)).stdout
+    command = re.search(r"^(env .*docker compose .*) up", dry_run, re.MULTILINE)
+    assert command is not None, dry_run
+    shell = subprocess.run(
+        f"{command.group(1)} config --format json", shell=True, cwd=ROOT, capture_output=True, text=True, check=False
+    )
+    assert shell.returncode == 0, shell.stderr
+    resolved = json.loads(shell.stdout)["services"]
+    store, profile, uri = STORE_SELECTIONS[selection]
+    assert ("neo4j" in resolved) is (store == "neo4j") and ("arcadedb" in resolved) is (store == "arcadedb")
+    for name in ("api", "worker-agents"):
+        env = resolved[name]["environment"]
+        assert env["GRAPH_STORE"] == store, name
+        assert env.get("GRAPH_STORE_URI") == uri, name
+        assert ("GRAPH_STORE_PASSWORD" in env) is (store != "postgres"), name
