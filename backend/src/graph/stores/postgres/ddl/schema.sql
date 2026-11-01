@@ -73,6 +73,10 @@ AS $$
   FROM (SELECT floor(log(2, (len - 24)::numeric))::int - 3 AS s) v
 $$;
 
+-- Tokenizer gaps against Lucene (docs/configuration.md, PostgreSQL): e-mail
+-- addresses, URLs and paths split differently, lower-casing follows the
+-- database locale, a tsvector keeps at most 256 positions per word and is
+-- limited to 1 MB (a longer text fails the write; there is no length cap).
 CREATE TABLE IF NOT EXISTS graph.meta (
     meta_key text PRIMARY KEY,
     meta_value text NOT NULL

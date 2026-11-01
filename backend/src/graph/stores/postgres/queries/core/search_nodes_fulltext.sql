@@ -1,3 +1,7 @@
+-- Cost: O(project) per query: every matching row of the project is scored
+-- (BM25 statistics are computed over the project's texts). Fine at the
+-- documented sizes; a GIN prefilter on the tsvector columns is a later
+-- optimisation.
 -- BM25 replacement of core/queries/search_nodes_fulltext.cypher (Lucene
 -- BM25Similarity per field, summed over name and statement_text).
 -- Parameters: project_id, terms (text[], OR semantics), labels, where

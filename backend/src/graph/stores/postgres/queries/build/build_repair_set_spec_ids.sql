@@ -1,3 +1,6 @@
+-- Known limit: the unique index on (group_id, spec_id) is checked per row, so a
+-- batch that swaps the spec_ids of two nodes raises a unique violation (not
+-- seen in practice; docs/configuration.md, PostgreSQL).
 -- Repair: set the spec_id and aliases of nodes addressed by id (text of the
 -- node id). Parameter rows: a JSON list of id, spec_id and aliases. written
 -- counts the rows that found their node.
