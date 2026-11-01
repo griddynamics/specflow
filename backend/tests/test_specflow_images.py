@@ -811,7 +811,7 @@ def _keycloak_check(tmp_path: Path, env_text: str, *extra: str) -> subprocess.Co
 
 
 def _env_with(**overrides: str | None) -> str:
-    values = {name: SYNTHETIC for name in KEYCLOAK_NAMES} | overrides
+    values = {name: SYNTHETIC for name in KEYCLOAK_NAMES} | {"LOCAL_TEST_USER_EMAIL": "me@corp.io"} | overrides
     return "".join(f"{name}={value}\n" for name, value in values.items() if value is not None)
 
 
@@ -825,6 +825,21 @@ def test_up_fails_early_naming_the_missing_keycloak_name(tmp_path, missing, form
     assert [line for line in result.stderr.splitlines() if line.startswith("up:")] == [result.stderr.splitlines()[0]]
     assert f"lacks {missing};" in result.stderr and "make env-local" in result.stderr
     assert SYNTHETIC not in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("email", ["no-at-sign", "a@nodot", "two@@x.io", "me@x.io;rm", "alice@example.com", "Bob@Example.com", "carol@other.example"])
+def test_up_refuses_an_unusable_personal_email_naming_the_variable_only(tmp_path, email):
+    result = _keycloak_check(tmp_path, _env_with(LOCAL_TEST_USER_EMAIL=email))
+
+    assert result.returncode != 0
+    first = result.stderr.splitlines()[0]
+    assert first.startswith("up: LOCAL_TEST_USER_EMAIL in ") and "make env-local" in first
+    assert email not in result.stderr
+
+
+@pytest.mark.parametrize("email", ["me@corp.io", "Jane.Doe+x@Sub.Corp.IO", "dev@example.com"])
+def test_up_accepts_a_usable_personal_email(tmp_path, email):
+    assert _keycloak_check(tmp_path, _env_with(LOCAL_TEST_USER_EMAIL=email)).returncode == 0
 
 
 def test_up_names_every_missing_name_in_one_line(tmp_path):

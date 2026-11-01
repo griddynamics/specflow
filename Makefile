@@ -107,19 +107,19 @@ ENV_LOCAL_NAMES := POSTGRES_ADMIN_PASSWORD DATABASE_PASSWORD DATABASE_AGENT_PASS
 # The names `make up` needs in the env file (the Keycloak realm is imported from them).
 KEYCLOAK_ENV_NAMES := KEYCLOAK_ADMIN_PASSWORD KEYCLOAK_QA_PASSWORD KEYCLOAK_WEB_CLIENT_SECRET \
 	LOCAL_TEST_USER_EMAIL LOCAL_TEST_USER_PASSWORD LOCAL_TEST_USER_ID
+# Shell function (one line, for the recipes of env-local and check-keycloak-env): is $1 usable as the personal sign-in
+# email: one @, a dotted domain, only [A-Za-z0-9._:/@+=-], and not one of the QA users of the realm.
+EMAIL_OK_FN = email_ok() { case "$$1" in *@*) ;; *) return 1;; esac; \
+	case "$$1" in *[!A-Za-z0-9._:/@+=-]*|@*|*@|*@*@*) return 1;; esac; \
+	case "$${1\#*@}" in .*|*.|*..*) return 1;; *.*) ;; *) return 1;; esac; \
+	case "$$(printf '%s' "$$1" | tr 'A-Z' 'a-z')" in alice@example.com|bob@example.com|carol@other.example) return 1;; esac; };
 ENV_LOCAL_INPUT_NAMES := AGENT_MODEL LLM_GATEWAY_URL LLM_GATEWAY_API_KEY
 
 env-local:
 	@command -v openssl >/dev/null || { echo "env-local: openssl not found" >&2; exit 1; }; \
 	f="$(ENV_FILE)"; umask 077; \
 	val() { sed -n "s/^$$1=//p" "$$f" | tail -n 1 | tr -d "\"' \r"; }; \
-	nl() { if [ -s "$$f" ] && [ -n "$$(tail -c 1 "$$f")" ]; then echo >> "$$f"; fi; }; \
-	email_ok() { \
-		case "$$1" in *@*) ;; *) return 1;; esac; \
-		case "$$1" in *[!A-Za-z0-9._:/@+=-]*|@*|*@|*@*@*) return 1;; esac; \
-		case "$${1#*@}" in .*|*.|*..*) return 1;; *.*) ;; *) return 1;; esac; \
-		case "$$1" in alice@example.com|bob@example.com|carol@other.example) return 1;; esac; \
-	}; \
+	$(EMAIL_OK_FN) \
 	gen() { \
 		case $$1 in \
 			RUSTFS_ACCESS_KEY) openssl rand -hex 10;; \
@@ -128,8 +128,8 @@ env-local:
 		esac; \
 	}; \
 	put() { \
-		if grep -q "^$$1=" "$$f"; then t="$$f.tmp.$$$$"; grep -v "^$$1=" "$$f" > "$$t" || :; cat "$$t" > "$$f"; rm -f "$$t"; fi; \
-		nl; printf '%s=%s\n' "$$1" "$$2" >> "$$f"; \
+		t="$$f.tmp.$$$$"; { grep -v "^$$1=" "$$f" 2>/dev/null || :; } > "$$t"; \
+		printf '%s=%s\n' "$$1" "$$2" >> "$$t"; chmod 600 "$$t"; mv "$$t" "$$f"; \
 	}; \
 	if [ ! -e "$$f" ]; then \
 		tmp="$$f.tmp.$$$$"; : > "$$tmp"; \
@@ -160,7 +160,9 @@ env-local:
 		if [ -z "$$email" ]; then email=dev@example.com; [ ! -t 0 ] || echo "env-local: no usable email given, using $$email" >&2; fi; \
 		put LOCAL_TEST_USER_EMAIL "$$email"; added="$$added LOCAL_TEST_USER_EMAIL"; \
 	fi; \
-	domain="$$(val LOCAL_TEST_USER_EMAIL | tr 'A-Z' 'a-z')"; domain="$${domain#*@}"; \
+	domain="$$(val LOCAL_TEST_USER_EMAIL | tr 'A-Z' 'a-z')"; \
+	if email_ok "$$domain"; then domain="$${domain#*@}"; \
+	else domain=""; echo "env-local: LOCAL_TEST_USER_EMAIL in $$f is not usable as a sign-in email (one @, a dotted domain, characters A-Za-z0-9._:/@+=-, not a QA user); fix it by hand" >&2; fi; \
 	domains="$$(val AUTH_ALLOWED_EMAIL_DOMAINS)"; \
 	if [ -z "$$domains" ] && [ -n "$$domain" ]; then \
 		if [ "$$domain" = example.com ]; then want=example.com; else want="$$domain,example.com"; fi; \
@@ -201,14 +203,18 @@ env-local:
 	[ -z "$$missing" ] || echo "env-local: add$$missing to $$f (docs/configuration.md)"; \
 	[ -n "$$added$$set$$missing" ] || echo "env-local: $$f is complete, left unchanged"
 
-# `make up` stops here, before compose, when the env file lacks a name the Keycloak realm is imported from
-# (compose defaults them to empty so that other commands still work). Names only, never a value.
+# `make up` stops here, before compose, when the env file lacks a name the Keycloak realm is imported from or
+# holds an unusable LOCAL_TEST_USER_EMAIL (compose defaults them to empty so that other commands still work).
+# Names only, never a value.
 check-keycloak-env:
 	@missing=""; \
 	for name in $(KEYCLOAK_ENV_NAMES); do \
 		[ -n "$$(sed -n "s/^$$name=//p" "$(ENV_FILE)" 2>/dev/null | tail -n 1 | tr -d "\"' \r")" ] || missing="$$missing $$name"; \
 	done; \
-	[ -z "$$missing" ] || { echo "up: $(ENV_FILE) lacks$$missing; run make env-local" >&2; exit 1; }
+	[ -z "$$missing" ] || { echo "up: $(ENV_FILE) lacks$$missing; run make env-local" >&2; exit 1; }; \
+	$(EMAIL_OK_FN) \
+	email="$$(sed -n "s/^LOCAL_TEST_USER_EMAIL=//p" "$(ENV_FILE)" | tail -n 1 | tr -d "\"' \r")"; \
+	email_ok "$$email" || { echo "up: LOCAL_TEST_USER_EMAIL in $(ENV_FILE) is not usable as a sign-in email; fix it, or delete the line and run make env-local" >&2; exit 1; }
 
 # Build and start the stack and wait until all services are healthy: postgres, neo4j, rustfs,
 # rustfs-init, keycloak (the realm is imported from the env file), api, mcp, worker-parse, worker-agents, frontend.

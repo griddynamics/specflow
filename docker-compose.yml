@@ -316,7 +316,7 @@ services:
       LOCAL_TEST_USER_EMAIL: "${LOCAL_TEST_USER_EMAIL:-}"
       LOCAL_TEST_USER_PASSWORD: "${LOCAL_TEST_USER_PASSWORD:-}"
       LOCAL_TEST_USER_ID: "${LOCAL_TEST_USER_ID:-}"
-      SPECFLOW_WEB_URL: "${PUBLIC_URL:-http://localhost:3001}"   # the web app's address, as the frontend's PUBLIC_URL
+      SPECFLOW_WEB_URL: "${PUBLIC_URL:-http://localhost:3001}"   # the web app's address, as the frontend's PUBLIC_URL (no trailing slash: it is joined with paths in the realm)
     volumes:
       - ./config/keycloak:/opt/keycloak/data/import:ro
     healthcheck:

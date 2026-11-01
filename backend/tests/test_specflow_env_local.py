@@ -238,3 +238,27 @@ def test_nothing_the_target_generates_or_asks_is_printed(tmp_path):
     assert "private-corp.io" not in shown.lower() and "secret.person" not in shown.lower()
     for name in GENERATED:
         assert values[name][0] not in shown
+
+
+@pytest.mark.parametrize("existing", ["no-at-sign", "a@nodot", "two@@x.io", "me@x.io;rm", "Alice@Example.com", "carol@other.example"])
+def test_a_pre_existing_unusable_email_is_warned_about_by_name_kept_and_gives_no_domains(tmp_path, existing):
+    env_file = tmp_path / "scratch.env"
+    env_file.write_text(COMPLETE.replace("LOCAL_TEST_USER_EMAIL=me@corp.io", f"LOCAL_TEST_USER_EMAIL={existing}").replace("AUTH_ALLOWED_EMAIL_DOMAINS=corp.io,example.com\n", ""))
+    result = _run(env_file)
+
+    assert result.returncode == 0, result.stderr
+    assert "LOCAL_TEST_USER_EMAIL in" in result.stderr and "not usable" in result.stderr
+    assert existing not in result.stdout + result.stderr
+    values = _values(env_file)
+    assert values["LOCAL_TEST_USER_EMAIL"] == [existing]  # never overwritten
+    assert "AUTH_ALLOWED_EMAIL_DOMAINS" not in values
+
+
+def test_an_existing_file_stays_private_and_no_temp_file_is_left_behind(tmp_path):
+    env_file = tmp_path / "scratch.env"
+    env_file.write_text("DATABASE_PASSWORD=keep-me\nSESSION_SECRET=\n")
+    env_file.chmod(0o644)
+    assert _run(env_file).returncode == 0
+
+    assert stat.S_IMODE(env_file.stat().st_mode) == 0o600
+    assert [path.name for path in tmp_path.iterdir()] == ["scratch.env"]
