@@ -44,7 +44,8 @@ def test_the_estimate_counts_nine_bytes_per_float_and_the_text_of_strings() -> N
     assert estimate_bytes("abc") == 5 + 3
     assert estimate_bytes("é") == 5 + 2  # UTF-8 bytes, not characters
     assert estimate_bytes({"k": [1.0, 2.0]}) == 5 + estimate_bytes("k") + 5 + 18
-    assert estimate_bytes(None) == estimate_bytes(True) == 9  # never below the real size
+    flag: Any = True
+    assert estimate_bytes(None) == estimate_bytes(flag) == 9  # never below the real size
 
 
 def test_a_batch_of_500_vector_rows_is_cut_below_the_message_budget() -> None:
@@ -74,7 +75,9 @@ def test_no_rows_is_no_chunk() -> None:
 
 def test_the_limits_can_be_given() -> None:
     assert [len(c) for c in split_rows([plain_row(i) for i in range(5)], max_rows=2)] == [2, 2, 1]
-    assert [len(c) for c in split_rows([vector_row(i) for i in range(5)], max_bytes=estimate_bytes(vector_row(0)) * 2)] == [2, 2, 1]
+    assert [
+        len(c) for c in split_rows([vector_row(i) for i in range(5)], max_bytes=estimate_bytes(vector_row(0)) * 2)
+    ] == [2, 2, 1]
 
 
 # combining the chunk results
@@ -103,7 +106,9 @@ def test_a_flag_is_not_added_like_a_count() -> None:
 
 
 def statements(*row_lists: Sequence[Any]) -> ExecutionPlan:
-    return ExecutionPlan(tuple(PlannedStatement(f"S{index}", {"rows": list(rows), "k": index}) for index, rows in enumerate(row_lists)))
+    return ExecutionPlan(
+        tuple(PlannedStatement(f"S{index}", {"rows": list(rows), "k": index}) for index, rows in enumerate(row_lists))
+    )
 
 
 def test_a_plan_with_nothing_to_cut_is_returned_unchanged() -> None:
@@ -114,7 +119,9 @@ def test_a_plan_with_nothing_to_cut_is_returned_unchanged() -> None:
 
 
 def test_each_statement_is_cut_in_place_and_keeps_its_other_parameters() -> None:
-    plan = chunked(statements([plain_row(i) for i in range(5)], [plain_row(9)], [plain_row(i) for i in range(3)]), max_rows=2)
+    plan = chunked(
+        statements([plain_row(i) for i in range(5)], [plain_row(9)], [plain_row(i) for i in range(3)]), max_rows=2
+    )
     assert [(s.text, [r["uuid"] for r in s.params["rows"]], s.params["k"]) for s in plan.statements] == [
         ("S0", ["u-0", "u-1"], 0),
         ("S0", ["u-2", "u-3"], 0),
@@ -151,11 +158,14 @@ def test_the_dialect_cuts_a_create_batch_per_label_and_per_budget_in_order() -> 
     plan = create_plan(rows)
     labels = [("Module" if "SpecNode:Module" in s.text else "Feature") for s in plan.statements]
     assert labels == sorted(labels)  # the per-label statements keep their order (Feature, then Module)
-    assert all(
-        sum(estimate_bytes(row) for row in s.params["rows"]) <= MAX_MESSAGE_BYTES for s in plan.statements
-    )
+    assert all(sum(estimate_bytes(row) for row in s.params["rows"]) <= MAX_MESSAGE_BYTES for s in plan.statements)
     by_label = {
-        label: [r["uuid"] for s, name in zip(plan.statements, labels, strict=True) if name == label for r in s.params["rows"]]
+        label: [
+            r["uuid"]
+            for s, name in zip(plan.statements, labels, strict=True)
+            if name == label
+            for r in s.params["rows"]
+        ]
         for label in ("Feature", "Module")
     }
     assert by_label["Feature"] == [r["uuid"] for r in rows if r["label"] == "Feature"]
@@ -173,7 +183,9 @@ def test_the_dialect_cuts_a_create_batch_per_label_and_per_budget_in_order() -> 
     ],
 )
 def test_every_template_with_rows_is_cut_the_same_way(query: Any) -> None:
-    rows = [{"uuid": f"u-{i}", "props": {"embedding": VECTOR, "name_embedding": VECTOR}, "ref": f"r{i}"} for i in range(200)]
+    rows = [
+        {"uuid": f"u-{i}", "props": {"embedding": VECTOR, "name_embedding": VECTOR}, "ref": f"r{i}"} for i in range(200)
+    ]
     params: dict[str, Any] = {"project_id": "p", "build_id": "b", "rows": rows, "inferred": "inferred"}
     plan = ARCADEDB_DIALECT.plan(query, params)
     assert len(plan.statements) > 1
@@ -182,11 +194,15 @@ def test_every_template_with_rows_is_cut_the_same_way(query: Any) -> None:
 
 
 def test_refs_of_the_chunks_concatenate_in_row_order_through_the_plan() -> None:
-    rows = [{"uuid": f"u-{i}", "ref": f"r{i}", "props": {"embedding": VECTOR, "name_embedding": VECTOR}} for i in range(200)]
+    rows = [
+        {"uuid": f"u-{i}", "ref": f"r{i}", "props": {"embedding": VECTOR, "name_embedding": VECTOR}} for i in range(200)
+    ]
     plan = ARCADEDB_DIALECT.plan(
         build_queries.infer_delete_edges("PART_OF"), {"project_id": "p", "inferred": "inferred", "rows": rows}
     )
-    answers = [[{"written": len(s.params["rows"]), "refs": [r["ref"] for r in s.params["rows"]]}] for s in plan.statements]
+    answers = [
+        [{"written": len(s.params["rows"]), "refs": [r["ref"] for r in s.params["rows"]]}] for s in plan.statements
+    ]
     assert plan.reduce(answers) == [{"written": 200, "refs": [f"r{i}" for i in range(200)]}]
 
 

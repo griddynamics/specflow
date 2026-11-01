@@ -156,7 +156,9 @@ def scale_rows() -> list[dict[str, Any]]:
         uuid = f"u-{index:04d}"
         props = {
             "uuid": uuid,
-            "spec_id": f"FEAT::T{TIED_ROWS - index}" if index < TIED_ROWS else f"FEAT::{index:04d}",  # ties: reversed ids
+            "spec_id": f"FEAT::T{TIED_ROWS - index}"
+            if index < TIED_ROWS
+            else f"FEAT::{index:04d}",  # ties: reversed ids
             "name": f"feature {index}",
             "embedding": vectors[index].tolist(),
             "name_embedding": names[index].tolist(),
