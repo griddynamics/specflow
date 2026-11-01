@@ -214,10 +214,17 @@ def test_snapshot_drops_volatile_properties_and_sorts() -> None:
     assert same == snapshot
 
 
-def test_timeout_scale_multiplies_defaults() -> None:
+def test_capped_budgets_and_unit_tokens_header(tmp_path: Path) -> None:
     from graph.core.config import DEFAULT_BUDGETS
-    from graph_bench import scaled_budgets
+    from graph_bench import capped_budgets
 
-    scaled = scaled_budgets(6.0)
-    assert scaled["extraction"].timeout_s == DEFAULT_BUDGETS["extraction"].timeout_s * 6
-    assert scaled["extraction"].attempts == DEFAULT_BUDGETS["extraction"].attempts
+    capped = capped_budgets(270.0, 6)
+    assert capped["extraction"].timeout_s == 270.0 and capped["small"].timeout_s == 270.0
+    assert capped["embedding"].timeout_s == DEFAULT_BUDGETS["embedding"].timeout_s
+    assert capped["extraction"].attempts == 6
+    path = tmp_path / "v1.jsonl"
+    RecordingGateway(FakeReal(), Cassette(path), 10000)  # type: ignore[arg-type]
+    replay = ReplayGateway(Cassette.load(path))
+    assert replay.unit_tokens == 10000
+    with pytest.raises(CassetteError):
+        RecordingGateway(FakeReal(), Cassette.load(path), 8000)  # type: ignore[arg-type]

@@ -47,7 +47,7 @@ from typing import Any, Final, TypeVar
 from pydantic import BaseModel, SecretStr
 
 from example_lib import run_example
-from graph.build import BuildContext, BuildResult, open_file_stores, run_build
+from graph.build import BuildContext, BuildOptions, BuildResult, open_file_stores, run_build
 from graph.build.verify import verify_project
 from graph.core import Gateway, LLMConfig, Neo4jConfig, connect, ensure_schema, load_ontology
 from graph.core.config import DEFAULT_BUDGETS, CallBudget, CallClass
@@ -73,6 +73,8 @@ NEO4J_ENVIRONMENT: Final = ("NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD")
 REPLAY_ENDPOINT: Final = "http://replay.invalid/v1"
 """Placeholder endpoint of a replay's ``LLMConfig``: the replay gateway never opens a connection."""
 EMBED_PROMPT: Final = "embed"
+DEFAULT_UNIT_TOKENS: Final = BuildOptions().unit_tokens
+"""Extraction unit size of the library default; a recording with another size stores it in its header."""
 
 # Snapshot: properties left out because they differ between runs (stamps, build ids, vectors).
 SKIPPED_PROPERTIES: Final = (
@@ -148,8 +150,8 @@ def decode_vector(encoded: str) -> list[float]:
 # Cassette
 
 
-def header_of(config: LLMConfig) -> dict[str, Any]:
-    """The cassette header: models and dimension, never the endpoint or the key."""
+def header_of(config: LLMConfig, unit_tokens: int = DEFAULT_UNIT_TOKENS) -> dict[str, Any]:
+    """The cassette header: models, dimension and build unit size, never the endpoint or the key."""
 
     return {
         "kind": "header",
@@ -159,6 +161,7 @@ def header_of(config: LLMConfig) -> dict[str, Any]:
         "judge_model": config.judge_model,
         "embedding_model": config.embedding_model,
         "embedding_dim": config.embedding_dim,
+        "unit_tokens": unit_tokens,
     }
 
 
@@ -209,10 +212,10 @@ class Cassette:
             raise CassetteError("cassette has no header")
         return cassette
 
-    def open_for_append(self, config: LLMConfig) -> None:
+    def open_for_append(self, config: LLMConfig, unit_tokens: int = DEFAULT_UNIT_TOKENS) -> None:
         """Start the file with its header, or check an existing header against ``config``."""
 
-        header = header_of(config)
+        header = header_of(config, unit_tokens)
         if self.header is not None and self.header != header:
             raise CassetteError("cassette header differs from the recording configuration")
         self.header = header
@@ -277,10 +280,11 @@ class RecordingGateway:
 
     untrusted = staticmethod(untrusted)
 
-    def __init__(self, real: Gateway, cassette: Cassette) -> None:
+    def __init__(self, real: Gateway, cassette: Cassette, unit_tokens: int = DEFAULT_UNIT_TOKENS) -> None:
         self._real = real
         self._cassette = cassette
-        cassette.open_for_append(real.config)
+        cassette.open_for_append(real.config, unit_tokens)
+        self.unit_tokens = unit_tokens
         self.live_structured = 0
         self.live_embed_texts = 0
         self.live_embed_calls = 0
@@ -371,6 +375,10 @@ class ReplayGateway:
     @property
     def config(self) -> LLMConfig:
         return self._config
+
+    @property
+    def unit_tokens(self) -> int:
+        return int(self._cassette.header.get("unit_tokens", DEFAULT_UNIT_TOKENS)) if self._cassette.header else DEFAULT_UNIT_TOKENS
 
     def usage(self) -> UsageSnapshot:
         return self._usage.snapshot()
@@ -608,19 +616,23 @@ def neo4j_config(env: Mapping[str, str]) -> Neo4jConfig:
     )
 
 
-def scaled_budgets(scale: float, min_attempts: int = 1) -> dict[CallClass, CallBudget]:
-    """The default per-attempt timeouts times ``scale`` (slow reasoning models need longer than the defaults)
-    and at least ``min_attempts`` attempts per call (a relay restart may take a minute)."""
+def capped_budgets(timeout_s: float | None, min_attempts: int = 1) -> dict[CallClass, CallBudget]:
+    """The default budgets with every chat class's per-attempt timeout set to ``timeout_s`` (None: defaults) and
+    at least ``min_attempts`` attempts per call. The proxy cuts a connection at 300 s, so a slow call should
+    fail as a timeout below that, not as a dropped connection."""
 
     return {
-        call_class: CallBudget(timeout_s=budget.timeout_s * scale, attempts=max(budget.attempts, min_attempts))
+        call_class: CallBudget(
+            timeout_s=timeout_s if timeout_s is not None and call_class != "embedding" else budget.timeout_s,
+            attempts=max(budget.attempts, min_attempts),
+        )
         for call_class, budget in DEFAULT_BUDGETS.items()
     }
 
 
-def llm_config(env: Mapping[str, str], timeout_scale: float = 1.0, min_attempts: int = 1) -> LLMConfig:
+def llm_config(env: Mapping[str, str], timeout_s: float | None = None, min_attempts: int = 1) -> LLMConfig:
     return LLMConfig(
-        budgets=scaled_budgets(timeout_scale, min_attempts),
+        budgets=capped_budgets(timeout_s, min_attempts),
         endpoint=env["LLM_GATEWAY_URL"],
         api_key=SecretStr(env["LLM_GATEWAY_API_KEY"]),
         main_model=env["GRAPH_LLM_MODEL"],
@@ -660,10 +672,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         command.add_argument("--wipe", action="store_true", help="delete the project from Neo4j first (needs an empty state)")
         command.add_argument("--rebuild", action="store_true", help="ask for a rebuild")
         command.add_argument(
-            "--timeout-scale",
+            "--call-timeout-s",
             type=float,
-            default=1.0,
-            help="record only: multiply the default per-attempt LLM timeouts (cassette keys do not depend on it)",
+            default=None,
+            help="record only: per-attempt timeout of every chat call (keep below the proxy's 300 s cut)",
+        )
+        command.add_argument(
+            "--unit-tokens",
+            type=int,
+            default=None,
+            help=f"extraction unit size (record: default {DEFAULT_UNIT_TOKENS}, stored in the cassette header; "
+            "replay: must equal the header's value)",
         )
         command.add_argument("--min-attempts", type=int, default=1, help="record only: at least this many attempts per LLM call")
     return parser.parse_args(argv)
@@ -678,12 +697,15 @@ def open_gateway(args: argparse.Namespace) -> tuple[Any, LLMConfig]:
     """The recording or replaying gateway of the command, and the ``LLMConfig`` the build runs with."""
 
     if args.command == "record":
-        config = llm_config(require_environment(LLM_ENVIRONMENT), args.timeout_scale, args.min_attempts)
+        config = llm_config(require_environment(LLM_ENVIRONMENT), args.call_timeout_s, args.min_attempts)
         cassette = Cassette.load(args.cassette) if args.cassette.exists() else Cassette(args.cassette)
-        return RecordingGateway(Gateway(config), cassette), config
+        unit_tokens = args.unit_tokens or DEFAULT_UNIT_TOKENS
+        return RecordingGateway(Gateway(config), cassette, unit_tokens), config
     if not args.cassette.exists():
         raise SystemExit("replay needs an existing --cassette file")
     gateway = ReplayGateway(Cassette.load(args.cassette))
+    if args.unit_tokens is not None and args.unit_tokens != gateway.unit_tokens:
+        raise SystemExit(f"--unit-tokens {args.unit_tokens} differs from the cassette's {gateway.unit_tokens}")
     return gateway, gateway.config
 
 
@@ -707,6 +729,7 @@ async def main() -> None:
     neo4j = neo4j_config(require_environment(NEO4J_ENVIRONMENT))
     gateway, llm = open_gateway(args)
     ontology = load_ontology()
+    unit_tokens = gateway.unit_tokens
     stores = open_file_stores(args.state, args.corpus)
     if stores.corpus is None:
         raise RuntimeError("file stores were opened without a corpus")
@@ -725,6 +748,7 @@ async def main() -> None:
             extraction=stores.extraction,
             builds=stores.builds,
             rebuild=args.rebuild,
+            options=BuildOptions(unit_tokens=unit_tokens),
             database=neo4j.database,
         )
         started = time.monotonic()
@@ -739,6 +763,7 @@ async def main() -> None:
             "command": args.command,
             "label": args.label,
             "project_id": args.project,
+            "unit_tokens": unit_tokens,
             "wiped_nodes": wiped,
             "wall_s": round(wall_s, 2),
             "build": result_summary(result),
