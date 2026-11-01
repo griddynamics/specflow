@@ -18,6 +18,7 @@ from graph.core.queries import Query
 from graph.stores.config import StoreConfig
 from graph_probes.base import (
     VECTOR_PROPERTIES,
+    check_flat,
     EdgeSpec,
     GraphProbe,
     Match,
@@ -99,6 +100,7 @@ class MemoryProbe(GraphProbe):
 
     async def create_nodes(self, project_id: str, specs: Sequence[NodeSpec]) -> int:
         for spec in specs:
+            check_flat(spec.props)
             props = {k: copy.deepcopy(v) for k, v in spec.props.items() if v is not None}
             props["group_id"] = project_id
             self._nodes[f"n{next(self._ids)}"] = (set(spec.labels), props)
@@ -106,6 +108,7 @@ class MemoryProbe(GraphProbe):
 
     async def create_edges(self, project_id: str, specs: Sequence[EdgeSpec]) -> int:
         for spec in specs:
+            check_flat(spec.props)
             ends = [self._select(project_id, spec.source), self._select(project_id, spec.target)]
             if len(ends[0]) != 1 or len(ends[1]) != 1:
                 raise ProbeError(f"{spec.type}: the ends must each match one node")
@@ -122,6 +125,7 @@ class MemoryProbe(GraphProbe):
         add_labels: Sequence[str] = (),
         remove_labels: Sequence[str] = (),
     ) -> int:
+        check_flat(props or {})
         selected = self._select(project_id, match)
         for node_id in selected:
             labels, stored = self._nodes[node_id]
@@ -143,6 +147,7 @@ class MemoryProbe(GraphProbe):
         return len(selected)
 
     async def update_edges(self, edge_ids: Sequence[str], props: Mapping[str, Any]) -> int:
+        check_flat(props)
         found = [i for i in edge_ids if i in self._edges]
         for edge_id in found:
             stored = self._edges[edge_id][3]

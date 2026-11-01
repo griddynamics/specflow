@@ -36,7 +36,8 @@ from graph.core.queries import CORE_DDL, CORE_DDL_FILES, UPSERT_DOCUMENT, UPSERT
 from graph.core.query_files import read_ddl_file
 from graph.core.schema import schema_objects
 from graph.stores._bolt.cypher import render_cypher
-from graph_support import load_gap_ddl, shipped_ontology
+from graph_ddl_support import load_gap_ddl
+from graph_support import shipped_ontology
 
 # The graph fixtures (scripted_gateway, make_gateway, gap_ontology, graph_project) live in graph_support.
 pytest_plugins = ["graph_support"]

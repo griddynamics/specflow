@@ -33,7 +33,8 @@ from graph.core.queries import (
 from graph.core.query_files import read_ddl_file
 from graph.core.schema import SchemaObject, foreign_labels, parse_ddl_statement, schema_objects
 from graph.stores._bolt.cypher import render_cypher
-from graph_support import GAP_DDL_TEXT, llm_config, load_gap_ddl, load_gap_ontology, shipped_ontology
+from graph_ddl_support import GAP_DDL_TEXT, load_gap_ddl
+from graph_support import llm_config, load_gap_ontology, shipped_ontology
 
 DIM = 16
 POPULATING = "POPULATING"

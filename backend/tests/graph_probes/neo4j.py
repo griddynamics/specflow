@@ -13,6 +13,7 @@ from typing import Any, Final
 
 from graph_probes.base import (
     VECTOR_PROPERTIES,
+    check_flat,
     EdgeSpec,
     GraphProbe,
     Match,
@@ -132,6 +133,7 @@ class Neo4jProbe(GraphProbe):
     async def create_nodes(self, project_id: str, specs: Sequence[NodeSpec]) -> int:
         by_labels: dict[tuple[str, ...], list[dict[str, Any]]] = defaultdict(list)
         for spec in specs:
+            check_flat(spec.props)
             by_labels[tuple(identifier(label) for label in spec.labels)].append({**spec.props, "group_id": project_id})
         created = 0
         for labels, rows in by_labels.items():
@@ -156,6 +158,7 @@ class Neo4jProbe(GraphProbe):
     async def create_edges(self, project_id: str, specs: Sequence[EdgeSpec]) -> int:
         groups: dict[tuple[Any, ...], list[EdgeSpec]] = defaultdict(list)
         for spec in specs:
+            check_flat(spec.props)
             shape = (
                 identifier(spec.type),
                 spec.source.label,
@@ -208,6 +211,7 @@ class Neo4jProbe(GraphProbe):
         add_labels: Sequence[str] = (),
         remove_labels: Sequence[str] = (),
     ) -> int:
+        check_flat(props or {})
         conditions, params = _where("n", match.props, "m")
         scope = f":{identifier(match.label)}" if match.label else ""
         clause = "".join(f" AND {condition}" for condition in conditions)
@@ -233,6 +237,7 @@ class Neo4jProbe(GraphProbe):
         return int(rows[0]["n"] or 0)
 
     async def update_edges(self, edge_ids: Sequence[str], props: Mapping[str, Any]) -> int:
+        check_flat(props)
         rows = await self.run(
             "MATCH ()-[r]->() WHERE elementId(r) IN $ids SET r += $props RETURN count(r) AS n",
             ids=list(edge_ids),

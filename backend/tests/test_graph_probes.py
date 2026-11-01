@@ -156,7 +156,7 @@ def test_the_registry_names_importable_probe_classes() -> None:
 
 def test_identifiers_are_plain_names() -> None:
     assert identifier("PART_OF") == "PART_OF"
-    for bad in ("", "a b", "X) DETACH DELETE (n", "1abc", "a`b"):
+    for bad in ("", "a b", "X) OR 1=1 (n", "1abc", "a`b"):
         with pytest.raises(ValueError):
             identifier(bad)
 
@@ -213,6 +213,19 @@ async def test_property_contract_none_removes_lists_keep_order_scalars_keep_type
     changed = await probe.one_node(project, "Module")
     assert "s" not in changed.props and changed["i"] == 8 and changed["extra"] == ["x"]
     assert all(not isinstance(v, dict) for v in changed.props.values())
+
+
+async def test_a_map_valued_property_is_refused(probe: GraphProbe, project: str) -> None:
+    with pytest.raises(ProbeError):
+        await probe.create_nodes(project, [NodeSpec(("SpecNode", "Module"), {"uuid": "u", "bad": {"k": 1}})])
+    await probe.create_nodes(project, [NodeSpec(("SpecNode", "Module"), {"uuid": "u"}), NodeSpec(("SpecNode", "Feature"), {"uuid": "f"})])
+    with pytest.raises(ProbeError):
+        await probe.update_nodes(project, select("Module", uuid="u"), {"bad": [{"k": 1}]})
+    with pytest.raises(ProbeError):
+        await probe.create_edges(
+            project, [EdgeSpec("PART_OF", select("Feature", uuid="f"), select("Module", uuid="u"), {"bad": {"k": 1}})]
+        )
+    assert await probe.count_nodes(project) == 2
 
 
 async def test_labels_are_added_and_removed(probe: GraphProbe, project: str) -> None:

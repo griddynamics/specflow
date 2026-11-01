@@ -102,8 +102,6 @@ from graph.core.config import CallClass
 from graph.core.errors import LLMError
 from graph.core.llm import untrusted
 from graph.core.llm.usage import UsageRecorder
-from graph.core.queries import CORE_DDL
-from graph.core.query_files import read_ddl_file
 from graph.core.store import GraphStore
 from graph_probes import open_probe
 from graph_probes.base import (
@@ -799,24 +797,6 @@ def load_gap_ontology(directory: Path) -> Ontology:
 @pytest.fixture(scope="session")
 def gap_ontology(tmp_path_factory: pytest.TempPathFactory) -> Ontology:
     return load_gap_ontology(tmp_path_factory.mktemp("gap-ontology"))
-
-
-# Schema DDL of ``GAP_ONTOLOGY``: a submodule ontology brings the DDL of what it declares, the edge-key
-# range index of each of its relations and the (group_id, uuid) constraint of each foreign label.
-GAP_DDL_TEXT: Final = """// Schema DDL of the gap test ontology (applied after the shipped DDL).
-CREATE INDEX graph_edge_key_cites IF NOT EXISTS FOR ()-[r:CITES]-() ON (r.group_id, r.edge_key);
-CREATE INDEX graph_edge_key_flags IF NOT EXISTS FOR ()-[r:FLAGS]-() ON (r.group_id, r.edge_key);
-CREATE CONSTRAINT graph_foreign_uuid_finding IF NOT EXISTS
-  FOR (n:Finding) REQUIRE (n.group_id, n.uuid) IS UNIQUE;
-"""
-
-
-def load_gap_ddl(directory: Path) -> tuple[str, ...]:
-    """The shipped DDL statements followed by those of ``GAP_DDL_TEXT``, written into ``directory``."""
-
-    path = Path(directory) / "gap-ddl.cypher"
-    path.write_text(GAP_DDL_TEXT, encoding="utf-8")
-    return (*CORE_DDL, *read_ddl_file(path))
 
 
 # Offline executor

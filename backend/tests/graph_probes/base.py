@@ -57,6 +57,15 @@ def identifier(name: str) -> str:
     return name
 
 
+def check_flat(props: Mapping[str, Any]) -> None:
+    """Property contract (design D7): a stored property is a scalar or a list of scalars, never a map."""
+
+    for name, value in props.items():
+        items = value if isinstance(value, list) else [value]
+        if any(isinstance(item, (dict, list, tuple, set)) for item in items):
+            raise ProbeError(f"property {name!r} is not a scalar or a list of scalars")
+
+
 @dataclass(frozen=True)
 class ProbeNode:
     """A node as the store holds it (``labels`` sorted; ``props`` all properties, vectors included)."""
