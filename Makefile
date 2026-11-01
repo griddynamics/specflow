@@ -71,14 +71,14 @@ COMPOSE_ALL := env COMPOSE_PROFILES=temporal,langfuse $(COMPOSE_BASE)
 # `env -u VIRTUAL_ENV`: the kit tools run in the kit's own environments, not a shell's active venv.
 VALIDATION := $(CURDIR)/validation
 VALIDATE_REPORTS ?= $(CURDIR)/.validation-reports
-VALIDATE_TRACKS := python-lint python-scripts python-arch cypher sql typescript-lint typescript-scripts
+VALIDATE_TRACKS := python-lint python-scripts python-arch cypher sql licences typescript-lint typescript-scripts
 VALIDATE_TARGETS := $(addprefix validate-,$(VALIDATE_TRACKS))
 KIT_ENV := env -u VIRTUAL_ENV
 
 .PHONY: validate validate-list validate-install validate-install-python validate-install-python-clones validate-install-typescript validate-selftest validate-ci-selftest $(VALIDATE_TARGETS)
 
 # Python targets run in backend/ (ENV_FILE is passed down); compose is root-only.
-BACKEND_TARGETS := setup lint unit-test check \
+BACKEND_TARGETS := setup models lint unit-test check \
 	db-upgrade db-revision \
 	api worker temporal-check rss-test
 
@@ -186,11 +186,11 @@ e2e-all:
 # ---- Validation ---------------------------------------------------------------------------
 # make validate                           every track, keeps going after a failure, lists the failed ones
 # make validate TRACKS="python-lint sql"  a subset
-# make validate-<track>                   one track: python-lint python-scripts python-arch cypher sql typescript-lint typescript-scripts
+# make validate-<track>                   one track: python-lint python-scripts python-arch cypher sql licences typescript-lint typescript-scripts
 # make validate-install                   install the kit tools (uv sync / npm install); once, and after a kit update
 # make validate-install-python-clones     only the jscpd engine of validate-python-scripts' clones step (Node.js 24)
 # make validate-selftest                  the kit's own tests (only after editing a kit rule)
-# make validate-ci-selftest               the CI report script's tests (after editing validation/ci)
+# make validate-ci-selftest               the CI report and licence gate scripts' tests (after editing validation/ci)
 # KIT_SKIP="mypy deptry" make validate-python-lint   skip steps of python-lint (names: validation/python/lint/README.md)
 # The kit is zero-baseline: any finding fails the target. Exit status 0 clean, non-zero findings.
 TRACKS ?= $(VALIDATE_TRACKS)
@@ -243,6 +243,13 @@ validate-cypher:
 validate-sql:
 	$(KIT_ENV) sh $(VALIDATION)/run-all.sh --project backend --tracks sql
 
+# Licence gate G6 (validation/ci/licence_gate.py, input backend/licence-gate.toml): the locked dependency set of
+# each image (api, worker-agents, worker-parse) is synced into a scratch environment, no Docker, and checked
+# against the licence allowlist; pymupdf, pymupdf4llm and pymupdf-layout must be absent; NOTICE must name the
+# parse components. It needs uv, network access to the package indexes (or a warm uv cache) and Python 3.11+.
+validate-licences:
+	$(KIT_ENV) python3 $(VALIDATION)/ci/licence_gate.py --config backend/licence-gate.toml
+
 # Frontend: ESLint/Prettier/stylelint/tsc/knip/semgrep, then the token, contrast, CSS and clone
 # checks. tsc needs Next's generated types (`npx next typegen`, part of `make frontend-setup` flow).
 validate-typescript-lint:
@@ -272,6 +279,6 @@ validate-install-typescript:
 validate-selftest: validate-ci-selftest
 	$(KIT_ENV) sh $(VALIDATION)/run-all.sh --selftest --tracks python-lint,python-scripts,python-arch,cypher,sql,typescript-lint,typescript-scripts
 
-# The CI report script's own tests (validation/ci/test_ci_report.py), in the python-lint kit's pytest.
+# The CI report and licence gate scripts' own tests (validation/ci/test_*.py), in the python-lint kit's pytest.
 validate-ci-selftest:
 	$(KIT_ENV) uv run --project $(VALIDATION)/python/lint pytest -q -p no:cacheprovider $(VALIDATION)/ci

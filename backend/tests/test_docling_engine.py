@@ -76,9 +76,10 @@ def test_the_artifacts_path_is_passed_through_and_defaults_to_none(tmp_path: Pat
     assert pipeline_options(images=False, threads=1, artifacts_path=tmp_path).artifacts_path == tmp_path
 
 
-def test_the_converter_allows_exactly_the_seven_formats_and_never_fetches():
-    converter = DoclingEngine(threads=2).build_converter(images=False)
-    assert converter.allowed_formats == list(ALLOWED_FORMATS)
+def test_each_converter_allows_exactly_one_of_the_seven_formats_and_never_fetches():
+    engine = DoclingEngine(threads=2)
+    for input_format in ALLOWED_FORMATS:
+        assert engine.build_converter(input_format).allowed_formats == [input_format]
     assert set(ALLOWED_FORMATS) == {
         InputFormat.PDF,
         InputFormat.DOCX,
@@ -88,11 +89,11 @@ def test_the_converter_allows_exactly_the_seven_formats_and_never_fetches():
         InputFormat.MD,
         InputFormat.CSV,
     }
-    options = converter.format_to_options
     for kind in (InputFormat.HTML, InputFormat.MD, InputFormat.CSV):
-        backend = options[kind].backend_options
+        backend = engine.build_converter(kind).format_to_options[kind].backend_options
         assert backend is not None
         assert (backend.enable_remote_fetch, backend.enable_local_fetch) == (False, False)
+    options = {kind: engine.build_converter(kind).format_to_options[kind] for kind in ALLOWED_FORMATS}
     for kind in (InputFormat.HTML, InputFormat.MD):
         assert getattr(options[kind].backend_options, "fetch_images", None) is False
     assert getattr(options[InputFormat.HTML].backend_options, "render_page", None) is False  # no headless browser
@@ -124,10 +125,10 @@ def test_the_thread_default_is_the_cpus_of_the_process():
     assert DoclingEngine()._threads == default_threads()
 
 
-def test_the_thread_default_without_affinity_falls_back_to_cpu_count(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.delattr(docling_module.os, "sched_getaffinity")
-    monkeypatch.setattr(docling_module.os, "cpu_count", lambda: None)
-    assert default_threads() == 1
+def test_the_thread_default_is_the_quota_capped_cpu_count(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(docling_module, "available_cpus", lambda: 3)
+    assert default_threads() == 3
+    assert DoclingEngine()._threads == 3
 
 
 # --- argument checks (nothing is converted, no model is loaded) --------------------------------

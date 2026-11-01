@@ -129,10 +129,22 @@ https://github.com/MagicStack/asyncpg
 ----------------------------------------------------------------------------
 
 ----------------------------------------------------------------------------
-boto3 (optional extra "aws")
+boto3, botocore, s3transfer (optional extra "aws")
 Copyright Amazon.com, Inc. or its affiliates
 Licensed under Apache License 2.0
 https://github.com/boto/boto3
+https://github.com/boto/botocore
+https://github.com/boto/s3transfer
+botocore includes vendorized parts of requests (Apache License 2.0, Copyright Kenneth
+Reitz), urllib3 (MIT License, Copyright Andrey Petrov and contributors) and the Mozilla
+CA bundle (Mozilla Public License 2.0), as its NOTICE file states.
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+Requests (requests)
+Copyright Kenneth Reitz
+Licensed under Apache License 2.0
+https://github.com/psf/requests
 ----------------------------------------------------------------------------
 
 ----------------------------------------------------------------------------
@@ -285,6 +297,13 @@ https://github.com/docling-project/docling-ibm-models
 ----------------------------------------------------------------------------
 
 ----------------------------------------------------------------------------
+Hugging Face Hub client (huggingface_hub) (optional extra "parse"; downloads the model weights at build time)
+Copyright The HuggingFace team
+Licensed under Apache License 2.0
+https://github.com/huggingface/huggingface_hub
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
 Docling model weights (downloaded from Hugging Face at pinned revisions and baked into
 the worker-parse image): docling-project/docling-layout-heron,
 docling-project/docling-models (TableFormer)
@@ -358,6 +377,13 @@ pylatexenc (through Docling)
 Copyright Philippe Faist
 Licensed under MIT License
 https://github.com/phfaist/pylatexenc
+----------------------------------------------------------------------------
+
+----------------------------------------------------------------------------
+defusedxml (optional extra "parse")
+Copyright Christian Heimes
+Licensed under Python Software Foundation License 2.0
+https://github.com/tiran/defusedxml
 ----------------------------------------------------------------------------
 
 ----------------------------------------------------------------------------

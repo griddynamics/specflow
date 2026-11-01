@@ -72,6 +72,23 @@ def test_validate_prefix_refuses_what_is_not_a_safe_prefix_with_a_trailing_slash
         validate_prefix(prefix)
 
 
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "projects/",
+        f"projects/{PID}/",
+        f"projects/{PID}/documents/",
+        f"projects/{PID}/documents/{DID}/original.pdf/",
+        f"projects/{PID}/other/{DID}/",
+        f"files/{PID}/documents/{DID}/",
+        "a/b/c/d/",
+    ],
+)
+def test_validate_prefix_refuses_anything_but_a_document_prefix(prefix):
+    with pytest.raises(InvalidObjectKeyError):
+        validate_prefix(prefix)
+
+
 def test_validate_prefix_returns_a_safe_prefix_unchanged():
     assert validate_prefix(PREFIX) == PREFIX
 

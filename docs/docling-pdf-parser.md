@@ -317,6 +317,7 @@ Branch by abstraction: each step changes one thing, so that parity is provable. 
 - No schema change and no data migration. A document keeps the Markdown of the engine that made it; `parser` tells which. No point of no return on data.
 - Existing PDF documents keep their pymupdf4llm Markdown (D5 = a). That Markdown is program output in Postgres; no AGPL code runs to serve it.
 - Drive files already imported as `stored_only` sit at `original.bin` without a document row. New imports after step 4 process them; turning the old ones into documents needs a re-import of the source (the implementation plan checks this path).
+- **Deploy order:** roll out `worker-agents` and `worker-parse` before `api`. An old parse worker reads only `original.pdf`, and old Drive workers reject `ItemKind="document"`, so an `api` that accepts Office/web files must not run ahead of them. On rollback revert `api` first. Office/web originals stored as `original.<ext>` are removed by document-prefix cleanup only in the new code, so an old `api` leaves them behind after a removal. Parses started before the deploy keep the old 60-minute execution timeout while `UPLOAD_STALE_AFTER` is already 250 minutes; a long old parse can read as failed once (one-off).
 
 ## Blast radius
 

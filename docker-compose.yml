@@ -379,7 +379,7 @@ services:
       retries: 6
       start_period: 60s
 
-  # Polls the Temporal queue specflow-parse: PDF parsing. No Neo4j, LLM gateway or agent password.
+  # Polls the Temporal queue specflow-parse: parsing of every supported format (PDF, Word, PowerPoint, Excel, HTML, Markdown, CSV). No Neo4j, LLM gateway or agent password.
   worker-parse:
     # Own image (Docling, torch CPU and the baked models): backend/worker-parse.Dockerfile. 3g: a 10-page
     # Docling range peaks near 1.8 GB; the 1 GB /tmp tmpfs counts against the limit.

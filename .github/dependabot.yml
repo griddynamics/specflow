@@ -32,8 +32,9 @@ updates:
       docker-minor-patch:
         update-types: [minor, patch]
 
-  # Dependabot finds only files named Dockerfile, so backend/api.Dockerfile and
-  # backend/worker.Dockerfile are not covered. Their base images are checked by hand.
+  # Dependabot finds only files named Dockerfile, so backend/api.Dockerfile,
+  # backend/worker.Dockerfile and backend/worker-parse.Dockerfile are not covered.
+  # Their base images are checked by hand.
   - package-ecosystem: docker-compose
     directory: /
     schedule:

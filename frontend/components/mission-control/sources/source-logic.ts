@@ -19,7 +19,7 @@ import {
 import { driveReasonMessage, LISTING } from "./drive-logic";
 import { plural } from "./kb-logic";
 import { nonEmpty } from "@/components/ui/utils";
-import { ACCEPTED_EXTENSIONS, FORMAT_LABELS, formatOf, sizeText } from "@/lib/domain/upload-formats";
+import { ACCEPTED_EXTENSIONS, FORMAT_LABELS, formatOf, limitsText, sizeText } from "@/lib/domain/upload-formats";
 
 const files = (n: number): string => `${String(n)} ${n === 1 ? "file" : "files"}`;
 
@@ -263,6 +263,6 @@ export function splitUpload(picked: File[]): { files: File[]; skipped: string[] 
 
 export const unsupportedFilesToast = (names: string[]): { title: string; message: string; tone: "danger" } => ({
   title: "File type not supported",
-  message: `${names.join(", ")} ${names.length === 1 ? "was" : "were"} not added. Specflow reads ${FORMAT_LABELS} files (${ACCEPTED_EXTENSIONS}).`,
+  message: `${names.join(", ")} ${names.length === 1 ? "was" : "were"} not added. Specflow reads ${FORMAT_LABELS} files (${ACCEPTED_EXTENSIONS}). Limits: ${limitsText()}.`,
   tone: "danger",
 });

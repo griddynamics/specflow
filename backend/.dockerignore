@@ -10,6 +10,8 @@ htmlcov
 .env*
 logs
 tests
+scripts
+.docling-models
 examples
 ontology
 postgres-init

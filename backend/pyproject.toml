@@ -48,6 +48,8 @@ parse = [
     "defusedxml>=0.7.1,<1",
     "opencv-python-headless<5",
     "pypdfium2",
+    # scripts/fetch_docling_models.py and worker-parse.Dockerfile download the models with it (docling-slim already needs it).
+    "huggingface-hub",
     # CPU wheels only: the default PyPI Linux wheels of torch pull nvidia-* (CUDA) packages with proprietary terms.
     "torch==2.15.0",
     "torchvision",
@@ -76,7 +78,7 @@ sources = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["examples"]
+pythonpath = ["examples", "."]
 asyncio_mode = "auto"
 
 [tool.ruff.lint]

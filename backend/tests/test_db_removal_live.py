@@ -244,7 +244,7 @@ async def test_the_document_goes_to_the_oldest_of_two_listers(sources_world) -> 
         ("failed", "application/pdf", True, "processing"),
         ("uploaded", "application/pdf", True, "processing"),
         ("processing", "application/pdf", True, "processing"),  # fresh: stays processing, always listed
-        ("failed", "text/markdown", False, "failed"),
+        ("failed", "text/markdown", True, "processing"),  # S06: every accepted format is read again
         ("ingested", "application/pdf", False, "ingested"),
     ],
 )

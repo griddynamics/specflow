@@ -7,7 +7,7 @@ together. For every setting, see [`docs/configuration.md`](docs/configuration.md
 
 | Need | Why | Notes |
 |---|---|---|
-| Docker with the Compose plugin | Runs the whole stack | Docker Desktop, OrbStack or Docker Engine |
+| Docker with the Compose plugin | Runs the whole stack | Docker Desktop, OrbStack or Docker Engine. `worker-parse` alone is limited to 3 GiB of memory |
 | `make` and `openssl` | `make env-local` writes random local secrets | Already on macOS and most Linux systems |
 | An OpenAI-compatible LLM gateway | Summaries and the knowledge-graph build | You need its URL, an API key and a model name |
 | Temporal | Runs the background workflows | Use your own on `localhost:7233`, or start the bundled one (`WITH=temporal`) |
@@ -45,14 +45,18 @@ Node.js 20.9 or newer.
    ```
 
    `make up` builds the images, starts the services and waits until they are healthy.
+   The first build is slow: the `worker-parse` image downloads PyTorch and the
+   Docling models once, and then runs without network access.
 
 4. Open http://127.0.0.1:3001 and sign in. Locally the app uses a dev login
    (`dev@example.com` by default), so you need no identity provider.
 
-5. Create a project, add a source (upload PDFs), then press the build button on the
-   project page to build the knowledge graph. Google Drive folders also work as a
-   source; they need a Google service identity (see `DRIVE_IDENTITY_EMAIL` in
-   [`docs/configuration.md`](docs/configuration.md)).
+5. Create a project, add a source (upload PDF, Word, PowerPoint, Excel, HTML,
+   Markdown or CSV files), then press the build button on the project page to
+   build the knowledge graph. Google Drive folders also work as a source; they
+   need a Google service identity (see `DRIVE_IDENTITY_EMAIL` in
+   [`docs/configuration.md`](docs/configuration.md)). Sizes, limits and error
+   codes are in the "Document parsing" section there.
 
 Stop the stack with `make down`. This keeps your data. `make down-volumes` deletes
 the local databases and files: use it only for a clean start.
@@ -63,7 +67,7 @@ the local databases and files: use it only for a clean start.
 |---|---|---|
 | `frontend` | 3001 | Next.js web app |
 | `api` | 8000 | FastAPI: projects, sources, uploads, workflow starts, the knowledge-graph build; runs the database migrations on start |
-| `worker-parse` | - | Temporal worker: PDF to Markdown |
+| `worker-parse` | - | Temporal worker: documents (PDF, Word, PowerPoint, Excel, HTML, Markdown, CSV) to Markdown; its own image, 3 GiB |
 | `worker-agents` | - | Temporal worker: AI summaries |
 | `postgres` | 5433 | Projects, documents, Markdown, summaries |
 | `neo4j` | 7474 (browser), 7687 | The knowledge graph |
@@ -82,7 +86,7 @@ flowchart LR
     api --> pg[(Postgres)]
     api --> s3[(Object storage<br/>S3 or GCS)]
     api --> tmp{{Temporal}}
-    tmp --> wp[worker-parse<br/>PDF to Markdown]
+    tmp --> wp[worker-parse<br/>documents to Markdown]
     tmp --> wa[worker-agents<br/>summaries]
     wp --> s3
     wp --> pg
@@ -96,8 +100,10 @@ flowchart LR
 How a document flows through the system:
 
 1. You add a source. The `api` stores each file in object storage, write-once.
-2. A Temporal workflow asks `worker-parse` to turn the PDF into Markdown. The Markdown
-   goes to Postgres.
+2. A Temporal workflow asks `worker-parse` to turn the file (PDF, Word, PowerPoint,
+   Excel, HTML, Markdown or CSV) into Markdown. The Markdown goes to Postgres. A file
+   over a limit ends as `document_too_large`; one that cannot be read ends as
+   `document_parse_failed` (or `pdf_parse_failed` for a PDF).
 3. `worker-agents` writes a summary of each document with the LLM gateway.
 4. When you build the project, the `api` reads all current documents and builds
    a typed knowledge graph in Neo4j: modules, features, capabilities and requirements,

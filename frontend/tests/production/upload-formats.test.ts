@@ -110,7 +110,8 @@ test("the refusal toast names the files and the accepted types", () => {
   assert.equal(one.title, "File type not supported");
   assert.equal(
     one.message,
-    "old.doc was not added. Specflow reads PDF, Word, PowerPoint, Excel, HTML, Markdown or CSV files (.pdf, .docx, .pptx, .xlsx, .html, .md, .csv).",
+    "old.doc was not added. Specflow reads PDF, Word, PowerPoint, Excel, HTML, Markdown or CSV files (.pdf, .docx, .pptx, .xlsx, .html, .md, .csv). " +
+      "Limits: PDF up to 100 MB; Word, PowerPoint and Excel up to 50 MB; HTML, Markdown and CSV up to 10 MB.",
   );
   assert.match(unsupportedFilesToast(["a.doc", "b.ppt"]).message, /^a\.doc, b\.ppt were not added\./);
 });

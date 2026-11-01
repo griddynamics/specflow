@@ -32,7 +32,9 @@ PDF_MAGIC: Final = b"%PDF-"
 ZIP_MAGIC: Final = b"PK\x03\x04"
 TEXT_HEAD_BYTES: Final = 4096  # the part of a text body that is checked for UTF-8
 
-#: N2 byte caps per format.
+#: N2 byte caps per format. The Office and text caps equal the parser's own (``file_parsers.limits``,
+#: ``MAX_OOXML_FILE_BYTES``, ``MAX_TEXT_FILE_BYTES``; a test keeps them equal): not imported here because the
+#: api image has no PDFium, which that module needs.
 MAX_BYTES: Final[dict[DocumentFormat, int]] = {
     DocumentFormat.PDF: 100 * MiB,
     DocumentFormat.DOCX: 50 * MiB,
@@ -85,12 +87,6 @@ def accepted_format(header: str | None, filename: str) -> FormatSpec:
     if spec is None:
         raise _unsupported()
     return spec
-
-
-def accepted_media_type(header: str | None, filename: str) -> str:
-    """The canonical media type to store for an upload (``documents.media_type``), else 415."""
-
-    return accepted_format(header, filename).media_type
 
 
 def _declared_length(request: Request) -> int | None:

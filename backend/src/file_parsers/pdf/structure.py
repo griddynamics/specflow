@@ -10,6 +10,8 @@ repaired against the text layer of the PDF read with pdfium:
    ``depth + 1`` (``1 Intro`` is ``##``); an unnumbered one keeps the level Docling gave it.
 2. Glued words. A prose token that is not a word of the page, but equals two or three consecutive
    words of the page, gets the spaced form. Tables, code, comments and image lines are left alone.
+   A word hyphenated across a line break (pdfium: ``data-`` and a line break, or ``data`` U+FFFE ``base``)
+   is a word of the page in its joined form too, because Docling joins it (``database``): never split.
 
 Ranking needs every page, so ``apply`` runs once on the whole document, after the last range. It is
 deterministic and uses no model (about 2 s for 216 pages). Bump ``POST_PROCESSING_VERSION``
@@ -39,6 +41,9 @@ _WORD = re.compile(r"[A-Za-z]+")
 _MARKUP = re.compile(r"[*_`]")
 _NEEDLE_MIN, _NEEDLE_MAX = 8, 40
 _MIN_JOINED_WORDS, _MAX_JOINED_WORDS = 2, 3
+# A hyphen at a line break: pdfium writes "-" and a line break, or its own marker U+FFFE (a soft hyphen, U+00AD,
+# also joins).
+_HYPHEN_BREAK = re.compile(r"-[ \t]*[\r\n]+\s*|[\ufffe\u00ad][ \t]*[\r\n]*[ \t]*")
 
 
 @dataclass(slots=True)
@@ -114,7 +119,10 @@ def _repair_glued(lines: list[str], page: PageText) -> int:
     """Insert the missing spaces in prose lines, in place; return the number of repairs."""
 
     words = _WORD.findall(page.text)
-    vocabulary = {word.lower() for word in words}
+    # Docling de-hyphenates a word broken across lines; its joined form is a word, not a glue of two.
+    vocabulary = {word.lower() for word in words} | {
+        word.lower() for word in _WORD.findall(_HYPHEN_BREAK.sub("", page.text))
+    }
     joined: dict[str, str] = {}
     for size in range(_MIN_JOINED_WORDS, _MAX_JOINED_WORDS + 1):
         for start in range(len(words) - size + 1):

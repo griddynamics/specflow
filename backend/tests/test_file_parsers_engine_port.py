@@ -9,14 +9,13 @@ from pathlib import Path
 
 import pytest
 
-from file_parsers.convert import ParsedMarkdown, PdfParseError, default_engine, file_to_markdown
+from file_parsers.convert import PdfParseError, default_engine, file_to_markdown
 from file_parsers.engines.docling import DoclingEngine
 from file_parsers.engines.port import DocumentEngine, PageRange, ProgressCallback, UnsupportedFormatError
 from file_parsers.formats import FORMATS, PDF_MEDIA_TYPE
 from file_parsers.office.model import OfficeContent
 from file_parsers.pdf.parser import PDFParser
 from file_parsers.pdf.schema import PDFDocument, PDFPageContent
-from file_parsers.pdf.to_markdown import pdf_file_to_markdown
 from office_support import DOCX, PPTX, XLSX, build_docx, build_pptx, build_xlsx
 
 FIXTURE = Path(__file__).parent / "data" / "specs" / "extraction.pdf"
@@ -62,18 +61,6 @@ def test_the_engines_satisfy_the_port():
 def test_the_default_engine_is_docling_and_its_id_is_the_stored_parser_value():
     assert isinstance(default_engine(), DoclingEngine)
     assert default_engine().engine_id == "docling@2.145.0+sf1"
-
-
-def test_the_alias_is_the_facade_for_pdf(monkeypatch):
-    seen: list[tuple[Path, str]] = []
-
-    def fake(path: Path, media_type: str) -> ParsedMarkdown:
-        seen.append((path, media_type))
-        return ParsedMarkdown(markdown="x", parser="pymupdf4llm")
-
-    monkeypatch.setattr("file_parsers.pdf.to_markdown.file_to_markdown", fake)
-    assert pdf_file_to_markdown(FIXTURE).markdown == "x"
-    assert seen == [(FIXTURE, "application/pdf")]
 
 
 def test_the_facade_routes_pdf_to_the_given_engine_and_reports_its_id():

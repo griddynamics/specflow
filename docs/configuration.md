@@ -166,6 +166,115 @@ folders. Share each folder with this address. If it is unset or blank, document
 source calls fail with `setup_error` and the log event `drive.identity.missing`; there is
 no fallback to other credentials. The app still starts.
 
+## Document parsing
+
+Uploads and Drive files are turned into Markdown by the `worker-parse` service with Docling. There
+is no setting for the engine, the formats or the limits: they are fixed in the code, and this section
+lists them so you can size the deployment. One parse runs at a time per `worker-parse` replica; add
+replicas for a backlog.
+
+### Accepted formats
+
+| Format | Extension | Canonical media type | Upload cap |
+|---|---|---|---|
+| PDF | `.pdf` | `application/pdf` | 100 MiB |
+| Word | `.docx` | `application/vnd.openxmlformats-officedocument.wordprocessingml.document` | 50 MiB |
+| PowerPoint | `.pptx` | `application/vnd.openxmlformats-officedocument.presentationml.presentation` | 50 MiB |
+| Excel | `.xlsx` | `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` | 50 MiB |
+| HTML | `.html` | `text/html` | 10 MiB |
+| Markdown | `.md` | `text/markdown` | 10 MiB |
+| CSV | `.csv` | `text/csv` | 10 MiB |
+
+- The API takes the type from the file extension. The `Content-Type` header must agree with it,
+  except for browser quirks: an empty type or `text/plain` for `.md`, `text/plain` or
+  `application/vnd.ms-excel` for `.csv`. The stored type is always the canonical one.
+- The API checks the first bytes (`%PDF-` for PDF, a ZIP header for Word, PowerPoint and Excel, UTF-8
+  without NUL bytes for text) and counts the bytes against the cap while it streams the body.
+- Legacy `.doc`, `.ppt` and `.xls`, and every other type, are refused with 415 `unsupported_format`.
+- The original is stored as `original.<extension>` next to the Markdown.
+- Drive classifies a file by its MIME type only. The seven types above are read; Google Docs, Slides
+  and Sheets keep their own conversion; legacy Office files, `text/plain` files (even a `.md`),
+  images, video and other types are stored but not read. The Drive import does not apply the
+  upload byte caps while it downloads. The parse worker holds the 50 MiB and 10 MiB caps of Office and
+  text files again, and a Drive PDF is limited by its page count only.
+
+### Parse limits
+
+The parse worker checks these before it converts a file, and counts them while it reads the file, never
+from sizes the file declares about itself.
+
+| Limit | Value | Applies to |
+|---|---|---|
+| Pages | 500 | PDF |
+| Slides | 500 | PPTX |
+| Inflated size of all entries | 200 MiB | DOCX, PPTX, XLSX |
+| Compression ratio of one entry | 100 to 1, checked once an entry has inflated past 1 MiB | DOCX, PPTX, XLSX |
+| Entries in the ZIP archive | 10,000 | DOCX, PPTX, XLSX |
+| Cells | 200,000, all sheets together | XLSX, CSV |
+| File size on disk | 50 MiB (Office), 10 MiB (HTML, Markdown, CSV) | Drive files; uploads hit the same caps at the API |
+| Markdown produced | 5 MiB | every format |
+
+XML parsers do not resolve external entities or DTDs, and HTML and Markdown are parsed without
+fetching remote or local resources and without running scripts.
+
+### Error codes
+
+| Code | Where | Meaning |
+|---|---|---|
+| `file_too_large` | Upload API, HTTP 413 | The body is over the cap of its type. `details.max_bytes` holds the cap. |
+| `unsupported_format` | Upload API, HTTP 415 | The type or the first bytes do not match an accepted format. The message lists the accepted types. |
+| `document_too_large` | Parse, stored on the document | A limit in "Parse limits" was passed (pages, slides, cells, inflated size, Markdown size). Final: the parse is not retried. |
+| `document_parse_failed` | Parse, stored on the document | A file that is not a PDF could not be read: malformed, unreadable or unsupported content. Final. |
+| `pdf_parse_failed` | Parse, stored on the document | A PDF could not be read. Unchanged from before. |
+
+A Drive file that fails in the parse shows as a failed file with the same reason.
+
+### The worker-parse image
+
+- `backend/worker-parse.Dockerfile` builds the only image that holds Docling, PyTorch (CPU wheels),
+  OpenCV and the layout and table models. The api and worker-agents images do not contain them and
+  never contain PyMuPDF. `make images` builds the four images.
+- Size it at 2 vCPU and **3 GiB** (`mem_limit: 3g` in `docker-compose.yml`). A parse works through a PDF in ranges
+  of 10 pages and peaked near 1.8 GB in the measured runs. `/tmp` is a 1 GB tmpfs that counts against
+  that limit; the root filesystem is read-only; the process runs as uid 10001.
+- Give it a termination grace period of 150 s; running parses finish for up to 130 s after SIGTERM.
+- Egress is not needed: the models are baked into the image and nothing is downloaded at run time.
+
+The image sets these variables. Do not change them in a deployment.
+
+| Name | Image value | Meaning |
+|---|---|---|
+| `HF_HUB_OFFLINE` | `1` | Hugging Face downloads are off; Docling reads only the baked models. |
+| `DOCLING_ARTIFACTS_PATH` | `/opt/docling-models` | Folder of the baked models. For tests and development on a host, run `make models`: it fetches them into `backend/.docling-models`, which the tests pick up. |
+| `MALLOC_ARENA_MAX` | `2` | Keeps the memory of a long parse flat. |
+
+### Deploying
+
+Roll out `worker-parse` and `worker-agents` before `api`: an older parse worker reads only PDFs, and older
+Drive workers reject the new file kind. On a rollback, revert `api` first.
+
+### Time limits
+
+These are constants in the code, not settings. They follow one rule: the workflow execution limit is at
+least the attempts times the start-to-close limit plus a margin; the Drive wait is at least the execution
+limit; the Drive wait activity limit is larger than the Drive wait.
+
+| Limit | Value |
+|---|---|
+| Parse activity, start to close | 120 min |
+| Parse activity, attempts | 2 (a timed-out attempt starts again at page 1) |
+| Parse activity, heartbeat timeout | 60 s |
+| Parse workflow, execution | 250 min |
+| An upload still `uploaded` or `processing` after | 250 min reads as failed (`unknown_error`) |
+| Drive import, wait for one parse | 250 min |
+| Drive import, wait activity, start to close | 255 min |
+| Drive import, one file, start to close | 30 min (3 attempts) |
+| Drive import, listing a folder tree | 20 min |
+| Drive import, soft deadline and hard execution limit | 11 h and 12 h |
+
+The longest allowed parse (500 pages) takes about 29 minutes with noise. The rest of the 120 minutes
+covers a short queue for the single parse slot.
+
 ## Live tests
 
 | Variable | Tier |

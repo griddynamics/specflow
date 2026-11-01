@@ -6,6 +6,7 @@ from file_parsers.formats import PDF_MEDIA_TYPE, format_for_media_type
 from storage.base import InvalidObjectKeyError
 
 MAX_KEY_BYTES = 1024
+DOCUMENT_PREFIX_SEGMENTS = 4
 FIRST_PRINTABLE = 0x20
 DELETE_CHAR = 0x7F
 
@@ -76,14 +77,18 @@ def document_prefix(project_id: str, document_id: str) -> str:
 
 
 def validate_prefix(prefix: str) -> str:
-    """Return ``prefix`` unchanged if it is a safe key prefix that ends with ``/``.
+    """Return ``prefix`` unchanged if it is a document prefix: ``projects/<id>/documents/<id>/``.
 
-    The trailing ``/`` keeps ``documents/{did}/`` from matching ``documents/{did}2/``.
+    Only that shape may be deleted by prefix, so a shorter prefix (``projects/``, ``projects/<id>/``)
+    can never wipe a project. The trailing ``/`` keeps ``documents/{did}/`` from matching
+    ``documents/{did}2/``.
     """
 
     if not _is_text(prefix) or not prefix.endswith("/"):
         raise InvalidObjectKeyError("object prefix must end with '/'")
-    validate_key(prefix[:-1])
+    segments = validate_key(prefix[:-1]).split("/")
+    if len(segments) != DOCUMENT_PREFIX_SEGMENTS or segments[0] != "projects" or segments[2] != "documents":
+        raise InvalidObjectKeyError("object prefix must be projects/<id>/documents/<id>/")
     return prefix
 
 

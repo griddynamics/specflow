@@ -96,6 +96,30 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # Licence gate G6: the locked dependency set of each image (api, worker-agents, worker-parse) is installed into a
+  # scratch environment (no Docker image is built) and checked against the allowlist in backend/licence-gate.toml;
+  # pymupdf, pymupdf4llm and pymupdf-layout must be absent and NOTICE must name the parse components.
+  static-licences:
+    name: Static (licences)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.2.0
+        with: { enable-cache: true, python-version: "3.12" }
+      - run: >-
+          python3 validation/ci/ci_report.py run --job static-licences --unit backend
+          --step licences --findings-codes 1 2 --
+          make validate-licences
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: validation-reports-static-licences-${{ github.run_attempt }}
+          path: .reports/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
   static-typescript:
     name: Static (${{ matrix.track }})
     runs-on: ubuntu-24.04
@@ -135,13 +159,11 @@ jobs:
     name: Unit (python services)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    # The Docling models the parser tests need (PDF quality gate G1), at the revisions baked into the
-    # worker-parse image (backend/worker-parse.Dockerfile, ARG LAYOUT_REVISION / TABLEFORMER_REVISION; a test
-    # keeps the two in step). They are fetched once, cached by revision, and read from DOCLING_ARTIFACTS_PATH:
+    # The Docling models the parser tests need (PDF quality gate G1), at the revisions pinned in
+    # backend/scripts/fetch_docling_models.py (the single source; a test keeps backend/worker-parse.Dockerfile equal to
+    # it). They are fetched once, cached by the hash of that script, and read from DOCLING_ARTIFACTS_PATH:
     # the tests themselves run offline (tests/conftest.py sets HF_HUB_OFFLINE=1).
     env:
-      LAYOUT_REVISION: 8f39ad3c0b4c58e9c2d2c84a38465abf757272d8
-      TABLEFORMER_REVISION: fc0f2d45e2218ea24bce5045f58a389aed16dc23
       DOCLING_ARTIFACTS_PATH: ${{ github.workspace }}/.docling-models
     steps:
       - uses: actions/checkout@v7
@@ -152,23 +174,11 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ${{ env.DOCLING_ARTIFACTS_PATH }}
-          key: docling-models-${{ env.LAYOUT_REVISION }}-${{ env.TABLEFORMER_REVISION }}
+          key: docling-models-${{ hashFiles('backend/scripts/fetch_docling_models.py') }}
       - if: steps.docling-models.outputs.cache-hit != 'true'
         name: Fetch the Docling models (cache miss only)
         working-directory: backend
-        run: |
-          uv run --no-sync python - <<'PY'
-          import os
-
-          from huggingface_hub import snapshot_download
-
-          root = os.environ["DOCLING_ARTIFACTS_PATH"]
-          for repo, revision, patterns in (
-              ("docling-project/docling-layout-heron", os.environ["LAYOUT_REVISION"], ["config.json", "preprocessor_config.json", "model.safetensors"]),
-              ("docling-project/docling-models", os.environ["TABLEFORMER_REVISION"], ["model_artifacts/tableformer/fast/*"]),
-          ):
-              snapshot_download(repo_id=repo, revision=revision, allow_patterns=patterns, local_dir=root + "/" + repo.replace("/", "--"))
-          PY
+        run: uv run --no-sync python scripts/fetch_docling_models.py --target "$DOCLING_ARTIFACTS_PATH"
       # pytest runs in backend/, so junit.xml lands there; xunit1 keeps file and line per case.
       - run: >-
           python3 validation/ci/ci_report.py run --job unit-python --unit backend --step pytest
@@ -349,7 +359,7 @@ jobs:
   validation-gate:
     name: Validation gate
     if: always()
-    needs: [static-python, static-typescript, unit-python, unit-typescript, e2e-build, e2e-production]
+    needs: [static-python, static-licences, static-typescript, unit-python, unit-typescript, e2e-build, e2e-production]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -366,7 +376,7 @@ jobs:
         continue-on-error: true
         run: >-
           python3 validation/ci/ci_report.py merge --expect
-          static-python-lint static-python-scripts static-python-arch static-cypher static-sql
+          static-python-lint static-python-scripts static-python-arch static-cypher static-sql static-licences
           static-typescript-lint static-typescript-scripts unit-python unit-typescript
           e2e-build
           e2e-production-shard1 e2e-production-shard2

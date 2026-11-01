@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 # The Docling models come from the local Hugging Face cache or DOCLING_ARTIFACTS_PATH (the worker-parse
 # image, the CI prefetch); a test never downloads them.
@@ -22,7 +23,6 @@ os.environ.update(
 )
 
 from collections.abc import Iterator
-from pathlib import Path
 
 import pytest
 
@@ -42,6 +42,15 @@ pytest_plugins = [
     "specflow_db_live_support",
     "specflow_sources_support",
 ]
+
+
+def pytest_configure() -> None:
+    """``make models`` (part of ``make setup``) puts the Docling models in backend/.docling-models: use them
+    unless the environment names its own folder (CI). Runs before the test modules import Docling."""
+
+    models = Path(__file__).resolve().parent.parent / ".docling-models"
+    if models.is_dir():
+        os.environ.setdefault("DOCLING_ARTIFACTS_PATH", str(models))
 
 
 @pytest.fixture(autouse=True)

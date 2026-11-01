@@ -19,6 +19,11 @@ XML tree makes a parser raise, and the facade maps every engine failure to ``doc
 The N2 byte caps (OOXML 50 MiB, HTML/Markdown/CSV 10 MiB) are checked first: the Drive import streams files
 without the upload check.
 
+A file whose bytes are another format than the stored one is refused (``file_parsers.office.kind``): a PDF or ZIP
+signature at the start of an HTML, Markdown or CSV file, an OOXML package that declares another format's main
+document. Every ZIP failure met while reading (bad CRC, encrypted or unsupported entry, truncated stream) is a
+``DocumentParseFailedError`` too, never a raw ``zipfile`` error.
+
 HTML, Markdown and CSV: the bytes must be UTF-8. A CSV is counted with the dialect Docling's own CSV backend
 detects (``,`` ``;`` tab ``|`` ``:``), through the same sniffer, so the count is the one Docling parses.
 """
@@ -33,8 +38,9 @@ import struct
 import zipfile
 import zlib
 from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
-from typing import BinaryIO
+from typing import IO, BinaryIO
 from xml.etree.ElementTree import ParseError
 
 from defusedxml import DefusedXmlException
@@ -54,6 +60,7 @@ from file_parsers.limits import (
     check_cells,
     check_slides,
 )
+from file_parsers.office.kind import HEAD_BYTES, check_main_parts, check_text_head
 
 CHUNK = 64 * 1024
 OOXML_FORMATS = frozenset({DocumentFormat.DOCX, DocumentFormat.PPTX, DocumentFormat.XLSX})
@@ -65,6 +72,40 @@ _ROOT_RELS = "_rels/.rels"
 _CONTENT_TYPES = "[Content_Types].xml"
 _XML_SUFFIXES = (".xml", ".rels")
 _NOT_UTF8_BOMS = (codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)
+# What zipfile/zlib raise on a damaged archive once it is open: bad CRC or local header (BadZipFile), ZIP64 limits
+# (LargeZipFile), an encrypted entry (RuntimeError), an unsupported method or flag (NotImplementedError), a short
+# stream (EOFError), corrupt deflate data (zlib.error).
+# Only the zipfile calls are wrapped (``_open_part``): an error of the counting code is never reported as corrupt.
+_ZIP_ERRORS = (zipfile.BadZipFile, zipfile.LargeZipFile, RuntimeError, NotImplementedError, EOFError, zlib.error)
+
+
+def _corrupt(exc: BaseException) -> DocumentParseFailedError:
+    return DocumentParseFailedError(f"corrupt archive ({type(exc).__name__})")
+
+
+class _PartReader:
+    """A part's stream whose ``read`` turns a zipfile/zlib failure into ``DocumentParseFailedError``."""
+
+    def __init__(self, stream: IO[bytes]) -> None:
+        self._stream = stream
+
+    def read(self, size: int = -1) -> bytes:
+        try:
+            return self._stream.read(size)
+        except _ZIP_ERRORS as exc:
+            raise _corrupt(exc) from exc
+
+
+@contextmanager
+def _open_part(archive: zipfile.ZipFile, name: str) -> Iterator[_PartReader]:
+    """Open the part ``name`` (``KeyError`` when missing); zip failures on open and read are mapped."""
+
+    try:
+        stream = archive.open(name)
+    except _ZIP_ERRORS as exc:
+        raise _corrupt(exc) from exc
+    with stream:
+        yield _PartReader(stream)
 
 
 def inspect_file(path: Path, document_format: DocumentFormat) -> None:
@@ -93,24 +134,30 @@ def _inspect_ooxml(path: Path, document_format: DocumentFormat) -> None:
     except (zipfile.BadZipFile, ValueError, NotImplementedError, EOFError) as exc:
         raise DocumentParseFailedError(f"not a readable ZIP archive ({type(exc).__name__})") from exc
     with archive, path.open("rb") as raw:
-        infos = archive.infolist()
-        if len(infos) > MAX_OOXML_ENTRIES:
-            raise DocumentTooLargeError("archive entries", len(infos), MAX_OOXML_ENTRIES)
-        inflated = 0
-        # The content types come first: for DOCX and PPTX they say which entries the libraries parse as XML.
-        files = [info for info in infos if not info.is_dir()]
-        first = [info for info in files if info.filename == _CONTENT_TYPES]
-        for info in first:
-            inflated += _inspect_entry(raw, info, inflated, _XmlSniffer(always=True, by_content=False))
-        declared = frozenset() if document_format is DocumentFormat.XLSX else _declared_xml(archive, files)
-        for info in files:  # every other entry, duplicates included
-            if info.filename != _CONTENT_TYPES:
-                inflated += _inspect_entry(raw, info, inflated, _sniffer_for(info, document_format, declared))
-        # The structure checks parse XML, so they run after the scan has bounded every entry.
-        if document_format is DocumentFormat.PPTX:
-            check_slides(_count_slides(archive))
-        elif document_format is DocumentFormat.XLSX:
-            _count_workbook_cells(archive)
+        _inspect_archive(archive, raw, document_format)
+
+
+def _inspect_archive(archive: zipfile.ZipFile, raw: BinaryIO, document_format: DocumentFormat) -> None:
+    infos = archive.infolist()
+    if len(infos) > MAX_OOXML_ENTRIES:
+        raise DocumentTooLargeError("archive entries", len(infos), MAX_OOXML_ENTRIES)
+    inflated = 0
+    # The content types come first: for DOCX and PPTX they say which entries the libraries parse as XML.
+    files = [info for info in infos if not info.is_dir()]
+    first = [info for info in files if info.filename == _CONTENT_TYPES]
+    for info in first:
+        inflated += _inspect_entry(raw, info, inflated, _XmlSniffer(always=True, by_content=False))
+    content_types = _streamed(archive, _CONTENT_TYPES, frozenset({"Default", "Override"}))
+    check_main_parts(content_types, document_format)
+    declared = frozenset() if document_format is DocumentFormat.XLSX else _declared_xml(content_types, files)
+    for info in files:  # every other entry, duplicates included
+        if info.filename != _CONTENT_TYPES:
+            inflated += _inspect_entry(raw, info, inflated, _sniffer_for(info, document_format, declared))
+    # The structure checks parse XML, so they run after the scan has bounded every entry.
+    if document_format is DocumentFormat.PPTX:
+        check_slides(_count_slides(archive))
+    elif document_format is DocumentFormat.XLSX:
+        _count_workbook_cells(archive)
 
 
 def _sniffer_for(info: zipfile.ZipInfo, document_format: DocumentFormat, declared: frozenset[str]) -> _XmlSniffer:
@@ -120,7 +167,7 @@ def _sniffer_for(info: zipfile.ZipInfo, document_format: DocumentFormat, declare
     return _XmlSniffer(always=named, by_content=document_format is DocumentFormat.XLSX)
 
 
-def _declared_xml(archive: zipfile.ZipFile, files: list[zipfile.ZipInfo]) -> frozenset[str]:
+def _declared_xml(entries: list[dict[str, str]], files: list[zipfile.ZipInfo]) -> frozenset[str]:
     """Entry names whose content type in ``[Content_Types].xml`` is XML (``*/xml`` or ``*+xml``).
 
     An Override decides for its part, else the Default of the file extension does. ``image/svg+xml`` is not
@@ -128,7 +175,6 @@ def _declared_xml(archive: zipfile.ZipFile, files: list[zipfile.ZipInfo]) -> fro
     write a DOCTYPE into them). Nothing is declared when the part is missing.
     """
 
-    entries = _streamed(archive, _CONTENT_TYPES, frozenset({"Default", "Override"}))
     by_extension = {e["Extension"].lower(): _is_xml_type(e.get("ContentType", "")) for e in entries if "Extension" in e}
     by_part = {e["PartName"].lstrip("/"): _is_xml_type(e.get("ContentType", "")) for e in entries if "PartName" in e}
     declared = set()
@@ -272,7 +318,7 @@ def _streamed(archive: zipfile.ZipFile, name: str, tags: frozenset[str]) -> list
 
     found: list[dict[str, str]] = []
     try:
-        with archive.open(name) as stream:
+        with _open_part(archive, name) as stream:
             for _, element in SafeElementTree.iterparse(stream, events=("end",), forbid_dtd=True):
                 if element.tag.rpartition("}")[2] in tags:
                     found.append({key.rpartition("}")[2]: value for key, value in element.attrib.items()})
@@ -359,7 +405,7 @@ def _looks_like_xml(archive: zipfile.ZipFile, name: str) -> bool:
 
     if archive.getinfo(name).is_dir():
         return False
-    with archive.open(name) as stream:
+    with _open_part(archive, name) as stream:
         head = stream.read(64)
     return _xml_head(head)
 
@@ -371,7 +417,7 @@ def _scan_part(archive: zipfile.ZipFile, name: str, cells_before: int) -> tuple[
     sheet_ids: list[str] = []
     sheet_data = None
     try:
-        with archive.open(name) as stream:
+        with _open_part(archive, name) as stream:
             for event, element in SafeElementTree.iterparse(stream, events=("start", "end"), forbid_dtd=True):
                 if event == "start":
                     if element.tag in _SHEET_DATA:
@@ -391,6 +437,8 @@ def _scan_part(archive: zipfile.ZipFile, name: str, cells_before: int) -> tuple[
 def _inspect_text(path: Path, document_format: DocumentFormat) -> None:
     try:
         with path.open("rb") as raw:
+            check_text_head(raw.read(HEAD_BYTES), document_format)
+            raw.seek(0)
             if document_format is DocumentFormat.CSV:
                 _count_csv_cells(raw)
             else:

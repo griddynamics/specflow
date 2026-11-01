@@ -41,7 +41,8 @@ MAX_CELLS = 200_000
 """Most cells of an XLSX (all sheets) or a CSV (DESIGN N2), counted while reading, never from the dimension tag."""
 
 MAX_MARKDOWN_BYTES = 5 * 1024 * 1024
-"""Longest Markdown a conversion may produce, in UTF-8 bytes (DESIGN N2; the same cap as drive-convert)."""
+"""Longest Markdown an Office or web conversion (DOCX, PPTX, XLSX, HTML, Markdown, CSV) may produce, in UTF-8 bytes
+(DESIGN N2; the same cap as drive-convert). A PDF is bounded by ``MAX_PDF_PAGES`` instead and is not checked."""
 
 
 class DocumentTooLargeError(Exception):

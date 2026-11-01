@@ -23,6 +23,7 @@ import pytest
 
 from api import uploads
 from db import batches
+from file_parsers import limits
 from file_parsers.formats import FORMATS, DocumentFormat
 from specflow_api_support import PDF, bearer
 from storage.base import CHUNK_SIZE, MiB
@@ -101,6 +102,16 @@ def nothing_kept(harness) -> bool:
 
 
 # ---- every accepted format ------------------------------------------------------------------
+
+
+def test_the_byte_caps_equal_the_parsers_own_file_caps():
+    """The API refuses at the same size the parse guard holds (it cannot import ``limits``: no PDFium in its image)."""
+
+    for format_, cap in uploads.MAX_BYTES.items():
+        if format_ in (DocumentFormat.DOCX, DocumentFormat.PPTX, DocumentFormat.XLSX):
+            assert cap == limits.MAX_OOXML_FILE_BYTES
+        elif format_ is not DocumentFormat.PDF:
+            assert cap == limits.MAX_TEXT_FILE_BYTES
 
 
 @pytest.mark.parametrize("spec", CANONICAL)

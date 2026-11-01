@@ -4,8 +4,18 @@ The configuration is the one measured in the design (docs/docling-pdf-parser.md,
 'Docling configuration'): docling-parse backend, TableFormer v1 in FAST mode with cell matching, no
 OCR, no picture or formula enrichment, no remote services, no Docling heading hierarchy (SpecFlow
 ranks the headings in ``file_parsers.pdf.structure``), Markdown with raw ``_``/``<``/``>`` and compact
-tables. One engine holds one converter, so the models load once per process (about 4 s); call
-``extract`` for 10-page ranges, which keeps the memory flat (1.8 GB instead of 4.7 GB).
+tables. One engine holds one converter per format, so the models load once per process (about 4 s, PDF only);
+call ``extract`` for 10-page ranges, which keeps the memory flat (1.8 GB instead of 4.7 GB).
+
+Each converter allows ONE format, the stored one. Docling picks the backend from the bytes first (magic,
+``filetype``) and the file extension second, while ``file_parsers.office.guard`` checks the limits of the stored
+format; a converter allowing every format would run a PDF stored as Markdown through the PDF pipeline, or XLSX
+bytes stored as DOCX through the XLSX backend, without their limits. With one allowed format, a guessed format
+that differs makes Docling skip the input (``ConversionStatus.SKIPPED``, "File format not allowed") and, with
+``raises_on_error``, raise ``ConversionError``; the facade maps it to ``document_parse_failed`` (Office/web) or
+``pdf_parse_failed`` (PDF). A legitimate text file is never affected by Docling's MD/HTML/CSV guess: the parse
+activity names the file ``original<extension>`` (``temporal.documents.conversion.local_name``), and Docling takes
+the extension's format for text without magic bytes, before any content sniffing.
 
 This module imports Docling at the top (eager). Only worker-parse code imports it, through
 ``file_parsers.convert`` from ``temporal.documents.activities``; the api and worker-agents processes never
@@ -15,7 +25,6 @@ do (lazy queue registration), and their images do not carry the ``parse`` extra.
 from __future__ import annotations
 
 import itertools
-import os
 import re
 import threading
 from collections.abc import Iterator
@@ -43,6 +52,7 @@ from docling_core.types.doc.document import DoclingDocument
 from docling_core.types.doc.items.picture.picture import PictureItem
 from docling_core.types.doc.items.table.table import TableItem
 
+from file_parsers.engines.cpu import available_cpus
 from file_parsers.engines.docling_office import to_office_content
 from file_parsers.engines.port import PageRange, ProgressCallback, UnsupportedFormatError
 from file_parsers.formats import PDF_MEDIA_TYPE, DocumentFormat, canonical_media_types, format_for_media_type
@@ -58,15 +68,17 @@ POST_PROCESSING_VERSION = 1
 
 IMAGES_DIR_NAME = "images"
 FIGURE_DPI = 170
-ALLOWED_FORMATS = (
-    InputFormat.PDF,
-    InputFormat.DOCX,
-    InputFormat.PPTX,
-    InputFormat.XLSX,
-    InputFormat.HTML,
-    InputFormat.MD,
-    InputFormat.CSV,
-)
+INPUT_FORMATS: dict[DocumentFormat, InputFormat] = {
+    DocumentFormat.PDF: InputFormat.PDF,
+    DocumentFormat.DOCX: InputFormat.DOCX,
+    DocumentFormat.PPTX: InputFormat.PPTX,
+    DocumentFormat.XLSX: InputFormat.XLSX,
+    DocumentFormat.HTML: InputFormat.HTML,
+    DocumentFormat.MARKDOWN: InputFormat.MD,
+    DocumentFormat.CSV: InputFormat.CSV,
+}
+"""The Docling format of each SpecFlow format: the only one its converter allows."""
+ALLOWED_FORMATS = tuple(INPUT_FORMATS.values())
 
 _IMAGE_MARK = "￼SPECFLOW-IMAGE￼"
 _BLANK_RUN = re.compile(r"\n{3,}")
@@ -83,12 +95,12 @@ def engine_id() -> str:
 
 
 def default_threads() -> int:
-    """The CPUs this process may use (the pod's vCPU count)."""
+    """The CPUs this process may use: its affinity capped by the cgroup CPU quota (``engines.cpu``).
 
-    try:
-        return max(1, len(os.sched_getaffinity(0)))
-    except AttributeError:  # not Linux
-        return max(1, os.cpu_count() or 1)
+    Docling hands this number to torch (``torch.set_num_threads``, layout and TableFormer) for every conversion.
+    """
+
+    return available_cpus()
 
 
 def pipeline_options(*, images: bool, threads: int, artifacts_path: Path | None = None) -> PdfPipelineOptions:
@@ -136,7 +148,7 @@ def format_options(pdf_options: PdfPipelineOptions) -> dict[InputFormat, FormatO
 
 
 class DoclingEngine:
-    """Converts PDF page ranges with one long-lived Docling converter per ``images`` setting.
+    """Converts with one long-lived Docling converter per format (and, for PDF, per ``images`` setting).
 
     Models: ``artifacts_path`` when given; else Docling's own ``DOCLING_ARTIFACTS_PATH`` setting (the
     worker-parse image and the CI prefetch set it); else the Hugging Face cache.
@@ -147,20 +159,22 @@ class DoclingEngine:
     def __init__(self, *, threads: int | None = None, artifacts_path: Path | None = None) -> None:
         self._threads = threads if threads is not None else default_threads()
         self._artifacts_path = artifacts_path
-        # One converter per `images` value: a process mixing both loads the models twice
-        # (production uses images=False only).
-        self._converters: dict[bool, DocumentConverter] = {}
+        # One converter per (format, images): each allows only its format. A process mixing both `images`
+        # values loads the PDF models twice (production uses images=False only).
+        self._converters: dict[tuple[InputFormat, bool], DocumentConverter] = {}
         self._lock = threading.Lock()
 
     @property
     def engine_id(self) -> str:
         return engine_id()
 
-    def build_converter(self, *, images: bool) -> DocumentConverter:
-        """A new converter (models not loaded yet); ``extract`` caches one per ``images`` value."""
+    def build_converter(self, input_format: InputFormat, *, images: bool = False) -> DocumentConverter:
+        """A new converter that allows only ``input_format`` (models not loaded yet); the engine caches them."""
 
+        if input_format not in ALLOWED_FORMATS:
+            raise ValueError(f"{input_format} is not a format of the engine")
         options = pipeline_options(images=images, threads=self._threads, artifacts_path=self._artifacts_path)
-        return DocumentConverter(allowed_formats=list(ALLOWED_FORMATS), format_options=format_options(options))
+        return DocumentConverter(allowed_formats=[input_format], format_options=format_options(options))
 
     def extract(
         self,
@@ -184,7 +198,8 @@ class DoclingEngine:
         if blank:
             log_event(logger, WARNING, "pdf.pages.no_text_layer", pages=blank, count=len(blank))
         with self._lock:
-            result = self._converter(images=images).convert(path, page_range=(first, last), raises_on_error=True)
+            converter = self._converter(InputFormat.PDF, images=images)
+            result = converter.convert(path, page_range=(first, last), raises_on_error=True)
         if result.status is not ConversionStatus.SUCCESS:
             raise RuntimeError(f"Docling did not convert every page: {result.status.value}")
         document = _to_pdf_document(result.document, path, first, last, assets_dir if images else None)
@@ -206,7 +221,7 @@ class DoclingEngine:
             raise UnsupportedFormatError(media_type)
         path = Path(path)  # always a path: a str source would let Docling treat it as a URL
         with self._lock:
-            result = self._converter(images=False).convert(path, raises_on_error=True)
+            result = self._converter(INPUT_FORMATS[spec.format]).convert(path, raises_on_error=True)
         if result.status is not ConversionStatus.SUCCESS:
             raise RuntimeError(f"Docling did not convert the document: {result.status.value}")
         content = to_office_content(result.document, spec.format)
@@ -215,13 +230,14 @@ class DoclingEngine:
             on_progress(len(content.sections), len(content.sections))
         return content
 
-    def _converter(self, *, images: bool) -> DocumentConverter:
-        # Caller holds the lock. The PDF models load on the first PDF conversion only, so an Office file
-        # through the same converter costs no model load.
-        converter = self._converters.get(images)
+    def _converter(self, input_format: InputFormat, *, images: bool = False) -> DocumentConverter:
+        # Caller holds the lock. The PDF models load on the first PDF conversion only; the Office and web
+        # converters never load them.
+        key = (input_format, images)
+        converter = self._converters.get(key)
         if converter is None:
-            converter = self.build_converter(images=images)
-            self._converters[images] = converter
+            converter = self.build_converter(input_format, images=images)
+            self._converters[key] = converter
         return converter
 
 

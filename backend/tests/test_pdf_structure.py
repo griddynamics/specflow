@@ -8,8 +8,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from file_parsers.pdf.pdfium_typed import PageText
 from file_parsers.pdf.schema import PDFDocument, PDFPageContent, PDFTableBox
-from file_parsers.pdf.structure import PdfStructure
+from file_parsers.pdf.structure import PdfStructure, _repair_glued
 from pdf_builder_support import Line, write_pdf
 
 
@@ -164,3 +165,33 @@ def test_the_result_is_deterministic(tmp_path: Path):
     pdf = [[Line("Title", 24), Line("Chapter", 18), Line("glued words here", 12)]]
     markdown = "## Title\n\n## Chapter\n\ngluedwords here"
     assert _apply(tmp_path, pdf, markdown) == _apply(tmp_path, pdf, markdown)
+
+
+def test_a_word_hyphenated_across_lines_in_the_pdf_is_not_split(tmp_path: Path):
+    # Review M2: pdfium keeps "data-\r\nbase", Docling writes "database"; "database" is a word, not a glue.
+    pdf = [
+        [
+            Line("The service writes to the data-", 12),
+            Line("base every night and the time-", 12),
+            Line("stamp is kept from the start.", 12),
+        ]
+    ]
+    [page] = _apply(
+        tmp_path, pdf, "The service writes to the database every night and the timestamp is kept fromthe start."
+    )
+    assert page == "The service writes to the database every night and the timestamp is kept from the start."
+
+
+def test_the_review_repro_text_keeps_its_de_hyphenated_words():
+    page = PageText("The service writes to the data-\r\nbase every night and the time-\r\nstamp is kept.", [])
+    lines = ["The service writes to the database every night and the timestamp is kept."]
+    assert _repair_glued(lines, page) == 0
+    assert lines == ["The service writes to the database every night and the timestamp is kept."]
+
+
+def test_a_hyphen_inside_a_line_still_lets_the_glue_be_repaired():
+    # Only a hyphen at a line break joins: "data-base" on one line is two words, so "database" is a glue.
+    page = PageText("the data-base and the time stamp", [])
+    lines = ["the database and the timestamp"]
+    assert _repair_glued(lines, page) == 2
+    assert lines == ["the data base and the time stamp"]
