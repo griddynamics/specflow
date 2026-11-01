@@ -2,6 +2,8 @@
 // (auto-approve, redirects back with code and state), token (authorization_code with PKCE S256, refresh_token
 // with one-time rotation; access tokens are RS256 JWTs with the claims the backend checks), userinfo and
 // RP-initiated logout. The signing key is generated at start and never leaves the process. Test double only.
+// Logout rule: `post_logout_redirect_uri` must be on the origin of the app (`appOrigin`) or of a redirect_uri seen at sign-in, else
+// 400. `id_token_hint` is only observed (recorded, with `idTokenHintValid`: signed by this issuer for the client), never enforced.
 import http from "node:http";
 import crypto from "node:crypto";
 import { SignJWT, createLocalJWKSet, exportJWK, generateKeyPair, jwtVerify } from "jose";
@@ -15,10 +17,11 @@ const json = (res, status, body) => {
 
 /**
  * @param {{port:number, publicIssuer:string, clientId:string, clientSecret:string, path?:string,
- *   audience?:string, defaultEmail?:string, endSession?:boolean}} o
+ *   audience?:string, defaultEmail?:string, endSession?:boolean, appOrigin?:string}} o
  * `publicIssuer` is the issuer string put in tokens and discovery (what browsers see);
  * the server itself answers on `127.0.0.1:port` under `path`. `audience` is the access token `aud`;
- * `defaultEmail` signs in when the authorize request has no `login_hint`; `endSession` advertises the logout endpoint.
+ * `defaultEmail` signs in when the authorize request has no `login_hint`; `endSession` advertises the logout endpoint;
+ * `appOrigin` is an origin a logout may return to even before any sign-in.
  */
 export async function startStubIssuer({
   port,
@@ -29,12 +32,13 @@ export async function startStubIssuer({
   audience = "specflow-api",
   defaultEmail = "oidc.user@example.test",
   endSession = true,
+  appOrigin,
 }) {
   const { publicKey, privateKey } = await generateKeyPair("RS256");
   const jwk = { ...(await exportJWK(publicKey)), kid: "stub-key-1", alg: "RS256", use: "sig" };
   const codes = new Map(); // code -> {nonce, challenge, redirectUri, email}
   const liveRefresh = new Map(); // refresh token -> the email it was issued to
-  const redirectOrigins = new Set(); // origins of the redirect_uri values seen at sign-in: where a logout may return to
+  const redirectOrigins = new Set(appOrigin ? [new URL(appOrigin).origin] : []); // where a logout may return to; sign-in adds the redirect_uri origins
   let counter = 0;
 
   const issuer = {
@@ -43,6 +47,7 @@ export async function startStubIssuer({
     // controls (mutated by the test)
     endSession, // false: no end_session_endpoint in discovery and the logout route is 404 (the Google case)
     accessExpiresIn: 3600,
+    accessClaims: {}, // test control: claims merged over the access token's (a key set to undefined drops the claim)
     accessPadding: 0, // extra characters in the access token, to force a chunked session cookie
     refreshMode: "ok", // "ok" | "fail"
     refreshDelayMs: 250,
@@ -62,7 +67,7 @@ export async function startStubIssuer({
       .setProtectedHeader({ alg: "RS256", kid: jwk.kid })
       .setIssuer(publicIssuer)
       .setSubject(`sub-${claims.email}`)
-      .setIssuedAt()
+      .setIssuedAt(claims.iat) // accessClaims may set `iat`
       .setExpirationTime(`${expiresInSeconds}s`)
       .sign(privateKey);
 
@@ -77,6 +82,7 @@ export async function startStubIssuer({
         typ: "Bearer",
         jti: crypto.randomUUID(),
         ...(issuer.accessPadding ? { pad: "x".repeat(issuer.accessPadding) } : {}), // unchecked claim: grows the token only
+        ...issuer.accessClaims,
       },
       issuer.accessExpiresIn,
     );
@@ -126,7 +132,7 @@ export async function startStubIssuer({
       if (!issuer.endSession) return json(res, 404, { error: "not_found" });
       const hint = url.searchParams.get("id_token_hint") ?? undefined;
       const back = url.searchParams.get("post_logout_redirect_uri") ?? "";
-      // Only the origin of a redirect_uri this client used at sign-in may be returned to.
+      // Only the app's origin (`appOrigin`) or that of a redirect_uri used at sign-in may be returned to.
       const ok = back !== "" && URL.canParse(back) && redirectOrigins.has(new URL(back).origin);
       issuer.endSessionRequests.push({
         idTokenHint: hint,

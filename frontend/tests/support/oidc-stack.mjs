@@ -9,11 +9,11 @@ export const OIDC_CLIENT_ID = "specflow-web";
 export const API_AUDIENCE = "specflow-api";
 
 /**
- * @param {{issuerPort:number, apiPort?:number, defaultEmail?:string, api?:object}} o `api` is passed on to startStubApi; without
+ * @param {{issuerPort:number, apiPort?:number, defaultEmail?:string, appOrigin?:string, api?:object}} o `api` is passed on to startStubApi; without
  * `apiPort` no stub API starts (the test brings its own upstream and sets API_INTERNAL_URL).
  * @returns `env` (add it to frontendEnv), `secrets` (values a child's output must never show) and `close()`.
  */
-export async function startOidcStack({ issuerPort, apiPort, defaultEmail, api: apiOptions = {} }) {
+export async function startOidcStack({ issuerPort, apiPort, defaultEmail, appOrigin, api: apiOptions = {} }) {
   const clientSecret = randomSecret();
   const sessionSecret = randomSecret();
   const publicIssuer = `http://127.0.0.1:${issuerPort}/realms/stub`;
@@ -24,11 +24,16 @@ export async function startOidcStack({ issuerPort, apiPort, defaultEmail, api: a
     clientSecret,
     audience: API_AUDIENCE,
     defaultEmail,
+    appOrigin,
   });
   const api =
     apiPort === undefined
       ? undefined
-      : await startStubApi({ port: apiPort, verify: { issuer: publicIssuer, audience: API_AUDIENCE, jwks: issuer.jwks }, ...apiOptions });
+      : await startStubApi({
+          port: apiPort,
+          verify: { issuer: publicIssuer, audience: API_AUDIENCE, jwks: issuer.jwks, clientIds: [OIDC_CLIENT_ID] },
+          ...apiOptions,
+        });
   return {
     issuer,
     api,

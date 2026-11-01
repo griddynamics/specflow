@@ -69,7 +69,13 @@ test.describe("P18 audits on production routes", { tag: "@production" }, () => {
       await setTheme(page, "light");
       await sc.setup(page);
       const stops = await tabWalk(page);
-      expect(stops.length, "the page has Tab stops (login: the one OIDC sign-in button)").toBeGreaterThanOrEqual(sc.id === "login" ? 1 : 2);
+      if (sc.id === "login") {
+        // The walk marks every stop it reaches with data-kb: the login page's only Tab stop is the OIDC sign-in button.
+        await expect(page.locator("[data-kb]")).toHaveCount(1);
+        await expect(page.getByTestId("login-oidc")).toHaveAttribute("data-kb", "1");
+      } else {
+        expect(stops.length, "the page has Tab stops").toBeGreaterThanOrEqual(2);
+      }
       expect(
         stops.filter((s) => !s.visible).map((s) => `${s.id} "${s.label}"`),
         "invisible tab stops",

@@ -6,6 +6,9 @@ import { createLocalJWKSet, jwtVerify } from "jose";
 import { listen, close } from "./servers.mjs";
 import { createSourcesModel, StubError } from "./stub-sources.mjs";
 
+const LEEWAY_SECONDS = 60; // as backend/src/auth/claims.py
+const DEFAULT_CLIENT_ID = "specflow-web";
+
 const json = (res, status, body) => {
   res.writeHead(status, { "content-type": "application/json" });
   res.end(JSON.stringify(body));
@@ -40,9 +43,11 @@ const SAMPLE = {
 const PARSED = new Set(["parsed", "ingested", "partially_ingested"]);
 
 /**
- * @param {{port:number, verify?:{issuer:string, audience:string, jwks:{keys:object[]}}, parseMs?:number, summarizeMs?:number}} opts
- * `verify` makes the API check every bearer as the backend does (RS256, issuer, audience, expiry against the issuer's JWKS);
- * without it any bearer is accepted (the open mode of the contract tests).
+ * @param {{port:number, verify?:{issuer:string, audience:string, jwks:{keys:object[]}, clientIds?:string[]}, parseMs?:number, summarizeMs?:number}} opts
+ * `verify` makes the API check every bearer against the issuer's JWKS, as backend/src/auth/claims.py `validate` does: RS256 signature,
+ * `iss` equal to `issuer`, `aud` equal to `audience`, `exp` not past, `iat` not in the future (both with 60 s leeway), `azp` one of
+ * `clientIds` (default: the web client "specflow-web"), and `email_verified` true. Anything else is a 401. `typ` is not checked.
+ * Without `verify` any bearer is accepted (the open mode of the contract tests).
  * parseMs/summarizeMs = Infinity keeps the work "in progress" forever (stuck tests).
  */
 export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs = 1500, parseOutcome = "parsed" }) {
@@ -250,8 +255,20 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     if (!header.startsWith("Bearer ")) return false;
     if (!verify) return true;
     try {
-      await jwtVerify(header.slice(7), keys, { issuer: verify.issuer, audience: verify.audience, algorithms: ["RS256"] });
-      return true;
+      const { payload } = await jwtVerify(header.slice(7), keys, {
+        issuer: verify.issuer,
+        audience: verify.audience,
+        algorithms: ["RS256"],
+        clockTolerance: LEEWAY_SECONDS,
+      });
+      const clientIds = verify.clientIds ?? [DEFAULT_CLIENT_ID];
+      return (
+        typeof payload.azp === "string" &&
+        clientIds.includes(payload.azp) &&
+        payload.email_verified === true &&
+        typeof payload.iat === "number" &&
+        payload.iat <= Date.now() / 1000 + LEEWAY_SECONDS
+      );
     } catch {
       return false;
     }

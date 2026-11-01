@@ -37,6 +37,7 @@ const stack = await startOidcStack({
   issuerPort: ISSUER_PORT,
   apiPort: API_PORT,
   defaultEmail: "prod.user@example.test",
+  appOrigin: `http://127.0.0.1:${PORT}`,
   api: { parseMs: 1500, summarizeMs: 1500 },
 });
 const { api, issuer } = stack;

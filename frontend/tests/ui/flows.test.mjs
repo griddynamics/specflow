@@ -172,7 +172,7 @@ test("AC-7.6, AC-7.7: an upload of bytes already in the project adds no second d
       api.log.filter(
         (e) => e.method === "POST" && e.path.startsWith(`/api/v1/projects/${p}/sources/`) && e.path.includes("/files?filename="),
       );
-    for (const end = Date.now() + 5000; uploadsOf(pid).length < 2 && Date.now() < end; ) await new Promise((r) => setTimeout(r, 50));
+    for (const end = Date.now() + 5000; uploadsOf(pid).length < 2 && Date.now() < end;) await new Promise((r) => setTimeout(r, 50));
     assert.equal(uploadsOf(pid).length, 2, "the PDFs went to the API, one request each; the text file never did");
     assert.equal(uploadsOf(pid).at(-1).contentType, "application/pdf");
     const docs = (await (await bff(`/projects/${pid}/documents`)).json()).items;

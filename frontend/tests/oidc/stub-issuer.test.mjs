@@ -1,5 +1,5 @@
 // The stub issuer and the stub API on their own (B-10, B-15): claims of the RS256 access token, JWKS, refresh keeps the
-// identity, end-session on and off, and the API's `verify` mode. No frontend. Ports 3226-3228.
+// identity, end-session on and off, and the API's `verify` mode. No frontend. Ports 3223-3224, 3226-3228.
 import crypto from "node:crypto";
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
@@ -11,6 +11,8 @@ import { startStubIssuer } from "./stub-issuer.mjs";
 const ISSUER_PORT = 3226;
 const API_PORT = 3227;
 const OPEN_PORT = 3228;
+const AUD_PORT = 3223;
+const ISS_PORT = 3224;
 const PUBLIC = `http://127.0.0.1:${ISSUER_PORT}/realms/stub`;
 const CLIENT_ID = "specflow-web";
 const CLIENT_SECRET = randomSecret();
@@ -189,28 +191,59 @@ test("stub API verify mode accepts the issuer's token and refuses anything else"
   assert.equal((await get(undefined)).status, 401);
   assert.equal((await get("not-a-jwt")).status, 401);
 
-  const claims = { email: "eve@example.test", azp: CLIENT_ID, typ: "Bearer" };
-  const forge = (key, alg, { aud = "specflow-api", iss = PUBLIC, exp = "5m" } = {}) =>
-    new SignJWT(claims)
+  const forge = (key, alg) =>
+    new SignJWT({ email: "eve@example.test", email_verified: true, azp: CLIENT_ID, typ: "Bearer" })
       .setProtectedHeader({ alg })
-      .setIssuer(iss)
-      .setAudience(aud)
+      .setIssuer(PUBLIC)
+      .setAudience("specflow-api")
       .setSubject("sub-eve")
       .setIssuedAt()
-      .setExpirationTime(exp)
+      .setExpirationTime("5m")
       .sign(key);
   const hmac = new TextEncoder().encode(randomSecret());
   const { privateKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
   assert.equal((await get(await forge(hmac, "HS256"))).status, 401, "HS256 is refused");
   assert.equal((await get(await forge(privateKey, "RS256"))).status, 401, "a token signed by another key is refused");
 
-  // Signed by the issuer's own key but already past its expiry.
-  issuer.accessExpiresIn = -10;
+  // Genuine tokens of the issuer whose claims fail one check each (accessClaims shapes them; the API is fail-closed).
+  const refused = {
+    "expired beyond the leeway": { __expiresIn: -120 },
+    "issued in the future": { iat: Math.floor(Date.now() / 1000) + 300 },
+    "no azp": { azp: undefined },
+    "azp of another client": { azp: "other-client" },
+    "email_verified false": { email_verified: false },
+    "no email_verified": { email_verified: undefined },
+  };
+  for (const [why, { __expiresIn, ...claims }] of Object.entries(refused)) {
+    issuer.accessClaims = claims;
+    if (__expiresIn !== undefined) issuer.accessExpiresIn = __expiresIn;
+    try {
+      const { access_token: token } = await signIn("eve@example.test");
+      assert.equal((await get(token)).status, 401, `a token ${why} is refused`);
+    } finally {
+      issuer.accessClaims = {};
+      issuer.accessExpiresIn = 3600;
+    }
+  }
+});
+
+test("stub API verify mode refuses a genuine token whose audience or issuer it does not expect", async () => {
+  const { access_token } = await signIn("eve@example.test");
+  const other = (port, verify) =>
+    startStubApi({ port, verify: { jwks: issuer.jwks, issuer: PUBLIC, audience: "specflow-api", ...verify } });
+  const apis = [await other(AUD_PORT, { audience: "other" }), await other(ISS_PORT, { issuer: "http://127.0.0.1:1/realms/other" })];
   try {
-    const { access_token: expired } = await signIn("eve@example.test");
-    assert.equal((await get(expired)).status, 401, "an expired token is refused");
+    for (const api of apis) {
+      const res = await fetch(`${api.url}/api/v1/me`, { headers: { authorization: `Bearer ${access_token}` } });
+      assert.equal(res.status, 401);
+    }
+    assert.equal(
+      (await fetch(`http://127.0.0.1:${API_PORT}/api/v1/me`, { headers: { authorization: `Bearer ${access_token}` } })).status,
+      200,
+      "the same token passes where audience and issuer match",
+    );
   } finally {
-    issuer.accessExpiresIn = 3600;
+    for (const api of apis) await api.close();
   }
 });
 
