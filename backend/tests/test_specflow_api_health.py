@@ -9,6 +9,7 @@ import pytest
 
 import health
 from api.runtime import Runtime
+from graph.core.errors import ConfigurationError
 from health import CheckReport, CheckResult, Readiness, run_checks, run_probes
 from settings import load_settings
 from specflow_api_support import FakeTemporal
@@ -19,11 +20,11 @@ async def test_readyz_is_200_with_all_four_checks(harness):
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ready"
-    assert set(body["checks"]) == {"database", "temporal", "storage", "neo4j"}
+    assert set(body["checks"]) == {"database", "temporal", "storage", "graph"}
     assert all(c["ok"] and c["detail"] == "ok" for c in body["checks"].values())
 
 
-@pytest.mark.parametrize("failing", ["database", "temporal", "storage", "neo4j"])
+@pytest.mark.parametrize("failing", ["database", "temporal", "storage", "graph"])
 async def test_readyz_is_503_naming_the_failing_check_without_secrets(harness, failing):
     async def broken() -> None:
         raise ConnectionError("postgres://user:hunter2@10.1.1.1/db")
@@ -95,16 +96,16 @@ async def test_the_temporal_probe_fails_when_the_server_is_not_serving():
     assert report["temporal"].ok is False
 
 
-async def test_the_neo4j_probe_wraps_the_raising_graph_check():
-    class Driver:
-        async def verify_connectivity(self) -> None:
+async def test_the_graph_probe_wraps_the_raising_store_check():
+    class Store:
+        async def check(self) -> None:
             raise ConnectionError("down")
 
-    report = await run_probes({"neo4j": health.neo4j_probe(Driver(), "neo4j")})
-    assert report["neo4j"].ok is False and report["neo4j"].detail == "unavailable"
+    report = await run_probes({"graph": health.graph_probe(Store())})
+    assert report["graph"].ok is False and report["graph"].detail == "unavailable"
 
 
-async def test_run_checks_for_the_worker_covers_db_temporal_storage_and_neo4j_only_with_agents(monkeypatch, valid_env):
+async def test_run_checks_for_the_worker_covers_db_temporal_storage_and_graph_only_with_agents(monkeypatch, valid_env):
 
     async def ok() -> None:
         return None
@@ -115,23 +116,23 @@ async def test_run_checks_for_the_worker_covers_db_temporal_storage_and_neo4j_on
         async def dispose(self) -> None:
             closed.append("engine")
 
-    class Driver:
+    class Store:
         async def close(self) -> None:
-            closed.append("driver")
+            closed.append("graph")
 
     monkeypatch.setattr("db.session.build_engine", lambda _settings: Engine())
-    monkeypatch.setattr("graph.core.connect", lambda _config: Driver())
+    monkeypatch.setattr(health, "build_store", lambda _config: Store())
     monkeypatch.setattr(
         "storage.factory.build_object_store",
         lambda _settings, **_kw: SimpleNamespace(check=ok),
     )
     monkeypatch.setattr(health, "database_probe", lambda _engine: ok)
     monkeypatch.setattr(health, "_temporal_check", lambda _settings: ok)
-    monkeypatch.setattr(health, "neo4j_probe", lambda _driver, _database: ok)
+    monkeypatch.setattr(health, "graph_probe", lambda _store: ok)
 
     both = await run_checks("worker", settings=load_settings("worker", valid_env))
-    assert set(both) == {"database", "temporal", "storage", "neo4j"} and int(both) == 0
-    assert closed == ["engine", "driver"]
+    assert set(both) == {"database", "temporal", "storage", "graph"} and int(both) == 0
+    assert closed == ["engine", "graph"]
     parse_only = await run_checks("worker", settings=load_settings("worker", valid_env, queues=["parse"]))
     assert set(parse_only) == {"database", "temporal", "storage"}
 
@@ -158,6 +159,34 @@ def test_the_runtime_dataclass_is_the_only_shared_state():
         "session_factory",
         "store",
         "temporal",
-        "driver",
+        "graph_store",
         "readiness",
     } <= set(Runtime.__dataclass_fields__)
+
+
+@pytest.mark.parametrize("code", ["store_not_available", "store_sdk_missing"])
+async def test_run_checks_reports_a_store_that_cannot_be_built_as_unavailable_with_its_code(
+    monkeypatch, valid_env, code
+):
+    async def ok() -> None:
+        return None
+
+    def refuse(_config):
+        raise ConfigurationError(code, store="arcadedb", install_extra="secret-extra")
+
+    logged: list[dict] = []
+    monkeypatch.setattr(health, "log_event", lambda _l, _level, event, **f: logged.append({"event": event, **f}))
+
+    monkeypatch.setattr("db.session.build_engine", lambda _s: SimpleNamespace(dispose=ok))
+    monkeypatch.setattr("storage.factory.build_object_store", lambda _s, **_kw: SimpleNamespace(check=ok))
+    monkeypatch.setattr(health, "database_probe", lambda _e: ok)
+    monkeypatch.setattr(health, "_temporal_check", lambda _s: ok)
+    monkeypatch.setattr(health, "build_store", refuse)
+    valid_env["GRAPH_STORE"] = "arcadedb"
+
+    report = await run_checks("worker", settings=load_settings("worker", valid_env))
+
+    assert int(report) == 1
+    assert (report["graph"].ok, report["graph"].detail) == (False, f"unavailable ({code})")
+    assert {"event": "health.graph.store_unbuildable", "code": code} in logged
+    assert "secret-extra" not in repr(logged)

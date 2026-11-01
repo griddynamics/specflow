@@ -27,7 +27,7 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `APP_ENV` | api, workers, frontend | `local`, `dev` or `prod`. A value other than `local` turns on the start-up guards. |
 | `DATABASE_HOST`, `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD` | api, workers | PostgreSQL connection. A blank value is refused. |
 | `DATABASE_AGENT_PASSWORD` | api, workers | Password of the role that agent tools use (row-level security). |
-| `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD` | api, workers | Graph database connection. |
+| `GRAPH_STORE_URI`, `GRAPH_STORE_USER`, `GRAPH_STORE_PASSWORD` | api, workers | Graph store connection; what they mean per backend is in [Graph store](#graph-store). `NEO4J_URI`, `NEO4J_USER` and `NEO4J_PASSWORD` are accepted instead while `GRAPH_STORE` is `neo4j`. A blank password is refused when `APP_ENV` is not `local`. `GRAPH_STORE=postgres` without a URI needs none of the three (it reuses `DATABASE_*`). |
 | `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE` | api, workers | Workflow engine address and namespace. |
 | `LLM_GATEWAY_URL`, `LLM_GATEWAY_API_KEY` | api, workers | OpenAI-compatible gateway route (no `/v1` suffix) and its key. |
 | `AGENT_MODEL` | api, workers | Model id of the agents on the gateway route. |
@@ -44,6 +44,7 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | Name | Read by | Meaning |
 |---|---|---|
 | `TEMPORAL_API_KEY`, `TEMPORAL_TLS_CERT`, `TEMPORAL_TLS_KEY` | api, workers, tools | Credentials for a managed workflow engine. Unset for a self-hosted one. |
+| `GRAPH_STORE_NAME`, `GRAPH_STORE_ADMIN_URI`, `GRAPH_STORE_POOL_SIZE` | api, workers, tools | Database, schema or graph name (default per backend, see below); a second admin endpoint for backends that have one; a cap on the store adapter's own connection pool. |
 | `GRAPH_LLM_MODEL`, `GRAPH_SMALL_MODEL`, `GRAPH_EMBEDDING_MODEL` | api, tools | Models of the graph build. If you set any of them, the graph build routes are on and you must set all three. All unset = off. |
 | `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | api, workers | Tracing. Unset = no tracing. `LANGFUSE_HOST` is read when `LANGFUSE_BASE_URL` is unset. |
 | `SPECFLOW_CONFIG_FILE` | api, workers, tools | Path of the cloud profile file. Unset = environment only. |
@@ -54,7 +55,8 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 |---|---|---|---|
 | `LOGS_LEVEL`, `LOGS_STDOUT_LEVEL` | `INFO` | all backend | Log levels. Logs are JSON on standard output. |
 | `LOGS_RAISE_EXCEPTIONS` | off | all backend | Debug: a logging error raises. |
-| `NEO4J_DATABASE` | `neo4j` | api, workers, tools | Graph database name. |
+| `GRAPH_STORE` | `neo4j` | api, workers, tools | The graph store backend: `neo4j`, `arcadedb`, `postgres` or `tigergraph`. |
+| `NEO4J_DATABASE` | unset | api, workers, tools | Alias of `GRAPH_STORE_NAME` while `GRAPH_STORE` is `neo4j`. |
 | `AGENT_TRACE_SENSITIVE_DATA` | `false` | api, workers | `true` puts document text into traces. Use it only for local debugging. |
 | `GRAPH_EMBEDDING_DIM` | `1536` | api, tools | Set it when the embedding model has another size. |
 | `GRAPH_STATE_DIR` | `.graph-build/state` | api | Folder of the graph build file stores, relative to the working directory. |
@@ -76,6 +78,66 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `KUBERNETES_SERVICE_HOST` | set by Kubernetes | api, workers, frontend | Turns on the in-cluster guards. Do not set it by hand. |
 | `GOOGLE_APPLICATION_CREDENTIALS` | library chain | api, workers | Standard Google credential chain (key file, Workload Identity). |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | AWS credential chain | api, workers | Standard AWS credential chain. Prefer an IAM role. |
+
+## Graph store
+
+The graph library talks to one backend through a store adapter; the API and the agents worker build
+it once at start (`graph.stores.build_store`). Pick the backend with `GRAPH_STORE` and point it at
+the server with the other variables, the way a database URL picks Aurora, Cloud SQL or RDS.
+No `GRAPH_STORE*` name is a graph build switch: setting them never turns the graph build on.
+
+| Variable | neo4j (default) | arcadedb | postgres | tigergraph |
+|---|---|---|---|---|
+| `GRAPH_STORE` | `neo4j` | `arcadedb` | `postgres` | `tigergraph` |
+| `GRAPH_STORE_URI` | `bolt://`, `bolt+s://`, `neo4j://`, `neo4j+s://` | Bolt endpoint of the server | unset = reuse `DATABASE_*`; set = `postgresql://host:port/db` | HTTPS endpoint of the server |
+| `GRAPH_STORE_USER`, `GRAPH_STORE_PASSWORD` | server login | server login | unset = the app role (`DATABASE_USER`, `DATABASE_PASSWORD`); with a URI both are required | server login |
+| `GRAPH_STORE_NAME` | database (default `neo4j`) | database | schema (default `graph`) | graph name |
+| `GRAPH_STORE_ADMIN_URI` | not used | HTTP admin endpoint when it is not the Bolt host | not used | per adapter |
+| `GRAPH_STORE_POOL_SIZE` | cap on the adapter's pool (unset = the driver default) | per adapter | per adapter | per adapter |
+
+Rules:
+
+- The store settings are required where `NEO4J_*` were: for the api and for a worker that polls the
+  `agents` queue. A worker with only the `parse` queue and the `migrate` job never read them.
+- `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD` and `NEO4J_DATABASE` are aliases for one release. They
+  apply only while `GRAPH_STORE` is `neo4j`, and only for a `GRAPH_STORE_*` value that is unset or
+  blank. The log event `graph.settings.alias_used` lists the alias names that were used (names only).
+  A refusal names the variable you set. A deployment that sets only the `NEO4J_*` names starts unchanged.
+- `GRAPH_STORE=postgres` without `GRAPH_STORE_URI` connects with the `DATABASE_HOST`, `DATABASE_PORT`,
+  `DATABASE_NAME`, `DATABASE_USER` and `DATABASE_PASSWORD` values, over a small pool of its own, and keeps
+  the graph in the schema `GRAPH_STORE_NAME` (default `graph`). The `DATABASE_PASSWORD` rules apply.
+- A blank `GRAPH_STORE_PASSWORD` is accepted only when `APP_ENV` is `local`.
+- The password is a secret value: it never appears in a message or a log line.
+- An adapter that is not shipped yet answers `store_not_available`; one whose SDK is not installed
+  answers `store_sdk_missing` and names the extra (`uv sync --extra tigergraph`).
+
+Each backend has one section below for what an operator does before the first start (accounts,
+databases, privileges). The sections of the backends other than Neo4j are filled in with their adapters.
+
+<!-- graph-store: neo4j -->
+### Neo4j
+
+Neo4j 5.26 or newer (Community is enough). The login needs to create constraints and indexes in the
+database `GRAPH_STORE_NAME`; the app creates its schema on first use (graph build) and never creates
+the database. `make up` starts a local server whose password is `GRAPH_STORE_PASSWORD` (an existing
+`.env.local` with only `NEO4J_PASSWORD` keeps working).
+
+<!-- graph-store: arcadedb -->
+### ArcadeDB
+
+Admin steps: to be written with the adapter.
+
+<!-- graph-store: postgres -->
+### PostgreSQL
+
+Admin steps: to be written with the adapter.
+
+<!-- graph-store: tigergraph -->
+### TigerGraph
+
+Admin steps: to be written with the adapter.
+
+<!-- end graph-store -->
 
 ## Storage settings (C)
 
@@ -146,8 +208,9 @@ temporal operator namespace create --address <host>:7233 --namespace specflow-lo
 
 | Name | Class | Value |
 |---|---|---|
-| `POSTGRES_ADMIN_PASSWORD`, `DATABASE_PASSWORD`, `DATABASE_AGENT_PASSWORD`, `NEO4J_PASSWORD`, `AUTH_DEV_SIGNING_KEY`, `SESSION_SECRET` | L (secrets) | Generated by `make env-local`. |
+| `POSTGRES_ADMIN_PASSWORD`, `DATABASE_PASSWORD`, `DATABASE_AGENT_PASSWORD`, `GRAPH_STORE_PASSWORD`, `AUTH_DEV_SIGNING_KEY`, `SESSION_SECRET` | L (secrets) | Generated by `make env-local`. An existing file that has `NEO4J_PASSWORD` and no `GRAPH_STORE_PASSWORD` keeps working: the `Makefile` passes it on. |
 | `RUSTFS_ACCESS_KEY`, `RUSTFS_SECRET_KEY` | L (secrets) | Generated by `make env-local`; mapped to `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. |
+| `GRAPH_STORE`, `GRAPH_STORE_URI`, `GRAPH_STORE_USER` | L | Containers: `neo4j`, `bolt://specflow-neo4j:7687`, `neo4j`. Host tools: `bolt://localhost:7687`, `neo4j`. |
 | `RUSTFS_HOST_PORT` | L | `19000`. |
 | `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE` | L | Containers: `host.docker.internal:7233` (own Temporal) or `specflow-temporal:7233` (`WITH=temporal`); namespace `specflow-local`. Host tools: `localhost:7233`. |
 | `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | L | Empty (no tracing); with `WITH=langfuse`: the bundled Langfuse and local keys. |

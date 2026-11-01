@@ -68,6 +68,8 @@ THIRD_PARTY_LEVELS: dict[str, int] = {
     "urllib3": WARNING,
     "langfuse": WARNING,
     "neo4j": WARNING,
+    "asyncpg": WARNING,
+    "pyTigerGraph": WARNING,
     "asyncio": ERROR,
     "claude_agent_sdk": WARNING,
 }

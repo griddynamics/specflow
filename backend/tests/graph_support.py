@@ -13,8 +13,10 @@
 - ``make_gateway``: fixture factory of real ``Gateway``s on an ``httpx.MockTransport`` handler, with
   ``chat``/``ok``/``error`` response builders and ``gateway_config()`` (offline gateway tests).
 - ``llm_config()``: an ``LLMConfig`` for offline tests (nothing is ever sent to its endpoint).
-- ``neo4j_project`` (live, ``SPECFLOW_TEST_NEO4J=1``): a unique project id per test on the local
-  Neo4j, the schema ensured once per session, everything of the test's project ids deleted afterwards.
+- ``graph_project`` (live, ``SPECFLOW_TEST_GRAPH_STORE=<store>`` or ``SPECFLOW_TEST_NEO4J=1``): a unique
+  project id per test on the selected graph store, the schema ensured once per session, everything of
+  the test's project ids deleted afterwards. ``GraphProject.probe`` (``graph_probes``) is the only way a
+  test seeds, breaks or reads the graph outside the library: no query language in tests.
 - ``GAP_ONTOLOGY`` / ``gap_ontology``: the one hand-written ``gap`` submodule file of the tests and
   the shipped ontology merged with it, for foreign-owner tests.
 - ``file_stores``: the core file ports rooted at the test's ``tmp_path``.
@@ -27,12 +29,12 @@
 - ``ShopBuilds`` / ``script_shop_judge``: shop builds of one project with inference and verification
   on, the judge answered from the hand-written ``SHOP_ORPHAN_VERDICTS`` (no link for any other
   subject); ``ShopBuilds(rename=...)`` builds with a renamed ontology (FR-ONT-03).
-- ``open_neo4j_project``: ``neo4j_project`` as an async context manager, for module-scoped fixtures.
+- ``open_graph_project``: ``graph_project`` as an async context manager, for module-scoped fixtures.
 
 Usage from a test module (pytest needs the fixture names imported)::
 
     from graph_support import ScriptedGateway, llm_config
-    from graph_support import file_stores, gap_ontology, neo4j_project
+    from graph_support import file_stores, gap_ontology, graph_project
     from graph_support import make_gateway, scripted_gateway
 """
 
@@ -90,11 +92,9 @@ from graph.core import (
     Gateway,
     GraphReader,
     LLMConfig,
-    Neo4jConfig,
     Ontology,
     OwnedWriter,
     UsageSnapshot,
-    connect,
     ensure_schema,
     load_ontology,
 )
@@ -102,8 +102,17 @@ from graph.core.config import CallClass
 from graph.core.errors import LLMError
 from graph.core.llm import untrusted
 from graph.core.llm.usage import UsageRecorder
-from graph.core.queries import CORE_DDL
-from graph.core.query_files import read_ddl_file
+from graph.core.store import GraphStore
+from graph_probes import open_probe
+from graph_probes.base import (
+    EdgeSpec,
+    GraphProbe,
+    GraphState,
+    Match,
+    NodeSpec,
+    ProbeEdge,
+    ProbeNode,
+)
 
 # ScriptedGateway
 
@@ -720,13 +729,13 @@ async def make_gateway() -> AsyncIterator[GatewayFactory]:
 
 
 def live_embedding_dim() -> int:
-    """The dimension of the existing vector indexes of the local Neo4j (``GRAPH_EMBEDDING_DIM``)."""
+    """The dimension of the existing vector indexes of the live graph store (``GRAPH_EMBEDDING_DIM``)."""
 
     return int(os.environ.get("GRAPH_EMBEDDING_DIM", "3072"))
 
 
 def live_llm_config() -> LLMConfig:
-    """An ``LLMConfig`` whose ``embedding_dim`` matches the local Neo4j vector indexes."""
+    """An ``LLMConfig`` whose ``embedding_dim`` matches the live store's vector indexes."""
 
     return llm_config(embedding_dim=live_embedding_dim())
 
@@ -790,29 +799,11 @@ def gap_ontology(tmp_path_factory: pytest.TempPathFactory) -> Ontology:
     return load_gap_ontology(tmp_path_factory.mktemp("gap-ontology"))
 
 
-# Schema DDL of ``GAP_ONTOLOGY``: a submodule ontology brings the DDL of what it declares, the edge-key
-# range index of each of its relations and the (group_id, uuid) constraint of each foreign label.
-GAP_DDL_TEXT: Final = """// Schema DDL of the gap test ontology (applied after the shipped DDL).
-CREATE INDEX graph_edge_key_cites IF NOT EXISTS FOR ()-[r:CITES]-() ON (r.group_id, r.edge_key);
-CREATE INDEX graph_edge_key_flags IF NOT EXISTS FOR ()-[r:FLAGS]-() ON (r.group_id, r.edge_key);
-CREATE CONSTRAINT graph_foreign_uuid_finding IF NOT EXISTS
-  FOR (n:Finding) REQUIRE (n.group_id, n.uuid) IS UNIQUE;
-"""
-
-
-def load_gap_ddl(directory: Path) -> tuple[str, ...]:
-    """The shipped DDL statements followed by those of ``GAP_DDL_TEXT``, written into ``directory``."""
-
-    path = Path(directory) / "gap-ddl.cypher"
-    path.write_text(GAP_DDL_TEXT, encoding="utf-8")
-    return (*CORE_DDL, *read_ddl_file(path))
-
-
 # Offline executor
 
 
 class OfflineExecutor:
-    """Stands in for ``graph.core.Executor`` where a test must not reach Neo4j: ``read`` answers from
+    """Stands in for ``graph.core.Executor`` where a test must not reach the graph store: ``read`` answers from
     ``rows`` by query name (no rows by default) and records ``(query name, project id)``; every write
     path fails the test."""
 
@@ -852,42 +843,26 @@ def file_stores(tmp_path: Path) -> CoreFileStores:
     return open_core_file_stores(tmp_path / "stores")
 
 
-# Live Neo4j
+# Live graph store (the store the SPECFLOW_TEST_GRAPH_STORE switch selects; see graph_probes)
 
 PROJECT_PREFIX: Final = "pytest-graph-"
-_SCHEMA_READY: set[tuple[str, str | None]] = set()
-
-
-def neo4j_config_from_env() -> Neo4jConfig:
-    return Neo4jConfig(
-        uri=os.environ.get("NEO4J_URI", "bolt://localhost:7687"),
-        user=os.environ.get("NEO4J_USER", "neo4j"),
-        password=SecretStr(os.environ.get("NEO4J_PASSWORD", "")),
-        database=os.environ.get("NEO4J_DATABASE") or None,
-    )
+_SCHEMA_READY: set[tuple[str, str, str | None]] = set()
 
 
 def new_project_id() -> str:
     return f"{PROJECT_PREFIX}{uuid.uuid4().hex[:12]}"
 
 
-@dataclass(frozen=True)
-class GraphSnapshot:
-    """Every node and relationship touching a project, canonical and comparable."""
-
-    nodes: tuple[str, ...]
-    relationships: tuple[str, ...]
-
-
 @dataclass
-class Neo4jProject:
-    """One test's view of the local Neo4j: a project id (more on request) and helpers.
+class GraphProject:
+    """One test's view of the live graph store: a project id (more on request) and helpers.
 
-    Everything whose ``group_id`` is one of ``project_ids`` is deleted when the test ends.
+    ``probe`` is the store-neutral test access (seeding, fault injection, reads, cleanup); the code
+    under test gets ``store``. Everything whose ``group_id`` is one of ``project_ids`` is deleted when
+    the test ends. The wrappers below default ``project_id`` to the test's own.
     """
 
-    driver: Any
-    database: str | None
+    probe: GraphProbe
     ontology: Ontology
     project_id: str
     project_ids: list[str] = field(default_factory=list)
@@ -904,61 +879,79 @@ class Neo4jProject:
         return project_id
 
     @property
+    def backend(self) -> str:
+        return self.probe.backend
+
+    @property
+    def store(self) -> GraphStore:
+        return self.probe.store
+
+    @property
+    def database(self) -> str | None:
+        return self.probe.database
+
+    @property
     def executor(self) -> Executor:
-        return Executor(self.driver, self.database)
+        return self.store.executor()
 
     def writer(
         self, owner: str = "build", *, project_id: str | None = None, ontology: Ontology | None = None
     ) -> OwnedWriter:
-        return OwnedWriter(
-            self.driver,
-            ontology or self.ontology,
-            owner,
-            project_id or self.project_id,
-            database=self.database,
-        )
+        return OwnedWriter(self.store, ontology or self.ontology, owner, project_id or self.project_id)
 
     def reader(self, *, ontology: Ontology | None = None, gateway: Any = None) -> GraphReader:
-        return GraphReader(self.driver, ontology or self.ontology, gateway, database=self.database)
+        return GraphReader(self.store, ontology or self.ontology, gateway)
 
-    async def run(self, text: str, /, **params: Any) -> list[dict[str, Any]]:
-        """Raw Cypher for test setup and assertions (the library never sees it)."""
+    # Probe wrappers, project id defaulting to the test's own.
 
-        result = await self.driver.execute_query(text, params, database_=self.database)
-        return [dict(record) for record in result.records]
+    async def nodes(self, label: str | None = None, *, project_id: str | None = None, **where: Any) -> list[ProbeNode]:
+        return await self.probe.nodes(project_id or self.project_id, label, **where)
 
-    async def snapshot(self, project_id: str | None = None) -> GraphSnapshot:
-        """Nodes (labels, properties) and relationships (type, ends, properties) of one project."""
+    async def edges(
+        self, relation: str | None = None, *, project_id: str | None = None, **where: Any
+    ) -> list[ProbeEdge]:
+        return await self.probe.edges(project_id or self.project_id, relation, **where)
 
-        project_id = project_id or self.project_id
-        nodes = await self.run(
-            "MATCH (n) WHERE n.group_id = $p RETURN elementId(n) AS id, labels(n) AS labels, properties(n) AS props",
-            p=project_id,
+    async def one_node(self, label: str | None = None, *, project_id: str | None = None, **where: Any) -> ProbeNode:
+        return await self.probe.one_node(project_id or self.project_id, label, **where)
+
+    async def create_nodes(self, specs: Sequence[NodeSpec], *, project_id: str | None = None) -> int:
+        return await self.probe.create_nodes(project_id or self.project_id, specs)
+
+    async def create_edges(self, specs: Sequence[EdgeSpec], *, project_id: str | None = None) -> int:
+        return await self.probe.create_edges(project_id or self.project_id, specs)
+
+    async def update_nodes(
+        self,
+        match: Match,
+        props: Mapping[str, Any] | None = None,
+        *,
+        project_id: str | None = None,
+        add_labels: Sequence[str] = (),
+        remove_labels: Sequence[str] = (),
+    ) -> int:
+        return await self.probe.update_nodes(
+            project_id or self.project_id, match, props, add_labels=add_labels, remove_labels=remove_labels
         )
-        relationships = await self.run(
-            "MATCH (s)-[r]->(t) WHERE s.group_id = $p OR t.group_id = $p OR r.group_id = $p "
-            "RETURN elementId(s) AS s, type(r) AS type, elementId(t) AS t, properties(r) AS props",
-            p=project_id,
-        )
-        return GraphSnapshot(
-            nodes=tuple(sorted(_canonical({**row, "labels": sorted(row["labels"])}) for row in nodes)),
-            relationships=tuple(sorted(_canonical(row) for row in relationships)),
-        )
+
+    async def delete_nodes(self, match: Match, *, project_id: str | None = None) -> int:
+        return await self.probe.delete_nodes(project_id or self.project_id, match)
+
+    async def snapshot(self, project_id: str | None = None) -> GraphState:
+        """Nodes (ids, labels, properties) and relationships (ends, type, properties) of one project."""
+
+        return await self.probe.state(project_id or self.project_id)
+
+    async def canonical_snapshot(self, project_id: str | None = None) -> dict[str, Any]:
+        return await self.probe.canonical_snapshot(project_id or self.project_id)
 
     async def count(self, project_id: str | None = None) -> int:
-        rows = await self.run("MATCH (n) WHERE n.group_id = $p RETURN count(n) AS n", p=project_id or self.project_id)
-        return int(rows[0]["n"])
+        return await self.probe.count_nodes(project_id or self.project_id)
 
     async def cleanup(self) -> int:
         """Delete everything of this test's project ids; return what is left (0 expected)."""
 
-        await self.run("MATCH (n) WHERE n.group_id IN $ids DETACH DELETE n", ids=self.project_ids)
-        rows = await self.run("MATCH (n) WHERE n.group_id IN $ids RETURN count(n) AS n", ids=self.project_ids)
-        return int(rows[0]["n"])
-
-
-def _canonical(value: Any) -> str:
-    return json.dumps(value, sort_keys=True, default=str)
+        return await self.probe.delete_projects(self.project_ids)
 
 
 def tree_hash(root: Path) -> str:
@@ -973,88 +966,58 @@ def tree_hash(root: Path) -> str:
     return digest.hexdigest()
 
 
-async def ensure_session_schema(driver: Any, database: str | None) -> None:
-    """Run ``ensure_schema`` with the shipped ontology once per pytest session and database."""
+async def ensure_session_schema(probe: GraphProbe) -> None:
+    """Run ``ensure_schema`` with the shipped ontology once per pytest session and store."""
 
-    marker = (os.environ.get("NEO4J_URI", ""), database)
+    marker = (probe.backend, probe.config.uri, probe.database)
     if marker in _SCHEMA_READY:
         return
-    await ensure_schema(driver, shipped_ontology(), live_llm_config(), database)
+    await ensure_schema(probe.store, shipped_ontology(), live_llm_config())
     _SCHEMA_READY.add(marker)
 
 
-# What a test may never touch on the shared dev database: nodes without a project, spec nodes,
-# documents and fragments of projects that are not test projects, and relationships not between two
-# test-project nodes (a test's own relationships are deleted with its nodes before the second count).
-# Counted before and after every live test.
-OUTSIDE_TEST_PROJECTS: Final = (
-    "CALL () { MATCH (n) WHERE n.group_id IS NULL RETURN count(n) AS unscoped } "
-    "CALL () { MATCH (s:SpecNode) WHERE s.group_id IS NULL OR NOT s.group_id STARTS WITH $prefix "
-    "RETURN count(s) AS foreign_spec_nodes } "
-    "CALL () { MATCH (d:Document) WHERE d.group_id IS NULL OR NOT d.group_id STARTS WITH $prefix "
-    "RETURN count(d) AS foreign_documents } "
-    "CALL () { MATCH (f:Fragment) WHERE f.group_id IS NULL OR NOT f.group_id STARTS WITH $prefix "
-    "RETURN count(f) AS foreign_fragments } "
-    "CALL () { MATCH (a)-[r]->(b) "
-    "WHERE NOT (coalesce(a.group_id, '') STARTS WITH $prefix AND coalesce(b.group_id, '') STARTS WITH $prefix) "
-    "RETURN count(r) AS foreign_relationships } "
-    "RETURN unscoped, foreign_spec_nodes, foreign_documents, foreign_fragments, foreign_relationships"
-)
+async def spine_unreachable_count(project: GraphProject, project_id: str, bases: Sequence[str] | None = None) -> int:
+    """Spine sources of a project that reach no spine root by a spine path, counted from the probe's
+    nodes and edges independently of ``graph.build.spine`` (see ``GraphProbe.spine_unreachable_count``)."""
+
+    return await project.probe.spine_unreachable_count(project_id, project.ontology, bases)
 
 
-async def outside_counts(driver: Any, database: str | None) -> dict[str, int]:
-    result = await driver.execute_query(OUTSIDE_TEST_PROJECTS, {"prefix": PROJECT_PREFIX}, database_=database)
-    return {key: int(value) for key, value in dict(result.records[0]).items()}
+@asynccontextmanager
+async def open_graph_project() -> AsyncIterator[GraphProject]:
+    """A ``GraphProject`` as a context manager, for the module-scoped fixtures (their tests carry
+    ``requires_live_graph()``): unique project ids, deleted on exit; fails when data outside the test
+    projects changed meanwhile (the dev database is shared). A module-scoped async fixture using it needs
+    ``loop_scope="module"`` (the connections belong to one event loop), and the tests reading it must not
+    be async on another loop."""
 
-
-async def spine_unreachable_count(project: Neo4jProject, project_id: str, bases: Sequence[str] | None = None) -> int:
-    """Spine sources of a project that reach no spine root by a spine path, counted by Cypher
-    independently of ``graph.build.spine`` (shipped ontology: ``PART_OF`` 1-3 hops, ``GROUPED_BY``
-    then ``REALIZED_BY``, or one ``RELATES_TO`` in either direction, to a ``Module``). ``bases``
-    limits the edges walked (a missing ``basis`` reads as ``stated``); None walks every edge."""
-
-    spine = project.ontology.spine
-    assert spine.roots == {"Module"}, "the query below is written for the shipped spine"
-    walked = "($bases IS NULL OR all(r IN relationships(path) WHERE coalesce(r.basis, 'stated') IN $bases))"
-    rows = await project.run(
-        "MATCH (n:SpecNode) WHERE n.group_id = $p AND any(l IN labels(n) WHERE l IN $sources) "
-        f"AND NOT EXISTS {{ MATCH path = (n)-[:PART_OF*1..3]->(:Module) WHERE {walked} }} "
-        f"AND NOT EXISTS {{ MATCH path = (n)-[:GROUPED_BY]->(:SpecNode)-[:REALIZED_BY]->(:Module) WHERE {walked} }} "
-        f"AND NOT EXISTS {{ MATCH path = (n)-[:RELATES_TO]-(:Module) WHERE {walked} }} "
-        "RETURN count(n) AS n",
-        p=project_id,
-        sources=sorted(spine.sources),
-        bases=list(bases) if bases is not None else None,
-    )
-    return int(rows[0]["n"])
-
-
-@pytest_asyncio.fixture
-async def neo4j_project() -> AsyncIterator[Neo4jProject]:
-    """Tier-2 fixture (its tests carry ``requires_live("NEO4J")``): unique project ids, cleaned up after.
-
-    Fails the test when any count of ``OUTSIDE_TEST_PROJECTS`` changed while it ran (nodes without
-    ``group_id``; ``SpecNode``, ``Document`` and ``Fragment`` nodes outside the ``pytest-graph-``
-    projects; relationships not between two test-project nodes): the dev database is shared.
-    """
-
-    config = neo4j_config_from_env()
-    driver = connect(config)
-    project = Neo4jProject(
-        driver=driver, database=config.database, ontology=shipped_ontology(), project_id=new_project_id()
-    )
+    probe = open_probe()
+    project = GraphProject(probe=probe, ontology=shipped_ontology(), project_id=new_project_id())
     try:
-        await ensure_session_schema(driver, config.database)
-        before = await outside_counts(driver, config.database)
+        await ensure_session_schema(probe)
+        before = await probe.outside_counts(PROJECT_PREFIX)
         yield project
     finally:
         try:
             left = await project.cleanup()
-            after = await outside_counts(driver, config.database)
+            after = await probe.outside_counts(PROJECT_PREFIX)
         finally:
-            await driver.close()
+            await probe.close()
     assert left == 0, f"{left} nodes of {project.project_ids} left after cleanup"
     assert after == before, f"data outside the test projects changed: {before} -> {after}"
+
+
+@pytest_asyncio.fixture
+async def graph_project() -> AsyncIterator[GraphProject]:
+    """Tier-2 fixture (its tests carry ``requires_live_graph()``): unique project ids, cleaned up after.
+
+    Fails the test when any count of ``GraphProbe.outside_counts`` changed while it ran (nodes without
+    ``group_id``; ``SpecNode``, ``Document`` and ``Fragment`` nodes outside the ``pytest-graph-``
+    projects; relationships not between two test-project nodes): the dev database is shared.
+    """
+
+    async with open_graph_project() as project:
+        yield project
 
 
 # Shop corpus and its hand-written answers (tech-specs 9.1-9.2)
@@ -1552,13 +1515,14 @@ class ShopBuilds:
     stores and the corpus index under ``root``; every model answer is hand-written (``ShopAnswers``,
     ``script_shop_judge``). ``rename`` is the scripted gateways' rename mapping (FR-ONT-03)."""
 
-    project: Neo4jProject
+    project: GraphProject
     factory: Callable[..., ScriptedGateway]
     root: Path
     project_id: str = ""
     ontology: Ontology | None = None
     rename: Mapping[str, str] | None = None
     llm: LLMConfig | None = None
+    inference: bool = True
     stores: FileStores = field(init=False)
 
     def __post_init__(self) -> None:
@@ -1576,46 +1540,16 @@ class ShopBuilds:
         return BuildContext(
             project_id=self.project_id,
             ontology=self.ontology,
-            driver=self.project.driver,
+            driver=self.project.store,
             gateway=gateway,
             registry=self.stores.registry,
             corpus=shop_corpus(snapshot, self.root),
             extraction=self.stores.extraction,
             builds=self.stores.builds,
             options=shop_answers(snapshot).options,
-            database=self.project.database,
-            settings=BuildSettings(inference=True),
+            settings=BuildSettings(inference=self.inference),
         )
 
     async def build(self, snapshot: int) -> tuple[BuildResult, ScriptedGateway]:
         gateway = self.gateway(snapshot)
         return await run_build(self.context(snapshot, gateway)), gateway
-
-
-# A live project shared by the tests of one module (expensive setups built once per module)
-
-
-@asynccontextmanager
-async def open_neo4j_project() -> AsyncIterator[Neo4jProject]:
-    """What ``neo4j_project`` does, as a context manager for wider fixture scopes (its tests carry
-    ``requires_live("NEO4J")``): unique project ids, deleted on exit; fails when data outside the test
-    projects changed meanwhile. A module-scoped async fixture using it needs ``loop_scope="module"``
-    (the driver belongs to one event loop), and the tests reading it must not be async on another loop."""
-
-    config = neo4j_config_from_env()
-    driver = connect(config)
-    project = Neo4jProject(
-        driver=driver, database=config.database, ontology=shipped_ontology(), project_id=new_project_id()
-    )
-    try:
-        await ensure_session_schema(driver, config.database)
-        before = await outside_counts(driver, config.database)
-        yield project
-    finally:
-        try:
-            left = await project.cleanup()
-            after = await outside_counts(driver, config.database)
-        finally:
-            await driver.close()
-    assert left == 0, f"{left} nodes of {project.project_ids} left after cleanup"
-    assert after == before, f"data outside the test projects changed: {before} -> {after}"

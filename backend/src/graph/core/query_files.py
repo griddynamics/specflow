@@ -25,6 +25,11 @@ from typing import Final
 
 from graph.core.errors import ConformanceError
 
+GRAPH_ROOT: Final = Path(__file__).resolve().parents[1]
+# The canonical query and DDL files; every store whose dialect is Cypher reads them from here.
+CORE_QUERY_DIRECTORY: Final = GRAPH_ROOT / "core" / "queries"
+BUILD_QUERY_DIRECTORY: Final = GRAPH_ROOT / "build" / "queries"
+CORE_DDL_DIRECTORY: Final = GRAPH_ROOT / "core" / "ddl"
 COMMENT_PREFIX: Final = "//"
 STATEMENT_END: Final = ";"
 _UNFILLED_TOKEN: Final = re.compile(r"__[A-Z][A-Z_]*__")
@@ -50,6 +55,18 @@ def read_ddl_file(path: Path) -> tuple[str, ...]:
 
     body = " ".join(_statement_lines(path))
     return tuple(part.strip() for part in body.split(STATEMENT_END) if part.strip())
+
+
+def load_core_query(name: str) -> str:
+    """The text of the core query file ``name`` (relative to ``core/queries/``)."""
+
+    return read_query_file(CORE_QUERY_DIRECTORY, name)
+
+
+def load_build_query(name: str) -> str:
+    """The text of the build query file ``name`` (relative to ``build/queries/``)."""
+
+    return read_query_file(BUILD_QUERY_DIRECTORY, name)
 
 
 def render_query(template: str, **names: str) -> str:

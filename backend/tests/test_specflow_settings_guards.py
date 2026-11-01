@@ -142,8 +142,8 @@ def test_any_storage_prefix_is_accepted_locally(prefix, valid_env):
 @pytest.mark.parametrize(
     ("role", "variable"),
     [
-        ("api", "NEO4J_PASSWORD"),
-        ("worker", "NEO4J_PASSWORD"),
+        ("api", "GRAPH_STORE_PASSWORD"),
+        ("worker", "GRAPH_STORE_PASSWORD"),
         ("worker", "LLM_GATEWAY_API_KEY"),
     ],
 )
@@ -154,7 +154,7 @@ def test_an_empty_secret_is_refused_outside_local(role, variable, valid_env):
     assert refused(role, env) == (variable,)
 
 
-@pytest.mark.parametrize("variable", ["NEO4J_PASSWORD", "LLM_GATEWAY_API_KEY"])
+@pytest.mark.parametrize("variable", ["GRAPH_STORE_PASSWORD", "LLM_GATEWAY_API_KEY"])
 def test_an_empty_secret_is_accepted_locally(variable, valid_env):
     valid_env[variable] = ""
 
@@ -193,7 +193,7 @@ def test_all_refusals_arrive_in_one_error(valid_env):
         AUTH_DEV_SIGNING_KEY="k" * 40,
         OIDC_ISSUER="http://x.test",
         STORAGE_PREFIX="dev/local/",
-        NEO4J_PASSWORD="",
+        GRAPH_STORE_PASSWORD="",
         AUTH_API_CLIENT_IDS="specflow-smoke",
     )
 
@@ -202,7 +202,7 @@ def test_all_refusals_arrive_in_one_error(valid_env):
         "AUTH_DEV_SIGNING_KEY",
         "OIDC_ISSUER",
         "STORAGE_PREFIX",
-        "NEO4J_PASSWORD",
+        "GRAPH_STORE_PASSWORD",
         "AUTH_API_CLIENT_IDS",
     }
 

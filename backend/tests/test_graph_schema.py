@@ -32,7 +32,9 @@ from graph.core.queries import (
 )
 from graph.core.query_files import read_ddl_file
 from graph.core.schema import SchemaObject, foreign_labels, parse_ddl_statement, schema_objects
-from graph_support import GAP_DDL_TEXT, llm_config, load_gap_ddl, load_gap_ontology, shipped_ontology
+from graph.stores._bolt.cypher import render_cypher
+from graph_ddl_support import GAP_DDL_TEXT, load_gap_ddl
+from graph_support import llm_config, load_gap_ontology, shipped_ontology
 
 DIM = 16
 POPULATING = "POPULATING"
@@ -97,7 +99,7 @@ class SchemaDriver:
 
     def __init__(self, ontology: Ontology, *, version: str = "5.26.0", ddl: tuple[str, ...] | None = None) -> None:
         self.version = version
-        self.objects = {item.query().text: item for item in schema_objects(ontology, ddl)}
+        self.objects = {render_cypher(item.query()): item for item in schema_objects(ontology, ddl)}
         self.constraints: list[dict[str, Any]] = []
         self.indexes: list[dict[str, Any]] = []
         self.created: list[str] = []
@@ -129,13 +131,13 @@ class SchemaDriver:
         name = self._name(text)
         if name in self.fail_on:
             raise self.fail_on[name]
-        if text == SERVER_COMPONENTS.text:
+        if text == render_cypher(SERVER_COMPONENTS):
             return records([{"name": "Neo4j Kernel", "versions": [self.version], "edition": "community"}])
-        if text == SHOW_CONSTRAINTS.text:
+        if text == render_cypher(SHOW_CONSTRAINTS):
             return records(copy.deepcopy(self.constraints))
-        if text == SHOW_INDEXES.text:
+        if text == render_cypher(SHOW_INDEXES):
             return records(copy.deepcopy(self.indexes))
-        if text == AWAIT_INDEXES.text:
+        if text == render_cypher(AWAIT_INDEXES):
             assert params == {"timeout_s": 300}
             return records([])
         item = self.objects.get(text)
@@ -152,7 +154,7 @@ class SchemaDriver:
 
     def _name(self, text: str) -> str:
         for query in (SERVER_COMPONENTS, SHOW_CONSTRAINTS, SHOW_INDEXES, AWAIT_INDEXES):
-            if text == query.text:
+            if text == render_cypher(query):
                 return query.name
         item = self.objects.get(text)
         return item.query().name if item else "?"
@@ -402,11 +404,11 @@ async def test_empty_database_gets_every_object_and_a_second_run_creates_none(
     assert await ensure_schema(driver, ontology, config) == ()
     assert driver.created == wanted  # nothing new
     assert driver.texts == [
-        SERVER_COMPONENTS.text,
-        SHOW_CONSTRAINTS.text,
-        SHOW_INDEXES.text,
-        AWAIT_INDEXES.text,
-        SHOW_INDEXES.text,
+        render_cypher(SERVER_COMPONENTS),
+        render_cypher(SHOW_CONSTRAINTS),
+        render_cypher(SHOW_INDEXES),
+        render_cypher(AWAIT_INDEXES),
+        render_cypher(SHOW_INDEXES),
     ]
 
 
@@ -441,7 +443,7 @@ def test_every_foreign_label_gets_a_group_and_uuid_unique_constraint(tmp_path: P
     for label in labels:
         item = by_name[f"graph_foreign_uuid_{label.lower()}"]
         assert (item.kind, item.entity, item.label, item.properties) == ("unique", "NODE", label, ("group_id", "uuid"))
-        assert item.query().text == (
+        assert render_cypher(item.query()) == (
             f"CREATE CONSTRAINT {item.name} IF NOT EXISTS FOR (n:{label}) REQUIRE (n.group_id, n.uuid) IS UNIQUE"
         )
     assert {item.label for item in by_name.values() if item.kind == "unique"} == {
@@ -503,7 +505,7 @@ async def test_a_foreign_constraint_over_duplicate_nodes_fails_the_setup(tmp_pat
         await ensure_schema(driver, gap, config, ddl=ddl)
     assert raised.value.code == "schema_setup_failed"
     assert raised.value.fields["query"] == f"create_{item.name}"
-    assert raised.value.fields["neo4j_code"] == "Neo.ClientError.Schema.ConstraintCreationFailed"
+    assert raised.value.fields["backend_code"] == "Neo.ClientError.Schema.ConstraintCreationFailed"
     assert "secret-xyz" not in str(raised.value)
     assert driver.created == []
 
@@ -678,8 +680,8 @@ async def test_old_neo4j_creates_nothing(ontology: Ontology, config: LLMConfig) 
     driver = SchemaDriver(ontology, version="5.25.9")
     with pytest.raises(ConfigurationError) as raised:
         await ensure_schema(driver, ontology, config)
-    assert raised.value.code == "neo4j_version_unsupported"
-    assert driver.texts == [SERVER_COMPONENTS.text]
+    assert raised.value.code == "store_version_unsupported"
+    assert driver.texts == [render_cypher(SERVER_COMPONENTS)]
 
 
 # Driver errors
@@ -694,9 +696,9 @@ SERVER_REPLY = "server said secret-xyz"
 @pytest.mark.parametrize(
     ("make_error", "expected", "code"),
     [
-        (lambda: AuthError(SERVER_REPLY), ConfigurationError, "neo4j_auth_rejected"),
-        (lambda: ServiceUnavailable(SERVER_REPLY), InfrastructureUnavailableError, "neo4j_unreachable"),
-        (lambda: OSError(SERVER_REPLY), InfrastructureUnavailableError, "neo4j_unreachable"),
+        (lambda: AuthError(SERVER_REPLY), ConfigurationError, "store_auth_rejected"),
+        (lambda: ServiceUnavailable(SERVER_REPLY), InfrastructureUnavailableError, "store_unreachable"),
+        (lambda: OSError(SERVER_REPLY), InfrastructureUnavailableError, "store_unreachable"),
         (
             lambda: ClientError._hydrate_neo4j(
                 code="Neo.ClientError.Schema.EquivalentSchemaRuleAlreadyExists", message=SERVER_REPLY
@@ -725,9 +727,9 @@ async def test_driver_errors_map_to_graph_errors(
     assert raised.value.code == code
     if code == "schema_setup_failed":
         assert raised.value.fields["query"] == stage
-        assert raised.value.fields["neo4j_code"] == error.code
+        assert raised.value.fields["backend_code"] == error.code
         assert raised.value.fields["error_type"] == type(error).__name__
-    if code == "neo4j_unreachable":
+    if code == "store_unreachable":
         assert raised.value.fields["error_type"] == type(error).__name__
     assert "secret-xyz" not in str(raised.value)
     assert raised.value.__cause__ is None and raised.value.__suppress_context__

@@ -26,7 +26,6 @@ import graph.core.db as db_module
 from graph.core import (
     ConfigurationError,
     ConformanceError,
-    Executor,
     GraphWriteError,
     InfrastructureUnavailableError,
     Neo4jConfig,
@@ -39,12 +38,14 @@ from graph.core import (
     validate_project_id,
 )
 from graph.core.queries import PING, SERVER_COMPONENTS
+from graph.stores._bolt.cypher import render_cypher
+from graph.stores._bolt.executor import BoltExecutor
 from graph_support import llm_config, shipped_ontology
 from logger_harness import LogHarness
 
-SCOPED = Query("scoped", "MATCH (n:SpecNode {group_id: $project_id}) RETURN n.uuid AS uuid")
-UNBOUND = Query("unbound", "MATCH (n:SpecNode) RETURN n.uuid AS uuid")
-LOOKALIKE = Query("lookalike", "MATCH (n {group_id: $project_ids}) RETURN n")
+SCOPED = Query.literal("scoped", "MATCH (n:SpecNode {group_id: $project_id}) RETURN n.uuid AS uuid")
+UNBOUND = Query.literal("unbound", "MATCH (n:SpecNode) RETURN n.uuid AS uuid")
+LOOKALIKE = Query.literal("lookalike", "MATCH (n {group_id: $project_ids}) RETURN n")
 
 TRANSIENT_CODE = "Neo.TransientError.Transaction.DeadlockDetected"
 CLIENT_CODE = "Neo.ClientError.Schema.ConstraintValidationFailed"
@@ -153,10 +154,10 @@ class FakeDriver:
         self.queries.append(text)
         if self.query_error is not None:
             raise self.query_error
-        if text == SERVER_COMPONENTS.text:
+        if text == render_cypher(SERVER_COMPONENTS):
             records = [{"name": "Neo4j Kernel", "versions": [self.version], "edition": "community"}]
             return SimpleNamespace(records=records)
-        if text == PING.text:
+        if text == render_cypher(PING):
             return SimpleNamespace(records=[{"ok": 1}])
         return SimpleNamespace(records=[])
 
@@ -169,8 +170,8 @@ class Sleeps:
         self.delays.append(delay)
 
 
-def executor(driver: FakeDriver, sleeps: Sleeps | None = None) -> Executor:
-    return Executor(driver, "neo4j", sleep=sleeps or Sleeps())
+def executor(driver: FakeDriver, sleeps: Sleeps | None = None) -> BoltExecutor:
+    return BoltExecutor(driver, "neo4j", sleep=sleeps or Sleeps())
 
 
 # Version gate (FR-CORE-03)
@@ -188,7 +189,7 @@ async def test_version_gate_accepts_5_26_and_later(version: str, expected: tuple
 async def test_version_gate_refuses_older_than_5_26(version: str) -> None:
     with pytest.raises(ConfigurationError) as raised:
         await require_version(FakeDriver(version=version))
-    assert raised.value.code == "neo4j_version_unsupported"
+    assert raised.value.code == "store_version_unsupported"
     assert raised.value.fields["minimum"] == "5.26"
 
 
@@ -196,22 +197,22 @@ async def test_ensure_schema_on_5_25_raises_and_creates_nothing() -> None:
     driver = FakeDriver(version="5.25.0")
     with pytest.raises(ConfigurationError) as raised:
         await ensure_schema(driver, shipped_ontology(), llm_config())
-    assert raised.value.code == "neo4j_version_unsupported"
-    assert driver.queries == [SERVER_COMPONENTS.text]
+    assert raised.value.code == "store_version_unsupported"
+    assert driver.queries == [render_cypher(SERVER_COMPONENTS)]
 
 
 async def test_server_version_unknown_kernel_is_configuration_error() -> None:
     driver = FakeDriver(version="not-a-version")
     with pytest.raises(ConfigurationError) as raised:
         await server_version(driver)
-    assert raised.value.code == "neo4j_version_unknown"
+    assert raised.value.code == "store_version_unknown"
 
 
 @pytest.mark.parametrize(
     ("error", "expected", "code"),
     [
-        (ServiceUnavailable("down"), InfrastructureUnavailableError, "neo4j_unreachable"),
-        (AuthError("rejected"), ConfigurationError, "neo4j_auth_rejected"),
+        (ServiceUnavailable("down"), InfrastructureUnavailableError, "store_unreachable"),
+        (AuthError("rejected"), ConfigurationError, "store_auth_rejected"),
     ],
 )
 async def test_server_version_maps_driver_errors(error: Exception, expected: type, code: str) -> None:
@@ -229,7 +230,7 @@ async def test_executor_injects_validated_project_id() -> None:
     driver = FakeDriver()
     rows = await executor(driver).read(SCOPED, "proj-1", limit=3)
     assert rows == [{"project_id": "proj-1"}]
-    assert driver.runs == [(SCOPED.text, {"limit": 3, "project_id": "proj-1"})]
+    assert driver.runs == [(render_cypher(SCOPED), {"limit": 3, "project_id": "proj-1"})]
     assert driver.modes == ["read"]
     assert driver.sessions[-1]["database"] == "neo4j"
 
@@ -304,6 +305,18 @@ async def test_tx_refuses_unscoped_query_and_rolls_back() -> None:
     assert (driver.commits, driver.rollbacks) == (0, 1)
 
 
+async def test_a_statement_without_the_project_id_is_refused_before_the_project_id_is_validated() -> None:
+    driver = FakeDriver()
+    with pytest.raises(ConformanceError) as raised:
+        await executor(driver).read(UNBOUND, "bad id!")
+    assert raised.value.code == "query_missing_project_id"
+    with pytest.raises(ConformanceError) as in_tx:
+        async with executor(driver).tx("proj-1") as tx:
+            await tx.run(UNBOUND, project_id="x")
+    assert in_tx.value.code == "query_missing_project_id"
+    assert driver.runs == []
+
+
 async def test_tx_body_error_rolls_back() -> None:
     driver = FakeDriver()
 
@@ -322,7 +335,7 @@ async def test_tx_driver_error_maps_and_rolls_back() -> None:
     with pytest.raises(GraphWriteError) as raised:
         async with executor(driver).tx("proj-1") as tx:
             await tx.run(SCOPED)
-    assert raised.value.code == "neo4j_write_failed"
+    assert raised.value.code == "store_write_failed"
     assert (driver.commits, driver.rollbacks) == (0, 1)
 
 
@@ -337,7 +350,7 @@ async def test_transient_write_error_is_retried_then_succeeds(central_log: LogHa
     assert sleeps.delays == [0.1, 0.3]
     # NFR-SEC-01: the retry is logged with ids and codes, never the server's message text.
     retries = central_log.events("graph.db.retry")
-    assert [(r["attempt"], r["neo4j_code"], r["query"]) for r in retries] == [
+    assert [(r["attempt"], r["backend_code"], r["query"]) for r in retries] == [
         (1, TRANSIENT_CODE, "scoped"),
         (2, TRANSIENT_CODE, "scoped"),
     ]
@@ -349,9 +362,9 @@ async def test_transient_write_error_exhausted_is_graph_write_error() -> None:
     driver, sleeps = FakeDriver(errors=[transient()] * 10), Sleeps()
     with pytest.raises(GraphWriteError) as raised:
         await executor(driver, sleeps).write(SCOPED, "p")
-    assert raised.value.code == "neo4j_write_failed"
+    assert raised.value.code == "store_write_failed"
     assert raised.value.fields["attempts"] == 4
-    assert raised.value.fields["neo4j_code"] == TRANSIENT_CODE
+    assert raised.value.fields["backend_code"] == TRANSIENT_CODE
     assert len(driver.runs) == 4
     assert sleeps.delays == [0.1, 0.3, 1.0]
 
@@ -369,7 +382,7 @@ async def test_client_error_on_read_is_conformance_error() -> None:
     driver = FakeDriver(errors=[client_error()])
     with pytest.raises(ConformanceError) as raised:
         await executor(driver).read(SCOPED, "p")
-    assert raised.value.code == "neo4j_query_rejected"
+    assert raised.value.code == "store_query_rejected"
     assert "secret" not in str(raised.value)
 
 
@@ -377,23 +390,23 @@ async def test_client_error_on_read_is_conformance_error() -> None:
 @pytest.mark.parametrize(
     ("make_error", "expected", "code"),
     [
-        (lambda: ServiceUnavailable("down"), InfrastructureUnavailableError, "neo4j_unreachable"),
-        (lambda: SessionExpired("gone"), InfrastructureUnavailableError, "neo4j_unreachable"),
-        (lambda: OSError("socket"), InfrastructureUnavailableError, "neo4j_unreachable"),
+        (lambda: ServiceUnavailable("down"), InfrastructureUnavailableError, "store_unreachable"),
+        (lambda: SessionExpired("gone"), InfrastructureUnavailableError, "store_unreachable"),
+        (lambda: OSError("socket"), InfrastructureUnavailableError, "store_unreachable"),
         (
             lambda: neo4j_error(AuthError, "Neo.ClientError.Security.Unauthorized"),
             ConfigurationError,
-            "neo4j_auth_rejected",
+            "store_auth_rejected",
         ),
         (
             lambda: neo4j_error(Forbidden, "Neo.ClientError.Security.Forbidden"),
             ConfigurationError,
-            "neo4j_access_denied",
+            "store_access_denied",
         ),
         (
             lambda: neo4j_error(ClientError, "Neo.ClientError.Database.DatabaseNotFound"),
             ConfigurationError,
-            "neo4j_database_not_found",
+            "store_database_not_found",
         ),
     ],
 )
@@ -411,25 +424,25 @@ async def test_driver_errors_map_to_graph_errors(method: str, make_error: Any, e
 async def test_check_succeeds_on_reachable_server() -> None:
     driver = FakeDriver()
     await check(driver)
-    assert driver.queries == [PING.text]
+    assert driver.queries == [render_cypher(PING)]
 
 
 @pytest.mark.parametrize(
     ("make_error", "expected", "code"),
     [
-        (lambda: ServiceUnavailable("down"), InfrastructureUnavailableError, "neo4j_unreachable"),
-        (lambda: SessionExpired("gone"), InfrastructureUnavailableError, "neo4j_unreachable"),
-        (lambda: OSError("refused"), InfrastructureUnavailableError, "neo4j_unreachable"),
-        (lambda: AuthError("rejected"), ConfigurationError, "neo4j_auth_rejected"),
+        (lambda: ServiceUnavailable("down"), InfrastructureUnavailableError, "store_unreachable"),
+        (lambda: SessionExpired("gone"), InfrastructureUnavailableError, "store_unreachable"),
+        (lambda: OSError("refused"), InfrastructureUnavailableError, "store_unreachable"),
+        (lambda: AuthError("rejected"), ConfigurationError, "store_auth_rejected"),
         (
             lambda: neo4j_error(Forbidden, "Neo.ClientError.Security.Forbidden"),
             ConfigurationError,
-            "neo4j_access_denied",
+            "store_access_denied",
         ),
         (
             lambda: neo4j_error(ClientError, "Neo.ClientError.Database.DatabaseNotFound"),
             ConfigurationError,
-            "neo4j_database_not_found",
+            "store_database_not_found",
         ),
     ],
 )

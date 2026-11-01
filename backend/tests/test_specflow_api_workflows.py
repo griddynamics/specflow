@@ -189,11 +189,11 @@ async def test_the_detail_caps_the_markdown_and_has_no_graph_node(harness):
     assert "graph_node" not in detail
 
 
-async def test_the_detail_never_reads_neo4j(harness):
+async def test_the_detail_never_reads_the_graph_store(harness):
     """A1: the host no longer reads ``:Document`` nodes; the graph library owns them."""
 
     pid, did = await uploaded(harness)
     row(harness, did).status = "parsed"
     response = await harness.client.get(f"/api/v1/projects/{pid}/documents/{did}", headers=bearer())
     assert response.status_code == 200
-    assert harness.driver.queries == 0
+    assert harness.graph_store.queries == 0

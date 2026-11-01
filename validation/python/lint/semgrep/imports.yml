@@ -168,6 +168,25 @@ rules:
         # (tests/test_storage_factory.py pins both). A top-level import cannot be lazy and an
         # inline one is PLC0415, so the rule's premise does not hold for this file.
         - "**/src/storage/factory.py"
+        # project: src/graph/stores/__init__.py (`build_store`) loads the adapter of the configured
+        # graph backend (`graph.stores.neo4j`, `.arcadedb`, `.postgres` or `.tigergraph`; first-party
+        # modules of the same lockfile) only when that backend is built, so a process never imports
+        # the SDK of a backend it does not use, an adapter that is not shipped is the
+        # `store_not_available` configuration error and a missing SDK is `store_sdk_missing`
+        # (tests/test_graph_stores.py pins all three). Same premise as src/storage/factory.py.
+        - "**/src/graph/stores/__init__.py"
+        # project: src/graph/core/__init__.py, db.py and schema.py are the compatibility shims of the
+        # Neo4j access of earlier releases. Their names (`connect`, `require_version`, `server_version`,
+        # the Bolt executor, the Cypher schema manager) live in `graph.stores._bolt` and
+        # `graph.stores.neo4j`, which load the `neo4j` driver; the shims resolve them on first access
+        # (PEP 562 `__getattr__`) so importing `graph.core`, the settings or the health check never
+        # loads the driver of a store that is not built (tests/test_graph_stores.py runs each in a fresh
+        # interpreter and asserts `neo4j` is not in `sys.modules`). The modules are first-party and
+        # listed in an explicit table, and import-linter pins the shims as the only core modules that
+        # may import `graph.stores`. A top-level import cannot be lazy and an inline one is PLC0415.
+        - "**/src/graph/core/__init__.py"
+        - "**/src/graph/core/db.py"
+        - "**/src/graph/core/schema.py"
     patterns:
       - pattern-either:
           - pattern: importlib.util.spec_from_file_location(...)

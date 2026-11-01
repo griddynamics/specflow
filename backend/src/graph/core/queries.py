@@ -1,13 +1,17 @@
-"""Core Cypher: every query text the core runs, as named ``Query`` constants (architecture.md I3).
+"""Core queries: every query the core runs, as named ``Query`` objects (architecture.md I3, design D2).
 
-The statements live in ``.cypher`` files under ``queries/`` next to this module and are loaded through
-``load_core_query``; a query whose label or relationship type is only known at run time is a file with
-``__NAME__`` tokens that its factory fills with validated names. The schema's constraints and indexes
-are static DDL files under ``ddl/``, loaded through ``load_core_ddl``.
+A ``Query`` is dialect-neutral: its ``name`` (unique; the key of ``OfflineExecutor``, logs and golden
+text), a ``template`` id (``core.<file stem>``) and typed semantic ``args`` (relations, hop bounds,
+node shapes, labels; frozen dataclasses below). The factories validate the names they are given and
+return queries; they never build query text. A store's dialect (``graph.core.dialect``) turns a query
+into an execution plan: for a Cypher store the canonical ``.cypher`` files under ``queries/`` next to
+this module, a query whose label or relationship type is only known at run time being a file with
+``__NAME__`` tokens that the Cypher dialect fills with validated names. The schema's constraints and
+indexes are static DDL files under ``ddl/``, loaded through ``load_core_ddl``.
 
-A project-scoped query binds ``$project_id``; the executor refuses a scoped query whose text does
-not, and injects the parameter itself. Unscoped queries (readiness, version gate, schema setup) run
-on the driver directly and never touch project data.
+A project-scoped query binds the project id; the executor injects the parameter and the dialect
+refuses a scoped statement that does not reference it. Unscoped queries (readiness, version gate,
+schema setup) never touch project data.
 """
 
 from __future__ import annotations
@@ -15,41 +19,133 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from functools import cache
-from pathlib import Path
-from typing import Final
+from typing import Any, Final
 
 from graph.core.errors import ConformanceError
-from graph.core.query_files import read_ddl_file, read_query_file, render_query
+from graph.core.query_files import CORE_DDL_DIRECTORY, read_ddl_file, render_query
 
 PROJECT_ID_PARAMETER: Final = "project_id"
-_PROJECT_ID_REFERENCE: Final = re.compile(r"\$project_id\b")
-_QUERY_DIRECTORY: Final = Path(__file__).resolve().parent / "queries"
-_DDL_DIRECTORY: Final = Path(__file__).resolve().parent / "ddl"
-
-
-def load_core_query(name: str) -> str:
-    """The text of the core query file ``name`` (relative to ``queries/``)."""
-
-    return read_query_file(_QUERY_DIRECTORY, name)
+LITERAL_TEMPLATE: Final = "core.literal"
+DDL_TEMPLATE: Final = "core.ddl"
 
 
 @dataclass(frozen=True, slots=True)
 class Query:
-    """One named Cypher text; ``project_scoped`` queries must bind ``$project_id``."""
+    """One named, dialect-neutral query: ``template`` says what it does, ``args`` (a frozen dataclass of
+    semantic arguments, or None) what it is about; ``project_scoped`` queries bind the project id."""
 
     name: str
-    text: str
+    template: str
+    args: Any = None
     project_scoped: bool = True
 
-    def binds_project_id(self) -> bool:
-        """Whether the text references the ``$project_id`` parameter."""
+    @classmethod
+    def literal(cls, name: str, text: str, *, project_scoped: bool = True) -> Query:
+        """A query that is one fixed Cypher text (tests, ad-hoc probes); only Cypher dialects run it."""
 
-        return _PROJECT_ID_REFERENCE.search(self.text) is not None
+        return cls(name, LITERAL_TEMPLATE, LiteralText(text), project_scoped)
+
+    @property
+    def identity(self) -> tuple[str, Any]:
+        """What makes two queries the same: name and arguments (never rendered text)."""
+
+        return self.name, self.args
 
 
-PING: Final = Query("ping", load_core_query("ping.cypher"), project_scoped=False)
+@dataclass(frozen=True, slots=True)
+class LiteralText:
+    """Arguments of a literal query: its whole text."""
 
-SERVER_COMPONENTS: Final = Query("server_components", load_core_query("server_components.cypher"), project_scoped=False)
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class DdlText:
+    """Arguments of a DDL query: the canonical (Cypher) statement."""
+
+    statement: str
+
+
+@dataclass(frozen=True, slots=True)
+class Relation:
+    """One relationship type (validated safe name)."""
+
+    type: str
+
+
+@dataclass(frozen=True, slots=True)
+class LabelKey:
+    """A node label and the key property its nodes are found by (validated safe names)."""
+
+    label: str
+    key: str
+
+
+@dataclass(frozen=True, slots=True)
+class ForeignLabel:
+    """A foreign node label (validated safe name)."""
+
+    label: str
+
+
+@dataclass(frozen=True, slots=True)
+class RelationEnds:
+    """A relationship of ``type`` between two nodes found by their shapes."""
+
+    type: str
+    source: NodeShape
+    target: NodeShape
+
+
+@dataclass(frozen=True, slots=True)
+class ScopeVia:
+    """Spine path of ``relations`` walked ``min_hops``..``max_hops`` edges towards the root."""
+
+    relations: tuple[str, ...]
+    min_hops: int
+    max_hops: int
+
+
+@dataclass(frozen=True, slots=True)
+class ScopeSequence:
+    """Spine sequence: one edge of each of ``relations`` in order; those in ``symmetric`` either way."""
+
+    relations: tuple[str, ...]
+    symmetric: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class EndpointSubjects:
+    """Inference ``endpoints``: targets over one edge of ``via`` (``symmetric`` ones either way) and, with
+    ``mentions``, those mentioned in evidence fragments."""
+
+    via: tuple[str, ...]
+    symmetric: tuple[str, ...]
+    mentions: bool
+
+
+@dataclass(frozen=True, slots=True)
+class RealizationSubjects:
+    """Inference ``realization``: members by ``member``, containers 1..``max_hops`` ``container`` edges on."""
+
+    member: str
+    container: str
+    member_symmetric: bool
+    container_symmetric: bool
+    max_hops: int
+
+
+@dataclass(frozen=True, slots=True)
+class SimilarTargets:
+    """Inference ``attach_orphan``: nearest targets by embedding for relation ``type``."""
+
+    type: str
+    symmetric: bool
+
+
+PING: Final = Query("ping", "core.ping", project_scoped=False)
+
+SERVER_COMPONENTS: Final = Query("server_components", "core.server_components", project_scoped=False)
 
 # Names rendered into query text
 #
@@ -85,23 +181,19 @@ class NodeShape:
     key: str
     check_label: bool = False
 
-    def match(self, var: str) -> str:
-        """``MATCH`` of one node of the project by ``$<var>_key`` (and ``$<var>_label``); the fragment
-        file's ``RETURN`` tail, which only makes it a complete statement, is left out."""
+    def checked(self) -> NodeShape:
+        """This shape with label and key checked against the safe-name pattern (``ConformanceError``)."""
 
-        label, key = safe_name(self.label), safe_name(self.key)
-        if self.check_label:
-            return render_query(load_core_query("match_node_checked.cypher"), label=label, key=key, var=var, tail="")
-        return render_query(load_core_query("match_node.cypher"), label=label, key=key, var=var, tail="")
+        return NodeShape(safe_name(self.label), safe_name(self.key), self.check_label)
 
 
 # Schema setup (unscoped: rule I3 exempts it; runs on the driver directly)
 
-SHOW_CONSTRAINTS: Final = Query("show_constraints", load_core_query("show_constraints.cypher"), project_scoped=False)
+SHOW_CONSTRAINTS: Final = Query("show_constraints", "core.show_constraints", project_scoped=False)
 
-SHOW_INDEXES: Final = Query("show_indexes", load_core_query("show_indexes.cypher"), project_scoped=False)
+SHOW_INDEXES: Final = Query("show_indexes", "core.show_indexes", project_scoped=False)
 
-AWAIT_INDEXES: Final = Query("await_indexes", load_core_query("await_indexes.cypher"), project_scoped=False)
+AWAIT_INDEXES: Final = Query("await_indexes", "core.await_indexes", project_scoped=False)
 
 
 # The constraints and indexes are defined in the static DDL files under ``ddl/`` (one statement per
@@ -113,7 +205,7 @@ CORE_DDL_FILES: Final = ("node_constraints.cypher", "node_indexes.cypher", "rela
 def load_core_ddl(name: str) -> tuple[str, ...]:
     """The statements of the core schema DDL file ``name`` (relative to ``ddl/``)."""
 
-    return read_ddl_file(_DDL_DIRECTORY / name)
+    return read_ddl_file(CORE_DDL_DIRECTORY / name)
 
 
 CORE_DDL: Final = tuple(statement for name in CORE_DDL_FILES for statement in load_core_ddl(name))
@@ -144,25 +236,21 @@ class DdlStatement:
 def ddl_query(statement: DdlStatement) -> Query:
     """The unscoped query that runs one DDL statement (schema setup, rule I3 exempts it)."""
 
-    return Query(f"create_{statement.name}", statement.text, project_scoped=False)
+    return Query(f"create_{statement.name}", DDL_TEMPLATE, DdlText(statement.text), project_scoped=False)
 
 
 # Owned writes (graph.core.writer). Parameters: ``$key`` (node key or relationship ``edge_key``),
 # ``$props`` (properties to set; ``SET += `` so other properties stay), ``$label`` (domain label).
 
-UPSERT_SPEC_NODE: Final = Query("upsert_spec_node", load_core_query("upsert_spec_node.cypher"))
+UPSERT_SPEC_NODE: Final = Query("upsert_spec_node", "core.upsert_spec_node")
 
-DELETE_SPEC_NODE: Final = Query("delete_spec_node", load_core_query("delete_spec_node.cypher"))
+DELETE_SPEC_NODE: Final = Query("delete_spec_node", "core.delete_spec_node")
 
-SPEC_NODE_RELATIONSHIP_TYPES: Final = Query(
-    "spec_node_relationship_types", load_core_query("spec_node_relationship_types.cypher")
-)
+SPEC_NODE_RELATIONSHIP_TYPES: Final = Query("spec_node_relationship_types", "core.spec_node_relationship_types")
 
-SPEC_NODE_EXISTS: Final = Query("spec_node_exists", load_core_query("spec_node_exists.cypher"))
+SPEC_NODE_EXISTS: Final = Query("spec_node_exists", "core.spec_node_exists")
 
-MOVE_FOREIGN_RELATIONSHIPS: Final = Query(
-    "move_foreign_relationships", load_core_query("move_foreign_relationships.cypher")
-)
+MOVE_FOREIGN_RELATIONSHIPS: Final = Query("move_foreign_relationships", "core.move_foreign_relationships")
 
 
 # A node without domain label is upserted on a key a uniqueness constraint holds (graph.core.schema):
@@ -173,9 +261,9 @@ DOCUMENT: Final = "Document"
 FRAGMENT: Final = "Fragment"
 FOREIGN_KEY: Final = "uuid"
 
-UPSERT_DOCUMENT: Final = Query(f"upsert_node_{DOCUMENT}", load_core_query("upsert_document.cypher"))
+UPSERT_DOCUMENT: Final = Query(f"upsert_node_{DOCUMENT}", "core.upsert_document")
 
-UPSERT_FRAGMENT: Final = Query(f"upsert_node_{FRAGMENT}", load_core_query("upsert_fragment.cypher"))
+UPSERT_FRAGMENT: Final = Query(f"upsert_node_{FRAGMENT}", "core.upsert_fragment")
 
 _NOT_FOREIGN: Final = frozenset({DOCUMENT, FRAGMENT, SPEC_NODE})
 
@@ -187,10 +275,7 @@ def upsert_foreign_node(label: str) -> Query:
 
     if label in _NOT_FOREIGN:
         raise ConformanceError("node_key_unconstrained", label=label, key=FOREIGN_KEY)
-    return Query(
-        f"upsert_node_{label}",
-        render_query(load_core_query("upsert_foreign_node.cypher"), foreign_label=safe_name(label)),
-    )
+    return Query(f"upsert_node_{label}", "core.upsert_foreign_node", ForeignLabel(safe_name(label)))
 
 
 def foreign_node_constraint(label: str) -> str:
@@ -209,21 +294,15 @@ def foreign_node_constraint(label: str) -> str:
 
 @cache
 def delete_keyed_node(label: str, key: str) -> Query:
-    return Query(
-        f"delete_node_{label}",
-        render_query(load_core_query("delete_keyed_node.cypher"), label=safe_name(label), key=safe_name(key)),
-    )
+    return Query(f"delete_node_{label}", "core.delete_keyed_node", LabelKey(safe_name(label), safe_name(key)))
 
 
 @cache
 def keyed_node_relationship_types(label: str, key: str) -> Query:
     return Query(
         f"relationship_types_{label}",
-        render_query(
-            load_core_query("keyed_node_relationship_types.cypher"),
-            label=safe_name(label),
-            key=safe_name(key),
-        ),
+        "core.keyed_node_relationship_types",
+        LabelKey(safe_name(label), safe_name(key)),
     )
 
 
@@ -238,39 +317,32 @@ def upsert_relationship(rel_type: str, source: NodeShape, target: NodeShape) -> 
     rel = safe_name(rel_type)
     return Query(
         f"upsert_relationship_{rel_type}",
-        render_query(
-            load_core_query("upsert_relationship.cypher"),
-            source=source.match("s"),
-            target=target.match("t"),
-            type=rel,
-        ),
+        "core.upsert_relationship",
+        RelationEnds(rel, source.checked(), target.checked()),
     )
 
 
 @cache
 def delete_relationship(rel_type: str) -> Query:
-    return Query(
-        f"delete_relationship_{rel_type}",
-        render_query(load_core_query("delete_relationship.cypher"), type=safe_name(rel_type)),
-    )
+    return Query(f"delete_relationship_{rel_type}", "core.delete_relationship", Relation(safe_name(rel_type)))
 
 
 # Reads (graph.core.reader). ``n.spec_id IS NOT NULL`` lets the planner seek the
 # ``(group_id, spec_id)`` unique index on its ``group_id`` prefix instead of scanning the label.
 
-READ_NODE_BY_SPEC_ID: Final = Query("read_node_by_spec_id", load_core_query("read_node_by_spec_id.cypher"))
+READ_NODE_BY_SPEC_ID: Final = Query("read_node_by_spec_id", "core.read_node_by_spec_id")
 
-READ_NODE_BY_ALIAS: Final = Query("read_node_by_alias", load_core_query("read_node_by_alias.cypher"))
+READ_NODE_BY_ALIAS: Final = Query("read_node_by_alias", "core.read_node_by_alias")
 
-READ_NODES: Final = Query("read_nodes", load_core_query("read_nodes.cypher"))
+READ_NODES: Final = Query("read_nodes", "core.read_nodes")
 
-READ_NEIGHBOURS: Final = Query("read_neighbours", load_core_query("read_neighbours.cypher"))
+READ_NEIGHBOURS: Final = Query("read_neighbours", "core.read_neighbours")
 
-READ_EDGES: Final = Query("read_edges", load_core_query("read_edges.cypher"))
+READ_EDGES: Final = Query("read_edges", "core.read_edges")
 
-READ_DOCUMENTS: Final = Query("read_documents", load_core_query("read_documents.cypher"))
+READ_DOCUMENTS: Final = Query("read_documents", "core.read_documents")
 
-READ_FRAGMENTS: Final = Query("read_fragments", load_core_query("read_fragments.cypher"))
+READ_FRAGMENTS: Final = Query("read_fragments", "core.read_fragments")
 
 # Search and traversal (graph.core.reader). The vector and fulltext indexes span the whole database:
 # hits are filtered by ``group_id``, spec label and ``$where`` after the index call. ``$index`` names
@@ -279,29 +351,25 @@ READ_FRAGMENTS: Final = Query("read_fragments", load_core_query("read_fragments.
 # for further pages until it has enough. Searches return keys and scores only; the reader then reads
 # the nodes it keeps with ``READ_NODES_BY_UUID``.
 
-READ_NODES_BY_UUID: Final = Query("read_nodes_by_uuid", load_core_query("read_nodes_by_uuid.cypher"))
+READ_NODES_BY_UUID: Final = Query("read_nodes_by_uuid", "core.read_nodes_by_uuid")
 
-READ_NODE_UUIDS_BY_SPEC_ID: Final = Query(
-    "read_node_uuids_by_spec_id", load_core_query("read_node_uuids_by_spec_id.cypher")
-)
+READ_NODE_UUIDS_BY_SPEC_ID: Final = Query("read_node_uuids_by_spec_id", "core.read_node_uuids_by_spec_id")
 
-READ_NODES_BY_IDS: Final = Query("read_nodes_by_ids", load_core_query("read_nodes_by_ids.cypher"))
+READ_NODES_BY_IDS: Final = Query("read_nodes_by_ids", "core.read_nodes_by_ids")
 
-SEARCH_NODES_FULLTEXT: Final = Query("search_nodes_fulltext", load_core_query("search_nodes_fulltext.cypher"))
+SEARCH_NODES_FULLTEXT: Final = Query("search_nodes_fulltext", "core.search_nodes_fulltext")
 
-COUNT_SEARCH_VECTORS: Final = Query("count_search_vectors", load_core_query("count_search_vectors.cypher"))
+COUNT_SEARCH_VECTORS: Final = Query("count_search_vectors", "core.count_search_vectors")
 
-SEARCH_NODES_VECTOR: Final = Query("search_nodes_vector", load_core_query("search_nodes_vector.cypher"))
+SEARCH_NODES_VECTOR: Final = Query("search_nodes_vector", "core.search_nodes_vector")
 
-SEARCH_NODES_VECTOR_EXACT: Final = Query(
-    "search_nodes_vector_exact", load_core_query("search_nodes_vector_exact.cypher")
-)
+SEARCH_NODES_VECTOR_EXACT: Final = Query("search_nodes_vector_exact", "core.search_nodes_vector_exact")
 
-SEARCH_FRAGMENTS: Final = Query("search_fragments", load_core_query("search_fragments.cypher"))
+SEARCH_FRAGMENTS: Final = Query("search_fragments", "core.search_fragments")
 
-READ_FRAGMENT_HITS: Final = Query("read_fragment_hits", load_core_query("read_fragment_hits.cypher"))
+READ_FRAGMENT_HITS: Final = Query("read_fragment_hits", "core.read_fragment_hits")
 
-READ_NODES_FOR_LINES: Final = Query("read_nodes_for_lines", load_core_query("read_nodes_for_lines.cypher"))
+READ_NODES_FOR_LINES: Final = Query("read_nodes_for_lines", "core.read_nodes_for_lines")
 
 # Scope: one query per declared spine path (or contiguous part of a ``sequence`` path). Every walk
 # follows each edge in its stored direction towards the root node unless the relation is in
@@ -312,15 +380,10 @@ READ_NODES_FOR_LINES: Final = Query("read_nodes_for_lines", load_core_query("rea
 def scope_via(relations: tuple[str, ...], min_hops: int, max_hops: int) -> Query:
     """Nodes reaching the root by ``min_hops``..``max_hops`` edges of any of ``relations``."""
 
-    types = "|".join(safe_name(name) for name in relations)
     return Query(
         f"read_scope_via_{'_'.join(relations)}_{min_hops}_{max_hops}",
-        render_query(
-            load_core_query("scope_via.cypher"),
-            types=types,
-            min_hops=str(int(min_hops)),
-            max_hops=str(int(max_hops)),
-        ),
+        "core.scope_via",
+        ScopeVia(tuple(safe_name(name) for name in relations), int(min_hops), int(max_hops)),
     )
 
 
@@ -329,23 +392,12 @@ def scope_sequence(relations: tuple[str, ...], symmetric: tuple[str, ...]) -> Qu
     """Nodes reaching the root by one edge of each of ``relations``, in order; a relation in
     ``symmetric`` is walked either way."""
 
-    either_way = {safe_name(name) for name in symmetric}
-    pattern = "(n:SpecNode)"
-    conditions = []
-    for index, relation in enumerate(relations):
-        last = index == len(relations) - 1
-        end = "(root)" if last else f"(x{index}:SpecNode)"
-        arrow = "-" if relation in either_way else "->"
-        pattern += f"-[r{index}:{safe_name(relation)}]{arrow}{end}"
-        conditions.append(f"r{index}.group_id = $project_id")
-        if not last:
-            conditions.append(
-                f"x{index}.group_id = $project_id AND none(label IN labels(x{index}) WHERE label IN $roots)"
-            )
+    either_way = tuple(safe_name(name) for name in symmetric)
     return Query(
         f"read_scope_sequence_{'_'.join(relations)}",
-        render_query(load_core_query("scope_sequence.cypher"), pattern=pattern, conditions=" AND ".join(conditions)),
+        "core.scope_sequence",
+        ScopeSequence(tuple(safe_name(name) for name in relations), either_way),
     )
 
 
-READ_IMPACT_HOP: Final = Query("read_impact_hop", load_core_query("read_impact_hop.cypher"))
+READ_IMPACT_HOP: Final = Query("read_impact_hop", "core.read_impact_hop")

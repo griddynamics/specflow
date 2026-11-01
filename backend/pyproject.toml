@@ -14,6 +14,7 @@ dependencies = [
     "google-api-python-client>=2.201.0",
     "google-auth>=2.62.0",
     "httplib2>=0.22",
+    "httpx>=0.28.1",
     "graphiti-core==0.30.2",
     "langfuse>=4,<5",
     "neo4j>=6.4.1",
@@ -39,6 +40,8 @@ dependencies = [
 # One object-storage SDK per cloud, imported lazily by storage/factory.py. The images install both.
 gcp = ["google-cloud-storage>=3.17.1"]
 aws = ["boto3>=1.43,<2"]
+# The TigerGraph graph store (GRAPH_STORE=tigergraph), imported lazily by graph/stores/tigergraph only.
+tigergraph = ["pyTigerGraph==2.0.5"]
 
 [project.scripts]
 specflow = "cli:main"
@@ -62,7 +65,6 @@ select = ["S110"]
 [dependency-groups]
 dev = [
     "google-api-python-client-stubs>=1.40.0",
-    "httpx>=0.28.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.1",
     "ruff>=0.17.2",
@@ -94,4 +96,5 @@ openinference-instrumentation = ["openinference"]
 # which deptry attributes to the temporalio package.
 # botocore ships inside the `aws` extra's boto3 (same release train); storage/s3.py imports its Config and ClientError.
 DEP001 = ["botocore"]
-DEP002 = ["asyncpg", "temporalio-openai-agents"]
+# httpx (ArcadeDB admin API) and the tigergraph extra are used by the graph store adapters when they ship.
+DEP002 = ["asyncpg", "httpx", "pyTigerGraph", "temporalio-openai-agents"]

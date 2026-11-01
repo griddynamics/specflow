@@ -96,6 +96,11 @@ max-returns = 6
 # premise is the same as the tests/** scoping above ("tools invoked by argv"). Its callers pass
 # fixed argv tuples (git, uv, sys.executable -m ...) from in-repo code; no request or document data reaches it.
 "**/src/llm/evidence.py" = ["S603"]
+# project: graph.core.store.as_store wraps a Neo4j driver in the Neo4j store for the deprecated
+# `ensure_schema(driver, ...)` / `GraphReader(driver, ...)` call shape. The adapter module imports
+# graph.core.store, so a top-level import is a cycle and the import stays inside the function until
+# the deprecated driver arguments are removed (one release).
+"**/src/graph/core/store.py" = ["PLC0415"]
 # project: src/google/**/*.pyi are type stubs of google-cloud-storage (no py.typed upstream); a stub
 # must declare the library's real class names (InvalidResponse, DataCorruption), so N818 cannot apply.
 "**/src/google/**/*.pyi" = ["N818"]
