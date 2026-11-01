@@ -28,7 +28,8 @@ from neo4j.exceptions import AuthError, DriverError, Neo4jError, ServiceUnavaila
 
 from graph.core.errors import ConfigurationError, InfrastructureUnavailableError
 from graph.core.ontology import Ontology
-from graph.core.queries import SPEC_NODE
+from graph.core.ontology.compiled import BUILD_OWNER
+from graph.core.queries import SPEC_NODE, safe_name
 from graph.core.store import STORE_AUTH_REJECTED, STORE_UNREACHABLE
 from graph.stores._bolt.schema import SchemaObject
 from graph.stores._bolt.schema import schema_objects as canonical_objects
@@ -96,6 +97,19 @@ def check_names(ontology: Ontology) -> None:
             raise ConfigurationError("schema_name_case_collision", first=other, second=name)
 
 
+def spec_labels(ontology: Ontology) -> tuple[str, ...]:
+    """The domain labels spec nodes carry (those build owns), sorted."""
+
+    return tuple(sorted(label for label in ontology.labels if ontology.owner_of(label) == BUILD_OWNER))
+
+
+def _has_composite(types: Sequence[Mapping[str, Any]], label: str) -> bool:
+    """Whether the type of nodes labelled ``SpecNode`` and ``label`` exists (a type named ``A~B`` whose
+    parents are the two labels)."""
+
+    return any(set(entry.get("parentTypes", ())) == {SPEC_NODE, label} for entry in types)
+
+
 def _indexes(types: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     return [
         {**index, "typeName": index.get("typeName", entry.get("name"))}
@@ -158,9 +172,9 @@ def _sql(item: ArcadeObject, dimension: int) -> tuple[str, ...]:
     return tuple(steps)
 
 
-async def _cypher(driver: Any, database: str, item: ArcadeObject) -> None:
+async def _cypher(driver: Any, database: str, name: str, statement: str, **params: Any) -> None:
     try:
-        await driver.execute_query(item.statement, database_=database)
+        await driver.execute_query(statement, params, database_=database)
     except AuthError:
         raise ConfigurationError(STORE_AUTH_REJECTED, store=BACKEND) from None
     except (ServiceUnavailable, SessionExpired, OSError) as error:
@@ -172,7 +186,7 @@ async def _cypher(driver: Any, database: str, item: ArcadeObject) -> None:
         raise ConfigurationError(
             "schema_setup_failed",
             store=BACKEND,
-            query=f"create_{item.name}",
+            query=f"create_{name}",
             error_type=type(error).__name__,
             backend_code=code if isinstance(code, str) else None,
         ) from None
@@ -212,11 +226,12 @@ async def ensure_arcadedb_schema(
     created: list[str] = []
     for item in missing:
         if item.statement:
-            await _cypher(driver, database, item)
+            await _cypher(driver, database, item.name, item.statement)
         else:
             for command in _sql(item, embedding_dim):
                 await admin.sql(database, command)
         created.append(item.name)
+    composites = await _ensure_composite_types(driver, admin, database, spec_labels(ontology))
     if created:
         _require_present(wanted, _indexes(await admin.types(database)), embedding_dim)
     log_event(
@@ -225,9 +240,40 @@ async def ensure_arcadedb_schema(
         "graph.schema.ensured",
         objects_created=len(created),
         objects_existing=len(wanted) - len(created),
+        composite_types_created=composites,
         server_version=".".join(map(str, version)),
     )
     return tuple(created), version
+
+
+# A node with two labels is a record of the composite type ``A~B``, which ArcadeDB creates when the first
+# such node is written; two transactions that do it at once fail the second one with a SemanticError that a
+# retry does not cure (measured: 5 of 18 concurrent first writes). A placeholder node, created and deleted
+# once per domain label, makes every type exist before a build writes.
+PLACEHOLDER_GROUP: Final = "__schema__"
+_CREATE_PLACEHOLDER: Final = "CREATE (n:SpecNode:{label} {{group_id: $group, uuid: $uuid}})"
+_DELETE_PLACEHOLDER: Final = "MATCH (n:SpecNode:{label} {{group_id: $group, uuid: $uuid}}) DETACH DELETE n"
+
+
+async def _ensure_composite_types(driver: Any, admin: AdminClient, database: str, labels: Sequence[str]) -> int:
+    """Create the composite type of each of ``labels`` that is missing; return how many were created.
+
+    A start that races another one (both found the type missing) re-reads the schema after a refusal and
+    accepts the type when it is there."""
+
+    created = 0
+    for label in labels:
+        if _has_composite(await admin.types(database), label):
+            continue
+        name, params = f"composite_{label}", {"group": PLACEHOLDER_GROUP, "uuid": f"__{label}__"}
+        try:
+            await _cypher(driver, database, name, _CREATE_PLACEHOLDER.format(label=safe_name(label)), **params)
+            created += 1
+        except ConfigurationError:
+            if not _has_composite(await admin.types(database), label):
+                raise
+        await _cypher(driver, database, name, _DELETE_PLACEHOLDER.format(label=safe_name(label)), **params)
+    return created
 
 
 def _require_present(wanted: Sequence[ArcadeObject], indexes: Sequence[Mapping[str, Any]], dimension: int) -> None:

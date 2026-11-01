@@ -36,10 +36,12 @@ class FakeServer:
     def __init__(self, version: tuple[int, int, int] = (26, 10, 2)) -> None:
         self.version = version
         self.indexes: list[dict[str, Any]] = []
+        self.composites: list[str] = []
         self.commands: list[str] = []
         self.database_created = False
         self.exists = False
         self.sql_error: str | None = None
+        self.create_error = False
 
     # the admin client
     async def require_version(self) -> tuple[int, int, int]:
@@ -58,7 +60,8 @@ class FakeServer:
         by_type: dict[str, list[dict[str, Any]]] = {}
         for index in self.indexes:
             by_type.setdefault(index["typeName"], []).append(index)
-        return [{"name": name, "indexes": indexes} for name, indexes in by_type.items()]
+        entries = [{"name": name, "indexes": indexes, "parentTypes": []} for name, indexes in by_type.items()]
+        return entries + [{"name": f"{label}~SpecNode", "parentTypes": [label, "SpecNode"]} for label in self.composites]
 
     async def sql(self, _database: str, command: str) -> list[dict[str, Any]]:
         self.commands.append(command)
@@ -85,8 +88,16 @@ class FakeServer:
             )
 
     # the Bolt driver
-    async def execute_query(self, text: str, **_kwargs: Any) -> Any:
+    async def execute_query(self, text: str, params: Any = None, **_kwargs: Any) -> Any:
         self.commands.append(text)
+        placeholder = re.fullmatch(r"(CREATE|MATCH) \(n:SpecNode:(\w+) \{group_id: \$group, uuid: \$uuid\}\)(?: DETACH DELETE n)?", text)
+        if placeholder:
+            assert params["group"] == "__schema__" and params["uuid"] == f"__{placeholder[2]}__"
+            if placeholder[1] == "CREATE" and placeholder[2] not in self.composites:
+                if self.create_error:
+                    raise ConfigurationError("schema_setup_failed", store="arcadedb")
+                self.composites.append(placeholder[2])
+            return SimpleNamespace(records=[])
         item = parse_ddl_statement(text)
         unique = item.kind == "unique"
         name = f"{item.label}[{','.join(item.properties)}]" if unique else item.name
@@ -266,16 +277,62 @@ async def test_an_object_missing_after_the_creates_is_reported() -> None:
     server = FakeServer()
     original = server.execute_query
 
-    async def swallow(text: str, **kwargs: Any) -> Any:
+    async def swallow(text: str, params: Any = None, **kwargs: Any) -> Any:
         if "graph_edge_key_relates_to" in text:
             server.commands.append(text)
             return SimpleNamespace(records=[])
-        return await original(text, **kwargs)
+        return await original(text, params, **kwargs)
 
     server.execute_query = swallow  # type: ignore[method-assign]
     with pytest.raises(ConfigurationError) as raised:
         await ensure(server)
     assert raised.value.code == "schema_index_not_online" and raised.value.fields["state"] == "MISSING"
+
+
+def labels() -> list[str]:
+    return sorted(label for label in shipped_ontology().labels if shipped_ontology().owner_of(label) == "build")
+
+
+async def test_every_domain_label_gets_its_composite_type_before_any_build_writes() -> None:
+    server = FakeServer()
+    await ensure(server)
+    assert sorted(server.composites) == labels() and labels()
+    placeholders = [c for c in server.commands if "group_id: $group" in c]
+    assert len(placeholders) == 2 * len(labels())  # one create and one delete per label
+    assert all("DETACH DELETE" in c for c in placeholders[1::2])
+
+
+async def test_composite_types_that_exist_are_left_alone() -> None:
+    server = FakeServer()
+    await ensure(server)
+    server.commands.clear()
+    await ensure(server)
+    assert not any("group_id: $group" in c for c in server.commands)
+
+
+async def test_a_start_that_lost_the_race_for_a_composite_type_accepts_it() -> None:
+    server = FakeServer()
+    await ensure(server)
+    server.composites.remove("Module")
+    original = server.execute_query
+
+    async def race(text: str, params: Any = None, **kwargs: Any) -> Any:
+        if text.startswith("CREATE (n:SpecNode:Module "):
+            server.composites.append("Module")  # the other start created it a moment ago
+            raise ConfigurationError("schema_setup_failed", store="arcadedb")
+        return await original(text, params, **kwargs)
+
+    server.execute_query = race  # type: ignore[method-assign]
+    await ensure(server)
+    assert "Module" in server.composites
+
+
+async def test_a_composite_type_that_cannot_be_created_is_a_setup_failure() -> None:
+    server = FakeServer()
+    server.create_error = True
+    with pytest.raises(ConfigurationError) as raised:
+        await ensure(server)
+    assert raised.value.code == "schema_setup_failed"
 
 
 def test_an_object_is_a_frozen_value() -> None:
