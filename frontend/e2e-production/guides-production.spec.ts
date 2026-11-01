@@ -1,6 +1,6 @@
-// MCP-M10 Guides on the PRODUCTION routes (FR-MCP-UI-01 to 06 and 09), against the stub API through the real BFF. Dev sign-in mode
-// shows the LOCAL variant (`specflow-local`) with the address from the server env of scripts/serve-production.mjs. The oidc variant
-// is rendered by the production render suite instead.
+// MCP-M10 Guides on the PRODUCTION routes (FR-MCP-UI-01 to 06 and 09), against the stub API through the real BFF. One variant in every
+// environment: the address and client id come from the server env of scripts/serve-production.mjs, and the server name is the
+// default (`MCP_SERVER_NAME` is not set there).
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Locator, Page } from "@playwright/test";
@@ -8,6 +8,7 @@ import { allowConsoleErrors, createProjectApi, expect, login, rail, seedDocument
 
 const MCP_URL = "https://mcp.example.com/mcp";
 const MCP_GUIDE = "/guides/mcp-server";
+const SERVER_NAME = "specflow";
 const TOPICS = [
   { slug: "specflow-101", title: "SpecFlow 101" },
   { slug: "best-practices", title: "Best practices" },
@@ -74,15 +75,13 @@ test.describe("Guides on production routes", { tag: "@production" }, () => {
   });
 
   // FR-MCP-UI-03
-  test("FR-MCP-UI-03: the step-1 command holds the configured address", async ({ page }) => {
+  test("FR-MCP-UI-03: the step-1 command holds the configured client id, server name and address", async ({ page }) => {
     await login(page);
     await page.goto(MCP_GUIDE);
-    const step1 = blocks(page).first();
-    await expect(step1).toContainText("claude mcp add-json --scope local specflow-local");
-    await expect(step1).toContainText(`"url":"${MCP_URL}"`);
-    // In dev mode the client id (`MCP_CLIENT_ID=specflow-test`) is not part of any snippet: the local variant has no OAuth client. The
-    // production variant, which shows it in the step-1 command and the team .mcp.json, is covered by the render tests.
-    await expect(page.getByTestId("guide-mcp")).not.toContainText("specflow-test");
+    await expect(blocks(page).first()).toHaveText(
+      `claude mcp add --transport http --scope user --client-id specflow-test --callback-port 8765 ${SERVER_NAME} ${MCP_URL}`,
+    );
+    await expect(page.getByTestId("guide-mcp")).not.toContainText("add-json");
   });
 
   // FR-MCP-UI-04
@@ -90,7 +89,8 @@ test.describe("Guides on production routes", { tag: "@production" }, () => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await login(page);
     await page.goto(MCP_GUIDE);
-    for (const part of ["claude mcp add-json --scope local", "Connect this repository to the SpecFlow project"]) {
+    await page.getByText("For your whole team: commit a .mcp.json instead").click(); // open it: a closed block has no visible COPY button
+    for (const part of ["claude mcp add --transport http", "Connect this repository to the SpecFlow project"]) {
       const { pre, copy } = await block(page, part);
       const shown = (await pre.textContent()) ?? "";
       expect(shown.length).toBeGreaterThan(0);
@@ -119,7 +119,7 @@ test.describe("Guides on production routes", { tag: "@production" }, () => {
   });
 
   // FR-MCP-UI-06
-  test("FR-MCP-UI-06: the reference table lists every tool and prompt of the manifest; the prompt is the specflow-local command", async ({
+  test("FR-MCP-UI-06: the reference table lists every tool and prompt of the manifest; the prompt is the command of the configured server name", async ({
     page,
   }) => {
     await login(page);
@@ -127,7 +127,7 @@ test.describe("Guides on production routes", { tag: "@production" }, () => {
     const table = page.getByRole("table");
     for (const t of manifest.tools) await expect(table.getByRole("cell", { name: t.name, exact: true })).toBeVisible();
     for (const p of manifest.prompts)
-      await expect(table.getByRole("cell", { name: `/mcp__specflow-local__${p.name}`, exact: true })).toBeVisible();
+      await expect(table.getByRole("cell", { name: `/mcp__${SERVER_NAME}__${p.name}`, exact: true })).toBeVisible();
   });
 
   // FR-MCP-UI-09 (Guides pages; Plan › Develop is covered with FR-MCP-UI-07)
@@ -179,7 +179,7 @@ test.describe("Plan › Develop on production routes (idle stage, U5)", { tag: "
   }) => {
     const pid = await openDevelop(page);
     const develop = page.getByTestId("plan-develop");
-    await expect(develop.getByTestId("code-block").first()).toHaveText(`/mcp__specflow-local__select_project ${pid}`);
+    await expect(develop.getByTestId("code-block").first()).toHaveText(`/mcp__${SERVER_NAME}__select_project ${pid}`);
     await page.getByText("Or save the binding file yourself").click();
     const texts = await develop.getByTestId("code-block").allTextContents();
     const json = texts.find((t) => t.trimStart().startsWith("{"));
@@ -202,7 +202,7 @@ test.describe("Plan › Develop on production routes (idle stage, U5)", { tag: "
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await openDevelop(page);
     await page.getByText("Or save the binding file yourself").click();
-    for (const part of ["/mcp__specflow-local__select_project", '"project_name"']) {
+    for (const part of [`/mcp__${SERVER_NAME}__select_project`, '"project_name"']) {
       const { pre, copy } = await block(page, part);
       const shown = (await pre.textContent()) ?? "";
       expect(shown.length).toBeGreaterThan(0);

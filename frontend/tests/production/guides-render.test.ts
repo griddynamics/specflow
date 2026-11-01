@@ -1,5 +1,5 @@
-// MCP-M10 (FR-MCP-UI-03, 05, 06, 08; E5): the MCP guide rendered on the server, in `oidc` mode (the four production steps and the team
-// disclosure) and `dev` mode (the local variant), for each agent. The Playwright run uses dev mode only.
+// MCP-M10 (FR-MCP-UI-03, 05, 06, 08; E5): the MCP guide rendered on the server (the four steps and the team disclosure)
+// for each agent, with the configured server name.
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
 import { createElement, type ReactElement } from "react";
@@ -50,18 +50,19 @@ const text = (view: string) =>
     .split(/\s+/)
     .join(" ");
 
-const base = { mcpUrl: "https://mcp.example.com/mcp", clientId: "my-client", devEmail: "dev@example.com" } as const;
+const base = { mcpUrl: "https://mcp.example.com/mcp", clientId: "my-client", serverName: "specflow" } as const;
 
-test("oidc, Claude Code: no address card, four production steps, team .mcp.json, reference, troubleshooting", () => {
-  const view = html(createElement(M.McpGuide, { ...base, mode: "oidc", agent: CLAUDE_CODE }));
+test("Claude Code: no address card, four production steps, team .mcp.json, reference, troubleshooting", () => {
+  const view = html(createElement(M.McpGuide, { ...base, agent: CLAUDE_CODE }));
   const t = text(view);
   assert.doesNotMatch(t, /Server address/);
   assert.doesNotMatch(t, /Client ID: my-client/);
   assert.doesNotMatch(t, /Sign-in: your company account/);
-  assert.doesNotMatch(t, /Local development/); // the Tag shows in dev mode only
+  assert.doesNotMatch(t, /Local development/);
   for (const n of [1, 2, 3, 4]) assert.match(t, new RegExp(`Step ${String(n)}`));
   assert.doesNotMatch(t, /Step 5/);
-  assert.match(t, /Add SpecFlow to Claude Code(?! \(local\))/);
+  assert.match(t, /Add SpecFlow to Claude Code/);
+  assert.doesNotMatch(t, /\(local\)|add-json/);
   assert.match(
     t,
     /claude mcp add --transport http --scope user --client-id my-client --callback-port 8765 specflow https:\/\/mcp\.example\.com\/mcp/,
@@ -72,29 +73,22 @@ test("oidc, Claude Code: no address card, four production steps, team .mcp.json,
   assert.match(t, /Connect this repository to the SpecFlow project <project name>\./);
   assert.match(t, /Say this to Claude Code, inside your repository/);
   assert.match(t, /Ask Claude Code to connect the repository to your SpecFlow project, and commit \.specflow\/config\.json\./);
-  assert.doesNotMatch(t, /specflow-local/);
   assert.match(t, /Which SpecFlow projects can I work on\?/);
   assert.match(t, /Troubleshooting/);
-  assert.match(view, /data-mode="oidc"/);
+  assert.doesNotMatch(view, /data-mode/);
   assert.match(view, /aria-pressed|role="radio"|aria-checked/);
 });
 
-test("dev, Claude Code: the local variant, specflow-local, no team disclosure, no sign-in snippet", () => {
-  const view = html(createElement(M.McpGuide, { ...base, mcpUrl: "http://localhost:8002/mcp", mode: "dev", agent: CLAUDE_CODE }));
+test("a configured server name shows in the add command, sign-in text, team file and prompts", () => {
+  const view = html(createElement(M.McpGuide, { ...base, serverName: "acme-specflow", agent: CLAUDE_CODE }));
   const t = text(view);
-  assert.match(t, /Local development/);
-  assert.equal(text(view).split("Local development").length - 1, 1); // one Tag, beside the agent picker
-  assert.doesNotMatch(t, /Server address/);
-  assert.match(t, /Add SpecFlow to Claude Code \(local\)/);
-  assert.match(t, /claude mcp add-json --scope local specflow-local/);
-  assert.match(t, /dev-token dev@example\.com --headers/);
-  assert.match(t, /<path to your SpecFlow checkout>/);
-  assert.match(t, /workspace trust dialog/);
-  assert.match(t, /No sign-in in local development: the token comes from your local dev login\./);
-  assert.match(t, /Connect this repository to the SpecFlow project <project name>\./);
-  assert.doesNotMatch(t, /commit a \.mcp\.json instead/);
-  assert.doesNotMatch(t, /Your browser opens your company sign-in/);
-  assert.match(t, /Step 4/);
+  assert.match(t, /--callback-port 8765 acme-specflow https:\/\/mcp\.example\.com\/mcp/);
+  assert.match(t, /"acme-specflow": \{/);
+  assert.match(t, /choose acme-specflow, then Authenticate/);
+  assert.match(t, /claude mcp login acme-specflow --no-browser/);
+  assert.match(t, /Type \/mcp, choose acme-specflow, then Authenticate again/);
+  assert.match(t, /\/mcp__acme-specflow__select_project/);
+  assert.doesNotMatch(t, /login specflow --no-browser|choose specflow,|\/mcp__specflow__/);
 });
 
 test("Codex and Cursor show the in-progress state instead of steps", () => {
@@ -102,7 +96,7 @@ test("Codex and Cursor show the in-progress state instead of steps", () => {
     ["codex", "Codex"],
     ["cursor", "Cursor"],
   ] as const) {
-    const view = html(createElement(M.McpGuide, { ...base, mode: "oidc", agent }));
+    const view = html(createElement(M.McpGuide, { ...base, agent }));
     const t = text(view);
     assert.match(t, new RegExp(`${label} setup is in progress`));
     assert.match(t, /We publish an agent's setup after we have tested it end to end with SpecFlow\. Until then, use Claude Code\./);
@@ -113,15 +107,13 @@ test("Codex and Cursor show the in-progress state instead of steps", () => {
 });
 
 test("reference card lists every manifest tool and the prompt as a command", () => {
-  const prod = text(html(createElement(M.McpGuide, { ...base, mode: "oidc", agent: CLAUDE_CODE })));
-  const dev = text(html(createElement(M.McpGuide, { ...base, mode: "dev", agent: CLAUDE_CODE })));
+  const prod = text(html(createElement(M.McpGuide, { ...base, agent: CLAUDE_CODE })));
   for (const tool of M.manifest.tools) {
     assert.ok(prod.includes(tool.name) && prod.includes(tool.summary), tool.name);
   }
   assert.match(prod, /Tool, read-only/);
   assert.match(prod, /Command/);
   assert.match(prod, /\/mcp__specflow__select_project/);
-  assert.match(dev, /\/mcp__specflow-local__select_project/);
   assert.match(prod, /Every call checks that you are a member of the project\./);
 });
 
@@ -152,7 +144,7 @@ test("topic header: best practices has the one h1 and no eyebrow repeating the t
 });
 
 test("topic header: the MCP guide has the one h1 and no eyebrow repeating the topic", () => {
-  const view = html(createElement(M.McpGuide, { ...base, mode: "dev", agent: CLAUDE_CODE }));
+  const view = html(createElement(M.McpGuide, { ...base, agent: CLAUDE_CODE }));
   assert.equal(view.split("<h1").length - 1, 1);
   assert.equal(view.split('class="eyebrow guides-muted"').length - 1, 0);
   assert.doesNotMatch(text(view), /MCP server Connect your coding agent/);

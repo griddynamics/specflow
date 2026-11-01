@@ -42,11 +42,11 @@ function text(view: string): string {
   }
   return unescape(out).split(/\s+/).join(" ");
 }
-const render = (mode: "oidc" | "dev", projectName: string | null = "Checkout refactor") =>
-  html(createElement(M.DevelopTab, { projectId: ID, info: { projectName, mcpUrl: URL, mode } }));
+const render = (serverName: string, projectName: string | null = "Checkout refactor") =>
+  html(createElement(M.DevelopTab, { projectId: ID, info: { projectName, mcpUrl: URL, serverName } }));
 
-test("production mode: bind command with the project id, binding JSON, two prompts, in this order", () => {
-  const view = render("oidc");
+test("bind command with the project id, binding JSON, two prompts, in this order", () => {
+  const view = render("specflow");
   assert.deepEqual(blocks(view), [
     `/mcp__specflow__select_project ${ID}`,
     M.S.bindingFileJson({ mcpUrl: URL, projectId: ID, projectName: "Checkout refactor" }),
@@ -57,26 +57,23 @@ test("production mode: bind command with the project id, binding JSON, two promp
   assert.match(t, /This project Use Checkout refactor in your repository/);
   assert.match(t, /Ask your agent Try these in Claude Code/);
   assert.match(t, /Or save the binding file yourself/);
-  assert.doesNotMatch(t, /specflow-local/);
-  assert.match(view, /data-mode="oidc"/);
+  assert.doesNotMatch(view, /data-mode/);
 });
 
-test("dev mode: the bind command uses specflow-local with the project id", () => {
-  const view = render("dev");
-  assert.equal(blocks(view)[0], `/mcp__specflow-local__select_project ${ID}`);
-  assert.match(view, /data-mode="dev"/);
+test("the bind command uses the configured server name with the project id", () => {
+  assert.equal(blocks(render("acme-specflow"))[0], `/mcp__acme-specflow__select_project ${ID}`);
 });
 
 test("the shown binding JSON equals the builder's output for a name with quotes and non-ASCII", () => {
   const name = `The "Q3" plan, Zażółć`;
-  const shown = blocks(render("oidc", name))[1];
+  const shown = blocks(render("specflow", name))[1];
   assert.equal(shown, M.S.bindingFileJson({ mcpUrl: URL, projectId: ID, projectName: name }));
   assert.deepEqual(JSON.parse(shown), { version: 1, server: URL, project_id: ID, project_name: name });
-  assert.match(text(render("oidc", name)), /Use The "Q3" plan, Zażółć in your repository/);
+  assert.match(text(render("specflow", name)), /Use The "Q3" plan, Zażółć in your repository/);
 });
 
 test("the closing line links to the MCP guide", () => {
-  const view = render("oidc");
+  const view = render("specflow");
   assert.match(text(view), /Claude Code not connected yet\? Set up your coding agent in Guides/);
   assert.match(view, /<a [^>]*href="\/guides\/mcp-server"[^>]*>Set up your coding agent in Guides<\/a>/);
 });
@@ -93,7 +90,7 @@ test("no mock text remains", () => {
 });
 
 test("a failed project read keeps the prompts, drops the project card and says so", () => {
-  const view = render("oidc", null);
+  const view = render("specflow", null);
   const t = text(view);
   assert.match(t, /Could not load this project's name/);
   assert.doesNotMatch(t, /in your repository/);

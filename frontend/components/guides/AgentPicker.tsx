@@ -8,7 +8,7 @@ import { Tag } from "@/components/ui/Tag";
 import { AGENTS, isTested, type AgentId } from "@/lib/guides/agent";
 import { MCP_GUIDE } from "@/lib/guides/content";
 
-export function AgentPicker({ agent, path, local }: Readonly<{ agent: AgentId; path: string; local: boolean }>) {
+export function AgentPicker({ agent, path }: Readonly<{ agent: AgentId; path: string }>) {
   const router = useRouter();
   const [shown, setShown] = useOptimistic(agent);
   return (
@@ -27,7 +27,6 @@ export function AgentPicker({ agent, path, local }: Readonly<{ agent: AgentId; p
         }}
       />
       <Tag tone={isTested(shown) ? "success" : "neutral"}>{isTested(shown) ? MCP_GUIDE.picker.tested : MCP_GUIDE.picker.inProgress}</Tag>
-      {local ? <Tag tone="info">{MCP_GUIDE.picker.local}</Tag> : null}
     </div>
   );
 }

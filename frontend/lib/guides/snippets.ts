@@ -8,34 +8,23 @@ export interface SnippetInput {
   clientId: string;
   projectId: string;
   projectName: string;
-  /** The web app's dev-login user (`LOCAL_TEST_USER_EMAIL`), used by the local variant only. */
-  devEmail: string;
+  /** The name the server is registered under in Claude Code (`MCP_SERVER_NAME`). */
+  serverName: string;
 }
 
-/** Which setup the page shows: production sign-in (`oidc`) or the local dev token (`dev`). */
-export type GuideMode = "oidc" | "dev";
-
-export const PRODUCTION_SERVER = "specflow";
-export const LOCAL_SERVER = "specflow-local";
 export const CALLBACK_PORT = 8765;
-export const LOCAL_CHECKOUT_PLACEHOLDER = "<path to your SpecFlow checkout>";
-
-export const serverName = (mode: GuideMode): string => (mode === "dev" ? LOCAL_SERVER : PRODUCTION_SERVER);
-
-/** Quote a value for a POSIX shell inside single quotes. */
-const shellQuote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
 
 type Pick<K extends keyof SnippetInput> = { [P in K]: SnippetInput[P] };
 
-/** Step 1, production: add the server for every repository on this computer. */
-export function claudeAddCommand({ mcpUrl, clientId }: Pick<"mcpUrl" | "clientId">): string {
-  return `claude mcp add --transport http --scope user --client-id ${clientId} --callback-port ${String(CALLBACK_PORT)} ${PRODUCTION_SERVER} ${mcpUrl}`;
+/** Step 1: add the server for every repository on this computer. */
+export function claudeAddCommand({ mcpUrl, clientId, serverName }: Pick<"mcpUrl" | "clientId" | "serverName">): string {
+  return `claude mcp add --transport http --scope user --client-id ${clientId} --callback-port ${String(CALLBACK_PORT)} ${serverName} ${mcpUrl}`;
 }
 
 /** The team file: commit it and everyone who opens the repository gets SpecFlow. Pretty JSON, two spaces. */
-export function teamMcpJson({ mcpUrl, clientId }: Pick<"mcpUrl" | "clientId">): string {
+export function teamMcpJson({ mcpUrl, clientId, serverName }: Pick<"mcpUrl" | "clientId" | "serverName">): string {
   return JSON.stringify(
-    { mcpServers: { [PRODUCTION_SERVER]: { type: "http", url: mcpUrl, oauth: { clientId, callbackPort: CALLBACK_PORT } } } },
+    { mcpServers: { [serverName]: { type: "http", url: mcpUrl, oauth: { clientId, callbackPort: CALLBACK_PORT } } } },
     null,
     2,
   );
@@ -44,19 +33,9 @@ export function teamMcpJson({ mcpUrl, clientId }: Pick<"mcpUrl" | "clientId">): 
 /** Step 2: the sign-in command in Claude Code. */
 export const SIGN_IN_COMMAND = "/mcp";
 
-/** Step 1, local development: the `headersHelper` entry at local scope (deployment.md, "Local endpoint"). */
-export function localAddCommand({ mcpUrl, devEmail }: Pick<"mcpUrl" | "devEmail">): string {
-  const entry = JSON.stringify({
-    type: "http",
-    url: mcpUrl,
-    headersHelper: `cd ${LOCAL_CHECKOUT_PLACEHOLDER}/backend && uv run --quiet --env-file ../.env.local python examples/mcp_qa.py dev-token ${devEmail} --headers`,
-  });
-  return `claude mcp add-json --scope local ${LOCAL_SERVER} ${shellQuote(entry)}`;
-}
-
 /** Step 3: the prompt that binds a repository; with a project id it skips the list (Claude Code splits arguments at spaces). */
-export function bindCommand(mode: GuideMode, projectId?: string): string {
-  const base = `/mcp__${serverName(mode)}__select_project`;
+export function bindCommand(serverName: string, projectId?: string): string {
+  const base = `/mcp__${serverName}__select_project`;
   return projectId === undefined || projectId === "" ? base : `${base} ${projectId}`;
 }
 

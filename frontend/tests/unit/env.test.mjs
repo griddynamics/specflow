@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { randomSecret, root } from "../support/servers.mjs";
-import { mcpClientIdOf, mcpPublicUrlOf, normalizeInternalUrl, validateEnv } from "../../lib/env-rules.mjs";
+import { mcpClientIdOf, mcpPublicUrlOf, mcpServerNameOf, normalizeInternalUrl, validateEnv } from "../../lib/env-rules.mjs";
 
 const script = path.join(root, "scripts/check-env.mjs");
 const SECRET = randomSecret();
@@ -147,16 +147,19 @@ test("MCP settings: defaults derive from PUBLIC_URL and specflow-mcp", () => {
   const env = { ...nonLocalOidc, PUBLIC_URL: "https://specflow.example.test/" };
   assert.equal(mcpPublicUrlOf(env), "https://specflow.example.test/mcp");
   assert.equal(mcpClientIdOf(env), "specflow-mcp");
-  const empty = { ...env, MCP_PUBLIC_URL: "", MCP_CLIENT_ID: "" };
+  assert.equal(mcpServerNameOf(env), "specflow");
+  const empty = { ...env, MCP_PUBLIC_URL: "", MCP_CLIENT_ID: "", MCP_SERVER_NAME: "" };
   assert.equal(mcpPublicUrlOf(empty), "https://specflow.example.test/mcp");
   assert.equal(mcpClientIdOf(empty), "specflow-mcp");
+  assert.equal(mcpServerNameOf(empty), "specflow");
   assert.deepEqual(validateEnv(empty), []);
 });
 
 test("MCP settings: set values are used and valid", () => {
-  const env = { ...nonLocalOidc, MCP_PUBLIC_URL: "https://mcp.example.test/mcp", MCP_CLIENT_ID: "my-client" };
+  const env = { ...nonLocalOidc, MCP_PUBLIC_URL: "https://mcp.example.test/mcp", MCP_CLIENT_ID: "my-client", MCP_SERVER_NAME: "specflow-local" };
   assert.equal(mcpPublicUrlOf(env), "https://mcp.example.test/mcp");
   assert.equal(mcpClientIdOf(env), "my-client");
+  assert.equal(mcpServerNameOf(env), "specflow-local");
   assert.deepEqual(validateEnv(env), []);
   assert.deepEqual(validateEnv({ ...localDev, MCP_PUBLIC_URL: "http://localhost:8002/mcp" }), []);
 });
@@ -177,4 +180,18 @@ test("MCP_CLIENT_ID must not be blank", () => {
     assert.deepEqual(validateEnv({ ...nonLocalOidc, MCP_CLIENT_ID: bad }), ["MCP_CLIENT_ID"]);
   }
   assert.equal(run({ ...nonLocalOidc, MCP_CLIENT_ID: "  " }).code, 2);
+});
+
+test("MCP_SERVER_NAME: valid names pass, blank means the default, others are named by the gate", () => {
+  for (const ok of ["specflow", "specflow-local", "My_Server-2", "a", "x".repeat(64)]) {
+    assert.deepEqual(validateEnv({ ...nonLocalOidc, MCP_SERVER_NAME: ok }), [], ok);
+  }
+  assert.deepEqual(validateEnv({ ...nonLocalOidc, MCP_SERVER_NAME: "" }), []);
+  for (const bad of ["bad name!", "  ", "a b", "x".repeat(65), "naïve", "semi;colon"]) {
+    assert.deepEqual(validateEnv({ ...nonLocalOidc, MCP_SERVER_NAME: bad }), ["MCP_SERVER_NAME"], bad);
+  }
+  const r = run({ ...nonLocalOidc, MCP_SERVER_NAME: "bad name!" });
+  assert.equal(r.code, 2);
+  assert.match(r.out, /MCP_SERVER_NAME/);
+  assert.doesNotMatch(r.out, /bad name!/);
 });

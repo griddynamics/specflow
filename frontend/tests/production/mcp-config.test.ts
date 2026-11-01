@@ -1,4 +1,4 @@
-// appConfig().mcp: the Guides page's address and client id, with defaults (FR-MCP-UI-03).
+// appConfig().mcp: the Guides page's address, client id and server name, with defaults (FR-MCP-UI-03).
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { appConfig } from "../../lib/config";
@@ -14,13 +14,14 @@ const BASE = {
   OIDC_CLIENT_SECRET: "secret-value",
 };
 
-test("appConfig().mcp defaults to PUBLIC_URL + /mcp and specflow-mcp", () => {
+test("appConfig().mcp defaults to PUBLIC_URL + /mcp, specflow-mcp and specflow", () => {
   const saved = { ...process.env };
   try {
     Object.assign(process.env, BASE);
     Reflect.deleteProperty(process.env, "MCP_PUBLIC_URL");
     Reflect.deleteProperty(process.env, "MCP_CLIENT_ID");
-    assert.deepEqual(appConfig().mcp, { publicUrl: "https://specflow.example.test/mcp", clientId: "specflow-mcp" });
+    Reflect.deleteProperty(process.env, "MCP_SERVER_NAME");
+    assert.deepEqual(appConfig().mcp, { publicUrl: "https://specflow.example.test/mcp", clientId: "specflow-mcp", serverName: "specflow" });
   } finally {
     for (const k of Object.keys(process.env)) if (!(k in saved)) Reflect.deleteProperty(process.env, k);
     Object.assign(process.env, saved);

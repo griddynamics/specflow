@@ -1,6 +1,5 @@
-// MCP-M10 (FR-MCP-UI-03..06, 08): /guides/mcp-server. A server component: it gets plain props (the address, the client id, the mode, the
-// dev e-mail, the agent) from the page, which reads the server-only config. Production (`oidc`) shows the four steps with the team
-// .mcp.json; the local variant (`dev`) shows `specflow-local` and the dev-token command.
+// MCP-M10 (FR-MCP-UI-03..06, 08): /guides/mcp-server. A server component: it gets plain props (the address, the client id, the server
+// name, the agent) from the page, which reads the server-only config. One variant everywhere: the four steps with the team .mcp.json.
 import type { ReactNode } from "react";
 import { Card } from "@/components/ui/Card";
 import { CodeBlock } from "@/components/ui/CodeBlock";
@@ -13,11 +12,8 @@ import manifest from "@/lib/guides/mcp-tools.json";
 import {
   CHECK_PROMPT,
   claudeAddCommand,
-  localAddCommand,
-  serverName,
   SIGN_IN_COMMAND,
   teamMcpJson,
-  type GuideMode,
 } from "@/lib/guides/snippets";
 import { routesFor } from "@/lib/routes";
 import { AgentPicker } from "./AgentPicker";
@@ -27,10 +23,9 @@ import "@/components/ui/ui-gaps.css";
 import "./guides.css";
 
 export interface McpGuideProps {
-  mode: GuideMode;
   mcpUrl: string;
   clientId: string;
-  devEmail: string;
+  serverName: string;
   agent: AgentId;
 }
 
@@ -44,46 +39,30 @@ function Step({ eyebrow, title, children }: Readonly<{ eyebrow: string; title: s
 
 const Note = ({ children }: Readonly<{ children: ReactNode }>) => <p className="body-sm guides-muted">{children}</p>;
 
-function AddStep({ mode, mcpUrl, clientId, devEmail }: Readonly<Omit<McpGuideProps, "agent">>) {
+function AddStep({ mcpUrl, clientId, serverName }: Readonly<Omit<McpGuideProps, "agent">>) {
   const s = MCP_GUIDE.steps;
-  if (mode === "dev") {
-    return (
-      <Step eyebrow={s.addLocal.eyebrow} title={s.addLocal.title}>
-        <p>{s.addLocal.text}</p>
-        <CodeBlock caption={s.addLocal.caption} text={localAddCommand({ mcpUrl, devEmail })} />
-        <Note>{s.addLocal.note}</Note>
-      </Step>
-    );
-  }
   return (
     <Step eyebrow={s.add.eyebrow} title={s.add.title}>
       <p>{s.add.text}</p>
-      <CodeBlock caption={s.add.caption} text={claudeAddCommand({ mcpUrl, clientId })} />
+      <CodeBlock caption={s.add.caption} text={claudeAddCommand({ mcpUrl, clientId, serverName })} />
       <details className="guides-details">
         <summary className="gdg-hit guides-details__summary">{s.add.team.summary}</summary>
         <div className="guides-details__body">
           <p>{s.add.team.text}</p>
-          <CodeBlock caption={s.add.team.caption} text={teamMcpJson({ mcpUrl, clientId })} />
+          <CodeBlock caption={s.add.team.caption} text={teamMcpJson({ mcpUrl, clientId, serverName })} />
         </div>
       </details>
     </Step>
   );
 }
 
-function SignInStep({ mode }: Readonly<{ mode: GuideMode }>) {
+function SignInStep({ serverName }: Readonly<{ serverName: string }>) {
   const s = MCP_GUIDE.steps;
-  if (mode === "dev") {
-    return (
-      <Step eyebrow={s.signInLocal.eyebrow} title={s.signInLocal.title}>
-        <p>{s.signInLocal.text}</p>
-      </Step>
-    );
-  }
   return (
     <Step eyebrow={s.signIn.eyebrow} title={s.signIn.title}>
-      <p>{s.signIn.text}</p>
+      <p>{s.signIn.text(serverName)}</p>
       <CodeBlock caption={s.signIn.caption} text={SIGN_IN_COMMAND} />
-      <Note>{s.signIn.note}</Note>
+      <Note>{s.signIn.note(serverName)}</Note>
     </Step>
   );
 }
@@ -93,7 +72,7 @@ function ClaudeCodeSteps(props: Readonly<Omit<McpGuideProps, "agent">>) {
   return (
     <div className="guides-stack" data-testid="mcp-steps">
       <AddStep {...props} />
-      <SignInStep mode={props.mode} />
+      <SignInStep serverName={props.serverName} />
       <Step eyebrow={s.bind.eyebrow} title={s.bind.title}>
         <p>{s.bind.text}</p>
         <ConnectPrompt caption={s.bind.caption} />
@@ -107,7 +86,7 @@ function ClaudeCodeSteps(props: Readonly<Omit<McpGuideProps, "agent">>) {
   );
 }
 
-function Reference({ mode }: Readonly<{ mode: GuideMode }>) {
+function Reference({ serverName }: Readonly<{ serverName: string }>) {
   const r = MCP_GUIDE.reference;
   return (
     <Card variant="strong" eyebrow={r.eyebrow} title={r.title}>
@@ -136,7 +115,7 @@ function Reference({ mode }: Readonly<{ mode: GuideMode }>) {
               {manifest.prompts.map((p) => (
                 <tr key={p.name}>
                   <td>
-                    <code>{`/mcp__${serverName(mode)}__${p.name}`}</code>
+                    <code>{`/mcp__${serverName}__${p.name}`}</code>
                   </td>
                   <td>{r.promptKind}</td>
                   <td>{p.summary}</td>
@@ -151,12 +130,12 @@ function Reference({ mode }: Readonly<{ mode: GuideMode }>) {
   );
 }
 
-function Troubleshooting() {
+function Troubleshooting({ serverName }: Readonly<{ serverName: string }>) {
   const t = MCP_GUIDE.troubleshooting;
   return (
     <Card variant="strong" eyebrow={t.eyebrow} title={t.title}>
       <div className="guides-trouble">
-        {t.items.map((item) => (
+        {t.items(serverName).map((item) => (
           <details key={item.symptom} className="guides-details">
             <summary className="gdg-hit guides-details__summary">{item.symptom}</summary>
             <div className="guides-details__body">
@@ -169,14 +148,14 @@ function Troubleshooting() {
   );
 }
 
-export function McpGuide({ mode, mcpUrl, clientId, devEmail, agent }: Readonly<McpGuideProps>) {
+export function McpGuide({ mcpUrl, clientId, serverName, agent }: Readonly<McpGuideProps>) {
   const path = routesFor("production").guides("mcp-server");
   return (
-    <div className="guides" data-testid="guide-mcp" data-mode={mode}>
+    <div className="guides" data-testid="guide-mcp">
       <GuideHeader title={MCP_GUIDE.title} lead={MCP_GUIDE.lead} />
-      <AgentPicker agent={agent} path={path} local={mode === "dev"} />
+      <AgentPicker agent={agent} path={path} />
       {isTested(agent) ? (
-        <ClaudeCodeSteps mode={mode} mcpUrl={mcpUrl} clientId={clientId} devEmail={devEmail} />
+        <ClaudeCodeSteps mcpUrl={mcpUrl} clientId={clientId} serverName={serverName} />
       ) : (
         <div data-testid="mcp-in-progress">
           <EmptyState variant="strong" icon="clock" title={MCP_GUIDE.inProgress.title(agentLabel(agent))}>
@@ -184,8 +163,8 @@ export function McpGuide({ mode, mcpUrl, clientId, devEmail, agent }: Readonly<M
           </EmptyState>
         </div>
       )}
-      <Reference mode={mode} />
-      <Troubleshooting />
+      <Reference serverName={serverName} />
+      <Troubleshooting serverName={serverName} />
     </div>
   );
 }

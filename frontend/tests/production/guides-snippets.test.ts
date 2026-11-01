@@ -13,19 +13,25 @@ import {
   claudeAddCommand,
   DEVELOP_OVERVIEW_PROMPT,
   DEVELOP_START_PROMPT,
-  localAddCommand,
   SIGN_IN_COMMAND,
   teamMcpJson,
 } from "../../lib/guides/snippets";
 
-const PROD = { mcpUrl: "https://mcp.example.com/mcp", clientId: "my-client" };
-const DEV = { mcpUrl: "http://localhost:8002/mcp", clientId: "specflow-mcp", devEmail: "dev@example.com" };
+const PROD = { mcpUrl: "https://mcp.example.com/mcp", clientId: "my-client", serverName: "specflow" };
+const NAMED = { ...PROD, serverName: "acme-specflow" };
 const ID = "0b8b2c1e-6f3a-4c52-9d1e-7a5f4b3c2d10";
 
 test("claude mcp add: client id and address come from the inputs", () => {
   assert.equal(
     claudeAddCommand(PROD),
     "claude mcp add --transport http --scope user --client-id my-client --callback-port 8765 specflow https://mcp.example.com/mcp",
+  );
+});
+
+test("claude mcp add: the server name is the configured one", () => {
+  assert.equal(
+    claudeAddCommand(NAMED),
+    "claude mcp add --transport http --scope user --client-id my-client --callback-port 8765 acme-specflow https://mcp.example.com/mcp",
   );
 });
 
@@ -49,6 +55,7 @@ test("team .mcp.json: pretty, two spaces, values from the inputs", () => {
   assert.deepEqual(JSON.parse(text), {
     mcpServers: { specflow: { type: "http", url: PROD.mcpUrl, oauth: { clientId: "my-client", callbackPort: 8765 } } },
   });
+  assert.deepEqual(Object.keys((JSON.parse(teamMcpJson(NAMED)) as { mcpServers: object }).mcpServers), ["acme-specflow"]);
 });
 
 test("constants: sign-in command, check prompt, sample prompts", () => {
@@ -58,32 +65,18 @@ test("constants: sign-in command, check prompt, sample prompts", () => {
   assert.equal(DEVELOP_START_PROMPT, "Summarise each feature of this project in one line, then propose where to start in this repository.");
 });
 
-test("bind command: production and dev names, with and without a project id", () => {
-  assert.equal(bindCommand("oidc"), "/mcp__specflow__select_project");
-  assert.equal(bindCommand("dev"), "/mcp__specflow-local__select_project");
-  assert.equal(bindCommand("oidc", ID), `/mcp__specflow__select_project ${ID}`);
-  assert.equal(bindCommand("dev", ID), `/mcp__specflow-local__select_project ${ID}`);
-  assert.equal(bindCommand("oidc", ""), "/mcp__specflow__select_project");
+test("bind command: the configured name, with and without a project id", () => {
+  assert.equal(bindCommand("specflow"), "/mcp__specflow__select_project");
+  assert.equal(bindCommand("acme-specflow"), "/mcp__acme-specflow__select_project");
+  assert.equal(bindCommand("specflow", ID), `/mcp__specflow__select_project ${ID}`);
+  assert.equal(bindCommand("acme-specflow", ID), `/mcp__acme-specflow__select_project ${ID}`);
+  assert.equal(bindCommand("specflow", ""), "/mcp__specflow__select_project");
 });
 
 test("connect prompt: with a name, without one, and with a quote in the name", () => {
   assert.equal(connectPrompt("Checkout refactor"), 'Connect this repository to the SpecFlow project "Checkout refactor".');
   assert.equal(connectPrompt(null), "Connect this repository to the SpecFlow project <project name>.");
   assert.equal(connectPrompt('The "big" one'), 'Connect this repository to the SpecFlow project "The "big" one".');
-});
-
-test("dev add-json command: headersHelper with the dev e-mail and the checkout placeholder", () => {
-  const cmd = localAddCommand(DEV);
-  const prefix = "claude mcp add-json --scope local specflow-local '";
-  assert.ok(cmd.startsWith(prefix) && cmd.endsWith("'"));
-  const entry = JSON.parse(cmd.slice(prefix.length, -1)) as Record<string, string>;
-  assert.deepEqual(entry, {
-    type: "http",
-    url: "http://localhost:8002/mcp",
-    headersHelper:
-      "cd <path to your SpecFlow checkout>/backend && uv run --quiet --env-file ../.env.local python examples/mcp_qa.py dev-token dev@example.com --headers",
-  });
-  assert.match(localAddCommand({ ...DEV, devEmail: "o'neil@example.com" }), /o'\\''neil@example\.com/);
 });
 
 // The binding file against the committed contract (E3): Ajv 8, draft 2020-12, with formats asserted.

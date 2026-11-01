@@ -9,6 +9,9 @@ export const MIN_SECRET_BYTES = 32;
 export const DEFAULT_AUTH_MODE = "oidc";
 /** MCP_CLIENT_ID default: the first client id the mcp role accepts. */
 export const DEFAULT_MCP_CLIENT_ID = "specflow-mcp";
+/** MCP_SERVER_NAME default: the name `claude mcp add` registers the server under. */
+export const DEFAULT_MCP_SERVER_NAME = "specflow";
+const MCP_SERVER_NAME_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 const isSet = (v) => typeof v === "string" && v.trim() !== "";
 const isHttpUrl = (v) => {
@@ -60,6 +63,15 @@ export function mcpClientIdOf(env) {
   return isSet(env.MCP_CLIENT_ID) ? env.MCP_CLIENT_ID.trim() : DEFAULT_MCP_CLIENT_ID;
 }
 
+/**
+ * The MCP server name shown in the Guides: MCP_SERVER_NAME, or "specflow" when it is unset or empty.
+ * @param {Record<string, string | undefined>} env
+ * @returns {string}
+ */
+export function mcpServerNameOf(env) {
+  return isSet(env.MCP_SERVER_NAME) ? env.MCP_SERVER_NAME.trim() : DEFAULT_MCP_SERVER_NAME;
+}
+
 /** @returns {string[]} sorted, unique names of invalid variables */
 export function validateEnv(env) {
   const bad = new Set();
@@ -79,6 +91,11 @@ export function validateEnv(env) {
     need("MCP_PUBLIC_URL", (v) => isHttpUrl(v.trim()) && (env.APP_ENV === "local" || v.trim().startsWith("https://")));
   }
   if (typeof env.MCP_CLIENT_ID === "string" && env.MCP_CLIENT_ID !== "" && !isSet(env.MCP_CLIENT_ID)) bad.add("MCP_CLIENT_ID");
+
+  // Empty means unset (default); anything else must be a plain name (it becomes a tool prefix `mcp__<name>__`).
+  if (typeof env.MCP_SERVER_NAME === "string" && env.MCP_SERVER_NAME !== "" && !MCP_SERVER_NAME_PATTERN.test(env.MCP_SERVER_NAME.trim())) {
+    bad.add("MCP_SERVER_NAME");
+  }
 
   const devAllowed = devModeAllowed(env);
   if (authMode === "dev") {

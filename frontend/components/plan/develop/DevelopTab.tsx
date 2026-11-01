@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { CodeBlock } from "@/components/ui/CodeBlock";
 import { DEVELOP } from "@/lib/guides/content";
-import { bindCommand, bindingFileJson, DEVELOP_OVERVIEW_PROMPT, DEVELOP_START_PROMPT, type GuideMode } from "@/lib/guides/snippets";
+import { bindCommand, bindingFileJson, DEVELOP_OVERVIEW_PROMPT, DEVELOP_START_PROMPT } from "@/lib/guides/snippets";
 import { routesFor } from "@/lib/routes";
 import "@/components/guides/guides.css";
 import "./develop.css";
@@ -14,21 +14,21 @@ import "./develop.css";
 export interface DevelopInfo {
   projectName: string | null;
   mcpUrl: string;
-  mode: GuideMode;
+  serverName: string;
 }
 
 export function DevelopTab({ projectId, info }: Readonly<{ projectId: string; info: DevelopInfo }>) {
-  const { projectName, mcpUrl, mode } = info;
+  const { projectName, mcpUrl, serverName } = info;
   const guide = routesFor("production").guides("mcp-server");
   return (
-    <div className="dev" data-testid="plan-develop" data-project={projectId} data-mode={mode}>
+    <div className="dev" data-testid="plan-develop" data-project={projectId}>
       {projectName === null ? (
         <p role="status">{DEVELOP.nameMissing}</p>
       ) : (
         <Card variant="strong" eyebrow={DEVELOP.bind.eyebrow} title={DEVELOP.bind.title(projectName)}>
           <div className="guides-step">
             <p>{DEVELOP.bind.text}</p>
-            <CodeBlock caption={DEVELOP.bind.caption} text={bindCommand(mode, projectId)} />
+            <CodeBlock caption={DEVELOP.bind.caption} text={bindCommand(serverName, projectId)} />
             <details className="guides-details">
               <summary className="gdg-hit guides-details__summary">{DEVELOP.bind.file.summary}</summary>
               <div className="guides-details__body">

@@ -180,7 +180,7 @@ export const BEST_PRACTICES = {
 export const MCP_GUIDE = {
   title: "Connect your coding agent",
   lead: "Your coding agent reads your SpecFlow projects through this server. It signs in with your company account and sees only the projects you are a member of. It can read, not change.",
-  picker: { label: "Agent", tested: "Tested", inProgress: "In progress", local: "Local development" },
+  picker: { label: "Agent", tested: "Tested", inProgress: "In progress" },
   inProgress: {
     title: (agent: string) => `${agent} setup is in progress`,
     text: "We publish an agent's setup after we have tested it end to end with SpecFlow. Until then, use Claude Code.",
@@ -197,24 +197,13 @@ export const MCP_GUIDE = {
         caption: "Save as .mcp.json",
       },
     },
-    addLocal: {
-      eyebrow: "Step 1",
-      title: "Add SpecFlow to Claude Code (local)",
-      text: "Run this from the root of your SpecFlow checkout. It registers the local server with a development token that renews itself.",
-      caption: "Terminal",
-      note: "Claude Code runs the token helper only after you have accepted its workspace trust dialog once for this folder. Keep this entry out of the tracked .mcp.json.",
-    },
     signIn: {
       eyebrow: "Step 2",
       title: "Sign in",
-      text: "In Claude Code, type /mcp, choose specflow, then Authenticate. Your browser opens your company sign-in. After that, Claude Code keeps you signed in.",
+      text: (serverName: string) => `In Claude Code, type /mcp, choose ${serverName}, then Authenticate. Your browser opens your company sign-in. After that, Claude Code keeps you signed in.`,
       caption: "In Claude Code",
-      note: "Working over SSH? Run claude mcp login specflow --no-browser, open the address it prints, and paste back the address your browser ends on. Keep port 8765 free while you sign in.",
-    },
-    signInLocal: {
-      eyebrow: "Step 2",
-      title: "Sign in",
-      text: "No sign-in in local development: the token comes from your local dev login.",
+      note: (serverName: string) =>
+        `Working over SSH? Run claude mcp login ${serverName} --no-browser, open the address it prints, and paste back the address your browser ends on. Keep port 8765 free while you sign in.`,
     },
     bind: {
       eyebrow: "Step 3",
@@ -242,7 +231,7 @@ export const MCP_GUIDE = {
   troubleshooting: {
     eyebrow: "Help",
     title: "Troubleshooting",
-    items: [
+    items: (serverName: string) => [
       {
         symptom: "Sign-in works, but every request fails",
         fix: "Your administrator needs to check the SpecFlow sign-in settings for coding agents. Send them the time it happened.",
@@ -265,7 +254,7 @@ export const MCP_GUIDE = {
       },
       {
         symptom: "SpecFlow tools disappeared",
-        fix: "Your sign-in ended. Type /mcp, choose specflow, then Authenticate again.",
+        fix: `Your sign-in ended. Type /mcp, choose ${serverName}, then Authenticate again.`,
       },
     ],
   },

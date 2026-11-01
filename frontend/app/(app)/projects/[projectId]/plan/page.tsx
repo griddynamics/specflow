@@ -11,10 +11,10 @@ export default async function Page({ params }: Readonly<{ params: Promise<{ proj
   const { projectId } = await params;
   const project = await readProjectName(projectId);
   if (project === "not_found") notFound();
-  const { mcpUrl, mode } = guideConfig();
+  const { mcpUrl, serverName } = guideConfig();
   return (
     <Suspense>
-      <PlanScreen projectId={projectId} develop={{ projectName: project?.name ?? null, mcpUrl, mode }} />
+      <PlanScreen projectId={projectId} develop={{ projectName: project?.name ?? null, mcpUrl, serverName }} />
     </Suspense>
   );
 }

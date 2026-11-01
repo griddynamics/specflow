@@ -1,6 +1,6 @@
 // Server-only: the one module that reads the server's environment (the proxy, Auth.js, the BFF and the server layouts read it
 // through here). It never reaches the browser bundle.
-import { authModeOf, devModeAllowed, mcpClientIdOf, mcpPublicUrlOf, normalizeInternalUrl, validateEnv } from "./env-rules.mjs";
+import { authModeOf, devModeAllowed, mcpClientIdOf, mcpPublicUrlOf, mcpServerNameOf, normalizeInternalUrl, validateEnv } from "./env-rules.mjs";
 
 /** The server process environment, read at call time (never inlined at build: these are runtime variables). */
 export function serverEnv(): NodeJS.ProcessEnv {
@@ -17,8 +17,8 @@ export interface AppConfig {
   devSigningKey: string;
   localTestUserEmail: string;
   oidc: { issuer: string; internalUrl: string; clientId: string; clientSecret: string };
-  /** What the Guides page shows: the MCP address and the OAuth client id. Server-only: pages pass them on as props. */
-  mcp: { publicUrl: string; clientId: string };
+  /** What the Guides page shows: the MCP address, the OAuth client id and the server name. Server-only: pages pass them on as props. */
+  mcp: { publicUrl: string; clientId: string; serverName: string };
 }
 
 /** AC-6.7: __Host- prefix needs Secure, so it is only used on https. */
@@ -61,7 +61,7 @@ export function appConfig(): AppConfig {
       clientId: env.OIDC_CLIENT_ID ?? "",
       clientSecret: env.OIDC_CLIENT_SECRET ?? "",
     },
-    mcp: { publicUrl: mcpPublicUrlOf(env), clientId: mcpClientIdOf(env) },
+    mcp: { publicUrl: mcpPublicUrlOf(env), clientId: mcpClientIdOf(env), serverName: mcpServerNameOf(env) },
   };
   return cached;
 }
