@@ -6,19 +6,23 @@ ran, in which transaction, with how many rows, and what the combined result is.
 
 from __future__ import annotations
 
+import array
 from collections.abc import Mapping, Sequence
 from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pytest
+from neo4j.exceptions import ClientError, TransientError
 
 from graph.build import queries as build_queries
 from graph.core.dialect import ExecutionPlan, PlannedStatement
+from graph.core.errors import ConformanceError, GraphWriteError
 from graph.stores.arcadedb import chunking
 from graph.stores.arcadedb.chunking import MAX_MESSAGE_BYTES, chunked, combine, estimate_bytes, split_rows
 from graph.stores.arcadedb.dialect import ARCADEDB_DIALECT, SIMILAR_SUBJECTS_PER_STATEMENT
 from graph.stores.arcadedb.executor import ArcadeDbExecutor
-from test_graph_core import FakeDriver, Sleeps
+from test_graph_core import FakeDriver, Sleeps, neo4j_error
 
 VECTOR = [0.5] * 3072  # 27,648 bytes estimated
 VECTOR_ROW_BYTES = 2 * estimate_bytes(VECTOR)
@@ -217,6 +221,8 @@ class RowsDriver(FakeDriver):
         self.transactions: list[int] = []
         self.opened = 0
         self.managed = 0
+        self.calls = 0
+        self.fail_at: dict[int, Exception] = {}  # the n-th statement run (1-based, all transactions) raises
 
     def session(self, **options: Any) -> Any:
         session = super().session(**options)
@@ -231,6 +237,9 @@ class RowsDriver(FakeDriver):
             async def run(self, text: str, params: Mapping[str, Any] | None = None) -> Any:
                 driver.runs.append((text, dict(params or {})))
                 driver.transactions.append(self.number)
+                driver.calls += 1
+                if driver.calls in driver.fail_at:
+                    raise driver.fail_at[driver.calls]
                 given = params or {}
                 rows = (
                     [{"uuid": uuid, "candidates": []} for uuid in given["uuids"]]
@@ -249,6 +258,7 @@ class RowsDriver(FakeDriver):
 
             async def rollback(self) -> None:
                 self._closed = True
+                driver.rollbacks += 1
 
             def closed(self) -> bool:
                 return self._closed
@@ -290,12 +300,130 @@ async def test_an_explicit_transaction_runs_every_chunk_in_it_and_commits_once()
     assert len(driver.runs) > 2
 
 
-async def test_a_chunk_failure_propagates_from_the_transaction() -> None:
+def first_uuids(driver: RowsDriver) -> list[str]:
+    """The first row uuid of each statement the driver ran, in order: which chunk each run was."""
+
+    return [params["rows"][0]["uuid"] for _, params in driver.runs]
+
+
+async def test_a_transient_failure_after_the_first_chunk_reruns_every_chunk_from_the_start() -> None:
     driver = RowsDriver()
+    driver.fail_at = {2: neo4j_error(TransientError, "Neo.TransientError.Transaction.DeadlockDetected")}
+    sleeps = Sleeps()
+    executor = ArcadeDbExecutor(driver, "db", sleep=sleeps)
+    written = await executor.write(build_queries.CREATE_SPEC_NODES, "p", rows=batch(), build_id="b")
+    chunks = split_rows(batch())
+    starts = [chunk[0]["uuid"] for chunk in chunks]
+    assert len(chunks) > 2 and written == [{"written": 500}]
+    # attempt 1: chunk 1 ran, chunk 2 raised; attempt 2: all chunks again, in order, in a new managed transaction
+    assert first_uuids(driver) == [starts[0], starts[1], *starts]
+    assert driver.managed == 2 and driver.transactions[:2] == [1, 1] and set(driver.transactions[2:]) == {2}
+    assert len(sleeps.delays) == 1
+
+
+async def test_a_chunk_that_fails_in_an_explicit_transaction_rolls_it_back_without_a_commit() -> None:
+    driver = RowsDriver()
+    driver.fail_at = {2: neo4j_error(ClientError, "Neo.ClientError.Statement.SyntaxError")}
     executor = ArcadeDbExecutor(driver, "db", sleep=Sleeps())
-    async with executor.tx("p") as tx:
-        await tx.run(build_queries.CREATE_SPEC_NODES, rows=batch(), build_id="b")
-    assert driver.rollbacks == 0  # the happy path never rolls back; the failing path is the shared executor's
+    with pytest.raises(GraphWriteError) as raised:
+        async with executor.tx("p") as tx:
+            await tx.run(build_queries.CREATE_SPEC_NODES, rows=batch(), build_id="b")
+    assert raised.value.code == "store_write_failed"
+    starts = [chunk[0]["uuid"] for chunk in split_rows(batch())]
+    assert first_uuids(driver) == starts[:2]  # chunk 3 never ran
+    assert driver.rollbacks == 1 and driver.commits == 0 and set(driver.transactions) == {1}
+
+
+async def test_an_earlier_statement_of_the_transaction_is_rolled_back_with_the_failed_chunk() -> None:
+    driver = RowsDriver()
+    driver.fail_at = {3: neo4j_error(ClientError, "Neo.ClientError.Statement.SyntaxError")}
+    executor = ArcadeDbExecutor(driver, "db", sleep=Sleeps())
+    with pytest.raises(GraphWriteError):
+        async with executor.tx("p") as tx:
+            await tx.run(build_queries.UPDATE_SPEC_NODES, rows=[plain_row(1)])  # statement 1, a single message
+            await tx.run(build_queries.CREATE_SPEC_NODES, rows=batch(), build_id="b")  # statements 2 and 3 (fails)
+    assert driver.rollbacks == 1 and driver.commits == 0 and len(driver.runs) == 3
+
+
+# the multi-step merge plan: every step is chunked, the guard still refuses
+
+
+BIG = "x" * 1_500_000  # two rows per chunk
+
+
+def merge_rows() -> list[dict[str, Any]]:
+    return [{"survivor": f"s-{i}", "merged": [f"m-{i}"], "aliases": [BIG]} for i in range(6)]
+
+
+def merge_plan() -> ExecutionPlan:
+    params = {"project_id": "p", "build_id": "b", "owned_types": ["PART_OF", "REFERENCED_BY"], "rows": merge_rows()}
+    return ARCADEDB_DIALECT.plan(build_queries.MERGE_SPEC_NODES, params, ["FLAGS", "PART_OF", "REFERENCED_BY"])
+
+
+def merge_answers(plan: ExecutionPlan, left: Mapping[int, int]) -> list[list[dict[str, Any]]]:
+    """Fake results by step: the aliases step counts its rows, the guard answers ``left`` for its n-th chunk."""
+
+    answers: list[list[dict[str, Any]]] = []
+    guard_chunks = 0
+    for statement in plan.statements:
+        if "spec_id_aliases" in statement.text:
+            answers.append([{"written": len(statement.params["rows"])}])
+        elif "AS left" in statement.text:
+            guard_chunks += 1
+            answers.append([{"left": left.get(guard_chunks, 0)}])
+        else:
+            answers.append([])  # a move or the delete returns nothing
+    return answers
+
+
+def test_the_merge_plan_chunks_every_step_in_step_order() -> None:
+    plan = merge_plan()
+    kinds = [
+        "aliases"
+        if "spec_id_aliases" in s.text
+        else "guard"
+        if "AS left" in s.text
+        else "delete"
+        if "DETACH DELETE" in s.text
+        else "move"
+        for s in plan.statements
+    ]
+    assert kinds == ["aliases"] * 3 + ["move"] * 3 + ["guard"] * 3 + ["delete"] * 3
+    for step in ("aliases", "move", "guard", "delete"):
+        rows = [
+            r["survivor"]
+            for s, kind in zip(plan.statements, kinds, strict=True)
+            if kind == step
+            for r in s.params["rows"]
+        ]
+        assert rows == [f"s-{i}" for i in range(6)]  # each step sees all rows once, in order
+
+
+def test_the_merge_reducer_returns_the_summed_written_of_the_aliases_step() -> None:
+    plan = merge_plan()
+    assert plan.reduce(merge_answers(plan, {})) == [{"written": 6}]
+
+
+def test_a_guard_hit_in_the_second_chunk_refuses_the_merge() -> None:
+    plan = merge_plan()
+    with pytest.raises(ConformanceError) as raised:
+        plan.reduce(merge_answers(plan, {2: 1}))
+    assert raised.value.code == "arcadedb_unrenderable_edge_type"
+
+
+# the size estimate of other sequences
+
+
+def test_the_estimate_handles_tuples_arrays_and_numpy_by_length() -> None:
+    expected = estimate_bytes(VECTOR)
+    assert estimate_bytes(tuple(VECTOR)) == expected
+    assert estimate_bytes(array.array("f", VECTOR)) == expected
+    assert estimate_bytes(np.array(VECTOR, dtype=np.float32)) == expected
+    assert estimate_bytes(range(3072)) == expected
+    assert estimate_bytes(b"abc") == 5 + 3
+    assert estimate_bytes({"props": {"embedding": np.zeros(3072, dtype=np.float32)}}) == estimate_bytes(
+        {"props": {"embedding": VECTOR}}
+    )
 
 
 # the plan of infer_similar_targets (D2)
