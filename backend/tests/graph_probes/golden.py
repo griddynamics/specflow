@@ -20,7 +20,7 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, NamedTuple
 
 GOLDEN_DIR: Final = Path(__file__).resolve().parents[1] / "fixtures" / "graph" / "golden_live"
 SNAPSHOT_DIR: Final = GOLDEN_DIR / "snapshots"
@@ -126,18 +126,33 @@ def snapshot_differences(expected: Mapping[str, Any], actual: Mapping[str, Any],
     return lines
 
 
+class ExplainedDifference(NamedTuple):
+    """A known top-five set difference: why it happens and the exact ids that differ (the symmetric difference
+    of the golden top and the run's top). A different set of ids is not explained and fails parity."""
+
+    reason: str
+    ids: frozenset[str]
+
+
 # Top-five set differences of a store that are known and explained, by backend, then (mode, query): the
 # reference scores come from Lucene's database-wide statistics (which also count documents deleted since
 # and are not merged away), so two results within a few percent of each other at the cut can swap places.
-EXPLAINED_SET_DIFFERENCES: Final[dict[str, dict[tuple[str, str], str]]] = {
+EXPLAINED_SET_DIFFERENCES: Final[dict[str, dict[tuple[str, str], ExplainedDifference]]] = {
     "postgres": {
-        ("fragments", "checkout payment"): (
+        ("fragments", "checkout payment"): ExplainedDifference(
             "Lucene scores 1.7969 (rank 5) and 1.7885 (rank 6), a 0.5% gap; BM25 per project, whose statistics "
-            "hold only the project's fragments, ranks them the other way round"
+            "hold only the project's fragments, ranks them the other way round",
+            frozenset(
+                {
+                    "overview.md#acme-shop-system-overview/architecture#5a31275c",
+                    "overview.md#acme-shop-system-overview/modules/stripe-external#4fa35796",
+                }
+            ),
         ),
-        ("fulltext", "staff download CSV file"): (
+        ("fulltext", "staff download CSV file"): ExplainedDifference(
             "ranks 5 and 6 are 2.2% apart in BM25 per project (2.7465 and 2.6865 on the same corpus) and swap "
-            "against the reference's database-wide statistics"
+            "against the reference's database-wide statistics",
+            frozenset({"FEAT::ORDER_HISTORY_EXPORT", "REQ::FR::STAFF_REACH_DOWNLOAD_SCREEN_FINANCE"}),
         ),
     },
 }
@@ -175,14 +190,15 @@ def compare_rankings(
     actual: Mapping[str, Any],
     *,
     top: int = TOP,
-    explained: Mapping[tuple[str, str], str] | None = None,
+    explained: Mapping[tuple[str, str], ExplainedDifference] | None = None,
     tolerance: int = 0,
 ) -> RankingParity:
     """Per query and mode: the first ``top`` ids must be the same set (else a set mismatch); a different
     order, or a different tail, is a rank difference. Queries and modes must be the same. The comparison
     is symmetric: ids missing from the run and ids the golden top does not hold both count, the larger of
     the two is checked against ``tolerance`` (default 0: a subset or a superset fails). A set difference
-    listed in ``explained`` (by mode and query, with its reason) is reported, not a mismatch."""
+    listed in ``explained`` (by mode and query, with its reason and the exact differing ids) is reported, not
+    a mismatch; the same query differing in other ids fails."""
 
     parity = RankingParity()
     if sorted(expected["queries"]) != sorted(actual["queries"]):
@@ -196,11 +212,11 @@ def compare_rankings(
             wanted, held = set(want[:top]), set(have[:top])
             if max(len(wanted - held), len(held - wanted)) > tolerance:
                 line = f"{mode} {text!r}: top {top} {sorted(wanted ^ held)} not in both"
-                reason = (explained or {}).get((mode, text))
-                if reason is None:
+                known = (explained or {}).get((mode, text))
+                if known is None or frozenset(wanted ^ held) != known.ids:
                     parity.set_mismatches.append(line)
                 else:
-                    parity.explained.append(f"{line}: {reason}")
+                    parity.explained.append(f"{line}: {known.reason}")
             elif want != have:
                 parity.rank_differences.append(f"{mode} {text!r}: {want} -> {have}")
     return parity

@@ -11,12 +11,16 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any
 
+import graph_probes
 import pytest
 import pytest_asyncio
-
-import graph_probes
-from graph.stores.config import BACKENDS
-from graph_probes import PROBES, open_probe, selected_backend, skip_reason, store_config_from_env
+from graph_probes import (
+    PROBES,
+    open_probe,
+    selected_backend,
+    skip_reason,
+    store_config_from_env,
+)
 from graph_probes.base import (
     EdgeSpec,
     GraphProbe,
@@ -33,6 +37,7 @@ from graph_probes.golden import (
     EXPLAINED_SET_DIFFERENCES,
     GOLDEN_DIR,
     RANKINGS_FILE,
+    ExplainedDifference,
     compare_rankings,
     dump_json,
     load_rankings,
@@ -45,6 +50,8 @@ from graph_probes.golden import (
 from graph_probes.memory import MemoryProbe
 from graph_probes.scenarios import SCENARIOS
 from graph_support import PROJECT_PREFIX, new_project_id, shipped_ontology
+
+from graph.stores.config import BACKENDS
 
 SWITCH_ENV = ("SPECFLOW_TEST_GRAPH_STORE", "SPECFLOW_TEST_NEO4J")
 CONNECTION_ENV = (
@@ -569,7 +576,7 @@ def test_the_set_comparison_is_symmetric_a_subset_or_a_superset_fails_at_zero_to
     assert compare_rankings(subset, want, tolerance=1).ok and not compare_rankings(subset, want, tolerance=0).ok
     swap = rankings(fulltext=ranking("a", "b", "x"))
     assert compare_rankings(want, swap, tolerance=1).ok and not compare_rankings(want, swap).ok
-    explained = {("fulltext", "q"): "a near tie"}
+    explained = {("fulltext", "q"): ExplainedDifference("a near tie", frozenset({"d", "e"}))}
     assert compare_rankings(want, superset, explained=explained).ok
     assert len(compare_rankings(want, superset, explained=explained).explained) == 1
 
@@ -577,11 +584,14 @@ def test_the_set_comparison_is_symmetric_a_subset_or_a_superset_fails_at_zero_to
 def test_an_explained_set_difference_is_reported_and_any_other_still_fails() -> None:
     want = rankings(fulltext=ranking("a", "b", "c", "d", "e", "f"))
     different = rankings(fulltext=ranking("a", "b", "c", "d", "x", "f"))
-    parity = compare_rankings(want, different, explained={("fulltext", "q"): "a near tie at the cut"})
+    tie = {("fulltext", "q"): ExplainedDifference("a near tie at the cut", frozenset({"e", "x"}))}
+    parity = compare_rankings(want, different, explained=tie)
     assert parity.ok and parity.set_mismatches == [] and len(parity.explained) == 1
     assert "a near tie at the cut" in parity.report() and parity.report().count("EXPL") == 1
-    assert not compare_rankings(want, different, explained={("fulltext", "other"): "x"}).ok
-    assert not compare_rankings(want, different, explained={("fragments", "q"): "x"}).ok
+    assert not compare_rankings(want, different, explained={("fulltext", "other"): tie[("fulltext", "q")]}).ok
+    assert not compare_rankings(want, different, explained={("fragments", "q"): tie[("fulltext", "q")]}).ok
+    other_ids = {("fulltext", "q"): ExplainedDifference("a near tie", frozenset({"e", "y"}))}
+    assert not compare_rankings(want, different, explained=other_ids).ok  # another difference is not explained
 
 
 def test_every_explained_difference_names_a_golden_query() -> None:
