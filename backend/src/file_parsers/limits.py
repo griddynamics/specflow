@@ -2,8 +2,8 @@
 
 ``DocumentTooLargeError`` becomes ``document_too_large`` and ``DocumentParseFailedError`` becomes
 ``document_parse_failed`` (DESIGN N3); both are final: a retry would fail the same way. A PDF that
-cannot be read at all keeps ``PdfParseError`` (``pdf_parse_failed``). The Office and web limits
-(inflated bytes, cells, output size) are added next to the PDF cap by the Office/web session.
+cannot be read at all keeps ``PdfParseError`` (``pdf_parse_failed``). The Office and web limits (DESIGN N2) sit
+next to the PDF cap; ``file_parsers.office.guard`` enforces them while it reads a file, never from declared sizes.
 """
 
 from __future__ import annotations
@@ -14,6 +14,34 @@ from file_parsers.pdf.pdfium_typed import page_count
 
 MAX_PDF_PAGES = 500
 """Longest PDF the parser accepts (DESIGN D3): 500 pages x 2.86 s is about 24 minutes."""
+
+MAX_SLIDES = 500
+"""Most slides a PPTX may have (DESIGN D3), counted from the archive's entry names."""
+
+MAX_OOXML_INFLATED_BYTES = 200 * 1024 * 1024
+"""Most bytes all entries of a DOCX/PPTX/XLSX may inflate to (DESIGN N2), counted while inflating."""
+
+MAX_OOXML_RATIO = 100
+"""Largest inflated:compressed ratio of one entry (DESIGN N2), measured on the bytes actually read."""
+
+RATIO_FLOOR_BYTES = 1024 * 1024
+"""The ratio applies once an entry has inflated past this size: a tiny repetitive part cannot hurt."""
+
+MAX_OOXML_ENTRIES = 10_000
+"""Most entries an OOXML archive may list (a real document has dozens; this bounds the central directory)."""
+
+MAX_OOXML_FILE_BYTES = 50 * 1024 * 1024
+"""Largest DOCX/PPTX/XLSX on disk (DESIGN N2; the upload cap). The guard holds it too: the Drive import streams
+files without the upload check."""
+
+MAX_TEXT_FILE_BYTES = 10 * 1024 * 1024
+"""Largest HTML, Markdown or CSV on disk (DESIGN N2), held by the guard for the same reason."""
+
+MAX_CELLS = 200_000
+"""Most cells of an XLSX (all sheets) or a CSV (DESIGN N2), counted while reading, never from the dimension tag."""
+
+MAX_MARKDOWN_BYTES = 5 * 1024 * 1024
+"""Longest Markdown a conversion may produce, in UTF-8 bytes (DESIGN N2; the same cap as drive-convert)."""
 
 
 class DocumentTooLargeError(Exception):
@@ -47,3 +75,25 @@ def check_pdf_file(path: Path) -> int:
     pages = page_count(path)
     check_pdf_pages(pages)
     return pages
+
+
+def check_slides(slides: int) -> None:
+    """Raise ``DocumentTooLargeError`` when ``slides`` is over ``MAX_SLIDES``."""
+
+    if slides > MAX_SLIDES:
+        raise DocumentTooLargeError("slides", slides, MAX_SLIDES)
+
+
+def check_cells(cells: int) -> None:
+    """Raise ``DocumentTooLargeError`` when ``cells`` is over ``MAX_CELLS``."""
+
+    if cells > MAX_CELLS:
+        raise DocumentTooLargeError("cells", cells, MAX_CELLS)
+
+
+def check_markdown_size(markdown: str) -> None:
+    """Raise ``DocumentTooLargeError`` when the UTF-8 size of ``markdown`` is over ``MAX_MARKDOWN_BYTES``."""
+
+    size = len(markdown.encode("utf-8"))
+    if size > MAX_MARKDOWN_BYTES:
+        raise DocumentTooLargeError("markdown bytes", size, MAX_MARKDOWN_BYTES)

@@ -181,7 +181,7 @@ async def test_an_unknown_media_type_is_a_parse_failure_not_an_internal_error(da
 async def test_an_office_type_is_document_parse_failed_while_the_engine_does_not_support_it(
     data, repository, executor, monkeypatch
 ):
-    """Until the Office path exists the facade raises UnsupportedFormatError; the code stays fixed."""
+    """An engine that refuses a type raises UnsupportedFormatError; the code stays fixed."""
 
     monkeypatch.setattr(conversion, "file_to_markdown", Recorder(raises=UnsupportedFormatError(DOCX)))
     repository.media_type = DOCX

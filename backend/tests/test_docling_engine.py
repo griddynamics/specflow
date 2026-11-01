@@ -22,6 +22,7 @@ from file_parsers.engines.docling import (
     pipeline_options,
 )
 from file_parsers.engines.port import DocumentEngine, UnsupportedFormatError
+from file_parsers.formats import canonical_media_types
 from file_parsers.pdf.pdfium_typed import png_size
 from logger_harness import events, fields
 from pdf_builder_support import Line, write_pdf
@@ -106,10 +107,11 @@ def test_the_engine_id_names_the_docling_version_and_the_post_processing_version
     assert DoclingEngine(threads=1).engine_id == engine_id()
 
 
-def test_the_engine_satisfies_the_port_and_accepts_pdf_only_for_now():
+def test_the_engine_satisfies_the_port_and_accepts_all_seven_formats():
     engine = DoclingEngine(threads=1)
     assert isinstance(engine, DocumentEngine)
-    assert engine.formats == frozenset({PDF})
+    assert engine.formats == frozenset(canonical_media_types())
+    assert PDF in engine.formats and len(engine.formats) == 7
 
 
 def test_the_default_engine_is_one_docling_engine_per_process():

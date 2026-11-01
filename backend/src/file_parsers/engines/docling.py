@@ -1,4 +1,4 @@
-"""``DoclingEngine``: PDF to per-page Markdown with Docling, behind the ``DocumentEngine`` port.
+"""``DoclingEngine``: PDF to per-page Markdown, Office and web files to sections, with Docling, behind the port.
 
 The configuration is the one measured in the design (docs/docling-pdf-parser.md,
 'Docling configuration'): docling-parse backend, TableFormer v1 in FAST mode with cell matching, no
@@ -43,8 +43,10 @@ from docling_core.types.doc.document import DoclingDocument
 from docling_core.types.doc.items.picture.picture import PictureItem
 from docling_core.types.doc.items.table.table import TableItem
 
+from file_parsers.engines.docling_office import to_office_content
 from file_parsers.engines.port import PageRange, ProgressCallback, UnsupportedFormatError
-from file_parsers.formats import PDF_MEDIA_TYPE
+from file_parsers.formats import PDF_MEDIA_TYPE, DocumentFormat, canonical_media_types, format_for_media_type
+from file_parsers.office.model import OfficeContent
 from file_parsers.pdf.pdfium_typed import open_document
 from file_parsers.pdf.schema import PDFDocument, PDFFigure, PDFPageContent, PDFTableBox
 from logger.logger import INFO, WARNING, get_logger, log_event
@@ -140,7 +142,7 @@ class DoclingEngine:
     worker-parse image and the CI prefetch set it); else the Hugging Face cache.
     """
 
-    formats = frozenset({PDF_MEDIA_TYPE})
+    formats = frozenset(canonical_media_types())
 
     def __init__(self, *, threads: int | None = None, artifacts_path: Path | None = None) -> None:
         self._threads = threads if threads is not None else default_threads()
@@ -170,7 +172,7 @@ class DoclingEngine:
         assets_dir: Path | None = None,
         on_progress: ProgressCallback | None = None,
     ) -> PDFDocument:
-        if media_type not in self.formats:
+        if media_type != PDF_MEDIA_TYPE:
             raise UnsupportedFormatError(media_type)
         if images and assets_dir is None:
             raise ValueError("images=True needs assets_dir")
@@ -182,11 +184,7 @@ class DoclingEngine:
         if blank:
             log_event(logger, WARNING, "pdf.pages.no_text_layer", pages=blank, count=len(blank))
         with self._lock:
-            converter = self._converters.get(images)
-            if converter is None:
-                converter = self.build_converter(images=images)
-                self._converters[images] = converter
-            result = converter.convert(path, page_range=(first, last), raises_on_error=True)
+            result = self._converter(images=images).convert(path, page_range=(first, last), raises_on_error=True)
         if result.status is not ConversionStatus.SUCCESS:
             raise RuntimeError(f"Docling did not convert every page: {result.status.value}")
         document = _to_pdf_document(result.document, path, first, last, assets_dir if images else None)
@@ -195,6 +193,36 @@ class DoclingEngine:
         if on_progress is not None:
             on_progress(total, total)
         return document
+
+    def extract_office(
+        self,
+        path: Path,
+        media_type: str,
+        *,
+        on_progress: ProgressCallback | None = None,
+    ) -> OfficeContent:
+        spec = format_for_media_type(media_type)
+        if spec is None or spec.format is DocumentFormat.PDF:
+            raise UnsupportedFormatError(media_type)
+        path = Path(path)  # always a path: a str source would let Docling treat it as a URL
+        with self._lock:
+            result = self._converter(images=False).convert(path, raises_on_error=True)
+        if result.status is not ConversionStatus.SUCCESS:
+            raise RuntimeError(f"Docling did not convert the document: {result.status.value}")
+        content = to_office_content(result.document, spec.format)
+        log_event(logger, INFO, "office.document.done", format=spec.format.value, sections=len(content.sections))
+        if on_progress is not None:
+            on_progress(len(content.sections), len(content.sections))
+        return content
+
+    def _converter(self, *, images: bool) -> DocumentConverter:
+        # Caller holds the lock. The PDF models load on the first PDF conversion only, so an Office file
+        # through the same converter costs no model load.
+        converter = self._converters.get(images)
+        if converter is None:
+            converter = self.build_converter(images=images)
+            self._converters[images] = converter
+        return converter
 
 
 def _checked_range(page_range: PageRange | None, pages_in_file: int) -> PageRange:

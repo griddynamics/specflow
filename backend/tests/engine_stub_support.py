@@ -6,6 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from file_parsers.engines.port import PageRange, ProgressCallback
+from file_parsers.office.model import OfficeContent
 from file_parsers.pdf.schema import PDFDocument, PDFPageContent
 
 PDF = "application/pdf"
@@ -40,3 +41,28 @@ class StubEngine:
         del media_type, on_progress
         self.calls.append((page_range, images, assets_dir))
         return PDFDocument(source_path=path, pages=self._pages(page_range))
+
+
+class OfficeStubEngine(StubEngine):
+    """A stub that also serves the Office and web formats: it returns ``content`` or raises ``failure``."""
+
+    def __init__(self, content: OfficeContent | None = None, failure: Exception | None = None) -> None:
+        super().__init__(one_page(""), engine_id="stub-office@1")
+        self.content = content
+        self.failure = failure
+        self.office_calls: list[tuple[Path, str]] = []
+
+    def extract_office(
+        self,
+        path: Path,
+        media_type: str,
+        *,
+        on_progress: ProgressCallback | None = None,
+    ) -> OfficeContent:
+        self.office_calls.append((path, media_type))
+        if self.failure is not None:
+            raise self.failure
+        assert self.content is not None
+        if on_progress is not None:
+            on_progress(len(self.content.sections), len(self.content.sections))
+        return self.content

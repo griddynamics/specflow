@@ -13,9 +13,11 @@ from file_parsers.convert import ParsedMarkdown, PdfParseError, default_engine, 
 from file_parsers.engines.docling import DoclingEngine
 from file_parsers.engines.port import DocumentEngine, PageRange, ProgressCallback, UnsupportedFormatError
 from file_parsers.formats import FORMATS, PDF_MEDIA_TYPE
+from file_parsers.office.model import OfficeContent
 from file_parsers.pdf.parser import PDFParser
 from file_parsers.pdf.schema import PDFDocument, PDFPageContent
 from file_parsers.pdf.to_markdown import pdf_file_to_markdown
+from office_support import DOCX, PPTX, XLSX, build_docx, build_pptx, build_xlsx
 
 FIXTURE = Path(__file__).parent / "data" / "specs" / "extraction.pdf"
 NON_PDF_TYPES = [spec.media_type for spec in FORMATS if spec.media_type != PDF_MEDIA_TYPE]
@@ -43,6 +45,12 @@ class FakeEngine:
         del on_progress
         self.calls.append((path, media_type, page_range, images, assets_dir))
         return PDFDocument(source_path=path, pages=[PDFPageContent(page_number=1, markdown="# Fake", figures=[])])
+
+    def extract_office(
+        self, path: Path, media_type: str, *, on_progress: ProgressCallback | None = None
+    ) -> OfficeContent:
+        del path, on_progress
+        raise UnsupportedFormatError(media_type)  # a PDF-only engine
 
 
 def test_the_engines_satisfy_the_port():
@@ -79,10 +87,21 @@ def test_the_facade_routes_pdf_to_the_given_engine_and_reports_its_id():
 
 
 @pytest.mark.parametrize("media_type", NON_PDF_TYPES)
-def test_every_non_pdf_format_raises_the_typed_error_until_s05(media_type):
+def test_a_non_pdf_format_never_reaches_the_pdf_extract_and_a_pdf_only_engine_refuses_it(media_type, tmp_path):
+    # S05: these types have their own path (tests/test_office_convert.py); a PDF-only engine refuses them.
     engine = FakeEngine()
+    path = tmp_path / "x"
+    builders = {
+        DOCX: lambda: build_docx(path),
+        PPTX: lambda: build_pptx(path, [("T", ["x"])]),
+        XLSX: lambda: build_xlsx(path, [("S", [["a"]])]),
+    }
+    if media_type in builders:  # a real package: the guard accepts it
+        builders[media_type]()
+    else:
+        path.write_bytes(b"x")
     with pytest.raises(UnsupportedFormatError) as error:
-        file_to_markdown(FIXTURE, media_type, engine=engine)
+        file_to_markdown(path, media_type, engine=engine)
     assert error.value.media_type == media_type
     assert engine.calls == []
 
