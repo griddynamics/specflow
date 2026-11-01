@@ -295,10 +295,12 @@ backfills: on a schema change, edit the models and `migrations/versions/0001_ini
 together, then recreate the database from scratch with `make down-volumes` and
 `make up` (details in `migrations/README`). A database stamped with an older revision
 (such as `0005`) fails `alembic upgrade` and is recreated the same way.
-The `postgres` service of the root `docker-compose.yml` runs `postgres:17.11`
-with `backend/postgres-init/` mounted as its init folder. On its first start
+The `postgres` service of the root `docker-compose.yml` runs `pgvector/pgvector:0.8.7-pg17`
+(PostgreSQL 17 with the pgvector extension, for the PostgreSQL graph store) with `backend/postgres-init/`
+mounted as its init folder. On its first start
 (empty volume) the script `10-specflow-roles.sh` creates the app role `specflow` (owner of the database, not a
-superuser), the database `specflow` and the agent role. The `api` container runs
+superuser), the database `specflow` and the agent role, and `20-pgvector.sh` creates the `vector` extension
+in that database (`make postgres-vector` does it on an existing volume). The `api` container runs
 `specflow migrate` every time it starts.
 
 **Set the passwords before the first `make up`.** Run `make env-local` (repository

@@ -60,7 +60,7 @@ BUILT = {
     "frontend": ("./frontend", "Dockerfile"),
 }
 # Database service -> public image.
-PUBLIC = {"postgres": "postgres:17.11", "neo4j": "neo4j:5.26.30-community"}
+PUBLIC = {"postgres": "pgvector/pgvector:0.8.7-pg17", "neo4j": "neo4j:5.26.30-community"}
 # Local-only platform services this file runs itself (a deployment provides them in its own cluster).
 LOCAL_PLATFORM = {
     "temporal",
