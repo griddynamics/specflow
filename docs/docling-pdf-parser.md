@@ -8,13 +8,13 @@
 
 - **Decision:** replace pymupdf4llm (AGPL-3.0) with **Docling 2.145** (MIT code; weights Apache-2.0 and CDLA-Permissive-2.0, verified on Hugging Face) behind a small `PdfEngine` port in the kept `file_parsers` package. Docling fills the existing `PDFDocument` model and the existing renderer writes the Markdown, so the stored format does not change.
 - **Quality: Docling is as good or better, but only with two SpecFlow post-processing steps** (heading levels by font size, glued-word repair; deterministic, pypdfium2, 2 s per 216 pages):
-  - fixture (8 pages): headings 9/9 at the exact level, tables 3/3, word F1 0.986 (pymupdf4llm 0.969);
+  - fixture (8 pages): headings 9/9 at the exact level, tables 3/3, word F1 0.986 (pymupdf4llm 0.975);
   - 216-page spec: headings 357/358 at the exact level (pymupdf4llm 357/358), table-cell recall **0.90 vs 0.79**, word F1 0.981 vs 0.983.
-- **Speed: Docling is 4.7× slower.** The 216-page spec takes **10.3 min** on 2 vCPU (pymupdf4llm 2.2 min). More processes on the same 2 cores do not help. ⟪P4TLDR⟫ So the 5-minute target needs a **fan-out of page ranges across worker-parse replicas** (§4.4), delivered as the step after the engine switch.
+- **Speed: Docling is about 9× slower.** The 216-page spec takes **10.3 min** on 2 vCPU (pymupdf4llm 70 s). More processes on the same 2 cores do not help. Four cores in parallel took **4.9 min** (linear scaling). So the 5-minute target needs a **fan-out of page ranges across worker-parse replicas** (§4.4), delivered as the step after the engine switch.
 - **Memory:** a whole document peaks at 4.7 GB; **10-page ranges cap it at 1.8 GB** → worker-parse at 2 vCPU / 3 GiB.
-- **Unstructured (measured as asked):** rejected — `hi_res` is about 3× slower than Docling FAST (8.95 vs 2.86 s/page), flat heading levels, weak tables, a silent empty result on the fixture, and licence gaps (poppler GPL binary, unlicensed layout weights).
+- **Unstructured (measured as asked):** rejected — `hi_res` is about 3× slower than Docling FAST (8.95 vs 2.86 s/page), flat heading levels, weak tables, a silent empty result on the fixture, and licence gaps (poppler GPL binary, layout weights without licence metadata).
 - **Per-deployment engine choice (GCP Document AI):** not in this scope. The port keeps it additive: one adapter + one cloud-profile key later (§4.5).
-- **Open decisions:** 9, each with a default (§9). The most important: D1 long documents, D2 OCR, D3 page cap.
+- **Open decisions:** 9, each with a default (§9). The most important: D1 long documents, D3 page cap, D2 OCR.
 
 ## 1. Scope
 
@@ -40,7 +40,7 @@ API POST /documents/{id}/parse ─► ParseDocumentWorkflow ─► parse_documen
 Facts that constrain the design:
 
 - PyMuPDF is used in 3 places: `markdown_extractor.py` (the production call), `markdown_extractor._png_size` (`open_pixmap`), and `math_enricher.py` (page render, clip render, `find_tables`; LLM path, CLI only). The typed wrapper is `pymupdf_typed.py`. Other references: `src/pymupdf4llm.pyi`, `validation/python/lint/ruff.toml`, `NOTICE`, and tests that assert `parser == "pymupdf4llm"`.
-- pymupdf4llm 2.0 runs OCR by itself on pages it selects (RapidOCR, seen on fixture page 6). The current worker image has no Tesseract.
+- pymupdf4llm 2.0 can OCR, but only when RapidOCR or Tesseract is installed (`pymupdf4llm/helpers/document_layout.py`). The production lock has neither and the worker image has no Tesseract, so **production does not OCR today**: a scanned page gives no text.
 - The stored figure links point to PNG files in a temporary directory that is deleted after the parse. Production uses only the placeholders, not the images.
 - `parser` values in the database: `pymupdf4llm` (PDF) and `drive-convert` (Drive conversion, `temporal/sources/activities.py:98`).
 - A changed `revision_id` marks a graph document "revised" and rebuilds it (`graph/build/changes.py:96`).
@@ -51,7 +51,7 @@ Facts that constrain the design:
 ### 3.1 Method
 
 - Machine: 4 vCPU, 15 GB. Every run is pinned to **2 cores** (`taskset`), the same as the worker-parse sizing in the ticket, unless the row says otherwise.
-- Versions: Docling 2.145.0 (docling-core 2.105.0, docling-ibm-models 4.0.4, docling-parse 7.24.2), torch 2.15.0+cpu; pymupdf 2.0 / pymupdf4llm 2.0 (the locked production versions); unstructured 0.27.36 + unstructured-inference 1.6.17, Tesseract 5.3.4.
+- Versions: Docling 2.145.0 (docling-core 2.105.0, docling-ibm-models 4.0.4, docling-parse 7.24.2), torch 2.15.0+cpu; pymupdf 2.0 / pymupdf4llm 2.0 (the locked production versions, in a separate venv without any OCR engine, as in production); unstructured 0.27.36 + unstructured-inference 1.6.17, Tesseract 5.3.4.
 - Models were downloaded before the runs. Model load time (Docling ≈ 3–4 s warm) is not in "convert".
 - Every engine output is rendered to the same shape: `<!-- source-page: N -->` per page, a figure placeholder per picture, GFM tables.
 - **Quality input 1:** `backend/tests/data/specs/extraction.pdf` (8 pages) against `extraction.md`. The golden file is not neutral: its pages 1–5 are pymupdf4llm output, and pages 7–8 are LLM LaTeX. So the evaluator removes all `llm-*` blocks (descriptions, Mermaid) and all math spans before it compares words. Scores on pages 1–5 favour pymupdf4llm by construction.
@@ -62,7 +62,7 @@ Facts that constrain the design:
 
 | Engine and configuration | s/page | Word F1 | Order | Headings found | Level exact | Pair order | Tables | Cell recall | Figures (golden 0,1,0,0,1,1,0,0) |
 |---|---|---|---|---|---|---|---|---|---|
-| pymupdf4llm (production call) | 0.94 | 0.969 | 0.967 | 9/9 | 9/9 | 36/36 | 3/3 | 1.00 | 1,1,0,0,1,1,**7**,0 |
+| pymupdf4llm (production call) | 0.45 | 0.975 | 0.973 | 9/9 | 9/9 | 36/36 | 3/3 | 1.00 | 1,1,0,0,1,1,**7**,0 |
 | Docling, tables ACCURATE | 3.15 | 0.985 | 0.966 | 9/9 | 1/9 (flat `##`) | 6/36 | 3/3 | 1.00 | exact |
 | Docling + built-in `HeadingHierarchyOptions` | 3.26 | 0.985 | 0.966 | 9/9 | 0/9 | 13/36 | 3/3 | 1.00 | exact |
 | Docling, TableFormer **V2** | 3.39 | 0.963 | 0.951 | 9/9 | 0/9 | – | 3/3 | **0.09** | exact |
@@ -77,7 +77,7 @@ Notes:
 - pymupdf4llm figure count on page 7: the 7 display equations become images. The golden file has LaTeX there (from the LLM path).
 - Docling defects that the SpecFlow post-processing fixes: flat heading levels, and glued words (`justinzhao`, `judgesmove`, `fromthe`; 25 repairs on the fixture).
 - Docling defects that stay: (a) it joins a paragraph that continues across a page break to the previous page, so that text is cited one page early (seen once: page 3 → 4); (b) `ω = 0.69` becomes `ω = 0▷69` (font glyph map; pymupdf4llm gives `0 _._ 69`, also wrong); (c) running headers and footers are dropped (better for the graph; the golden file keeps them).
-- Docling OCR on (RapidOCR, auto) and picture images on: no quality change on this born-digital fixture.
+- Docling OCR auto and picture images on: no quality change on this born-digital fixture.
 
 ### 3.3 Quality: spec PDF (216 pages, ground truth = source Markdown)
 
@@ -103,11 +103,11 @@ Notes: more tables than in the source = a table cut by a page break counts once 
 
 | Run | Cores | Wall time | s/page | Peak RSS | Meets 5 min? |
 |---|---|---|---|---|---|
-| pymupdf4llm (production call) | 2 | **131 s** (2.2 min) | 0.61 | 0.5 GB | yes |
+| pymupdf4llm (production call, no OCR engine) | 2 | **70 s** (1.2 min) | 0.32 | 0.45 GB | yes |
 | Docling ACCURATE, whole document, 1 process | 2 | **907 s** (15.1 min) | 4.20 | **4.7 GB** | no |
 | Docling FAST, 10-page ranges, 1 process, `MALLOC_ARENA_MAX=2` | 2 | **618 s** (10.3 min) | 2.86 | **1.8 GB** (flat after the 4th range) | no |
-| Docling FAST, split in 2 × 108 pages, 2 processes × 1 thread | 2 | ⟪P2T⟫ | ⟪P2S⟫ | ⟪P2M⟫ | ⟪P2Y⟫ |
-| Docling FAST, split in 4 × 54 pages, 4 processes × 1 thread | 4 | ⟪P4T⟫ | ⟪P4S⟫ | ⟪P4M⟫ | ⟪P4Y⟫ |
+| Docling FAST, split in 2 × 108 pages, 2 processes × 1 thread | 2 | 584 s (9.7 min) | 2.70 | 3.2 GB per process (6.4 GB in total; 108-page ranges) | no |
+| Docling FAST, split in 4 × 54 pages, 4 processes × 1 thread | 4 | **292 s** (4.9 min) | 1.35 (wall) | 2.5 GB per process (9.8 GB in total; 54-page ranges) | just |
 | Unstructured `hi_res` (pages 1–30, extrapolated) | 2 | ≈ 1,930 s (32 min) | 8.95 | 2.0 GB | no |
 | Unstructured `fast` (no tables, see §3.3) | 2 | 48 s | 0.22 | 0.6 GB | yes |
 
@@ -120,12 +120,12 @@ Notes: more tables than in the source = a table cut by a page break counts once 
 1. **Quality:** Docling + two SpecFlow post-processing steps is equal to or better than pymupdf4llm on every structural metric; tables are better (spec cell recall 0.90 vs 0.79). Without the post-processing, heading levels are flat. So the post-processing is required, not optional.
 2. **Docling's own switches do not fix the two defects:** `HeadingHierarchyOptions` orders levels wrongly, the pypdfium2 backend breaks tables, TableFormer V2 empties cells.
 3. **FAST tables = ACCURATE quality**, 32 % faster.
-4. **Speed:** Docling needs 2.86 s/page on 2 vCPU, 4.7× pymupdf4llm. The 216-page spec takes about 10 min on one worker-parse. The 5-minute target needs at least 4 cores working on one document: ⟪P4T⟫.
+4. **Speed:** Docling needs 2.86 s/page on 2 vCPU, 8.8× pymupdf4llm (0.32 s/page). The 216-page spec takes about 10 min on one worker-parse. The 5-minute target needs at least 4 cores working on one document: 4 cores took 4.9 min (measured, linear scaling).
 5. **Splitting on the same cores gains nothing** (584 s vs 618 s). Page-range boundaries are harmless (213/216 pages identical).
 6. **Memory:** whole-document conversion peaks at 4.7 GB; 10-page ranges stay flat at 1.8 GB. Ranges are mandatory; 3 GiB per pod is enough.
-7. **OCR:** pymupdf4llm OCRs by itself today; Docling OCR-auto costs +50 % even on a born-digital file (it OCRs figure bitmaps).
+7. **OCR:** production has no OCR today (§2). Docling OCR-auto costs +50 % even on a born-digital file (it OCRs figure bitmaps), so OCR stays off for parity (D2).
 8. **Unstructured** is slower than Docling and worse on headings and tables, and adds licence gaps (§5).
-9. **Image:** the minimal `docling-slim` install is 1.2 GB and has no OpenCV, RapidOCR, onnxruntime or Office libraries. ⟪SLIM⟫
+9. **Image:** the minimal `docling-slim` install has no RapidOCR, onnxruntime or Office libraries. But TableFormer v1 imports `cv2` without declaring it (`docling_ibm_models/tableformer/data_management/tf_predictor.py:10`), so `opencv-python-headless<5` must be added explicitly. With it the venv is 1.5 GB (full `docling`: 1.7 GB), and the output is byte-identical to the full install (fixture, after post-processing). The OpenCV/FFmpeg (LGPL) notice item from the ticket stays.
 
 ## 4. Decision
 
@@ -151,10 +151,10 @@ parse_document activity (contract unchanged: original in storage -> documents.ma
 
 | Option | Value | Why |
 |---|---|---|
-| Package | `docling-slim[convert-core,format-pdf,models-local]==2.145.0` (+ `feat-ocr-rapidocr-onnx` only if D2 = b) | `docling` = `docling-slim[standard]`, which also pulls python-docx/pptx, openpyxl, mail-parser, rapidocr and more. Verify the final tree in gate G6. |
+| Package | `docling-slim[convert-core,format-pdf,models-local]==2.145.0` + `opencv-python-headless<5` (+ `feat-ocr-rapidocr-onnx` only if D2 = b or c) | `docling` = `docling-slim[standard]`, which also pulls python-docx/pptx, openpyxl, mail-parser, rapidocr and more. TableFormer v1 imports `cv2` but does not declare it (§3.5). Measured: venv 1.5 GB, output identical to the full install. |
 | Backend | docling-parse (default) | pypdfium2 backend breaks tables (§3.2). |
 | Tables | TableFormer v1, `do_cell_matching=True`, mode FAST | §3.2–3.4. V2 is not ready. |
-| OCR | off (pymupdf4llm OCRs pages by itself today) | Open decision D2. |
+| OCR | off | Parity: production does not OCR today (§2). Open decision D2. |
 | Picture images | off in production; on for the CLI `--enrich` path only | Production keeps only placeholders (§2). |
 | Heading hierarchy (Docling) | off | SpecFlow ranks headings (§4.3). |
 | Markdown export | per page (`page_no`), `escape_underscores=False`, `escape_html=False` | Same text as today: pymupdf4llm writes `_` and `<`/`>` raw. |
@@ -173,12 +173,12 @@ Cost: 0.08 s for 8 pages; 2.2 s for 216 pages. Ranking needs every page, so it r
 
 ### 4.4 Long documents: the 5-minute target
 
-The numbers (§3.4): on 2 vCPU, every shape takes 584–618 s for the 216-page spec (2.7–2.9 s/page). Two processes on the same 2 cores gain only about 5 %, inside the noise. So only **more cores** reduce the wall time, and they must come from more worker-parse replicas or a bigger pod. Four cores: ⟪P4T⟫.
+The numbers (§3.4): on 2 vCPU, every shape takes 584–618 s for the 216-page spec (2.7–2.9 s/page). Two processes on the same 2 cores gain only about 5 %, inside the noise. So only **more cores** reduce the wall time, and they must come from more worker-parse replicas or a bigger pod. Four cores (4 processes × 1 core) took 292 s (4.9 min), 2.1× faster than 2 cores, so the scaling is linear.
 
 | Option | Shape | 216-page spec | Cost and risk |
 |---|---|---|---|
 | S. Sequential ranges | One `parse_document` activity converts 10-page ranges one after the other. | ≈ 10 min on 2 vCPU | Smallest change. 1,000 pages ≈ 48 min, above the 45-min activity timeout, so the cap must drop to about 500 pages. |
-| **F. Fan-out across replicas** | The workflow splits the document into ranges of 20 pages and runs them as activities on the `parse` queue, at most L = 4 at once per document; an assemble activity joins them. | ⟪FANOUT⟫ with 4 replicas | Workflow change (new workflow version), range results in object storage, one more activity. Scales out; a failure retries one range only. |
+| **F. Fan-out across replicas** | The workflow splits the document into ranges of 20 pages and runs them as activities on the `parse` queue, at most L = 4 at once per document; an assemble activity joins them. | ≈ 2.5–3 min (estimate: 618 s ÷ 4 + range overhead; 4 cores measured 292 s) with 4 replicas | Workflow change (new workflow version), range results in object storage, one more activity. Scales out; a failure retries one range only. |
 | P. Process pool in a bigger pod | One activity starts K processes in a pod with 2K vCPU. | Same as F for the same cores | Vertical: K × 1.8 GB in one pod, idle cost, no per-range retry. |
 
 **Decision (default for D1): F, delivered in two steps.** Step 3 in §6 ships S (the engine switch alone, cap 500 pages). The next step ships F to meet the 5-minute target. This keeps the behaviour change (engine) apart from the structure change (fan-out).
@@ -247,7 +247,7 @@ services:
 | Docling `pypdfium2` backend | Fixes glued words, but breaks table cell matching (2/3 tables, cell recall 0.06). |
 | Docling TableFormer V2 | Empty cells on the fixture (cell recall 0.09). So the "drop OpenCV with TableFormer V2" path from the ticket is not ready. |
 | Docling VLM pipelines (granite-docling, picture description, chart/code/formula enrichment) | GPU-oriented, slower on CPU, model output is not deterministic, and some presets carry RED weight licences (Chandra, OpenRAIL; source research §1). |
-| GCP Document AI Layout Parser now | Owner: probably too much for this scope. Also: $10 per 1,000 pages vs about $0.04 per 1,000 pages of worker CPU (source research, cost model), the data leaves the cluster, the only pinned GA version is `pretrained-layout-parser-v1.0-2024-06-03`, and a residency review is necessary. The port in §4.1 keeps it a later, additive change (§4.5). |
+| GCP Document AI Layout Parser now | Owner: probably too much for this scope. Also: $10 per 1,000 pages vs under $0.10 per 1,000 pages of worker CPU (source research cost model at the measured 2.86 s/page), the data leaves the cluster, the only pinned GA version is `pretrained-layout-parser-v1.0-2024-06-03`, and a residency review is necessary. The port in §4.1 keeps it a later, additive change (§4.5). |
 | Marker/Surya, MinerU, opendataloader-pdf, PP-StructureV3, pdf_oxide, markitdown, xberg, Textract | Rejected in licence step 2 (ticket): weight licences, AGPL weights, JVM/MPL, too heavy, no layout, no heading levels. |
 
 ## 6. Cutover and rollback
@@ -282,9 +282,9 @@ Branch by abstraction. Behaviour change (the engine) and the structural change (
 
 | Risk | Effect | Mitigation |
 |---|---|---|
-| Docling is 3–5× slower than pymupdf4llm | Longer wait for a parsed document; queue latency under load | §4.4 (page ranges, fan-out), page cap, scale worker-parse replicas on queue backlog. |
-| Memory: whole-document conversion peaks at 4.4 GB | OOM kill above `mem_limit` | Page ranges of 10 + `MALLOC_ARENA_MAX=2` (§3.4). Gate G5. |
-| Scanned PDFs: no OCR by default | Empty pages where pymupdf4llm OCR found text | Open decision D2. Detect pages without a text layer and log them. |
+| Docling is about 9× slower than pymupdf4llm | Longer wait for a parsed document; queue latency under load | §4.4 (page ranges, fan-out), page cap, scale worker-parse replicas on queue backlog. |
+| Memory: whole-document conversion peaks at 4.7 GB | OOM kill above `mem_limit` | Page ranges of 10 + `MALLOC_ARENA_MAX=2` (§3.4). Gate G5. |
+| Scanned PDFs: no OCR (same as today) | A scanned page gives no text | Open decision D2. Detect pages without a text layer and log them, so the need is measured. |
 | The font-size heading rule fails where headings use body size (bold only) | Flat or wrong levels | Fallback order: font size → numbering depth (`1`, `1.2`, `1.2.3`) → `##`. Measure on the corpus (gate G3). |
 | Glued-word repair changes a real compound word | Rare false split | Repair only tokens that are absent from the pdfium word list and equal 2–3 consecutive pdfium words on the same page; never in tables or code. |
 | Docling cross-page paragraph join | Some text is cited one page early | Accepted (minor). Page-range boundaries cut the join anyway. |
@@ -301,8 +301,8 @@ Each decision has a default. The default applies if you approve this file withou
 | # | Decision | Options | Default |
 |---|---|---|---|
 | D1 | Long-document strategy | (S) sequential 10-page ranges in one activity; (F) fan-out of 20-page ranges across worker-parse replicas; (P) process pool in a bigger pod (§4.4) | S in the engine-switch step, then F as the next step (§4.4). |
-| D2 | OCR for pages without a text layer | (a) off, log such pages; (b) Docling RapidOCR only on pages without a text layer; (c) OCR auto everywhere (+50 % time, §3.2) | (b) — keeps today's behaviour for scans (pymupdf4llm OCRs by itself); cost only on scanned pages. Needs a scanned sample in G3. |
-| D3 | Page cap | (a) 1,000 pages (ticket); (b) 500; (c) no cap | ⟪D3DEF⟫ |
+| D2 | OCR for pages without a text layer | (a) off, log such pages; (b) Docling RapidOCR only on pages without a text layer; (c) OCR auto everywhere (+50 % time, §3.2) | (a) — the same as today (production has no OCR engine, §2), and it keeps the engine switch free of a second behaviour change. (b) is a later feature if the logs or G3 show scans. |
+| D3 | Page cap | (a) 1,000 pages (ticket); (b) 500; (c) no cap | (b) 500 pages while S is the shape (≈ 24 min at 2.86 s/page, inside the 45-min timeout); then (a) 1,000 pages once F ships (≈ 12–13 min at L = 4). |
 | D4 | Table mode | (a) FAST; (b) ACCURATE | (a) FAST — the same quality as ACCURATE on both inputs (spec cell recall 0.897 vs 0.900, 196/216 pages byte-identical; fixture equal) and 32 % faster. |
 | D5 | Existing PDF documents | (a) keep their pymupdf4llm Markdown; (b) re-parse all PDFs once after the switch | (a) — no licence need, no mass graph rebuild; re-parse stays possible per document. |
 | D6 | Regression test for quality | (a) structural thresholds on the fixture (G1); (b) re-baseline `extraction.md` with Docling output and compare exactly | (a) — the golden file is `REVIEW_REQUIRED` and mixes engine output with LLM text; exact Markdown would break on every Docling upgrade. |
@@ -319,7 +319,7 @@ The implementation plan turns these into tests or checklist items. The default s
 | G1 Fixture quality (CI, offline) | `extraction.pdf` through the real `pdf_file_to_markdown` | headings 9/9 with exact levels; tables 3/3, cell recall ≥ 0.95; word F1 ≥ 0.98 (llm-* blocks removed); figure placeholders = golden; 8/8 page markers. |
 | G2 Spec quality (manual or nightly) | 216-page spec PDF against its source Markdown | Headings ≥ 357/358 found and at the exact level; table-cell recall ≥ 0.85 (measured 0.90; pymupdf4llm 0.79); word F1 ≥ 0.98; no empty page. |
 | G3 Real corpus (owner provides about 20 PDFs: scans, slide decks, multi-column, forms) | Docling vs pymupdf4llm side by side | No page that pymupdf4llm filled is empty; no lost table; heading order reviewed by a person. |
-| G4 Speed | 216-page spec PDF on worker-parse sizing | ⟪G4⟫ |
+| G4 Speed | 216-page spec PDF on worker-parse sizing | Interim (S): 216 pages ≤ 12 min on one 2-vCPU replica (measured 10.3 min). After F: 216 pages ≤ 5 min with L = 4 on 4 replicas of 2 vCPU (4 cores measured 4.9 min). |
 | G5 Memory | Peak RSS on the spec PDF | ≤ 2.5 GB per worker process with 10-page ranges (measured 1.8 GB); pod limit 3 GiB. |
 | G6 Licence | `pip-licenses` allowlist in CI on each image; `pip show pymupdf` fails in all three images; NOTICE updated | Pass. |
 | G7 Offline | worker-parse parses with network egress blocked | Pass (models baked). |
@@ -342,11 +342,11 @@ opts.accelerator_options = AcceleratorOptions(num_threads=2, device="cpu")
 opts.artifacts_path = "/opt/docling-models"           # models baked into the image
 converter = DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=opts)})
 converter.convert(pdf, page_range=(a, b))             # 10-page ranges, MALLOC_ARENA_MAX=2
-doc.export_to_markdown(page_no=p, escape_underscores=False)   # one block per page
+doc.export_to_markdown(page_no=p, escape_underscores=False, escape_html=False)   # one block per page
 ```
 
 ```python
-# pymupdf4llm baseline = the production call (markdown_extractor.py)
+# pymupdf4llm baseline = the production call (markdown_extractor.py), venv without RapidOCR/Tesseract
 pymupdf4llm.to_markdown(pdf, page_chunks=True, write_images=True, image_format="png", dpi=170, table_output="markdown")
 ```
 
