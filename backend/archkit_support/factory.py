@@ -45,8 +45,8 @@ def create_app() -> FastAPI:
     """The API app as ``specflow api`` builds it, on the hermetic settings above.
 
     The lifespan is not entered, so the state it would set is stubbed: the token verifier
-    (its JWKS cache fetches lazily: nothing is fetched here) and an empty runtime, enough for requests that fail
-    authentication before any store is used.
+    (its JWKS cache fetches lazily, so nothing is fetched here) and an empty runtime,
+    enough for requests that fail authentication before any store is used.
     """
     settings = load_settings("api", ENVIRONMENT)
     app = create_api_app(settings)
