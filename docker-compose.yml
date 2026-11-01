@@ -70,8 +70,8 @@ services:
       start_period: 30s
 
   # graph-store: arcadedb
-  # ArcadeDB 26.10 with the Bolt plugin (`make up WITH=arcadedb`; the api and the agents worker then use it:
-  # STACK_GRAPH_STORE* in the Makefile). The root password is GRAPH_STORE_PASSWORD, handed over as a file
+  # ArcadeDB 26.10 with the Bolt plugin (`make up WITH=arcadedb`; the api and the agents worker above still
+  # name neo4j: pointing them at it is the integration step). The root password is GRAPH_STORE_PASSWORD, handed over as a file
   # (arcadedb.server.rootPasswordPath), never as a Java option (JAVA_OPTS shows in `docker inspect`).
   # neo4j keeps its host port 7687, so the Bolt port of ArcadeDB on the host is 7688 (ARCADEDB_BOLT_PORT).
   arcadedb:
@@ -95,12 +95,15 @@ services:
       retries: 12
       start_period: 30s
 
-  # Creates the database GRAPH_STORE_NAME-to-be (`specflow`) once; the schema is created by the app.
+  # Creates the database (ARCADEDB_DATABASE, default `specflow`) once; the app creates the schema.
   arcadedb-init:
     image: arcadedata/arcadedb:26.10.2
     container_name: specflow-arcadedb-init
     profiles: ["arcadedb"]
+    mem_limit: 128m
     restart: "no"
+    environment:
+      ARCADEDB_DATABASE: "${ARCADEDB_DATABASE:-specflow}"
     secrets:
       - arcadedb_root_password
     entrypoint:
@@ -109,10 +112,10 @@ services:
       - >-
         AUTH=$$(printf 'root:%s' "$$(cat /run/secrets/arcadedb_root_password)" | base64 -w0);
         BASE=http://arcadedb:2480/api/v1;
-        if wget -q -O- --header "Authorization: Basic $$AUTH" $$BASE/exists/specflow | grep -q true; then
-        echo "arcadedb-init: database specflow exists"; exit 0; fi;
+        if wget -q -O- --header "Authorization: Basic $$AUTH" $$BASE/exists/$$ARCADEDB_DATABASE | grep -q true; then
+        echo "arcadedb-init: database $$ARCADEDB_DATABASE exists"; exit 0; fi;
         wget -q -O- --header "Authorization: Basic $$AUTH" --header "Content-Type: application/json"
-        --post-data '{"command":"create database specflow"}' $$BASE/server
+        --post-data "{\"command\":\"create database $$ARCADEDB_DATABASE\"}" $$BASE/server
     depends_on:
       arcadedb:
         condition: service_healthy
@@ -386,11 +389,11 @@ services:
       TEMPORAL_NAMESPACE: "${TEMPORAL_NAMESPACE:-specflow-local}"
       TEMPORAL_QUEUE_PARSE: "specflow-parse"
       TEMPORAL_QUEUE_AGENTS: "specflow-agents"
-      GRAPH_STORE: "${STACK_GRAPH_STORE:-neo4j}"   # `make up WITH=<backend>` sets the STACK_GRAPH_STORE* values (Makefile)
-      GRAPH_STORE_URI: "${STACK_GRAPH_STORE_URI:-bolt://specflow-neo4j:7687}"
-      GRAPH_STORE_USER: "${STACK_GRAPH_STORE_USER:-neo4j}"
+      GRAPH_STORE: "neo4j"
+      GRAPH_STORE_URI: "bolt://specflow-neo4j:7687"
+      GRAPH_STORE_USER: "neo4j"
       GRAPH_STORE_PASSWORD: "${GRAPH_STORE_PASSWORD:-${NEO4J_PASSWORD:?set GRAPH_STORE_PASSWORD in .env.local}}"   # an older .env.local with only NEO4J_PASSWORD still works
-      GRAPH_STORE_NAME: "${STACK_GRAPH_STORE_NAME:-neo4j}"
+      GRAPH_STORE_NAME: "neo4j"
       AGENT_MODEL: "${AGENT_MODEL:-}"
       AGENT_TRACE_SENSITIVE_DATA: "${AGENT_TRACE_SENSITIVE_DATA:-true}"
       # POST /projects/{pid}/graph_build runs the graph build in this process: off while the
@@ -421,9 +424,6 @@ services:
         condition: service_healthy
       neo4j:
         condition: service_healthy
-      arcadedb-init:   # only when the arcadedb profile is on: the database exists
-        condition: service_completed_successfully
-        required: false
       temporal:   # only when the temporal profile is on
         condition: service_healthy
         required: false
@@ -525,11 +525,11 @@ services:
       TEMPORAL_NAMESPACE: "${TEMPORAL_NAMESPACE:-specflow-local}"
       TEMPORAL_QUEUE_PARSE: "specflow-parse"
       TEMPORAL_QUEUE_AGENTS: "specflow-agents"
-      GRAPH_STORE: "${STACK_GRAPH_STORE:-neo4j}"   # `make up WITH=<backend>` sets the STACK_GRAPH_STORE* values (Makefile)
-      GRAPH_STORE_URI: "${STACK_GRAPH_STORE_URI:-bolt://specflow-neo4j:7687}"
-      GRAPH_STORE_USER: "${STACK_GRAPH_STORE_USER:-neo4j}"
+      GRAPH_STORE: "neo4j"
+      GRAPH_STORE_URI: "bolt://specflow-neo4j:7687"
+      GRAPH_STORE_USER: "neo4j"
       GRAPH_STORE_PASSWORD: "${GRAPH_STORE_PASSWORD:-${NEO4J_PASSWORD:?set GRAPH_STORE_PASSWORD in .env.local}}"   # an older .env.local with only NEO4J_PASSWORD still works
-      GRAPH_STORE_NAME: "${STACK_GRAPH_STORE_NAME:-neo4j}"
+      GRAPH_STORE_NAME: "neo4j"
       LLM_GATEWAY_URL: "${LLM_GATEWAY_URL:-}"
       LLM_GATEWAY_API_KEY: "${LLM_GATEWAY_API_KEY:-}"
       AGENT_MODEL: "${AGENT_MODEL:-}"
