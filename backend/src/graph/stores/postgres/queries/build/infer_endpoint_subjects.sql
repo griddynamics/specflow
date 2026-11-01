@@ -32,7 +32,7 @@ found AS (
     SELECT
         s.uuid,
         s.spec_id,
-        array_agg(DISTINCT x.target ORDER BY x.target) AS targets
+        array_agg(DISTINCT x.target COLLATE "C" ORDER BY x.target COLLATE "C") AS targets
     FROM subj AS s
     INNER JOIN reached AS x ON s.id = x.sid
     GROUP BY s.uuid, s.spec_id

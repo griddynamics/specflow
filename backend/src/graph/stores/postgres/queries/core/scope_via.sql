@@ -70,5 +70,6 @@ WHERE
     AND w.depth <= :max_hops
     AND n.id NOT IN (SELECT root.id FROM root)
     AND n.group_id = :project_id
+    AND n.kind = 'spec'
     AND n.spec_id IS NOT NULL
     AND n.labels && cast(:labels AS text[])

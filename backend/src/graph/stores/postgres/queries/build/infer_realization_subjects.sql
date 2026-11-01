@@ -107,7 +107,7 @@ reached AS (
     SELECT
         w.sid,
         c.uuid AS container_uuid,
-        array_agg(DISTINCT m.uuid ORDER BY m.uuid) AS via
+        array_agg(DISTINCT m.uuid COLLATE "C" ORDER BY m.uuid COLLATE "C") AS via
     FROM walk AS w
     INNER JOIN graph.node AS c ON w.node_id = c.id
     INNER JOIN graph.node AS m ON w.mid = m.id
@@ -115,6 +115,7 @@ reached AS (
         w.depth >= 1
         AND c.id <> w.sid
         AND c.group_id = :project_id
+        AND c.kind = 'spec'
         AND c.uuid IS NOT NULL
         AND c.labels && cast(:target_labels AS text[])
     GROUP BY w.sid, c.uuid
@@ -125,7 +126,7 @@ conts AS (
         x.sid,
         jsonb_agg(
             jsonb_build_object('uuid', x.container_uuid, 'via', to_jsonb(x.via))
-            ORDER BY x.container_uuid
+            ORDER BY x.container_uuid COLLATE "C"
         )
             AS containers
     FROM reached AS x
@@ -135,7 +136,7 @@ conts AS (
 mems AS (
     SELECT
         x.sid,
-        array_agg(DISTINCT x.muuid ORDER BY x.muuid) AS members
+        array_agg(DISTINCT x.muuid COLLATE "C" ORDER BY x.muuid COLLATE "C") AS members
     FROM mem AS x
     GROUP BY x.sid
 ),

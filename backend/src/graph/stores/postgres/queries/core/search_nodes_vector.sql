@@ -30,6 +30,7 @@ WITH page AS (
         n.group_id = :project_id
         AND n.kind = 'spec'
         AND n.embedding_model = :model
+        AND vector_dims(n.embedding) = /*__DIM__*/3072/*__DIM__*/
         AND n.spec_id IS NOT NULL
         AND n.labels && cast(:labels AS text[])
         AND NOT EXISTS (
