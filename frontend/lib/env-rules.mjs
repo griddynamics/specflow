@@ -7,6 +7,8 @@ const AUTH_MODES = ["oidc", "dev"];
 export const MIN_SECRET_BYTES = 32;
 /** AUTH_MODE default (SPL-PKG-02): a missing or empty AUTH_MODE means oidc, so the oidc rules apply. */
 export const DEFAULT_AUTH_MODE = "oidc";
+/** MCP_CLIENT_ID default: the first client id the mcp role accepts. */
+export const DEFAULT_MCP_CLIENT_ID = "specflow-mcp";
 
 const isSet = (v) => typeof v === "string" && v.trim() !== "";
 const isHttpUrl = (v) => {
@@ -39,6 +41,25 @@ export function authModeOf(env) {
   return isSet(env.AUTH_MODE) ? env.AUTH_MODE : DEFAULT_AUTH_MODE;
 }
 
+/**
+ * The MCP address shown in the Guides: MCP_PUBLIC_URL, or PUBLIC_URL + "/mcp" when it is unset or empty.
+ * @param {Record<string, string | undefined>} env
+ * @returns {string}
+ */
+export function mcpPublicUrlOf(env) {
+  if (isSet(env.MCP_PUBLIC_URL)) return env.MCP_PUBLIC_URL.trim();
+  return `${(env.PUBLIC_URL ?? "").trim().replace(/\/+$/, "")}/mcp`;
+}
+
+/**
+ * The OAuth client id shown in the Guides: MCP_CLIENT_ID, or "specflow-mcp" when it is unset or empty.
+ * @param {Record<string, string | undefined>} env
+ * @returns {string}
+ */
+export function mcpClientIdOf(env) {
+  return isSet(env.MCP_CLIENT_ID) ? env.MCP_CLIENT_ID.trim() : DEFAULT_MCP_CLIENT_ID;
+}
+
 /** @returns {string[]} sorted, unique names of invalid variables */
 export function validateEnv(env) {
   const bad = new Set();
@@ -52,6 +73,12 @@ export function validateEnv(env) {
   need("PUBLIC_URL", isHttpUrl);
   need("API_INTERNAL_URL", (v) => isHttpUrl(normalizeInternalUrl(v)));
   need("SESSION_SECRET", (v) => isSet(v) && Buffer.byteLength(v) >= MIN_SECRET_BYTES);
+
+  // Optional MCP settings for the Guides page. Empty means unset (as in .env.example); whitespace only is a mistake.
+  if (isSet(env.MCP_PUBLIC_URL)) {
+    need("MCP_PUBLIC_URL", (v) => isHttpUrl(v.trim()) && (env.APP_ENV === "local" || v.trim().startsWith("https://")));
+  }
+  if (typeof env.MCP_CLIENT_ID === "string" && env.MCP_CLIENT_ID !== "" && !isSet(env.MCP_CLIENT_ID)) bad.add("MCP_CLIENT_ID");
 
   const devAllowed = devModeAllowed(env);
   if (authMode === "dev") {

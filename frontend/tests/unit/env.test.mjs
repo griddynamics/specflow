@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { randomSecret, root } from "../support/servers.mjs";
-import { normalizeInternalUrl, validateEnv } from "../../lib/env-rules.mjs";
+import { mcpClientIdOf, mcpPublicUrlOf, normalizeInternalUrl, validateEnv } from "../../lib/env-rules.mjs";
 
 const script = path.join(root, "scripts/check-env.mjs");
 const SECRET = randomSecret();
@@ -140,4 +140,41 @@ test("API_INTERNAL_URL is still required and must parse", () => {
   for (const v of [undefined, "", "   ", "ftp://api", "http://"]) {
     assert.deepEqual(validateEnv({ ...nonLocalOidc, API_INTERNAL_URL: v }), ["API_INTERNAL_URL"], String(v));
   }
+});
+
+// MCP settings of the Guides page: optional, with defaults, validated when set.
+test("MCP settings: defaults derive from PUBLIC_URL and specflow-mcp", () => {
+  const env = { ...nonLocalOidc, PUBLIC_URL: "https://specflow.example.test/" };
+  assert.equal(mcpPublicUrlOf(env), "https://specflow.example.test/mcp");
+  assert.equal(mcpClientIdOf(env), "specflow-mcp");
+  const empty = { ...env, MCP_PUBLIC_URL: "", MCP_CLIENT_ID: "" };
+  assert.equal(mcpPublicUrlOf(empty), "https://specflow.example.test/mcp");
+  assert.equal(mcpClientIdOf(empty), "specflow-mcp");
+  assert.deepEqual(validateEnv(empty), []);
+});
+
+test("MCP settings: set values are used and valid", () => {
+  const env = { ...nonLocalOidc, MCP_PUBLIC_URL: "https://mcp.example.test/mcp", MCP_CLIENT_ID: "my-client" };
+  assert.equal(mcpPublicUrlOf(env), "https://mcp.example.test/mcp");
+  assert.equal(mcpClientIdOf(env), "my-client");
+  assert.deepEqual(validateEnv(env), []);
+  assert.deepEqual(validateEnv({ ...localDev, MCP_PUBLIC_URL: "http://localhost:8002/mcp" }), []);
+});
+
+test("MCP_PUBLIC_URL must be an absolute http(s) URL, https outside local, and the gate names it", () => {
+  for (const bad of ["not a url", "/mcp", "ftp://mcp.example.test/mcp", "mcp.example.test/mcp"]) {
+    assert.deepEqual(validateEnv({ ...nonLocalOidc, MCP_PUBLIC_URL: bad }), ["MCP_PUBLIC_URL"], bad);
+  }
+  assert.deepEqual(validateEnv({ ...nonLocalOidc, MCP_PUBLIC_URL: "http://mcp.example.test/mcp" }), ["MCP_PUBLIC_URL"]);
+  const r = run({ ...nonLocalOidc, MCP_PUBLIC_URL: "http://mcp.example.test/mcp" });
+  assert.equal(r.code, 2);
+  assert.match(r.out, /MCP_PUBLIC_URL/);
+  assert.doesNotMatch(r.out, /mcp\.example\.test/);
+});
+
+test("MCP_CLIENT_ID must not be blank", () => {
+  for (const bad of [" ", "   ", "\t"]) {
+    assert.deepEqual(validateEnv({ ...nonLocalOidc, MCP_CLIENT_ID: bad }), ["MCP_CLIENT_ID"]);
+  }
+  assert.equal(run({ ...nonLocalOidc, MCP_CLIENT_ID: "  " }).code, 2);
 });

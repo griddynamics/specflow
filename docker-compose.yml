@@ -600,6 +600,9 @@ services:
       OIDC_CLIENT_ID: "${OIDC_CLIENT_ID:-}"
       OIDC_CLIENT_SECRET: "${OIDC_CLIENT_SECRET:-}"
       SESSION_SECRET: "${SESSION_SECRET:-}"
+      # What the Guides page shows: the mcp service's address (PUBLIC_URL is the web app, so the default would be wrong) and client id.
+      MCP_PUBLIC_URL: "${MCP_PUBLIC_URL:-http://localhost:8002/mcp}"
+      MCP_CLIENT_ID: "${MCP_CLIENT_ID:-specflow-mcp}"
     depends_on:
       api:
         condition: service_healthy
