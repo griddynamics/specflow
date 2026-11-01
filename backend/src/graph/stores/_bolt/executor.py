@@ -69,6 +69,7 @@ __all__ = [
     "DEFAULT_BACKEND",
     "DEFAULT_CAPABILITIES",
     "AsyncGraphDatabase",
+    "ErrorMapper",
     "BoltExecutor",
     "BoltScopedTransaction",
     "check_connection",
@@ -161,6 +162,11 @@ def _map_error(
     return InfrastructureUnavailableError(STORE_READ_FAILED, **fields)
 
 
+ErrorMapper = Callable[..., GraphError]
+"""``(error, query_name, *, write, attempts, backend)`` -> the ``GraphError`` a driver error stands for.
+A store whose server reports some error differently passes its own (default: ``_map_error``)."""
+
+
 def _is_transient(error: BaseException) -> bool:
     return isinstance(error, TransientError) and error.is_retryable()
 
@@ -169,15 +175,26 @@ class BoltScopedTransaction:
     """One explicit write transaction of one project; ``run`` injects ``project_id``."""
 
     def __init__(
-        self, transaction: Any, project_id: str, dialect: Dialect = CYPHER_DIALECT, backend: str = DEFAULT_BACKEND
+        self,
+        transaction: Any,
+        project_id: str,
+        dialect: Dialect = CYPHER_DIALECT,
+        backend: str = DEFAULT_BACKEND,
+        error_mapper: ErrorMapper = _map_error,
     ) -> None:
         self._transaction = transaction
         self._project_id = project_id
         self._dialect = dialect
         self._backend = backend
+        self._error_mapper = error_mapper
+
+    async def _plan(self, query: Query, params: Mapping[str, Any]) -> ExecutionPlan:
+        """The plan of ``query``; a store whose plans need a read first overrides this."""
+
+        return self._dialect.plan(query, params)
 
     async def run(self, query: Query, /, **params: Any) -> list[Record]:
-        plan = self._dialect.plan(query, bind_project(query, self._project_id, params))
+        plan = await self._plan(query, bind_project(query, self._project_id, params))
 
         async def statement(text: str, bound: Mapping[str, Any]) -> list[Record]:
             result = await self._transaction.run(text, dict(bound))
@@ -187,7 +204,7 @@ class BoltScopedTransaction:
         try:
             return await run_plan(plan, statement)
         except (Neo4jError, DriverError, OSError) as error:
-            raise _map_error(error, query.name, write=True, backend=self._backend) from None
+            raise self._error_mapper(error, query.name, write=True, backend=self._backend) from None
 
 
 class BoltExecutor:
@@ -207,6 +224,7 @@ class BoltExecutor:
         dialect: Dialect = CYPHER_DIALECT,
         capabilities: StoreCapabilities = DEFAULT_CAPABILITIES,
         backend: str = DEFAULT_BACKEND,
+        error_mapper: ErrorMapper = _map_error,
     ) -> None:
         self._driver = driver
         self._database = database
@@ -215,16 +233,17 @@ class BoltExecutor:
         self._dialect = dialect
         self.capabilities = capabilities
         self._backend = backend
+        self._error_mapper = error_mapper
 
     async def read(self, query: Query, project_id: str, /, **params: Any) -> list[Record]:
         """Run a read query of one project; return its records as dicts."""
 
-        return await self._managed(query, self._plan(query, project_id, params), write=False)
+        return await self._managed(query, await self._planned(query, project_id, params), write=False)
 
     async def write(self, query: Query, project_id: str, /, **params: Any) -> list[Record]:
         """Run a write query of one project in a managed write transaction; return its records."""
 
-        return await self._managed(query, self._plan(query, project_id, params), write=True)
+        return await self._managed(query, await self._planned(query, project_id, params), write=True)
 
     @asynccontextmanager
     async def tx(self, project_id: str) -> AsyncIterator[BoltScopedTransaction]:
@@ -235,13 +254,18 @@ class BoltExecutor:
             async with self._session(write=True) as session:
                 transaction = await session.begin_transaction()
                 try:
-                    yield BoltScopedTransaction(transaction, project_id, self._dialect, self._backend)
+                    yield self._scoped(transaction, project_id)
                 except BaseException:
                     await _rollback(transaction)
                     raise
                 await transaction.commit()
         except (Neo4jError, DriverError, OSError) as error:
-            raise _map_error(error, "tx", write=True, backend=self._backend) from None
+            raise self._error_mapper(error, "tx", write=True, backend=self._backend) from None
+
+    def _scoped(self, transaction: Any, project_id: str) -> BoltScopedTransaction:
+        """The scoped transaction handed to the caller of ``tx`` (a store may return its own subclass)."""
+
+        return BoltScopedTransaction(transaction, project_id, self._dialect, self._backend, self._error_mapper)
 
     def _session(self, *, write: bool) -> Any:
         return self._driver.session(
@@ -252,6 +276,11 @@ class BoltExecutor:
 
     def _plan(self, query: Query, project_id: str, params: Mapping[str, Any]) -> ExecutionPlan:
         return self._dialect.plan(query, bind_project(query, project_id, params))
+
+    async def _planned(self, query: Query, project_id: str, params: Mapping[str, Any]) -> ExecutionPlan:
+        """The plan of ``query``; a store whose plans need a read first overrides this."""
+
+        return self._plan(query, project_id, params)
 
     async def _managed(self, query: Query, plan: ExecutionPlan, *, write: bool) -> list[Record]:
         async def work(transaction: Any) -> list[Record]:
@@ -283,7 +312,7 @@ class BoltExecutor:
             attempt,
             errors=(Neo4jError, DriverError, OSError),
             is_transient=_is_transient,
-            map_error=lambda error, attempts: _map_error(
+            map_error=lambda error, attempts: self._error_mapper(
                 error, query.name, write=write, attempts=attempts, backend=self._backend
             ),
             delays=self._retry_delays,

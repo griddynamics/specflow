@@ -299,6 +299,12 @@ def _render(template: str, args: Any) -> str:
     return renderer(args)
 
 
+def template_ids() -> frozenset[str]:
+    """Every template id the Cypher dialect knows (a store dialect built on it covers exactly these)."""
+
+    return frozenset(_STATIC) | frozenset(_RENDERERS)
+
+
 def render_cypher(query: Query) -> str:
     """The Cypher text of ``query`` (no guard, no parameters): what the golden test and tests compare."""
 
