@@ -11,7 +11,6 @@ import json
 from collections.abc import AsyncIterator
 from typing import Any
 
-import graph_probes
 import pytest
 import pytest_asyncio
 

@@ -1058,7 +1058,8 @@ async def test_replacing_node_links_keeps_fragments_and_takes_the_last_row_of_a_
     found = await raw(
         store,
         "SELECT f.fragment_id AS f, f.props AS fp, e.rel_type AS r FROM graph.edge e "
-        "JOIN graph.node f ON f.id = e.target_id WHERE e.group_id = :p AND e.rel_type <> 'CONTAINS' ORDER BY f.fragment_id",
+        "JOIN graph.node f ON f.id = e.target_id "
+        "WHERE e.group_id = :p AND e.rel_type <> 'CONTAINS' ORDER BY f.fragment_id",
         p=project,
     )
     assert [(row["f"], row["r"]) for row in found] == [("f1", "REFERENCED_BY"), ("f2", "MENTIONED_IN")]
@@ -1113,12 +1114,13 @@ async def test_an_existing_schema_of_another_version_is_refused(ontology: Ontolo
         assert await first.ensure_schema(ontology, DIM) == ()
         for version in ("1", "99", None):
             statement = (
-                f"UPDATE \"{schema}\".meta SET meta_value = :v WHERE meta_key = 'schema_version'"
+                "UPDATE graph.meta SET meta_value = :v WHERE meta_key = 'schema_version'"
                 if version
-                else f"DELETE FROM \"{schema}\".meta WHERE meta_key = 'schema_version'"
+                else "DELETE FROM graph.meta WHERE meta_key = 'schema_version'"
             )
             async with first._engine.begin() as connection:
-                await connection.execute(text(statement), {"v": version} if version else {})
+                sql = render_schema(statement, schema)
+                await connection.execute(text(sql), {"v": version} if version else {})
             with pytest.raises(ConfigurationError) as raised:
                 await first.ensure_schema(ontology, DIM)
             assert raised.value.code == "store_schema_outdated"
