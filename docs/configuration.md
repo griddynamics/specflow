@@ -181,6 +181,24 @@ sends the login as HTTP Basic authentication and warns (a log event, never a val
 that is not loopback. `bolt+ssc://` and `neo4j+ssc://` (self-signed) turn TLS verification of the admin API off as well as Bolt's.
 The HTTP client never uses `HTTP_PROXY`/`HTTPS_PROXY`.
 
+Large batches and query memory (both handled by the adapter, no setting needed):
+
+- Message size: the Bolt plugin rejects a very large request (`Neo.ClientError.Request.Invalid`, "Expected structure,
+  got: Long"). Measured on 26.10.2: 303 rows of two 3072-float vectors (16.8 MB) pass, the library's 500-row persist batch
+  (27.6 MB) fails. The adapter cuts the `rows` list of every statement into chunks of at most 4 MiB of estimated payload
+  and 500 rows (`MAX_MESSAGE_BYTES`, `MAX_ROWS_PER_MESSAGE` in `graph.stores.arcadedb.chunking`, about 75 vector rows
+  per message). The chunks run in the same transaction, in order, and their results are combined as one statement's
+  would be; a batch without vectors is not cut.
+- Query heap: ArcadeDB sorts `ORDER BY` in heap and charges every sorted row with all the variables it holds, against a
+  budget shared by the running queries (the error is "Query heap budget exceeded ... set `arcadedb.queryMaxHeapRAM`";
+  768 MB on the tested image). The canonical nearest-targets query of inference sorted one row per subject, each carrying
+  the list of all targets with their embeddings (about 31 MB per subject at 1300 targets of 3072 floats), and failed from
+  about 20 subjects. The adapter's plan leaves that sort out, restores the order in the library, and runs the subjects in
+  statements of 50 (`SIMILAR_SUBJECTS_PER_STATEMENT`). The per-subject top-k sort inside the query still holds the targets of
+  one subject, so a project with very many targets needs more heap: raise `arcadedb.queryMaxHeapRAM`
+  (a server setting, for example `-Darcadedb.queryMaxHeapRAM=<value>` in `JAVA_OPTS`; see the ArcadeDB settings reference
+  for its unit) together with the container memory. The adapter does not rely on a raised value.
+
 Known differences from Neo4j (the adapter handles them; they matter when you read the data directly):
 
 - A node with several labels is one type named `A~B` and `labels(n)` returns them sorted alphabetically.
