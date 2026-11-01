@@ -402,6 +402,7 @@ class _SpineWalk:
     def _grouped_realized(self, start: ProbeNode) -> bool:
         return any(
             edge.type == "GROUPED_BY"
+            and SPEC_NODE in edge.target.labels
             and any(
                 second.type == "REALIZED_BY" and _is_module(second.target)
                 for second in self._outgoing.get(edge.target.id, ())

@@ -21,7 +21,10 @@ from graph_probes.base import (
     EdgeSpec,
     GraphProbe,
     NodeSpec,
+    ProbeEdge,
     ProbeError,
+    ProbeNode,
+    _SpineWalk,
     canonical_props,
     identifier,
     select,
@@ -564,3 +567,17 @@ def test_the_golden_rankings_are_well_formed() -> None:
             assert "fused_index" in entry["modes"]
             assert {h["spec_id"] for h in entry["fused_index"]} <= set(entry["near"])
     assert compare_rankings(data, data).ok
+
+
+def spine_node(identity: str, *labels: str) -> ProbeNode:
+    return ProbeNode(identity, tuple(sorted(labels)), {})
+
+
+@pytest.mark.parametrize(("middle_labels", "reaches"), [(("SpecNode", "Capability"), True), (("Capability",), False)])
+def test_a_grouped_by_walk_needs_a_spec_node_in_the_middle(middle_labels: tuple[str, ...], *, reaches: bool) -> None:
+    start, middle, module = spine_node("a", "SpecNode"), spine_node("b", *middle_labels), spine_node("c", "Module")
+    edges = [
+        ProbeEdge("1", "GROUPED_BY", start, middle, {}),
+        ProbeEdge("2", "REALIZED_BY", middle, module, {}),
+    ]
+    assert _SpineWalk(edges).reaches_a_module(start) is reaches
