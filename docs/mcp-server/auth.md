@@ -11,8 +11,8 @@ tags: [mcp, auth]
 
 The MCP service is an OAuth 2.1 resource server. The organization's OIDC provider (the IdP the web app already uses) is
 the authorization server. The MCP client signs the developer in at the IdP with the authorization code flow and PKCE,
-and calls `/mcp` with the access token. SpecFlow issues no tokens (apart from local dev tokens, below), stores no tokens
-and holds no client secret.
+and calls `/mcp` with the access token. SpecFlow issues no tokens, stores no tokens
+and holds no client secret. Locally the IdP is the bundled Keycloak ([below](#local-mode)).
 
 A deployment has exactly one IdP: tokens must come from `OIDC_ISSUER`, the issuer the web app signs people in with.
 Users are keyed by the token subject alone, so the same person reaches the same user row from the web app and from MCP.
@@ -83,8 +83,8 @@ client works when it supports a pre-registered public client with a fixed loopba
 
 ## Token validation
 
-Under `AUTH_MODE=oidc`; dev mode is [below](#local-and-development-mode). The guard runs on every request to `/mcp`, in
-this order; the first failure decides the answer.
+The guard runs on every request to `/mcp`, in this order; the first failure decides the answer. There is one mode: OIDC
+tokens from `OIDC_ISSUER`, locally and in production.
 
 | # | Check | Failure |
 |---|---|---|
@@ -212,23 +212,20 @@ Keycloak) is set up to the same 30 days. The local QA realm keeps the same setti
 The email-policy 403 carries no challenge, so a client does not loop through sign-in for a person who will never
 be allowed. Every rejection logs `mcp.auth.rejected` with the fixed reason and no token content.
 
-## Local and development mode
+## Local mode
 
-Locally the role runs in dev mode like the web app; `make up WITH=keycloak` switches only the `mcp` role to `oidc`,
-while the web app and API keep dev login ([deployment.md](deployment.md#local-stack)). With `AUTH_MODE=dev` (refused
-outside `APP_ENV=local` and inside Kubernetes, as for the API) it accepts HS256 dev tokens signed with
-`AUTH_DEV_SIGNING_KEY`: issuer `specflow-dev-login`, audience `MCP_AUDIENCE`, client `specflow-mcp`, lifetime 8 hours
-like the web app's. Their subject is `dev:<email>`, the subject the web app's dev login uses, so the local UI and Claude
-Code act as the same user and see the same projects. A web dev token (audience `specflow-api`) fails on MCP, and an MCP
-dev token fails on the REST API. In dev mode there is no authorization server: the role publishes no protected resource
-metadata, and its 401 carries no `resource_metadata`.
+Locally the role validates tokens exactly as in production, with the same code and the same checks. Only the
+configuration differs: `make up` always starts the bundled Keycloak and gives `mcp` `OIDC_ISSUER=http://localhost:8180/realms/specflow`
+and an `AUTH_JWKS_URL` on the compose network name ([deployment.md](deployment.md#local-stack)). The web app and the API use the same
+Keycloak, so the local UI, the REST API and Claude Code know the same user: the token subject is the Keycloak user id,
+which `make env-local` fixes in `.env.local` (`LOCAL_TEST_USER_ID`). The role publishes the protected resource metadata
+and its 401 carries `resource_metadata`, as in production. There are no dev tokens, no dev issuer and no
+`AUTH_MODE`: a stale `AUTH_MODE=dev` stops the role with a hint ([configuration.md](../configuration.md#removed-names)).
 
-A dev token comes from a QA helper command (`examples/mcp_qa.py dev-token`). Claude Code receives it through
-`headersHelper` in a local-scope server entry, not in the tracked `.mcp.json` (a command whose output gives the request headers; Claude Code runs it only in a trusted
-workspace) or through `--header "Authorization: Bearer ..."`.
-
-The real sign-in flow runs locally with `AUTH_MODE=oidc` against the bundled Keycloak ([deployment.md](deployment.md));
-the end-to-end and agent QA tiers use it. An `http` issuer and resource URL are accepted only when `APP_ENV=local`.
+A web token (audience `specflow-api`) fails on MCP, and an MCP token fails on the REST API, as rule S5 says. Claude Code
+signs in through the browser with the same Keycloak account as the web app. An `http` issuer and resource URL are accepted
+only when `APP_ENV=local`. Keycloak keeps no data between container creations: sessions end, so sign in again in the
+browser and in Claude Code.
 
 ## Security rules
 
@@ -247,9 +244,9 @@ the end-to-end and agent QA tiers use it. An `http` issuer and resource URL are 
 |---|---|---|
 | AA1 | Resource server only; the IdP is the authorization server | OAuth proxy (the Rosetta pattern: the server registers clients, shows consent, issues its own tokens and keeps upstream tokens encrypted in Redis): token storage, signing keys, consent UI, registration endpoint hardening and refresh-token edge cases (Rosetta patched Keycloak's `refresh_expires_in: 0`), all to support IdPs the web app cannot use anyway; logins brokered through Keycloak (Google, GitHub, corporate SAML or OIDC) need none of it. Built only if a confirmed need appears (constraint C6 of [overview.md](overview.md); [later.md](later.md)) |
 | AA2 | One pre-registered public client | Dynamic client registration at the IdP: a policy decision of the IdP owner, often unavailable, and registered clients would bypass the client allowlist. Client ID Metadata Documents: support across clients and IdPs is uneven; can be enabled at the IdP later with only an allowlist change here |
-| AA3 | Own guard on top of the `auth` package | The SDK's `TokenVerifier` and auth middleware: a verifier can only return a token or nothing, so every policy failure becomes a 401 and an email-policy failure becomes a sign-in loop; tools get no `Principal`; a second validation path beside `auth`; and the SDK's auth needs an issuer URL, which local dev tokens (issuer `specflow-dev-login`) do not have. Re-evaluated when local dev login is replaced by Keycloak ([later.md](later.md)) |
+| AA3 | Own guard on top of the shared `auth` package (re-evaluated when the local dev login went away; the decision stands) | The SDK's `TokenVerifier` and auth middleware: a verifier can only return a token or nothing, so every refusal becomes a 401, and a domain refusal makes Claude Code sign in again in a loop; tools get no `Principal`; and it would be a second validation path beside `auth`, which the REST API also uses. The first reason, that a dev issuer had no issuer URL for the SDK, no longer applies and is not part of the decision. What stays: the 401/403 split, the `Principal`, one validation path for the API and MCP (the production path, also locally), and a bounded JWKS fetch (size cap, deadline, single flight, negative cache) that the SDK does not give. A single external JWT library for both surfaces is a separate change |
 | AA4 | A separate MCP audience | Reusing `specflow-api`: a token stolen from one surface would work on the other; least privilege |
-| AA5 | Locally, dev tokens on MCP as on the web app | Keycloak for MCP only: the local UI (dev login) and MCP would know the same person as two users, and projects made in the UI would be invisible to Claude Code. Keycloak for every local service: a separate change that also reworks the frontend's test sign-in ([later.md](later.md), local Keycloak everywhere). The real sign-in flow is still exercised locally by the QA tiers against the bundled Keycloak |
+| AA5 (superseded) | Locally, dev tokens on MCP as on the web app | Superseded by the story CTORNDGAIN-2233: locally the bundled Keycloak signs in every service, there are no dev tokens and no dev login, and the web app, the API and MCP see the same Keycloak user ([Local mode](#local-mode)). The original reasoning follows as history. Keycloak for MCP only: the local UI (dev login) and MCP would know the same person as two users, and projects made in the UI would be invisible to Claude Code. Keycloak for every local service: a separate change that also reworks the frontend's test sign-in. The real sign-in flow was exercised locally by the QA tiers against the bundled Keycloak |
 | AA6 | Claim profile as shared `AUTH_*` settings with provider-neutral defaults | MCP-only claim settings: the subject must be read the same way on both surfaces or users split. Keycloak-shaped defaults (a required `typ: Bearer` claim, `azp` only): the first non-Keycloak provider, likely the production one, would fail on them |
 | AA7 | No scopes: the audience and project membership decide, and every member of a project has the same access | Read and write scopes (`specflow:read`, `specflow:write`): every provider would need a custom scope, and they add nothing while all members have equal access; the Rosetta MCP server likewise checks no permission scope |
 | AA8 | Client-audience access tokens accepted under a token-type check: `MCP_AUDIENCE` may equal the client id when `AUTH_TOKEN_TYPE` is not `none`, and `claim` tells access tokens from ID tokens by a configured claim | A token exchange in an OAuth proxy ([later.md](later.md)): the proxy work of AA1 for one provider. A developer-side helper that exchanges tokens through `headersHelper`: a tool to ship and maintain on every laptop. Resource-server tokens only: Claude Code cannot get them from such a provider. Rule S5 then depends on each surface having its own client, which startup enforces for the values it is given |

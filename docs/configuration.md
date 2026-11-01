@@ -32,10 +32,10 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `LLM_GATEWAY_URL`, `LLM_GATEWAY_API_KEY` | api, workers | OpenAI-compatible gateway route (no `/v1` suffix) and its key. |
 | `AGENT_MODEL` | api, workers | Model id of the agents on the gateway route. |
 | `AUTH_ALLOWED_EMAIL_DOMAINS` | api, mcp | Comma-separated list of allowed e-mail domains. |
-| `PUBLIC_URL` | frontend | Public URL of the app. |
+| `PUBLIC_URL` | frontend | Public URL of the app, without a trailing slash. The sign-in redirect and the logout return address are built from it. Locally the Keycloak realm builds its redirect URIs from the same value. |
 | `API_INTERNAL_URL` | frontend | URL at which the frontend reaches the API. |
-| `OIDC_ISSUER` | api, mcp, frontend | OpenID Connect issuer. Must be `https` when `APP_ENV` is not `local`. |
-| `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | frontend | OpenID Connect client. |
+| `OIDC_ISSUER` | api, mcp, frontend | OpenID Connect issuer. Must be `https` when `APP_ENV` is not `local`. Required in every environment: there is no other sign-in. |
+| `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | frontend | OpenID Connect client. Required in every environment. |
 | `SESSION_SECRET` | frontend | Signs the session cookie. At least 32 bytes. |
 | `MCP_RESOURCE_URL` | mcp | Public URL of the MCP endpoint, for example `https://mcp.example.com/mcp`. The path is exactly `/mcp`, with no query or fragment. `https` unless `APP_ENV` is `local`. Published as the `resource` of the protected resource metadata. See [architecture](mcp-server/architecture.md#settings). |
 | `DRIVE_IDENTITY_EMAIL` | api, worker-parse | E-mail address of the service identity that must have access to the shared folders. See below. |
@@ -64,9 +64,8 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `DATABASE_AGENT_USER` | `specflow_agent` | api, workers | Role for agent tools. It must differ from `DATABASE_USER`. |
 | `TEMPORAL_QUEUE_PARSE`, `TEMPORAL_QUEUE_AGENTS` | `specflow-parse`, `specflow-agents` | api, workers | Task queue names. |
 | `WORKER_QUEUES` | `parse,agents` | workers | The queues one worker polls. Set it per worker. |
-| `AUTH_MODE` | `oidc` | api, mcp, frontend | `oidc` or `dev`. `dev` is for `APP_ENV=local` only. |
-| `AUTH_JWKS_URL` | unset | api, mcp | JWKS override on the issuer host. |
-| `OIDC_INTERNAL_URL` | unset | frontend | URL at which the frontend reaches the issuer, when it differs from `OIDC_ISSUER`. |
+| `AUTH_JWKS_URL` | unset | api, mcp | JWKS override on the issuer host. The local stack sets it to the Keycloak address inside the compose network. |
+| `OIDC_INTERNAL_URL` | unset | frontend | URL at which the frontend reaches the issuer, when it differs from `OIDC_ISSUER`. The local stack sets it to the Keycloak address inside the compose network. |
 | `AUTH_API_AUDIENCE` | `specflow-api` | api, mcp | Expected token audience. Must differ from every `AUTH_API_CLIENT_IDS` value while `AUTH_TOKEN_TYPE=none`. When audiences are client ids, each surface needs its own client; the `mcp` role checks this against the `AUTH_API_*` values it is given ([refusals](mcp-server/auth.md#token-validation)). |
 | `AUTH_API_CLIENT_IDS` | `specflow-web` | api | Comma-separated list of allowed token client ids. |
 | `AUTH_SUBJECT_CLAIM` | `sub` | api, mcp | Claim that holds the user id. Choose it before the first sign-in: changing it re-keys users. See [auth](mcp-server/auth.md#claim-profile-for-any-oidc-provider). |
@@ -83,7 +82,7 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `MCP_ALLOWED_ORIGINS` | empty | mcp | Comma-separated browser `Origin` values accepted. Exact match, no wildcard. Empty refuses every request that carries an `Origin`. |
 | `MCP_PUBLIC_URL` | `PUBLIC_URL` + `/mcp` | frontend | Address of the MCP endpoint that the Guides page shows. Use the value of `MCP_RESOURCE_URL`. An `http` or `https` URL, `https` unless `APP_ENV` is `local`. Server-only. Locally, compose sets `http://localhost:8002/mcp`. See [deployment](mcp-server/deployment.md#web-app-settings-for-the-guides). |
 | `MCP_CLIENT_ID` | `specflow-mcp` | frontend | Client id that the Guides page shows. Use the first entry of `MCP_CLIENT_IDS`. Must not be blank. Server-only. |
-| `MCP_SERVER_NAME` | `specflow` | frontend | Name the Guides page registers the MCP server under in Claude Code (`claude mcp add ... <name> <url>`, `/mcp__<name>__select_project`). Letters, digits, `_` and `-`, 1 to 64 characters; empty means the default, and a value of only spaces is refused. Server-only. |
+| `MCP_SERVER_NAME` | `specflow` | frontend | Name the Guides page registers the MCP server under in Claude Code (`claude mcp add ... <name> <url>`, `/mcp__<name>__select_project`). Letters, digits, `_` and `-`, 1 to 64 characters; empty means the default, and a value of only spaces is refused. Server-only. The local stack sets `specflow-local`. See [deployment](mcp-server/deployment.md#guides-in-the-web-app). |
 | `MCP_PORT` | `8002` | mcp | Listen port of the MCP role. See [architecture](mcp-server/architecture.md#settings). |
 | `ALEMBIC_CONFIG` | `/app/alembic.ini` | migration job | Path of the migration config. |
 | `WORKER_DIAG_STATE` | `<tmpdir>/specflow-worker-state.json` | workers | File for worker diagnostics. |
@@ -135,14 +134,26 @@ S3 keys come from the standard AWS credential chain. A bucket is never created b
 
 ## Local stack
 
-Run `make env-local` first: it writes `.env.local` (git-ignored) with random local secrets, then asks
-for `AGENT_MODEL`, `LLM_GATEWAY_URL` and `LLM_GATEWAY_API_KEY` (the key without echo; with no terminal it lists the
-missing names instead). It never overwrites or prints a value, so run it again after an update: it appends a missing
-or empty secret and asks only for missing or empty LLM settings. A secret appended to a file whose volumes already
-hold data does not match them. `make up` then starts postgres, neo4j, RustFS (S3-compatible,
-host port `RUSTFS_HOST_PORT`, default `19000`, bucket `specflow-local`), api, mcp (the MCP
-endpoint on `127.0.0.1:8002`, dev mode), worker-parse, worker-agents and frontend.
-`docker-compose.yml` and the `Makefile` set the local values below.
+Run `make env-local` first: it writes `.env.local` (git-ignored) with random local secrets, including the
+password and id of your local sign-in user. Then it asks for your sign-in email (`LOCAL_TEST_USER_EMAIL`; Enter takes
+`git config user.email`; with no terminal it uses `dev@example.com`) and for `AGENT_MODEL`, `LLM_GATEWAY_URL` and
+`LLM_GATEWAY_API_KEY` (the key without echo; with no terminal it lists the missing names instead). It writes
+`AUTH_ALLOWED_EMAIL_DOMAINS` as the domain of your email plus `example.com` when the name is missing. It never
+overwrites or prints a value, so run it again after an update: it appends a missing or empty secret and asks only for
+a missing email or missing LLM settings. A secret appended to a file whose volumes already hold data does not match
+them: run `make down-volumes` once. `make up` then starts postgres, neo4j, RustFS (S3-compatible,
+host port `RUSTFS_HOST_PORT`, default `19000`, bucket `specflow-local`), keycloak (the identity provider of the
+whole stack, `127.0.0.1:8180`, realm `specflow`), api, mcp (the MCP endpoint on `127.0.0.1:8002`), worker-parse,
+worker-agents and frontend. `make up` stops before compose when `.env.local` lacks a Keycloak value
+(`KEYCLOAK_ADMIN_PASSWORD`, `KEYCLOAK_QA_PASSWORD`, `KEYCLOAK_WEB_CLIENT_SECRET`, `LOCAL_TEST_USER_EMAIL`,
+`LOCAL_TEST_USER_PASSWORD`, `LOCAL_TEST_USER_ID`) and names the missing ones. `docker-compose.yml` and the `Makefile`
+set the local values below.
+
+Keycloak is not optional and has no data volume. Every container creation imports
+`config/keycloak/specflow-realm.json`, with the `${NAME}` placeholders filled from `.env.local`: your user (the fixed
+id from `LOCAL_TEST_USER_ID` keeps your `sub` stable), the QA users `alice@example.com`, `bob@example.com` and
+`carol@other.example` (fixed ids, password `KEYCLOAK_QA_PASSWORD`) and the `specflow-web` client secret. Keycloak
+sessions end when the container is recreated. See [local stack](mcp-server/deployment.md#local-stack).
 
 Temporal and Langfuse are optional. The default stack starts neither: the app uses your own.
 
@@ -153,13 +164,9 @@ Temporal and Langfuse are optional. The default stack starts neither: the app us
 | Bundled Langfuse | `make up WITH=langfuse` | as above | `http://specflow-langfuse-web:3000`, keys from `.env.local` or the local defaults |
 | Both | `make up WITH=temporal,langfuse` | `specflow-temporal:7233` | as the row above |
 
-`make up WITH=keycloak` also starts the local Keycloak (`127.0.0.1:8180`, realm `specflow`) and
-switches only `mcp` to `oidc`; the web app and the API keep dev login. See
-[MCP local stack](mcp-server/deployment.md#local-stack).
-
-`WITH` sets the compose profiles `temporal` (the dev server), `langfuse` (web, worker,
-postgres, clickhouse, redis, minio) and `keycloak`. `make down`, `make ps` and `make logs`
-always cover every profile. Set `TEMPORAL_ADDRESS` to an address the containers can reach (not `localhost`). The host
+`WITH` sets the compose profiles `temporal` (the dev server) and `langfuse` (web, worker,
+postgres, clickhouse, redis, minio). `WITH=keycloak` is refused: Keycloak always starts. `make down`, `make ps` and
+`make logs` always cover every profile. Set `TEMPORAL_ADDRESS` to an address the containers can reach (not `localhost`). The host
 tools (`make api`, `make worker`) use `TEMPORAL_ADDRESS`, default `localhost:7233`.
 
 The app never creates the Temporal namespace (`TEMPORAL_NAMESPACE`, default `specflow-local`).
@@ -171,18 +178,48 @@ temporal operator namespace create --address <host>:7233 --namespace specflow-lo
 
 | Name | Class | Value |
 |---|---|---|
-| `POSTGRES_ADMIN_PASSWORD`, `DATABASE_PASSWORD`, `DATABASE_AGENT_PASSWORD`, `NEO4J_PASSWORD`, `AUTH_DEV_SIGNING_KEY`, `SESSION_SECRET` | L (secrets) | Generated by `make env-local`. |
+| `POSTGRES_ADMIN_PASSWORD`, `DATABASE_PASSWORD`, `DATABASE_AGENT_PASSWORD`, `NEO4J_PASSWORD`, `SESSION_SECRET` | L (secrets) | Generated by `make env-local`. |
 | `RUSTFS_ACCESS_KEY`, `RUSTFS_SECRET_KEY` | L (secrets) | Generated by `make env-local`; mapped to `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. |
-| `KEYCLOAK_ADMIN_PASSWORD`, `KEYCLOAK_QA_PASSWORD`, `KEYCLOAK_WEB_CLIENT_SECRET` | L (secrets) | Generated by `make env-local`. The admin password reaches only the `keycloak` container (as `KC_BOOTSTRAP_ADMIN_PASSWORD`); the QA user password and the `specflow-web` client secret are read by the QA commands (`backend/examples/mcp_qa.py`). |
+| `KEYCLOAK_ADMIN_PASSWORD`, `KEYCLOAK_QA_PASSWORD`, `KEYCLOAK_WEB_CLIENT_SECRET` | L (secrets) | Generated by `make env-local`. The admin password reaches only the `keycloak` container (as `KC_BOOTSTRAP_ADMIN_PASSWORD`). The realm import takes the QA user password and the `specflow-web` client secret; compose gives the secret to the frontend as `OIDC_CLIENT_SECRET`. The QA commands (`backend/examples/mcp_qa.py`) and the live tests read the password and the secret from the file. |
+| `LOCAL_TEST_USER_PASSWORD`, `LOCAL_TEST_USER_ID` | L (secrets) | Generated by `make env-local`: the password of your local sign-in user, and its Keycloak user id (a UUID, so your `sub` stays the same when the container is recreated). Only the `keycloak` container reads them. |
+| `LOCAL_TEST_USER_EMAIL` | L | Your sign-in email, asked by `make env-local` (default `git config user.email`, no terminal: `dev@example.com`). One `@`, a dotted domain, only `A-Za-z0-9._:/@+=-`, and not a QA user. `make up` refuses a value that fails this check. |
+| `OIDC_ISSUER`, `OIDC_INTERNAL_URL`, `OIDC_CLIENT_ID`, `AUTH_JWKS_URL` | L (compose only) | Fixed in `docker-compose.yml` for api, mcp and frontend: issuer `http://localhost:8180/realms/specflow` (the address in every token and in the browser), back channel and JWKS on `specflow-keycloak:8080`, client `specflow-web`. A value in `.env.local` does not reach the containers. |
 | `RUSTFS_HOST_PORT` | L | `19000`. |
 | `MCP_RESOURCE_URL`, `MCP_PORT` | L | The `mcp` service: `http://localhost:8002/mcp`, `8002`. Clients use `localhost`: on `/mcp` another `Host`, such as `127.0.0.1:8002`, is refused ([Host rule](mcp-server/architecture.md#transport)). |
-| `MCP_AUTH_MODE`, `MCP_OIDC_ISSUER`, `MCP_AUTH_JWKS_URL`, `MCP_AUTH_DEV_SIGNING_KEY` | L (compose only) | Set by `make up WITH=keycloak` for the `mcp` service only, as its `AUTH_MODE` (`oidc`), `OIDC_ISSUER` (`http://localhost:8180/realms/specflow`), `AUTH_JWKS_URL` (on `specflow-keycloak:8080`) and an empty `AUTH_DEV_SIGNING_KEY`; cleared otherwise (dev mode). Do not set them yourself. |
 | `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE` | L | Containers: `host.docker.internal:7233` (own Temporal) or `specflow-temporal:7233` (`WITH=temporal`); namespace `specflow-local`. Host tools: `localhost:7233`. |
 | `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | L | Empty (no tracing); with `WITH=langfuse`: the bundled Langfuse and local keys. |
 | `DATABASE_PORT` | D + L | Host `5433`. |
-| `AUTH_MODE` | D + L | `dev` (the `mcp` service: `oidc` with `WITH=keycloak`). |
+| `AUTH_ALLOWED_EMAIL_DOMAINS` | K + L | Written by `make env-local` as the domain of your email plus `example.com` (the QA users `alice` and `bob`; `carol` is refused). Compose falls back to `example.com`. |
+| `MCP_SERVER_NAME` | D + L | `specflow-local` (the frontend service). |
 | `AGENT_TRACE_SENSITIVE_DATA` | D + L | `true`. |
-| `LOCAL_TEST_USER_EMAIL`, `FRONTEND_PORT`, `E2E_BASE_URL` | L | `dev@example.com`, `3001`, `http://localhost:3001`. |
+| `FRONTEND_PORT`, `E2E_BASE_URL` | L | `3001`, `http://localhost:3001`. |
+
+### Removed names
+
+`AUTH_MODE` is not a setting any more: the API, the MCP server and the web app always use OpenID Connect. A value
+`AUTH_MODE=dev` (any case) in the environment (a host run such as `make api` or `make frontend-dev`; compose does not pass it on) stops the API, the MCP server and the web app with a line that names
+`AUTH_MODE` and says to delete `AUTH_MODE` and `AUTH_DEV_SIGNING_KEY` from your env file; any other value is ignored,
+so a deployment that still sets `AUTH_MODE=oidc` keeps starting. `AUTH_DEV_SIGNING_KEY` and the old
+`MCP_AUTH_*` and `MCP_OIDC_*` compose variables are not read: delete them from `.env.local`. If you used the dev
+login before, see [Upgrading from the dev login](../QUICKSTART.md#upgrading-from-the-dev-login).
+
+### Web app on the host
+
+`make frontend-dev` runs the web app on the host against the stack from `make up`. It needs the sign-in values in
+`.env.local`, because compose does not pass them to a host process. Stop the `frontend` container first (same port).
+Set these names, with the values the compose frontend gets:
+
+| Name | Value |
+|---|---|
+| `APP_ENV` | `local` |
+| `PUBLIC_URL` | `http://localhost:3001` (the realm accepts only this address, or the `PUBLIC_URL` that compose got) |
+| `API_INTERNAL_URL` | `http://127.0.0.1:8000` |
+| `OIDC_ISSUER` | `http://localhost:8180/realms/specflow` |
+| `OIDC_CLIENT_ID` | `specflow-web` |
+| `OIDC_CLIENT_SECRET` | the value of `KEYCLOAK_WEB_CLIENT_SECRET` |
+
+`OIDC_INTERNAL_URL` is not needed on the host: it reaches Keycloak on `localhost:8180`. `SESSION_SECRET` is already in
+the file.
 
 End-to-end test helpers also read `E2E_DEMO_BASE_URL`, `E2E_PRODUCTION_BASE_URL`,
 `E2E_ENV_FILE`, `E2E_OUT`, `E2E_UV` and `PARITY`; they are test-only.
@@ -199,6 +236,6 @@ no fallback to other credentials. The app still starts.
 | Variable | Tier |
 |---|---|
 | `SPECFLOW_TEST_S3=1` | S3 object store against a real endpoint (`AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`; bucket from `STORAGE_BUCKET`, default `specflow-local`). |
-| `SPECFLOW_TEST_MCP_E2E=1` | MCP end-to-end tier against the local `mcp` service and Keycloak (`make up WITH=keycloak`, then the QA seed); see [testing](mcp-server/testing.md#tiers). |
+| `SPECFLOW_TEST_MCP_E2E=1` | MCP end-to-end tier against the local `mcp` service and Keycloak (`make up`, then the QA seed); see [testing](mcp-server/testing.md#tiers). |
 | `SPECFLOW_TEST_MCP_CLAUDE=1` | MCP agent tier: the real `claude` CLI signs in and calls the tools; spends model tokens and needs a signed-in CLI. |
 | `SPECFLOW_TEST_GCS`, `SPECFLOW_TEST_POSTGRES`, `SPECFLOW_TEST_NEO4J`, `SPECFLOW_TEST_TEMPORAL`, `SPECFLOW_TEST_LLM_GATEWAY` | Other live tiers. |

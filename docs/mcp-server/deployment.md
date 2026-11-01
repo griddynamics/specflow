@@ -109,37 +109,25 @@ run it without an argument.
 
 Use `localhost`, never `127.0.0.1` (refused by the Host rule of [architecture.md](architecture.md#transport)). The server is named `specflow-local`, so it does not clash with a
 production `specflow` entry; its prompt is `/mcp__specflow-local__select_project`, and the `server` value in the
-binding file is `http://localhost:8002/mcp`. Switching modes needs `claude mcp remove specflow-local --scope local` and a new add.
+binding file is `http://localhost:8002/mcp`. The local stack gives the web app `MCP_SERVER_NAME=specflow-local`, so the
+Guides page shows this name ([Guides in the web app](#guides-in-the-web-app)).
 
-Dev mode (`make up`), from the repository root. The token expires ([auth.md](auth.md#local-and-development-mode)); add it again after that:
-
-```bash
-claude mcp add --transport http --scope local specflow-local http://localhost:8002/mcp --header "Authorization: Bearer $(cd backend && uv run --quiet --env-file ../.env.local python examples/mcp_qa.py dev-token dev@example.com)"
-```
-
-Run the `dev-token` command alone first and check that it prints exactly one line: an empty token would register a
-server with an empty header. The token is stored in the local Claude Code config. Keep the name and URL before
-`--header`, which takes every argument after it. `dev@example.com` is the default `LOCAL_TEST_USER_EMAIL`, the web
-app's dev-login user; use your value if you changed it, so Claude Code and the web app see the same projects. For a token
-that refreshes, register a `headersHelper` entry at local scope with `claude mcp add-json --scope local specflow-local '<the JSON below>'`
-(run from the repository root, to whose local config the entry belongs; Claude Code runs the helper only after you accepted
-the workspace trust dialog once; the helper's working directory was not verified, so give the path of the repository
-explicitly). The `.mcp.json` at the repository root is tracked: never put a static token in it, and keep
-this entry out of it:
-
-```json
-{"type": "http", "url": "http://localhost:8002/mcp",
- "headersHelper": "cd <repository>/backend && uv run --quiet --env-file ../.env.local python examples/mcp_qa.py dev-token dev@example.com --headers"}
-```
-
-Keycloak (`make up WITH=keycloak`): seed the QA users once, and again after any Keycloak recreate, then add the server
-and sign in as `alice@example.com` with `KEYCLOAK_QA_PASSWORD` from `.env.local`:
+The local endpoint signs in through the bundled Keycloak, like production through its IdP. After `make env-local` and
+`make up` ([Local stack](#local-stack)), add the server once:
 
 ```bash
-cd backend && uv run --env-file ../.env.local python examples/mcp_qa.py seed
-claude mcp add --transport http --scope local --client-id specflow-mcp --callback-port 8765 specflow-local http://localhost:8002/mcp
-claude mcp login specflow-local
+claude mcp add --transport http --scope user --client-id specflow-mcp --callback-port 8765 specflow-local http://localhost:8002/mcp
 ```
+
+Sign in with `/mcp` in Claude Code (select `specflow-local`, then Authenticate) or `claude mcp login specflow-local`.
+The browser opens the local Keycloak. Use your own account: the email you gave `make env-local` and
+`LOCAL_TEST_USER_PASSWORD` from `.env.local`. It is the web app's user, so Claude Code and the web app see the same
+projects. Port 8765 must be free during sign-in. The QA users (`alice@example.com` and the others, with
+`KEYCLOAK_QA_PASSWORD`) are for the tests ([testing.md](testing.md#fixtures)).
+
+Keycloak keeps no data between container creations ([Local stack](#local-stack)): after `make down` and `make up`,
+authenticate again. A static token or a `headersHelper` entry no longer exists; do not put a token in the tracked
+`.mcp.json`.
 
 ### Guides in the web app
 
@@ -154,26 +142,22 @@ editing placeholders.
 Only Claude Code has setup steps; Codex and Cursor show "Setup is in progress" until each is tested end to end
 ([later.md](later.md)). `/guides/mcp-server?agent=claude-code`, `codex` or `cursor` selects the agent.
 
-The page shows one of two variants, chosen by the web app's own `AUTH_MODE`:
-
-| Web app `AUTH_MODE` | Variant |
-|---|---|
-| `oidc` | The production steps of this section: server `specflow`, client id from `MCP_CLIENT_ID`, sign-in through the IdP, and the team `.mcp.json` |
-| `dev` | The local steps of [Local endpoint](#local-endpoint): server `specflow-local`, the `headersHelper` entry with the dev user's e-mail (`LOCAL_TEST_USER_EMAIL`), no sign-in step and no `.mcp.json` |
-
-Limit: with `make up WITH=keycloak` only the `mcp` role switches to `oidc`; the web app keeps dev login
-([Local stack](#local-stack)), so the guide shows the local variant there. That mode is for QA; use the commands of
-[Local endpoint](#local-endpoint) for it.
+The page has one set of steps in every deployment: add the server, sign in through the IdP, bind a repository, check it,
+and the team `.mcp.json`. Only the values come from configuration: the server name from `MCP_SERVER_NAME` (default
+`specflow`; the local stack sets `specflow-local`), the address from `MCP_PUBLIC_URL` and the client id from
+`MCP_CLIENT_ID`. The server name is used in the add command, the team `.mcp.json` and the prompt
+`/mcp__<name>__select_project`.
 
 ### Web app settings for the guides
 
-Operators set two settings on the web app, from the same values as the `mcp` role. Both are read on the server only:
+Operators set up to three settings on the web app, two from the same values as the `mcp` role. All are read on the server only:
 no `NEXT_PUBLIC_` variable exists, and the pages pass the values to the browser as props.
 
 | Web app setting | Same value as the `mcp` role | Default | Rule |
 |---|---|---|---|
 | `MCP_PUBLIC_URL` | `MCP_RESOURCE_URL` | `PUBLIC_URL` + `/mcp` | An `http` or `https` URL; `https` unless `APP_ENV=local` |
 | `MCP_CLIENT_ID` | the first entry of `MCP_CLIENT_IDS` | `specflow-mcp` | Not blank |
+| `MCP_SERVER_NAME` | none (a label of the developer's machine) | `specflow` | Letters, digits, `_` and `-`, 1 to 64 characters; it ends up in a slash command |
 
 With the ingress of [Public endpoint](#public-endpoint) (P1, P2) the default already equals `MCP_RESOURCE_URL`; set the
 setting when the two differ. The web app refuses a value that breaks the rule, with an error that names the setting
@@ -181,28 +165,42 @@ setting when the two differ. The web app refuses a value that breaks the rule, w
 
 ## Local stack
 
-`make up` always starts the `mcp` role, in dev mode like the web app: the same dev-login users and the same projects.
-`make up WITH=keycloak` also starts the bundled Keycloak and switches the role to `oidc`, for the real sign-in flow and
-the QA tiers.
+`make up` always starts the bundled Keycloak and the `mcp` role. Keycloak is the identity provider of every local
+service: the web app, the REST API and `mcp` sign in and validate tokens against it, so one local user is the same
+person everywhere. There is no dev login and no `AUTH_MODE`. `make up WITH=keycloak` is refused (`WITH` accepts `temporal` and
+`langfuse`).
 
 | Service | Compose profile | Image | Host port | Role |
 |---|---|---|---|---|
 | `mcp` | none (always on) | the backend image, `specflow mcp` | `127.0.0.1:8002` | the MCP role |
-| `keycloak` | `keycloak` | `quay.io/keycloak/keycloak`, an exact 26.4 patch tag pinned like the other services, `start-dev` | `127.0.0.1:8180` | local IdP for the real sign-in flow, realm `specflow` imported at start |
+| `keycloak` | none (always on) | `quay.io/keycloak/keycloak`, an exact 26.4 patch tag pinned like the other services, `start-dev` | `127.0.0.1:8180` | local IdP, realm `specflow` imported at container creation; api, mcp and frontend wait for it to be healthy |
 
 | Item | Local value |
 |---|---|
-| Realm file | `config/keycloak/specflow-realm.json`: clients `specflow-mcp` (public) and `specflow-web` (confidential, audience `specflow-api`, redirect URI `http://localhost:3001/api/auth/callback/oidc`, the web app's sign-in callback, which the QA token helper uses), audience mapper `http://localhost:8002/mcp`. No users and no literal secret in the file: the QA seed sets the `specflow-web` secret from `.env.local` through the Keycloak admin API |
-| QA users | `alice@example.com`, `bob@example.com` and `carol@other.example` (a domain that is not allowed), created by the QA seed with a password from `.env.local` ([testing.md](testing.md#fixtures)) |
+| Realm file | `config/keycloak/specflow-realm.json`, a template: every secret, password, id and address is a `${NAME}` placeholder that Keycloak fills from the container environment at import. Compose passes the values from `.env.local`. Clients: `specflow-mcp` (public, audience mapper `http://localhost:8002/mcp`) and `specflow-web` (confidential, secret `KEYCLOAK_WEB_CLIENT_SECRET`, audience `specflow-api`, redirect URI `<PUBLIC_URL>/api/auth/callback/oidc`, post-logout redirect `<PUBLIC_URL>/*`) |
+| `PUBLIC_URL` | No trailing slash: the realm joins it with paths to build the redirect URIs. Compose takes it from `PUBLIC_URL` or `http://localhost:3001` |
+| Your user | email `LOCAL_TEST_USER_EMAIL`, password `LOCAL_TEST_USER_PASSWORD`, Keycloak id `LOCAL_TEST_USER_ID` (so the token `sub` stays the same), all written by `make env-local` |
+| QA users | `alice@example.com`, `bob@example.com` and `carol@other.example` (a domain that is not allowed), with password `KEYCLOAK_QA_PASSWORD`. Their ids are fixed in the realm file, the same constants as in `backend/examples/mcp_qa_lib.py`, so the QA seed needs no Keycloak call ([testing.md](testing.md#fixtures)) |
 | Issuer | `http://localhost:8180/realms/specflow` for every token: Keycloak runs with `KC_HOSTNAME=http://localhost:8180` |
-| Keys from containers | `AUTH_JWKS_URL` on the compose network name (accepted in local only) |
-| `mcp` in dev mode | `APP_ENV=local`, `AUTH_MODE=dev`, `AUTH_DEV_SIGNING_KEY` from `.env.local`, `MCP_RESOURCE_URL=http://localhost:8002/mcp`, `AUTH_ALLOWED_EMAIL_DOMAINS=example.com` |
-| Dev token for Claude Code | from the QA helper command, through `headersHelper` (local scope) or `--header`; lifetime in [auth.md](auth.md#local-and-development-mode) |
-| `mcp` with Keycloak | `AUTH_MODE=oidc`, `OIDC_ISSUER=http://localhost:8180/realms/specflow`, `AUTH_JWKS_URL` on the compose network name, and `AUTH_DEV_SIGNING_KEY` empty: `.env.local` always holds a dev key for the web app, and the role refuses any dev key under `oidc` |
-| Web app guide values | compose gives the web app `MCP_PUBLIC_URL=http://localhost:8002/mcp` (the web app's `PUBLIC_URL` is `http://localhost:3001`, so the default would be wrong here) and leaves `MCP_CLIENT_ID` at its default. Guides › MCP server at `http://localhost:3001/guides/mcp-server` then shows the local variant ([Guides in the web app](#guides-in-the-web-app)) |
-| Web app and API | dev login in both modes. With Keycloak, the MCP users are Keycloak users, so the QA seed provides their data ([testing.md](testing.md)) |
+| Keys from containers | `AUTH_JWKS_URL` and the web app's `OIDC_INTERNAL_URL` on the compose network name `specflow-keycloak:8080` (accepted in local only) |
+| `mcp` | `APP_ENV=local`, `OIDC_ISSUER` and `AUTH_JWKS_URL` as above, `MCP_RESOURCE_URL=http://localhost:8002/mcp`, `AUTH_ALLOWED_EMAIL_DOMAINS` from `.env.local` (your domain and `example.com`) |
+| Web app guide values | compose gives the web app `MCP_PUBLIC_URL=http://localhost:8002/mcp` (the web app's `PUBLIC_URL` is `http://localhost:3001`, so the default would be wrong here), `MCP_SERVER_NAME=specflow-local` and leaves `MCP_CLIENT_ID` at its default. Guides › MCP server at `http://localhost:3001/guides/mcp-server` shows the same steps as production with these values ([Guides in the web app](#guides-in-the-web-app)) |
 
-`make up WITH=keycloak` refuses to start (`check-keycloak-env`) when the env file has no non-empty `KEYCLOAK_ADMIN_PASSWORD`; run `make env-local`. Compose keeps an empty default so other profiles are unaffected.
+`make up` refuses to start (`check-keycloak-env`) when the env file lacks one of `KEYCLOAK_ADMIN_PASSWORD`,
+`KEYCLOAK_QA_PASSWORD`, `KEYCLOAK_WEB_CLIENT_SECRET`, `LOCAL_TEST_USER_EMAIL`, `LOCAL_TEST_USER_PASSWORD` or
+`LOCAL_TEST_USER_ID`, or when the email is not usable. It names the missing variables and says to run `make env-local`.
+Compose keeps empty defaults so other commands (`make ps`, `make logs`, `make down`) still work.
 
-Generated local secrets (Keycloak admin password, QA user password, `specflow-web` client secret) live in `.env.local`
-next to the other generated local secrets and are never committed.
+Generated local secrets (Keycloak admin password, QA user password, `specflow-web` client secret, your password and id)
+live in `.env.local` next to the other generated local secrets and are never committed.
+
+Keycloak has no data volume, by design. Recreating the container imports the realm again from the current `.env.local`:
+
+| Event | Effect |
+|---|---|
+| `make down`, then `make up` | New Keycloak container: all Keycloak sessions end. Sign in again in the browser and in Claude Code. Users and ids are the same, so the `sub` and the projects stay |
+| A value Keycloak reads changes in `.env.local` (password, email) | `make up` recreates the container; the new value takes effect |
+| `config/keycloak/specflow-realm.json` changes | The bind mount alone does not recreate the container: run `make down` and `make up` |
+| `make down-volumes` | Deletes the application data (Postgres, Neo4j, RustFS, Temporal, Langfuse); Keycloak has none. Run it once after upgrading from the dev login, whose `dev:<email>` data is not migrated ([QUICKSTART.md](../../QUICKSTART.md#upgrading-from-the-dev-login)) |
+
+The web app signs out through the IdP (RP-initiated logout) when the IdP advertises an end-session endpoint, as Keycloak does.

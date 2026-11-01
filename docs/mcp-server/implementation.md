@@ -31,6 +31,7 @@ tags: [mcp]
 | MCP-M8 | Bundle verification, security review and release check | done |
 | MCP-M9 | Workspace project binding | done |
 | MCP-M10 | Guides page and slim Develop tab | planned |
+| MCP-M11 | Keycloak as the local identity provider; dev login removed (CTORNDGAIN-2233) | planned |
 
 ## Log
 
@@ -223,3 +224,21 @@ Template:
   [testing.md](testing.md), [requirements.md](requirements.md), [later.md](later.md), the quickstart
 - Follow-ups: Claude Code runs the prompt as `/mcp__<server>__select_project` and passes only the first word of an
   argument, so a name with spaces is chosen from the list; a Codex compatibility check is in [later.md](later.md)
+
+### MCP-M11: Keycloak as the local identity provider; dev login removed
+
+- Date and commits: 2026-11-01, branch `fix/keycloak-local-everywhere` (commit ids are added when the branch merges)
+- Summary: the bundled Keycloak starts with every `make up` and signs in the web app, the REST API and the `mcp` role.
+  The dev login, the dev tokens, `AUTH_MODE` and `AUTH_DEV_SIGNING_KEY` are removed; `AUTH_MODE=dev` is refused with a
+  hint. `make env-local` asks for your sign-in email and generates the password and id; the realm file is a template
+  filled from `.env.local` at container creation (no volume), with fixed ids for the QA users. The Guides page shows
+  one set of steps and takes the server name from `MCP_SERVER_NAME`. The web app signs out through the IdP when it
+  has an end-session endpoint. The QA harness and E13 run on Keycloak tokens; the frontend test harnesses use a JWT
+  stub issuer.
+- Requirements proven: FR-MCP-AUTH-11 (rewritten), FR-MCP-UI-08 (rewritten), FR-MCP-OPS-08 (rewritten)
+- Design sections updated in place: [auth.md](auth.md#local-mode) (local mode; AA3 re-evaluated and kept, AA5
+  superseded), [deployment.md](deployment.md#local-stack), [testing.md](testing.md#fixtures),
+  [architecture.md](architecture.md#settings), [requirements.md](requirements.md), [later.md](later.md) (row removed),
+  [../configuration.md](../configuration.md#local-stack), the quickstart and the READMEs
+- Follow-ups: local data stored under `dev:<email>` is not migrated; run `make down-volumes` once
+  ([QUICKSTART.md](../../QUICKSTART.md#upgrading-from-the-dev-login))

@@ -57,8 +57,8 @@ flowchart TB
 |---|---|---|---|
 | `/mcp` | `POST` | Bearer | MCP JSON-RPC; JSON responses |
 | `/mcp` | `GET`, `DELETE` and any other method | Bearer | `405` with `Allow: POST` and the JSON error body `method_not_allowed`: stateless mode has no server-initiated stream and no session to delete |
-| `/.well-known/oauth-protected-resource/mcp` | `GET` | none | PRM (RFC 9728 path-inserted location); 404 in local dev mode |
-| `/.well-known/oauth-protected-resource` | `GET` | none | the same PRM (root fallback some clients try); 404 in local dev mode |
+| `/.well-known/oauth-protected-resource/mcp` | `GET` | none | PRM (RFC 9728 path-inserted location) |
+| `/.well-known/oauth-protected-resource` | `GET` | none | the same PRM (root fallback some clients try) |
 | `/healthz`, `/readyz` | `GET` | none | probes; not routed by the public ingress |
 | anything else | any | none | `404` with the JSON error body `{"error": {"code": "not_found", ...}}`; a known path with another method is `405` `method_not_allowed` |
 
@@ -157,10 +157,9 @@ Role `mcp` reads the shared database, Neo4j and auth settings ([../configuration
 | `MCP_PORT` | `8002` | Listen port |
 
 Shared settings the role requires: `APP_ENV`, `DATABASE_*`, `NEO4J_*`, `AUTH_ALLOWED_EMAIL_DOMAINS`; `OIDC_ISSUER`
-under `AUTH_MODE=oidc` (`https` unless `APP_ENV=local`); `AUTH_DEV_SIGNING_KEY` under `AUTH_MODE=dev`. Optional:
-`AUTH_MODE` (default `oidc`), `AUTH_JWKS_URL`, `AUTH_API_AUDIENCE` (default `specflow-api`, read for the audience
+(`https` unless `APP_ENV=local`). Optional: `AUTH_JWKS_URL`, `AUTH_API_AUDIENCE` (default `specflow-api`, read for the audience
 refusals) and the claim profile variables of [auth.md](auth.md). Startup refuses, naming every bad variable:
-`AUTH_MODE=dev` outside `APP_ENV=local` or inside Kubernetes; under `oidc`, a dev signing key or a missing issuer; an
+`AUTH_MODE=dev` (removed; the message carries a hint to delete it); a missing issuer; an
 invalid resource URL, an empty client list (outside `APP_ENV=local` also one holding the QA client `specflow-smoke`), the audience mix-ups that the refusal table of [auth.md](auth.md#token-validation) lists, and the
 token-type settings that the [claim profile](auth.md#claim-profile-for-any-oidc-provider) rules out.
 
@@ -185,10 +184,9 @@ Central logger only (`logger.get_logger`, `log_event`), dotted event names, no `
 
 | Event | Fields |
 |---|---|
-| `mcp.startup.completed` | port, auth mode |
+| `mcp.startup.completed` | port |
 | `mcp.startup.failed` | error type and the central logger's exception fields |
 | `mcp.shutdown.completed` | port |
-| `mcp.auth.dev_mode` | none (a startup warning, dev mode only) |
 | `mcp.auth.rejected` | reason, status, code |
 | `mcp.request.failed` | method, path, error type and the exception fields |
 | `mcp.tool.completed` | tool, user id, project id when given as a valid UUID (canonical form), outcome (`ok` or the error code), item count, duration ms; error type (the exception class name, never its text) when the outcome is not `ok` |

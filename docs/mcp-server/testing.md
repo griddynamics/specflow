@@ -14,7 +14,7 @@ tags: [mcp, testing]
 | Unit | always (`make check`) | settings and guards of both roles; claim profile branches; cursor codecs; PRM document; error mapping and sanitizing; result shaping; the membership structural test; the binding file schema, with its negative cases; the server instructions (resource URL, file name, under 2,048 characters, no project data) and the `select_project` text with and without the argument, the argument kept as quoted data |
 | HTTP boundary | always (`make check`) | the role's ASGI app over `httpx.ASGITransport` (the SDK client session over `httpx2.ASGITransport`) with the loopback JWKS stub of `specflow_auth_support` and a fake runtime: the full auth matrix, PRM, Host and Origin rules, body cap, 404 body, every tool through an MCP client session over HTTP, REST rejecting MCP tokens; `initialize` instructions; `prompts/list` and `prompts/get`, and 401 for both without a token; tool input schemas unchanged except descriptions |
 | Live data | `SPECFLOW_TEST_POSTGRES=1`, `SPECFLOW_TEST_NEO4J=1` | repository reuse against Postgres; `count_nodes` and `nodes_page` against Neo4j, including an ontology whose `feature` label and prefix are renamed (the graph library's renamed-ontology fixture also renames type keys, so it is not used unchanged: [../graph/ontology.md](../graph/ontology.md#ontology-files-of-submodules)) |
-| End to end | `SPECFLOW_TEST_MCP_E2E=1`, local stack with `WITH=keycloak` (E13: plain `make up`) | the real role, real Keycloak, the MCP Python SDK client running the OAuth flow; the scenario matrix below; every project-scoped scenario reads its project id from a binding file ([Temp workspace](#temp-workspace)) |
+| End to end | `SPECFLOW_TEST_MCP_E2E=1`, local stack (`make up`; Keycloak is always part of it), then the QA seed | the real role, real Keycloak, the MCP Python SDK client running the OAuth flow; the scenario matrix below; every project-scoped scenario reads its project id from a binding file ([Temp workspace](#temp-workspace)) |
 | Agent QA | `SPECFLOW_TEST_MCP_CLAUDE=1` and a signed-in `claude` CLI | Claude Code signs in, binds a temp repository to a project and answers developer prompts with the tools; assertions on tool events and the binding file; gate: 3 runs, all passing |
 
 The end-to-end and agent tiers are not part of CI: they need the local stack and, for the agent tier, model calls.
@@ -27,15 +27,15 @@ tests in `backend/tests`.
 
 ## Fixtures
 
-One idempotent QA seed prepares all three stores. It writes graph data through `graph.core.OwnedWriter` as the build
+One idempotent QA seed prepares the SpecFlow side (Postgres and Neo4j); Keycloak needs no seed, because the realm import creates its users ([Local stack](deployment.md#local-stack)). The seed has no mode and makes no Keycloak call. It writes graph data through `graph.core.OwnedWriter` as the build
 owner (the path the graph live tests use, [../graph/api.md](../graph/api.md#owned-writes)), never with ad hoc Cypher.
 `P-Alpha`, `P-Beta`, `P-Empty` and `P-Large` are project names; the seed writes each project's graph under its
 Postgres id (`group_id` = `str(project.id)`), and the scenarios pass that id.
 
 | Store | Data |
 |---|---|
-| Keycloak | `alice@example.com`, `bob@example.com` (verified); `carol@other.example` (verified, domain not allowed); one password from `.env.local`; the `specflow-web` client secret from `.env.local` |
-| Postgres | users whose `auth_subject` is the Keycloak user id (or `dev:<email>` in dev mode); `P-Alpha`, `P-Empty` and `P-Large` owned by alice; `P-Beta` owned by bob |
+| Keycloak (from the realm import, not the seed) | `alice@example.com`, `bob@example.com` (verified); `carol@other.example` (verified, domain not allowed); fixed user ids; `KEYCLOAK_QA_PASSWORD` from `.env.local` as the password; the `specflow-web` client secret `KEYCLOAK_WEB_CLIENT_SECRET` from `.env.local` |
+| Postgres | users whose `auth_subject` is the fixed Keycloak user id of the QA user (the same constants as in the realm file); `P-Alpha`, `P-Empty` and `P-Large` owned by alice; `P-Beta` owned by bob |
 | Neo4j | `P-Alpha`: 7 features, 2 modules, 3 functional requirements; `P-Beta`: 3 features; `P-Empty`: nothing; `P-Large`: 300 features |
 
 ## Temp workspace
@@ -68,14 +68,14 @@ test.
 | E10 | carol | `POST /mcp` | 403 `domain_not_allowed`, no challenge |
 | E11 | alice | `list_features` with a forged cursor | `invalid_cursor` |
 | E12 | alice | `POST /mcp` with a foreign `Host` | refused by transport security |
-| E13 | alice, dev mode | creates a project through the REST API with her web dev token, then calls `list_projects` with her MCP dev token | the project is listed; her web dev token on `/mcp` gets 401 |
+| E13 | alice | signs in at Keycloak as the `specflow-web` client (the web token) and as `specflow-mcp` (the MCP token); the two tokens carry the same `sub`; creates a project through the REST API with the web token, then calls `list_projects` with the MCP token | the `sub` is alice's fixed Keycloak id in both tokens; the project is listed; the web token on `/mcp` gets 401 |
 | E14 | alice | `list_features(P-Large)` at the load NFR-MCP-01 names, for 60 s | p95 within the target of NFR-MCP-01 ([requirements.md](requirements.md#non-functional)), recorded in the run report |
 | E15 | alice | `initialize` | the result carries instructions that hold the resource URL and `.specflow/config.json`, are under 2,048 characters and hold no project data |
 | E16 | alice; then no token | `prompts/list`, then `prompts/get` of `select_project` with and without `project` | the prompt is listed with an optional argument; the text holds the steps and the exact version 1 JSON; without a token, 401 for both |
 | E17 | alice | bind `P-Alpha` in a temp workspace and call `list_features` with the id from the file; replace the file with `P-Empty` and call again; then write a file bound to `P-Beta` and call again | first call: 7 features; second call: `total_count` 0, and the file holds only the `P-Empty` binding; third call: `project_not_found` |
 
-The reverse audience case (an MCP token on `/api/v1`) is an HTTP-boundary test of the API, because the local API runs
-with dev login.
+The reverse audience case (an MCP token on `/api/v1`) is an HTTP-boundary test of the API (tier table), not an
+end-to-end scenario.
 
 ## Agent QA with Claude Code
 
