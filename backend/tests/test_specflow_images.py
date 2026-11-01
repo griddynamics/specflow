@@ -177,7 +177,11 @@ def test_the_app_reaches_an_external_temporal_and_langfuse_by_default():
 
 def test_make_up_with_selects_the_profiles_and_points_the_app_at_them():
     makefile = (ROOT / "Makefile").read_text()
-    assert "COMPOSE_PROFILES=temporal,langfuse" in makefile  # down, ps, logs cover every profile
+    # down, ps and logs cover every profile (the dry run prints the profiles they pass to compose)
+    dry_run = subprocess.run(
+        ["make", "-n", "down"], cwd=ROOT, capture_output=True, text=True, check=True, env={**os.environ, "WITH": ""}
+    ).stdout
+    assert "COMPOSE_PROFILES=temporal,langfuse " in dry_run
     assert "specflow-temporal:7233" in makefile
     assert "LANGFUSE_BASE_URL=http://specflow-langfuse-web:3000" in makefile
     recipe_uses_all_profiles = r"^{}:.*\n(?:\t@?if[^\n]*\n(?:\t[^\n]*\n)*?)?\t[^\n]*\$\(COMPOSE_ALL\)"
@@ -220,7 +224,8 @@ def test_in_network_values_use_the_deployment_host_names():
         assert env["DATABASE_HOST"] == "specflow-postgres", name
         assert env["DATABASE_NAME"] == env["DATABASE_USER"] == "specflow", name
     for name in ("api", "worker-agents"):
-        assert env_of(services()[name])["NEO4J_URI"] == "bolt://specflow-neo4j:7687", name
+        env = env_of(services()[name])
+        assert (env["GRAPH_STORE"], env["GRAPH_STORE_URI"]) == ("neo4j", "bolt://specflow-neo4j:7687"), name
     assert env_of(services()["frontend"])["API_INTERNAL_URL"] == "http://specflow-api:8000"
 
 
@@ -235,7 +240,7 @@ def test_secret_variables_reach_only_their_roles():
     assert holders("DATABASE_AGENT_PASSWORD") == {"postgres", "worker-agents"}
     # The api runs the graph build in-process (POST /projects/{pid}/graph_build).
     assert holders("LLM_GATEWAY_API_KEY") == {"api", "worker-agents"}
-    assert holders("NEO4J_PASSWORD") == {"api", "worker-agents"}
+    assert holders("GRAPH_STORE_PASSWORD") == {"api", "worker-agents"}
     assert holders("POSTGRES_PASSWORD") == {"postgres", "langfuse-postgres"}  # the latter is its own store
     assert holders("AUTH_DEV_SIGNING_KEY") == {"api", "frontend"}
     allowed = {"SESSION_SECRET", "OIDC_CLIENT_SECRET", "AUTH_DEV_SIGNING_KEY"}
@@ -407,9 +412,9 @@ DEPLOYED_BACKEND_ENV = {
     "GOOGLE_CLOUD_PROJECT": "synthetic-project",
     "TEMPORAL_ADDRESS": "temporal.invalid:7233",
     "TEMPORAL_NAMESPACE": "synthetic",
-    "NEO4J_URI": "bolt://neo4j.invalid:7687",
-    "NEO4J_USER": "neo4j",
-    "NEO4J_PASSWORD": "synthetic-neo4j-password-1",
+    "GRAPH_STORE_URI": "bolt://neo4j.invalid:7687",
+    "GRAPH_STORE_USER": "neo4j",
+    "GRAPH_STORE_PASSWORD": "synthetic-neo4j-password-1",
     "AGENT_MODEL": "synthetic/model",
     "LLM_GATEWAY_URL": "https://gateway.invalid/openai",
     "LLM_GATEWAY_API_KEY": "synthetic-gateway-key-1",
@@ -634,3 +639,15 @@ async def test_ac_4_2_rss_for_100_mib_with_four_mib_chunks_against_a_fake_transp
     sys.stderr.write(f"\nAC-4.2 RSS growth for 100 MiB (fake transport, {sys.platform}): {growth:.1f} MiB\n")
     assert stored.size == 100 * MiB
     assert growth < 64, f"RSS grew {growth:.1f} MiB for 100 MiB (limit 64)"
+
+
+def test_the_graph_store_password_falls_back_to_the_older_env_file_name():
+    """An ``.env.local`` written before GRAPH_STORE_PASSWORD existed has only NEO4J_PASSWORD."""
+
+    text = (ROOT / "docker-compose.yml").read_text()
+    fallback = "${GRAPH_STORE_PASSWORD:-${NEO4J_PASSWORD:?"
+
+    assert text.count(fallback) == 3  # the neo4j login, api and worker-agents
+    for name in ("api", "worker-agents"):
+        assert fallback in env_of(services()[name])["GRAPH_STORE_PASSWORD"]
+    assert fallback in env_of(services()["neo4j"])["NEO4J_AUTH"]

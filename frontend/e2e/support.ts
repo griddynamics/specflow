@@ -280,7 +280,8 @@ export class Langfuse {
       "AUTH_DEV_SIGNING_KEY",
       "SESSION_SECRET",
       "DATABASE_PASSWORD",
-      "NEO4J_PASSWORD",
+      "GRAPH_STORE_PASSWORD",
+      "NEO4J_PASSWORD", // an older .env.local
     ];
     const env = readEnvFile(keys);
     this.base = env.LANGFUSE_BASE_URL.replace(/\/$/, "");
