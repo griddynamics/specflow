@@ -132,9 +132,9 @@ logs:
 ps:
 	$(COMPOSE_ALL) ps
 
-# Build the api, worker and frontend images, then run the image tests against them.
+# Build the api, worker-parse, worker-agents and frontend images, then run the image tests against them.
 images:
-	$(COMPOSE) build api worker-parse frontend
+	$(COMPOSE) build api worker-parse worker-agents frontend
 	$(MAKE) --no-print-directory -C backend ENV_FILE=$(ENV_FILE) image-test
 
 # Frontend on the host with live reload (stop the `frontend` container first: same port).

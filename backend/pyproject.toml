@@ -25,8 +25,6 @@ dependencies = [
     "pydantic>=2.14.1",
     "pydantic-settings>=2.16.1",
     "pyjwt[crypto]>=2.15.1",
-    "pymupdf>=2.0",
-    "pymupdf4llm>=2.0",
     "pyyaml>=6",
     "starlette>=1.10.0",
     "sqlalchemy[asyncio]>=2.1.6",
@@ -39,6 +37,20 @@ dependencies = [
 # One object-storage SDK per cloud, imported lazily by storage/factory.py. The images install both.
 gcp = ["google-cloud-storage>=3.17.1"]
 aws = ["boto3>=1.43,<2"]
+# The document parser (worker-parse image and dev/CI only; never the api or worker-agents image).
+# Docling pin and set of format packages: docs/docling-pdf-parser.md, 'Docling configuration'.
+# opencv-python-headless: imported by docling_ibm_models (TableFormer v1) without being declared by docling-slim.
+# pypdfium2: imported directly by file_parsers. pymupdf and pymupdf4llm leave when the Docling engine lands.
+parse = [
+    "docling-slim[convert-core,format-pdf,models-local,format-docx,format-pptx,format-xlsx,format-html,format-markdown]==2.145.0",
+    "opencv-python-headless<5",
+    "pymupdf>=2.0",
+    "pymupdf4llm>=2.0",
+    "pypdfium2",
+    # CPU wheels only: the default PyPI Linux wheels of torch pull nvidia-* (CUDA) packages with proprietary terms.
+    "torch==2.15.0",
+    "torchvision",
+]
 
 [project.scripts]
 specflow = "cli:main"
@@ -46,6 +58,16 @@ specflow = "cli:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+# Linux resolves torch from the PyTorch CPU index; other platforms (macOS) use the default index.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.hatch.build.targets.wheel]
 only-include = ["src"]
@@ -81,6 +103,7 @@ known_first_party = [
 extend_exclude = ["(^|.*/)(test_[^/]+|conftest)\\.py$"]
 
 [tool.deptry.package_module_name_map]
+docling-slim = ["docling"]
 google-api-python-client = ["googleapiclient"]
 google-auth = ["google"]
 google-cloud-storage = ["google"]
@@ -94,4 +117,10 @@ openinference-instrumentation = ["openinference"]
 # which deptry attributes to the temporalio package.
 # botocore ships inside the `aws` extra's boto3 (same release train); storage/s3.py imports its Config and ClientError.
 DEP001 = ["botocore"]
-DEP002 = ["asyncpg", "temporalio-openai-agents"]
+# opencv-python-headless is imported by docling_ibm_models (TableFormer v1), not by our code; torch and
+# torchvision are docling's runtime and pinned here only to select the CPU wheels.
+DEP002 = [
+    "asyncpg", "temporalio-openai-agents", "opencv-python-headless", "torch", "torchvision",
+    # TEMPORARY: removed when file_parsers imports them (the Docling engine).
+    "docling-slim", "pypdfium2",
+]

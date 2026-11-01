@@ -5,7 +5,7 @@ ENV_FILE ?= ../.env.local
 	db-upgrade db-revision api worker temporal-check image-test rss-test
 
 setup:
-	uv sync --extra gcp --extra aws
+	uv sync --extra gcp --extra aws --extra parse
 
 lint:
 	uv run ruff check src examples tests migrations

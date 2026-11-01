@@ -381,16 +381,18 @@ services:
 
   # Polls the Temporal queue specflow-parse: PDF parsing. No Neo4j, LLM gateway or agent password.
   worker-parse:
+    # Own image (Docling, torch CPU and the baked models): backend/worker-parse.Dockerfile. 3g: a 10-page
+    # Docling range peaks near 1.8 GB; the 1 GB /tmp tmpfs counts against the limit.
     build:
       context: ./backend
-      dockerfile: worker.Dockerfile
-    image: specflow-worker:local
+      dockerfile: worker-parse.Dockerfile
+    image: specflow-worker-parse:local
     container_name: specflow-worker-parse
     # Read-only root filesystem, as on Kubernetes; /tmp is the only writable place (the pod's emptyDir).
     read_only: true
     tmpfs:
       - /tmp:size=1g
-    mem_limit: 2g
+    mem_limit: 3g
     extra_hosts:
       - "host.docker.internal:host-gateway"   # reaches a Temporal or Langfuse on the host (Linux)
     stop_grace_period: 150s   # on SIGTERM, running activities finish for up to 130 s

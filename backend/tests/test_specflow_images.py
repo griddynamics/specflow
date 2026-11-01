@@ -46,16 +46,18 @@ OWNED = [
     ROOT / "backend" / "Makefile",
     ROOT / "backend" / "api.Dockerfile",
     ROOT / "backend" / "worker.Dockerfile",
+    ROOT / "backend" / "worker-parse.Dockerfile",
     ROOT / "backend" / ".dockerignore",
 ]
 API_IMAGE = os.environ.get("SPECFLOW_API_IMAGE", "specflow-api:local")
-WORKER_IMAGE = os.environ.get("SPECFLOW_WORKER_IMAGE", "specflow-worker:local")
+WORKER_IMAGE = os.environ.get("SPECFLOW_WORKER_IMAGE", "specflow-worker:local")  # worker-agents
+WORKER_PARSE_IMAGE = os.environ.get("SPECFLOW_WORKER_PARSE_IMAGE", "specflow-worker-parse:local")
 FRONTEND_IMAGE = os.environ.get("SPECFLOW_FRONTEND_IMAGE", "specflow-frontend:local")
 
 # App service -> (build context, Dockerfile), as in the deployment.
 BUILT = {
     "api": ("./backend", "api.Dockerfile"),
-    "worker-parse": ("./backend", "worker.Dockerfile"),
+    "worker-parse": ("./backend", "worker-parse.Dockerfile"),
     "worker-agents": ("./backend", "worker.Dockerfile"),
     "frontend": ("./frontend", "Dockerfile"),
 }
@@ -74,6 +76,9 @@ LOCAL_PLATFORM = {
     "langfuse-web",
 }
 BACKEND_SERVICES = ("api", "worker-parse", "worker-agents")
+DOCKERFILES = ("api.Dockerfile", "worker.Dockerfile", "worker-parse.Dockerfile")
+# Packages only the worker-parse image may carry (the `parse` extra and what it pulls in).
+PARSE_ONLY_MODULES = ("docling", "torch", "pymupdf", "pymupdf4llm", "cv2", "pypdfium2")
 
 images_enabled = os.environ.get("SPECFLOW_TEST_IMAGES") == "1"
 needs_docker = pytest.mark.skipif(
@@ -257,7 +262,7 @@ def test_base_images_are_pinned_to_exact_tags():
         stages = {stage for _, stage in bases if stage}
         for image, _ in bases:
             assert image in stages or pin.match(image), (path.name, image)
-    for name in ("api.Dockerfile", "worker.Dockerfile"):
+    for name in DOCKERFILES:
         assert re.search(r"pip install uv==\d+\.\d+\.\d+\b", (ROOT / "backend" / name).read_text()), name
 
 
@@ -311,6 +316,8 @@ def test_the_backend_services_run_on_a_read_only_root_filesystem():
     readonly = {name for name, svc in svcs.items() if svc.get("read_only") is True}
     assert readonly == set(BACKEND_SERVICES)
     assert svcs["worker-parse"]["tmpfs"] == [f"{PurePosixPath('/', 'tmp')}:size=1g"]
+    assert svcs["worker-parse"]["mem_limit"] == "3g"  # Docling; the 1 GB tmpfs counts against it
+    assert svcs["worker-parse"]["image"] == "specflow-worker-parse:local"
     assert svcs["worker-agents"]["tmpfs"] == [f"{PurePosixPath('/', 'tmp')}:size=256m"]
     assert "tmpfs" not in svcs["api"]
     assert not (ROOT / "docker-compose.readonly.yml").exists()
@@ -368,9 +375,9 @@ def test_the_backend_dockerignore_keeps_secrets_tests_and_caches_out():
 
 
 def test_the_backend_dockerfiles_have_the_runtime_contract():
-    """AC-14.1 (static part) for the api and worker images."""
+    """AC-14.1 (static part) for the api and the two worker images."""
 
-    for name in ("api.Dockerfile", "worker.Dockerfile"):
+    for name in DOCKERFILES:
         text = (ROOT / "backend" / name).read_text()
         runtime = text[text.rindex("\nFROM ") :]
         assert "uv sync --frozen --no-dev" in text and "--extra gcp --extra aws" in text, name
@@ -380,8 +387,39 @@ def test_the_backend_dockerfiles_have_the_runtime_contract():
     api = (ROOT / "backend" / "api.Dockerfile").read_text()
     assert 'CMD ["sh", "-c", "specflow migrate && exec specflow api"]' in api
     assert "COPY alembic.ini" in api and "COPY migrations" in api
-    worker = (ROOT / "backend" / "worker.Dockerfile").read_text()
-    assert 'CMD ["specflow", "worker"]' in worker and "EXPOSE 8001" in worker
+    for name in ("worker.Dockerfile", "worker-parse.Dockerfile"):
+        worker = (ROOT / "backend" / name).read_text()
+        assert 'CMD ["specflow", "worker"]' in worker and "EXPOSE 8001" in worker, name
+
+
+def test_only_the_worker_parse_image_installs_the_parse_extra():
+    """Per-role images: Docling, torch and PyMuPDF reach no other image through any extra."""
+
+    for name in ("api.Dockerfile", "worker.Dockerfile"):
+        text = (ROOT / "backend" / name).read_text()
+        assert "--extra parse" not in text and "--all-extras" not in text, name
+    parse = (ROOT / "backend" / "worker-parse.Dockerfile").read_text()
+    assert parse.count("uv sync --frozen --no-dev") == 2
+    assert parse.count("--extra gcp --extra aws --extra parse") == 2
+
+
+def test_the_worker_parse_image_bakes_the_pinned_models_and_runs_offline():
+    text = (ROOT / "backend" / "worker-parse.Dockerfile").read_text()
+    runtime = text[text.rindex("\nFROM ") :]
+    for repo in ("docling-project/docling-layout-heron", "docling-project/docling-models"):
+        assert repo in text, repo
+    for arg in ("LAYOUT_REVISION", "TABLEFORMER_REVISION"):
+        assert re.search(rf"^\s*ARG {arg}=[0-9a-f]{{40}}$", text, re.MULTILINE), arg  # a full commit, not a branch
+    assert "COPY --from=models /models /opt/docling-models" in runtime
+    for setting in ("HF_HUB_OFFLINE=1", "DOCLING_ARTIFACTS_PATH=/opt/docling-models", "MALLOC_ARENA_MAX=2"):
+        assert setting in runtime, setting
+
+
+def test_the_lock_resolves_torch_from_the_cpu_index_and_has_no_cuda_packages():
+    lock = (ROOT / "backend" / "uv.lock").read_text()
+    assert not re.search(r'^name = "(nvidia-|triton)', lock, re.MULTILINE)
+    assert 'source = { registry = "https://download.pytorch.org/whl/cpu" }' in lock
+    assert re.search(r'^version = "[\d.]+\+cpu"', lock, re.MULTILINE)
 
 
 # --- images (docker, SPECFLOW_TEST_IMAGES=1) -------------------------------------------
@@ -432,16 +470,19 @@ def docker_run(
     *args: str,
     entrypoint: str | None = None,
     read_only: bool = False,
+    mounts: tuple[str, ...] = (),
 ):
     command = ["docker", "run", "--rm", "--network", "none"]
     if read_only:
-        command.append("--read-only")
+        command += ["--read-only", "--tmpfs", f"{PurePosixPath('/', 'tmp')}:size=1g"]  # as in compose
+    for mount in mounts:
+        command += ["-v", mount]
     if entrypoint:
         command += ["--entrypoint", entrypoint]
     for name, value in env.items():
         command += ["-e", f"{name}={value}"]
     command += [image, *args]
-    return subprocess.run(command, capture_output=True, text=True, timeout=120, check=False)
+    return subprocess.run(command, capture_output=True, text=True, timeout=600, check=False)
 
 
 def shown(result) -> str:
@@ -464,9 +505,9 @@ def test_the_backend_control_runs_pass_check_config():
     env = {**DEPLOYED_BACKEND_ENV, "AUTH_MODE": "oidc"}
     result = docker_run(API_IMAGE, env, "specflow", "api", "--check-config")
     assert result.returncode == 0, shown(result)[-400:]
-    for queues in ("parse", "agents"):
+    for queues, image in (("parse", WORKER_PARSE_IMAGE), ("agents", WORKER_IMAGE)):
         worker = docker_run(
-            WORKER_IMAGE,
+            image,
             {**env, "WORKER_QUEUES": queues},
             "specflow",
             "worker",
@@ -491,7 +532,7 @@ def test_the_frontend_control_run_passes_check_env():
 
 
 @needs_docker
-@pytest.mark.parametrize("image", [API_IMAGE, WORKER_IMAGE])
+@pytest.mark.parametrize("image", [API_IMAGE, WORKER_IMAGE, WORKER_PARSE_IMAGE])
 def test_the_backend_image_layout_and_user(image):
     """AC-14: non-root 10001, no tests, no env files, no deploy/, no /app/logs, specflow importable."""
 
@@ -505,7 +546,7 @@ def test_the_backend_image_layout_and_user(image):
 
 
 @needs_docker
-@pytest.mark.parametrize("image", [API_IMAGE, WORKER_IMAGE])
+@pytest.mark.parametrize("image", [API_IMAGE, WORKER_IMAGE, WORKER_PARSE_IMAGE])
 def test_the_backend_image_logs_json_to_stdout_on_a_read_only_filesystem(image):
     """AC-14: --read-only, no network: bootstrap, log one event, rc 0, JSON line, no logger stderr."""
 
@@ -526,6 +567,55 @@ def test_the_api_image_carries_the_migrations_and_the_three_roles():
     result = docker_run(API_IMAGE, {}, "-c", script, entrypoint="sh")
     assert result.returncode == 0, shown(result)[-400:]
     assert all(role in result.stdout for role in ("api", "worker", "migrate"))
+
+
+@needs_docker
+@pytest.mark.parametrize("image", [API_IMAGE, WORKER_IMAGE])
+def test_the_api_and_worker_agents_images_carry_no_parser_packages(image):
+    """Per-role images: Docling, torch, PyMuPDF, OpenCV and pypdfium2 are not installed (and `pip list` agrees)."""
+
+    code = (
+        "import importlib.util as u, json, sys; "
+        f"print(json.dumps({{m: u.find_spec(m) is not None for m in {PARSE_ONLY_MODULES!r}}}))"
+    )
+    result = docker_run(image, {}, "-c", code, entrypoint="python")
+    assert result.returncode == 0, shown(result)[-400:]
+    assert json.loads(result.stdout.strip().splitlines()[-1]) == dict.fromkeys(PARSE_ONLY_MODULES, False)
+    names_code = "import importlib.metadata as m; print(*sorted(d.name.lower() for d in m.distributions()))"
+    listing = docker_run(image, {}, "-c", names_code, entrypoint="python")
+    names = listing.stdout.split()
+    assert not [n for n in names if n.startswith(("docling", "torch", "pymupdf", "nvidia", "opencv"))], names
+
+
+@needs_docker
+def test_the_worker_parse_image_imports_the_parser_and_converts_a_pdf_offline():
+    """Models are baked in: no network (`--network none`), read-only root, uid 10001, HF_HUB_OFFLINE=1."""
+
+    pdf = ROOT / "backend" / "tests" / "data" / "specs" / "extraction.pdf"
+    code = (
+        "import os, docling, cv2, pymupdf4llm, pypdfium2; "
+        "assert os.environ['HF_HUB_OFFLINE'] == '1'; "
+        "from docling.datamodel.base_models import InputFormat; "
+        "from docling.datamodel.pipeline_options import PdfPipelineOptions, TableFormerMode; "
+        "from docling.document_converter import DocumentConverter, PdfFormatOption; "
+        "o = PdfPipelineOptions("
+        "artifacts_path=os.environ['DOCLING_ARTIFACTS_PATH'], do_ocr=False, enable_remote_services=False); "
+        "o.table_structure_options.mode = TableFormerMode.FAST; "
+        "c = DocumentConverter(allowed_formats=[InputFormat.PDF], "
+        "format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=o)}); "
+        "md = c.convert('/in/extraction.pdf', page_range=(1, 3)).document.export_to_markdown(); "
+        "print('md-ok', len(md))"
+    )
+    result = docker_run(
+        WORKER_PARSE_IMAGE,
+        {},
+        "-c",
+        code,
+        entrypoint="python",
+        read_only=True,
+        mounts=(f"{pdf}:/in/extraction.pdf:ro",),
+    )
+    assert result.returncode == 0 and "md-ok" in result.stdout, shown(result)[-600:]
 
 
 # --- AC-4.2 on Linux: 100 MiB through the real GCS writer, fake transport ---------------

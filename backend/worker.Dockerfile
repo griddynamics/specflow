@@ -1,5 +1,6 @@
-# Worker image: `specflow worker`. One image for both workers; the env decides
-# the queue: WORKER_QUEUES=parse (worker-parse) or WORKER_QUEUES=agents (worker-agents).
+# Worker image for the agents queue: `specflow worker` with WORKER_QUEUES=agents (worker-agents).
+# It never installs the `parse` extra (Docling, torch, PDFium, PyMuPDF): the parse queue has its own
+# image, backend/worker-parse.Dockerfile.
 # Port 8001 is liveness only (GET /healthz, WORKER_HEALTH_PORT); readiness is the exec
 # probe `specflow worker --check`. No migrations here: the API image runs them.
 # Build context: backend/ (the last stage is the image; no --target needed):
@@ -23,7 +24,7 @@ COPY src ./src
 RUN uv sync --frozen --no-dev --no-editable --extra gcp --extra aws
 
 # runtime: uid 10001, a HOME dir, the venv only. Logs go to stdout; read-only root filesystem
-# is fine. worker-parse needs a writable /tmp (the PDF parse writes temp files there).
+# is fine. Writes temp files to /tmp only (a writable /tmp is enough).
 FROM python:3.12.13-slim-bookworm
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
