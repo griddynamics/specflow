@@ -597,3 +597,14 @@ def test_a_grouped_by_walk_needs_a_spec_node_in_the_middle(middle_labels: tuple[
         ProbeEdge("2", "REALIZED_BY", middle, module, {}),
     ]
     assert _SpineWalk(edges).reaches_a_module(start) is reaches
+
+
+def test_the_ranking_comparison_is_symmetric_a_superset_fails_at_zero_tolerance() -> None:
+    def ranking(ids: list[str]) -> dict:
+        return {"queries": {"q": {"modes": ["fulltext"], "fulltext": [{"spec_id": i, "score": 1.0} for i in ids]}}}
+
+    want, have = ranking(["a", "b", "c"]), ranking(["a", "b", "c", "d", "e"])
+    assert not compare_rankings(want, have, top=5).ok  # the run has two ids the golden top does not
+    assert not compare_rankings(have, want, top=5).ok  # and the other way round
+    assert compare_rankings(want, have, top=5, tolerance=2).ok
+    assert not compare_rankings(want, have, top=5, tolerance=1).ok

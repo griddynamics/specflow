@@ -128,11 +128,13 @@ def snapshot_differences(expected: Mapping[str, Any], actual: Mapping[str, Any],
 
 @dataclass
 class RankingParity:
-    """The outcome of comparing rankings: set mismatches fail parity, rank differences are reported."""
+    """The outcome of comparing rankings: set mismatches fail parity, rank differences and explained
+    set differences are reported."""
 
     queries: int = 0
     set_mismatches: list[str] = field(default_factory=list)
     rank_differences: list[str] = field(default_factory=list)
+    explained: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -142,6 +144,7 @@ class RankingParity:
         return "\n".join(
             [f"{self.queries} rankings compared"]
             + [f"SET   {line}" for line in self.set_mismatches]
+            + [f"EXPL  {line}" for line in self.explained]
             + [f"RANK  {line}" for line in self.rank_differences]
         )
 
@@ -151,12 +154,18 @@ def _ids(entries: Sequence[Mapping[str, Any]]) -> list[str]:
 
 
 def compare_rankings(
-    expected: Mapping[str, Any], actual: Mapping[str, Any], *, top: int = TOP, tolerance: int = 0
+    expected: Mapping[str, Any],
+    actual: Mapping[str, Any],
+    *,
+    top: int = TOP,
+    explained: Mapping[tuple[str, str], str] | None = None,
+    tolerance: int = 0,
 ) -> RankingParity:
-    """Per query and mode: the first ``top`` ids must be the same set, up to ``tolerance`` ids that the other
-    run has instead (else a set mismatch); a different order, or a different tail, is a rank difference.
-    ``tolerance`` is for a store whose text scoring is not Lucene's (a documented, per-store allowance; 0
-    for Neo4j). Queries and modes must be the same."""
+    """Per query and mode: the first ``top`` ids must be the same set (else a set mismatch); a different
+    order, or a different tail, is a rank difference. Queries and modes must be the same. The comparison
+    is symmetric: ids missing from the run and ids the golden top does not hold both count, the larger of
+    the two is checked against ``tolerance`` (default 0: a subset or a superset fails). A set difference
+    listed in ``explained`` (by mode and query, with its reason) is reported, not a mismatch."""
 
     parity = RankingParity()
     if sorted(expected["queries"]) != sorted(actual["queries"]):
@@ -167,10 +176,14 @@ def compare_rankings(
         for mode in want_entry["modes"]:
             parity.queries += 1
             want, have = _ids(want_entry[mode]), _ids(have_entry[mode])
-            if len(set(want[:top]) - set(have[:top])) > tolerance:
-                parity.set_mismatches.append(
-                    f"{mode} {text!r}: top {top} {sorted(set(want[:top]) ^ set(have[:top]))} not in both"
-                )
+            wanted, held = set(want[:top]), set(have[:top])
+            if max(len(wanted - held), len(held - wanted)) > tolerance:
+                line = f"{mode} {text!r}: top {top} {sorted(wanted ^ held)} not in both"
+                reason = (explained or {}).get((mode, text))
+                if reason is None:
+                    parity.set_mismatches.append(line)
+                else:
+                    parity.explained.append(f"{line}: {reason}")
             elif want != have:
                 parity.rank_differences.append(f"{mode} {text!r}: {want} -> {have}")
     return parity
