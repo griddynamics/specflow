@@ -42,6 +42,7 @@ class FakeServer:
         self.exists = False
         self.sql_error: str | None = None
         self.create_error = False
+        self.cleaned = 0
         self.query_hook: Callable[[str], str | None] | None = None
 
     # the admin client
@@ -98,6 +99,10 @@ class FakeServer:
     async def execute_query(self, text: str, params: Any = None, **_kwargs: Any) -> Any:
         self.commands.append(text)
         if self.query_hook is not None and self.query_hook(text) == "swallow":
+            return SimpleNamespace(records=[])
+        if "{group_id: $group}" in text and "SpecNode:" not in text:  # the cleanup of leftover placeholders
+            assert params == {"group": "__schema__"}
+            self.cleaned += 1
             return SimpleNamespace(records=[])
         placeholder = re.fullmatch(
             r"(CREATE|MATCH) \(n:SpecNode:(\w+) \{group_id: \$group, uuid: \$uuid\}\)(?: DETACH DELETE n)?", text
@@ -192,7 +197,7 @@ async def test_the_second_run_creates_nothing() -> None:
     server.commands.clear()
     created, _ = await ensure(server)
     assert created == ()
-    assert server.commands == ["database graphdb"]
+    assert server.commands[0] == "database graphdb" and len(server.commands) == 2  # and the cleanup
 
 
 async def test_the_vector_index_is_created_by_sql_with_the_dimension_as_a_literal() -> None:
@@ -306,9 +311,17 @@ async def test_every_domain_label_gets_its_composite_type_before_any_build_write
     server = FakeServer()
     await ensure(server)
     assert sorted(server.composites) == labels() and labels()
-    placeholders = [c for c in server.commands if "group_id: $group" in c]
+    placeholders = [c for c in server.commands if "group_id: $group, uuid" in c]
     assert len(placeholders) == 2 * len(labels())  # one create and one delete per label
     assert all("DETACH DELETE" in c for c in placeholders[1::2])
+
+
+async def test_leftover_placeholder_nodes_are_deleted_at_the_end_of_every_run() -> None:
+    server = FakeServer()
+    await ensure(server)
+    await ensure(server)
+    assert server.cleaned == 2
+    assert "{group_id: $group}" in server.commands[-1] and "DETACH DELETE" in server.commands[-1]
 
 
 async def test_composite_types_that_exist_are_left_alone() -> None:
@@ -316,7 +329,7 @@ async def test_composite_types_that_exist_are_left_alone() -> None:
     await ensure(server)
     server.commands.clear()
     await ensure(server)
-    assert not any("group_id: $group" in c for c in server.commands)
+    assert not any("group_id: $group, uuid" in c for c in server.commands)
 
 
 async def test_a_start_that_lost_the_race_for_a_composite_type_accepts_it() -> None:

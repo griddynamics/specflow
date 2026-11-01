@@ -295,3 +295,34 @@ async def test_close_closes_the_http_client() -> None:
     await admin.close()
     with pytest.raises(RuntimeError):
         await admin.server_version()
+
+
+# the transport of the login
+
+
+def test_the_admin_client_never_reads_proxy_settings_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy.invalid:3128")
+    monkeypatch.setenv("HTTP_PROXY", "http://proxy.invalid:3128")
+    admin = AdminClient("http://arcade:2480", "root", SecretStr(LEAK_PROBE))
+    assert admin._client.trust_env is False
+
+
+@pytest.mark.parametrize(
+    ("url", "warned"),
+    [
+        ("http://arcade.example.org:2480", True),
+        ("http://10.0.0.5:2480", True),
+        ("https://arcade.example.org:2480", False),
+        ("http://localhost:2480", False),
+        ("http://127.0.0.1:2480", False),
+        ("http://[::1]:2480", False),
+    ],
+)
+def test_a_clear_text_admin_endpoint_beyond_loopback_is_warned_about_without_a_value(
+    url: str, *, warned: bool, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level("WARNING"):
+        AdminClient(url, "root", SecretStr(LEAK_PROBE))
+    events = [r for r in caplog.records if "graph.store.admin_clear_text" in r.getMessage()]
+    assert bool(events) is warned
+    assert all(LEAK_PROBE not in r.getMessage() and "arcade.example.org" not in r.getMessage() for r in caplog.records)

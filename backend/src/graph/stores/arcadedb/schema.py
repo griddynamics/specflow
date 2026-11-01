@@ -233,6 +233,9 @@ async def ensure_arcadedb_schema(
                 await admin.sql(database, command)
         created.append(item.name)
     composites = await _ensure_composite_types(driver, admin, database, spec_labels(ontology))
+    await _cypher(
+        driver, database, "placeholder_cleanup", cypher("ddl", "placeholder_cleanup.cypher"), group=PLACEHOLDER_GROUP
+    )
     if created:
         _require_present(wanted, _indexes(await admin.types(database)), embedding_dim)
     log_event(

@@ -29,8 +29,12 @@ from graph.core.store import (
     STORE_VERSION_UNSUPPORTED,
 )
 from graph.stores.arcadedb.statements import sql as sql_text
+from logger.logger import WARNING, get_logger, log_event
+
+logger = get_logger("graph.stores.arcadedb.admin")
 
 BACKEND: Final = "arcadedb"
+LOOPBACK: Final = frozenset({"localhost", "::1"})
 DEFAULT_ADMIN_PORT: Final = 2480
 REQUEST_TIMEOUT_SECONDS: Final = 60.0
 MINIMUM_VERSION: Final = (26, 10, 0)
@@ -82,6 +86,15 @@ def check_database_name(name: str) -> str:
     return name
 
 
+def _warn_when_clear_text(base_url: str) -> None:
+    """Log (event only, no value) that the admin login travels in clear text to a host that is not loopback."""
+
+    parts = urlsplit(base_url)
+    host = parts.hostname or ""
+    if parts.scheme == "http" and host not in LOOPBACK and not host.startswith("127."):
+        log_event(logger, WARNING, "graph.store.admin_clear_text", store=BACKEND)
+
+
 class AdminClient:
     """The HTTP admin API of one ArcadeDB server, with the login of the store."""
 
@@ -100,7 +113,9 @@ class AdminClient:
             timeout=REQUEST_TIMEOUT_SECONDS,
             transport=transport,
             verify=verify,
+            trust_env=False,  # the login is HTTP Basic: never through HTTP_PROXY / HTTPS_PROXY of the host
         )
+        _warn_when_clear_text(base_url)
 
     async def close(self) -> None:
         await self._client.aclose()
