@@ -49,7 +49,7 @@ name_tf AS (
     SELECT
         c.id,
         u.lexeme,
-        c.name_len AS dl,
+        graph.lucene_len(c.name_len) AS dl,
         cardinality(u.positions) AS tf
     FROM corpus AS c
     CROSS JOIN LATERAL unnest(c.name_tsv) AS u
@@ -60,7 +60,7 @@ stmt_tf AS (
     SELECT
         c.id,
         u.lexeme,
-        c.stmt_len AS dl,
+        graph.lucene_len(c.stmt_len) AS dl,
         cardinality(u.positions) AS tf
     FROM corpus AS c
     CROSS JOIN LATERAL unnest(c.stmt_tsv) AS u

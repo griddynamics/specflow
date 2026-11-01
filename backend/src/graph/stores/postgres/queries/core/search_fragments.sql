@@ -36,7 +36,7 @@ tf AS (
     SELECT
         c.id,
         u.lexeme,
-        c.text_len AS dl,
+        graph.lucene_len(c.text_len) AS dl,
         cardinality(u.positions) AS tf
     FROM corpus AS c
     CROSS JOIN LATERAL unnest(c.text_tsv) AS u

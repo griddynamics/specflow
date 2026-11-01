@@ -30,19 +30,22 @@ from graph.core.dialect import ExecutionPlan, PlannedStatement, Record
 from graph.core.errors import ConformanceError
 from graph.core.queries import (
     LITERAL_TEMPLATE,
+    EndpointSubjects,
     ForeignLabel,
     LabelKey,
     LiteralText,
     NodeShape,
     Query,
+    RealizationSubjects,
     Relation,
     RelationEnds,
     ScopeSequence,
     ScopeVia,
+    SimilarTargets,
     safe_name,
 )
 from graph.core.query_files import render_query
-from graph.stores.postgres.sqlfiles import load_core_sql
+from graph.stores.postgres.sqlfiles import load_build_sql, load_core_sql
 
 DEFAULT_SCHEMA: Final = "graph"
 BACKEND: Final = "postgres"
@@ -67,6 +70,35 @@ _PROJECT_ID_REFERENCE: Final = re.compile(r"(?<![:\w]):project_id\b")
 
 # Core templates that are one fixed statement: template id -> loader of its file.
 _STATIC: Final[Mapping[str, Callable[[], str]]] = {
+    "build.build_create_spec_nodes": lambda: load_build_sql("build_create_spec_nodes.sql"),
+    "build.build_delete_spec_nodes": lambda: load_build_sql("build_delete_spec_nodes.sql"),
+    "build.build_merge_spec_nodes": lambda: load_build_sql("build_merge_spec_nodes.sql"),
+    "build.build_read_current_fragments": lambda: load_build_sql("build_read_current_fragments.sql"),
+    "build.build_read_current_links": lambda: load_build_sql("build_read_current_links.sql"),
+    "build.build_read_current_nodes": lambda: load_build_sql("build_read_current_nodes.sql"),
+    "build.build_read_infer_fragments": lambda: load_build_sql("build_read_infer_fragments.sql"),
+    "build.build_read_infer_nodes": lambda: load_build_sql("build_read_infer_nodes.sql"),
+    "build.build_read_persisted_documents": lambda: load_build_sql("build_read_persisted_documents.sql"),
+    "build.build_read_persisted_fragments": lambda: load_build_sql("build_read_persisted_fragments.sql"),
+    "build.build_read_persisted_hubs": lambda: load_build_sql("build_read_persisted_hubs.sql"),
+    "build.build_read_persisted_presence": lambda: load_build_sql("build_read_persisted_presence.sql"),
+    "build.build_read_spine_edges": lambda: load_build_sql("build_read_spine_edges.sql"),
+    "build.build_read_spine_nodes": lambda: load_build_sql("build_read_spine_nodes.sql"),
+    "build.build_repair_delete_edges": lambda: load_build_sql("build_repair_delete_edges.sql"),
+    "build.build_repair_delete_nodes": lambda: load_build_sql("build_repair_delete_nodes.sql"),
+    "build.build_repair_edge_evidence": lambda: load_build_sql("build_repair_edge_evidence.sql"),
+    "build.build_repair_node_evidence": lambda: load_build_sql("build_repair_node_evidence.sql"),
+    "build.build_repair_set_labels": lambda: load_build_sql("build_repair_set_labels.sql"),
+    "build.build_repair_set_spec_ids": lambda: load_build_sql("build_repair_set_spec_ids.sql"),
+    "build.build_replace_node_links": lambda: load_build_sql("build_replace_node_links.sql"),
+    "build.build_set_document_status": lambda: load_build_sql("build_set_document_status.sql"),
+    "build.build_set_fragment_status": lambda: load_build_sql("build_set_fragment_status.sql"),
+    "build.build_update_spec_nodes": lambda: load_build_sql("build_update_spec_nodes.sql"),
+    "build.build_upsert_documents": lambda: load_build_sql("build_upsert_documents.sql"),
+    "build.build_upsert_fragments": lambda: load_build_sql("build_upsert_fragments.sql"),
+    "build.build_verify_domain_edges": lambda: load_build_sql("build_verify_domain_edges.sql"),
+    "build.build_verify_fragments": lambda: load_build_sql("build_verify_fragments.sql"),
+    "build.build_verify_spec_nodes": lambda: load_build_sql("build_verify_spec_nodes.sql"),
     "core.await_indexes": lambda: load_core_sql("await_indexes.sql"),
     "core.count_search_vectors": lambda: load_core_sql("count_search_vectors.sql"),
     "core.delete_spec_node": lambda: load_core_sql("delete_spec_node.sql"),
@@ -110,6 +142,8 @@ FRAGMENT_FILES: Final = frozenset(
         "plan_settings.sql",
     }
 )
+# Build fragments (not templates of their own): the branches of infer_endpoint_subjects.
+BUILD_FRAGMENT_FILES: Final = frozenset({"infer_endpoint_via.sql", "infer_endpoint_mentions.sql"})
 # Templates the dialect runs with a custom plan cache mode (a vector search).
 _CUSTOM_PLAN: Final = frozenset({"core.search_nodes_vector", "core.search_nodes_vector_exact"})
 _FULLTEXT: Final = frozenset({"core.search_nodes_fulltext", "core.search_fragments"})
@@ -253,6 +287,64 @@ def _scope_sequence(args: Any) -> _Rendered:
     return _Rendered(load_core_sql("scope_sequence.sql"), extra)
 
 
+def _relation(file: Callable[[], str], template: str) -> Callable[[Any], _Rendered]:
+    """Renderer of a build template that needs its relationship type only (a bind value)."""
+
+    def render(args: Any) -> _Rendered:
+        relation = _expect(args, Relation, template)
+        return _Rendered(file(), {"rel_type": safe_name(relation.type)})
+
+    return render
+
+
+def _boolean(*, symmetric: bool) -> str:
+    """The SQL literal of a slot that says whether a relation is walked either way."""
+
+    return "TRUE" if symmetric else "FALSE"
+
+
+def _endpoint_subjects(args: Any) -> _Rendered:
+    endpoints = _expect(args, EndpointSubjects, "build.infer_endpoint_subjects")
+    either = {safe_name(name) for name in endpoints.symmetric}
+    branches: list[str] = []
+    extra: dict[str, Any] = {}
+    for index, name in enumerate(endpoints.via):
+        parameter = f"via_{index}"
+        extra[parameter] = safe_name(name)
+        branches.append(
+            render_query(
+                load_build_sql("infer_endpoint_via.sql"),
+                type=parameter,
+                symmetric=_boolean(symmetric=name in either),
+            )
+        )
+    if endpoints.mentions:
+        branches.append(load_build_sql("infer_endpoint_mentions.sql"))
+    text = render_query(load_build_sql("infer_endpoint_subjects.sql"), branches="\nUNION\n".join(branches))
+    return _Rendered(text, extra)
+
+
+def _realization_subjects(args: Any) -> _Rendered:
+    plan = _expect(args, RealizationSubjects, "build.infer_realization_subjects")
+    text = render_query(
+        load_build_sql("infer_realization_subjects.sql"),
+        member_symmetric=_boolean(symmetric=plan.member_symmetric),
+        container_symmetric=_boolean(symmetric=plan.container_symmetric),
+        hops=_hops(plan.max_hops, "build.infer_realization_subjects"),
+    )
+    return _Rendered(text, {"member_type": safe_name(plan.member), "container_type": safe_name(plan.container)})
+
+
+def _similar_targets(args: Any) -> _Rendered:
+    similar = _expect(args, SimilarTargets, "build.infer_similar_targets")
+    text = render_query(load_build_sql("infer_similar_targets.sql"), symmetric=_boolean(symmetric=similar.symmetric))
+    return _with_setup(
+        _Rendered(text, {"rel_type": safe_name(similar.type)}),
+        load_core_sql("plan_settings.sql"),
+        {"plan_cache_mode": PLAN_CACHE_MODE},
+    )
+
+
 _RENDERERS: Final[Mapping[str, Callable[[Any], _Rendered]]] = {
     "core.upsert_relationship": _upsert_relationship,
     "core.delete_relationship": _delete_relationship,
@@ -263,6 +355,18 @@ _RENDERERS: Final[Mapping[str, Callable[[Any], _Rendered]]] = {
     ),
     "core.scope_via": _scope_via,
     "core.scope_sequence": _scope_sequence,
+    "build.read_current_edges": _relation(lambda: load_build_sql("read_current_edges.sql"), "build.read_current_edges"),
+    "build.upsert_edges": _relation(lambda: load_build_sql("upsert_edges.sql"), "build.upsert_edges"),
+    "build.update_edges": _relation(lambda: load_build_sql("update_edges.sql"), "build.update_edges"),
+    "build.delete_edges": _relation(lambda: load_build_sql("delete_edges.sql"), "build.delete_edges"),
+    "build.infer_exclusive_holders": _relation(
+        lambda: load_build_sql("infer_exclusive_holders.sql"), "build.infer_exclusive_holders"
+    ),
+    "build.infer_write_edges": _relation(lambda: load_build_sql("infer_write_edges.sql"), "build.infer_write_edges"),
+    "build.infer_delete_edges": _relation(lambda: load_build_sql("infer_delete_edges.sql"), "build.infer_delete_edges"),
+    "build.infer_endpoint_subjects": _endpoint_subjects,
+    "build.infer_realization_subjects": _realization_subjects,
+    "build.infer_similar_targets": _similar_targets,
 }
 
 
@@ -287,7 +391,7 @@ def parameter_value(name: str, value: Any) -> Any:
         return json_text(value)
     if isinstance(value, tuple):
         return list(value)
-    if isinstance(value, list) and any(isinstance(item, Mapping) for item in value):
+    if isinstance(value, list) and any(isinstance(item, (Mapping, list)) for item in value):
         return json_text(value)
     return value
 

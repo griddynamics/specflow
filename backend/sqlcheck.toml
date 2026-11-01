@@ -69,6 +69,7 @@ exclude = [
 read_query = "src/db/queries"           # db.query_files.read_query
 read_migration_sql = "migrations/sql"   # defined in migration 0001_initial (it never imports src)
 load_core_sql = "src/graph/stores/postgres/queries/core"   # graph.stores.postgres.sqlfiles.load_core_sql
+load_build_sql = "src/graph/stores/postgres/queries/build"   # graph.stores.postgres.sqlfiles.load_build_sql
 load_ddl_sql = "src/graph/stores/postgres/ddl"             # graph.stores.postgres.sqlfiles.load_ddl_sql
 
 [semgrep]

@@ -6,13 +6,21 @@
 -- adapter renders the schema name.
 CREATE SCHEMA IF NOT EXISTS graph;
 
--- Tokenisation pre-step shared by documents and query terms: hyphen and
--- slash become spaces, so that 'signed-in' and 'orders/returns' index as two
--- words (as the Lucene standard analyzer does) instead of PostgreSQL's
--- compound lexemes, which inflate document length and document frequency.
+-- Tokenisation pre-step shared by documents and query terms, so that the
+-- 'simple' parser splits words as the Lucene standard analyzer does:
+-- hyphen and slash become spaces ('signed-in', 'orders/returns' are two
+-- words, not PostgreSQL's compound lexemes); an underscore, an apostrophe
+-- between letters and a comma between digits join their neighbours into one
+-- token (a letter that no text holds stands in for them).
 CREATE OR REPLACE FUNCTION graph.fts_norm(text) RETURNS text
 LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT
-AS $$ SELECT translate($1, '-/', '  ') $$;
+AS $$
+  SELECT translate(
+    regexp_replace(
+      regexp_replace($1, '(\w)[''’](?=\w)', E'\\1\u01c2', 'g'),
+      '(\d),(?=\d)', E'\\1\u01c2', 'g'),
+    '-/_', E'  \u01c2')
+$$;
 
 -- Number of tokens of a tsvector (sum of position counts); the term
 -- frequency of a lexeme is the cardinality of its positions. At most 256
@@ -24,8 +32,8 @@ AS $$
 $$;
 
 -- SET n += patch: a top-level merge; a JSON null in the patch removes the
--- key (jsonb_strip_nulls is recursive, so it is not used). Nested values are
--- kept as given.
+-- key (jsonb_strip_nulls is recursive, so it is not used) and none is kept
+-- from the base either. Nested values are kept as given.
 CREATE OR REPLACE FUNCTION graph.props_merge(base jsonb, patch jsonb)
 RETURNS jsonb
 LANGUAGE sql IMMUTABLE PARALLEL SAFE
@@ -33,9 +41,36 @@ AS $$
   SELECT coalesce(jsonb_object_agg(s.k, s.v), '{}'::jsonb) FROM (
     SELECT e.key AS k, e.value AS v FROM jsonb_each(coalesce(base, '{}'::jsonb)) e
      WHERE NOT jsonb_exists(coalesce(patch, '{}'::jsonb), e.key)
+       AND jsonb_typeof(e.value) <> 'null'
     UNION ALL
     SELECT e.key, e.value FROM jsonb_each(coalesce(patch, '{}'::jsonb)) e
      WHERE jsonb_typeof(e.value) <> 'null') s
+$$;
+
+-- SET += of several patches in order: the last patch naming a key decides;
+-- a JSON null stays (props_merge removes the key where it is applied).
+CREATE OR REPLACE FUNCTION graph.props_fold(patches jsonb[]) RETURNS jsonb
+LANGUAGE sql IMMUTABLE PARALLEL SAFE
+AS $$
+  SELECT coalesce(jsonb_object_agg(l.k, l.v), '{}'::jsonb) FROM (
+    SELECT DISTINCT ON (e.key) e.key AS k, e.value AS v
+    FROM unnest(patches) WITH ORDINALITY AS p(patch, ord), jsonb_each(p.patch) AS e
+    ORDER BY e.key, p.ord DESC
+  ) l
+$$;
+
+-- The document length as Lucene scores with it: its BM25 reads the length
+-- from a one-byte norm (SmallFloat.intToByte4), which is exact below 32
+-- tokens and truncates a longer length to the lower edge of its bucket of 3
+-- significant bits. The average length uses the true lengths.
+CREATE OR REPLACE FUNCTION graph.lucene_len(len integer) RETURNS integer
+LANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT
+AS $$
+  SELECT CASE
+    WHEN len < 32 THEN len
+    ELSE ((((len - 24) >> v.s) & 7 | 8) << v.s) + 24
+  END
+  FROM (SELECT floor(log(2, (len - 24)::numeric))::int - 3 AS s) v
 $$;
 
 CREATE TABLE IF NOT EXISTS graph.meta (

@@ -15,6 +15,7 @@ from typing import Final
 
 ADAPTER_ROOT: Final = Path(__file__).resolve().parent
 CORE_SQL_DIRECTORY: Final = ADAPTER_ROOT / "queries" / "core"
+BUILD_SQL_DIRECTORY: Final = ADAPTER_ROOT / "queries" / "build"
 DDL_DIRECTORY: Final = ADAPTER_ROOT / "ddl"
 COMMENT_PREFIX: Final = "--"
 STATEMENT_END: Final = ";"
@@ -37,6 +38,12 @@ def load_core_sql(name: str) -> str:
     """The text of the core query file ``name`` (relative to ``queries/core/``)."""
 
     return read_sql_file(CORE_SQL_DIRECTORY, name)
+
+
+def load_build_sql(name: str) -> str:
+    """The text of the build query file ``name`` (relative to ``queries/build/``)."""
+
+    return read_sql_file(BUILD_SQL_DIRECTORY, name)
 
 
 def load_ddl_sql(name: str) -> str:
