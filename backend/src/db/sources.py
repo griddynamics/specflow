@@ -266,9 +266,10 @@ async def upsert_items(
 ) -> int:
     """Add the listed files as ``pending`` rows; the number of rows added.
 
-    Categories come from the mime type only (DATA-GDUI-0001.AC5). A file already
-    stored for the connection is left as it is, so a re-run of the listing never
-    resets progress.
+    Categories and processing classes come from the mime type only (DATA-GDUI-0001.AC5,
+    ``drive.categories``). A file already stored for the connection is left as it is, so a
+    re-run of the listing never resets progress, and an item imported earlier as ``stored_only``
+    (a Word file before the Docling parser change) is never converted here.
     """
 
     added = 0

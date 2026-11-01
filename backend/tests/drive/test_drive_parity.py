@@ -12,6 +12,7 @@ from drive.categories import (
     CATEGORY_ORDER,
     CLASS_ORDER,
     LABELS,
+    ProcessingClass,
     categorize,
     processing_class,
 )
@@ -35,6 +36,13 @@ MIMES = sorted(
 )
 
 
+OFFICE = "application/vnd.openxmlformats-officedocument."
+#: OOXML types: still "stored only" in ``examples/gdrive_explore.py``, ``processed`` since the Docling parser change (design N1).
+PARSED_SINCE_THE_EXPLORE_SCRIPT = frozenset(
+    OFFICE + kind for kind in ("wordprocessingml.document", "presentationml.presentation", "spreadsheetml.sheet")
+)
+
+
 @pytest.mark.parametrize(("link", "accepted"), explore.LINK_CASES)
 def test_link_cases_match_explore(link, accepted):
     assert (parse_folder_link(link) is not None) is accepted
@@ -52,7 +60,10 @@ def test_categories_match_explore(mime):
     label, kind = explore.category(mime)
     category, klass = categorize(mime)
     assert LABELS[category] == label
-    assert klass.value.replace("_", " ") == kind
+    if mime in PARSED_SINCE_THE_EXPLORE_SCRIPT:  # the script keeps the pre-Docling table
+        assert (kind, klass) == ("stored only", ProcessingClass.PROCESSED)
+    else:
+        assert klass.value.replace("_", " ") == kind
 
 
 def test_contract_categories_in_order():

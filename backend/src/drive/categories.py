@@ -2,6 +2,12 @@
 
 A category is chosen by the Drive ``mimeType`` only, never by the file name
 (DATA-GDUI-0001.AC5). Folders belong to no category.
+
+The processing class follows the MIME type too (design N1, no new category): a file whose
+type is in the parser table (``file_parsers.formats``: PDF, OOXML Word/PowerPoint/Excel, HTML,
+Markdown, CSV) is ``processed``; legacy ``.doc/.ppt/.xls`` and every other type keep the class of
+their category. A ``.md`` that Drive reports as ``text/plain`` has no parser type and stays
+``stored_only`` (accepted limit).
 """
 
 from __future__ import annotations
@@ -9,6 +15,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from enum import StrEnum
 from typing import Final
+
+from file_parsers.formats import format_for_media_type
 
 GOOGLE: Final = "application/vnd.google-apps."
 FOLDER_MIME: Final = GOOGLE + "folder"
@@ -86,7 +94,19 @@ _BY_MIME: Final[Mapping[str, Category]] = {
 }
 
 
+#: Categories whose class depends on the MIME type (the parser table decides).
+_BY_PARSER_TABLE: Final = frozenset({Category.WORD, Category.POWERPOINT, Category.EXCEL, Category.OTHER_FILES})
+
+
 def processing_class(category: Category) -> ProcessingClass:
+    """The default class of a category (the contract); ``categorize`` refines it by MIME type."""
+
+    return _CLASS_OF[category]
+
+
+def _class_of(category: Category, mime_type: str) -> ProcessingClass:
+    if category in _BY_PARSER_TABLE and format_for_media_type(mime_type) is not None:
+        return ProcessingClass.PROCESSED
     return _CLASS_OF[category]
 
 
@@ -105,4 +125,4 @@ def categorize(mime_type: str) -> tuple[Category, ProcessingClass]:
             category = Category.OTHER_GOOGLE
         else:
             category = Category.OTHER_FILES
-    return category, _CLASS_OF[category]
+    return category, _class_of(category, mime_type)
