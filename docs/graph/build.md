@@ -39,7 +39,7 @@ host can run steps separately and resume after an interruption; `run_build` runs
 | 4 | Extract edges | Raw edges and attribute values per unit |
 | 5 | Conform | Target graph: grounded nodes, legal edges, statements |
 | 6 | Diff | Changes from the current graph to the target graph, with `spec_id`s and spec changes |
-| 7 | Persist | The diff written to Neo4j |
+| 7 | Persist | The diff written to the graph store |
 | 8 | Infer | Inferred edges ([analysis.md](analysis.md)) |
 | 9 | Verify | Verification run with repairs ([analysis.md](analysis.md)) |
 
@@ -233,7 +233,7 @@ build's graph may differ slightly from a rebuild of the same corpus; that is acc
 | Failure | Effect |
 |---|---|
 | An extraction call fails after its retries (malformed output, refusal, overflow) | Its dirty fragments become `skipped` with an error code; a changed fragment keeps its last extracted version as support; the build ends `partially_succeeded` |
-| The LLM endpoint or Neo4j is unreachable, or the endpoint rejects the credentials, the model or the request ([architecture.md](architecture.md) "Errors") | The step raises `InfrastructureUnavailableError` or `LLMFatalError`; nothing is marked skipped; the build is `failed` |
+| The LLM endpoint or the graph store is unreachable, or the endpoint rejects the credentials, the model or the request ([architecture.md](architecture.md) "Errors") | The step raises `InfrastructureUnavailableError` or `LLMFatalError`; nothing is marked skipped; the build is `failed` |
 | A write fails | `GraphWriteError`; persist resumes from its cursor |
 | A judge call fails, a verdict is invalid, or a non-fatal model error stops an inference rule | Reported in the inference report; the build still succeeds. Any other inference error fails the build, and the previous inferred edges stay ([analysis.md](analysis.md)) |
 

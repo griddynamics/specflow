@@ -17,27 +17,59 @@ space := $(empty) $(empty)
 empty :=
 WITH ?=
 WITH_LIST := $(subst $(comma), ,$(WITH))
-# Graph store backends other than the default neo4j start with their own compose profile:
-# `make up WITH=arcadedb`. Each backend owns one section below and adds its profile name to
-# GRAPH_STORE_PROFILES (docs/configuration.md "Graph store"); neo4j has no profile (always on).
+# The graph store of the local stack is chosen with WITH, next to temporal and langfuse:
+# `make up WITH=arcadedb` or `WITH=postgres`; with none of them the store is neo4j. Each backend owns
+# one section below (docs/configuration.md "Graph store"). It adds its name to GRAPH_STORE_NAMES, its
+# compose profile (when it has a server of its own) to GRAPH_STORE_PROFILES, and defines
+# STACK_ENV_<name>: the GRAPH_STORE* values the containers get (they win over the env file, whose
+# GRAPH_STORE_URI may be a host address for the host tools).
+GRAPH_STORE_NAMES :=
 GRAPH_STORE_PROFILES :=
 # graph-store: neo4j
+GRAPH_STORE_NAMES += neo4j
+GRAPH_STORE_PROFILES += neo4j
+STACK_ENV_neo4j := GRAPH_STORE=neo4j GRAPH_STORE_URI=bolt://specflow-neo4j:7687 GRAPH_STORE_USER=neo4j GRAPH_STORE_NAME=neo4j
 # graph-store: arcadedb
+GRAPH_STORE_NAMES += arcadedb
 GRAPH_STORE_PROFILES += arcadedb
+STACK_ENV_arcadedb := GRAPH_STORE=arcadedb GRAPH_STORE_URI=bolt://specflow-arcadedb:7687 GRAPH_STORE_USER=root \
+	GRAPH_STORE_NAME=$(or $(ARCADEDB_DATABASE),$(call envval,ARCADEDB_DATABASE),specflow)
 # graph-store: postgres
 # The PostgreSQL graph store needs no profile: it lives in the main postgres service, whose pgvector image
 # carries the extension. backend/postgres-init creates it on a new data volume; on a volume that exists
 # already run `make postgres-vector` once (an admin step: creating an extension takes the admin login).
+# WITH=postgres adds config/compose.graph-postgres.yaml, which leaves the connection to DATABASE_*.
+GRAPH_STORE_NAMES += postgres
+STACK_ENV_postgres := GRAPH_STORE=postgres
+STACK_FILES_postgres := -f config/compose.graph-postgres.yaml
 .PHONY: postgres-vector
 postgres-vector:
 	$(COMPOSE) exec -T postgres sh -c 'psql -U postgres -d "$$DATABASE_NAME" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS vector"'
 # graph-store: tigergraph
 # end graph-store
-WITH_NAMES := $(strip temporal langfuse $(GRAPH_STORE_PROFILES))
+WITH_PROFILES := temporal langfuse $(GRAPH_STORE_PROFILES)
+WITH_NAMES := $(strip $(WITH_PROFILES) $(filter-out $(WITH_PROFILES),$(GRAPH_STORE_NAMES)))
 BAD_WITH := $(filter-out $(WITH_NAMES),$(WITH_LIST))
 ifneq ($(BAD_WITH),)
 $(error WITH accepts $(WITH_NAMES) (comma separated), got: $(BAD_WITH))
 endif
+STACK_STORES := $(filter $(GRAPH_STORE_NAMES),$(WITH_LIST))
+ifneq ($(word 2,$(STACK_STORES)),)
+$(error WITH names more than one graph store ($(STACK_STORES)): pick one of $(GRAPH_STORE_NAMES))
+endif
+STACK_STORE := $(or $(STACK_STORES),neo4j)
+# For the compose targets, GRAPH_STORE on the command line must agree with WITH (the stack has one store).
+# The host targets (api, worker, test-graph-live, ...) take any GRAPH_STORE.
+COMPOSE_GOALS := up down down-volumes logs ps images postgres-vector
+ifeq ($(origin GRAPH_STORE),command line)
+ifneq ($(filter $(COMPOSE_GOALS),$(MAKECMDGOALS)),)
+ifneq ($(GRAPH_STORE),$(STACK_STORE))
+$(error GRAPH_STORE=$(GRAPH_STORE) does not match the stack store $(STACK_STORE): use WITH=$(GRAPH_STORE))
+endif
+endif
+endif
+# The profiles `up` starts: those of WITH, plus neo4j when WITH names no other store (the default).
+STACK_PROFILES := $(strip $(filter $(WITH_PROFILES),$(WITH_LIST)) $(if $(STACK_STORES),,neo4j))
 
 # Local values for the backend run on the host against the local stack (HOST_TARGETS only, so
 # unit tests, validation and CI never get a cloud profile they did not ask for). Environment
@@ -60,10 +92,14 @@ $(HOST_TARGETS): export DATABASE_PORT ?= 5433
 $(HOST_TARGETS): export DATABASE_NAME ?= specflow
 $(HOST_TARGETS): export DATABASE_USER ?= specflow
 $(HOST_TARGETS): export DATABASE_AGENT_USER ?= specflow_agent
-# The graph store of the local stack is neo4j. A NEO4J_URI or NEO4J_USER from your shell still counts;
-# the password comes from the env file (GRAPH_STORE_PASSWORD, or NEO4J_PASSWORD in an older one).
+# The host tools default to the neo4j of the local stack. A NEO4J_URI or NEO4J_USER from your shell still counts;
+# the password comes from the env file (GRAPH_STORE_PASSWORD, or NEO4J_PASSWORD in an older one). For another
+# store (GRAPH_STORE in your shell or the env file) set GRAPH_STORE_URI, _USER and _NAME there: no default applies.
+HOST_STORE := $(or $(GRAPH_STORE),$(call envval,GRAPH_STORE),neo4j)
+ifeq ($(HOST_STORE),neo4j)
 $(HOST_TARGETS): export GRAPH_STORE_URI ?= $(or $(NEO4J_URI),bolt://localhost:7687)
 $(HOST_TARGETS): export GRAPH_STORE_USER ?= $(or $(NEO4J_USER),neo4j)
+endif
 $(HOST_TARGETS): export TEMPORAL_ADDRESS ?= localhost:7233
 $(HOST_TARGETS): export TEMPORAL_NAMESPACE ?= specflow-local
 # What compose passes to the containers as TEMPORAL_ADDRESS (the host default above is not).
@@ -78,10 +114,11 @@ LANGFUSE_SECRET_KEY_LOCAL = $(or $(call envval,LANGFUSE_SECRET_KEY),sk-lf-specfl
 COMPOSE_ENV = env -u TEMPORAL_ADDRESS \
 	$(if $(COMPOSE_TEMPORAL_ADDRESS),TEMPORAL_ADDRESS=$(COMPOSE_TEMPORAL_ADDRESS)) \
 	$(if $(filter langfuse,$(WITH_LIST)),LANGFUSE_BASE_URL=http://specflow-langfuse-web:3000 LANGFUSE_PUBLIC_KEY=$(LANGFUSE_PUBLIC_KEY_LOCAL) LANGFUSE_SECRET_KEY=$(LANGFUSE_SECRET_KEY_LOCAL)) \
-	$(if $(WITH_LIST),COMPOSE_PROFILES=$(subst $(space),$(comma),$(strip $(WITH_LIST))))
-COMPOSE_BASE := docker compose --env-file $(ENV_FILE) -f docker-compose.yml
+	$(if $(STACK_PROFILES),COMPOSE_PROFILES=$(subst $(space),$(comma),$(STACK_PROFILES))) \
+	$(STACK_ENV_$(STACK_STORE))
+COMPOSE_BASE := docker compose --env-file $(ENV_FILE) -f docker-compose.yml $(STACK_FILES_$(STACK_STORE))
 COMPOSE := $(COMPOSE_ENV) $(COMPOSE_BASE)
-COMPOSE_ALL := env COMPOSE_PROFILES=$(subst $(space),$(comma),$(strip $(WITH_NAMES))) $(COMPOSE_BASE)
+COMPOSE_ALL := env COMPOSE_PROFILES=$(subst $(space),$(comma),$(strip $(WITH_PROFILES))) $(COMPOSE_BASE)
 
 # Static validation kit (validation/README.md): one target per track, `make validate` runs all.
 # Project inputs of each track sit beside the code they describe: backend/ (importlinter.toml,
@@ -97,7 +134,7 @@ KIT_ENV := env -u VIRTUAL_ENV
 .PHONY: validate validate-list validate-install validate-install-python validate-install-python-clones validate-install-typescript validate-selftest validate-ci-selftest $(VALIDATE_TARGETS)
 
 # Python targets run in backend/ (ENV_FILE is passed down); compose is root-only.
-BACKEND_TARGETS := setup lint unit-test check \
+BACKEND_TARGETS := setup lint unit-test check test-graph-live \
 	db-upgrade db-revision \
 	api worker temporal-check rss-test
 
@@ -125,8 +162,10 @@ env-local:
 	echo "env-local: wrote $(ENV_FILE) ($(ENV_LOCAL_NAMES))"; \
 	echo "env-local: add AGENT_MODEL, LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY to $(ENV_FILE) (docs/configuration.md)"
 
-# Build and start the stack and wait until all services are healthy: postgres, neo4j, rustfs,
-# rustfs-init, api, worker-parse, worker-agents, frontend. `WITH=temporal,langfuse` adds the
+# Needs Docker Compose 2.24 or later (`!reset` of WITH=postgres; `required: false` needs 2.20).
+# Build and start the stack and wait until all services are healthy: postgres, the graph store (neo4j;
+# `WITH=arcadedb` starts arcadedb and arcadedb-init instead, `WITH=postgres` no server: the graph lives in
+# postgres), rustfs, rustfs-init, api, worker-parse, worker-agents, frontend. `WITH=temporal,langfuse` adds the
 # bundled Temporal and Langfuse. Logs are JSON on stdout only (`make logs`).
 up:
 	$(COMPOSE) up -d --build --wait --wait-timeout 600

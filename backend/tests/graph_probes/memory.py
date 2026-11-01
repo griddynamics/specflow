@@ -35,6 +35,9 @@ from graph_probes.base import (
 class MemoryProbe(GraphProbe):
     backend = "memory"
 
+    async def before_session_schema(self) -> None:
+        """Nothing to note: the schema setup creates no database the session must remove."""
+
     def __init__(self) -> None:
         super().__init__(StoreConfig(backend="neo4j", uri="memory://", user="memory", password=SecretStr("")))
         self._ids = itertools.count(1)

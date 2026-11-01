@@ -5,7 +5,9 @@
 #
 # Use it through the Makefile: `make up`, `make logs`, `make ps`, `make down`.
 # Default `make up`: postgres, neo4j, rustfs, rustfs-init, api, worker-parse, worker-agents, frontend.
-# The services then use TEMPORAL_ADDRESS (default host.docker.internal:7233) and, when set,
+# The graph store is chosen with WITH: `make up WITH=arcadedb` starts ArcadeDB (and its database) instead of
+# neo4j; `make up WITH=postgres` keeps the graph in the postgres service (no other server).
+# The services use TEMPORAL_ADDRESS (default host.docker.internal:7233) and, when set,
 # LANGFUSE_BASE_URL + keys. `make up WITH=temporal,langfuse` also starts the bundled ones (profiles
 # `temporal`, `langfuse`) and the Makefile points the app at them.
 # `--env-file .env.local` only fills the ${...} values below; no service reads the file.
@@ -16,7 +18,7 @@
 #               the project and its API keys are created on first start from
 #               LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY (login: LANGFUSE_INIT_USER_*)
 #
-# Start order: postgres + the graph store (neo4j) + rustfs (+ temporal, langfuse-web when on) healthy, rustfs-init done -> api (runs
+# Start order: postgres + the graph store (neo4j, or arcadedb + arcadedb-init) + rustfs (+ temporal, langfuse-web when on) healthy, rustfs-init done -> api (runs
 # `specflow migrate`, then serves) healthy -> worker-parse, worker-agents, frontend.
 name: specflow
 
@@ -46,11 +48,14 @@ services:
       retries: 12
 
   # The graph store backends. Each backend owns one section (marker lines); neo4j is the default
-  # (GRAPH_STORE=neo4j). The api and worker-agents env below says which one they use.
+  # (GRAPH_STORE=neo4j). The api and worker-agents env below says which one they use; the Makefile picks
+  # the store with WITH (`make up WITH=arcadedb`), starts its profile and sets the GRAPH_STORE* values
+  # of the containers (docs/configuration.md "Local stack").
   # graph-store: neo4j
   neo4j:
     image: neo4j:5.26.30-community
     container_name: specflow-neo4j
+    profiles: ["neo4j"]
     mem_limit: 1280m
     ports:
       - "127.0.0.1:7474:7474"   # local only: the Neo4j browser
@@ -70,8 +75,8 @@ services:
       start_period: 30s
 
   # graph-store: arcadedb
-  # ArcadeDB 26.10 with the Bolt plugin (`make up WITH=arcadedb`; the api and the agents worker above still
-  # name neo4j: pointing them at it is the integration step). The root password is GRAPH_STORE_PASSWORD, handed over as a file
+  # ArcadeDB 26.10 with the Bolt plugin (`make up WITH=arcadedb`: the api and the agents worker then use it).
+  # The root password is GRAPH_STORE_PASSWORD, handed over as a file
   # (arcadedb.server.rootPasswordPath), never as a Java option (JAVA_OPTS shows in `docker inspect`).
   # neo4j keeps its host port 7687, so the Bolt port of ArcadeDB on the host is 7688 (ARCADEDB_BOLT_HOST_PORT).
   arcadedb:
@@ -124,7 +129,8 @@ services:
   # No service of its own: the PostgreSQL graph store lives in the schema GRAPH_STORE_NAME (default graph)
   # of the main postgres service above, whose image (pgvector/pgvector, PostgreSQL 17) carries the vector
   # extension. backend/postgres-init creates it on a new data volume; `make postgres-vector` does it on
-  # an existing one. Select the store with GRAPH_STORE=postgres (docs/configuration.md "PostgreSQL").
+  # an existing one. `make up WITH=postgres` adds config/compose.graph-postgres.yaml, which switches the api
+  # and the agents worker to it (docs/configuration.md "PostgreSQL").
 
   # graph-store: tigergraph
 
@@ -393,11 +399,11 @@ services:
       TEMPORAL_NAMESPACE: "${TEMPORAL_NAMESPACE:-specflow-local}"
       TEMPORAL_QUEUE_PARSE: "specflow-parse"
       TEMPORAL_QUEUE_AGENTS: "specflow-agents"
-      GRAPH_STORE: "neo4j"
-      GRAPH_STORE_URI: "bolt://specflow-neo4j:7687"
-      GRAPH_STORE_USER: "neo4j"
+      GRAPH_STORE: "${GRAPH_STORE:-neo4j}"   # the store of the stack: `make up WITH=arcadedb` or `WITH=postgres` (docs/configuration.md "Local stack")
+      GRAPH_STORE_URI: "${GRAPH_STORE_URI:-bolt://specflow-neo4j:7687}"
+      GRAPH_STORE_USER: "${GRAPH_STORE_USER:-neo4j}"
       GRAPH_STORE_PASSWORD: "${GRAPH_STORE_PASSWORD:-${NEO4J_PASSWORD:?set GRAPH_STORE_PASSWORD in .env.local}}"   # an older .env.local with only NEO4J_PASSWORD still works
-      GRAPH_STORE_NAME: "neo4j"
+      GRAPH_STORE_NAME: "${GRAPH_STORE_NAME:-neo4j}"
       AGENT_MODEL: "${AGENT_MODEL:-}"
       AGENT_TRACE_SENSITIVE_DATA: "${AGENT_TRACE_SENSITIVE_DATA:-true}"
       # POST /projects/{pid}/graph_build runs the graph build in this process: off while the
@@ -426,8 +432,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      neo4j:
+      neo4j:   # only when the neo4j profile is on (the default store)
         condition: service_healthy
+        required: false
+      arcadedb-init:   # only when the arcadedb profile is on
+        condition: service_completed_successfully
+        required: false
       temporal:   # only when the temporal profile is on
         condition: service_healthy
         required: false
@@ -529,11 +539,11 @@ services:
       TEMPORAL_NAMESPACE: "${TEMPORAL_NAMESPACE:-specflow-local}"
       TEMPORAL_QUEUE_PARSE: "specflow-parse"
       TEMPORAL_QUEUE_AGENTS: "specflow-agents"
-      GRAPH_STORE: "neo4j"
-      GRAPH_STORE_URI: "bolt://specflow-neo4j:7687"
-      GRAPH_STORE_USER: "neo4j"
+      GRAPH_STORE: "${GRAPH_STORE:-neo4j}"   # the store of the stack: `make up WITH=arcadedb` or `WITH=postgres` (docs/configuration.md "Local stack")
+      GRAPH_STORE_URI: "${GRAPH_STORE_URI:-bolt://specflow-neo4j:7687}"
+      GRAPH_STORE_USER: "${GRAPH_STORE_USER:-neo4j}"
       GRAPH_STORE_PASSWORD: "${GRAPH_STORE_PASSWORD:-${NEO4J_PASSWORD:?set GRAPH_STORE_PASSWORD in .env.local}}"   # an older .env.local with only NEO4J_PASSWORD still works
-      GRAPH_STORE_NAME: "neo4j"
+      GRAPH_STORE_NAME: "${GRAPH_STORE_NAME:-neo4j}"
       LLM_GATEWAY_URL: "${LLM_GATEWAY_URL:-}"
       LLM_GATEWAY_API_KEY: "${LLM_GATEWAY_API_KEY:-}"
       AGENT_MODEL: "${AGENT_MODEL:-}"

@@ -86,14 +86,17 @@ it once at start (`graph.stores.build_store`). Pick the backend with `GRAPH_STOR
 the server with the other variables, the way a database URL picks Aurora, Cloud SQL or RDS.
 No `GRAPH_STORE*` name is a graph build switch: setting them never turns the graph build on.
 
-| Variable | neo4j (default) | arcadedb | postgres | tigergraph |
+Supported stores: Neo4j Community 5.26 or later, ArcadeDB 26.10 or later, PostgreSQL 15 or later with
+pgvector 0.8 or later. TigerGraph is planned: its name is accepted, but no adapter ships yet.
+
+| Variable | neo4j (default) | arcadedb | postgres | tigergraph (planned) |
 |---|---|---|---|---|
 | `GRAPH_STORE` | `neo4j` | `arcadedb` | `postgres` | `tigergraph` |
 | `GRAPH_STORE_URI` | `bolt://`, `bolt+s://`, `neo4j://`, `neo4j+s://` | Bolt endpoint of the server | unset = reuse `DATABASE_*`; set = `postgresql://host:port/db` | HTTPS endpoint of the server |
 | `GRAPH_STORE_USER`, `GRAPH_STORE_PASSWORD` | server login | server login | unset = the app role (`DATABASE_USER`, `DATABASE_PASSWORD`); with a URI both are required | server login |
 | `GRAPH_STORE_NAME` | database (default `neo4j`) | database | schema (default `graph`) | graph name |
 | `GRAPH_STORE_ADMIN_URI` | not used | HTTP admin endpoint when it is not the Bolt host | not used | per adapter |
-| `GRAPH_STORE_POOL_SIZE` | cap on the adapter's pool (unset = the driver default) | per adapter | per adapter | per adapter |
+| `GRAPH_STORE_POOL_SIZE` | cap on the driver pool (unset = the driver default) | not used | cap on the engine pool (default 5) | per adapter |
 
 Rules:
 
@@ -112,7 +115,14 @@ Rules:
   answers `store_sdk_missing` and names the extra (`uv sync --extra tigergraph`).
 
 Each backend has one section below for what an operator does before the first start (accounts,
-databases, privileges). The sections of the backends other than Neo4j are filled in with their adapters.
+databases, privileges).
+
+Known limits of the other stores against Neo4j (the live suites compare them with recorded Neo4j results):
+
+- ArcadeDB: the top-5 of a ranking may differ by one id (4 of 41 recorded rankings), because its fulltext
+  scoring is BM25-like, not Lucene's.
+- PostgreSQL: two recorded rankings differ at a near-tie of scores (explained and pinned in the golden test).
+- Neither changes a graph build: the same project builds the same nodes and edges on every store.
 
 <!-- graph-store: neo4j -->
 ### Neo4j
@@ -158,16 +168,15 @@ One-time admin steps (a production server):
    dimension or similarity than `GRAPH_EMBEDDING_DIM` and cosine; drop the index (`DROP INDEX` over the HTTP
    API) and rebuild to change the dimension.
 
-Local stack: `make up WITH=arcadedb` starts `arcadedata/arcadedb:26.10.2` (4 GB, volume `specflow-arcadedb-data`) and
-creates the database once (`arcadedb-init`; its name is `ARCADEDB_DATABASE`, default `specflow`). It does **not** yet point
-the api and the agents worker at it: their compose environment still names neo4j (that wiring is a later step), so run the
-backend against it from the host. neo4j stays up beside it on 7687, so the published ports of ArcadeDB are configurable:
-`ARCADEDB_BOLT_HOST_PORT` (default `7688`, Bolt) and `ARCADEDB_HTTP_HOST_PORT` (default `2480`, HTTP API and Studio), both bound
-to `127.0.0.1` only. The root password is `GRAPH_STORE_PASSWORD` from `.env.local`, mounted as a Docker secret file (it is not in
-`docker inspect`). Host run:
+Local stack: `make up WITH=arcadedb` ([Run the stack on ArcadeDB](#run-the-stack-on-arcadedb)) starts
+`arcadedata/arcadedb:26.10.2` (4 GB, volume `specflow-arcadedb-data`) instead of neo4j, creates the database once
+(`arcadedb-init`; its name is `ARCADEDB_DATABASE`, default `specflow`) and points the api and the agents worker at it.
+The published ports are configurable: `ARCADEDB_BOLT_HOST_PORT` (default `7688`, Bolt) and `ARCADEDB_HTTP_HOST_PORT`
+(default `2480`, HTTP API and Studio), both bound to `127.0.0.1` only. The root password is `GRAPH_STORE_PASSWORD` from
+`.env.local`, mounted as a Docker secret file (it is not in `docker inspect`). For the host tools set
 `GRAPH_STORE=arcadedb GRAPH_STORE_URI=bolt://localhost:7688 GRAPH_STORE_ADMIN_URI=http://localhost:2480 GRAPH_STORE_USER=root
-GRAPH_STORE_NAME=specflow make api`. The admin endpoint is derived as the Bolt host on port 2480, so set
-`GRAPH_STORE_ADMIN_URI` whenever the published ports differ. Use `https` for the admin API outside a trusted network: the client
+GRAPH_STORE_NAME=specflow` in `.env.local` (the admin endpoint is derived as the Bolt host on port 2480, so set
+`GRAPH_STORE_ADMIN_URI` whenever the published ports differ). Use `https` for the admin API outside a trusted network: the client
 sends the login as HTTP Basic authentication and warns (a log event, never a value) when the admin URI is plain `http` to a host
 that is not loopback. `bolt+ssc://` and `neo4j+ssc://` (self-signed) turn TLS verification of the admin API off as well as Bolt's.
 The HTTP client never uses `HTTP_PROXY`/`HTTPS_PROXY`.
@@ -236,14 +245,15 @@ Notes:
     setup creates it for a project over 2000 vectors); run that setup in a quiet moment.
 - Locally the `postgres` service of `docker-compose.yml` uses the `pgvector/pgvector` image and
   `backend/postgres-init` creates the extension on a new data volume; on an existing volume run
-  `make postgres-vector` once. To run the host targets against it, export
-  `GRAPH_STORE=postgres GRAPH_STORE_URI=postgresql://localhost:5433/specflow GRAPH_STORE_USER=specflow`
-  (the password is `DATABASE_PASSWORD` from `.env.local`; `GRAPH_STORE_PASSWORD` takes it).
+  `make postgres-vector` once. `make up WITH=postgres` runs the stack on it ([Run the stack on
+  PostgreSQL](#run-the-stack-on-postgresql)). To run the host targets against it, set in `.env.local`
+  `GRAPH_STORE=postgres GRAPH_STORE_URI=postgresql://localhost:5433/specflow GRAPH_STORE_USER=specflow
+  GRAPH_STORE_PASSWORD=<the value of DATABASE_PASSWORD>` (or leave the URI, user and password out to reuse `DATABASE_*`).
 
 <!-- graph-store: tigergraph -->
 ### TigerGraph
 
-Admin steps: to be written with the adapter.
+Planned, not shipped. `GRAPH_STORE=tigergraph` answers `store_not_available`. Its admin steps are written with the adapter.
 
 <!-- end graph-store -->
 
@@ -289,7 +299,7 @@ S3 keys come from the standard AWS credential chain. A bucket is never created b
 ## Local stack
 
 Run `make env-local` first: it writes `.env.local` (git-ignored) with random local secrets and
-never overwrites an existing file. `make up` then starts postgres, neo4j, RustFS (S3-compatible,
+never overwrites an existing file. `make up` then starts postgres, neo4j (the graph store), RustFS (S3-compatible,
 host port `RUSTFS_HOST_PORT`, default `19000`, bucket `specflow-local`), api, worker-parse,
 worker-agents and frontend. `docker-compose.yml` and the `Makefile` set the local values below.
 
@@ -307,6 +317,58 @@ postgres, clickhouse, redis, minio). `make down`, `make ps` and `make logs` alwa
 profiles. Set `TEMPORAL_ADDRESS` to an address the containers can reach (not `localhost`). The host
 tools (`make api`, `make worker`) use `TEMPORAL_ADDRESS`, default `localhost:7233`.
 
+### Graph store of the stack
+
+`WITH` also picks the graph store (one of `neo4j`, `arcadedb`, `postgres`; none means neo4j). It starts the
+server of that store only, and sets `GRAPH_STORE`, `GRAPH_STORE_URI`, `GRAPH_STORE_USER` and `GRAPH_STORE_NAME` in the api
+and the agents worker (the values win over `.env.local`, whose `GRAPH_STORE_URI` is a host address). The password is
+`GRAPH_STORE_PASSWORD` in every case. Two stores in one `WITH`, or a `GRAPH_STORE=` on the `make` line that
+differs from `WITH`, stop with an error (host targets such as `make api` take any `GRAPH_STORE`). `make down`, `make ps`
+and `make logs` cover every store. Run `make down` before you switch stores: the old store's container keeps running
+otherwise, and keeps its host ports. The stack needs Docker Compose 2.24 or later.
+
+| `WITH` | Server started | Containers use |
+|---|---|---|
+| (none) or `neo4j` | `neo4j` | `bolt://specflow-neo4j:7687`, user `neo4j`, database `neo4j` |
+| `arcadedb` | `arcadedb`, `arcadedb-init` | `bolt://specflow-arcadedb:7687`, user `root`, database `ARCADEDB_DATABASE` (default `specflow`) |
+| `postgres` | none (the `postgres` service) | `DATABASE_*` login, schema `graph` |
+
+`WITH` combines with the other names, for example `make up WITH=arcadedb,temporal`. Switching stores keeps the data
+of the old one in its volume; the new store starts empty, so run a graph build again.
+
+#### Run the stack on Neo4j
+
+```shell
+make env-local     # once
+make up            # same as make up WITH=neo4j
+```
+
+#### Run the stack on ArcadeDB
+
+```shell
+make env-local
+make up WITH=arcadedb        # make up WITH=arcadedb GRAPH_STORE=arcadedb is the same
+```
+
+The root password is `GRAPH_STORE_PASSWORD`. The database is created by `arcadedb-init`; the first graph
+build creates the schema. Browse the data in Studio on `http://localhost:2480` (`ARCADEDB_HTTP_HOST_PORT`).
+
+#### Run the stack on PostgreSQL
+
+```shell
+make env-local
+make up WITH=postgres
+```
+
+The graph lives in the schema `graph` of the `specflow` database, over the `DATABASE_*` login. On a data volume that
+existed before the pgvector image, run `make postgres-vector` once first (it needs the admin login; a new volume
+gets the extension from `backend/postgres-init`). `.env.local` still needs `GRAPH_STORE_PASSWORD` (or `NEO4J_PASSWORD`),
+which `make env-local` writes: compose checks it although the PostgreSQL store does not use it. `WITH=postgres` adds `config/compose.graph-postgres.yaml`, which needs
+Docker Compose 2.24 or newer.
+
+Running `docker compose` yourself (not `make`): the services read `GRAPH_STORE*` from the shell and the env file,
+and neo4j is in the compose profile `neo4j` (`COMPOSE_PROFILES=neo4j`). Do not put a host address in `GRAPH_STORE_URI` then.
+
 The app never creates the Temporal namespace (`TEMPORAL_NAMESPACE`, default `specflow-local`).
 The bundled Temporal creates it on start. On your own Temporal, create it once:
 
@@ -318,7 +380,7 @@ temporal operator namespace create --address <host>:7233 --namespace specflow-lo
 |---|---|---|
 | `POSTGRES_ADMIN_PASSWORD`, `DATABASE_PASSWORD`, `DATABASE_AGENT_PASSWORD`, `GRAPH_STORE_PASSWORD`, `AUTH_DEV_SIGNING_KEY`, `SESSION_SECRET` | L (secrets) | Generated by `make env-local`. An existing file that has `NEO4J_PASSWORD` and no `GRAPH_STORE_PASSWORD` keeps working: the `Makefile` passes it on. |
 | `RUSTFS_ACCESS_KEY`, `RUSTFS_SECRET_KEY` | L (secrets) | Generated by `make env-local`; mapped to `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. |
-| `GRAPH_STORE`, `GRAPH_STORE_URI`, `GRAPH_STORE_USER` | L | Containers: `neo4j`, `bolt://specflow-neo4j:7687`, `neo4j`. Host tools: `bolt://localhost:7687`, `neo4j`. |
+| `GRAPH_STORE`, `GRAPH_STORE_URI`, `GRAPH_STORE_USER`, `GRAPH_STORE_NAME` | L | Containers: set by `make up` for the store `WITH` names (neo4j: `neo4j`, `bolt://specflow-neo4j:7687`, `neo4j`, `neo4j`); the env file does not change them. Host tools on neo4j: `bolt://localhost:7687`, `neo4j`; on another store: the values in your env file. |
 | `RUSTFS_HOST_PORT` | L | `19000`. |
 | `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE` | L | Containers: `host.docker.internal:7233` (own Temporal) or `specflow-temporal:7233` (`WITH=temporal`); namespace `specflow-local`. Host tools: `localhost:7233`. |
 | `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | L | Empty (no tracing); with `WITH=langfuse`: the bundled Langfuse and local keys. |
@@ -342,4 +404,23 @@ no fallback to other credentials. The app still starts.
 | Variable | Tier |
 |---|---|
 | `SPECFLOW_TEST_S3=1` | S3 object store against a real endpoint (`AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`; bucket from `STORAGE_BUCKET`, default `specflow-local`). |
-| `SPECFLOW_TEST_GCS`, `SPECFLOW_TEST_POSTGRES`, `SPECFLOW_TEST_NEO4J`, `SPECFLOW_TEST_TEMPORAL`, `SPECFLOW_TEST_LLM_GATEWAY` | Other live tiers. |
+| `SPECFLOW_TEST_GCS`, `SPECFLOW_TEST_POSTGRES`, `SPECFLOW_TEST_TEMPORAL`, `SPECFLOW_TEST_LLM_GATEWAY` | Other live tiers. |
+| `SPECFLOW_TEST_GRAPH_STORE=neo4j\|arcadedb\|postgres` | The live graph suites against that store (`SPECFLOW_TEST_NEO4J=1` is an alias of `neo4j`). |
+
+### Live graph suites per store
+
+`make test-graph-live STORE=neo4j|arcadedb|postgres` runs the live graph suites (probe contract, core, reader, build,
+update, verify, infer, renamed ontology, estimate, golden parity, and the store-specific suites) against one running
+store and skips the suites of the others. It reads `GRAPH_STORE_URI`, `GRAPH_STORE_USER`, `GRAPH_STORE_PASSWORD`,
+`GRAPH_STORE_NAME` (and `GRAPH_STORE_ADMIN_URI` for ArcadeDB) from the shell or the env file
+(`make test-graph-live STORE=arcadedb ENV_FILE=/path/to/file`); for neo4j the `NEO4J_*` names still work and the URI
+defaults to `bolt://localhost:7687`. It starts no server. It leaves out the logging suite (`test_graph_logging.py`, which
+is mostly offline) and the gateway and real-corpus suites (`test_graph_gateway_live.py`, `test_graph_real_live.py`: they
+need an LLM gateway and spend model calls); run those by hand with `SPECFLOW_TEST_GRAPH_STORE=<store>`. CI runs no live graph job: run the suites by hand before a
+release, once per store, against a database, schema or graph that holds nothing you need.
+
+| Store | Setting up the run |
+|---|---|
+| neo4j | `make up` (or your Neo4j 5.26+); `GRAPH_STORE_PASSWORD` in the env file |
+| arcadedb | `make up WITH=arcadedb`; env file: `GRAPH_STORE_URI=bolt://localhost:7688`, `GRAPH_STORE_ADMIN_URI=http://localhost:2480`, `GRAPH_STORE_USER=root`, `GRAPH_STORE_NAME=<a name that does not exist>` (the run creates it and drops it at the end; `specflow` is never dropped) |
+| postgres | `make up WITH=postgres` and `make postgres-vector` when needed; env file: `GRAPH_STORE_URI=postgresql://localhost:5433/specflow`, `GRAPH_STORE_USER`, `GRAPH_STORE_PASSWORD`, `GRAPH_STORE_NAME=<a scratch schema>` |

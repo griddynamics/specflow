@@ -23,7 +23,7 @@ documents; `exclude`: things never to extract; both go into extraction prompts),
 
 | Field | Meaning |
 |---|---|
-| `label` | Neo4j label |
+| `label` | Node label (a type name in ArcadeDB, `kind` and `labels` in PostgreSQL: [data-model.md](data-model.md#per-store-mapping)) |
 | `origin` | Who writes it: `extracted` (build), `analysis` or `human` (gap), `planner` (plan) |
 | `tier` | `context`, `spec`, `governance` or `plan`; readers use it to tell layers apart |
 | `role` | Extracted types only. `anchor` (a part of the system), `group` (groups other nodes), `atomic` (one commitment). Sets identity and merge defaults; `anchor` and `group` types are hub nodes, used for known terms and edge catalogs ([build.md](build.md)). |
