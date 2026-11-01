@@ -27,9 +27,10 @@ import pytest
 import pytest_asyncio
 
 from graph.core import load_ontology
-from graph_probes import requires_live_graph
+from graph_probes import requires_live_graph, selected_backend
 from graph_probes import scenarios as scenario_module
 from graph_probes.golden import (
+    EXPLAINED_SET_DIFFERENCES,
     compare_rankings,
     load_rankings,
     load_snapshot,
@@ -145,8 +146,9 @@ def test_a_scenario_graph_equals_the_golden_snapshot(runs: Runs, scenario: str) 
 
 
 def test_search_rankings_have_the_golden_top_five_sets(runs: Runs, capsys: pytest.CaptureFixture[str]) -> None:
-    parity = compare_rankings(load_rankings(), runs.first.rankings)
-    if parity.rank_differences:
+    explained = EXPLAINED_SET_DIFFERENCES.get(selected_backend() or "", {})
+    parity = compare_rankings(load_rankings(), runs.first.rankings, explained=explained)
+    if parity.rank_differences or parity.explained:
         with capsys.disabled():
             sys.stderr.write("\n" + parity.report() + "\n")
     assert parity.ok, parity.report()

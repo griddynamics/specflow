@@ -14,6 +14,7 @@ from pydantic import SecretStr
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+import graph.build.queries as build_queries
 import graph.core.queries as core_queries
 from graph.core.errors import (
     ConfigurationError,
@@ -29,6 +30,7 @@ from graph.stores.postgres import PostgresDialect, PostgresStore
 from graph.stores.postgres import dialect as pg_dialect
 from graph.stores.postgres import executor as pg_executor
 from graph.stores.postgres.dialect import (
+    BUILD_FRAGMENT_FILES,
     FRAGMENT_FILES,
     json_text,
     parameter_value,
@@ -45,11 +47,12 @@ from graph.stores.postgres.executor import (
     sqlstate,
 )
 from graph.stores.postgres.schema import parse_ddl_statement, schema_objects
-from graph.stores.postgres.sqlfiles import CORE_SQL_DIRECTORY, load_ddl_sql, split_statements
+from graph.stores.postgres.sqlfiles import BUILD_SQL_DIRECTORY, CORE_SQL_DIRECTORY, load_ddl_sql, split_statements
 from graph_support import load_gap_ontology, shipped_ontology
 
 CANARY: Final = "canary-password-value"
 CORE_FILES: Final = sorted(path.name for path in CORE_SQL_DIRECTORY.glob("*.sql"))
+BUILD_FILES: Final = sorted(path.name for path in BUILD_SQL_DIRECTORY.glob("*.sql"))
 # What the Cypher dialect renders from a literal or DDL text: PostgreSQL has no Cypher.
 CYPHER_ONLY: Final = frozenset({"core.ddl", "core.literal"})
 
@@ -68,33 +71,37 @@ def config(**overrides: Any) -> StoreConfig:
 # Template coverage
 
 
-def cypher_core_templates() -> set[str]:
-    found = {name for name in (*cypher._STATIC, *cypher._RENDERERS) if name.startswith("core.")}
+def cypher_templates(catalog: str) -> set[str]:
+    found = {name for name in (*cypher._STATIC, *cypher._RENDERERS) if name.startswith(f"{catalog}.")}
     return found - CYPHER_ONLY
 
 
-def test_every_core_template_of_the_catalog_has_a_sql_file() -> None:
-    """The coverage test of design D2: no core template the catalog declares is missing for PostgreSQL."""
+def test_every_template_of_the_catalog_has_a_sql_file() -> None:
+    """The coverage test of design D2: no core or build template the catalog declares is missing for PostgreSQL."""
 
-    declared = cypher_core_templates()
-    assert declared, "the catalog declares no core template?"
+    declared = cypher_templates("core") | cypher_templates("build")
+    assert declared, "the catalog declares no template?"
     assert declared - templates() == set()
     assert templates() - declared == set()
     for template in declared:
-        assert (CORE_SQL_DIRECTORY / f"{template.removeprefix('core.')}.sql").is_file(), template
+        catalog, _, stem = template.partition(".")
+        folder = CORE_SQL_DIRECTORY if catalog == "core" else BUILD_SQL_DIRECTORY
+        assert (folder / f"{stem}.sql").is_file(), template
 
 
-def test_the_core_sql_folder_holds_exactly_the_templates_fragments_and_settings() -> None:
-    stems = {f"core.{name.removesuffix('.sql')}" for name in CORE_FILES if name not in FRAGMENT_FILES}
-    assert stems == templates()
-    assert set(CORE_FILES) >= FRAGMENT_FILES
+def test_the_sql_folders_hold_exactly_the_templates_fragments_and_settings() -> None:
+    core = {f"core.{name.removesuffix('.sql')}" for name in CORE_FILES if name not in FRAGMENT_FILES}
+    build = {f"build.{name.removesuffix('.sql')}" for name in BUILD_FILES if name not in BUILD_FRAGMENT_FILES}
+    assert core | build == templates()
+    assert set(CORE_FILES) >= FRAGMENT_FILES and set(BUILD_FILES) >= BUILD_FRAGMENT_FILES
 
 
-def test_the_catalog_has_thirty_nine_core_templates_of_which_postgres_runs_thirty_seven() -> None:
+def test_the_catalog_has_core_and_build_templates_of_which_postgres_runs_all_but_the_cypher_only_ones() -> None:
     all_core = {name for name in (*cypher._STATIC, *cypher._RENDERERS) if name.startswith("core.")}
-    assert len(all_core) == 39
-    assert len(templates()) == 37
-    assert all_core - templates() == CYPHER_ONLY
+    all_build = {name for name in (*cypher._STATIC, *cypher._RENDERERS) if name.startswith("build.")}
+    assert (len(all_core), len(all_build)) == (39, 39)
+    assert len(templates()) == 37 + 39
+    assert (all_core | all_build) - templates() == CYPHER_ONLY
 
 
 def catalog_queries() -> list[Query]:
@@ -115,6 +122,22 @@ def catalog_queries() -> list[Query]:
         core_queries.delete_keyed_node("Finding", "uuid"),
         core_queries.keyed_node_relationship_types("Document", "document_id"),
         core_queries.upsert_foreign_node("Finding"),
+    ]
+    queries += [value for value in vars(build_queries).values() if isinstance(value, Query)]
+    queries += [
+        build_queries.read_current_edges("PART_OF"),
+        build_queries.upsert_edges("PART_OF"),
+        build_queries.update_edges("PART_OF"),
+        build_queries.delete_edges("PART_OF"),
+        build_queries.infer_exclusive_holders("REALIZED_BY"),
+        build_queries.infer_write_edges("REALIZED_BY"),
+        build_queries.infer_delete_edges("REALIZED_BY"),
+        build_queries.infer_endpoint_subjects(("PART_OF", "RELATES_TO"), ("RELATES_TO",), mentions=True),
+        build_queries.infer_endpoint_subjects(("PART_OF",), (), mentions=False),
+        build_queries.infer_realization_subjects(
+            "GROUPED_BY", "PART_OF", member_symmetric=False, container_symmetric=True, max_hops=2
+        ),
+        build_queries.infer_similar_targets("REALIZED_BY", symmetric=True),
     ]
     return [query for query in queries if query.template not in CYPHER_ONLY]
 
@@ -185,7 +208,7 @@ def test_a_missing_parameter_is_named_and_extra_parameters_are_dropped() -> None
     assert plan.statements[0].params == {"project_id": "p", "n_key": "k", "n_label": "L"}
 
 
-@pytest.mark.parametrize("template", ["core.nothing_like_this", "build.build_upsert_documents", "core.ddl"])
+@pytest.mark.parametrize("template", ["core.nothing_like_this", "build.nothing_like_this", "core.ddl"])
 def test_an_unknown_or_cypher_only_template_is_refused(template: str) -> None:
     with pytest.raises(ConformanceError) as raised:
         PostgresDialect().plan(Query("x", template, project_scoped=False), {})
@@ -622,7 +645,7 @@ def test_statements_split_at_semicolons_outside_dollar_quotes() -> None:
 
 def test_the_schema_file_is_split_into_statements_that_each_create_one_object() -> None:
     statements = split_statements(load_ddl_sql("schema.sql"))
-    assert len(statements) == 19
+    assert len(statements) == 21
     assert {parse_ddl_statement(item).kind for item in statements} == {"schema", "function", "table", "index"}
 
 

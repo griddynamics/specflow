@@ -27,6 +27,7 @@ from graph_probes.base import (
     select,
 )
 from graph_probes.golden import (
+    EXPLAINED_SET_DIFFERENCES,
     GOLDEN_DIR,
     RANKINGS_FILE,
     compare_rankings,
@@ -550,6 +551,24 @@ def test_rankings_with_the_same_top_five_set_are_equal_up_to_rank_differences() 
     assert not compare_rankings(want, {"queries": {"other": {}}}).ok
     fragments = rankings(fragments=ranking("f1", "f2", key="fragment_id"))
     assert compare_rankings(fragments, fragments).ok
+
+
+def test_an_explained_set_difference_is_reported_and_any_other_still_fails() -> None:
+    want = rankings(fulltext=ranking("a", "b", "c", "d", "e", "f"))
+    different = rankings(fulltext=ranking("a", "b", "c", "d", "x", "f"))
+    parity = compare_rankings(want, different, explained={("fulltext", "q"): "a near tie at the cut"})
+    assert parity.ok and parity.set_mismatches == [] and len(parity.explained) == 1
+    assert "a near tie at the cut" in parity.report() and parity.report().count("EXPL") == 1
+    assert not compare_rankings(want, different, explained={("fulltext", "other"): "x"}).ok
+    assert not compare_rankings(want, different, explained={("fragments", "q"): "x"}).ok
+
+
+def test_every_explained_difference_names_a_golden_query() -> None:
+    queries = load_rankings()["queries"]
+    for backend, entries in EXPLAINED_SET_DIFFERENCES.items():
+        assert backend == "postgres", backend
+        for mode, text in entries:
+            assert text in queries and mode in queries[text]["modes"], (backend, mode, text)
 
 
 def test_the_golden_rankings_are_well_formed() -> None:

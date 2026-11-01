@@ -22,6 +22,7 @@ import pytest
 from pydantic import SecretStr
 from sqlalchemy import text
 
+from graph.build import queries as bq
 from graph.core import ConfigurationError, ConformanceError, NodeRef, Ontology, OwnedWriter
 from graph.core import queries as q
 from graph.core.errors import GraphWriteError, InfrastructureUnavailableError
@@ -751,3 +752,94 @@ async def test_a_project_over_two_thousand_vectors_gets_an_hnsw_index_that_the_s
     assert len(indexes) == 1
     assert "hnsw" in indexes[0]["indexdef"] and "halfvec(8)" in indexes[0]["indexdef"]
     assert "embedding_model = 'hnsw-m'" in indexes[0]["indexdef"]
+
+
+# Build queries
+
+
+async def test_a_batch_of_creates_folds_duplicate_keys_before_it_writes(
+    store: PostgresStore, ontology: Ontology, project: str
+) -> None:
+    """ON CONFLICT cannot touch one row twice: rows of one uuid fold in order, the first label wins, a null removes."""
+
+    executor = store.executor()
+    rows = [
+        {"uuid": "u1", "label": MODULE, "props": {"spec_id": "M::1", "name": "first", "gone": "x", "keep": 1}},
+        {"uuid": "u1", "label": FR, "props": {"name": "second", "gone": None, "embedding": vec(1.0)}},
+        {"uuid": "u2", "label": FR, "props": {"spec_id": "R::2"}},
+    ]
+    async with executor.tx(project) as tx:
+        assert await tx.run(bq.CREATE_SPEC_NODES, rows=rows, build_id="b1") == [{"written": 3}]
+    found = await raw(
+        store,
+        "SELECT uuid, labels, props, embedding IS NOT NULL AS has_vector "
+        "FROM graph.node WHERE group_id = :p ORDER BY uuid",
+        p=project,
+    )
+    assert found[0]["labels"] == [MODULE] and found[0]["has_vector"] is True
+    assert found[0]["props"] == {"uuid": "u1", "spec_id": "M::1", "name": "second", "keep": 1}
+    again = [{"uuid": "u1", "label": FR, "props": {"keep": None, "added": True}}]
+    async with executor.tx(project) as tx:
+        assert await tx.run(bq.CREATE_SPEC_NODES, rows=again, build_id="b2") == [{"written": 1}]
+    (node,) = await raw(store, "SELECT labels, props FROM graph.node WHERE group_id = :p AND uuid = 'u1'", p=project)
+    assert node["labels"] == [MODULE]  # the label is set on creation only
+    assert node["props"] == {"uuid": "u1", "spec_id": "M::1", "name": "second", "added": True}
+
+
+async def test_a_null_removes_a_top_level_key_only(store: PostgresStore, ontology: Ontology, project: str) -> None:
+    executor = store.executor()
+    async with executor.tx(project) as tx:
+        await tx.run(
+            bq.CREATE_SPEC_NODES, rows=[{"uuid": "u1", "label": MODULE, "props": {"spec_id": "M::1"}}], build_id="b"
+        )
+        patch = {"uuid": "u1", "props": {"a": 1, "b": 2, "nested": {"x": None, "y": [1, None]}}}
+        await tx.run(bq.UPDATE_SPEC_NODES, rows=[patch], build_id="b")
+        clear = {"uuid": "u1", "props": {"a": None}}
+        assert await tx.run(bq.UPDATE_SPEC_NODES, rows=[clear], build_id="b") == [{"written": 1}]
+        missing = await tx.run(bq.UPDATE_SPEC_NODES, rows=[{"uuid": "none", "props": {}}], build_id="b")
+        assert missing == [{"written": 0}]
+    (node,) = await raw(store, "SELECT props FROM graph.node WHERE group_id = :p AND uuid = 'u1'", p=project)
+    assert node["props"] == {"uuid": "u1", "spec_id": "M::1", "b": 2, "nested": {"x": None, "y": [1, None]}}
+
+
+async def test_a_merge_moves_foreign_relationships_once_and_deletes_the_merged_nodes(
+    store: PostgresStore, ontology: Ontology, project: str
+) -> None:
+    """W3: equal relationships in the moved set collapse, one between the nodes goes, a self-loop stays one."""
+
+    build = writer(store, ontology, project)
+    for key in ("old1", "old2", "new", "other"):
+        await build.upsert_node(FR, key, {"spec_id": f"R::{key}", "name": key})
+    same = {"basis": "stated", "fact": "same"}
+    seeded = [
+        {"source": "old1", "target": "other", "edge_key": "k-a", "props": same},
+        {"source": "old2", "target": "other", "edge_key": "k-a", "props": same},  # equal: one of the two survives
+        {"source": "other", "target": "old1", "edge_key": "k-b", "props": {"basis": "stated"}},
+        {"source": "old1", "target": "old1", "edge_key": "k-self", "props": {"basis": "stated"}},
+        {"source": "old1", "target": "old2", "edge_key": "k-link", "props": {"basis": "stated"}},  # deleted
+        {"source": "old2", "target": "new", "edge_key": "k-new", "props": {"basis": "stated"}},  # deleted
+    ]
+    async with store.executor().tx(project) as tx:
+        assert await tx.run(bq.upsert_edges(RELATES), rows=seeded) == [{"written": 6}]
+    executor = store.executor()
+    row = {"survivor": "new", "merged": ["old1", "old2", "gone"], "aliases": ["R::old1", "R::old2"]}
+    async with executor.tx(project) as tx:
+        assert await tx.run(bq.MERGE_SPEC_NODES, rows=[row], build_id="b9", owned_types=["PART_OF"]) == [{"written": 1}]
+    nodes = await raw(store, "SELECT uuid, props FROM graph.node WHERE group_id = :p ORDER BY uuid", p=project)
+    assert [item["uuid"] for item in nodes] == ["new", "other"]
+    survivor = nodes[0]["props"]
+    assert survivor["spec_id_aliases"] == ["R::old1", "R::old2"] and survivor["last_build_id"] == "b9"
+    edges = await raw(
+        store,
+        "SELECT s.uuid AS s, t.uuid AS t, e.edge_key AS k FROM graph.edge e JOIN graph.node s ON s.id = e.source_id "
+        "JOIN graph.node t ON t.id = e.target_id WHERE e.group_id = :p ORDER BY e.edge_key, s.uuid",
+        p=project,
+    )
+    assert edges == [
+        {"s": "new", "t": "other", "k": "k-a"},
+        {"s": "other", "t": "new", "k": "k-b"},
+        {"s": "new", "t": "new", "k": "k-self"},
+    ]
+    async with executor.tx(project) as tx:  # the batch applied again: the merged nodes are gone, the survivor stays
+        again = await tx.run(bq.MERGE_SPEC_NODES, rows=[row], build_id="b10", owned_types=["PART_OF"])
+    assert again == [{"written": 1}]

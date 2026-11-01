@@ -126,13 +126,32 @@ def snapshot_differences(expected: Mapping[str, Any], actual: Mapping[str, Any],
     return lines
 
 
+# Top-five set differences of a store that are known and explained, by backend, then (mode, query): the
+# reference scores come from Lucene's database-wide statistics (which also count documents deleted since
+# and are not merged away), so two results within a few percent of each other at the cut can swap places.
+EXPLAINED_SET_DIFFERENCES: Final[dict[str, dict[tuple[str, str], str]]] = {
+    "postgres": {
+        ("fragments", "checkout payment"): (
+            "Lucene scores 1.7969 (rank 5) and 1.7885 (rank 6), a 0.5% gap; BM25 per project, whose statistics "
+            "hold only the project's fragments, ranks them the other way round"
+        ),
+        ("fulltext", "staff download CSV file"): (
+            "ranks 5 and 6 are 2.2% apart in BM25 per project (2.7465 and 2.6865 on the same corpus) and swap "
+            "against the reference's database-wide statistics"
+        ),
+    },
+}
+
+
 @dataclass
 class RankingParity:
-    """The outcome of comparing rankings: set mismatches fail parity, rank differences are reported."""
+    """The outcome of comparing rankings: set mismatches fail parity, rank differences and explained
+    set differences are reported."""
 
     queries: int = 0
     set_mismatches: list[str] = field(default_factory=list)
     rank_differences: list[str] = field(default_factory=list)
+    explained: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -142,6 +161,7 @@ class RankingParity:
         return "\n".join(
             [f"{self.queries} rankings compared"]
             + [f"SET   {line}" for line in self.set_mismatches]
+            + [f"EXPL  {line}" for line in self.explained]
             + [f"RANK  {line}" for line in self.rank_differences]
         )
 
@@ -150,9 +170,16 @@ def _ids(entries: Sequence[Mapping[str, Any]]) -> list[str]:
     return [e["spec_id"] if "spec_id" in e else e["fragment_id"] for e in entries]
 
 
-def compare_rankings(expected: Mapping[str, Any], actual: Mapping[str, Any], *, top: int = TOP) -> RankingParity:
+def compare_rankings(
+    expected: Mapping[str, Any],
+    actual: Mapping[str, Any],
+    *,
+    top: int = TOP,
+    explained: Mapping[tuple[str, str], str] | None = None,
+) -> RankingParity:
     """Per query and mode: the first ``top`` ids must be the same set (else a set mismatch); a different
-    order, or a different tail, is a rank difference. Queries and modes must be the same."""
+    order, or a different tail, is a rank difference. Queries and modes must be the same. A set
+    difference listed in ``explained`` (by mode and query, with its reason) is reported, not a mismatch."""
 
     parity = RankingParity()
     if sorted(expected["queries"]) != sorted(actual["queries"]):
@@ -164,9 +191,12 @@ def compare_rankings(expected: Mapping[str, Any], actual: Mapping[str, Any], *, 
             parity.queries += 1
             want, have = _ids(want_entry[mode]), _ids(have_entry[mode])
             if set(want[:top]) != set(have[:top]):
-                parity.set_mismatches.append(
-                    f"{mode} {text!r}: top {top} {sorted(set(want[:top]) ^ set(have[:top]))} not in both"
-                )
+                line = f"{mode} {text!r}: top {top} {sorted(set(want[:top]) ^ set(have[:top]))} not in both"
+                reason = (explained or {}).get((mode, text))
+                if reason is None:
+                    parity.set_mismatches.append(line)
+                else:
+                    parity.explained.append(f"{line}: {reason}")
             elif want != have:
                 parity.rank_differences.append(f"{mode} {text!r}: {want} -> {have}")
     return parity
