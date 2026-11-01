@@ -71,8 +71,8 @@ from urllib.parse import urlsplit
 import yaml
 from pydantic import BaseModel, SecretStr
 
-from example_lib import run_example
-from graph.build import BuildContext, BuildOptions, BuildResult, BuildSettings, open_file_stores, run_build
+from example_lib import build_result_summary, run_example
+from graph.build import BuildContext, BuildOptions, BuildSettings, open_file_stores, run_build
 from graph.build.verify import verify_project
 from graph.core import Gateway, GraphReader, LLMConfig, ensure_schema, load_ontology
 from graph.core.config import DEFAULT_BUDGETS, CallBudget, CallClass
@@ -716,31 +716,6 @@ def usage_summary(usage: UsageSnapshot) -> dict[str, Any]:
     }
 
 
-def result_summary(result: BuildResult) -> dict[str, Any]:
-    metrics = result.metrics
-    return {
-        "project_id": result.project_id,
-        "build_id": result.build_id,
-        "mode": result.mode,
-        "status": result.status,
-        "settled": result.settled,
-        "failed_step": result.failed_step,
-        "error_code": result.error_code,
-        "spec_changes": {name: len(values) for name, values in result.spec_changes.model_dump().items() if values},
-        "skipped_fragments": dict(sorted(result.skipped_fragments.items())),
-        "follow_up_lineages": list(result.verification.follow_up_lineages) if result.verification else [],
-        "fragments_by_status": metrics.fragments_by_status,
-        "units_extracted": metrics.units_extracted,
-        "units_reused": metrics.units_reused,
-        "nodes_by_label": metrics.nodes_by_label,
-        "edges_by_relation": metrics.edges_by_relation,
-        "dropped_edges": metrics.dropped_edges,
-        "exclusive_conflicts": metrics.exclusive_conflicts,
-        "attribution_fallbacks": metrics.attribution_fallbacks,
-        "duration_s": metrics.duration_s,
-    }
-
-
 def snapshot_counts(snapshot: Mapping[str, Any]) -> dict[str, Any]:
     by_label: dict[str, int] = {}
     for node in snapshot["nodes"]:
@@ -1293,7 +1268,7 @@ async def main() -> None:
                 "build": round(wall_s, 2),
                 "snapshot_export": round(snapshot_s, 2),
             },
-            "build": result_summary(result),
+            "build": build_result_summary(result),
             "verify": verification.model_dump(mode="json"),
             "invariants": await invariants(probe, args.project, ontology),
             "snapshot": {"sha256": hashlib.sha256(data).hexdigest(), **snapshot_counts(snapshot)},

@@ -28,7 +28,7 @@ from typing import Any
 
 from pydantic import SecretStr
 
-from example_lib import run_example
+from example_lib import build_result_summary, run_example
 from graph.build import BuildContext, BuildResult, FileStores, open_file_stores, plan, run_build
 from graph.build.models import PlanArtifact
 from graph.core import Gateway, LLMConfig, ensure_schema, load_ontology
@@ -101,29 +101,11 @@ def llm_config(env: dict[str, str]) -> LLMConfig:
 
 
 def result_summary(result: BuildResult) -> dict[str, Any]:
-    metrics = result.metrics
-    return {
-        "project_id": result.project_id,
-        "build_id": result.build_id,
-        "mode": result.mode,
-        "status": result.status,
-        "settled": result.settled,
-        "failed_step": result.failed_step,
-        "error_code": result.error_code,
-        "spec_changes": {name: len(values) for name, values in result.spec_changes.model_dump().items() if values},
-        "skipped_fragments": dict(sorted(result.skipped_fragments.items())),
-        "follow_up_lineages": list(result.verification.follow_up_lineages) if result.verification else [],
-        "fragments_by_status": metrics.fragments_by_status,
-        "units_extracted": metrics.units_extracted,
-        "units_reused": metrics.units_reused,
-        "nodes_by_label": metrics.nodes_by_label,
-        "edges_by_relation": metrics.edges_by_relation,
-        "dropped_edges": metrics.dropped_edges,
-        "exclusive_conflicts": metrics.exclusive_conflicts,
-        "attribution_fallbacks": metrics.attribution_fallbacks,
-        "llm": {step: usage.model_dump() for step, usage in metrics.llm.items()},
-        "duration_s": metrics.duration_s,
-    }
+    summary = build_result_summary(result)
+    duration_s = summary.pop("duration_s")
+    summary["llm"] = {step: usage.model_dump() for step, usage in result.metrics.llm.items()}
+    summary["duration_s"] = duration_s
+    return summary
 
 
 def plan_summary(project_id: str, build_id: str, artifact: PlanArtifact) -> dict[str, Any]:

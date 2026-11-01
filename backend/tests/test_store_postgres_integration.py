@@ -1,8 +1,10 @@
 """Live tests of the PostgreSQL graph store against a server with pgvector.
 
 Gate: ``SPECFLOW_TEST_GRAPH_STORE=postgres`` with ``GRAPH_STORE_URI`` (``postgresql://host:port/database``),
-``GRAPH_STORE_USER``, ``GRAPH_STORE_PASSWORD`` and ``GRAPH_STORE_NAME`` (the schema; default ``graph``). The
-login owns the database and the ``vector`` extension is installed in it. Every test works in its own
+``GRAPH_STORE_USER``, ``GRAPH_STORE_PASSWORD`` and ``GRAPH_STORE_NAME`` (default ``graph``). The login owns the
+database and the ``vector`` extension is installed in it. The suite uses vector dimension ``DIM`` and so never shares
+the configured schema with the other live suites: it works in a schema of its own, ``<GRAPH_STORE_NAME>_int_<hex>``,
+created by the first test that needs it and dropped when the module ends. Every test works in its own
 ``pytest-pg-<hex>`` project; the fixture deletes it afterwards. Schema tests use a schema of their own.
 """
 
@@ -15,7 +17,7 @@ import os
 import re
 import uuid
 from collections import Counter
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
 import pytest
@@ -29,7 +31,7 @@ from graph.core.errors import GraphWriteError, InfrastructureUnavailableError
 from graph.core.queries import NodeShape, Query
 from graph.stores import StoreConfig, build_store
 from graph.stores.postgres import PostgresStore
-from graph.stores.postgres.dialect import render_schema
+from graph.stores.postgres.dialect import render_schema, schema_identifier
 from graph_support import shipped_ontology
 
 pytestmark = pytest.mark.skipif(
@@ -45,13 +47,20 @@ PART_OF, INTEGRATES, RELATES = "PART_OF", "INTEGRATES_WITH", "RELATES_TO"
 RETIRED, INFERRED = "retired", "inferred"
 
 
+MAX_SCHEMA_LENGTH = 63  # PostgreSQL truncates longer identifiers
+_BASE_SCHEMA = os.environ.get("GRAPH_STORE_NAME") or "graph"
+INT_SCHEMA = f"{_BASE_SCHEMA[: MAX_SCHEMA_LENGTH - 13]}_int_{uuid.uuid4().hex[:8]}"
+
+
 def live_config(name: str | None = None) -> StoreConfig:
+    """Config of the suite's own schema; ``name`` picks another one."""
+
     return StoreConfig(
         backend="postgres",
         uri=os.environ["GRAPH_STORE_URI"],
         user=os.environ["GRAPH_STORE_USER"],
         password=SecretStr(os.environ["GRAPH_STORE_PASSWORD"]),
-        name=name or os.environ.get("GRAPH_STORE_NAME") or "graph",
+        name=name or INT_SCHEMA,
     )
 
 
@@ -64,6 +73,23 @@ def postgres_store(config: StoreConfig) -> PostgresStore:
 @pytest.fixture(scope="module")
 def ontology() -> Ontology:
     return shipped_ontology()
+
+
+@pytest.fixture(scope="module", autouse=True)
+def drop_integration_schema() -> Iterator[None]:
+    """Drop the schema this module created (and only that one) once its tests are done."""
+
+    yield
+
+    async def drop() -> None:
+        dropper = postgres_store(live_config())
+        try:
+            async with dropper._engine.begin() as connection:
+                await connection.execute(text(f"DROP SCHEMA IF EXISTS {schema_identifier(INT_SCHEMA)} CASCADE"))
+        finally:
+            await dropper.close()
+
+    asyncio.run(drop())
 
 
 @pytest.fixture
