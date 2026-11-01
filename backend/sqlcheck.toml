@@ -77,7 +77,20 @@ paths_include = ["**/src/**"]
 
 [schema_parity]
 metadata = "db.models:Base.metadata"   # db.models registers every table on the shared Base
-ignore_tables = ["alembic_version"]
+# The graph store tables and the system catalogs of the PostgreSQL graph store's SQL are declared in
+# sql-schema.json for the sql-rules step, but no ORM model owns them (design D5: Alembic does not).
+ignore_tables = [
+    "alembic_version",
+    "node",
+    "edge",
+    "meta",
+    "pg_class",
+    "pg_namespace",
+    "pg_index",
+    "pg_constraint",
+    "pg_extension",
+    "pg_proc",
+]
 implicit_columns = []
 conditional_unique_dialects = ["postgresql"]
 

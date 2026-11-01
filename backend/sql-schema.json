@@ -206,6 +206,188 @@
         "source_id"
       ]
     },
+    "edge": {
+      "columns": {
+        "id": {
+          "type": "int"
+        },
+        "group_id": {
+          "type": "text"
+        },
+        "rel_type": {
+          "type": "text"
+        },
+        "source_id": {
+          "type": "int",
+          "fk": "node.id"
+        },
+        "target_id": {
+          "type": "int",
+          "fk": "node.id"
+        },
+        "props": {
+          "type": "json"
+        },
+        "edge_key": {
+          "type": "text"
+        }
+      },
+      "indexes": [
+        "group_id",
+        "source_id",
+        "target_id"
+      ]
+    },
+    "meta": {
+      "columns": {
+        "meta_key": {
+          "type": "text"
+        },
+        "meta_value": {
+          "type": "text"
+        }
+      },
+      "indexes": []
+    },
+    "node": {
+      "columns": {
+        "id": {
+          "type": "int"
+        },
+        "group_id": {
+          "type": "text"
+        },
+        "kind": {
+          "type": "text"
+        },
+        "labels": {
+          "type": "text"
+        },
+        "props": {
+          "type": "json"
+        },
+        "uuid": {
+          "type": "text"
+        },
+        "spec_id": {
+          "type": "text"
+        },
+        "fragment_id": {
+          "type": "text"
+        },
+        "document_id": {
+          "type": "text"
+        },
+        "embedding": {
+          "type": "text"
+        },
+        "embedding_model": {
+          "type": "text"
+        },
+        "name_tsv": {
+          "type": "text"
+        },
+        "name_len": {
+          "type": "int"
+        },
+        "stmt_tsv": {
+          "type": "text"
+        },
+        "stmt_len": {
+          "type": "int"
+        },
+        "text_tsv": {
+          "type": "text"
+        },
+        "text_len": {
+          "type": "int"
+        }
+      },
+      "indexes": [
+        "group_id"
+      ]
+    },
+    "pg_class": {
+      "columns": {
+        "oid": {
+          "type": "int"
+        },
+        "relname": {
+          "type": "text"
+        },
+        "relnamespace": {
+          "type": "int"
+        },
+        "relkind": {
+          "type": "text"
+        }
+      },
+      "indexes": []
+    },
+    "pg_constraint": {
+      "columns": {
+        "conname": {
+          "type": "text"
+        },
+        "contype": {
+          "type": "text"
+        },
+        "conrelid": {
+          "type": "int"
+        }
+      },
+      "indexes": []
+    },
+    "pg_extension": {
+      "columns": {
+        "extname": {
+          "type": "text"
+        },
+        "extversion": {
+          "type": "text"
+        }
+      },
+      "indexes": []
+    },
+    "pg_index": {
+      "columns": {
+        "indexrelid": {
+          "type": "int"
+        },
+        "indrelid": {
+          "type": "int"
+        },
+        "indisunique": {
+          "type": "bool"
+        },
+        "indisvalid": {
+          "type": "bool"
+        }
+      },
+      "indexes": []
+    },
+    "pg_namespace": {
+      "columns": {
+        "oid": {
+          "type": "int"
+        },
+        "nspname": {
+          "type": "text"
+        }
+      },
+      "indexes": []
+    },
+    "pg_proc": {
+      "columns": {
+        "proname": {
+          "type": "text"
+        },
+        "pronamespace": {
+          "type": "int"
+        }
+      },
+      "indexes": []
+    },
     "project_members": {
       "columns": {
         "project_id": {
@@ -287,9 +469,11 @@
     }
   },
   "hard_delete_allowlist": [
-    "connections",
     "connection_items",
-    "documents"
+    "connections",
+    "documents",
+    "edge",
+    "node"
   ],
   "append_only_tables": [],
   "orm_models": {}
