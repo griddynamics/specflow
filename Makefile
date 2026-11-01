@@ -23,6 +23,7 @@ WITH_LIST := $(subst $(comma), ,$(WITH))
 GRAPH_STORE_PROFILES :=
 # graph-store: neo4j
 # graph-store: arcadedb
+GRAPH_STORE_PROFILES += arcadedb
 # graph-store: postgres
 # The PostgreSQL graph store needs no profile: it lives in the main postgres service, whose pgvector image
 # carries the extension. backend/postgres-init creates it on a new data volume; on a volume that exists

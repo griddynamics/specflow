@@ -64,8 +64,9 @@ ONLY_IN: Final = {
     "pyTigerGraph": frozenset({"stores/tigergraph/"}),
 }
 QUERY_MODULES: Final = frozenset({"core/queries.py", "build/queries.py"})
-# The Cypher dialect renders the canonical files and builds the run-time parts of a statement.
-CYPHER_MODULES: Final = QUERY_MODULES | frozenset({"stores/_bolt/cypher.py"})
+# The Cypher dialect renders the canonical files and builds the run-time parts of a statement; the ArcadeDB
+# dialect also reads statements for the clauses it refuses a dynamic name in (its statements are files).
+CYPHER_MODULES: Final = QUERY_MODULES | frozenset({"stores/_bolt/cypher.py", "stores/arcadedb/dialect.py"})
 FILE_MODULES: Final = frozenset({"core/files.py", "build/files.py"})
 
 # A string looks like Cypher when a clause keyword (any case) stands in a Cypher shape: followed by a

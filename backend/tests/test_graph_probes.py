@@ -49,7 +49,10 @@ from graph_probes.golden import (
 )
 from graph_probes.memory import MemoryProbe
 from graph_probes.scenarios import SCENARIOS
-from graph_support import PROJECT_PREFIX, new_project_id, shipped_ontology
+from graph_support import PROJECT_PREFIX, live_llm_config, new_project_id, shipped_ontology
+
+# A search vector of the dimension the live store's vector indexes hold (ArcadeDB refuses another length).
+VECTOR = [0.25] * live_llm_config().embedding_dim
 
 from graph.stores.config import BACKENDS
 
@@ -113,7 +116,7 @@ def test_a_mistyped_store_is_an_error_not_a_skip(clean_env: pytest.MonkeyPatch) 
 
 
 def test_a_store_without_a_probe_cannot_be_opened(clean_env: pytest.MonkeyPatch) -> None:
-    clean_env.setenv("SPECFLOW_TEST_GRAPH_STORE", "arcadedb")
+    clean_env.setenv("SPECFLOW_TEST_GRAPH_STORE", "postgres")
     clean_env.setenv("GRAPH_STORE_URI", "bolt://arcade.example.test:2480")
     clean_env.setenv("GRAPH_STORE_USER", "svc")
     with pytest.raises(RuntimeError, match="no live probe"):
@@ -261,7 +264,7 @@ async def test_edges_join_one_node_to_one_node_and_are_read_with_their_ends(prob
     await probe.create_nodes(
         project,
         [
-            NodeSpec(("SpecNode", "Module"), {"uuid": "m", "spec_id": "MOD::M", "embedding": [0.1, 0.2]}),
+            NodeSpec(("SpecNode", "Module"), {"uuid": "m", "spec_id": "MOD::M", "embedding": VECTOR}),
             NodeSpec(("SpecNode", "Feature"), {"uuid": "f", "spec_id": "FEAT::F"}),
         ],
     )
@@ -281,7 +284,7 @@ async def test_edges_join_one_node_to_one_node_and_are_read_with_their_ends(prob
     assert await probe.update_edges([edge.id], {"basis": "inferred", "edge_key": None}) == 1
     (changed,) = await probe.edges(project)
     assert changed["basis"] == "inferred" and "edge_key" not in changed.props
-    assert (await probe.one_node(project, "Module"))["embedding"] == [0.1, 0.2]  # a node read keeps them
+    assert (await probe.one_node(project, "Module"))["embedding"] == VECTOR  # a node read keeps them
     assert await probe.delete_edges([edge.id]) == 1
     assert await probe.edges(project) == []
 
@@ -362,7 +365,7 @@ async def seed_graph(probe: GraphProbe, project_id: str, *, reverse: bool = Fals
                 "spec_id": "MOD::M",
                 "name": "M",
                 "identity_key": "Module|m",
-                "embedding": [0.1, 0.2],
+                "embedding": VECTOR,
                 "created_build_id": clock,
                 "last_build_id": clock,
                 "created_at": clock,
@@ -438,8 +441,8 @@ async def test_the_canonical_snapshot_ignores_ids_clocks_vectors_and_creation_or
 def test_canonical_props_drop_vectors_and_unstable_names_by_suffix() -> None:
     props = {
         "name": "n",
-        "embedding": [1.0],
-        "name_embedding": [1.0],
+        "embedding": VECTOR,
+        "name_embedding": VECTOR,
         "uuid": "u",
         "group_id": "g",
         "build_id": "b",
@@ -616,6 +619,19 @@ def test_the_golden_rankings_are_well_formed() -> None:
     assert compare_rankings(data, data).ok
 
 
+def test_a_ranking_tolerance_lets_one_id_of_a_top_five_differ() -> None:
+    def ranking(ids: list[str]) -> dict:
+        return {"queries": {"q": {"modes": ["fulltext"], "fulltext": [{"spec_id": i, "score": 1.0} for i in ids]}}}
+
+    golden = ranking(["a", "b", "c", "d", "e", "f"])
+    swapped = ranking(["a", "b", "c", "d", "f", "x"])  # e left the top five, f came in: one id
+    assert not compare_rankings(golden, swapped).ok
+    tolerant = compare_rankings(golden, swapped, tolerance=1)
+    assert tolerant.ok and len(tolerant.rank_differences) == 1
+    two = ranking(["a", "b", "c", "x", "y", "z"])
+    assert not compare_rankings(golden, two, tolerance=1).ok
+
+
 def spine_node(identity: str, *labels: str) -> ProbeNode:
     return ProbeNode(identity, tuple(sorted(labels)), {})
 
@@ -628,3 +644,14 @@ def test_a_grouped_by_walk_needs_a_spec_node_in_the_middle(middle_labels: tuple[
         ProbeEdge("2", "REALIZED_BY", middle, module, {}),
     ]
     assert _SpineWalk(edges).reaches_a_module(start) is reaches
+
+
+def test_the_ranking_comparison_is_symmetric_a_superset_fails_at_zero_tolerance() -> None:
+    def ranking(ids: list[str]) -> dict:
+        return {"queries": {"q": {"modes": ["fulltext"], "fulltext": [{"spec_id": i, "score": 1.0} for i in ids]}}}
+
+    want, have = ranking(["a", "b", "c"]), ranking(["a", "b", "c", "d", "e"])
+    assert not compare_rankings(want, have, top=5).ok  # the run has two ids the golden top does not
+    assert not compare_rankings(have, want, top=5).ok  # and the other way round
+    assert compare_rankings(want, have, top=5, tolerance=2).ok
+    assert not compare_rankings(want, have, top=5, tolerance=1).ok

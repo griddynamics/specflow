@@ -258,7 +258,9 @@ def run_fresh(code: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=False)
 
 
-BOLT_MODULES = "[m for m in sys.modules if m.startswith(('graph.stores._bolt', 'graph.stores.neo4j'))]"
+BOLT_MODULES = (
+    "[m for m in sys.modules if m.startswith(('graph.stores._bolt', 'graph.stores.neo4j', 'graph.stores.arcadedb'))]"
+)
 
 
 @pytest.mark.parametrize(
@@ -325,6 +327,16 @@ def test_building_a_neo4j_store_or_touching_a_shim_name_loads_the_driver() -> No
     )
     assert shim.returncode == 0, shim.stderr[-400:]
     assert shim.stdout.strip() == "True True"
+
+
+def test_building_an_arcadedb_store_loads_the_adapter_and_not_before() -> None:
+    done = run_fresh(
+        "import sys, graph.stores as s; assert 'graph.stores.arcadedb' not in sys.modules;"
+        " s.build_store(s.StoreConfig(backend='arcadedb', uri='bolt://127.0.0.1:1', user='u', password='p'));"
+        " print('graph.stores.arcadedb' in sys.modules, 'httpx' in sys.modules)"
+    )
+    assert done.returncode == 0, done.stderr[-400:]
+    assert done.stdout.strip() == "True True"
 
 
 # The Neo4j store

@@ -21,6 +21,7 @@ import pytest
 from pydantic import SecretStr
 
 from graph.stores.config import BACKENDS, StoreConfig
+from graph_probes.arcadedb import ArcadeDbProbe
 from graph_probes.base import GraphProbe
 from graph_probes.neo4j import Neo4jProbe
 from graph_probes.postgres import PostgresProbe
@@ -34,6 +35,7 @@ DEFAULT_NEO4J_URI: Final = "bolt://localhost:7687"
 PROBES: Final[dict[str, Callable[[StoreConfig], GraphProbe]]] = {
     "neo4j": Neo4jProbe,
     "postgres": PostgresProbe,
+    "arcadedb": ArcadeDbProbe,
 }
 
 
@@ -98,6 +100,7 @@ def store_config_from_env(backend: str | None = None) -> StoreConfig:
             "user": pick("USER", "NEO4J_USER", "neo4j" if legacy else None) or "",
             "password": SecretStr(pick("PASSWORD", "NEO4J_PASSWORD", "") or ""),
             "name": pick("NAME", "NEO4J_DATABASE"),
+            "admin_uri": os.environ.get("GRAPH_STORE_ADMIN_URI") or None,
         }
     )
 

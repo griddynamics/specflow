@@ -145,9 +145,16 @@ def test_a_scenario_graph_equals_the_golden_snapshot(runs: Runs, scenario: str) 
     assert golden["meta"] == outcome.meta
 
 
+# Ids of a golden top five another run may have swapped for others, by store. Neo4j scores text with Lucene BM25
+# per field; ArcadeDB's BM25 differs in how it counts document length and average length, so a close call
+# between two nodes can flip (adapter docs, "Known differences": one id of a top five at most, never more).
+RANKING_TOLERANCE = {"arcadedb": 1}
+
+
 def test_search_rankings_have_the_golden_top_five_sets(runs: Runs, capsys: pytest.CaptureFixture[str]) -> None:
     explained = EXPLAINED_SET_DIFFERENCES.get(selected_backend() or "", {})
-    parity = compare_rankings(load_rankings(), runs.first.rankings, explained=explained)
+    tolerance = RANKING_TOLERANCE.get(selected_backend() or "", 0)
+    parity = compare_rankings(load_rankings(), runs.first.rankings, explained=explained, tolerance=tolerance)
     if parity.rank_differences or parity.explained:
         with capsys.disabled():
             sys.stderr.write("\n" + parity.report() + "\n")

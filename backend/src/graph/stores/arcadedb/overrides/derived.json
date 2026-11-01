@@ -1,0 +1,66 @@
+{
+ "core.scope_via": [
+  [
+   "all(b IN nodes(p)[1..] WHERE b = root OR none(",
+   "all(b IN nodes(p) WHERE b = n OR b = root OR none("
+  ]
+ ],
+ "core.search_nodes_vector": [
+  [
+   "CYPHER 5 ",
+   ""
+  ]
+ ],
+ "core.search_nodes_vector_exact": [
+  [
+   "vector.similarity.cosine(n.embedding, $vector) AS score",
+   "(1 + vector.similarity.cosine(n.embedding, $vector)) / 2 AS score"
+  ]
+ ],
+ "build.build_verify_spec_nodes": [
+  [
+   "elementId(n) AS id",
+   "coalesce(n.uuid, elementId(n)) AS id"
+  ]
+ ],
+ "build.build_verify_domain_edges": [
+  [
+   "elementId(startNode(r)) AS source, elementId(endNode(r)) AS target",
+   "CASE WHEN 'SpecNode' IN labels(startNode(r)) THEN coalesce(startNode(r).uuid, elementId(startNode(r))) ELSE elementId(startNode(r)) END AS source, CASE WHEN 'SpecNode' IN labels(endNode(r)) THEN coalesce(endNode(r).uuid, elementId(endNode(r))) ELSE elementId(endNode(r)) END AS target"
+  ],
+  [
+   "elementId(r) AS id",
+   "coalesce(r.uuid, type(r) + '|' + r.edge_key, elementId(r)) AS id"
+  ]
+ ],
+ "build.build_repair_delete_nodes": [
+  [
+   "MATCH (n:SpecNode) WHERE elementId(n) = id AND n.group_id = $project_id",
+   "MATCH (n:SpecNode {group_id: $project_id}) WHERE coalesce(n.uuid, elementId(n)) = id"
+  ]
+ ],
+ "build.build_repair_set_labels": [
+  [
+   "MATCH (n:SpecNode) WHERE elementId(n) = row.id AND n.group_id = $project_id",
+   "MATCH (n:SpecNode {group_id: $project_id}) WHERE coalesce(n.uuid, elementId(n)) = row.id"
+  ]
+ ],
+ "build.build_repair_node_evidence": [
+  [
+   "MATCH (n:SpecNode) WHERE elementId(n) = row.id AND n.group_id = $project_id",
+   "MATCH (n:SpecNode {group_id: $project_id}) WHERE coalesce(n.uuid, elementId(n)) = row.id"
+  ]
+ ],
+ "build.build_repair_delete_edges": [
+  [
+   "elementId(r) = id",
+   "coalesce(r.uuid, type(r) + '|' + r.edge_key, elementId(r)) = id"
+  ]
+ ],
+ "build.build_repair_edge_evidence": [
+  [
+   "elementId(r) = row.id",
+   "coalesce(r.uuid, type(r) + '|' + r.edge_key, elementId(r)) = row.id"
+  ]
+ ]
+}
