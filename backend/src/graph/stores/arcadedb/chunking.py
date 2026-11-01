@@ -42,29 +42,34 @@ _NUMBER_TYPES: Final = frozenset({int, float, bool})
 _CONTAINER_BYTES: Final = 5  # marker and size
 
 
+def _array_bytes(value: Any) -> int | None:
+    """The size of a numpy array or ``array.array`` (``tolist``) as that many numbers, else None."""
+
+    if not hasattr(value, "tolist"):
+        return None
+    size = getattr(value, "size", None)
+    return _CONTAINER_BYTES + (size if isinstance(size, int) else len(value)) * _SCALAR_BYTES
+
+
 def estimate_bytes(value: Any) -> int:
     """The approximate size of ``value`` as a Bolt message part: 9 bytes per number, the UTF-8 length plus a
     header per string, the sum of the parts for a list or a map. An estimate, kept slightly high on purpose.
 
-    Other sequences count like lists: a tuple, ``array.array`` or ``range`` by its parts, a numpy array (anything with
-    a numeric ``size``) as ``size`` numbers, bytes by their length."""
+    Other sequences count like lists: a tuple or ``range`` by its parts, ``array.array`` and numpy arrays as one
+    number per element, bytes by their length."""
 
-    if isinstance(value, str):
-        return len(value.encode("utf-8")) + _CONTAINER_BYTES
-    if isinstance(value, (bytes, bytearray)):
-        return len(value) + _CONTAINER_BYTES
+    if isinstance(value, (str, bytes, bytearray)):
+        return (len(value.encode("utf-8")) if isinstance(value, str) else len(value)) + _CONTAINER_BYTES
     if isinstance(value, Mapping):
         return _CONTAINER_BYTES + sum(estimate_bytes(key) + estimate_bytes(item) for key, item in value.items())
-    size = getattr(value, "size", None)
-    if isinstance(size, int) and hasattr(value, "tolist"):  # a numpy array: every element is one number
-        return _CONTAINER_BYTES + size * _SCALAR_BYTES
-    if hasattr(value, "tolist") and hasattr(value, "__len__"):  # array.array
+    packed = _array_bytes(value)
+    if packed is not None:
+        return packed
+    if not isinstance(value, Sequence):
+        return _SCALAR_BYTES
+    if set(map(type, value)) <= _NUMBER_TYPES:  # a vector: counted at C speed, not item by item
         return _CONTAINER_BYTES + len(value) * _SCALAR_BYTES
-    if isinstance(value, Sequence):
-        if set(map(type, value)) <= _NUMBER_TYPES:  # a vector: counted at C speed, not item by item
-            return _CONTAINER_BYTES + len(value) * _SCALAR_BYTES
-        return _CONTAINER_BYTES + sum(estimate_bytes(item) for item in value)
-    return _SCALAR_BYTES
+    return _CONTAINER_BYTES + sum(estimate_bytes(item) for item in value)
 
 
 def split_rows(

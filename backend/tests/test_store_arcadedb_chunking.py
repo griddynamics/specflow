@@ -325,9 +325,13 @@ async def test_a_chunk_that_fails_in_an_explicit_transaction_rolls_it_back_witho
     driver = RowsDriver()
     driver.fail_at = {2: neo4j_error(ClientError, "Neo.ClientError.Statement.SyntaxError")}
     executor = ArcadeDbExecutor(driver, "db", sleep=Sleeps())
-    with pytest.raises(GraphWriteError) as raised:
+
+    async def write_batch() -> None:
         async with executor.tx("p") as tx:
             await tx.run(build_queries.CREATE_SPEC_NODES, rows=batch(), build_id="b")
+
+    with pytest.raises(GraphWriteError) as raised:
+        await write_batch()
     assert raised.value.code == "store_write_failed"
     starts = [chunk[0]["uuid"] for chunk in split_rows(batch())]
     assert first_uuids(driver) == starts[:2]  # chunk 3 never ran
@@ -338,10 +342,14 @@ async def test_an_earlier_statement_of_the_transaction_is_rolled_back_with_the_f
     driver = RowsDriver()
     driver.fail_at = {3: neo4j_error(ClientError, "Neo.ClientError.Statement.SyntaxError")}
     executor = ArcadeDbExecutor(driver, "db", sleep=Sleeps())
-    with pytest.raises(GraphWriteError):
+
+    async def write_both() -> None:
         async with executor.tx("p") as tx:
             await tx.run(build_queries.UPDATE_SPEC_NODES, rows=[plain_row(1)])  # statement 1, a single message
             await tx.run(build_queries.CREATE_SPEC_NODES, rows=batch(), build_id="b")  # statements 2 and 3 (fails)
+
+    with pytest.raises(GraphWriteError):
+        await write_both()
     assert driver.rollbacks == 1 and driver.commits == 0 and len(driver.runs) == 3
 
 
