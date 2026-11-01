@@ -2,7 +2,7 @@
 // It is a test double only: the real API is built in S7. In-memory, one process.
 import http from "node:http";
 import crypto from "node:crypto";
-import { jwtVerify } from "jose";
+import { createLocalJWKSet, jwtVerify } from "jose";
 import { listen, close } from "./servers.mjs";
 import { createSourcesModel, StubError } from "./stub-sources.mjs";
 
@@ -40,10 +40,13 @@ const SAMPLE = {
 const PARSED = new Set(["parsed", "ingested", "partially_ingested"]);
 
 /**
- * @param {{port:number, signingKey?:string, parseMs?:number, summarizeMs?:number}} opts
+ * @param {{port:number, verify?:{issuer:string, audience:string, jwks:{keys:object[]}}, parseMs?:number, summarizeMs?:number}} opts
+ * `verify` makes the API check every bearer as the backend does (RS256, issuer, audience, expiry against the issuer's JWKS);
+ * without it any bearer is accepted (the open mode of the contract tests).
  * parseMs/summarizeMs = Infinity keeps the work "in progress" forever (stuck tests).
  */
-export async function startStubApi({ port, signingKey, parseMs = 1500, summarizeMs = 1500, parseOutcome = "parsed" }) {
+export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs = 1500, parseOutcome = "parsed" }) {
+  const keys = verify ? createLocalJWKSet(verify.jwks) : undefined;
   const projects = new Map();
   const docs = new Map(); // id -> doc
   const log = []; // {method, path, headers, authOk, contentType, bytes}
@@ -245,12 +248,9 @@ export async function startStubApi({ port, signingKey, parseMs = 1500, summarize
   async function authOk(req) {
     const header = req.headers.authorization ?? "";
     if (!header.startsWith("Bearer ")) return false;
-    if (!signingKey) return true;
+    if (!verify) return true;
     try {
-      await jwtVerify(header.slice(7), new TextEncoder().encode(signingKey), {
-        issuer: "specflow-dev-login",
-        audience: "specflow-api",
-      });
+      await jwtVerify(header.slice(7), keys, { issuer: verify.issuer, audience: verify.audience, algorithms: ["RS256"] });
       return true;
     } catch {
       return false;

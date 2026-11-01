@@ -1,13 +1,15 @@
-// AC-16.8 / AC-6.9: OIDC contract test. Local Node issuer + the built server in
-// AUTH_MODE=oidc with OIDC_INTERNAL_URL (the public issuer host does not resolve, so
-// every back-channel call must go through the internal URL). Ports 3220-3229.
+// AC-16.8 / AC-6.9: OIDC contract test. Local Node issuer + the built server with
+// OIDC_INTERNAL_URL (the public issuer host does not resolve, so every back-channel call must
+// go through the internal URL). The stub API verifies the bearer against the issuer's JWKS. Ports 3220-3229.
 // Covers AC-6.5 (credentials callback yields no session), AC-6.8 (single-flight refresh,
 // failed refresh clears the session), AC-6.9 (login -> session, refresh, logout).
 import { request } from "node:http";
 import { test, before, after } from "node:test";
+import { decodeJwt } from "jose";
 import assert from "node:assert/strict";
 import { frontendEnv, randomSecret, startFrontend } from "../support/servers.mjs";
 import { startStubApi } from "../support/stub-api.mjs";
+import { API_AUDIENCE } from "../support/oidc-stack.mjs";
 import { Jar, csrf, sessionOf } from "../support/session.mjs";
 import { startStubIssuer } from "./stub-issuer.mjs";
 
@@ -21,12 +23,11 @@ let issuer, api, fe;
 
 before(async () => {
   issuer = await startStubIssuer({ port: ISSUER_PORT, publicIssuer: PUBLIC_ISSUER, clientId: CLIENT_ID, clientSecret: CLIENT_SECRET });
-  api = await startStubApi({ port: API_PORT });
+  api = await startStubApi({ port: API_PORT, verify: { issuer: PUBLIC_ISSUER, audience: API_AUDIENCE, jwks: issuer.jwks } });
   fe = await startFrontend({
     port: FE_PORT,
     env: frontendEnv(FE_PORT, {
       APP_ENV: "local",
-      AUTH_MODE: "oidc",
       API_INTERNAL_URL: api.url,
       SESSION_SECRET: randomSecret(),
       OIDC_ISSUER: PUBLIC_ISSUER,
@@ -44,6 +45,11 @@ after(async () => {
 });
 
 const bearerSeenByApi = () => api.log.at(-1).headers.authorization;
+/** The claims of the access token the API last verified (the API only logs it after checking signature, issuer and audience). */
+const claimsSeenByApi = () => {
+  assert.equal(api.log.at(-1).authOk, true, "the stub API verified the bearer against the issuer JWKS");
+  return decodeJwt(bearerSeenByApi().slice(7));
+};
 
 /** Sign in the way a browser does; `expiresIn` shapes the first access token. */
 async function login({ expiresIn = 3600, email = "oidc.user@example.test" } = {}) {
@@ -72,7 +78,7 @@ async function login({ expiresIn = 3600, email = "oidc.user@example.test" } = {}
   return { jar, authorize };
 }
 
-test("AC-6.5: the login page shows the OIDC button and no dev form", async () => {
+test("AC-6.5: the login page shows the OIDC button and no email form", async () => {
   const html = await (await fetch(fe.base + "/login")).text();
   assert.match(html, /data-testid="login-oidc"/);
   assert.match(html, /Sign in with Google/);
@@ -100,12 +106,16 @@ test("AC-6.9: login -> session (name and email only); the BFF forwards the issue
   const session = await sessionOf(fe.base, jar);
   assert.equal(session.user.email, "oidc.user@example.test");
   assert.deepEqual(Object.keys(session.user).sort(), ["email", "name"]);
-  assert.doesNotMatch(JSON.stringify(session), /at-\d|rt-\d|eyJ/);
+  const shown = JSON.stringify(session);
+  for (const value of [...issuer.accessTokens, ...issuer.idTokens])
+    assert.ok(!shown.includes(value), "the session carries no issued token");
+  assert.doesNotMatch(shown, /rt-\d|eyJ/);
   assert.ok(jar.names().includes("specflow-session") || jar.names().some((n) => n.startsWith("specflow-session.")));
 
   const res = await fetch(`${fe.base}/api/backend/me`, { headers: { cookie: jar.header() } });
   assert.equal(res.status, 200);
-  assert.match(bearerSeenByApi(), /^Bearer at-\d+$/);
+  assert.equal(bearerSeenByApi(), `Bearer ${issuer.accessTokens.at(-1)}`);
+  assert.equal(claimsSeenByApi().email, "oidc.user@example.test");
   const page = await fetch(fe.base + "/", { headers: { cookie: jar.header() }, redirect: "manual" });
   assert.equal(page.status, 200, "pages render for a signed-in user");
 });
@@ -124,7 +134,9 @@ test("AC-6.7: a large token set chunks the session cookie, is logged by size onl
   );
   const res = await fetch(`${fe.base}/api/backend/me`, { headers: { cookie: jar.header() } });
   assert.equal(res.status, 200);
-  assert.match(bearerSeenByApi(), /^Bearer at-\d+-x{6000}$/);
+  assert.equal(bearerSeenByApi(), `Bearer ${issuer.accessTokens.at(-1)}`);
+  assert.ok(bearerSeenByApi().length > 6000, "the padded token went through the chunked cookie whole");
+  claimsSeenByApi(); // verified by the stub API
   const line = fe
     .output()
     .split("\n")
@@ -161,6 +173,19 @@ test("AC-6.8: N parallel requests near expiry cause exactly one token request (s
   assert.equal(late.status, 200);
   assert.equal(issuer.refreshCount - before, 1);
   assert.equal(issuer.tokenRequests.filter((r) => r.grant_type === "refresh_token" && !r.ok).length, 0);
+});
+
+test("B-10: a refresh keeps the signed-in user's identity", async () => {
+  const { jar } = await login({ expiresIn: 1, email: "carol.refresh@example.test" });
+  issuer.accessExpiresIn = 3600;
+  const before = issuer.refreshCount;
+  const res = await fetch(`${fe.base}/api/backend/me`, { headers: { cookie: jar.header() } });
+  assert.equal(res.status, 200);
+  assert.equal(issuer.refreshCount - before, 1, "the access token was refreshed");
+  const claims = claimsSeenByApi();
+  assert.equal(claims.email, "carol.refresh@example.test");
+  assert.equal(claims.sub, "sub-carol.refresh@example.test");
+  assert.equal((await sessionOf(fe.base, jar)).user.email, "carol.refresh@example.test");
 });
 
 test("AC-6.8/6.9: a failed refresh clears the session (once, for parallel requests)", async () => {
@@ -223,7 +248,9 @@ test("AC-6.5: POST /api/auth/callback/credentials with a valid CSRF token yields
 test("server logs carry no token, secret or cookie values", () => {
   const out = fe.output();
   assert.ok(!out.includes(CLIENT_SECRET));
-  assert.doesNotMatch(out, /\bat-\d+\b|\brt-\d+\b|eyJ/);
+  assert.ok(issuer.accessTokens.length > 0 && issuer.idTokens.length > 0, "tokens were issued during the run");
+  for (const value of [...issuer.accessTokens, ...issuer.idTokens]) assert.ok(!out.includes(value), "no issued token value in the logs");
+  assert.doesNotMatch(out, /\brt-\d+\b/);
 });
 
 /** Raw HTTP so a forged Host / X-Forwarded-Host really reaches the server (fetch forbids Host). */

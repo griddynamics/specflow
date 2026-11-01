@@ -18,7 +18,7 @@ test.describe("P18 audits on production routes", { tag: "@production" }, () => {
       id: "login",
       setup: async (page) => {
         await page.goto("/login");
-        await expect(page.getByTestId("login-dev-email")).toBeVisible();
+        await expect(page.getByTestId("login-oidc")).toBeVisible();
       },
     },
     {
@@ -69,7 +69,7 @@ test.describe("P18 audits on production routes", { tag: "@production" }, () => {
       await setTheme(page, "light");
       await sc.setup(page);
       const stops = await tabWalk(page);
-      expect(stops.length, "the page has Tab stops (login: the email field and the submit button)").toBeGreaterThanOrEqual(2);
+      expect(stops.length, "the page has Tab stops (login: the one OIDC sign-in button)").toBeGreaterThanOrEqual(sc.id === "login" ? 1 : 2);
       expect(
         stops.filter((s) => !s.visible).map((s) => `${s.id} "${s.label}"`),
         "invisible tab stops",
