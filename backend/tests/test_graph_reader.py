@@ -38,6 +38,7 @@ from graph.core.reader import (
     _lucene_query,
     _query_terms,
 )
+from graph.stores._bolt.cypher import binds_project_id, render_cypher
 from graph_support import llm_config
 
 ONT = load_ontology()
@@ -59,7 +60,7 @@ class ScriptedExecutor(Executor):
         self.calls: list[tuple[str, dict[str, Any]]] = []
 
     async def read(self, query: Any, _project_id: str, /, **params: Any) -> list[dict[str, Any]]:
-        assert query.binds_project_id()
+        assert binds_project_id(render_cypher(query))
         self.calls.append((query.name, params))
         if query.name not in self.answers:
             raise AssertionError(f"unscripted query {query.name}")
@@ -576,8 +577,8 @@ def test_scope_queries_follow_the_shipped_spine_paths() -> None:
         "read_scope_via_PART_OF_1_3",
         "read_scope_via_RELATES_TO_1_1",
     ]
-    assert all(query.binds_project_id() for query in queries)
-    by_name = {query.name: query.text for query in queries}
+    assert all(binds_project_id(render_cypher(query)) for query in queries)
+    by_name = {query.name: render_cypher(query) for query in queries}
     assert "-[r:PART_OF WHERE r.group_id = $project_id]-()" in by_name["read_scope_via_PART_OF_1_3"]
     assert "{1,3}(root)" in by_name["read_scope_via_PART_OF_1_3"]
     assert "{1,1}(root)" in by_name["read_scope_via_RELATES_TO_1_1"]
@@ -588,13 +589,13 @@ def test_scope_queries_follow_the_shipped_spine_paths() -> None:
 
 def test_sequence_parts_are_every_contiguous_run_and_symmetric_steps_go_either_way() -> None:
     query = scope_sequence(("GROUPED_BY", "RELATES_TO", "REALIZED_BY"), ("RELATES_TO",))
-    assert "-[r0:GROUPED_BY]->(x0:SpecNode)-[r1:RELATES_TO]-(x1:SpecNode)-[r2:REALIZED_BY]->(root)" in query.text
+    assert "-[r0:GROUPED_BY]->(x0:SpecNode)-[r1:RELATES_TO]-(x1:SpecNode)-[r2:REALIZED_BY]->(root)" in render_cypher(query)
     for index in (0, 1):
-        assert f"none(label IN labels(x{index}) WHERE label IN $roots)" in query.text
+        assert f"none(label IN labels(x{index}) WHERE label IN $roots)" in render_cypher(query)
 
 
 def test_via_walks_each_edge_towards_the_root_unless_symmetric() -> None:
-    text = scope_via(("PART_OF",), 1, 3).text
+    text = render_cypher(scope_via(("PART_OF",), 1, 3))
     assert "length(p) <= $max_hops" in text
     assert "all(i IN range(0, size(r) - 1) WHERE type(r[i]) IN $symmetric OR startNode(r[i]) = nodes(p)[i])" in text
     assert "all(b IN nodes(p)[1..] WHERE b = root OR none(label IN labels(b) WHERE label IN $roots))" in text

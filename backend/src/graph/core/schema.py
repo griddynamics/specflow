@@ -42,6 +42,7 @@ from graph.core.queries import (
     Query,
     ddl_query,
 )
+from graph.stores._bolt.cypher import render_cypher
 from logger.logger import INFO, get_logger, log_event
 
 logger = get_logger("graph.core.schema")
@@ -302,7 +303,7 @@ def _require_online(wanted: Sequence[SchemaObject], indexes: Sequence[Mapping[st
 
 async def _run(driver: Any, query: Query, database: str | None, **params: Any) -> list[dict[str, Any]]:
     try:
-        result = await driver.execute_query(query.text, params, database_=database)
+        result = await driver.execute_query(render_cypher(query), params, database_=database)
     except AuthError:
         raise ConfigurationError("neo4j_auth_rejected") from None
     except (ServiceUnavailable, SessionExpired, OSError) as error:

@@ -50,6 +50,8 @@ from graph.core.ontology import Ontology, load_ontology
 from graph.core.queries import CORE_DDL, foreign_node_constraint
 from graph.core.schema import foreign_labels, schema_objects
 from graph.core.writer import OWNERS, NodeRef
+from graph.stores._bolt.cypher import binds_project_id as binds_project_text
+from graph.stores._bolt.cypher import render_cypher
 from graph_support import load_gap_ontology, shipped_ontology
 from test_graph_renamed_ontology_live import write_renamed_ontology
 
@@ -71,11 +73,11 @@ _ROW = {
 def render(query: Query) -> str:
     """The text the driver receives for ``query``."""
 
-    return query.text
+    return render_cypher(query)
 
 
 def binds_project_id(query: Query) -> bool:
-    return query.binds_project_id()
+    return binds_project_text(render(query))
 
 
 def entry(query: Query) -> dict[str, Any]:

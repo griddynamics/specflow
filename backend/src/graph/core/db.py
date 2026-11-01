@@ -33,6 +33,8 @@ from neo4j.exceptions import (
 )
 
 from graph.core.config import Neo4jConfig
+from graph.core.dialect import Dialect, ExecutionPlan, run_plan
+from graph.core.identity import validate_project_id
 from graph.core.errors import (
     ConfigurationError,
     ConformanceError,
@@ -40,8 +42,9 @@ from graph.core.errors import (
     GraphWriteError,
     InfrastructureUnavailableError,
 )
-from graph.core.identity import validate_project_id
-from graph.core.queries import PING, PROJECT_ID_PARAMETER, SERVER_COMPONENTS, Query
+from graph.core.queries import PING, SERVER_COMPONENTS, Query
+from graph.core.store import RETRY_DELAYS_SECONDS, bind_project, retry_transient
+from graph.stores._bolt.cypher import CYPHER_DIALECT, render_cypher
 from logger.logger import WARNING, get_logger, log_event
 
 logger = get_logger("graph.core.db")
@@ -49,8 +52,6 @@ logger = get_logger("graph.core.db")
 CONNECTION_TIMEOUT_SECONDS: Final = 5.0
 MINIMUM_VERSION: Final = (5, 26)
 KERNEL_COMPONENT: Final = "Neo4j Kernel"
-# Backoff before each retry of a transient failure; its length is the number of retries.
-RETRY_DELAYS_SECONDS: Final = (0.1, 0.3, 1.0)
 # The executor owns retries, so the driver's own managed-transaction retry loop is switched off.
 _SESSION_RETRY_OFF: Final = {"max_transaction_retry_time": 0.0, "initial_retry_delay": 0.0}
 _VERSION: Final = re.compile(r"^(\d+)\.(\d+)(?:\.(\d+))?")
@@ -76,7 +77,7 @@ async def check(driver: Any, database: str | None = None) -> None:
 
     try:
         await driver.verify_connectivity()
-        await driver.execute_query(PING.text, database_=database, routing_="r")
+        await driver.execute_query(render_cypher(PING), database_=database, routing_="r")
     except (Neo4jError, DriverError, OSError) as error:
         raise _map_error(error, PING.name, write=False) from None
 
@@ -85,7 +86,7 @@ async def server_version(driver: Any, database: str | None = None) -> tuple[int,
     """The Neo4j kernel version as ``(major, minor, patch)``, read through ``dbms.components()``."""
 
     try:
-        result = await driver.execute_query(SERVER_COMPONENTS.text, database_=database, routing_="r")
+        result = await driver.execute_query(render_cypher(SERVER_COMPONENTS), database_=database, routing_="r")
     except (Neo4jError, DriverError, OSError) as error:
         raise _map_error(error, SERVER_COMPONENTS.name, write=False) from None
     for record in result.records:
@@ -112,16 +113,13 @@ async def require_version(
     return found
 
 
-def _bind(query: Query, project_id: str, params: Mapping[str, Any]) -> dict[str, Any]:
-    """Parameters of a scoped query with the validated ``project_id`` injected."""
+def _bind(query: Query, project_id: str, params: Mapping[str, Any], dialect: Dialect = CYPHER_DIALECT) -> dict[str, Any]:
+    """Parameters of a scoped query with the validated ``project_id`` injected; the dialect refuses a
+    statement that does not bind it."""
 
-    if not query.project_scoped:
-        raise ConformanceError("query_not_project_scoped", query=query.name)
-    if not query.binds_project_id():
-        raise ConformanceError("query_missing_project_id", query=query.name)
-    if PROJECT_ID_PARAMETER in params:
-        raise ConformanceError("project_id_parameter_reserved", query=query.name)
-    return {**params, PROJECT_ID_PARAMETER: validate_project_id(project_id)}
+    bound = bind_project(query, project_id, params)
+    dialect.plan(query, bound)
+    return bound
 
 
 def _configuration_error(error: Exception, code: Any, query: str) -> ConfigurationError | None:
@@ -165,18 +163,23 @@ def _is_transient(error: Exception) -> bool:
 class ScopedTransaction:
     """One explicit write transaction of one project; ``run`` injects ``project_id``."""
 
-    def __init__(self, transaction: Any, project_id: str) -> None:
+    def __init__(self, transaction: Any, project_id: str, dialect: Dialect = CYPHER_DIALECT) -> None:
         self._transaction = transaction
         self._project_id = project_id
+        self._dialect = dialect
 
     async def run(self, query: Query, /, **params: Any) -> list[Record]:
-        bound = _bind(query, self._project_id, params)
-        try:
-            result = await self._transaction.run(query.text, bound)
+        plan = self._dialect.plan(query, bind_project(query, self._project_id, params))
+
+        async def statement(text: str, bound: Mapping[str, Any]) -> list[Record]:
+            result = await self._transaction.run(text, dict(bound))
             records: list[Record] = await result.data()
+            return records
+
+        try:
+            return await run_plan(plan, statement)
         except (Neo4jError, DriverError, OSError) as error:
             raise _map_error(error, query.name, write=True) from None
-        return records
 
 
 class Executor:
@@ -193,21 +196,23 @@ class Executor:
         *,
         retry_delays: Sequence[float] = RETRY_DELAYS_SECONDS,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        dialect: Dialect = CYPHER_DIALECT,
     ) -> None:
         self._driver = driver
         self._database = database
         self._retry_delays = tuple(retry_delays)
         self._sleep = sleep
+        self._dialect = dialect
 
     async def read(self, query: Query, project_id: str, /, **params: Any) -> list[Record]:
         """Run a read query of one project; return its records as dicts."""
 
-        return await self._managed(query, _bind(query, project_id, params), write=False)
+        return await self._managed(query, self._plan(query, project_id, params), write=False)
 
     async def write(self, query: Query, project_id: str, /, **params: Any) -> list[Record]:
         """Run a write query of one project in a managed write transaction; return its records."""
 
-        return await self._managed(query, _bind(query, project_id, params), write=True)
+        return await self._managed(query, self._plan(query, project_id, params), write=True)
 
     @asynccontextmanager
     async def tx(self, project_id: str) -> AsyncIterator[ScopedTransaction]:
@@ -218,7 +223,7 @@ class Executor:
             async with self._session(write=True) as session:
                 transaction = await session.begin_transaction()
                 try:
-                    yield ScopedTransaction(transaction, project_id)
+                    yield ScopedTransaction(transaction, project_id, self._dialect)
                 except BaseException:
                     await _rollback(transaction)
                     raise
@@ -233,34 +238,44 @@ class Executor:
             **_SESSION_RETRY_OFF,
         )
 
-    async def _managed(self, query: Query, params: dict[str, Any], *, write: bool) -> list[Record]:
-        async def work(transaction: Any) -> list[Record]:
-            result = await transaction.run(query.text, params)
-            records: list[Record] = await result.data()
-            return records
+    def _plan(self, query: Query, project_id: str, params: Mapping[str, Any]) -> ExecutionPlan:
+        return self._dialect.plan(query, bind_project(query, project_id, params))
 
-        attempt = 0
-        while True:
-            attempt += 1
-            try:
-                async with self._session(write=write) as session:
-                    run = session.execute_write if write else session.execute_read
-                    managed: list[Record] = await run(work)
-                    return managed
-            except (Neo4jError, DriverError, OSError) as error:
-                if _is_transient(error) and attempt <= len(self._retry_delays):
-                    log_event(
-                        logger,
-                        WARNING,
-                        "graph.db.retry",
-                        query=query.name,
-                        attempt=attempt,
-                        error_type=type(error).__name__,
-                        neo4j_code=getattr(error, "code", None),
-                    )
-                    await self._sleep(self._retry_delays[attempt - 1])
-                    continue
-                raise _map_error(error, query.name, write=write, attempts=attempt) from None
+    async def _managed(self, query: Query, plan: ExecutionPlan, *, write: bool) -> list[Record]:
+        async def work(transaction: Any) -> list[Record]:
+            async def statement(text: str, bound: Mapping[str, Any]) -> list[Record]:
+                result = await transaction.run(text, dict(bound))
+                records: list[Record] = await result.data()
+                return records
+
+            return await run_plan(plan, statement)
+
+        async def attempt() -> list[Record]:
+            async with self._session(write=write) as session:
+                run = session.execute_write if write else session.execute_read
+                managed: list[Record] = await run(work)
+                return managed
+
+        def retrying(error: BaseException, number: int) -> None:
+            log_event(
+                logger,
+                WARNING,
+                "graph.db.retry",
+                query=query.name,
+                attempt=number,
+                error_type=type(error).__name__,
+                neo4j_code=getattr(error, "code", None),
+            )
+
+        return await retry_transient(
+            attempt,
+            errors=(Neo4jError, DriverError, OSError),
+            is_transient=lambda error: _is_transient(error),  # type: ignore[arg-type]
+            map_error=lambda error, attempts: _map_error(error, query.name, write=write, attempts=attempts),  # type: ignore[arg-type]
+            delays=self._retry_delays,
+            sleep=self._sleep,
+            on_retry=retrying,
+        )
 
 
 async def _rollback(transaction: Any) -> None:

@@ -25,6 +25,7 @@ from graph.core import queries as core_queries
 from graph.core.errors import ConformanceError
 from graph.core.ontology import BUILT_IN_NAMES
 from graph.core.queries import CORE_DDL, DdlStatement, NodeShape, Query
+from graph.stores._bolt.cypher import render_cypher
 from graph_support import shipped_ontology
 
 GRAPH_ROOT: Final = Path(__file__).resolve().parents[1] / "src" / "graph"
@@ -379,7 +380,7 @@ def test_nfr_sec_02_scoped_queries_bind_project_id() -> None:
     for module in query_modules():
         for name, query in factory_outputs(module):
             checked += 1
-            if query.project_scoped and not PROJECT_ID_REFERENCE.search(query.text):
+            if query.project_scoped and not PROJECT_ID_REFERENCE.search(render_cypher(query)):
                 violations.append(f"{module.__name__}.{name} ({query.name})")
     assert violations == []
     assert checked > 20

@@ -578,7 +578,7 @@ def failing_writes(relation_to_fail: str) -> Callable[[str], Query]:
     def factory(relation: str) -> Query:
         if relation != relation_to_fail:
             return original(relation)
-        return Query(
+        return Query.literal(
             "test_failing_infer_write",
             "UNWIND $rows AS row WITH row WHERE $project_id IS NOT NULL RETURN 1 / 0 AS written, [] AS refs",
         )

@@ -48,6 +48,7 @@ import graph.build.queries as build_queries
 import graph.core.queries as core_queries
 from graph.core.errors import InfrastructureUnavailableError
 from graph.core.queries import Query
+from graph.stores._bolt.cypher import render_cypher
 from graph_support import (
     SHOP_DIR,
     SHOP_ORPHAN_VERDICTS,
@@ -273,7 +274,7 @@ def cypher_texts() -> list[str]:
 
     texts = []
     for module in (core_queries, build_queries):
-        texts.extend(value.text for value in vars(module).values() if isinstance(value, Query))
+        texts.extend(render_cypher(value) for value in vars(module).values() if isinstance(value, Query))
     assert len(texts) > 20, "the library's queries were not found"
     return texts
 

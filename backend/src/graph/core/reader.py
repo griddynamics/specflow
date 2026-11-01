@@ -692,21 +692,21 @@ class GraphReader:
         of a ``sequence`` path (for a module, ``REALIZED_BY`` alone gives the capabilities realising
         it). Only build-owned relations are rendered."""
 
-        queries: dict[str, Query] = {}
+        queries: dict[tuple[str, Any], Query] = {}
         for path in self._ontology.spine.paths:
             relations = tuple(path.relations)
             if not relations or not set(relations) <= set(self._domain_relations):
                 raise ConfigurationError("spine_relation_not_domain")
             if not path.sequence:
                 query = scope_via(tuple(sorted(set(relations))), path.min_hops, path.max_hops)
-                queries[query.text] = query
+                queries[query.identity] = query
                 self._scope_params[query.name] = {"max_hops": path.max_hops}
                 continue
             symmetric = tuple(name for name in self._symmetric if name in relations)
             for start in range(len(relations)):
                 for end in range(start + 1, len(relations) + 1):
                     query = scope_sequence(relations[start:end], symmetric)
-                    queries[query.text] = query
+                    queries[query.identity] = query
         return tuple(queries.values())
 
     # Validation

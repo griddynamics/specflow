@@ -25,6 +25,11 @@ from typing import Final
 
 from graph.core.errors import ConformanceError
 
+GRAPH_ROOT: Final = Path(__file__).resolve().parents[1]
+# The canonical query and DDL files; every store whose dialect is Cypher reads them from here.
+CORE_QUERY_DIRECTORY: Final = GRAPH_ROOT / "core" / "queries"
+BUILD_QUERY_DIRECTORY: Final = GRAPH_ROOT / "build" / "queries"
+CORE_DDL_DIRECTORY: Final = GRAPH_ROOT / "core" / "ddl"
 COMMENT_PREFIX: Final = "//"
 STATEMENT_END: Final = ";"
 _UNFILLED_TOKEN: Final = re.compile(r"__[A-Z][A-Z_]*__")

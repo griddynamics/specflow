@@ -32,6 +32,7 @@ from graph.core.queries import (
 )
 from graph.core.query_files import read_ddl_file
 from graph.core.schema import SchemaObject, foreign_labels, parse_ddl_statement, schema_objects
+from graph.stores._bolt.cypher import render_cypher
 from graph_support import GAP_DDL_TEXT, llm_config, load_gap_ddl, load_gap_ontology, shipped_ontology
 
 DIM = 16
@@ -97,7 +98,7 @@ class SchemaDriver:
 
     def __init__(self, ontology: Ontology, *, version: str = "5.26.0", ddl: tuple[str, ...] | None = None) -> None:
         self.version = version
-        self.objects = {item.query().text: item for item in schema_objects(ontology, ddl)}
+        self.objects = {render_cypher(item.query()): item for item in schema_objects(ontology, ddl)}
         self.constraints: list[dict[str, Any]] = []
         self.indexes: list[dict[str, Any]] = []
         self.created: list[str] = []
@@ -129,13 +130,13 @@ class SchemaDriver:
         name = self._name(text)
         if name in self.fail_on:
             raise self.fail_on[name]
-        if text == SERVER_COMPONENTS.text:
+        if text == render_cypher(SERVER_COMPONENTS):
             return records([{"name": "Neo4j Kernel", "versions": [self.version], "edition": "community"}])
-        if text == SHOW_CONSTRAINTS.text:
+        if text == render_cypher(SHOW_CONSTRAINTS):
             return records(copy.deepcopy(self.constraints))
-        if text == SHOW_INDEXES.text:
+        if text == render_cypher(SHOW_INDEXES):
             return records(copy.deepcopy(self.indexes))
-        if text == AWAIT_INDEXES.text:
+        if text == render_cypher(AWAIT_INDEXES):
             assert params == {"timeout_s": 300}
             return records([])
         item = self.objects.get(text)
@@ -152,7 +153,7 @@ class SchemaDriver:
 
     def _name(self, text: str) -> str:
         for query in (SERVER_COMPONENTS, SHOW_CONSTRAINTS, SHOW_INDEXES, AWAIT_INDEXES):
-            if text == query.text:
+            if text == render_cypher(query):
                 return query.name
         item = self.objects.get(text)
         return item.query().name if item else "?"
@@ -402,11 +403,11 @@ async def test_empty_database_gets_every_object_and_a_second_run_creates_none(
     assert await ensure_schema(driver, ontology, config) == ()
     assert driver.created == wanted  # nothing new
     assert driver.texts == [
-        SERVER_COMPONENTS.text,
-        SHOW_CONSTRAINTS.text,
-        SHOW_INDEXES.text,
-        AWAIT_INDEXES.text,
-        SHOW_INDEXES.text,
+        render_cypher(SERVER_COMPONENTS),
+        render_cypher(SHOW_CONSTRAINTS),
+        render_cypher(SHOW_INDEXES),
+        render_cypher(AWAIT_INDEXES),
+        render_cypher(SHOW_INDEXES),
     ]
 
 
@@ -441,7 +442,7 @@ def test_every_foreign_label_gets_a_group_and_uuid_unique_constraint(tmp_path: P
     for label in labels:
         item = by_name[f"graph_foreign_uuid_{label.lower()}"]
         assert (item.kind, item.entity, item.label, item.properties) == ("unique", "NODE", label, ("group_id", "uuid"))
-        assert item.query().text == (
+        assert render_cypher(item.query()) == (
             f"CREATE CONSTRAINT {item.name} IF NOT EXISTS FOR (n:{label}) REQUIRE (n.group_id, n.uuid) IS UNIQUE"
         )
     assert {item.label for item in by_name.values() if item.kind == "unique"} == {
@@ -679,7 +680,7 @@ async def test_old_neo4j_creates_nothing(ontology: Ontology, config: LLMConfig) 
     with pytest.raises(ConfigurationError) as raised:
         await ensure_schema(driver, ontology, config)
     assert raised.value.code == "neo4j_version_unsupported"
-    assert driver.texts == [SERVER_COMPONENTS.text]
+    assert driver.texts == [render_cypher(SERVER_COMPONENTS)]
 
 
 # Driver errors
