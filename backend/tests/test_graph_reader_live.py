@@ -27,6 +27,7 @@ from graph.core import ConfigurationError, GraphReader, LLMError, Ontology
 from graph.core import reader as reader_module
 from graph.core.queries import READ_NODES
 from graph.core.reader import RRF_K, VECTOR_WEIGHT
+from graph_probes import requires_live_graph
 from graph_probes.base import EdgeSpec, NodeSpec, select
 from graph_support import (
     GraphProject,
@@ -36,7 +37,6 @@ from graph_support import (
     shop_answers,
     shop_corpus,
 )
-from graph_probes import requires_live_graph
 
 # The graph fixtures (scripted_gateway, make_gateway, gap_ontology, graph_project) live in graph_support.
 pytest_plugins = ["graph_support"]
@@ -736,6 +736,7 @@ async def test_impact_is_nearest_first_in_both_directions(graph_project: GraphPr
 
 async def test_nodes_for_fragment_overlaps_evidence_lines_of_active_fragments(graph_project: GraphProject) -> None:
     pid = graph_project.project_id
+
     def fragment(fragment_id: str, document_id: str, status: str, start: int, end: int) -> NodeSpec:
         return NodeSpec(
             ("Fragment",),
@@ -777,9 +778,13 @@ async def test_nodes_for_fragment_overlaps_evidence_lines_of_active_fragments(gr
             EdgeSpec("CONTAINS", doc2, select("Fragment", fragment_id="f2")),
             EdgeSpec("REFERENCED_BY", select("SpecNode", spec_id="N"), select("Fragment", fragment_id="f1"), spans),
             EdgeSpec("REFERENCED_BY", select("SpecNode", spec_id="S"), select("Fragment", fragment_id="fs")),
-            EdgeSpec("REFERENCED_BY", select("SpecNode", spec_id="RETIRED"), select("Fragment", fragment_id="f0"), spans),
+            EdgeSpec(
+                "REFERENCED_BY", select("SpecNode", spec_id="RETIRED"), select("Fragment", fragment_id="f0"), spans
+            ),
             EdgeSpec("REFERENCED_BY", select("SpecNode", spec_id="OTHER"), select("Fragment", fragment_id="f2"), spans),
-            EdgeSpec("REFERENCED_BY", select("SpecNode", spec_id="GAP::F"), select("Fragment", fragment_id="f1"), spans),
+            EdgeSpec(
+                "REFERENCED_BY", select("SpecNode", spec_id="GAP::F"), select("Fragment", fragment_id="f1"), spans
+            ),
         ],
         project_id=pid,
     )

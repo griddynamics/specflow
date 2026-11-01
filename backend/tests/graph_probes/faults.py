@@ -6,12 +6,10 @@ order, so the same build gets the same faults on every store.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from graph_probes.base import EdgeSpec, NodeSpec, ProbeNode, select
-
-if TYPE_CHECKING:
-    from graph_support import GraphProject
+from graph_support import GraphProject
 
 
 def by_spec_id(n: ProbeNode) -> tuple[bool, str]:

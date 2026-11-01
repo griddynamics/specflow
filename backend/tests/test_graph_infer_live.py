@@ -42,6 +42,7 @@ from graph.core.identity import edge_uuid
 from graph.core.llm import JudgeRunner
 from graph.core.ontology import InferenceRule, InferenceSpec, Ontology
 from graph.core.queries import Query
+from graph_probes import requires_live_graph
 from graph_probes.base import EdgeSpec, GraphProbe, NodeSpec, select
 from graph_support import (
     NO_ANSWER,
@@ -55,7 +56,6 @@ from graph_support import (
     shop_corpus,
     untrusted_blocks,
 )
-from graph_probes import requires_live_graph
 
 # The graph fixtures (scripted_gateway, make_gateway, gap_ontology, graph_project) live in graph_support.
 pytest_plugins = ["graph_support"]

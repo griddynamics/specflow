@@ -17,7 +17,7 @@ import pytest
 
 import graph.build.queries as build_queries
 import graph.core.queries as core_queries
-from graph.core import GraphWriteError, OwnedWriter, Query, load_ontology
+from graph.core import GraphWriteError, NodeRef, OwnedWriter, Query, load_ontology
 from graph.core.errors import ConfigurationError, ConformanceError, GraphError
 from graph.core.store import RETRY_DELAYS_SECONDS, STORE_TRANSACTIONS_UNSUPPORTED, Executor
 from graph_store_contract import (
@@ -42,8 +42,26 @@ SCOPED_QUERIES = sorted(
 UNSCOPED = core_queries.PING
 
 
+TRANSACTIONAL = sorted(name for name, make in HARNESSES.items() if make().capabilities.multi_statement_tx)
+PER_STATEMENT = sorted(name for name in HARNESSES if name not in TRANSACTIONAL)
+
+
 @pytest.fixture(params=sorted(HARNESSES))
 def harness(request: pytest.FixtureRequest) -> AdapterHarness:
+    return HARNESSES[request.param]()
+
+
+@pytest.fixture(params=TRANSACTIONAL)
+def transactional(request: pytest.FixtureRequest) -> AdapterHarness:
+    """A harness of a store with multi-statement transactions (none: its tests are skipped)."""
+
+    return HARNESSES[request.param]()
+
+
+@pytest.fixture(params=PER_STATEMENT)
+def per_statement(request: pytest.FixtureRequest) -> AdapterHarness:
+    """A harness of a store that commits every statement on its own (none yet: its tests are skipped)."""
+
     return HARNESSES[request.param]()
 
 
@@ -55,7 +73,7 @@ def one_query() -> Query:
     return SCOPED_QUERIES[0]
 
 
-class Rollback(Exception):
+class RollbackError(Exception):
     """Raised by a test inside a transaction block."""
 
 
@@ -130,11 +148,7 @@ async def test_a_backend_failure_maps_to_a_neutral_error_carrying_the_store(
 
 
 @pytest.mark.parametrize("kind", FAILURES)
-async def test_a_failure_inside_a_transaction_maps_like_a_write_and_rolls_back(
-    harness: AdapterHarness, kind: str
-) -> None:
-    if not harness.capabilities.multi_statement_tx:
-        pytest.skip("this store commits every statement on its own")
+async def test_a_failure_inside_a_transaction_maps_like_a_write(harness: AdapterHarness, kind: str) -> None:
     harness.fail(kind)
     cls, code = EXPECTED[kind][1]
     with pytest.raises(GraphError) as raised:
@@ -142,7 +156,15 @@ async def test_a_failure_inside_a_transaction_maps_like_a_write_and_rolls_back(
             await tx.run(one_query())
     assert type(raised.value) is cls and raised.value.code == code
     assert raised.value.fields["store"] == harness.backend and CANARY not in str(raised.value)
-    assert harness.events[-1] == "rollback" and "commit" not in harness.events
+
+
+@pytest.mark.parametrize("kind", FAILURES)
+async def test_a_failure_inside_a_transaction_rolls_it_back(transactional: AdapterHarness, kind: str) -> None:
+    transactional.fail(kind)
+    with pytest.raises(GraphError):
+        async with executor(transactional).tx(PID) as tx:
+            await tx.run(one_query())
+    assert transactional.events[-1] == "rollback" and "commit" not in transactional.events
 
 
 @pytest.mark.parametrize("kind", CHECK_FAILURES)
@@ -197,60 +219,62 @@ async def test_a_permanent_failure_is_never_retried(harness: AdapterHarness, kin
     assert harness.sleeps == [] and len(harness.statements) == 1
 
 
-async def test_an_explicit_transaction_is_not_retried(harness: AdapterHarness) -> None:
-    if not harness.capabilities.multi_statement_tx:
-        pytest.skip("this store commits every statement on its own")
-    harness.fail("transient")
+async def test_an_explicit_transaction_is_not_retried(transactional: AdapterHarness) -> None:
+    transactional.fail("transient")
     with pytest.raises(GraphWriteError):
-        async with executor(harness).tx(PID) as tx:
+        async with executor(transactional).tx(PID) as tx:
             await tx.run(one_query())
-    assert harness.sleeps == [] and len(harness.statements) == 1
+    assert transactional.sleeps == [] and len(transactional.statements) == 1
 
 
 # Transactions (design D10) --------------------------------------------------------------------------
 
 
-async def test_a_transaction_commits_its_statements_together_when_the_block_ends(harness: AdapterHarness) -> None:
-    if not harness.capabilities.multi_statement_tx:
-        pytest.skip("this store commits every statement on its own")
-    async with executor(harness).tx(PID) as tx:
+async def test_a_transaction_commits_its_statements_together_when_the_block_ends(
+    transactional: AdapterHarness,
+) -> None:
+    async with executor(transactional).tx(PID) as tx:
         await tx.run(SCOPED_QUERIES[0])
         await tx.run(SCOPED_QUERIES[1])
-        assert "commit" not in harness.events
-    assert harness.events == ["begin", "statement", "statement", "commit"]
+        assert "commit" not in transactional.events
+    assert transactional.events == ["begin", "statement", "statement", "commit"]
 
 
-async def test_a_transaction_rolls_back_when_the_block_raises(harness: AdapterHarness) -> None:
-    if not harness.capabilities.multi_statement_tx:
-        pytest.skip("this store commits every statement on its own")
-    with pytest.raises(Rollback):
-        async with executor(harness).tx(PID) as tx:
-            await tx.run(SCOPED_QUERIES[0])
-            raise Rollback
-    assert harness.events == ["begin", "statement", "rollback"]
-
-
-async def test_a_store_without_multi_statement_transactions_commits_every_statement(harness: AdapterHarness) -> None:
-    if harness.capabilities.multi_statement_tx:
-        pytest.skip("this store has multi-statement transactions")
+async def run_then_raise(harness: AdapterHarness) -> None:
     async with executor(harness).tx(PID) as tx:
         await tx.run(SCOPED_QUERIES[0])
+        raise RollbackError
+
+
+async def test_a_transaction_rolls_back_when_the_block_raises(transactional: AdapterHarness) -> None:
+    with pytest.raises(RollbackError):
+        await run_then_raise(transactional)
+    assert transactional.events == ["begin", "statement", "rollback"]
+
+
+async def test_a_store_without_multi_statement_transactions_commits_every_statement(
+    per_statement: AdapterHarness,
+) -> None:
+    async with executor(per_statement).tx(PID) as tx:
+        await tx.run(SCOPED_QUERIES[0])
         await tx.run(SCOPED_QUERIES[1])
-    assert harness.events == ["begin", "statement", "commit", "begin", "statement", "commit"]
+    assert per_statement.events == ["begin", "statement", "commit", "begin", "statement", "commit"]
 
 
-async def test_the_writer_transaction_follows_the_capability(harness: AdapterHarness) -> None:
-    store = harness.store()
-    assert store.info.backend == harness.backend
-    writer = OwnedWriter(store, load_ontology(), "build", PID)
-    if harness.capabilities.multi_statement_tx:
+async def test_the_writer_transaction_opens_on_a_transactional_store(transactional: AdapterHarness) -> None:
+    store = transactional.store()
+    assert store.info.backend == transactional.backend and store.info.capabilities.multi_statement_tx
+    async with OwnedWriter(store, load_ontology(), "build", PID).transaction():
+        pass
+    assert transactional.events == ["begin", "commit"]
+
+
+async def test_the_writer_transaction_is_refused_on_a_per_statement_store(per_statement: AdapterHarness) -> None:
+    writer = OwnedWriter(per_statement.store(), load_ontology(), "build", PID)
+    with pytest.raises(ConfigurationError) as raised:
         async with writer.transaction():
             pass
-    else:
-        with pytest.raises(ConfigurationError) as raised:
-            async with writer.transaction():
-                pass
-        assert raised.value.code == STORE_TRANSACTIONS_UNSUPPORTED
+    assert raised.value.code == STORE_TRANSACTIONS_UNSUPPORTED
 
 
 # Rows ---------------------------------------------------------------------------------------------
@@ -271,7 +295,9 @@ def assert_plain(value: Any) -> None:
 async def test_rows_come_back_as_plain_dicts_exactly_as_the_backend_answered(
     harness: AdapterHarness, query: Query
 ) -> None:
-    answered = [{"uuid": "u1", "n": 3, "score": 0.25, "ok": True, "none": None, "ids": ["b", "a"], "nested": {"k": [1]}}]
+    answered = [
+        {"uuid": "u1", "n": 3, "score": 0.25, "ok": True, "none": None, "ids": ["b", "a"], "nested": {"k": [1]}}
+    ]
     harness.answer(answered)
     ex = executor(harness)
     for rows in (await ex.read(query, PID), await ex.write(query, PID)):
@@ -329,9 +355,7 @@ async def test_the_library_writes_no_map_valued_property(harness: AdapterHarness
         assert not [name for name, value in props.items() if isinstance(value, dict)]
 
 
-def _ref(label: str, key: str) -> Any:
-    from graph.core import NodeRef
-
+def _ref(label: str, key: str) -> NodeRef:
     return NodeRef(label, key)
 
 

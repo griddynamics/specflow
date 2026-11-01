@@ -14,11 +14,12 @@ import itertools
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from pydantic import SecretStr
+
 from graph.core.queries import Query
 from graph.stores.config import StoreConfig
 from graph_probes.base import (
     VECTOR_PROPERTIES,
-    check_flat,
     EdgeSpec,
     GraphProbe,
     Match,
@@ -27,6 +28,7 @@ from graph_probes.base import (
     ProbeError,
     ProbeNode,
     SchemaObject,
+    check_flat,
 )
 
 
@@ -34,7 +36,7 @@ class MemoryProbe(GraphProbe):
     backend = "memory"
 
     def __init__(self) -> None:
-        super().__init__(StoreConfig.model_construct(backend="neo4j", uri="memory://", user="memory", password=""))  # type: ignore[arg-type]
+        super().__init__(StoreConfig(backend="neo4j", uri="memory://", user="memory", password=SecretStr("")))
         self._ids = itertools.count(1)
         self._nodes: dict[str, tuple[set[str], dict[str, Any]]] = {}
         self._edges: dict[str, tuple[str, str, str, dict[str, Any]]] = {}
@@ -69,11 +71,9 @@ class MemoryProbe(GraphProbe):
     # -- reads -------------------------------------------------------------------------------------
 
     async def nodes(self, project_id: str, label: str | None = None, **where: Any) -> list[ProbeNode]:
-        return sorted(
-            (self._node(i) for i in self._select(project_id, Match(label, where))), key=lambda n: n.id
-        )
+        return sorted((self._node(i) for i in self._select(project_id, Match(label, where))), key=lambda n: n.id)
 
-    async def edges(self, project_id: str, type: str | None = None, **where: Any) -> list[ProbeEdge]:
+    async def edges(self, project_id: str, relation: str | None = None, **where: Any) -> list[ProbeEdge]:
         found = []
         for edge_id, (kind, source, target, props) in self._edges.items():
             touches = project_id in (
@@ -81,7 +81,7 @@ class MemoryProbe(GraphProbe):
                 self._nodes[source][1].get("group_id"),
                 self._nodes[target][1].get("group_id"),
             )
-            if touches and (type is None or kind == type) and self._matches(props, where):
+            if touches and (relation is None or kind == relation) and self._matches(props, where):
                 found.append(
                     ProbeEdge(
                         edge_id,
@@ -182,7 +182,7 @@ class MemoryProbe(GraphProbe):
         return self.vector_dimensions.get(name)
 
     async def await_indexes(self, timeout_s: float = 60.0) -> None:
-        return None
+        assert timeout_s > 0  # nothing to wait for: every write is visible at once
 
     async def server_edition(self) -> str:
         return "memory"
@@ -211,7 +211,11 @@ class MemoryProbe(GraphProbe):
         for labels, props in self._nodes.values():
             group = props.get("group_id")
             counts["unscoped"] += group is None
-            for label, key in (("SpecNode", "foreign_spec_nodes"), ("Document", "foreign_documents"), ("Fragment", "foreign_fragments")):
+            for label, key in (
+                ("SpecNode", "foreign_spec_nodes"),
+                ("Document", "foreign_documents"),
+                ("Fragment", "foreign_fragments"),
+            ):
                 counts[key] += label in labels and foreign(group)
         for _, source, target, _ in self._edges.values():
             ends = (self._nodes[source][1].get("group_id"), self._nodes[target][1].get("group_id"))

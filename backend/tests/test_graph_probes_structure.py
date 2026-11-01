@@ -103,7 +103,10 @@ def test_the_exceptions_are_real_files_that_still_need_them() -> None:
 
 
 def test_live_modules_and_shared_support_are_never_exceptions() -> None:
-    live = {relative(p) for p in TESTS.glob("*live*.py")} | {"tests/graph_support.py", "tests/graph_extraction_store_support.py"}
+    live = {relative(p) for p in TESTS.glob("*live*.py")} | {
+        "tests/graph_support.py",
+        "tests/graph_extraction_store_support.py",
+    }
     live |= {relative(p) for p in (TESTS / "graph_probes").glob("*.py")} - PROBE_FILES
     assert live and not live & set(DIALECT_TESTS)
     for name in sorted(live):

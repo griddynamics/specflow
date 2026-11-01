@@ -48,6 +48,7 @@ import graph.core.queries as core_queries
 from graph.core.errors import InfrastructureUnavailableError
 from graph.core.queries import Query
 from graph.stores._bolt.cypher import render_cypher
+from graph_probes import requires_live_graph
 from graph_support import (
     SHOP_DIR,
     SHOP_ORPHAN_VERDICTS,
@@ -63,7 +64,6 @@ from graph_support import (
 from logger.formatters import JsonFormatter
 from logger.logger import get_logger
 from logger_harness import fields
-from graph_probes import requires_live_graph
 
 pytestmark = requires_live_graph()
 

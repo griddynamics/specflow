@@ -113,28 +113,24 @@ class AdapterHarness(Protocol):
 # The Bolt harness: Neo4j (and ArcadeDB, which speaks Bolt) over a fake ``neo4j`` driver ---------------
 
 
-def _error(kind: str) -> Exception:
-    def hydrate(cls: type[Exception], code: str) -> Exception:
-        return cls._hydrate_neo4j(code=code, message=CANARY)  # type: ignore[attr-defined, no-any-return]
+def _hydrate(cls: type[Exception], code: str) -> Exception:
+    return cls._hydrate_neo4j(code=code, message=CANARY)
 
-    match kind:
-        case "unreachable":
-            return ServiceUnavailable(CANARY)
-        case "auth_rejected":
-            return AuthError(CANARY)
-        case "access_denied":
-            return Forbidden(CANARY)
-        case "database_not_found":
-            return hydrate(ClientError, "Neo.ClientError.Database.DatabaseNotFound")
-        case "query_rejected":
-            return hydrate(ClientError, "Neo.ClientError.Statement.SyntaxError")
-        case "server_error":
-            return hydrate(DatabaseError, "Neo.DatabaseError.General.UnknownError")
-        case "too_complex":
-            return hydrate(ClientError, "Neo.ClientError.Procedure.ProcedureCallFailed")
-        case "transient":
-            return hydrate(TransientError, "Neo.TransientError.Transaction.DeadlockDetected")
-    raise ValueError(kind)
+
+_ERRORS: Final[dict[str, Callable[[], Exception]]] = {
+    "unreachable": lambda: ServiceUnavailable(CANARY),
+    "auth_rejected": lambda: AuthError(CANARY),
+    "access_denied": lambda: Forbidden(CANARY),
+    "database_not_found": lambda: _hydrate(ClientError, "Neo.ClientError.Database.DatabaseNotFound"),
+    "query_rejected": lambda: _hydrate(ClientError, "Neo.ClientError.Statement.SyntaxError"),
+    "server_error": lambda: _hydrate(DatabaseError, "Neo.DatabaseError.General.UnknownError"),
+    "too_complex": lambda: _hydrate(ClientError, "Neo.ClientError.Procedure.ProcedureCallFailed"),
+    "transient": lambda: _hydrate(TransientError, "Neo.TransientError.Transaction.DeadlockDetected"),
+}
+
+
+def _error(kind: str) -> Exception:
+    return _ERRORS[kind]()
 
 
 class _Result:
@@ -226,12 +222,15 @@ class _Driver:
         return None
 
 
+BOLT_CAPABILITIES: Final = StoreCapabilities(multi_statement_tx=True)
+
+
 @dataclass
 class BoltHarness:
     """The Neo4j adapter (``backend="neo4j"``) over a fake driver; a Bolt-speaking store passes its own name."""
 
     backend: str = "neo4j"
-    capabilities: StoreCapabilities = StoreCapabilities(multi_statement_tx=True)
+    capabilities: StoreCapabilities = BOLT_CAPABILITIES
     statements: list[Executed] = field(default_factory=list)
     events: list[str] = field(default_factory=list)
     sleeps: list[float] = field(default_factory=list)

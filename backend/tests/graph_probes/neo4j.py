@@ -11,9 +11,11 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from typing import Any, Final
 
+from graph.core import connect
+from graph.core.queries import Query
+from graph.stores.config import StoreConfig
 from graph_probes.base import (
     VECTOR_PROPERTIES,
-    check_flat,
     EdgeSpec,
     GraphProbe,
     Match,
@@ -22,11 +24,9 @@ from graph_probes.base import (
     ProbeError,
     ProbeNode,
     SchemaObject,
+    check_flat,
     identifier,
 )
-from graph.core import connect
-from graph.core.queries import Query
-from graph.stores.config import StoreConfig
 
 BATCH: Final = 500
 _UNIQUE_TYPES: Final = {"UNIQUENESS", "NODE_PROPERTY_UNIQUENESS", "NODE_KEY"}
@@ -34,8 +34,7 @@ _LIBRARY_EDGE_KEY_INDEX: Final = "graph_edge_key_{}"
 
 # One end of an edge, without its vector properties (they are large and no test reads them there).
 _END: Final = (
-    "{id: elementId(%(v)s), labels: labels(%(v)s), "
-    "props: [k IN keys(%(v)s) WHERE NOT k IN $vectors | [k, %(v)s[k]]]}"
+    "{id: elementId(%(v)s), labels: labels(%(v)s), props: [k IN keys(%(v)s) WHERE NOT k IN $vectors | [k, %(v)s[k]]]}"
 )
 
 OUTSIDE_TEST_PROJECTS: Final = (
@@ -70,7 +69,7 @@ def _node(row: Mapping[str, Any]) -> ProbeNode:
 
 
 def _end(row: Mapping[str, Any]) -> ProbeNode:
-    return ProbeNode(id=row["id"], labels=tuple(sorted(row["labels"])), props={k: v for k, v in row["props"]})
+    return ProbeNode(id=row["id"], labels=tuple(sorted(row["labels"])), props=dict(row["props"]))
 
 
 class Neo4jProbe(GraphProbe):
@@ -107,9 +106,9 @@ class Neo4jProbe(GraphProbe):
         )
         return sorted((_node(row) for row in rows), key=lambda n: n.id)
 
-    async def edges(self, project_id: str, type: str | None = None, **where: Any) -> list[ProbeEdge]:
+    async def edges(self, project_id: str, relation: str | None = None, **where: Any) -> list[ProbeEdge]:
         conditions, params = _where("r", where, "w")
-        kind = f":{identifier(type)}" if type else ""
+        kind = f":{identifier(relation)}" if relation else ""
         clause = "".join(f" AND {condition}" for condition in conditions)
         rows = await self.run(
             f"MATCH (s)-[r{kind}]->(t) WHERE (s.group_id = $p OR t.group_id = $p OR r.group_id = $p){clause} "
@@ -325,4 +324,3 @@ class Neo4jProbe(GraphProbe):
     async def outside_counts(self, prefix: str) -> dict[str, int]:
         rows = await self.run(OUTSIDE_TEST_PROJECTS, prefix=prefix)
         return {key: int(value) for key, value in rows[0].items()}
-

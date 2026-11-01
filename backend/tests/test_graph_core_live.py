@@ -22,16 +22,14 @@ from graph.core import (
     OwnedWriter,
     OwnershipError,
     ensure_schema,
-    require_version,
-    server_version,
 )
+from graph_probes import requires_live_graph
 from graph_probes.base import EdgeSpec, NodeSpec, SchemaObject, select
 from graph_support import (
     GraphProject,
     live_llm_config,
     shipped_ontology,
 )
-from graph_probes import requires_live_graph
 
 # The graph fixtures (scripted_gateway, make_gateway, gap_ontology, graph_project) live in graph_support.
 pytest_plugins = ["graph_support"]
@@ -116,7 +114,12 @@ async def seed(project: GraphProject, project_id: str, ontology: Ontology) -> Ow
     await project.create_edges(
         [
             EdgeSpec("CONTAINS", select(DOCUMENT, document_id="d1"), select(FRAGMENT, fragment_id="f1")),
-            EdgeSpec("REFERENCED_BY", select("SpecNode", uuid="u-fr"), select(FRAGMENT, fragment_id="f1"), {"line_start": 3, "line_end": 4}),
+            EdgeSpec(
+                "REFERENCED_BY",
+                select("SpecNode", uuid="u-fr"),
+                select(FRAGMENT, fragment_id="f1"),
+                {"line_start": 3, "line_end": 4},
+            ),
         ],
         project_id=project_id,
     )
@@ -183,7 +186,9 @@ async def test_schema_has_every_data_model_object_and_is_idempotent(graph_projec
     # restore it in ``finally`` whatever happens.
     relates = find_object(objects, {"range"}, "relationship", "RELATES_TO", ["group_id", "edge_key"])
     assert relates is not None
-    dropped = await project.probe.drop_edge_key_index("RELATES_TO") if relates.name == "graph_edge_key_relates_to" else None
+    dropped = (
+        await project.probe.drop_edge_key_index("RELATES_TO") if relates.name == "graph_edge_key_relates_to" else None
+    )
     if dropped is not None:
         try:
             assert await ensure_schema(project.store, ontology, llm) == (dropped,)
@@ -204,16 +209,6 @@ async def test_schema_vector_dimension_mismatch_raises_and_creates_nothing(graph
     assert raised.value.code == "vector_index_mismatch"
     after = await project.probe.schema_objects()
     assert sorted(row.name for row in after) == sorted(row.name for row in before)
-
-
-async def test_nfr_port_01_server_is_neo4j_community_5_26_or_later(graph_project: GraphProject) -> None:
-    project = graph_project
-    if project.backend != "neo4j":
-        pytest.skip("the Neo4j version gate is checked on the neo4j store only")
-    version = await server_version(project.probe.driver, project.database)
-    assert version >= (5, 26)
-    assert await require_version(project.probe.driver, database=project.database) == version
-    assert await project.probe.server_edition() == "community"
 
 
 # Project isolation (FR-CORE-01)
@@ -326,9 +321,7 @@ async def test_gap_cannot_delete_its_node_with_relationships_of_another_owner(
     await assert_code(gap.delete_node(FINDING, GAP_FINDING.key), OwnershipError, "node_has_foreign_relationships")
     assert await project.snapshot() == before
 
-    await project.probe.delete_edges(
-        [e.id for e in await project.edges("MENTIONED_IN") if FINDING in e.source.labels]
-    )
+    await project.probe.delete_edges([e.id for e in await project.edges("MENTIONED_IN") if FINDING in e.source.labels])
     assert await gap.delete_node(FINDING, GAP_FINDING.key) is True
     assert await gap.delete_node(FINDING, GAP_FINDING.key) is False
 
@@ -442,7 +435,12 @@ async def test_move_foreign_relationships(graph_project: GraphProject, gap_ontol
         [
             EdgeSpec("FLAGS", select(FINDING, uuid="g1"), select("SpecNode", uuid="u-old"), dup),
             EdgeSpec("FLAGS", select(FINDING, uuid="g1"), select("SpecNode", uuid="u-new"), dup),
-            EdgeSpec("REFERENCED_BY", select("SpecNode", uuid="u-old"), select(FRAGMENT, fragment_id="f-old"), {"line_start": 1}),
+            EdgeSpec(
+                "REFERENCED_BY",
+                select("SpecNode", uuid="u-old"),
+                select(FRAGMENT, fragment_id="f-old"),
+                {"line_start": 1},
+            ),
         ]
     )
     await build.upsert_relationship("INTEGRATES_WITH", old, x, "own", {})

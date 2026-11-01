@@ -17,6 +17,7 @@ probe is not the reference one refuses). Gate: ``SPECFLOW_TEST_GRAPH_STORE=<stor
 from __future__ import annotations
 
 import os
+import sys
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +26,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 
+from graph.core import load_ontology
 from graph_probes import requires_live_graph
 from graph_probes import scenarios as scenario_module
 from graph_probes.golden import (
@@ -37,8 +39,6 @@ from graph_probes.golden import (
 )
 from graph_support import GraphProject, ScriptedGateway, assert_all_scripted, open_graph_project, shipped_ontology
 from test_graph_renamed_ontology_live import ANSWER_RENAME, write_renamed_ontology
-
-from graph.core import load_ontology
 
 pytest_plugins = ["graph_support"]
 
@@ -148,5 +148,5 @@ def test_search_rankings_have_the_golden_top_five_sets(runs: Runs, capsys: pytes
     parity = compare_rankings(load_rankings(), runs.first.rankings)
     if parity.rank_differences:
         with capsys.disabled():
-            print("\n" + parity.report())
+            sys.stderr.write("\n" + parity.report() + "\n")
     assert parity.ok, parity.report()

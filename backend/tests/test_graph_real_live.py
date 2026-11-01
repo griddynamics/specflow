@@ -178,7 +178,12 @@ async def take_snapshot(project: GraphProject) -> Snapshot:
         for n in await project.nodes("SpecNode")
     ]
     fragment_rows = [
-        {"id": f.get("fragment_id"), "document_id": f.get("document_id"), "status": f.get("status"), "text": f.get("text")}
+        {
+            "id": f.get("fragment_id"),
+            "document_id": f.get("document_id"),
+            "status": f.get("status"),
+            "text": f.get("text"),
+        }
         for f in await project.nodes("Fragment")
     ]
     return Snapshot(

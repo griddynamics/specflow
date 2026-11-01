@@ -51,6 +51,7 @@ from graph.build.prompts import ATTRIBUTES_PROMPT, HUB_CATALOG_PROMPT, KNOWN_TER
 from graph.core import ConfigurationError, Ontology, load_ontology
 from graph.core.identity import SpecIdRow
 from graph.core.writer import NodeRef
+from graph_probes import requires_live_graph
 from graph_probes.base import EdgeSpec, Match, ProbeNode
 from graph_probes.views import domain_edges, identity_counts, spec_edges, ungrounded_spec_ids
 from graph_probes.views import fragment_ids as fragment_ids_of
@@ -66,7 +67,6 @@ from graph_support import (
     untrusted_blocks,
 )
 from logger.logger import INFO, get_logger, log_event
-from graph_probes import requires_live_graph
 
 # The graph fixtures (scripted_gateway, make_gateway, gap_ontology, graph_project) live in graph_support.
 pytest_plugins = ["graph_support"]
@@ -307,7 +307,8 @@ class Shop:
             for f in await self.project.nodes("Fragment", project_id=self.project_id)
         }
         built.documents = {
-            d.get("document_id"): d.get("status") for d in await self.project.nodes("Document", project_id=self.project_id)
+            d.get("document_id"): d.get("status")
+            for d in await self.project.nodes("Document", project_id=self.project_id)
         }
         built.registry = await self.stores.registry.taken(self.project_id)
         assert await invariant_violations(self.project, self.project_id, self.ontology) == {}
@@ -321,7 +322,8 @@ async def invariant_violations(project: GraphProject, project_id: str, ontology:
     domain = set(ontology.labels)
     # D1: SpecNode plus exactly one domain label
     spec_nodes = [
-        {"spec_id": n.get("spec_id"), "labels": list(n.labels)} for n in await project.nodes("SpecNode", project_id=project_id)
+        {"spec_id": n.get("spec_id"), "labels": list(n.labels)}
+        for n in await project.nodes("SpecNode", project_id=project_id)
     ]
     rows = [row for row in spec_nodes if len(set(row["labels"]) - {"SpecNode"}) != 1]
     rows += [row for row in spec_nodes if not set(row["labels"]) - {"SpecNode"} <= domain]
@@ -368,9 +370,7 @@ async def invariant_violations(project: GraphProject, project_id: str, ontology:
         for e in await project.edges(project_id=project_id)
         for near, far in ((e.source, e.target), (e.target, e.source))  # the pattern is undirected
         if near.get("group_id") == project_id
-        and (
-            far.get("group_id") not in (None, project_id) or e.get("group_id") not in (None, project_id)
-        )
+        and (far.get("group_id") not in (None, project_id) or e.get("group_id") not in (None, project_id))
     ]
     return {name: rows for name, rows in found.items() if rows}
 
@@ -880,7 +880,9 @@ def canonical_graph(rows_nodes: list[dict[str, Any]], rows_edges: list[dict[str,
 
 async def project_graph(project: GraphProject, project_id: str) -> tuple[list[str], list[str]]:
     def ref(n: ProbeNode) -> Any:
-        return next((n.get(name) for name in ("spec_id", "fragment_id", "document_id") if n.get(name) is not None), None)
+        return next(
+            (n.get(name) for name in ("spec_id", "fragment_id", "document_id") if n.get(name) is not None), None
+        )
 
     nodes = [{"labels": list(n.labels), "props": n.props} for n in await project.nodes(project_id=project_id)]
     edges = [

@@ -47,6 +47,7 @@ import yaml
 from graph.build import BuildResult
 from graph.build.models import InferenceReport
 from graph.core import Ontology, load_ontology
+from graph_probes import requires_live_graph
 from graph_support import (
     ScriptedGateway,
     ShopBuilds,
@@ -55,7 +56,6 @@ from graph_support import (
     outside_untrusted,
     shipped_ontology,
 )
-from graph_probes import requires_live_graph
 
 live = requires_live_graph()
 

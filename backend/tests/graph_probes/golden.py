@@ -96,6 +96,11 @@ def _identity(kind: str, entry: Mapping[str, Any]) -> str:
     return f"{entry['source']}|{entry['type']}|{entry['target']}|{entry.get('edge_key')}"
 
 
+def _changed(want: Mapping[str, Any], have: Mapping[str, Any]) -> list[str]:
+    a, b = want["props"], have["props"]
+    return sorted(k for k in a.keys() | b.keys() if a.get(k) != b.get(k))
+
+
 def snapshot_differences(expected: Mapping[str, Any], actual: Mapping[str, Any], *, limit: int = 20) -> list[str]:
     """Human-readable differences between two canonical snapshots (empty when equal).
 
@@ -109,15 +114,13 @@ def snapshot_differences(expected: Mapping[str, Any], actual: Mapping[str, Any],
         have = {_identity(kind, e): e for e in actual[kind]}
         if len(want) != len(expected[kind]) or len(have) != len(actual[kind]):
             lines.append(f"{kind}: identities are not unique")
-        for name in sorted(want.keys() - have.keys()):
-            lines.append(f"{kind}: missing {name}")
-        for name in sorted(have.keys() - want.keys()):
-            lines.append(f"{kind}: unexpected {name}")
-        for name in sorted(want.keys() & have.keys()):
-            if _key(want[name]) != _key(have[name]):
-                a, b = want[name]["props"], have[name]["props"]
-                changed = sorted(k for k in a.keys() | b.keys() if a.get(k) != b.get(k))
-                lines.append(f"{kind}: {name} differs in {changed or 'labels or ends'}")
+        lines.extend(f"{kind}: missing {name}" for name in sorted(want.keys() - have.keys()))
+        lines.extend(f"{kind}: unexpected {name}" for name in sorted(have.keys() - want.keys()))
+        lines.extend(
+            f"{kind}: {name} differs in {_changed(want[name], have[name]) or 'labels or ends'}"
+            for name in sorted(want.keys() & have.keys())
+            if _key(want[name]) != _key(have[name])
+        )
     if len(lines) > limit:
         lines = [*lines[:limit], f"... and {len(lines) - limit} more"]
     return lines

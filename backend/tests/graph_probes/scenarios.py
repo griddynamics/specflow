@@ -68,9 +68,7 @@ async def _chain(builds: ShopBuilds, snapshots: Sequence[int]) -> BuildResult:
     return result
 
 
-def _builds(
-    project: GraphProject, factory: GatewayFactory, root: Path, name: str, **options: Any
-) -> ShopBuilds:
+def _builds(project: GraphProject, factory: GatewayFactory, root: Path, name: str, **options: Any) -> ShopBuilds:
     return ShopBuilds(project, factory, Path(root) / name, project_id=project.new_project(), **options)
 
 
@@ -245,4 +243,3 @@ async def search_rankings(project: GraphProject, project_id: str) -> dict[str, A
 def _unrelated(seed: int, dim: int) -> list[float]:
     vector = np.random.default_rng(10_000 + seed).standard_normal(dim)
     return [float(x) for x in vector / np.linalg.norm(vector)]
-

@@ -13,8 +13,8 @@ the ``NEO4J_URI``, ``NEO4J_USER``, ``NEO4J_PASSWORD`` and ``NEO4J_DATABASE`` nam
 
 from __future__ import annotations
 
-import importlib
 import os
+from collections.abc import Callable
 from typing import Final
 
 import pytest
@@ -22,14 +22,16 @@ from pydantic import SecretStr
 
 from graph.stores.config import BACKENDS, StoreConfig
 from graph_probes.base import GraphProbe
+from graph_probes.neo4j import Neo4jProbe
 
 SWITCH: Final = "SPECFLOW_TEST_GRAPH_STORE"
 ALIAS: Final = "SPECFLOW_TEST_NEO4J"
 DEFAULT_NEO4J_URI: Final = "bolt://localhost:7687"
 
-# Backend -> (module, class) of its probe. Absent means: no live probe yet (the suites skip).
-PROBES: Final[dict[str, tuple[str, str]]] = {
-    "neo4j": ("graph_probes.neo4j", "Neo4jProbe"),
+# Backend -> its probe class. Absent means: no live probe yet (the suites skip). A milestone imports its
+# probe module above and adds one row.
+PROBES: Final[dict[str, Callable[[StoreConfig], GraphProbe]]] = {
+    "neo4j": Neo4jProbe,
 }
 
 
@@ -58,10 +60,13 @@ def skip_reason() -> str | None:
     return None
 
 
-def requires_live_graph() -> pytest.MarkDecorator:
-    """Skip unless the switch selects a store that has a probe; use as ``pytestmark``."""
+def requires_live_graph(only: str | None = None) -> pytest.MarkDecorator:
+    """Skip unless the switch selects a store that has a probe (and, with ``only``, that store); use as
+    ``pytestmark``."""
 
     reason = skip_reason()
+    if reason is None and only is not None and selected_backend() != only:
+        reason = f"this live test is for the {only} store only (the switch selects {selected_backend()})"
     return pytest.mark.skipif(reason is not None, reason=reason or "")
 
 
@@ -79,17 +84,19 @@ def store_config_from_env(backend: str | None = None) -> StoreConfig:
 
     def pick(name: str, fallback: str, default: str | None = None) -> str | None:
         value = os.environ.get(f"GRAPH_STORE_{name}") or (os.environ.get(fallback) if legacy else None)
-        return value if value else default
+        return value or default
 
     uri = pick("URI", "NEO4J_URI", DEFAULT_NEO4J_URI if legacy else None)
     if uri is None:
         raise RuntimeError(f"set GRAPH_STORE_URI (and USER, PASSWORD, NAME) for the {backend} live tests")
-    return StoreConfig(
-        backend=backend,  # type: ignore[arg-type]
-        uri=uri,
-        user=pick("USER", "NEO4J_USER", "neo4j" if legacy else None) or "",
-        password=SecretStr(pick("PASSWORD", "NEO4J_PASSWORD", "") or ""),
-        name=pick("NAME", "NEO4J_DATABASE"),
+    return StoreConfig.model_validate(
+        {
+            "backend": backend,
+            "uri": uri,
+            "user": pick("USER", "NEO4J_USER", "neo4j" if legacy else None) or "",
+            "password": SecretStr(pick("PASSWORD", "NEO4J_PASSWORD", "") or ""),
+            "name": pick("NAME", "NEO4J_DATABASE"),
+        }
     )
 
 
@@ -99,7 +106,4 @@ def open_probe(config: StoreConfig | None = None) -> GraphProbe:
     config = config or store_config_from_env()
     if config.backend not in PROBES:
         raise RuntimeError(f"no live probe for graph store {config.backend!r}")
-    module, name = PROBES[config.backend]
-    probe_class = getattr(importlib.import_module(module), name)
-    probe: GraphProbe = probe_class(config)
-    return probe
+    return PROBES[config.backend](config)

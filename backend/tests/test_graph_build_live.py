@@ -41,6 +41,14 @@ from graph.build.models import EdgesArtifact, NodesArtifact, PersistCursor, Reso
 from graph.build.prompts import ATTRIBUTES_PROMPT, EPISODE_LABEL, HUB_CATALOG_PROMPT, KNOWN_TERMS_LABEL
 from graph.core.errors import LLMError
 from graph.core.llm.usage import UsageCounts
+from graph_probes import requires_live_graph
+from graph_probes.views import (
+    domain_edges,
+    identity_counts,
+    spec_edges,
+    ungrounded_spec_ids,
+)
+from graph_probes.views import fragment_ids as fragment_ids_of
 from graph_support import (
     GraphProject,
     ScriptedGateway,
@@ -51,14 +59,6 @@ from graph_support import (
     spine_unreachable_count,
     untrusted_blocks,
 )
-from graph_probes import requires_live_graph
-from graph_probes.views import (
-    domain_edges,
-    identity_counts,
-    spec_edges,
-    ungrounded_spec_ids,
-)
-from graph_probes.views import fragment_ids as fragment_ids_of
 
 # The graph fixtures (scripted_gateway, make_gateway, gap_ontology, graph_project) live in graph_support.
 pytest_plugins = ["graph_support"]
@@ -748,9 +748,7 @@ async def test_two_projects_built_from_one_corpus_stay_isolated(
         {
             "p": p,
             "nodes": await graph_project.count(p),
-            "relationships": len(
-                [e for e in await graph_project.edges(project_id=p) if e.source.get("group_id") == p]
-            ),
+            "relationships": len([e for e in await graph_project.edges(project_id=p) if e.source.get("group_id") == p]),
         }
         for p in sorted((first, second))
     ]

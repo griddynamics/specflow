@@ -35,6 +35,7 @@ from graph.build.consolidate import HUBS_PROMPT
 from graph.build.graphiti import EDGES_PROMPT, NODES_PROMPT
 from graph.build.prompts import ATTRIBUTES_PROMPT, HUB_CATALOG_PROMPT
 from graph.core.llm.gateway import EMBED_PROMPT, embed_batches, embed_inputs, estimate_tokens, request_tokens
+from graph_probes import requires_live_graph
 from graph_support import (
     SHOP_DIR,
     GraphProject,
@@ -44,7 +45,6 @@ from graph_support import (
     shop_corpus,
     tree_hash,
 )
-from graph_probes import requires_live_graph
 
 # The graph fixtures (scripted_gateway, make_gateway, gap_ontology, graph_project) live in graph_support.
 pytest_plugins = ["graph_support"]

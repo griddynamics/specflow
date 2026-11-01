@@ -33,6 +33,7 @@ from typing import Any, Final, Literal
 from graph.core import Ontology
 from graph.core.queries import Query
 from graph.core.store import GraphStore
+from graph.stores import build_store
 from graph.stores.config import StoreConfig
 
 SPEC_NODE: Final = "SpecNode"
@@ -209,8 +210,6 @@ class GraphProbe(ABC):
         """The library's ``GraphStore`` for the same server (what the code under test is handed)."""
 
         if self._store is None:
-            from graph.stores import build_store
-
             self._store = build_store(self.config)
         return self._store
 
@@ -232,8 +231,8 @@ class GraphProbe(ABC):
         """Nodes of ``project_id`` with ``label`` (any when None) whose properties equal ``where``."""
 
     @abstractmethod
-    async def edges(self, project_id: str, type: str | None = None, **where: Any) -> list[ProbeEdge]:
-        """Edges of type ``type`` (any when None), with properties equal to ``where``, that touch the
+    async def edges(self, project_id: str, relation: str | None = None, **where: Any) -> list[ProbeEdge]:
+        """Edges of type ``relation`` (any when None), with properties equal to ``where``, that touch the
         project: the edge's own ``group_id`` or either end's is ``project_id``."""
 
     @abstractmethod
@@ -362,46 +361,62 @@ class GraphProbe(ABC):
         walks every edge."""
 
         spine = ontology.spine
-        assert spine.roots == {"Module"}, "the walk below is written for the shipped spine"
+        assert spine.roots == {"Module"}, "the walk is written for the shipped spine"
         allowed = None if bases is None else set(bases)
-
-        def walked(edge: ProbeEdge) -> bool:
-            return allowed is None or edge.get("basis", "stated") in allowed
-
-        edges = [e for e in await self.edges(project_id) if walked(e)]
-        nodes = {n.id: n for n in await self.nodes(project_id, SPEC_NODE)}
-        outgoing: dict[str, list[ProbeEdge]] = {}
-        for edge in edges:
-            outgoing.setdefault(edge.source.id, []).append(edge)
-
-        def is_module(n: ProbeNode) -> bool:
-            return "Module" in n.labels
-
-        def reaches(start: ProbeNode) -> bool:
-            frontier = [start.id]
-            for _ in range(3):  # PART_OF*1..3 (relationship-unique paths; a walk is enough for reachability)
-                step: list[str] = []
-                for current in frontier:
-                    for edge in outgoing.get(current, ()):
-                        if edge.type == "PART_OF":
-                            if is_module(edge.target):
-                                return True
-                            step.append(edge.target.id)
-                frontier = step
-            for edge in outgoing.get(start.id, ()):
-                if edge.type == "GROUPED_BY" and any(
-                    second.type == "REALIZED_BY" and is_module(second.target)
-                    for second in outgoing.get(edge.target.id, ())
-                ):
-                    return True
-            return any(
-                e.type == "RELATES_TO"
-                and ((e.source.id == start.id and is_module(e.target)) or (e.target.id == start.id and is_module(e.source)))
-                for e in edges
-            )
-
+        edges = [e for e in await self.edges(project_id) if allowed is None or e.get("basis", "stated") in allowed]
+        walk = _SpineWalk(edges)
         sources = set(spine.sources)
-        return sum(1 for n in nodes.values() if sources.intersection(n.labels) and not reaches(n))
+        nodes = await self.nodes(project_id, SPEC_NODE)
+        return sum(1 for n in nodes if sources.intersection(n.labels) and not walk.reaches_a_module(n))
+
+
+def _is_module(node: ProbeNode) -> bool:
+    return "Module" in node.labels
+
+
+class _SpineWalk:
+    """Reachability of a ``Module`` over the shipped spine paths of some edges."""
+
+    def __init__(self, edges: Sequence[ProbeEdge]) -> None:
+        self._edges = edges
+        self._outgoing: dict[str, list[ProbeEdge]] = {}
+        for edge in edges:
+            self._outgoing.setdefault(edge.source.id, []).append(edge)
+
+    def reaches_a_module(self, start: ProbeNode) -> bool:
+        return self._part_of(start) or self._grouped_realized(start) or self._relates_to(start)
+
+    def _part_of(self, start: ProbeNode) -> bool:
+        frontier = [start.id]
+        for _ in range(3):  # PART_OF*1..3 (a walk is enough for reachability)
+            step: list[str] = []
+            for current in frontier:
+                for edge in self._outgoing.get(current, ()):
+                    if edge.type == "PART_OF":
+                        if _is_module(edge.target):
+                            return True
+                        step.append(edge.target.id)
+            frontier = step
+        return False
+
+    def _grouped_realized(self, start: ProbeNode) -> bool:
+        return any(
+            edge.type == "GROUPED_BY"
+            and any(
+                second.type == "REALIZED_BY" and _is_module(second.target)
+                for second in self._outgoing.get(edge.target.id, ())
+            )
+            for edge in self._outgoing.get(start.id, ())
+        )
+
+    def _relates_to(self, start: ProbeNode) -> bool:
+        return any(
+            e.type == "RELATES_TO"
+            and (
+                (e.source.id == start.id and _is_module(e.target)) or (e.target.id == start.id and _is_module(e.source))
+            )
+            for e in self._edges
+        )
 
 
 def _stable_value(name: str, value: Any) -> Any:
@@ -421,9 +436,7 @@ def canonical_props(props: Mapping[str, Any], *, skip: Iterable[str] = ()) -> di
     """``props`` without vectors, unstable properties and ``skip``; values as JSON-stable data."""
 
     omitted = {*VECTOR_PROPERTIES, *UNSTABLE_PROPERTIES, *skip}
-    kept = {
-        k: _stable_value(k, v) for k, v in props.items() if k not in omitted and not k.endswith(UNSTABLE_SUFFIXES)
-    }
+    kept = {k: _stable_value(k, v) for k, v in props.items() if k not in omitted and not k.endswith(UNSTABLE_SUFFIXES)}
     return json.loads(dump(kept))
 
 

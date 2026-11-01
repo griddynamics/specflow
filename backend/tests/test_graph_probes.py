@@ -8,7 +8,6 @@ implementation must pass the same tests. The live golden parity is ``test_graph_
 from __future__ import annotations
 
 import json
-import random
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -147,9 +146,8 @@ def test_other_stores_take_no_neo4j_fallback(clean_env: pytest.MonkeyPatch) -> N
     assert (config.backend, config.uri, config.user) == ("postgres", "postgresql://pg.example.test/graph", "svc")
 
 
-def test_the_registry_names_importable_probe_classes() -> None:
-    for backend, (module, name) in PROBES.items():
-        probe_class = getattr(__import__(module, fromlist=[name]), name)
+def test_the_registry_names_probe_classes() -> None:
+    for backend, probe_class in PROBES.items():
         assert issubclass(probe_class, GraphProbe) and probe_class.backend == backend
     assert graph_probes.PROBES is PROBES
 
@@ -157,7 +155,7 @@ def test_the_registry_names_importable_probe_classes() -> None:
 def test_identifiers_are_plain_names() -> None:
     assert identifier("PART_OF") == "PART_OF"
     for bad in ("", "a b", "X) OR 1=1 (n", "1abc", "a`b"):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="graph identifier"):
             identifier(bad)
 
 
@@ -186,9 +184,16 @@ async def project(probe: GraphProbe) -> AsyncIterator[str]:
 
 
 async def test_created_nodes_carry_the_project_and_sorted_labels(probe: GraphProbe, project: str) -> None:
-    assert await probe.create_nodes(
-        project, [NodeSpec(("SpecNode", "Module"), {"uuid": "u1", "name": "A"}), NodeSpec(("Fragment",), {"fragment_id": "f"})]
-    ) == 2
+    assert (
+        await probe.create_nodes(
+            project,
+            [
+                NodeSpec(("SpecNode", "Module"), {"uuid": "u1", "name": "A"}),
+                NodeSpec(("Fragment",), {"fragment_id": "f"}),
+            ],
+        )
+        == 2
+    )
     nodes = await probe.nodes(project)
     assert sorted(n.labels for n in nodes) == [("Fragment",), ("Module", "SpecNode")]
     assert all(n["group_id"] == project for n in nodes)
@@ -201,7 +206,9 @@ async def test_created_nodes_carry_the_project_and_sorted_labels(probe: GraphPro
         await probe.one_node(project)
 
 
-async def test_property_contract_none_removes_lists_keep_order_scalars_keep_type(probe: GraphProbe, project: str) -> None:
+async def test_property_contract_none_removes_lists_keep_order_scalars_keep_type(
+    probe: GraphProbe, project: str
+) -> None:
     values = {"s": "text", "i": 7, "f": 0.5, "b": True, "l": ["z", "a", "m"], "n": [3, 1, 2], "gone": None}
     await probe.create_nodes(project, [NodeSpec(("SpecNode", "Module"), {"uuid": "u", **values})])
     found = await probe.one_node(project, "Module")
@@ -218,7 +225,9 @@ async def test_property_contract_none_removes_lists_keep_order_scalars_keep_type
 async def test_a_map_valued_property_is_refused(probe: GraphProbe, project: str) -> None:
     with pytest.raises(ProbeError):
         await probe.create_nodes(project, [NodeSpec(("SpecNode", "Module"), {"uuid": "u", "bad": {"k": 1}})])
-    await probe.create_nodes(project, [NodeSpec(("SpecNode", "Module"), {"uuid": "u"}), NodeSpec(("SpecNode", "Feature"), {"uuid": "f"})])
+    await probe.create_nodes(
+        project, [NodeSpec(("SpecNode", "Module"), {"uuid": "u"}), NodeSpec(("SpecNode", "Feature"), {"uuid": "f"})]
+    )
     with pytest.raises(ProbeError):
         await probe.update_nodes(project, select("Module", uuid="u"), {"bad": [{"k": 1}]})
     with pytest.raises(ProbeError):
@@ -268,10 +277,16 @@ async def test_edges_join_one_node_to_one_node_and_are_read_with_their_ends(prob
 
 async def test_an_edge_end_that_selects_nothing_or_two_nodes_is_an_error(probe: GraphProbe, project: str) -> None:
     await probe.create_nodes(
-        project, [NodeSpec(("SpecNode", "Module"), {"uuid": "a", "k": 1}), NodeSpec(("SpecNode", "Module"), {"uuid": "b", "k": 1})]
+        project,
+        [
+            NodeSpec(("SpecNode", "Module"), {"uuid": "a", "k": 1}),
+            NodeSpec(("SpecNode", "Module"), {"uuid": "b", "k": 1}),
+        ],
     )
     with pytest.raises(ProbeError):
-        await probe.create_edges(project, [EdgeSpec("PART_OF", select("Module", uuid="a"), select("Module", uuid="none"))])
+        await probe.create_edges(
+            project, [EdgeSpec("PART_OF", select("Module", uuid="a"), select("Module", uuid="none"))]
+        )
     with pytest.raises(ProbeError):
         await probe.create_edges(project, [EdgeSpec("PART_OF", select("Module", uuid="a"), select("Module", k=1))])
 
@@ -280,8 +295,12 @@ async def test_projects_are_isolated_and_deleting_a_node_takes_its_edges(probe: 
     other = new_project_id()
     try:
         for pid in (project, other):
-            await probe.create_nodes(pid, [NodeSpec(("SpecNode", "Module"), {"uuid": "a"}), NodeSpec(("SpecNode", "Module"), {"uuid": "b"})])
-            await probe.create_edges(pid, [EdgeSpec("PART_OF", select("Module", uuid="a"), select("Module", uuid="b"), {"group_id": pid})])
+            await probe.create_nodes(
+                pid, [NodeSpec(("SpecNode", "Module"), {"uuid": "a"}), NodeSpec(("SpecNode", "Module"), {"uuid": "b"})]
+            )
+            await probe.create_edges(
+                pid, [EdgeSpec("PART_OF", select("Module", uuid="a"), select("Module", uuid="b"), {"group_id": pid})]
+            )
         assert await probe.count_nodes(project) == await probe.count_nodes(other) == 2
         assert len(await probe.edges(project)) == len(await probe.edges(other)) == 1
         assert await probe.delete_nodes(project, select("Module", uuid="a")) == 1
@@ -293,7 +312,9 @@ async def test_projects_are_isolated_and_deleting_a_node_takes_its_edges(probe: 
 
 
 async def test_state_changes_with_anything_that_changes(probe: GraphProbe, project: str) -> None:
-    await probe.create_nodes(project, [NodeSpec(("SpecNode", "Module"), {"uuid": "a"}), NodeSpec(("SpecNode", "Module"), {"uuid": "b"})])
+    await probe.create_nodes(
+        project, [NodeSpec(("SpecNode", "Module"), {"uuid": "a"}), NodeSpec(("SpecNode", "Module"), {"uuid": "b"})]
+    )
     before = await probe.state(project)
     assert await probe.state(project) == before
     await probe.update_nodes(project, select("Module", uuid="a"), {"x": 1})
@@ -307,7 +328,9 @@ async def test_outside_counts_see_what_is_not_a_test_project(probe: GraphProbe) 
     foreign = "not-a-test-project-" + new_project_id()
     before = await probe.outside_counts(PROJECT_PREFIX)
     try:
-        await probe.create_nodes(foreign, [NodeSpec(("SpecNode", "Module"), {"uuid": "x"}), NodeSpec(("Fragment",), {"fragment_id": "f"})])
+        await probe.create_nodes(
+            foreign, [NodeSpec(("SpecNode", "Module"), {"uuid": "x"}), NodeSpec(("Fragment",), {"fragment_id": "f"})]
+        )
         after = await probe.outside_counts(PROJECT_PREFIX)
         assert after["foreign_spec_nodes"] == before["foreign_spec_nodes"] + 1
         assert after["foreign_fragments"] == before["foreign_fragments"] + 1
@@ -319,7 +342,7 @@ async def test_outside_counts_see_what_is_not_a_test_project(probe: GraphProbe) 
 # The canonical snapshot ------------------------------------------------------------------------------
 
 
-async def seed_graph(probe: GraphProbe, project_id: str, *, order: random.Random | None = None, clock: str = "t0") -> None:
+async def seed_graph(probe: GraphProbe, project_id: str, *, reverse: bool = False, clock: str = "t0") -> None:
     nodes = [
         NodeSpec(
             ("SpecNode", "Module"),
@@ -335,23 +358,37 @@ async def seed_graph(probe: GraphProbe, project_id: str, *, order: random.Random
                 "statements": json.dumps([{"text": "m", "at": clock, "version": 1}]),
             },
         ),
-        NodeSpec(("SpecNode", "Feature"), {"uuid": f"{project_id}-f", "spec_id": "FEAT::F", "name": "F", "updated_at": clock}),
+        NodeSpec(
+            ("SpecNode", "Feature"), {"uuid": f"{project_id}-f", "spec_id": "FEAT::F", "name": "F", "updated_at": clock}
+        ),
         NodeSpec(("Fragment",), {"fragment_id": "frag-1", "spec_id": "FRG::1", "status": "active"}),
     ]
-    if order:
-        order.shuffle(nodes)
+    if reverse:
+        nodes.reverse()
     await probe.create_nodes(project_id, nodes)
     edges = [
         EdgeSpec(
             "PART_OF",
             select("Feature", spec_id="FEAT::F"),
             select("Module", spec_id="MOD::M"),
-            {"group_id": project_id, "edge_key": "F|PART_OF|M", "uuid": f"{project_id}-e", "basis": "stated", "created_at": clock, "inferred_at": clock},
+            {
+                "group_id": project_id,
+                "edge_key": "F|PART_OF|M",
+                "uuid": f"{project_id}-e",
+                "basis": "stated",
+                "created_at": clock,
+                "inferred_at": clock,
+            },
         ),
-        EdgeSpec("REFERENCED_BY", select("Feature", spec_id="FEAT::F"), select("Fragment", fragment_id="frag-1"), {"group_id": project_id, "line_start": 1}),
+        EdgeSpec(
+            "REFERENCED_BY",
+            select("Feature", spec_id="FEAT::F"),
+            select("Fragment", fragment_id="frag-1"),
+            {"group_id": project_id, "line_start": 1},
+        ),
     ]
-    if order:
-        order.shuffle(edges)
+    if reverse:
+        edges.reverse()
     await probe.create_edges(project_id, edges)
 
 
@@ -359,7 +396,7 @@ async def test_the_canonical_snapshot_ignores_ids_clocks_vectors_and_creation_or
     first, second = new_project_id(), new_project_id()
     try:
         await seed_graph(probe, first, clock="2026-01-01")
-        await seed_graph(probe, second, order=random.Random(7), clock="2027-12-31")
+        await seed_graph(probe, second, reverse=True, clock="2027-12-31")
         a, b = await probe.canonical_snapshot(first), await probe.canonical_snapshot(second)
         assert a == b
         assert dump_json(a) == dump_json(b)
@@ -388,8 +425,19 @@ async def test_the_canonical_snapshot_ignores_ids_clocks_vectors_and_creation_or
 
 
 def test_canonical_props_drop_vectors_and_unstable_names_by_suffix() -> None:
-    props = {"name": "n", "embedding": [1.0], "name_embedding": [1.0], "uuid": "u", "group_id": "g", "build_id": "b",
-             "last_build_id": "b", "created_build_id": "b", "inferred_at": "t", "judge_model": "m", "statements": [1]}
+    props = {
+        "name": "n",
+        "embedding": [1.0],
+        "name_embedding": [1.0],
+        "uuid": "u",
+        "group_id": "g",
+        "build_id": "b",
+        "last_build_id": "b",
+        "created_build_id": "b",
+        "inferred_at": "t",
+        "judge_model": "m",
+        "statements": [1],
+    }
     assert canonical_props(props) == {"name": "n", "judge_model": "m", "statements": [1]}
     assert canonical_props({"a": 1, "b": 2}, skip=("a",)) == {"b": 2}
 
@@ -407,7 +455,10 @@ async def test_spine_reachability_counts_sources_without_a_spine_path(probe: Gra
         ],
     )
     assert await probe.spine_unreachable_count(project, ontology) == 2  # r1, r2 (a Feature is no spine source)
-    link = lambda kind, a, b, **p: EdgeSpec(kind, select("SpecNode", uuid=a), select("SpecNode", uuid=b), {"group_id": project, **p})  # noqa: E731
+
+    def link(kind: str, a: str, b: str, **props: Any) -> EdgeSpec:
+        return EdgeSpec(kind, select("SpecNode", uuid=a), select("SpecNode", uuid=b), {"group_id": project, **props})
+
     await probe.create_edges(project, [link("PART_OF", "f1", "m"), link("PART_OF", "r1", "f1", basis="inferred")])
     assert await probe.spine_unreachable_count(project, ontology) == 1  # r2
     assert await probe.spine_unreachable_count(project, ontology, bases=["stated"]) == 2  # r1's edge is inferred
@@ -446,7 +497,12 @@ def test_golden_data_is_written_from_neo4j_only(tmp_path: Any, monkeypatch: pyte
         with pytest.raises(PermissionError):
             write_rankings(backend, {})
     path = write_snapshot("neo4j", "build", {"nodes": [], "edges": []}, {"k": 1})
-    assert json.loads(path.read_text(encoding="utf-8")) == {"scenario": "build", "meta": {"k": 1}, "nodes": [], "edges": []}
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "scenario": "build",
+        "meta": {"k": 1},
+        "nodes": [],
+        "edges": [],
+    }
 
 
 def snapshot(*nodes: dict[str, Any], edges: tuple[dict[str, Any], ...] = ()) -> dict[str, Any]:

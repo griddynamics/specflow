@@ -853,7 +853,6 @@ def new_project_id() -> str:
     return f"{PROJECT_PREFIX}{uuid.uuid4().hex[:12]}"
 
 
-
 @dataclass
 class GraphProject:
     """One test's view of the live graph store: a project id (more on request) and helpers.
@@ -908,8 +907,10 @@ class GraphProject:
     async def nodes(self, label: str | None = None, *, project_id: str | None = None, **where: Any) -> list[ProbeNode]:
         return await self.probe.nodes(project_id or self.project_id, label, **where)
 
-    async def edges(self, type: str | None = None, *, project_id: str | None = None, **where: Any) -> list[ProbeEdge]:
-        return await self.probe.edges(project_id or self.project_id, type, **where)
+    async def edges(
+        self, relation: str | None = None, *, project_id: str | None = None, **where: Any
+    ) -> list[ProbeEdge]:
+        return await self.probe.edges(project_id or self.project_id, relation, **where)
 
     async def one_node(self, label: str | None = None, *, project_id: str | None = None, **where: Any) -> ProbeNode:
         return await self.probe.one_node(project_id or self.project_id, label, **where)

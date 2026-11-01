@@ -53,6 +53,9 @@ from graph.build.models import (
     VerificationReport,
 )
 from graph.build.verify import READ_BASES, verify_build
+from graph_probes import requires_live_graph
+from graph_probes.base import EdgeSpec, NodeSpec, ProbeEdge, select
+from graph_probes.faults import by_spec_id, first_node, illegal_edge, stray_node
 from graph_support import (
     GraphProject,
     ScriptedGateway,
@@ -64,9 +67,6 @@ from graph_support import (
     spine_unreachable_count,
     untrusted_blocks,
 )
-from graph_probes import requires_live_graph
-from graph_probes.base import EdgeSpec, NodeSpec, ProbeEdge, select
-from graph_probes.faults import by_spec_id, first_node, illegal_edge, stray_node
 
 # The graph fixtures (scripted_gateway, make_gateway, gap_ontology, graph_project) live in graph_support.
 pytest_plugins = ["graph_support"]
@@ -216,7 +216,9 @@ async def assert_spec_id_forms(project: GraphProject, *payloads: Any, known: set
         for n in await project.nodes("SpecNode")
     ]
     edge_keys = [
-        {"key": e["edge_key"]} for e in await project.edges(project_id=pid, group_id=pid) if e.get("edge_key") is not None
+        {"key": e["edge_key"]}
+        for e in await project.edges(project_id=pid, group_id=pid)
+        if e.get("edge_key") is not None
     ]
     texts = [{"text": f.get("text")} for f in await project.nodes("Fragment")]
     secrets = {row["key"] for row in nodes if row["key"]} | {alias for row in nodes for alias in row["aliases"]}
@@ -481,9 +483,7 @@ async def test_grounding_is_restored_from_the_target_graph_else_deleted(
         # A no-change update writes nothing, so its target graph is the only evidence to restore from.
         seen["before"] = await project.snapshot()
         first_five = sorted(await project.nodes("SpecNode"), key=by_spec_id)[:5]
-        dropped = [
-            e for e in await project.edges("REFERENCED_BY") if e.source.id in {n.id for n in first_five}
-        ]
+        dropped = [e for e in await project.edges("REFERENCED_BY") if e.source.id in {n.id for n in first_five}]
         await project.probe.delete_edges([e.id for e in dropped])
         seen["nodes"] = sorted({e.source["spec_id"] for e in dropped})
         stated = [
@@ -496,9 +496,7 @@ async def test_grounding_is_restored_from_the_target_graph_else_deleted(
         seen["edge"] = subject_of(first_stated)
         # No basis (read as stated) and no evidence anywhere: deleted.
         requirements = sorted(await project.nodes("FunctionalRequirement"), key=by_spec_id)
-        related = {
-            frozenset((e.source.id, e.target.id)) for e in await project.edges("RELATES_TO")
-        }
+        related = {frozenset((e.source.id, e.target.id)) for e in await project.edges("RELATES_TO")}
         a, b = next(
             (a, b)
             for index, a in enumerate(requirements)
@@ -626,7 +624,9 @@ async def test_unextracted_and_unknown_fragments_request_a_follow_up_that_settle
     checked = await verify_project(second.ctx)
     references = [e for e in await graph_project.edges("REFERENCED_BY") if e.source.get("group_id") == shop.project_id]
     others = {
-        e.source.id for e in references if e.target.get("fragment_id") != fid and e.target.get("status") in ("active", "skipped")
+        e.source.id
+        for e in references
+        if e.target.get("fragment_id") != fid and e.target.get("status") in ("active", "skipped")
     }
     only_here = [
         {"s": e.source.get("spec_id")}
@@ -653,7 +653,11 @@ async def test_unextracted_and_unknown_fragments_request_a_follow_up_that_settle
 
 async def fragment(project: GraphProject, fragment_id: str) -> dict[str, Any]:
     f = await project.one_node("Fragment", fragment_id=fragment_id)
-    same = None if f.get("extracted_hash") is None or f.get("content_hash") is None else f["extracted_hash"] == f["content_hash"]
+    same = (
+        None
+        if f.get("extracted_hash") is None or f.get("content_hash") is None
+        else f["extracted_hash"] == f["content_hash"]
+    )
     return {"status": f.get("status"), "extracted": same}
 
 
@@ -1012,6 +1016,7 @@ async def test_metrics_match_independent_counts(shop: Shop, graph_project: Graph
     built = await shop.build(1)
     pid = shop.project_id
     metrics = (await built.report()).metrics
+
     async def lonely() -> int:
         referenced = {
             e.target.id
@@ -1037,12 +1042,7 @@ async def test_metrics_match_independent_counts(shop: Shop, graph_project: Graph
     for e in part_of:
         if "Feature" in e.target.labels and e.source.get("group_id") == pid:
             features_of.setdefault(e.source.id, []).append(e)
-    owners = [
-        e.source
-        for edges in features_of.values()
-        if len(edges) == 1
-        for e in edges
-    ]
+    owners = [e.source for edges in features_of.values() if len(edges) == 1 for e in edges]
     owner = min(owners, key=by_spec_id)
     fragments = sorted(
         e.target["fragment_id"]
