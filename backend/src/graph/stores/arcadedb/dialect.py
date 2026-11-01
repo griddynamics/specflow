@@ -34,6 +34,10 @@ from graph.stores.arcadedb.names import index_names
 
 OVERRIDE_DIRECTORY: Final = Path(__file__).resolve().parent / "overrides"
 NEEDS_EDGE_TYPES: Final = frozenset({"core.move_foreign_relationships", "build.build_merge_spec_nodes"})
+# What the executor runs to learn them (unscoped: it reads the schema, not project data).
+RELATIONSHIP_TYPES: Final = (
+    "CALL db.relationshipTypes() YIELD relationshipType RETURN relationshipType ORDER BY relationshipType"
+)
 
 # A statement that has ``$(`` inside FOREACH, or after one of these clauses, creates with a dynamic name.
 _CREATING_CLAUSES: Final = frozenset({"CREATE", "MERGE", "ON CREATE SET", "ON MATCH SET"})
@@ -160,11 +164,14 @@ def _replacing(*pairs: tuple[str, str], index: bool = False) -> Override:
 
 
 _ELEMENT_NODE: Final = "MATCH (n:SpecNode) WHERE elementId(n) = "
-_VERIFY_END: Final = (
+_VERIFY_ENDS: Final = (
     "elementId(startNode(r)) AS source, elementId(endNode(r)) AS target",
     "CASE WHEN 'SpecNode' IN labels(startNode(r)) THEN startNode(r).uuid ELSE elementId(startNode(r)) END AS source, "
     "CASE WHEN 'SpecNode' IN labels(endNode(r)) THEN endNode(r).uuid ELSE elementId(endNode(r)) END AS target",
 )
+# A label write moves a vertex and its edges get new record ids too: an edge is addressed by its uuid (build
+# writes one on every domain edge) and only falls back to its element id when it has none.
+_EDGE_ID: Final = "coalesce(r.uuid, elementId(r))"
 
 # template id -> override. The first group are the ones the canonical text cannot do on ArcadeDB (REQUIRED);
 # the rest only map a name or a score and would also run unchanged except for a wrong result.
@@ -199,9 +206,11 @@ OVERRIDES: Final[Mapping[str, Override]] = {
     "core.search_fragments": _replacing(index=True),
     # index state is ONLINE when a SQL index create returns: nothing to wait for
     "core.await_indexes": lambda query, params, _types: ExecutionPlan.single("RETURN 1 AS online", {}),
-    # a label write moves the record (its element id changes): verify and repair address nodes by uuid
+    # a label write moves the record (its element id changes): verify and repair address nodes by uuid, edges by uuid
     "build.build_verify_spec_nodes": _replacing(("elementId(n) AS id", "n.uuid AS id")),
-    "build.build_verify_domain_edges": _replacing(_VERIFY_END),
+    "build.build_verify_domain_edges": _replacing(_VERIFY_ENDS, ("elementId(r) AS id", f"{_EDGE_ID} AS id")),
+    "build.build_repair_delete_edges": _replacing(("elementId(r) = id", f"{_EDGE_ID} = id")),
+    "build.build_repair_edge_evidence": _replacing(("elementId(r) = row.id", f"{_EDGE_ID} = row.id")),
     "build.build_repair_delete_nodes": _replacing(
         (_ELEMENT_NODE + "id AND n.group_id = $project_id", "MATCH (n:SpecNode {group_id: $project_id, uuid: id})")
     ),
@@ -235,6 +244,8 @@ REQUIRED: Final = frozenset(
         "core.await_indexes",
         "build.build_verify_spec_nodes",
         "build.build_verify_domain_edges",
+        "build.build_repair_delete_edges",
+        "build.build_repair_edge_evidence",
         "build.build_repair_delete_nodes",
         "build.build_repair_set_labels",
         "build.build_repair_node_evidence",

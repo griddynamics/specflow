@@ -134,7 +134,7 @@ def test_the_routing_table_names_all_four_backends() -> None:
     assert set(stores._ADAPTERS) == set(BACKENDS)
 
 
-@pytest.mark.parametrize("backend", ["arcadedb", "postgres", "tigergraph"])
+@pytest.mark.parametrize("backend", ["postgres", "tigergraph"])
 def test_a_backend_without_an_adapter_is_not_available(backend: str) -> None:
     with pytest.raises(ConfigurationError) as raised:
         build_store(config(backend=backend))

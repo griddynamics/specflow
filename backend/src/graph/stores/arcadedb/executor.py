@@ -20,16 +20,13 @@ from graph.core.errors import ConformanceError, GraphError
 from graph.core.queries import Query
 from graph.core.store import QUERY_TOO_COMPLEX, RETRY_DELAYS_SECONDS, StoreCapabilities, bind_project
 from graph.stores._bolt.executor import BoltExecutor, BoltScopedTransaction, _map_error
-from graph.stores.arcadedb.dialect import ARCADEDB_DIALECT, NEEDS_EDGE_TYPES
+from graph.stores.arcadedb.dialect import ARCADEDB_DIALECT, NEEDS_EDGE_TYPES, RELATIONSHIP_TYPES
 
 BACKEND: Final = "arcadedb"
 CAPABILITIES: Final = StoreCapabilities(multi_statement_tx=True)
 # The templates that call a fulltext index procedure: a malformed search text fails these with SyntaxError.
 FULLTEXT_QUERIES: Final = frozenset({"search_nodes_fulltext", "search_fragments"})
 _SYNTAX_ERROR: Final = "Neo.ClientError.Statement.SyntaxError"
-RELATIONSHIP_TYPES: Final = (
-    "CALL db.relationshipTypes() YIELD relationshipType RETURN relationshipType ORDER BY relationshipType"
-)
 
 
 def map_error(
