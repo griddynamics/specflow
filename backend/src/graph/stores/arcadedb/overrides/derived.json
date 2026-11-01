@@ -62,5 +62,15 @@
    "elementId(r) = row.id",
    "coalesce(r.uuid, type(r) + '|' + r.edge_key, elementId(r)) = row.id"
   ]
+ ],
+ "build.infer_similar_targets": [
+  [
+   "vector.similarity.cosine(n.embedding, c.embedding) AS score",
+   "(1 + vector.similarity.cosine(n.embedding, c.embedding)) / 2 AS score"
+  ],
+  [
+   "RETURN n.uuid AS uuid, candidates ORDER BY uuid",
+   "RETURN n.uuid AS uuid, candidates"
+  ]
  ]
 }
