@@ -204,17 +204,60 @@ def is_executor(source: Any) -> bool:
     )
 
 
+def _wrap_driver(driver: Any, database: str | None) -> GraphStore:
+    """The Neo4j store of a driver the caller owns (the deprecated way to hand the library a database)."""
+
+    from graph.stores.neo4j import Neo4jStore  # imported late: core never needs a backend otherwise
+
+    return Neo4jStore(driver, database)  # type: ignore[no-any-return]
+
+
+def as_store(source: Any, database: str | None = None) -> GraphStore:
+    """``source`` when it is a store; otherwise, deprecated, a Neo4j driver wrapped in the Neo4j store."""
+
+    if is_store(source):
+        return source  # type: ignore[no-any-return]
+    return _wrap_driver(source, database)
+
+
+def multi_statement_tx(source: Any, executor: Any) -> bool:
+    """Whether ``Executor.tx`` of ``source`` is one all-or-nothing transaction: the store's
+    ``info.capabilities``, else the executor's ``capabilities`` attribute, else true."""
+
+    if is_store(source):
+        return bool(source.info.capabilities.multi_statement_tx)
+    capabilities = getattr(executor, "capabilities", None)
+    return True if capabilities is None else bool(capabilities.multi_statement_tx)
+
+
 def as_executor(source: Any, database: str | None = None) -> Executor:
     """The executor of ``source``: a store's own, an executor itself, or, deprecated, the executor of
     a Neo4j driver wrapped in the Neo4j adapter (``database`` names its database; ignored otherwise)."""
 
-    if is_store(source):
-        executor: Executor = source.executor()
-        return executor
-    if is_executor(source):
+    if is_executor(source) and not is_store(source):
         return source  # type: ignore[no-any-return]
-    from graph.stores.neo4j import (
-        Neo4jStore,
-    )  # deprecated driver path; imported late: core never needs a backend
+    executor: Executor = as_store(source, database).executor()
+    return executor
 
-    return Neo4jStore(source, database).executor()
+
+async def check(source: Any, database: str | None = None) -> None:
+    """``GraphStore.check`` of a store, or, deprecated, of a Neo4j driver (``database`` as in ``Neo4jStore``)."""
+
+    await as_store(source, database).check()
+
+
+async def ensure_schema(
+    source: Any,
+    ontology: Ontology,
+    llm_config: Any,
+    database: str | None = None,
+    *,
+    ddl: Sequence[str] | None = None,
+) -> tuple[str, ...]:
+    """Create the missing ``graph_*`` constraints and indexes; return the names created.
+
+    ``source`` is a ``GraphStore`` or, deprecated, a Neo4j driver (with ``database``). ``llm_config``
+    gives the vector size (``embedding_dim``). Errors are those of the store's ``ensure_schema``.
+    """
+
+    return await as_store(source, database).ensure_schema(ontology, llm_config.embedding_dim, ddl=ddl)

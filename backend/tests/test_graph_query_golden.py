@@ -44,7 +44,6 @@ from graph.build.queries import (
 )
 from graph.core import GraphReader, OwnedWriter, Query
 from graph.core import queries as core_queries
-from graph.core.db import Executor
 from graph.core.errors import GraphError
 from graph.core.ontology import Ontology, load_ontology
 from graph.core.queries import CORE_DDL, foreign_node_constraint
@@ -98,11 +97,10 @@ class _Transaction:
         return [dict(_ROW)]
 
 
-class _Recorder(Executor):
+class _Recorder:
     """An executor that records each query it is given and answers a row every caller accepts."""
 
     def __init__(self) -> None:
-        super().__init__(None, None)
         self.seen: list[Query] = []
 
     async def read(

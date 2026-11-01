@@ -1,4 +1,4 @@
-"""Shared core of the graph library: Neo4j access, ontology, identity, owned writes, reads, LLM gateway.
+"""Shared core of the graph library: the store port, ontology, identity, owned writes, reads, LLM gateway.
 
 Public names are re-exported here as their modules land; submodules import from ``graph.core``.
 """
@@ -60,6 +60,7 @@ from graph.core.reader import (
     Statement,
 )
 from graph.core.schema import ensure_schema
+from graph.core.store import GraphStore, StoreCapabilities, StoreInfo
 from graph.core.writer import NodeRef, OwnedWriter
 
 __all__ = [
@@ -82,6 +83,7 @@ __all__ = [
     "GraphFragment",
     "GraphNode",
     "GraphReader",
+    "GraphStore",
     "GraphWriteError",
     "ImpactResult",
     "InfrastructureUnavailableError",
@@ -103,6 +105,8 @@ __all__ = [
     "SpecIdRegistry",
     "SpecIdRow",
     "Statement",
+    "StoreCapabilities",
+    "StoreInfo",
     "UsageSnapshot",
     "Verdict",
     "allocate_spec_id",

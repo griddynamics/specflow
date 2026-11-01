@@ -23,7 +23,6 @@ from typing import Any, Final, Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from graph.core.db import Executor
 from graph.core.errors import (
     ConfigurationError,
     ConformanceError,
@@ -61,7 +60,12 @@ from graph.core.queries import (
     scope_sequence,
     scope_via,
 )
-from graph.core.schema import FRAGMENT_TEXT_INDEX, SPEC_NODE_EMBEDDING_INDEX, SPEC_NODE_TEXT_INDEX
+from graph.core.store import (
+    FRAGMENT_TEXT_INDEX,
+    SPEC_NODE_EMBEDDING_INDEX,
+    SPEC_NODE_TEXT_INDEX,
+    as_executor,
+)
 from logger.logger import DEBUG, WARNING, get_logger, log_event
 
 logger = get_logger("graph.core.reader")
@@ -244,9 +248,7 @@ class GraphReader:
         if not _is_fraction(vector_floor):
             raise ConfigurationError("invalid_vector_floor")
         self._vector_floor = float(vector_floor)
-        self._executor = (
-            driver_or_executor if isinstance(driver_or_executor, Executor) else Executor(driver_or_executor, database)
-        )
+        self._executor = as_executor(driver_or_executor, database)
         self._ontology = ontology
         self._gateway = gateway
         self._spec_labels = tuple(label for label in ontology.labels if ontology.owner_of(label) == BUILD)

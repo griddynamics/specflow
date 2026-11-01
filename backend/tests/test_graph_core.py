@@ -26,7 +26,6 @@ import graph.core.db as db_module
 from graph.core import (
     ConfigurationError,
     ConformanceError,
-    Executor,
     GraphWriteError,
     InfrastructureUnavailableError,
     Neo4jConfig,
@@ -40,6 +39,7 @@ from graph.core import (
 )
 from graph.core.queries import PING, SERVER_COMPONENTS
 from graph.stores._bolt.cypher import render_cypher
+from graph.stores._bolt.executor import BoltExecutor
 from graph_support import llm_config, shipped_ontology
 from logger_harness import LogHarness
 
@@ -170,8 +170,8 @@ class Sleeps:
         self.delays.append(delay)
 
 
-def executor(driver: FakeDriver, sleeps: Sleeps | None = None) -> Executor:
-    return Executor(driver, "neo4j", sleep=sleeps or Sleeps())
+def executor(driver: FakeDriver, sleeps: Sleeps | None = None) -> BoltExecutor:
+    return BoltExecutor(driver, "neo4j", sleep=sleeps or Sleeps())
 
 
 # Version gate (FR-CORE-03)

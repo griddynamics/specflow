@@ -43,6 +43,8 @@ ONLY_IN: Final = {
     "httpx": frozenset(),
 }
 QUERY_MODULES: Final = frozenset({"core/queries.py", "build/queries.py"})
+# The Cypher dialect renders the canonical files and builds the run-time parts of a statement.
+CYPHER_MODULES: Final = QUERY_MODULES | frozenset({"stores/_bolt/cypher.py"})
 FILE_MODULES: Final = frozenset({"core/files.py", "build/files.py"})
 
 # A string looks like Cypher when a clause keyword (any case) stands in a Cypher shape: followed by a
@@ -198,7 +200,7 @@ def test_i3_cypher_only_in_query_modules() -> None:
     violations = [
         f"{module.where(node)} {node.value[:60]!r}"
         for module in modules()
-        if module.rel not in QUERY_MODULES
+        if module.rel not in CYPHER_MODULES
         for node in string_constants(module)
         if CYPHER_SHAPE.search(node.value)
     ]
