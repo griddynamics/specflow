@@ -220,7 +220,7 @@ def test_i2_vendor_sdks_confined() -> None:
         ("core/db.py", False),
     ],
 )
-def test_a_folder_entry_allows_only_its_own_modules(rel: str, allowed: bool) -> None:
+def test_a_folder_entry_allows_only_its_own_modules(rel: str, *, allowed: bool) -> None:
     assert allowed_in(rel, ONLY_IN["neo4j"]) is allowed
 
 

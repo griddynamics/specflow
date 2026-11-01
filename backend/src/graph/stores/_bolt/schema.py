@@ -8,9 +8,9 @@ constraint per foreign label. The ontology never renders a statement; a gap fail
 ``ConfigurationError("schema_ddl_incomplete")``.
 
 ``ensure_cypher_schema`` checks the server version (the store's gate), then runs the statement of every
-missing object and waits until the indexes are online. It is idempotent: an object that already exists, under its ``graph_*``
-name or as an equivalent object under another name, is left alone. Schema setup is not project-scoped
-(rule I3), so it runs on the driver directly.
+missing object and waits until the indexes are online. It is idempotent: an object that already exists,
+under its ``graph_*`` name or as an equivalent object under another name, is left alone. Schema setup is not
+project-scoped (rule I3), so it runs on the driver directly.
 """
 
 from __future__ import annotations
@@ -41,10 +41,10 @@ from graph.core.queries import (
 )
 from graph.core.store import (
     FRAGMENT_TEXT_INDEX,
-    STORE_AUTH_REJECTED,
-    STORE_UNREACHABLE,
     SPEC_NODE_EMBEDDING_INDEX,
     SPEC_NODE_TEXT_INDEX,
+    STORE_AUTH_REJECTED,
+    STORE_UNREACHABLE,
     foreign_labels,
 )
 from graph.stores._bolt.cypher import render_cypher
@@ -214,9 +214,9 @@ async def ensure_cypher_schema(
     files), which must cover ``ontology`` (else ``ConfigurationError("schema_ddl_incomplete")``, before
     anything reaches the server). ``require_version(driver, database)`` is the store's version gate: it
     returns the server version or raises ``ConfigurationError`` for an unsupported one (nothing is
-    created then). Raises ``ConfigurationError`` also when an existing vector index on a ``SpecNode`` embedding has another dimension or
-    similarity, or when a ``graph_*`` name is taken by a different object. All checks run before the
-    first create. A create the server refuses (for example a uniqueness constraint over nodes that
+    created then). Raises ``ConfigurationError`` also when an existing vector index on a ``SpecNode`` embedding
+    has another dimension or similarity, or when a ``graph_*`` name is taken by a different object. All checks
+    run before the first create. A create the server refuses (for example a uniqueness constraint over nodes that
     already hold duplicate keys) raises ``ConfigurationError("schema_setup_failed")`` naming the query;
     the objects created before it stay.
     """
@@ -299,15 +299,15 @@ def _require_online(wanted: Sequence[SchemaObject], indexes: Sequence[Mapping[st
             raise ConfigurationError("schema_index_not_online", index=row["name"], state=row["state"])
 
 
-async def _run(
-    driver: Any, query: Query, database: str | None, backend: str, **params: Any
-) -> list[dict[str, Any]]:
+async def _run(driver: Any, query: Query, database: str | None, backend: str, **params: Any) -> list[dict[str, Any]]:
     try:
         result = await driver.execute_query(render_cypher(query), params, database_=database)
     except AuthError:
         raise ConfigurationError(STORE_AUTH_REJECTED, store=backend) from None
     except (ServiceUnavailable, SessionExpired, OSError) as error:
-        raise InfrastructureUnavailableError(STORE_UNREACHABLE, store=backend, error_type=type(error).__name__) from None
+        raise InfrastructureUnavailableError(
+            STORE_UNREACHABLE, store=backend, error_type=type(error).__name__
+        ) from None
     except (Neo4jError, DriverError) as error:
         code = getattr(error, "code", None)
         raise ConfigurationError(

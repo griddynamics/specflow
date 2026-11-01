@@ -63,12 +63,25 @@ from logger.logger import WARNING, get_logger, log_event
 
 logger = get_logger("graph.stores.bolt")
 
+# AsyncGraphDatabase is part of this module's surface: tests patch the driver factory through it.
+__all__ = [
+    "CONNECTION_TIMEOUT_SECONDS",
+    "DEFAULT_BACKEND",
+    "DEFAULT_CAPABILITIES",
+    "AsyncGraphDatabase",
+    "BoltExecutor",
+    "BoltScopedTransaction",
+    "check_connection",
+    "connect",
+]
+
 CONNECTION_TIMEOUT_SECONDS: Final = 5.0
 # The executor owns retries, so the driver's own managed-transaction retry loop is switched off.
 _SESSION_RETRY_OFF: Final = {"max_transaction_retry_time": 0.0, "initial_retry_delay": 0.0}
 _DATABASE_NOT_FOUND: Final = "Neo.ClientError.Database.DatabaseNotFound"
 _PROCEDURE_FAILED: Final = "Neo.ClientError.Procedure.ProcedureCallFailed"
 DEFAULT_BACKEND: Final = "neo4j"
+DEFAULT_CAPABILITIES: Final = StoreCapabilities()
 
 Record = dict[str, Any]
 
@@ -96,7 +109,9 @@ async def check_connection(driver: Any, database: str | None = None, backend: st
         raise _map_error(error, PING.name, write=False, backend=backend) from None
 
 
-def _bind(query: Query, project_id: str, params: Mapping[str, Any], dialect: Dialect = CYPHER_DIALECT) -> dict[str, Any]:
+def _bind(
+    query: Query, project_id: str, params: Mapping[str, Any], dialect: Dialect = CYPHER_DIALECT
+) -> dict[str, Any]:
     """Parameters of a scoped query with the validated ``project_id`` injected; the dialect refuses a
     statement that does not bind it."""
 
@@ -190,7 +205,7 @@ class BoltExecutor:
         retry_delays: Sequence[float] = RETRY_DELAYS_SECONDS,
         sleep: Callable[[float], Awaitable[None]] | None = None,
         dialect: Dialect = CYPHER_DIALECT,
-        capabilities: StoreCapabilities = StoreCapabilities(),
+        capabilities: StoreCapabilities = DEFAULT_CAPABILITIES,
         backend: str = DEFAULT_BACKEND,
     ) -> None:
         self._driver = driver

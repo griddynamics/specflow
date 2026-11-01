@@ -599,7 +599,9 @@ def test_scope_queries_follow_the_shipped_spine_paths() -> None:
 
 def test_sequence_parts_are_every_contiguous_run_and_symmetric_steps_go_either_way() -> None:
     query = scope_sequence(("GROUPED_BY", "RELATES_TO", "REALIZED_BY"), ("RELATES_TO",))
-    assert "-[r0:GROUPED_BY]->(x0:SpecNode)-[r1:RELATES_TO]-(x1:SpecNode)-[r2:REALIZED_BY]->(root)" in render_cypher(query)
+    assert "-[r0:GROUPED_BY]->(x0:SpecNode)-[r1:RELATES_TO]-(x1:SpecNode)-[r2:REALIZED_BY]->(root)" in render_cypher(
+        query
+    )
     for index in (0, 1):
         assert f"none(label IN labels(x{index}) WHERE label IN $roots)" in render_cypher(query)
 

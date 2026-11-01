@@ -62,13 +62,9 @@ def test_the_cypher_dialect_plans_one_statement_with_the_given_parameters() -> N
     assert plan.statements[0].params == {"project_id": "p", "limit": 3}
 
 
-def test_the_guard_refuses_a_scoped_statement_that_does_not_bind_the_project_id() -> (
-    None
-):
+def test_the_guard_refuses_a_scoped_statement_that_does_not_bind_the_project_id() -> None:
     unbound = Query.literal("unbound", "MATCH (n:SpecNode) RETURN n.uuid AS uuid")
-    lookalike = Query.literal(
-        "lookalike", "MATCH (n {group_id: $project_ids}) RETURN n"
-    )
+    lookalike = Query.literal("lookalike", "MATCH (n {group_id: $project_ids}) RETURN n")
     for query in (unbound, lookalike):
         with pytest.raises(ConformanceError) as raised:
             CYPHER_DIALECT.plan(query, {})
@@ -81,9 +77,7 @@ def test_an_unscoped_statement_needs_no_project_id() -> None:
     assert not binds_project_id(plan.statements[0].text)
 
 
-@pytest.mark.parametrize(
-    "template", ["core.nothing_like_this", "build.", "other.ping", "ping"]
-)
+@pytest.mark.parametrize("template", ["core.nothing_like_this", "build.", "other.ping", "ping"])
 def test_an_unknown_template_is_refused(template: str) -> None:
     with pytest.raises(ConformanceError) as raised:
         CYPHER_DIALECT.plan(Query("x", template, project_scoped=False), {})
@@ -91,9 +85,7 @@ def test_an_unknown_template_is_refused(template: str) -> None:
 
 
 def test_a_hand_built_query_cannot_render_an_unsafe_name() -> None:
-    unsafe = Query(
-        "x", "core.delete_relationship", core_queries.Relation("X) DETACH DELETE (n")
-    )
+    unsafe = Query("x", "core.delete_relationship", core_queries.Relation("X) DETACH DELETE (n"))
     with pytest.raises(ConformanceError) as raised:
         CYPHER_DIALECT.plan(unsafe, {})
     assert raised.value.code == "cypher_name_unsafe"
@@ -103,9 +95,7 @@ def test_a_template_with_run_time_parts_refuses_missing_or_wrong_arguments() -> 
     with pytest.raises(ConformanceError) as raised:
         CYPHER_DIALECT.plan(Query("x", "core.delete_relationship"), {})
     with pytest.raises(ConformanceError):
-        CYPHER_DIALECT.plan(
-            Query("x", "core.delete_relationship", core_queries.LabelKey("A", "b")), {}
-        )
+        CYPHER_DIALECT.plan(Query("x", "core.delete_relationship", core_queries.LabelKey("A", "b")), {})
     assert raised.value.code == "query_arguments_invalid"
 
 
@@ -120,26 +110,19 @@ def test_query_identity_is_name_and_arguments_never_text() -> None:
 
 def test_factories_validate_names_before_building_arguments() -> None:
     with pytest.raises(ConformanceError):
-        core_queries.upsert_relationship(
-            "OK", NodeShape("Bad label", "uuid"), NodeShape("SpecNode", "uuid")
-        )
+        core_queries.upsert_relationship("OK", NodeShape("Bad label", "uuid"), NodeShape("SpecNode", "uuid"))
 
 
 def test_every_canonical_template_file_is_rendered_by_some_query() -> None:
     """Every ``.cypher`` file that is a template (not a fragment of another) is reached by a catalog query."""
 
     queries = [
-        value
-        for module in (core_queries, build_queries)
-        for value in vars(module).values()
-        if isinstance(value, Query)
+        value for module in (core_queries, build_queries) for value in vars(module).values() if isinstance(value, Query)
     ]
     queries += [
         core_queries.scope_via(("A",), 1, 2),
         core_queries.scope_sequence(("A", "B"), ("A",)),
-        core_queries.upsert_relationship(
-            "R", NodeShape("SpecNode", "uuid", check_label=True), NodeShape("D", "uuid")
-        ),
+        core_queries.upsert_relationship("R", NodeShape("SpecNode", "uuid", check_label=True), NodeShape("D", "uuid")),
         core_queries.delete_relationship("R"),
         core_queries.delete_keyed_node("Document", "document_id"),
         core_queries.keyed_node_relationship_types("Document", "document_id"),

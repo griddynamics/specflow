@@ -25,6 +25,7 @@ import json
 import sys
 from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -103,20 +104,16 @@ class _Recorder:
     def __init__(self) -> None:
         self.seen: list[Query] = []
 
-    async def read(
-        self, query: Query, project_id: str, /, **_params: Any
-    ) -> list[dict[str, Any]]:
+    async def read(self, query: Query, _project_id: str, /, **_params: Any) -> list[dict[str, Any]]:
         self.seen.append(query)
         return []
 
-    async def write(
-        self, query: Query, project_id: str, /, **_params: Any
-    ) -> list[dict[str, Any]]:
+    async def write(self, query: Query, _project_id: str, /, **_params: Any) -> list[dict[str, Any]]:
         self.seen.append(query)
         return [dict(_ROW)]
 
     @asynccontextmanager
-    async def tx(self, project_id: str) -> AsyncIterator[Any]:
+    async def tx(self, _project_id: str) -> AsyncIterator[Any]:
         yield _Transaction(self)
 
     def take(self) -> list[Query]:
@@ -137,31 +134,30 @@ def _ddl() -> dict[str, Any]:
     shipped = shipped_ontology()
     return {
         "CORE_DDL": list(CORE_DDL),
-        "ddl_query": {
-            item.name: entry(item.query()) for item in schema_objects(shipped)
-        },
+        "ddl_query": {item.name: entry(item.query()) for item in schema_objects(shipped)},
         "foreign_node_constraint": {
-            label: foreign_node_constraint(label)
-            for label in ("Finding", "Note", "Zeta", *foreign_labels(shipped))
+            label: foreign_node_constraint(label) for label in ("Finding", "Note", "Zeta", *foreign_labels(shipped))
         },
     }
 
 
-async def _writer_calls(
-    ontology: Ontology, tag: str, out: dict[str, dict[str, Any]]
+async def _record_call(
+    recorder: _Recorder, tag: str, out: dict[str, dict[str, Any]], call: str, operation: Any
 ) -> None:
+    try:
+        await operation
+    except GraphError:
+        recorder.take()
+        return
+    for index, query in enumerate(recorder.take()):
+        out[f"{tag}:{call}#{index}"] = entry(query)
+
+
+async def _writer_calls(ontology: Ontology, tag: str, out: dict[str, dict[str, Any]]) -> None:
     recorder = _Recorder()
     labels = sorted([*ontology.labels, "Document", "Fragment"])
     relations = sorted(ontology.relations)
-
-    async def record(call: str, operation: Any) -> None:
-        try:
-            await operation
-        except GraphError:
-            recorder.take()
-            return
-        for index, query in enumerate(recorder.take()):
-            out[f"{tag}:{call}#{index}"] = entry(query)
+    record = partial(_record_call, recorder, tag, out)
 
     for owner in sorted(OWNERS):
         writer = OwnedWriter(recorder, ontology, owner, PROJECT)
@@ -170,9 +166,7 @@ async def _writer_calls(
                 f"writer.upsert_node({owner},{label})",
                 writer.upsert_node(label, "k", {"p": 1}),
             )
-            await record(
-                f"writer.delete_node({owner},{label})", writer.delete_node(label, "k")
-            )
+            await record(f"writer.delete_node({owner},{label})", writer.delete_node(label, "k"))
         for relation in relations:
             await record(
                 f"writer.delete_relationship({owner},{relation})",
@@ -193,21 +187,15 @@ async def _writer_calls(
                         ),
                     )
     builder = OwnedWriter(recorder, ontology, BUILD, PROJECT)
-    spec = sorted(
-        label for label in ontology.labels if ontology.owner_of(label) == BUILD
-    )
+    spec = sorted(label for label in ontology.labels if ontology.owner_of(label) == BUILD)
     if len(spec) > 1:
         await record(
             "writer.move_foreign_relationships",
-            builder.move_foreign_relationships(
-                NodeRef(spec[0], "a"), NodeRef(spec[1], "b")
-            ),
+            builder.move_foreign_relationships(NodeRef(spec[0], "a"), NodeRef(spec[1], "b")),
         )
 
 
-async def _infer_calls(
-    ontology: Ontology, tag: str, out: dict[str, dict[str, Any]]
-) -> None:
+async def _infer_calls(ontology: Ontology, tag: str, out: dict[str, dict[str, Any]]) -> None:
     recorder = _Recorder()
     for rule in ontology.inference.rules:
         await _select(recorder, PROJECT, ontology, rule)
@@ -216,19 +204,13 @@ async def _infer_calls(
         if rule.template == "attach_orphan":
             for query in (
                 infer_exclusive_holders(rule.writes),
-                infer_similar_targets(
-                    rule.writes, symmetric=ontology.is_symmetric(rule.writes)
-                ),
+                infer_similar_targets(rule.writes, symmetric=ontology.is_symmetric(rule.writes)),
             ):
                 out[f"{tag}:infer.orphan({rule.id}):{query.name}"] = entry(query)
 
 
-def _relation_loops(
-    ontology: Ontology, tag: str, out: dict[str, dict[str, Any]]
-) -> None:
-    owned = sorted(
-        name for name in ontology.relations if ontology.owner_of(name) == BUILD
-    )
+def _relation_loops(ontology: Ontology, tag: str, out: dict[str, dict[str, Any]]) -> None:
+    owned = sorted(name for name in ontology.relations if ontology.owner_of(name) == BUILD)
     for relation in owned:
         for factory in (
             upsert_edges,
@@ -262,9 +244,7 @@ def build_golden(directory: Path) -> dict[str, Any]:
     ontologies: Mapping[str, Ontology] = {
         "shipped": shipped_ontology(),
         "gap": load_gap_ontology(_mkdir(directory / "gap")),
-        "renamed": load_ontology(
-            write_renamed_ontology(_mkdir(directory / "renamed")), submodule_files=[]
-        ),
+        "renamed": load_ontology(write_renamed_ontology(_mkdir(directory / "renamed")), submodule_files=[]),
     }
     queries = _constants()
     for tag, ontology in ontologies.items():
@@ -297,9 +277,7 @@ def test_the_fixture_is_not_trivial(recorded: dict[str, Any]) -> None:
     assert len(recorded["ddl"]["CORE_DDL"]) > 10
 
 
-def test_every_recorded_query_renders_the_same_name_and_text(
-    golden: dict[str, Any], recorded: dict[str, Any]
-) -> None:
+def test_every_recorded_query_renders_the_same_name_and_text(golden: dict[str, Any], recorded: dict[str, Any]) -> None:
     now, before = golden["queries"], recorded["queries"]
     assert sorted(now) == sorted(before)
     changed = [key for key in before if now[key] != before[key]]

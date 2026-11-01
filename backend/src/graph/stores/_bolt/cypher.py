@@ -44,9 +44,7 @@ _STATIC: Final[Mapping[str, Callable[[], str]]] = {
     "core.await_indexes": lambda: load_core_query("await_indexes.cypher"),
     "core.count_search_vectors": lambda: load_core_query("count_search_vectors.cypher"),
     "core.delete_spec_node": lambda: load_core_query("delete_spec_node.cypher"),
-    "core.move_foreign_relationships": lambda: load_core_query(
-        "move_foreign_relationships.cypher"
-    ),
+    "core.move_foreign_relationships": lambda: load_core_query("move_foreign_relationships.cypher"),
     "core.ping": lambda: load_core_query("ping.cypher"),
     "core.read_documents": lambda: load_core_query("read_documents.cypher"),
     "core.read_edges": lambda: load_core_query("read_edges.cypher"),
@@ -56,118 +54,52 @@ _STATIC: Final[Mapping[str, Callable[[], str]]] = {
     "core.read_neighbours": lambda: load_core_query("read_neighbours.cypher"),
     "core.read_node_by_alias": lambda: load_core_query("read_node_by_alias.cypher"),
     "core.read_node_by_spec_id": lambda: load_core_query("read_node_by_spec_id.cypher"),
-    "core.read_node_uuids_by_spec_id": lambda: load_core_query(
-        "read_node_uuids_by_spec_id.cypher"
-    ),
+    "core.read_node_uuids_by_spec_id": lambda: load_core_query("read_node_uuids_by_spec_id.cypher"),
     "core.read_nodes": lambda: load_core_query("read_nodes.cypher"),
     "core.read_nodes_by_ids": lambda: load_core_query("read_nodes_by_ids.cypher"),
     "core.read_nodes_by_uuid": lambda: load_core_query("read_nodes_by_uuid.cypher"),
     "core.read_nodes_for_lines": lambda: load_core_query("read_nodes_for_lines.cypher"),
     "core.search_fragments": lambda: load_core_query("search_fragments.cypher"),
-    "core.search_nodes_fulltext": lambda: load_core_query(
-        "search_nodes_fulltext.cypher"
-    ),
+    "core.search_nodes_fulltext": lambda: load_core_query("search_nodes_fulltext.cypher"),
     "core.search_nodes_vector": lambda: load_core_query("search_nodes_vector.cypher"),
-    "core.search_nodes_vector_exact": lambda: load_core_query(
-        "search_nodes_vector_exact.cypher"
-    ),
+    "core.search_nodes_vector_exact": lambda: load_core_query("search_nodes_vector_exact.cypher"),
     "core.server_components": lambda: load_core_query("server_components.cypher"),
     "core.show_constraints": lambda: load_core_query("show_constraints.cypher"),
     "core.show_indexes": lambda: load_core_query("show_indexes.cypher"),
     "core.spec_node_exists": lambda: load_core_query("spec_node_exists.cypher"),
-    "core.spec_node_relationship_types": lambda: load_core_query(
-        "spec_node_relationship_types.cypher"
-    ),
+    "core.spec_node_relationship_types": lambda: load_core_query("spec_node_relationship_types.cypher"),
     "core.upsert_document": lambda: load_core_query("upsert_document.cypher"),
     "core.upsert_fragment": lambda: load_core_query("upsert_fragment.cypher"),
     "core.upsert_spec_node": lambda: load_core_query("upsert_spec_node.cypher"),
-    "build.build_create_spec_nodes": lambda: load_build_query(
-        "build_create_spec_nodes.cypher"
-    ),
-    "build.build_delete_spec_nodes": lambda: load_build_query(
-        "build_delete_spec_nodes.cypher"
-    ),
-    "build.build_merge_spec_nodes": lambda: load_build_query(
-        "build_merge_spec_nodes.cypher"
-    ),
-    "build.build_read_current_fragments": lambda: load_build_query(
-        "build_read_current_fragments.cypher"
-    ),
-    "build.build_read_current_links": lambda: load_build_query(
-        "build_read_current_links.cypher"
-    ),
-    "build.build_read_current_nodes": lambda: load_build_query(
-        "build_read_current_nodes.cypher"
-    ),
-    "build.build_read_infer_fragments": lambda: load_build_query(
-        "build_read_infer_fragments.cypher"
-    ),
-    "build.build_read_infer_nodes": lambda: load_build_query(
-        "build_read_infer_nodes.cypher"
-    ),
-    "build.build_read_persisted_documents": lambda: load_build_query(
-        "build_read_persisted_documents.cypher"
-    ),
-    "build.build_read_persisted_fragments": lambda: load_build_query(
-        "build_read_persisted_fragments.cypher"
-    ),
-    "build.build_read_persisted_hubs": lambda: load_build_query(
-        "build_read_persisted_hubs.cypher"
-    ),
-    "build.build_read_persisted_presence": lambda: load_build_query(
-        "build_read_persisted_presence.cypher"
-    ),
-    "build.build_read_spine_edges": lambda: load_build_query(
-        "build_read_spine_edges.cypher"
-    ),
-    "build.build_read_spine_nodes": lambda: load_build_query(
-        "build_read_spine_nodes.cypher"
-    ),
-    "build.build_repair_delete_edges": lambda: load_build_query(
-        "build_repair_delete_edges.cypher"
-    ),
-    "build.build_repair_delete_nodes": lambda: load_build_query(
-        "build_repair_delete_nodes.cypher"
-    ),
-    "build.build_repair_edge_evidence": lambda: load_build_query(
-        "build_repair_edge_evidence.cypher"
-    ),
-    "build.build_repair_node_evidence": lambda: load_build_query(
-        "build_repair_node_evidence.cypher"
-    ),
-    "build.build_repair_set_labels": lambda: load_build_query(
-        "build_repair_set_labels.cypher"
-    ),
-    "build.build_repair_set_spec_ids": lambda: load_build_query(
-        "build_repair_set_spec_ids.cypher"
-    ),
-    "build.build_replace_node_links": lambda: load_build_query(
-        "build_replace_node_links.cypher"
-    ),
-    "build.build_set_document_status": lambda: load_build_query(
-        "build_set_document_status.cypher"
-    ),
-    "build.build_set_fragment_status": lambda: load_build_query(
-        "build_set_fragment_status.cypher"
-    ),
-    "build.build_update_spec_nodes": lambda: load_build_query(
-        "build_update_spec_nodes.cypher"
-    ),
-    "build.build_upsert_documents": lambda: load_build_query(
-        "build_upsert_documents.cypher"
-    ),
-    "build.build_upsert_fragments": lambda: load_build_query(
-        "build_upsert_fragments.cypher"
-    ),
-    "build.build_verify_domain_edges": lambda: load_build_query(
-        "build_verify_domain_edges.cypher"
-    ),
-    "build.build_verify_fragments": lambda: load_build_query(
-        "build_verify_fragments.cypher"
-    ),
-    "build.build_verify_spec_nodes": lambda: load_build_query(
-        "build_verify_spec_nodes.cypher"
-    ),
+    "build.build_create_spec_nodes": lambda: load_build_query("build_create_spec_nodes.cypher"),
+    "build.build_delete_spec_nodes": lambda: load_build_query("build_delete_spec_nodes.cypher"),
+    "build.build_merge_spec_nodes": lambda: load_build_query("build_merge_spec_nodes.cypher"),
+    "build.build_read_current_fragments": lambda: load_build_query("build_read_current_fragments.cypher"),
+    "build.build_read_current_links": lambda: load_build_query("build_read_current_links.cypher"),
+    "build.build_read_current_nodes": lambda: load_build_query("build_read_current_nodes.cypher"),
+    "build.build_read_infer_fragments": lambda: load_build_query("build_read_infer_fragments.cypher"),
+    "build.build_read_infer_nodes": lambda: load_build_query("build_read_infer_nodes.cypher"),
+    "build.build_read_persisted_documents": lambda: load_build_query("build_read_persisted_documents.cypher"),
+    "build.build_read_persisted_fragments": lambda: load_build_query("build_read_persisted_fragments.cypher"),
+    "build.build_read_persisted_hubs": lambda: load_build_query("build_read_persisted_hubs.cypher"),
+    "build.build_read_persisted_presence": lambda: load_build_query("build_read_persisted_presence.cypher"),
+    "build.build_read_spine_edges": lambda: load_build_query("build_read_spine_edges.cypher"),
+    "build.build_read_spine_nodes": lambda: load_build_query("build_read_spine_nodes.cypher"),
+    "build.build_repair_delete_edges": lambda: load_build_query("build_repair_delete_edges.cypher"),
+    "build.build_repair_delete_nodes": lambda: load_build_query("build_repair_delete_nodes.cypher"),
+    "build.build_repair_edge_evidence": lambda: load_build_query("build_repair_edge_evidence.cypher"),
+    "build.build_repair_node_evidence": lambda: load_build_query("build_repair_node_evidence.cypher"),
+    "build.build_repair_set_labels": lambda: load_build_query("build_repair_set_labels.cypher"),
+    "build.build_repair_set_spec_ids": lambda: load_build_query("build_repair_set_spec_ids.cypher"),
+    "build.build_replace_node_links": lambda: load_build_query("build_replace_node_links.cypher"),
+    "build.build_set_document_status": lambda: load_build_query("build_set_document_status.cypher"),
+    "build.build_set_fragment_status": lambda: load_build_query("build_set_fragment_status.cypher"),
+    "build.build_update_spec_nodes": lambda: load_build_query("build_update_spec_nodes.cypher"),
+    "build.build_upsert_documents": lambda: load_build_query("build_upsert_documents.cypher"),
+    "build.build_upsert_fragments": lambda: load_build_query("build_upsert_fragments.cypher"),
+    "build.build_verify_domain_edges": lambda: load_build_query("build_verify_domain_edges.cypher"),
+    "build.build_verify_fragments": lambda: load_build_query("build_verify_fragments.cypher"),
+    "build.build_verify_spec_nodes": lambda: load_build_query("build_verify_spec_nodes.cypher"),
 }
 
 
@@ -190,9 +122,7 @@ def _match(shape: NodeShape, var: str) -> str:
 
     label, key = safe_name(shape.label), safe_name(shape.key)
     fragment = (
-        load_core_query("match_node_checked.cypher")
-        if shape.check_label
-        else load_core_query("match_node.cypher")
+        load_core_query("match_node_checked.cypher") if shape.check_label else load_core_query("match_node.cypher")
     )
     return render_query(fragment, label=label, key=key, var=var, tail="")
 
@@ -284,9 +214,7 @@ def _typed(load: Callable[[], str]) -> Callable[[Any], str]:
 
 def _label_key(load: Callable[[], str]) -> Callable[[Any], str]:
     def render(args: LabelKey) -> str:
-        return render_query(
-            load(), label=safe_name(args.label), key=safe_name(args.key)
-        )
+        return render_query(load(), label=safe_name(args.label), key=safe_name(args.key))
 
     return render
 

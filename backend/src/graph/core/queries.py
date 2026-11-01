@@ -23,7 +23,6 @@ from typing import Any, Final
 
 from graph.core.errors import ConformanceError
 from graph.core.query_files import CORE_DDL_DIRECTORY, read_ddl_file, render_query
-from graph.core.query_files import load_core_query as load_core_query  # noqa: PLC0414 (re-export)
 
 PROJECT_ID_PARAMETER: Final = "project_id"
 LITERAL_TEMPLATE: Final = "core.literal"

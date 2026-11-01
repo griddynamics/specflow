@@ -52,7 +52,10 @@ class ExecutionPlan:
 class Dialect(Protocol):
     """Renders queries for one backend language."""
 
-    name: str
+    @property
+    def name(self) -> str:
+        """The backend language ("cypher")."""
+        ...
 
     def plan(self, query: Any, params: Mapping[str, Any]) -> ExecutionPlan:
         """The plan of ``query`` with ``params`` (the project id already injected for a scoped query).
@@ -68,8 +71,5 @@ async def run_plan(
 ) -> list[Record]:
     """Run each statement of ``plan`` in order with ``run_statement`` and reduce the results."""
 
-    results = [
-        await run_statement(statement.text, statement.params)
-        for statement in plan.statements
-    ]
+    results = [await run_statement(statement.text, statement.params) for statement in plan.statements]
     return plan.reduce(results)

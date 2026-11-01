@@ -178,8 +178,10 @@ def test_the_app_reaches_an_external_temporal_and_langfuse_by_default():
 def test_make_up_with_selects_the_profiles_and_points_the_app_at_them():
     makefile = (ROOT / "Makefile").read_text()
     # down, ps and logs cover every profile (the dry run prints the profiles they pass to compose)
+    make = str(shutil.which("make"))
+    environment = {**os.environ, "WITH": ""}
     dry_run = subprocess.run(
-        ["make", "-n", "down"], cwd=ROOT, capture_output=True, text=True, check=True, env={**os.environ, "WITH": ""}
+        [make, "-n", "down"], cwd=ROOT, capture_output=True, text=True, check=True, env=environment
     ).stdout
     assert "COMPOSE_PROFILES=temporal,langfuse " in dry_run
     assert "specflow-temporal:7233" in makefile

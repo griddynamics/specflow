@@ -624,21 +624,8 @@ def _build_graph_store(
     if backend not in BACKENDS:
         _flag(bad, "GRAPH_STORE")
         return None
-    resolved: dict[str, str] = {"GRAPH_STORE": backend}
-    used: list[str] = []
-    for name in (*NEO4J_ALIASES, "GRAPH_STORE_ADMIN_URI", "GRAPH_STORE_POOL_SIZE"):
-        if name in NEO4J_ALIASES:
-            value, source = _graph_store_value(name, env, backend)
-            if source != name:
-                used.append(source)
-        else:
-            value = env.get(name)
-        if value is not None:
-            resolved[name] = value
-    if "GRAPH_STORE_NAME" not in resolved and backend in GRAPH_STORE_DEFAULT_NAMES:
-        resolved["GRAPH_STORE_NAME"] = GRAPH_STORE_DEFAULT_NAMES[backend]
-    reused = backend == "postgres" and "GRAPH_STORE_URI" not in resolved
-    if reused:
+    resolved, used = _graph_store_inputs(env, backend)
+    if backend == "postgres" and "GRAPH_STORE_URI" not in resolved:
         if database is None:  # DATABASE_* are already flagged
             return None
         resolved["GRAPH_STORE_URI"] = f"postgresql://{database.host}:{database.port}/{database.name}"
@@ -652,6 +639,23 @@ def _build_graph_store(
     if used:
         log_event(_ALIAS_LOGGER, WARNING, "graph.settings.alias_used", aliases=sorted(used))
     return found
+
+
+def _graph_store_inputs(env: Mapping[str, str], backend: str) -> tuple[dict[str, str], list[str]]:
+    """The ``GRAPH_STORE_*`` values of ``env`` (aliases and per-backend defaults applied) and the aliases used."""
+
+    resolved: dict[str, str] = {"GRAPH_STORE": backend}
+    used: list[str] = []
+    for name in NEO4J_ALIASES:
+        value, source = _graph_store_value(name, env, backend)
+        if source != name:
+            used.append(source)
+        if value is not None:
+            resolved[name] = value
+    resolved.update({name: env[name] for name in ("GRAPH_STORE_ADMIN_URI", "GRAPH_STORE_POOL_SIZE") if name in env})
+    if "GRAPH_STORE_NAME" not in resolved and backend in GRAPH_STORE_DEFAULT_NAMES:
+        resolved["GRAPH_STORE_NAME"] = GRAPH_STORE_DEFAULT_NAMES[backend]
+    return resolved, used
 
 
 def load_storage_settings(env: Mapping[str, str] | None = None) -> StorageSettings:

@@ -1,4 +1,4 @@
-"""Build the knowledge graph of a folder of markdown documents into the configured graph store (graph library, plan 2.20).
+"""Build the knowledge graph of a folder of markdown documents into the graph store (graph library, plan 2.20).
 
 Run from backend/:
 

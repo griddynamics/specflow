@@ -11,6 +11,7 @@ from graph.stores.config import StoreConfig
 from settings import GRAPH_BUILD_SWITCHES, ConfigurationError, GraphStoreSettings, load_settings
 from test_specflow_settings_guards import deployed, refused
 
+
 def _aliased(env: dict[str, str]) -> dict[str, str]:
     """``env`` as a deployment that only sets the NEO4J_* names has it."""
 
@@ -19,15 +20,17 @@ def _aliased(env: dict[str, str]) -> dict[str, str]:
     return env
 
 
-def _primary(env: dict[str, str], **extra: str) -> dict[str, str]:
+def _primary(env: dict[str, str], extra: dict[str, str] | None = None) -> dict[str, str]:
     """``env`` with the store given by other GRAPH_STORE_* values."""
 
     env.update(
-        GRAPH_STORE_URI="bolt://graph.example.test:7687",
-        GRAPH_STORE_USER="graph-user",
-        GRAPH_STORE_PASSWORD="graph-pass-1d2e",
+        {
+            "GRAPH_STORE_URI": "bolt://graph.example.test:7687",
+            "GRAPH_STORE_USER": "graph-user",
+            "GRAPH_STORE_PASSWORD": "graph-pass-1d2e",
+        }
     )
-    env.update(extra)
+    env.update(extra or {})
     return env
 
 
@@ -107,7 +110,7 @@ def test_the_aliases_apply_to_neo4j_only(valid_env, backend):
 
 @pytest.mark.parametrize("backend", ["arcadedb", "tigergraph"])
 def test_the_other_backends_take_their_own_names(valid_env, backend):
-    env = _primary(valid_env, GRAPH_STORE=backend, GRAPH_STORE_ADMIN_URI="http://admin.example.test:2480")
+    env = _primary(valid_env, {"GRAPH_STORE": backend, "GRAPH_STORE_ADMIN_URI": "http://admin.example.test:2480"})
     env.update(GRAPH_STORE_POOL_SIZE="7", GRAPH_STORE_NAME="shop")
 
     config = load_settings("api", env).graph_store.to_store_config()
@@ -121,7 +124,7 @@ def test_the_other_backends_take_their_own_names(valid_env, backend):
 
 
 def test_an_unknown_backend_and_a_bad_pool_size_are_refused_by_name(valid_env):
-    env = _primary(valid_env, GRAPH_STORE="mysql", GRAPH_STORE_POOL_SIZE="0")
+    env = _primary(valid_env, {"GRAPH_STORE": "mysql", "GRAPH_STORE_POOL_SIZE": "0"})
 
     assert refused("api", env) == ("GRAPH_STORE",)
     env["GRAPH_STORE"] = "arcadedb"
@@ -129,7 +132,10 @@ def test_an_unknown_backend_and_a_bad_pool_size_are_refused_by_name(valid_env):
 
 
 def test_blank_optional_names_fall_back_to_the_defaults(valid_env):
-    env = _primary(valid_env, GRAPH_STORE="", GRAPH_STORE_NAME="", GRAPH_STORE_ADMIN_URI="", GRAPH_STORE_POOL_SIZE="")
+    env = _primary(
+        valid_env,
+        {"GRAPH_STORE": "", "GRAPH_STORE_NAME": "", "GRAPH_STORE_ADMIN_URI": "", "GRAPH_STORE_POOL_SIZE": ""},
+    )
 
     config = load_settings("api", env).graph_store.to_store_config()
 
@@ -154,8 +160,14 @@ def test_postgres_without_a_uri_reuses_the_database_connection(valid_env):
 
 
 def test_postgres_reuse_takes_the_schema_name_and_an_explicit_role(valid_env):
-    valid_env.update(GRAPH_STORE="postgres", GRAPH_STORE_NAME="graph2", GRAPH_STORE_USER="graph_role")
-    valid_env["GRAPH_STORE_PASSWORD"] = "graph-pass-1d2e"
+    valid_env.update(
+        {
+            "GRAPH_STORE": "postgres",
+            "GRAPH_STORE_NAME": "graph2",
+            "GRAPH_STORE_USER": "graph_role",
+            "GRAPH_STORE_PASSWORD": "graph-pass-1d2e",
+        }
+    )
 
     config = load_settings("worker", valid_env).graph_store.to_store_config()
 
@@ -187,7 +199,7 @@ def test_a_blank_store_password_is_refused_outside_local_by_the_name_in_use(role
 
 
 def test_a_blank_store_password_is_accepted_locally(valid_env):
-    load_settings("worker", _primary(valid_env, GRAPH_STORE_PASSWORD=""))
+    load_settings("worker", _primary(valid_env, {"GRAPH_STORE_PASSWORD": ""}))
     load_settings("worker", {**_aliased(valid_env), "NEO4J_PASSWORD": ""})
 
 
