@@ -304,14 +304,18 @@ class PostgresExecutor:
         self._backend = backend
 
     async def read(self, query: Query, project_id: str, /, **params: Any) -> list[Record]:
-        """Run a read query of one project; return its records as dicts."""
+        """Run a read query of one project in a read-only transaction; its rows as dicts."""
 
-        return await self._managed(query, self._plan(query, project_id, params), write=False)
+        return await self._run(query, project_id, params, write=False)
 
     async def write(self, query: Query, project_id: str, /, **params: Any) -> list[Record]:
-        """Run a write query of one project in a managed write transaction; return its records."""
+        """Run a write query of one project in a managed write transaction; its rows as dicts."""
 
-        return await self._managed(query, self._plan(query, project_id, params), write=True)
+        return await self._run(query, project_id, params, write=True)
+
+    async def _run(self, query: Query, project_id: str, params: Mapping[str, Any], *, write: bool) -> list[Record]:
+        plan = self._dialect.plan(query, bind_project(query, project_id, params))
+        return await self._managed(query, plan, write=write)
 
     @asynccontextmanager
     async def tx(self, project_id: str) -> AsyncIterator[PostgresScopedTransaction]:
@@ -329,9 +333,6 @@ class PostgresExecutor:
                 await transaction.commit()
         except DATABASE_ERRORS as error:
             raise map_error(error, "tx", write=True, backend=self._backend) from None
-
-    def _plan(self, query: Query, project_id: str, params: Mapping[str, Any]) -> ExecutionPlan:
-        return self._dialect.plan(query, bind_project(query, project_id, params))
 
     async def _managed(self, query: Query, plan: ExecutionPlan, *, write: bool) -> list[Record]:
         async def attempt() -> list[Record]:

@@ -246,8 +246,7 @@
         "meta_value": {
           "type": "text"
         }
-      },
-      "indexes": []
+      }
     },
     "node": {
       "columns": {
@@ -321,8 +320,7 @@
         "relkind": {
           "type": "text"
         }
-      },
-      "indexes": []
+      }
     },
     "pg_constraint": {
       "columns": {
@@ -335,8 +333,7 @@
         "conrelid": {
           "type": "int"
         }
-      },
-      "indexes": []
+      }
     },
     "pg_extension": {
       "columns": {
@@ -346,8 +343,7 @@
         "extversion": {
           "type": "text"
         }
-      },
-      "indexes": []
+      }
     },
     "pg_index": {
       "columns": {
@@ -363,8 +359,7 @@
         "indisvalid": {
           "type": "bool"
         }
-      },
-      "indexes": []
+      }
     },
     "pg_namespace": {
       "columns": {
@@ -374,8 +369,7 @@
         "nspname": {
           "type": "text"
         }
-      },
-      "indexes": []
+      }
     },
     "pg_proc": {
       "columns": {
@@ -385,8 +379,7 @@
         "pronamespace": {
           "type": "int"
         }
-      },
-      "indexes": []
+      }
     },
     "project_members": {
       "columns": {
