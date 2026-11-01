@@ -665,3 +665,28 @@ def test_the_graph_store_password_falls_back_to_the_older_env_file_name():
     for name in ("api", "worker-agents"):
         assert fallback in env_of(services()[name])["GRAPH_STORE_PASSWORD"]
     assert fallback in env_of(services()["neo4j"])["NEO4J_AUTH"]
+
+
+def test_the_arcadedb_profile_is_pinned_limited_loopback_only_and_keeps_its_password_in_a_secret() -> None:
+    """ArcadeDB runs the pinned image with 4g, publishes on loopback only and gets the root password as a file."""
+
+    svcs = services()
+    server, init = svcs["arcadedb"], svcs["arcadedb-init"]
+    assert server["image"] == init["image"] == "arcadedata/arcadedb:26.10.2"  # never latest
+    assert server["mem_limit"] == "4g" and init["mem_limit"]
+    assert server["profiles"] == init["profiles"] == ["arcadedb"]
+    assert all(str(port).startswith("127.0.0.1:") for port in server["ports"])
+    assert server["ports"] == [
+        "127.0.0.1:${ARCADEDB_BOLT_HOST_PORT:-7688}:7687",
+        "127.0.0.1:${ARCADEDB_HTTP_HOST_PORT:-2480}:2480",
+    ]
+    java = env_of(server)["JAVA_OPTS"]
+    assert "-Darcadedb.server.rootPasswordPath=/run/secrets/arcadedb_root_password" in java
+    assert "rootPassword=" not in java  # the password is never a Java option
+    assert "BoltProtocolPlugin" in java
+    for service in (server, init):
+        assert service["secrets"] == ["arcadedb_root_password"]
+        assert not any("PASSWORD" in key for key in env_of(service)), "no password in environment"
+        assert "GRAPH_STORE_PASSWORD" not in str(service.get("environment"))
+    assert compose()["secrets"]["arcadedb_root_password"] == {"environment": "GRAPH_STORE_PASSWORD"}
+    assert server["volumes"] == ["specflow-arcadedb-data:/home/arcadedb/databases"]

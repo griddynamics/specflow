@@ -158,19 +158,26 @@ One-time admin steps (a production server):
    dimension or similarity than `GRAPH_EMBEDDING_DIM` and cosine; drop the index (`DROP INDEX` over the HTTP
    API) and rebuild to change the dimension.
 
-Local stack: `make up WITH=arcadedb` starts `arcadedata/arcadedb:26.10.2` (4 GB, volume
-`specflow-arcadedb-data`), creates the database `specflow` once (`arcadedb-init`) and points the api and the
-agents worker at it; neo4j stays up beside it (its own port 7687), so the host Bolt port of ArcadeDB is `7688`
-(`ARCADEDB_BOLT_PORT`) and the Studio and HTTP API are on `127.0.0.1:2480` (`ARCADEDB_HTTP_PORT`). The root
-password is `GRAPH_STORE_PASSWORD` from `.env.local`, mounted as a Docker secret file. To run the backend on
-the host against it: `GRAPH_STORE=arcadedb GRAPH_STORE_URI=bolt://localhost:7688 GRAPH_STORE_USER=root
-GRAPH_STORE_NAME=specflow make api`.
+Local stack: `make up WITH=arcadedb` starts `arcadedata/arcadedb:26.10.2` (4 GB, volume `specflow-arcadedb-data`) and
+creates the database once (`arcadedb-init`; its name is `ARCADEDB_DATABASE`, default `specflow`). It does **not** yet point
+the api and the agents worker at it: their compose environment still names neo4j (that wiring is a later step), so run the
+backend against it from the host. neo4j stays up beside it on 7687, so the published ports of ArcadeDB are configurable:
+`ARCADEDB_BOLT_HOST_PORT` (default `7688`, Bolt) and `ARCADEDB_HTTP_HOST_PORT` (default `2480`, HTTP API and Studio), both bound
+to `127.0.0.1` only. The root password is `GRAPH_STORE_PASSWORD` from `.env.local`, mounted as a Docker secret file (it is not in
+`docker inspect`). Host run:
+`GRAPH_STORE=arcadedb GRAPH_STORE_URI=bolt://localhost:7688 GRAPH_STORE_ADMIN_URI=http://localhost:2480 GRAPH_STORE_USER=root
+GRAPH_STORE_NAME=specflow make api`. The admin endpoint is derived as the Bolt host on port 2480, so set
+`GRAPH_STORE_ADMIN_URI` whenever the published ports differ. Use `https` for the admin API outside a trusted network: the client
+sends the login as HTTP Basic authentication and warns (a log event, never a value) when the admin URI is plain `http` to a host
+that is not loopback. `bolt+ssc://` and `neo4j+ssc://` (self-signed) turn TLS verification of the admin API off as well as Bolt's.
+The HTTP client never uses `HTTP_PROXY`/`HTTPS_PROXY`.
 
 Known differences from Neo4j (the adapter handles them; they matter when you read the data directly):
 
 - A node with several labels is one type named `A~B` and `labels(n)` returns them sorted alphabetically.
   Setting a label moves the record, so its record id (and its edges') changes: use `uuid` and `edge_key`,
   never an element id kept across transactions.
+- `scope` walks: ArcadeDB returns no rows for `all(b IN nodes(p)[1..] ...)` after a quantified path (a slice or an indexed `range` form also failed), so the adapter checks every node of the path and exempts `n`, the start node, by identity. The canonical query exempts the first position only. The two differ only for a path that comes back through `n` in its interior while `n` itself carries a spine-root label: the canonical text rejects it, the adapter accepts it (`n <> root` and the bounded hop count keep such paths rare; a root-labelled start node is not a spine source).
 - Search scores: vector scores are on the same `(1 + cosine) / 2` scale; fulltext scores are BM25-like and
   not comparable with Neo4j's Lucene numbers, so the order of fulltext-only hits can differ.
 - Extra stored property `spec_key` on spec nodes (see above); the canonical snapshots ignore it.

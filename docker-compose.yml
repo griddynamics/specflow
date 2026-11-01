@@ -73,15 +73,15 @@ services:
   # ArcadeDB 26.10 with the Bolt plugin (`make up WITH=arcadedb`; the api and the agents worker above still
   # name neo4j: pointing them at it is the integration step). The root password is GRAPH_STORE_PASSWORD, handed over as a file
   # (arcadedb.server.rootPasswordPath), never as a Java option (JAVA_OPTS shows in `docker inspect`).
-  # neo4j keeps its host port 7687, so the Bolt port of ArcadeDB on the host is 7688 (ARCADEDB_BOLT_PORT).
+  # neo4j keeps its host port 7687, so the Bolt port of ArcadeDB on the host is 7688 (ARCADEDB_BOLT_HOST_PORT).
   arcadedb:
     image: arcadedata/arcadedb:26.10.2
     container_name: specflow-arcadedb
     profiles: ["arcadedb"]
     mem_limit: 4g
     ports:
-      - "127.0.0.1:${ARCADEDB_BOLT_PORT:-7688}:7687"   # Bolt
-      - "127.0.0.1:${ARCADEDB_HTTP_PORT:-2480}:2480"   # HTTP API and Studio
+      - "127.0.0.1:${ARCADEDB_BOLT_HOST_PORT:-7688}:7687"   # Bolt
+      - "127.0.0.1:${ARCADEDB_HTTP_HOST_PORT:-2480}:2480"   # HTTP API and Studio
     environment:
       JAVA_OPTS: "-Darcadedb.server.rootPasswordPath=/run/secrets/arcadedb_root_password -Darcadedb.server.plugins=Bolt:com.arcadedb.bolt.BoltProtocolPlugin"
     secrets:
