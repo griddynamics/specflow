@@ -176,10 +176,13 @@ def compare_rankings(
     *,
     top: int = TOP,
     explained: Mapping[tuple[str, str], str] | None = None,
+    tolerance: int = 0,
 ) -> RankingParity:
     """Per query and mode: the first ``top`` ids must be the same set (else a set mismatch); a different
-    order, or a different tail, is a rank difference. Queries and modes must be the same. A set
-    difference listed in ``explained`` (by mode and query, with its reason) is reported, not a mismatch."""
+    order, or a different tail, is a rank difference. Queries and modes must be the same. The comparison
+    is symmetric: ids missing from the run and ids the golden top does not hold both count, the larger of
+    the two is checked against ``tolerance`` (default 0: a subset or a superset fails). A set difference
+    listed in ``explained`` (by mode and query, with its reason) is reported, not a mismatch."""
 
     parity = RankingParity()
     if sorted(expected["queries"]) != sorted(actual["queries"]):
@@ -190,8 +193,9 @@ def compare_rankings(
         for mode in want_entry["modes"]:
             parity.queries += 1
             want, have = _ids(want_entry[mode]), _ids(have_entry[mode])
-            if set(want[:top]) != set(have[:top]):
-                line = f"{mode} {text!r}: top {top} {sorted(set(want[:top]) ^ set(have[:top]))} not in both"
+            wanted, held = set(want[:top]), set(have[:top])
+            if max(len(wanted - held), len(held - wanted)) > tolerance:
+                line = f"{mode} {text!r}: top {top} {sorted(wanted ^ held)} not in both"
                 reason = (explained or {}).get((mode, text))
                 if reason is None:
                     parity.set_mismatches.append(line)

@@ -556,6 +556,24 @@ def test_rankings_with_the_same_top_five_set_are_equal_up_to_rank_differences() 
     assert compare_rankings(fragments, fragments).ok
 
 
+def test_the_set_comparison_is_symmetric_a_subset_or_a_superset_fails_at_zero_tolerance() -> None:
+    want = rankings(fulltext=ranking("a", "b", "c"))
+    superset = rankings(fulltext=ranking("a", "b", "c", "d", "e"))
+    subset = rankings(fulltext=ranking("a", "b"))
+    for golden, run in ((want, superset), (superset, want), (want, subset), (subset, want)):
+        parity = compare_rankings(golden, run)
+        assert not parity.ok and len(parity.set_mismatches) == 1
+    assert "['d', 'e']" in compare_rankings(want, superset).set_mismatches[0]
+    assert compare_rankings(want, superset, tolerance=2).ok
+    assert not compare_rankings(want, superset, tolerance=1).ok
+    assert compare_rankings(subset, want, tolerance=1).ok and not compare_rankings(subset, want, tolerance=0).ok
+    swap = rankings(fulltext=ranking("a", "b", "x"))
+    assert compare_rankings(want, swap, tolerance=1).ok and not compare_rankings(want, swap).ok
+    explained = {("fulltext", "q"): "a near tie"}
+    assert compare_rankings(want, superset, explained=explained).ok
+    assert len(compare_rankings(want, superset, explained=explained).explained) == 1
+
+
 def test_an_explained_set_difference_is_reported_and_any_other_still_fails() -> None:
     want = rankings(fulltext=ranking("a", "b", "c", "d", "e", "f"))
     different = rankings(fulltext=ranking("a", "b", "c", "d", "x", "f"))
