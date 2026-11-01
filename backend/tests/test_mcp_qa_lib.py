@@ -53,13 +53,13 @@ from mcp_qa_lib import (
     MCP_REDIRECT_URI,
     MCP_RESOURCE_URL,
     PRM_URL,
+    QA_USER_IDS,
     QA_USERS,
     REPORTS_DIR,
     REUSE_PROMPT,
     WEB_CLIENT_ID,
     FixtureIds,
     FlowContext,
-    KeycloakAdmin,
     LatencyProgress,
     LatencyStats,
     MemoryTokenStorage,
@@ -101,7 +101,6 @@ from mcp_qa_lib import (
     complete_login,
     create_project_rest,
     denial_labels,
-    dev_token,
     empty_reused,
     fetch_prm,
     find_authorization_url,
@@ -110,7 +109,6 @@ from mcp_qa_lib import (
     fixture_nodes,
     flow_failure,
     flow_workspace,
-    headers_json,
     make_git_workspace,
     make_workspace,
     mcp_session,
@@ -140,11 +138,9 @@ from mcp_qa_lib import (
     run_pty,
     run_scenario,
     save_report,
-    seeded_ids,
     server_name,
     signed_in_claude,
     slash_expanded,
-    stack_mode,
     step_result,
     stray_files,
     strip_ansi,
@@ -163,12 +159,10 @@ ROOT = Path(__file__).resolve().parents[2]
 REALM_FILE = ROOT / "config" / "keycloak" / "specflow-realm.json"
 CREDENTIAL = SecretStr("qa-credential-0001")
 ACCESS = "access-0001"
-ADMIN_BEARER = "admin-bearer-0001"
 AUTH_PATH = "/realms/specflow/protocol/openid-connect/auth"
 CODE_EXCHANGE_PATH = "/realms/specflow/protocol/openid-connect/token"
 LOGIN_PATH = "/realms/specflow/login-actions/authenticate"
 CONSENT_PATH = "/realms/specflow/login-actions/consent"
-ADMIN_PATH = "/admin/realms/specflow"
 COOKIES = ("AUTH_SESSION_ID=abc; Path=/; Secure; SameSite=None", "KC_RESTART=def; Path=/; Secure")
 FORM = '<form id="kc" action="{action}" method="post"><input name="{field}"></form>'
 
@@ -182,25 +176,21 @@ def json_of(request: httpx.Request) -> Any:
 
 
 class FakeKeycloak:
-    """Just enough of Keycloak for the login, token and admin calls."""
+    """Just enough of Keycloak for the login and token calls."""
 
     accepted: SecretStr = CREDENTIAL
     extra_redirects = 0
     consent = False
     state: str | None = None
     iss = ISSUER
-    admin_status = 200
     code_in_redirect = True
     token_status = 200
-    location_on_create = True
-    client_put_status = 204
 
-    def __init__(self, *, users: dict[str, str] | None = None, **settings: Any) -> None:
+    def __init__(self, **settings: Any) -> None:
         for name, value in settings.items():
             if not hasattr(type(self), name):
                 raise TypeError(f"unknown FakeKeycloak setting {name}")
             setattr(self, name, value)
-        self.users = {} if users is None else users
         self.requests: list[httpx.Request] = []
         self.authorize_query: dict[str, str] = {}
         self.routes: list[tuple[str, str, Callable[[httpx.Request], httpx.Response]]] = [
@@ -210,14 +200,6 @@ class FakeKeycloak:
             ("POST", LOGIN_PATH, self.login_post),
             ("POST", CONSENT_PATH, self.consent_post),
             ("POST", CODE_EXCHANGE_PATH, self.token),
-            ("POST", "/realms/master/protocol/openid-connect/token", self.admin_login),
-            ("GET", f"{ADMIN_PATH}/users", self.find_user),
-            ("POST", f"{ADMIN_PATH}/users", self.create_user),
-            ("PUT", f"{ADMIN_PATH}/users/[^/]+", lambda _request: httpx.Response(204)),
-            ("PUT", f"{ADMIN_PATH}/users/[^/]+/reset-password", lambda _request: httpx.Response(204)),
-            ("GET", f"{ADMIN_PATH}/clients", lambda _request: httpx.Response(200, json=[{"id": "client-1"}])),
-            ("GET", f"{ADMIN_PATH}/clients/client-1", lambda _request: httpx.Response(200, json={"clientId": "c"})),
-            ("PUT", f"{ADMIN_PATH}/clients/client-1", lambda _request: httpx.Response(self.client_put_status)),
         ]
 
     @property
@@ -275,20 +257,6 @@ class FakeKeycloak:
     def token(self, _request: httpx.Request) -> httpx.Response:
         return httpx.Response(self.token_status, json={"access_token": ACCESS})
 
-    def admin_login(self, _request: httpx.Request) -> httpx.Response:
-        return httpx.Response(self.admin_status, json={"access_token": ADMIN_BEARER})
-
-    def find_user(self, request: httpx.Request) -> httpx.Response:
-        if request.headers.get("authorization") != f"Bearer {ADMIN_BEARER}":
-            return httpx.Response(401)
-        found = self.users.get(request.url.params["email"])
-        return httpx.Response(200, json=[{"id": found}] if found else [])
-
-    def create_user(self, request: httpx.Request) -> httpx.Response:
-        self.users[json_of(request)["email"]] = "created-1"
-        location = {"location": f"{KEYCLOAK_URL}{ADMIN_PATH}/users/created-1"} if self.location_on_create else {}
-        return httpx.Response(201, headers=location)
-
 
 # NFR-MCP-05 and the identity provider setup ---------------------------------------------------------------------
 
@@ -306,16 +274,78 @@ def realm_clients() -> dict[str, dict[str, Any]]:
     return {client["clientId"]: client for client in realm["clients"]}
 
 
-def test_realm_file_has_no_users_secret_or_credentials_nfr_mcp_05() -> None:
-    """NFR-MCP-05: the realm file holds no credential and no user."""
+PLACEHOLDER = re.compile(r"^\$\{[A-Z][A-Z0-9_]*\}$")
+SECRET_KEYS = frozenset({"secret", "value", "password", "credentials"})
+
+
+def secret_leaves(node: Any, path: str = "") -> dict[str, Any]:
+    """Every value under a key that carries a credential (`secret`, `value`, `password`), by JSON path."""
+
+    found: dict[str, Any] = {}
+    if isinstance(node, dict):
+        for key, value in node.items():
+            where = f"{path}/{key}"
+            if key in SECRET_KEYS and not isinstance(value, (dict, list)):
+                found[where] = value
+            found |= secret_leaves(value, where)
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            found |= secret_leaves(value, f"{path}/{index}")
+    return found
+
+
+def realm_users() -> dict[str, dict[str, Any]]:
+    realm = json.loads(REALM_FILE.read_text(encoding="utf-8"))
+    return {user["username"]: user for user in realm["users"]}
+
+
+def test_realm_file_holds_placeholders_only_never_a_literal_credential_nfr_mcp_05() -> None:
+    """NFR-MCP-05, SPECS 4.2: users and the web secret come from `${VAR}`; no password or secret is committed."""
 
     realm = json.loads(REALM_FILE.read_text(encoding="utf-8"))
 
-    assert not walk_keys(realm) & {"secret", "credentials", "users"}
+    leaves = secret_leaves(realm)
+
+    assert len(leaves) >= 5  # the web secret and the password of four users
+    assert {path: value for path, value in leaves.items() if not PLACEHOLDER.fullmatch(str(value))} == {}
+
+
+def test_realm_user_credentials_are_non_temporary_password_placeholders() -> None:
+    users = realm_users()
+
+    credentials = {name: user["credentials"] for name, user in users.items()}
+
+    assert set(users) == {"${LOCAL_TEST_USER_EMAIL}", "alice", "bob", "carol"}
+    assert all(len(items) == 1 and items[0]["type"] == "password" for items in credentials.values())
+    assert not any(items[0]["temporary"] for items in credentials.values())
+    assert credentials["${LOCAL_TEST_USER_EMAIL}"][0]["value"] == "${LOCAL_TEST_USER_PASSWORD}"
+    assert {credentials[name][0]["value"] for name in QA_USER_IDS} == {"${KEYCLOAK_QA_PASSWORD}"}
+
+
+def test_realm_qa_users_carry_the_ids_and_emails_of_the_library_constants() -> None:
+    users = realm_users()
+
+    assert {name: users[name]["id"] for name in QA_USERS} == QA_USER_IDS
+    assert {name: users[name]["email"] for name in QA_USERS} == QA_USERS
+    assert len(set(QA_USER_IDS.values())) == len(QA_USER_IDS)
+    assert all(uuid.UUID(value) for value in QA_USER_IDS.values())
+    for name, user in users.items():
+        assert (user["emailVerified"], user["enabled"], user["requiredActions"]) == (True, True, []), name
+        assert user["firstName"] and user["lastName"], name
+    assert {name: (users[name]["firstName"], users[name]["lastName"]) for name in QA_USERS} == {
+        name: (name.title(), "QA") for name in QA_USERS
+    }
+
+
+def test_realm_personal_user_comes_from_the_environment() -> None:
+    personal = realm_users()["${LOCAL_TEST_USER_EMAIL}"]
+
+    assert personal["id"] == "${LOCAL_TEST_USER_ID}"
+    assert personal["email"] == "${LOCAL_TEST_USER_EMAIL}"
 
 
 def test_realm_file_matches_the_identity_provider_setup() -> None:
-    """deployment.md#identity-provider-setup, items 1 to 6, with the local values."""
+    """deployment.md#identity-provider-setup, items 1 to 6, with the local values; SPECS 4.2 for the web client."""
 
     realm = json.loads(REALM_FILE.read_text(encoding="utf-8"))
     clients = realm_clients()
@@ -332,12 +362,29 @@ def test_realm_file_matches_the_identity_provider_setup() -> None:
     assert mcp["redirectUris"] == ["http://localhost:8765/callback", "http://127.0.0.1:8765/callback"]
     assert mcp["webOrigins"] == []
     assert web["publicClient"] is False
-    assert web["redirectUris"] == ["http://localhost:3001/api/auth/callback/oidc"]
+    assert web["secret"] == "${KEYCLOAK_WEB_CLIENT_SECRET}"
+    assert web["standardFlowEnabled"] is True
+    assert not any(web[flag] for flag in ("implicitFlowEnabled", "directAccessGrantsEnabled", "serviceAccountsEnabled"))
+    assert web["redirectUris"] == ["${SPECFLOW_WEB_URL}/api/auth/callback/oidc"]
+    assert web["attributes"]["post.logout.redirect.uris"] == "${SPECFLOW_WEB_URL}/*"
     audiences = {client: definition["protocolMappers"][0]["config"] for client, definition in clients.items()}
     assert audiences["specflow-mcp"]["included.custom.audience"] == MCP_RESOURCE_URL
     assert audiences[WEB_CLIENT_ID]["included.custom.audience"] == "specflow-api"
     assert all(config["access.token.claim"] == "true" for config in audiences.values())
     assert all(config["id.token.claim"] == "false" for config in audiences.values())
+
+
+def test_realm_file_uses_only_plain_placeholders() -> None:
+    names = set(re.findall(r"\$\{([^}]*)\}", REALM_FILE.read_text(encoding="utf-8")))
+
+    assert names == {
+        "LOCAL_TEST_USER_ID",
+        "LOCAL_TEST_USER_EMAIL",
+        "LOCAL_TEST_USER_PASSWORD",
+        "KEYCLOAK_QA_PASSWORD",
+        "KEYCLOAK_WEB_CLIENT_SECRET",
+        "SPECFLOW_WEB_URL",
+    }
 
 
 # Terminal output and stream-json --------------------------------------------------------------------------------
@@ -539,120 +586,6 @@ async def test_user_token_checks_state_and_issuer_before_asking_for_a_token(fake
 async def test_user_token_web_client_needs_its_secret() -> None:
     with pytest.raises(QaError, match="needs its secret"):
         await user_token("alice", CREDENTIAL, client="web", transport=FakeKeycloak().transport)
-
-
-# Keycloak admin -------------------------------------------------------------------------------------------------
-
-
-async def test_keycloak_admin_ensure_user_creates_a_missing_user_with_both_names() -> None:
-    fake = FakeKeycloak()
-
-    async with KeycloakAdmin(SecretStr("admin-credential"), transport=fake.transport) as admin:
-        user_id = await admin.ensure_user("alice", CREDENTIAL)
-
-    assert user_id == "created-1"
-    (created,) = fake.sent("POST", f"{ADMIN_PATH}/users")
-    assert json_of(created) == {
-        "username": QA_USERS["alice"],
-        "email": QA_USERS["alice"],
-        "emailVerified": True,
-        "enabled": True,
-        "firstName": "Alice",
-        "lastName": "QA",
-        "requiredActions": [],
-    }
-    (reset,) = fake.sent("PUT", f"{ADMIN_PATH}/users/created-1/reset-password")
-    assert json_of(reset) == {"type": "password", "value": CREDENTIAL.get_secret_value(), "temporary": False}
-
-
-async def test_keycloak_admin_ensure_user_is_idempotent_for_a_found_user() -> None:
-    fake = FakeKeycloak(users={QA_USERS["bob"]: "user-9"})
-
-    async with KeycloakAdmin(SecretStr("admin-credential"), transport=fake.transport) as admin:
-        first = await admin.ensure_user("bob", CREDENTIAL)
-        second = await admin.ensure_user("bob", CREDENTIAL)
-        assert await admin.user_id("carol") is None
-
-    assert first == second == "user-9"
-    assert not fake.sent("POST", f"{ADMIN_PATH}/users")
-    assert len(fake.sent("PUT", f"{ADMIN_PATH}/users/user-9")) == 2
-    assert len(fake.sent("PUT", f"{ADMIN_PATH}/users/user-9/reset-password")) == 2
-    assert len(fake.sent("POST", "/realms/master/protocol/openid-connect/token")) == 1  # one admin token per client
-
-
-async def test_keycloak_admin_errors_name_the_status_only() -> None:
-    admin_secret = SecretStr("admin-credential")
-    fake = FakeKeycloak(admin_status=401)
-
-    async with KeycloakAdmin(admin_secret, transport=fake.transport) as admin:
-        with pytest.raises(QaError) as raised:
-            await admin.ensure_user("alice", CREDENTIAL)
-
-    assert str(raised.value) == "admin login failed: HTTP 401"
-    assert admin_secret.get_secret_value() not in str(raised.value)
-
-
-async def test_keycloak_admin_set_client_secret_puts_the_representation_with_the_secret() -> None:
-    fake = FakeKeycloak()
-    web_secret = SecretStr("web-credential-0001")
-
-    async with KeycloakAdmin(SecretStr("admin-credential"), transport=fake.transport) as admin:
-        await admin.set_client_secret(WEB_CLIENT_ID, web_secret)
-
-    (put,) = fake.sent("PUT", f"{ADMIN_PATH}/clients/client-1")
-    assert json_of(put) == {"clientId": "c", "secret": web_secret.get_secret_value()}
-
-
-async def test_keycloak_admin_set_client_secret_names_a_missing_client() -> None:
-    transport = httpx.MockTransport(
-        lambda request: httpx.Response(200, json=[] if "/clients" in request.url.path else {"access_token": "t"})
-    )
-
-    async with KeycloakAdmin(SecretStr("admin-credential"), transport=transport) as admin:
-        with pytest.raises(QaError, match="find client failed: not found"):
-            await admin.set_client_secret("nope", SecretStr("x"))
-
-
-# Dev tokens -----------------------------------------------------------------------------------------------------
-
-SIGNING_KEY = SecretStr("k" * 40)
-
-
-@pytest.mark.parametrize(
-    ("client", "audience", "azp"),
-    [("mcp", MCP_RESOURCE_URL, "specflow-mcp"), ("web", "specflow-api", "specflow-web")],
-)
-def test_dev_token_claims_for_mcp_and_web(client: str, audience: str, azp: str) -> None:
-    email = QA_USERS["alice"]
-
-    token = dev_token(email, SIGNING_KEY, client=client, now=1_700_000_000)
-
-    claims = jwt.decode(
-        token, SIGNING_KEY.get_secret_value(), algorithms=["HS256"], audience=audience, options={"verify_exp": False}
-    )
-    assert claims == {
-        "iss": "specflow-dev-login",
-        "aud": audience,
-        "azp": azp,
-        "typ": "Bearer",
-        "sub": f"dev:{email}",
-        "email": email,
-        "email_verified": True,
-        "name": "alice",
-        "iat": 1_700_000_000,
-        "exp": 1_700_000_000 + 28800,
-    }
-
-
-def test_dev_token_defaults_to_the_current_time() -> None:
-    token = dev_token(QA_USERS["bob"], SIGNING_KEY)
-
-    claims = jwt.decode(token, options={"verify_signature": False})
-    assert claims["exp"] - claims["iat"] == 28800
-
-
-def test_headers_json_shape() -> None:
-    assert json.loads(headers_json("abc.def.ghi")) == {"Authorization": "Bearer abc.def.ghi"}
 
 
 # Seed fixture ---------------------------------------------------------------------------------------------------
@@ -1135,24 +1068,6 @@ async def test_user_token_names_a_failing_token_endpoint_status() -> None:
         await user_token("alice", CREDENTIAL, transport=FakeKeycloak(token_status=400).transport)
 
 
-async def test_keycloak_admin_refuses_a_create_response_without_a_location() -> None:
-    fake = FakeKeycloak(location_on_create=False)
-
-    async with KeycloakAdmin(SecretStr("admin-credential"), transport=fake.transport) as admin:
-        with pytest.raises(QaError, match="create user failed: no location"):
-            await admin.ensure_user("alice", CREDENTIAL)
-
-    assert not fake.sent("PUT", f"{ADMIN_PATH}/users/created-1/reset-password")
-
-
-async def test_keycloak_admin_names_a_failing_client_secret_update() -> None:
-    fake = FakeKeycloak(client_put_status=500)
-
-    async with KeycloakAdmin(SecretStr("admin-credential"), transport=fake.transport) as admin:
-        with pytest.raises(QaError, match=r"^set client secret failed: HTTP 500$"):
-            await admin.set_client_secret(WEB_CLIENT_ID, SecretStr("web-credential-0001"))
-
-
 # E8 helpers and fixture lookup (the database is the boundary: a fake session) -----------------------------------
 
 
@@ -1204,17 +1119,15 @@ async def test_remove_and_restore_member_report_what_they_changed() -> None:
 async def test_fixture_ids_reads_users_then_projects_and_refuses_what_is_missing() -> None:
     ids = [uuid.uuid4() for _ in range(6)]
 
-    found = await fixture_ids(FakeSession(scalars=list(ids)), "dev")
+    found = await fixture_ids(FakeSession(scalars=list(ids)))
 
     assert found.users == {"alice": ids[0], "bob": ids[1]}
     assert list(found.projects) == ["P-Alpha", "P-Empty", "P-Large", "P-Beta"]
     assert list(found.projects.values()) == ids[2:]
     with pytest.raises(QaError, match="user alice is not seeded"):
-        await fixture_ids(FakeSession(scalars=[None]), "dev")
+        await fixture_ids(FakeSession(scalars=[None]))
     with pytest.raises(QaError, match="project P-Alpha is not seeded"):
-        await fixture_ids(FakeSession(scalars=[ids[0], ids[1], None]), "dev")
-    with pytest.raises(QaError, match="keycloak mode needs"):
-        await fixture_ids(FakeSession(), "keycloak")
+        await fixture_ids(FakeSession(scalars=[ids[0], ids[1], None]))
 
 
 # SDK client, latency runner and prompt runner (MCP-M7) -----------------------------------------------------------
@@ -1341,28 +1254,6 @@ def response_mock(responses: dict[str, httpx.Response] | Exception) -> httpx.Moc
 
 
 PRM_PATH = urlsplit(PRM_URL).path
-
-
-@pytest.mark.parametrize(
-    ("response", "mode"),
-    [(httpx.Response(200, json=PRM_DOCUMENT), "oidc"), (httpx.Response(404), "dev")],
-)
-async def test_stack_mode_reads_the_resource_metadata(response: httpx.Response, mode: str) -> None:
-    assert await stack_mode(transport=response_mock({f"GET {PRM_PATH}": response})) == mode
-
-
-@pytest.mark.parametrize(
-    ("transport", "message"),
-    [
-        (response_mock({f"GET {PRM_PATH}": httpx.Response(500)}), "stack mode unknown: HTTP 500"),
-        (response_mock({f"GET {PRM_PATH}": httpx.Response(200, json={"resource": "http://x"})}), "another resource"),
-        (response_mock({f"GET {PRM_PATH}": httpx.Response(200, text="no json")}), "another resource"),
-        (response_mock(httpx.ConnectError("refused")), "not reachable: run make up"),
-    ],
-)
-async def test_stack_mode_refuses_what_it_cannot_classify(transport: httpx.MockTransport, message: str) -> None:
-    with pytest.raises(QaError, match=message):
-        await stack_mode(transport=transport)
 
 
 async def test_fetch_prm_returns_the_document_or_names_the_status() -> None:
@@ -2000,12 +1891,7 @@ async def test_signed_in_claude_raises_when_a_server_is_left_behind(
 
     with pytest.raises(QaError, match="left a specflow-qa- server"):
         async with signed_in_claude(
-            "alice",
-            CREDENTIAL,
-            cwd=tmp_path,
-            run_id="run8",
-            runner=RecordingRunner(),
-            verdict=seams.verdict,
+            "alice", CREDENTIAL, cwd=tmp_path, run_id="run8", runner=RecordingRunner(), verdict=seams.verdict
         ):
             pass
 
@@ -2016,7 +1902,7 @@ async def test_signed_in_claude_raises_when_a_server_is_left_behind(
 async def test_signed_in_claude_tears_down_when_the_login_fails(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    seams, runner = SignedInSeams(monkeypatch, left=True, login_fails=True), RecordingRunner()
+    seams, runner = (SignedInSeams(monkeypatch, left=True, login_fails=True), RecordingRunner())
 
     with pytest.raises(QaError, match="login failed"):
         async with signed_in_claude(
@@ -2070,9 +1956,7 @@ async def test_signed_in_claude_counts_an_unreadable_listing_as_not_clean(
 STACK_SECRETS = {
     "DATABASE_PASSWORD": "db-credential-0001",
     "KEYCLOAK_QA_PASSWORD": "kc-credential-0001",
-    "KEYCLOAK_ADMIN_PASSWORD": "kc-credential-0002",
     "KEYCLOAK_WEB_CLIENT_SECRET": "kc-credential-0003",
-    "AUTH_DEV_SIGNING_KEY": "signing-credential-0001",
     "NEO4J_PASSWORD": "neo-credential-0001",
 }
 KEPT_ENV = {
@@ -2102,7 +1986,6 @@ def test_child_env_keeps_the_allowlist_and_drops_the_stack_secrets() -> None:
 
 def test_child_env_defaults_to_the_process_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATABASE_PASSWORD", STACK_SECRETS["DATABASE_PASSWORD"])
-    monkeypatch.setenv("AUTH_DEV_SIGNING_KEY", STACK_SECRETS["AUTH_DEV_SIGNING_KEY"])
     monkeypatch.setenv("KEYCLOAK_QA_PASSWORD", STACK_SECRETS["KEYCLOAK_QA_PASSWORD"])
     monkeypatch.setenv("HOME", "/home/qa")
 
@@ -2363,12 +2246,6 @@ async def test_add_server_runs_claude_mcp_add_in_the_temp_folder_and_names_a_fai
     argv = seen[0][0]
     assert argv[argv.index("--client-id") + 1] == MCP_CLIENT_ID
     assert argv[argv.index("--transport") + 1] == "http" and argv[-1] == MCP_RESOURCE_URL
-
-
-async def test_seeded_ids_needs_the_keycloak_admin_password_before_any_connection() -> None:
-    # Only the offline refusal is testable: the lookup itself talks to Keycloak and Postgres (covered live, E-tier).
-    with pytest.raises(SystemExit, match="KEYCLOAK_ADMIN_PASSWORD"):
-        await seeded_ids("keycloak", environ={})
 
 
 # T1: workspace flow checks of the agent tier, fed canned stream-json ------------------------------------------------
@@ -2632,8 +2509,7 @@ async def test_the_bind_check_rejects_a_file_the_contract_or_the_server_refuses(
         ),
         (
             lambda _c: alpha_run(
-                stream_call("u3", "Read", {"file_path": "notes.txt"}),
-                stream_result("u3", {"note": "REQ::FR1"}),
+                stream_call("u3", "Read", {"file_path": "notes.txt"}), stream_result("u3", {"note": "REQ::FR1"})
             ),
             "REQ:: id",
         ),

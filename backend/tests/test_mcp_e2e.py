@@ -2,22 +2,20 @@
 
 Gated: ``SPECFLOW_TEST_MCP_E2E=1`` (run with ``--env-file ../.env.local``), with the stack up and seeded:
 
-    make up WITH=keycloak && (cd backend && uv run --env-file ../.env.local python examples/mcp_qa.py seed)
+    make up && (cd backend && uv run --env-file ../.env.local python examples/mcp_qa.py seed)
     SPECFLOW_TEST_MCP_E2E=1 uv run --env-file ../.env.local pytest tests/test_mcp_e2e.py -q
 
 Every project-scoped scenario reads its project id from a binding file the harness wrote in a temp workspace
 (``E2e.bind``): written, found from a subfolder up, validated against the contract schema, then read.
-The tier detects the stack mode from the protected resource metadata: E1 to E12 and E14 to E17 run in ``oidc``
-mode only, E13 in dev mode only. Scenarios of the other mode are not collected (no skip, no empty parameter set). Under
-``make check`` nothing here does I/O: the module marker skips every test and the mode is not detected.
+Every scenario signs in through the local Keycloak; E13 checks that the API (web token) and the MCP server (MCP
+token) see the same subject for the same user. Under ``make check`` nothing here does I/O: the module marker skips
+every test.
 Each run writes a report to ``.reports/mcp-qa/`` (never committed); E8 restores the membership it removes.
 """
 
 from __future__ import annotations
 
-import asyncio
 import base64
-import functools
 import json
 import os
 import shutil
@@ -28,6 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
+import jwt
 import pytest
 import pytest_asyncio
 from pydantic import SecretStr
@@ -38,17 +37,15 @@ from mcp_qa_lib import (
     LOCAL_DEFAULTS,
     MCP_RESOURCE_URL,
     PRM_URL,
-    QA_USERS,
+    QA_USER_IDS,
     FixtureIds,
     RunReport,
-    StackMode,
     ToolOutcome,
     all_projects,
     binding_text,
     bound_project_id,
     call,
     create_project_rest,
-    dev_token,
     fetch_prm,
     find_binding,
     make_workspace,
@@ -65,19 +62,17 @@ from mcp_qa_lib import (
     run_latency_into,
     run_scenario,
     seeded_ids,
-    stack_mode,
     user_token,
     write_binding,
     write_report,
 )
-from specflow_live import live_enabled, requires_live
+from specflow_live import requires_live
 
 pytestmark = requires_live("MCP_E2E")
 
 logger = get_logger("tests.mcp_e2e")
 
-OIDC_ENV: Final = ("KEYCLOAK_QA_PASSWORD", "KEYCLOAK_ADMIN_PASSWORD", "KEYCLOAK_WEB_CLIENT_SECRET", "DATABASE_PASSWORD")
-DEV_ENV: Final = ("AUTH_DEV_SIGNING_KEY",)
+STACK_ENV: Final = ("KEYCLOAK_QA_PASSWORD", "KEYCLOAK_WEB_CLIENT_SECRET", "DATABASE_PASSWORD")
 LATENCY_CALLS: Final = 600
 LATENCY_P95_LIMIT_MS: Final = 500
 FEATURES: Final = 7
@@ -87,18 +82,10 @@ INSTRUCTIONS_LIMIT: Final = 2048
 PROJECTS_BY_NAME: Final = ("P-Alpha", "P-Beta", "P-Empty", "P-Large")
 
 
-@functools.cache
-def detected_mode() -> StackMode:
-    """The mode of the running stack; not detected (no I/O) unless the tier is enabled."""
-
-    return asyncio.run(stack_mode()) if live_enabled("MCP_E2E") else "oidc"
-
-
 @dataclass
 class E2e:
-    """What a scenario needs: the mode, the QA secrets of that mode and the run report."""
+    """What a scenario needs: the QA secrets, the run report and a temporary workspace."""
 
-    mode: StackMode
     env: dict[str, SecretStr]
     report: RunReport
     workspace: Path
@@ -138,15 +125,14 @@ class E2e:
 
     @staticmethod
     async def ids() -> FixtureIds:
-        """Read the ids of the seeded fixture (a Keycloak recreate changes them: never remember them)."""
+        """Read the ids of the seeded fixture."""
 
-        return await seeded_ids("keycloak")
+        return await seeded_ids()
 
 
 @pytest.fixture(scope="module")
 def report() -> Iterator[RunReport]:
-    mode = detected_mode()
-    run = RunReport(new_run_id(), f"e2e-{mode}", [], {"mode": mode})
+    run = RunReport(new_run_id(), "e2e", [], {})
     yield run
     path = write_report(run)
     log_event(logger, INFO, "mcp_e2e.report", report=path.name, scenarios=len(run.results))
@@ -154,17 +140,16 @@ def report() -> Iterator[RunReport]:
 
 @pytest_asyncio.fixture
 async def e2e(report: RunReport, monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[E2e]:
-    mode = detected_mode()
     for name, value in LOCAL_DEFAULTS.items():
         if not os.environ.get(name, "").strip():
             monkeypatch.setenv(name, value)
     try:
-        env = require_env(*(OIDC_ENV if mode == "oidc" else DEV_ENV))
+        env = require_env(*STACK_ENV)
     except SystemExit as missing:
         pytest.fail(str(missing), pytrace=False)
     workspace = make_workspace()
     try:
-        yield E2e(mode, env, report, workspace)
+        yield E2e(env, report, workspace)
     finally:
         shutil.rmtree(workspace, ignore_errors=True)
 
@@ -296,11 +281,18 @@ async def e14(e2e: E2e) -> None:
     assert stats.p95_ms < LATENCY_P95_LIMIT_MS
 
 
+def subject_of(token: str) -> str:
+    """The `sub` claim of a token this run just received from Keycloak (read, not verified: the servers verify)."""
+
+    return str(jwt.decode(token, options={"verify_signature": False})["sub"])
+
+
 async def e13(e2e: E2e) -> None:
-    signing_key, email = e2e.env["AUTH_DEV_SIGNING_KEY"], QA_USERS["alice"]
-    web = dev_token(email, signing_key, client="web")
+    web = await e2e.token("alice", client="web", web_secret=e2e.env["KEYCLOAK_WEB_CLIENT_SECRET"])
+    mcp = await e2e.token("alice")
+    assert subject_of(web) == subject_of(mcp) == QA_USER_IDS["alice"]  # one Keycloak user behind both clients
     created = await create_project_rest(f"QA-E13-{e2e.report.run_id}", web)
-    async with mcp_session(token=dev_token(email, signing_key)) as session:
+    async with mcp_session(token=mcp) as session:
         assert str(created) in {project["project_id"] for project in await all_projects(session)}
     assert (await post_mcp(web)).status_code == 401
 
@@ -346,50 +338,43 @@ async def e17(e2e: E2e) -> None:
         assert error_of(await features(session, foreign))["code"] == "project_not_found"
 
 
-# E8 runs after every reader of P-Alpha; E14 is the last of oidc mode.
+# E8 runs after every reader of P-Alpha; E14 and E13 come last.
 ORDER: Final = (
     *("E1", "E2", "E3", "E4", "E5", "E6", "E7", "E9", "E10", "E11", "E12", "E15", "E16", "E17"),
     *("E8", "E14", "E13"),
 )
-SCENARIOS: Final[dict[str, tuple[StackMode, Callable[[E2e], Awaitable[None]]]]] = {
-    "E1": ("oidc", e1),
-    "E2": ("oidc", e2),
-    "E3": ("oidc", e3),
-    "E4": ("oidc", e4),
-    "E5": ("oidc", e5),
-    "E6": ("oidc", e6),
-    "E7": ("oidc", e7),
-    "E8": ("oidc", e8),
-    "E9": ("oidc", e9),
-    "E10": ("oidc", e10),
-    "E11": ("oidc", e11),
-    "E12": ("oidc", e12),
-    "E13": ("dev", e13),
-    "E14": ("oidc", e14),
-    "E15": ("oidc", e15),
-    "E16": ("oidc", e16),
-    "E17": ("oidc", e17),
+SCENARIOS: Final[dict[str, Callable[[E2e], Awaitable[None]]]] = {
+    "E1": e1,
+    "E2": e2,
+    "E3": e3,
+    "E4": e4,
+    "E5": e5,
+    "E6": e6,
+    "E7": e7,
+    "E8": e8,
+    "E9": e9,
+    "E10": e10,
+    "E11": e11,
+    "E12": e12,
+    "E13": e13,
+    "E14": e14,
+    "E15": e15,
+    "E16": e16,
+    "E17": e17,
 }
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
-    """Collect only the scenarios of the detected mode, in `ORDER`."""
+    """Collect the scenarios in `ORDER`."""
 
     if "scenario" in metafunc.fixturenames:
-        mode = detected_mode()
-        metafunc.parametrize("scenario", [name for name in ORDER if SCENARIOS[name][0] == mode])
+        metafunc.parametrize("scenario", list(ORDER))
 
 
-async def test_the_stack_answers_in_the_mode_it_was_detected_in(e2e: E2e) -> None:
-    if e2e.mode == "oidc":
-        prm = await fetch_prm()
-        assert (prm["resource"], prm["authorization_servers"]) == (MCP_RESOURCE_URL, [ISSUER])
-    else:
-        assert await stack_mode() == "dev"  # the protected resource metadata answers 404
-        response = await post_mcp(None)
-        assert response.status_code == 401
-        assert "resource_metadata" not in response.headers.get("WWW-Authenticate", "")
+async def test_the_stack_answers_with_the_resource_metadata() -> None:
+    prm = await fetch_prm()
+    assert (prm["resource"], prm["authorization_servers"]) == (MCP_RESOURCE_URL, [ISSUER])
 
 
 async def test_scenario(scenario: str, e2e: E2e) -> None:
-    await run_scenario(e2e.report, scenario, SCENARIOS[scenario][1](e2e))
+    await run_scenario(e2e.report, scenario, SCENARIOS[scenario](e2e))

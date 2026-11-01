@@ -1,23 +1,21 @@
 """QA commands of the MCP server (docs/mcp-server/testing.md): seed, tokens, a smoke check, Claude Code prompts.
 
-Run from backend/ with the local stack up (`make up WITH=keycloak`):
+Run from backend/ with the local stack up (`make up`):
 
-    uv run --env-file ../.env.local python examples/mcp_qa.py seed [--mode keycloak|dev]
+    uv run --env-file ../.env.local python examples/mcp_qa.py seed
     uv run --env-file ../.env.local python examples/mcp_qa.py token alice [--client mcp|web]
-    uv run --env-file ../.env.local python examples/mcp_qa.py dev-token alice@example.com [--client mcp|web] [--headers]
     uv run --env-file ../.env.local python examples/mcp_qa.py check [--user alice|bob] [--latency-seconds N]
     uv run --env-file ../.env.local python examples/mcp_qa.py claude [--user alice] [--model sonnet] [--runs 3]
 
-`seed` prints ids and counts. `token` and `dev-token` are the only commands that print a token (nothing else on the
-line), so `TOKEN=$(... token alice)` works; `dev-token --headers` prints the `headersHelper` JSON instead. Passwords,
-secrets and emails are never printed.
+`seed` creates the SpecFlow-side fixtures (the Keycloak users come from the realm) and prints ids and counts.
+`token` is the only command that prints a token (nothing else on the line), so `TOKEN=$(... token alice)` works.
+Passwords, secrets and emails are never printed.
 
-`check` signs in with the MCP Python SDK (OAuth provider in `oidc` mode, a dev token in dev mode) and prints the mode,
-tool names, project names and counts, and milliseconds (`--latency-seconds` adds an E14-style run on `P-Large`).
+`check` signs in with the MCP Python SDK (OAuth provider) and prints tool names, project names and counts, and
+milliseconds (`--latency-seconds` adds an E14-style run on `P-Large`).
 `claude` runs the workspace flow of the agent tier `--runs` times (default 1; the gate is 3). Each run is a fresh
-temporary git repository with a temporary `specflow-qa-<run id>` server registered with the Claude Code CLI (`oidc`
-mode only), a sign-in and four steps (bind P-Alpha, reuse it, a P-Beta binding the agent must not use, switch to
-P-Empty). It prints each step's outcome, tool calls, duration, cost and `slash` or `plain`; it spends model tokens,
+temporary git repository with a temporary `specflow-qa-<run id>` server registered with the Claude Code CLI, a
+sign-in and four steps (bind P-Alpha, reuse it, a P-Beta binding the agent must not use, switch to P-Empty). It prints each step's outcome, tool calls, duration, cost and `slash` or `plain`; it spends model tokens,
 writes to the Claude configuration and always logs out, removes the server and deletes the repository. The exit
 status is 1 when a step fails. The report is written even when a run fails. Only `claude` writes a report (to
 `.reports/mcp-qa/`).
@@ -43,7 +41,6 @@ from mcp_qa_lib import (
     QaError,
     RunReport,
     ScenarioResult,
-    StackMode,
     StepRecord,
     TeardownVerdict,
     WorkspaceFlow,
@@ -51,10 +48,8 @@ from mcp_qa_lib import (
     apply_local_defaults,
     call,
     claude_signed_in,
-    dev_token,
     flow_failure,
     flow_workspace,
-    headers_json,
     mcp_session,
     new_run_id,
     oauth_provider,
@@ -67,7 +62,6 @@ from mcp_qa_lib import (
     seed,
     seeded_ids,
     signed_in_claude,
-    stack_mode,
     step_result,
     user_token,
     write_report,
@@ -84,7 +78,7 @@ def _user_key(user: str) -> str:
 
 
 async def seed_command(args: argparse.Namespace) -> int:
-    report = await seed(args.mode)
+    report = await seed()
     print("\n".join(report.lines()))
     return 0
 
@@ -105,26 +99,17 @@ async def token_command(args: argparse.Namespace) -> int:
     return 0
 
 
-async def dev_token_command(args: argparse.Namespace) -> int:
-    signing_key = require_env("AUTH_DEV_SIGNING_KEY")["AUTH_DEV_SIGNING_KEY"]
-    token = dev_token(args.email, signing_key, client=args.client)
-    print(headers_json(token) if args.headers else token)
-    return 0
-
-
 def _ms(started: float) -> float:
     return round((time.perf_counter() - started) * 1000, 1)
 
 
-async def _smoke(session: ClientSession, mode: StackMode) -> None:
+async def _smoke(session: ClientSession) -> None:
     started = time.perf_counter()
     tools = [tool.name for tool in (await session.list_tools()).tools]
     print(f"tools {', '.join(tools)} ({_ms(started)} ms)")
     started = time.perf_counter()
     projects = await all_projects(session)
     print(f"projects {len(projects)} ({_ms(started)} ms)")
-    if mode == "dev":
-        return
     print("project names " + ", ".join(sorted(str(project["name"]) for project in projects)))
     alpha = next((project["project_id"] for project in projects if project["name"] == "P-Alpha"), None)
     if alpha is not None:
@@ -132,14 +117,8 @@ async def _smoke(session: ClientSession, mode: StackMode) -> None:
         print(f"P-Alpha features {outcome.data.get('total_count', 'error ' + str(outcome.code))}")
 
 
-async def _bearer(mode: StackMode, key: str) -> str:
-    if mode == "oidc":
-        return await user_token(key, require_env("KEYCLOAK_QA_PASSWORD")["KEYCLOAK_QA_PASSWORD"])
-    return dev_token(QA_USERS[key], require_env("AUTH_DEV_SIGNING_KEY")["AUTH_DEV_SIGNING_KEY"])
-
-
-async def _latency(mode: StackMode, key: str, seconds: float) -> None:
-    async with mcp_session(token=await _bearer(mode, key)) as session:
+async def _latency(key: str, password: SecretStr, seconds: float) -> None:
+    async with mcp_session(auth=oauth_provider(key, password)) as session:
         large = next((p["project_id"] for p in await all_projects(session) if p["name"] == "P-Large"), None)
         if large is None:
             raise QaError("P-Large is not listed: run the seed")
@@ -156,18 +135,12 @@ async def _latency(mode: StackMode, key: str, seconds: float) -> None:
 
 async def check_command(args: argparse.Namespace) -> int:
     key = _user_key(args.user)
+    password = require_env("KEYCLOAK_QA_PASSWORD")["KEYCLOAK_QA_PASSWORD"]
     try:
-        mode = await stack_mode()
-        print(f"mode {mode}")
-        if mode == "oidc":
-            password = require_env("KEYCLOAK_QA_PASSWORD")["KEYCLOAK_QA_PASSWORD"]
-            async with mcp_session(auth=oauth_provider(key, password)) as session:
-                await _smoke(session, mode)
-        else:
-            async with mcp_session(token=await _bearer(mode, key)) as session:
-                await _smoke(session, mode)
+        async with mcp_session(auth=oauth_provider(key, password)) as session:
+            await _smoke(session)
         if args.latency_seconds > 0:
-            await _latency(mode, key, args.latency_seconds)
+            await _latency(key, password, args.latency_seconds)
     except QaError as error:
         raise SystemExit(str(error)) from None
     return 0
@@ -224,11 +197,9 @@ async def _claude_run(
     """Run the flows; True when every step of every run passed."""
 
     password = require_env("KEYCLOAK_QA_PASSWORD")["KEYCLOAK_QA_PASSWORD"]
-    if await stack_mode() != "oidc":
-        raise QaError("the claude command needs the oidc stack: run make up WITH=keycloak")
     if not port_is_free():
         raise QaError("port 8765 is in use: stop the process holding it")
-    ids, cost, passed = await seeded_ids("keycloak"), 0.0, True
+    ids, cost, passed = await seeded_ids(), 0.0, True
     for run_number in range(1, parse_runs(str(args.runs)) + 1):
         records: list[StepRecord] = []
         try:
@@ -274,20 +245,15 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     commands = parser.add_subparsers(dest="command", required=True)
 
-    seeding = commands.add_parser("seed", help="idempotent seed of Keycloak, Postgres and Neo4j; prints ids and counts")
-    seeding.add_argument("--mode", choices=("keycloak", "dev"), default="keycloak", help="subject kind of the users")
+    seeding = commands.add_parser(
+        "seed", help="idempotent seed of the SpecFlow-side fixtures (Postgres, Neo4j); prints ids and counts"
+    )
     seeding.set_defaults(handler=seed_command)
 
     token = commands.add_parser("token", help="print the access token of a QA user (authorization code with PKCE)")
     token.add_argument("user", help="alice, bob or carol (or the email)")
     token.add_argument("--client", choices=("mcp", "web"), default="mcp")
     token.set_defaults(handler=token_command)
-
-    dev = commands.add_parser("dev-token", help="print an HS256 dev token (needs AUTH_DEV_SIGNING_KEY; works offline)")
-    dev.add_argument("email")
-    dev.add_argument("--client", choices=("mcp", "web"), default="mcp")
-    dev.add_argument("--headers", action="store_true", help="print the headersHelper JSON instead of the token")
-    dev.set_defaults(handler=dev_token_command)
 
     check = commands.add_parser(
         "check", help="smoke: sign in with the MCP SDK, list tools and projects (names, counts, ms)"
@@ -296,7 +262,9 @@ def parse_args() -> argparse.Namespace:
     check.add_argument("--latency-seconds", type=float, default=0, help="also run 10 list_features calls/s on P-Large")
     check.set_defaults(handler=check_command)
 
-    agent = commands.add_parser("claude", help="run prompts through Claude Code against the oidc stack (spends tokens)")
+    agent = commands.add_parser(
+        "claude", help="run prompts through Claude Code against the local stack (spends tokens)"
+    )
     agent.add_argument("--user", default="alice", help="the QA user to sign in as")
     agent.add_argument("--model", default=CLAUDE_MODEL)
     agent.add_argument("--max-budget-usd", default=CLAUDE_MAX_BUDGET_USD, help="spend limit per prompt")

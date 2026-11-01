@@ -1,7 +1,7 @@
-"""QA library of the MCP server (docs/mcp-server/testing.md): Keycloak admin, login and token helpers, dev tokens.
+"""QA library of the MCP server (docs/mcp-server/testing.md): login and token helpers, seed.
 
 Used by `examples/mcp_qa.py` (commands) and, later, by the end-to-end and agent QA tiers. Everything here talks to
-the local Keycloak at `http://localhost:8180` (`make up WITH=keycloak`) and never prints or logs a token, password,
+the local Keycloak at `http://localhost:8180` (`make up`) and never prints or logs a token, password,
 cookie, email, authorization code or redirect URL: errors name the step and the HTTP status only.
 """
 
@@ -37,7 +37,6 @@ from urllib.parse import parse_qs, parse_qsl, urlencode, urljoin, urlsplit, urlu
 import anyio
 import httpx
 import httpx2
-import jwt
 from jsonschema import Draft202012Validator
 from mcp.client.auth import OAuthClientProvider
 from mcp.client.session import ClientSession
@@ -77,8 +76,14 @@ WEB_CLIENT_ID = "specflow-web"
 CALLBACK_PORT = 8765
 MCP_REDIRECT_URI = f"http://localhost:{CALLBACK_PORT}/callback"
 WEB_REDIRECT_URI = "http://localhost:3001/api/auth/callback/oidc"
-ADMIN_USER = "admin"
 QA_USERS = {"alice": "alice@example.com", "bob": "bob@example.com", "carol": "carol@other.example"}
+# The Keycloak ids of the QA users: fixed in config/keycloak/specflow-realm.json, so the same user is the same subject
+# in every run and the seed needs no Keycloak call.
+QA_USER_IDS = {
+    "alice": "7a1c0e52-3b6d-4f0a-9d21-5c8e1a4b0001",
+    "bob": "7a1c0e52-3b6d-4f0a-9d21-5c8e1a4b0002",
+    "carol": "7a1c0e52-3b6d-4f0a-9d21-5c8e1a4b0003",
+}
 LOCAL_DEFAULTS = {
     "DATABASE_HOST": "localhost",
     "DATABASE_PORT": "5433",
@@ -87,9 +92,6 @@ LOCAL_DEFAULTS = {
     "NEO4J_URI": "bolt://localhost:7687",
     "NEO4J_USER": "neo4j",
 }
-DEV_ISSUER = "specflow-dev-login"
-WEB_AUDIENCE = "specflow-api"
-DEV_TOKEN_TTL_SECONDS = 8 * 3600
 KEYCLOAK_HINT = "run `make env-local`, then recreate keycloak (`... up -d --force-recreate keycloak`)"
 
 PRM_URL = "http://localhost:8002/.well-known/oauth-protected-resource/mcp"
@@ -99,7 +101,6 @@ PUBLIC_CLIENT_AUTH: Final = "none"  # RFC 7591 token_endpoint_auth_method of a p
 SERVER_PREFIX = "specflow-qa-"
 
 Client = Literal["mcp", "web"]
-StackMode = Literal["oidc", "dev"]
 _TOKEN_ENDPOINT = f"{ISSUER}/protocol/openid-connect/token"
 _FORM = re.compile(r'<form[^>]*\baction="([^"]+)"', re.IGNORECASE)
 _REDIRECT_STATUSES = (302, 303)
@@ -141,89 +142,6 @@ def _expect(response: httpx.Response, operation: str, *statuses: int) -> httpx.R
     if response.status_code not in statuses:
         raise QaError(f"{operation} failed: HTTP {response.status_code}")
     return response
-
-
-# Keycloak admin ------------------------------------------------------------------------------------------------
-
-
-class KeycloakAdmin:
-    """Realm administration through the REST API with a `master` admin token (no kcadm, no docker exec)."""
-
-    def __init__(self, admin_password: SecretStr, *, transport: httpx.AsyncBaseTransport | None = None) -> None:
-        self._password = admin_password
-        self._http = httpx.AsyncClient(base_url=KEYCLOAK_URL, transport=transport, timeout=30)
-        self._bearer: str | None = None
-
-    async def __aenter__(self) -> KeycloakAdmin:
-        return self
-
-    async def __aexit__(self, *_exc: object) -> None:
-        await self._http.aclose()
-
-    async def _call(self, operation: str, method: str, path: str, *ok: int, **kwargs: Any) -> httpx.Response:
-        if self._bearer is None:
-            self._bearer = await self._login()
-        headers = {"Authorization": f"Bearer {self._bearer}"}
-        response = await _send(self._http, operation, method, f"/admin/realms/{REALM}{path}", headers=headers, **kwargs)
-        return _expect(response, operation, *ok)
-
-    async def _login(self) -> str:
-        form = {
-            "grant_type": "password",
-            "client_id": "admin-cli",
-            "username": ADMIN_USER,
-            "password": self._password.get_secret_value(),
-        }
-        response = await _send(
-            self._http, "admin login", "POST", "/realms/master/protocol/openid-connect/token", data=form
-        )
-        return str(_expect(response, "admin login", 200).json()["access_token"])
-
-    async def user_id(self, key: str) -> str | None:
-        """The Keycloak id of the QA user `key` (`alice`), or None when it does not exist."""
-
-        params = {"email": QA_USERS[key], "exact": "true"}
-        found = (await self._call("find user", "GET", "/users", 200, params=params)).json()
-        return str(found[0]["id"]) if found else None
-
-    async def ensure_user(self, key: str, password: SecretStr) -> str:
-        """Create or update the QA user (verified email, both names set so sign-in works) and reset its password."""
-
-        email = QA_USERS[key]
-        fields = {
-            "username": email,
-            "email": email,
-            "emailVerified": True,
-            "enabled": True,
-            "firstName": key.title(),
-            "lastName": "QA",
-            "requiredActions": [],
-        }
-        user_id = await self.user_id(key)
-        if user_id is None:
-            created = await self._call("create user", "POST", "/users", 201, json=fields)
-            location = created.headers.get("location")
-            if location is None:
-                raise QaError("create user failed: no location header")
-            user_id = location.rsplit("/", 1)[1]
-        else:
-            await self._call("update user", "PUT", f"/users/{user_id}", 204, json=fields)
-        credential = {"type": "password", "value": password.get_secret_value(), "temporary": False}
-        await self._call("reset password", "PUT", f"/users/{user_id}/reset-password", 204, json=credential)
-        log_event(logger, INFO, "mcp_qa.keycloak.user_ready", user=key)
-        return user_id
-
-    async def set_client_secret(self, client_id: str, secret: SecretStr) -> None:
-        """Set the secret of a confidential client (the realm import generates a random one)."""
-
-        found = (await self._call("find client", "GET", "/clients", 200, params={"clientId": client_id})).json()
-        if not found:
-            raise QaError("find client failed: not found")
-        path = f"/clients/{found[0]['id']}"
-        representation = (await self._call("read client", "GET", path, 200)).json()
-        representation["secret"] = secret.get_secret_value()
-        await self._call("set client secret", "PUT", path, 204, json=representation)
-        log_event(logger, INFO, "mcp_qa.keycloak.client_secret_set", client=client_id)
 
 
 # Login helper --------------------------------------------------------------------------------------------------
@@ -370,38 +288,8 @@ async def user_token(
     return str(_expect(response, "token", 200).json()["access_token"])
 
 
-# Dev tokens ----------------------------------------------------------------------------------------------------
-
-
-def dev_token(email: str, signing_key: SecretStr, *, client: Client = "mcp", now: int | None = None) -> str:
-    """HS256 dev token (docs/mcp-server/auth.md, Local and development mode; frontend/lib/dev-token.ts for `web`)."""
-
-    issued = int(time.time()) if now is None else now
-    audience, azp = (MCP_RESOURCE_URL, MCP_CLIENT_ID) if client == "mcp" else (WEB_AUDIENCE, WEB_CLIENT_ID)
-    claims = {
-        "iss": DEV_ISSUER,
-        "aud": audience,
-        "azp": azp,
-        "typ": "Bearer",
-        "sub": f"dev:{email}",
-        "email": email,
-        "email_verified": True,
-        "name": email.split("@", maxsplit=1)[0],
-        "iat": issued,
-        "exp": issued + DEV_TOKEN_TTL_SECONDS,
-    }
-    return jwt.encode(claims, signing_key.get_secret_value(), algorithm="HS256")
-
-
-def headers_json(token: str) -> str:
-    """The `headersHelper` output of Claude Code: the request headers as one JSON object."""
-
-    return json.dumps({"Authorization": f"Bearer {token}"})
-
-
 # Seed ----------------------------------------------------------------------------------------------------------
 
-Mode = Literal["keycloak", "dev"]
 PROJECTS = {"P-Alpha": "alice", "P-Empty": "alice", "P-Large": "alice", "P-Beta": "bob"}
 GRAPH: dict[str, dict[str, int]] = {
     "P-Alpha": {"Feature": 7, "Module": 2, "FunctionalRequirement": 3},
@@ -445,18 +333,13 @@ class FixtureIds:
 class SeedReport:
     """What a seed run left behind; `lines()` is the printed form (names, ids and counts only)."""
 
-    mode: Mode
-    keycloak_users: int | None
     users: int
     projects: int
     memberships: int
     graph: dict[str, tuple[uuid.UUID, dict[str, int]]] = field(default_factory=dict)
 
     def lines(self) -> list[str]:
-        lines = [f"mode {self.mode}"]
-        if self.keycloak_users is not None:
-            lines.append(f"keycloak users {self.keycloak_users}")
-        lines += [f"users {self.users}", f"projects {self.projects}", f"memberships {self.memberships}"]
+        lines = [f"users {self.users}", f"projects {self.projects}", f"memberships {self.memberships}"]
         for name, (project_id, counts) in sorted(self.graph.items()):
             shown = ", ".join(f"{label} {count}" for label, count in counts.items()) or "no nodes"
             lines.append(f"{name} {project_id} {shown}")
@@ -480,12 +363,6 @@ def fixture_nodes(project_name: str, project_id: str, ontology: Ontology) -> lis
             key = str(uuid.uuid5(SEED_NAMESPACE, f"{project_id}:{spec_id}"))
             nodes.append(FixtureNode(label, spec_id, key, properties))
     return nodes
-
-
-def dev_subjects() -> dict[str, str]:
-    """Dev mode subjects (`dev:<email>`) of the seeded users."""
-
-    return {key: f"dev:{QA_USERS[key]}" for key in SEED_USERS}
 
 
 @asynccontextmanager
@@ -520,24 +397,21 @@ async def _ensure_project(session: AsyncSession, user_id: uuid.UUID, name: str) 
     return project_id
 
 
-async def _seed_postgres(session: AsyncSession, subjects: Mapping[str, str]) -> FixtureIds:
+async def _seed_postgres(session: AsyncSession) -> FixtureIds:
     users: dict[str, uuid.UUID] = {}
     for key in SEED_USERS:
-        principal = SeedPrincipal(subjects[key], QA_USERS[key], key.title())
+        principal = SeedPrincipal(QA_USER_IDS[key], QA_USERS[key], key.title())
         users[key] = (await upsert_user(session, principal)).id
     projects = {name: await _ensure_project(session, users[owner], name) for name, owner in PROJECTS.items()}
     return FixtureIds(users, projects)
 
 
-async def fixture_ids(session: AsyncSession, mode: Mode, subjects: Mapping[str, str] | None = None) -> FixtureIds:
-    """Look up the seeded users and projects; keycloak mode needs `subjects` (the Keycloak user ids by key)."""
+async def fixture_ids(session: AsyncSession) -> FixtureIds:
+    """Look up the seeded users (by their realm ids) and projects."""
 
-    resolved = dev_subjects() if mode == "dev" and subjects is None else subjects
-    if resolved is None:
-        raise QaError("fixture lookup failed: keycloak mode needs the user subjects")
     users: dict[str, uuid.UUID] = {}
     for key in SEED_USERS:
-        found = await session.scalar(select(User.id).where(User.auth_subject == resolved[key]))
+        found = await session.scalar(select(User.id).where(User.auth_subject == QA_USER_IDS[key]))
         if found is None:
             raise QaError(f"fixture lookup failed: user {key} is not seeded")
         users[key] = found
@@ -572,8 +446,9 @@ async def restore_member(session: AsyncSession, project_id: uuid.UUID, user_id: 
     return True
 
 
-async def _count_postgres(session: AsyncSession, ids: FixtureIds, subjects: Mapping[str, str]) -> tuple[int, int, int]:
-    users = await session.scalar(select(func.count()).select_from(User).where(User.auth_subject.in_(subjects.values())))
+async def _count_postgres(session: AsyncSession, ids: FixtureIds) -> tuple[int, int, int]:
+    subjects = [QA_USER_IDS[key] for key in SEED_USERS]
+    users = await session.scalar(select(func.count()).select_from(User).where(User.auth_subject.in_(subjects)))
     projects = await session.scalar(
         select(func.count()).select_from(Project).where(Project.id.in_(ids.projects.values()))
     )
@@ -638,37 +513,22 @@ async def _seed_graph(environ: Mapping[str, str], ids: FixtureIds) -> dict[str, 
     return counts
 
 
-async def _ensure_keycloak(environ: Mapping[str, str]) -> dict[str, str]:
-    """Ensure the three QA users and the `specflow-web` secret; return the Keycloak user id of each QA user."""
+async def seed(environ: Mapping[str, str] | None = None) -> SeedReport:
+    """Idempotent seed of the SpecFlow side (Postgres and Neo4j); a second run reports the same counts.
 
-    names = ("KEYCLOAK_ADMIN_PASSWORD", "KEYCLOAK_QA_PASSWORD", "KEYCLOAK_WEB_CLIENT_SECRET")
-    secrets_ = require_env(*names, environ=dict(environ))
-    async with KeycloakAdmin(secrets_["KEYCLOAK_ADMIN_PASSWORD"]) as admin:
-        ids = {key: await admin.ensure_user(key, secrets_["KEYCLOAK_QA_PASSWORD"]) for key in QA_USERS}
-        await admin.set_client_secret(WEB_CLIENT_ID, secrets_["KEYCLOAK_WEB_CLIENT_SECRET"])
-    return ids
-
-
-async def seed(mode: Mode, environ: Mapping[str, str] | None = None) -> SeedReport:
-    """Idempotent seed of Keycloak (keycloak mode only), Postgres and Neo4j; a second run reports the same counts.
-
-    Subjects are the Keycloak user ids, or `dev:<email>` in dev mode. The two modes create separate Postgres rows
-    (`auth_subject` is unique), so counts are per mode. Postgres is read from `DATABASE_*` of the process environment.
-
-    Idempotence holds for one Keycloak lifetime: a recreated Keycloak issues new user ids, so the next run creates
-    new users, projects and graph groups (the old rows and nodes stay behind, filtered out of the counts).
+    The Keycloak users come from the realm import (`config/keycloak/specflow-realm.json`), with the fixed ids of
+    `QA_USER_IDS`: the seed creates only the rows and graph nodes that belong to them. Postgres is read from
+    `DATABASE_*` of the process environment.
     """
 
     source = os.environ if environ is None else environ
-    keycloak_ids = await _ensure_keycloak(source) if mode == "keycloak" else None
-    subjects = dev_subjects() if keycloak_ids is None else {key: keycloak_ids[key] for key in SEED_USERS}
     async with postgres_session() as session:
-        ids = await _seed_postgres(session, subjects)
-        users, projects, memberships = await _count_postgres(session, ids, subjects)
+        ids = await _seed_postgres(session)
+        users, projects, memberships = await _count_postgres(session, ids)
     graph = await _seed_graph(source, ids)
-    log_event(logger, INFO, "mcp_qa.seed.done", mode=mode, users=users, projects=projects, memberships=memberships)
+    log_event(logger, INFO, "mcp_qa.seed.done", users=users, projects=projects, memberships=memberships)
     detail = {name: (ids.projects[name], graph[name]) for name in PROJECTS}
-    return SeedReport(mode, None if keycloak_ids is None else len(keycloak_ids), users, projects, memberships, detail)
+    return SeedReport(users, projects, memberships, detail)
 
 
 # Stack, raw HTTP and the SDK client (E1 to E14) -------------------------------------------------------------------
@@ -685,19 +545,6 @@ async def _prm_response(transport: httpx.AsyncBaseTransport | None) -> httpx.Res
         raise QaError("MCP endpoint not reachable: run make up") from None
     except httpx.HTTPError as error:
         raise QaError(f"prm failed: {type(error).__name__}") from None
-
-
-async def stack_mode(*, transport: httpx.AsyncBaseTransport | None = None) -> StackMode:
-    """`oidc` when the protected resource metadata names the resource URL, `dev` when it is absent (404)."""
-
-    response = await _prm_response(transport)
-    if response.status_code == HTTPStatus.NOT_FOUND:
-        return "dev"
-    if response.status_code != HTTPStatus.OK:
-        raise QaError(f"stack mode unknown: HTTP {response.status_code}")
-    if _json_object(response).get("resource") != MCP_RESOURCE_URL:
-        raise QaError("stack mode unknown: the metadata names another resource")
-    return "oidc"
 
 
 async def fetch_prm(*, transport: httpx.AsyncBaseTransport | None = None) -> dict[str, Any]:
@@ -760,30 +607,18 @@ async def create_project_rest(
         raise QaError("project create failed: no project id in the response") from None
 
 
-async def seeded_ids(mode: Mode, environ: Mapping[str, str] | None = None) -> FixtureIds:
-    """The Postgres ids of the seeded users and projects (read, never remembered: a Keycloak recreate changes them)."""
+async def seeded_ids() -> FixtureIds:
+    """The Postgres ids of the seeded users and projects (read, never remembered)."""
 
-    if mode == "dev":
-        async with postgres_session() as session:
-            return await fixture_ids(session, "dev")
-    source = dict(os.environ if environ is None else environ)
-    password = require_env("KEYCLOAK_ADMIN_PASSWORD", environ=source)["KEYCLOAK_ADMIN_PASSWORD"]
-    async with KeycloakAdmin(password) as admin:
-        found = {key: await admin.user_id(key) for key in SEED_USERS}
-    subjects = {key: subject for key, subject in found.items() if subject is not None}
-    if len(subjects) != len(SEED_USERS):
-        raise QaError("fixture lookup failed: the QA users are not in Keycloak (run the seed)")
     async with postgres_session() as session:
-        return await fixture_ids(session, "keycloak", subjects)
+        return await fixture_ids(session)
 
 
 def preregistered_client() -> OAuthClientInformationFull:
     """The `specflow-mcp` public client as the SDK stores a registered one: no registration request is sent."""
 
     return OAuthClientInformationFull(
-        client_id=MCP_CLIENT_ID,
-        redirect_uris=[AnyUrl(MCP_REDIRECT_URI)],
-        token_endpoint_auth_method=PUBLIC_CLIENT_AUTH,
+        client_id=MCP_CLIENT_ID, redirect_uris=[AnyUrl(MCP_REDIRECT_URI)], token_endpoint_auth_method=PUBLIC_CLIENT_AUTH
     )
 
 
@@ -981,11 +816,7 @@ def binding_text(project_id: uuid.UUID | str, project_name: str, server: str = M
 
 
 def write_binding(
-    workspace: Path,
-    project_id: uuid.UUID | str,
-    project_name: str,
-    *,
-    server: str = MCP_RESOURCE_URL,
+    workspace: Path, project_id: uuid.UUID | str, project_name: str, *, server: str = MCP_RESOURCE_URL
 ) -> Path:
     """Write or replace the whole binding file (temp file in the same folder, then `os.replace`)."""
 
@@ -2270,7 +2101,7 @@ class WorkspaceFlow:
         max_budget_usd: str = CLAUDE_MAX_BUDGET_USD,
     ) -> None:
         self.ctx, self.runner = ctx, runner
-        self.model, self.max_turns, self.max_budget_usd = model, max_turns, max_budget_usd
+        self.model, self.max_turns, self.max_budget_usd = (model, max_turns, max_budget_usd)
         self.records: list[StepRecord] = []  # fills as steps finish, so a step that raises keeps the earlier ones
         self._cost, self._mode = 0.0, "-"
         self._calls: list[str] = []
@@ -2324,7 +2155,7 @@ class WorkspaceFlow:
         if step.prepare is not None:
             step.prepare()
         before = workspace_snapshot(self.ctx.workspace)
-        self._cost, self._calls, self._prose, self._runs, self._denied, self._mode = 0.0, [], [], [], [], "-"
+        self._cost, self._calls, self._prose, self._runs, self._denied, self._mode = (0.0, [], [], [], [], "-")
         started = time.perf_counter()
         try:
             note = self._judge(await step.act(), step, before)
@@ -2339,7 +2170,7 @@ class WorkspaceFlow:
             reason = str(error) if isinstance(error, QaError) else "unexpected error"
             note = f"error: {type(error).__name__}: {reason}"
         outcome: Literal["passed", "failed"] = "failed" if note else "passed"
-        elapsed, calls, prose = time.perf_counter() - started, tuple(self._calls), " | ".join(self._prose)
+        elapsed, calls, prose = (time.perf_counter() - started, tuple(self._calls), " | ".join(self._prose))
         return StepRecord(step.key, outcome, calls, elapsed, self._cost, self._mode, note, prose, tuple(self._denied))
 
     def _bind_beta(self) -> None:

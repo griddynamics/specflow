@@ -1,8 +1,8 @@
 """Offline tests of the MCP QA command line (`examples/mcp_qa.py`, docs/mcp-server/testing.md, MCP-M7).
 
 The CLI is thin glue over `mcp_qa_lib`. Library seams that reach an external system (the MCP session, the sign-in,
-the latency pacer, the `claude` runner, the stack probe) are replaced on the `mcp_qa` module; everything else (the
-library's `call`, `all_projects`, `report_note`, `write_report`, `RunReport`, `dev_token`, ...) is the real code. The
+the latency pacer, the `claude` runner) are replaced on the `mcp_qa` module; everything else (the
+library's `call`, `all_projects`, `report_note`, `write_report`, `RunReport`, ...) is the real code. The
 report folder is a `tmp_path`. Nothing here needs the network, Keycloak, Docker or `claude`.
 """
 
@@ -44,13 +44,12 @@ from mcp_qa_lib import (
 )
 
 QA_CREDENTIAL = SecretStr("qa-credential-0001")
-SIGNING_KEY = SecretStr("dev-signing-key-0000000000000000")
 BEARER = SecretStr("bearer-token-0001")
 RUN_ID = "run0001"
 SERVER = f"specflow-qa-{RUN_ID}"
 TOOLS = claude_tool_names(SERVER)
 ALPHA, LARGE, BETA = (str(uuid.uuid4()) for _ in range(3))
-SECRETS = tuple(secret.get_secret_value() for secret in (QA_CREDENTIAL, SIGNING_KEY, BEARER))
+SECRETS = tuple(secret.get_secret_value() for secret in (QA_CREDENTIAL, BEARER))
 PASSWORD = QA_CREDENTIAL.get_secret_value()
 
 
@@ -97,17 +96,9 @@ def install_session(monkeypatch: pytest.MonkeyPatch, session: FakeSession) -> li
     return opened
 
 
-def install_stack(monkeypatch: pytest.MonkeyPatch, mode: str) -> None:
-    async def fake_mode() -> str:
-        return mode
-
-    monkeypatch.setattr(mcp_qa, "stack_mode", fake_mode)
-
-
 @pytest.fixture(autouse=True)
 def qa_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("KEYCLOAK_QA_PASSWORD", PASSWORD)
-    monkeypatch.setenv("AUTH_DEV_SIGNING_KEY", SIGNING_KEY.get_secret_value())
 
 
 def assert_no_secret(output: str) -> None:
@@ -131,20 +122,9 @@ def parse(monkeypatch: pytest.MonkeyPatch, *argv: str) -> Any:
 @pytest.mark.parametrize(
     ("argv", "handler", "expected"),
     [
-        (["seed"], mcp_qa.seed_command, {"mode": "keycloak"}),
-        (["seed", "--mode", "dev"], mcp_qa.seed_command, {"mode": "dev"}),
+        (["seed"], mcp_qa.seed_command, {}),
         (["token", "bob"], mcp_qa.token_command, {"user": "bob", "client": "mcp"}),
         (["token", "alice", "--client", "web"], mcp_qa.token_command, {"user": "alice", "client": "web"}),
-        (
-            ["dev-token", "alice@example.com"],
-            mcp_qa.dev_token_command,
-            {"email": "alice@example.com", "client": "mcp", "headers": False},
-        ),
-        (
-            ["dev-token", "bob@example.com", "--client", "web", "--headers"],
-            mcp_qa.dev_token_command,
-            {"email": "bob@example.com", "client": "web", "headers": True},
-        ),
         (["check"], mcp_qa.check_command, {"user": "alice", "latency_seconds": 0}),
         (
             ["check", "--user", "bob", "--latency-seconds", "2.5"],
@@ -172,18 +152,7 @@ def parse(monkeypatch: pytest.MonkeyPatch, *argv: str) -> Any:
             {"user": "bob", "model": "opus", "max_budget_usd": "0.25", "runs": "3"},
         ),
     ],
-    ids=[
-        "seed",
-        "seed-dev",
-        "token",
-        "token-web",
-        "dev-token",
-        "dev-token-flags",
-        "check",
-        "check-flags",
-        "claude",
-        "claude-flags",
-    ],
+    ids=["seed", "token", "token-web", "check", "check-flags", "claude", "claude-flags"],
 )
 def test_parse_args_reads_every_command_and_flag(
     monkeypatch: pytest.MonkeyPatch, argv: list[str], handler: Callable[..., Awaitable[int]], expected: dict[str, Any]
@@ -197,8 +166,14 @@ def test_parse_args_reads_every_command_and_flag(
 
 @pytest.mark.parametrize(
     "argv",
-    [[], ["nope"], ["seed", "--mode", "other"], ["token"], ["token", "alice", "--client", "x"], ["dev-token"]],
-    ids=["no-command", "unknown-command", "bad-mode", "token-needs-user", "bad-client", "dev-token-needs-email"],
+    [
+        [],
+        ["nope"],
+        ["seed", "--mode", "keycloak"],
+        ["token"],
+        ["token", "alice", "--client", "x"],
+    ],
+    ids=["no-command", "unknown-command", "seed-has-no-mode", "token-needs-user", "bad-client"],
 )
 def test_parse_args_refuses_bad_input(monkeypatch: pytest.MonkeyPatch, argv: list[str]) -> None:
     with pytest.raises(SystemExit) as stopped:
@@ -216,12 +191,11 @@ def test_user_key_accepts_a_key_or_an_email_and_refuses_the_rest() -> None:
 # check: NFR-MCP-01 smoke and latency -------------------------------------------------------------------------------
 
 
-async def test_check_in_oidc_mode_signs_in_with_the_provider_and_prints_names_counts_and_ms(
+async def test_check_signs_in_with_the_provider_and_prints_names_counts_and_ms(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     session = FakeSession([(ALPHA, "P-Alpha"), (LARGE, "P-Large")])
     opened = install_session(monkeypatch, session)
-    install_stack(monkeypatch, "oidc")
     providers: list[tuple[str, str]] = []
 
     def fake_provider(key: str, password: Any) -> str:
@@ -235,33 +209,13 @@ async def test_check_in_oidc_mode_signs_in_with_the_provider_and_prints_names_co
     out = capsys.readouterr().out.splitlines()
     assert providers == [("alice", PASSWORD)]
     assert opened == [{"auth": "provider"}]
-    assert out[0] == "mode oidc"
-    assert out[1].startswith("tools list_projects, list_features (") and out[1].endswith(" ms)")
-    assert out[2].startswith("projects 2 (")
-    assert out[3] == "project names P-Alpha, P-Large"
-    assert out[4] == "P-Alpha features 7"
-    assert len(out) == 5
+    assert out[0].startswith("tools list_projects, list_features (") and out[0].endswith(" ms)")
+    assert out[1].startswith("projects 2 (")
+    assert out[2] == "project names P-Alpha, P-Large"
+    assert out[3] == "P-Alpha features 7"
+    assert len(out) == 4
     assert_no_secret("\n".join(out))
     assert ("list_features", {"project_id": ALPHA}) in session.calls
-
-
-async def test_check_in_dev_mode_uses_a_dev_token_header_and_prints_no_project_names(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    opened = install_session(monkeypatch, FakeSession([(ALPHA, "P-Alpha")]))
-    install_stack(monkeypatch, "dev")
-
-    assert await mcp_qa.check_command(check_args("bob")) == 0
-
-    out = capsys.readouterr().out
-    assert [line.split(" (")[0] for line in out.splitlines()] == [
-        "mode dev",
-        "tools list_projects, list_features",
-        "projects 1",
-    ]
-    assert list(opened[0]) == ["token"] and opened[0]["token"].count(".") == 2
-    assert opened[0]["token"] not in out
-    assert_no_secret(out)
 
 
 async def test_check_reports_a_missing_p_alpha_without_a_feature_call(
@@ -269,7 +223,6 @@ async def test_check_reports_a_missing_p_alpha_without_a_feature_call(
 ) -> None:
     session = FakeSession([(LARGE, "P-Large")])
     install_session(monkeypatch, session)
-    install_stack(monkeypatch, "oidc")
     monkeypatch.setattr(mcp_qa, "oauth_provider", lambda _key, _password: "provider")
 
     await mcp_qa.check_command(check_args())
@@ -284,7 +237,7 @@ async def test_check_latency_prints_the_e14_numbers_and_paces_list_features_on_p
     # E14 / NFR-MCP-01: the CLI hands run_latency a call that lists P-Large's features, then prints the stats only.
     session = FakeSession([(ALPHA, "P-Alpha"), (LARGE, "P-Large")])
     install_session(monkeypatch, session)
-    install_stack(monkeypatch, "dev")
+    monkeypatch.setattr(mcp_qa, "oauth_provider", lambda _key, _password: "provider")
     paced: list[dict[str, Any]] = []
 
     async def fake_latency(call_once: Callable[[], Awaitable[bool]], **kwargs: Any) -> LatencyStats:
@@ -305,17 +258,20 @@ async def test_check_latency_prints_the_e14_numbers_and_paces_list_features_on_p
 
 async def test_check_latency_needs_the_seeded_p_large(monkeypatch: pytest.MonkeyPatch) -> None:
     install_session(monkeypatch, FakeSession([(ALPHA, "P-Alpha")]))
-    install_stack(monkeypatch, "dev")
+    monkeypatch.setattr(mcp_qa, "oauth_provider", lambda _key, _password: "provider")
 
     with pytest.raises(SystemExit, match="P-Large is not listed: run the seed"):
         await mcp_qa.check_command(check_args(seconds=1))
 
 
 async def test_check_turns_a_library_error_into_a_clean_exit_message(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def unreachable() -> str:
+    @asynccontextmanager
+    async def unreachable(**_kwargs: Any) -> AsyncIterator[FakeSession]:
         raise QaError("MCP endpoint not reachable: run make up")
+        yield FakeSession([])
 
-    monkeypatch.setattr(mcp_qa, "stack_mode", unreachable)
+    monkeypatch.setattr(mcp_qa, "mcp_session", unreachable)
+    monkeypatch.setattr(mcp_qa, "oauth_provider", lambda _key, _password: "provider")
 
     with pytest.raises(SystemExit, match="MCP endpoint not reachable"):
         await mcp_qa.check_command(check_args())
@@ -394,7 +350,7 @@ def canned_run(*messages: dict[str, Any]) -> PromptRun:
 
 
 class ClaudeHarness:
-    """The `claude` command with its external seams faked: stack probe, sign-in, runner, workspace, ids."""
+    """The `claude` command with its external seams faked: sign-in, runner, workspace, ids."""
 
     def __init__(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         self.reports = tmp_path / "reports"
@@ -407,7 +363,6 @@ class ClaudeHarness:
         self.teardown_clean: bool | None = True
         self.body_error: Exception | None = None
         self.signed_in = True
-        self.mode = "oidc"
         self.port_free = True
         self.alpha_features = {
             node.spec_id for node in fixture_nodes("P-Alpha", ALPHA, load_ontology()) if node.label == "Feature"
@@ -416,7 +371,6 @@ class ClaudeHarness:
         patch("new_run_id", lambda: RUN_ID)
         patch("write_report", functools.partial(mcp_qa_lib.write_report, directory=self.reports))
         patch("port_is_free", lambda: self.port_free)
-        patch("stack_mode", self._stack_mode)
         patch("claude_signed_in", self._signed_in)
         patch("seeded_ids", self._ids)
         patch("run_prompt", self._run_prompt)
@@ -467,15 +421,11 @@ class ClaudeHarness:
             features(EMPTY, [], 0),
         ]
 
-    async def _stack_mode(self) -> str:
-        return self.mode
-
     async def _signed_in(self, cwd: Path) -> bool:
         assert cwd in self.workspaces
         return self.signed_in
 
-    async def _ids(self, mode: str) -> FixtureIds:
-        assert mode == "keycloak"
+    async def _ids(self) -> FixtureIds:
         projects = {"P-Alpha": uuid.UUID(ALPHA), "P-Beta": uuid.UUID(BETA), "P-Empty": uuid.UUID(EMPTY)}
         return FixtureIds({"alice": uuid.uuid4()}, projects)
 
@@ -649,20 +599,6 @@ async def test_claude_writes_the_report_and_the_recovery_hint_and_keeps_the_work
     assert harness.cwd.exists()  # kept: the recovery runs from it
 
 
-async def test_claude_writes_the_report_when_the_run_fails_before_a_teardown_is_reached(
-    harness: ClaudeHarness, capsys: pytest.CaptureFixture[str]
-) -> None:
-    harness.mode = "dev"
-
-    with pytest.raises(SystemExit, match="needs the oidc stack"):
-        await mcp_qa.claude_command(claude_args())
-
-    assert "teardown clean not reached" in capsys.readouterr().out
-    report = harness.report()
-    assert report["results"] == [] and "teardown_clean" not in report["metrics"]
-    assert harness.workspaces == [] and harness.sessions == []
-
-
 async def test_claude_refuses_a_busy_callback_port_before_touching_the_claude_configuration(
     harness: ClaudeHarness,
 ) -> None:
@@ -694,9 +630,7 @@ async def test_claude_stops_when_the_cli_is_not_signed_in_and_removes_the_worksp
 
 
 @pytest.mark.parametrize(
-    "failure",
-    [QaError("claude is not on PATH"), OSError("spawn failed")],
-    ids=["qa-error", "os-error"],
+    "failure", [QaError("claude is not on PATH"), OSError("spawn failed")], ids=["qa-error", "os-error"]
 )
 async def test_claude_records_a_runner_error_as_a_failed_step_and_still_tears_down(
     harness: ClaudeHarness, capsys: pytest.CaptureFixture[str], failure: Exception

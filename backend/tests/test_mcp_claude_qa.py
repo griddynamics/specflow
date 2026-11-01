@@ -1,7 +1,7 @@
 """Agent QA of the MCP server with Claude Code (docs/mcp-server/testing.md, Agent QA with Claude Code).
 
 Gated: ``SPECFLOW_TEST_MCP_CLAUDE=1`` (run with ``--env-file ../.env.local``); never in CI. It spends model tokens and
-writes to the user's Claude Code configuration, so it needs the ``oidc`` stack, a seeded fixture, a signed-in `claude`
+writes to the user's Claude Code configuration, so it needs the local stack, a seeded fixture, a signed-in `claude`
 CLI and a free port 8765:
 
     SPECFLOW_TEST_MCP_CLAUDE=1 uv run --env-file ../.env.local pytest tests/test_mcp_claude_qa.py -q
@@ -48,7 +48,6 @@ from mcp_qa_lib import (
     save_report,
     seeded_ids,
     signed_in_claude,
-    stack_mode,
     step_result,
 )
 from specflow_live import live_enabled, requires_live
@@ -57,7 +56,7 @@ pytestmark = [requires_live("MCP_CLAUDE"), pytest.mark.asyncio(loop_scope="modul
 
 logger = get_logger("tests.mcp_claude_qa")
 
-REQUIRED_ENV: Final = ("KEYCLOAK_QA_PASSWORD", "KEYCLOAK_ADMIN_PASSWORD", "DATABASE_PASSWORD")
+REQUIRED_ENV: Final = ("KEYCLOAK_QA_PASSWORD", "DATABASE_PASSWORD")
 RUNS: Final = parse_runs(os.environ.get("SPECFLOW_QA_RUNS", "1")) if live_enabled("MCP_CLAUDE") else 1
 
 
@@ -76,14 +75,12 @@ def precondition(reason: str) -> NoReturn:
 
 
 async def require_stack(cwd: Path) -> None:
-    """Fail (never skip) with the reason when the CLI, its sign-in, the stack mode or the callback port is not ready."""
+    """Fail (never skip) with the reason when the CLI, or its sign-in or the callback port is not ready."""
 
     if shutil.which("claude") is None:
         precondition("the claude CLI is not on PATH")
     if not await claude_signed_in(cwd):
         precondition("the claude CLI is not signed in (run `claude auth login`)")
-    if await stack_mode() != "oidc":
-        precondition("the stack is not in oidc mode (run `make up WITH=keycloak`)")
     if not port_is_free():
         precondition("port 8765 is in use (stop the process holding it)")
 
@@ -100,7 +97,7 @@ async def stack(tmp_path_factory: pytest.TempPathFactory) -> AsyncIterator[Stack
             precondition(str(missing))
         await require_stack(tmp_path_factory.mktemp("claude-qa-probe"))  # only `claude auth status` runs here
         report = RunReport(new_run_id(), "agent-flow", [], {"model": CLAUDE_MODEL, "runs": RUNS})
-        state = Stack(secrets_["KEYCLOAK_QA_PASSWORD"], await seeded_ids("keycloak"), report)
+        state = Stack(secrets_["KEYCLOAK_QA_PASSWORD"], await seeded_ids(), report)
         failed = False
         try:
             yield state
