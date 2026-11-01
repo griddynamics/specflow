@@ -362,7 +362,6 @@ async def test_reads_return_the_row_contract_of_the_cypher_queries(
     nodes = await executor.read(q.READ_NODES, project, labels=labels, where={"external": "no"}, retired=RETIRED)
     assert [item["props"]["spec_id"] for item in nodes] == ["MOD::CHECKOUT"]
     by_uuid = await executor.read(q.READ_NODES_BY_UUID, project, uuids=["u-stripe", "u-fr"], retired=RETIRED)
-    assert [item["props"]["spec_id"] for item in by_uuid] == ["MOD::STRIPE", "REQ::PAY"] or True
     assert sorted(item["props"]["spec_id"] for item in by_uuid) == ["MOD::STRIPE", "REQ::PAY"]
     lines = await executor.read(
         q.READ_NODES_FOR_LINES, project, document_id="d1", line_start=4, line_end=9, labels=labels, retired=RETIRED
@@ -434,9 +433,7 @@ async def test_edges_neighbours_and_impact(store: PostgresStore, ontology: Ontol
     hop = await executor.read(
         q.READ_IMPACT_HOP, project, frontier=["u-mod"], seen=["u-mod"], relations=relations, labels=labels, limit=10
     )
-    assert hop == [{"uuid": "u-stripe", "spec_id": "MOD::STRIPE"}, {"uuid": "u-fr", "spec_id": "REQ::PAY"}][::-1] or [
-        item["spec_id"] for item in hop
-    ] == ["MOD::STRIPE", "REQ::PAY"]
+    assert [item["spec_id"] for item in hop] == ["MOD::STRIPE", "REQ::PAY"]
     limited = await executor.read(
         q.READ_IMPACT_HOP, project, frontier=["u-mod"], seen=["u-mod", "u-stripe"], relations=relations,
         labels=labels, limit=1,
@@ -552,9 +549,7 @@ async def test_fragment_search_filters_status_and_document(
         )
     base = {"index": "i", "active": "active", "skip": 0, "page": 10}
     rows = await executor.read(q.SEARCH_FRAGMENTS, project, query="card pay", document_id=None, **base)
-    assert [hit["fragment_id"] for hit in rows[0]["hits"]] == ["f1", "f3"] or {
-        hit["fragment_id"] for hit in rows[0]["hits"]
-    } == {"f1", "f3"}
+    assert {hit["fragment_id"] for hit in rows[0]["hits"]} == {"f1", "f3"}
     only = await executor.read(q.SEARCH_FRAGMENTS, project, query="card pay", document_id="d2", **base)
     assert [hit["fragment_id"] for hit in only[0]["hits"]] == ["f3"]
 
@@ -640,3 +635,38 @@ async def test_a_deadlock_is_retried(store: PostgresStore, ontology: Ontology, p
 
 def test_the_shape_helper_is_importable() -> None:
     assert NodeShape("SpecNode", "uuid", True).checked().label == "SpecNode"
+
+
+async def test_a_project_over_two_thousand_vectors_gets_an_hnsw_index_that_the_search_uses(
+    store: PostgresStore, ontology: Ontology, project: str
+) -> None:
+    """ensure_schema adds a partial halfvec HNSW index for the model; the vector page keeps answering as before."""
+
+    await raw(
+        store,
+        "INSERT INTO graph.node (group_id, kind, labels, props, embedding) "
+        "SELECT :p, 'spec', ARRAY['FunctionalRequirement'], "
+        "jsonb_build_object('uuid', 'u' || g, 'spec_id', 'R::' || lpad(g::text, 5, '0'), 'embedding_model', 'hnsw-m'), "
+        "CAST((SELECT array_agg(random()) FROM generate_series(1, 8) AS d WHERE g > 0) AS vector) "
+        "FROM generate_series(1, 2100) AS g",
+        p=project,
+    )
+    created = await store.ensure_schema(ontology, DIM)
+    assert [name for name in created if name.startswith("node_emb_hnsw_")] != []
+    assert await store.ensure_schema(ontology, DIM) == ()
+    executor = store.executor()
+    query = [0.9, 0.1, 0.5, 0.5, 0.2, 0.7, 0.3, 0.4]
+    params = {"model": "hnsw-m", "vector": query, "labels": [FR], "where": {}, "limit": 5}
+    exact = await executor.read(q.SEARCH_NODES_VECTOR_EXACT, project, **params)
+    wanted = {row["spec_id"] for row in exact}
+    for _ in range(10):  # more than the five runs after which a prepared statement switches plans
+        page = await executor.read(q.SEARCH_NODES_VECTOR, project, index="i", k=60, **params)
+        got = {hit["spec_id"] for hit in page[0]["hits"]}
+        assert len(got & wanted) >= 4  # approximate index: at least four of the five exact neighbours
+        assert page[0]["fetched"] == 60
+    indexes = await raw(
+        store, "SELECT indexdef FROM pg_indexes WHERE schemaname = :s AND indexname LIKE 'node_emb_hnsw_%'", s=store.schema
+    )
+    assert len(indexes) == 1
+    assert "hnsw" in indexes[0]["indexdef"] and "halfvec(8)" in indexes[0]["indexdef"]
+    assert "embedding_model = 'hnsw-m'" in indexes[0]["indexdef"]

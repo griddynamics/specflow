@@ -8,6 +8,7 @@ driver (deprecated arguments) or owns one. No database: drivers are hand-written
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import os
 import subprocess
 import sys
@@ -134,7 +135,13 @@ def test_the_routing_table_names_all_four_backends() -> None:
     assert set(stores._ADAPTERS) == set(BACKENDS)
 
 
-@pytest.mark.parametrize("backend", ["arcadedb", "postgres", "tigergraph"])
+def _without_adapter() -> list[str]:
+    """The backends whose adapter module is not shipped yet (each adapter's milestone ships its own)."""
+
+    return [name for name in BACKENDS if importlib.util.find_spec(stores._ADAPTERS[name].module) is None]
+
+
+@pytest.mark.parametrize("backend", _without_adapter())
 def test_a_backend_without_an_adapter_is_not_available(backend: str) -> None:
     with pytest.raises(ConfigurationError) as raised:
         build_store(config(backend=backend))
