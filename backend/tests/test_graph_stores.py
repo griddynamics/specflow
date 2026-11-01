@@ -222,6 +222,9 @@ def test_an_adapter_module_builds_its_store_from_the_config(
         "graph.core",
         "graph.core.db",
         "graph.core.schema",
+        "graph.core.store",
+        "graph.stores.neo4j.store",
+        "graph.build",
     ],
 )
 def test_every_module_imports_first_in_a_fresh_interpreter(module: str) -> None:
@@ -236,6 +239,61 @@ def test_every_module_imports_first_in_a_fresh_interpreter(module: str) -> None:
         check=False,
     )
     assert done.returncode == 0, done.stderr[-400:]
+
+
+# Lazy SDK loading: the library, the settings and the health check never load the Neo4j driver until
+# a Neo4j store is built or a Bolt shim name is touched.
+
+
+def run_fresh(code: str) -> subprocess.CompletedProcess[str]:
+    env = {**os.environ, "PYTHONPATH": str(SRC)}
+    return subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, text=True, check=False)
+
+
+BOLT_MODULES = "[m for m in sys.modules if m.startswith(('graph.stores._bolt', 'graph.stores.neo4j'))]"
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        "graph.core",
+        "graph.core.store",
+        "graph.core.db",
+        "graph.core.schema",
+        "graph.stores",
+        "graph.stores.config",
+        "settings",
+        "health",
+    ],
+)
+def test_importing_a_module_does_not_load_the_neo4j_driver(module: str) -> None:
+    done = run_fresh(f"import sys, {module}; print('neo4j' in sys.modules, {BOLT_MODULES})")
+    assert done.returncode == 0, done.stderr[-400:]
+    assert done.stdout.strip() == "False []"
+
+
+@pytest.mark.parametrize("module", ["graph.build", "api.runtime"])
+def test_the_build_and_the_api_load_no_store_adapter_before_one_is_built(module: str) -> None:
+    # graphiti_core (the build's extraction adapter) imports neo4j itself; the library's own adapter stays out.
+    done = run_fresh(f"import sys, {module}; print({BOLT_MODULES})")
+    assert done.returncode == 0, done.stderr[-400:]
+    assert done.stdout.strip() == "[]"
+
+
+def test_building_a_neo4j_store_or_touching_a_shim_name_loads_the_driver() -> None:
+    build = run_fresh(
+        "import sys, graph.stores as s; assert 'neo4j' not in sys.modules;"
+        " s.build_store(s.StoreConfig(uri='bolt://127.0.0.1:1', user='u', password='p'));"
+        " print('neo4j' in sys.modules, 'graph.stores.neo4j' in sys.modules)"
+    )
+    assert build.returncode == 0, build.stderr[-400:]
+    assert build.stdout.strip() == "True True"
+    shim = run_fresh(
+        "import sys, graph.core as c; assert 'neo4j' not in sys.modules;"
+        " print(callable(c.connect), 'neo4j' in sys.modules)"
+    )
+    assert shim.returncode == 0, shim.stderr[-400:]
+    assert shim.stdout.strip() == "True True"
 
 
 # The Neo4j store
@@ -323,6 +381,21 @@ async def test_a_store_wrapping_a_driver_leaves_it_open_and_one_from_config_clos
     owned = Neo4jStore.from_config(config(name="graph"))
     await owned.close()
     assert made[0].closed is True
+
+
+@pytest.mark.parametrize(("pool_size", "expected"), [(None, {}), (7, {"max_connection_pool_size": 7})])
+def test_the_pool_size_reaches_the_driver_only_when_set(
+    monkeypatch: pytest.MonkeyPatch, pool_size: int | None, expected: dict[str, int]
+) -> None:
+    seen: list[dict[str, Any]] = []
+
+    def factory(*_args: Any, **kwargs: Any) -> Driver:
+        seen.append(kwargs)
+        return Driver()
+
+    monkeypatch.setattr(bolt.AsyncGraphDatabase, "driver", factory)
+    Neo4jStore.from_config(config(pool_size=pool_size))
+    assert {key: value for key, value in seen[0].items() if key == "max_connection_pool_size"} == expected
 
 
 # Consumers take a store, an executor or a driver
@@ -497,10 +570,30 @@ def test_build_context_still_takes_a_driver_and_database() -> None:
 def test_a_driver_error_maps_to_a_neutral_code_carrying_the_store(
     backend: str, error: Exception, *, write: bool, cls: type, code: str
 ) -> None:
-    mapped = _map_error(error, "q", write=write, backend=backend)
+    mapped = _map_error(error, "search_fragments", write=write, backend=backend)
     assert type(mapped) is cls and mapped.code == code
     assert mapped.fields["store"] == backend
     assert "message carrying" not in str(mapped) and CANARY_VALUE not in str(mapped)
+
+
+@pytest.mark.parametrize("query", ["search_nodes_fulltext", "search_fragments"])
+def test_a_failed_fulltext_procedure_is_a_complex_query_with_diagnostics(query: str) -> None:
+    mapped = _map_error(
+        neo4j_error(ClientError, "Neo.ClientError.Procedure.ProcedureCallFailed"), query, write=False, attempts=2
+    )
+    assert mapped.code == "query_too_complex" and isinstance(mapped, ConformanceError)
+    assert mapped.fields["backend_code"] == "Neo.ClientError.Procedure.ProcedureCallFailed"
+    assert mapped.fields["error_type"] == "ClientError" and mapped.fields["attempts"] == 2
+
+
+@pytest.mark.parametrize("query", ["search_nodes_vector", "read_nodes_by_uuid", "q"])
+def test_any_other_failed_procedure_is_a_rejected_query_with_diagnostics(query: str) -> None:
+    mapped = _map_error(
+        neo4j_error(ClientError, "Neo.ClientError.Procedure.ProcedureCallFailed"), query, write=False, attempts=3
+    )
+    assert mapped.code == "store_query_rejected" and isinstance(mapped, ConformanceError)
+    assert mapped.fields["backend_code"] == "Neo.ClientError.Procedure.ProcedureCallFailed"
+    assert mapped.fields["error_type"] == "ClientError" and mapped.fields["attempts"] == 3
 
 
 def test_a_write_that_fails_with_a_procedure_error_is_a_write_failure_not_a_complex_query() -> None:
