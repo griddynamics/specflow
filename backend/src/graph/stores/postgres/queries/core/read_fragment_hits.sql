@@ -7,8 +7,8 @@ LEFT JOIN graph.node AS d
     ON
         d.group_id = :project_id
         AND d.kind = 'document'
-        AND d.document_id = (f.props ->> 'document_id')
+        AND d.document_id = f.props ->> 'document_id'
 WHERE
     f.group_id = :project_id
     AND f.kind = 'fragment'
-    AND f.fragment_id = any(CAST(:fragment_ids AS text []))
+    AND f.fragment_id = any(cast(:fragment_ids AS text[]))

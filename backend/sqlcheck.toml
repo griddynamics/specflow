@@ -51,12 +51,25 @@ complete_lists = []
 query_suffixes = [".sql"]
 migration_dirs = ["migrations"]
 orphan_roots = ["src", "migrations"]
-exclude = ["src/graph/*"]   # Cypher text, judged by the cypher track (its DDL reads like SQL)
+# The graph library holds Cypher text, judged by the cypher track (its DDL reads like SQL); its
+# PostgreSQL adapter (src/graph/stores/postgres) holds only .sql files and is judged here.
+exclude = [
+    "src/graph/core/*",
+    "src/graph/build/*",
+    "src/graph/gap/*",
+    "src/graph/plan/*",
+    "src/graph/stores/_bolt/*",
+    "src/graph/stores/neo4j/*",
+    "src/graph/stores/arcadedb/*",
+    "src/graph/stores/tigergraph/*",
+]
 
 [inline_queries.loaders]
 # Loader function name = directory (relative to this file) its path argument is relative to.
 read_query = "src/db/queries"           # db.query_files.read_query
 read_migration_sql = "migrations/sql"   # defined in migration 0001_initial (it never imports src)
+load_core_sql = "src/graph/stores/postgres/queries/core"   # graph.stores.postgres.sqlfiles.load_core_sql
+load_ddl_sql = "src/graph/stores/postgres/ddl"             # graph.stores.postgres.sqlfiles.load_ddl_sql
 
 [semgrep]
 # generated_dir omitted: the schema-bound rules are rendered into a temporary directory

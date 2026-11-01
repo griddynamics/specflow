@@ -17,26 +17,34 @@ around AS (
         e.source_id AS other_id
     FROM center
     INNER JOIN graph.edge AS e ON center.id = e.target_id
+),
+
+found AS (
+    SELECT
+        e.rel_type AS relation,
+        s.spec_id AS source,
+        t.spec_id AS target,
+        e.edge_key,
+        e.props || jsonb_build_object('group_id', e.group_id) AS props
+    FROM around
+    INNER JOIN graph.edge AS e ON around.edge_id = e.id
+    INNER JOIN graph.node AS m ON around.other_id = m.id
+    INNER JOIN graph.node AS s ON e.source_id = s.id
+    INNER JOIN graph.node AS t ON e.target_id = t.id
+    WHERE
+        e.rel_type = any(cast(:relations AS text[]))
+        AND e.group_id = :project_id
+        AND m.group_id = :project_id
+        AND m.kind = 'spec'
+        AND m.labels && cast(:labels AS text[])
 )
 
 SELECT
-    e.type AS relation,
-    s.spec_id AS source,
-    t.spec_id AS target,
-    e.props || jsonb_build_object('group_id', e.group_id) AS props
-FROM around
-INNER JOIN graph.edge AS e ON around.edge_id = e.id
-INNER JOIN graph.node AS m ON around.other_id = m.id
-INNER JOIN graph.node AS s ON e.source_id = s.id
-INNER JOIN graph.node AS t ON e.target_id = t.id
-WHERE
-    e.type = any(CAST(:relations AS text []))
-    AND e.group_id = :project_id
-    AND m.group_id = :project_id
-    AND m.kind = 'spec'
-    AND m.labels && CAST(:labels AS text [])
+    relation,
+    source,
+    target,
+    props
+FROM found
 ORDER BY
-    s.spec_id COLLATE "C",
-    e.type COLLATE "C",
-    t.spec_id COLLATE "C",
-    e.edge_key COLLATE "C"
+    source COLLATE "C", relation COLLATE "C", target COLLATE "C",
+    edge_key COLLATE "C"

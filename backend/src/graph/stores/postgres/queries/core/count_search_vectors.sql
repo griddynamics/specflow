@@ -1,4 +1,5 @@
--- matching: candidates whose search vector was made by :model; stored: all with one.
+-- matching: candidates whose search vector was made by :model;
+-- stored: all with one.
 SELECT
     count(*) FILTER (WHERE n.embedding_model = :model) AS matching,
     count(*) AS stored
@@ -8,12 +9,12 @@ WHERE
     AND n.kind = 'spec'
     AND n.embedding IS NOT NULL
     AND n.spec_id IS NOT NULL
-    AND n.labels && CAST(:labels AS text [])
+    AND n.labels && cast(:labels AS text[])
     AND NOT EXISTS (
         SELECT 1
-        FROM jsonb_each(CAST(:where AS jsonb)) AS w
+        FROM jsonb_each(cast(:where AS jsonb)) AS w
         WHERE NOT (
             coalesce(n.props -> w.key = w.value, FALSE)
-            OR (n.props -> w.key IS NULL AND w.value = CAST('null' AS jsonb))
+            OR (n.props -> w.key IS NULL AND w.value = cast('null' AS jsonb))
         )
     )

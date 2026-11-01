@@ -5,4 +5,4 @@ WHERE
     n.group_id = :project_id
     AND n.kind = 'spec'
     AND n.uuid = :n_key
-    AND CAST(:n_label AS text) = any(n.labels)
+    AND cast(:n_label AS text) = any(n.labels)

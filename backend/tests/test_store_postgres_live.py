@@ -120,7 +120,7 @@ async def seed(store: PostgresStore, ontology: Ontology, project_id: str) -> Own
         "WITH d AS (SELECT id FROM graph.node WHERE group_id = :p AND kind = 'document' AND document_id = 'd1'), "
         "f AS (SELECT id FROM graph.node WHERE group_id = :p AND kind = 'fragment' AND fragment_id = 'f1'), "
         "n AS (SELECT id FROM graph.node WHERE group_id = :p AND kind = 'spec' AND uuid = 'u-fr') "
-        "INSERT INTO graph.edge (group_id, type, source_id, target_id, props) "
+        "INSERT INTO graph.edge (group_id, rel_type, source_id, target_id, props) "
         "SELECT :p, 'CONTAINS', d.id, f.id, CAST('{}' AS jsonb) FROM d, f UNION ALL "
         "SELECT :p, 'REFERENCED_BY', n.id, f.id, CAST('{\"line_start\": 3, \"line_end\": 4}' AS jsonb) FROM n, f",
         p=project_id,
@@ -265,7 +265,7 @@ async def test_a_relationship_is_written_once_conflicts_are_flagged_and_deletes_
     build = writer(store, ontology, project)
     mod, stripe, fr = NodeRef(MODULE, "u-mod"), NodeRef(MODULE, "u-stripe"), NodeRef(FR, "u-fr")
     await build.upsert_relationship(INTEGRATES, mod, stripe, "k-int", {"confidence": 0.5})
-    rows = await raw(store, "SELECT props FROM graph.edge WHERE group_id = :p AND type = 'INTEGRATES_WITH'", p=project)
+    rows = await raw(store, "SELECT props FROM graph.edge WHERE group_id = :p AND rel_type = 'INTEGRATES_WITH'", p=project)
     assert len(rows) == 1 and rows[0]["props"]["confidence"] == 0.5 and rows[0]["props"]["basis"] == INFERRED
     with pytest.raises(ConformanceError) as conflict:
         await build.upsert_relationship(INTEGRATES, stripe, mod, "k-int", {})

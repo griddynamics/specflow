@@ -1,4 +1,4 @@
 -- One value of the graph schema's meta table (unscoped). Parameter: key.
-SELECT m.value
+SELECT m.meta_value
 FROM graph.meta AS m
-WHERE m.key = :key
+WHERE m.meta_key = :key

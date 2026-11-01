@@ -1,4 +1,5 @@
--- Fragment: the foreign node of the project with label :__SHAPE__ and uuid :__KEY__.
+-- Fragment: the foreign node of the project with the label in the parameter
+-- the token SHAPE names and the uuid in the one the token KEY names.
 SELECT n.id
 FROM graph.node AS n
 WHERE
