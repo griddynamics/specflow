@@ -40,7 +40,6 @@ const http: HttpPorts = {
   missionControl: { snapshot: never, subscribe: never, start: never, retry: never, dismiss: never, leave: never },
   sources: {
     githubEnabled: false,
-    pdfOnly: true,
     add: never,
     remove: never,
     files: never,

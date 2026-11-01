@@ -1,5 +1,5 @@
 // FE-BP-08.AC1, AC3 (TECH-SPECS §3.3, §3.4): the upload through `lib/api.ts`, rejecting only with a `DataError`.
-// Upload = the raw File body with `Content-Type: application/pdf` and `X-Requested-With: specflow` (`lib/api.ts` sets both; the
+// Upload = the raw File body with the canonical `Content-Type` of its extension and `X-Requested-With: specflow` (`lib/api.ts` sets both; the
 // BFF streams it, `frontend/README.md` BFF rules). ONE file per request. Since GDRIVE plan 04 (K5) the server starts the parse
 // itself: the browser no longer calls parse or summarize, so this file has no other method.
 import { uploadDocument, type DocumentSummary, type UploadOutcome } from "@/lib/api";

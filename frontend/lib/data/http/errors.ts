@@ -18,6 +18,7 @@ const BY_CODE: Record<string, DataErrorCode> = {
   missing_filename: "validation",
   invalid_path: "validation",
   unsupported_format: "unsupported_format",
+  file_too_large: "file_too_large", // 413; `details.max_bytes` is the cap of that file type
   empty_file: "empty_file",
   upstream_unavailable: "unavailable",
   workflow_start_failed: "unavailable",
@@ -37,6 +38,7 @@ export function codeOfStatus(status: number): DataErrorCode {
   if (status === 401) return "unauthenticated";
   if (status === 404) return "not_found";
   if (status === 409) return "conflict";
+  if (status === 413) return "file_too_large"; // an ingress can answer 413 without the envelope
   if (status === 415) return "unsupported_format";
   if (status === 400 || status === 422) return "validation";
   if (status >= 500) return "unavailable";
@@ -45,14 +47,16 @@ export function codeOfStatus(status: number): DataErrorCode {
 
 export const isRetryableCode = (code: DataErrorCode): boolean => RETRYABLE.has(code);
 
-const make = (code: DataErrorCode, detail?: { status?: number; apiCode?: string }) => new DataError(code, isRetryableCode(code), detail);
+const make = (code: DataErrorCode, detail?: { status?: number; apiCode?: string; maxBytes?: number }) =>
+  new DataError(code, isRetryableCode(code), detail);
 
 /** FE-DATA-01 (TECH-SPECS §2.13): any thrown value -> `DataError`. A `DataError` passes through unchanged. */
 export function toDataError(e: unknown): DataError {
   if (isDataError(e)) return e;
   if (e instanceof ApiError) {
     const code = Object.hasOwn(BY_CODE, e.code) ? BY_CODE[e.code] : codeOfStatus(e.status);
-    return make(code, { status: e.status, apiCode: e.code });
+    const detail = { status: e.status, apiCode: e.code };
+    return make(code, e.maxBytes === undefined ? detail : { ...detail, maxBytes: e.maxBytes });
   }
   if (e instanceof Error && e.name === "AbortError") return make("aborted");
   // A TypeError is `network` only where the caller knows it came from the fetch call itself (`guard`, `client.ts`); anywhere

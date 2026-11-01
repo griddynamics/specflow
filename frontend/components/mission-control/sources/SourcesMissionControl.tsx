@@ -19,6 +19,7 @@ import { PageTitle } from "@/components/ui/TopBar";
 import { useToast } from "@/components/ui/Toast";
 import type { KnowledgePort, ProjectSourcesStatus, Source, SourcesPort } from "@/lib/domain/sources";
 import { parseMissionControlQuery } from "@/lib/routes";
+import { UPLOAD_ACCEPT } from "@/lib/domain/upload-formats";
 import { HeaderActions } from "./HeaderActions";
 import { buildButtonView } from "./kb-logic";
 import { ScreenDialogs, type Dialog } from "./ScreenDialogs";
@@ -209,7 +210,6 @@ export function SourcesMissionControl({
               }}
               onPickFiles={pickFiles}
               github={sources.githubEnabled}
-              pdfOnly={sources.pdfOnly}
               addSourceRef={addSourceButton}
             />
           }
@@ -220,7 +220,7 @@ export function SourcesMissionControl({
         type="file"
         multiple
         hidden
-        accept={sources.pdfOnly ? "application/pdf,.pdf" : undefined}
+        accept={UPLOAD_ACCEPT}
         data-testid="mcs-upload-input"
         aria-label="Upload local files"
         onChange={(e) => {

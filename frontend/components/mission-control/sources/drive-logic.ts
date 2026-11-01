@@ -57,7 +57,8 @@ export function driveReasonMessage(reason: DriveReason, email: string | null): s
 }
 
 const FLAG: Record<ProcessingClass, string> = { processed: "", stored_only: " (stored, not read yet)", skipped: " (skipped)" };
-const CLOSING = "Only Google Docs, Slides, Sheets and PDFs become knowledge for now.";
+const CLOSING =
+  "Google Docs, Slides, Sheets, PDF, Word, PowerPoint, Excel, HTML, Markdown and CSV files become knowledge. Older .doc, .ppt and .xls files and other types are stored only.";
 export const NOTHING_TO_IMPORT = "There is nothing to import from this folder.";
 const count = (n: number, one: string, many: string) => `${String(n)} ${n === 1 ? one : many}`;
 
