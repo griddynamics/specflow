@@ -1,19 +1,21 @@
 "use client";
 // FE-PLAN-08.AC7, AC8, AC9 (G-PLAN-3; DECISIONS P25-3, P25-4): a code block with a Copy button. Copy uses `navigator.clipboard.writeText` and
 // nothing else (R10: no network). Success: the button reads "Copied" for 2 s and a toast shows. Refusal: the text is selected and the line
-// "Press Ctrl/Cmd+C" shows; no toast, no console error. The block scrolls inside its card (`.dev-code`, develop.css).
+// "Press Ctrl/Cmd+C" shows; no toast, no console error. The block scrolls inside its card (`.code-block__scroll`, code-block.css).
+// MCP-M10: moved here from components/plan/develop so the Guides and Plan › Develop share it; behaviour unchanged.
 import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { TOAST_DURATION_MS, useToast } from "@/components/ui/Toast";
-import { COPIED_LABEL, COPIED_MS, COPIED_TOAST, COPY_FALLBACK, COPY_LABEL } from "./labels";
+import { COPIED_LABEL, COPIED_MS, COPIED_TOAST, COPY_FALLBACK, COPY_LABEL } from "./code-block-labels";
 import { tabStop } from "@/components/ui/utils";
+import "./code-block.css";
 
 type CopyState = "idle" | "copied" | "refused";
 
 /** The status line of the copy button: the manual-copy hint after a refusal, a screen-reader note after a copy. */
 function copyNote(state: CopyState) {
   if (state === "refused") return <>{COPY_FALLBACK}</>;
-  return state === "copied" ? <span className="dev-sr">{COPIED_LABEL}</span> : null;
+  return state === "copied" ? <span className="code-block__sr">{COPIED_LABEL}</span> : null;
 }
 
 export function CodeBlock({ caption, text }: Readonly<{ caption: string; text: string }>) {
@@ -68,12 +70,12 @@ export function CodeBlock({ caption, text }: Readonly<{ caption: string; text: s
   }
 
   return (
-    <div className="dev-block">
-      <div className="dev-block__bar">
-        <p className="dev-block__caption" id={captionId}>
+    <div className="code-block">
+      <div className="code-block__bar">
+        <p className="code-block__caption" id={captionId}>
           {caption}
         </p>
-        <span className="dev-block__status" role="status">
+        <span className="code-block__status" role="status">
           {copyNote(state)}
         </span>
         <Button
@@ -88,7 +90,7 @@ export function CodeBlock({ caption, text }: Readonly<{ caption: string; text: s
           {state === "copied" ? COPIED_LABEL : COPY_LABEL}
         </Button>
       </div>
-      <div className="gdg-prose dev-code">
+      <div className="gdg-prose code-block__scroll">
         <pre ref={pre} {...tabStop(true)} aria-label={caption} data-testid="code-block">
           <code>{text}</code>
         </pre>

@@ -71,6 +71,12 @@ export async function readEnvelope(res: Response): Promise<ParsedEnvelope> {
 export const getBackend = (path: string): Promise<Response> =>
   fetch(`${BASE}${path}`, { method: "GET", credentials: "same-origin", headers: HEADERS });
 
+/** POST to the BFF's own `/api/auth/end-session`: where the browser goes to finish a sign-out, or undefined when none came back. */
+export const endSessionDestination = (): Promise<unknown> =>
+  fetch("/api/auth/end-session", { method: "POST", cache: "no-store" })
+    .then(async (res) => (res.ok ? ((await res.json()) as { url?: unknown }).url : undefined))
+    .catch(() => undefined);
+
 async function call(path: string, init: RequestInit = {}): Promise<{ status: number; body: unknown }> {
   const headers = new Headers(HEADERS);
   new Headers(init.headers).forEach((value, key) => {

@@ -24,7 +24,7 @@ from api.routers import (
     sources,
 )
 from api.runtime import DriveTimeoutError, Runtime, RuntimeFactory, build_runtime
-from auth.dependencies import VERIFIER_STATE_ATTR, log_dev_mode_warning
+from auth.dependencies import VERIFIER_STATE_ATTR
 from auth.verifiers import build_verifier
 from drive.gateway import DriveError
 from drive.reasons import Reason
@@ -116,8 +116,6 @@ def create_app(settings: RoleSettings, *, runtime_factory: RuntimeFactory = buil
         auth = required(settings.auth, "the api role requires auth settings")
         try:
             setattr(app.state, VERIFIER_STATE_ATTR, build_verifier(auth))
-            if auth.mode == "dev":
-                log_dev_mode_warning()
             app.state.runtime = await runtime_factory(settings)
             try:
                 await select_drive(app.state.runtime, settings.app.app_env)

@@ -21,7 +21,7 @@
   gap: var(--space-xs);
 }
 
-/* P26 (audit FE-DOD-04.AC1, G-P26-1): Stage 0 and Stage 2 are long (nine rows and a footer; 19 tasks; the Develop steps), so the content scrolls
+/* P26 (audit FE-DOD-04.AC1, G-P26-1): Stage 0 and Stage 2 are long (nine rows and a footer; 19 tasks; the Develop cards), so the content scrolls
    inside its own region, below the header row, and the page does not scroll (as the README, mc-gaps.css, and the Files view). Same bound as
    the README: the window minus the header row and the shell padding. The 4px padding keeps a focus ring at the edge from being clipped. The
    region holds focusable children, so the keyboard scrolls it from them. */

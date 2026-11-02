@@ -1,6 +1,6 @@
 // P17 (FE-BP-03.AC1-AC10, FE-BP-08, FE-BP-09, FE-DS-07, FE-DOD-03): the new screens on the PRODUCTION routes in a real browser,
-// against the stub API through the real BFF (scripts/serve-production.mjs; no backend, no model call). Every case signs in with the
-// dev form and makes its own projects, so the shared stub never decides an outcome; the specs run one at a time (workers 1).
+// against the stub API through the real BFF (scripts/serve-production.mjs; no backend, no model call). Every case signs in over
+// OIDC (the stub issuer) and makes its own projects, so the shared stub never decides an outcome; the specs run one at a time (workers 1).
 import { randomBytes } from "node:crypto";
 import type { Page } from "@playwright/test";
 import { networkQuiet } from "../e2e/support";
@@ -36,7 +36,7 @@ test.describe("P17 screens on production routes", { tag: "@production" }, () => 
     await stubTiming(STUB_TIMING); // a case that changed the stub timing never leaks it into the next one
   });
 
-  test("FE-BP-03.AC5, AC1 (O12, G01-14): dev sign-in on /login lands on `/`, which opens the newest project's Mission Control", async ({
+  test("FE-BP-03.AC5, AC1 (O12, G01-14): OIDC sign-in on /login lands on `/`, which opens the newest project's Mission Control", async ({
     page,
   }) => {
     await login(page);
@@ -182,7 +182,7 @@ test.describe("P17 screens on production routes", { tag: "@production" }, () => 
     await expect(page).toHaveURL(/\/login\?signedout=1$/);
     await expect(page.getByTestId("login-signed-out")).toHaveCount(0); // D21: no signed-out note
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Specflow");
-    await expect(page.getByTestId("login-dev-submit")).toBeVisible();
+    await expect(page.getByTestId("login-oidc")).toBeVisible();
     await page.goto(`/projects/${pid}/mission-control`);
     await expect(page).toHaveURL(/\/login$/); // FE-BP-03.AC6: the session is gone
   });

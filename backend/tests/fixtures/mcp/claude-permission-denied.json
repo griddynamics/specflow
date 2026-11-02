@@ -1,0 +1,58 @@
+{
+  "comment": "Shape of a permission denial in `claude -p --output-format stream-json --verbose` (Claude Code 2.1.316) under --permission-mode dontAsk, reduced to the fields the QA harness reads; ids and paths are placeholders. The system event carries `message` as a STRING (assistant and user events carry an object); `tool_use_id` links it to the assistant `tool_use` block and to the user `tool_result` (is_error true).",
+  "lines": [
+    {
+      "type": "assistant",
+      "message": {
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_01",
+            "name": "Read",
+            "input": {
+              "file_path": "/parent/.specflow/config.json"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "system",
+      "subtype": "permission_denied",
+      "tool_name": "Read",
+      "tool_use_id": "toolu_01",
+      "decision_reason_type": "mode",
+      "message": "Permission to use Read has been denied because Claude Code is running in don't ask mode."
+    },
+    {
+      "type": "user",
+      "message": {
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "toolu_01",
+            "content": "Permission to use Read has been denied because Claude Code is running in don't ask mode.",
+            "is_error": true
+          }
+        ]
+      }
+    },
+    {
+      "type": "result",
+      "subtype": "success",
+      "is_error": false,
+      "result": "done",
+      "num_turns": 2,
+      "total_cost_usd": 0.0,
+      "permission_denials": [
+        {
+          "tool_name": "Read",
+          "tool_use_id": "toolu_01",
+          "tool_input": {
+            "file_path": "/parent/.specflow/config.json"
+          }
+        }
+      ]
+    }
+  ]
+}

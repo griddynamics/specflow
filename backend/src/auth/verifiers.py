@@ -1,26 +1,24 @@
-"""Signature checks: OIDC (JWKS, RS256/ES256) and local dev (HS256).
+"""Signature check: OIDC (JWKS, RS256/ES256).
 
-Each verifier pins its algorithms explicitly, verifies only the signature
+The verifier pins its algorithms explicitly, verifies only the signature
 with PyJWT, and hands the claims to the shared ``claims.validate``. Every
 failure is an ``AuthError``; PyJWT exceptions are never chained or exposed.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any, Final, Protocol, runtime_checkable
 
 import jwt
 from jwt.types import Options
-from pydantic import SecretStr
 
 from auth.claims import ClaimPolicy, Principal, validate
 from auth.errors import invalid_token
 from auth.jwks import JwksCache
-from settings import DEV_SIGNING_KEY_MIN_BYTES, AuthSettings
+from settings import AuthSettings
 
 OIDC_ALGORITHMS: Final = ("RS256", "ES256")
-DEV_ALGORITHMS: Final = ("HS256",)
-DEV_ISSUER: Final = "specflow-dev-login"
 MAX_TOKEN_BYTES: Final = 16 * 1024
 
 # Signature only: every claim rule lives in ``claims.validate``.
@@ -47,11 +45,11 @@ class TokenVerifier(Protocol):
 
 
 class VerifierConfigError(ValueError):
-    """A verifier cannot be built from the settings (a missing key or an unknown mode)."""
+    """A verifier cannot be built from the settings (no issuer)."""
 
 
 class OidcJwtVerifier:
-    """``AUTH_MODE=oidc``: Keycloak-issued RS256/ES256 tokens via JWKS."""
+    """IdP-issued RS256/ES256 tokens, checked against the issuer JWKS."""
 
     def __init__(self, policy: ClaimPolicy, jwks: JwksCache) -> None:
         self._policy = policy
@@ -63,40 +61,25 @@ class OidcJwtVerifier:
         if not isinstance(kid, str) or not kid:
             raise invalid_token("kid_missing")
         key = await self._jwks.signing_key(kid)
-        return validate(_decode(token, key, OIDC_ALGORITHMS), self._policy)
+        return validate(_decode(token, key, OIDC_ALGORITHMS), self._policy, header=header)
 
 
-class DevTokenVerifier:
-    """``AUTH_MODE=dev`` (local only): HS256 tokens from the dev login."""
+def build_verifier(
+    auth: AuthSettings,
+    *,
+    jwks: JwksCache | None = None,
+    audience: str | None = None,
+    client_ids: Iterable[str] | None = None,
+) -> TokenVerifier:
+    """The OIDC verifier; ``jwks`` replaces the cache built from the settings.
 
-    def __init__(self, policy: ClaimPolicy, signing_key: SecretStr | None) -> None:
-        secret = signing_key.get_secret_value() if signing_key is not None else ""
-        if len(secret.encode()) < DEV_SIGNING_KEY_MIN_BYTES:
-            raise VerifierConfigError(f"AUTH_DEV_SIGNING_KEY must be at least {DEV_SIGNING_KEY_MIN_BYTES} bytes")
-        self._policy = policy
-        self._key = secret.encode()
-
-    async def verify(self, token: str) -> Principal:
-        _header(token, DEV_ALGORITHMS)
-        return validate(_decode(token, self._key, DEV_ALGORITHMS), self._policy)
-
-
-def build_verifier(auth: AuthSettings, *, jwks: JwksCache | None = None) -> TokenVerifier:
-    """The verifier for ``AUTH_MODE``; the dev verifier exists only in dev mode.
-
-    ``load_settings`` guards already refuse dev mode outside local; the dev
-    verifier re-checks the key length itself (AC-1.4).
+    ``audience`` and ``client_ids`` override the API's (the MCP surface passes its own).
     """
 
-    if auth.mode == "dev":
-        policy = ClaimPolicy.from_settings(auth, issuer=DEV_ISSUER)
-        return DevTokenVerifier(policy, auth.dev_signing_key)
-    if auth.mode != "oidc":
-        raise VerifierConfigError("AUTH_MODE must be oidc or dev")
     if not auth.issuer:
-        raise VerifierConfigError("OIDC_ISSUER is required when AUTH_MODE is oidc")
+        raise VerifierConfigError("OIDC_ISSUER is required")
     cache = jwks or JwksCache(auth.jwks_url, issuer=auth.issuer)
-    return OidcJwtVerifier(ClaimPolicy.from_settings(auth), cache)
+    return OidcJwtVerifier(ClaimPolicy.from_settings(auth, audience=audience, client_ids=client_ids), cache)
 
 
 def _header(token: object, algorithms: tuple[str, ...]) -> dict[str, Any]:

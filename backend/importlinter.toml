@@ -122,3 +122,39 @@ source_modules = [
     "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
 ]
 forbidden_modules = ["pytest", "_pytest"]
+
+# The MCP role (api.mcp, docs/mcp-server/architecture.md#import-rules) is a sibling of the REST
+# app inside the api package: it shares no REST module and loads no FastAPI (M2), and the REST
+# modules load neither it nor the MCP SDK. `api` as a whole cannot be a source (it holds api.mcp),
+# so the REST modules are listed. A new REST module under api must be added to both lists.
+[[tool.importlinter.contracts]]
+name = "The MCP role uses no REST module and no FastAPI"
+id = "mcp-role-isolated"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["api.mcp"]
+forbidden_modules = [
+    "fastapi", "auth.dependencies",
+    "api.app", "api.batch_files", "api.contained", "api.deps", "api.errors", "api.graph_build", "api.request_id",
+    "api.routers", "api.runtime", "api.schemas", "api.server", "api.source_views", "api.uploads", "api.workflows",
+]
+
+[[tool.importlinter.contracts]]
+name = "The REST app imports neither the MCP role nor the MCP SDK"
+id = "rest-without-mcp"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "api.app", "api.batch_files", "api.contained", "api.deps", "api.errors", "api.graph_build", "api.request_id",
+    "api.routers", "api.runtime", "api.schemas", "api.server", "api.source_views", "api.uploads", "api.workflows",
+]
+forbidden_modules = ["api.mcp", "mcp", "mcp_types"]
+
+# M3 and M4: every graph read is a GraphReader method and every Postgres access a db.repositories function.
+[[tool.importlinter.contracts]]
+name = "The MCP role imports no data driver"
+id = "mcp-no-data-drivers"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["api.mcp"]
+forbidden_modules = ["sqlalchemy", "asyncpg", "neo4j"]

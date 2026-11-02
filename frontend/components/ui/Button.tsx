@@ -12,7 +12,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   ref?: Ref<HTMLButtonElement>;
 }
 
-function Arrow() {
+export function Arrow() {
   return (
     <svg className="gdg-arrow" viewBox="0 0 16 16" fill="none" aria-hidden>
       <path d="M2 8h11M9 4l4 4-4 4" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />

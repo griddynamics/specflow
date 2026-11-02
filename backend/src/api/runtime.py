@@ -11,12 +11,12 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Final
 
-from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.errors import database_unavailable, required
 from api.graph_build.runner import GraphBuildRunner
 from db import session as db_session
+from db.session import is_database_unreachable
 from graph import core as graph_core
 from health import (
     Readiness,
@@ -40,31 +40,6 @@ DRIVE_TEST_CONCURRENCY: Final = 4  # Drive calls in flight per process (B4)
 
 class DriveTimeoutError(Exception):
     """The time budget of a Drive call ran out (waiting for a slot counts)."""
-
-
-_ASYNCPG_CONNECTION_ERRORS: Final = frozenset({"PostgresConnectionError", "InterfaceError"})
-
-
-def _is_asyncpg_connection_error(error: BaseException) -> bool:
-    """``isinstance`` of ``asyncpg.PostgresConnectionError | asyncpg.InterfaceError`` by class name.
-
-    asyncpg ships no type information, so its classes are recognised along the error's MRO.
-    """
-
-    return any(
-        cls.__module__.split(".", 1)[0] == "asyncpg" and cls.__name__ in _ASYNCPG_CONNECTION_ERRORS
-        for cls in type(error).__mro__
-    )
-
-
-def is_database_unreachable(error: BaseException) -> bool:
-    """True only for connectivity failures; a programming error stays a bug (500)."""
-
-    if isinstance(error, OperationalError | InterfaceError | OSError):
-        return True  # OSError covers ConnectionError, timeouts, DNS failures
-    if isinstance(error, DBAPIError):
-        return error.connection_invalidated
-    return _is_asyncpg_connection_error(error)
 
 
 @dataclass

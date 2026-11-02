@@ -39,6 +39,7 @@ from graph.core.identity import (
 )
 from graph.core.ontology import AttributeSpec, Ontology
 from graph.core.queries import (
+    COUNT_NODES,
     COUNT_SEARCH_VECTORS,
     READ_DOCUMENTS,
     READ_EDGES,
@@ -53,6 +54,7 @@ from graph.core.queries import (
     READ_NODES_BY_IDS,
     READ_NODES_BY_UUID,
     READ_NODES_FOR_LINES,
+    READ_NODES_PAGE,
     SEARCH_FRAGMENTS,
     SEARCH_NODES_FULLTEXT,
     SEARCH_NODES_VECTOR,
@@ -205,6 +207,13 @@ class NodeHit(_Frozen):
     matched: MatchKind
 
 
+class NodePage(_Frozen):
+    """One page of spec nodes in ``spec_id`` order and the ``spec_id`` to continue after (None: no more)."""
+
+    items: list[GraphNode]
+    next_after: str | None = None
+
+
 class FragmentHit(_Frozen):
     """A fulltext hit on an ``active`` fragment, with its document and Lucene score."""
 
@@ -299,6 +308,46 @@ class GraphReader:
             READ_NODES, project_id, labels=list(selected), where=conditions, retired=RETIRED
         )
         return self._nodes(rows)
+
+    async def count_nodes(self, project_id: str, labels: Sequence[str] | None) -> int:
+        """Number of spec nodes with any of ``labels``, as ``nodes`` filters (FR-MCP-TOOL-10)."""
+
+        project_id = validate_project_id(project_id)
+        selected = self._labels(labels)
+        rows = await self._executor.read(COUNT_NODES, project_id, labels=list(selected))
+        return int(rows[0]["total"]) if rows else 0
+
+    async def nodes_page(
+        self,
+        project_id: str,
+        labels: Sequence[str] | None,
+        *,
+        limit: int = 50,
+        after: str | None = None,
+    ) -> NodePage:
+        """At most ``limit`` (1 to 500) spec nodes after ``after``, as ``nodes`` filters (FR-MCP-TOOL-10).
+
+        Reads ``limit + 1`` rows: a further row means more exist and ``next_after`` is the last
+        ``spec_id`` of the page. The decision uses the raw rows, so a row ``nodes`` would skip cannot
+        hide a next page.
+
+        ``after`` is a ``spec_id`` string, exclusive; it is not checked here, so a non-string gives an empty page.
+        """
+
+        project_id = validate_project_id(project_id)
+        _check_limit(limit)
+        selected = self._labels(labels)
+        rows = await self._executor.read(
+            READ_NODES_PAGE,
+            project_id,
+            labels=list(selected),
+            after=after,
+            limit=limit + 1,
+            retired=RETIRED,
+        )
+        kept = rows[:limit]
+        next_after = kept[-1]["props"]["spec_id"] if len(rows) > limit else None
+        return NodePage(items=self._nodes(kept), next_after=next_after)
 
     async def neighbours(
         self, project_id: str, spec_id: str, relations: Sequence[str] | None = None

@@ -56,6 +56,7 @@ from graph.core.reader import (
     GraphReader,
     ImpactResult,
     NodeHit,
+    NodePage,
     Provenance,
     Statement,
 )
@@ -92,6 +93,7 @@ __all__ = [
     "LLMFatalError",
     "Neo4jConfig",
     "NodeHit",
+    "NodePage",
     "NodeRef",
     "Ontology",
     "OntologyError",

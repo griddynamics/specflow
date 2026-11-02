@@ -111,6 +111,9 @@ What the template fixes and what implementation may improve:
 | Structure: labels, groups, roles, `origin`, `tier`, `id` formats, `id_families`, `identity`, attribute names, types and enum values, relations, `pairs` and their flags, `symmetric`, `id_references`, `derive`, `spine`, inference rules | Fixed by this spec. A change is a spec change, made here first. |
 | Prompt text: `corpus.framing`, `corpus.exclude`, type and relation `description` and `guidance` (definitions, naming rules, GOOD and BAD examples), attribute `description`s, enum value descriptions and `aliases`, `cues` | A starting point. Developers and coding agents may rewrite it to improve extraction, and judge prompt files are written the same way. |
 
+The MCP server finds features by the type key `feature` and returns their stored attributes; renaming that key breaks
+`list_features` ([../mcp-server/tools.md](../mcp-server/tools.md#list_features)).
+
 Rules for prompt-text changes:
 
 1. Keep the shape: each type keeps a definition, a naming rule, and GOOD and BAD examples that name

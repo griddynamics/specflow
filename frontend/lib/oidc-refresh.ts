@@ -10,10 +10,13 @@ export const REFRESH_LEEWAY_SECONDS = 30;
 const RESULT_TTL_MS = 120_000;
 const FAILURE_TTL_MS = 30_000;
 const DISCOVERY_TTL_MS = 600_000;
+const DISCOVERY_TIMEOUT_MS = 5_000;
 
 export interface TokenSet {
   access_token: string;
   refresh_token?: string;
+  /** Only when the issuer returned one: the stored id_token (the logout hint) is then replaced. */
+  id_token?: string;
   expires_at: number;
 }
 export type RefreshResult = { ok: true; tokens: TokenSet } | { ok: false };
@@ -24,7 +27,7 @@ interface Entry {
   ok?: boolean;
 }
 const entries = new Map<string, Entry>();
-let discovery: { tokenEndpoint: string; at: number } | undefined;
+let discovery: { tokenEndpoint: string; endSessionEndpoint?: string; at: number } | undefined;
 
 /** Back channel: replace the public issuer prefix by OIDC_INTERNAL_URL. */
 export function toBackChannel(url: string): string {
@@ -43,21 +46,39 @@ export function backChannelFetch(input: RequestInfo | URL, init?: RequestInit): 
   return fetch(new Request(toBackChannel(input.url), input), init);
 }
 
-async function tokenEndpoint(): Promise<string> {
-  if (discovery && Date.now() - discovery.at < DISCOVERY_TTL_MS) return discovery.tokenEndpoint;
+async function discover(fresh = false): Promise<NonNullable<typeof discovery>> {
+  if (!fresh && discovery && Date.now() - discovery.at < DISCOVERY_TTL_MS) return discovery;
   const { issuer } = appConfig().oidc;
-  const res = await fetch(toBackChannel(`${issuer}/.well-known/openid-configuration`));
+  const res = await fetch(toBackChannel(`${issuer}/.well-known/openid-configuration`), {
+    signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
+    redirect: "error", // discovery is never redirected: the back channel must not be steered elsewhere
+  });
   if (!res.ok) throw new Error("discovery_failed");
-  const doc = (await res.json()) as { token_endpoint?: string };
+  const doc = (await res.json()) as { token_endpoint?: string; end_session_endpoint?: string };
   if (doc.token_endpoint === undefined || doc.token_endpoint === "") throw new Error("discovery_failed");
-  discovery = { tokenEndpoint: doc.token_endpoint, at: Date.now() };
-  return discovery.tokenEndpoint;
+  const { end_session_endpoint: endSession } = doc;
+  discovery = {
+    tokenEndpoint: doc.token_endpoint,
+    // Browser-facing (the user agent is sent there): used as advertised, never rewritten to the back channel.
+    endSessionEndpoint: typeof endSession === "string" && endSession !== "" ? endSession : undefined,
+    at: Date.now(),
+  };
+  return discovery;
+}
+
+/**
+ * The issuer's `end_session_endpoint`, or undefined when it advertises none (Google). Throws when discovery fails.
+ * Read fresh (and the cache refreshed): a sign-out is rare, and sending the browser to an endpoint the issuer no longer
+ * serves would strand the user on an error page instead of the local sign-out.
+ */
+export async function endSessionEndpoint(): Promise<string | undefined> {
+  return (await discover(true)).endSessionEndpoint;
 }
 
 async function doRefresh(refreshToken: string): Promise<RefreshResult> {
   try {
     const { clientId, clientSecret } = appConfig().oidc;
-    const res = await fetch(toBackChannel(await tokenEndpoint()), {
+    const res = await fetch(toBackChannel((await discover()).tokenEndpoint), {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -71,6 +92,7 @@ async function doRefresh(refreshToken: string): Promise<RefreshResult> {
     const body = (await res.json()) as {
       access_token?: string;
       refresh_token?: string;
+      id_token?: string;
       expires_in?: number;
     };
     if (body.access_token === undefined || body.access_token === "" || typeof body.expires_in !== "number") return { ok: false };
@@ -79,6 +101,7 @@ async function doRefresh(refreshToken: string): Promise<RefreshResult> {
       tokens: {
         access_token: body.access_token,
         refresh_token: body.refresh_token ?? refreshToken,
+        ...(typeof body.id_token === "string" && body.id_token !== "" ? { id_token: body.id_token } : {}),
         expires_at: Math.floor(Date.now() / 1000) + body.expires_in,
       },
     };

@@ -61,8 +61,8 @@ config-classes = ["DatabaseSettings", "CallBudget"]
 # the URL default ports come from http.client and the signing-key floor from hashlib.
 scan = ["src/settings.py"]
 # Lower-case configuration keys an UPPER_SNAKE constant of the scanned code may be named after:
-# the documented defaults of API_PORT, WORKER_HEALTH_PORT, DATABASE_PORT and GRAPH_EMBEDDING_DIM.
-keys = ["api_port", "worker_health_port", "database_port", "graph_embedding_dim"]
+# the documented defaults of API_PORT, WORKER_HEALTH_PORT, MCP_PORT, DATABASE_PORT and GRAPH_EMBEDDING_DIM.
+keys = ["api_port", "worker_health_port", "mcp_port", "database_port", "graph_embedding_dim"]
 
 # ---------------------------------------------------------------- runtime-defaults
 [runtime-defaults]
@@ -124,6 +124,13 @@ files = ["tests/fixtures/specgraph/prefragmented/*.json"]
 [[json-schemas]]
 schema = "contracts/schemas/shop-answers.schema.json"
 files = ["tests/fixtures/graph/shop/answers/*.yaml"]
+
+# The workspace binding file (.specflow/config.json of a user's repository), format version 1. The
+# negative cases (extra key, version 2, bad id or server, name length) live in
+# tests/test_workspace_config_schema.py, because every file this glob matches must pass.
+[[json-schemas]]
+schema = "contracts/schemas/specflow-workspace-config.schema.json"
+files = ["tests/fixtures/mcp/specflow-workspace-config.json"]
 
 # The kit inputs, in the formats validation/sql (sqlcheck.schema) and validation/cypher
 # (cypher_checks.schema) document.
