@@ -69,13 +69,15 @@ const PARSED = new Set(["parsed", "ingested", "partially_ingested"]);
  * `clientIds` (default: the web client "specflow-web"), and `email_verified` true. Anything else is a 401. `typ` is not checked.
  * Without `verify` any bearer is accepted (the open mode of the contract tests).
  * parseMs/summarizeMs = Infinity keeps the work "in progress" forever (stuck tests).
+ * Knowledge build knobs on `state` (see `graphRoute`): graphMs (a build resolves when it has run that long; Infinity = never),
+ * graphOutcome ("succeeded" | "partially_succeeded" | "failed") and graphStartFail (null | an API code: the POST answers 503 with it).
  */
 export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs = 1500, parseOutcome = "parsed" }) {
   const keys = verify ? createLocalJWKSet(verify.jwks) : undefined;
   const projects = new Map();
   const docs = new Map(); // id -> doc
   const log = []; // {method, path, headers, authOk, contentType, bytes}
-  const state = { parseMs, summarizeMs, parseOutcome };
+  const state = { parseMs, summarizeMs, parseOutcome, graphMs: 1500, graphOutcome: "succeeded", graphStartFail: null };
   /** Drive: sources per project (SourceOut rows, mutable by tests), and the identity answer (a Reason string = 503 with that code). */
   const sources = new Map(); // pid -> SourceOut[]
   const drive = { identityReason: null, email: "specflow-sa@example.test" };
@@ -105,6 +107,68 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       processed_documents: mine.filter((d) => PARSED.has(d.row.status)).length,
     };
   };
+  // Knowledge build (`/graph_build`): one state per project, idle at first. No timer: a running build is resolved when it is read.
+  const graphs = new Map(); // pid -> {status, build_id, mode, started_at, finished_at, error_code, startedMs, succeededBefore}
+  let graphSeq = 0;
+  const graphOf = (pid) => {
+    const g = graphs.get(pid) ?? { status: "idle", build_id: null, mode: null, started_at: null, finished_at: null, error_code: null };
+    if (g.status === "running" && Date.now() - g.startedMs >= state.graphMs) {
+      g.status = state.graphOutcome;
+      g.finished_at = new Date().toISOString();
+      if (g.status === "failed") g.error_code = "stub_failure";
+      else g.succeededBefore = true;
+    }
+    graphs.set(pid, g);
+    return g;
+  };
+  const graphWire = ({ status, build_id, mode, started_at, finished_at, error_code }) => ({
+    status,
+    build_id,
+    mode,
+    started_at,
+    finished_at,
+    error_code,
+  });
+  /** The POST body is empty or JSON whose only key is `reasoning_level`: null or an integer 1..5 (the backend's GraphBuildRequest). */
+  const validGraphBody = (text) => {
+    if (text.trim() === "") return true;
+    try {
+      const b = JSON.parse(text);
+      if (typeof b !== "object" || b === null || Array.isArray(b)) return false;
+      const keys = Object.keys(b);
+      if (keys.some((k) => k !== "reasoning_level")) return false;
+      const n = b.reasoning_level;
+      return keys.length === 0 || n === null || (Number.isInteger(n) && n >= 1 && n <= 5);
+    } catch {
+      return false;
+    }
+  };
+  async function graphRoute({ req, res, pid, entry }) {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    if (req.method === "GET") return json(res, 200, graphWire(graphOf(pid)));
+    if (req.method !== "POST") return err(res, 405, "method_not_allowed");
+    const text = Buffer.concat(chunks).toString();
+    if (!validGraphBody(text)) return err(res, 422, "validation_failed");
+    entry.bodyText = text;
+    if (state.graphStartFail) return err(res, 503, state.graphStartFail);
+    if (model.status(pid).processed_documents === 0) return err(res, 409, "no_processed_documents");
+    const g = graphOf(pid);
+    if (g.status === "running") return json(res, 202, graphWire(g));
+    const now = Date.now();
+    graphs.set(pid, {
+      status: "running",
+      build_id: `gb-${String(++graphSeq)}`,
+      mode: g.succeededBefore ? "update" : "first",
+      started_at: new Date(now).toISOString(),
+      finished_at: null,
+      error_code: null,
+      startedMs: now,
+      succeededBefore: g.succeededBefore === true,
+    });
+    return json(res, 202, graphWire(graphs.get(pid)));
+  }
+
   async function sourcesRoute({ req, res, url, pid, did, action, entry }) {
     const drain = async () => {
       for await (const c of req) void c;
@@ -351,6 +415,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     }
     if (!b) return json(res, 200, project);
     if (b === "sources") return sourcesRoute({ req, res, url, pid, did, action, entry });
+    if (b === "graph_build") return graphRoute({ req, res, pid, entry });
     if (b !== "documents") return err(res, 404, "not_found");
 
     if (!did) {

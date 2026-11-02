@@ -1,5 +1,5 @@
-// Mission Control sources (plans/mission-control-sources/DESIGN.md D1, D7-D11). The demo mock implements these ports in full; the
-// production http adapter (lib/data/http/sources.ts, knowledge.ts) maps the lean sources API onto the same shapes (GDRIVE plan 07).
+// Mission Control sources (plans/mission-control-sources/DESIGN.md D1, D7-D11). The production http adapter (lib/data/http/sources.ts,
+// knowledge.ts) maps the lean sources API and `graph_build` onto these shapes (GDRIVE plan 07; plans/connect-build-kg-button).
 // The shapes follow the design's API resources (connections, project status, knowledge builds).
 import type { Unsubscribe } from "./common";
 
@@ -114,25 +114,37 @@ export interface Connection {
 export type BuildMode = "first" | "update" | "rebuild";
 export type BuildState = "queued" | "running" | "succeeded" | "partially_succeeded" | "failed" | "stopped";
 
+/** The knowledge build's reasoning level, 1 (Low) .. 5 (Max). The backend only logs it. */
+export type ReasoningLevel = 1 | 2 | 3 | 4 | 5;
+export const isReasoningLevel = (n: number): n is ReasoningLevel => Number.isInteger(n) && n >= 1 && n <= 5;
+
+/** One knowledge build as `GET graph_build` reports it; fields the API did not send are null. */
 export interface KnowledgeBuild {
-  id: string;
-  mode: BuildMode;
+  id: string | null;
+  mode: BuildMode | null;
   state: BuildState;
-  total: number; // documents (first, rebuild) or changes (update) in this build
-  completed: number;
-  current: string | null; // name of the document in work
-  documentCount: number; // documents in the knowledge when this build is done
-  startedAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  errorCode: string | null;
+}
+
+/** Why the last build could not be started or ended in `failed`: ids, codes and times only, never server text. */
+export interface BuildFailure {
+  code: string;
+  buildId: string | null;
+  mode: BuildMode | null;
+  startedAt: string | null;
   finishedAt: string | null;
 }
 
-/** The project's source and build state (DESIGN "States"); it picks the build button's label and the demo start points. */
+/** The project's source and build state (DESIGN "States"); it picks the build button's label. */
 export type KnowledgePhase = "no_sources" | "collecting" | "ready_to_build" | "building" | "up_to_date" | "sources_changed" | "attention";
 
 /** D9: one server-side status read for the project. */
 export interface ProjectSourcesStatus {
   phase: KnowledgePhase;
-  ready: boolean; // D9: Ready = the first build succeeded; stays true when sources change
+  /** The first knowledge build succeeded; stays true when sources change. NOT the Ready gate (`isReady`: at least one processed document). */
+  ready: boolean;
   /** Every source of the project in added order (FR-SRC-0006): Drive folders, GitHub repositories (demo) and Local files batches. */
   sources: Source[];
   /** All sources and uploads together (FR-GDUI-0021): listing done when every source listed; counts add up. */
@@ -144,6 +156,8 @@ export interface ProjectSourcesStatus {
   nextBuild: Exclude<BuildMode, "rebuild"> | null;
   build: KnowledgeBuild | null; // the running build
   lastBuild: KnowledgeBuild | null; // the last finished build
+  /** The last build failed, or starting one was refused; null while a build runs or after a newer one succeeded. */
+  buildFailure: BuildFailure | null;
 }
 
 // ---- Sources, files and their states (DATA-SRC-0001/0002/0003; sources-ux SPECS §7.1) ----
@@ -246,13 +260,11 @@ export interface SourcesPort {
 
 /** The source-aware Mission Control port (D9, D11): project status and knowledge builds. */
 export interface KnowledgePort {
-  /** Whether `build` does anything. Production: false (Q12), a click only says "not available yet". The demo: true. */
-  readonly buildAvailable: boolean;
   status(projectId: string): Promise<ProjectSourcesStatus>;
   /** Called after any change of the project's sources, files or builds; read `status` again. */
   subscribe(projectId: string, listener: () => void): Unsubscribe;
-  /** One build at a time per project; `first` before Ready, `update` / `rebuild` after. */
-  build(projectId: string, mode: BuildMode): Promise<KnowledgeBuild>;
+  /** Starts a knowledge build (the server picks first or update). Rejects with a `DataError` on failure; the same failure shows in the next `status()`. */
+  build(projectId: string, opts: { reasoningLevel: ReasoningLevel }): Promise<void>;
   /** Mission Control unmounted. Work keeps running at the source side; only screen listeners stop. */
   leave(projectId: string): void;
 }

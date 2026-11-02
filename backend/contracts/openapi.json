@@ -545,6 +545,27 @@
         "title": "FilePageOut",
         "type": "object"
       },
+      "GraphBuildRequest": {
+        "additionalProperties": false,
+        "description": "Optional body of ``POST /graph_build``; the level is only validated and logged.",
+        "properties": {
+          "reasoning_level": {
+            "anyOf": [
+              {
+                "maximum": 5.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning Level"
+          }
+        },
+        "title": "GraphBuildRequest",
+        "type": "object"
+      },
       "GraphBuildStatus": {
         "description": "``/graph_build``: ids, counts and codes only, never document text.\n\n``settled``, ``spec_changes`` (count per kind) and ``verification_ok`` come\nwith a finished build; ``error_code`` with a failed one.",
         "properties": {
@@ -1842,6 +1863,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/GraphBuildRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "202": {
             "content": {

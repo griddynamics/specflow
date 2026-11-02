@@ -50,7 +50,7 @@ const http: HttpPorts = {
     testDrive: never,
     saveDrive: never,
   },
-  knowledge: { buildAvailable: false, status: never, subscribe: never, build: never, leave: never },
+  knowledge: { status: never, subscribe: never, build: never, leave: never },
 };
 const ports = composeProductionPorts(http);
 
@@ -86,6 +86,14 @@ test("SPL-DEMO-02: plan answers an empty table and idle; create is not_available
   const off = ports.plan.subscribe(UUID, never);
   off();
   ports.plan.leave(UUID);
+});
+
+test("AC-D6: the composed knowledge port has no buildAvailable (the build is real: no not_available path)", () => {
+  assert.equal("buildAvailable" in ports.knowledge, false);
+  assert.deepEqual(
+    Object.keys(ports.knowledge).toSorted((a, b) => a.localeCompare(b)),
+    ["build", "leave", "status", "subscribe"],
+  );
 });
 
 test("SPL-DEMO-02: the table answer is a fresh object each time (a caller cannot change the next answer)", async () => {

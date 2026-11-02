@@ -7,17 +7,23 @@ import { networkQuiet } from "../e2e/support";
 import {
   allowConsoleErrors,
   bff,
+  confirmDialog,
   createProjectApi,
   createViaNew,
   expect,
   expectSourceCard,
   expectUploadReady,
+  kbBuild,
   login,
+  openConfirm,
   pickLocalPdf,
   projectSwitcher,
   rail,
+  readyProject,
   saveDriveApi,
   seedDocument,
+  seedSource,
+  settled,
   setTheme,
   STUB_TIMING,
   stubLog,
@@ -26,6 +32,11 @@ import {
   topbarProjectName,
   defined,
 } from "./support";
+
+type ButtonState = "running" | "failed" | "ready" | "off";
+const dialogOf = (page: Page) => page.getByRole("dialog");
+const confirmButton = (page: Page) => page.getByTestId("kb-build-dialog-confirm");
+const expectState = (page: Page, state: ButtonState) => expect(kbBuild(page)).toHaveAttribute("data-state", state);
 
 test.describe("P17 screens on production routes", { tag: "@production" }, () => {
   const MC = /\/projects\/([0-9a-f-]{36})\/mission-control$/;
@@ -80,7 +91,7 @@ test.describe("P17 screens on production routes", { tag: "@production" }, () => 
     await expect(topbarProjectName(page)).toHaveText(name);
   });
 
-  test("FE-BP-08, K4, K5, Q12: create -> Local files -> the card collects, the server parses, Ready; the upload is the raw PDF; GitHub is not offered; Build knowledge says not available yet", async ({
+  test("FE-BP-08, K4, K5, AC-U5, AC-U17: create -> Local files -> the card collects, the server parses, Ready; the upload is the raw PDF; GitHub is not offered; Build knowledge opens the confirm (no request, no not-available text)", async ({
     page,
     requests,
   }) => {
@@ -92,8 +103,15 @@ test.describe("P17 screens on production routes", { tag: "@production" }, () => 
     await expectUploadReady(page);
     await expect(page.getByTestId("kb-build")).toHaveAttribute("data-mode", "first");
     await page.getByTestId("kb-build").click();
-    await expect(page.getByText("Building knowledge is not available yet.")).toBeVisible(); // Q12
+    await expect(confirmDialog(page)).toBeVisible(); // AC-U5: the click only opens the confirm
+    await expect(page.getByText(/not available yet/i)).toHaveCount(0); // AC-U17
     await expect(page.getByText(/\bdemo\b/i)).toHaveCount(0);
+    await dialogOf(page).getByRole("button", { name: "Cancel" }).click();
+    await expect(confirmDialog(page)).toHaveCount(0);
+    expect(
+      requests.filter((r) => r.path === `/api/backend/projects/${pid}/graph_build` && r.method === "POST"),
+      "AC-U5: Cancel starts no build",
+    ).toHaveLength(0);
     await page.getByTestId("mcs-add-source").click();
     await expect(page.getByRole("menuitem", { name: /Google Drive/ })).toBeVisible();
     await expect(page.getByRole("menuitem", { name: /Local files/ })).toBeVisible();
@@ -133,6 +151,191 @@ test.describe("P17 screens on production routes", { tag: "@production" }, () => 
       await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
       "no horizontal scroll",
     ).toBe(true);
+  });
+
+  // ---- plans/connect-build-kg-button: the Build knowledge button, its confirm modal and the reasoning slider ----
+
+  const graphPosts = (
+    requests: { method: string; path: string; postData: string | null; headers: Record<string, string> }[],
+    pid: string,
+  ) => requests.filter((r) => r.method === "POST" && r.path === `/api/backend/projects/${pid}/graph_build`);
+  const builtToast = (page: Page) => page.getByTestId("toast").filter({ hasText: "Knowledge built" });
+
+  test("AC-U6, AC-U7: the first-build confirm has the exact copy; the slider has 5 stops, starts on Medium, follows the arrow keys, takes the focus and uses the yellow accent", async ({
+    page,
+  }) => {
+    await readyProject(page, "Confirm copy");
+    await openConfirm(page);
+    const dialog = dialogOf(page);
+    await expect(dialog).toContainText("Build knowledge?");
+    await expect(dialog).toContainText("Run it when all of the project's files are connected and imported.");
+    await expect(dialog.getByRole("button", { name: "Cancel" })).toBeVisible();
+    await expect(confirmButton(page)).toHaveText("Build");
+    const level = page.getByTestId("kb-level");
+    // Modal's first-field rule: the slider has the focus when the confirm opens.
+    await expect(level).toBeFocused();
+    await expect(level).toHaveAccessibleName("Reasoning level");
+    await expect(level).toHaveAttribute("min", "1");
+    await expect(level).toHaveAttribute("max", "5");
+    await expect(level).toHaveAttribute("step", "1");
+    await expect(level).toHaveValue("2");
+    await expect(level).toHaveAttribute("aria-valuetext", "Medium");
+    for (const name of ["Low", "Medium", "High", "Extra high", "Max"]) await expect(dialog.getByText(name, { exact: true })).toBeAttached(); // zero-width names centred on the stops: attached, with no box to measure
+    // The estimate is the slider's description (1 document, Medium: SPECS §5).
+    const hint = "Medium: this can take about 2–4 minutes for 1 document. The level affects how long the build takes.";
+    await expect(level).toHaveAccessibleDescription(hint);
+    // Arrow keys move the stops; the name and the hint follow.
+    const stops: [string, string, string][] = [
+      ["ArrowRight", "3", "High"],
+      ["ArrowRight", "4", "Extra high"],
+      ["ArrowRight", "5", "Max"],
+      ["ArrowLeft", "4", "Extra high"],
+      ["Home", "1", "Low"],
+      ["End", "5", "Max"],
+    ];
+    for (const [key, value, name] of stops) {
+      await page.keyboard.press(key);
+      await expect(level).toHaveValue(value);
+      await expect(level).toHaveAttribute("aria-valuetext", name);
+      await expect(level).toHaveAccessibleDescription(new RegExp(`^${name}: this can take about \\d+–\\d+ minutes for 1 document\\.`));
+    }
+    // The accent is the --yellow token (OP4).
+    const accent = await level.evaluate((el) => {
+      const probe = document.createElement("span");
+      probe.style.color = "var(--yellow)";
+      document.body.appendChild(probe);
+      const yellow = getComputedStyle(probe).color;
+      probe.remove();
+      return { accent: getComputedStyle(el).accentColor, yellow };
+    });
+    expect(accent.yellow, "the --yellow token resolves to a colour").toMatch(/^(rgb|color)\(/);
+    expect(accent.accent).toBe(accent.yellow);
+  });
+
+  test("AC-U5, AC-U16: Cancel and Esc send no POST and return the focus to the Build button", async ({ page, requests }) => {
+    const pid = await readyProject(page, "Dismiss paths");
+    await openConfirm(page);
+    await dialogOf(page).getByRole("button", { name: "Cancel" }).focus();
+    await page.keyboard.press("Enter");
+    await expect(confirmDialog(page)).toHaveCount(0);
+    await expect(kbBuild(page)).toBeFocused();
+    await openConfirm(page);
+    await page.keyboard.press("Escape");
+    await expect(confirmDialog(page)).toHaveCount(0);
+    await expect(kbBuild(page)).toBeFocused();
+    expect(graphPosts(requests, pid)).toHaveLength(0);
+    await expect(kbBuild(page)).toHaveAttribute("data-mode", "first");
+  });
+
+  test("AC-U8, AC-U16, AC-U1e, AC-U3, AC-U10: Build sends the default level 2; the button is busy; a reload keeps Building…; success gives Update knowledge and one toast; focus is back on the button", async ({
+    page,
+    requests,
+  }) => {
+    const pid = await readyProject(page, "Default build");
+    await stubTiming({ graphMs: null }); // the build stays running until a case says otherwise
+    await openConfirm(page);
+    await confirmButton(page).focus();
+    await page.keyboard.press("Enter");
+    await expect(kbBuild(page)).toBeFocused();
+    await expect.poll(() => graphPosts(requests, pid).length).toBe(1);
+    expect(graphPosts(requests, pid)[0].postData).toBe('{"reasoning_level":2}');
+    expect(graphPosts(requests, pid)[0].headers["x-requested-with"]).toBe("specflow");
+    // The button row: busy, not dimmed, spinning, still focusable (aria-disabled, not disabled).
+    await expect(kbBuild(page)).toContainText("Building…");
+    await expectState(page, "running");
+    await expect(kbBuild(page)).toHaveAttribute("aria-disabled", "true");
+    await expect(kbBuild(page)).not.toHaveAttribute("disabled", /.*/);
+    await expect(kbBuild(page)).toHaveClass(/mcs-btn--busy/);
+    expect(await kbBuild(page).evaluate((el) => el.querySelector(".gdg-spinner")?.getAttribute("aria-hidden")), "a hidden spinner").toBe(
+      "true",
+    );
+    await expect(kbBuild(page)).toHaveCSS("opacity", "1");
+    await expect(page.getByTestId("kb-detail")).toHaveText(/^Started \d\d:\d\d · (less than a minute|\d+ min) so far$/);
+    await expect(page.getByRole("status").filter({ hasText: "Knowledge: Building." })).toBeAttached();
+    // A click while building does nothing.
+    await kbBuild(page).focus(); // aria-disabled: a click would wait for "enabled", so press Enter
+    await page.keyboard.press("Enter");
+    await settled(page);
+    await expect(confirmDialog(page)).toHaveCount(0);
+    // AC-U3: a reload during the build still shows it ...
+    await page.reload();
+    await expect(kbBuild(page)).toContainText("Building…");
+    await expectState(page, "running");
+    // ... and when it ends the button offers an update. After a reload no toast (this screen never saw the build start).
+    await stubTiming({ graphMs: 0 });
+    await expect(kbBuild(page)).toContainText("Update knowledge", { timeout: 20_000 });
+    await expect(kbBuild(page)).toHaveAttribute("data-mode", "update");
+    await expectState(page, "ready");
+    // AC-U1e: the update row.
+    await expect(kbBuild(page)).toHaveText(/^\s*Update knowledge\s*$/);
+    await expect(kbBuild(page)).not.toHaveAttribute("aria-disabled", /.*/);
+    await settled(page);
+    await expect(builtToast(page)).toHaveCount(0);
+    expect(graphPosts(requests, pid)).toHaveLength(1);
+  });
+
+  test("AC-U10, AC-U8: a build seen in this tab toasts 'Knowledge built' once; High sends level 3 (one ArrowRight); an update build later does not toast", async ({
+    page,
+    requests,
+  }) => {
+    const pid = await readyProject(page, "High build");
+    await stubTiming({ graphMs: 2500 });
+    await openConfirm(page);
+    await page.keyboard.press("ArrowRight"); // Medium -> High
+    await expect(page.getByTestId("kb-level")).toHaveAttribute("aria-valuetext", "High");
+    await confirmButton(page).click();
+    await expect.poll(() => graphPosts(requests, pid).length).toBe(1);
+    expect(graphPosts(requests, pid)[0].postData).toBe('{"reasoning_level":3}');
+    await expect(kbBuild(page)).toContainText("Building…");
+    await expect(builtToast(page)).toBeVisible({ timeout: 20_000 });
+    await expect(builtToast(page)).toContainText("1 document are in the project's knowledge.");
+    await expect(builtToast(page)).toHaveCount(1);
+    await expect(kbBuild(page)).toContainText("Update knowledge");
+    // The update confirm: its own copy and hint; Update sends the level too; no toast when it finishes.
+    await page.getByTestId("toast").first().waitFor({ state: "detached", timeout: 20_000 }); // the toast leaves by itself
+    await openConfirm(page);
+    const dialog = dialogOf(page);
+    await expect(dialog).toContainText("Update knowledge?");
+    await expect(dialog).toContainText("Only new, changed and removed documents are processed. This usually takes a few minutes.");
+    await expect(confirmButton(page)).toHaveText("Update");
+    await expect(page.getByTestId("kb-level")).toHaveAccessibleDescription("The level affects how long the build takes.");
+    await confirmButton(page).click();
+    await expect.poll(() => graphPosts(requests, pid).length).toBe(2);
+    expect(graphPosts(requests, pid)[1].postData).toBe('{"reasoning_level":2}');
+    await expect(kbBuild(page)).toContainText("Building…");
+    await expect(kbBuild(page)).toContainText("Update knowledge", { timeout: 20_000 });
+    await settled(page);
+    await expect(builtToast(page)).toHaveCount(0);
+  });
+
+  test("AC-U9, AC-U17: no ⋯ menu and no Rebuild anywhere, before and after a build; no 'Not available yet'", async ({ page }) => {
+    await readyProject(page, "No menu");
+    const absent = async () => {
+      await expect(page.getByTestId("kb-menu")).toHaveCount(0);
+      await expect(page.getByText(/rebuild/i)).toHaveCount(0);
+      await expect(page.getByText(/not available yet/i)).toHaveCount(0);
+    };
+    await absent();
+    await stubTiming({ graphMs: 0 });
+    await openConfirm(page);
+    await confirmButton(page).click();
+    await expect(kbBuild(page)).toContainText("Update knowledge", { timeout: 20_000 });
+    await absent();
+  });
+
+  test("0 documents: with only stored files the button is off and says so; a click opens nothing", async ({ page, requests }) => {
+    await login(page);
+    const pid = await createProjectApi(page, unique("No documents"));
+    await seedSource(pid, { kind: "upload", name: "Local files", files: [{ name: "a.docx", state: "skipped" }] });
+    await page.goto(`/projects/${pid}/mission-control`);
+    await expectState(page, "off");
+    await expect(kbBuild(page)).toHaveAttribute("aria-disabled", "true");
+    await expect(page.getByTestId("kb-detail")).toHaveText("No documents to build yet.");
+    await kbBuild(page).focus(); // aria-disabled: a click would wait for "enabled", so press Enter
+    await page.keyboard.press("Enter");
+    await settled(page);
+    await expect(confirmDialog(page)).toHaveCount(0);
+    expect(graphPosts(requests, pid)).toHaveLength(0);
   });
 
   test("FE-BP-03 (switcher, FE-SHELL-02): the switcher lists the real projects newest first and opens the picked project's Mission Control", async ({

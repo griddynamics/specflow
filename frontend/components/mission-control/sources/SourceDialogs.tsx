@@ -160,7 +160,7 @@ export function TokenDialog({
   );
 }
 
-/** A yes/no confirmation (Rebuild from scratch: full cost; Remove source). */
+/** A yes/no confirmation (the build confirm with its slider as children; Remove source). */
 export function ConfirmDialog({
   title,
   description,
