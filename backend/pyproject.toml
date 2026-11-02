@@ -26,8 +26,6 @@ dependencies = [
     "pydantic>=2.14.1",
     "pydantic-settings>=2.16.1",
     "pyjwt[crypto]>=2.15.1",
-    "pymupdf>=2.0",
-    "pymupdf4llm>=2.0",
     "pyyaml>=6",
     "starlette>=1.10.0",
     "sqlalchemy[asyncio]>=2.1.6",
@@ -40,6 +38,23 @@ dependencies = [
 # One object-storage SDK per cloud, imported lazily by storage/factory.py. The images install both.
 gcp = ["google-cloud-storage>=3.17.1"]
 aws = ["boto3>=1.43,<2"]
+# The document parser (worker-parse image and dev/CI only; never the api or worker-agents image).
+# Docling pin and set of format packages: docs/file-parsers/engines/docling.md, 'Packages'.
+# opencv-python-headless: imported by docling_ibm_models (TableFormer v1) without being declared by docling-slim.
+# docling-core, pypdfium2, defusedxml: imported directly by file_parsers (docling-core is also a dependency of docling-slim;
+# defusedxml streams the XLSX sheets in file_parsers.office.guard with DTDs forbidden).
+parse = [
+    "docling-slim[convert-core,format-pdf,models-local,format-docx,format-pptx,format-xlsx,format-html,format-markdown]==2.145.0",
+    "docling-core>=2.105,<3",
+    "defusedxml>=0.7.1,<1",
+    "opencv-python-headless<5",
+    "pypdfium2",
+    # scripts/fetch_docling_models.py and docker/worker-parse/Dockerfile download the models with it (docling-slim already needs it).
+    "huggingface-hub",
+    # CPU wheels only: the default PyPI Linux wheels of torch pull nvidia-* (CUDA) packages with proprietary terms.
+    "torch==2.15.0",
+    "torchvision",
+]
 
 [project.scripts]
 specflow = "cli:main"
@@ -48,13 +63,23 @@ specflow = "cli:main"
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+# Linux resolves torch from the PyTorch CPU index; other platforms (macOS) use the default index.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
 [tool.hatch.build.targets.wheel]
 only-include = ["src"]
 sources = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["examples"]
+pythonpath = ["examples", "."]
 asyncio_mode = "auto"
 
 [tool.ruff.lint]
@@ -84,6 +109,7 @@ known_first_party = [
 extend_exclude = ["(^|.*/)(test_[^/]+|conftest)\\.py$"]
 
 [tool.deptry.package_module_name_map]
+docling-slim = ["docling"]
 google-api-python-client = ["googleapiclient"]
 google-auth = ["google"]
 google-cloud-storage = ["google"]
@@ -98,7 +124,9 @@ openinference-instrumentation = ["openinference"]
 # botocore ships inside the `aws` extra's boto3 (same release train); storage/s3.py imports its Config and ClientError.
 # The MCP SDK client takes an `httpx2.AsyncClient` (httpx2 is a dependency of mcp 2.x); used by examples/mcp_qa_lib.py.
 DEP001 = ["botocore", "httpx2"]
-DEP002 = ["asyncpg", "temporalio-openai-agents"]
+# opencv-python-headless is imported by docling_ibm_models (TableFormer v1), not by our code; torch and
+# torchvision are docling's runtime and pinned here only to select the CPU wheels.
+DEP002 = ["asyncpg", "temporalio-openai-agents", "opencv-python-headless", "torch", "torchvision"]
 # examples/mcp_qa_lib.py catches anyio's BrokenResourceError/ClosedResourceError, which the MCP SDK client raises
 # (anyio is a dependency of mcp).
 DEP003 = ["anyio"]

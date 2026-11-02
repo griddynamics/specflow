@@ -14,7 +14,6 @@ import argparse
 import asyncio
 import importlib
 import inspect
-import os
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Final
 
@@ -165,10 +164,6 @@ _COMMANDS: Final[dict[str, Callable[[argparse.Namespace], int]]] = {
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Run one command; the process exit code is the return value."""
-
-    # onnxruntime (pulled in by the PDF parser) sends telemetry to a third party by
-    # default and its exit-time thread can abort the interpreter; opt out up front.
-    os.environ.setdefault("ORT_DISABLE_TELEMETRY", "1")
 
     with new_request_context():
         try:

@@ -45,6 +45,19 @@ class PDFFigure(BaseModel):
     prompt_version: str | None = Field(default=None, description="Prompt id and version that produced the description")
 
 
+class PDFTableBox(BaseModel):
+    """Where one table sits on its page, in the order of the page's Markdown tables."""
+
+    x0: float = Field(description="Left edge in PDF points, origin at the top left of the page")
+    y0: float = Field(description="Top edge in PDF points")
+    x1: float = Field(description="Right edge in PDF points")
+    y1: float = Field(description="Bottom edge in PDF points")
+
+    @property
+    def bbox(self) -> tuple[float, float, float, float]:
+        return (self.x0, self.y0, self.x1, self.y1)
+
+
 class PDFTableReplacement(BaseModel):
     """LLM-derived replacement for one source Markdown table."""
 
@@ -61,6 +74,10 @@ class PDFPageContent(BaseModel):
     page_number: int = Field(description="The page number of the document")
     markdown: str = Field(description="Cleaned markdown for this page")
     figures: list[PDFFigure] = Field(description="Figures rendered from this page")
+    tables: list[PDFTableBox] = Field(
+        default_factory=list,
+        description="Boxes of the tables the engine found, in the order of the Markdown tables",
+    )
     table_replacements: list[PDFTableReplacement] = Field(default_factory=list)
     math_markdown: str | None = Field(
         default=None,

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
-# onnxruntime (imported by the PDF parser) sends telemetry and its exit-time thread can
-# abort the interpreter (rare exit-134 after all tests passed): opt out for the suite.
-os.environ.setdefault("ORT_DISABLE_TELEMETRY", "1")
+# The Docling models come from the local Hugging Face cache or DOCLING_ARTIFACTS_PATH (the worker-parse
+# image, the CI prefetch); a test never downloads them.
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
 # Central-logger env guard. Force these before any
 # other import runs, so this beats both the shell environment and any
@@ -22,7 +23,6 @@ os.environ.update(
 )
 
 from collections.abc import Iterator
-from pathlib import Path
 
 import pytest
 
@@ -43,6 +43,15 @@ pytest_plugins = [
     "specflow_sources_support",
     "mcp_support",  # last: it imports the support modules above, which must register first
 ]
+
+
+def pytest_configure() -> None:
+    """``make models`` (part of ``make setup``) puts the Docling models in backend/.docling-models: use them
+    unless the environment names its own folder (CI). Runs before the test modules import Docling."""
+
+    models = Path(__file__).resolve().parent.parent / ".docling-models"
+    if models.is_dir():
+        os.environ.setdefault("DOCLING_ARTIFACTS_PATH", str(models))
 
 
 @pytest.fixture(autouse=True)

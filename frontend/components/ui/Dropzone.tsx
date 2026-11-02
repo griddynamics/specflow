@@ -62,7 +62,7 @@ export function Dropzone({
       </span>
       <div className="gdg-drop__text">
         <b>{nonEmpty(title) ?? "Drop files here"}</b>
-        <span>{nonEmpty(hint) ?? "Markdown, PDF or Word, up to 20 MB each"}</span>
+        <span>{nonEmpty(hint) ?? "Drop files or choose them"}</span>
       </div>
       <Button variant={truthy(primary) ? "primary" : "glass"} size="sm" onClick={() => input.current?.click()}>
         {nonEmpty(buttonLabel) ?? "Choose files"}

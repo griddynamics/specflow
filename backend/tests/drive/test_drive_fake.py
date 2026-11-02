@@ -9,15 +9,16 @@ import socket
 import time
 from importlib.resources import files
 
-import pymupdf
 import pytest
 
 from drive import fake as fake_module
 from drive.categories import CATEGORY_ORDER, categorize
 from drive.fake import FakeDriveGateway
+from drive.fake_files import sample_bytes
 from drive.gateway import FAKE_DRIVE_EMAIL, DriveError
 from drive.model import summarize
 from drive.reasons import Reason
+from file_parsers.pdf.pdfium_typed import open_document
 from settings import ConfigurationError
 
 CONTRACT = json.loads(files("drive").joinpath("fixtures/contract.json").read_text("utf-8"))
@@ -141,12 +142,14 @@ def test_every_reserved_id_in_the_contract_is_answered(gw):
     assert len(CONTRACT["reserved_folder_ids"]) == 11
 
 
-def test_pdf_download_is_a_valid_one_page_pdf(gw):
+def test_pdf_download_is_a_valid_one_page_pdf(gw, tmp_path):
     pdf = next(i for i in gw.list_all("fake-synthetic-30").items if i.mime_type == "application/pdf")
     data = b"".join(gw.iter_download(pdf.id))
-    with pymupdf.open(stream=data, filetype="pdf") as doc:
-        assert doc.page_count == 1
-        assert "Fake Drive" in doc[0].get_text()
+    pdf_path = tmp_path / "download.pdf"
+    pdf_path.write_bytes(data)
+    with open_document(pdf_path) as doc:
+        assert len(doc) == 1
+        assert "Fake Drive" in doc.page_text(0, with_sizes=False).text
 
 
 def test_other_download_is_tiny_and_chunked(gw):
@@ -234,3 +237,40 @@ def test_item_id_as_folder_is_not_a_folder(gw):
     with pytest.raises(DriveError) as raised:
         gw.check_folder("fake-synthetic-30-i0")
     assert raised.value.reason is Reason.NOT_A_FOLDER
+
+
+OFFICE = "application/vnd.openxmlformats-officedocument."
+
+
+@pytest.mark.parametrize(
+    ("mime", "signature"),
+    [
+        (OFFICE + "wordprocessingml.document", b"PK\x03\x04"),
+        (OFFICE + "presentationml.presentation", b"PK\x03\x04"),
+        (OFFICE + "spreadsheetml.sheet", b"PK\x03\x04"),
+        ("text/html", b"<html>"),
+        ("text/markdown", b"# fake-"),
+        ("text/csv", b"name,value\n"),
+    ],
+)
+def test_a_parser_type_downloads_a_small_file_of_that_type_that_names_its_id(gw, tmp_path, mime, signature):
+    folder = tmp_path / "recordings"
+    folder.mkdir()
+    listing = {
+        "folders": [{"key": "f0", "depth": 0, "parent": None, "name": "R"}],
+        "items": [{"name": "n", "mimeType": mime, "size": None, "modifiedTime": None, "folder": "f0"}] * 2,
+    }
+    (folder / "typed.json").write_text(json.dumps(listing), encoding="utf-8")
+    fake = FakeDriveGateway(app_env="local", fixtures=tmp_path, file_delay_s=0)
+
+    one, two = (b"".join(fake.iter_download(f"fake-typed-i{n}")) for n in (0, 1))
+
+    assert one.startswith(signature) and len(one) < 10_000
+    assert b"fake-typed-i0" in one or mime.startswith(OFFICE)  # a package is deflated: its text is not visible
+    assert one != two  # two files never share content, so two files are two documents
+
+
+def test_the_sample_files_are_xml_safe_for_any_drive_id():
+    assert sample_bytes("text/csv", "a<b&c") == b"name,value\na&lt;b&amp;c,1\n"
+    assert sample_bytes("application/zip", "fake-1") is None
+    assert sample_bytes("application/pdf", "fake-1") is None  # PDF is served by ``drive.fake``

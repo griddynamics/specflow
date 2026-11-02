@@ -5,6 +5,7 @@ export type DataErrorCode =
   | "conflict"
   | "validation"
   | "unsupported_format"
+  | "file_too_large"
   | "empty_file"
   | "unavailable"
   | "network"
@@ -16,9 +17,9 @@ export type DataErrorCode =
 export class DataError extends Error {
   readonly code: DataErrorCode;
   readonly retryable: boolean;
-  readonly detail?: { status?: number; apiCode?: string };
+  readonly detail?: { status?: number; apiCode?: string; maxBytes?: number };
 
-  constructor(code: DataErrorCode, retryable: boolean, detail?: { status?: number; apiCode?: string }) {
+  constructor(code: DataErrorCode, retryable: boolean, detail?: { status?: number; apiCode?: string; maxBytes?: number }) {
     super(code); // a code, never server text (TECH-SPECS §2.1)
     this.name = "DataError";
     this.code = code;

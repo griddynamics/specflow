@@ -201,6 +201,12 @@ export interface FilePage {
 /** DATA-SRC-0002. */
 export type SourceState = "processing" | "done" | "done_with_problems" | "failed";
 
+/** A file the API refused with 413 `file_too_large`; `maxBytes` is the cap of its type (the API's, else the table's). */
+export interface TooLargeFile {
+  name: string;
+  maxBytes: number;
+}
+
 /** What one "Add files" did (FR-SRC-0020..0022): the files picked, and what became of each. */
 export interface UploadReport {
   sourceId: string | null; // null = no batch was made (the start failed)
@@ -210,6 +216,7 @@ export interface UploadReport {
   readAgain: number;
   duplicates: number; // the same content twice in the batch: nothing new
   notAdded: number; // refused, or the batch ended before the file got in
+  tooLarge?: TooLargeFile[]; // the refused files among `notAdded` that are over their cap; absent when none
 }
 
 /** Collect side (D1, D6, D7): sources, sync, access, uploads and removal. The status read carries the counts per source; `files` the
@@ -217,8 +224,6 @@ export interface UploadReport {
 export interface SourcesPort {
   /** Whether "GitHub repository" is offered in Add source (owner K3: hidden in production, where no GitHub backend exists). */
   readonly githubEnabled: boolean;
-  /** Local files accept PDF only (production: the upload API reads PDF). The demo mock also lists Markdown and other files. */
-  readonly pdfOnly: boolean;
   /** GitHub only (Drive goes through `testDrive` and `saveDrive`). Idempotent per canonical target: an existing connection comes back with `created: false`. A bad link is a connection in error. */
   add(projectId: string, link: SourceLink): Promise<{ connection: Connection; created: boolean }>;
   /** Removes the source and its files (FR-SRC-0016). Already gone ⇔ rejects `DataError("not_found", false, { apiCode: "source_not_found" })`. */

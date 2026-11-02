@@ -81,8 +81,9 @@ ITEM_MAX_ATTEMPTS: Final = 3
 LIST_START_TO_CLOSE: Final = timedelta(minutes=20)
 ITEM_START_TO_CLOSE: Final = timedelta(minutes=30)
 ITEM_HEARTBEAT_TIMEOUT: Final = timedelta(seconds=60)
-#: A shared document is parsed within the parse workflow's own execution limit (60 min) plus margin.
-WAIT_START_TO_CLOSE: Final = timedelta(minutes=65)
+#: Larger than the Drive wait (``activities.WAIT_LIMIT_SECONDS``, 250 min), which is not below the parse
+#: workflow's execution limit (250 min); a test pins both rules.
+WAIT_START_TO_CLOSE: Final = timedelta(minutes=255)
 DB_START_TO_CLOSE: Final = timedelta(minutes=2)
 
 LIST_RETRY: Final = RetryPolicy(initial_interval=timedelta(seconds=5), maximum_attempts=3)
