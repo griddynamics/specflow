@@ -7,7 +7,7 @@
 import { oidcLogin } from "../support/session.mjs";
 import { frontendEnv, startFrontend } from "../support/servers.mjs";
 import { startOidcStack } from "../support/oidc-stack.mjs";
-import { syntheticPdf } from "../support/pdf.mjs";
+import { syntheticDocument, syntheticPdf } from "../support/pdf.mjs";
 import { defined } from "../support/defined";
 
 type ParseOutcome = "parsed" | "failed";
@@ -129,6 +129,9 @@ export async function startEnv(fePort: number, apiPort: number): Promise<Env> {
 }
 
 export const pdfFile = (name: string, size = 2048) => new File([new Uint8Array(syntheticPdf(size))], name, { type: "application/pdf" });
+/** A synthetic file of any accepted type; `type` is what the browser says (the default is the canonical type). */
+export const documentFile = (name: string, type: string, size = 512) =>
+  new File([new Uint8Array(syntheticDocument(name.slice(name.lastIndexOf(".")), size))], name, { type });
 export const textFile = (name: string) => new File(["plain text, not a PDF"], name, { type: "text/plain" });
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

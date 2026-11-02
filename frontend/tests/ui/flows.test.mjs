@@ -144,15 +144,15 @@ test("AC-12.2, K4, K5: Local files through the sources screen send the raw PDF, 
     await page.getByRole("menuitem", { name: /Google Drive/ }).waitFor();
     assert.equal(await page.getByRole("menuitem", { name: /GitHub/ }).count(), 0);
     assert.equal(await page.getByRole("menuitem", { name: /Local files/ }).count(), 1);
-    assert.equal(await page.getByText("Upload PDF files").count(), 1);
-    assert.equal(await fileInput(page).getAttribute("accept"), "application/pdf,.pdf");
+    assert.equal(await page.getByText("Upload PDF, Office, HTML, Markdown or CSV files").count(), 1);
+    assert.match(await fileInput(page).getAttribute("accept"), /^\.pdf,application\/pdf,\.docx,/);
     assert.deepEqual(errors, []);
   } finally {
     await context.close();
   }
 });
 
-test("AC-7.6, AC-7.7: an upload of bytes already in the project adds no second document; a non-PDF is not sent (the PDF-only toast names it) and the good file stays", async () => {
+test("AC-7.6, AC-7.7: an upload of bytes already in the project adds no second document; an unsupported type is not sent (the refusal toast names it) and the good file stays", async () => {
   const pdf = syntheticPdf(300);
   const pid = await seedProject(`Dup and non-PDF ${Date.now()}`);
   const { context, page, errors } = await newPage();
@@ -164,7 +164,9 @@ test("AC-7.6, AC-7.7: an upload of bytes already in the project adds no second d
       { name: "same copy.pdf", mimeType: "application/pdf", buffer: pdf },
       { name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("not a pdf") },
     ]);
-    await page.getByText("notes.txt was not added; Specflow reads PDF files.").waitFor({ timeout: 15_000 });
+    await page
+      .getByText(/notes\.txt was not added\. Specflow reads PDF, Word, PowerPoint, Excel, HTML, Markdown or CSV files/)
+      .waitFor({ timeout: 15_000 });
     // The success toast does not call the duplicate "added".
     await page.getByText("1 file added", { exact: true }).waitFor({ timeout: 15_000 });
     await page.getByText("1 file is already in this project; nothing new was added.").waitFor({ timeout: 15_000 });

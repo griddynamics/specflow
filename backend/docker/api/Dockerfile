@@ -1,7 +1,7 @@
 # API image. On every start: `specflow migrate` (Alembic upgrade to head; a no-op when
 # the schema is current), then the API on port 8000. A failed migration stops the start.
 # Build context: backend/ (the last stage is the image; no --target needed):
-#   docker build -f backend/api.Dockerfile -t <registry>/specflow-api:<tag> backend
+#   docker build -f backend/docker/api/Dockerfile -t <registry>/specflow-api:<tag> backend
 # Run ONE replica: the migration takes no lock.
 # The base tag is a literal (no ARG); uv is pinned to an exact version.
 
@@ -28,8 +28,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:${PATH}" \
     HOME=/home/specflow \
-    ALEMBIC_CONFIG=/app/alembic.ini \
-    ORT_DISABLE_TELEMETRY=1
+    ALEMBIC_CONFIG=/app/alembic.ini
 RUN groupadd --gid 10001 specflow \
     && useradd --uid 10001 --gid 10001 --create-home --home-dir /home/specflow \
         --shell /usr/sbin/nologin specflow \

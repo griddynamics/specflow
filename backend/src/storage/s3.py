@@ -29,7 +29,7 @@ from storage.base import (
     StorageUnavailableError,
     StoredObject,
 )
-from storage.keys import validate_key
+from storage.keys import validate_key, validate_prefix
 
 logger = get_logger("storage.s3")
 
@@ -329,6 +329,13 @@ class S3ObjectStore:
                 raise
             return
         log_event(logger, INFO, "storage.object.deleted", key=key)
+
+    async def delete_by_prefix(self, prefix: str) -> int:
+        """Delete every object under ``STORAGE_PREFIX`` + ``prefix`` (ends with ``/``); returns the count."""
+
+        deleted = await asyncio.to_thread(self._delete_all, self._prefix + validate_prefix(prefix))
+        log_event(logger, INFO, "storage.prefix.deleted", prefix=prefix, count=deleted)
+        return deleted
 
     async def check(self) -> None:
         """Readiness: list one object under the prefix (never reads an object), cached 10 s."""

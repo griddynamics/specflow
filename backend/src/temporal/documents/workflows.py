@@ -32,9 +32,11 @@ PARSE_ACTIVITY: Final = "parse_document"
 MARK_FAILED_ACTIVITY: Final = "mark_document_failed"
 FAILURE_TYPE: Final = "ParseDocumentFailed"
 
-#: Caller-side start option (the API passes it as ``execution_timeout``).
-EXECUTION_TIMEOUT: Final = timedelta(minutes=60)
-PARSE_START_TO_CLOSE: Final = timedelta(minutes=45)
+#: Caller-side start option (the API passes it as ``execution_timeout``). DESIGN 'Long documents and
+#: time limits': execution >= attempts x start-to-close + margin (2 x 120 + 10 min); one maximum-size
+#: parse (500 pages) takes about 29 min with noise, the rest covers a queue for the single parse slot.
+EXECUTION_TIMEOUT: Final = timedelta(minutes=250)
+PARSE_START_TO_CLOSE: Final = timedelta(minutes=120)
 PARSE_HEARTBEAT_TIMEOUT: Final = timedelta(seconds=60)
 MARK_START_TO_CLOSE: Final = timedelta(seconds=30)
 
@@ -42,6 +44,8 @@ MARK_START_TO_CLOSE: Final = timedelta(seconds=30)
 FAILURE_CODES: Final = {
     "DocumentNotFound": "document_not_found",
     "PdfParseError": "pdf_parse_failed",
+    "DocumentTooLargeError": "document_too_large",
+    "DocumentParseFailedError": "document_parse_failed",
     "OriginalNotFound": "original_not_found",
 }
 NON_RETRYABLE_TYPES: Final = list(FAILURE_CODES)
@@ -50,7 +54,9 @@ INTERNAL_ERROR: Final = "internal_error"
 PARSE_RETRY: Final = RetryPolicy(
     initial_interval=timedelta(seconds=5),
     backoff_coefficient=2.0,
-    maximum_attempts=3,
+    # A timed-out attempt restarts at page 1, so a third attempt only adds time; two keep one retry
+    # for a crashed worker.
+    maximum_attempts=2,
     non_retryable_error_types=NON_RETRYABLE_TYPES,
 )
 MARK_RETRY: Final = RetryPolicy(maximum_attempts=5)

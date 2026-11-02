@@ -8,6 +8,7 @@ log fields. Requirements: FR-SRC-0017, NFR-REL-0003, NFR-MAIN-0002.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import subprocess
 import sys
@@ -37,6 +38,7 @@ from temporal.documents import registration
 from temporal.sources import workflows as imports
 
 PID, SID = uuid.uuid4(), uuid.uuid4()
+DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
 # ------------------------------------------------------------------- hygiene
@@ -128,6 +130,8 @@ def store():
 def keys_of(document_id):
     return [
         document_original(str(PID), str(document_id)),
+        document_original(str(PID), str(document_id), "text/markdown"),
+        document_original(str(PID), str(document_id), DOCX),
         document_original_json(str(PID), str(document_id)),
         document_original_bin(str(PID), str(document_id)),
     ]
@@ -165,7 +169,7 @@ async def test_a_present_source_is_a_no_op(monkeypatch, store, caplog):
     result = await sweep(activities, ids)
 
     assert (result.source_present, result.deleted, result.kept) == (True, 0, 3)
-    assert len(store.objects) == 9  # nothing deleted
+    assert len(store.objects) == 3 * len(keys_of(ids[0]))  # nothing deleted
     assert calls == [(PID, SID, ids)]
     [logged] = events(caplog, "source.cleanup.swept")
     assert fields(logged) == {
@@ -188,27 +192,27 @@ async def test_ids_with_a_document_row_keep_their_objects(monkeypatch, store):
     result = await sweep(activities, ids)
 
     assert (result.source_present, result.deleted, result.kept) == (False, 0, 2)
-    assert len(store.objects) == 6
+    assert len(store.objects) == 2 * len(keys_of(ids[0]))
 
 
-async def test_ids_without_a_row_lose_the_pdf_json_and_bin_objects(monkeypatch, store, caplog):
+async def test_ids_without_a_row_lose_every_object_of_the_document(monkeypatch, store, caplog):
     caplog.set_level("INFO")
     gone, kept = uuid.uuid4(), uuid.uuid4()
     seed(store, [gone, kept])
     fake_read_model(monkeypatch, present=False, missing={gone})
     activities = acts.SourceCleanupActivities(Sessions(), store)
     deletes = []
-    original = store.delete
+    original = store.delete_by_prefix
 
-    async def counting_delete(key):
-        deletes.append(key)
-        await original(key)
+    async def counting_delete(prefix):
+        deletes.append(prefix)
+        return await original(prefix)
 
-    monkeypatch.setattr(store, "delete", counting_delete)
+    monkeypatch.setattr(store, "delete_by_prefix", counting_delete)
 
     result = await sweep(activities, [gone, kept], number=2)
 
-    assert sorted(deletes) == sorted(keys_of(gone))  # 3 deletes, for the missing id
+    assert deletes == [f"projects/{PID}/documents/{gone}/"]  # one prefix delete, for the missing id
     assert set(store.objects) == set(keys_of(kept))
     assert (result.deleted, result.kept) == (1, 1)
     [logged] = events(caplog, "source.cleanup.swept")
@@ -229,16 +233,18 @@ async def test_many_ids_are_deleted_within_the_concurrency_bound(monkeypatch, st
     seed(store, ids)
     fake_read_model(monkeypatch, present=False, missing=set(ids))
     active, peak = 0, 0
-    original = store.delete
+    original = store.delete_by_prefix
 
-    async def tracked(key):
+    async def tracked(prefix):
         nonlocal active, peak
         active += 1
         peak = max(peak, active)
-        await original(key)
+        await asyncio.sleep(0)
+        deleted = await original(prefix)
         active -= 1
+        return deleted
 
-    monkeypatch.setattr(store, "delete", tracked)
+    monkeypatch.setattr(store, "delete_by_prefix", tracked)
     activities = acts.SourceCleanupActivities(Sessions(), store)
     result = await sweep(activities, ids)
     assert result.deleted == 200 and store.objects == {}
@@ -249,10 +255,10 @@ async def test_a_store_failure_is_a_fixed_retryable_code_without_key_text(monkey
     ids = [uuid.uuid4()]
     fake_read_model(monkeypatch, present=False, missing=set(ids))
 
-    async def boom(key):
-        raise ObjectStoreError(f"cannot delete {key}")
+    async def boom(prefix):
+        raise ObjectStoreError(f"cannot delete {prefix}")
 
-    monkeypatch.setattr(store, "delete", boom)
+    monkeypatch.setattr(store, "delete_by_prefix", boom)
     activities = acts.SourceCleanupActivities(Sessions(), store)
     with pytest.raises(ApplicationError) as raised:
         await sweep(activities, ids)

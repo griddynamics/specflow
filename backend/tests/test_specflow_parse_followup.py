@@ -30,7 +30,7 @@ from temporalio.exceptions import (
 )
 from temporalio.testing import ActivityEnvironment
 
-from file_parsers.pdf.to_markdown import ParsedMarkdown, PdfParseError
+from file_parsers.convert import ParsedMarkdown, PdfParseError
 from specflow_parse_support import FakeRepository, FakeSessions, install_fake_repository
 from storage.keys import document_original
 from storage.memory import InMemoryObjectStore
@@ -86,17 +86,19 @@ async def test_the_parse_activity_is_scheduled_with_the_specified_options(monkey
 
     ((name, arg, options),) = api.calls
     assert (name, arg) == ("parse_document", data)
-    assert options["start_to_close_timeout"] == timedelta(minutes=45)
+    assert options["start_to_close_timeout"] == timedelta(minutes=120)
     assert options["heartbeat_timeout"] == timedelta(seconds=60)
     retry = options["retry_policy"]
     assert (retry.maximum_attempts, retry.initial_interval, retry.backoff_coefficient) == (
-        3,
+        2,
         timedelta(seconds=5),
         2.0,
     )
     assert set(retry.non_retryable_error_types) == {
         "DocumentNotFound",
         "PdfParseError",
+        "DocumentTooLargeError",
+        "DocumentParseFailedError",
         "OriginalNotFound",
     }
     assert options["result_type"] is ParseDocumentResult
@@ -106,6 +108,8 @@ async def test_the_parse_activity_is_scheduled_with_the_specified_options(monkey
     ("error_type", "code"),
     [
         ("PdfParseError", "pdf_parse_failed"),
+        ("DocumentTooLargeError", "document_too_large"),
+        ("DocumentParseFailedError", "document_parse_failed"),
         ("DocumentNotFound", "document_not_found"),
         ("OriginalNotFound", "original_not_found"),
         ("ParseIoError", "internal_error"),
@@ -186,11 +190,11 @@ async def test_a_document_waiting_for_the_parse_slot_keeps_heartbeating(data, st
     other = ParseDocumentInput(project_id=data.project_id, document_id=uuid4())
     store.objects[document_original(str(other.project_id), str(other.document_id))] = b"%PDF-fake"
 
-    def parse(path: Path) -> ParsedMarkdown:
+    def parse(path: Path, *_args: object) -> ParsedMarkdown:
         if not started.is_set():  # the first caller holds the slot until released
             started.set()
             release.wait(10)
-        return ParsedMarkdown(markdown="ok")
+        return ParsedMarkdown(markdown="ok", parser="pymupdf4llm")
 
     pool = ThreadPoolExecutor(max_workers=1)
     try:
@@ -228,12 +232,12 @@ async def test_a_document_waiting_for_the_parse_slot_keeps_heartbeating(data, st
     [("corrupt", True), ("missing_row", True), ("missing_object", True), ("io", False)],
 )
 async def test_only_expected_failures_are_benign(scenario, benign, data, store, repository):
-    def parse(path: Path) -> ParsedMarkdown:
+    def parse(path: Path, *_args: object) -> ParsedMarkdown:
         if scenario == "corrupt":
             raise PdfParseError("x")
         if scenario == "io":
             raise OSError("x")
-        return ParsedMarkdown(markdown="ok")
+        return ParsedMarkdown(markdown="ok", parser="pymupdf4llm")
 
     if scenario == "missing_row":
         repository.exists = False

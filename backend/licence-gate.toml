@@ -1,0 +1,74 @@
+# Licence gate input (validation/ci/licence_gate.py, `make validate-licences`; design gate G6).
+# Paths are relative to this file. Each role is the locked runtime set its Dockerfile installs
+# (`uv sync --frozen --no-dev --extra ...`); the gate builds that set without Docker.
+
+project = "."
+lockfile = "uv.lock"
+notice-file = "../NOTICE"
+pip-licenses = "pip-licenses==5.5.5"
+
+# The AGPL PDF stack removed by the Docling parser change: absent from every role and from uv.lock.
+forbidden = ["pymupdf", "pymupdf4llm", "pymupdf-layout"]
+
+# SPDX ids found in the current trees. A new licence needs a decision, not a silent pass: add it here
+# with the dependency that brings it. Copyleft (GPL, LGPL, AGPL, SSPL) is not listed.
+allowed = [
+    "MIT", "MIT-0", "MIT-CMU", "0BSD", "ISC", "Zlib", "CC0-1.0", "BSL-1.0",
+    "BSD-2-Clause", "BSD-3-Clause",
+    "Apache-2.0",
+    "PSF-2.0", "Python-2.0", "CNRI-Python",
+    "MPL-2.0",
+]
+# `X WITH Y`: the exception must be listed too (torch bundles libgomp under it).
+allowed-exceptions = ["LLVM-exception"]
+
+# Licence names that packages report instead of an SPDX id (compared in lower case).
+[aliases]
+"mit license" = "MIT"
+"bsd license" = "BSD-3-Clause"
+"bsd" = "BSD-3-Clause"
+"3-clause bsd license" = "BSD-3-Clause"
+"bsd 3-clause" = "BSD-3-Clause"
+"apache software license" = "Apache-2.0"
+"apache 2.0 license" = "Apache-2.0"
+"mozilla public license 2.0 (mpl 2.0)" = "MPL-2.0"
+"python software foundation license" = "PSF-2.0"
+"isc license (iscl)" = "ISC"
+
+# Packages whose metadata is empty or not an expression; the licence is the one in the package's own LICENSE file.
+[overrides.dotenv]
+version = "0.9.9"
+licence = "MIT"
+reason = "deprecated shim of python-dotenv: METADATA says UNKNOWN, its LICENSE file is MIT"
+
+[overrides.pypdfium2]
+version = "5.14.0"
+licence = "Apache-2.0 AND BSD-3-Clause"
+reason = "METADATA lists 'dependency licenses'; PDFium and its bundled libraries are Apache-2.0 and BSD-3-Clause (NOTICE)"
+
+# NOTICE must name these (and every direct dependency of the extra below) and they must be in the
+# worker-parse tree. Transitive packages are covered by the pip-licenses pointer at the end of NOTICE.
+[notice]
+role = "worker-parse"
+extra = "parse"
+packages = [
+    "docling-slim", "docling-parse", "docling-core", "docling-ibm-models",
+    "torch", "torchvision", "opencv-python-headless", "pypdfium2", "defusedxml",
+    "python-docx", "python-pptx", "openpyxl", "et-xmlfile", "xlsxwriter",
+    "beautifulsoup4", "soupsieve", "marko", "pylatexenc", "lxml", "tqdm", "certifi",
+]
+# Not packages: the model weights baked into the image (backend/docker/worker-parse/Dockerfile).
+text = ["docling-layout-heron", "docling-models", "CDLA Permissive 2.0"]
+
+# The images (roles): the extras their Dockerfiles install.
+[[roles]]
+name = "api"
+extras = ["gcp", "aws"]
+
+[[roles]]
+name = "worker-agents"
+extras = ["gcp", "aws"]
+
+[[roles]]
+name = "worker-parse"
+extras = ["gcp", "aws", "parse"]

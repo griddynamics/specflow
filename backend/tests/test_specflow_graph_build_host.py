@@ -45,6 +45,7 @@ def row(**values: Any) -> GraphCorpusRow:
         "drive_external_id": None,
         "drive_source_name": None,
         "markdown": "# Spec\n\nText.",
+        "parser": None,
     }
     return GraphCorpusRow(**(defaults | values))
 

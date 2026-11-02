@@ -14,9 +14,9 @@ make unit-test
 
 ## The service (`src/`)
 
-`src/` holds the deployable service (the top-level packages below): one image,
-three roles. It also holds the libraries the service reuses (`llm`, `file_parsers`,
-`logger`; `file_parsers` for PDF parsing, `logger` for logging).
+`src/` holds the deployable service (the top-level packages below): one code base, three roles, each with
+its own image (`docker/api`, `docker/worker-agents`, `docker/worker-parse`, each with a `Dockerfile`). It also holds the libraries the service reuses (`llm`, `file_parsers`,
+`logger`; `file_parsers` for document parsing, `logger` for logging).
 
 | Module | What it holds |
 |---|---|
@@ -31,8 +31,8 @@ three roles. It also holds the libraries the service reuses (`llm`, `file_parser
 | `agent_runtime/` | Summarizer agent, LLM gateway model provider, Temporal plugin, Langfuse tracing |
 | `health.py` | The checks behind `/readyz` and `worker --check` (database, temporal, storage, neo4j) |
 
-The PDF entry point of the service, `file_parsers.pdf.to_markdown`
-(`pdf_file_to_markdown`, `PdfParseError`, no LLM), lives in the `file_parsers`
+The document entry point of the service, `file_parsers.convert`
+(`file_to_markdown`, `PdfParseError`, no LLM), lives in the `file_parsers`
 library.
 
 ### Roles (CLI)

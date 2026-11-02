@@ -157,4 +157,4 @@ async def test_mark_processing_stale_branch_adds_processing_and_uploaded_older_t
     where = (await _mark_sql(include_stale=True)).split("WHERE", 1)[1]
     assert " OR " in where
     assert "documents.updated_at < now() -" in where
-    assert repo.UPLOAD_STALE_AFTER.total_seconds() == 3600
+    assert repo.UPLOAD_STALE_AFTER.total_seconds() == 250 * 60

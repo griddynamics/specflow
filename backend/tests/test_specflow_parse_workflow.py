@@ -53,13 +53,13 @@ def test_the_workflow_module_imports_no_infrastructure_packages():
 def test_the_workflow_is_named_and_uses_the_specified_policies():
     definition = workflow._Definition.must_from_class(workflows.ParseDocumentWorkflow)
     assert definition.name == "ParseDocumentWorkflow"
-    assert timedelta(minutes=60) == workflows.EXECUTION_TIMEOUT
-    assert timedelta(minutes=45) == workflows.PARSE_START_TO_CLOSE
+    assert timedelta(minutes=250) == workflows.EXECUTION_TIMEOUT
+    assert timedelta(minutes=120) == workflows.PARSE_START_TO_CLOSE
     assert timedelta(seconds=60) == workflows.PARSE_HEARTBEAT_TIMEOUT
     assert timedelta(seconds=30) == workflows.MARK_START_TO_CLOSE
     retry = workflows.PARSE_RETRY
     assert (retry.maximum_attempts, retry.initial_interval, retry.backoff_coefficient) == (
-        3,
+        2,
         timedelta(seconds=5),
         2.0,
     )

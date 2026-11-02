@@ -13,7 +13,27 @@ const json = (res, status, body) => {
   res.writeHead(status, { "content-type": "application/json" });
   res.end(JSON.stringify(body));
 };
-const err = (res, status, code) => json(res, status, { error: { code, message: code, details: {} } });
+const err = (res, status, code, details = {}) => json(res, status, { error: { code, message: code, details } });
+
+// The upload table of the API (backend/src/file_parsers/formats.py, src/api/uploads.py MAX_BYTES). The extension picks the type; the
+// stub is STRICTER than the API on the header: it wants the canonical type exactly, so a frontend that sends `file.type` (empty for
+// .md, application/vnd.ms-excel for .csv on Windows) fails here. tests/production/upload-formats.test.ts checks this table against
+// the backend's.
+const MB = 1024 * 1024;
+const OOXML = "application/vnd.openxmlformats-officedocument";
+export const UPLOAD_TABLE = {
+  ".pdf": { type: "application/pdf", cap: 100 * MB, magic: "%PDF-" },
+  ".docx": { type: `${OOXML}.wordprocessingml.document`, cap: 50 * MB, magic: "PK\x03\x04" },
+  ".pptx": { type: `${OOXML}.presentationml.presentation`, cap: 50 * MB, magic: "PK\x03\x04" },
+  ".xlsx": { type: `${OOXML}.spreadsheetml.sheet`, cap: 50 * MB, magic: "PK\x03\x04" },
+  ".html": { type: "text/html", cap: 10 * MB, magic: null },
+  ".md": { type: "text/markdown", cap: 10 * MB, magic: null },
+  ".csv": { type: "text/csv", cap: 10 * MB, magic: null },
+};
+const extensionOf = (name) => {
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? name.slice(dot).toLowerCase() : "";
+};
 
 // ---- Drive sources (GDRIVE plan 04, architecture-notes B4): a close-enough double of the sources endpoints ----
 const REASON_HTTP = {
@@ -204,9 +224,11 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     const body = await readBody(req);
     Object.assign(entry, body);
     if (!filename) return { error: [400, "missing_filename"] };
-    if (req.headers["content-type"] !== "application/pdf" || (body.bytes && body.head !== "%PDF-"))
+    const spec = UPLOAD_TABLE[extensionOf(filename)];
+    if (!spec || req.headers["content-type"] !== spec.type || (spec.magic && body.bytes && !body.head.startsWith(spec.magic)))
       return { error: [415, "unsupported_format"] };
     if (body.bytes === 0) return { error: [400, "empty_file"] };
+    if (body.bytes > spec.cap) return { error: [413, "file_too_large", { max_bytes: spec.cap }] };
     return { filename, body };
   }
   const makeDoc = (pid, batchId, { filename, body }) => {
@@ -240,7 +262,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     const summary = model.summaries(pid).find((s) => s.id === did);
     if (!summary) return err(res, 404, "source_not_found");
     if (summary.kind !== "upload" || !summary.open) return err(res, 409, "batch_ended");
-    if (up.error) return err(res, up.error[0], up.error[1]);
+    if (up.error) return err(res, ...up.error);
     const r = model.add(
       pid,
       did,
@@ -341,7 +363,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       }
       // POST upload (legacy, SPECS §4.5): raw body, application/pdf; fills the project's day batch.
       const up = await receiveFile({ req, url, entry });
-      if (up.error) return err(res, up.error[0], up.error[1]);
+      if (up.error) return err(res, ...up.error);
       const existing = [...docs.values()].find((d) => d.pid === pid && d.sha256 === up.body.sha256);
       // A re-upload of a failed document parses it again (backend `upload_document`); the rest stay plain duplicates.
       if (existing && existing.row.status !== "failed") return json(res, 200, { outcome: "duplicate", document: publicDoc(existing) });

@@ -10,6 +10,7 @@ import hashlib
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from datetime import timedelta
 
 import pytest
 import pytest_asyncio
@@ -21,7 +22,7 @@ from sqlalchemy.orm import attributes
 from db import repositories as repo
 from db.models import Document, ProjectMember
 from db.session import build_engine, build_session_factory
-from db.sources import DocumentFile
+from db.sources import UPLOAD_STALE_AFTER, DocumentFile
 from settings import DatabaseSettings
 from specflow_live import requires_live
 
@@ -322,7 +323,7 @@ async def test_insert_document_writes_the_holder_and_defaults_to_none(session: A
 
 
 async def test_mark_processing_takes_a_stale_document_only_with_the_keyword(session: AsyncSession) -> None:
-    """R10 / M1: processing or uploaded for more than 60 minutes reads Failed and may restart."""
+    """R10 / M1: processing or uploaded for longer than ``UPLOAD_STALE_AFTER`` reads Failed and may restart."""
 
     owner = await repo.upsert_user(session, Principal("o3", "owner3@x.org", "O"))
     project = await repo.create_project(session, owner.id, "Stale")
@@ -336,10 +337,11 @@ async def test_mark_processing_takes_a_stale_document_only_with_the_keyword(sess
         )
         return doc.id
 
-    old_processing = await make("op", "processing", 61)
-    fresh_processing = await make("fp", "processing", 59)
-    old_uploaded = await make("ou", "uploaded", 61)
-    parsed = await make("pa", "parsed", 600)
+    limit = UPLOAD_STALE_AFTER // timedelta(minutes=1)
+    old_processing = await make("op", "processing", limit + 1)
+    fresh_processing = await make("fp", "processing", limit - 1)
+    old_uploaded = await make("ou", "uploaded", limit + 1)
+    parsed = await make("pa", "parsed", limit * 3)
 
     assert await repo.mark_processing(session, pid, old_processing) is False  # default: unchanged
     assert await repo.mark_processing(session, pid, old_processing, include_stale=True) is True

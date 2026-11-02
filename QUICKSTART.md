@@ -7,7 +7,7 @@ together. For every setting, see [`docs/configuration.md`](docs/configuration.md
 
 | Need | Why | Notes |
 |---|---|---|
-| Docker with the Compose plugin | Runs the whole stack | Docker Desktop, OrbStack or Docker Engine |
+| Docker with the Compose plugin | Runs the whole stack | Docker Desktop, OrbStack or Docker Engine. `worker-parse` alone is limited to 3 GiB of memory |
 | `make` and `openssl` | `make env-local` writes random local secrets and asks for your sign-in email and your LLM settings | Already on macOS and most Linux systems |
 | Chromium or Firefox | Sign in to the web app | Safari refuses the `Secure` cookies of the local Keycloak on `http://localhost` |
 | An OpenAI-compatible LLM gateway | Summaries and the knowledge-graph build | You need its URL, an API key and a model name |
@@ -49,6 +49,8 @@ Node.js 20.9 or newer.
 
    `make up` builds the images, starts the services, including the local Keycloak, and waits until they are
    healthy. If `.env.local` is missing or lacks a Keycloak value, it stops at once and tells you to run `make env-local`.
+   The first build is slow: the `worker-parse` image downloads PyTorch and the
+   Docling models once, and then runs without network access.
 
 4. Open http://localhost:3001 and press "Sign in". Use `localhost`, not `127.0.0.1`: the sign-in returns to
    `localhost`. The local Keycloak asks for your email and the password in `.env.local` (`LOCAL_TEST_USER_PASSWORD`).
@@ -61,10 +63,12 @@ Node.js 20.9 or newer.
    The realm also has three QA users for tests: `alice@example.com`, `bob@example.com` and `carol@other.example`, all
    with `KEYCLOAK_QA_PASSWORD` from `.env.local`. `carol` is refused on purpose, because her domain is not allowed.
 
-5. Create a project, add a source (upload PDFs), then press the build button on the
-   project page to build the knowledge graph. Google Drive folders also work as a
-   source; they need a Google service identity (see `DRIVE_IDENTITY_EMAIL` in
-   [`docs/configuration.md`](docs/configuration.md)).
+5. Create a project, add a source (upload PDF, Word, PowerPoint, Excel, HTML,
+   Markdown or CSV files), then press the build button on the project page to
+   build the knowledge graph. Google Drive folders also work as a source; they
+   need a Google service identity (see `DRIVE_IDENTITY_EMAIL` in
+   [`docs/configuration.md`](docs/configuration.md)). Formats, limits and error
+   codes are in [`docs/file-parsers/`](docs/file-parsers/INDEX.md).
 
 Stop the stack with `make down`. This keeps your data. `make down-volumes` deletes
 the local databases and files: use it only for a clean start.
@@ -93,7 +97,7 @@ exist any more, and nothing migrates its data. Once, on the upgrade:
 | `frontend` | 3001 | Next.js web app |
 | `api` | 8000 | FastAPI: projects, sources, uploads, workflow starts, the knowledge-graph build; runs the database migrations on start |
 | `mcp` | 8002 | MCP endpoint for coding agents such as Claude Code: read-only project tools; sign-in through the local Keycloak |
-| `worker-parse` | - | Temporal worker: PDF to Markdown |
+| `worker-parse` | - | Temporal worker: documents (PDF, Word, PowerPoint, Excel, HTML, Markdown, CSV) to Markdown; its own image, 3 GiB |
 | `worker-agents` | - | Temporal worker: AI summaries |
 | `postgres` | 5433 | Projects, documents, Markdown, summaries |
 | `neo4j` | 7474 (browser), 7687 | The knowledge graph |
@@ -136,7 +140,7 @@ flowchart LR
     api --> pg[(Postgres)]
     api --> s3[(Object storage<br/>S3 or GCS)]
     api --> tmp{{Temporal}}
-    tmp --> wp[worker-parse<br/>PDF to Markdown]
+    tmp --> wp[worker-parse<br/>documents to Markdown]
     tmp --> wa[worker-agents<br/>summaries]
     wp --> s3
     wp --> pg
@@ -150,8 +154,10 @@ flowchart LR
 How a document flows through the system:
 
 1. You add a source. The `api` stores each file in object storage, write-once.
-2. A Temporal workflow asks `worker-parse` to turn the PDF into Markdown. The Markdown
-   goes to Postgres.
+2. A Temporal workflow asks `worker-parse` to turn the file (PDF, Word, PowerPoint,
+   Excel, HTML, Markdown or CSV) into Markdown. The Markdown goes to Postgres. A file
+   over a limit ends as `document_too_large`; one that cannot be read ends as
+   `document_parse_failed` (or `pdf_parse_failed` for a PDF).
 3. `worker-agents` writes a summary of each document with the LLM gateway.
 4. When you build the project, the `api` reads all current documents and builds
    a typed knowledge graph in Neo4j: modules, features, capabilities and requirements,

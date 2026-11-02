@@ -19,6 +19,7 @@ import {
   ApiError,
 } from "@/lib/api";
 import { DataError, isDataError } from "@/lib/domain/errors";
+import { formatOf } from "@/lib/domain/upload-formats";
 import {
   CATEGORY_ORDER,
   CLASS_ORDER,
@@ -151,6 +152,25 @@ function endsBatch(e: unknown): boolean {
   return code === "batch_ended" || code === "source_not_found" || (isDataError(e) && e.code === "unauthenticated");
 }
 
+/** A file over its cap: the API's cap for its type (`details.max_bytes`), else the table's. */
+function noteTooLarge(report: UploadReport, file: File, e: unknown): void {
+  if (!(isDataError(e) && e.code === "file_too_large")) return;
+  const maxBytes = e.detail?.maxBytes ?? formatOf(file.name)?.maxBytes;
+  if (maxBytes === undefined) return;
+  report.tooLarge = [...(report.tooLarge ?? []), { name: file.name, maxBytes }];
+}
+
+/** Adds one file and tallies it; a refused file does not stop the others. True when the batch is over (ended, removed, signed out). */
+async function addOne(projectId: string, sourceId: string, file: File, report: UploadReport): Promise<boolean> {
+  try {
+    tally(report, await sendBatchFile(projectId, sourceId, file));
+  } catch (e) {
+    if (endsBatch(e)) return true;
+    noteTooLarge(report, file, e);
+  }
+  return false;
+}
+
 function tally(report: UploadReport, outcome: BatchOutcome): void {
   if (outcome === "added") report.added++;
   else if (outcome === "already_in_project") report.alreadyInProject++;
@@ -171,7 +191,6 @@ export function createHttpSources(opts: { changed: (projectId: string) => void }
   const unsupported = () => Promise.reject(new DataError("not_available", false)); // GitHub and sync controls: no production backend
   return {
     githubEnabled: false,
-    pdfOnly: true,
     add: unsupported,
     syncNow: unsupported,
     addToken: unsupported,
@@ -204,11 +223,7 @@ export function createHttpSources(opts: { changed: (projectId: string) => void }
       report.sourceId = sourceId;
       try {
         for (const file of files) {
-          try {
-            tally(report, await sendBatchFile(projectId, sourceId, file));
-          } catch (e) {
-            if (endsBatch(e)) break; // a refused file does not stop the others; an ended or removed batch, or a lost sign-in, does
-          }
+          if (await addOne(projectId, sourceId, file, report)) break; // an ended or removed batch, or a lost sign-in, stops the upload
           opts.changed(projectId);
         }
       } finally {

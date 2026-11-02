@@ -161,6 +161,24 @@ export async function pickLocalPdf(page: Page, name: string, size = 4096): Promi
   return buffer;
 }
 
+/** Local files: picks any file in the hidden input; `mimeType` is what the browser would say (it may be empty or odd). */
+export async function pickLocalFile(page: Page, name: string, mimeType: string, buffer: Buffer): Promise<void> {
+  await page.getByTestId("mcs-upload-input").setInputFiles({ name, mimeType, buffer });
+}
+
+/** A tiny synthetic file of an accepted type: the API's first-byte check, then filler; never a real document. */
+export function syntheticDocument(extension: string, size = 512): Buffer {
+  const zip = Buffer.from("PK\x03\x04", "latin1");
+  const text: Record<string, string> = {
+    ".html": "<!doctype html><title>t</title><p>x</p>\n",
+    ".md": "# Title\n\ntext\n",
+    ".csv": "a,b\n1,2\n",
+  };
+  if (extension === ".pdf") return syntheticPdf(size);
+  if (extension in text) return Buffer.concat([Buffer.from(text[extension]), Buffer.from(" ".repeat(size))]);
+  return Buffer.concat([zip, randomBytes(size)]);
+}
+
 /** Saves a Drive folder through the BFF (the stub's reserved ids; the source stays in `listing`). */
 export const saveDriveApi = (page: Page, pid: string, folderId = "fake-synthetic-30") =>
   bff(page, "POST", `/projects/${pid}/sources/gdrive`, { link: `https://drive.google.com/drive/folders/${folderId}` });
