@@ -35,6 +35,7 @@ from db.models import Connection, ConnectionItem, Document
 from db.source_files import UPLOAD_OPEN_FOR
 from db.source_repair import LOCK_PROJECT, adopt_unheld
 from db.sources import UPLOAD_STALE_AFTER, DocumentFile
+from file_parsers.formats import DocumentFormat, format_for_media_type
 
 BATCH_KIND: Final = "upload"
 BATCH_NAME: Final = "Local files"
@@ -380,6 +381,21 @@ async def legacy_day_batch(
 # Add one file ------------------------------------------------------------------------
 
 
+_CATEGORY_OF: Final = {
+    DocumentFormat.PDF: "pdf",
+    DocumentFormat.DOCX: "word",
+    DocumentFormat.PPTX: "powerpoint",
+    DocumentFormat.XLSX: "excel",
+}
+
+
+def item_category(media_type: str) -> str:
+    """The Drive-style file category of an uploaded type (``other_files`` for HTML, Markdown, CSV)."""
+
+    spec = format_for_media_type(media_type)
+    return _CATEGORY_OF.get(spec.format, "other_files") if spec is not None else "other_files"
+
+
 def _new_item(
     *,
     batch_id: uuid.UUID,
@@ -388,6 +404,7 @@ def _new_item(
     content_hash: str,
     filename: str,
     size_bytes: int,
+    media_type: str,
     state: Literal["pending", "duplicate"],
 ) -> ConnectionItem:
     return ConnectionItem(
@@ -396,8 +413,8 @@ def _new_item(
         project_id=project_id,
         external_id=content_hash,
         name=filename,
-        mime_type=repo.PDF_MEDIA_TYPE,
-        category="pdf",
+        mime_type=media_type,
+        category=item_category(media_type),
         processing_class="processed",
         size_bytes=size_bytes,
         state=state,
@@ -435,8 +452,9 @@ async def add_batch_file(
     file: DocumentFile,
     user_id: uuid.UUID | None,
     allow_ended: bool = False,
+    media_type: str = repo.PDF_MEDIA_TYPE,
 ) -> AddOutcome:
-    """Add one uploaded PDF to a batch in the caller's transaction (SPECS 4.4).
+    """Add one uploaded file (``media_type``, PDF default) to a batch in the caller's transaction (SPECS 4.4).
 
     The batch row lock (``FOR UPDATE``) fences the add against a removal of the batch.
     Raises ``SourceNotFoundError``, ``BatchEndedError`` (``allow_ended`` skips the open test, for
@@ -468,7 +486,7 @@ async def add_batch_file(
         if same is not None:  # the same content twice in one pick: a no-op
             return await _duplicate(session, project_id, same)
         for _ in range(_DOCUMENT_LOOPS):
-            added = await _insert_new(session, file, user_id, fields)
+            added = await _insert_new(session, file, user_id, fields, media_type)
             if added is not None:
                 return added
             settled = await _existing_content(session, fields)
@@ -491,6 +509,7 @@ async def _insert_new(
     file: DocumentFile,
     user_id: uuid.UUID | None,
     fields: dict[str, Any],
+    media_type: str,
 ) -> AddOutcome | None:
     """The ``added`` outcome, or ``None`` when the project already holds the content."""
 
@@ -501,10 +520,11 @@ async def _insert_new(
             file=file,
             uploaded_by=user_id,
             source_id=fields["batch_id"],
+            media_type=media_type,
         )
     except repo.DuplicateDocumentError:
         return None
-    item = _new_item(document_id=document.id, state="pending", **fields)
+    item = _new_item(document_id=document.id, state="pending", media_type=media_type, **fields)
     session.add(item)
     await session.flush()
     await repo.mark_processing(session, fields["project_id"], document.id)
@@ -591,7 +611,12 @@ async def _link_duplicate(
     holder: Connection | None,
     fields: dict[str, Any],
 ) -> AddOutcome:
-    item = _new_item(document_id=document.id, state="duplicate", **fields)
+    item = _new_item(
+        document_id=document.id,
+        state="duplicate",
+        media_type=document.media_type,
+        **fields,
+    )
     session.add(item)
     await session.flush()
     return AddOutcome("already_in_project", item, document, holder, None)
@@ -616,7 +641,12 @@ async def _move_here(
         )
     )
     document.source_id = batch_id
-    item = _new_item(document_id=document.id, state="pending", **fields)
+    item = _new_item(
+        document_id=document.id,
+        state="pending",
+        media_type=document.media_type,
+        **fields,
+    )
     session.add(item)
     await session.flush()
     if (

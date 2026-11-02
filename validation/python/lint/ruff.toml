@@ -27,10 +27,10 @@ ignore = [
 
 [lint.isort]
 required-imports = ["from __future__ import annotations"]
-# project: src/ holds local type stubs (src/google/cloud/storage/*.pyi, src/pymupdf4llm.pyi) for
+# project: src/ holds local type stubs (src/google/cloud/storage/*.pyi) for
 # third-party libraries that ship no py.typed; their presence under the `src` root must not make
 # isort file the real installed packages as first-party.
-known-third-party = ["google", "pymupdf4llm"]
+known-third-party = ["google"]
 
 [lint.flake8-tidy-imports]
 ban-relative-imports = "all"

@@ -3,6 +3,7 @@ logs/
 .env.*
 !.env.example
 .venv/
+.docling-models/
 __pycache__/
 *.py[cod]
 .pytest_cache/

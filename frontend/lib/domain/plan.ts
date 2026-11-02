@@ -52,15 +52,6 @@ export interface PlanEvent {
   type: "plan.started" | "plan.step" | "plan.ready";
   runId: string;
 }
-export type AgentId = "claude-code" | "cursor" | "codex";
-export interface DevelopContent {
-  // built in the frontend, not graph data
-  agents: { id: AgentId; config: string; teachFile: { path: string; body: string }; run: string }[];
-  workflows: { title: string; steps: string[] }[]; // 4 cards
-  tools: { name: string; method: string; note: string }[]; // first five MCP tools
-  nextTask: { taskId: string; title: string } | null; // nextTasks(plan)[0]; T12 in the demo
-}
-
 export interface PlanPort {
   table(projectId: string): Promise<PlanTable>; // no plan content → rows [], distinct all 0, unlinked 0
   state(projectId: string): Promise<PlanState>; // no plan content → idle
@@ -68,5 +59,4 @@ export interface PlanPort {
   create(projectId: string): Promise<{ runId: string }>; // idle → creating; conflict if not idle; not_found without plan content
   leave(projectId: string): void; // creating → idle + clears its timers; idle and ready untouched
   updateTaskBody(projectId: string, taskId: string, block: BlockRef, markdown: string, baseVersion: number): Promise<PlanTask>;
-  develop(projectId: string): Promise<DevelopContent>;
 }

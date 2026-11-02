@@ -51,6 +51,8 @@ depth outside 1-3 (`invalid_depth`), a line range not 1 ≤ `line_start` ≤ `li
 |---|---|
 | `node(project_id, spec_id) -> GraphNode \| None` | One node |
 | `nodes(project_id, labels=None, where=None) -> list[GraphNode]` | All spec nodes, ordered by `spec_id`; `where` maps ontology attribute names to required values (equality; enum values as declared; `None` means the property is absent) |
+| `count_nodes(project_id, labels) -> int` | Number of spec nodes with any of `labels`, filtered as `nodes` does (spec labels only; others raise `ConfigurationError`) ([list_features](../mcp-server/tools.md#graph-read-used-by-list_features)) |
+| `nodes_page(project_id, labels, *, limit=50, after=None) -> NodePage` | One page of the nodes `nodes` returns for `labels`, in `spec_id` order: those with `spec_id > after` (exclusive, string compare), at most `limit` (1 to 500, else `ConfigurationError` `invalid_limit`). Reads `limit + 1` rows to know whether more exist; never reads every node and slices ([list_features](../mcp-server/tools.md#graph-read-used-by-list_features)) |
 | `scope(project_id, spec_id, labels=None) -> list[GraphNode]` | The nodes under a node: those that reach it by a declared spine path, or by a contiguous part of a `sequence` path, each edge in its direction (a symmetric relation either way), never passing through another spine-root node (for a module: its features, the capabilities that realise it, and the requirements under either); ordered by `spec_id` |
 | `neighbours(project_id, spec_id, relations=None) -> list[GraphEdge]` | Domain edges of a node |
 | `edges(project_id, include_inferred=True) -> list[GraphEdge]` | All domain edges |
@@ -68,6 +70,8 @@ gets the same capped text.
 `GraphNode`: `spec_id`, `label`, `name`, `spec_id_aliases`, attributes, `statements`, provenance (one
 record per evidence fragment: document, path, fragment, lines, quote). `GraphEdge`: relation, source and
 target `spec_id`, `basis`, `fact`, evidence fragments, and for inferred edges the rule and confidence.
+`NodePage`: `items` (list of `GraphNode`), `next_after` (the `spec_id` of the last node of the page when
+more exist, else `None`).
 `NodeHit`: `node`, `score` (the fused score; 1 for an `id` hit), `matched` (`vector`, `fulltext`, `both` or `id`). Vector search
 uses the search `embedding`. `ImpactResult`: `sources` (the resolved start `spec_id`s), `nodes`,
 `distance` (hops per returned `spec_id`), `truncated`. Readers that analyse `INTEGRATES_WITH` treat the

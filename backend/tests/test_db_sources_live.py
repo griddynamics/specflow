@@ -621,7 +621,7 @@ async def test_progress_legacy_uploads_only_and_the_stale_upload_rule(session: A
 
     await add_upload(session, world.project_a, "ok", "parsed")
     await add_upload(session, world.project_a, "running", "processing", timedelta(minutes=5))
-    await add_upload(session, world.project_a, "stuck", "processing", timedelta(minutes=61))
+    await add_upload(session, world.project_a, "stuck", "processing", timedelta(minutes=251))
     await add_upload(session, world.project_a, "bad", "failed")
     await add_upload(session, world.project_a, "waiting", "uploaded", timedelta(minutes=5))
     # Documents of other origins are not uploads.

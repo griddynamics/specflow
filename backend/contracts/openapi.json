@@ -2331,7 +2331,7 @@
         ]
       },
       "post": {
-        "description": "INT-SRC-0004: stream one PDF into an open batch (201 added, 200 otherwise).",
+        "description": "INT-SRC-0004: stream one document into an open batch (201 added, 200 otherwise).",
         "operationId": "add_batch_file_api_v1_projects__pid__sources__sid__files_post",
         "parameters": [
           {

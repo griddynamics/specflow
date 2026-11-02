@@ -37,6 +37,7 @@ from db import repositories as repo
 from db.batches import LockConflictError, LockTimeoutError, SourceNotFoundError, conflict_from, sqlstate
 from db.models import Connection, ConnectionItem, Document, Project
 from db.source_repair import LOCK_PROJECT, adopt_unheld
+from file_parsers.formats import format_for_media_type
 from storage import keys
 from temporal.ids import drive_document_id
 
@@ -62,7 +63,7 @@ class Removal:
     handed_over: list[uuid.UUID]
     reparse: list[uuid.UUID]
     sweep_document_ids: list[uuid.UUID]
-    object_keys: list[str]
+    object_prefixes: list[str]
     drive_import_open: bool
 
 
@@ -80,9 +81,9 @@ def _hand_over_target(listers: Iterable[tuple[uuid.UUID, datetime]]) -> uuid.UUI
 
 
 def _needs_reread(status: str, media_type: str) -> bool:
-    """SD7: a handed-over PDF is read again only when it is not Done."""
+    """SD7: a handed-over document of a processed format is read again only when it is not Done."""
 
-    return status not in DONE_STATUSES and media_type == repo.PDF_MEDIA_TYPE
+    return status not in DONE_STATUSES and format_for_media_type(media_type) is not None
 
 
 def _item_document_ids(
@@ -98,42 +99,34 @@ def _item_document_ids(
     return list(seen)
 
 
-def _object_keys_for(
+def _object_prefixes_for(
     project_id: uuid.UUID,
     source_id: uuid.UUID,
     *,
     kind: str,
     items: Sequence[tuple[str, str]],
-    deleted_original_keys: Iterable[str],
+    deleted_ids: Iterable[uuid.UUID],
     protected: Collection[uuid.UUID],
 ) -> list[str]:
-    """The object keys to delete after the commit (SPECS 5, key guard R01).
+    """The object prefixes to delete after the commit (SPECS 5, key guard R01).
 
-    - the ``original_key`` of every deleted document;
-    - ``original.bin`` for a ``stored`` item (Drive only);
-    - all three variants for a ``processing`` item (Drive only): its child parse may have
-      written any of them.
+    One ``projects/{pid}/documents/{did}/`` prefix per document, so no ``original.<ext>``,
+    ``original.json`` or ``original.bin`` is orphaned, whatever the format:
+
+    - every deleted document;
+    - the uuid5 document of a ``stored`` or ``processing`` item (Drive only): its child
+      parse may have written any variant.
 
     A uuid5 id in ``protected`` (handed over, or still with a ``documents`` row after the
-    deletes) contributes no key: a processing PDF item's document may have just been
-    handed over, and its ``original.pdf`` must survive. Sorted, without duplicates.
+    deletes) contributes no prefix: a processing item's document may have just been handed
+    over, and its original must survive. Sorted, without duplicates.
     """
 
-    found: set[str] = set(deleted_original_keys)
+    pid = str(project_id)
+    ids: set[uuid.UUID] = set(deleted_ids)
     if kind == "gdrive":
-        pid = str(project_id)
-        for external_id, state in items:
-            if state not in _OBJECT_STATES:
-                continue
-            doc_id = drive_document_id(source_id, external_id)
-            if doc_id in protected:
-                continue
-            did = str(doc_id)
-            found.add(keys.document_original_bin(pid, did))
-            if state == "processing":
-                found.add(keys.document_original(pid, did))
-                found.add(keys.document_original_json(pid, did))
-    return sorted(found)
+        ids.update(d for d in _item_document_ids(source_id, items, _OBJECT_STATES) if d not in protected)
+    return sorted(keys.document_prefix(pid, str(doc_id)) for doc_id in ids)
 
 
 def _sweep_ids_for(
@@ -252,7 +245,7 @@ async def _remove(session: AsyncSession, project_id: uuid.UUID, source_id: uuid.
     import_open = kind == "gdrive" and state in ("listing", "importing")
     held = (
         await session.execute(
-            select(Document.id, Document.status, Document.media_type, Document.original_key)
+            select(Document.id, Document.status, Document.media_type)
             .where(Document.project_id == project_id, Document.source_id == source_id)
             .order_by(Document.id)
             .with_for_update()
@@ -276,12 +269,10 @@ async def _remove(session: AsyncSession, project_id: uuid.UUID, source_id: uuid.
     handed: dict[uuid.UUID, list[uuid.UUID]] = defaultdict(list)  # target -> documents
     reparse: list[uuid.UUID] = []
     deleted_ids: list[uuid.UUID] = []
-    deleted_keys: list[str] = []
-    for document_id, status, media_type, original_key in held:
+    for document_id, status, media_type in held:
         target = _hand_over_target(by_document.get(document_id, ()))
         if target is None:
             deleted_ids.append(document_id)
-            deleted_keys.append(original_key)
             continue
         handed[target].append(document_id)
         if _needs_reread(status, media_type):
@@ -316,12 +307,12 @@ async def _remove(session: AsyncSession, project_id: uuid.UUID, source_id: uuid.
         handed_over=handed_over,
         reparse=reparse,
         sweep_document_ids=_sweep_ids_for(source_id, kind=kind, items=items, deleted_ids=deleted_ids),
-        object_keys=_object_keys_for(
+        object_prefixes=_object_prefixes_for(
             project_id,
             source_id,
             kind=kind,
             items=items,
-            deleted_original_keys=deleted_keys,
+            deleted_ids=deleted_ids,
             protected=set(handed_over) | present,
         ),
         drive_import_open=import_open,

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from file_parsers.formats import PDF_MEDIA_TYPE, format_for_media_type
 from storage.base import InvalidObjectKeyError
 
 MAX_KEY_BYTES = 1024
+DOCUMENT_PREFIX_SEGMENTS = 4
 FIRST_PRINTABLE = 0x20
 DELETE_CHAR = 0x7F
 
@@ -55,10 +57,39 @@ def _original(project_id: str, document_id: str, filename: str) -> str:
     return validate_key(key)
 
 
-def document_original(project_id: str, document_id: str) -> str:
-    """``projects/{pid}/documents/{did}/original.pdf`` (C10)."""
+def document_original(project_id: str, document_id: str, media_type: str = PDF_MEDIA_TYPE) -> str:
+    """``projects/{pid}/documents/{did}/original.<ext>`` (C10); PDF (the default) is ``original.pdf``.
 
-    return _original(project_id, document_id, "original.pdf")
+    The extension comes from the media-type table; an unknown type is refused, so a key never
+    carries a name that came from a client.
+    """
+
+    spec = format_for_media_type(media_type)
+    if spec is None:
+        raise InvalidObjectKeyError("no object key for this media type")
+    return _original(project_id, document_id, f"original{spec.extension}")
+
+
+def document_prefix(project_id: str, document_id: str) -> str:
+    """``projects/{pid}/documents/{did}/``: every object of one document (the trailing ``/`` matters)."""
+
+    return _original(project_id, document_id, "x")[: -len("x")]
+
+
+def validate_prefix(prefix: str) -> str:
+    """Return ``prefix`` unchanged if it is a document prefix: ``projects/<id>/documents/<id>/``.
+
+    Only that shape may be deleted by prefix, so a shorter prefix (``projects/``, ``projects/<id>/``)
+    can never wipe a project. The trailing ``/`` keeps ``documents/{did}/`` from matching
+    ``documents/{did}2/``.
+    """
+
+    if not _is_text(prefix) or not prefix.endswith("/"):
+        raise InvalidObjectKeyError("object prefix must end with '/'")
+    segments = validate_key(prefix[:-1]).split("/")
+    if len(segments) != DOCUMENT_PREFIX_SEGMENTS or segments[0] != "projects" or segments[2] != "documents":
+        raise InvalidObjectKeyError("object prefix must be projects/<id>/documents/<id>/")
+    return prefix
 
 
 def document_original_json(project_id: str, document_id: str) -> str:

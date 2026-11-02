@@ -25,6 +25,7 @@ from typing import Any, Final, Literal
 
 from drive import recordings
 from drive.categories import GOOGLE
+from drive.fake_files import sample_bytes
 from drive.gateway import CHUNK_SIZE, FAKE_DRIVE_EMAIL, DriveError
 from drive.links import is_drive_id
 from drive.model import DriveFolder, DriveItem, Listing
@@ -181,7 +182,9 @@ class FakeDriveGateway:
     def iter_download(self, file_id: str, *, chunk_size: int = CHUNK_SIZE) -> Iterator[bytes]:
         item = self._item(file_id)
         self._sleep(self._delay)
-        data = TINY_PDF if item.mime_type == "application/pdf" else (b"fake drive file " + item.id.encode())
+        data = TINY_PDF if item.mime_type == "application/pdf" else sample_bytes(item.mime_type, item.id)
+        if data is None:  # a type the parser does not read (images, archives, legacy Office)
+            data = b"fake drive file " + item.id.encode()
         for start in range(0, len(data), chunk_size):
             yield data[start : start + chunk_size]
 

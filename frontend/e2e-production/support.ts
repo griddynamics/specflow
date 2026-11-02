@@ -1,13 +1,15 @@
 // P17 (FE-BP-03.AC9, FE-DOD-03, TECH-SPECS §10.4): the `test` every production-route spec uses. The app runs against the stub API
 // (scripts/serve-production.mjs), never the real backend. It fails a case on a console error or page error (a case may allow a
-// named one, e.g. the browser's "Failed to load resource" line for an expected 404), on any origin other than the app and the two
-// Google Fonts hosts, and on any app `/api/` path outside `/api/backend/` (the BFF) and `/api/auth/` (sign-in, sign-out).
+// named one, e.g. the browser's "Failed to load resource" line for an expected 404), on any origin other than the app, the stub
+// issuer the sign-in goes through and the two Google Fonts hosts, and on any app `/api/` path outside `/api/backend/` (the BFF) and `/api/auth/` (sign-in, sign-out).
 import { randomBytes } from "node:crypto";
 import { request, type Locator, type Page } from "@playwright/test";
 import { test as base, expect, networkQuiet } from "../e2e/support";
 
 export const ALLOWED_EXTRA_HOSTS = ["fonts.googleapis.com", "fonts.gstatic.com"];
 export const CONTROL = process.env.E2E_PRODUCTION_CONTROL_URL ?? "http://127.0.0.1:3262";
+/** The stub issuer (scripts/serve-production.mjs): the one extra origin a page may visit, during sign-in and sign-out. */
+export const ISSUER_ORIGIN = process.env.E2E_PRODUCTION_ISSUER_URL ?? "http://127.0.0.1:3263";
 
 export interface RequestLog {
   method: string;
@@ -52,7 +54,8 @@ export const test = base.extend<{ requests: RequestLog[]; guards: undefined }>({
           postData: r.postData(),
           headers: r.headers(),
         });
-        if (u.origin !== appOrigin && !ALLOWED_EXTRA_HOSTS.includes(u.hostname)) problems.push(`foreign origin: ${u.origin}`);
+        if (u.origin !== appOrigin && u.origin !== ISSUER_ORIGIN && !ALLOWED_EXTRA_HOSTS.includes(u.hostname))
+          problems.push(`foreign origin: ${u.origin}`);
         if (u.origin === appOrigin && u.pathname.startsWith("/api/") && !/^\/api\/(?:backend|auth)\//.test(u.pathname))
           problems.push(`API path: ${u.pathname}`);
       });
@@ -78,11 +81,10 @@ export async function setTheme(page: Page, theme: "light" | "dark"): Promise<voi
   await page.context().addCookies([{ name: "specflow-theme", value: theme, url: baseURL }]);
 }
 
-/** FE-BP-03.AC5: the dev sign-in form on /login (pre-filled); lands on `/`. */
+/** FE-BP-03.AC5: the OIDC sign-in button on /login; the stub issuer signs the default user in and `/` follows. */
 export async function login(page: Page): Promise<void> {
   await page.goto("/login");
-  await expect(page.getByTestId("login-dev-email")).not.toHaveValue("");
-  await page.getByTestId("login-dev-submit").click();
+  await page.getByTestId("login-oidc").click();
   await expect(page.getByTestId("app-shell")).toBeVisible();
   // `/` settles on the newest project's Mission Control, or the empty state when there is no project (O12).
   await expect(page.getByTestId("screen-mission-control").or(page.getByTestId("home-empty"))).toBeVisible();
@@ -157,6 +159,24 @@ export async function pickLocalPdf(page: Page, name: string, size = 4096): Promi
   const buffer = syntheticPdf(size);
   await page.getByTestId("mcs-upload-input").setInputFiles({ name, mimeType: "application/pdf", buffer });
   return buffer;
+}
+
+/** Local files: picks any file in the hidden input; `mimeType` is what the browser would say (it may be empty or odd). */
+export async function pickLocalFile(page: Page, name: string, mimeType: string, buffer: Buffer): Promise<void> {
+  await page.getByTestId("mcs-upload-input").setInputFiles({ name, mimeType, buffer });
+}
+
+/** A tiny synthetic file of an accepted type: the API's first-byte check, then filler; never a real document. */
+export function syntheticDocument(extension: string, size = 512): Buffer {
+  const zip = Buffer.from("PK\x03\x04", "latin1");
+  const text: Record<string, string> = {
+    ".html": "<!doctype html><title>t</title><p>x</p>\n",
+    ".md": "# Title\n\ntext\n",
+    ".csv": "a,b\n1,2\n",
+  };
+  if (extension === ".pdf") return syntheticPdf(size);
+  if (extension in text) return Buffer.concat([Buffer.from(text[extension]), Buffer.from(" ".repeat(size))]);
+  return Buffer.concat([zip, randomBytes(size)]);
 }
 
 /** Saves a Drive folder through the BFF (the stub's reserved ids; the source stays in `listing`). */
@@ -241,6 +261,35 @@ export async function seedSource(pid: string, source: Record<string, unknown>): 
 /** Removes a source in the stub as if another tab had (the details modal then finds it gone). */
 export async function removeSourceElsewhere(pid: string, sid: string): Promise<void> {
   await control("POST", "/remove-source", { pid, sid });
+}
+
+/** What the stub issuer saw of the sign-out (the serve script's `GET /oidc`; never a token). */
+export interface OidcObservations {
+  endSession: boolean;
+  endSessionCalls: number;
+  endSessionRequests: {
+    hasIdTokenHint: boolean;
+    idTokenHintValid: boolean;
+    postLogoutRedirectUri: string;
+    clientId?: string;
+    ok: boolean;
+  }[];
+  signIns: number;
+  refreshCount: number;
+}
+
+export async function oidcObservations(): Promise<OidcObservations> {
+  return (await control("GET", "/oidc")) as OidcObservations;
+}
+
+/** Zeroes the issuer's end-session counter and its other observations (call before the action under test). */
+export async function resetOidc(): Promise<void> {
+  await control("POST", "/oidc/reset");
+}
+
+/** Switches the issuer's `end_session_endpoint` on or off (off = a provider without one, as Google). */
+export async function setEndSession(enabled: boolean): Promise<void> {
+  await control("POST", "/oidc/end-session", { enabled });
 }
 
 /** Returns `value` once it is known to be present; fails the scenario with `what` otherwise. */

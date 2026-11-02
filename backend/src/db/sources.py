@@ -53,8 +53,9 @@ from drive.categories import categorize
 from drive.model import DriveItem
 
 # An upload still ``processing`` after the parse activity's execution timeout
-# is finished for progress (the parse can no longer report back).
-UPLOAD_STALE_AFTER: Final = timedelta(minutes=60)
+# is finished for progress (the parse can no longer report back). It equals the
+# parse workflow's ``EXECUTION_TIMEOUT`` (250 min, DESIGN D11); a test pins both.
+UPLOAD_STALE_AFTER: Final = timedelta(minutes=250)
 # A Drive import has this long as a whole (workflow execution timeout). A hard
 # timeout runs no code, so a connection older than this and still
 # listing/importing reads as failed (read time only, nothing is written).
@@ -265,9 +266,10 @@ async def upsert_items(
 ) -> int:
     """Add the listed files as ``pending`` rows; the number of rows added.
 
-    Categories come from the mime type only (DATA-GDUI-0001.AC5). A file already
-    stored for the connection is left as it is, so a re-run of the listing never
-    resets progress.
+    Categories and processing classes come from the mime type only (DATA-GDUI-0001.AC5,
+    ``drive.categories``). A file already stored for the connection is left as it is, so a
+    re-run of the listing never resets progress, and an item imported earlier as ``stored_only``
+    (a Word file before the Docling parser change) is never converted here.
     """
 
     added = 0
@@ -604,6 +606,7 @@ class GraphCorpusRow:
     file that links this ``origin='connection'`` document (``None`` otherwise);
     one document linked by several Drive files gives one row per file.
     ``holder_name``: the name of the source that holds the document.
+    ``parser``: ``documents.parser`` (the engine id; ``None`` for a row that predates it).
     """
 
     document_id: uuid.UUID
@@ -617,6 +620,7 @@ class GraphCorpusRow:
     drive_external_id: str | None
     drive_source_name: str | None
     markdown: str
+    parser: str | None
 
 
 def graph_corpus_statement(project_id: uuid.UUID) -> Select[Any]:
@@ -651,6 +655,7 @@ def graph_corpus_statement(project_id: uuid.UUID) -> Select[Any]:
             drive_items.c.external_id.label("drive_external_id"),
             drive_items.c.source_name.label("drive_source_name"),
             Document.markdown,
+            Document.parser,
         )
         .outerjoin(holder, holder.id == Document.source_id)
         .outerjoin(

@@ -2,7 +2,7 @@
 
 Design: both activities are ``async def`` so the async database and storage
 layers run on the worker's event loop and no per-queue sync executor is needed.
-Only the CPU-bound ``pdf_file_to_markdown`` runs in a dedicated single-thread
+Only the CPU-bound conversion runs in a dedicated single-thread
 executor owned by the registration; a semaphore keeps one download+parse at a
 time per worker. A background task heartbeats while the parse runs.
 
@@ -31,9 +31,9 @@ from __future__ import annotations
 import asyncio
 import tempfile
 import time
-from collections.abc import Callable
 from concurrent.futures import Executor
 from contextlib import suppress
+from functools import partial
 from pathlib import Path
 from typing import Final
 
@@ -42,27 +42,34 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError, ApplicationErrorCategory
 
 from db import repositories
-from file_parsers.pdf.to_markdown import (
-    ParsedMarkdown,
-    PdfParseError,
-    pdf_file_to_markdown,
-)
+from file_parsers.convert import ParsedMarkdown, PdfParseError
+from file_parsers.engines.port import UnsupportedFormatError
+from file_parsers.limits import DocumentParseFailedError, DocumentTooLargeError
 from logger.logger import ERROR, INFO, WARNING, get_logger, log_event
 from storage import ObjectNotFoundError, ObjectStore
-from storage.keys import document_original
 from temporal import diagnostics  # TEMPORARY (freeze investigation)
 from temporal.containment import Contain
+from temporal.documents.conversion import ParseFunction, Progress, convert, local_name
 from temporal.documents.models import (
     MarkFailedInput,
     ParseDocumentInput,
     ParseDocumentResult,
 )
-from temporal.documents.workflows import MARK_FAILED_ACTIVITY, PARSE_ACTIVITY
+from temporal.documents.workflows import FAILURE_CODES, MARK_FAILED_ACTIVITY, PARSE_ACTIVITY
 
 logger = get_logger("temporal.documents.activities")
 
 HEARTBEAT_INTERVAL_SECONDS: Final = 20.0
 PARSED: Final = "parsed"
+#: Conversion exception -> the activity failure type (its code is ``FAILURE_CODES[type]``). An unsupported
+#: media type is a ``document_parse_failed`` until every accepted format has a path.
+_RAISED: Final[dict[type[Exception], str]] = {
+    PdfParseError: "PdfParseError",
+    DocumentTooLargeError: "DocumentTooLargeError",
+    DocumentParseFailedError: "DocumentParseFailedError",
+    UnsupportedFormatError: "DocumentParseFailedError",
+}
+_RAISED_TYPES: Final = tuple(_RAISED)
 
 
 def _fixed(code: str, error_type: str, *, retryable: bool = False, expected: bool = False) -> ApplicationError:
@@ -95,7 +102,7 @@ class ParseActivities:
         executor: Executor,
         *,
         heartbeat_interval: float = HEARTBEAT_INTERVAL_SECONDS,
-        parse: Callable[[Path], ParsedMarkdown] = pdf_file_to_markdown,
+        parse: ParseFunction = convert,
     ) -> None:
         self._sessions = session_factory
         self._store = store
@@ -148,16 +155,17 @@ class ParseActivities:
             row = await repositories.get_document(session, data.project_id, data.document_id)
         if row is None:
             raise _fixed("document_not_found", "DocumentNotFound", expected=True)
-        key = document_original(str(data.project_id), str(data.document_id))
+        key, media_type = row.original_key, row.media_type
+        progress = Progress()
         # The heartbeat starts BEFORE waiting for the slot: a second document
         # queued behind a long parse must not hit the 60 s heartbeat timeout.
-        heartbeat = asyncio.create_task(self._heartbeat())
+        heartbeat = asyncio.create_task(self._heartbeat(progress))
         try:
             with tempfile.TemporaryDirectory(prefix="specflow-parse-") as tmp:
-                path = Path(tmp) / "original.pdf"
+                path = Path(tmp) / local_name(media_type)
                 diagnostics.set_stage("wait_slot")
                 async with self._slot:
-                    parsed = await self._download_and_parse(key, path)
+                    parsed = await self._download_and_parse(key, path, media_type, progress)
         finally:
             heartbeat.cancel()
             with suppress(asyncio.CancelledError):
@@ -179,7 +187,7 @@ class ParseActivities:
         )
         return ParseDocumentResult(document_id=data.document_id, status=PARSED, markdown_chars=len(markdown))
 
-    async def _download_and_parse(self, key: str, path: Path) -> ParsedMarkdown:
+    async def _download_and_parse(self, key: str, path: Path, media_type: str, progress: Progress) -> ParsedMarkdown:
         diagnostics.set_stage("download")
         try:
             await self._store.download_to_path(key, path)
@@ -193,32 +201,56 @@ class ParseActivities:
             "document.parse.started",
             document_id=diagnostics.activity_view().get("document_id"),
             attempt=activity.info().attempt,
+            media_type=media_type,
             size_bytes=size_bytes,
             rss_mb=diagnostics.rss_mb(),
         )
         diagnostics.set_stage("parse")
         started = time.monotonic()
+        document_id = diagnostics.activity_view().get("document_id")
+
+        def on_progress(done: int, total: int) -> None:
+            # One line per finished range, from the parse thread; numbers only (the engine logs pdf.range.done).
+            took = progress.update(done, total)
+            log_event(
+                logger,
+                INFO,
+                "document.parse.progress",
+                document_id=document_id,
+                pages_done=done,
+                pages_total=total,
+                duration_ms=round(took * 1000),
+            )
+
+        progress.begin()
         try:
-            return await asyncio.get_running_loop().run_in_executor(self._executor, self._parse, path)
-        except PdfParseError as error:
-            # TEMPORARY: the cause (type and traceback) to stdout logs only.
+            run = partial(self._parse, path, media_type, on_progress)
+            return await asyncio.get_running_loop().run_in_executor(self._executor, run)
+        except _RAISED_TYPES as error:
+            error_type = next(name for kind, name in _RAISED.items() if isinstance(error, kind))
+            # TEMPORARY: the cause (type and traceback) and the numbers to stdout logs only.
             log_event(
                 logger,
                 WARNING,
-                "document.parse.pdf_error",
+                "document.parse.rejected",
+                error_code=FAILURE_CODES[error_type],
+                media_type=media_type,
                 cause_type=type(error.__cause__).__name__ if error.__cause__ else None,
                 parse_s=round(time.monotonic() - started, 1),
                 exc_info=error,
             )
-            raise _fixed("pdf_parse_failed", "PdfParseError", expected=True) from None
+            raise _fixed(FAILURE_CODES[error_type], error_type, expected=True) from None
 
-    async def _heartbeat(self) -> None:
+    async def _heartbeat(self, progress: Progress) -> None:
         while True:
             # TEMPORARY (freeze investigation): numbers only, visible in the
             # Temporal UI and handed to the next attempt after a timeout.
             view = diagnostics.activity_view()
+            pages_done, pages_total = progress.snapshot()
             activity.heartbeat(
                 {
+                    "pages_done": pages_done,
+                    "pages_total": pages_total,
                     "stage": view.get("stage"),
                     "elapsed_s": view.get("elapsed_s"),
                     "stage_elapsed_s": view.get("stage_elapsed_s"),

@@ -87,13 +87,18 @@ async def run_bounded[T](
     return [item for item, task in zip(items, tasks, strict=True) if task.cancelled() or task.exception() is not None]
 
 
-async def delete_objects(store: ObjectStore, object_keys: Iterable[str], *, budget: float, concurrency: int) -> int:
-    """Delete the objects with ``concurrency`` calls at once, stop at ``budget`` seconds.
+async def delete_objects(store: ObjectStore, prefixes: Iterable[str], *, budget: float, concurrency: int) -> int:
+    """Delete the objects under each document prefix, ``concurrency`` calls at once, stop at ``budget`` seconds.
 
-    Returns how many were NOT deleted (failed, or still waiting at the budget).
+    Returns how many prefixes were NOT deleted (failed, or still waiting at the budget).
     """
 
-    left = await run_bounded(dict.fromkeys(object_keys), store.delete, budget=budget, concurrency=concurrency)
+    left = await run_bounded(
+        dict.fromkeys(prefixes),
+        store.delete_by_prefix,
+        budget=budget,
+        concurrency=concurrency,
+    )
     return len(left)
 
 
@@ -151,11 +156,11 @@ async def _after_commit(runtime: Runtime, user_id: uuid.UUID, pid: uuid.UUID, si
             document_ids=[str(i) for i in waiting[:LOGGED_IDS]],
         )
     left_budget = max(DELETE_BUDGET_SECONDS - (time.monotonic() - began), 0.0)
-    left = len(done.object_keys)  # kept when the deletes fail as a whole
+    left = len(done.object_prefixes)  # kept when the deletes fail as a whole
     with Contained() as delete:
         left = await delete_objects(
             runtime.store,
-            done.object_keys,
+            done.object_prefixes,
             budget=left_budget,
             concurrency=DELETE_CONCURRENCY,
         )

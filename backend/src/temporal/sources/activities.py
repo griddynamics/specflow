@@ -10,7 +10,7 @@ Rules kept here:
   write); nothing is spooled to a temp file.
 - Idempotent per file: ``document_id = uuid5(connection_id, file_id)`` names the
   object and the row, so a retry reuses both. ``ObjectAlreadyExistsError`` on a
-  stored-only file or a Google JSON is done; on a PDF the row decides (the hash
+  stored-only file or a Google JSON is done; on a parsed file (PDF, Office, web, text) the row decides (the hash
   is only known while streaming): no row -> delete the orphan object and stream
   again. A duplicate content hash links the file to the existing document and
   deletes the own object; held by another source it ends as ``duplicate``.
@@ -52,6 +52,7 @@ from drive.convert import to_markdown
 from drive.gateway import DriveError, DriveGateway
 from drive.model import summarize
 from drive.reasons import FileErrorReason, Reason
+from file_parsers.formats import format_for_media_type
 from logger.logger import ERROR, INFO, WARNING, get_logger, log_event
 from storage import ObjectAlreadyExistsError, ObjectStore, ObjectStoreError
 from storage.keys import (
@@ -94,7 +95,9 @@ MAX_GOOGLE_JSON_BYTES: Final = 32 * 1024 * 1024
 #: or retry that never claimed it (SPECS 6.1).
 OPEN_ITEM_STATES: Final = ("pending", "processing")
 WAIT_POLL_SECONDS: Final = 5.0
-WAIT_LIMIT_SECONDS: Final = 60 * 60.0  # the parse workflow's execution limit
+#: Not below the parse workflow's execution limit (``temporal.documents.workflows.EXECUTION_TIMEOUT``,
+#: 250 min): a test pins the rule. The wait activity's start-to-close (``wf.WAIT_START_TO_CLOSE``) is larger.
+WAIT_LIMIT_SECONDS: Final = 250 * 60.0
 CONVERT_PARSER: Final = "drive-convert"
 GOOGLE_SOURCE_TYPES: Final = frozenset({Category.GOOGLE_DOCS, Category.GOOGLE_SLIDES, Category.GOOGLE_SHEETS})
 
@@ -320,6 +323,8 @@ class DriveImportActivities:
             return "pdf"
         if row.category in {c.value for c in GOOGLE_SOURCE_TYPES}:
             return "google"
+        if format_for_media_type(row.mime_type) is not None:  # Office, HTML, Markdown, CSV
+            return "document"
         return None
 
     # -- one file --------------------------------------------------------------
@@ -365,8 +370,8 @@ class DriveImportActivities:
         if item is None:
             return ImportItemResult(action="done")  # quiet: removed, failed or final
         document_id = drive_document_id(data.connection_id, item.external_id)
-        if data.kind == "pdf":
-            return await self._import_pdf(data, item, document_id)
+        if data.kind in ("pdf", "document"):
+            return await self._import_file(data, item, document_id)
         if data.kind == "google":
             return await self._import_google(data, item, document_id)
         return await self._import_stored(data, item, document_id)
@@ -379,15 +384,25 @@ class DriveImportActivities:
         await self._finish(item, "stored")
         return ImportItemResult(action="done")
 
-    async def _import_pdf(
+    async def _import_file(
         self, data: ImportItemInput, item: ConnectionItem, document_id: uuid.UUID
     ) -> ImportItemResult:
+        """A file the parser reads (PDF, Office, HTML, Markdown, CSV): original object + document row.
+
+        The canonical media type comes from the Drive MIME type through the format table (the MIME
+        type is trusted here, as for the category); the parse workflow runs the content checks.
+        """
+
+        spec = format_for_media_type(item.mime_type)
+        if spec is None:  # ``_kind`` never sends such a file; a fixed code, not the type
+            raise _ItemError(FileErrorReason.UNKNOWN_ERROR, "download")
+        media_type = spec.media_type
         async with self._sessions() as session:
             existing = await repositories.get_document_state(session, data.project_id, document_id)
         if existing is not None:  # the row and object are there
-            return await self._existing_pdf(data, item, document_id, existing)
-        key = document_original(str(data.project_id), str(document_id))
-        digest, size = await self._stream(item.external_id, key, "application/pdf", replace_orphan=True)
+            return await self._existing_file(data, item, document_id, existing)
+        key = document_original(str(data.project_id), str(document_id), media_type)
+        digest, size = await self._stream(item.external_id, key, media_type, replace_orphan=True)
         async with self._sessions() as session, session.begin():
             # The fence (NFR-REL-0003): the source row stays locked FOR SHARE until the
             # insert commits, so a removal waits for it or finds this row (SPECS 5, 6.1).
@@ -402,7 +417,7 @@ class DriveImportActivities:
                         size_bytes=size,
                         original_key=key,
                     ),
-                    media_type="application/pdf",
+                    media_type=media_type,
                     status="processing",
                     source_id=data.connection_id,
                 )
@@ -419,7 +434,7 @@ class DriveImportActivities:
             return ImportItemResult(action="parse", document_id=document_id)
         return await self._link(item, document)
 
-    async def _existing_pdf(
+    async def _existing_file(
         self, data: ImportItemInput, item: ConnectionItem, document_id: uuid.UUID, existing: Document
     ) -> ImportItemResult:
         """The document row and its object are already there: finish, parse or link."""
@@ -492,7 +507,7 @@ class DriveImportActivities:
         if contained.error is not None:  # ConversionError, a malformed payload or oversize: fixed code only
             raise _ItemError(FileErrorReason.CONVERT_FAILED, "convert") from None
         async with self._sessions() as session, session.begin():
-            # The fence, as in ``_import_pdf``.
+            # The fence, as in ``_import_file``.
             if await sources.lock_importing_connection(session, data.project_id, data.connection_id):
                 document, created = await sources.insert_connection_document(
                     session,
@@ -552,7 +567,7 @@ class DriveImportActivities:
         """Drive -> object, chunk by chunk, hashing on the way; ``(sha256, size)``.
 
         An existing object is done for stored-only files (``("", 0)``); for a
-        PDF (``replace_orphan``) it is an orphan of an attempt that died before the
+        parsed file (``replace_orphan``) it is an orphan of an attempt that died before the
         row was written, so it is deleted and written again.
         """
 

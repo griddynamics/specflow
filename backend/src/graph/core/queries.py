@@ -264,6 +264,10 @@ READ_NODE_BY_ALIAS: Final = Query("read_node_by_alias", load_core_query("read_no
 
 READ_NODES: Final = Query("read_nodes", load_core_query("read_nodes.cypher"))
 
+COUNT_NODES: Final = Query("count_nodes", load_core_query("count_nodes.cypher"))
+
+READ_NODES_PAGE: Final = Query("read_nodes_page", load_core_query("read_nodes_page.cypher"))
+
 READ_NEIGHBOURS: Final = Query("read_neighbours", load_core_query("read_neighbours.cypher"))
 
 READ_EDGES: Final = Query("read_edges", load_core_query("read_edges.cypher"))

@@ -6,7 +6,7 @@ import type { IconName } from "@/components/ui/Icon";
 import { truthy } from "@/components/ui/utils";
 
 /**
- * The five sections, in order (FE-SHELL-01.AC2); the sidebar shows `SIDEBAR_SECTIONS`. Icons are Phosphor Regular names from the icon map.
+ * The six sections, in order (FE-SHELL-01.AC2); the sidebar shows `SIDEBAR_SECTIONS`. Icons are Phosphor Regular names from the icon map.
  * The same tree is declared in `validation/nav-spec.json`, which the nav-tree check compares this array to.
  */
 export const SECTIONS: readonly { readonly value: SectionKey; readonly label: string; readonly icon: IconName }[] = [
@@ -15,9 +15,10 @@ export const SECTIONS: readonly { readonly value: SectionKey; readonly label: st
   { value: "plan", label: "Plan", icon: "kanban" },
   { value: "specbot", label: "SpecBot", icon: "sparkle" },
   { value: "connections", label: "Connections", icon: "plug" },
+  { value: "guides", label: "Guides", icon: "question" },
 ];
 
-export type SectionKey = "missionControl" | "decisions" | "plan" | "specbot" | "connections";
+export type SectionKey = "missionControl" | "decisions" | "plan" | "specbot" | "connections" | "guides";
 
 /**
  * The sidebar's items (owner decision 2026-10-15): Connections is hidden from the sidebar; its page, route and components stay for reuse
@@ -41,12 +42,14 @@ const SECTION_MATCHERS: [SectionKey, RegExp][] = SECTIONS.flatMap((s) =>
 
 /** Which section a pathname belongs to from the ROUTES templates. null = none (e.g. `/`, `/projects/x`). */
 export function sectionOf(pathname: string): SectionKey | null {
+  if (/^\/guides(?:\/[^/]+)?\/?$/.test(pathname)) return "guides"; // the hub and every topic (E6)
   return SECTION_MATCHERS.find(([, re]) => re.test(pathname))?.[0] ?? null;
 }
 
 /** Sidebar target. Project sections need a project; without one they lead to the entry route (TECH-SPECS §1.8). */
 export function sectionHref(routes: RouteBuilder, key: SectionKey, projectId: string | null): string {
   if (key === "connections") return routes.connections();
+  if (key === "guides") return routes.guides(); // global: needs no project
   if (!truthy(projectId)) return routes.home();
   if (key === "missionControl") return routes.missionControl(projectId);
   if (key === "decisions") return routes.decisions(projectId);

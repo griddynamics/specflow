@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import jwt
 import pytest
 
 from db import repositories as repo
@@ -172,3 +173,38 @@ async def test_cors_is_off(harness):
     assert "access-control-allow-origin" not in response.headers
     simple = await harness.client.get("/healthz", headers={"Origin": "https://evil.test"})
     assert "access-control-allow-origin" not in simple.headers
+
+
+@pytest.mark.parametrize(
+    "audience",
+    ["https://mcp.example.test/mcp", ["https://mcp.example.test/mcp", "specflow-api"]],
+)
+async def test_a_token_for_the_mcp_resource_is_refused_on_the_rest_api(harness, audience):
+    """FR-MCP-AUTH-08: an MCP-audience token never reaches /api/v1/me."""
+
+    response = await harness.client.get("/api/v1/me", headers=bearer(aud=audience))
+
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == "Bearer"
+    assert response.json()["error"]["code"] == "invalid_token"
+
+
+async def test_a_token_without_typ_is_accepted_under_the_neutral_default(harness):
+    """FR-MCP-AUTH-07: ``AUTH_TOKEN_TYPE`` defaults to ``none`` on the REST API."""
+
+    headers = bearer(typ=None)
+    payload = jwt.decode(headers["Authorization"].split(" ", 1)[1], options={"verify_signature": False})
+
+    response = await harness.client.get("/api/v1/me", headers=headers)
+
+    assert "typ" not in payload  # omitted, not null
+    assert response.status_code == 200
+
+
+async def test_an_id_token_shaped_token_is_refused_under_the_neutral_default(harness):
+    """FR-MCP-AUTH-07: ``aud`` = the client id (an ID token) fails the audience rule."""
+
+    response = await harness.client.get("/api/v1/me", headers=bearer(aud="specflow-web", typ="ID"))
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "invalid_token"

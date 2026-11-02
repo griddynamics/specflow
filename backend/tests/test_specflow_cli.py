@@ -11,6 +11,7 @@ import pytest
 import cli
 from logger.correlation import current_request_id
 from logger.logger import ERROR
+from settings import AUTH_MODE_REMOVED_HINT
 
 
 class Spy:
@@ -19,6 +20,7 @@ class Spy:
     def __init__(self) -> None:
         self.closed = 0
         self.events: list[tuple[int, str, dict]] = []
+        self.messages: list[str | None] = []
 
 
 @pytest.fixture
@@ -30,6 +32,7 @@ def spy(monkeypatch):
 
     def log_event(_logger, level, event, message=None, /, **fields):
         spy.events.append((level, event, fields))
+        spy.messages.append(message)
 
     monkeypatch.setattr(cli, "close_logger", close)
     monkeypatch.setattr(cli, "log_event", log_event)
@@ -66,6 +69,7 @@ def work(monkeypatch):
     install("api.server", "api")
     install("temporal.worker", "worker")
     install("db.migrate", "migrate")
+    install("api.mcp.server", "mcp")
     health = types.ModuleType("health")
 
     def run_checks(*args, **kwargs):
@@ -81,13 +85,13 @@ def work(monkeypatch):
 # --- parsing --------------------------------------------------------------
 
 
-def test_help_lists_exactly_the_three_roles(capsys, spy):
+def test_help_lists_exactly_the_four_roles(capsys, spy):
     with pytest.raises(SystemExit) as raised:
         cli.main(["--help"])
 
     assert raised.value.code == 0
     out = capsys.readouterr().out
-    assert "{api,worker,migrate}" in out
+    assert "{api,worker,migrate,mcp}" in out
     for other in ("check", "frontend", "all"):
         assert f"\n    {other} " not in out
     assert spy.closed == 1
@@ -163,7 +167,28 @@ def test_the_failure_log_names_variables_never_values(env, work, spy):
     assert set(fields) == {"role", "variables"}
     text = repr(fields)
     assert "s3cr3t-port" not in text and "k" * 40 not in text
-    assert {"API_PORT", "AUTH_MODE", "AUTH_DEV_SIGNING_KEY"} <= set(fields["variables"])
+    assert {"API_PORT", "AUTH_MODE"} <= set(fields["variables"])
+
+
+@pytest.mark.parametrize("role", ["api", "mcp"])
+def test_the_removed_auth_mode_is_refused_with_the_fix_hint_in_the_log(role, env, work, spy):
+    env.setenv("AUTH_MODE", "dev")
+    env.setenv("MCP_RESOURCE_URL", "http://localhost:8002/mcp")
+
+    assert cli.main([role, "--check-config"]) == 2
+
+    [(_, event, fields)] = spy.events
+    assert event == "config.validation.failed" and fields["variables"] == ["AUTH_MODE"]
+    assert spy.messages == [AUTH_MODE_REMOVED_HINT]
+    assert work.calls == {}
+
+
+def test_a_refusal_without_a_hint_logs_the_event_name_as_the_message(env, work, spy):
+    env.setenv("DATABASE_PASSWORD", "")
+
+    assert cli.main(["api", "--check-config"]) == 2
+
+    assert spy.messages == [None]
 
 
 def test_the_worker_check_config_honours_queue_options(env, work, spy):
@@ -335,3 +360,16 @@ class Check:
 )
 def test_a_mapping_of_checks_exits_0_only_when_all_are_ok(result, code):
     assert cli._exit_code(result) == code
+
+
+def test_check_config_refuses_an_api_audience_equal_to_a_client_id(env, work, spy):
+    """FR-MCP-AUTH-12: ``specflow api --check-config`` fails naming AUTH_API_AUDIENCE."""
+
+    env.setenv("AUTH_API_AUDIENCE", "specflow-web")
+
+    assert cli.main(["api", "--check-config"]) == cli.EXIT_CONFIGURATION
+
+    [(level, event, fields)] = spy.events
+    assert (level, event) == (ERROR, "config.validation.failed")
+    assert fields["variables"] == ["AUTH_API_AUDIENCE"]
+    assert work.calls == {}

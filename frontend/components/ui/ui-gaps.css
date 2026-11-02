@@ -7,6 +7,26 @@
   outline-offset: 2px;
 }
 
+/* Breadcrumbs (MCP-M10): an earlier step may be a link. Same look as the step buttons; the target is 44px high. */
+.gdg-crumbs a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 2px 6px;
+  border-radius: var(--radius-pill);
+  color: var(--ink-2);
+  text-decoration: none;
+}
+.gdg-crumbs a:hover {
+  background: var(--glass-fill-subtle);
+  color: var(--ink);
+  text-decoration: underline;
+}
+.gdg-crumbs a:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 /* SearchField: the clear button has no focus rule in bundle.css (browser default ring). */
 .gdg-search__clear:focus-visible {
   outline: 2px solid var(--focus-ring);

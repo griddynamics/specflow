@@ -2,6 +2,7 @@
 // same-origin: the session cookie is HttpOnly and tokens never reach this code.
 
 import { PAGE_LIMIT } from "@/lib/domain/source-state";
+import { contentTypeFor } from "@/lib/domain/upload-formats";
 
 export interface Project {
   id: string;
@@ -29,6 +30,8 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code: string,
     message: string = code,
+    /** `details.max_bytes` of a 413 `file_too_large`: the cap of that file type. */
+    readonly maxBytes?: number,
   ) {
     super(message);
   }
@@ -39,7 +42,7 @@ const BASE = "/api/backend";
 const HEADERS = { "X-Requested-With": "specflow" };
 
 export interface ParsedEnvelope {
-  body: { error?: { code?: unknown } } | null;
+  body: { error?: { code?: unknown; details?: { max_bytes?: unknown } } } | null;
   parsed: boolean;
 }
 
@@ -68,6 +71,12 @@ export async function readEnvelope(res: Response): Promise<ParsedEnvelope> {
 export const getBackend = (path: string): Promise<Response> =>
   fetch(`${BASE}${path}`, { method: "GET", credentials: "same-origin", headers: HEADERS });
 
+/** POST to the BFF's own `/api/auth/end-session`: where the browser goes to finish a sign-out, or undefined when none came back. */
+export const endSessionDestination = (): Promise<unknown> =>
+  fetch("/api/auth/end-session", { method: "POST", cache: "no-store" })
+    .then(async (res) => (res.ok ? ((await res.json()) as { url?: unknown }).url : undefined))
+    .catch(() => undefined);
+
 async function call(path: string, init: RequestInit = {}): Promise<{ status: number; body: unknown }> {
   const headers = new Headers(HEADERS);
   new Headers(init.headers).forEach((value, key) => {
@@ -81,7 +90,9 @@ async function call(path: string, init: RequestInit = {}): Promise<{ status: num
   const { body, parsed } = await readEnvelope(res);
   if (!res.ok) {
     const code = parsed && typeof body?.error?.code === "string" ? body.error.code : `http_${String(res.status)}`;
-    if (parsed && code === body?.error?.code) throw new ApiError(res.status, code);
+    const maxBytes = body?.error?.details?.max_bytes;
+    if (parsed && code === body?.error?.code)
+      throw new ApiError(res.status, code, code, typeof maxBytes === "number" ? maxBytes : undefined);
     throw new ApiError(res.status, code, `Request failed (HTTP ${String(res.status)}). Please try again.`);
   }
   if (!parsed) throw new ApiError(res.status, "invalid_response", `Unexpected response from the server (HTTP ${String(res.status)}).`);
@@ -119,10 +130,10 @@ export const removeSource = (pid: string, sid: string) =>
   httpDelete(`/projects/${encodeURIComponent(pid)}/sources/${encodeURIComponent(sid)}`).then((r) => r.status);
 export const startBatch = (pid: string, expectedFiles: number) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/uploads`, json({ expected_files: expectedFiles })).then((r) => r.body);
-/** Same wire form as `uploadDocument`: the File is the raw body, `Content-Type: application/pdf`. */
+/** Same wire form as `uploadDocument`: the File is the raw body; the `Content-Type` is the canonical type of its extension. */
 export const addBatchFile = (pid: string, sid: string, file: File) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/${encodeURIComponent(sid)}/files?filename=${encodeURIComponent(file.name)}`, {
-    headers: { "Content-Type": "application/pdf" },
+    headers: { "Content-Type": contentTypeFor(file.name) },
     body: file,
   }).then((r) => r.body);
 export const endBatch = (pid: string, sid: string) =>
@@ -141,10 +152,10 @@ export const startGraphBuild = (pid: string, reasoningLevel: number) =>
  * it had it in status `failed`, and the server started its parse again (both 200, with the existing document). */
 export type UploadOutcome = "created" | "duplicate" | "retried";
 
-/** AC-12.2: the File is the raw body, `Content-Type: application/pdf`; no multipart. */
+/** AC-12.2: the File is the raw body, `Content-Type` = the canonical type of its extension (not `file.type`); no multipart. */
 export async function uploadDocument(pid: string, file: File): Promise<{ outcome: UploadOutcome; document: DocumentSummary }> {
   const { status, body: raw } = await httpPost(`/projects/${encodeURIComponent(pid)}/documents?filename=${encodeURIComponent(file.name)}`, {
-    headers: { "Content-Type": "application/pdf" },
+    headers: { "Content-Type": contentTypeFor(file.name) },
     body: file,
   });
   const body = raw as { outcome?: string; document: DocumentSummary };

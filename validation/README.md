@@ -17,7 +17,7 @@ A standalone, project-agnostic, ready-to-use set of static (and some dynamic) va
 | TypeScript lint | [typescript/lint](typescript/lint/README.md) | ESLint flat config with its plugins and local rules, stylelint, semgrep, knip, Prettier, strict `tsc` base, Size Limit, strict Vitest options |
 | TypeScript scripts | [typescript/scripts](typescript/scripts/README.md) | Node checks: i18n catalogues, tokens, contrast, routes, navigation tree, API contract map, bundle size, unused CSS, clone detection, semgrep wrapper |
 | Cypher | [cypher](cypher/README.md) | `cypher-checks`: schema lint, DDL parity, CyVer, EXPLAIN (Docker), inline-query and parameter-name checks, Neo4j semgrep rules |
-| CI report | [ci](ci/README.md) | `ci_report.py`: stdlib-only wrapper that records every check or test step (exit code, SARIF, JUnit) and turns the jobs' reports into one GitHub Actions run summary with annotations |
+| CI report | [ci](ci/README.md) | `ci_report.py`: stdlib-only wrapper that records every check or test step (exit code, SARIF, JUnit) and turns the jobs' reports into one GitHub Actions run summary with annotations; `licence_gate.py`: per-image dependency licence allowlist, forbidden packages and NOTICE completeness, without building images |
 | SQL | [sql](sql/README.md) | `sqlcheck`: SQLFluff, SQL policy rules, Alembic and ORM lint, inline-query check, semgrep rules, schema parity, migration and SQLite pragma checks |
 
 Each track has a `RULES.md` cataloguing every rule. Tracks with a check that depends on your schema and is specified rather than shipped as code keep that spec in `schema-specific/` (python/scripts, typescript/scripts, cypher).

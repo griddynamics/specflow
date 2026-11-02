@@ -3,7 +3,10 @@
 export type AppMode = "production";
 export type MissionControlView = "readme" | "business" | "architecture" | "files" | "sources"; // "sources": Phase 1 sources screen only
 export type PlanView = "plan" | "develop"; // P20 (Plan page, AUTO-17)
-export type RouteKey = "home" | "missionControl" | "decisions" | "plan" | "specbot" | "connections";
+export type RouteKey = "home" | "missionControl" | "decisions" | "plan" | "specbot" | "connections" | "guides";
+/** The Guides topics (MCP-M10): `/guides/{topic}`. Any other topic answers 404. */
+export const GUIDE_TOPICS = ["specflow-101", "best-practices", "mcp-server"] as const;
+export type GuideTopic = (typeof GUIDE_TOPICS)[number];
 
 /** Path templates WITHOUT the tree prefix; `{name}` marks a param. `trees` = where a page file must exist. */
 export const ROUTES: Record<RouteKey, { template: string; trees: readonly AppMode[] }> = {
@@ -13,6 +16,7 @@ export const ROUTES: Record<RouteKey, { template: string; trees: readonly AppMod
   plan: { template: "/projects/{projectId}/plan", trees: ["production"] }, // P20; page files in P21
   specbot: { template: "/projects/{projectId}/specbot", trees: ["production"] },
   connections: { template: "/connections", trees: ["production"] },
+  guides: { template: "/guides", trees: ["production"] }, // + "/guides/{topic}": app/(app)/guides/[topic]/page.tsx
 };
 
 export const TREE_PREFIX: Record<AppMode, ""> = { production: "" };
@@ -25,6 +29,7 @@ export interface RouteBuilder {
   plan(projectId: string, opts?: { view?: PlanView }): string; // no `view` → clean path (Stage 2 opens on Plan)
   specbot(projectId: string): string;
   connections(): string;
+  guides(topic?: GuideTopic): string; // "/guides" or "/guides/{topic}"
   login(): string; // "/login"
   asset(path: string): string; // "/ds/" + path
 }
@@ -54,6 +59,7 @@ export function routesFor(mode: AppMode): RouteBuilder {
     plan: (projectId, opts) => withQuery(at("plan", { projectId }), { view: opts?.view }),
     specbot: (projectId) => at("specbot", { projectId }),
     connections: () => at("connections"),
+    guides: (topic) => at("guides") + (topic === undefined ? "" : `/${encodeURIComponent(topic)}`),
     login: () => "/login",
     asset: (path) => `/ds/${path.replace(/^\/+/, "")}`,
   };
@@ -80,4 +86,9 @@ export function parseDecisionsQuery(q: URLSearchParams): { decisionId: string | 
 export function parsePlanQuery(q: URLSearchParams): { view: PlanView | null } {
   const v = q.get("view");
   return { view: PLAN_VIEWS.includes(v as PlanView) ? (v as PlanView) : null };
+}
+
+/** A `{topic}` path segment as a known Guides topic; anything else -> null (the page answers 404). */
+export function parseGuideTopic(topic: string): GuideTopic | null {
+  return (GUIDE_TOPICS as readonly string[]).includes(topic) ? (topic as GuideTopic) : null;
 }

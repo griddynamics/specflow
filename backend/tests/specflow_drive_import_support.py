@@ -37,7 +37,7 @@ from specflow_live import (
     live_enabled,
 )
 from storage.base import ObjectAlreadyExistsError, ObjectNotFoundError, StoredObject
-from storage.keys import validate_key
+from storage.keys import validate_key, validate_prefix
 from storage.memory import InMemoryObjectStore
 from temporal import ids
 from temporal.documents import registration
@@ -74,6 +74,14 @@ class DirObjectStore:
 
     async def delete(self, key: str) -> None:
         await asyncio.to_thread(self._path(key).unlink, missing_ok=True)
+
+    async def delete_by_prefix(self, prefix: str) -> int:
+        validate_prefix(prefix)
+        folder = self.root / prefix
+        found = [p for p in folder.rglob("*") if p.is_file()] if folder.is_dir() else []
+        for path in found:
+            await asyncio.to_thread(path.unlink, missing_ok=True)
+        return len(found)
 
     async def check(self) -> None:
         return None

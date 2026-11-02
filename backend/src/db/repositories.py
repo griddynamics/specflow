@@ -15,7 +15,7 @@ import re
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, make_dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Final, Protocol
 
 from sqlalchemy import ColumnElement, Select, and_, func, or_, select, update
@@ -34,6 +34,8 @@ logger = get_logger("db.repositories")
 PARSE_ERROR_CODES: Final = frozenset(
     {
         "pdf_parse_failed",
+        "document_too_large",
+        "document_parse_failed",
         "document_not_found",
         "original_not_found",
         "workflow_start_failed",
@@ -111,7 +113,9 @@ def decode_cursor(cursor: str) -> tuple[datetime, uuid.UUID]:
         stamp, row_id = base64.urlsafe_b64decode(padded).decode().split("|")
         created_at = datetime.fromisoformat(stamp)
         parsed_id = uuid.UUID(row_id)
-    except (ValueError, binascii.Error, UnicodeDecodeError) as error:
+        if created_at.tzinfo is not None:
+            created_at.astimezone(UTC)  # OverflowError when the UTC instant is out of range (asyncpg would fail)
+    except (ValueError, OverflowError, binascii.Error, UnicodeDecodeError) as error:
         raise InvalidCursorError("invalid cursor") from error
     if created_at.tzinfo is None:
         raise InvalidCursorError("invalid cursor")
@@ -238,8 +242,9 @@ async def insert_document(
     file: DocumentFile,
     uploaded_by: uuid.UUID | None,
     source_id: uuid.UUID | None = None,
+    media_type: str = PDF_MEDIA_TYPE,
 ) -> Document:
-    """Insert an uploaded PDF in status ``uploaded``.
+    """Insert an uploaded file in status ``uploaded``; ``media_type`` is the canonical type (PDF by default).
 
     ``source_id`` is the holder: the Local files batch the file arrived in
     (DATA-SRC-0002). ``None`` only for callers that predate batches.
@@ -253,7 +258,7 @@ async def insert_document(
         project_id=project_id,
         content_hash=file.content_hash,
         original_filename=file.filename,
-        media_type=PDF_MEDIA_TYPE,
+        media_type=media_type,
         size_bytes=file.size_bytes,
         origin=UPLOAD_ORIGIN,
         original_key=file.original_key,

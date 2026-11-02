@@ -1,12 +1,14 @@
 // Shared helpers for tests/production/p16-*.test.ts (not a test file: the runner glob matches *.test.ts only).
-// TECH-SPECS §10.4: the stub API (tests/support/stub-api.mjs, R11: no model call) + the BUILT frontend (dev auth) + a dev login,
+// TECH-SPECS §10.4: the stub API (tests/support/stub-api.mjs, R11: no model call) + the BUILT frontend signed in over OIDC against the
+// in-process stub issuer (tests/support/oidc-stack.mjs),
 // and `globalThis.fetch` replaced by a wrapper that sends the relative `/api/backend/*` URLs of `lib/api.ts` (and of the `/me`
 // helper) to the built server with the session cookie and a same-origin `Origin`, as a browser would. The real `lib/api.ts`,
 // the real BFF and the stub API run end to end; no browser and no temporary page.
-import { devLogin } from "../support/session.mjs";
-import { frontendEnv, randomSecret, startFrontend } from "../support/servers.mjs";
-import { startStubApi } from "../support/stub-api.mjs";
-import { syntheticPdf } from "../support/pdf.mjs";
+import { oidcLogin } from "../support/session.mjs";
+import { frontendEnv, startFrontend } from "../support/servers.mjs";
+import { startOidcStack } from "../support/oidc-stack.mjs";
+import { syntheticDocument, syntheticPdf } from "../support/pdf.mjs";
+import { defined } from "../support/defined";
 
 type ParseOutcome = "parsed" | "failed";
 type DocStatus = "processing" | ParseOutcome;
@@ -74,21 +76,12 @@ export interface Env {
 }
 
 export async function startEnv(fePort: number, apiPort: number): Promise<Env> {
-  const key = randomSecret();
   const email = "p16.user@example.test";
-  const api: Stub = await startStubApi({ port: apiPort, signingKey: key, parseMs: 1500, summarizeMs: 1500 });
-  const fe = await startFrontend({
-    port: fePort,
-    env: frontendEnv(fePort, {
-      APP_ENV: "local",
-      AUTH_MODE: "dev",
-      API_INTERNAL_URL: api.url,
-      SESSION_SECRET: randomSecret(),
-      AUTH_DEV_SIGNING_KEY: key,
-      LOCAL_TEST_USER_EMAIL: email,
-    }),
-  });
-  const jar = await devLogin(fe.base, email);
+  // One stub issuer per environment, on the port 20 above the stub API's (3250-3259 -> 3270-3279).
+  const stack = await startOidcStack({ issuerPort: apiPort + 20, apiPort, api: { parseMs: 1500, summarizeMs: 1500 } });
+  const api: Stub = defined(stack.api, "the stub API");
+  const fe = await startFrontend({ port: fePort, env: frontendEnv(fePort, { APP_ENV: "local", ...stack.env }) });
+  const jar = await oidcLogin(fe.base, email);
   const realFetch = globalThis.fetch;
   const sent: Sent[] = [];
   const hooks: Env["hooks"] = [];
@@ -151,12 +144,15 @@ export async function startEnv(fePort: number, apiPort: number): Promise<Env> {
       globalThis.fetch = realFetch;
       Reflect.deleteProperty(globalThis, "window");
       await fe.stop();
-      await api.close();
+      await stack.close();
     },
   };
 }
 
 export const pdfFile = (name: string, size = 2048) => new File([new Uint8Array(syntheticPdf(size))], name, { type: "application/pdf" });
+/** A synthetic file of any accepted type; `type` is what the browser says (the default is the canonical type). */
+export const documentFile = (name: string, type: string, size = 512) =>
+  new File([new Uint8Array(syntheticDocument(name.slice(name.lastIndexOf(".")), size))], name, { type });
 export const textFile = (name: string) => new File(["plain text, not a PDF"], name, { type: "text/plain" });
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

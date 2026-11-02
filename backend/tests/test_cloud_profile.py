@@ -160,11 +160,9 @@ def test_a_deployed_env_refuses_the_local_prefix_with_a_file(storage_env, tmp_pa
     storage_env.update(
         SPECFLOW_CONFIG_FILE=write(tmp_path, AWS_FILE.replace("file/", "dev/local/")),
         APP_ENV="dev",
-        AUTH_MODE="oidc",
         OIDC_ISSUER="https://issuer.example.test",
-        AUTH_DEV_SIGNING_KEY="",
     )
-    storage_env.pop("AUTH_DEV_SIGNING_KEY")
+    storage_env.pop("AUTH_JWKS_URL")
     assert "STORAGE_PREFIX" in refused(storage_env)
 
 

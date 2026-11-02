@@ -126,7 +126,7 @@ class FakeRepo:
             original_key=file.original_key,
             uploaded_by=fields["uploaded_by"],
             status="uploaded",
-            media_type="application/pdf",
+            media_type=fields.get("media_type", "application/pdf"),
             source_id=fields.get("source_id"),
             updated_at=datetime.now(UTC),
             error=None,
@@ -167,7 +167,7 @@ class FakeRepo:
             stale = (
                 include_stale
                 and doc.status in ("processing", "uploaded")
-                and datetime.now(UTC) - doc.updated_at > timedelta(minutes=60)
+                and datetime.now(UTC) - doc.updated_at > repo.UPLOAD_STALE_AFTER
             )
             return doc.status in ("uploaded", "failed") or stale
 

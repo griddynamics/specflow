@@ -39,7 +39,6 @@ export function HeaderActions({
   onAdd,
   onPickFiles,
   github = true,
-  pdfOnly = false,
   addSourceRef,
 }: Readonly<{
   status: ProjectSourcesStatus;
@@ -53,8 +52,6 @@ export function HeaderActions({
   onPickFiles: () => void;
   /** `SourcesPort.githubEnabled`. */
   github?: boolean;
-  /** `SourcesPort.pdfOnly`: the Local files text says so. */
-  pdfOnly?: boolean;
   /** The "Add source" button, so the screen can return the focus to it. */
   addSourceRef?: Ref<HTMLButtonElement>;
 }>) {
@@ -111,7 +108,7 @@ export function HeaderActions({
           {
             label: LOCAL_FILES,
             icon: "upload-simple",
-            description: pdfOnly ? "Upload PDF files" : "Upload PDF or Markdown files",
+            description: "Upload PDF, Office, HTML, Markdown or CSV files",
             onSelect: onPickFiles,
           },
         ]}

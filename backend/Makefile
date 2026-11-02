@@ -1,19 +1,31 @@
 # Relative to backend/. The root Makefile passes an absolute path down.
 ENV_FILE ?= ../.env.local
 
-.PHONY: setup lint unit-test check \
-	db-upgrade db-revision api worker temporal-check image-test rss-test
+.PHONY: setup models lint unit-test check \
+	db-upgrade db-revision mcp-manifest api worker temporal-check image-test rss-test
 
+# CI (CI=true) skips the model download: its unit job fetches them once into a cached folder, and the other
+# jobs never read them.
 setup:
-	uv sync --extra gcp --extra aws
+	uv sync --extra gcp --extra aws --extra parse
+	@if [ -z "$$CI" ]; then $(MAKE) --no-print-directory models; fi
+
+# The Docling models the parser tests read: pinned revisions (scripts/fetch_docling_models.py) into
+# .docling-models, which tests/conftest.py uses when DOCLING_ARTIFACTS_PATH is unset. Skips what is there.
+models:
+	uv run python scripts/fetch_docling_models.py
 
 lint:
-	uv run ruff check src examples tests migrations
+	uv run ruff check src examples tests migrations scripts
 
 unit-test:
 	uv run pytest
 
 check: lint unit-test
+
+# Rewrites frontend/lib/guides/mcp-tools.json from the MCP registry (a test fails when it is stale).
+mcp-manifest:
+	uv run python tests/mcp_manifest_support.py
 
 db-upgrade:
 	uv run --env-file $(ENV_FILE) alembic upgrade head
