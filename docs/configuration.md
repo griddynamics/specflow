@@ -58,6 +58,7 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `AGENT_TRACE_SENSITIVE_DATA` | `false` | api, workers | `true` puts document text into traces. Use it only for local debugging. |
 | `GRAPH_EMBEDDING_DIM` | `1536` | api, tools | Set it when the embedding model has another size. |
 | `GRAPH_STATE_DIR` | `.graph-build/state` | api | Folder of the graph build file stores, relative to the working directory. |
+| `GRAPH_LLM_CONCURRENCY` | `8` | api, tools | How many graph-build model calls may run at once. |
 | `API_PORT`, `WORKER_HEALTH_PORT` | `8000`, `8001` | api, workers | Listen ports. The worker port answers `GET /healthz`. |
 | `DATABASE_PORT` | `5432` | api, workers | PostgreSQL port. |
 | `DATABASE_AGENT_USER` | `specflow_agent` | api, workers | Role for agent tools. It must differ from `DATABASE_USER`. |

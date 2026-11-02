@@ -1,11 +1,11 @@
 # spec-ontology.yaml: initial template of the shipped ontology of the graph library (format: ontology.md).
 # Declares only the types and relations graph.build owns. Structure is fixed by the spec; prompt text
 # (framing, descriptions, guidance, examples, aliases, cues) may be improved during development under
-# the rules in ontology.md, "Shipped ontology".
+# the rules in ontology.md, "Shipped ontology", keeping the rules of "Rules carried by prompt text".
 
-format_version: 1
+format_version: 2
 name: spec-ontology
-version: "1.0"
+version: "2.0"
 owner: build
 
 corpus:
@@ -32,9 +32,61 @@ node_groups:
     identity: {key: id, scope: group}    # explicit id, else the defining line; one scope for all six types
     description: |
       A requirement is a single commitment someone has made, testable in
-      principle; if it takes two test cases to prove, it is two requirements.
+      principle; if it takes two test cases to prove two distinct rules, it
+      is two requirements. One rule that one sentence or cell applies to a
+      list of channels, objects, fields or places is one requirement
+      covering the whole list (GOOD
+      "System never writes secret values to payloads, logs or traces"; BAD
+      one requirement per place); split only distinct rules (a different
+      verb, condition or limit each). Table rows are never joined this way:
+      every row is its own requirement.
       Informal wording still counts: "I want", "should", "will have", "must",
-      bullet lists of obligations, table or schema fields.
+      bullet lists of obligations, table or schema fields. Rule of thumb: one
+      acceptance test is a requirement; a name covering several commitments is
+      a Feature.
+
+      A table stands for sentences: read it as them. A row of a
+      requirements, rules, settings, services, environments, deployment,
+      policies or integrations table is one requirement with all its cells,
+      never one per cell unless its cells state distinct rules, also when
+      the row names a hub (the part, contract
+      or data entity it names is still its own hub). The connection policy
+      table row "from Web to API | port 443 | allow" is one (the
+      FunctionalRequirement "System can allow Web to connect to API on port
+      443": a rule the team sets for its own traffic, never an
+      IntegrationRequirement). So is every other table whose rows each state
+      what the system supports, allows, limits or does (limits or quotas,
+      supported formats, versions or providers, outcomes and codes): one
+      requirement per row, never one for the whole table; the supported file
+      types row "CSV | text/csv | 50 MB" is "System can accept CSV files as
+      text/csv up to 50 MB" (BAD: one "System can accept CSV, JSON and XML
+      files" for a table of three rows), and the limits row "File | 50 MB |
+      rejected" is "System can reject a file over 50 MB", also when a
+      sentence elsewhere only says that files over the limit are rejected: a
+      row that adds a value, limit, code or condition is never a
+      restatement. The rows of a field
+      table of one object are one DataRequirement. A matrix (rows and
+      columns both lists of things, a cell the value for one pair) gives one
+      requirement per meaningful cell, named as the sentence the cell stands
+      for; a cell saying who may or may not do what is a BusinessRule; a
+      cell holding an error, status or response code is a meaningful cell
+      named with its code: the cell "403 forbidden" in row "Delete project"
+      and column "Viewer" is "Viewer deleting a project: gets 403
+      forbidden";
+      same-value cells of one row are one requirement naming all their
+      columns, and a value every row of a column shares is one requirement
+      for that column. An empty, "n/a" or "not applicable" cell gives none;
+      a "-" cell gives none unless the legend gives it a meaning such as
+      "not allowed". A table that only lists terms or people (glossary,
+      contacts, team, RACI) and a list of feature, module or interface names
+      give no requirement.
+
+      An out-of-scope, non-goal or "not supported" item is extracted as the
+      type it would have, with in_scope "no". A question or TBD the text
+      states is an OpenQuestion, never a requirement.
+
+      A requirement about the whole system or about several modules is part
+      of none of them: it relates to each module the text names.
 
       Name it as the commitment itself: a short statement of 2-14 words with
       its qualifier, verbatim when the text has one. Never a bare topic, never
@@ -43,7 +95,12 @@ node_groups:
     attributes:
       stmt: {type: text, max_chars: 600, description: "the commitment itself, as a single sentence"}
       quote: {type: text, max_chars: 300, description: "verbatim source text supporting this requirement"}
-      acceptance_criteria: {type: text, max_chars: 1200, description: "how this requirement would be proven satisfied"}
+      acceptance_criteria:
+        type: text
+        max_chars: 1200
+        description: >-
+          the acceptance criteria the text states for this requirement; null when it states
+          none. BAD: criteria you made up for a requirement whose text gives none.
       source_status:
         type: enum
         values: source_status
@@ -54,7 +111,21 @@ node_groups:
         values: yes_no
         aliases: {"true": "yes", "assumed": "yes", "false": "no"}
         description: "yes when nobody has actually committed to this"
-      module: {type: ref, target: module, store: false, description: "the module this requirement belongs to"}
+      release:
+        type: text
+        max_chars: 40
+        inherit: {via: PART_OF}
+        description: >-
+          the release label the text or its heading path gives ("MVP", "v1", "Phase 2"),
+          verbatim; null when none is given; never guessed
+      in_scope:
+        type: enum
+        values: yes_no
+        default: "yes"
+        aliases: {"true": "yes", "false": "no", "out of scope": "no"}
+        description: >-
+          "no" only when the text or its heading path says so ("out of scope", "not supported",
+          "won't have", "non-goal", "not in v1"); else "yes"; never guessed
 
 node_types:
 
@@ -68,13 +139,20 @@ node_types:
     description: |
       A deployable or logically separable part of the system: a service, an
       app tier, a datastore or a deployment target. Also a third-party system
-      outside the delivery scope, marked external.
+      outside the delivery scope, marked external. Only a part the text names
+      as one: never a module coined for a heading or a workflow, and never a
+      workflow or job inside a module.
 
-      Name it by the part's own name. GOOD: "Checkout service", "Orders
-      database", "Stripe", "Mobile app". BAD: a behaviour such as "Export
+      Name it by its role or the name the text gives it; by its technology
+      only when the text gives the part no other name (a datastore the
+      system runs is a Module).
+      GOOD: "Checkout service", "Orders database", "Stripe", "Mobile app".
+      BAD: a behaviour such as "Export
       orders" (a FunctionalRequirement); a named grouping of functionality
       such as "Order history" or "Checkout" (a Feature); a cross-cutting
-      concern such as "Authentication" (a Capability).
+      concern such as "Authentication" (a Capability); a named API, event or
+      file exchange such as "Checkout API" (an Interface); "ExportOrdersWorkflow"
+      inside the Orders service (code of a module, not a Module).
     attributes:
       stmt: {type: text, max_chars: 600, description: "what the text says this module is or does, as one sentence"}
       quote: {type: text, max_chars: 300, description: "verbatim source text supporting this module"}
@@ -89,12 +167,20 @@ node_types:
           frontend: a user-facing app or tier
           backend: a service or API something else calls
           datastore: a database, cache, search index or object store
-          deployment: an environment or deployment target, not code
+          deployment: >-
+            an environment or deployment target, not code; it owns only infrastructure
+            requirements (hosting, regions, environments)
           other: none of the above
         aliases: {ui: frontend, web: frontend, mobile: frontend, service: backend, api: backend,
                   worker: backend, database: datastore, db: datastore, cache: datastore,
                   queue: datastore, infra: deployment, hosting: deployment}
         description: "what kind of part of the system this is"
+      in_scope:
+        type: enum
+        values: yes_no
+        default: "yes"
+        aliases: {"true": "yes", "false": "no", "out of scope": "no"}
+        description: "\"no\" only when the text says the module is out of scope; else \"yes\""
 
   feature:
     label: Feature
@@ -105,7 +191,13 @@ node_types:
     identity: {key: surface, scope: type}
     description: |
       A named piece of functionality a user or stakeholder would recognise by
-      name. It sits inside a module and groups requirements.
+      name. It sits inside one module and groups requirements. A name covering
+      several commitments is a Feature; a single testable commitment is a
+      requirement, even when it has a heading of its own. A sub-heading inside
+      a feature's section is part of that feature. Each row of a table or
+      list of out-of-scope, excluded or deferred items is a Feature of its
+      own (when it groups functionality), with in_scope "no", one per thing
+      the row names.
 
       Name it as a noun phrase for the grouping, with no verb or modal. GOOD:
       "Order history export", "Checkout". BAD: "Export orders" (a
@@ -118,7 +210,17 @@ node_types:
     attributes:
       stmt: {type: text, max_chars: 600, description: "what the feature does, as one sentence"}
       quote: {type: text, max_chars: 300, description: "verbatim source text supporting this feature"}
-      module: {type: ref, target: module, store: false, description: "the module this feature sits inside"}
+      module: {type: ref, target: module, store: false, description: "the module this feature sits inside, as the text names that part; also the part whose own name is the heading it sits under (\"Orders service\"), never a topic or chapter heading (\"Order processing\")"}
+      release:
+        type: text
+        max_chars: 40
+        description: "the release label the text or its heading path gives, verbatim; null when none; never guessed"
+      in_scope:
+        type: enum
+        values: yes_no
+        default: "yes"
+        aliases: {"true": "yes", "false": "no", "out of scope": "no"}
+        description: "\"no\" only when the text says the feature is out of scope or not supported; else \"yes\""
 
   capability:
     label: Capability
@@ -140,7 +242,98 @@ node_types:
     attributes:
       stmt: {type: text, max_chars: 600, description: "the concern, as one sentence"}
       quote: {type: text, max_chars: 300, description: "verbatim source text supporting this capability"}
-      module: {type: ref, target: module, store: false, description: "a module realising this capability, if only one is named"}
+      module: {type: ref, target: module, store: false, description: "a module realising this capability, if only one is named, as the text names it; never a topic or chapter heading"}
+
+  interface:
+    label: Interface
+    origin: extracted
+    tier: context
+    role: anchor
+    id: {format: "IFC::{SLUG}"}
+    identity: {key: surface, scope: type}
+    merge_across_labels: false
+    description: |
+      A named contract between modules: an API, an event or message, a queue
+      or a file exchange. One module provides it (for an event: the module
+      that defines the message); any modules consume it. Workflows,
+      activities and jobs inside a module are not interfaces, and a module's
+      own name is never also an Interface.
+
+      Name it by the contract's name as the text writes it. GOOD: "Checkout
+      API", "order.paid event", "Payment webhook". BAD: "Checkout service" (a
+      Module); "Web app calls Checkout API to place an order" (an
+      IntegrationRequirement); "Order" (a DataEntity: the payload, not the
+      contract); "send_receipt_activity" (an activity inside a module).
+    attributes:
+      stmt: {type: text, max_chars: 600, description: "what the contract carries or does, as one sentence"}
+      quote: {type: text, max_chars: 300, description: "verbatim source text supporting this interface"}
+      kind:
+        type: enum
+        values:
+          api: a request-response API
+          event: an event or message published to subscribers
+          queue: a queue or topic read by workers
+          file: a file exchange
+          other: none of the above
+        aliases: {rest: api, http: api, grpc: api, webhook: api, message: event, topic: queue}
+        description: "what kind of contract this is"
+      in_scope:
+        type: enum
+        values: yes_no
+        default: "yes"
+        aliases: {"true": "yes", "false": "no", "out of scope": "no"}
+        description: "\"no\" only when the text says the interface is out of scope; else \"yes\""
+      provider: {type: ref, target: module, store: false, description: "the module that provides or owns this contract, as the text names it (a Provider, Owner or Service column counts); never a module that only calls it; null when none is named"}
+
+  data_entity:
+    label: DataEntity
+    origin: extracted
+    tier: context
+    role: group
+    id: {format: "ENT::{SLUG}"}
+    identity: {key: surface, scope: type}
+    merge_across_labels: false
+    supported_by:
+      - {relation: PART_OF, direction: in}
+      - {relation: STORED_IN, direction: out}
+      - {relation: CARRIES, direction: in}
+    description: |
+      A business object the system stores or exchanges: a record, a table, a
+      message payload, a file. Its fields are stated by DataRequirements that
+      are part of it. A stored object is STORED_IN the datastore module the
+      text names for it, also by the section or table caption it sits under.
+
+      Name it by the object's name as the text writes it. GOOD: "Purchase
+      order", "product_reviews", "order.paid". BAD: "Purchase order holds id,
+      lines, total" (a DataRequirement); "Orders database" (a Module).
+    attributes:
+      stmt: {type: text, max_chars: 600, description: "what the object is, as one sentence"}
+      quote: {type: text, max_chars: 300, description: "verbatim source text supporting this data entity"}
+
+  open_question:
+    label: OpenQuestion
+    origin: extracted
+    tier: spec
+    role: atomic
+    id: {format: "QST::{SLUG}"}
+    identity: {key: id, scope: type}    # no id families: always the defining line, own scope
+    description: |
+      A question or TBD the text states and leaves open. Not a rhetorical
+      question, and not a question whose answer the window shows (an answer,
+      decision or "resolved" or "confirmed" note nearby, its response in a
+      Q&A, FAQ or clarification format). A question whose response is empty,
+      "-", "TBD" or missing is open, even inside a questions-and-responses
+      document. Each row of an open-issues or TBD table is one, also when written
+      as a topic with an owner or a default. One per question asked: an
+      either-or question is one, never one per option.
+
+      Name it as the question itself. GOOD: "Which coupon provider is used?".
+      BAD: "Coupon provider" (a bare topic); "How do I reset my password?"
+      when the text answers it (an answered question: not extracted); "Is
+      SSO required?" when its response reads "Yes, via SSO" (answered).
+    attributes:
+      stmt: {type: text, max_chars: 600, description: "the question itself"}
+      quote: {type: text, max_chars: 300, description: "verbatim source text of the question"}
 
   functional_requirement:
     label: FunctionalRequirement
@@ -149,12 +342,19 @@ node_types:
     id_families: [FR, UC, US]
     description: |
       A behaviour the system must perform: what an actor can do or what the
-      system does in response.
+      system does in response, also a technical limit of an endpoint,
+      request, file or API key and a security control the team sets (the
+      system encrypts, authenticates, rejects or never logs something),
+      unless its id is of a quality family (SEC-…).
 
-      Name it as actor + verb + object. GOOD: "Users can export order history
-      as CSV". BAD: "CSV export" (a bare topic); "Order history export" (a
-      Feature); "CSV export completes within 5 s" (a QualityRequirement);
-      "Orders over $1,000 need manager approval" (a BusinessRule).
+      Name it as actor + verb + object, with the actor as the text names it.
+      GOOD: "Users can export order history as CSV", "System can encrypt
+      payment data at rest". BAD: "CSV export" (a
+      bare topic); "Order history export" (a Feature); "CSV export completes
+      within 5 s" (a QualityRequirement); "Orders over $1,000 need manager
+      approval" (a BusinessRule).
+    attributes:
+      module: {type: ref, target: module, store: false, description: "the module this requirement is part of: the part the text names as responsible for, hosting or owning it; also the part whose own name is the heading it sits under (\"Orders service\"), never a topic or chapter heading (\"Order processing\"); null for a system-wide statement"}
 
   quality_requirement:
     label: QualityRequirement
@@ -163,11 +363,24 @@ node_types:
     id_families: [NFR, QR, PERF, SEC]
     description: |
       A measurable quality target a behaviour or the system must meet:
-      performance, availability, security level, usability, scalability.
+      performance, availability, security level, usability, scalability. A
+      security control (encrypt, authenticate, reject, never log) is a
+      FunctionalRequirement, or a Constraint when imposed from outside; only
+      the level it must reach is a QualityRequirement. A requirement with an
+      id of a quality family (e.g. SEC-…) is a QualityRequirement, named by
+      this template, whatever it controls. A quota, rate or plan limit per
+      user, customer, account or caller is a BusinessRule; a technical limit
+      of an endpoint, request, file or API key is a FunctionalRequirement or
+      a Constraint.
 
       Name it as subject + measurable target. GOOD: "Order history CSV export
-      completes within 5 s at p95". BAD: "Export performance" (no target);
-      "Users can export order history as CSV" (a FunctionalRequirement).
+      completes within 5 s at p95", "Shop web app meets WCAG 2.2 AA". BAD:
+      "Export performance" (no target); "Users can export order history as
+      CSV" (a FunctionalRequirement); "Payment data is encrypted at rest" (a
+      security control: a FunctionalRequirement); "Customer can place at
+      most 10 orders per minute" (a BusinessRule).
+    attributes:
+      module: {type: ref, target: module, store: false, description: "the module this requirement is part of: the part the text names as responsible for, hosting or owning it; also the part whose own name is the heading it sits under (\"Orders service\"), never a topic or chapter heading (\"Order processing\"); null for a system-wide statement"}
 
   constraint:
     label: Constraint
@@ -176,12 +389,18 @@ node_types:
     id_families: [CON]
     description: |
       A boundary imposed from outside the solution that the system must
-      respect: regulation, contract, mandated technology, budget or location.
+      respect: regulation, contract, mandated technology, budget, location,
+      or a limit of an external service. A security control is a Constraint
+      only when a regulation, contract or the client imposes it and its id
+      is of no quality family.
 
       Name it as the imposed boundary. GOOD: "Order data stays in the EU
-      region". BAD: "Data residency" (a bare topic); "Orders load within 2 s"
-      (a QualityRequirement); "A discount never exceeds 30%" (a BusinessRule:
-      a policy of the business, not a boundary imposed from outside).
+      region", "Stripe API calls stay at most 100 per minute". BAD: "Data
+      residency" (a bare topic); "Orders load within 2 s" (a
+      QualityRequirement); "A discount never exceeds 30%" (a BusinessRule: a
+      policy of the business, not a boundary imposed from outside).
+    attributes:
+      module: {type: ref, target: module, store: false, description: "the module this constraint is part of (an external module for a limit of its service), as the text names that part; also the part whose own name is the heading it sits under (\"Orders service\"), never a topic or chapter heading (\"Order processing\"); null for a system-wide statement"}
 
   business_rule:
     label: BusinessRule
@@ -190,15 +409,20 @@ node_types:
     id_families: [BR]
     description: |
       A policy, condition or calculation of the business that the system must
-      enforce: who may do what and when, limits, eligibility, approvals,
-      formulas, validations of business data.
+      enforce: who may do what and when, limits, quotas, rate and plan limits
+      per user, customer, account or caller, eligibility, approvals,
+      formulas, validations of business data. Each row of a table of such
+      limits is one. A technical limit of an endpoint, request, file or API
+      key is not one (a FunctionalRequirement or a Constraint).
 
       Name it as the rule itself, with its condition and outcome. GOOD:
       "Orders over $1,000 need manager approval", "A discount never exceeds
-      30%", "Order total is the sum of line totals plus tax". BAD: "Approval
+      30%", "A customer places at most 10 orders per minute". BAD: "Approval
       rules" (a bare topic); "Managers can approve orders" (a
       FunctionalRequirement: a behaviour, not the rule deciding it); "Order
       data stays in the EU region" (a Constraint).
+    attributes:
+      module: {type: ref, target: module, store: false, description: "the module this rule is part of, as the text names that part; also the part whose own name is the heading it sits under (\"Orders service\"), never a topic or chapter heading (\"Order processing\"); null for a system-wide statement"}
 
   integration_requirement:
     label: IntegrationRequirement
@@ -207,11 +431,27 @@ node_types:
     id_families: [INT, IR]
     description: |
       An integration contract between two modules: what one side sends to,
-      calls on or receives from the other.
+      calls on or receives from the other. It is part of the interface the
+      text names, else of the module that sends or calls. One per integration
+      the text states, also a row of an integration table with no named
+      contract.
 
-      Name both sides and what crosses. GOOD: "Checkout sends paid orders to
-      the ERP". BAD: "ERP integration" (a bare topic); "Orders are exported"
-      (no second side).
+      Name it as "<caller> <calls, sends to, reads from or writes to>
+      <callee or contract> [<what>]": active voice from the side that starts
+      the call, each side by the most specific part the text names, also for
+      a row of a dependency table. GOOD: "Checkout sends paid orders to the
+      ERP", "Checkout service calls Stripe for card payments". BAD: "ERP
+      integration" (a bare topic); "Orders are exported" (no second side);
+      "Shop receives card payments from Stripe" (passive from the callee,
+      the whole system as subject); a row of a network or connection policy
+      table ("web | ingress controller | api 443": which traffic the system
+      lets a part receive or send) is a FunctionalRequirement, the team's
+      own rule for its traffic ("System can allow web to receive traffic
+      from the ingress controller and to connect to api on port 443"),
+      never an IntegrationRequirement.
+    attributes:
+      module: {type: ref, target: module, store: false, description: "the module that sends or calls, when the text names no interface; also the part whose own name is the heading it sits under (\"Orders service\"), never a topic or chapter heading (\"Order processing\")"}
+      interface: {type: ref, target: interface, store: false, description: "the named interface this contract uses, if any, as the text names the contract (\"Stripe API\", not \"Stripe\"), also by a heading that is its name; never a topic or chapter heading"}
 
   data_requirement:
     label: DataRequirement
@@ -219,12 +459,17 @@ node_types:
     id: {format: "REQ::DATA::{SLUG}"}
     id_families: [DATA, DR]
     description: |
-      A business object the system stores or exchanges, with the fields it
-      must hold.
+      The fields a business object must hold, and their rules, also the
+      fields of an API request or response. It is part of the DataEntity it
+      describes. One per object per stated field list: a field table is one,
+      and a table of several objects' columns gives one per object, never
+      one per column, row or group of fields.
 
-      Name the business object and its key fields. GOOD: "Purchase order
-      holds id, lines, currency and total". BAD: "Purchase order" (the
-      object's name, not a commitment).
+      Name the business object as the text writes it and its key fields. GOOD:
+      "Purchase order holds id, lines, currency and total". BAD: "Purchase
+      order" (the object's name: a DataEntity).
+    attributes:
+      entity: {type: ref, target: data_entity, store: false, description: "the data entity whose fields this states, also by a heading or table caption that is its name; never a topic or chapter heading"}
 
 edge_types:
 
@@ -232,33 +477,55 @@ edge_types:
     origin: extracted
     tier: spec
     description: |
-      The source is a part of the target: a requirement belongs to a feature
-      or module, a feature sits inside a module or a larger feature. Between
-      two modules, use PART_OF only when the text says one module is a
-      component of the other (a sub-service, an embedded store).
+      The source is a part of the target, its one owner: a requirement
+      belongs to a feature or module, an integration requirement to its
+      interface (else to the module that calls), a data requirement to its
+      data entity, a feature sits inside a module. Between two modules, use
+      PART_OF only when the text says one module is a component of the other
+      (a sub-service, an embedded store), one level only. An external module
+      owns only constraints; a deployment module owns only infrastructure
+      requirements and contains nothing.
 
-      Any other link between modules is INTEGRATES_WITH. Grouping under a
-      cross-cutting capability is GROUPED_BY. A requirement that applies to a
-      module without being part of it (a system-wide or cross-module
-      statement) is RELATES_TO that module, never PART_OF it. GOOD: "Users can export order
-      history as CSV" PART_OF "Order history export"; "Order history export"
-      PART_OF "Orders service". BAD: "Checkout service" PART_OF "Stripe"
-      because checkout calls Stripe (INTEGRATES_WITH); "Login with SSO"
-      PART_OF "Authentication" (GROUPED_BY).
+      A requirement about the whole system or several modules is PART_OF none
+      of them: it RELATES_TO each module the text names. Any other link
+      between modules is INTEGRATES_WITH or DEPLOYED_TO. GOOD: "Users can
+      export order history as CSV" PART_OF "Order history export"; "Order
+      history export" PART_OF "Orders service"; "Checkout sends paid orders
+      to the ERP" PART_OF "Checkout service". BAD: "Checkout service" PART_OF
+      "Stripe" because checkout calls Stripe (INTEGRATES_WITH); "Login with
+      SSO" PART_OF "Authentication" (GROUPED_BY).
     pairs:
-      - {from: requirement, to: feature, exclusive: true}
-      - {from: functional_requirement, to: module, exclusive: true}
-      - {from: quality_requirement, to: module, exclusive: true}
-      - {from: constraint, to: module, exclusive: true}
-      - {from: integration_requirement, to: module}     # an integration contract names two modules
-      - {from: data_requirement, to: module, exclusive: true}
-      - {from: business_rule, to: module, exclusive: true}
-      - {from: feature, to: module, exclusive: true}
-      - {from: feature, to: feature}
-      - {from: module, to: module, cue_required: true}
+      # default_from: a requirement GROUPED_BY a feature is owned by it (a mixed DEPENDS_ON stays illegal)
+      - {from: functional_requirement, to: feature, owner: true, owner_rank: 1, default: true,
+         default_from: [GROUPED_BY]}
+      - {from: quality_requirement, to: feature, owner: true, owner_rank: 1, default: true,
+         default_from: [GROUPED_BY]}
+      - {from: constraint, to: feature, owner: true, owner_rank: 1, default: true,
+         default_from: [GROUPED_BY]}
+      - {from: business_rule, to: feature, owner: true, owner_rank: 1, default: true,
+         default_from: [GROUPED_BY]}
+      - {from: functional_requirement, to: module, owner: true, owner_rank: 2,
+         target_where: {external: ["no"]}, otherwise: RELATES_TO, where_reason: external_owner}
+      - {from: quality_requirement, to: module, owner: true, owner_rank: 2,
+         target_where: {external: ["no"]}, otherwise: RELATES_TO, where_reason: external_owner}
+      - {from: business_rule, to: module, owner: true, owner_rank: 2,
+         target_where: {external: ["no"]}, otherwise: RELATES_TO, where_reason: external_owner}
+      - {from: constraint, to: module, owner: true, owner_rank: 2}
+      - {from: integration_requirement, to: interface, owner: true, owner_rank: 1}
+      - {from: integration_requirement, to: module, owner: true, owner_rank: 2,
+         target_where: {external: ["no"]}, otherwise: RELATES_TO, where_reason: external_owner}
+      - {from: data_requirement, to: data_entity, owner: true, owner_rank: 1}
+      - {from: feature, to: module, owner: true,
+         target_where: {external: ["no"], type: [frontend, backend, datastore, other]},
+         where_reason: external_owner}
+      - {from: module, to: module, exclusive: true, cue_required: true, max_depth: 1,
+         not_across: [external], target_where: {type: [frontend, backend, datastore, other]},
+         otherwise: DEPLOYED_TO}       # containment into a deployment module is DEPLOYED_TO
     cues:
       - 'part of|component of|sub-?(service|module|system)|consists of|contains|embedded'
-    derive: [requirement.module, feature.module]
+    derive: [functional_requirement.module, quality_requirement.module, constraint.module,
+             business_rule.module, integration_requirement.module, integration_requirement.interface,
+             data_requirement.entity, feature.module]
 
   GROUPED_BY:
     origin: extracted
@@ -273,7 +540,7 @@ edge_types:
       export" GROUPED_BY "Orders service" (a module: PART_OF).
     pairs:
       - {from: feature, to: capability}
-      - {from: requirement, to: capability}
+      - {from: requirement, to: capability, redundant_via_owner: true}
 
   REALIZED_BY:
     origin: extracted
@@ -299,12 +566,113 @@ edge_types:
       calls or depends on (for example, main app -> payment microservice).
 
       A two-way integration is two edges. This is the default for any link
-      between modules; PART_OF between modules is only for explicit
-      containment. GOOD: "Checkout service" INTEGRATES_WITH "Stripe" when
+      between two modules that are not deployment targets; PART_OF between
+      modules is only for explicit containment, and a link to an environment
+      is DEPLOYED_TO. GOOD: "Checkout service" INTEGRATES_WITH "Stripe" when
       checkout calls Stripe. BAD: "Stripe" INTEGRATES_WITH "Checkout service"
-      when only checkout calls Stripe (reversed).
+      when only checkout calls Stripe (reversed); "Orders service"
+      INTEGRATES_WITH "Production environment" (DEPLOYED_TO).
     pairs:
-      - {from: module, to: module, default: true}
+      - {from: module, to: module, default: true,
+         source_where: {type: [frontend, backend, datastore, other]},
+         target_where: {type: [frontend, backend, datastore, other]},
+         otherwise: DEPLOYED_TO}       # a link to a deployment module is DEPLOYED_TO
+    derive_via: {consumer: CONSUMED_BY, provider: PROVIDED_BY}
+
+  DEPLOYED_TO:
+    origin: extracted
+    tier: context
+    description: |
+      The source module runs in the target deployment module (an environment
+      or deployment target). Only from the modules the text names. "All
+      services run in X" names no module: it is an infrastructure requirement
+      PART_OF X, never a DEPLOYED_TO edge from every module.
+
+      GOOD: "Orders service" DEPLOYED_TO "Production environment" when the
+      text says the Orders service runs in production. BAD: every module
+      DEPLOYED_TO "EU region" because "all services run in the EU region" (a
+      Constraint PART_OF the deployment module).
+    pairs:
+      - {from: module, to: module, default: true,
+         source_where: {type: [frontend, backend, datastore, other]},
+         target_where: {type: [deployment]}}
+
+  PROVIDED_BY:
+    origin: extracted
+    tier: context
+    description: |
+      The source interface is provided by the target module, the owner of the
+      contract (for an event: the module that defines the message), external
+      or not. At most one provider: the one the text names, also by placing
+      the contract in a module's section or in a "Provider" table column.
+
+      GOOD: "Checkout API" PROVIDED_BY "Checkout service"; "Payment webhook"
+      PROVIDED_BY "Checkout service" even though Stripe calls it. BAD: "Web
+      app" PROVIDED_BY "Checkout API" (reversed).
+    pairs:
+      - {from: interface, to: module, exclusive: true}
+    derive: [interface.provider]       # a fallback: dropped when a stated PROVIDED_BY exists
+
+  CONSUMED_BY:
+    origin: extracted
+    tier: context
+    description: |
+      The source interface is called, read or subscribed to by the target
+      module, external or not.
+
+      GOOD: "Checkout API" CONSUMED_BY "Web app". BAD: "Checkout API"
+      CONSUMED_BY "Checkout service" when the Checkout service provides it
+      (PROVIDED_BY).
+    pairs:
+      - {from: interface, to: module}
+
+  STORED_IN:
+    origin: extracted
+    tier: context
+    description: |
+      The source data entity is kept in the target module, usually a
+      datastore, as the text states: in a sentence, or by the section,
+      heading or table caption the object is written under.
+
+      GOOD: "Purchase order" STORED_IN "Orders database"; "order_lines"
+      STORED_IN "Orders database" when listed under "Order tables (Orders
+      database)". BAD: "Purchase
+      order" STORED_IN "Web app" because the app shows orders (not stored
+      there).
+    pairs:
+      - {from: data_entity, to: module}
+
+  CARRIES:
+    origin: extracted
+    tier: context
+    description: |
+      The source interface carries the target data entity as its payload, as
+      the text states.
+
+      GOOD: "order.paid event" CARRIES "order.paid". BAD: "Checkout API"
+      CARRIES "Customer" when the text never says the API exchanges it.
+    pairs:
+      - {from: interface, to: data_entity}
+
+  DEPENDS_ON:
+    origin: extracted
+    tier: spec
+    acyclic: true
+    stated_only: true
+    description: |
+      The source cannot be delivered or work until the target is: the text
+      states the dependency ("requires", "depends on", "only after"). Feature
+      to feature or requirement to requirement only, never mixed, and only
+      between requirements of different owners.
+
+      GOOD: "Refunds" DEPENDS_ON "Order cancellation" when the text says
+      refunds require cancellation. BAD: two requirements that only share a
+      topic (not a dependency); a requirement DEPENDS_ON a feature (mixed
+      levels); a dependency the text does not state.
+    pairs:
+      - {from: feature, to: feature}
+      - {from: requirement, to: requirement, distinct_owner: true}
+    cues: ['requires?', 'depends? on', 'only after']
 
   RELATES_TO:
     origin: extracted
@@ -312,60 +680,137 @@ edge_types:
     symmetric: true
     id_references: true
     description: |
-      Two requirements the text itself links: one refers to the other ("see
-      FR-012", "in addition to the export requirement"), depends on it, or
-      refines it. Also a requirement and a module it applies to without being
-      part of it: a system-wide or cross-module statement (deployment,
-      security, operations); such a requirement is never PART_OF those
-      modules. Symmetric: the order of the two does not matter.
+      Two nodes the text itself links. Two requirements of different owners
+      where one refers to the other ("see FR-012"), or refines it. A
+      requirement and each module its text names that it is not part of,
+      also when it is part of a feature; a system-wide or cross-module
+      statement relates to each module the text names, never to modules it
+      only concerns. A requirement and an interface it uses. A requirement
+      and a data entity it explicitly creates, changes or reads; a data
+      entity relates to nothing but such a requirement or an open question. An open question
+      and the node it asks about. Symmetric: the order of the two does not
+      matter.
 
-      Only link what the text connects. Two requirements that merely sound
-      alike or share a topic are not related. GOOD: "Admins can bulk-export
-      orders" RELATES_TO "Users can export order history as CSV" when the text
-      says the bulk export reuses the CSV export; "All services run in the EU
-      region" RELATES_TO "Orders service". BAD: two unrelated requirements of
-      the same feature (they share a PART_OF parent, which already says that).
+      Only link what the text connects. GOOD: "Admins can bulk-export orders"
+      RELATES_TO "Users can export order history as CSV" when the text says
+      the bulk export reuses the CSV export; "Staff can cancel an unpaid
+      purchase order" RELATES_TO "Purchase order"; "Which coupon provider is
+      used?" RELATES_TO "Coupons". BAD: two unrelated requirements of the
+      same feature (they share a PART_OF parent); "Tokens are never written to
+      logs" RELATES_TO every module (it names none); "Purchase order"
+      RELATES_TO "Customer" (two data entities).
     pairs:
-      - {from: requirement, to: requirement}
+      - {from: requirement, to: requirement, distinct_owner: true}
       - {from: requirement, to: module}
       - {from: module, to: requirement}
+      - {from: requirement, to: interface}
+      - {from: interface, to: requirement}
+      - {from: requirement, to: data_entity, default: true, default_from: [PART_OF]}
+      - {from: data_entity, to: requirement}
+      - {from: open_question, to: requirement}
+      - {from: requirement, to: open_question}
+      - {from: open_question, to: feature}
+      - {from: feature, to: open_question}
+      - {from: open_question, to: module}
+      - {from: module, to: open_question}
+      - {from: open_question, to: capability}
+      - {from: capability, to: open_question}
+      - {from: open_question, to: interface}
+      - {from: interface, to: open_question}
+      - {from: open_question, to: data_entity}
+      - {from: data_entity, to: open_question}
 
 
 spine:
   sources: [requirement]
   roots: [module]
+  exclude: {in_scope: ["no"]}
   paths:
     - {via: [PART_OF], min: 1, max: 3}
+    - {sequence: [PART_OF, PROVIDED_BY]}
+    - {sequence: [PART_OF, CONSUMED_BY]}
+    - {sequence: [PART_OF, STORED_IN]}
     - {sequence: [GROUPED_BY, REALIZED_BY]}
+    - {sequence: [PART_OF, GROUPED_BY, REALIZED_BY]}
     - {via: [RELATES_TO], min: 1, max: 1}
 
+conform:
+  judge_prompt: judge_owner_conflict.2
+  cap: 200
+  floor: 0.7
+  fallback_relation: RELATES_TO
+  answered_elsewhere:
+    label: OpenQuestion
+    prompt: judge_answered_elsewhere.3
+    candidates: 4
+    min_cosine: 0.35
+    floor: 0.8
+    cap: 60
+
 inference:
-  cap: 50
+  cap: 100                             # every mode (was 50)
+  first_cap: 2000                      # first and rebuild: past cap, within first_budget 
+  first_budget: 11000000
   floor: 0.7
   rules:
+    - id: INF-CONT-01
+      template: attach_orphan
+      prompt: judge_attach_orphan.4
+      floor: 0.8
+      batch_prompt: judge_attach_orphan_batch.3   # batched judging is off (no batch); a replay's --batch turns it on 
+      subject: requirement
+      targets: [feature, module]
+      max_candidates: 3
+      exclude_where: {in_scope: ["no"]}
+      target_exclude_where: {in_scope: ["no"]}   # out-of-scope, excluded and later-release rows are never owners
+      writes: PART_OF
+    - id: INF-CONT-02
+      template: attach_orphan
+      prompt: judge_attach_orphan.4
+      batch_prompt: judge_attach_orphan_batch.3   # batched judging is off (no batch); a replay's --batch turns it on 
+      subject: feature
+      targets: [module]
+      max_candidates: 3
+      exclude_where: {in_scope: ["no"]}
+      target_exclude_where: {in_scope: ["no"]}   # out-of-scope, excluded and later-release rows are never owners
+      writes: PART_OF
     - id: INF-INT-01
       template: endpoints
-      prompt: judge_endpoints.1
+      prompt: judge_endpoints.3
       subject: integration_requirement
       via: [PART_OF, RELATES_TO]
       mentions: true
       target: module
       min_targets: 2
       max_targets: 4
+      exclude_owned_by: [interface]
       writes: INTEGRATES_WITH
     - id: INF-CAP-01
       template: realization
-      prompt: judge_realization.1
+      prompt: judge_realization.2
       subject: capability
       member_relation: GROUPED_BY
-      container_relation: PART_OF
+      container_paths:
+        - {via: [PART_OF], min: 1, max: 3}
+        - {via: [RELATES_TO], min: 1, max: 1}
+        - {sequence: [PART_OF, PROVIDED_BY]}
+        - {sequence: [PART_OF, CONSUMED_BY]}
       container: module
-      max_hops: 3
+      reads: [INF-CONT-01, INF-CONT-02]   # their PART_OF edges of this build count on the paths 
       writes: REALIZED_BY
-    - id: INF-CONT-01
-      template: attach_orphan
-      prompt: judge_attach_orphan.1
-      subject: requirement
-      targets: [feature, module]
+    - id: INF-XDOC-01
+      template: cross_document
+      prompt: judge_cross_document.4
+      subject: [module, feature, interface, data_entity]
+      members: requirement
+      via: [PART_OF, RELATES_TO]
+      mentions: true
+      min_documents: 2
       max_candidates: 3
-      writes: PART_OF
+      max_pairs: 8
+      pair_floor: 0.55
+      floor: 0.85                      # link items only; owner items keep inference.floor
+      exclude_where: {in_scope: ["no"]}
+      writes: RELATES_TO
+      also_writes: [DEPENDS_ON, PART_OF]
+      cap: 36

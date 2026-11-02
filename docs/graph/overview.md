@@ -64,7 +64,6 @@ Quality is shown by tests, verification checks and the metrics each build report
 | Host | Offers build functions, read API, typed results and errors; never decides when to build | Orchestration, retries across processes, storage of results, UI |
 | Ingestion | Requires lineage id, version and markdown that never changes after parsing | Decides lineages and versions, parses files |
 | `graph.gap`, `graph.plan` | Keeps statements, provenance and stable `spec_id`s; preserves their nodes and relationships | Own their graph parts |
-| Graphiti | Uses only its node and edge extraction functions, with model calls routed through the core gateway | Stores and searches nothing |
 
 ## Constraints
 

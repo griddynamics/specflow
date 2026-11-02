@@ -8,7 +8,12 @@ tags: [graph]
 # api.md: public library API: core setup, owned writes, read and search, LLM gateway, judges, build entry points, ports
 
 All functions are `async` unless noted. Every graph function takes `project_id` explicitly. Other
-exports (identity helpers, result and record models, `File*` port implementations): [tech-specs.md](implementation/tech-specs.md).
+exports, not described here: identity helpers (`NAMESPACE`, `node_uuid`, `edge_uuid`, `identity_key`,
+`normalise_id`, `normalise_surface`, `slug`, `allocate_spec_id`, `validate_project_id`, `SpecIdRow`),
+configuration (`Neo4jConfig`, `LLMConfig`, `CallBudget`, `CallClass`, `CALL_CLASSES`), `Query`,
+`ScopedTransaction`, the errors (`GraphError` and its subclasses), result and record models, step
+constants (`STEPS`, `STEP_FUNCTIONS`, `StepFunctions`, `MAX_FOLLOW_UPS`, `EXTRACTION_KINDS`) and the
+`File*` port implementations.
 
 ## Core setup
 
@@ -17,7 +22,7 @@ exports (identity helpers, result and record models, `File*` port implementation
 | `load_ontology(path=None, *, submodule_files=None) -> Ontology` (sync) | Shipped ontology by default; `submodule_files` None merges the installed submodules' `ontology.yaml` files, a list replaces discovery; raises `OntologyError` ([ontology.md](ontology.md)) |
 | `connect(Neo4jConfig) -> driver` (sync) | Creates the Neo4j driver; the host owns and closes it |
 | `ensure_schema(driver, ontology, llm_config, database=None, *, ddl=None) -> tuple[str, ...]` | Creates missing constraints and indexes and returns the names it created; checks the Neo4j version; idempotent (a second run returns `()`). The objects come from the static DDL files (`ddl` None: the shipped `graph/core/ddl/*.cypher`; a sequence of statements replaces them), which must cover the ontology (else `ConfigurationError("schema_ddl_incomplete")`) |
-| `check(driver, database=None)` | Raises `InfrastructureUnavailableError` when Neo4j is unreachable |
+| `check(driver, database=None)` | Raises `InfrastructureUnavailableError` when Neo4j is unreachable, `ConfigurationError` on rejected credentials, denied access or an unknown database |
 
 `database` None uses the driver's default database. Also exported: `require_version`, `server_version`,
 `Executor` (project-scoped query runner).
@@ -50,10 +55,10 @@ depth outside 1-3 (`invalid_depth`), a line range not 1 ≤ `line_start` ≤ `li
 | Method | Contract |
 |---|---|
 | `node(project_id, spec_id) -> GraphNode \| None` | One node |
-| `nodes(project_id, labels=None, where=None) -> list[GraphNode]` | All spec nodes, ordered by `spec_id`; `where` maps ontology attribute names to required values (equality; enum values as declared; `None` means the property is absent) |
-| `scope(project_id, spec_id, labels=None) -> list[GraphNode]` | The nodes under a node: those that reach it by a declared spine path, or by a contiguous part of a `sequence` path, each edge in its direction (a symmetric relation either way), never passing through another spine-root node (for a module: its features, the capabilities that realise it, and the requirements under either); ordered by `spec_id` |
+| `nodes(project_id, labels=None, where=None) -> list[GraphNode]` | All spec nodes, ordered by `spec_id`; `where` maps ontology attribute names to required values (equality on stored values; enum values as declared; a null value of an attribute with a `default` matches that default; `None` means the property is absent and the attribute has no default; inherited values such as `release` are filled in after filtering and are not filterable) |
+| `scope(project_id, spec_id, labels=None) -> list[GraphNode]` | The nodes under a node: those that reach it by a declared spine path, or by a contiguous part of a `sequence` path, each edge in its direction (a symmetric relation either way), never passing through another spine-root node (for a module: its features, the capabilities that realise it, the interfaces it provides or consumes, the data entities stored in it, and the requirements under any of them); ordered by `spec_id` |
 | `neighbours(project_id, spec_id, relations=None) -> list[GraphEdge]` | Domain edges of a node |
-| `edges(project_id, include_inferred=True) -> list[GraphEdge]` | All domain edges |
+| `edges(project_id, *, include_inferred=True) -> list[GraphEdge]` | All domain edges |
 | `find_nodes(project_id, text, labels=None, where=None, limit=20) -> list[NodeHit]` | Hybrid search: weighted rank fusion (vector 2, fulltext 1, k = 10) over a vector list and a fulltext list, each `limit` project hits deep, ties by `spec_id`; a hit only the vector list found is dropped below `vector_floor`; English stop words left out of the fulltext query. Vector: at most 2000 candidate vectors are scored by exact cosine; otherwise the index fetch doubles while hits < `limit`, then falls back to exact cosine. Fulltext is paged in the index's score order. Only vectors made by the reader gateway's embedding model are compared; fulltext only when no gateway is given, no vector matches that model, or embedding fails with a non-fatal error (`LLMFatalError` propagates). A node the text names by explicit id or `spec_id` (aliases resolve) ranks first, in text order, `matched="id"`; filters and `limit` apply |
 | `nodes_for_fragment(project_id, document_id, line_start, line_end) -> list[GraphNode]` | Nodes whose evidence lines (of the built revision) overlap the range; retired fragments are left out |
 | `impact(project_id, spec_ids, depth=2, relations=None) -> ImpactResult` | Nodes reachable over domain edges in both directions, up to `depth` (1-3), nearest first, at most 500; the start nodes are not included, unknown ids are ignored |
@@ -65,7 +70,7 @@ does, at most 256 terms and 1000 characters. Operators such as `+`, `-`, `*`, `~
 are plain terms. Text Lucene still rejects raises `ConfigurationError("query_too_long")`. The embedding
 gets the same capped text.
 
-`GraphNode`: `spec_id`, `label`, `name`, `spec_id_aliases`, attributes, `statements`, provenance (one
+`GraphNode`: `spec_id`, `uuid`, `label`, `name`, `spec_id_aliases`, attributes (a null attribute with `inherit` filled from the owner, [data-model.md](data-model.md)), `statements`, provenance (one
 record per evidence fragment: document, path, fragment, lines, quote). `GraphEdge`: relation, source and
 target `spec_id`, `basis`, `fact`, evidence fragments, and for inferred edges the rule and confidence.
 `NodeHit`: `node`, `score` (the fused score; 1 for an `id` hit), `matched` (`vector`, `fulltext`, `both` or `id`). Vector search
@@ -81,26 +86,25 @@ are test hooks.
 
 | Aspect | Contract |
 |---|---|
-| Calls | `structured(call_class, model, messages, output_type, *, prompt)` returns a validated object (`model` none: the call class's model; `prompt`: the prompt name for usage); `embed(texts)` returns vectors of the configured dimension |
-| Call classes | `extraction`, `small` (attributes, adjudication, hub catalog), `judge`, `embedding`; each has a timeout and attempt count in `LLMConfig` |
+| Calls | `structured(call_class, model, messages, output_type, *, prompt)` returns a validated object (`model` none: the call class's model; `prompt`: the prompt name for usage); `embed(texts)` returns vectors of the configured dimension; `warm_up(call_class, model, messages, output_type, *, prompt)` returns nothing |
+| Prompt-cache warm-up | `warm_up` sends `messages` exactly as `structured` would (same model, untrusted notice and `output_type` schema) with at most 16 output tokens, and discards the answer: a cut, refused, empty or malformed answer is no error. Retries, HTTP errors and usage (under `prompt`) are as for `structured`. It fills a provider cache that reuses a prefix only up to where an earlier request ended, so later calls that start with `messages` and differ after them read them from the cache |
+| Call classes | `extraction`, `small` (attributes, dedup adjudication, answered-elsewhere check), `judge`, `embedding`; each has a timeout and attempt count in `LLMConfig` |
 | Limiter | One process-wide limit on concurrent calls (`LLMConfig.concurrency`), served in class priority order: `extraction`, `judge`, `small`, `embedding` |
-| Retries | Rate limits, timeouts and server errors are retried with backoff within the class budget; authentication and unknown-model errors, and any other non-retryable 4xx except overflow and content filter (a configuration problem such as an unsupported schema), raise `LLMFatalError` at once |
+| Retries | Rate limits, timeouts and server errors are retried with backoff within the class budget (exponential from 1 s, at most 30 s; a rate limit without `Retry-After` from 10 s, at most 60 s; a `Retry-After` is honoured, at most 120 s); authentication and unknown-model errors, and any other non-retryable 4xx except overflow and content filter (a configuration problem such as an unsupported schema), raise `LLMFatalError` at once |
 | Output | JSON-schema structured output; a malformed answer gets one repair retry, then `LLMError` |
 | Untrusted text | Document text is placed in marked blocks and the instructions say it is evidence, never instructions. Document-derived names shown outside those blocks (catalog and node names) have marker runs defused and are cut to 200 characters |
 | Embedding batches | `embed` sends batches of at most 256 texts and 100k estimated tokens; a text over 8,000 estimated tokens is cut (counted, never logged); an input the endpoint still rejects as too long raises `LLMError(overflow)`, not `LLMFatalError` |
-| Usage | Calls, tokens and duration are counted per call class and prompt name for the build report |
+| Usage | Calls, failed calls, requests, input and output tokens, cached input tokens and duration are counted per call class and prompt name for the build report. Cached input tokens are the part of the input tokens the provider served from its prompt cache: `usage.prompt_tokens_details.cached_tokens`, else `cache_read_input_tokens` or `prompt_cache_hit_tokens`, else 0 |
 
 The gateway holds the process's one `AsyncOpenAI` client, created with `base_url = LLMConfig.endpoint`,
 the API key and `max_retries=0` (the gateway retries). It uses the Chat Completions API with JSON-schema
 output, never the Responses API, so any OpenAI-compatible endpoint or proxy works.
 
-Graphiti is given adapters, never its own OpenAI client (in the build's Graphiti adapter module):
-
-| Graphiti client | Adapter |
-|---|---|
-| LLM client | Subclasses Graphiti's `OpenAIGenericClient` and overrides its request method, so every request goes through the gateway: limiter, retries, error classes, usage, untrusted-text marking |
-| Embedder | Implements Graphiti's `EmbedderClient` on `Gateway.embed` |
-| Graph driver, cross-encoder | Stubs that fail if called: the library calls only `extract_nodes` and `extract_edges`, and Graphiti never touches Neo4j |
+The build's node and edge extraction calls are `structured` calls on the `extraction` class with the
+build's own messages and answer schemas (prompts `nodes.hubs.14` for the hub pass, `nodes.statements.15`
+for the statement pass, so usage shows each pass apart, and `edges.8`, one call per edge window; [build.md](build.md) steps 2
+and 4); no extraction library sits between the build and the gateway. Before a unit's calls the
+build may send a `warm_up` of their shared prefix (prompts `nodes.warmup.1`, `edges.warmup.4`).
 
 ## Judges
 
@@ -109,19 +113,21 @@ structured call per judgement on the `judge` class. Prompts are the ontology's j
 files (`judge_prompts/<name>.<revision>.md`, [ontology.md](ontology.md)); the prompt version is recorded
 on what a verdict produces. Helpers (sync) `quotes_valid(verdict, fragments)` checks that every quote a
 verdict cites occurs in the cited fragment, `meets_floor(verdict, floor)` that confidence meets a floor.
-Later submodules add their own prompts and verdict types without changing the core.
+Conform's owner-conflict judge and the inference rules use it. Later submodules add their own prompts
+and verdict types without changing the core.
 
 ## Build
 
 | Name | Contract |
 |---|---|
 | `BuildContext` | `project_id`, `rebuild` flag, `BuildOptions`, `BuildSettings`, ontology, driver, gateway, ports, lineages to retry, `build_id` (none: a new build; set: resume that build from its first unfinished step), `database` (none: the driver's default), `executor` (none: `Executor(driver, database)`; tests may pass one) |
-| `run_build(context) -> BuildResult` | Runs every step of [build.md](build.md) and the analysis of [analysis.md](analysis.md) |
-| Step functions | `graph.build.steps.<name>` (module names would clash with direct exports): `plan`, `extract_nodes`, `resolve`, `extract_edges`, `conform`, `diff`, `persist`, `infer`, `verify`; each reads its inputs from and writes its output to the `BuildStore`, so a host can run and resume steps one by one. `plan(context)` starts a build when `build_id` is None and returns the build id (also `graph.build.plan`); run the other steps with `context.with_build_id(id)`. Steps never finish the build: after the last step call `run_build(context.with_build_id(id))`, which finds no open step and stores the `BuildResult` |
-| `estimate_build(context) -> BuildEstimate` | Cost estimate without model calls or writes ([build.md](build.md)) |
+| `run_build(context) -> BuildResult` | Runs every step of [build.md](build.md) and the analysis of [analysis.md](analysis.md), then at most 2 follow-up `update` builds for lineages left to retry (retryable codes only; none after a follow-up that recovered nothing), and returns the last build's result ([build.md](build.md) Follow-up builds and settlement); a follow-up that fails raises as any build |
+| Step functions | `graph.build.steps.<name>` (module names would clash with direct exports): `plan`, `extract_nodes`, `resolve`, `extract_edges`, `conform`, `diff`, `persist`, `infer`, `verify`; each reads its inputs from and writes its output to the `BuildStore`, so a host can run and resume steps one by one. `plan(context)` starts a build when `build_id` is None and returns the build id (also `graph.build.plan`); run the other steps with `context.with_build_id(id)`. Steps never finish the build: after the last step call `run_build(context.with_build_id(id))`, which finds no open step, stores the `BuildResult` and starts any follow-up builds. A resumed `infer` reuses the judgements it wrote before it stopped ([analysis.md](analysis.md) Limits and backlog) |
+| `estimate_build(context) -> BuildEstimate` | Cost estimate without model calls or writes, inference included ([build.md](build.md)) |
+| `project_status(builds, project_id) -> ProjectBuildStatus` | `graph.build.status`, also exported from `graph.build`: whether the project is building, the running build's id, mode, step, start and follow-up attempt, and the latest finished build's `settlement`; reads the `BuildStore` only ([build.md](build.md) Building status) |
 | `verify_project(context) -> VerificationReport` | Read-only checks: problems and metrics, never repairs or follow-ups ([analysis.md](analysis.md)) |
 
-`BuildResult` holds the fields of [build.md](build.md) "Build result". `BuildResult` and `VerificationReport` name
+`BuildResult` holds the fields of [build.md](build.md) "Build result", `settlement` and `change_report` included. `BuildResult`, its change report and `VerificationReport` name
 an edge as `<source spec_id>|<RELATION>|<target spec_id>`, never by edge key.
 
 ## Ports
@@ -133,7 +139,7 @@ Port methods are `async`.
 | `SpecIdRegistry` | `taken(project_id)`, `record(project_id, build_id, rows)`; rows are `spec_id`, identity key, uuid, state (`active`, `alias`, `retired`) |
 | `CorpusSource` | `snapshot(project_id, *, dry_run=False)`: every active lineage's current revision (`lineage_id`, `revision_id`, `version`, `path`, `title`, `markdown`) in document order; a dry run never writes; raises `CorpusError` on a broken contract |
 | `ExtractionStore` | `get(kind, key, fingerprint)`, `put(kind, key, fingerprint, payload)`; optionally batch `get_many(kind, keys, fingerprint) -> dict`, `put_many(kind, fingerprint, entries)`; kinds include `vectors` and `decisions` |
-| `BuildStore` | `create_build`, `get_build`, `latest_build(project_id, *, finished_only=False, modes=None)`, `put_progress`, `finish_build(result)`, `get_result`; `put_artifact`, `get_artifact` |
+| `BuildStore` | `create_build`, `get_build`, `latest_build(project_id, *, finished_only=False, modes=None)`, `put_progress`, `finish_build(result)`, `get_result`; `put_artifact`, `get_artifact`. A follow-up build's `BuildRecord` holds `follow_up_of` (the chain's first build) and `follow_up_attempt` (1, 2; 0 for any other build) |
 
 `open_file_stores(root, corpus_folder=None) -> FileStores` (sync) returns file implementations of every
 port under a host-given directory, for tests and local runs; `FileStores.corpus` is a `FileCorpusSource`
