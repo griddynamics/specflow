@@ -166,6 +166,38 @@ folders. Share each folder with this address. If it is unset or blank, document
 source calls fail with `setup_error` and the log event `drive.identity.missing`; there is
 no fallback to other credentials. The app still starts.
 
+## Document parsing
+
+Uploads and Drive files are turned into Markdown by the `worker-parse` service with Docling. There
+is no setting for the engine, the formats or the limits: they are fixed in the code and described in the
+[file parsers documentation](file-parsers/INDEX.md):
+
+- [accepted formats and upload caps](file-parsers/formats.md#accepted-formats);
+- [parse limits](file-parsers/limits.md#parse-limits) and [error codes](file-parsers/errors.md#error-codes);
+- [time limits](file-parsers/runtime.md#time-limits): one parse runs at a time per `worker-parse` replica, so
+  add replicas for a backlog;
+- the [deploy order](file-parsers/runtime.md#deploy-order) of `worker-parse`, `worker-agents` and `api`.
+
+### The worker-parse image
+
+- `backend/docker/worker-parse/Dockerfile` builds the only image that holds Docling, PyTorch (CPU wheels),
+  OpenCV and the layout and table models. The api and worker-agents images do not contain them and
+  never contain PyMuPDF. `make images` builds the four images.
+- Size it at 2 vCPU and **3 GiB** (`mem_limit: 3g` in `docker-compose.yml`). A parse works through a PDF in ranges
+  of 10 pages; the measured peak is gate G5 in
+  [acceptance-gates.md](file-parsers/acceptance-gates.md#status). `/tmp` is a 1 GB tmpfs that counts against
+  that limit; the root filesystem is read-only; the process runs as uid 10001.
+- Give it a termination grace period of 150 s; running parses finish for up to 130 s after SIGTERM.
+- Egress is not needed: the models are baked into the image and nothing is downloaded at run time.
+
+The image sets these variables. Do not change them in a deployment.
+
+| Name | Image value | Meaning |
+|---|---|---|
+| `HF_HUB_OFFLINE` | `1` | Hugging Face downloads are off; Docling reads only the baked models. |
+| `DOCLING_ARTIFACTS_PATH` | `/opt/docling-models` | Folder of the baked models. For tests and development on a host, run `make models`: it fetches them into `backend/.docling-models`, which the tests pick up. |
+| `MALLOC_ARENA_MAX` | `2` | Keeps the memory of a long parse flat. |
+
 ## Live tests
 
 | Variable | Tier |

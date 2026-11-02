@@ -5,7 +5,10 @@
   the one of its holder source wins, else the smallest key. Any other document (an upload, or a
   Drive document no Drive file links any more) is ``doc:<document_id>``. Each lineage keeps its
   newest document, so a changed Drive file is an update of the same graph document.
-- ``revision_id`` is the content hash, ``version`` the number of documents in the lineage.
+- ``revision_id`` is the content hash for a document whose ``parser`` is ``NULL``, ``pymupdf4llm`` or
+  ``drive-convert`` (``LEGACY_PARSERS``), else ``<content hash>:<parser>``: only a document parsed with a new
+  engine id is revised (once), so a deploy rebuilds no existing graph (DESIGN 'Graph revision rule').
+  ``version`` is the number of documents in the lineage.
 - ``path`` is ``<source name>/<file name>`` (the file name alone without a source), made unique
   with a `` (n)`` suffix; ``title`` is the first heading, else the file name without extension.
 - Order: by ``path``.
@@ -19,12 +22,21 @@ import uuid
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from pathlib import PurePosixPath
-from typing import Any
+from typing import Any, Final
 
 from db import sources as repo
 from db.sources import CONNECTION_ORIGIN, GraphCorpusRow
 from graph.build import CorpusRevision
 from graph.build.corpus import first_heading
+
+LEGACY_PARSERS: Final = frozenset({None, "pymupdf4llm", "drive-convert"})
+"""``documents.parser`` values whose revision id stays the bare content hash (all rows before Docling)."""
+
+
+def revision_id(content_hash: str, parser: str | None) -> str:
+    """The graph revision of a document: the content hash, plus the engine id for a new engine."""
+
+    return content_hash if parser in LEGACY_PARSERS else f"{content_hash}:{parser}"
 
 
 def drive_lineage(connection_id: uuid.UUID, external_id: str) -> str:
@@ -83,7 +95,7 @@ def corpus_revisions(rows: Sequence[GraphCorpusRow]) -> list[CorpusRevision]:
         revisions.append(
             CorpusRevision(
                 lineage_id=lineage_id,
-                revision_id=row.content_hash,
+                revision_id=revision_id(row.content_hash, row.parser),
                 version=version,
                 path=_unique(path, taken),
                 title=first_heading(row.markdown) or PurePosixPath(row.original_filename).stem or path,

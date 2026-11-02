@@ -28,13 +28,14 @@ from api.errors import (
     source_not_found,
 )
 from api.runtime import Runtime
-from api.uploads import stream_pdf
+from api.uploads import stream_upload
 from db import batches
 from db import repositories as repo
 from db import source_files as files
 from db.batches import AddOutcome, BatchEndedError, LockConflictError, LockTimeoutError, SourceNotFoundError
 from db.removal import RevisionChainError
 from db.sources import DocumentFile
+from file_parsers.formats import FormatSpec
 from logger.logger import INFO, WARNING, get_logger, log_event
 from storage import keys
 
@@ -173,10 +174,11 @@ async def add_streamed_file[T](
     user_id: uuid.UUID,
     project_id: uuid.UUID,
     filename: str,
+    spec: FormatSpec,
     batch_id: uuid.UUID | None,
     build: Callable[[AddOutcome], T],
 ) -> Added[T]:
-    """Add the request body (a PDF) to ``batch_id``; ``None`` = today's legacy day batch.
+    """Add the request body (a file of format ``spec``) to ``batch_id``; ``None`` = today's legacy day batch.
 
     ``build`` turns the outcome into the caller's answer while the transaction is open
     (the rows are attached then). The streamed object is deleted unless a row uses it;
@@ -187,8 +189,8 @@ async def add_streamed_file[T](
     if batch_id is not None:
         await check_batch_accepts(runtime, project_id, batch_id)
     document_id = uuid.uuid4()
-    key = keys.document_original(str(project_id), str(document_id))
-    uploaded = await stream_pdf(request, runtime.store, key)
+    key = keys.document_original(str(project_id), str(document_id), spec.media_type)
+    uploaded = await stream_upload(request, runtime.store, key, spec)
     legacy = batch_id is None
 
     async def attempt() -> tuple[Added[T], bool, uuid.UUID | None]:
@@ -210,6 +212,7 @@ async def add_streamed_file[T](
                 ),
                 user_id=user_id,
                 allow_ended=legacy,
+                media_type=spec.media_type,
             )
             document = outcome.document
             owns_key = document is not None and document.original_key == key

@@ -16,6 +16,7 @@ from sqlalchemy import text
 from db import batches, source_files
 from db.batches import BatchEndedError, LockConflictError, SourceNotFoundError
 from db.removal import remove_source
+from db.sources import UPLOAD_STALE_AFTER
 from specflow_live import requires_live
 from specflow_sources_live_support import (
     add_doc,
@@ -37,6 +38,9 @@ from specflow_sources_write_support import (
 pytestmark = requires_live("POSTGRES")
 
 MIN = timedelta(minutes=1)
+# A processing/uploaded document reads Failed past UPLOAD_STALE_AFTER: one minute either side of it.
+STALE_MIN = UPLOAD_STALE_AFTER // MIN + 1
+FRESH_MIN = UPLOAD_STALE_AFTER // MIN - 1
 
 
 # Lifecycle: start, add, end ------------------------------------------------------------
@@ -281,11 +285,11 @@ async def test_a_failed_drive_duplicate_is_already_in_project(sources_world, sta
     ("status", "age_min", "moved"),
     [
         ("failed", 0, True),
-        ("processing", 61, True),  # R10
-        ("uploaded", 61, True),  # M1
-        ("processing", 59, False),
-        ("uploaded", 59, False),
-        ("parsed", 500, False),
+        ("processing", STALE_MIN, True),  # R10
+        ("uploaded", STALE_MIN, True),  # M1
+        ("processing", FRESH_MIN, False),
+        ("uploaded", FRESH_MIN, False),
+        ("parsed", STALE_MIN * 2, False),
     ],
 )
 async def test_a_failed_upload_moves_to_the_new_batch_and_the_empty_old_batch_goes(

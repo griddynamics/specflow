@@ -124,7 +124,30 @@ python3 validation/ci/ci_report.py run --job local --unit api --step pytest --ju
 python3 validation/ci/ci_report.py merge && python3 validation/ci/ci_report.py github-summary
 ```
 
+## Licence gate
+
+`licence_gate.py` (stdlib only, Python 3.11+) checks the dependency set of each deployable image against a
+licence allowlist without building the image. A project config (TOML; this repository: `backend/licence-gate.toml`)
+names the roles (image name and the `uv` extras its Dockerfile installs), the allowed SPDX ids, aliases for the
+free-text names some packages report, per-package overrides with a reason, forbidden packages and the components a
+NOTICE file must name.
+
+```sh
+python3 validation/ci/licence_gate.py --config backend/licence-gate.toml
+python3 validation/ci/licence_gate.py --config backend/licence-gate.toml --env worker-parse=/path/to/venv/bin/python
+```
+
+For each role it runs `uv sync --frozen --no-dev --no-install-project --extra ...` into a scratch environment,
+lists licences with a pinned `pip-licenses` (run through `uvx`), and reports: a forbidden package in a role or in the
+lockfile, a licence that is not allowed (an `OR` needs one allowed side, an `AND` and a `WITH` need all parts), and a
+missing NOTICE name. `--env ROLE=PYTHON` checks an existing environment instead (a dry run against a modified set).
+Exit codes: 0 clean, 1 findings, 2 tool or configuration error. It needs `uv` and the package indexes (or a warm
+cache). `make validate-licences` runs it; the `static-licences` job of `validate.yaml` records it with `ci_report.py`.
+
 ## Self-tests
+
+`test_licence_gate.py` runs the gate on recorded licence rows (no uv, no network) plus the real config, `pyproject.toml`
+and `NOTICE`, so a new direct `parse` dependency without a NOTICE entry fails the self-tests.
 
 `test_ci_report.py` (pytest, from the python-lint kit's environment): `make validate-ci-selftest`,
 also run by `make validate-selftest` and by the `python-lint` job of `validate.yaml`.

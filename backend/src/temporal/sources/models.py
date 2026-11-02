@@ -11,7 +11,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-ItemKind = Literal["pdf", "google", "stored"]
+#: ``pdf`` and ``document`` (Office, HTML, Markdown, CSV) are both files the parser reads; ``pdf`` stays a
+#: separate value because running workflows hold it in their history.
+ItemKind = Literal["pdf", "document", "google", "stored"]
 
 
 class DriveImportInput(BaseModel):

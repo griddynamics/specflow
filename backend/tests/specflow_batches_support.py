@@ -40,6 +40,7 @@ from db.source_files import (
     state_rank,
 )
 from db.sources import UPLOAD_STALE_AFTER
+from storage import keys as storage_keys
 
 OPEN_FOR = timedelta(minutes=15)
 
@@ -291,7 +292,17 @@ class FakeBatches:
         source.ended_at = source.ended_at or now()
         return source
 
-    async def add_batch_file(self, session, project_id, batch_id, *, file, user_id, allow_ended=False) -> AddOutcome:
+    async def add_batch_file(
+        self,
+        session,
+        project_id,
+        batch_id,
+        *,
+        file,
+        user_id,
+        allow_ended=False,
+        media_type=repo.PDF_MEDIA_TYPE,
+    ) -> AddOutcome:
         self._failing("add_batch_file")
         batch = self.sources.get(batch_id)
         if batch is None or batch.project_id != project_id:
@@ -309,10 +320,11 @@ class FakeBatches:
                 file=file,
                 uploaded_by=user_id,
                 source_id=batch_id,
+                media_type=media_type,
             )
         except repo.DuplicateDocumentError as duplicate:
             return await self._existing(session, batch, duplicate.existing, filename)
-        item = self.add_item(batch, filename, document=doc)
+        item = self.add_item(batch, filename, document=doc, category=batches.item_category(media_type))
         await repo.mark_processing(session, project_id, doc.id)
         return AddOutcome("added", item, doc, None, doc.id)
 
@@ -367,7 +379,7 @@ class FakeBatches:
             target = _hand_over_target(listers)
             if target is None:
                 deleted.append(doc.id)
-                keys.append(doc.original_key)
+                keys.append(storage_keys.document_prefix(str(source.project_id), str(doc.id)))
                 continue
             doc.source_id = target
             handed.append(doc.id)
@@ -385,6 +397,6 @@ class FakeBatches:
             handed_over=handed,
             reparse=reparse,
             sweep_document_ids=deleted,
-            object_keys=sorted(keys),
+            object_prefixes=sorted(keys),
             drive_import_open=source.kind == "gdrive",
         )

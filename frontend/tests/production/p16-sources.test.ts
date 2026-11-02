@@ -341,7 +341,6 @@ test("Q12, K1: build never calls the API; after the unlock a click is DataError 
   const pid = await newProject(http, "Build");
   const n = env.api.log.length;
   assert.equal(http.knowledge.buildAvailable, false, 'the screen shows "Not available yet" (no "demo" wording)');
-  assert.equal(http.sources.pdfOnly, true);
   assert.equal((await rejection(http.knowledge.build(pid, "first"))).code, "not_available");
   assert.equal((await rejection(http.knowledge.build(pid, "update"))).code, "not_available");
   assert.equal(env.api.log.length, n, "no request at all, in particular no summarize");
@@ -415,7 +414,11 @@ test("INT-SRC-0004, FR-SRC-0020: Local files = start, one request per file, end;
     assert.deepEqual(JSON.parse(env.sent.find((s) => s.path === `/api/backend/projects/${pid}/sources/uploads`)?.body ?? "{}"), {
       expected_files: 4,
     });
-    assert.ok(mine.filter((e) => e.path.includes("/files")).every((u) => u.contentType === "application/pdf"));
+    assert.deepEqual(
+      mine.filter((e) => e.path.includes("/files")).map((u) => u.contentType),
+      ["application/pdf", "application/octet-stream", "application/pdf", "application/pdf"],
+      "the PDFs go as application/pdf; notes.txt has no canonical type",
+    );
     assert.equal(notified, 6, "start, four adds, end");
     await waitFor("parsed", () => [...env.api.docs.values()].filter((d) => d.pid === pid).every((d) => d.row.status === "parsed"));
     const s = await http.knowledge.status(pid);

@@ -114,6 +114,7 @@ API_ERROR_CODES: Final = (
     "missing_filename",
     "empty_file",
     "unsupported_format",
+    "file_too_large",
     "database_unavailable",
 )
 SOURCE_FIELDS: Final = (
@@ -152,7 +153,9 @@ RULE_STATE: Final = {
 }
 PARSED_STATUSES: Final = ("parsed", "ingested", "partially_ingested")
 WAITING_OR_PROCESSING_RULES: Final = (2, 3, 7, 8)
-READ_FAILED_DOCUMENT_ERROR: Final = "pdf_parse_failed"
+# Document errors shown as the reason ``read_failed``: a PDF that cannot be read, a document over a
+# limit and a non-PDF that cannot be parsed (the parse activity's three non-retryable parse codes).
+READ_FAILED_DOCUMENT_ERRORS: Final = ("pdf_parse_failed", "document_too_large", "document_parse_failed")
 # Reason of a Drive file in ``error`` by its stored file error; anything else is ``unknown``.
 ERROR_REASON_CODE: Final = {
     "no_access": "access_lost",
@@ -232,7 +235,7 @@ def file_state(
         doc_age=doc_age,
     )
     state, reason = RULE_STATE[rule]
-    if rule == RULE_DOC_FAILED and doc_error == READ_FAILED_DOCUMENT_ERROR:
+    if rule == RULE_DOC_FAILED and doc_error in READ_FAILED_DOCUMENT_ERRORS:
         reason = "read_failed"
     elif rule == RULE_ERROR:
         reason = ERROR_REASON_CODE.get(item_error_reason or "", "unknown")
@@ -422,7 +425,7 @@ def _files_cte(project_id: uuid.UUID, source_id: uuid.UUID | None = None) -> Any
         (
             r.rule == RULE_DOC_FAILED,
             case(
-                (r.doc_error == READ_FAILED_DOCUMENT_ERROR, "read_failed"),
+                (r.doc_error.in_(READ_FAILED_DOCUMENT_ERRORS), "read_failed"),
                 else_="unknown",
             ),
         ),

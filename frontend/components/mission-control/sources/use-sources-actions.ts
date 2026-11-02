@@ -7,7 +7,7 @@ import { useToast } from "@/components/ui/Toast";
 import { isDataError } from "@/lib/domain/errors";
 import type { BuildMode, KnowledgePort, ProjectSourcesStatus, SourcesPort } from "@/lib/domain/sources";
 import { plural } from "./kb-logic";
-import { pdfOnlyToast, splitUpload, startFailedToast, toastFor } from "./source-logic";
+import { splitUpload, startFailedToast, toastFor, unsupportedFilesToast } from "./source-logic";
 
 /** The danger toast of a failed action; production Build knowledge says "not available yet" instead (Q12, FR-GDUI-0021 note). */
 export function useFailToast() {
@@ -57,12 +57,12 @@ export function useBuild(knowledge: KnowledgePort, projectId: string, fail: (e: 
     });
 }
 
-/** Uploads the picked files (production reads PDF only: one toast names the rest); one pick is one batch (FR-SRC-0020). */
+/** Uploads the picked files (only the accepted types are sent: one toast names the rest); one pick is one batch (FR-SRC-0020). */
 export function useUpload(sources: SourcesPort, projectId: string, fail: (e: unknown) => void, reload: RefObject<() => void>) {
   const toast = useToast();
   return async (picked: File[]) => {
-    const { files, skipped } = splitUpload(picked, sources.pdfOnly);
-    if (skipped.length) toast(pdfOnlyToast(skipped));
+    const { files, skipped } = splitUpload(picked);
+    if (skipped.length) toast(unsupportedFilesToast(skipped));
     if (files.length === 0) return;
     try {
       const report = await sources.upload(projectId, files);

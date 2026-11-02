@@ -12,7 +12,7 @@ from storage.base import (
     ObjectWriter,
     StoredObject,
 )
-from storage.keys import validate_key
+from storage.keys import validate_key, validate_prefix
 
 
 class InMemoryObjectStore:
@@ -37,6 +37,14 @@ class InMemoryObjectStore:
 
     async def delete(self, key: str) -> None:
         self.objects.pop(validate_key(key), None)
+
+    async def delete_by_prefix(self, prefix: str) -> int:
+        prefix = validate_prefix(prefix)
+        doomed = [key for key in self.objects if key.startswith(prefix)]
+        for key in doomed:
+            del self.objects[key]
+            self.content_types.pop(key, None)
+        return len(doomed)
 
     async def check(self) -> None:
         return None

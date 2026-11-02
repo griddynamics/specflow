@@ -116,7 +116,7 @@ All browser calls go to `/api/backend/*` (`app/api/backend/[...path]/route.ts`),
 adds the Bearer token and forwards to the API.
 
 - The route proxies with `node:http`/`node:https` and pipes the request stream. **Never use `fetch` to proxy**: it buffers or times out on large streamed uploads (a static test bans `fetch(` in the route).
-- Upload is the raw `File` as the body with `Content-Type: application/pdf` and `X-Requested-With: specflow`. No multipart, no size limit in the app.
+- Upload is the raw `File` as the body with the canonical `Content-Type` of its extension (`lib/domain/upload-formats.ts`: PDF, DOCX, PPTX, XLSX, HTML, Markdown, CSV; never `file.type`) and `X-Requested-With: specflow`. No multipart; the app sets no size limit, the API refuses a file over its cap (PDF 100 MB, Office 50 MB, HTML, Markdown, CSV 10 MB) with 413 `file_too_large`.
 - Mutations need a matching `Origin` and `X-Requested-With`; encoded path tricks (`%2f`, `%5c`, `%25`, `..`) get 400; cookies and forwarding headers are not passed on.
 - `lib/gc-pacing.ts` is the memory mitigation for big uploads: while a body streams, it calls `gc()` every 8 MiB (best effort, no-op if unavailable). Without it, peak memory on a 200 MiB upload sometimes passed the 128 MiB gate on macOS (one run at +130 MiB). Keep it when touching the route.
 

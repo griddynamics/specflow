@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 
 from api.batch_files import add_streamed_file, retry_once, translate
 from api.deps import RuntimeDep, UserDep
-from api.errors import ApiError, ApiInvariantError, source_not_found
+from api.errors import ApiInvariantError, source_not_found
 from api.routers.documents import FilenameQuery, clean_filename, require_project
 from api.routers.projects import invalid_cursor
 from api.schemas import (
@@ -27,7 +27,7 @@ from api.schemas import (
     FilePageOut,
 )
 from api.source_views import added_file, file_out, holder_out, summary_out
-from api.uploads import is_pdf_content_type
+from api.uploads import accepted_format
 from db import batches
 from db import source_files as files
 from db.batches import AddOutcome, BatchEndedError, LockConflictError, LockTimeoutError, SourceNotFoundError
@@ -120,12 +120,11 @@ async def add_batch_file(
     *,
     filename: FilenameQuery = None,
 ) -> JSONResponse:
-    """INT-SRC-0004: stream one PDF into an open batch (201 added, 200 otherwise)."""
+    """INT-SRC-0004: stream one document into an open batch (201 added, 200 otherwise)."""
 
     await require_project(runtime, user.id, pid)
     name = clean_filename(filename)
-    if not is_pdf_content_type(request.headers.get("content-type")):
-        raise ApiError(415, "unsupported_format", "The body must be a PDF sent as application/pdf.")
+    spec = accepted_format(request.headers.get("content-type"), name)
 
     def build(outcome: AddOutcome) -> BatchFileOut:
         return BatchFileOut(
@@ -140,6 +139,7 @@ async def add_batch_file(
         user_id=user.id,
         project_id=pid,
         filename=name,
+        spec=spec,
         batch_id=sid,
         build=build,
     )

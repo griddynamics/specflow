@@ -8,8 +8,6 @@ in-memory store. Requirements: INT-GDUI-0004, FR-GDUI-0017/0018, NFR-MAIN-0001.
 
 from __future__ import annotations
 
-import contextlib
-import dataclasses
 import hashlib
 import json
 import subprocess
@@ -24,7 +22,6 @@ import pytest
 from temporalio import activity, workflow
 from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.exceptions import ApplicationError
-from temporalio.testing import ActivityEnvironment
 
 from api import workflows as api_workflows
 from db import repositories
@@ -32,6 +29,17 @@ from db import sources as sources_repo
 from drive.fake import TINY_PDF, FakeDriveGateway
 from drive.gateway import DriveError
 from drive.reasons import Reason
+from drive_import_offline_support import (
+    CID,
+    OTHER,
+    PID,
+    Repo,
+    build,
+    data,
+    fake_item_of,
+    make_item,
+    run_activity,
+)
 from logger_harness import events, fields
 from settings import load_settings
 from storage import ObjectStoreError
@@ -47,11 +55,8 @@ from temporal.sources import activities as acts
 from temporal.sources import workflows as wf
 from temporal.sources.models import (
     FinishItemInput,
-    ImportItemInput,
     WaitDocumentInput,
 )
-
-PID, CID, OTHER = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
 
 
 # ----------------------------------------------------------------- hygiene, ids
@@ -150,120 +155,6 @@ async def test_a_start_that_provably_did_not_happen_raises_the_original_error(
 
 
 # ------------------------------------------------------------ activity branches
-class Session:
-    def begin(self):
-        return contextlib.nullcontext()
-
-
-class Sessions:
-    def __call__(self):
-        @contextlib.asynccontextmanager
-        async def manager():
-            yield Session()
-
-        return manager()
-
-
-def make_item(
-    *,
-    mime="application/pdf",
-    file_id="file0123456",
-    category="pdf",
-    name="Quarterly plan.pdf",
-):
-    return SimpleNamespace(
-        id=uuid.uuid4(),
-        connection_id=CID,
-        project_id=PID,
-        external_id=file_id,
-        name=name,
-        mime_type=mime,
-        category=category,
-        state="pending",
-    )
-
-
-class Repo:
-    """Stands in for the database functions the activities call."""
-
-    def __init__(self, monkeypatch, item, *, state="importing", existing_doc=None):
-        self.item = item
-        self.connection = SimpleNamespace(id=CID, state=state, external_id="folder01234")
-        self.finished: list[dict] = []
-        self.inserted: list[dict] = []
-        self.existing_doc = existing_doc
-        self.duplicate_of = None
-        self.removed_at_fence = False  # the source row is gone when the insert would run
-        self.claims = 0
-        monkeypatch.setattr(sources_repo, "claim_item", self.claim_item)
-        monkeypatch.setattr(sources_repo, "lock_importing_connection", self.lock_importing_connection)
-        monkeypatch.setattr(sources_repo, "get_connection", self.get_connection)
-        monkeypatch.setattr(sources_repo, "get_item", self.get_item)
-        monkeypatch.setattr(sources_repo, "finish_item", self.finish_item)
-        monkeypatch.setattr(sources_repo, "insert_connection_document", self.insert)
-        monkeypatch.setattr(repositories, "get_document_state", self.get_document_state)
-
-    async def get_connection(self, _session, _project_id, _connection_id):
-        return self.connection
-
-    async def get_item(self, _session, _item_id):
-        return self.item
-
-    async def claim_item(self, _session, _project_id, _connection_id, _item_id):
-        if (
-            self.connection is None
-            or self.connection.state != "importing"
-            or self.item.state not in ("pending", "processing")
-        ):
-            return None
-        self.claims += 1
-        self.item.state = "processing"
-        return self.item
-
-    async def lock_importing_connection(self, _session, _project_id, _connection_id):
-        if self.removed_at_fence or self.connection is None:
-            return None
-        return self.connection if self.connection.state == "importing" else None
-
-    async def get_document_state(self, _session, _project_id, _document_id):
-        return self.existing_doc
-
-    async def finish_item(self, _session, _item_id, state, **kw):
-        self.finished.append({"state": state, **kw})
-        self.item.state = state
-        return True
-
-    async def insert(self, _session, *, file, **kw):
-        kw = dataclasses.asdict(file) | kw
-        self.inserted.append(kw)
-        if self.duplicate_of is not None:
-            return self.duplicate_of, False
-        return (
-            SimpleNamespace(id=kw["document_id"], status=kw["status"], source_id=kw["source_id"]),
-            True,
-        )
-
-
-class Flaky(FakeDriveGateway):
-    def __init__(self, **kw):
-        super().__init__(**kw)
-        self.download_error: Exception | None = None
-        self.read_error: Exception | None = None
-        self.payload = None
-
-    def iter_download(self, file_id, *, chunk_size=8 * 1024 * 1024):
-        if self.download_error:
-            raise self.download_error
-        return super().iter_download(file_id, chunk_size=chunk_size)
-
-    def read_google(self, file_id, mime_type):
-        if self.read_error:
-            raise self.read_error
-        if self.payload is not None:
-            return self.payload
-        return super().read_google(file_id, mime_type)
-
-
 @pytest.fixture
 def pool():
     executor = ThreadPoolExecutor(2)
@@ -274,25 +165,6 @@ def pool():
 @pytest.fixture
 def store():
     return InMemoryObjectStore(app_env="local")
-
-
-def build(store, pool, drive=None, **kw):
-    drive = drive or Flaky(app_env="local", file_delay_s=0, role="worker")
-    return acts.DriveImportActivities(Sessions(), store, drive, pool, **kw), drive
-
-
-def data(item, kind):
-    return ImportItemInput(project_id=PID, connection_id=CID, item_id=item.id, kind=kind)
-
-
-def fake_item_of(drive, category_mime):
-    return next(i for i in drive.list_all("fake-synthetic-30").items if i.mime_type == category_mime)
-
-
-async def run_activity(activities, function, arg, *, attempt=1):
-    env = ActivityEnvironment()
-    env.info = dataclasses.replace(env.info, attempt=attempt)
-    return await env.run(function, arg)
 
 
 async def test_a_pdf_streams_to_the_store_hashed_and_asks_for_the_parse(monkeypatch, store, pool):
@@ -773,7 +645,10 @@ async def test_a_lost_child_parse_marks_its_own_processing_document_failed(monke
 #: Re-pinned after a replay-neutral edit (ruff format, mypy annotations, the internal
 #: ``DeadlineExceeded`` -> ``DeadlineExceededError`` rename that never reaches history):
 #: the AST is unchanged apart from annotations, that name and the typing/uuid imports.
-DRIVE_WORKFLOW_SHA256 = "a0b5e716b5b1579f7277ab3aafc80a9f9e94836a84b6fe0045408fc4bb9cdd61"
+#: Re-pinned for the Docling parser change: one value (``WAIT_START_TO_CLOSE`` 65 -> 255 min) and its comment. A
+#: timeout value is not part of the command sequence (replay compares command type and activity id, see
+#: ``test_histories_recorded_with_the_old_timeouts_replay_under_the_new_constants``).
+DRIVE_WORKFLOW_SHA256 = "5018a84f146f7dc0b233c655a2ada253a3cc909e7672dfdae8092ea06fecafa5"
 
 
 def test_the_drive_import_workflow_file_is_unchanged_for_replay_safety():

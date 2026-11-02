@@ -35,6 +35,8 @@ from drive.categories import ProcessingClass, categorize
 from drive.fake import TINY_PDF, FakeDriveGateway
 from drive.gateway import DriveError
 from drive.reasons import Reason
+from file_parsers.engines.docling import engine_id
+from file_parsers.formats import PDF_MEDIA_TYPE, format_for_media_type
 from logger_harness import events, fields
 from settings import load_settings
 from specflow_drive_import_support import (
@@ -77,6 +79,18 @@ EXPECTED_STATE = {
 
 def expected_states(gateway: FakeDriveGateway, folder: str) -> dict[str, str]:
     return {i.id: EXPECTED_STATE[categorize(i.mime_type)[1]] for i in gateway.list_all(folder).items}
+
+
+def office_files(folder: str) -> int:
+    """Listed files that become documents through the parser but are not PDF (OOXML, HTML, Markdown, CSV).
+
+    Each fake file of these types has its own content (``drive.fake_files``), so each is its own document.
+    """
+
+    listing = FakeDriveGateway(app_env="local", role="worker").list_all(folder)
+    return sum(
+        1 for i in listing.items if i.mime_type != PDF_MEDIA_TYPE and format_for_media_type(i.mime_type) is not None
+    )
 
 
 async def wait_until(check, *, max_wait_s: float, what: str):
@@ -151,7 +165,7 @@ async def test_synthetic_30_started_by_the_save_hook_reaches_the_right_final_sta
     assert (False, 0, 0) in seen or seen[0][0] is True  # listing visible when sampled in time
 
     await _assert_documents(s, expected)
-    await _assert_logs_and_history(caplog, items, handle)
+    await _assert_logs_and_history(caplog, items, handle, expected)
 
 
 async def _assert_documents(s: DriveStack, expected: dict[str, str]) -> None:
@@ -161,23 +175,29 @@ async def _assert_documents(s: DriveStack, expected: dict[str, str]) -> None:
     google = [d for d in documents if d.media_type == "application/json"]
     assert google and all(d.markdown.startswith("# ") for d in google)
     pdfs = [d for d in documents if d.media_type == "application/pdf"]
-    assert len(pdfs) == 1 and pdfs[0].markdown and pdfs[0].parser == "pymupdf4llm"
+    assert len(pdfs) == 1 and pdfs[0].markdown and pdfs[0].parser == engine_id()
+    # The OOXML files of the folder are documents too, parsed by the same engine
+    office = [d for d in documents if d.media_type not in ("application/json", "application/pdf")]
+    assert len(office) == office_files("fake-synthetic-30") == 4
+    assert all(d.markdown and d.parser == engine_id() for d in office)
     # one object per stored-only file, one original per document, nothing else
     stored = sum(1 for v in expected.values() if v == "stored")
     assert len(s.store.objects) == stored + len(documents)
     assert sum(k.endswith("original.bin") for k in s.store.objects) == stored
     assert sum(k.endswith("original.json") for k in s.store.objects) == len(google)
     assert sum(k.endswith("original.pdf") for k in s.store.objects) == 1
+    assert sum(k.endswith((".docx", ".pptx", ".xlsx")) for k in s.store.objects) == len(office)
     assert all(k.startswith(f"projects/{s.project_id}/documents/") for k in s.store.objects)
 
 
-async def _assert_logs_and_history(caplog, items, handle) -> None:
+async def _assert_logs_and_history(caplog, items, handle, expected: dict[str, str]) -> None:
     # B6 logs: ids and counts only, never a name
     [listed] = events(caplog, "drive.import.listed")
     assert fields(listed)["file_count"] == 30 and fields(listed)["folder_id"] == "fake-synthetic-30"
+    # 12 Google + 5 PDF + 4 OOXML are read; images, video and zips (6) are stored; 3 are skipped
     assert fields(listed)["counts"] == {
-        "processed": 17,
-        "stored_only": 10,
+        "processed": 21,
+        "stored_only": 6,
         "skipped": 3,
     }
     [done] = events(caplog, "drive.import.finished")
@@ -186,7 +206,8 @@ async def _assert_logs_and_history(caplog, items, handle) -> None:
         fields(done)["stored"],
         fields(done)["skipped"],
         fields(done)["error"],
-    ) == (17, 10, 3, 0)
+    ) == (21, 6, 3, 0)
+    assert Counter(expected.values()) == {"processed": 21, "stored": 6, "skipped": 3}
     assert "Secret Folder Name" not in caplog.text
     for item in items:
         assert item.name not in caplog.text
@@ -466,10 +487,11 @@ async def test_at_most_two_child_parses_are_in_flight_per_import(
         parse_activities._parse_document = counted
         result = await asyncio.wait_for((await s.start(cid)).result(), 120)
     assert result.state == "done"
-    assert calls == 5  # five distinct PDFs
+    parsed_files = 5 + office_files("fake-synthetic-30")  # five distinct PDFs and the OOXML files
+    assert calls == parsed_files
     assert peak == 2
-    docs = [d for d in await s.documents() if d.media_type == "application/pdf"]
-    assert len(docs) == 5 and all(d.status == "parsed" for d in docs)
+    docs = [d for d in await s.documents() if d.media_type != "application/json"]
+    assert len(docs) == parsed_files and all(d.status == "parsed" for d in docs)
 
 
 # -------------------------------------------------------------- kill and restart
@@ -532,7 +554,8 @@ async def test_killing_the_worker_mid_import_and_restarting_finishes_without_dup
     items = await s.items(cid)
     assert {i.external_id: i.state for i in items} == expected  # one row per file, all final
     documents = await s.documents()
-    assert len(documents) == len({d.content_hash for d in documents}) == 4
+    # 3 Google samples + the one fake PDF + one document per OOXML file (each has its own content)
+    assert len(documents) == len({d.content_hash for d in documents}) == 4 + office_files("fake-synthetic-30")
     stored = sum(1 for v in expected.values() if v == "stored")
     keys = store.object_keys()
     assert len(keys) == len(set(keys)) == stored + len(documents)
@@ -606,7 +629,8 @@ async def test_content_held_by_another_source_is_already_in_project_without_wait
     linked = [i for i in items if i.document_id == doc_id]
     assert len(linked) == pdfs and all(i.state == "duplicate" for i in linked)
     assert not any(i.state in ("pending", "processing") for i in items)
-    assert len(await s.documents()) == 1 + 3  # the held PDF + 3 distinct Google samples
+    # the held PDF + 3 distinct Google samples + one document per OOXML file of the folder
+    assert len(await s.documents()) == 1 + 3 + office_files("fake-synthetic-23")
     assert not any(k.endswith("original.pdf") for k in s.store.objects)
 
 
@@ -648,8 +672,8 @@ async def test_removing_a_source_during_an_import_fences_the_remaining_files(dri
         await wait_until(midway, max_wait_s=90, what="6 finished files")
         async with s.session_factory_tx() as session:
             removed = await removal.remove_source(session, s.project_id, cid)
-        for key in removed.object_keys:  # what the API deletes inline after the commit
-            await store.delete(key)
+        for prefix in removed.object_prefixes:  # what the API deletes inline after the commit
+            await store.delete_by_prefix(prefix)
         before = set(store.object_keys())
         # ends quietly, or fails when a child parse lost its document: both are fine
         with contextlib.suppress(WorkflowFailureError):

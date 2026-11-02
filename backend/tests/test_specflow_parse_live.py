@@ -19,6 +19,7 @@ from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ApplicationError
 
 from db import repositories
+from file_parsers.engines.docling import engine_id
 from specflow_live import requires_live
 from specflow_parse_live_support import (
     Stack,
@@ -47,7 +48,7 @@ async def test_a_pdf_is_parsed_end_to_end(stack: Stack):
     assert result.status == "parsed" and result.markdown_chars > 0
     row = await stack.row(data)
     assert row.status == "parsed" and row.error is None
-    assert row.parser == "pymupdf4llm" and len(row.markdown) == result.markdown_chars
+    assert row.parser == engine_id() and len(row.markdown) == result.markdown_chars
     raw = await record(handle, "parse_success.json", stack=stack, data=data)
     assert activity_types(raw) == ["parse_document"]
 

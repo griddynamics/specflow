@@ -57,6 +57,13 @@ class ObjectStore(Protocol):
 
     async def delete(self, key: str) -> None: ...
 
+    async def delete_by_prefix(self, prefix: str) -> int:
+        """Delete every object whose key starts with ``prefix`` (relative, ends with ``/``); returns the count.
+
+        Not ``ObjectAdmin.delete_prefix``: that one takes the full bucket prefix and is for tooling.
+        """
+        ...
+
     async def check(self) -> None: ...
 
 
