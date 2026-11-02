@@ -42,7 +42,7 @@ source_modules = [
 ]
 forbidden_modules = ["api"]
 
-# The graph package (Neo4j / Graphiti knowledge graph) depends on the logger and nothing else
+# The graph package (Neo4j knowledge graph) depends on the logger and nothing else
 # of ours; the service wires it in from api and temporal.
 [[tool.importlinter.contracts]]
 name = "The graph package stands alone"
@@ -76,14 +76,14 @@ forbidden_modules = ["api", "db", "temporal", "agent_runtime", "graph"]
 
 # Vendor SDKs stay in the package that owns the integration.
 [[tool.importlinter.contracts]]
-name = "Neo4j and Graphiti are confined to graph"
+name = "Neo4j is confined to graph"
 id = "graph-sdk-confined"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = [
     "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "llm", "logger", "storage", "temporal",
 ]
-forbidden_modules = ["neo4j", "graphiti_core"]
+forbidden_modules = ["neo4j"]
 
 [[tool.importlinter.contracts]]
 name = "Claude Agent SDK and Langfuse are confined to llm"

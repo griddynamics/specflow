@@ -1,12 +1,4 @@
-"""Judge runner and verdict checks (docs/graph/api.md "Judges", docs/graph/analysis.md, FR-LLM-06).
-
-A judgement is one structured call on the ``judge`` class. The system message is the versioned prompt
-text from the ontology (reference ``<name>.<revision>``); the user message carries the payload, all of
-it inside ``untrusted()`` blocks. Payload convention: the key ``fragments`` maps fragment id to fragment
-text and each fragment becomes its own block labelled with its id; every other key is serialised as
-JSON into one block labelled ``payload``. A verdict is accepted only when ``meets_floor`` and
-``quotes_valid`` both hold.
-"""
+"""Judge runner and verdict checks."""
 
 from __future__ import annotations
 
@@ -43,11 +35,7 @@ class Evidence(BaseModel):
 
 
 class Verdict(BaseModel):
-    """Base of every verdict type: confidence and the quotes it rests on.
-
-    ``prompt_ref`` is the prompt version (``<name>.<revision>``) that produced the verdict, set by
-    ``JudgeRunner``; it is not part of the output schema.
-    """
+    """Base of every verdict type: confidence and the quotes it rests on."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -83,10 +71,18 @@ def _normalise(text: str) -> str:
     return " ".join(text.split())
 
 
+def quote_in(quote: str, text: str) -> bool:
+    """Whether ``quote``, whitespace-normalised and not empty, is a substring of ``text``."""
+
+    found = _normalise(quote)
+    return bool(found) and found in _normalise(text)
+
+
 def quotes_valid(verdict: Verdict, fragments: Mapping[str, str]) -> bool:
-    """True when the verdict cites at least one quote and every quote, whitespace-normalised, is a
-    substring of its fragment's text with at least ``MIN_QUOTE_CHARS`` non-space characters, or the
-    whole text of a fragment shorter than that; an unknown fragment id fails the verdict."""
+    """True when the verdict cites at least one quote and every quote, whitespace-normalised, is a substring of its
+    fragment's text with at least ``MIN_QUOTE_CHARS`` non-space characters, or the whole text of a fragment shorter than
+    that; an unknown fragment id fails the verdict.
+    """
 
     if not verdict.evidence:
         return False
@@ -94,9 +90,9 @@ def quotes_valid(verdict: Verdict, fragments: Mapping[str, str]) -> bool:
         text = fragments.get(item.fragment_id)
         if text is None:
             return False
-        quote, whole = _normalise(item.quote), _normalise(text)
-        if not quote or quote not in whole:
+        if not quote_in(item.quote, text):
             return False
+        quote, whole = _normalise(item.quote), _normalise(text)
         if _non_space(quote) < MIN_QUOTE_CHARS and quote != whole:
             return False
     return True
@@ -122,6 +118,16 @@ def _user_message(payload: Mapping[str, Any]) -> str:
     return "\n\n".join(blocks)
 
 
+def judge_messages(ontology: Ontology, prompt: str, payload: Mapping[str, Any]) -> list[dict[str, str]]:
+    """The messages of one judgement (module docstring), as ``JudgeRunner.judge`` sends them; the cost
+    estimate renders them too."""
+
+    return [
+        {"role": "system", "content": f"{ontology.judge_prompt(prompt).strip()}\n\n{EVIDENCE_RULE}"},
+        {"role": "user", "content": _user_message(payload)},
+    ]
+
+
 class JudgeRunner:
     """Runs judgements through the gateway with prompts from the ontology."""
 
@@ -129,17 +135,17 @@ class JudgeRunner:
         self._gateway = gateway
         self._ontology = ontology
 
+    @property
+    def concurrency(self) -> int:
+        """The gateway's request concurrency (``LLMConfig.concurrency``): how many judge calls it runs
+        at once."""
+
+        return self._gateway.config.concurrency
+
     async def judge(self, prompt: str, payload: Mapping[str, Any], verdict_type: type[V]) -> V | JudgeFailure:
-        """One structured ``judge`` call; a non-fatal ``LLMError`` becomes ``JudgeFailure``.
+        """One structured ``judge`` call; a non-fatal ``LLMError`` becomes ``JudgeFailure``."""
 
-        ``LLMFatalError``, ``InfrastructureUnavailableError`` and an unknown prompt (``ConformanceError``)
-        propagate.
-        """
-
-        messages = [
-            {"role": "system", "content": f"{self._ontology.judge_prompt(prompt).strip()}\n\n{EVIDENCE_RULE}"},
-            {"role": "user", "content": _user_message(payload)},
-        ]
+        messages = judge_messages(self._ontology, prompt, payload)
         try:
             verdict = await self._gateway.structured("judge", None, messages, verdict_type, prompt=prompt)
         except LLMFatalError:

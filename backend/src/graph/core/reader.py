@@ -1,18 +1,4 @@
-"""Reads of the project graph (docs/graph/api.md "Read and search").
-
-``GraphReader`` returns spec nodes only: nodes with ``SpecNode`` and a domain label owned by
-``build``. Documents, fragments and nodes of other owners are never returned as spec nodes
-(FR-READ-06). A ``spec_id`` resolves directly or through ``spec_id_aliases`` (FR-READ-01).
-Domain edges are the build-owned ontology relations between spec nodes.
-
-Search (``find_nodes``, ``find_fragments``) runs on database-wide indexes, so hits are filtered by
-project, label and attributes after the index call. Fulltext pages through the index in its score
-order (page sizes doubling) until enough project hits are found or the index has no more matches.
-Vector search ranks a small candidate set by exact cosine at once; otherwise it asks the shared
-index, doubling the fetch while too few project hits come back, and falls back to exact cosine over
-the project's own vectors when the index still does not yield enough. Only vectors made by the
-gateway's embedding model are compared. Query text is never logged.
-"""
+"""Reads of the project graph."""
 
 from __future__ import annotations
 
@@ -53,6 +39,7 @@ from graph.core.queries import (
     READ_NODES_BY_IDS,
     READ_NODES_BY_UUID,
     READ_NODES_FOR_LINES,
+    READ_OWNER_VALUES,
     SEARCH_FRAGMENTS,
     SEARCH_NODES_FULLTEXT,
     SEARCH_NODES_VECTOR,
@@ -118,7 +105,7 @@ class _Frozen(BaseModel):
 
 
 class Statement(_Frozen):
-    """What one supporting fragment says about a node (data-model.md "Statements")."""
+    """What one supporting fragment says about a node."""
 
     fragment_id: str
     document_id: str | None = None
@@ -214,11 +201,7 @@ class FragmentHit(_Frozen):
 
 
 class ImpactResult(_Frozen):
-    """Nodes reachable from ``sources`` (resolved ``spec_id``s), nearest first then by ``spec_id``.
-
-    ``distance`` maps each returned node's ``spec_id`` to its hop count; ``truncated``: more nodes
-    were reachable than returned.
-    """
+    """Nodes reachable from ``sources`` (resolved ``spec_id``s), nearest first then by ``spec_id``."""
 
     sources: tuple[str, ...] = ()
     nodes: tuple[GraphNode, ...] = ()
@@ -253,6 +236,8 @@ class GraphReader:
         self._domain_relations = tuple(sorted(name for name in ontology.relations if ontology.owner_of(name) == BUILD))
         self._symmetric = tuple(name for name in self._domain_relations if ontology.is_symmetric(name))
         self._spine_roots = tuple(sorted(ontology.spine.roots))
+        # Spec label to its inheriting attributes (attribute name to the ``inherit.via`` relation).
+        self._inherit = {label: dict(rules) for label in self._spec_labels if (rules := ontology.inherit_rules(label))}
         self._id_pattern = explicit_id_pattern(
             [family for label in self._spec_labels for family in ontology.node_type(label).id_families]
         )
@@ -278,6 +263,7 @@ class GraphReader:
             nodes = self._nodes(rows)
             if nodes:
                 break
+        nodes = await self._inherited(project_id, nodes[:1])
         return nodes[0] if nodes else None
 
     async def nodes(
@@ -286,19 +272,14 @@ class GraphReader:
         labels: Sequence[str] | None = None,
         where: Mapping[str, AttributeValue] | None = None,
     ) -> list[GraphNode]:
-        """All spec nodes, ordered by ``spec_id``; filtered by ``labels`` and ``where`` (equality).
-
-        A label that is not a spec label, an attribute that no selected label declares (or never
-        stores), or an enum value not declared raises ``ConfigurationError`` (FR-READ-08).
+        """All spec nodes, ordered by ``spec_id``; filtered by ``labels`` and ``where`` (equality on stored values; a
+        node without the property has its label's declared ``default``, so it matches that value and not None).
         """
 
         project_id = validate_project_id(project_id)
-        selected = self._labels(labels)
-        conditions = self._where(selected, where or {})
-        rows = await self._executor.read(
-            READ_NODES, project_id, labels=list(selected), where=conditions, retired=RETIRED
-        )
-        return self._nodes(rows)
+        filters = self._filters(self._labels(labels), where)
+        rows = await self._executor.read(READ_NODES, project_id, retired=RETIRED, **filters)
+        return await self._inherited(project_id, self._nodes(rows))
 
     async def neighbours(
         self, project_id: str, spec_id: str, relations: Sequence[str] | None = None
@@ -345,9 +326,10 @@ class GraphReader:
         return [GraphFragment.model_validate(row["props"]) for row in rows]
 
     async def scope(self, project_id: str, spec_id: str, labels: Sequence[str] | None = None) -> list[GraphNode]:
-        """The nodes under a node: those reaching it by a declared spine path (or a contiguous part
-        of a ``sequence`` path), each edge in its direction (a symmetric relation either way), never
-        through a spine-root node; ordered by ``spec_id`` (FR-READ-07)."""
+        """The nodes under a node: those reaching it by a declared spine path (or a contiguous part of a ``sequence``
+        path), each edge in its direction (a symmetric relation either way), never through a spine-root node; ordered by
+        ``spec_id``.
+        """
 
         selected = self._labels(labels)
         root = await self.node(project_id, spec_id)
@@ -374,9 +356,10 @@ class GraphReader:
         depth: int = 2,
         relations: Sequence[str] | None = None,
     ) -> ImpactResult:
-        """Nodes reachable over domain edges in both directions within ``depth`` (1-3) hops of any
-        of ``spec_ids`` (aliases resolve, unknown ids are ignored), the start nodes left out; nearest
-        first, at most 500, ``truncated`` when more were reachable (FR-READ-05)."""
+        """Nodes reachable over domain edges in both directions within ``depth`` (1-3) hops of any of ``spec_ids``
+        (aliases resolve, unknown ids are ignored), the start nodes left out; nearest first, at most 500, ``truncated``
+        when more were reachable.
+        """
 
         project_id = validate_project_id(project_id)
         if not _is_depth(depth):
@@ -426,8 +409,9 @@ class GraphReader:
     async def nodes_for_fragment(
         self, project_id: str, document_id: str, line_start: int, line_end: int
     ) -> list[GraphNode]:
-        """Spec nodes whose evidence lines in the document overlap ``line_start``..``line_end``
-        (inclusive, lines of the built revision), ordered by ``spec_id`` (FR-READ-04)."""
+        """Spec nodes whose evidence lines in the document overlap ``line_start``..``line_end`` (inclusive, lines of the
+        built revision), ordered by ``spec_id``.
+        """
 
         project_id = validate_project_id(project_id)
         bounds = (line_start, line_end)
@@ -444,7 +428,7 @@ class GraphReader:
             labels=list(self._spec_labels),
             retired=RETIRED,
         )
-        return self._nodes(rows)
+        return await self._inherited(project_id, self._nodes(rows))
 
     async def find_nodes(
         self,
@@ -454,22 +438,16 @@ class GraphReader:
         where: Mapping[str, AttributeValue] | None = None,
         limit: int = 20,
     ) -> list[NodeHit]:
-        """Hybrid search: the vector and fulltext lists fused by weighted reciprocal rank
-        (FR-READ-02); fulltext only without a gateway or when embedding fails (FR-READ-03). A hit
-        only the vector list found is dropped below ``vector_floor``. Ties by ``spec_id``.
-
-        Nodes the text names by explicit id (identity key or identity alias) or by ``spec_id`` (own
-        or alias) come first, in the order the text names them, ``matched="id"``; the fused hits
-        follow without them. Labels, ``where`` and the project apply to both; ``limit`` to all."""
+        """Hybrid search: the vector and fulltext lists fused by weighted reciprocal rank; fulltext only without a
+        gateway or when embedding fails.
+        """
 
         project_id = validate_project_id(project_id)
         _check_limit(limit)
-        selected = list(self._labels(labels))
-        conditions = self._where(selected, where or {})
+        filters = self._filters(self._labels(labels), where)
         if _is_blank(text):
             return []
         depth = limit * OVERFETCH
-        filters = {"labels": selected, "where": conditions}
         named = await self._named_hits(project_id, text, filters)
         fulltext = await self._fulltext_hits(
             SEARCH_NODES_FULLTEXT,
@@ -525,7 +503,7 @@ class GraphReader:
     async def find_fragments(
         self, project_id: str, text: str, document_id: str | None = None, limit: int = 20
     ) -> list[FragmentHit]:
-        """Fulltext search over ``active`` fragment text, best score first (FR-READ-09)."""
+        """Fulltext search over ``active`` fragment text, best score first."""
 
         project_id = validate_project_id(project_id)
         _check_limit(limit)
@@ -604,12 +582,7 @@ class GraphReader:
         index: str,
         params: Mapping[str, Any],
     ) -> list[dict[str, Any]]:
-        """Up to ``want`` project hits of the fulltext index in its score order (ties by ``key``).
-
-        Pages of the index are read in score order, each twice the last, until ``want`` hits passed
-        the query's filters or the index has no more matches. A query Lucene still rejects as too
-        complex raises ``ConfigurationError("query_too_long")``.
-        """
+        """Up to ``want`` project hits of the fulltext index in its score order (ties by ``key``)."""
 
         terms = _lucene_query(text)
         if not terms:
@@ -636,15 +609,8 @@ class GraphReader:
     async def _vector_hits(
         self, project_id: str, text: str, limit: int, depth: int, filters: Mapping[str, Any]
     ) -> list[dict[str, Any]] | None:
-        """Up to ``depth`` project hits of the search vector in similarity order; None (fulltext
-        only) when there is no gateway, no candidate has a vector of the gateway's embedding model,
-        or embedding failed.
-
-        At most ``EXACT_VECTOR_MAX`` candidates are ranked by exact cosine at once. Otherwise the
-        shared index is asked for ``depth`` neighbours, doubled while fewer than ``limit`` of them
-        pass the filters; when the index returns fewer than asked (an approximate index may do so
-        before it is exhausted) or ``VECTOR_DOUBLINGS`` doublings did not suffice, exact cosine
-        over the project's own vectors is used instead.
+        """Up to ``depth`` project hits of the search vector in similarity order; None (fulltext only) when there is no
+        gateway, no candidate has a vector of the gateway's embedding model, or embedding failed.
         """
 
         if self._gateway is None:
@@ -685,7 +651,94 @@ class GraphReader:
         if not uuids:
             return []
         rows = await self._executor.read(READ_NODES_BY_UUID, project_id, uuids=list(uuids), retired=RETIRED)
-        return self._nodes(rows)
+        return await self._inherited(project_id, self._nodes(rows))
+
+    async def _inherited(self, project_id: str, nodes: list[GraphNode]) -> list[GraphNode]:
+        """``nodes`` with each null inheriting attribute filled from the node's owner one ``via`` hop away (owner-pair
+        targets, lowest ``owner_rank`` then ``spec_id`` first; the first owner whose label stores the attribute gives
+        its value, null stays null).
+        """
+
+        requests = self._inherit_requests(nodes)
+        if not requests:
+            return nodes
+        rows = await self._executor.read(READ_OWNER_VALUES, project_id, requests=requests)
+        nodes_by_uuid = {node.uuid: node for node in nodes}
+        found = self._inherited_values(nodes_by_uuid, self._owner_candidates(nodes_by_uuid, rows))
+        if not found:
+            return nodes
+        return [self._with_values(node, found[node.uuid]) if node.uuid in found else node for node in nodes]
+
+    def _inherit_requests(self, nodes: Sequence[GraphNode]) -> list[dict[str, str | list[str]]]:
+        """One owner-values request per node and ``via`` relation with a null inheriting attribute."""
+
+        requests: list[dict[str, str | list[str]]] = []
+        for node in nodes:
+            by_via: dict[str, list[str]] = {}
+            for name, via in self._inherit.get(node.label, {}).items():
+                if node.attributes.get(name) is None:
+                    by_via.setdefault(via, []).append(name)
+            if node.uuid:
+                requests.extend(
+                    {"uuid": node.uuid, "relation": via, "attributes": names} for via, names in sorted(by_via.items())
+                )
+        return requests
+
+    def _owner_candidates(
+        self, nodes_by_uuid: Mapping[str, GraphNode], rows: Sequence[Mapping[str, Any]]
+    ) -> dict[tuple[str, str], list[tuple[int, str, str, dict[str, Any]]]]:
+        """Owner rows by ``(node uuid, via relation)``: ``(owner_rank, spec_id, label, values)``, owner pairs only."""
+
+        owners: dict[tuple[str, str], list[tuple[int, str, str, dict[str, Any]]]] = {}
+        for row in rows:
+            owned = nodes_by_uuid.get(row["uuid"])
+            label = self._spec_label(row["labels"])
+            if owned is None or label is None:
+                continue
+            pair = self._ontology.pair_rule(row["relation"], owned.label, label)
+            if pair is not None and pair.owner:
+                owners.setdefault((owned.uuid, row["relation"]), []).append(
+                    (pair.owner_rank, row["spec_id"], label, dict(row["values"]))
+                )
+        return owners
+
+    def _inherited_values(
+        self,
+        nodes_by_uuid: Mapping[str, GraphNode],
+        owners: Mapping[tuple[str, str], list[tuple[int, str, str, dict[str, Any]]]],
+    ) -> dict[str, dict[str, Any]]:
+        """Inherited values by node uuid: per null attribute, the first owner (by rank, then ``spec_id``)
+        whose label stores it gives its value; a null there stays null."""
+
+        found: dict[str, dict[str, Any]] = {}
+        for (uuid, via), candidates in owners.items():
+            node = nodes_by_uuid[uuid]
+            candidates.sort(key=lambda owner: (owner[0], owner[1]))
+            for name, rule in self._inherit[node.label].items():
+                if rule != via or node.attributes.get(name) is not None:
+                    continue
+                stored = [values for _, _, label, values in candidates if self._stores(label, name)]
+                if stored and stored[0].get(name) is not None:
+                    found.setdefault(uuid, {})[name] = stored[0][name]
+        return found
+
+    def _with_values(self, node: GraphNode, values: Mapping[str, Any]) -> GraphNode:
+        """``node`` with ``values`` added to its attributes, in the label's declared attribute order."""
+
+        merged = {**node.attributes, **values}
+        order = list(self._ontology.attribute_specs(node.label))
+        attributes = {name: merged[name] for name in order if name in merged}
+        return node.model_copy(update={"attributes": attributes})
+
+    def _stores(self, label: str, name: str) -> bool:
+        spec = self._ontology.attribute_specs(label).get(name)
+        return spec is not None and spec.store
+
+    def _spec_label(self, labels: Sequence[str]) -> str | None:
+        """The one spec label among ``labels``, else None."""
+
+        found = [label for label in labels if label in self._spec_labels]
+        return found[0] if len(found) == 1 else None
 
     def _scope_paths(self) -> tuple[Query, ...]:
         """One scope query per spine path: a ``via`` path with its hop bounds; every contiguous part
@@ -730,6 +783,24 @@ class GraphReader:
         if unknown:
             raise ConfigurationError("unknown_relation", relations=",".join(unknown))
         return tuple(dict.fromkeys(relations))
+
+    def _filters(self, labels: Sequence[str], where: Mapping[str, AttributeValue] | None) -> dict[str, Any]:
+        """The node filter parameters: ``labels``, the checked ``where`` and ``defaulted``."""
+
+        conditions = self._where(labels, where or {})
+        defaulted = {
+            name: found
+            for name, value in conditions.items()
+            if (
+                found := [
+                    label
+                    for label in labels
+                    if (default := self._ontology.attribute_default(label, name)) is not None
+                    and (value is None or default == value)
+                ]
+            )
+        }
+        return {"labels": list(labels), "where": conditions, "defaulted": defaulted}
 
     def _where(self, labels: Iterable[str], where: Mapping[str, AttributeValue]) -> dict[str, AttributeValue]:
         specs: dict[str, list[AttributeSpec]] = {}

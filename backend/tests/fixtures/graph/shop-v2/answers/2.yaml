@@ -1,0 +1,198 @@
+# Hand-written model answers for the `update` build from shop-v2 snapshot 1 to snapshot 2 under the
+# shipped ontology, with the options of 1.yaml. Written by hand like 1.yaml,
+# never recorded.
+#
+# Only checkout.md changes: its "Hosting" section rewords the constraint CON-001, which overview.md also
+# states. So the update asks only about the dirty fragment and the checkout.md unit; every other
+# fragment and unit reuses its stored results (a request this file does not answer fails the test):
+# - the node window of the edited "Hosting" fragment: CON-001 again, with the new wording as its quote;
+# - edges: the checkout.md unit, asked again as a whole (same facts as 1.yaml);
+# - attributes: every node of 1.yaml by name (the attributes pass asks only the nodes whose evidence
+#   changed: CON-001 and the Checkout service, which the section names).
+# The CON-001 node keeps its overview.md evidence and statement; its checkout.md statement changes
+# (Diff NodeUpdate). The test also builds this snapshot without checkout.md (a delete of the document)
+# with these answers: CON-001 then keeps only its overview.md evidence.
+
+snapshot: 2
+
+# One window per document (max_node_windows 1); sections stay separate fragments.
+options:
+  fragment_tokens: {min: 20, target: 120, max: 1200}
+  unit_tokens: 4000
+  max_node_windows: 1
+
+fragments:
+  ov.intro: ["Acme Shop v2 - System Overview", "Acme Shop v2 is a made-up online store"]
+  ov.modules: ["Acme Shop v2 - System Overview > Modules", "The Web app is the browser front end"]
+  ov.providers: ["Acme Shop v2 - System Overview > External providers", "Stripe is an external payment provider"]
+  ov.interfaces: ["Acme Shop v2 - System Overview > Interfaces", "The Checkout service exposes the Checkout API"]
+  ov.data: ["Acme Shop v2 - System Overview > Data", "A purchase order holds id, lines and currency."]
+  ov.deploy: ["Acme Shop v2 - System Overview > Deployment", "The Orders service runs in the Production environment"]
+  chk.intro: ["Checkout service Requirements", "This document specifies the coupon and gift card features"]
+  chk.coupons: ["Checkout service Requirements > Coupons (Phase 2)", "Coupons is the feature of the Checkout service"]
+  chk.gift: ["Checkout service Requirements > Gift cards", "Gift cards are out of scope for this release."]
+  chk.hosting: ["Checkout service Requirements > Hosting", "CON-001: The Checkout service must be hosted in the EU region only"]
+  ord.intro: ["Orders service Requirements", "This document specifies the order history export"]
+  ord.export: ["Orders service Requirements > Order history export", "Order history export is the feature"]
+  ord.refunds: ["Orders service Requirements > Refunds", "Refunds is the feature of the Orders service"]
+  ord.cancel: ["Orders service Requirements > Order cancellation", "Order cancellation is the feature"]
+
+nodes:
+  - window: [chk.hosting]
+    entities:
+      - ["CON-001: All services must run in the EU region, as the client contract requires", Constraint, [chk.hosting],
+         "The Checkout service must be hosted in the EU region only; the client contract names no other region."]
+
+# Only the build without checkout.md asks this: its hubs lose their checkout.md evidence (and Coupons and
+# Gift cards go), so their stored decisions expire  and the block is judged again.
+consolidation:
+  - block:
+      - Checkout service
+      - Order cancellation
+      - Order history export
+      - Orders database
+      - Orders service
+      - Partial refunds
+      - Production environment
+      - Refunds
+      - Reporting service
+      - Stripe
+      - Web app
+    groups: []
+  - block:
+      - Invoice
+      - Purchase order
+    groups: []
+
+edges:
+  - unit: [chk.intro, chk.coupons, chk.gift, chk.hosting]
+    facts:
+      - [Coupons, PART_OF, Checkout service, "Coupons is the feature of the Checkout service that lets customers lower the price of an order with a coupon code.", [chk.coupons]]
+      - ["Order: at most one coupon", PART_OF, Coupons, "Customers can apply one coupon per order.", [chk.coupons]]
+      - [Customer can stack coupons, PART_OF, Coupons, "Stacking coupons is not supported.", [chk.coupons]]
+      - ["Which coupon provider is used?", RELATES_TO, Coupons, "TBD: which coupon provider is used?", [chk.coupons]]
+
+attributes:
+  # Modules
+  Web app:
+    quote: The Web app is the browser front end that customers use to browse products
+    stmt: The Web app is the browser front end customers use to browse, fill a basket and order.
+    external: "no"
+    type: frontend
+  Checkout service:
+    quote: The Checkout service is the backend that turns a basket into a paid order.
+    stmt: The Checkout service turns a basket into a paid order.
+    external: "no"
+    type: backend
+  Orders service:
+    quote: The Orders service is the backend that stores confirmed orders
+    stmt: The Orders service stores confirmed orders and answers questions about order history.
+    external: "no"
+    type: backend
+  Orders database:
+    quote: The Orders database is the relational store of the Orders service.
+    stmt: The Orders database is the relational store of the Orders service.
+    external: "no"
+    type: datastore
+  Reporting service:
+    quote: The Reporting service is the backend that generates large files for staff and customers.
+    stmt: The Reporting service generates large files for staff and customers.
+    external: "no"
+    type: backend
+  Stripe:
+    quote: Stripe is an external payment provider that authorises and captures card payments
+    stmt: Stripe is an external payment provider that authorises and captures card payments.
+    external: "yes"
+    type: other
+  Production environment:
+    quote: The Orders service runs in the Production environment
+    stmt: The Production environment is where the Orders service and the Checkout service run.
+    external: "no"
+    type: deployment
+  # Interface and data entities
+  Checkout API:
+    quote: The Checkout service exposes the Checkout API, a request-response API for placing orders.
+    stmt: The Checkout API is the request-response API for placing orders.
+    kind: api
+  Purchase order:
+    quote: Purchase orders are kept in the Orders database.
+    stmt: A purchase order is kept in the Orders database.
+  Invoice:
+    quote: Invoices are mentioned by the finance team, but no requirement describes them yet.
+    stmt: An invoice is mentioned by the finance team.
+  # Features
+  Coupons:
+    quote: Coupons is the feature of the Checkout service that lets customers lower the price of an order
+    stmt: Customers lower the price of an order with a coupon code.
+    module: Checkout service
+    release: Phase 2
+  Gift cards:
+    quote: Gift cards are out of scope for this release.
+    stmt: Customers pay for an order with a gift card.
+    in_scope: "no"
+  Order history export:
+    quote: Order history export is the feature of the Orders service that lets customers download their past
+    stmt: Customers download their past orders.
+    module: Orders service
+  Refunds:
+    quote: Refunds is the feature of the Orders service that pays money back to customers.
+    stmt: Money is paid back to customers.
+    module: Orders service
+  Partial refunds:
+    quote: "Partial refunds is a part of the Refunds feature: it pays back only some lines of an order"
+    stmt: Only some lines of an order are paid back.
+  Order cancellation:
+    quote: Order cancellation is the feature of the Orders service that lets customers cancel an unpaid order.
+    stmt: Customers cancel an unpaid order.
+    module: Orders service
+  # Requirements and the open question
+  Stripe API calls must stay at most 100 per minute:
+    quote: Stripe allows at most 100 API calls per minute
+    stmt: The shop keeps its Stripe API calls at most 100 per minute.
+    source_status: stated
+    is_assumption: "no"
+    module: Stripe
+  Web app calls Checkout API to place an order:
+    quote: app calls the Checkout API to place an order once the customer confirms the basket.
+    stmt: The Web app calls the Checkout API to place an order.
+    source_status: stated
+    is_assumption: "no"
+    interface: Checkout API
+  "Purchase order holds id, lines, currency":
+    quote: A purchase order holds id, lines and currency.
+    stmt: A purchase order holds id, lines and currency.
+    source_status: stated
+    is_assumption: "no"
+    entity: Purchase order
+  "All services must run in the EU region, as the client contract requires":
+    quote: services must run in the EU region, as the client contract requires.
+    stmt: All services run in the EU region.
+    source_status: stated
+    is_assumption: "no"
+    module: Production environment
+  "Order: at most one coupon":
+    quote: Customers can apply one coupon per order.
+    stmt: An order takes at most one coupon.
+    source_status: stated
+    is_assumption: "no"
+  Customer can stack coupons:
+    quote: Stacking coupons is not supported.
+    stmt: Customers stack coupons.
+    source_status: stated
+    is_assumption: "no"
+    in_scope: "no"
+  "Which coupon provider is used?":
+    quote: "TBD: which coupon provider is used?"
+    stmt: Which coupon provider is used?
+  Customer can export order history as CSV:
+    quote: Customers can export their order history as CSV.
+    stmt: Customers export their order history as CSV.
+    source_status: stated
+    is_assumption: "no"
+
+# Nearness the orders.md edge catalog relies on: the export section never names the Web app, but a real
+# embedding model puts it near, so the hub joins the unit's catalog by nearness (build.md step 4).
+related:
+  - anchor: "Module: Web app"
+    cosine: 0.7
+    fragments: [ord.export]

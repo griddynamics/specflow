@@ -1,41 +1,59 @@
-"""Build orchestration offline (build.md "Modes", "Steps" and "Reuse in update builds"; api.md "Build";
-tech-specs 5.3; FR-BLD-03, 14, 15).
-
-Mode selection, build records, failed and resumed builds of ``graph.build.run`` on file stores and an
-``OfflineExecutor`` (canned presence rows, no Neo4j). Step functions are replaced by recording fakes
-where a test is about orchestration only.
-"""
+"""Build orchestration offline."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import contextlib
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 from pydantic import BaseModel
 
 from graph.build import STEPS, BuildContext, FileStores, open_file_stores, run_build, steps
+from graph.build import edges as edge_extraction
 from graph.build import extract as extraction
 from graph.build import run as runner
-from graph.build.conform import DedupMemory
+from graph.build.conform import DEDUP_PROMPT, DedupMemory, SameCommitment
 from graph.build.consolidate import HUBS_PASS, HUBS_PROMPT, Decision
-from graph.build.extract import node_fingerprint
+from graph.build.extract import node_fingerprint, node_passes
 from graph.build.models import (
+    AnsweredElsewhere,
+    BuildMetrics,
     BuildResult,
     CanonicalNode,
+    CatalogParts,
     ChangeSet,
+    ConsolidationCounters,
+    DedupRefusal,
     DiffArtifact,
+    EdgeCounters,
     EdgesArtifact,
+    EdgeWindowCall,
     FragmentRec,
+    HubMerge,
+    HubName,
     InferenceReport,
+    JudgedItem,
     NodesArtifact,
+    PairCandidate,
     PersistCursor,
     PlanArtifact,
+    QuarantinedEdge,
+    QuarantinedTargetEdge,
+    RefusedDedupPair,
     ResolveArtifact,
+    ResolveCounters,
+    RuleReport,
+    StepName,
+    TargetCounters,
     TargetGraph,
+    TargetNode,
     Unit,
+    VerificationMetrics,
+    VerificationReport,
 )
 from graph.build.options import BuildOptions, FragmentTokens
 from graph.build.ports import BuildRecord
@@ -46,14 +64,19 @@ from graph.build.queries import (
     READ_PERSISTED_HUBS,
     READ_PERSISTED_PRESENCE,
 )
-from graph.core.errors import ConfigurationError, ConformanceError
+from graph.core.errors import ConfigurationError, ConformanceError, LLMError
+from graph.core.identity import SpecIdRow, SpecIdState
+from graph.core.llm.usage import UsageCounts
 from graph.core.ontology import Ontology
 from graph_support import (
+    GatewayFactory,
     OfflineExecutor,
     ScriptedGateway,
+    chat,
+    frozen_ontology,
     llm_config,
-    shipped_ontology,
 )
+from logger_harness import events, fields
 
 # The graph fixtures (scripted_gateway, make_gateway, gap_ontology, neo4j_project) live in graph_support.
 pytest_plugins = ["graph_support"]
@@ -69,7 +92,7 @@ class Empty(BaseModel):
 def context(stores: FileStores, *, persisted: bool = False, **overrides: Any) -> BuildContext:
     values: dict[str, Any] = {
         "project_id": PROJECT,
-        "ontology": shipped_ontology(),
+        "ontology": frozen_ontology(),  # mechanics tests: the frozen v1.3 ontology
         "driver": None,
         "gateway": ScriptedGateway(),
         "registry": stores.registry,
@@ -93,7 +116,7 @@ async def record_of(ctx: BuildContext, build_id: str) -> BuildRecord:
     return record
 
 
-# Mode selection (build.md "Modes")
+# Mode selection
 
 
 async def test_a_project_without_persisted_graph_gets_a_first_build(stores: FileStores) -> None:
@@ -252,7 +275,161 @@ async def test_per_step_llm_usage_is_the_gateways_usage_while_the_step_ran(
     )
 
 
-# Mode selection against newer full builds (build.md "Modes")
+async def test_judge_failures_are_counted_per_judging_step_and_warned_above_a_tenth(
+    stores: FileStores, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    gateway = ScriptedGateway()
+    answers = iter([{}, LLMError("exhausted"), {}, {}])  # hub judge: 1 of 4 fails
+    gateway.handle(HUBS_PROMPT, lambda _: next(answers))
+    gateway.answer(DEDUP_PROMPT, None, {})  # dedup: none fails
+    gateway.handle("conform.judge", lambda _: LLMError("exhausted"))  # conform judge: all fail
+    fakes = FakeSteps(monkeypatch)
+
+    async def ask(ctx: BuildContext, call_class: str, prompt: str, times: int) -> None:
+        for _ in range(times):
+            with contextlib.suppress(LLMError):
+                await ctx.gateway.structured(call_class, None, [{"role": "user", "content": "x"}], Empty, prompt=prompt)
+
+    async def resolving(ctx: BuildContext) -> None:
+        async with runner.step_progress(ctx, "resolve"):
+            fakes.ran.append("resolve")
+            await ask(ctx, "judge", HUBS_PROMPT, 4)
+
+    async def conforming(ctx: BuildContext) -> None:
+        async with runner.step_progress(ctx, "conform"):
+            fakes.ran.append("conform")
+            await ask(ctx, "small", DEDUP_PROMPT, 3)
+            await ask(ctx, "judge", "conform.judge", 2)
+
+    monkeypatch.setitem(runner.STEP_FUNCTIONS, "resolve", resolving)
+    monkeypatch.setitem(runner.STEP_FUNCTIONS, "conform", conforming)
+    result = await run_build(context(stores, gateway=gateway))
+    assert result.status == "succeeded"  # reported, never a gate
+    metrics = result.metrics
+    assert metrics.judge_calls == {"conform_judge": 2, "hub_consolidation": 4, "requirement_dedup": 3}
+    assert metrics.judge_failed_calls == {"conform_judge": 2, "hub_consolidation": 1, "requirement_dedup": 0}
+    warned = [fields(record) for record in events(caplog, "graph.build.judge_failures")]
+    assert [(record["step"], record["calls"], record["failed_calls"]) for record in warned] == [
+        ("hub_consolidation", 4, 1),
+        ("conform_judge", 2, 2),
+    ]
+    assert all(record.levelname == "WARNING" for record in events(caplog, "graph.build.judge_failures"))
+
+
+async def test_steps_run_one_by_one_record_judge_usage_as_run_build_does(stores: FileStores) -> None:
+    """``examples/graph_eval.py`` runs the steps itself, so ``run_build`` finishes with no
+    step of its own; ``StepUsage`` records each step as ``run_build`` would and fills the metrics."""
+
+    gateway = ScriptedGateway()
+    answers = iter([{}, LLMError("exhausted"), {}])
+    gateway.handle(HUBS_PROMPT, lambda _: next(answers))
+    gateway.answer(DEDUP_PROMPT, None, {})
+    ctx = context(stores, gateway=gateway)
+    usage = runner.StepUsage()
+
+    async def step(name: StepName, call_class: str, prompt: str, times: int) -> None:
+        before = ctx.gateway.usage()
+        for _ in range(times):
+            with contextlib.suppress(LLMError):
+                await ctx.gateway.structured(call_class, None, [{"role": "user", "content": "x"}], Empty, prompt=prompt)
+        usage.record(name, before, ctx.gateway.usage())
+
+    await step("resolve", "judge", HUBS_PROMPT, 2)
+    await step("conform", "small", DEDUP_PROMPT, 1)
+    assert (usage.judge_calls(), usage.judge_failed_calls()) == (
+        {"hub_consolidation": 2, "requirement_dedup": 1},
+        {"hub_consolidation": 1, "requirement_dedup": 0},
+    )
+    filled = usage.filled(BuildMetrics())
+    assert set(filled.llm) == {"resolve", "conform"}
+    assert filled.judge_calls == {"hub_consolidation": 2, "requirement_dedup": 1}
+    assert filled.judge_failed_calls == {"hub_consolidation": 1, "requirement_dedup": 0}
+    # a step run_build ran again (a failed step resumed) keeps its own llm; judge counts add up
+    rerun = BuildMetrics(llm={"resolve": UsageCounts(calls=1)}, judge_calls={"hub_consolidation": 1})
+    merged = usage.filled(rerun)
+    assert merged.llm["resolve"] == UsageCounts(calls=1)
+    assert merged.judge_calls == {"hub_consolidation": 3, "requirement_dedup": 1}
+
+
+async def test_a_result_stored_again_with_the_steps_usage_reads_back_with_its_judge_counts(
+    stores: FileStores, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``examples/graph_eval.py`` runs the steps itself, lets ``run_build`` finish the
+    record (no step of its own: empty usage), then stores the result again filled with ``StepUsage``,
+    so the stored ``result.json.gz`` (read by ``graph_report``) carries llm and judge counts."""
+
+    gateway = ScriptedGateway()
+    gateway.handle(HUBS_PROMPT, lambda _: {})
+    fakes = FakeSteps(monkeypatch)
+
+    async def resolving(ctx: BuildContext) -> None:
+        async with runner.step_progress(ctx, "resolve"):
+            fakes.ran.append("resolve")
+            for _ in range(2):
+                await ctx.gateway.structured(
+                    "judge", None, [{"role": "user", "content": "x"}], Empty, prompt=HUBS_PROMPT
+                )
+
+    monkeypatch.setitem(runner.STEP_FUNCTIONS, "resolve", resolving)
+    ctx = context(stores, gateway=gateway)
+    ctx = ctx.with_build_id(await runner.start_build(ctx))
+    usage = runner.StepUsage()
+    for step in STEPS:
+        before = ctx.gateway.usage()
+        await runner.STEP_FUNCTIONS[step](ctx)
+        usage.record(step, before, ctx.gateway.usage())
+    finished = await run_build(ctx)
+    assert (finished.metrics.llm, finished.metrics.judge_calls) == ({}, {})  # ran no step itself
+    await stores.builds.finish_build(finished.model_copy(update={"metrics": usage.filled(finished.metrics)}))
+    stored = await stores.builds.get_result(ctx.project_id, finished.build_id)
+    assert stored is not None and stored.status == "succeeded"
+    assert stored.metrics.judge_calls == {"hub_consolidation": 2}
+    assert stored.metrics.judge_failed_calls == {"hub_consolidation": 0}
+    assert set(stored.metrics.llm) == {"resolve"}
+    record = await stores.builds.get_build(ctx.project_id, finished.build_id)
+    assert record is not None and record.finished
+
+
+def test_a_result_without_judge_counts_reads_none() -> None:
+    assert (BuildMetrics().judge_calls, BuildMetrics().judge_failed_calls) == (None, None)
+
+
+async def test_per_step_llm_usage_carries_the_cached_input_tokens(
+    stores: FileStores, monkeypatch: pytest.MonkeyPatch, make_gateway: GatewayFactory
+) -> None:
+    cached = iter([0, 30, 50])
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        body = chat("{}", usage=(100, 5))
+        body["usage"]["prompt_tokens_details"] = {"cached_tokens": next(cached)}
+        return httpx.Response(200, json=body)
+
+    gateway, _ = make_gateway(handler)
+    fakes = FakeSteps(monkeypatch)
+
+    async def calling(ctx: BuildContext) -> None:
+        async with runner.step_progress(ctx, "resolve"):
+            fakes.ran.append("resolve")
+            await ctx.gateway.structured("small", None, [{"role": "user", "content": "x"}], Empty, prompt="probe.1")
+
+    async def calling_twice(ctx: BuildContext) -> None:
+        async with runner.step_progress(ctx, "conform"):
+            fakes.ran.append("conform")
+            for _ in range(2):
+                await ctx.gateway.structured("judge", None, [{"role": "user", "content": "x"}], Empty, prompt="probe.2")
+
+    monkeypatch.setitem(runner.STEP_FUNCTIONS, "resolve", calling)
+    monkeypatch.setitem(runner.STEP_FUNCTIONS, "conform", calling_twice)
+    result = await run_build(context(stores, gateway=gateway))
+    llm = result.metrics.llm
+    assert {step: (usage.input_tokens, usage.cached_input_tokens) for step, usage in llm.items()} == {
+        "resolve": (100, 0),
+        "conform": (200, 80),
+    }
+    assert gateway.usage().total().cached_input_tokens == 80
+
+
+# Mode selection against newer full builds
 
 T0 = datetime(2026, 10, 1, tzinfo=UTC)
 
@@ -356,7 +533,7 @@ async def test_a_record_without_a_relation_set_is_not_checked_for_relations(stor
     assert await runner.select_mode(context(stores, persisted=True)) == "update"
 
 
-# Plan of update and rebuild builds (build.md Plan 4-5, "Modes"; FR-BLD-03)
+# Plan of update and rebuild builds
 
 DOC = (
     "# Orders\n\nThe orders service keeps every order.\n\n## Export\n\nStaff can export orders as CSV.\n\n"
@@ -435,9 +612,10 @@ async def test_an_update_extracts_new_changed_retried_and_stale_fragments_only(
     results = runner.stored_results(ctx, record.mode)
     assert results.read
     fingerprint = node_fingerprint(ctx.ontology, ctx.gateway, SMALL)
-    await stores.extraction.put("nodes", results.node_key(intro, intro.content_hash), fingerprint, {"nodes": []})
-    await stores.extraction.put("nodes", results.node_key(export, export.content_hash), "older", {"nodes": []})
-    await stores.extraction.put("nodes", results.node_key(audit, audit.content_hash), fingerprint, {"nodes": []})
+    for node_list in node_passes(ctx.ontology):  # both passes stored, but the export under an older fingerprint
+        for fragment, stored_under in ((intro, fingerprint), (export, "older"), (audit, fingerprint)):
+            key = results.node_key(fragment, fragment.content_hash, node_list)
+            await stores.extraction.put("nodes", key, stored_under, {"nodes": []})
 
     build_id = await steps.plan(ctx)
     plan_artifact = await runner.load_artifact(ctx.with_build_id(build_id), "plan", PlanArtifact)
@@ -477,7 +655,7 @@ class Captured:
         for module, name, value in (
             (runner.extraction, "extract_nodes", NodesArtifact()),
             (runner.resolution, "resolve", ResolveArtifact()),
-            (runner.extraction, "extract_edges", EdgesArtifact()),
+            (runner.edge_extraction, "extract_edges", EdgesArtifact()),
             (runner.conformance, "conform", TargetGraph()),
         ):
             monkeypatch.setattr(module, name, self._stub(name, value))
@@ -507,11 +685,11 @@ async def test_a_rebuild_reuses_vectors_decisions_and_verdicts_but_no_extraction
     # what earlier builds stored: a vector, a hub consolidation decision, a dedup verdict
     cache = runner.vector_cache(context(stores, gateway=gateway))
     await cache.get_or_embed(["Module: Orders service"])
-    await runner.decision_memory(context(stores)).write(
-        HUBS_PASS, HUBS_PROMPT, {("a", "b"): Decision(same=True, label="Module")}, {}
-    )
+    hashes = {"a": "ha", "b": "hb", "x": "hx", "y": "hy"}
+    stored = Decision(same=True, label="Module", confidence="high")
+    await runner.decision_memory(context(stores)).write(HUBS_PASS, HUBS_PROMPT, {("a", "b"): stored}, {}, hashes)
     dedup = DedupMemory(stores.extraction, PROJECT, llm_config().model_for("small"))
-    await dedup.write({dedup.key("x", "y"): False})
+    await dedup.write({("x", "y"): SameCommitment(same=False, confidence="high")}, hashes)
 
     captured = Captured(monkeypatch)
     options = SMALL.model_copy(update={"hub_catalog": False})
@@ -522,11 +700,13 @@ async def test_a_rebuild_reuses_vectors_decisions_and_verdicts_but_no_extraction
         captured.kwargs[name] for name in ("extract_nodes", "resolve", "extract_edges", "conform")
     )
     assert nodes["results"].read is False and edges["results"].read is False
-    assert nodes["known_terms_source"] == "none"  # no hub catalog, never the persisted hubs
+    assert nodes["persisted_hubs"] == []  # a rebuild never shows the persisted hubs
     assert resolve_kwargs["persisted"] is None and conform_kwargs["persisted"] is None  # no persisted label
-    decisions = await resolve_kwargs["memory"].pairs(HUBS_PASS, HUBS_PROMPT, [("b", "a")])
-    assert decisions == {("a", "b"): Decision(same=True, label="Module")}
-    assert await conform_kwargs["memory"].verdicts([("y", "x")]) == {dedup.key("x", "y"): False}
+    decisions = await resolve_kwargs["memory"].pairs(HUBS_PASS, HUBS_PROMPT, [("b", "a")], hashes)
+    assert decisions.found == {("a", "b"): stored}
+    dedup_memory = conform_kwargs["judging"].dedup_memory
+    assert dedup_memory is not None
+    assert (await dedup_memory.verdicts([("y", "x")], hashes)).found == {dedup.key("x", "y"): False}
     embeds = len(gateway.calls_for(call_class="embedding"))
     await resolve_kwargs["vectors"].get_or_embed(["Module: Orders service"])
     assert len(gateway.calls_for(call_class="embedding")) == embeds  # the stored vector, no new call
@@ -548,7 +728,7 @@ async def test_a_rebuild_reuses_vectors_decisions_and_verdicts_but_no_extraction
     update = await run_steps(context(stores, options=options, gateway=gateway, executor=OfflineExecutor(rows)))
     assert (await record_of(update, update.build_id or "")).mode == "update"
     assert captured.kwargs["extract_nodes"]["results"].read is True
-    assert captured.kwargs["extract_nodes"]["known_terms_source"] == "persisted"
+    assert captured.kwargs["extract_nodes"]["persisted_hubs"] == [HubName(name="Orders service", label="Module")]
     assert captured.kwargs["resolve"]["persisted"] == {} and captured.kwargs["conform"]["persisted"] == {}
 
 
@@ -640,26 +820,34 @@ async def test_metrics_count_fragments_by_status_and_units_extracted_or_reused(s
     assert (result.metrics.units_extracted, result.metrics.units_reused) == (3, 1)
 
 
-# Extractor fingerprints (build.md "Reuse in update builds": a changed fingerprint re-extracts)
+# Extractor fingerprints
 
 
 class PartOntology:
-    """The shipped ontology with one prompt part's fingerprint replaced (all the fingerprints read)."""
+    """The frozen ontology with one prompt part's fingerprint replaced, or its spine ``exclude``
+    (the out-of-scope marker of the node and attribute prompts) set (all the fingerprints read)."""
 
-    def __init__(self, part: str) -> None:
-        self._ontology = shipped_ontology()
+    def __init__(self, part: str = "", exclude: Mapping[str, frozenset[str]] | None = None) -> None:
+        self._ontology = frozen_ontology()
         self._part = part
+        self._exclude = exclude
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._ontology, name)
 
     def fingerprint(self, part: str) -> str:
         value = self._ontology.fingerprint(part)
         return "edited-" + value if part == self._part else value
+
+    def spine_exclude(self) -> Mapping[str, frozenset[str]]:
+        return self._ontology.spine_exclude() if self._exclude is None else self._exclude
 
 
 Fingerprints = dict[str, str]
 
 
 def all_fingerprints(ontology: Any = None, config: Any = None, options: BuildOptions | None = None) -> Fingerprints:
-    ontology = ontology or shipped_ontology()
+    ontology = ontology or frozen_ontology()
     gateway = ScriptedGateway(config or llm_config())
     options = options or BuildOptions()
     return {
@@ -688,6 +876,16 @@ def test_an_ontology_prompt_part_changes_only_its_fingerprint(part: str, kinds: 
     assert changed(all_fingerprints(ontology=PartOntology(part))) == kinds
 
 
+def test_the_out_of_scope_marker_changes_the_node_and_attribute_fingerprints() -> None:
+    """The spine's ``exclude`` is outside the prompt parts, yet the node and attribute prompts render it."""
+
+    assert frozen_ontology().spine_exclude() == {}
+    assert changed(all_fingerprints(ontology=PartOntology(exclude={"x": frozenset({"y"})}))) == {
+        "nodes",
+        "attributes",
+    }
+
+
 @pytest.mark.parametrize(
     ("model", "kinds"),
     [
@@ -704,10 +902,8 @@ def test_the_call_model_changes_the_fingerprints_of_its_calls(model: dict[str, s
 @pytest.mark.parametrize(
     ("constant", "kinds"),
     [
-        ("NODES_PROMPT_VERSION", {"nodes"}),
-        ("NODES_PROMPT", {"nodes"}),
-        ("EDGES_PROMPT_VERSION", {"edges"}),
-        ("EDGES_PROMPT", {"edges"}),
+        ("NODE_PROMPTS", {"nodes"}),
+        ("EDGE_WINDOW_PROMPT", {"edges"}),
         ("ATTRIBUTES_PROMPT", {"attributes"}),
     ],
 )
@@ -715,18 +911,32 @@ def test_a_prompt_version_changes_only_its_fingerprint(
     constant: str, kinds: set[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     before = all_fingerprints()
-    monkeypatch.setattr(extraction, constant, getattr(extraction, constant) + "-next")
+    value = getattr(extraction, constant)
+    bumped = {name: f"{prompt}-next" for name, prompt in value.items()} if isinstance(value, dict) else f"{value}-next"
+    monkeypatch.setattr(extraction, constant, bumped)
     after = all_fingerprints()
     assert {kind for kind in before if before[kind] != after[kind]} == kinds
 
 
-def test_the_graphiti_version_changes_the_node_and_edge_fingerprints(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The node and edge calls go through graphiti-core's prompts and parsing; attributes do not."""
+@pytest.mark.parametrize(
+    ("renderer", "kinds"),
+    [
+        ("node_fixed_text", {"nodes"}),
+        ("edge_window_system_message", {"edges"}),
+        ("attribute_system_message", {"attributes"}),
+    ],
+)
+def test_the_rendered_system_message_changes_only_its_fingerprint(
+    renderer: str, kinds: set[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A reworded format-level rule changes the system message, so its extractor re-extracts even
+    when the prompt name was not bumped."""
 
     before = all_fingerprints()
-    monkeypatch.setattr(extraction, "graphiti_version", lambda: "0.0.0-other")
+    rendered = getattr(extraction, renderer)
+    monkeypatch.setattr(extraction, renderer, lambda *args, **kwargs: rendered(*args, **kwargs) + " Reworded.")
     after = all_fingerprints()
-    assert {kind for kind in before if before[kind] != after[kind]} == {"nodes", "edges"}
+    assert {kind for kind in before if before[kind] != after[kind]} == kinds
 
 
 OPTION_EDITS: dict[str, dict[str, Any]] = {
@@ -759,7 +969,7 @@ def test_a_shaping_option_changes_only_the_fingerprints_it_shapes(option: str, k
     assert changed(all_fingerprints(options=options)) == kinds
 
 
-# Edge fallback of a failed edge call (build.md "Failures"; FR-BLD-12)
+# Edge fallback of a failed edge call
 
 
 def edge_item(relation: str, source: str, target: str, positions: list[int], fragments: list[str]) -> dict[str, Any]:
@@ -773,7 +983,7 @@ def edge_item(relation: str, source: str, target: str, positions: list[int], fra
     }
 
 
-async def test_a_failed_edge_unit_falls_back_to_its_last_edges_by_content_then_by_identity(
+async def test_a_failed_edge_window_falls_back_to_its_last_edges_by_content_then_by_identity(
     stores: FileStores,
 ) -> None:
     results = extraction.StoredResults(stores.extraction, PROJECT, read=True)
@@ -790,6 +1000,7 @@ async def test_a_failed_edge_unit_falls_back_to_its_last_edges_by_content_then_b
         windows=(),
     )
     fragments_by_id = {f1.fragment_id: f1, f2.fragment_id: f2}
+    window = (0, 2)  # the unit's one edge window
 
     # canonical nodes now: "Module|surface|b" is an alias of the node keyed "Module|surface|b2"; an alias
     # never shadows another node's key
@@ -803,7 +1014,7 @@ async def test_a_failed_edge_unit_falls_back_to_its_last_edges_by_content_then_b
             member_ids=(cid,),
         )
 
-    cid_of = extraction._cids_by_key(
+    cid_of = edge_extraction._cids_by_key(
         [
             canonical("c1", "Module|surface|a", "Feature|surface|f"),
             canonical("c2", "Module|surface|b2", "Module|surface|b"),
@@ -820,33 +1031,48 @@ async def test_a_failed_edge_unit_falls_back_to_its_last_edges_by_content_then_b
         "near": [],
     }
 
+    async def found() -> Any:
+        fallbacks = await edge_extraction._fallback_edges(
+            results, fingerprint, [(unit, window)], fragments_by_id, cid_of
+        )
+        return fallbacks.get(("u", window))
+
     async def fallback() -> list[Any]:
-        found = await extraction._fallback_edges(results, fingerprint, [unit], fragments_by_id, cid_of)
-        return found.get("u", [])
+        got = await found()
+        return got.edges if got is not None else []
 
     assert await fallback() == []  # nothing stored: no fallback
     # stored under the identity of the id the first fragment replaces (or another fingerprint: unusable)
-    await stores.extraction.put("edges", results.unit_edge_key("a.md", "a.md#f0"), "other-fp", by_identity)
+    await stores.extraction.put("edges", results.window_edge_key("a.md", "a.md#f0"), "other-fp", by_identity)
     assert await fallback() == []
-    await stores.extraction.put("edges", results.unit_edge_key("a.md", "a.md#f0"), fingerprint, by_identity)
+    await stores.extraction.put("edges", results.window_edge_key("a.md", "a.md#f0"), fingerprint, by_identity)
     edges = await fallback()
-    # endpoints mapped by identity key or alias; fragments by id (a replaced id to its successor,
+    # endpoints mapped by identity key or alias; fragments by id (a replaced id to its successor
     # unknown ids dropped); an edge without both ends, or between one node, left out
     assert [(e.relation, e.source_cid, e.target_cid, e.fragment_ids, e.reused, e.unit_id) for e in edges] == [
         ("PART_OF", "c3", "c1", (f1.fragment_id,), True, "u"),
         ("INTEGRATES_WITH", "c1", "c2", (f2.fragment_id, f1.fragment_id), True, "u"),
     ]
     assert edges[0].fact == "Feature|surface|f PART_OF Module|surface|a"
+    # stored without its window's fragment ids: it covers none of this window's fragments
+    assert (await found()).uncovered == (f1.fragment_id, f2.fragment_id)
 
     # the unit's own identity (document and current first fragment) comes before the replaced id
-    own = {"edges": [edge_item("PART_OF", "Feature|surface|f", "Module|surface|b", [1], [f1.fragment_id])], "near": []}
-    await stores.extraction.put("edges", results.unit_edge_key("a.md", f1.fragment_id), fingerprint, own)
+    own = {
+        "edges": [edge_item("PART_OF", "Feature|surface|f", "Module|surface|b", [1], [f1.fragment_id])],
+        "near": [],
+        "window_fragments": ["a.md#f0"],  # a narrower window, before f1 replaced a.md#f0
+    }
+    await stores.extraction.put("edges", results.window_edge_key("a.md", f1.fragment_id), fingerprint, own)
     assert [(e.source_cid, e.target_cid, e.fragment_ids) for e in await fallback()] == [("c3", "c2", (f1.fragment_id,))]
+    assert (await found()).uncovered == (f2.fragment_id,)  # f1 by the id it replaces; f2 was not in that window
 
     # the same content wins over any identity answer; its fragments come by position
     same = {"edges": [edge_item("INTEGRATES_WITH", "Module|surface|b", "Module|surface|a", [1, 5], ["x"])], "near": []}
-    await stores.extraction.put("edges", results.last_edge_key("unit-now"), fingerprint, same)
+    digest = edge_extraction.window_hash(unit, window, fragments_by_id)
+    await stores.extraction.put("edges", results.last_edge_key(digest), fingerprint, same)
     assert [(e.source_cid, e.target_cid, e.fragment_ids) for e in await fallback()] == [("c2", "c1", (f2.fragment_id,))]
+    assert (await found()).uncovered == ()  # the same content covers the whole window
 
 
 def test_edge_metrics_add_the_inferred_edges_the_infer_step_changed() -> None:
@@ -861,3 +1087,340 @@ def test_edge_metrics_add_the_inferred_edges_the_infer_step_changed() -> None:
     assert runner._edges_after(persisted, report) == {"INTEGRATES_WITH": 1, "PART_OF": 4}
     assert runner._edges_after(persisted, None) == {"PART_OF": 3, "RELATES_TO": 1}
     assert runner._edges_after(None, report) == {}
+
+
+# Quarantine: ends by spec_id in the result, identity keys only in the artifact
+
+FR_KEY, MOD_KEY, AUDIT_KEY = "requirement|span|secret plan text", "Module|surface|vault", "Capability|surface|audit"
+
+
+def quarantine_entry(
+    reason: str, relation: str, source: tuple[str, str], target: tuple[str, str]
+) -> QuarantinedTargetEdge:
+    return QuarantinedTargetEdge.model_validate(
+        {
+            "reason": reason,
+            "relation": relation,
+            "source_label": source[0],
+            "target_label": target[0],
+            "basis": "stated",
+            "fragment_ids": ("a.md#f1",),
+            "source_key": source[1],
+            "target_key": target[1],
+        }
+    )
+
+
+QUARANTINED = (
+    quarantine_entry("illegal_pair", "PART_OF", ("Capability", AUDIT_KEY), ("Module", MOD_KEY)),
+    quarantine_entry("locality", "RELATES_TO", ("Module", MOD_KEY), ("FunctionalRequirement", FR_KEY)),
+    quarantine_entry("unknown_relation", "LIKES", ("FunctionalRequirement", FR_KEY), ("Module", MOD_KEY)),
+)
+
+
+def spec_row(spec_id: str, key: str, state: SpecIdState = "active") -> SpecIdRow:
+    return SpecIdRow(spec_id=spec_id, identity_key=key, uuid=f"uuid-{spec_id}", state=state)
+
+
+async def test_the_result_lists_the_quarantine_by_spec_id_and_counts_it(stores: FileStores) -> None:
+    ctx = context(stores)
+    ctx = ctx.with_build_id(await runner.start_build(ctx))
+    await stores.registry.record(
+        PROJECT, "earlier", [spec_row("MOD::VAULT", MOD_KEY), spec_row("FR::OLD", FR_KEY), spec_row("FR::GONE", "x")]
+    )
+    await runner.store_artifact(ctx, "conform", TargetGraph(quarantine=QUARANTINED))
+    # This build's diff rows win over the registry: the requirement continues as FR::PLAN (not yet persisted).
+    rows = (spec_row("FR::PLAN", FR_KEY), spec_row("FR::OLD", FR_KEY, "alias"))
+    await runner.store_artifact(ctx, "diff", DiffArtifact(registry_rows=rows))
+
+    result = await runner._finish(ctx, runner._RunStats())
+    assert [(e.reason, e.relation, e.source_spec_id, e.target_spec_id) for e in result.quarantine] == [
+        ("illegal_pair", "PART_OF", None, "MOD::VAULT"),  # an end without spec_id: None
+        ("locality", "RELATES_TO", "MOD::VAULT", "FR::PLAN"),
+        ("unknown_relation", "LIKES", "FR::PLAN", "MOD::VAULT"),
+    ]
+    assert result.quarantine[0].source_label == "Capability" and result.quarantine[0].fragment_ids == ("a.md#f1",)
+    assert result.metrics.quarantine_by_reason == {"illegal_pair": 1, "locality": 1, "unknown_relation": 1}
+    assert result.metrics.quarantine_by_pair == {
+        "LIKES|FunctionalRequirement|Module": 1,
+        "PART_OF|Capability|Module": 1,
+        "RELATES_TO|Module|FunctionalRequirement": 1,
+    }
+    stored = await stores.builds.get_result(PROJECT, ctx.build_id or "")
+    assert stored is not None and stored.quarantine == result.quarantine
+    dumped = result.model_dump_json()
+    assert not any(key in dumped for key in (FR_KEY, MOD_KEY, AUDIT_KEY, "source_key", "target_key"))
+
+
+async def test_the_result_joins_the_inference_quarantine_after_conform_s(stores: FileStores) -> None:
+    ctx = context(stores)
+    ctx = ctx.with_build_id(await runner.start_build(ctx))
+    await stores.registry.record(PROJECT, "earlier", [spec_row("MOD::VAULT", MOD_KEY), spec_row("FR::OLD", FR_KEY)])
+    counters = TargetCounters(conform_judge_calls=2)
+    await runner.store_artifact(ctx, "conform", TargetGraph(quarantine=QUARANTINED[:1], counters=counters))
+    proposal = QuarantinedEdge(
+        reason="invalid_proposal",
+        relation="PART_OF",
+        source_label="FunctionalRequirement",
+        target_label="Module",
+        basis="inferred",
+        source_spec_id="FR::OLD",
+        target_spec_id="MOD::VAULT",
+    )
+    await runner.store_artifact(ctx, "infer", InferenceReport(quarantine=(proposal,)))
+    await stores.builds.put_progress(PROJECT, ctx.build_id or "", "infer", "done")
+
+    result = await runner._finish(ctx, runner._RunStats())
+    assert [(e.reason, e.source_spec_id) for e in result.quarantine] == [
+        ("illegal_pair", None),
+        ("invalid_proposal", "FR::OLD"),
+    ]
+    assert result.metrics.quarantine_by_reason == {"illegal_pair": 1, "invalid_proposal": 1}
+    assert result.metrics.conform_judge_calls == 2
+    assert result.metrics.quarantine_by_pair == {
+        "PART_OF|Capability|Module": 1,
+        "PART_OF|FunctionalRequirement|Module": 1,
+    }
+
+
+async def test_a_conform_artifact_without_quarantine_reads_n_a_and_one_that_quarantined_nothing_zero(
+    stores: FileStores,
+) -> None:
+    ctx = context(stores)
+    ctx = ctx.with_build_id(await runner.start_build(ctx))
+    v13 = TargetGraph().model_dump(mode="json")
+    del v13["quarantine"]
+    await stores.builds.put_artifact(PROJECT, ctx.build_id or "", "conform", v13)
+    assert await runner.load_artifact(ctx, "conform", TargetGraph) == TargetGraph()
+    result = await runner._finish(ctx, runner._RunStats())
+    assert result.quarantine == ()
+    assert (result.metrics.quarantine_by_reason, result.metrics.quarantine_by_pair) == (None, None)
+
+    await runner.store_artifact(ctx, "conform", TargetGraph())
+    result = await runner._finish(ctx, runner._RunStats())
+    assert (result.metrics.quarantine_by_reason, result.metrics.quarantine_by_pair) == ({}, {})
+
+
+async def test_the_result_lists_guard_refused_dedup_pairs_by_spec_id_only(stores: FileStores) -> None:
+    """D8: the conform artifact's refused pairs reach the result by ``spec_id`` (None without one) and
+    are counted per guard; their identity keys never leave the artifact."""
+
+    ctx = context(stores)
+    ctx = ctx.with_build_id(await runner.start_build(ctx))
+    other_key = "requirement|span|another secret sentence"
+    await stores.registry.record(PROJECT, "earlier", [spec_row("FR::OLD", FR_KEY)])
+    refused = (
+        RefusedDedupPair(
+            first_key=other_key, second_key=FR_KEY, label="QualityRequirement", guard="numbers", name_cosine=0.97
+        ),
+        RefusedDedupPair(
+            first_key=FR_KEY,
+            second_key="requirement|span|third secret",
+            label="FunctionalRequirement",
+            guard="negation",
+            name_cosine=0.9,
+            rich_cosine=0.88,
+        ),
+    )
+    await runner.store_artifact(ctx, "conform", TargetGraph(dedup_refused=refused))
+    await runner.store_artifact(ctx, "diff", DiffArtifact(registry_rows=(spec_row("FR::NEW", other_key),)))
+
+    result = await runner._finish(ctx, runner._RunStats())
+    assert result.dedup_refused == (
+        DedupRefusal(
+            first_spec_id="FR::NEW",
+            second_spec_id="FR::OLD",
+            label="QualityRequirement",
+            guard="numbers",
+            name_cosine=0.97,
+        ),
+        DedupRefusal(
+            first_spec_id="FR::OLD",
+            second_spec_id=None,
+            label="FunctionalRequirement",
+            guard="negation",
+            name_cosine=0.9,
+            rich_cosine=0.88,
+        ),
+    )
+    assert result.metrics.dedup_refused_by_guard == {"negation": 1, "numbers": 1}
+    stored = await stores.builds.get_result(PROJECT, ctx.build_id or "")
+    assert stored is not None and stored.dedup_refused == result.dedup_refused
+    dumped = result.model_dump_json()
+    assert not any(key in dumped for key in (FR_KEY, other_key, "secret", "first_key", "second_key"))
+
+
+async def test_a_collapsed_refusal_names_its_nodes_spec_id_on_both_ends(stores: FileStores) -> None:
+    """Review MEDIUM 3: a collapsed pair's ends are the node's key and an alias: both by the node's spec_id."""
+
+    ctx = context(stores)
+    ctx = ctx.with_build_id(await runner.start_build(ctx))
+    alias = "requirement|span|an alias sentence"
+    survivor = TargetNode(
+        identity_key=FR_KEY,
+        identity_aliases=(alias,),
+        label="QualityRequirement",
+        name="Export completes quickly",
+        evidence=(),
+    )
+    pair = RefusedDedupPair(
+        first_key=alias,
+        second_key=FR_KEY,
+        label="QualityRequirement",
+        guard="numbers",
+        name_cosine=0.97,
+        collapsed=True,
+    )
+    await stores.registry.record(PROJECT, "earlier", [spec_row("FR::OLD", FR_KEY)])
+    await runner.store_artifact(ctx, "conform", TargetGraph(nodes=(survivor,), dedup_refused=(pair,)))
+    result = await runner._finish(ctx, runner._RunStats())
+    (refusal,) = result.dedup_refused
+    assert (refusal.first_spec_id, refusal.second_spec_id, refusal.collapsed) == ("FR::OLD", "FR::OLD", True)
+    assert alias not in result.model_dump_json()
+
+
+async def test_a_conform_artifact_without_the_refused_list_reads_n_a(stores: FileStores) -> None:
+    ctx = context(stores)
+    ctx = ctx.with_build_id(await runner.start_build(ctx))
+    older = TargetGraph().model_dump(mode="json")
+    del older["dedup_refused"]
+    await stores.builds.put_artifact(PROJECT, ctx.build_id or "", "conform", older)
+    result = await runner._finish(ctx, runner._RunStats())
+    assert (result.dedup_refused, result.metrics.dedup_refused_by_guard) == ((), None)
+
+    await runner.store_artifact(ctx, "conform", TargetGraph())
+    result = await runner._finish(ctx, runner._RunStats())
+    assert result.metrics.dedup_refused_by_guard == {}
+
+
+def test_a_stored_result_without_quarantine_loads() -> None:
+    stamp = datetime(2026, 1, 1, tzinfo=UTC).isoformat()
+    payload = {"project_id": PROJECT, "build_id": "b", "mode": "first", "status": "succeeded"}
+    result = BuildResult.model_validate(payload | {"started_at": stamp, "finished_at": stamp, "metrics": {}})
+    assert result.quarantine == () and result.metrics.quarantine_by_reason is None
+    assert result.dedup_refused == () and result.metrics.dedup_refused_by_guard is None
+
+
+def test_identity_and_dedup_records_round_trip_and_older_artifacts_load_without_them() -> None:
+    """every new field is defaulted, so artifacts written before them load."""
+
+    resolved = ResolveArtifact(
+        counters=ResolveCounters(consolidation=ConsolidationCounters(pair_calls=2, unsure_groups=1)),
+        merges=(HubMerge(anchor_key="M|surface|a", member_key="M|surface|b", source="pair", confidence="high"),),
+        pair_candidates=(
+            PairCandidate(key_a="a", key_b="b", part="M", name_cos=0.7, rich_cos=0.9, source="both", outcome="same"),
+            PairCandidate(key_a="a", key_b="c", part="M", name_cos=0.6, source="alias", outcome="over_cap"),
+        ),
+    )
+    refused = RefusedDedupPair(
+        first_key="r|span|a", second_key="r|span|b", label="R", guard="numbers", name_cosine=0.97
+    )
+    target = TargetGraph(counters=TargetCounters(dedup_unsure=1), dedup_refused=(refused,))
+    stamp = datetime(2026, 1, 1, tzinfo=UTC)
+    result = BuildResult(
+        project_id=PROJECT,
+        build_id="b",
+        mode="first",
+        status="succeeded",
+        dedup_refused=(
+            DedupRefusal(first_spec_id="R-1", second_spec_id="R-2", label="R", guard="numbers", name_cosine=0.97),
+        ),
+        metrics=BuildMetrics(dedup_refused_by_guard={"numbers": 1}),
+        started_at=stamp,
+        finished_at=stamp,
+    )
+    for model in (resolved, target, result):
+        assert type(model).model_validate_json(model.model_dump_json()) == model
+
+    older = {"canonical": [], "counters": {"consolidation": {"merges": 1}}}
+    loaded = ResolveArtifact.model_validate(older)
+    assert (loaded.merges, loaded.pair_candidates, loaded.counters.consolidation.decisions_expired) == ((), (), 0)
+    stored = TargetGraph.model_validate({"nodes": [], "edges": [], "counters": {"dedup_merges": 1}, "quarantine": []})
+    assert (stored.dedup_refused, stored.counters.dedup_candidates_rich_only) == ((), 0)
+
+
+def test_edge_window_and_cross_document_records_round_trip_and_older_artifacts_load_without_them() -> None:
+    """every new field is defaulted, so artifacts written before them load, and the new records round-trip."""
+
+    edges = EdgesArtifact(
+        counters=EdgeCounters(windows_called=2, windows_reused=1, windows_fallback=0, warm_ups=1),
+        called_windows=(EdgeWindowCall(unit_id="u1", window=(0, 2), cause="dirty"),),
+        catalog_parts={"u1": CatalogParts(mentioned=("c1",), heading=("c2",), near=(), referenced=("c3",))},
+    )
+    target = TargetGraph(
+        counters=TargetCounters(
+            derive_suppressed_by_edge=1,
+            foreign_edges={"near": {"kept": 2, "quarantined:locality": 1}},
+            oq_answer_judged=3,
+            oq_partly_kept=1,
+            oq_answered_dropped=1,
+        ),
+        answered_elsewhere=(AnsweredElsewhere(key="q|span|a", fragment="f9", quote="It is CSV."),),
+    )
+    item = JudgedItem(
+        rule="R",
+        kind="link",
+        subject="M-1",
+        source_spec_id="R-1",
+        relation="X",
+        target_spec_id="R-2",
+        outcome="accepted",
+        confidence=0.9,
+        fragment_ids=("f1", "f7"),
+    )
+    report = InferenceReport(
+        rules=(RuleReport(rule="R", items_by_outcome={"accepted": 1}),),
+        judged_items=(item,),
+    )
+    diff_artifact = DiffArtifact(modified_causes={"links": 2, "statements": 1})
+    metrics = VerificationMetrics(
+        owners_by_source={"stated": 1, "implied": 0, "inferred": 0, "none": 2},
+        cross_document_edges={"X": {"inferred": 1}},
+        oq_answer_judged=3,
+    )
+    for model in (edges, target, report, diff_artifact, metrics):
+        assert type(model).model_validate_json(model.model_dump_json()) == model
+
+    older_edges = EdgesArtifact.model_validate({"raw_edges": [], "counters": {"calls": 1}})
+    assert (
+        older_edges.called_windows,
+        older_edges.catalog_parts,
+        older_edges.counters.windows_called,
+    ) == (
+        None,
+        None,
+        None,
+    )
+    older_target = TargetGraph.model_validate({"nodes": [], "edges": [], "counters": {}, "quarantine": []})
+    counters = older_target.counters
+    assert older_target.answered_elsewhere == ()
+    assert (
+        counters.derive_suppressed_by_edge,
+        counters.foreign_edges,
+        counters.oq_answer_judged,
+    ) == (None,) * 3
+    older_report = InferenceReport.model_validate({"rules": [{"rule": "R", "subjects": 1}]})
+    assert (older_report.judged_items, older_report.rules[0].items_by_outcome) == (
+        None,
+        None,
+    )
+    assert DiffArtifact.model_validate({"operations": []}).modified_causes is None
+    assert VerificationMetrics.model_validate({}).owners_by_source is None
+
+
+async def test_the_verify_step_hands_verify_the_inference_report(
+    stores: FileStores, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = context(stores)
+    ctx = ctx.with_build_id(await runner.start_build(ctx))
+    report = InferenceReport(rules=())
+    await runner.store_artifact(ctx, "infer", report)
+    seen: dict[str, object] = {}
+
+    async def verify_build(*_: object, **kwargs: object) -> VerificationReport:
+        seen.update(kwargs)
+        return VerificationReport()
+
+    monkeypatch.setattr(runner.verification, "verify_build", verify_build)
+    await runner.verify(ctx)
+    assert seen["inference"] == report

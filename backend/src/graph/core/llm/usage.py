@@ -1,8 +1,4 @@
-"""Usage counting of the LLM gateway (docs/graph/api.md "LLM gateway", row "Usage").
-
-Counts are kept per call class and prompt name: logical calls, failed calls, HTTP requests, input and
-output tokens, and wall-clock duration of the calls (backoff included).
-"""
+"""Usage counting of the LLM gateway."""
 
 from __future__ import annotations
 
@@ -23,6 +19,8 @@ class UsageCounts(BaseModel):
     requests: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    cached_input_tokens: int = 0
+    """Input tokens read from the provider's prompt cache; included in ``input_tokens``."""
     duration_s: float = 0.0
 
 
@@ -54,6 +52,7 @@ class UsageSnapshot(BaseModel):
             requests=sum(entry.requests for entry in selected),
             input_tokens=sum(entry.input_tokens for entry in selected),
             output_tokens=sum(entry.output_tokens for entry in selected),
+            cached_input_tokens=sum(entry.cached_input_tokens for entry in selected),
             duration_s=sum(entry.duration_s for entry in selected),
         )
 
@@ -65,6 +64,7 @@ class _Counter:
     requests: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    cached_input_tokens: int = 0
     duration_s: float = 0.0
 
 
@@ -80,10 +80,13 @@ class UsageRecorder:
     def request(self, call_class: CallClass, prompt: str) -> None:
         self._counter(call_class, prompt).requests += 1
 
-    def tokens(self, call_class: CallClass, prompt: str, input_tokens: int, output_tokens: int) -> None:
+    def tokens(
+        self, call_class: CallClass, prompt: str, input_tokens: int, output_tokens: int, cached_input_tokens: int = 0
+    ) -> None:
         counter = self._counter(call_class, prompt)
         counter.input_tokens += input_tokens
         counter.output_tokens += output_tokens
+        counter.cached_input_tokens += cached_input_tokens
 
     def call(self, call_class: CallClass, prompt: str, *, duration_s: float, failed: bool) -> None:
         counter = self._counter(call_class, prompt)
@@ -102,6 +105,7 @@ class UsageRecorder:
                     requests=counter.requests,
                     input_tokens=counter.input_tokens,
                     output_tokens=counter.output_tokens,
+                    cached_input_tokens=counter.cached_input_tokens,
                     duration_s=counter.duration_s,
                 )
                 for (call_class, prompt), counter in sorted(self._counters.items())

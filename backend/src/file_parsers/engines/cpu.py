@@ -12,6 +12,7 @@ from __future__ import annotations
 import math
 import os
 from pathlib import Path
+from typing import Any
 
 CGROUP_ROOT = Path("/sys/fs/cgroup")
 _V1_DIRS = ("cpu", "cpu,cpuacct")
@@ -21,8 +22,9 @@ _V2_FIELDS = 2  # "<quota> <period>"
 def affinity_cpus() -> int:
     """The CPUs the scheduler lets this process run on (``os.cpu_count`` where affinity is unknown)."""
 
+    scheduler: Any = os
     try:
-        return max(1, len(os.sched_getaffinity(0)))
+        return max(1, len(scheduler.sched_getaffinity(0)))
     except AttributeError:  # not Linux
         return max(1, os.cpu_count() or 1)
 

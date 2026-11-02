@@ -1,10 +1,4 @@
-"""Ports of the build: corpus, reusable extraction results, build records and artifacts (api.md "Ports").
-
-State outside Neo4j goes through these async ports; ``open_file_stores`` returns file implementations
-and a host may supply its own. Payloads are JSON objects (``model_dump(mode="json")`` of a model),
-so an implementation never needs to know the build's models. Backend failures raise
-``InfrastructureUnavailableError``.
-"""
+"""Ports of the build: corpus, reusable extraction results, build records and artifacts."""
 
 from __future__ import annotations
 
@@ -25,7 +19,7 @@ JsonObject = dict[str, Any]
 
 
 class CorpusRevision(ArtifactModel):
-    """Plan (build.md step 1.1): the current revision of one active lineage; invalid → ``CorpusError``."""
+    """Plan: the current revision of one active lineage; invalid → ``CorpusError``."""
 
     lineage_id: str = Field(min_length=1)
     revision_id: str = Field(min_length=1)
@@ -53,7 +47,7 @@ class CorpusSource(Protocol):
 
 
 class ExtractionStore(Protocol):
-    """Port: extraction results reusable by later builds (build.md "Reuse in update builds")."""
+    """Port: extraction results reusable by later builds."""
 
     async def get(self, kind: ExtractionKind, key: str, fingerprint: str) -> JsonObject | None:
         """The payload stored under ``kind`` and ``key``; None when absent or stored with another fingerprint."""
@@ -65,12 +59,7 @@ class ExtractionStore(Protocol):
 
 
 class BatchExtractionStore(ExtractionStore, Protocol):
-    """Optional extension of ``ExtractionStore``: batch reads and writes.
-
-    The build calls these when a store has them (``graph.build.vectors.get_many``/``put_many``) and
-    falls back to one ``get``/``put`` per key otherwise, so a host store needs only the two methods
-    above. ``FileExtractionStore`` implements both.
-    """
+    """Optional extension of ``ExtractionStore``: batch reads and writes."""
 
     async def get_many(self, kind: ExtractionKind, keys: Sequence[str], fingerprint: str) -> dict[str, JsonObject]:
         """``get`` of every key: payloads by key, absent (or other fingerprint) keys left out."""
@@ -82,7 +71,7 @@ class BatchExtractionStore(ExtractionStore, Protocol):
 
 
 class BuildRecord(ArtifactModel):
-    """Run (build.md "Modes"): one build: mode, frozen options and ontology shape, status, step progress."""
+    """Run: one build: mode, frozen options and ontology shape, status, step progress."""
 
     build_id: str = Field(min_length=1)
     project_id: str
@@ -97,6 +86,12 @@ class BuildRecord(ArtifactModel):
     started_at: AwareDatetime
     finished_at: AwareDatetime | None = None
     progress: dict[StepName, StepState] = Field(default_factory=dict)
+    follow_up_of: str | None = None
+    """A follow-up ``update`` build: the build id of the build that started the chain; None for any other build and in
+    records written before it.
+    """
+    follow_up_attempt: int = 0
+    """The follow-up's place in its chain (1, 2, ...); 0 for any other build."""
 
     @property
     def finished(self) -> bool:

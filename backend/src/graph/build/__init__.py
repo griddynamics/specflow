@@ -1,9 +1,4 @@
-"""Builds and updates the graph from a project's documents (docs/graph/build.md).
-
-Public names are re-exported here as their modules land; step artifacts stay in ``graph.build.models``.
-The api.md step functions are on ``steps`` (``graph.build.steps.resolve``): exported directly, the
-names ``resolve``, ``conform``, ``diff`` and ``persist`` would shadow the modules of the same name.
-"""
+"""Builds and updates the graph from a project's documents."""
 
 from __future__ import annotations
 
@@ -22,6 +17,9 @@ from graph.build.models import (
     BuildResult,
     BuildStatus,
     InferenceReport,
+    ProjectBuildStatus,
+    QuarantinedEdge,
+    Settlement,
     SpecChanges,
     StepEstimate,
     StepName,
@@ -39,11 +37,13 @@ from graph.build.ports import (
     ExtractionStore,
     StepState,
 )
-from graph.build.run import STEP_FUNCTIONS, StepFunctions, estimate_build, plan, run_build, steps
+from graph.build.run import MAX_FOLLOW_UPS, STEP_FUNCTIONS, StepFunctions, estimate_build, plan, run_build, steps
+from graph.build.status import project_status
 from graph.build.verify import verify_project
 
 __all__ = [
     "EXTRACTION_KINDS",
+    "MAX_FOLLOW_UPS",
     "STEPS",
     "STEP_FUNCTIONS",
     "BuildContext",
@@ -67,6 +67,9 @@ __all__ = [
     "FragmentTokens",
     "InferenceReport",
     "Locality",
+    "ProjectBuildStatus",
+    "QuarantinedEdge",
+    "Settlement",
     "SpecChanges",
     "StepEstimate",
     "StepFunctions",
@@ -77,6 +80,7 @@ __all__ = [
     "estimate_build",
     "open_file_stores",
     "plan",
+    "project_status",
     "run_build",
     "steps",
     "verify_project",

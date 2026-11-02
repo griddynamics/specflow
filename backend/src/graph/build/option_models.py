@@ -1,10 +1,4 @@
-"""Build options and settings models (docs/graph/build.md "Build options", api.md "Build").
-
-``BuildOptions`` shape extraction and are frozen by the last ``first`` or ``rebuild`` build;
-``BuildSettings`` may change between builds. Both are immutable; invalid values raise
-``ConfigurationError`` naming the fields. They live apart from ``graph.build.options`` (which
-re-exports them) so the build ports can use ``BuildOptions`` without importing the build context.
-"""
+"""Build options and settings models."""
 
 from __future__ import annotations
 
@@ -18,7 +12,7 @@ Locality = Literal["grounded", "strict"]
 
 
 class FragmentTokens(FrozenModel):
-    """Fragment size range in estimated tokens (build.md Plan, step 3); ``min <= target <= max``."""
+    """Fragment size range in estimated tokens; ``min <= target <= max``."""
 
     min: int = Field(default=300, ge=1)
     target: int = Field(default=2000, ge=1, validate_default=True)
@@ -34,11 +28,11 @@ class FragmentTokens(FrozenModel):
 
 
 class BuildOptions(FrozenModel):
-    """Per-project options that shape extraction (build.md "Build options"); a change needs a rebuild."""
+    """Per-project options that shape extraction; a change needs a rebuild."""
 
     fragment_tokens: FragmentTokens = Field(default_factory=FragmentTokens)
     hub_catalog: bool = True
-    known_terms_limit: int = Field(default=120, ge=0)
+    known_terms_limit: int = Field(default=30, ge=0)
     catalog_limit: int = Field(default=150, ge=0)
     locality: Locality = "grounded"
     unit_tokens: int = Field(default=24000, ge=1, validate_default=True)
@@ -54,6 +48,6 @@ class BuildOptions(FrozenModel):
 
 
 class BuildSettings(FrozenModel):
-    """Per-build settings that do not shape extraction (architecture.md "Settings")."""
+    """Per-build settings that do not shape extraction."""
 
     inference: bool = True

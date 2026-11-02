@@ -1,10 +1,4 @@
-"""Diff of update builds offline (build.md step 6 and 7; data-model.md "Identity", "Edges"; architecture.md
-W3, W4; tech-specs 5.4 "Diff carry-over"; FR-BLD-05, 06, 10, 12, 13; FR-CORE-06).
-
-``diff`` is pure: each test builds a target graph by hand, diffs a ``first`` build against the empty
-graph, turns that diff into the current graph as persist would leave it (``persisted``), and diffs
-the next target against it. Persist routing runs ``persist.persist`` on a recording executor.
-"""
+"""Diff of update builds offline."""
 
 from __future__ import annotations
 
@@ -33,6 +27,7 @@ from graph.build.diff import (
     continuing_texts,
     diff,
     diff_summary,
+    modified_causes,
 )
 from graph.build.models import (
     PERSIST_PHASES,
@@ -63,11 +58,13 @@ from graph.build.models import (
     TargetNode,
     Unit,
 )
+from graph.build.resolve import hub_surface
 from graph.build.vectors import text_hash
 from graph.core.identity import SpecIdRow, edge_uuid, node_uuid
-from graph_support import shipped_ontology
+from graph_support import frozen_ontology
 
-ONT = shipped_ontology()
+# Mechanics tests: pinned to the frozen v1.3 ontology (graph_support.FROZEN_ONTOLOGY_FILE), not the shipped one.
+ONT = frozen_ontology()
 PROJECT = "p-diff"
 MODEL = "test-embedding"
 AT1 = "2026-10-01T00:00:00+00:00"
@@ -440,6 +437,7 @@ def test_a_first_build_creates_everything_and_an_unchanged_re_diff_is_empty() ->
     assert again.operations == ()
     assert again.spec_changes == SpecChanges()
     assert again.registry_rows == ()
+    assert (first.modified_causes, again.modified_causes) == ({}, {})
     assert diff_summary(again) == {
         "operations": 0,
         "added": 0,
@@ -515,6 +513,15 @@ def test_an_update_sets_only_the_owned_properties_that_changed() -> None:
     assert links.uuid == r1.uuid and {e.fragment_id for e in links.evidence} == {A1.fragment_id, B1.fragment_id}
     assert result.spec_changes == SpecChanges(modified=(r1.spec_id,))
     assert result.registry_rows == ()  # nothing new issued
+    # why it is modified: each property set or removed (write stamps left out), its vector and its links
+    assert result.modified_causes == {
+        "acceptance_criteria": 1,
+        "links": 1,
+        "statement_text": 1,
+        "statements": 1,
+        "stmt": 1,
+        "vectors": 1,
+    }
 
 
 def test_a_node_whose_attributes_batch_failed_keeps_its_stored_values() -> None:
@@ -537,6 +544,26 @@ def test_a_node_whose_attributes_batch_failed_keeps_its_stored_values() -> None:
     [update] = ops(result, NodeUpdate)
     assert set(update.properties) == {"name", "updated_at", "last_build_id"}
     assert set(update.vectors) == {"embedding", "name_embedding"}
+
+
+def test_a_node_whose_attributes_batch_failed_takes_its_new_quote_from_the_node_call() -> None:
+    """The quote comes from the node call, not the attributes pass: a revised text's quote is written
+    even when the attributes batch failed; the other attribute values stay the persisted ones."""
+
+    before = persisted()
+    revised = node_r1(
+        stmt=None, attributes={}, quote="FR-1 Staff can export all orders as CSV.", attributes_missing=True
+    )
+    result = diff(
+        UPDATE_PLAN,
+        graph(revised, node_r2(), node_h1(), node_m1(), E_R1_H1, E_R2_M1),
+        ONT,
+        given(before.current, before.taken),
+    )
+    [update] = ops(result, NodeUpdate)
+    assert update.uuid == before.node(R1).uuid
+    assert update.properties["quote"] == "FR-1 Staff can export all orders as CSV."
+    assert not {"stmt", "acceptance_criteria"} & set(update.properties)
 
 
 def test_a_node_keeps_its_label_and_records_the_disagreement() -> None:
@@ -590,13 +617,15 @@ def test_a_target_of_another_label_under_the_same_key_keeps_the_persisted_label(
     assert update.vectors == {}
     assert ops(result, NodeCreate) == [] and ops(result, NodeDelete) == [] and ops(result, NodeCarryOver) == []
     assert result.spec_changes == SpecChanges(modified=(r2.spec_id,))
+    assert result.modified_causes == {"label_disagreement": 1}
     assert result.texts == {}
 
 
 def test_graph_counts_after_the_diff_use_kept_labels_and_kept_edges() -> None:
-    """``nodes_by_label`` and ``edges_by_relation`` (the build metrics) count the graph as Persist
-    leaves it: a continuing node under its kept label, not the label computed now; a deleted node not
-    at all; the current edges the diff keeps (an inferred one) as well as the target's."""
+    """``nodes_by_label`` and ``edges_by_relation`` (the build metrics) count the graph as Persist leaves it: a
+    continuing node under its kept label, not the label computed now; a deleted node not at all; the current edges the
+    diff keeps (an inferred one) as well as the target's.
+    """
 
     before = persisted()
     assert before.artifact.nodes_by_label == {
@@ -719,10 +748,23 @@ def test_a_merge_keeps_the_oldest_node_aliases_the_others_and_moves_their_edges(
     assert result.spec_changes.inferred_removed == ()
     assert result.spec_changes.rekeyed == tuple(sorted((survivor.spec_id, loser.spec_id)))
     assert result.spec_changes.removed == () and result.spec_changes.added == ()
+    assert result.modified_causes == {}  # rekeyed nodes are not modified ones
     rows = {row.spec_id: row for row in result.registry_rows}
     assert rows[loser.spec_id] == SpecIdRow(loser.spec_id, M1, survivor.uuid, "alias")
     assert rows[survivor.spec_id] == SpecIdRow(survivor.spec_id, M1, survivor.uuid, "active")
     assert "MOD::LEGACY_API" not in rows  # unchanged alias row
+
+
+def test_modified_causes_name_each_cause_of_one_node_once() -> None:
+    properties = {"name": "Orders", "quote": None, "updated_at": AT2, "last_build_id": "b2"}
+    assert modified_causes(properties, {"embedding": "h"}, linked=True, merged=True) == [
+        "name",
+        "quote",
+        "vectors",
+        "links",
+        "merged",
+    ]
+    assert modified_causes({"updated_at": AT2, "last_build_id": "b2"}, {}, linked=False, merged=True) == ["merged"]
 
 
 def test_merged_nodes_of_equal_age_keep_the_lower_spec_id() -> None:
@@ -739,6 +781,30 @@ def test_merged_nodes_of_equal_age_keep_the_lower_spec_id() -> None:
     )
     [merge] = ops(result, NodeMerge)
     assert (merge.survivor_spec_id, merge.merged_spec_ids) == (first.spec_id, (second.spec_id,))
+
+
+def test_a_merge_keeps_a_node_of_the_target_label_so_its_spec_id_prefix_names_its_label() -> None:
+    """a Feature and a Module of equal age merged into a Module target; the Feature survived on
+    its lower ``spec_id`` and kept its label and ``FEAT::`` id, so an edge legal for the Module failed Verify."""
+
+    feature_key = "Feature|surface|order api"
+    before = persisted(
+        target=graph(
+            node_r1(), node_r2(), node_h1(), node_m1(), node(feature_key, "Order API", "Feature", [(A1, 2, 2)])
+        )
+    )
+    module, feature = before.node(M1), before.node(feature_key)
+    assert feature.spec_id < module.spec_id and feature.created_at == module.created_at  # the old rule kept the Feature
+    result = diff(
+        UPDATE_PLAN,
+        graph(node_r1(), node_r2(), node_h1(), node_m1(aliases=(feature_key,))),
+        ONT,
+        given(before.current, before.taken),
+    )
+    [merge] = ops(result, NodeMerge)
+    assert (merge.survivor_spec_id, merge.merged_spec_ids) == (module.spec_id, (feature.spec_id,))
+    assert merge.survivor_spec_id.startswith(ONT.id_prefix("Module"))
+    assert all(op.label == "Module" for op in ops(result, NodeUpdate) if op.uuid == module.uuid)
 
 
 def test_a_split_continues_the_node_as_its_best_match_and_creates_the_others() -> None:
@@ -783,7 +849,7 @@ def test_a_split_off_target_never_takes_the_uuid_or_spec_id_of_the_node_created_
     assert update.uuid == created.uuid and update.properties["identity_aliases"] == []
 
 
-# spec_id issue rules (FR-CORE-06)
+# spec_id issue rules
 
 
 @pytest.mark.parametrize(
@@ -813,7 +879,7 @@ def test_a_retired_spec_id_returns_only_for_its_own_key(key: str, aliases: tuple
     assert [row.spec_id for row in result.registry_rows] == [create.spec_id]
 
 
-# Carry-over (tech-specs 5.4 "Diff carry-over")
+# Carry-over
 
 
 def test_a_renamed_node_with_overlapping_evidence_is_carried_over() -> None:
@@ -843,6 +909,25 @@ def test_a_renamed_node_with_overlapping_evidence_is_carried_over() -> None:
     assert updates[hub_edge.uuid].properties["edge_key"] == f"{R2}|GROUPED_BY|{new_key}"
     assert "basis" not in updates[hub_edge.uuid].properties
     assert ops(result, EdgeDelete) == [] and ops(result, EdgeCreate) == []
+
+
+def test_a_hub_rekeyed_by_the_hub_name_forms_continues_its_persisted_node() -> None:
+    """a hub persisted under an older fold ("alia service") continues under the key the
+    current form gives its name; the spec_id is kept and the old key becomes an identity alias."""
+
+    old_key, new_key = "Feature|surface|alia service", f"Feature|surface|{hub_surface('Alias service')}"
+    assert new_key == "Feature|surface|alias service"
+    hub = node_h1(key=old_key, name="Alias service")
+    before = persisted(target=graph(node_r1(), node_r2(), hub, node_m1(), E_R2_M1))
+    old = before.node(old_key)
+    target = graph(node_r1(), node_r2(), node_h1(key=new_key, name="Alias service"), node_m1(), E_R2_M1)
+    result = diff(UPDATE_PLAN, target, ONT, given(before.current, before.taken))
+
+    [carry] = ops(result, NodeCarryOver)
+    assert (carry.uuid, carry.spec_id, carry.from_identity_key) == (old.uuid, old.spec_id, old_key)
+    assert (carry.properties["identity_key"], carry.properties["identity_aliases"]) == (new_key, [old_key])
+    assert ops(result, NodeCreate) == [] and ops(result, NodeDelete) == []
+    assert result.spec_changes == SpecChanges(carried_over=(old.spec_id,))
 
 
 def test_carry_over_by_name_needs_overlapping_evidence_and_the_same_scope() -> None:
@@ -979,6 +1064,62 @@ def test_carry_over_is_one_to_one_and_best_pair_first() -> None:
     assert result.spec_changes.carried_over == (kept_h2.spec_id,) and result.spec_changes.removed == (h1.spec_id,)
 
 
+# A requirement stated in two documents: each document's evidence changes on its own
+
+
+def _two_document_r1(*evidence: tuple[FragmentRec, int, int], **update: Any) -> TargetNode:
+    return node_r1(evidence=list(evidence), **update)
+
+
+def test_a_change_in_one_document_of_a_two_document_requirement_updates_only_that_documents_evidence() -> None:
+    first = graph(_two_document_r1((A1, 3, 3), (B1, 3, 3)), node_r2(), node_h1(), node_m1(), E_R1_H1, E_R2_M1)
+    before = persisted(FIRST_PLAN, first)
+    r1 = before.node(R1)
+    reworded = frag("b.md#intro#4", ["# B", "Order export is a feature.", "FR-1 Staff download every order."], 1)
+    reworded = reworded.model_copy(update={"change": "changed", "previous_id": B1.fragment_id})
+    revised = (DOC_A, DOC_B.model_copy(update={"revision_id": "r2", "version": 2}))
+    plan = plan_of([unchanged(A1), unchanged(A2), reworded], documents=revised, retired=(B1.fragment_id,))
+    target = graph(
+        _two_document_r1((A1, 3, 3), (reworded, 3, 3), revision={"b.md": ("r2", 2)}, at=AT2),
+        node_r2(),
+        node_h1(evidence=[(reworded, 2, 2)], revision={"b.md": ("r2", 2)}, at=AT2),
+        node_m1(),
+        E_R1_H1,
+        E_R2_M1,
+    )
+    result = diff(plan, target, ONT, given(before.current, before.taken))
+
+    update = next(op for op in ops(result, NodeUpdate) if op.uuid == r1.uuid)
+    # document A's statement keeps its revision and time; document B's is the reworded one of this build
+    assert [(s["fragment_id"], s["revision_id"], s["at"], s["text"]) for s in statements(update.properties)] == [
+        (A1.fragment_id, "r1", AT1, "FR-1 Staff can export orders as CSV."),
+        (reworded.fragment_id, "r2", AT2, "FR-1 Staff download every order."),
+    ]
+    links = next(op for op in ops(result, NodeLinks) if op.uuid == r1.uuid)
+    assert [e.fragment_id for e in links.evidence] == [A1.fragment_id, reworded.fragment_id]
+    assert r1.spec_id in result.spec_changes.modified
+    assert not ops(result, NodeDelete) and result.spec_changes.removed == ()
+
+
+def test_deleting_one_document_of_a_two_document_requirement_drops_only_its_evidence() -> None:
+    first = graph(_two_document_r1((A1, 3, 3), (B1, 3, 3)), node_r2(), node_h1(), node_m1(), E_R1_H1, E_R2_M1)
+    before = persisted(FIRST_PLAN, first)
+    r1, h1 = before.node(R1), before.node(H1)
+    removed = (DOC_A, DOC_B.model_copy(update={"status": "removed"}))
+    plan = plan_of([unchanged(A1), unchanged(A2)], documents=removed, retired=(B1.fragment_id,))
+    target = graph(_two_document_r1((A1, 3, 3)), node_r2(), node_m1(), E_R2_M1)
+    result = diff(plan, target, ONT, given(before.current, before.taken))
+
+    update = next(op for op in ops(result, NodeUpdate) if op.uuid == r1.uuid)
+    assert [(s["fragment_id"], s["revision_id"], s["at"]) for s in statements(update.properties)] == [
+        (A1.fragment_id, "r1", AT1)
+    ]
+    links = next(op for op in ops(result, NodeLinks) if op.uuid == r1.uuid)
+    assert [e.fragment_id for e in links.evidence] == [A1.fragment_id]
+    assert ops(result, NodeDelete) == [NodeDelete(uuid=h1.uuid, spec_id=h1.spec_id)]  # grounded only in B
+    assert (result.spec_changes.modified, result.spec_changes.removed) == ((r1.spec_id,), (h1.spec_id,))
+
+
 # Delete
 
 
@@ -1050,7 +1191,7 @@ def test_edges_match_by_key_and_inferred_edges_are_kept_or_become_stated() -> No
     assert result.spec_changes == SpecChanges()
 
 
-# Skipped fragments (FR-BLD-12) and unextracted edges
+# Skipped fragments and unextracted edges
 
 
 def test_a_skipped_changed_fragment_keeps_the_last_extracted_support() -> None:
@@ -1160,7 +1301,7 @@ def test_diff_summary_counts_operations_by_kind_spec_changes_and_registry_rows()
     }
 
 
-# Persist routing of merges, carry-overs and deletes (build.md step 7; W3, W4)
+# Persist routing of merges, carry-overs and deletes
 
 
 class RecordingExecutor:
@@ -1249,10 +1390,10 @@ async def test_persist_applies_merges_updates_carry_overs_and_deletes_in_phase_o
     ]
     merge_rows, merge_params = executor.runs[1][1], executor.runs[1][2]
     assert merge_rows == [{"survivor": "s", "merged": ["l1", "l2"], "aliases": ["MOD::L1", "MOD::L2"]}]
-    # every relationship type build does not own moves to the survivor (W3)
+    # every relationship type build does not own moves to the survivor
     assert merge_params["owned_types"] == sorted({"CONTAINS", "REFERENCED_BY", "MENTIONED_IN", *ONT.relations})
     # What the merge query does with foreign relationships (moved both ways, no duplicate, none between
-    # the merged nodes, E18) is asserted on Neo4j: test_graph_update_live.py, FR-BLD-10.
+    # the merged nodes, E18) is asserted on Neo4j: test_graph_update_live.py,.
     assert executor.runs[2][1] == [
         {"uuid": "s", "props": {"name": "S", "name_embedding": [0.5, 0.5]}},
         {"uuid": "c", "props": {"name": "C2"}},

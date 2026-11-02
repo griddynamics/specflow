@@ -1,7 +1,5 @@
-"""Self-tests of the ``graph_support`` doubles later milestones rely on: the ``ScriptedGateway`` and
-``ShopAnswers`` (the shop answer file's parser and its coverage of the planned windows and units).
-
-Nothing connects to a model endpoint or to Neo4j.
+"""Self-tests of the ``graph_support`` doubles later milestones rely on: the ``ScriptedGateway`` and ``ShopAnswers``
+(the shop answer file's parser and its coverage of the planned windows and units).
 """
 
 from __future__ import annotations
@@ -17,19 +15,26 @@ import numpy as np
 import pytest
 from pydantic import BaseModel
 
-from graph.build import open_file_stores, steps
+from graph.build import extract, open_file_stores, steps
+from graph.build.answers import HUBS_LIST, STATEMENTS_LIST, NodeList, edge_answer_model, node_answer_model
 from graph.build.models import PlanArtifact
 from graph.build.options import BuildContext
-from graph.build.prompts import EPISODE_LABEL, attribute_messages, breadcrumb, edge_instructions, node_instructions
+from graph.build.prompts import (
+    NODE_PROMPTS,
+    attribute_messages,
+    breadcrumb,
+    edge_window_messages,
+    fragment_text,
+    node_messages,
+)
 from graph.core import ConfigurationError, JudgeRunner, LLMError, Verdict
 from graph.core.llm import Gateway, untrusted
 from graph_support import (
     ATTRIBUTES_PROMPT,
     DEDUP_PROMPT,
-    EDGES_PROMPT,
+    EDGE_WINDOW_PROMPT,
     HUBS_PROMPT,
     NO_ANSWER,
-    NODES_PROMPT,
     OfflineExecutor,
     ScriptedGateway,
     ScriptedRequest,
@@ -286,14 +291,14 @@ async def test_scripted_gateway_tracks_concurrency(scripted_gateway) -> None:
 async def test_scripted_gateway_drives_judge_runner(scripted_gateway) -> None:
     gateway = scripted_gateway(llm_config())
     gateway.answer(
-        "judge_endpoints.2",
+        "judge_endpoints.3",
         None,
         {"confidence": 0.9, "evidence": [{"fragment_id": "f1", "quote": "q"}]},
     )
-    verdict = await JudgeRunner(gateway, shipped_ontology()).judge("judge_endpoints.2", {"subject": "S"}, Verdict)
+    verdict = await JudgeRunner(gateway, shipped_ontology()).judge("judge_endpoints.3", {"subject": "S"}, Verdict)
     assert isinstance(verdict, Verdict)
     assert verdict.confidence == 0.9
-    assert verdict.prompt_ref == "judge_endpoints.2"
+    assert verdict.prompt_ref == "judge_endpoints.3"
     assert gateway.calls[0].call_class == "judge"
     assert gateway.calls[0].model == "test-main"
 
@@ -397,47 +402,42 @@ MINI: dict[str, Any] = {
         "c": ["Doc > C", "Gamma"],
     },
     "nodes": [
-        {"window": ["b", "b2"], "entities": [["Beta", "Module", ["b2"]], ["Payments", "Feature", ["b", "b2"]]]},
+        {
+            "window": ["b", "b2"],
+            "entities": [["Beta", "Module", ["b2"], None, ["Beta service"]], ["Payments", "Feature", ["b", "b2"]]],
+        },
         {"window": ["a"], "entities": [["Alpha", "Module"]]},
         {"window": ["c"], "error": "malformed"},
     ],
     "edges": [
         {"unit": ["a", "b", "b2", "c"], "facts": [["Alpha", "INTEGRATES_WITH", "Beta", "Alpha calls Beta.", ["a"]]]}
     ],
-    "attributes": {"Alpha": {"quote": "Alpha starts"}},
+    "attributes": {"Alpha": {"quote": "Alpha starts", "stmt": "Alpha runs."}},
     "consolidation": [
         {"block": ["Beta", "Beta service"], "groups": [{"names": ["Beta", "Beta service"], "label": "Module"}]}
     ],
-    "dedup": [{"pair": ["Staff export orders", "Staff can export orders"], "same": True}],
+    "dedup": [{"pair": ["Staff export orders", "Staff can export orders"], "same": True, "confidence": "medium"}],
 }
-EPISODES = [
-    ("Doc > A", "Alpha starts here."),
-    ("Doc > B", "Beta starts."),
-    ("Doc > B", "Beta starts."),
-    ("Doc > C", "Gamma."),
+FRAGMENTS = [
+    fragment_text("Doc", ["A"], "Alpha starts here."),
+    fragment_text("Doc", ["B"], "Beta starts."),
+    fragment_text("Doc", ["B"], "Beta starts."),
+    fragment_text("Doc", ["C"], "Gamma."),
 ]
-TYPES = "'entity_type_id': 1, 'entity_type_name': 'Module'\n'entity_type_id': 2, 'entity_type_name': 'Feature'"
 
 
-def graphiti_request(prompt: str, instructions: str, extra: str = "") -> ScriptedRequest:
-    blocks = "\n".join(ScriptedGateway.untrusted(EPISODE_LABEL, f"{crumb}\n\n{text}") for crumb, text in EPISODES)
+def node_request(window: tuple[int, int], node_list: NodeList = HUBS_LIST) -> ScriptedRequest:
+    ontology = shipped_ontology()
+    messages = node_messages(ontology, FRAGMENTS, [], window, node_list=node_list)
     return ScriptedRequest(
-        call_class="extraction",
-        model="m",
-        prompt=prompt,
-        messages=(
-            {"role": "system", "content": "s"},
-            {"role": "user", "content": f"{TYPES}\n{extra}\n{blocks}\n{instructions}"},
-        ),
-        output_type=BaseModel,
+        "extraction", "m", NODE_PROMPTS[node_list], tuple(messages), node_answer_model(ontology, [node_list])
     )
 
 
-def node_request(window: tuple[int, int]) -> ScriptedRequest:
-    return graphiti_request(
-        NODES_PROMPT,
-        node_instructions(shipped_ontology(), ScriptedGateway(), known_terms=[], window=window, episodes=len(EPISODES)),
-    )
+def edge_request(names: Sequence[str]) -> ScriptedRequest:
+    ontology = shipped_ontology()
+    messages = edge_window_messages(ontology, FRAGMENTS, [(name, "Module") for name in names], (0, len(FRAGMENTS)))
+    return ScriptedRequest("extraction", "m", EDGE_WINDOW_PROMPT, tuple(messages), edge_answer_model(ontology))
 
 
 def test_shop_answers_refuse_repeated_and_undeclared_handles() -> None:
@@ -455,62 +455,107 @@ def test_shop_answers_key_requests_by_handles_and_the_library_window() -> None:
     assert [episode.handle for episode in answers.episodes(request)] == ["a", "b", "b2", "c"]  # occurrence 2 -> b2
     assert answers.node_key(request) == ("b", "b2")
     assert answers.node_key(node_request((0, 1))) == ("a",)
-    edge = graphiti_request(EDGES_PROMPT, edge_instructions(shipped_ontology(), window=(0, 4), episodes=4))
-    assert answers.edge_key(edge) == ("a", "b", "b2", "c")
-    # a window beyond the request's episodes is a script error, never a silent empty key
+    assert answers.edge_key(edge_request(["Alpha", "Beta"])) == ("a", "b", "b2", "c")
+    # a window beyond the request's fragments is a script error, never a silent empty key
+    request = node_request((3, 4))
+    system, unit, user = request.messages
+    beyond = user["content"].replace("in fragment 4.", "in fragments 4 to 5.")
+    assert beyond != user["content"]
+    request = ScriptedRequest("extraction", "m", request.prompt, (system, unit, {**user, "content": beyond}), BaseModel)
     with pytest.raises(ScriptError, match="beyond"):
-        answers.window(node_request((3, 5)), answers.episodes(node_request((0, 1))))
+        answers.window(request, answers.episodes(request))
 
 
-def test_shop_answers_build_node_answers_with_episode_indices() -> None:
+def test_shop_answers_build_node_answers_with_fragment_numbers_and_quotes() -> None:
     answers = ShopAnswers(MINI)
     assert answers._nodes(node_request((1, 3))) == {
-        "extracted_entities": [
-            {"name": "Beta", "entity_type_id": 1, "episode_indices": [2]},
-            {"name": "Payments", "entity_type_id": 2, "episode_indices": [1, 2]},
-        ]
+        "hubs": [
+            {"name": "Beta", "label": "Module", "quote": "", "fragments": [3], "aliases": ["Beta service"]},
+            {"name": "Payments", "label": "Feature", "quote": "", "fragments": [2, 3], "aliases": []},
+        ],
     }
-    # one-fragment window: the entity's episode defaults to it
+    assert answers._nodes(node_request((1, 3), STATEMENTS_LIST)) == {"statements": []}
+    # one-fragment window: the entity's fragment defaults to it, its quote to its attributes quote
     assert answers._nodes(node_request((0, 1))) == {
-        "extracted_entities": [{"name": "Alpha", "entity_type_id": 1, "episode_indices": [0]}]
+        "hubs": [{"name": "Alpha", "label": "Module", "quote": "Alpha starts", "fragments": [1], "aliases": []}],
     }
     error = answers._nodes(node_request((3, 4)))
     assert isinstance(error, LLMError) and error.reason == "malformed"
     assert answers._nodes(node_request((0, 2))) is NO_ANSWER
 
+    quoted = ShopAnswers(
+        {
+            **MINI,
+            "nodes": [
+                {"window": ["a"], "entities": [["Alpha", "Module", ["a"], "Alpha here"], ["Alpha runs", "Constraint"]]}
+            ],
+        }
+    )
+    # each pass takes the entities of its list: the hub pass the hubs, the statement pass the rest
+    answer = quoted._nodes(node_request((0, 1)))
+    assert answer == {
+        "hubs": [{"name": "Alpha", "label": "Module", "quote": "Alpha here", "fragments": [1], "aliases": []}]
+    }
+    answer = quoted._nodes(node_request((0, 1), STATEMENTS_LIST))
+    assert answer == {"statements": [{"name": "Alpha runs", "label": "Constraint", "quote": "", "fragments": [1]}]}
+
     broken = ShopAnswers({**MINI, "nodes": [{"window": ["b", "b2"], "entities": [["Beta", "Module"]]}]})
-    with pytest.raises(ScriptError, match="names no episode"):
+    with pytest.raises(ScriptError, match="names no fragment"):
         broken._nodes(node_request((1, 3)))
-    unknown = ShopAnswers({**MINI, "nodes": [{"window": ["a"], "entities": [["Alpha", "Capability"]]}]})
-    with pytest.raises(ScriptError, match="unknown type"):
-        unknown._nodes(node_request((0, 1)))
+
+
+def test_shop_answers_refuse_a_label_in_neither_node_list_while_each_pass_skips_the_others() -> None:
+    mistyped = ShopAnswers(
+        {**MINI, "nodes": [{"window": ["a"], "entities": [["Alpha", "Module"], ["Alpha runs", "Constraint"]]}]}
+    )
+    # each pass answers its own list and skips the other pass's entity
+    assert [item["name"] for item in mistyped._nodes(node_request((0, 1)))["hubs"]] == ["Alpha"]
+    assert [item["name"] for item in mistyped._nodes(node_request((0, 1), STATEMENTS_LIST))["statements"]] == [
+        "Alpha runs"
+    ]
+    typo = ShopAnswers({**MINI, "nodes": [{"window": ["a"], "entities": [["Alpha", "Module"], ["Alpha", "Moduel"]]}]})
+    for node_list in (HUBS_LIST, STATEMENTS_LIST):
+        with pytest.raises(ScriptError, match="label 'Moduel' is in neither node list"):
+            typo._nodes(node_request((0, 1), node_list))
+    # the labels come from the build's ontology: one without the label refuses it too
+    with pytest.raises(ScriptError, match="label 'Constraint' is in neither node list"):
+        mistyped._nodes(node_request((0, 1)), labels=frozenset({"Module"}))
+    # a renamed ontology: the label as written or renamed may be in the lists
+    renamed = mistyped._nodes(
+        node_request((0, 1)), rename={"Constraint": "Limit"}, labels=frozenset({"Module", "Limit"})
+    )
+    assert [item["name"] for item in renamed["hubs"]] == ["Alpha"]
 
 
 def test_shop_answers_build_edge_answers_against_the_requests_entities() -> None:
     answers = ShopAnswers(MINI)
-    entities = '<ENTITIES>\n[{"name": "Alpha"}, {"name": "Beta"}]\n</ENTITIES>'
-    request = graphiti_request(EDGES_PROMPT, "", entities)
-    (edge,) = answers._edges(request)["edges"]
-    assert (edge["source_entity_name"], edge["relation_type"], edge["target_entity_name"], edge["episode_indices"]) == (
-        "Alpha",
-        "INTEGRATES_WITH",
-        "Beta",
-        [0],
-    )
-    missing = graphiti_request(EDGES_PROMPT, "", '<ENTITIES>\n[{"name": "Alpha"}]\n</ENTITIES>')
+    (edge,) = answers._edges(edge_request(["Alpha", "Beta"]))["edges"]
+    assert edge == {
+        "source": "Alpha",
+        "relation": "INTEGRATES_WITH",
+        "target": "Beta",
+        "fact": "Alpha calls Beta.",
+        "fragments": [1],
+    }
     with pytest.raises(ScriptError, match="not in the request"):
-        answers._edges(missing)
+        answers._edges(edge_request(["Alpha"]))
 
 
 def test_shop_answers_parse_attribute_consolidation_and_dedup_requests() -> None:
     answers = ShopAnswers(MINI)
     gateway = ScriptedGateway()
     messages = attribute_messages(
-        shipped_ontology(), gateway, nodes=[("node_1", "Module", "Alpha", [1])], fragments=["Doc > A\n\nAlpha starts."]
+        shipped_ontology(),
+        gateway,
+        nodes=[("node_1", "Module", "Alpha", [1])],
+        fragments=["Doc > A\n\nAlpha starts."],
+        other_headings={"node_1": ['Doc > B "quoted" (part)']},  # listed after the fragments, still parsed
     )
-    request = ScriptedRequest("small", "m", ATTRIBUTES_PROMPT, tuple(messages), BaseModel)
+    output = extract._batch_model(shipped_ontology(), ("Module",))
+    request = ScriptedRequest("small", "m", ATTRIBUTES_PROMPT, tuple(messages), output)
     assert answers.attribute_nodes(request) == [("node_1", "Module", "Alpha")]
-    assert answers._attributes(request) == {"node_1": {"quote": "Alpha starts"}}
+    # the quote is not a field of the attributes model (the node call returns it): left out
+    assert answers._attributes(request) == {"node_1": {"stmt": "Alpha runs."}}
     bad = ScriptedRequest(
         "small",
         "m",
@@ -529,7 +574,10 @@ def test_shop_answers_parse_attribute_consolidation_and_dedup_requests() -> None
         "judge", "m", HUBS_PROMPT, ({"role": "user", "content": gateway.untrusted("hubs", hubs)},), BaseModel
     )
     assert answers.consolidation_key(consolidation) == ("Beta", "Beta service")
-    assert answers._consolidation(consolidation) == {"groups": [{"ids": ["h2", "h1"], "label": "Module"}]}
+    # the judge's confidence defaults to high
+    assert answers._consolidation(consolidation) == {
+        "groups": [{"ids": ["h2", "h1"], "label": "Module", "confidence": "high"}]
+    }
 
     statements = json.dumps({"statements": [{"name": "Staff can export orders"}, {"name": "Staff export orders"}]})
     dedup = ScriptedRequest(
@@ -540,11 +588,12 @@ def test_shop_answers_parse_attribute_consolidation_and_dedup_requests() -> None
         BaseModel,
     )
     assert answers.dedup_key(dedup) == ("Staff can export orders", "Staff export orders")
-    assert answers._dedup(dedup) == {"same": True}
+    assert answers._dedup(dedup) == {"same": True, "confidence": "medium"}
 
 
 async def test_installed_shop_answers_leave_unknown_keys_unscripted() -> None:
     gateway = ShopAnswers(MINI).install(ScriptedGateway())
+    request = node_request((0, 2))
     with pytest.raises(UnscriptedRequestError):
-        await gateway.structured("extraction", None, node_request((0, 2)).messages, BaseModel, prompt=NODES_PROMPT)
+        await gateway.structured("extraction", None, request.messages, BaseModel, prompt=request.prompt)
     assert len(gateway.unscripted) == 1

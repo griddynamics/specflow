@@ -1,0 +1,187 @@
+# Hand-written model answers for the cross-document corpus `shop-v2/4/`: a corpus of its
+# own, not a revision of snapshots 1-3, built `first` by tests/test_graph_build_v2_live.py. Written by
+# hand, never recorded. The answered-elsewhere and INF-XDOC-01 verdicts and the nearness they rely on live
+# in `tests/graph_v2_support.py` (`ANSWERED_VERDICTS`, `ANSWER_PASSAGES`, `XDOC_VERDICTS`, `nearness`).
+#
+# Small units (unit_tokens 200), so payment-service.md is two units: its title "Payment service" is a
+# line of the first unit's text and only a heading-path element of the second.
+# - References: checkout.md cites "§1.1 of the Payment service specification"; the document title
+#   scopes the section number to payment-service.md, whose "1.1 Card brands" fragment grounds the rule
+#   "Card: Visa or Mastercard only": it joins the checkout unit's catalog as `referenced`, and the stated
+#   RELATES_TO to it is a kept foreign edge of that path.
+# - Answered elsewhere: of the two open questions of checkout.md, "In which currency are refunds
+#   paid?" is answered by payment-service.md "3 Refunds" (dropped with its edge, listed), the retry
+#   question only partly by "4 Retries" (the interval is still open: kept).
+# - Providers: the Card API's section names no module, but the second unit's heading path
+#   names the Payment service (the catalog's `heading` part): stated PROVIDED_BY; its `provider`
+#   attribute names Stripe, the processor it calls, so that derive is suppressed by the stated edge.
+#   The Refund API's owner is only in a parenthesis the edge pass missed: PROVIDED_BY from the
+#   `interface.provider` fallback derive (implied).
+# - INF-XDOC-01: the hub "Payment service" has members in checkout.md (they mention it) and in
+#   payment-service.md (PART_OF it); two cross-document pairs lie near (`nearness`): one RELATES_TO
+#   accepted with a quote from each side, one DEPENDS_ON without a dependency cue downgraded to RELATES_TO.
+
+snapshot: 4
+
+# One window per unit (max_node_windows 1); sections stay separate fragments.
+options:
+  fragment_tokens: {min: 20, target: 120, max: 200}
+  unit_tokens: 200
+  max_node_windows: 1
+
+fragments:
+  ov.intro: ["Acme Shop v2 - Payments Overview", "Acme Shop v2 is a made-up online store"]
+  ov.modules: ["Acme Shop v2 - Payments Overview > Modules", "The Checkout service is the backend"]
+  ov.interfaces: ["Acme Shop v2 - Payments Overview > Interfaces", "The Refund API (owner: Payment service)"]
+  chk.intro: ["Checkout Requirements", "This document specifies how the Checkout service"]
+  chk.card: ["Checkout Requirements > Card payment", "The Checkout service accepts only the card brands"]
+  chk.questions: ["Checkout Requirements > Open questions", "TBD: in which currency"]
+  ps.intro: ["Payment service", "This specification describes how the card payments"]
+  ps.cards: ["Payment service > 1 Cards", "The rules of this section apply"]
+  ps.brands: ["Payment service > 1 Cards > 1.1 Card brands", "Only Visa and Mastercard cards are accepted."]
+  ps.saved: ["Payment service > 1 Cards > 1.2 Saved cards", "A saved card is kept only as a token"]
+  ps.cardapi: ["Payment service > 2 Card API", "The Card API charges a card"]
+  ps.refunds: ["Payment service > 3 Refunds", "Refunds are always paid in the currency"]
+  ps.retries: ["Payment service > 4 Retries", "A failed card charge is retried three times"]
+
+nodes:
+  - window: [ov.intro, ov.modules, ov.interfaces]
+    entities:
+      - [Checkout service, Module, [ov.modules, ov.interfaces]]
+      - [Payment service, Module, [ov.modules, ov.interfaces]]
+      - [Refund API, Interface, [ov.interfaces]]
+  - window: [chk.intro, chk.card, chk.questions]
+    entities:
+      # the Payment service is only named here (defined in overview.md): mentioned, not grounded
+      - [Checkout service, Module, [chk.intro, chk.card]]
+      - [Checkout service accepts only listed card brands, FunctionalRequirement, [chk.card]]
+      - [Customer sees the result of every card charge, FunctionalRequirement, [chk.card]]
+      - [Customer can pay with a saved card, FunctionalRequirement, [chk.card]]
+      - ["In which currency are refunds paid?", OpenQuestion, [chk.questions]]
+      - ["How many times and how far apart is a failed card charge retried?", OpenQuestion, [chk.questions]]
+  # the title "Payment service" is a heading here, no module statement: nothing grounds the module
+  - window: [ps.intro, ps.cards, ps.brands, ps.saved]
+    entities:
+      - [Stripe, Module, [ps.saved]]
+      - ["Card: Visa or Mastercard only", BusinessRule, [ps.brands]]
+      - [Saved cards are kept only as Stripe tokens, Constraint, [ps.saved]]
+  - window: [ps.cardapi, ps.refunds, ps.retries]
+    entities:
+      - [Card API, Interface, [ps.cardapi]]
+      - [Stripe, Module, [ps.cardapi]]
+      - ["System records every card charge with amount, currency, result", FunctionalRequirement, [ps.cardapi]]
+      - ["Refund: paid in the currency of the original order", BusinessRule, [ps.refunds]]
+      - [System retries a failed card charge three times, FunctionalRequirement, [ps.retries]]
+
+# No two hubs are the same thing; the two interfaces are a label part of their own.
+consolidation:
+  - block: [Checkout service, Payment service, Stripe]
+    groups: []
+  - block: [Card API, Refund API]
+    groups: []
+
+edges:
+  # the Refund API's owner is only in a parenthesis: the edge pass misses it (attribute fallback)
+  - unit: [ov.intro, ov.modules, ov.interfaces]
+    facts:
+      - [Refund API, CONSUMED_BY, Checkout service, "The Checkout service calls the Refund API when a customer asks for a refund.", [ov.interfaces]]
+
+  - unit: [chk.intro, chk.card, chk.questions]
+    facts:
+      - [Checkout service accepts only listed card brands, PART_OF, Checkout service, "The Checkout service accepts only the card brands listed in §1.1 of the Payment service specification.", [chk.card]]
+      - [Customer sees the result of every card charge, PART_OF, Checkout service, "It shows the customer the result of every card charge that the Payment service returns.", [chk.card]]
+      - [Customer can pay with a saved card, PART_OF, Checkout service, "Customers can pay with a card they saved in an earlier order.", [chk.card]]
+      # the rule of payment-service.md "1.1 Card brands", in this catalog only by the "§1.1" reference
+      - [Checkout service accepts only listed card brands, RELATES_TO, "Card: Visa or Mastercard only", "The Checkout service accepts only the card brands listed in §1.1 of the Payment service specification.", [chk.card]]
+      - ["In which currency are refunds paid?", RELATES_TO, Payment service, "TBD: in which currency does the Payment service pay refunds?", [chk.questions]]
+      - ["How many times and how far apart is a failed card charge retried?", RELATES_TO, Payment service, "TBD: how many times, and how far apart, does the Payment service retry a failed card charge?", [chk.questions]]
+
+  # the Payment service is named by the title line of this unit (mentioned)
+  - unit: [ps.intro, ps.cards, ps.brands, ps.saved]
+    facts:
+      - ["Card: Visa or Mastercard only", PART_OF, Payment service, "Only Visa and Mastercard cards are accepted.", [ps.brands]]
+      - [Saved cards are kept only as Stripe tokens, PART_OF, Payment service, "A saved card is kept only as a token from Stripe, never as a full card number", [ps.saved]]
+
+  # the Payment service only in the heading path of these fragments (heading)
+  - unit: [ps.cardapi, ps.refunds, ps.retries]
+    facts:
+      - [Card API, PROVIDED_BY, Payment service, "The Card API charges a card for the amount of an order through Stripe, the external card processor, and returns the result of the charge.", [ps.cardapi]]
+      - ["System records every card charge with amount, currency, result", PART_OF, Payment service, "Every card charge is recorded with its amount, currency and result.", [ps.cardapi]]
+      - ["Refund: paid in the currency of the original order", PART_OF, Payment service, "Refunds are always paid in the currency of the original order", [ps.refunds]]
+      - [System retries a failed card charge three times, PART_OF, Payment service, "A failed card charge is retried three times before the order is cancelled.", [ps.retries]]
+
+attributes:
+  # Modules
+  Checkout service:
+    quote: The Checkout service is the backend that turns a basket into a paid order.
+    stmt: The Checkout service turns a basket into a paid order.
+    external: "no"
+    type: backend
+  Payment service:
+    quote: The Payment service is the backend that charges cards, keeps saved cards and pays refunds
+    stmt: The Payment service charges cards, keeps saved cards and pays refunds back to customers.
+    external: "no"
+    type: backend
+  Stripe:
+    quote: Stripe, the external card processor
+    stmt: Stripe is the external card processor.
+    external: "yes"
+    type: other
+  # Interfaces: the Card API's provider names the processor it calls (the stated edge wins)
+  Card API:
+    quote: The Card API charges a card for the amount of an order through Stripe
+    stmt: The Card API charges a card for the amount of an order and returns the result.
+    kind: api
+    provider: Stripe
+  Refund API:
+    quote: "The Refund API (owner: Payment service) pays a refund back to the card of the original order."
+    stmt: The Refund API pays a refund back to the card of the original order.
+    kind: api
+    provider: Payment service
+  # Requirements and open questions
+  Checkout service accepts only listed card brands:
+    quote: The Checkout service accepts only the card brands listed in §1.1 of the Payment service
+    stmt: The Checkout service accepts only the card brands the Payment service specification lists.
+    source_status: stated
+    is_assumption: "no"
+  Customer sees the result of every card charge:
+    quote: It shows the customer the result of every card charge that the Payment service returns.
+    stmt: The customer sees the result of every card charge.
+    source_status: stated
+    is_assumption: "no"
+  Customer can pay with a saved card:
+    quote: Customers can pay with a card they saved in an earlier order.
+    stmt: Customers pay with a card saved in an earlier order.
+    source_status: stated
+    is_assumption: "no"
+  "Card: Visa or Mastercard only":
+    quote: Only Visa and Mastercard cards are accepted.
+    stmt: Only Visa and Mastercard cards are accepted.
+    source_status: stated
+    is_assumption: "no"
+  Saved cards are kept only as Stripe tokens:
+    quote: A saved card is kept only as a token from Stripe, never as a full card number
+    stmt: A saved card is kept only as a Stripe token.
+    source_status: stated
+    is_assumption: "no"
+  "System records every card charge with amount, currency, result":
+    quote: Every card charge is recorded with its amount, currency and result.
+    stmt: Every card charge is recorded with its amount, currency and result.
+    source_status: stated
+    is_assumption: "no"
+  "Refund: paid in the currency of the original order":
+    quote: Refunds are always paid in the currency of the original order
+    stmt: A refund is paid in the currency of the original order.
+    source_status: stated
+    is_assumption: "no"
+  System retries a failed card charge three times:
+    quote: A failed card charge is retried three times before the order is cancelled.
+    stmt: A failed card charge is retried three times.
+    source_status: stated
+    is_assumption: "no"
+  "In which currency are refunds paid?":
+    quote: "TBD: in which currency does the Payment service pay refunds?"
+    stmt: In which currency are refunds paid?
+  "How many times and how far apart is a failed card charge retried?":
+    quote: "TBD: how many times, and how far apart, does the Payment service retry a failed card charge?"
+    stmt: How many times and how far apart is a failed card charge retried?

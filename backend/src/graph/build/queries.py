@@ -1,14 +1,8 @@
-"""Build Cypher: every query text the build runs, as named ``Query`` constants (architecture.md I3).
-
-The statements live in ``.cypher`` files under ``queries/`` next to this module and are loaded through
-``load_build_query``; a query whose relationship type, labels or hop count are only known at run time is a
-file with ``__NAME__`` tokens that its factory fills with validated names.
-
-Every query binds ``$project_id``; the core ``Executor`` injects it and refuses a query that does not.
-"""
+"""Build Cypher: every query text the build runs, as named ``Query`` constants."""
 
 from __future__ import annotations
 
+import hashlib
 from functools import cache
 from pathlib import Path
 from typing import Final
@@ -27,28 +21,28 @@ def load_build_query(name: str) -> str:
     return read_query_file(_QUERY_DIRECTORY, name)
 
 
-# Plan (build.md step 1.2): the persisted documents the snapshot is compared with. Missing
+# Plan: the persisted documents the snapshot is compared with. Missing
 # properties are defaulted so a row always validates as a ``DocumentRec``.
 READ_PERSISTED_DOCUMENTS: Final = Query(
     "build_read_persisted_documents",
     load_build_query("build_read_persisted_documents.cypher"),
 )
 
-# Plan (build.md step 1.4): the persisted fragments a revision's fragments are matched with; retired
+# Plan: the persisted fragments a revision's fragments are matched with; retired
 # fragments are history and never matched. Ordered by document, then ordinal.
 READ_PERSISTED_FRAGMENTS: Final = Query(
     "build_read_persisted_fragments",
     load_build_query("build_read_persisted_fragments.cypher"),
 )
 
-# Extract nodes (build.md step 2): known terms of an ``update`` build are the names of the persisted
+# Extract nodes: known terms of an ``update`` build are the names of the persisted
 # hub nodes. ``$labels`` are the ontology's hub labels.
 READ_PERSISTED_HUBS: Final = Query(
     "build_read_persisted_hubs",
     load_build_query("build_read_persisted_hubs.cypher"),
 )
 
-# Mode selection (build.md "Modes"): whether anything of the project was persisted. An interrupted first
+# Mode selection: whether anything of the project was persisted. An interrupted first
 # persist can leave spec nodes without any ``Document`` (documents are written in the last phase).
 READ_PERSISTED_PRESENCE: Final = Query(
     "build_read_persisted_presence",
@@ -56,7 +50,7 @@ READ_PERSISTED_PRESENCE: Final = Query(
 )
 
 
-# Diff (build.md step 6): the current graph. Spec nodes are found through the ``(group_id, uuid)`` unique
+# Diff: the current graph. Spec nodes are found through the ``(group_id, uuid)`` unique
 # index (``uuid IS NOT NULL`` lets the planner seek on its ``group_id`` prefix); the vectors are left out.
 READ_CURRENT_NODES: Final = Query(
     "build_read_current_nodes",
@@ -88,7 +82,7 @@ def read_current_edges(relation: str) -> Query:
     )
 
 
-# Persist (build.md step 7). Each query takes ``$rows`` (one map per operation of a batch) and runs
+# Persist. Each query takes ``$rows`` (one map per operation of a batch) and runs
 # inside the batch's transaction. Nodes are found on their unique ``(group_id, <key>)`` keys; a domain
 # label is set only when the node is created (a dynamic label in a MATCH/MERGE pattern scans), and
 # relationship types are rendered from validated names (``relationship_query``). Every query returns
@@ -104,10 +98,10 @@ UPDATE_SPEC_NODES: Final = Query(
     load_build_query("build_update_spec_nodes.cypher"),
 )
 
-# Merge (W3): per row, every relationship of each merged node whose type build does not own
+# Merge: per row, every relationship of each merged node whose type build does not own
 # (``$owned_types``) moves to the survivor (same pattern as the core ``MOVE_FOREIGN_RELATIONSHIPS``: same
 # type, direction, other end and properties; an equal one already on the survivor is not duplicated; a
-# self-loop stays a self-loop; one between the two nodes is deleted, never turned into a self-loop),
+# self-loop stays a self-loop; one between the two nodes is deleted, never turned into a self-loop)
 # then the merged node is deleted with its build-owned relationships. The survivor gets its final
 # ``spec_id_aliases`` (its other properties and stamps come with its update). A merged node already
 # gone (the batch applied again) is skipped.
@@ -179,10 +173,7 @@ def update_edges(relation: str) -> Query:
 
 @cache
 def delete_edges(relation: str) -> Query:
-    """Delete the edge ``row.uuid`` stored under ``row.edge_key`` (an edge without a ``uuid``: by key).
-
-    Matching the uuid too keeps a batch applied again from deleting another edge that has since been
-    given this key."""
+    """Delete the edge ``row.uuid`` stored under ``row.edge_key`` (an edge without a ``uuid``: by key)."""
 
     rel = safe_name(relation)
     return Query(
@@ -191,8 +182,8 @@ def delete_edges(relation: str) -> Query:
     )
 
 
-# Verification (analysis.md "Verification"; ``graph.build.verify``). The reads return only what build
-# owns: spec nodes with their build-owned properties and their build-owned labels (``$labels``),
+# Verification ("Verification"; ``graph.build.verify``). The reads return only what build
+# owns: spec nodes with their build-owned properties and their build-owned labels (``$labels``)
 # relationships of build-owned relations (``$relations``) and fragments; foreign labels, properties
 # and relationship types are never read. The repairs address what the reads returned by element id
 # (a fault may have removed a node's ``uuid`` or an edge's ``edge_key``) and re-check the project and
@@ -220,7 +211,7 @@ REPAIR_DELETE_EDGES: Final = Query(
     load_build_query("build_repair_delete_edges.cypher"),
 )
 
-# W4: a spec node deleted by a repair goes with its relationships.
+# A spec node deleted by a repair goes with its relationships.
 REPAIR_DELETE_NODES: Final = Query(
     "build_repair_delete_nodes",
     load_build_query("build_repair_delete_nodes.cypher"),
@@ -251,9 +242,9 @@ REPAIR_EDGE_EVIDENCE: Final = Query(
 )
 
 
-# Infer (analysis.md "Light inference"). Subjects and candidates are read through stated and implied
+# Infer. Subjects and candidates are read through stated and implied
 # edges only (``$bases``; an edge without ``basis`` counts as stated), so earlier inferred edges never
-# feed new candidates (FR-INF-02). Labels are
+# feed new candidates. Labels are
 # parameters (``$subject_labels``, ``$target_labels``); relation names and hop counts come from the
 # validated ontology and are rendered. A symmetric relation is matched in either direction.
 
@@ -270,10 +261,10 @@ def _hops(count: object) -> int:
 
 @cache
 def infer_endpoint_subjects(via: tuple[str, ...], symmetric: tuple[str, ...], *, mentions: bool) -> Query:
-    """Template ``endpoints``: each subject node with the uuids of its target nodes: those it reaches
-    over one edge of a ``via`` relation (those in ``symmetric`` in either direction), and with
-    ``mentions`` those ``MENTIONED_IN`` one of its evidence fragments (``REFERENCED_BY``, status in
-    ``$statuses``); subjects without any target are left out."""
+    """Template ``endpoints``: each subject node with the uuids of its target nodes: those it reaches over one edge of a
+    ``via`` relation (those in ``symmetric`` in either direction), and with ``mentions`` those ``MENTIONED_IN`` one of
+    its evidence fragments (``REFERENCED_BY``, status in ``$statuses``); subjects without any target are left out.
+    """
 
     if not via:
         raise ConformanceError("inference_via_empty")
@@ -295,35 +286,67 @@ def infer_endpoint_subjects(via: tuple[str, ...], symmetric: tuple[str, ...], *,
     )
 
 
+SEQUENCE_STEP: Final = ">"
+"""Separates the relations of a ``sequence`` container path (``A>B``: one ``A`` edge, then one ``B``)."""
+VIA_HOPS: Final = "*"
+"""Separates a ``via`` container path's relations from its hop range (``A|B*1..3``)."""
+
+
+def container_path(relations: tuple[str, ...], *, sequence: bool, min_hops: int, max_hops: int) -> str:
+    """One container path in the form ``infer_realization_subjects`` takes: ``A>B`` for a sequence,
+    ``A|B*<min>..<max>`` for a ``via`` path (a bare name is one edge)."""
+
+    if sequence:
+        return SEQUENCE_STEP.join(relations)
+    return f"{'|'.join(relations)}{VIA_HOPS}{min_hops}..{max_hops}"
+
+
+def _container_pattern(path: str, symmetric: frozenset[str]) -> str:
+    """The Cypher pattern of one container path (``container_path`` form)."""
+
+    if SEQUENCE_STEP in path:
+        steps = [safe_name(name) for name in path.split(SEQUENCE_STEP)]
+        return "(:SpecNode)".join(f"-[:{name}]{_arrow(symmetric=name in symmetric)}" for name in steps)
+    names_part, _, hops = path.partition(VIA_HOPS)
+    names = [safe_name(name) for name in names_part.split("|")]
+    low_text, _, high_text = (hops or "1..1").partition("..")
+    if not low_text.isdigit() or not high_text.isdigit():
+        raise ConformanceError("cypher_hops_invalid")
+    low, high = _hops(int(low_text)), _hops(int(high_text))
+    if low > high:
+        raise ConformanceError("cypher_hops_invalid")
+    either = {name in symmetric for name in names}
+    if len(either) != 1:
+        raise ConformanceError("inference_container_path_mixed_direction")
+    return f"-[:{'|'.join(names)}*{low}..{high}]{_arrow(symmetric=either.pop())}"
+
+
 @cache
 def infer_realization_subjects(
-    member_relation: str,
-    container_relation: str,
-    *,
-    member_symmetric: bool,
-    container_symmetric: bool,
-    max_hops: int,
+    member_relation: str, path: str, symmetric: tuple[str, ...], *, member_symmetric: bool
 ) -> Query:
-    """Template ``realization``: each subject node with its members (nodes with a ``member_relation``
-    edge to it) and the container nodes reached from them by 1 to ``max_hops`` ``container_relation``
-    edges, each with the members it is reached from; subjects without any container are left out."""
+    """Template ``realization``: each subject node with its members (nodes with a ``member_relation`` edge to it) and
+    the container nodes reached from them by the container ``path`` (``container_path`` form; relations in ``symmetric``
+    in either direction), each with the members it is reached from; subjects without any container are left out.
+    """
 
-    member, container, hops = safe_name(member_relation), safe_name(container_relation), _hops(max_hops)
+    member = safe_name(member_relation)
+    pattern = _container_pattern(path, frozenset(safe_name(name) for name in symmetric))
+    digest = hashlib.sha256(path.encode("utf-8")).hexdigest()[:12]
     return Query(
-        f"build_infer_realization_subjects_{member}_{container}_{hops}",
+        f"build_infer_realization_subjects_{member}_{digest}",
         render_query(
             load_build_query("infer_realization_subjects.cypher"),
             member=member,
             member_arrow=_arrow(symmetric=member_symmetric),
-            container=container,
-            container_arrow=_arrow(symmetric=container_symmetric),
-            hops=str(hops),
+            pattern=pattern,
         ),
     )
 
 
-# Spine reachability (ontology.md "Spine and inference"; ``graph.build.spine``, used by inference and
-# verification): the spec nodes with their build-owned labels (``$labels``) and the edges of the spine
+# Spine reachability ( "Spine and inference"; ``graph.build.spine``, used by inference and
+# verification): the spec nodes with their build-owned labels (``$labels``) and the values of the
+# attributes the ontology's conditions name (``$attributes``), and the edges of the spine and owner
 # relations (``$relations``) between spec nodes of the project, with their ``basis``; the paths are
 # walked in memory.
 READ_SPINE_NODES: Final = Query(
@@ -339,11 +362,10 @@ READ_SPINE_EDGES: Final = Query(
 
 @cache
 def infer_similar_targets(writes: str, *, symmetric: bool) -> Query:
-    """Template ``attach_orphan``: for each node of ``$uuids``, the ``$limit`` target nodes of the
-    project most similar to it by exact ``embedding`` cosine, leaving out those it already has a
-    ``writes`` edge with (stated or implied); best first, ties by ``spec_id``, then ``uuid``. The
-    project's targets are read once and scored for every subject, so the result never depends on
-    other projects in the database. A node without an embedding has none."""
+    """Template ``attach_orphan``: for each node of ``$uuids``, the ``$limit`` target nodes of the project most similar
+    to it by exact ``embedding`` cosine, leaving out the uuids of ``$excluded`` and those it already has a ``writes``
+    edge with (stated or implied); best first, ties by ``spec_id``, then ``uuid``.
+    """
 
     rel = safe_name(writes)
     return Query(
@@ -366,7 +388,9 @@ def infer_exclusive_holders(writes: str) -> Query:
 
 # The nodes a judgement shows: name, domain label (``$labels``), identity key, statements and up to
 # ``$per_node`` grounding fragments (``REFERENCED_BY`` to a fragment whose status is in ``$statuses``)
-# in document order, by id and content hash; their texts are read only for the judged subjects.
+# in document order, by id and content hash, each with its heading path and the heading and code fence
+# lines of its text up to the node's first evidence line in it (the node's section, ``terms.heading_section``)
+# their texts are read only for the judged subjects.
 READ_INFER_NODES: Final = Query(
     "build_read_infer_nodes",
     load_build_query("build_read_infer_nodes.cypher"),
@@ -377,15 +401,30 @@ READ_INFER_FRAGMENTS: Final = Query(
     load_build_query("build_read_infer_fragments.cypher"),
 )
 
+# Template ``cross_document``: the hubs with their members and each
+# member's documents (relations ``$via`` and labels are parameters), the titles of documents and the
+# embeddings of members (their pair cosines are computed in Python, ``infer_xdoc.pair_cosines``).
+INFER_XDOC_MEMBERS: Final = Query(
+    "build_infer_xdoc_members",
+    load_build_query("infer_xdoc_members.cypher"),
+)
+
+INFER_XDOC_DOCUMENTS: Final = Query(
+    "build_infer_xdoc_documents",
+    load_build_query("infer_xdoc_documents.cypher"),
+)
+
+INFER_XDOC_EMBEDDINGS: Final = Query(
+    "build_infer_xdoc_embeddings",
+    load_build_query("infer_xdoc_embeddings.cypher"),
+)
+
 
 @cache
 def infer_write_edges(relation: str) -> Query:
-    """The swap's writes: MERGE each inferred edge ``row.edge_key`` from ``row.source`` to ``row.target``
-    (``uuid`` and ``created_at`` set on creation only) and set ``row.props``; ``refs`` are the
-    ``row.ref`` of the rows written. A row is skipped when an
-    edge with its key exists that is not an inferred edge of the same rule (``row.rule``), or, with
-    ``row.either_direction``, when the two nodes are already linked by a non-inferred edge of the
-    relation in either direction."""
+    """The swap's writes: MERGE each inferred edge ``row.edge_key`` from ``row.source`` to ``row.target`` (``uuid`` and
+    ``created_at`` set on creation only) and set ``row.props``; ``refs`` are the ``row.ref`` of the rows written.
+    """
 
     rel = safe_name(relation)
     return Query(

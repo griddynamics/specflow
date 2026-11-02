@@ -1,6 +1,5 @@
-# Hand-written model answers for shop snapshot 3 (tech-specs 9.1-9.2), with the options of 1.yaml:
-# the `update` build from snapshot 2 and a `rebuild` of snapshot 3. Written by hand like 1.yaml (owner
-# decision P3), never recorded. A request this file does not hold fails the test, so it holds only
+# Hand-written model answers for shop snapshot 3, with the options of 1.yaml:
+# the `update` build from snapshot 2 and a `rebuild` of snapshot 3. Written by hand like 1.yaml, never recorded. A request this file does not hold fails the test, so it holds only
 # what those builds should ask (README "Snapshot 3"):
 # - update 2 -> 3: admin.md is removed (no call); "Orders service" is renamed "Order management
 #   service". The changed overview.md fragments (one run per planned window), the changed
@@ -10,10 +9,10 @@
 #   module is named "Order management service" although the known terms offer the persisted
 #   "Orders service" (Diff carries the node over: same spec_id, new name, old key as an alias).
 #   Edges: the checkout, overview and first orders.md units; the "Export details" unit keeps its
-#   content and catalog, so its stored edges are reused (FR-BLD-22).
-# - rebuild of 3: the hub catalog and every planned window and unit again; the windows and units equal
+#   content and catalog, so its stored edges are reused.
+# - rebuild of 3: both node passes of every planned window and every unit again; the windows and units equal
 #   to the update's are answered alike; the malformed "Export details" window is malformed again; the
-#   hub block is not sent (every pair decided earlier, FR-BLD-25).
+#   hub block is not sent (every pair decided earlier).
 
 snapshot: 3
 
@@ -155,7 +154,7 @@ nodes:
       - [Checkout service, Module, [ov.checkout]]
       - [Order management service, Module, [ov.orders]]
       - [Orders database, Module, [ov.db]]
-      - [ERP, Module, [ov.erp]]
+      - [ERP, Module, [ov.erp], null, [enterprise resource planning system]]
       - [Stripe, Module, [ov.stripe]]
       - [System cannot store full card numbers, FunctionalRequirement, [ov.stripe]]
   - window: [ov.auth, ov.audit, ov.arch, ov.glossary]
@@ -167,29 +166,9 @@ nodes:
       - [Calls between internal modules use HTTPS, QualityRequirement, [ov.arch]]
 
 
-# Rebuild: one batch, the outlines of the four documents. The catalog follows the text: the module is
-# "Order management service" now; "Delivery options" has its own heading (its own fragment).
-hub_catalog:
-  - documents:
-      - Acme Shop - System Overview
-      - Checkout service Requirements
-      - Order management service Requirements
-      - Weekly sync notes
-    hubs:
-      - [Checkout service, Module]
-      - [Order management service, Module]
-      - [Orders database, Module]
-      - [ERP, Module]
-      - [Stripe, Module]
-      - [Authentication, Capability]
-      - [Audit logging, Capability]
-      - [Payment flow, Feature]
-      - [Order confirmation, Feature]
-      - [Delivery options, Feature]
-      - [Order history export, Feature]
-
-# Update 2 -> 3: the block holds a new hub key ("Order management service"), so it is sent; the answer
-# groups nothing and the stored decision of build 1 keeps "Audit trail" in "Audit logging" (FR-BLD-25).
+# Update 2 -> 3: the block holds a new hub key ("Order management service"), so it is sent. The rename
+# changed the overview.md lines that ground "Audit logging", so the stored decision of build 1 on it
+# expired  and the judge groups the two capabilities again.
 consolidation:
   - block:
       - Audit logging
@@ -205,7 +184,8 @@ consolidation:
       - Orders database
       - Payment flow
       - Stripe
-    groups: []
+    groups:
+      - {label: Capability, names: [Audit logging, Audit trail]}
 
 edges:
   - unit: [chk.intro, chk.basket, chk.payment, chk.confirm, chk.delivery, chk.quality, chk.stripe, chk.retries, chk.notes, chk.notes2]

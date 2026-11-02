@@ -1,11 +1,4 @@
-"""Live gateway smoke over the real LLM gateway endpoint (plan 1.T7, NFR-PORT-01).
-
-Gated by ``SPECFLOW_TEST_LLM_GATEWAY=1``; run with ``uv run --env-file ../.env.local``. One structured
-call per chat class with a tiny output model, and one embedding whose vector must have
-``GRAPH_EMBEDDING_DIM`` entries and fit the vector indexes: the dimension of the live Neo4j
-``graph_spec_node_embedding`` index when ``SPECFLOW_TEST_NEO4J=1`` too, else the data model's 3072.
-The API key is never printed or asserted into a message.
-"""
+"""Live gateway smoke over the real LLM gateway."""
 
 from __future__ import annotations
 

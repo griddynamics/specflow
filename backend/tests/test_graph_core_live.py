@@ -1,10 +1,4 @@
-"""Live Neo4j tests of the graph core (plan 1.T4): schema, project isolation, owned writes, reads.
-
-Gate: ``SPECFLOW_TEST_NEO4J=1`` and ``uv run --env-file ../.env.local``. Every test works in its own
-``pytest-graph-<hex>`` project ids; ``neo4j_project`` deletes them afterwards, asserts nothing is
-left and that nothing outside the test projects changed. The schema test temporarily drops one
-``graph_*`` range index of the shared dev database and restores it.
-"""
+"""Live Neo4j tests of the graph core: schema, project isolation, owned writes, reads."""
 
 from __future__ import annotations
 
@@ -136,7 +130,7 @@ async def assert_code(awaitable: Any, error_type: type[Exception], code: str) ->
     assert raised.value.code == code
 
 
-# Schema (FR-CORE-02)
+# Schema
 
 
 async def show_objects(project: Neo4jProject) -> list[dict[str, Any]]:
@@ -232,7 +226,7 @@ async def test_nfr_port_01_server_is_neo4j_community_5_26_or_later(neo4j_project
     assert {row["name"]: row["edition"] for row in rows}["Neo4j Kernel"] == "community"
 
 
-# Project isolation (FR-CORE-01)
+# Project isolation
 
 
 async def test_two_projects_with_equal_content_are_isolated(
@@ -287,7 +281,7 @@ async def test_two_projects_with_equal_content_are_isolated(
     assert pay_a is not None and [p.fragment_id for p in pay_a.provenance] == ["f1"]
 
 
-# Ownership (FR-CORE-04)
+# Ownership
 
 
 async def test_writer_refuses_types_of_another_owner_and_writes_nothing(
@@ -349,7 +343,7 @@ async def test_gap_cannot_delete_its_node_with_relationships_of_another_owner(
     assert await gap.delete_node(FINDING, GAP_FINDING.key) is False
 
 
-# Owned properties (FR-CORE-05)
+# Owned properties
 
 
 async def test_build_update_leaves_foreign_properties_unchanged(
@@ -399,7 +393,7 @@ async def test_upserts_are_idempotent_and_labels_never_change(neo4j_project: Neo
 
 
 async def test_spec_id_and_uuid_are_fixed_at_creation(neo4j_project: Neo4jProject) -> None:
-    """data-model.md: ``uuid`` and ``spec_id`` are fixed at creation; a change writes nothing."""
+    """: ``uuid`` and ``spec_id`` are fixed at creation; a change writes nothing."""
 
     project = neo4j_project
     build = await seed(project, project.project_id, shipped_ontology())
@@ -438,7 +432,7 @@ async def test_spec_id_and_uuid_are_fixed_at_creation(neo4j_project: Neo4jProjec
     )
 
 
-# The foreign relationship move (W3)
+# The foreign relationship move
 
 
 async def test_move_foreign_relationships(neo4j_project: Neo4jProject, gap_ontology: Ontology) -> None:
@@ -588,7 +582,7 @@ async def test_edge_key_names_one_pair_of_endpoints(neo4j_project: Neo4jProject)
 
 
 async def test_reader_resolves_merged_node_through_alias(neo4j_project: Neo4jProject, gap_ontology: Ontology) -> None:
-    """FR-READ-01: given A merged into B, ``node(A)`` returns B."""
+    """: given A merged into B, ``node(A)`` returns B."""
 
     project = neo4j_project
     build = project.writer("build", ontology=gap_ontology)
@@ -616,7 +610,7 @@ async def test_reader_resolves_merged_node_through_alias(neo4j_project: Neo4jPro
 async def test_reader_never_returns_foreign_nodes_documents_or_fragments(
     neo4j_project: Neo4jProject, gap_ontology: Ontology
 ) -> None:
-    """FR-READ-06."""
+    """."""
 
     project = neo4j_project
     await seed(project, project.project_id, gap_ontology)
@@ -648,7 +642,7 @@ async def test_reader_never_returns_foreign_nodes_documents_or_fragments(
 
 
 async def test_reader_filters_by_attribute_values(neo4j_project: Neo4jProject) -> None:
-    """FR-READ-08: ``where`` filters; an unknown attribute name raises ``ConfigurationError``."""
+    """: ``where`` filters; an unknown attribute name raises ``ConfigurationError``."""
 
     project = neo4j_project
     await seed(project, project.project_id, shipped_ontology())

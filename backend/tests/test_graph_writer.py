@@ -1,10 +1,4 @@
-"""Offline tests of ``OwnedWriter`` and ``GraphReader`` guards (plan 1.T4; FR-CORE-04, NFR-SEC-02, I4).
-
-A fake ``Executor`` records every query the writer or reader would run (text and parameters) and
-answers with fixed rows, so the tests see exactly what reaches Neo4j: for a refused operation,
-nothing. The renamed-ontology tests run the same code over a copy of the shipped ontology whose
-labels, relations and id prefixes are all renamed (rule I4: library code knows the format only).
-"""
+"""Offline tests of ``OwnedWriter`` and ``GraphReader`` guards."""
 
 from __future__ import annotations
 
@@ -112,7 +106,7 @@ async def refused(awaitable: Any, error_type: type[GraphError], code: str) -> No
     assert raised.value.code == code, raised.value
 
 
-# Writer guards (FR-CORE-04 and the writer's own checks)
+# Writer guards
 
 
 @pytest.mark.parametrize("owner", ["planner", "Build", "", "core"])
@@ -195,11 +189,7 @@ async def test_gap_cannot_write_documents_or_fragments(gap_ontology: Ontology) -
 
 
 async def test_keyed_node_upserts_merge_on_a_uniquely_constrained_key(gap_ontology: Ontology, tmp_path: Path) -> None:
-    """Document and Fragment use their fixed-label queries; a foreign node MERGEs its label on uuid.
-
-    Each key is the one a ``graph_*`` uniqueness constraint holds (``schema_objects``), so the MERGE
-    takes the constraint's lock and seeks its index.
-    """
+    """Document and Fragment use their fixed-label queries; a foreign node MERGEs its label on uuid."""
 
     build, build_runs = writer()
     await build.upsert_node(DOC.label, DOC.key, {"path": "a.md"})
@@ -249,7 +239,7 @@ async def test_a_spec_id_change_is_reported_as_immutable() -> None:
     )
 
 
-# NFR-SEC-02: injection-shaped names never reach Cypher
+# injection-shaped names never reach Cypher
 
 INJECTIONS = [
     "Module) DETACH DELETE (n",
@@ -303,6 +293,9 @@ LABELS = {
     "BusinessRule": "PolicyRule",
     "IntegrationRequirement": "InterfaceNeed",
     "DataRequirement": "DataNeed",
+    "Interface": "Contract",
+    "DataEntity": "BusinessObject",
+    "OpenQuestion": "Unknown",
 }
 RELATIONS = {
     "PART_OF": "BELONGS_TO",
@@ -310,8 +303,22 @@ RELATIONS = {
     "REALIZED_BY": "DELIVERED_BY",
     "INTEGRATES_WITH": "TALKS_TO",
     "RELATES_TO": "LINKED_WITH",
+    "DEPLOYED_TO": "RUNS_IN",
+    "PROVIDED_BY": "OFFERED_BY",
+    "CONSUMED_BY": "USED_BY",
+    "STORED_IN": "KEPT_IN",
+    "CARRIES": "TRANSPORTS",
+    "DEPENDS_ON": "WAITS_FOR",
 }
-PREFIXES = {"MOD::": "CMP::", "FEAT::": "TRT::", "CAP::": "ABL::", "REQ::": "NEED::"}
+PREFIXES = {
+    "MOD::": "CMP::",
+    "FEAT::": "TRT::",
+    "CAP::": "ABL::",
+    "REQ::": "NEED::",
+    "IFC::": "CTR::",
+    "ENT::": "OBJ::",
+    "QST::": "ASK::",
+}
 OLD_NAMES = re.compile(r"\b(" + "|".join([*LABELS, *RELATIONS]) + r")\b|" + "|".join(map(re.escape, PREFIXES)))
 
 

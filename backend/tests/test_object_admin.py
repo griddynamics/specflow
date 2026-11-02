@@ -85,7 +85,7 @@ def env(monkeypatch, prefix="dev/local/x/"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("STORAGE_BUCKET", "b")
     monkeypatch.setenv("STORAGE_PREFIX", prefix)
-    monkeypatch.setattr("dotenv.load_dotenv", lambda *_a, **_k: False)
+    monkeypatch.setattr(cleanup, "load_dotenv", lambda *_a, **_k: False)
 
 
 def test_cleanup_prints_the_same_json_line_through_the_factory(monkeypatch, capsys):

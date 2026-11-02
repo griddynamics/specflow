@@ -396,6 +396,8 @@ GRAPH_BUILD_SWITCHES: Final = (
 DEFAULT_GRAPH_STATE_DIR: Final = ".graph-build/state"
 # The documented default of GRAPH_EMBEDDING_DIM.
 GRAPH_EMBEDDING_DIM: Final = 1536
+# The documented default of GRAPH_LLM_CONCURRENCY (graph.core.LLMConfig.concurrency).
+GRAPH_LLM_CONCURRENCY: Final = 8
 
 
 class GraphBuildSettings(_MappedSettings):
@@ -405,9 +407,10 @@ class GraphBuildSettings(_MappedSettings):
     then every required variable must be usable. ``GRAPH_EMBEDDING_DIM`` and
     ``LLM_GATEWAY_*`` are not switches (the dimension defaults to 1536, and the
     agents share the gateway). The key may be empty locally, never elsewhere.
+    ``GRAPH_LLM_CONCURRENCY`` (blank: 8) is the library's ``LLMConfig.concurrency``.
     """
 
-    blank_is_unset: ClassVar[tuple[str, ...]] = ("GRAPH_STATE_DIR",)
+    blank_is_unset: ClassVar[tuple[str, ...]] = ("GRAPH_STATE_DIR", "GRAPH_LLM_CONCURRENCY")
 
     llm_gateway_url: Text = Field(validation_alias="LLM_GATEWAY_URL")
     llm_gateway_api_key: SecretStr = Field(validation_alias="LLM_GATEWAY_API_KEY")
@@ -416,6 +419,7 @@ class GraphBuildSettings(_MappedSettings):
     embedding_model: Text = Field(validation_alias="GRAPH_EMBEDDING_MODEL")
     embedding_dim: int = Field(default=GRAPH_EMBEDDING_DIM, gt=0, le=4096, validation_alias="GRAPH_EMBEDDING_DIM")
     state_dir: Text = Field(default=DEFAULT_GRAPH_STATE_DIR, validation_alias="GRAPH_STATE_DIR")
+    llm_concurrency: int = Field(default=GRAPH_LLM_CONCURRENCY, ge=1, validation_alias="GRAPH_LLM_CONCURRENCY")
 
     @classmethod
     def enabled_in(cls, env: Mapping[str, str]) -> bool:
@@ -431,6 +435,7 @@ class GraphBuildSettings(_MappedSettings):
             small_model=self.small_model,
             embedding_model=self.embedding_model,
             embedding_dim=self.embedding_dim,
+            concurrency=self.llm_concurrency,
         )
 
 

@@ -1,14 +1,9 @@
-"""Load, merge and validate ontology files (docs/graph/ontology.md "Loading and validation").
-
-``load_ontology`` reads the build file (the shipped ``spec-ontology.yaml`` or a given path) and the
-ontology files of the installed submodules, merges them and runs checks 1-10 over the union. Every
-problem found is collected; any problem raises one ``OntologyError`` that lists them all. Submodule
-files are found as package data (``graph/<sub>/ontology.yaml``) without importing any submodule.
-"""
+"""Load, merge and validate ontology files."""
 
 from __future__ import annotations
 
 import copy
+import dataclasses
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -28,8 +23,13 @@ from graph.core.ontology.compiled import (
     EVIDENCE_LABELS,
     EXTRACTED_ORIGIN,
     HUB_ROLES,
+    QUARANTINE_REASONS,
+    AnsweredElsewhereSpec,
     AttributeSpec,
+    Condition,
+    ConformSpec,
     DeriveRule,
+    DeriveViaRule,
     IdentityRule,
     InferenceRule,
     InferenceSpec,
@@ -40,12 +40,19 @@ from graph.core.ontology.compiled import (
     Relation,
     Spine,
     SpinePath,
+    Support,
 )
 from graph.core.ontology.model import (
+    CROSS_DOCUMENT,
+    FORMAT_VERSION,
     OPTIONAL_TEMPLATE_PARAMETERS,
     OWNER_ORIGINS,
+    REALIZATION,
+    RULE_FIELDS,
     TEMPLATE_PARAMETERS,
+    AnsweredElsewhereDef,
     AttributeDef,
+    ConformDef,
     CorpusDef,
     EdgeTypeDef,
     FileHeaderDef,
@@ -54,7 +61,9 @@ from graph.core.ontology.model import (
     InferenceRuleDef,
     NodeGroupDef,
     NodeTypeDef,
+    PairDef,
     SpineDef,
+    SpinePathDef,
 )
 from logger.logger import INFO, get_logger, log_event
 
@@ -132,6 +141,7 @@ class _File:
     types: dict[str, NodeTypeDef] = field(default_factory=dict)
     relations: dict[str, EdgeTypeDef] = field(default_factory=dict)
     spine: SpineDef | None = None
+    conform: ConformDef | None = None
     inference: InferenceDef | None = None
     broken: set[str] = field(default_factory=set)
 
@@ -145,11 +155,7 @@ class _File:
 
 
 def load_ontology(path: Path | None = None, *, submodule_files: Sequence[Path] | None = None) -> Ontology:
-    """Load the build file plus submodule files, merge and validate them; raise ``OntologyError``.
-
-    ``path`` None loads the shipped ``spec-ontology.yaml``. ``submodule_files`` None discovers
-    ``graph/<sub>/ontology.yaml`` package data; a sequence (tests) replaces discovery.
-    """
+    """Load the build file plus submodule files, merge and validate them; raise ``OntologyError``."""
 
     main = _package_build_source() if path is None else _path_source(Path(path))
     subs = (
@@ -289,9 +295,24 @@ def _check_owner(display: str, header: FileHeaderDef, problems: _Problems, *, ma
         problems.add(display, "owner", f"a submodule file may not have owner '{BUILD_OWNER}'")
 
 
+def _check_format_version(source: _Source, raw: Mapping[str, Any], problems: _Problems) -> bool:
+    """False (with a problem) for a file of another integer format version; type errors are check 1's."""
+
+    version = raw.get("format_version")
+    if isinstance(version, int) and not isinstance(version, bool) and version != FORMAT_VERSION:
+        problems.add(
+            source.display,
+            "format_version",
+            f"format_version {version} is not supported; this library reads format_version {FORMAT_VERSION}"
+            " (docs/graph/ontology.md)",
+        )
+        return False
+    return True
+
+
 def _parse_file(source: _Source, problems: _Problems, *, main: bool) -> _File | None:
     raw = _read_mapping(source, problems)
-    if raw is None:
+    if raw is None or not _check_format_version(source, raw, problems):
         return None
     header = _validate(FileHeaderDef, raw, source.display, "", problems)
     if header is None:
@@ -304,10 +325,12 @@ def _parse_file(source: _Source, problems: _Problems, *, main: bool) -> _File | 
     _parse_entries(parsed, header, problems)
     if header.spine is not None:
         parsed.spine = _validate(SpineDef, header.spine, display, "spine", problems)
+    if header.conform is not None:
+        parsed.conform = _validate(ConformDef, header.conform, display, "conform", problems)
     if header.inference is not None:
         parsed.inference = _validate(InferenceDef, header.inference, display, "inference", problems)
     if not main:
-        for section in ("corpus", "spine", "inference"):
+        for section in ("corpus", "spine", "conform", "inference"):
             if getattr(header, section) is not None:
                 problems.add(display, section, "only the build file may declare this section")
     return parsed
@@ -372,8 +395,8 @@ def _remove(data: Any, location: tuple[Any, ...]) -> bool:
 # Merging and checks 2-10
 
 _ATTRIBUTE_FIELDS: Final = {
-    "text": {"type", "description", "max_chars"},
-    "enum": {"type", "description", "values", "aliases"},
+    "text": {"type", "description", "max_chars", "inherit"},
+    "enum": {"type", "description", "values", "aliases", "default", "inherit"},
     "ref": {"type", "description", "target", "store"},
 }
 """The fields each attribute type may set."""
@@ -395,8 +418,15 @@ class _Compiler:
         self.key_labels: dict[str, tuple[str, ...]] = {}
         self.group_attributes: dict[str, dict[str, AttributeSpec]] = {}
         self.node_types: dict[str, NodeType] = {}
+        self.by_label: dict[str, NodeType] = {}
         self.relations: dict[str, Relation] = {}
         self.legal: set[tuple[str, str, str]] = set()
+        self.otherwise: list[tuple[_File, str, str, tuple[str, ...], tuple[str, ...]]] = []
+        """``(file, where, otherwise relation, source labels, target labels)`` of each pair naming one."""
+        self.defaults: dict[tuple[str, str], list[tuple[_File, str, Pair]]] = {}
+        """The default pairs of each label pair, with where they are declared."""
+        self.default_from: list[tuple[_File, str, str]] = []
+        """``(file, where, relation)`` of each relation a pair's ``default_from`` lists."""
 
     def compile(self) -> Ontology | None:
         main = next((item for item in self.parsed if item.main), None)
@@ -408,8 +438,17 @@ class _Compiler:
         self._check_id_prefixes()
         self._compile_relations()
         self._compile_derive()
+        self._check_otherwise()
+        self._check_defaults()
+        for file, where, name in self.default_from:
+            self._check_relation(file, where, name)
+        self._compile_relation_flags()
+        self._compile_supports()
+        self._check_inherit()
         spine = self._compile_spine(main)
-        inference, prompts = self._compile_inference(main)
+        prompts: dict[str, str] = {}
+        conform = self._compile_conform(main, prompts)
+        inference = self._compile_inference(main, prompts)
         if main is None or self.problems.items:
             return None
         corpus = main.corpus or CorpusDef()
@@ -425,6 +464,8 @@ class _Compiler:
             inference=inference,
             judge_prompts=MappingProxyType(prompts),
             declared_labels=tuple(self.node_types[key].label for key in self.types if key in self.node_types),
+            conform=conform,
+            declared_relations=tuple(name for name in self.relation_defs if name in self.relations),
         )
 
     def _add(self, file: _File, where: str, message: str) -> None:
@@ -560,6 +601,7 @@ class _Compiler:
         families: dict[str, str] = {}
         for key, (definition, file) in sorted(self.types.items()):
             self._compile_type(key, definition, file, families)
+        self.by_label = {node_type.label: node_type for node_type in self.node_types.values()}
 
     def _type_traits(
         self, definition: NodeTypeDef, file: _File, where: str
@@ -653,6 +695,7 @@ class _Compiler:
             description=(definition.description or (group.description if group else "")).strip(),
             guidance=(definition.guidance or (group.guidance if group else "")).strip(),
             attributes=MappingProxyType(dict(sorted(attributes.items()))),
+            merge_across_labels=definition.merge_across_labels,
         )
 
     def _compile_attributes(
@@ -684,15 +727,11 @@ class _Compiler:
         aliases: dict[str, str] = {}
         targets: tuple[str, ...] = ()
         if definition.type == "enum":
-            resolved = self._enum_values(file, f"{here}.values", definition.values)
-            if resolved is None:
+            enum = self._enum_attribute(file, here, definition)
+            if enum is None:
                 return None
-            values, texts = resolved
-            for alias, value in definition.aliases.items():
-                if value not in values:
-                    self._add(file, f"{here}.aliases.{alias}", f"'{value}' is not one of the values")
-                    ok = False
-                aliases[alias.strip().casefold()] = value
+            values, texts, aliases, enum_ok = enum
+            ok = ok and enum_ok
         elif definition.type == "ref":
             found = self._labels_of(file, f"{here}.target", definition.target or "")
             if found is None:
@@ -710,7 +749,34 @@ class _Compiler:
             aliases=MappingProxyType(aliases),
             target_labels=frozenset(targets),
             store=definition.store,
+            default=definition.default,
+            inherit_via=definition.inherit.via if definition.inherit else None,
         )
+
+    def _enum_attribute(
+        self, file: _File, here: str, definition: AttributeDef
+    ) -> tuple[tuple[str, ...], dict[str, str], dict[str, str], bool] | None:
+        """Values, value descriptions and aliases of an ``enum`` attribute and whether they are valid
+        (every problem is reported); None when its values do not resolve."""
+
+        resolved = self._enum_values(file, f"{here}.values", definition.values)
+        if resolved is None:
+            return None
+        values, texts = resolved
+        ok = True
+        aliases: dict[str, str] = {}
+        for alias, value in definition.aliases.items():
+            if value not in values:
+                self._add(file, f"{here}.aliases.{alias}", f"'{value}' is not one of the values")
+                ok = False
+            aliases[alias.strip().casefold()] = value
+        if definition.default is not None and definition.inherit is not None:
+            self._add(file, here, "an attribute may not have both a default and inherit")
+            ok = False
+        if definition.default is not None and definition.default not in values:
+            self._add(file, f"{here}.default", f"default '{definition.default}' is not one of the values")
+            ok = False
+        return values, texts, aliases, ok
 
     def _enum_values(
         self, file: _File, where: str, values: str | list[str] | dict[str, str] | None
@@ -763,10 +829,9 @@ class _Compiler:
                         + f" the prefix of type '{other_key}'",
                     )
 
-    # Relations: checks 3, 4, 9, 10
+    # Relations: checks 3, 4, 9, 10, 11
 
     def _compile_relations(self) -> None:
-        defaults: dict[tuple[str, str], str] = {}
         for name, (definition, file) in sorted(self.relation_defs.items()):
             where = f"edge_types.{name}"
             if definition.origin not in OWNER_ORIGINS[file.owner]:
@@ -775,15 +840,25 @@ class _Compiler:
                     f"{where}.origin",
                     f"origin '{definition.origin}' is not owned by owner '{file.owner}'",
                 )
-            pairs, seen = self._relation_pairs(name, definition, file, defaults)
+            pairs, seen = self._relation_pairs(name, definition, file)
             if any(pair.cue_required for pair in pairs) and not definition.cues:
                 self._add(file, f"{where}.cues", "a relation with a cue_required pair needs cues")
             cues = []
+            cue_words = []
             for index, cue in enumerate(definition.cues):
                 try:
                     cues.append(re.compile(cue, re.IGNORECASE))
                 except re.error as error:
                     self._add(file, f"{where}.cues[{index}]", f"invalid regular expression ({error.msg})")
+                    continue
+                try:
+                    cue_words.append(re.compile(rf"(?<!\w)(?:{cue})(?!\w)", re.IGNORECASE))
+                except re.error as error:  # e.g. a leading inline flag, legal only at the start of a pattern
+                    self._add(
+                        file,
+                        f"{where}.cues[{index}]",
+                        f"cannot be matched as whole words ({error.msg}); cues ignore case, drop inline flags",
+                    )
             if definition.symmetric:
                 missing = [f"{p.target} -> {p.source}" for p in pairs if (p.target, p.source) not in seen]
                 if missing:
@@ -799,13 +874,16 @@ class _Compiler:
                 symmetric=definition.symmetric,
                 id_references=definition.id_references,
                 cues=tuple(cues),
+                cue_words=tuple(cue_words),
+                acyclic=definition.acyclic,
+                stated_only=definition.stated_only,
             )
 
     def _relation_pairs(
-        self, name: str, definition: EdgeTypeDef, file: _File, defaults: dict[tuple[str, str], str]
+        self, name: str, definition: EdgeTypeDef, file: _File
     ) -> tuple[list[Pair], set[tuple[str, str]]]:
         """The label pairs a relation allows (each pair definition expanded over its groups), and the
-        ``(source, target)`` pairs seen; ``defaults`` records the default relation of each label pair."""
+        ``(source, target)`` pairs seen; records default pairs and ``otherwise`` for the later checks."""
 
         where = f"edge_types.{name}"
         pairs: list[Pair] = []
@@ -818,20 +896,237 @@ class _Compiler:
                 continue
             if definition.symmetric and pair.exclusive:
                 self._add(file, here, "a symmetric relation may not have an exclusive pair")
+            if definition.symmetric and pair.owner:
+                self._add(file, here, "a symmetric relation may not have an owner pair")
+            if definition.symmetric and (pair.source_where or pair.target_where):
+                self._add(file, here, "a symmetric relation may not have a source_where or target_where")
+            self._check_pair_flags(file, here, pair, sources, targets)
             for source in sources:
                 for target in targets:
                     if (source, target) in seen:
                         self._add(file, here, f"pair {source} -> {target} is declared more than once")
                         continue
                     seen.add((source, target))
-                    pairs.append(Pair(source, target, pair.default, pair.cue_required, pair.exclusive))
+                    compiled = _pair(name, source, target, pair)
+                    pairs.append(compiled)
                     if pair.default:
-                        other = defaults.get((source, target))
-                        if other is not None:
-                            self._add(file, here, f"pair {source} -> {target} already has default relation {other}")
-                        else:
-                            defaults[(source, target)] = name
+                        self.defaults.setdefault((source, target), []).append((file, here, compiled))
         return pairs, seen
+
+    def _check_pair_flags(
+        self, file: _File, here: str, pair: PairDef, sources: tuple[str, ...], targets: tuple[str, ...]
+    ) -> None:
+        """The attributes and values a pair's ``where`` and ``not_across`` name (check 3), its
+        ``where_reason`` (check 11), ``owner_rank`` only on an owner pair; records its ``otherwise``."""
+
+        for side, condition, labels in (
+            ("source_where", pair.source_where, sources),
+            ("target_where", pair.target_where, targets),
+        ):
+            for label in labels:
+                for attribute, values in condition.items():
+                    self._check_values(file, f"{here}.{side}", label, attribute, values)
+        for attribute in pair.not_across:
+            for label in (*sources, *targets):
+                if attribute not in self._attributes_of(label):
+                    self._add(file, f"{here}.not_across", f"attribute '{attribute}' is not declared on {label}")
+        if pair.where_reason not in QUARANTINE_REASONS:
+            self._add(file, f"{here}.where_reason", f"where_reason '{pair.where_reason}' is not a quarantine reason")
+        if "owner_rank" in pair.model_fields_set and not pair.owner:
+            self._add(file, f"{here}.owner_rank", "applies only to an owner pair")
+        if pair.otherwise is not None:
+            self.otherwise.append((file, f"{here}.otherwise", pair.otherwise, sources, targets))
+        self._record_default_from(file, here, pair)
+
+    def _record_default_from(self, file: _File, here: str, pair: PairDef) -> None:
+        """``default_from`` only on a default pair (check 4); records its relations for check 3."""
+
+        if pair.default_from and not pair.default:
+            self._add(file, f"{here}.default_from", "applies only to a default pair")
+        self.default_from += [(file, f"{here}.default_from", name) for name in pair.default_from]
+
+    def _attributes_of(self, label: str) -> Mapping[str, AttributeSpec]:
+        node_type = self.by_label.get(label)
+        return node_type.attributes if node_type else {}
+
+    def _check_values(self, file: _File, where: str, label: str, attribute: str, values: Iterable[str]) -> None:
+        """``attribute`` is an enum attribute of ``label`` and ``values`` are its values (check 3)."""
+
+        spec = self._attributes_of(label).get(attribute)
+        if spec is None:
+            self._add(file, where, f"attribute '{attribute}' is not declared on {label}")
+        elif spec.kind != "enum":
+            self._add(file, where, f"attribute '{attribute}' of {label} is not an enum attribute")
+        else:
+            for value in values:
+                if value not in spec.values:
+                    self._add(file, where, f"'{value}' is not a value of {label}.{attribute}")
+
+    def _check_filter(
+        self, file: _File, where: str, condition: Mapping[str, list[str]], subjects: Iterable[str]
+    ) -> Condition:
+        """A spine ``exclude``, rule ``exclude_where`` or ``target_exclude_where`` (``subjects``: the
+        rule's targets): each attribute is declared on a subject or on an owner target of one, with its
+        values (check 3). Returns the compiled condition."""
+
+        labels = set(subjects)
+        labels |= {
+            pair.target
+            for relation in self.relations.values()
+            for pair in relation.pairs
+            if pair.owner and pair.source in labels
+        }
+        for attribute, values in condition.items():
+            declaring = sorted(label for label in labels if attribute in self._attributes_of(label))
+            if not declaring:
+                self._add(file, where, f"attribute '{attribute}' is not declared on a subject or its owner")
+            for label in declaring:
+                self._check_values(file, where, label, attribute, values)
+        return _condition(condition)
+
+    # Checks 4, 11, 12, 13 over the compiled relations
+
+    def _check_otherwise(self) -> None:
+        for file, where, otherwise, sources, targets in self.otherwise:
+            if not self._check_relation(file, where, otherwise):
+                continue
+            if self.relations[otherwise].stated_only:
+                self._add(file, where, f"otherwise '{otherwise}' is a stated_only relation")
+            elif not any(self._legal(otherwise, source, target) for source in sources for target in targets):
+                self._add(file, where, f"otherwise '{otherwise}' is not legal for the ends of this pair")
+
+    def _check_defaults(self) -> None:
+        for (source, target), entries in sorted(self.defaults.items()):
+            for index, (file, here, pair) in enumerate(entries):
+                for _, _, other in entries[:index]:
+                    if not _disjoint(other, pair):
+                        self._add(
+                            file,
+                            here,
+                            f"pair {source} -> {target} already has default relation {other.relation}"
+                            " with a where condition that is not disjoint",
+                        )
+
+    def _compile_relation_flags(self) -> None:
+        """``derive_via`` (checks 3, 13 and 14) and the exclusions of a ``stated_only`` relation (check 12)."""
+
+        for name, (definition, file) in sorted(self.relation_defs.items()):
+            if name not in self.relations:
+                continue
+            where = f"edge_types.{name}"
+            if definition.derive_via is not None:
+                rule = self._derive_via(name, definition, file, f"{where}.derive_via")
+                if rule is not None:
+                    self.relations[name] = dataclasses.replace(self.relations[name], derive_via=rule)
+                self._check_late_relation(name, definition, file, where)
+            if definition.stated_only:
+                present = {
+                    "derive": bool(definition.derive),
+                    "derive_via": definition.derive_via is not None,
+                    "a default pair": any(pair.default for pair in definition.pairs),
+                    "id_references": definition.id_references,
+                }
+                for what in (what for what, given in present.items() if given):
+                    self._add(file, where, f"a stated_only relation may not have {what}")
+
+    def _check_late_relation(self, name: str, definition: EdgeTypeDef, file: _File, where: str) -> None:
+        """Check 14: normalisation adds ``derive_via`` edges after its conflict and cycle stages, so the
+        relation may not be ``acyclic`` nor have an ``owner`` or ``exclusive`` pair."""
+
+        pairs = self.relations[name].pairs
+        present = {
+            "be acyclic": definition.acyclic,
+            "have an owner pair": any(pair.owner for pair in pairs),
+            "have an exclusive pair": any(pair.exclusive for pair in pairs),
+        }
+        for what in (what for what, given in present.items() if given):
+            self._add(file, where, f"a derive_via relation may not {what}")
+
+    def _derive_via(self, name: str, definition: EdgeTypeDef, file: _File, where: str) -> DeriveViaRule | None:
+        spec = definition.derive_via
+        if spec is None:
+            return None
+        known = [
+            self._check_relation(file, f"{where}.{key}", relation)
+            for key, relation in (("consumer", spec.consumer), ("provider", spec.provider))
+        ]
+        if not all(known):
+            return None
+        consumed = {(source, target) for relation, source, target in self.legal if relation == spec.consumer}
+        provided = {(source, target) for relation, source, target in self.legal if relation == spec.provider}
+        hubs = {source for source, _ in consumed} & {source for source, _ in provided}
+        if not hubs:
+            self._add(file, where, f"consumer {spec.consumer} and provider {spec.provider} share no source label")
+            return None
+        illegal = sorted(
+            {
+                f"{consumer} -> {provider}"
+                for hub in hubs
+                for source, consumer in consumed
+                if source == hub
+                for other, provider in provided
+                if other == hub and not self._legal(name, consumer, provider)
+            }
+        )
+        if illegal:
+            self._add(file, where, f"derive_via yields {_listing(illegal)}, not legal for {name}")
+        return DeriveViaRule(name, spec.consumer, spec.provider)
+
+    def _compile_supports(self) -> None:
+        """``supported_by``: each relation is declared (check 3) and has a pair at the type's end."""
+
+        for key, (definition, file) in sorted(self.types.items()):
+            if key not in self.node_types or not definition.supported_by:
+                continue
+            label = self.node_types[key].label
+            supports: list[Support] = []
+            for index, support in enumerate(definition.supported_by):
+                here = f"node_types.{key}.supported_by[{index}]"
+                if not self._check_relation(file, here, support.relation):
+                    continue
+                outgoing = support.direction == "out"
+                if not any(
+                    relation == support.relation and (source if outgoing else target) == label
+                    for relation, source, target in self.legal
+                ):
+                    side = "from" if outgoing else "to"
+                    self._add(file, here, f"{support.relation} has no pair {side} {label}")
+                    continue
+                supports.append(Support(support.relation, support.direction))
+            node_type = dataclasses.replace(self.node_types[key], supported_by=tuple(supports))
+            self.node_types[key] = node_type
+            self.by_label[label] = node_type
+
+    def _check_inherit(self) -> None:
+        """``inherit.via`` is a declared relation (check 3) of an owner pair of each type holding the attribute (check
+        13).
+        """
+
+        reported: set[tuple[str, str]] = set()
+        for key, (definition, file) in sorted(self.types.items()):
+            node_type = self.node_types.get(key)
+            if node_type is None:
+                continue
+            for name, spec in node_type.attributes.items():
+                if spec.inherit_via is None:
+                    continue
+                own = name in definition.attributes or definition.group not in self.groups
+                where_file = file if own else self.groups[definition.group or ""][1]
+                base = f"node_types.{key}" if own else f"node_groups.{definition.group}"
+                where = f"{base}.attributes.{name}.inherit.via"
+                if spec.inherit_via not in self.relations:
+                    if (where, "") not in reported:
+                        reported.add((where, ""))
+                        self._check_relation(where_file, where, spec.inherit_via)
+                    continue
+                if not any(
+                    pair.owner and pair.source == node_type.label for pair in self.relations[spec.inherit_via].pairs
+                ):
+                    self._add(
+                        where_file,
+                        where,
+                        f"'{spec.inherit_via}' is not the relation of an owner pair of {node_type.label}",
+                    )
 
     def _derive_rule(self, name: str, entry: str, file: _File, where: str) -> DeriveRule | None:
         """The derive rule of one ``<type or group>.<ref attribute>`` entry; None when it is invalid."""
@@ -867,19 +1162,7 @@ class _Compiler:
                 if (rule := self._derive_rule(name, entry, file, f"edge_types.{name}.derive[{index}]")) is not None
             ]
             if name in self.relations and rules:
-                relation = self.relations[name]
-                self.relations[name] = Relation(
-                    name=relation.name,
-                    owner=relation.owner,
-                    origin=relation.origin,
-                    tier=relation.tier,
-                    description=relation.description,
-                    pairs=relation.pairs,
-                    symmetric=relation.symmetric,
-                    id_references=relation.id_references,
-                    cues=relation.cues,
-                    derive=tuple(rules),
-                )
+                self.relations[name] = dataclasses.replace(self.relations[name], derive=tuple(rules))
 
     def _declares_attribute(self, key: str, attribute: str) -> bool:
         """True when ``key`` (or its group) declares ``attribute`` in its file, valid or not."""
@@ -911,31 +1194,11 @@ class _Compiler:
         sources = self._labels_union(file, "spine.sources", definition.sources)
         roots = self._labels_union(file, "spine.roots", definition.roots)
         complete = all(key in self.key_labels for key in [*definition.sources, *definition.roots])
-        paths: list[SpinePath] = []
-        for index, path in enumerate(definition.paths):
-            where = f"spine.paths[{index}]"
-            if (path.via is None) == (path.sequence is None):
-                self._add(file, where, "needs exactly one of 'via' and 'sequence'")
-                continue
-            relations = path.via if path.via is not None else path.sequence or []
-            if not relations:
-                self._add(file, where, "needs at least one relation")
-                continue
-            if not all(self._check_relation(file, where, name) for name in relations):
-                continue
-            if path.sequence is not None:
-                if path.min is not None or path.max is not None:
-                    self._add(file, where, "'min' and 'max' apply only to 'via'")
-                paths.append(
-                    SpinePath(tuple(relations), sequence=True, min_hops=len(relations), max_hops=len(relations))
-                )
-                continue
-            low = path.min or 1
-            high = path.max or low
-            if high < low:
-                self._add(file, where, "'max' is below 'min'")
-                continue
-            paths.append(SpinePath(tuple(relations), sequence=False, min_hops=low, max_hops=high))
+        paths = [
+            compiled
+            for index, path in enumerate(definition.paths)
+            if (compiled := self._compile_path(file, f"spine.paths[{index}]", path)) is not None
+        ]
         complete = complete and len(paths) == len(definition.paths)
         unreachable = [
             source for source in sorted(sources) if not any(self._reaches(source, roots, path) for path in paths)
@@ -946,7 +1209,31 @@ class _Compiler:
                 "spine",
                 f"sources {_listing(unreachable)} reach no root through a declared path",
             )
-        return Spine(frozenset(sources), frozenset(roots), tuple(paths))
+        exclude = self._check_filter(file, "spine.exclude", definition.exclude, sources)
+        return Spine(frozenset(sources), frozenset(roots), tuple(paths), exclude)
+
+    def _compile_path(self, file: _File, where: str, path: SpinePathDef) -> SpinePath | None:
+        """One ``{via, min, max}`` or ``{sequence}`` path; None (with a problem) when it is invalid."""
+
+        if (path.via is None) == (path.sequence is None):
+            self._add(file, where, "needs exactly one of 'via' and 'sequence'")
+            return None
+        relations = path.via if path.via is not None else path.sequence or []
+        if not relations:
+            self._add(file, where, "needs at least one relation")
+            return None
+        if not all(self._check_relation(file, where, name) for name in relations):
+            return None
+        if path.sequence is not None:
+            if path.min is not None or path.max is not None:
+                self._add(file, where, "'min' and 'max' apply only to 'via'")
+            return SpinePath(tuple(relations), sequence=True, min_hops=len(relations), max_hops=len(relations))
+        low = path.min or 1
+        high = path.max or low
+        if high < low:
+            self._add(file, where, "'max' is below 'min'")
+            return None
+        return SpinePath(tuple(relations), sequence=False, min_hops=low, max_hops=high)
 
     def _labels_union(self, file: _File, where: str, keys: Iterable[str]) -> set[str]:
         labels: set[str] = set()
@@ -957,14 +1244,6 @@ class _Compiler:
     def _step(self, labels: set[str], relations: Iterable[str]) -> set[str]:
         names = set(relations)
         return {target for name, source, target in self.legal if name in names and source in labels}
-
-    def _reachable(self, labels: set[str], relation: str, hops: int) -> set[str]:
-        reached: set[str] = set()
-        frontier = set(labels)
-        for _ in range(hops):
-            frontier = self._step(frontier, (relation,))
-            reached |= frontier
-        return reached
 
     def _reaches(self, source: str, roots: set[str], path: SpinePath) -> bool:
         frontier = {source}
@@ -978,12 +1257,106 @@ class _Compiler:
                 return True
         return False
 
-    # Inference: checks 3 and 7
+    # Conform: checks 3, 11 and 14
 
-    def _compile_inference(self, main: _File | None) -> tuple[InferenceSpec, dict[str, str]]:
-        prompts: dict[str, str] = {}
+    def _compile_conform(self, main: _File | None, prompts: dict[str, str]) -> ConformSpec | None:
+        if main is None or main.conform is None:
+            return None
+        definition, file = main.conform, main
+        self._load_prompt(file, "conform.judge_prompt", definition.judge_prompt, prompts)
+        where = "conform.fallback_relation"
+        fallback = definition.fallback_relation
+        if self._check_relation(file, where, fallback):
+            owner_ends = {
+                (pair.source, pair.target)
+                for relation in self.relations.values()
+                for pair in relation.pairs
+                if pair.owner
+            }
+            if self.relations[fallback].stated_only:
+                self._add(file, where, f"fallback_relation '{fallback}' is a stated_only relation")
+            elif not any(self._legal(fallback, source, target) for source, target in owner_ends):
+                self._add(file, where, f"fallback_relation '{fallback}' is not legal for the ends of any owner pair")
+            else:
+                self._check_fallback_conditions(file, where, fallback, owner_ends)
+        answered = definition.answered_elsewhere
+        return ConformSpec(
+            judge_prompt=definition.judge_prompt,
+            cap=definition.cap,
+            floor=definition.floor,
+            fallback_relation=fallback,
+            answered_elsewhere=None if answered is None else self._answered_elsewhere(file, answered, prompts),
+        )
+
+    def _answered_elsewhere(
+        self, file: _File, definition: AnsweredElsewhereDef, prompts: dict[str, str]
+    ) -> AnsweredElsewhereSpec | None:
+        """Check 15: ``label`` names a declared extracted atomic type (by its type key or its label) and
+        ``prompt`` a shipped judge prompt; the numbers are bounded by the format model (check 1)."""
+
+        where = "conform.answered_elsewhere"
+        self._load_prompt(file, f"{where}.prompt", definition.prompt, prompts)
+        node_type = self.node_types.get(definition.label) or self.by_label.get(definition.label)
+        if node_type is None:
+            if definition.label not in self.broken:
+                self._add(file, f"{where}.label", f"'{definition.label}' is not a declared node type")
+            return None
+        if not node_type.extracted or node_type.role != "atomic":
+            self._add(file, f"{where}.label", f"{node_type.label} is not an extracted atomic type")
+            return None
+        return AnsweredElsewhereSpec(
+            label=node_type.label,
+            prompt=definition.prompt,
+            candidates=definition.candidates,
+            min_cosine=definition.min_cosine,
+            floor=definition.floor,
+            cap=definition.cap,
+        )
+
+    def _check_fallback_conditions(
+        self, file: _File, where: str, fallback: str, owner_ends: set[tuple[str, str]]
+    ) -> None:
+        """Check 14: a fallback edge is made after the condition stage, so no pair of the fallback
+        relation it can produce (on the ends of an owner pair or of an acyclic relation's pair, either
+        way round) has ``source_where`` or ``target_where``."""
+
+        ends = owner_ends | {
+            (pair.source, pair.target)
+            for relation in self.relations.values()
+            if relation.acyclic
+            for pair in relation.pairs
+        }
+        ends |= {(target, source) for source, target in ends}
+        conditioned = sorted(
+            f"{pair.source} -> {pair.target}"
+            for pair in self.relations[fallback].pairs
+            if (pair.source, pair.target) in ends and (pair.source_where or pair.target_where)
+        )
+        if conditioned:
+            self._add(
+                file,
+                where,
+                f"fallback_relation '{fallback}' has source_where or target_where on {_listing(conditioned)}",
+            )
+
+    def _load_prompt(self, file: _File, where: str, ref: str, prompts: dict[str, str]) -> bool:
+        """Read judge prompt ``ref`` from the file's ``judge_prompts/`` into ``prompts`` (checks 3, 7)."""
+
+        if not PROMPT_REF_PATTERN.fullmatch(ref):
+            self._add(file, where, f"'{ref}' must match {PROMPT_REF_PATTERN.pattern}")
+            return False
+        text = file.source.judge_prompt(ref)
+        if text is None:
+            self._add(file, where, f"judge prompt file {JUDGE_PROMPT_DIR}/{ref}.md not found")
+            return False
+        prompts[ref] = text
+        return True
+
+    # Inference: checks 3, 7, 12 and 16
+
+    def _compile_inference(self, main: _File | None, prompts: dict[str, str]) -> InferenceSpec:
         if main is None or main.inference is None:
-            return InferenceSpec(cap=0, floor=1.0, rules=()), prompts
+            return InferenceSpec(cap=0, floor=1.0, rules=())
         definition, file = main.inference, main
         rules: list[InferenceRule] = []
         ids: set[str] = set()
@@ -991,11 +1364,45 @@ class _Compiler:
             where = f"inference.rules[{index}]"
             if rule.id in ids:
                 self._add(file, f"{where}.id", f"rule id '{rule.id}' is used twice")
+            self._check_reads(file, where, rule, frozenset(ids))
             ids.add(rule.id)
             compiled = self._compile_rule(file, where, rule, prompts)
             if compiled is not None:
+                self._check_batch(file, where, compiled, prompts)
                 rules.append(compiled)
-        return InferenceSpec(cap=definition.cap, floor=definition.floor, rules=tuple(rules)), prompts
+        return InferenceSpec(
+            cap=definition.cap,
+            floor=definition.floor,
+            rules=tuple(rules),
+            first_cap=definition.first_cap,
+            first_budget=definition.first_budget,
+        )
+
+    def _check_batch(self, file: _File, where: str, rule: InferenceRule, prompts: dict[str, str]) -> None:
+        """Check 16: a rule with ``batch`` names a ``batch_prompt``, and a named ``batch_prompt`` is a
+        shipped judge prompt (read into ``prompts``)."""
+
+        if rule.batch_prompt is not None:
+            self._load_prompt(file, f"{where}.batch_prompt", rule.batch_prompt, prompts)
+        elif rule.batch is not None:
+            self._add(file, f"{where}.batch", "needs a batch_prompt (the judge prompt of batched calls)")
+
+    def _check_reads(self, file: _File, where: str, rule: InferenceRuleDef, earlier: frozenset[str]) -> None:
+        """Check 16: ``reads`` only on a ``realization`` rule, naming each rule once and only rules declared
+        before it (``earlier``), never itself or a later one."""
+
+        if rule.reads is None:
+            return
+        here = f"{where}.reads"
+        if rule.template != REALIZATION:
+            self._add(file, here, f"only a realization rule may name reads, not a '{rule.template}' rule")
+        if len(set(rule.reads)) < len(rule.reads):
+            self._add(file, here, "names a rule twice")
+        for index, rule_id in enumerate(rule.reads):
+            if rule_id == rule.id:
+                self._add(file, f"{here}[{index}]", f"'{rule_id}' is the rule itself; reads names earlier rules only")
+            elif rule_id not in earlier:
+                self._add(file, f"{here}[{index}]", f"'{rule_id}' is not a rule declared before '{rule.id}'")
 
     def _check_rule_header(
         self, file: _File, where: str, rule: InferenceRuleDef, parameters: frozenset[str], prompts: dict[str, str]
@@ -1003,7 +1410,7 @@ class _Compiler:
         """The template parameters, judge prompt and written relation of a rule; True when all are valid."""
 
         ok = True
-        given = rule.model_fields_set - {"id", "template", "prompt", "writes"}
+        given = rule.model_fields_set - RULE_FIELDS
         for name in sorted(given - parameters):
             self._add(file, f"{where}.{name}", f"not a parameter of template '{rule.template}'")
             ok = False
@@ -1011,25 +1418,49 @@ class _Compiler:
         for name in sorted(parameters - given - optional):
             self._add(file, f"{where}.{name}", f"required by template '{rule.template}'")
             ok = False
-        if not PROMPT_REF_PATTERN.fullmatch(rule.prompt):
-            self._add(file, f"{where}.prompt", f"'{rule.prompt}' must match {PROMPT_REF_PATTERN.pattern}")
+        if not self._load_prompt(file, f"{where}.prompt", rule.prompt, prompts):
             ok = False
-        else:
-            text = file.source.judge_prompt(rule.prompt)
-            if text is None:
-                self._add(
-                    file,
-                    f"{where}.prompt",
-                    f"judge prompt file {JUDGE_PROMPT_DIR}/{rule.prompt}.md not found",
-                )
-                ok = False
-            else:
-                prompts[rule.prompt] = text
         if not self._check_relation(file, f"{where}.writes", rule.writes):
             ok = False
         elif self.relations[rule.writes].owner != file.owner:
             self._add(file, f"{where}.writes", f"relation '{rule.writes}' is not owned by '{file.owner}'")
             ok = False
+        elif self.relations[rule.writes].stated_only:
+            self._add(
+                file, f"{where}.writes", f"relation '{rule.writes}' is stated_only; no inference rule may write it"
+            )
+            ok = False
+        return self._check_also_writes(file, where, rule) and ok
+
+    def _check_also_writes(self, file: _File, where: str, rule: InferenceRuleDef) -> bool:
+        """``also_writes`` (checks 3, 7 and 12): declared relations of the file's owner, each named once
+        and never the rule's ``writes``; a ``stated_only`` one only when it declares cues. True when valid."""
+
+        ok = True
+        also = rule.also_writes or []
+        if len(set(also)) < len(also):
+            self._add(file, f"{where}.also_writes", "names a relation twice")
+            ok = False
+        for index, name in enumerate(also):
+            here = f"{where}.also_writes[{index}]"
+            if not self._check_relation(file, here, name):
+                ok = False
+                continue
+            relation = self.relations[name]
+            if name == rule.writes:
+                self._add(file, here, f"'{name}' is the relation the rule writes")
+                ok = False
+            elif relation.owner != file.owner:
+                self._add(file, here, f"relation '{name}' is not owned by '{file.owner}'")
+                ok = False
+            elif relation.stated_only and not relation.cues:
+                self._add(
+                    file,
+                    here,
+                    f"relation '{name}' is stated_only without cues; a cross_document rule may write it only"
+                    " when it declares cues",
+                )
+                ok = False
         return ok
 
     def _compile_rule(
@@ -1042,26 +1473,38 @@ class _Compiler:
             return None
         if not self._check_rule_header(file, where, rule, parameters, prompts):
             return None
-        subject = self._labels_of(file, f"{where}.subject", rule.subject or "")
+        subject = self._rule_subject(file, where, rule)
         if subject is None:
             return None
+        if rule.template == CROSS_DOCUMENT:
+            return self._compile_cross_document_rule(file, where, rule, subject)
+        return self._compile_target_rule(file, where, rule, subject)
+
+    def _compile_target_rule(
+        self, file: _File, where: str, rule: InferenceRuleDef, subject: tuple[str, ...]
+    ) -> InferenceRule | None:
+        """An ``endpoints``, ``realization`` or ``attach_orphan`` rule whose header and subject are valid."""
+
         targets: tuple[str, ...] | None
+        paths: tuple[SpinePath, ...] = ()
+        exclude_owned_by: set[str] = set()
+        exclude_where: Condition = _condition({})
+        target_exclude_where: Condition = _condition({})
         if rule.template == "endpoints":
             targets = self._check_endpoints_rule(file, where, rule, subject)
-        elif rule.template == "realization":
-            targets = self._check_realization_rule(file, where, rule, subject)
+            exclude_owned_by = self._labels_union(file, f"{where}.exclude_owned_by", rule.exclude_owned_by or [])
+        elif rule.template == REALIZATION:
+            realization = self._check_realization_rule(file, where, rule, subject)
+            targets, paths = realization if realization is not None else (None, ())
         else:
+            exclude_where = self._check_filter(file, f"{where}.exclude_where", rule.exclude_where or {}, subject)
             targets = tuple(sorted(self._labels_union(file, f"{where}.targets", rule.targets or [])))
             if not targets:
                 return None
-            self._require_legal(
-                file,
-                where,
-                rule.writes,
-                subject,
-                targets,
-                legal=lambda a, b: self._legal(rule.writes, a, b),
+            target_exclude_where = self._check_filter(
+                file, f"{where}.target_exclude_where", rule.target_exclude_where or {}, targets
             )
+            self._check_orphan_writes(file, where, rule.writes, subject, targets)
         if targets is None:
             return None
         return InferenceRule(
@@ -1071,15 +1514,125 @@ class _Compiler:
             writes=rule.writes,
             subject=frozenset(subject),
             targets=frozenset(targets),
+            cap=rule.cap,
+            first_cap=rule.first_cap,
+            floor=rule.floor,
+            reads=tuple(rule.reads or ()),
             via=tuple(rule.via or ()),
             mentions=bool(rule.mentions),
             member_relation=rule.member_relation,
-            container_relation=rule.container_relation,
             min_targets=rule.min_targets,
             max_targets=rule.max_targets,
-            max_hops=rule.max_hops,
             max_candidates=rule.max_candidates,
+            exclude_owned_by=frozenset(exclude_owned_by),
+            container_paths=paths,
+            exclude_where=exclude_where,
+            target_exclude_where=target_exclude_where,
+            batch=rule.batch,
+            batch_prompt=rule.batch_prompt,
         )
+
+    def _rule_subject(self, file: _File, where: str, rule: InferenceRuleDef) -> tuple[str, ...] | None:
+        """The subject labels of a rule: one type or group key, or (``cross_document`` only) a list of them."""
+
+        here = f"{where}.subject"
+        if not isinstance(rule.subject, list):
+            return self._labels_of(file, here, rule.subject or "")
+        if rule.template != CROSS_DOCUMENT:
+            self._add(file, here, f"template '{rule.template}' takes one type or group key")
+            return None
+        if not rule.subject:
+            self._add(file, here, "needs at least one type or group key")
+            return None
+        if len(set(rule.subject)) < len(rule.subject):
+            self._add(file, here, "names a type or group twice")
+        labels = [self._labels_of(file, f"{here}[{index}]", key) for index, key in enumerate(rule.subject)]
+        if any(item is None for item in labels):
+            return None
+        return tuple(sorted({label for item in labels for label in item or ()}))
+
+    def _compile_cross_document_rule(
+        self, file: _File, where: str, rule: InferenceRuleDef, subject: tuple[str, ...]
+    ) -> InferenceRule | None:
+        """Check 7 for a ``cross_document`` rule: hub subjects, ``via`` relations linking a member and a
+        subject, written relations legal between two members or from a member to an owner candidate."""
+
+        members = self._labels_of(file, f"{where}.members", rule.members or "")
+        hubs = {node_type.label for node_type in self.node_types.values() if node_type.role in HUB_ROLES}
+        not_hubs = [label for label in subject if label not in hubs]
+        if not_hubs:
+            self._add(file, f"{where}.subject", f"not a hub type: {_listing(not_hubs)}")
+        via = rule.via or []
+        if members is None or not self._check_member_via(file, where, via, members, subject):
+            return None
+        exclude_where = self._check_filter(file, f"{where}.exclude_where", rule.exclude_where or {}, members)
+        candidates = set(subject) | {
+            pair.target
+            for relation in self.relations.values()
+            for pair in relation.pairs
+            if pair.owner and pair.source in members
+        }
+        for index, name in enumerate([rule.writes, *(rule.also_writes or [])]):
+            here = f"{where}.writes" if index == 0 else f"{where}.also_writes[{index - 1}]"
+            if not any(self._legal(name, member, end) for member in members for end in (*members, *candidates)):
+                self._add(file, here, f"{name} is not legal between two members or from a member to an owner candidate")
+        return InferenceRule(
+            id=rule.id,
+            template=rule.template,
+            prompt=rule.prompt,
+            writes=rule.writes,
+            subject=frozenset(subject),
+            targets=frozenset(members),
+            cap=rule.cap,
+            first_cap=rule.first_cap,
+            floor=rule.floor,
+            also_writes=tuple(rule.also_writes or ()),
+            via=tuple(via),
+            mentions=bool(rule.mentions),
+            max_candidates=rule.max_candidates,
+            exclude_where=exclude_where,
+            min_documents=rule.min_documents,
+            max_pairs=rule.max_pairs,
+            pair_floor=rule.pair_floor,
+        )
+
+    def _check_member_via(
+        self, file: _File, where: str, via: Sequence[str], members: tuple[str, ...], subject: tuple[str, ...]
+    ) -> bool:
+        """``via`` of a ``cross_document`` rule: at least one relation, each named once and declared (False
+        otherwise), each legal between some member and some subject in either direction."""
+
+        if not via:
+            self._add(file, f"{where}.via", "needs at least one relation")
+            return False
+        if len(set(via)) < len(via):
+            self._add(file, f"{where}.via", "names a relation twice")
+        if not all(self._check_relation(file, f"{where}.via[{index}]", relation) for index, relation in enumerate(via)):
+            return False
+        for index, relation in enumerate(via):
+            if not any(
+                self._legal(relation, member, hub) or self._legal(relation, hub, member)
+                for member in members
+                for hub in subject
+            ):
+                self._add(file, f"{where}.via[{index}]", f"{relation} is not legal between a member and a subject")
+        return True
+
+    def _check_orphan_writes(
+        self, file: _File, where: str, writes: str, subject: Iterable[str], targets: Iterable[str]
+    ) -> None:
+        """An ``attach_orphan`` rule writes a relation legal for at least one subject -> target pair: a subject's
+        candidates are the targets it may legally be attached to, and a subject label with none is never a subject.
+        """
+
+        ends = [(source, target) for source in sorted(subject) for target in sorted(targets)]
+        pairs = {(pair.source, pair.target): pair for pair in self.relations[writes].pairs}
+        if not any(end in pairs for end in ends):
+            self._add(file, f"{where}.writes", f"{writes} is not legal for any subject -> target pair")
+            return
+        has_owner_pairs = any(pair.owner for relation in self.relations.values() for pair in relation.pairs)
+        if has_owner_pairs and not any(end in pairs and pairs[end].owner for end in ends):
+            self._add(file, f"{where}.writes", f"{writes} is not an owner pair for any subject -> target pair")
 
     def _check_endpoints_rule(
         self, file: _File, where: str, rule: InferenceRuleDef, subject: tuple[str, ...]
@@ -1126,29 +1679,28 @@ class _Compiler:
 
     def _check_realization_rule(
         self, file: _File, where: str, rule: InferenceRuleDef, subject: tuple[str, ...]
-    ) -> tuple[str, ...] | None:
-        """The container labels of a ``realization`` rule; None when its container or relations are invalid."""
+    ) -> tuple[tuple[str, ...], tuple[SpinePath, ...]] | None:
+        """The container labels and container paths of a ``realization`` rule; None when its container,
+        relations or paths are invalid."""
 
         targets = self._labels_of(file, f"{where}.container", rule.container or "")
         if targets is None:
             return None
         if not self._check_relation(file, f"{where}.member_relation", rule.member_relation):
             return None
-        if not self._check_relation(file, f"{where}.container_relation", rule.container_relation):
+        paths = self._container_paths(file, where, rule)
+        if paths is None:
             return None
         members = {source for name, source, target in self.legal if name == rule.member_relation and target in subject}
+        containers = set(targets)
         if not members:
             self._add(
                 file,
                 f"{where}.member_relation",
                 f"{rule.member_relation} has no pair ending at the subject",
             )
-        elif not self._reachable(members, rule.container_relation or "", rule.max_hops or 1) & set(targets):
-            self._add(
-                file,
-                f"{where}.container_relation",
-                f"{rule.container_relation} reaches no container from a member",
-            )
+        elif not any(self._reaches(member, containers, path) for member in members for path in paths):
+            self._add(file, f"{where}.container_paths", "no path reaches a container from a member")
         self._require_legal(
             file,
             where,
@@ -1157,7 +1709,17 @@ class _Compiler:
             targets,
             legal=lambda a, b: self._legal(rule.writes, a, b),
         )
-        return targets
+        return targets, paths
+
+    def _container_paths(self, file: _File, where: str, rule: InferenceRuleDef) -> tuple[SpinePath, ...] | None:
+        """The compiled ``container_paths`` of a ``realization`` rule; None when one is invalid."""
+
+        paths = [
+            self._compile_path(file, f"{where}.container_paths[{index}]", path)
+            for index, path in enumerate(rule.container_paths or ())
+        ]
+        compiled = tuple(path for path in paths if path is not None)
+        return compiled if compiled and len(compiled) == len(paths) else None
 
     def _legal(self, relation: str | None, source: str, target: str) -> bool:
         return (relation or "", source, target) in self.legal
@@ -1178,6 +1740,41 @@ class _Compiler:
         ]
         if illegal:
             self._add(file, f"{where}.writes", f"{relation} is not legal for {_listing(illegal)}")
+
+
+def _pair(relation: str, source: str, target: str, pair: PairDef) -> Pair:
+    return Pair(
+        relation=relation,
+        source=source,
+        target=target,
+        default=pair.default,
+        default_from=frozenset(pair.default_from),
+        cue_required=pair.cue_required,
+        exclusive=pair.exclusive,
+        owner=pair.owner,
+        owner_rank=pair.owner_rank,
+        source_where=_condition(pair.source_where),
+        target_where=_condition(pair.target_where),
+        where_reason=pair.where_reason,
+        otherwise=pair.otherwise,
+        max_depth=pair.max_depth,
+        not_across=tuple(pair.not_across),
+        distinct_owner=pair.distinct_owner,
+        redundant_via_owner=pair.redundant_via_owner,
+    )
+
+
+def _condition(condition: Mapping[str, Iterable[str]]) -> Condition:
+    return MappingProxyType({attribute: frozenset(values) for attribute, values in sorted(condition.items())})
+
+
+def _disjoint(first: Pair, second: Pair) -> bool:
+    """True when no ends meet both pairs' ``where``: some attribute of one end allows no common value."""
+
+    for one, other in ((first.source_where, second.source_where), (first.target_where, second.target_where)):
+        if any(not one[attribute] & other[attribute] for attribute in one.keys() & other.keys()):
+            return True
+    return False
 
 
 def _listing(items: Sequence[str], limit: int = 4) -> str:

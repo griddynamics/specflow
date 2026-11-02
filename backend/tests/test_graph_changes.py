@@ -1,10 +1,4 @@
-"""Change set, fragment matching and dirty fragments offline (build.md Plan 2, 4 and 5; tech-specs 5.4;
-FR-BLD-02, 03, 04, 05, 12).
-
-Fragments are hand-built ``FragmentRec``s whose content hash is the sha256 of their text, so equal
-text means equal content; persisted fragments are the same records as ``persisted_fragments`` returns
-them (``change`` at its default).
-"""
+"""Change set, fragment matching and dirty fragments offline."""
 
 from __future__ import annotations
 
@@ -72,7 +66,7 @@ EXPORT_EDITED = ["## Export", "Staff can export orders as CSV.", "Exports finish
 AUDIT = ["## Audit", "Every change is logged.", "Logs are kept for a year."]
 
 
-# Change set (build.md Plan 2, FR-BLD-02)
+# Change set
 
 
 def revision(lineage: str, revision_id: str) -> CorpusRevision:
@@ -108,7 +102,7 @@ def test_change_set_holds_exactly_the_new_revised_and_removed_documents() -> Non
     )
 
 
-# Line Jaccard (tech-specs 5.4)
+# Line Jaccard
 
 
 def test_line_jaccard_compares_sets_of_stripped_non_blank_lines() -> None:
@@ -119,7 +113,7 @@ def test_line_jaccard_compares_sets_of_stripped_non_blank_lines() -> None:
     assert LINE_JACCARD == 0.5
 
 
-# Fragment matching (build.md Plan 4, FR-BLD-04, FR-BLD-05)
+# Fragment matching
 
 
 def test_same_id_and_content_is_unchanged_and_keeps_its_persisted_state() -> None:
@@ -149,7 +143,7 @@ def test_same_heading_path_with_mostly_the_same_lines_is_changed() -> None:
     edited = frag("o.md#export#bbbbbbbb", EXPORT_EDITED, ordinal=1)
     assert line_jaccard(old.text, edited.text) == pytest.approx(3 / 5)
     result, retired = match_fragments([edited], [stored(old)])
-    # the same id: no previous_id, nothing retires; the last extracted version is kept (FR-BLD-12)
+    # the same id: no previous_id, nothing retires; the last extracted version is kept
     assert changes(result) == {edited.fragment_id: ("changed", None)}
     assert (result[0].status, result[0].extracted_hash) == ("active", old.content_hash)
     assert retired == ()
@@ -348,7 +342,7 @@ async def test_unknown_status_and_never_extracted_fragments_of_a_retried_lineage
     assert [f.change for f in plain] == ["unchanged"] * 3 and dirty_ids(plain, everything=False) == ()
 
 
-# Dirty fragments (build.md Plan 5, FR-BLD-03)
+# Dirty fragments
 
 
 def test_dirty_fragments_are_new_changed_retried_and_stale_ones_in_document_order() -> None:

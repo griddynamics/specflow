@@ -1,50 +1,4 @@
-"""Verification: checks, metrics and repairs of the persisted graph (analysis.md "Verification").
-
-``verify_build`` is the Verify step (build.md step 9): check, repair, check again, at most
-``MAX_REPAIR_ROUNDS`` repair rounds; ``verify_project`` (api.md "Build") runs the checks read-only.
-Both return a ``VerificationReport``; the run is ``ok`` when no blocking problem is left.
-
-What is read (FR-VER-03). Only what ``graph.build`` owns: ``SpecNode`` nodes of the project with
-their build-owned properties and build-owned labels, relationships of build-owned relations touching
-them (domain edges), ``REFERENCED_BY`` and fragments. Foreign nodes, labels, relationship types and
-properties are never read, so never reported or changed. Labels, relations, the spine, exclusive
-pairs and id prefixes all come from the ontology.
-
-Checks (all blocking). ``node_label``: a spec node without exactly one build-owned label (codes
-``no_label``, ``several_labels``). ``spec_id``: missing, or not ``<id prefix of its label><SLUG>``
-(``missing``, ``malformed``). ``illegal_edge``: a domain edge on a pair the ontology does not allow,
-or with an end that is no spec node of the project (``illegal_pair``, ``endpoint_not_spec_node``); an
-end with a label problem is judged by the label its ``spec_id`` prefix names (none: not judged, the
-end is deleted with its edges).
-``ungrounded_node``: no ``REFERENCED_BY`` to an ``active`` or ``skipped`` fragment.
-``ungrounded_edge``: a domain edge that is not ``inferred`` (a missing ``basis`` counts as stated)
-whose ``source_fragment_ids`` name no ``active`` or ``skipped`` fragment. ``inferred_edge``: an
-``inferred`` edge without ``inference_rule``, a numeric ``confidence`` or a non-empty ``evidence``
-list (``missing_rule``, ``missing_confidence``, ``missing_evidence``). ``fragment_state``: a status
-outside ``active``/``skipped``/``retired``, or an ``active`` fragment whose ``extracted_hash`` is not
-its ``content_hash`` (``unknown_status``, ``not_extracted``).
-
-Repairs (one transaction per round). ``node_label``: keep the label the ``spec_id`` prefix names,
-removing the other build labels, and set ``label_disagreement`` as Diff would for that label
-(``Evidence.label_disagreement``); delete the node when the prefix names none. ``spec_id``: the
-``spec_id`` the registry issued to the node (same uuid and identity key, well-formed, unused), else a
-new one allocated like Diff does; a malformed old value no other node or registry row holds becomes
-an alias. ``ungrounded_node`` / ``ungrounded_edge``: restore the evidence from the build's target graph
-(``Evidence``: the ``REFERENCED_BY`` lines and edge fragments this build's diff wrote, else the conform
-target graph's, by identity key or edge key), keeping only ``active`` and ``skipped`` fragments; with
-none left, delete. ``illegal_edge`` and ``inferred_edge``: delete (the next inference re-adds a valid
-inferred edge). ``fragment_state``: request a follow-up build for the fragment's document
-(``follow_up_lineages``); the problem stays until that build, so the run is not ``ok``.
-
-Valve (FR-VER-02). A round that deletes more than ``max(VALVE_MIN, VALVE_FRACTION * total)`` spec
-nodes, or more than that of domain edges (``total``: the project's spec nodes, or its domain edges),
-is not applied and ends the loop; so a single bad item can always be repaired. A deleted node's domain edges count as
-deleted
-edges (they go with it). The fractions are of the counts at the round's check.
-
-Element ids address what was read: verification assumes no other writer changes the project while it
-runs (as a build does).
-"""
+"""Verification: checks, metrics and repairs of the persisted graph."""
 
 from __future__ import annotations
 
@@ -55,7 +9,9 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final, get_args
 
+from graph.build import metrics, validator
 from graph.build.conform import GROUNDING_STATUSES
+from graph.build.metrics import READ_BASES, MetricNode, by_label, dropped_by_relation
 from graph.build.models import (
     CheckName,
     DiffArtifact,
@@ -63,10 +19,14 @@ from graph.build.models import (
     EdgeUpdate,
     EvidenceLines,
     FragmentStatus,
+    InferenceReport,
     NodeLinks,
+    NodesArtifact,
+    PlanArtifact,
     Problem,
     Repair,
     RepairAction,
+    ResolveArtifact,
     TargetGraph,
     VerificationMetrics,
     VerificationReport,
@@ -83,7 +43,8 @@ from graph.build.queries import (
     VERIFY_FRAGMENTS,
     VERIFY_SPEC_NODES,
 )
-from graph.build.spine import SpineEdge, SpineGraph, SpineNode
+from graph.build.spine import SpineEdge, SpineGraph, SpineNode, attribute_values, condition_attributes
+from graph.build.validator import InMemoryGraphView, ProposalChecker, ViewEdge, ViewNode, violations
 from graph.core.db import Executor
 from graph.core.errors import ConformanceError
 from graph.core.identity import SpecIdRegistry, SpecIdRow, allocate_spec_id, slug
@@ -95,13 +56,11 @@ logger = get_logger("graph.build.verify")
 
 MAX_REPAIR_ROUNDS: Final = 2
 VALVE_FRACTION: Final = 0.05
-"""Largest share of spec nodes, or of domain edges, one repair round may delete (FR-VER-02)."""
+"""Largest share of spec nodes, or of domain edges, one repair round may delete."""
 VALVE_MIN: Final = 1
 """Deletes of each kind a round may always make, whatever the share."""
 BUILD_OWNER: Final = "build"
 INFERRED: Final = "inferred"
-READ_BASES: Final = ("stated", "implied")
-"""Edge bases of the graph before inference (``spine_unreachable_before``)."""
 ACTIVE: Final = "active"
 FRAGMENT_STATUSES: Final = frozenset(get_args(FragmentStatus))
 CHECKS: Final[tuple[CheckName, ...]] = get_args(CheckName)
@@ -130,6 +89,8 @@ class VNode:
     labels: tuple[str, ...] = ()
     evidence: tuple[str, ...] = ()
     """Fragment ids of its ``REFERENCED_BY`` (any status)."""
+    attributes: Mapping[str, Any] = field(default_factory=dict, hash=False)
+    """Stored values of the attributes the ontology's conditions name (``OwnedNames.attributes``)."""
 
     @property
     def label(self) -> str | None:
@@ -198,13 +159,16 @@ class OwnedNames:
     relations: tuple[str, ...]
     prefixes: Mapping[str, str]
     """``spec_id`` prefix to its label."""
+    attributes: tuple[str, ...] = ()
+    """Attributes the ontology's conditions name (spine ``exclude``, pair ``where``, ``not_across``,
+    ``exclude_where``): read with each node for the spine exclusion and the shared validator."""
 
     @classmethod
     def of(cls, ontology: Ontology) -> OwnedNames:
         labels = tuple(label for label in ontology.labels if ontology.owner_of(label) == BUILD_OWNER)
         relations = tuple(sorted(name for name in ontology.relations if ontology.owner_of(name) == BUILD_OWNER))
         prefixes = {prefix: label for label in labels if (prefix := ontology.node_type(label).id_prefix)}
-        return cls(labels, relations, prefixes)
+        return cls(labels, relations, prefixes, condition_attributes(ontology))
 
     def prefix_label(self, spec_id: Any) -> str | None:
         """The label whose id prefix starts ``spec_id`` and whose slug part is well-formed."""
@@ -247,8 +211,11 @@ async def load_state(executor: Executor, project_id: str, names: OwnedNames) -> 
             label_disagreement=row["label_disagreement"],
             labels=tuple(sorted(_strings(row["labels"]))),
             evidence=tuple(sorted(set(_strings(row["evidence"])))),
+            attributes=attribute_values(row["attributes"]),
         )
-        for row in await executor.read(VERIFY_SPEC_NODES, project_id, labels=list(names.labels))
+        for row in await executor.read(
+            VERIFY_SPEC_NODES, project_id, labels=list(names.labels), attributes=list(names.attributes)
+        )
     }
     edges = tuple(
         VEdge(
@@ -396,10 +363,107 @@ def _fragment_findings(state: GraphState) -> list[Finding]:
     return findings
 
 
-def find_problems(state: GraphState, ontology: Ontology, names: OwnedNames) -> list[Finding]:
-    """Every blocking problem of ``state``: nodes, then edges, then fragments."""
+@dataclass(frozen=True)
+class RuleView:
+    """``state`` as the shared validator reads it: view nodes by element id (effective label, condition
+    attributes) and the domain edges on declared pairs between them, split by basis."""
 
-    return [*_node_findings(state, names), *_edge_findings(state, ontology, names), *_fragment_findings(state)]
+    nodes: tuple[ViewNode, ...]
+    base: tuple[tuple[VEdge, ViewEdge], ...]
+    """``stated`` and ``implied`` edges (and edges without a basis)."""
+    inferred: tuple[tuple[VEdge, ViewEdge], ...]
+
+    @classmethod
+    def of(cls, state: GraphState, ontology: Ontology, names: OwnedNames) -> RuleView:
+        labels = {key: label for key, node in state.nodes.items() if (label := names.effective_label(node))}
+        nodes = tuple(
+            ViewNode(id=key, label=label, attributes=state.nodes[key].attributes)
+            for key, label in sorted(labels.items())
+        )
+        base: list[tuple[VEdge, ViewEdge]] = []
+        inferred: list[tuple[VEdge, ViewEdge]] = []
+        for edge in sorted(state.edges, key=lambda item: (edge_subject(item, state), item.id)):
+            source, target = labels.get(edge.source), labels.get(edge.target)
+            if source is None or target is None or not ontology.is_legal(edge.relation, source, target):
+                continue
+            basis = edge.basis if isinstance(edge.basis, str) and edge.basis else None
+            rule = edge.inference_rule if isinstance(edge.inference_rule, str) else None
+            view = ViewEdge(relation=edge.relation, source=edge.source, target=edge.target, basis=basis, rule=rule)
+            pair = (edge, view)
+            (inferred if edge.basis == INFERRED else base).append(pair)
+        return cls(nodes, tuple(base), tuple(inferred))
+
+    def view(self, ontology: Ontology, *, with_inferred: bool) -> InMemoryGraphView:
+        edges = [*self.base, *(self.inferred if with_inferred else ())]
+        return InMemoryGraphView(self.nodes, (view for _, view in edges), ontology)
+
+
+def _v2_findings(state: GraphState, ontology: Ontology, names: OwnedNames) -> list[Finding]:
+    """``v2_rule`` problems (module docstring): violations of the graph without inferred edges, on the
+    stated and implied edges they name; then each inferred edge that adds a violation, with the checks
+    it adds."""
+
+    rules = RuleView.of(state, ontology, names)
+    base_view = rules.view(ontology, with_inferred=False)
+    base_found = [found for found in violations(base_view, ontology) if found.check != "illegal_pair"]
+    by_ends: dict[tuple[str, str, str], list[VEdge]] = {}
+    for edge, _ in rules.base:
+        by_ends.setdefault((edge.relation, edge.source, edge.target), []).append(edge)
+    codes: dict[str, set[str]] = {}
+    for found in base_found:
+        for edge in by_ends.get((found.relation, found.source, found.target), ()):
+            codes.setdefault(edge.id, set()).add(found.check)
+    if rules.inferred:
+        every = violations(rules.view(ontology, with_inferred=True), ontology)
+        if set(every) - set(base_found) - {item for item in every if item.check == "illegal_pair"}:
+            checker = ProposalChecker(base_view, ontology)
+            for edge, view in rules.inferred:
+                added = {found.check for found in checker.offer(view) if found.check != "illegal_pair"}
+                if added:
+                    codes.setdefault(edge.id, set()).update(added)
+    edges = {edge.id: edge for edge in state.edges}
+    findings = [
+        Finding(Problem(check="v2_rule", subject=edge_subject(edges[edge_id], state), code=code), edge=edge_id)
+        for edge_id, found in codes.items()
+        for code in found
+    ]
+    return sorted(findings, key=lambda item: (item.problem.subject, item.problem.code or "", item.edge or ""))
+
+
+def redundant_links(state: GraphState, ontology: Ontology, names: OwnedNames) -> list[VEdge]:
+    """Edges of a ``distinct_owner`` pair whose ends have one owner over every edge but not over the
+    ``stated`` and ``implied`` ones: links made redundant by inference (module docstring), in subject
+    order. Never problems."""
+
+    rules = RuleView.of(state, ontology, names)
+    labels = {node.id: node.label for node in rules.nodes}
+    candidates = [
+        edge
+        for edge, _ in (*rules.base, *rules.inferred)
+        if (pair := ontology.pair_rule(edge.relation, labels[edge.source], labels[edge.target])) is not None
+        and pair.distinct_owner
+    ]
+    if not candidates or not rules.inferred:
+        return []
+    every, base = rules.view(ontology, with_inferred=True), rules.view(ontology, with_inferred=False)
+
+    def one_owner(view: InMemoryGraphView, edge: VEdge) -> bool:
+        owner = view.owner(edge.source)
+        return owner is not None and owner == view.owner(edge.target)
+
+    found = [edge for edge in candidates if one_owner(every, edge) and not one_owner(base, edge)]
+    return sorted(found, key=lambda item: (edge_subject(item, state), item.id))
+
+
+def find_problems(state: GraphState, ontology: Ontology, names: OwnedNames) -> list[Finding]:
+    """Every blocking problem of ``state``: nodes, then edges (``v2_rule`` after the others), then fragments."""
+
+    return [
+        *_node_findings(state, names),
+        *_edge_findings(state, ontology, names),
+        *_v2_findings(state, ontology, names),
+        *_fragment_findings(state),
+    ]
 
 
 # Metrics
@@ -410,7 +474,7 @@ def spine_graph(state: GraphState) -> SpineGraph:
 
     return SpineGraph(
         nodes=tuple(
-            SpineNode(key=node.id, spec_id=node.subject, label=node.label)
+            SpineNode(key=node.id, spec_id=node.subject, label=node.label, attributes=node.attributes)
             for node in state.nodes.values()
             if node.label is not None
         ),
@@ -422,46 +486,121 @@ def spine_graph(state: GraphState) -> SpineGraph:
 
 
 def exclusive_conflicts(state: GraphState, ontology: Ontology) -> int:
-    """Extra targets on ``exclusive`` pairs: per source, relation and target label, every target past
-    the first (ontology.md "Relations"; counted as Conform counts them)."""
+    """Extra targets on ``exclusive`` pairs among the domain edges (``graph.build.validator``)."""
 
-    exclusive = ontology.exclusive_pairs
-    targets: Counter[tuple[str, str, str]] = Counter()
-    for edge in state.edges:
-        source, target = state.nodes.get(edge.source), state.nodes.get(edge.target)
-        if source is None or target is None or source.label is None or target.label is None:
-            continue
-        if (edge.relation, source.label, target.label) in exclusive:
-            targets[(edge.relation, edge.source, target.label)] += 1
-    return sum(count - 1 for count in targets.values() if count > 1)
+    return validator.exclusive_conflicts(
+        ((edge.relation, edge.source, edge.target) for edge in state.edges),
+        {key: node.label for key, node in state.nodes.items()},
+        ontology,
+    )
 
 
-def dropped_by_relation(target: TargetGraph | None) -> dict[str, int]:
-    """Edges Conform dropped by legalisation, per relation (from the build's conform artifact)."""
+def edges_by_relation_basis(state: GraphState) -> dict[str, dict[str, int]]:
+    """Domain edges per relation and basis (an edge without a string basis counts as ``stated``)."""
 
-    if target is None:
-        return {}
+    counts = Counter((edge.relation, edge_basis(edge)) for edge in state.edges)
+    out: dict[str, dict[str, int]] = {}
+    for (relation, basis), count in sorted(counts.items()):
+        out.setdefault(relation, {})[basis] = count
+    return out
+
+
+def edge_basis(edge: VEdge) -> str:
+    """The edge's basis; one without a string basis reads as ``stated``."""
+
+    return edge.basis if isinstance(edge.basis, str) and edge.basis else READ_BASES[0]
+
+
+def node_documents(state: GraphState) -> dict[str, frozenset[str]]:
+    """The documents of each spec node, by element id: those of the fragments its ``REFERENCED_BY``
+    lines name that can ground it (``active`` or ``skipped``)."""
+
+    documents = {
+        fragment.fragment_id: fragment.document_id
+        for fragment in state.fragments
+        if fragment.fragment_id in state.grounding and isinstance(fragment.document_id, str)
+    }
     return {
-        relation: sum(reasons.values())
-        for relation, reasons in sorted(target.counters.dropped_edges.items())
-        if sum(reasons.values())
+        node.id: frozenset(documents[fid] for fid in node.evidence if fid in documents) for node in state.nodes.values()
     }
 
 
-def measure(state: GraphState, ontology: Ontology, dropped: Mapping[str, int]) -> VerificationMetrics:
-    """The metrics of analysis.md "Verification" on ``state``; ``spine_unreachable_before`` reads the
-    ``stated`` and ``implied`` edges only (the graph as it was before inference)."""
+def persisted_edge_metrics(state: GraphState, ontology: Ontology) -> dict[str, Any]:
+    """``owners_by_source`` and ``cross_document_edges`` (``graph.build.metrics``) on the persisted graph after
+    inference: every domain edge with its basis, a node's documents those of its grounding fragments
+    (``node_documents``); None each when not measured (no owned spine-source label, or no edge with documents at both
+    ends).
+    """
 
-    spine, sources = spine_graph(state), ontology.spine.sources
+    labelled = [
+        MetricNode(key=node.id, label=node.label, name=node.name, attributes=node.attributes)
+        for node in state.nodes.values()
+        if node.label is not None
+    ]
+    edges = [(edge.relation, edge.source, edge.target, edge_basis(edge)) for edge in state.edges]
+    crossing, _ = metrics.cross_document_edges(edges, node_documents(state))
+    return {
+        "owners_by_source": metrics.owners_by_source(metrics.owner_bases(labelled, edges, ontology)),
+        "cross_document_edges": crossing,
+    }
+
+
+def measure(
+    state: GraphState,
+    ontology: Ontology,
+    dropped: Mapping[str, int],
+    *,
+    target: TargetGraph | None = None,
+    inference: InferenceReport | None = None,
+    names: OwnedNames | None = None,
+    nodes: NodesArtifact | None = None,
+) -> VerificationMetrics:
+    """The metrics of "Verification" on ``state`` (definitions: ``graph.build.metrics``); ``spine_unreachable_before``
+    reads the ``stated`` and ``implied`` edges only (the graph as it was before inference).
+    """
+
+    spine = spine_graph(state)
+    before = metrics.spine_unreached(spine, ontology, READ_BASES)
+    every = metrics.spine_unreached(spine, ontology)
+    labelled = [node for node in state.nodes.values() if node.label is not None]
+    shape = metrics.graph_metrics(
+        (
+            MetricNode(key=node.id, label=node.label or "", name=node.name, attributes=node.attributes)
+            for node in labelled
+        ),
+        ((edge.relation, edge.source, edge.target) for edge in state.edges),
+        ontology,
+    )
+    quarantine = metrics.quarantine_metrics(target, None, inference)
+    counts = metrics.conform_counts(target)
+    conformed = metrics.conform_exclusive_conflicts(target)
+    distinct = any(pair.distinct_owner for relation in ontology.relations.values() for pair in relation.pairs)
+    redundant = len(redundant_links(state, ontology, names or OwnedNames.of(ontology))) if distinct else None
     return VerificationMetrics(
-        spine_unreachable_before=len(spine.unreached(ontology, sources, READ_BASES)),
-        spine_unreachable=len(spine.unreached(ontology, sources)),
-        exclusive_conflicts=exclusive_conflicts(state, ontology),
+        spine_unreachable_before=len(before),
+        spine_unreachable=len(every),
+        exclusive_conflicts=conformed if conformed is not None else exclusive_conflicts(state, ontology),
         label_disagreement=sum(1 for node in state.nodes.values() if node.label_disagreement is not None),
         dropped_edges=dict(dropped),
         fragments_without_nodes=sum(
             1 for fragment in state.fragments if fragment.status == ACTIVE and not fragment.grounds
         ),
+        nodes_by_label=dict(sorted(Counter(node.label for node in labelled if node.label).items())),
+        edges_by_relation_basis=edges_by_relation_basis(state),
+        spine_unreachable_before_by_label=by_label(before),
+        spine_unreachable_by_label=by_label(every),
+        redundant_after_inference=redundant,
+        quarantine_by_reason=quarantine["quarantine_by_reason"],
+        quarantine_by_pair=quarantine["quarantine_by_pair"],
+        owner_conflicts_judged=counts["owner_conflicts_judged"],
+        cycles_broken=counts["cycles_broken"],
+        unsupported_entities_dropped=counts["unsupported_entities_dropped"],
+        in_scope_disagreements=counts["in_scope_disagreements"],
+        in_scope_dirty_wins=counts["in_scope_dirty_wins"],
+        **metrics.grounding_counts(target),
+        **metrics.step_counts(target, nodes),
+        **persisted_edge_metrics(state, ontology),
+        **shape,
     )
 
 
@@ -761,14 +900,17 @@ def _plan_edges(
     evidence: Evidence,
     round_: int,
 ) -> None:
-    """Restore the evidence of an ungrounded edge, or delete the edge; an edge with a deleted end goes along."""
+    """Restore the evidence of an ungrounded edge, or delete the edge; an edge with a deleted end goes
+    along. A ``v2_rule`` edge is deleted only when inferred."""
 
     edges = {edge.id: edge for edge in state.edges}
-    for check in ("illegal_edge", "inferred_edge", "ungrounded_edge"):
+    for check in ("illegal_edge", "inferred_edge", "ungrounded_edge", "v2_rule"):
         for finding in by_check[check]:
             edge = edges[finding.edge or ""]
             if edge.id in plan.delete_edges or edge.source in plan.delete_nodes or edge.target in plan.delete_nodes:
                 continue
+            if check == "v2_rule" and edge.basis != INFERRED:
+                continue  # reported and kept: Conform guarantees the rule for stated and implied edges
             if check == "ungrounded_edge":
                 restored_ids = evidence.for_edge(edge, state.grounding)
                 if restored_ids:
@@ -789,9 +931,10 @@ def plan_round(
     spec_ids: SpecIds | None,
     round_: int,
 ) -> RoundPlan:
-    """The repairs of ``findings`` (analysis.md "Verification" table), in check order: labels first
-    (a node whose label cannot be set is deleted, and nothing else is done to it), then ``spec_id``,
-    grounding, then edges (an edge with a deleted end goes with it), then fragments."""
+    """The repairs of ``findings``, in check order: labels first (a node whose label cannot be set is deleted, and
+    nothing else is done to it), then ``spec_id``, grounding, then edges (an edge with a deleted end goes with it), then
+    fragments.
+    """
 
     plan = RoundPlan()
     by_check: dict[str, list[Finding]] = {check: [] for check in CHECKS}
@@ -855,10 +998,13 @@ async def verify_graph(
     *,
     dropped: Mapping[str, int],
     repair: RepairScope | None,
+    target: TargetGraph | None = None,
+    inference: InferenceReport | None = None,
+    nodes: NodesArtifact | None = None,
 ) -> VerificationReport:
-    """Check the project's graph; with ``repair``, repair and check again, at most
-    ``MAX_REPAIR_ROUNDS`` rounds (a round over the valve ends the loop unapplied). Without it, the
-    run is read-only: no write, no follow-up request."""
+    """Check the project's graph; with ``repair``, repair and check again, at most ``MAX_REPAIR_ROUNDS`` rounds (a round
+    over the valve ends the loop unapplied).
+    """
 
     names = OwnedNames.of(ontology)
     state = await load_state(executor, project_id, names)
@@ -937,7 +1083,7 @@ async def verify_graph(
         valve=blocked_at,
         removed_spec_ids=tuple(sorted(set(removed_ids))),
         removed_inferred_edges=tuple(sorted(set(removed_inferred))),
-        metrics=measure(state, ontology, dropped),
+        metrics=measure(state, ontology, dropped, target=target, inference=inference, names=names, nodes=nodes),
         follow_up_lineages=tuple(sorted(set(follow_ups.values()))),
     )
     log_event(
@@ -965,9 +1111,12 @@ async def verify_build(
     registry: SpecIdRegistry,
     target: TargetGraph | None,
     diff: DiffArtifact | None,
+    inference: InferenceReport | None = None,
 ) -> VerificationReport:
-    """The Verify step's run (build.md step 9): checks and repairs, evidence restored from this build's
-    diff and target graph, metrics with this build's dropped edges."""
+    """The Verify step's run: checks and repairs, evidence restored from this build's diff and target graph, metrics
+    with this build's dropped edges and quarantine (``inference``: this build's inference report, whose
+    ``invalid_proposal`` entries the quarantine metrics count).
+    """
 
     return await verify_graph(
         executor,
@@ -975,25 +1124,63 @@ async def verify_build(
         ontology,
         dropped=dropped_by_relation(target),
         repair=RepairScope(build_id=build_id, evidence=Evidence.of_build(target, diff), registry=registry),
+        target=target,
+        inference=inference,
     )
 
 
-async def verify_project(context: BuildContext) -> VerificationReport:
-    """Run the checks read-only (api.md "Build", FR-VER-04): no write, no repair, no follow-up request.
+def with_node_counts(
+    report: VerificationReport,
+    nodes: NodesArtifact | None,
+    ontology: Ontology,
+    *,
+    resolved: ResolveArtifact | None = None,
+    plan: PlanArtifact | None = None,
+    target: TargetGraph | None = None,
+) -> VerificationReport:
+    """``report`` with the counts of the build's extract-nodes artifact ``nodes`` in its metrics (``label_collapses``;
+    ``verify_build`` reads no extract-nodes artifact), the hub-name and known-term metrics of ``nodes`` with its resolve
+    artifact ``resolved`` and plan (``metrics.naming_metrics``) and the identity metrics of ``resolved`` and the conform
+    artifact ``target`` (``metrics.identity_metrics``).
+    """
 
-    ``dropped_edges`` comes from the conform artifact of ``context.build_id``, else of the project's
-    latest finished build (empty when there is none)."""
+    counts = {
+        "label_collapses": metrics.step_counts(None, nodes)["label_collapses"],
+        **metrics.naming_metrics(nodes, resolved, ontology, plan),
+        **metrics.identity_metrics(resolved, target),
+    }
+    return report.model_copy(update={"metrics": report.metrics.model_copy(update=counts)})
+
+
+async def verify_project(context: BuildContext) -> VerificationReport:
+    """Run the checks read-only: no write, no repair, no follow-up request."""
 
     build_id = context.build_id
     if build_id is None:
         latest = await context.builds.latest_build(context.project_id, finished_only=True)
         build_id = latest.build_id if latest is not None else None
-    target = None
+    target = inference = nodes = resolved = plan = None
     if build_id is not None:
         payload = await context.builds.get_artifact(context.project_id, build_id, "conform")
         target = TargetGraph.model_validate(payload) if payload is not None else None
+        payload = await context.builds.get_artifact(context.project_id, build_id, "infer")
+        inference = InferenceReport.model_validate(payload) if payload is not None else None
+        payload = await context.builds.get_artifact(context.project_id, build_id, "extract_nodes")
+        nodes = NodesArtifact.model_validate(payload) if payload is not None else None
+        payload = await context.builds.get_artifact(context.project_id, build_id, "resolve")
+        resolved = ResolveArtifact.model_validate(payload) if payload is not None else None
+        payload = await context.builds.get_artifact(context.project_id, build_id, "plan")
+        plan = PlanArtifact.model_validate(payload) if payload is not None else None
     if context.executor is None:  # BuildContext always sets one
         raise ConformanceError("build_context_without_executor")
-    return await verify_graph(
-        context.executor, context.project_id, context.ontology, dropped=dropped_by_relation(target), repair=None
+    report = await verify_graph(
+        context.executor,
+        context.project_id,
+        context.ontology,
+        dropped=dropped_by_relation(target),
+        repair=None,
+        target=target,
+        inference=inference,
+        nodes=nodes,
     )
+    return with_node_counts(report, nodes, context.ontology, resolved=resolved, plan=plan, target=target)

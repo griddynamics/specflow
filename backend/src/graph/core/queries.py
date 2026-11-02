@@ -1,14 +1,4 @@
-"""Core Cypher: every query text the core runs, as named ``Query`` constants (architecture.md I3).
-
-The statements live in ``.cypher`` files under ``queries/`` next to this module and are loaded through
-``load_core_query``; a query whose label or relationship type is only known at run time is a file with
-``__NAME__`` tokens that its factory fills with validated names. The schema's constraints and indexes
-are static DDL files under ``ddl/``, loaded through ``load_core_ddl``.
-
-A project-scoped query binds ``$project_id``; the executor refuses a scoped query whose text does
-not, and injects the parameter itself. Unscoped queries (readiness, version gate, schema setup) run
-on the driver directly and never touch project data.
-"""
+"""Core Cypher: every query text the core runs, as named ``Query`` constants."""
 
 from __future__ import annotations
 
@@ -60,7 +50,7 @@ SERVER_COMPONENTS: Final = Query("server_components", load_core_query("server_co
 
 SAFE_NAME: Final = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 SPEC_NODE: Final = "SpecNode"
-# Spec node vector properties (data-model.md): written by build, never returned by reads.
+# Spec node vector properties: written by build, never returned by reads.
 EMBEDDING: Final = "embedding"
 NAME_EMBEDDING: Final = "name_embedding"
 
@@ -75,11 +65,7 @@ def safe_name(name: object) -> str:
 
 @dataclass(frozen=True, slots=True)
 class NodeShape:
-    """How a node is looked up: static label, key property, whether ``$<var>_label`` is checked.
-
-    A spec node is ``NodeShape("SpecNode", "uuid", True)``: matched on the unique ``SpecNode`` key,
-    its domain label checked with ``$label IN labels(n)`` (a dynamic label in MATCH would scan).
-    """
+    """How a node is looked up: static label, key property, whether ``$<var>_label`` is checked."""
 
     label: str
     key: str
@@ -105,7 +91,7 @@ AWAIT_INDEXES: Final = Query("await_indexes", load_core_query("await_indexes.cyp
 
 
 # The constraints and indexes are defined in the static DDL files under ``ddl/`` (one statement per
-# object, ``CREATE ... IF NOT EXISTS``), applied by ``graph.core.schema.ensure_schema`` in this order.
+# object, ``CREATE... IF NOT EXISTS``), applied by ``graph.core.schema.ensure_schema`` in this order.
 
 CORE_DDL_FILES: Final = ("node_constraints.cypher", "node_indexes.cypher", "relationship_indexes.cypher")
 
@@ -126,11 +112,7 @@ _DDL_HEAD: Final = re.compile(
 
 @dataclass(frozen=True, slots=True)
 class DdlStatement:
-    """One idempotent DDL statement of a DDL file and the name of the object it creates.
-
-    The statement must start ``CREATE <kind> <name> IF NOT EXISTS FOR`` with ``name`` a safe name;
-    anything else raises ``ConformanceError("ddl_statement_unsafe")``.
-    """
+    """One idempotent DDL statement of a DDL file and the name of the object it creates."""
 
     name: str
     text: str
@@ -147,7 +129,7 @@ def ddl_query(statement: DdlStatement) -> Query:
     return Query(f"create_{statement.name}", statement.text, project_scoped=False)
 
 
-# Owned writes (graph.core.writer). Parameters: ``$key`` (node key or relationship ``edge_key``),
+# Owned writes (graph.core.writer). Parameters: ``$key`` (node key or relationship ``edge_key``)
 # ``$props`` (properties to set; ``SET += `` so other properties stay), ``$label`` (domain label).
 
 UPSERT_SPEC_NODE: Final = Query("upsert_spec_node", load_core_query("upsert_spec_node.cypher"))
@@ -195,10 +177,9 @@ def upsert_foreign_node(label: str) -> Query:
 
 def foreign_node_constraint(label: str) -> str:
     """The DDL statement of the ``(group_id, uuid)`` uniqueness constraint of the foreign ``label``, named
-    ``graph_foreign_uuid_<label in lower case>`` (``ddl/foreign_node_constraint.cypher``): the statement a
-    submodule's DDL holds for each foreign label it declares. It is not part of ``CORE_DDL`` (the shipped
-    ontology has no foreign label). ``Document``, ``Fragment`` and ``SpecNode`` are not foreign
-    (``ConformanceError("node_key_unconstrained")``)."""
+    ``graph_foreign_uuid_<label in lower case>`` (``ddl/foreign_node_constraint.cypher``): the statement a submodule's
+    DDL holds for each foreign label it declares.
+    """
 
     if label in _NOT_FOREIGN:
         raise ConformanceError("node_key_unconstrained", label=label, key=FOREIGN_KEY)
@@ -229,11 +210,7 @@ def keyed_node_relationship_types(label: str, key: str) -> Query:
 
 @cache
 def upsert_relationship(rel_type: str, source: NodeShape, target: NodeShape) -> Query:
-    """MERGE one relationship by ``edge_key`` between two existing nodes.
-
-    No row: an end is missing. ``conflict`` true: a relationship of this type and ``edge_key``
-    already joins other endpoints (found by a ``(group_id, edge_key)`` index seek), nothing written.
-    """
+    """MERGE one relationship by ``edge_key`` between two existing nodes."""
 
     rel = safe_name(rel_type)
     return Query(
@@ -268,12 +245,18 @@ READ_NEIGHBOURS: Final = Query("read_neighbours", load_core_query("read_neighbou
 
 READ_EDGES: Final = Query("read_edges", load_core_query("read_edges.cypher"))
 
+# Read-time ``inherit``: the nodes one ``via`` hop from each node whose
+# inheriting attribute is null, with the stored values the reader may fill in from the owner.
+READ_OWNER_VALUES: Final = Query("read_owner_values", load_core_query("read_owner_values.cypher"))
+
 READ_DOCUMENTS: Final = Query("read_documents", load_core_query("read_documents.cypher"))
 
 READ_FRAGMENTS: Final = Query("read_fragments", load_core_query("read_fragments.cypher"))
 
 # Search and traversal (graph.core.reader). The vector and fulltext indexes span the whole database:
-# hits are filtered by ``group_id``, spec label and ``$where`` after the index call. ``$index`` names
+# hits are filtered by ``group_id``, spec label and ``$where`` after the index call (``$defaulted``: by
+# attribute, the labels whose declared default is the filter value, or for a null filter the labels with
+# any default: an absent property reads as the default; see ``GraphReader._filters``). ``$index`` names
 # the index (procedures take it as a value). An index page returns ``fetched`` (what the index gave
 # before filtering) and ``hits`` (those of the project, in the index's score order); the reader asks
 # for further pages until it has enough. Searches return keys and scores only; the reader then reads

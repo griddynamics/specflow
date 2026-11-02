@@ -1,9 +1,4 @@
-"""Offline tests of the graph core's Neo4j layer (plan 1.T4): version gate, ``Executor``, error mapping,
-``check``, ``connect``.
-
-The driver is a hand-written fake; nothing connects to Neo4j. Schema setup has its own offline
-module (``test_graph_schema.py``); the ``ScriptedGateway`` self-tests live in ``test_graph_support.py``.
-"""
+"""Offline tests of the graph core's Neo4j layer: version gate, ``Executor``, error mapping, ``check``, ``connect``."""
 
 from __future__ import annotations
 
@@ -173,7 +168,7 @@ def executor(driver: FakeDriver, sleeps: Sleeps | None = None) -> Executor:
     return Executor(driver, "neo4j", sleep=sleeps or Sleeps())
 
 
-# Version gate (FR-CORE-03)
+# Version gate
 
 
 @pytest.mark.parametrize(
@@ -222,7 +217,7 @@ async def test_server_version_maps_driver_errors(error: Exception, expected: typ
     assert raised.value.code == code
 
 
-# Executor: project scoping (FR-CORE-01, NFR-SEC-02)
+# Executor: project scoping
 
 
 async def test_executor_injects_validated_project_id() -> None:
@@ -326,7 +321,7 @@ async def test_tx_driver_error_maps_and_rolls_back() -> None:
     assert (driver.commits, driver.rollbacks) == (0, 1)
 
 
-# Executor: driver error mapping (tech-specs section 7)
+# Executor: driver error mapping
 
 
 async def test_transient_write_error_is_retried_then_succeeds(central_log: LogHarness) -> None:
@@ -335,7 +330,7 @@ async def test_transient_write_error_is_retried_then_succeeds(central_log: LogHa
     assert await executor(driver, sleeps).write(SCOPED, "p") == [{"project_id": "p"}]
     assert len(driver.runs) == 3
     assert sleeps.delays == [0.1, 0.3]
-    # NFR-SEC-01: the retry is logged with ids and codes, never the server's message text.
+    # the retry is logged with ids and codes, never the server's message text.
     retries = central_log.events("graph.db.retry")
     assert [(r["attempt"], r["neo4j_code"], r["query"]) for r in retries] == [
         (1, TRANSIENT_CODE, "scoped"),

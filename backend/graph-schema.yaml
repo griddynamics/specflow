@@ -46,6 +46,9 @@ nodes:
   BusinessRule: {properties: {}}
   IntegrationRequirement: {properties: {}}
   DataRequirement: {properties: {}}
+  Interface: {properties: {}}
+  DataEntity: {properties: {}}
+  OpenQuestion: {properties: {}}
   # Placeholder: the `__LABEL__` token of the keyed-node match and delete templates stands for Document,
   # Fragment or a foreign type, with `__KEY__` its key (document_id, fragment_id or uuid).
   __LABEL__: {properties: {__KEY__: {type: string}}}
@@ -90,6 +93,12 @@ relationships:
   GROUPED_BY: *domain
   REALIZED_BY: *domain
   INTEGRATES_WITH: *domain
+  DEPLOYED_TO: *domain
+  PROVIDED_BY: *domain
+  CONSUMED_BY: *domain
+  STORED_IN: *domain
+  CARRIES: *domain
+  DEPENDS_ON: *domain
   RELATES_TO: *domain
   # Structural relationships owned by build.
   # `__LABEL__` (the keyed-node placeholder above) also starts a CONTAINS: it stands for Document,
@@ -122,8 +131,9 @@ constraints:
   unique: [SpecNode.spec_id, SpecNode.uuid, Document.document_id, Fragment.fragment_id, __FOREIGN_LABEL__.uuid]
   # src/graph/core/ddl/node_indexes.cypher (range) and relationship_indexes.cypher: the
   # (group_id, edge_key) index of every relation of the shipped ontology.
-  indexes: [SpecNode.identity_key, GROUPED_BY.edge_key, INTEGRATES_WITH.edge_key, PART_OF.edge_key,
-            REALIZED_BY.edge_key, RELATES_TO.edge_key]
+  indexes: [SpecNode.identity_key, CARRIES.edge_key, CONSUMED_BY.edge_key, DEPENDS_ON.edge_key,
+            DEPLOYED_TO.edge_key, GROUPED_BY.edge_key, INTEGRATES_WITH.edge_key, PART_OF.edge_key,
+            PROVIDED_BY.edge_key, REALIZED_BY.edge_key, RELATES_TO.edge_key, STORED_IN.edge_key]
 
 policy:
   # Schema DDL: the static CREATE ... IF NOT EXISTS statements of the constraints and indexes.
@@ -173,3 +183,7 @@ policy:
     - build_repair_edge_evidence
     - infer_endpoint_via
     - infer_endpoint_mentions
+  # project: the members' embeddings of the cross_document rule, read once for every hub; the pair
+  # cosines of each hub are computed in Python (graph.build.infer_xdoc.pair_cosines), not one Cypher
+  # row per member pair.
+  vector_read_queries: [infer_xdoc_embeddings]

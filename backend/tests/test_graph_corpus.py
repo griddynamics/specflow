@@ -1,7 +1,4 @@
-"""Plan step text rules: tokens, masking, segmentation, units, windows, change set (plan 2.T2; FR-BLD-04).
-
-Pure functions over markdown and hand-made records; no I/O except reading the shop fixture.
-"""
+"""Plan step text rules: tokens, masking, segmentation, units, windows, change set."""
 
 from __future__ import annotations
 
@@ -697,7 +694,7 @@ def test_dirty_windows_follow_a_planned_unit_from_plan_units() -> None:
     assert len(windows) <= 4
 
 
-# change_set (build.md Plan 2)
+# change_set
 
 
 def persisted(document_id: str, revision_id: str, status: str = "active") -> DocumentRec:

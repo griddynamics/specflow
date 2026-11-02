@@ -1,9 +1,4 @@
-"""Port contract suites and the file implementations (plan 2.T1; api.md "Ports"; tech-specs 5.1).
-
-The ``*Contract`` classes are reusable: a host store subclasses one and provides the fixtures named
-in its docstring. Here they run against the file implementations and against minimal in-memory
-stores (which also prove a store with only the required methods satisfies the suites).
-"""
+"""Port contract suites and the file implementations."""
 
 from __future__ import annotations
 
@@ -754,6 +749,17 @@ class BuildStoreContract:
         assert stored.progress == {}
         assert stored.options == BuildOptions()
         assert not stored.finished
+
+    async def test_a_follow_up_record_round_trips_and_others_read_as_none(self, builds: BuildStore) -> None:
+        await builds.create_build(record())
+        follow_up = record("b2", mode="update", minutes=1).model_copy(
+            update={"follow_up_of": "b1", "follow_up_attempt": 1}
+        )
+        await builds.create_build(follow_up)
+
+        first, second = await builds.get_build("proj", "b1"), await builds.get_build("proj", "b2")
+        assert first is not None and (first.follow_up_of, first.follow_up_attempt) == (None, 0)
+        assert second == follow_up
 
     async def test_an_unknown_build_is_none(self, builds: BuildStore) -> None:
         await builds.create_build(record())

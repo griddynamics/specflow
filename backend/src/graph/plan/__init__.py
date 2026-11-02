@@ -1,1 +1,1 @@
-"""Reserved for implementation plans; designed later (docs/graph/later.md)."""
+"""Reserved for implementation plans; designed later."""

@@ -1,9 +1,4 @@
-"""Build options, settings and the build context (docs/graph/build.md "Build options", api.md "Build").
-
-``BuildOptions`` shape extraction and are frozen by the last ``first`` or ``rebuild`` build;
-``BuildSettings`` may change between builds. Both are immutable; invalid values raise
-``ConfigurationError`` naming the fields. ``BuildContext`` bundles what every step function needs.
-"""
+"""Build options, settings and the build context."""
 
 from __future__ import annotations
 
@@ -32,11 +27,7 @@ class StepServices:
 
 @dataclass(frozen=True, slots=True)
 class BuildContext:
-    """Everything a build step needs (api.md "Build"); holds live objects, so it is never serialised.
-
-    ``build_id`` None starts a new build; set, the steps read and resume that build. ``executor``
-    None is replaced by ``Executor(driver, database)``; a test may pass its own.
-    """
+    """Everything a build step needs; holds live objects, so it is never serialised."""
 
     project_id: str
     ontology: Ontology

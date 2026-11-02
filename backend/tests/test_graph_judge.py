@@ -1,8 +1,4 @@
-"""Offline tests of the graph judge runner and verdict checks (plan 1.T5; FR-LLM-06).
-
-The gateway talks to an ``httpx.MockTransport`` with an instant ``sleep``; prompts come from the
-shipped ontology (``graph.core.load_ontology()``), whose judge prompt files may be placeholders.
-"""
+"""Offline tests of the graph judge runner and verdict checks."""
 
 from __future__ import annotations
 
@@ -44,7 +40,7 @@ from logger_harness import LogHarness
 # The graph fixtures (scripted_gateway, make_gateway, gap_ontology, neo4j_project) live in graph_support.
 pytest_plugins = ["graph_support"]
 
-PROMPT = "judge_endpoints.2"
+PROMPT = "judge_endpoints.3"
 FRAGMENTS = {
     "doc.md~1": "The Checkout   service calls\nStripe to charge cards.",
     "doc.md~2": "Orders are stored.",
@@ -211,11 +207,11 @@ async def test_verdict_type_names_the_schema_and_hides_prompt_ref(make) -> None:
 
 async def test_each_verdict_gets_its_own_prompt_ref(make) -> None:
     runner, _, _ = make(lambda _request: ok(verdict()))
-    first = await runner.judge("judge_endpoints.2", PAYLOAD, Direction)
-    second = await runner.judge("judge_realization.1", PAYLOAD, Direction)
+    first = await runner.judge("judge_endpoints.3", PAYLOAD, Direction)
+    second = await runner.judge("judge_realization.2", PAYLOAD, Direction)
     assert (first.prompt_ref, second.prompt_ref) == (
-        "judge_endpoints.2",
-        "judge_realization.1",
+        "judge_endpoints.3",
+        "judge_realization.2",
     )
 
 
@@ -336,7 +332,7 @@ async def test_unknown_prompt_ref_is_a_conformance_error_without_a_request(
 async def test_system_message_is_the_prompt_the_evidence_rule_and_the_notice(
     make, ontology: Ontology, prompt: str
 ) -> None:
-    """FR-LLM-05: every judge prompt of the ontology goes out as prompt, rule and notice, exactly."""
+    """: every judge prompt of the ontology goes out as prompt, rule and notice, exactly."""
 
     runner, _, bodies = make(lambda _request: ok(verdict()))
     await runner.judge(prompt, PAYLOAD, Direction)
@@ -350,9 +346,16 @@ async def test_system_message_is_the_prompt_the_evidence_rule_and_the_notice(
     assert UNTRUSTED_NOTICE not in messages[1]["content"]
 
 
-def test_every_inference_rule_has_its_judge_prompt(ontology: Ontology) -> None:
-    assert set(ontology.judge_prompts) == {rule.prompt for rule in ontology.inference.rules}
-    assert len(ontology.judge_prompts) == 3
+def test_every_inference_rule_and_the_conform_judge_have_their_judge_prompt(ontology: Ontology) -> None:
+    conform = ontology.conform_spec()
+    assert conform is not None
+    assert conform.answered_elsewhere is not None
+    batch = {rule.batch_prompt for rule in ontology.inference.rules if rule.batch_prompt}
+    assert set(ontology.judge_prompts) == {rule.prompt for rule in ontology.inference.rules} | batch | {
+        conform.judge_prompt,
+        conform.answered_elsewhere.prompt,
+    }
+    assert len(ontology.judge_prompts) == 7  # 6 named by the file and the attach_orphan batch prompt
 
 
 async def test_each_fragment_is_its_own_untrusted_block_and_nothing_else_is_bare(

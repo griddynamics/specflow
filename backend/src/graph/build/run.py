@@ -1,33 +1,4 @@
-"""Build orchestration: mode selection, build records, the step functions, the step table and
-``run_build`` (build.md "Modes" and "Steps"; api.md "Build"; tech-specs 5.3).
-
-Only this module does ``BuildStore`` I/O for the steps. Every step function takes the build context,
-reads its inputs from the build's artifacts, writes its own artifact and records its progress, so a
-host can run steps one by one and resume an interrupted build. ``STEP_FUNCTIONS`` maps each step to its
-function. ``infer`` runs light inference (``graph.build.infer``) and ``verify`` the verification with
-repairs (``graph.build.verify``). ``estimate_build`` selects the mode and runs the Plan logic
-without writing anything, then predicts the extraction calls (``graph.build.estimate``).
-
-The step functions ``resolve``, ``conform``, ``diff`` and ``persist`` share their names with modules of
-``graph.build``, so the package exports them under the api.md names on the ``steps`` namespace
-(``graph.build.steps.resolve``), and ``plan`` and ``run_build`` directly.
-
-LLM usage per step is the change of the gateway's usage counters while the step ran. When several
-builds share one gateway concurrently, a step's usage also counts the other builds' calls made in the
-meantime, so per-step usage is approximate in that case.
-
-What a build reuses from earlier builds, by mode (build.md "Modes", "Reuse in update builds"):
-
-- ``update``: everything below, plus the stored extraction results (``StoredResults.read``: nodes per
-  fragment, edges per unit and the clean units' last catalogs, attribute values per node) and the
-  persisted labels (Resolve, and Conform for the keys it gives, keep a continuing node's label and key
-  scope; ``_persisted_identities``).
-- ``rebuild``: extracts every fragment again and reads no stored extraction result and no persisted
-  label, but keeps identity stable across builds by reusing what only depends on its inputs: the
-  embedding vectors (vector store, by text), the hub consolidation decisions (``DecisionMemory``)
-  and the requirement dedup verdicts (``conform.DedupMemory``). A ``first`` build uses the same
-  stores, which are empty for a new project. Every mode writes all of these for later builds.
-"""
+"""Build orchestration: mode selection, build records, the step functions, the step table and ``run_build``."""
 
 from __future__ import annotations
 
@@ -38,21 +9,25 @@ import uuid
 from collections import Counter
 from collections.abc import AsyncIterator, Awaitable, Callable, Collection, Mapping
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Final, get_args
 
 import numpy as np
 
+from graph.build import answered as answering
 from graph.build import conform as conformance
 from graph.build import diff as differ
+from graph.build import edges as edge_extraction
 from graph.build import estimate as estimation
 from graph.build import extract as extraction
 from graph.build import infer as inference
+from graph.build import normalise as normalisation
 from graph.build import persist as writing
 from graph.build import resolve as resolution
 from graph.build import terms
 from graph.build import verify as verification
+from graph.build.change_report import classify as classify_changes
 from graph.build.changes import (
     change_set,
     dirty_ids,
@@ -67,21 +42,23 @@ from graph.build.consolidate import DecisionMemory
 from graph.build.corpus import segment_revision
 from graph.build.diff import EMPTY_GRAPH, DiffInput
 from graph.build.extract import (
-    KnownTermsSource,
     StoredResults,
     attribute_fingerprint,
-    edge_fingerprint,
     node_fingerprint,
+    node_passes,
     stored_node_fragments,
 )
+from graph.build.metrics import quarantine_counts, refused_by_guard
 from graph.build.models import (
     STEPS,
+    AnsweredElsewhereRef,
     ArtifactModel,
     BuildEstimate,
     BuildMetrics,
     BuildMode,
     BuildResult,
     BuildStatus,
+    DedupRefusal,
     DiffArtifact,
     DocumentRec,
     EdgesArtifact,
@@ -90,7 +67,10 @@ from graph.build.models import (
     NodesArtifact,
     PersistCursor,
     PlanArtifact,
+    QuarantinedEdge,
     ResolveArtifact,
+    Settlement,
+    SettlementReason,
     SpecChanges,
     StepName,
     TargetGraph,
@@ -103,7 +83,7 @@ from graph.build.vectors import VectorCache, text_hash
 from graph.core.db import Executor
 from graph.core.errors import ConfigurationError, ConformanceError, CorpusError, GraphError
 from graph.core.llm.judge import JudgeRunner
-from graph.core.llm.usage import UsageCounts
+from graph.core.llm.usage import UsageCounts, UsageSnapshot
 from graph.core.logfields import count_fields
 from graph.core.ontology import FingerprintPart, Ontology
 from logger.logger import INFO, WARNING, get_logger, log_event
@@ -114,6 +94,7 @@ StepFunction = Callable[[BuildContext], Awaitable[None]]
 
 FULL_MODES: Final[frozenset[BuildMode]] = frozenset({"first", "rebuild"})
 """Modes that extract everything; an ``update`` needs the record of the last one of these."""
+ACTIVE_SPEC_ID: Final = "active"
 
 
 # Mode and build records
@@ -133,14 +114,8 @@ def _executor(ctx: BuildContext) -> Executor:
 
 
 async def select_mode(ctx: BuildContext) -> BuildMode:
-    """``rebuild`` when the host asks; ``first`` when the project has no persisted ``Document`` and no
-    spec node; else ``update`` (build.md "Modes").
-
-    With a persisted graph, the newest ``first`` or ``rebuild`` record in the ``BuildStore`` decides:
-    when it is unfinished or ``failed``, ``ConfigurationError("unfinished_build", build_id=...)`` names
-    it (the host resumes that build, or asks for a rebuild); without any,
-    ``ConfigurationError("rebuild_required")``. An ``update`` is checked against that record
-    (``check_frozen``) before anything is recorded or any model is called.
+    """``rebuild`` when the host asks; ``first`` when the project has no persisted ``Document`` and no spec node; else
+    ``update``.
     """
 
     if ctx.rebuild:
@@ -163,25 +138,24 @@ def relation_set(ontology: Ontology) -> tuple[str, ...]:
 
 
 def check_frozen(ctx: BuildContext, last_full: BuildRecord) -> None:
-    """An ``update`` keeps what the last ``first`` or ``rebuild`` build froze (build.md "Modes";
-    FR-BLD-14): its options (``frozen_options_changed``, ``fields`` names the changed options), the
-    ontology's labels and relations (``ontology_changed``, ``part`` ``labels`` or ``relations``) and
-    the embedding model (``embedding_model_changed``). Each raises ``ConfigurationError``; a
-    ``rebuild`` is needed."""
+    """An ``update`` keeps what the last ``first`` or ``rebuild`` build froze: its options (``frozen_options_changed``,
+    ``fields`` names the changed options), the ontology's labels and relations (``ontology_changed``, ``part``
+    ``labels`` or ``relations``) and the embedding model (``embedding_model_changed``).
+    """
 
-    if ctx.options != last_full.options:
-        now, then = ctx.options.model_dump(mode="json"), last_full.options.model_dump(mode="json")
-        changed = sorted(name for name in now.keys() | then.keys() if now.get(name) != then.get(name))
-        raise ConfigurationError("frozen_options_changed", fields=",".join(changed))
     if tuple(ctx.ontology.labels) != tuple(last_full.label_set):
         raise ConfigurationError("ontology_changed", part="labels")
     if last_full.relation_set is not None and relation_set(ctx.ontology) != tuple(last_full.relation_set):
         raise ConfigurationError("ontology_changed", part="relations")
+    if ctx.options != last_full.options:
+        now, then = (ctx.options.model_dump(mode="json"), last_full.options.model_dump(mode="json"))
+        changed = sorted(name for name in now.keys() | then.keys() if now.get(name) != then.get(name))
+        raise ConfigurationError("frozen_options_changed", fields=",".join(changed))
     if ctx.gateway.config.embedding_model != last_full.embedding_model:
         raise ConfigurationError("embedding_model_changed")
 
 
-async def start_build(ctx: BuildContext) -> str:
+async def start_build(ctx: BuildContext, *, follow_up_of: str | None = None, follow_up_attempt: int = 0) -> str:
     """Select the mode, store a new ``BuildRecord`` with the frozen options and return its id."""
 
     mode = await select_mode(ctx)
@@ -195,6 +169,8 @@ async def start_build(ctx: BuildContext) -> str:
         relation_set=relation_set(ctx.ontology),
         embedding_model=ctx.gateway.config.embedding_model,
         started_at=datetime.now(UTC),
+        follow_up_of=follow_up_of,
+        follow_up_attempt=follow_up_attempt,
     )
     await ctx.builds.create_build(record)
     log_event(logger, INFO, "graph.build.started", build_id=record.build_id, mode=mode)
@@ -279,9 +255,9 @@ async def step_progress(ctx: BuildContext, step: StepName) -> AsyncIterator[Buil
 
 
 async def plan(ctx: BuildContext) -> str:
-    """Plan step (build.md step 1): start a build when ``ctx.build_id`` is None, then read the corpus
-    snapshot, compute the change set, segment, select dirty fragments, group units and store the
-    ``PlanArtifact``. Returns the build id."""
+    """Plan step: start a build when ``ctx.build_id`` is None, then read the corpus snapshot, compute the change set,
+    segment, select dirty fragments, group units and store the ``PlanArtifact``.
+    """
 
     if ctx.build_id is None:
         ctx = ctx.with_build_id(await start_build(ctx))
@@ -357,9 +333,9 @@ def _validate_snapshot(revisions: list[CorpusRevision]) -> None:
 
 
 async def _stale(ctx: BuildContext, mode: BuildMode, options: BuildOptions, fragments: list[FragmentRec]) -> set[str]:
-    """``update`` builds: unchanged ``active`` fragments without stored nodes for their content under
-    the current node extractor fingerprint (build.md "Modes": extracted again). A ``skipped`` one is
-    extracted again only when it changes or is retried."""
+    """``update`` builds: unchanged ``active`` fragments without stored nodes for their content under the current node
+    extractor fingerprint.
+    """
 
     if mode in FULL_MODES:
         return set()
@@ -367,7 +343,10 @@ async def _stale(ctx: BuildContext, mode: BuildMode, options: BuildOptions, frag
     if not clean:
         return set()
     stored = await stored_node_fragments(
-        stored_results(ctx, mode), node_fingerprint(ctx.ontology, ctx.gateway, options), clean
+        stored_results(ctx, mode),
+        node_fingerprint(ctx.ontology, ctx.gateway, options),
+        clean,
+        node_passes(ctx.ontology),
     )
     return {fragment.fragment_id for fragment in clean if fragment.fragment_id not in stored}
 
@@ -404,16 +383,12 @@ def _documents(
 
 
 async def estimate_build(ctx: BuildContext) -> BuildEstimate:
-    """Cost estimate of the build ``run_build(ctx)`` would start (build.md "Cost estimate", FR-BLD-16):
-    the mode it would select (with the same ``ConfigurationError`` an ``update`` would raise), its
-    Plan step over a dry-run corpus snapshot, and the calls and input tokens of every step before
-    inference (``graph.build.estimate``).
-
-    Reads only: no model call, no build record, no artifact, no store or graph write. Reuse is the
-    build's own: an ``update`` plans only the fragments without stored nodes for their content as
-    dirty, so an unchanged corpus estimates no call. ``units_reused``: the planned units with no
-    dirty fragment (no node or edge call predicted). The estimate is of a new build: a context with
-    ``build_id`` set raises ``ConfigurationError("estimate_build_id_set")`` (resuming is not estimated)."""
+    """Cost estimate of the build ``run_build(ctx)`` would start: the mode it would select (with the same
+    ``ConfigurationError`` an ``update`` would raise), its Plan step over a dry-run corpus snapshot, the calls and input
+    tokens of every step before verification and the subjects the inference limits would leave queued
+    (``graph.build.estimate``; the queues of the latest finished build's infer artifact are read, exact, for an
+    ``update``).
+    """
 
     if ctx.build_id is not None:
         raise ConfigurationError("estimate_build_id_set", build_id=ctx.build_id)
@@ -431,21 +406,21 @@ async def estimate_build(ctx: BuildContext) -> BuildEstimate:
         if mode != "first"
         else estimation.PersistedNodes()
     )
-    steps = await estimation.estimate_steps(
+    estimated = await estimation.estimate_steps(
         plan_artifact,
         mode=mode,
         services=StepServices(gateway=ctx.gateway, ontology=ctx.ontology, options=ctx.options),
-        revisions=active_revisions(plan_artifact) if mode in FULL_MODES else [],
         hubs=hubs,
         persisted=persisted,
         lookups=estimation.Lookups(
             vectors=vector_cache(ctx),
             decisions=decision_memory(ctx),
             results=stored_results(ctx, mode) if mode == "update" else None,
-            edge_fingerprint=edge_fingerprint(ctx.ontology, ctx.gateway, ctx.options),
             attribute_fingerprint=attribute_fingerprint(ctx.ontology, ctx.gateway),
         ),
+        inference=await estimation.inference_state(ctx.builds, ctx.project_id, enabled=ctx.settings.inference),
     )
+    steps = estimated.steps
     dirty = set(plan_artifact.dirty_ids)
     extracted = sum(1 for unit in plan_artifact.units if any(fid in dirty for fid in unit.fragment_ids))
     estimate = BuildEstimate(
@@ -458,6 +433,7 @@ async def estimate_build(ctx: BuildContext) -> BuildEstimate:
         units_to_extract=extracted,
         units_reused=len(plan_artifact.units) - extracted,
         steps=steps,
+        inference_backlog=estimated.inference_backlog,
     )
     log_event(
         logger,
@@ -474,78 +450,32 @@ async def estimate_build(ctx: BuildContext) -> BuildEstimate:
     return estimate
 
 
-# 2. Extract nodes (with the hub catalog and known terms)
+# 2. Extract nodes (hub pass, hub catalog and known terms, statement pass)
 
 
 async def extract_nodes(ctx: BuildContext) -> None:
-    """Extract nodes step (build.md step 2): hub catalog and known terms, then node extraction per window."""
+    """Extract nodes step: the hub pass, its hub catalog, known terms, then the statement pass, each over every window
+    with a dirty fragment.
+    """
 
     async with step_progress(ctx, "extract_nodes") as record:
         plan_artifact = await load_artifact(ctx, "plan", PlanArtifact)
         options = record.options
-        hubs, source = await _hubs(ctx, record, plan_artifact)
-        known: dict[str, list[str]] = {}
-        # Known terms rank only units that are extracted (a dirty fragment in a window), so a build
-        # without one embeds nothing here (no fragment or hub vector is even looked up).
-        dirty = set(plan_artifact.dirty_ids)
-        extracted = [
-            unit
-            for unit in plan_artifact.units
-            if unit.windows and any(fragment_id in dirty for fragment_id in unit.fragment_ids)
-        ]
-        if hubs and extracted:
-            cache = vector_cache(ctx)
-            vectors = await terms.fragment_vectors(plan_artifact.fragments, cache)
-            names = await terms.hub_vectors(hubs, cache)
-            by_id = {fragment.fragment_id: fragment for fragment in plan_artifact.fragments}
-            known = {
-                unit.unit_id: terms.known_terms(unit, by_id, hubs, names, vectors, limit=options.known_terms_limit)
-                for unit in extracted
-            }
+        persisted = (
+            await terms.persisted_hubs(_executor(ctx), ctx.project_id, ctx.ontology)
+            if record.mode not in FULL_MODES
+            else []
+        )
         artifact = await extraction.extract_nodes(
             plan_artifact,
             gateway=ctx.gateway,
             ontology=ctx.ontology,
             options=options,
-            known_terms=known,
-            known_terms_source=source,
+            persisted_hubs=persisted,
+            ranker=terms.TermRanker(plan_artifact.fragments, vector_cache(ctx), options.known_terms_limit),
             results=stored_results(ctx, record.mode),
         )
         await store_artifact(ctx, "extract_nodes", artifact)
-
-
-async def _hubs(
-    ctx: BuildContext, record: BuildRecord, plan_artifact: PlanArtifact
-) -> tuple[list[terms.HubName], KnownTermsSource]:
-    """Known-term hubs (build.md step 2, FR-BLD-23): the hub catalog in ``first`` and ``rebuild``
-    builds, the persisted hub nodes in ``update`` builds."""
-
-    if record.mode not in FULL_MODES:
-        hubs = await terms.persisted_hubs(_executor(ctx), ctx.project_id, ctx.ontology)
-        return hubs, ("persisted" if hubs else "none")
-    if not record.options.hub_catalog:
-        return [], "none"
-    hubs = await terms.hub_catalog(
-        active_revisions(plan_artifact), plan_artifact.fragments, ctx.gateway, ctx.ontology, record.options
-    )
-    return hubs, ("hub_catalog" if hubs else "none")
-
-
-def active_revisions(plan_artifact: PlanArtifact) -> list[CorpusRevision]:
-    """The plan's active documents as revisions without text (what the hub catalog outlines)."""
-
-    return [
-        CorpusRevision(
-            lineage_id=document.document_id,
-            revision_id=document.revision_id,
-            version=document.version,
-            path=document.path,
-            title=document.title,
-            markdown="",
-        )
-        for document in plan_artifact.documents
-        if document.status == "active"
-    ]
 
 
 def vector_cache(ctx: BuildContext) -> VectorCache:
@@ -564,7 +494,7 @@ def decision_memory(ctx: BuildContext) -> DecisionMemory:
 
 
 async def resolve(ctx: BuildContext) -> None:
-    """Resolve step (build.md step 3)."""
+    """Resolve step."""
 
     async with step_progress(ctx, "resolve") as record:
         plan_artifact = await load_artifact(ctx, "plan", PlanArtifact)
@@ -585,14 +515,20 @@ async def _persisted_identities(
     ctx: BuildContext, record: BuildRecord
 ) -> dict[str, resolution.PersistedIdentity] | None:
     """``update`` builds: the persisted label and identity key of every spec node by its identity key
-    and aliases (Resolve step 6, Conform step 1), read from the current graph; None in ``first`` and
-    ``rebuild``."""
+    and aliases (Resolve step 6, Conform step 1), with its values of the spine ``exclude`` attributes
+    (Conform, T12), read from the current graph; None in ``first`` and ``rebuild``."""
 
     if record.mode != "update":
         return None
     current = await differ.load_current_graph(_executor(ctx), ctx.project_id, ctx.ontology)
+    watched = sorted(ctx.ontology.spine_exclude())
     return resolution.persisted_identities(
-        (node.identity_key, node.identity_aliases, node.label) for node in current.nodes
+        ((node.identity_key, node.identity_aliases, node.label) for node in current.nodes),
+        {
+            node.identity_key: {name: node.properties[name] for name in watched if name in node.properties}
+            for node in current.nodes
+            if watched
+        },
     )
 
 
@@ -615,22 +551,21 @@ async def _persisted_hub_aliases(
 
 
 async def extract_edges(ctx: BuildContext) -> None:
-    """Extract edges step (build.md step 4), with the attributes pass."""
+    """Extract edges step, with the attributes pass."""
 
     async with step_progress(ctx, "extract_edges") as record:
         plan_artifact = await load_artifact(ctx, "plan", PlanArtifact)
         resolved = await load_artifact(ctx, "resolve", ResolveArtifact)
         nodes = await load_artifact(ctx, "extract_nodes", NodesArtifact)
+        params = edge_extraction.DEFAULT_EDGE_WINDOWS
         cache = vector_cache(ctx)
-        vectors = await terms.fragment_vectors(plan_artifact.fragments, cache)
-        named = [node for node in resolved.canonical if node.name_embedding_text is not None]
-        name_vectors = await cache.get_or_embed([node.name_embedding_text or "" for node in named])
-        artifact = await extraction.extract_edges(
+        vectors = await edge_extraction.catalog_vectors(plan_artifact, resolved, ctx.ontology, cache, params)
+        artifact = await edge_extraction.extract_edges(
             plan_artifact,
             resolved,
             services=StepServices(gateway=ctx.gateway, ontology=ctx.ontology, options=record.options),
-            fragment_vectors=vectors,
-            name_vectors={node.cid: vector for node, vector in zip(named, name_vectors, strict=True)},
+            vectors=vectors,
+            params=params,
             results=stored_results(ctx, record.mode),
             node_skipped=tuple(nodes.skipped),
             hub_aliases=await _persisted_hub_aliases(ctx, record, resolved),
@@ -639,7 +574,7 @@ async def extract_edges(ctx: BuildContext) -> None:
 
 
 async def conform(ctx: BuildContext) -> None:
-    """Conform step (build.md step 5); statements are stamped with the build's start time."""
+    """Conform step; statements are stamped with the build's start time."""
 
     async with step_progress(ctx, "conform") as record:
         plan_artifact = await load_artifact(ctx, "plan", PlanArtifact)
@@ -652,10 +587,41 @@ async def conform(ctx: BuildContext) -> None:
             services=StepServices(gateway=ctx.gateway, ontology=ctx.ontology, options=record.options),
             vectors=vector_cache(ctx),
             at=_stamp(record),
-            memory=conformance.DedupMemory(ctx.extraction, ctx.project_id, ctx.gateway.config.model_for("small")),
             persisted=await _persisted_identities(ctx, record),
+            judging=conformance.ConformJudging(
+                dedup_memory=conformance.DedupMemory(
+                    ctx.extraction, ctx.project_id, ctx.gateway.config.model_for("small")
+                ),
+                judge_memory=_conform_judge_memory(ctx),
+                answered_memory=_answered_memory(ctx),
+            ),
         )
         await store_artifact(ctx, "conform", artifact)
+
+
+def _conform_judge_memory(ctx: BuildContext) -> normalisation.ConformJudgeMemory | None:
+    """The project's stored conform judge verdicts (``ExtractionStore``), keyed under the ontology's
+    judge prompt and the judge model; None when the ontology has no ``conform`` section."""
+
+    spec = ctx.ontology.conform_spec()
+    if spec is None:
+        return None
+    return normalisation.ConformJudgeMemory(
+        ctx.extraction, ctx.project_id, spec.judge_prompt, ctx.gateway.config.model_for("judge")
+    )
+
+
+def _answered_memory(ctx: BuildContext) -> answering.AnsweredMemory | None:
+    """The project's stored answered-elsewhere verdicts (``ExtractionStore``), keyed under the flag's
+    judge prompt and the small model; None when the ontology has no ``conform.answered_elsewhere``."""
+
+    spec = ctx.ontology.conform_spec()
+    flag = spec.answered_elsewhere if spec is not None else None
+    if flag is None:
+        return None
+    return answering.AnsweredMemory(
+        ctx.extraction, ctx.project_id, flag.prompt, ctx.gateway.config.model_for(answering.ANSWERED_CLASS)
+    )
 
 
 def _stamp(record: BuildRecord) -> str:
@@ -666,14 +632,7 @@ def _stamp(record: BuildRecord) -> str:
 
 
 async def diff(ctx: BuildContext) -> None:
-    """Diff step (build.md step 6) against the current graph (``diff.load_current_graph``; a ``first``
-    build has none).
-
-    A new diff never resumes an old persist: a persist cursor of the build is reset first and the
-    steps after diff marked ``done`` are reopened (``failed``: the port has no pending state),
-    so a resumed ``run_build`` persists this diff. Fragments the edge step ``recovered`` are passed as
-    extracted this build (with the dirty ones), so they are persisted ``active`` at their content.
-    """
+    """Diff step against the current graph (``diff.load_current_graph``; a ``first`` build has none)."""
 
     async with step_progress(ctx, "diff") as record:
         await _reopen_after_diff(ctx, record)
@@ -717,15 +676,7 @@ async def _reopen_after_diff(ctx: BuildContext, record: BuildRecord) -> None:
 
 
 async def persist(ctx: BuildContext, *, on_batch: Callable[[int], None] | None = None) -> None:
-    """Persist step (build.md step 7): apply the diff batch by batch from the stored cursor.
-
-    The diff's ``spec_id`` rows are recorded in the registry before the first batch: the ids are
-    reserved even when persist is interrupted, and a re-run allocates the same ids for the same keys.
-    Node vectors are read per batch from the vector store; one missing there is embedded again from
-    its text in the conform artifact (or the diff's ``texts``). The diff's ``texts`` (a continuing
-    node's texts under its persisted label) go through the vector store first, so they are embedded
-    once, here. ``on_batch(index)`` runs after each committed batch (tech-specs 5.3 test hook).
-    """
+    """Persist step: apply the diff batch by batch from the stored cursor."""
 
     async with step_progress(ctx, "persist") as record:
         artifact = await load_artifact(ctx, "diff", DiffArtifact)
@@ -778,14 +729,9 @@ async def persist(ctx: BuildContext, *, on_batch: Callable[[int], None] | None =
 
 
 async def infer(ctx: BuildContext) -> None:
-    """Infer step (build.md step 8, analysis.md "Light inference"): runs every ontology inference rule
-    once and swaps in the new inferred edges (``graph.build.infer``); off when
-    ``BuildSettings.inference`` is false. Judgements are remembered in the ``ExtractionStore`` (kind
-    ``decisions``), so unchanged subjects are not judged again. When this build's diff changed nothing
-    (no operation and no spec change), no subject is judged: the never-judged backlog waits for a
-    build that changes something. A non-fatal model error is reported in the stored
-    ``InferenceReport`` (FR-INF-05); fatal errors fail the step with the previous inferred edges
-    intact."""
+    """Infer step: runs every ontology inference rule once and swaps in the new inferred edges (``graph.build.infer``);
+    off when ``BuildSettings.inference`` is false.
+    """
 
     async with step_progress(ctx, "infer") as record:
         if not ctx.settings.inference:
@@ -794,6 +740,12 @@ async def infer(ctx: BuildContext) -> None:
         judge_model = ctx.gateway.config.model_for("judge")
         changes = await _optional_artifact(ctx, "diff", DiffArtifact)
         graph_changed = changes is None or bool(changes.operations) or changes.spec_changes != SpecChanges()
+        scope = None
+        if record.mode == "update" and changes is not None:
+            spec = changes.spec_changes
+            scope = inference.UpdateScope(
+                added=frozenset(spec.added), changed=frozenset((*spec.added, *spec.modified, *spec.rekeyed))
+            )
         report = await inference.infer(
             _executor(ctx),
             ctx.project_id,
@@ -801,36 +753,59 @@ async def infer(ctx: BuildContext) -> None:
             JudgeRunner(ctx.gateway, ctx.ontology),
             stamp=inference.InferenceStamp(build_id=record.build_id, at=_stamp(record), judge_model=judge_model),
             memory=inference.JudgeMemory(ctx.extraction, ctx.project_id, judge_model),
-            graph_changed=graph_changed,
+            changes=inference.BuildChanges(
+                graph_changed,
+                scope,
+                first=record.mode in FULL_MODES,
+                backlog=await inference.previous_backlog(ctx.builds, ctx.project_id),
+            ),
         )
         await store_artifact(ctx, "infer", report)
 
 
 async def verify(ctx: BuildContext) -> None:
-    """Verify step (build.md step 9, analysis.md "Verification"): checks the persisted graph, repairs
-    blocking problems (at most two rounds, the deletion valve applies), restoring evidence from this
-    build's diff and conform artifacts, and stores the ``VerificationReport``. Its outcome never
-    changes the build status; a requested follow-up build makes the result not ``settled``."""
+    """Verify step: checks the persisted graph, repairs blocking problems (at most two rounds, the deletion valve
+    applies), restoring evidence from this build's diff and conform artifacts, and stores the ``VerificationReport``.
+    """
 
     async with step_progress(ctx, "verify") as record:
+        target = await _optional_artifact(ctx, "conform", TargetGraph)
         report = await verification.verify_build(
             _executor(ctx),
             ctx.project_id,
             ctx.ontology,
             build_id=record.build_id,
             registry=ctx.registry,
-            target=await _optional_artifact(ctx, "conform", TargetGraph),
+            target=target,
             diff=await _optional_artifact(ctx, "diff", DiffArtifact),
+            inference=await _optional_artifact(ctx, "infer", InferenceReport),
+        )
+        report = verification.with_node_counts(
+            report,
+            await _optional_artifact(ctx, "extract_nodes", NodesArtifact),
+            ctx.ontology,
+            resolved=await _optional_artifact(ctx, "resolve", ResolveArtifact),
+            plan=await _optional_artifact(ctx, "plan", PlanArtifact),
+            target=target,
         )
         await store_artifact(ctx, "verify", report)
 
 
 VERIFICATION_REPORTED: Final = True
+JUDGING_STEPS: Final[Mapping[StepName, tuple[str, ...]]] = {
+    "resolve": ("hub_consolidation",),
+    "conform": ("requirement_dedup", "conform_judge", "answered_check"),
+    "infer": ("inference",),
+}
+"""The judging steps (``BuildMetrics.judge_calls``) of each build step that judges."""
+JUDGE_FAILURE_SHARE: Final = 0.1
+"""A judging step whose failed judge calls exceed this share of its calls is logged as a WARNING
+(``graph.build.judge_failures``); never a gate (the build goes on with what was decided)."""
 """Whether ``BuildResult.verification`` is filled from the verify artifact."""
 
 
 def _verification_summary(report: VerificationReport | None) -> VerificationSummary | None:
-    """The build result's verification summary (build.md "Build result"); None when verify did not run."""
+    """The build result's verification summary; None when verify did not run."""
 
     if report is None:
         return None
@@ -876,10 +851,9 @@ def _with_inference(changes: SpecChanges, report: InferenceReport | None) -> Spe
 
 
 def _with_repairs(changes: SpecChanges, report: VerificationReport | None) -> SpecChanges:
-    """``changes`` plus the nodes and inferred edges verification repairs deleted (W4: a deleted node
-    is listed as removed, and no longer as added, modified, rekeyed or carried over; a deleted inferred
-    edge is no longer listed as added). Inferred edges are in the ``spec_id`` form
-    ``<source spec_id>|<RELATION>|<target spec_id>``."""
+    """``changes`` plus the nodes and inferred edges verification repairs deleted. A deleted node is listed as removed,
+    and no longer as added, modified, rekeyed or carried over; a deleted inferred edge is no longer listed as added.
+    """
 
     if report is None or not (report.removed_spec_ids or report.removed_inferred_edges):
         return changes
@@ -928,8 +902,9 @@ STEP_FUNCTIONS: dict[StepName, StepFunction] = {
 
 @dataclass(frozen=True, slots=True)
 class StepFunctions:
-    """The step functions under their api.md names (``graph.build.steps``): ``resolve``, ``conform``,
-    ``diff`` and ``persist`` would shadow the modules of the same name if exported from the package."""
+    """The step functions under their names (``graph.build.steps``): ``resolve``, ``conform``, ``diff`` and ``persist``
+    would shadow the modules of the same name if exported from the package.
+    """
 
     plan: Callable[[BuildContext], Awaitable[str]]
     extract_nodes: StepFunction
@@ -965,11 +940,62 @@ def first_open_step(record: BuildRecord) -> int:
 
 
 @dataclass
-class _RunStats:
+class StepUsage:
+    """LLM usage of build steps, recorded step by step (``record``): per step (``BuildMetrics.llm``) and judge calls and
+    failures per judging step (``_judge_step``; ``BuildMetrics.judge_calls``, ``judge_failed_calls``).
+    """
+
+    llm: dict[str, UsageCounts] = field(default_factory=dict)
+    judges: dict[str, UsageCounts] = field(default_factory=dict)
+
+    def record(self, step: StepName, before: UsageSnapshot, after: UsageSnapshot) -> None:
+        """Add the usage between the gateway snapshots ``before`` and ``after`` of ``step``."""
+
+        delta = _usage_delta(before.total(), after.total())
+        if delta.calls or delta.requests:
+            self.llm[step] = delta
+        for entry in after.entries:
+            name = _judge_step(step, entry.prompt, entry.call_class) if entry.call_class in ("judge", "small") else None
+            if name is None:
+                continue
+            judged = _usage_delta(before.total(call_class=entry.call_class, prompt=entry.prompt), entry)
+            if judged.calls:
+                known = self.judges.get(name, UsageCounts())
+                self.judges[name] = UsageCounts(
+                    calls=known.calls + judged.calls, failures=known.failures + judged.failures
+                )
+
+    def judge_calls(self) -> dict[str, int]:
+        """``BuildMetrics.judge_calls``: judge calls per judging step."""
+
+        return {name: counts.calls for name, counts in sorted(self.judges.items())}
+
+    def judge_failed_calls(self) -> dict[str, int]:
+        """``BuildMetrics.judge_failed_calls``: failed judge calls per judging step."""
+
+        return {name: counts.failures for name, counts in sorted(self.judges.items())}
+
+    def filled(self, metrics: BuildMetrics) -> BuildMetrics:
+        """``metrics`` with this usage added: its steps' ``llm`` (a step ``metrics`` has keeps its own:
+        ``run_build`` ran it again) and its judge calls and failures added to those ``metrics`` has."""
+
+        def summed(own: Mapping[str, int], more: Mapping[str, int]) -> dict[str, int]:
+            return {name: own.get(name, 0) + more.get(name, 0) for name in sorted({*own, *more})}
+
+        return metrics.model_copy(
+            update={
+                "llm": {**self.llm, **metrics.llm},
+                "judge_calls": summed(metrics.judge_calls or {}, self.judge_calls()),
+                "judge_failed_calls": summed(metrics.judge_failed_calls or {}, self.judge_failed_calls()),
+            }
+        )
+
+
+@dataclass
+class _RunStats(StepUsage):
     """Durations and LLM usage of the steps run by one ``run_build`` call."""
 
     duration_s: dict[str, float] = field(default_factory=dict)
-    llm: dict[str, UsageCounts] = field(default_factory=dict)
 
 
 def _usage_delta(before: UsageCounts, after: UsageCounts) -> UsageCounts:
@@ -979,31 +1005,142 @@ def _usage_delta(before: UsageCounts, after: UsageCounts) -> UsageCounts:
         requests=after.requests - before.requests,
         input_tokens=after.input_tokens - before.input_tokens,
         output_tokens=after.output_tokens - before.output_tokens,
+        cached_input_tokens=after.cached_input_tokens - before.cached_input_tokens,
         duration_s=round(after.duration_s - before.duration_s, 3),
     )
 
 
-async def run_build(ctx: BuildContext) -> BuildResult:
-    """Run every step (api.md "Build"): a new build when ``ctx.build_id`` is None, else resume that
-    build from its first step not ``done`` (a finished build returns its stored result).
+MAX_FOLLOW_UPS: Final = 2
+"""Follow-up ``update`` builds ``run_build`` chains after a build at most."""
+FOLLOW_UP_CODE: Final = "fragment_state"
+"""``Settlement.document_codes`` code of a Verify follow-up lineage (its ``fragment_state`` problem)."""
+NON_RETRYABLE_CODES: Final = frozenset({"llm_refused", "llm_truncated", "llm_malformed", "llm_overflow"})
+"""Skipped-fragment error codes a follow-up build would meet again on the same content, so a lineage holding only these
+starts none: ``llm_refused`` (content filter or refusal), ``llm_truncated`` (still cut after halving the window
+``MAX_SPLIT_DEPTH`` times, or a window of one fragment), ``llm_malformed`` (still malformed after the repair request)
+and ``llm_overflow`` (the request exceeds the model's context).
+"""
 
-    A step that raises finishes the build as ``failed`` (the record stays resumable), then the error
-    propagates. Durations and LLM usage in the metrics cover the steps this call ran.
+
+async def run_build(ctx: BuildContext) -> BuildResult:
+    """Run every step: a new build when ``ctx.build_id`` is None, else resume that build from its first step not
+    ``done`` (a finished build returns its stored result).
     """
 
     if ctx.build_id is None:
         ctx = ctx.with_build_id(await start_build(ctx))
-        start = 0
+    record = await require_build(ctx)
+    first = record.follow_up_of or record.build_id
+    attempt = record.follow_up_attempt
+    stored = await ctx.builds.get_result(ctx.project_id, record.build_id) if record.finished else None
+    chain = await _chain(ctx, record, stored)
+    previous = await _previous_result(ctx, record, chain)
+    if stored is not None:
+        latest = await ctx.builds.latest_build(ctx.project_id)
+        if latest is None or latest.build_id != record.build_id:
+            return stored
+        result = stored
     else:
-        record = await require_build(ctx)
-        if record.finished:
-            stored = await ctx.builds.get_result(ctx.project_id, record.build_id)
-            if stored is not None:
-                return stored
-        start = first_open_step(record)
+        result = await _run_steps(ctx, first_open_step(record), chain)
+    while (retry := _retry_lineages(result, previous, attempt)) and attempt < MAX_FOLLOW_UPS:
+        attempt += 1
+        retry_ctx = replace(ctx, rebuild=False, retry_lineages=retry, build_id=None)
+        build_id = await start_build(retry_ctx, follow_up_of=first, follow_up_attempt=attempt)
+        chain = (*chain, build_id)
+        log_event(
+            logger,
+            INFO,
+            "graph.build.follow_up_started",
+            build_id=build_id,
+            follow_up_of=first,
+            follow_up_attempt=attempt,
+            retry_lineages=len(retry),
+        )
+        previous, result = result, await _run_steps(retry_ctx.with_build_id(build_id), 0, chain)
+    return result
+
+
+def _retry_lineages(result: BuildResult, previous: BuildResult | None, attempt: int) -> tuple[str, ...]:
+    """The lineages a follow-up after ``result`` retries: those of ``Settlement.documents`` with a retryable code (not
+    in ``NON_RETRYABLE_CODES``; a lineage without recorded codes counts as retryable).
+    """
+
+    settlement = result.settlement
+    if settlement is None or not settlement.documents:
+        return ()
+    if previous is not None and previous.settlement is not None:
+        before = (previous.settlement.documents, previous.skipped_fragments)
+        if (settlement.documents, result.skipped_fragments) == before:
+            log_event(
+                logger,
+                INFO,
+                "graph.build.follow_up_stopped",
+                build_id=result.build_id,
+                follow_up_attempt=attempt,
+                reason="nothing_recovered",
+                documents=len(settlement.documents),
+            )
+            return ()
+    codes = settlement.document_codes
+    retry = tuple(
+        lineage
+        for lineage in settlement.documents
+        if any(code not in NON_RETRYABLE_CODES for code in codes.get(lineage, (FOLLOW_UP_CODE,)))
+    )
+    if len(retry) < len(settlement.documents):
+        log_event(
+            logger,
+            INFO,
+            "graph.build.follow_up_not_retryable",
+            build_id=result.build_id,
+            documents=len(settlement.documents) - len(retry),
+        )
+    return retry
+
+
+async def _chain(ctx: BuildContext, record: BuildRecord, stored: BuildResult | None) -> tuple[str, ...]:
+    """The follow-up builds of ``record``'s chain up to it (``Settlement.follow_up_builds``): a stored result's own
+    list; none for a chain's first build; for follow-up ``n`` > 1 the list of the project's latest finished build when
+    that is follow-up ``n - 1`` of the same chain (``BuildRecord.follow_up_of``), with ``record`` after it; else
+    ``record`` alone.
+    """
+
+    if stored is not None and stored.settlement is not None:
+        return stored.settlement.follow_up_builds
+    if not record.follow_up_attempt:
+        return ()
+    if record.follow_up_attempt > 1:
+        earlier = await ctx.builds.latest_build(ctx.project_id, finished_only=True)
+        if (
+            earlier is not None
+            and earlier.follow_up_of == record.follow_up_of
+            and earlier.follow_up_attempt == record.follow_up_attempt - 1
+        ):
+            found = await ctx.builds.get_result(ctx.project_id, earlier.build_id)
+            if found is not None and found.settlement is not None:
+                return (*found.settlement.follow_up_builds, record.build_id)
+    return (record.build_id,)
+
+
+async def _previous_result(ctx: BuildContext, record: BuildRecord, chain: tuple[str, ...]) -> BuildResult | None:
+    """The result of the build before ``record`` in its chain (the first build for follow-up 1, the
+    follow-up before it in ``chain`` for a later one); None for a chain's first build or when unknown."""
+
+    if not record.follow_up_attempt:
+        return None
+    if record.follow_up_attempt == 1:
+        before = record.follow_up_of
+    else:
+        before = chain[-2] if len(chain) > 1 and chain[-1] == record.build_id else None
+    return await ctx.builds.get_result(ctx.project_id, before) if before is not None else None
+
+
+async def _run_steps(ctx: BuildContext, start: int, follow_ups: tuple[str, ...]) -> BuildResult:
+    """Run the steps of the context's build from ``STEPS[start]`` on and finish it (``run_build``)."""
+
     stats = _RunStats()
     for step in STEPS[start:]:
-        before = ctx.gateway.usage().total()
+        before = ctx.gateway.usage()
         started = time.monotonic()
         try:
             await STEP_FUNCTIONS[step](ctx)
@@ -1012,7 +1149,7 @@ async def run_build(ctx: BuildContext) -> BuildResult:
             await _finish(ctx, stats, failed_step=step, error=error)
             raise
         _record_step(stats, step, started, before, ctx)
-    return await _finish(ctx, stats)
+    return await _finish(ctx, stats, follow_ups=follow_ups)
 
 
 def _skipped_fragments(
@@ -1037,11 +1174,44 @@ def _skipped_fragments(
     return result
 
 
-def _record_step(stats: _RunStats, step: StepName, started: float, before: UsageCounts, ctx: BuildContext) -> None:
+def _record_step(stats: _RunStats, step: StepName, started: float, before: UsageSnapshot, ctx: BuildContext) -> None:
     stats.duration_s[step] = round(time.monotonic() - started, 3)
-    delta = _usage_delta(before, ctx.gateway.usage().total())
-    if delta.calls or delta.requests:
-        stats.llm[step] = delta
+    stats.record(step, before, ctx.gateway.usage())
+    _warn_judge_failures(stats, step, ctx)
+
+
+def _judge_step(step: StepName, prompt: str, call_class: str = "judge") -> str | None:
+    """The judging step a judge (or small-model) call of ``step`` with ``prompt`` belongs to; None for a step that
+    judges nothing (the attributes calls of extract_edges are no judge).
+    """
+
+    if step == "resolve":
+        return "hub_consolidation"
+    if step == "conform" and prompt == conformance.DEDUP_PROMPT:
+        return "requirement_dedup"
+    if step == "conform":
+        return "answered_check" if call_class == answering.ANSWERED_CLASS else "conform_judge"
+    if step == "infer":
+        return "inference"
+    return None
+
+
+def _warn_judge_failures(stats: _RunStats, step: StepName, ctx: BuildContext) -> None:
+    """``graph.build.judge_failures`` (WARNING) for each judging step of ``step`` whose failed calls
+    exceed ``JUDGE_FAILURE_SHARE`` of its calls; counts only, never a gate."""
+
+    for name in JUDGING_STEPS.get(step, ()):
+        counts = stats.judges.get(name)
+        if counts is not None and counts.failures > JUDGE_FAILURE_SHARE * counts.calls:
+            log_event(
+                logger,
+                WARNING,
+                "graph.build.judge_failures",
+                build_id=ctx.build_id,
+                step=name,
+                calls=counts.calls,
+                failed_calls=counts.failures,
+            )
 
 
 async def _finish(
@@ -1050,12 +1220,17 @@ async def _finish(
     *,
     failed_step: StepName | None = None,
     error: Exception | None = None,
+    follow_ups: tuple[str, ...] = (),
 ) -> BuildResult:
-    """Store the build result and finish the record; a failure here never hides the step's error."""
+    """Store the build result and finish the record; a failure here never hides the step's error.
+    ``follow_ups``: the follow-up builds of the chain so far, this one included when it is one
+    (``Settlement.follow_up_builds``)."""
 
     record = await require_build(ctx)
     try:
         result = await _result(ctx, record, stats, failed_step, error)
+        if error is None:
+            result = result.model_copy(update={"settlement": await _settlement(ctx, record, result, follow_ups)})
         await ctx.builds.finish_build(result)
     except Exception as finish_error:
         if error is None:
@@ -1095,9 +1270,136 @@ async def _finish(
         llm_calls=sum(usage.calls for usage in metrics.llm.values()),
         input_tokens=sum(usage.input_tokens for usage in metrics.llm.values()),
         output_tokens=sum(usage.output_tokens for usage in metrics.llm.values()),
+        cached_input_tokens=sum(usage.cached_input_tokens for usage in metrics.llm.values()),
         duration_s=round(sum(metrics.duration_s.values()), 3),
     )
     return result
+
+
+async def _settlement(
+    ctx: BuildContext, record: BuildRecord, result: BuildResult, follow_ups: tuple[str, ...]
+) -> Settlement:
+    """The build's ``Settlement``: the lineages left incomplete (Verify follow-up lineages and the lineages of skipped
+    fragments, sorted) with their codes (``FOLLOW_UP_CODE``, the skipped fragments' error codes), the subjects queued
+    per rule (``InferenceReport.backlog``; none when the report has no queue) and whether a rule failed.
+    """
+
+    plan_artifact = await _optional_artifact(ctx, "plan", PlanArtifact)
+    inferred = (
+        await _optional_artifact(ctx, "infer", InferenceReport) if record.progress.get("infer") == "done" else None
+    )
+    codes: dict[str, set[str]] = {
+        lineage: {FOLLOW_UP_CODE} for lineage in (result.verification.follow_up_lineages if result.verification else ())
+    }
+    for fragment in plan_artifact.fragments if plan_artifact is not None else ():
+        code = result.skipped_fragments.get(fragment.fragment_id)
+        if code is not None:
+            codes.setdefault(fragment.document_id, set()).add(code)
+    lineages = set(codes)
+    backlog = inferred.backlog_counts() if inferred is not None else {}
+    failed = inferred is not None and (
+        inferred.error_code is not None or any(rule.error_code is not None for rule in inferred.rules)
+    )
+    reasons: list[SettlementReason] = []
+    if lineages:
+        reasons.append("documents_incomplete")
+    if backlog:
+        reasons.append("inference_backlog")
+    if failed:
+        reasons.append("inference_rule_failed")
+    return Settlement(
+        state="not_settled" if reasons else "settled",
+        reasons=tuple(reasons),
+        documents=tuple(sorted(lineages)),
+        document_codes={lineage: tuple(sorted(found)) for lineage, found in sorted(codes.items())},
+        inference_backlog=backlog,
+        follow_up_builds=follow_ups,
+    )
+
+
+async def _spec_ids(ctx: BuildContext, diff_artifact: DiffArtifact | None) -> dict[str, str]:
+    """The ``spec_id`` of each identity key, for the result's lists: the active ``spec_id`` the build's diff rows give
+    the key, else the registry's (lowest active one); a key with neither is absent.
+    """
+
+    spec_ids: dict[str, str] = {}
+    for row in sorted((await ctx.registry.taken(ctx.project_id)).values(), key=lambda row: row.spec_id):
+        if row.state == ACTIVE_SPEC_ID:
+            spec_ids.setdefault(row.identity_key, row.spec_id)
+    for row in diff_artifact.registry_rows if diff_artifact else ():
+        if row.state == ACTIVE_SPEC_ID:
+            spec_ids[row.identity_key] = row.spec_id
+        elif spec_ids.get(row.identity_key) == row.spec_id:
+            del spec_ids[row.identity_key]
+    return spec_ids
+
+
+def _quarantine(target: TargetGraph | None, spec_ids: Mapping[str, str]) -> tuple[QuarantinedEdge, ...]:
+    """The conform artifact's quarantine with its ends by ``spec_id`` (``_spec_ids``; None for a key
+    without one)."""
+
+    if target is None:
+        return ()
+    return tuple(
+        QuarantinedEdge(
+            reason=entry.reason,
+            relation=entry.relation,
+            source_label=entry.source_label,
+            target_label=entry.target_label,
+            basis=entry.basis,
+            fragment_ids=entry.fragment_ids,
+            source_spec_id=spec_ids.get(entry.source_key),
+            target_spec_id=spec_ids.get(entry.target_key),
+        )
+        for entry in target.quarantine
+    )
+
+
+def _dedup_refused(target: TargetGraph | None, spec_ids: Mapping[str, str]) -> tuple[DedupRefusal, ...]:
+    """The conform artifact's guard-refused dedup pairs with their ends by ``spec_id`` (``_spec_ids``;
+    an end that is an identity alias, as a collapsed pair's are, by its node's; None for a key without
+    one)."""
+
+    if target is None:
+        return ()
+    owner = {alias: node.identity_key for node in target.nodes for alias in node.identity_aliases}
+
+    def spec_id(key: str) -> str | None:
+        return spec_ids.get(key) or spec_ids.get(owner.get(key, key))
+
+    return tuple(
+        DedupRefusal(
+            first_spec_id=spec_id(pair.first_key),
+            second_spec_id=spec_id(pair.second_key),
+            label=pair.label,
+            guard=pair.guard,
+            name_cosine=pair.name_cosine,
+            rich_cosine=pair.rich_cosine,
+            collapsed=pair.collapsed,
+        )
+        for pair in target.dedup_refused
+    )
+
+
+async def _answered_elsewhere(
+    ctx: BuildContext, target: TargetGraph | None, spec_ids: Mapping[str, str]
+) -> tuple[AnsweredElsewhereRef, ...]:
+    """The conform artifact's answered-elsewhere drops by ``spec_id``: the active one ``spec_ids``
+    gives the key, else the one the registry issued for it (a persisted node the build deleted; never
+    an alias row); None for a node never persisted."""
+
+    if target is None or not target.answered_elsewhere:
+        return ()
+    issued: dict[str, str] = {}
+    for row in sorted((await ctx.registry.taken(ctx.project_id)).values(), key=lambda row: row.spec_id):
+        if row.state != "alias":
+            issued.setdefault(row.identity_key, row.spec_id)
+    return tuple(
+        AnsweredElsewhereRef(
+            spec_id=spec_ids.get(item.key) or issued.get(item.key), fragment_id=item.fragment, quote=item.quote
+        )
+        for item in target.answered_elsewhere
+    )
 
 
 async def _result(
@@ -1141,11 +1443,19 @@ async def _result(
                 dropped[f"{relation}:{reason}"] = count
     verification = _verification_summary(report)
     persisted = cursor is not None and cursor.done
+    listed = target is not None and bool(target.quarantine or target.dedup_refused or target.answered_elsewhere)
+    spec_ids = await _spec_ids(ctx, diff_artifact) if listed else {}
+    # Conform's quarantine, then inference's (invalid proposals, ends already by spec_id).
+    quarantine = _quarantine(target, spec_ids)
+    quarantine = (*quarantine, *(inferred.quarantine if inferred is not None else ()))
+    by_reason, by_pair = quarantine_counts(quarantine)
+    recorded = (target is not None and "quarantine" in target.model_fields_set) or bool(
+        inferred is not None and inferred.quarantine
+    )
     metrics = BuildMetrics(
         fragments_by_status={key: value for key, value in sorted(by_status.items()) if value},
         units_extracted=units_extracted,
         units_reused=units_total - units_extracted,
-        llm=stats.llm,
         nodes_by_label=diff_artifact.nodes_by_label if diff_artifact else {},
         edges_by_relation=_edges_after(diff_artifact, inferred),
         dropped_edges=dropped,
@@ -1154,7 +1464,19 @@ async def _result(
         attribution_fallbacks=nodes.counters.window_fallbacks if nodes else 0,
         attribute_batches_failed=edges.counters.attribute_batches_failed if edges else 0,
         duration_s=stats.duration_s,
+        quarantine_by_reason=by_reason if recorded else None,
+        quarantine_by_pair=by_pair if recorded else None,
+        conform_judge_calls=target.counters.conform_judge_calls if target else 0,
+        dedup_refused_by_guard=refused_by_guard(target, None),
+        llm=stats.llm,
+        judge_calls=stats.judge_calls(),
+        judge_failed_calls=stats.judge_failed_calls(),
     )
+    # The change report: none for a failed or unpersisted build.
+    change_report = None
+    if error is None and persisted and diff_artifact is not None:
+        taken = await ctx.registry.taken(ctx.project_id)
+        change_report = classify_changes(diff_artifact, inferred, report, ctx.ontology, registry=taken)
     return BuildResult(
         project_id=ctx.project_id,
         build_id=record.build_id,
@@ -1164,6 +1486,9 @@ async def _result(
         spec_changes=_with_repairs(
             _with_inference(diff_artifact.spec_changes if diff_artifact else SpecChanges(), inferred), report
         ),
+        quarantine=quarantine,
+        dedup_refused=_dedup_refused(target, spec_ids),
+        answered_elsewhere=await _answered_elsewhere(ctx, target, spec_ids),
         verification=verification,
         metrics=metrics,
         skipped_fragments=skipped,
@@ -1171,4 +1496,5 @@ async def _result(
         error_code=None if error is None else error.code if isinstance(error, GraphError) else type(error).__name__,
         started_at=record.started_at,
         finished_at=datetime.now(UTC),
+        change_report=change_report,
     )

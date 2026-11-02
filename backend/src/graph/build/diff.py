@@ -1,47 +1,4 @@
-"""Diff step: the operations that turn the current graph into the target graph (build.md step 6).
-
-``load_current_graph`` reads the project's persisted spec graph; ``diff`` matches target nodes and
-edges to it and emits persist operations in persist phase order, the build's spec changes and the
-``spec_id`` registry rows. A ``first`` build diffs against the empty graph, so everything is created.
-
-Node matching (build.md "Diff" table). A target matches every current node that shares its identity
-key or one of its identity aliases (either side's). Each matched current node continues as its best
-target: the one with its identity key, then one naming it in an alias, then the most shared evidence
-lines, then the lowest identity key. A target chosen by one current node is an update in place; chosen
-by several, a merge (the oldest node survives: lowest ``created_at``, then ``spec_id``); a target that
-no current node chose is new (so a split leaves the node with its best match and creates the others).
-A current node without any match is carried over to a new target of the same identity scope with an
-alike name and overlapping evidence (``CARRY_OVER_JACCARD``, ``_overlap``), or failing that of the same
-label with mostly the same evidence lines whatever the name (``_carry_over``), else deleted.
-
-Edges match by edge key. A current edge's key is read with its ends' identity keys after this diff (a
-merged node's end moves to the survivor), so an edge whose end was rekeyed, carried over or merged is
-still the same edge: it is updated in place (its ``edge_key`` too) or, when an end moved to another
-node, deleted and created again with its ``uuid``. Inferred edges are outside the diff: kept, moved and
-rekeyed with their ends, deleted only with a deleted end (or when two collapse into one); one that a
-target edge now states becomes ``stated`` in place and keeps its ``uuid``. A stated or implied edge
-that no target edge has is deleted unless all its evidence is in fragments no call of this build
-answered for (skipped, or unchanged in a unit whose call failed): then it is kept like an inferred one
-(``_match_edges``, ``_unextracted``).
-
-Skipped fragments (FR-BLD-12): a fragment whose extraction failed keeps its last extracted version as
-support. Only the persisted graph still holds that version (the ``Fragment`` text is the new one), so
-diff, not Conform, restores it: a continuing node keeps its persisted evidence lines, statement (and,
-when all its support is skipped, its quote and identity key) for each skipped fragment, re-pointed from
-the id the fragment replaces to the skipped fragment that carries its lineage; edges likewise keep
-their ``fact`` (``_keep_skipped_support``). The replaced id retires as the plan says.
-
-Node properties written by build (data-model.md "Spec node"): ``spec_id``, ``name``, ``identity_key``,
-``identity_aliases``, the stored ontology attributes, ``quote``, ``statements`` (JSON),
-``statement_text``, ``label_disagreement``, ``embedding``, ``name_embedding``, ``embedding_model`` and
-the write stamps. An update sets only the build-owned properties whose value changed (``None`` removes
-one) and never the ``created_*`` stamps (FR-CORE-05). A node whose attributes batch failed
-(``attributes_missing``) keeps its persisted attribute values and quote. A statement whose text the node
-already stated in that document keeps its ``revision_id``, ``version`` and ``at``. The two vectors are not in
-``properties``: a node
-operation's ``vectors`` names the ``text_hash`` of each embedded text, and Persist writes the vectors
-from the vector store (``graph.build.vectors``); an update names a vector only when its text changed.
-"""
+"""Diff step: the operations that turn the current graph into the target graph."""
 
 from __future__ import annotations
 
@@ -49,13 +6,16 @@ import json
 from collections import Counter
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Final
+from typing import Any, Final, get_args
 
 from graph.build.models import (
+    Basis,
+    ChangedEdge,
     DiffArtifact,
     DocumentRec,
     DocumentStatusChange,
     DocumentUpsert,
+    EdgeChangeKind,
     EdgeCreate,
     EdgeDelete,
     EdgeUpdate,
@@ -103,7 +63,7 @@ STMT_PROPERTY: Final = "stmt"
 BUILD_OWNER: Final = "build"
 INFERRED: Final = "inferred"
 CARRY_OVER_JACCARD: Final = 0.5
-"""Least name-token Jaccard of a carried-over node and its new target (tech-specs 5.4 "Diff carry-over")."""
+"""Least name-token Jaccard of a carried-over node and its new target."""
 # Build-owned spec node properties that an ontology attribute must not shadow.
 RESERVED_PROPERTIES: Final = frozenset(
     {
@@ -142,7 +102,12 @@ _FIXED_PROPERTIES: Final = frozenset(
         "last_build_id",
     }
 )
-# Properties of inferred edges only (data-model.md "Edges"); removed when the edge becomes stated.
+_WRITE_STAMPS: Final = frozenset({"updated_at", "last_build_id"})
+"""Properties an update sets with any change: no cause of a modification (``modified_causes``)."""
+VECTORS_CAUSE: Final = "vectors"
+LINKS_CAUSE: Final = "links"
+MERGED_CAUSE: Final = "merged"
+# Properties of inferred edges only; removed when the edge becomes stated.
 INFERRED_EDGE_PROPERTIES: Final = ("inference_rule", "confidence", "evidence", "judge_model", "inferred_at")
 
 
@@ -242,9 +207,9 @@ EMPTY_GRAPH: Final = CurrentGraph()
 async def load_current_graph(
     executor: Executor, project_id: str, ontology: Ontology, *, edges: bool = True
 ) -> CurrentGraph:
-    """Every spec node (with its evidence and mentions), every edge of each build-owned relation,
-    every document and fragment of ``project_id``; nodes by uuid, edges by relation then key.
-    ``edges`` False reads no edge and no document (``estimate_build`` needs nodes and fragments only)."""
+    """Every spec node (with its evidence and mentions), every edge of each build-owned relation, every document and
+    fragment of ``project_id``; nodes by uuid, edges by relation then key.
+    """
 
     links: dict[str, tuple[list[CurrentEvidence], dict[str, int]]] = {}
     for row in await executor.read(READ_CURRENT_LINKS, project_id):
@@ -328,7 +293,7 @@ async def load_current_graph(
 
 
 def _domain_label(labels: Sequence[str], ontology: Ontology) -> str:
-    """The node's one domain label (D1); with several, the first build-owned one."""
+    """The node's one domain label; with several, the first build-owned one."""
 
     domain = sorted(label for label in labels if label != SPEC_NODE)
     owned = [label for label in domain if ontology.owner_of(label) == BUILD_OWNER]
@@ -350,7 +315,8 @@ class DiffInput:
     skipped: Mapping[str, str]
     current: CurrentGraph = EMPTY_GRAPH
     edge_failed_fragments: tuple[str, ...] = ()
-    """Fragments of the units whose edge call failed without a stored fallback, clean ones included."""
+    """Fragments of the edge windows whose call failed without a stored fallback, clean ones included, and
+    those a window's identity fallback did not hold (``EdgesArtifact.edge_failed_fragments``)."""
 
 
 @dataclass(slots=True)
@@ -388,6 +354,8 @@ class _Operations:
     creates: list[Operation] = field(default_factory=list)
     links: list[Operation] = field(default_factory=list)
     texts: dict[str, str] = field(default_factory=dict)
+    causes: Counter[str] = field(default_factory=Counter)
+    """Modified nodes per cause (``DiffArtifact.modified_causes``)."""
 
 
 def _add_created(out: _Operations, placed: _Placed, given: DiffInput, target_keys: Collection[str]) -> None:
@@ -471,6 +439,7 @@ def _add_continued(
         out.changes["rekeyed"].append(placed.spec_id)
     elif properties or vectors or linked or placed.merged:
         out.changes["modified"].append(placed.spec_id)
+        out.causes.update(modified_causes(properties, vectors, linked=linked, merged=bool(placed.merged)))
     out.rows.append(SpecIdRow(spec_id=placed.spec_id, identity_key=node.identity_key, uuid=placed.uuid, state="active"))
     for loser in placed.merged:
         out.changes["rekeyed"].append(loser.spec_id)
@@ -481,6 +450,17 @@ def _add_continued(
         known = given.taken.get(alias)
         key = known.identity_key if known else node.identity_key
         out.rows.append(SpecIdRow(spec_id=alias, identity_key=key, uuid=placed.uuid, state="alias"))
+
+
+def modified_causes(properties: Properties, vectors: NodeVectors, *, linked: bool, merged: bool) -> list[str]:
+    """The causes of one modified node (``DiffArtifact.modified_causes``): the name of each property its update sets or
+    removes (the write stamps left out), ``vectors`` when a vector's text changed, ``links`` when its evidence lines or
+    mention counts changed, ``merged`` when nodes merged into it.
+    """
+
+    causes = sorted(name for name in properties if name not in _WRITE_STAMPS)
+    flags = ((VECTORS_CAUSE, bool(vectors)), (LINKS_CAUSE, linked), (MERGED_CAUSE, merged))
+    return causes + [name for name, present in flags if present]
 
 
 def _add_deleted(out: _Operations, node: CurrentNode, given: DiffInput) -> Operation:
@@ -496,12 +476,7 @@ def _add_deleted(out: _Operations, node: CurrentNode, given: DiffInput) -> Opera
 
 
 def diff(plan: PlanArtifact, target: TargetGraph, ontology: Ontology, given: DiffInput) -> DiffArtifact:
-    """The diff from ``given.current`` to ``target`` (build.md step 6).
-
-    ``taken`` is the ``spec_id`` registry of the project; ``skipped`` maps fragments whose extraction
-    failed to their error code; ``at`` stamps the written nodes and edges. Deterministic: operations
-    are ordered by phase, then by identity key, edge key or document order.
-    """
+    """The diff from ``given.current`` to ``target``."""
 
     fragments = {fragment.fragment_id: fragment for fragment in plan.fragments}
     match = _match_nodes(target.nodes, ontology, given, fragments)
@@ -518,8 +493,15 @@ def diff(plan: PlanArtifact, target: TargetGraph, ontology: Ontology, given: Dif
 
     uuids = {placed.node.identity_key: placed.uuid for placed in match.placed}
     edges = _renamed_edges(target.edges, rename, ontology)
-    removed_edges, edge_writes, inferred_removed, edges_after = _match_edges(
-        edges, uuids, match.ends, ontology, given, skipped=skipped, unextracted=_unextracted(plan, given)
+    removed_edges, edge_writes, inferred_removed, edges_after, edge_changes = _match_edges(
+        edges,
+        uuids,
+        match.ends,
+        ontology,
+        given,
+        skipped=skipped,
+        unextracted=_unextracted(plan, given),
+        spec_ids_after={placed.uuid: placed.spec_id for placed in match.placed},
     )
     nodes_after = Counter(
         placed.current.label if placed.current is not None else placed.node.label for placed in match.placed
@@ -545,6 +527,8 @@ def diff(plan: PlanArtifact, target: TargetGraph, ontology: Ontology, given: Dif
         texts=dict(sorted(out.texts.items())),
         nodes_by_label=dict(sorted(nodes_after.items())),
         edges_by_relation=dict(sorted(edges_after.items())),
+        modified_causes=dict(sorted(out.causes.items())),
+        edge_changes=tuple(sorted(edge_changes, key=lambda change: (change.ref, change.change))),
     )
 
 
@@ -615,7 +599,10 @@ def _match_nodes(
     placed: list[_Placed] = []
     fresh: list[_Placed] = []
     for node in targets:
-        members = sorted(chosen.get(node.identity_key, ()), key=lambda member: (member.created_at, member.spec_id))
+        members = sorted(
+            chosen.get(node.identity_key, ()),
+            key=lambda member: (member.label != node.label, member.created_at, member.spec_id),
+        )
         if members:
             survivor = members[0]
             placed.append(
@@ -649,20 +636,7 @@ def _rank(current: CurrentNode, node: TargetNode, fragments: Mapping[str, Fragme
 def _carry_over(
     orphans: Sequence[CurrentNode], fresh: Sequence[_Placed], ontology: Ontology, fragments: Mapping[str, FragmentRec]
 ) -> list[CurrentNode]:
-    """Hand orphans to new targets of their identity scope, one to one; returns the orphans left (deleted).
-
-    1. Alike name: name-token Jaccard (``_name_tokens``) at least ``CARRY_OVER_JACCARD`` and at least
-       one shared evidence line in one document (``_overlap``); best pairs first (Jaccard, then shared
-       lines, then identity keys).
-    2. Same evidence, for the orphans and targets left: the same label (never across labels; hubs
-       excluded, as a hub's fallback line is shared by every hub of a fragment) and an evidence-line
-       Jaccard (``_evidence_texts``: normalised line text per document) at least ``CARRY_OVER_JACCARD``,
-       whatever the name (a re-extracted node whose name and span key drifted); best pairs first
-       (evidence Jaccard, then name Jaccard, then identity keys).
-
-    Candidate pairs come from inverted indexes of the targets (name tokens per scope, evidence lines
-    per scope and label), so only pairs sharing a token or a line are scored.
-    """
+    """Hand orphans to new targets of their identity scope, one to one; returns the orphans left (deleted)."""
 
     taken: set[str] = set()
     _assign(_name_pairs(orphans, fresh, ontology, fragments), taken)
@@ -810,18 +784,7 @@ def _overlap(current: CurrentNode, node: TargetNode, fragments: Mapping[str, Fra
 
 
 def _allocate(placed: Sequence[_Placed], ontology: Ontology, given: DiffInput) -> None:
-    """A uuid and ``spec_id`` for each created target, in identity key order.
-
-    A ``spec_id`` already issued for the node's identity key, else for its uuid (a retried build whose
-    earlier run recorded its rows) when that row's identity key is the node's key or one of its
-    identity aliases, is reused even when the name or label now gives another slug, so a node's
-    ``spec_id`` never changes (FR-CORE-06); only a node without one is allocated a new one. A uuid row of
-    another key is never taken: a node created under an old key after its node was carried over to
-    another key (the row now names the new key) and deleted gets a new ``spec_id``. A
-    ``spec_id`` (or alias) of any current node is never given to a created one, and a uuid of a current
-    node is never reused: a clash (a split-off target whose key a current node was created with) takes
-    the uuid of ``<identity key>|2``, ``|3``...
-    """
+    """A uuid and ``spec_id`` for each created target, in identity key order."""
 
     taken = dict(given.taken)
     by_key, by_uuid = _issued(given.taken.values())
@@ -891,11 +854,12 @@ def _desired_properties(
         desired.pop(name, None)
     attribute_names = {*_attribute_names(ontology, current.label), *_attribute_names(ontology, node.label)}
     if node.attributes_missing:
-        # The attributes batch failed: this build has no values, so the persisted ones stay.
-        for name in sorted(attribute_names - set(node.attributes) - RESERVED_PROPERTIES):
+        # The attributes batch failed: this build has no values, so the persisted ones stay. The quote
+        # comes from the node call, not the attributes pass: the target's is kept when it has one.
+        for name in sorted(attribute_names - set(node.attributes) - RESERVED_PROPERTIES - {QUOTE_PROPERTY}):
             if name in current.properties:
                 desired[name] = _stored(current.properties[name])
-        if current.properties.get(QUOTE_PROPERTY) is not None:
+        if node.quote is None and current.properties.get(QUOTE_PROPERTY) is not None:
             desired[QUOTE_PROPERTY] = current.properties[QUOTE_PROPERTY]
     earlier = {current.identity_key, *current.identity_aliases}
     for loser in placed.merged:
@@ -941,12 +905,9 @@ def _update(
     target_keys: Collection[str],
     texts: dict[str, str] | None = None,
 ) -> tuple[Properties, NodeVectors]:
-    """The build-owned properties of a continuing node whose value changes, and the vectors whose text
-    changes; empty when nothing does. A property the target no longer has is removed (``None``).
-
-    The node keeps its persisted label, so its vectors are those of its texts under that label
-    (``continuing_texts``), the texts the next build's Conform gives it; such a text that is not the
-    target's own is added to ``texts`` (by hash) for Persist."""
+    """The build-owned properties of a continuing node whose value changes, and the vectors whose text changes; empty
+    when nothing does.
+    """
 
     desired, attribute_names = _desired_properties(placed, current, ontology, given, target_keys)
     owned = (RESERVED_PROPERTIES - _FIXED_PROPERTIES) | {QUOTE_PROPERTY} | attribute_names
@@ -1058,11 +1019,10 @@ def _node_properties(node: TargetNode, spec_id: str, given: DiffInput) -> Proper
 
 
 def continuing_texts(node: TargetNode, label: str) -> dict[VectorProperty, str]:
-    """The embedded texts of a target node, by vector property, as a node of ``label`` (the persisted
-    label of the node it continues): Conform's texts start with ``embedding_text(node.label, name)``,
-    which becomes ``embedding_text(label, name)``. A node that continues another label (carried over,
-    merged into, or matched by an alias) keeps that label, and the next build's Conform keeps it too
-    (``conform._keep_persisted_labels``), so its vectors are computed from those texts now."""
+    """The embedded texts of a target node, by vector property, as a node of ``label`` (the persisted label of the node
+    it continues): Conform's texts start with ``embedding_text(node.label, name)``, which becomes
+    ``embedding_text(label, name)``.
+    """
 
     texts: dict[VectorProperty, str] = {}
     if node.embedding_text is not None:
@@ -1086,7 +1046,7 @@ def node_vectors(node: TargetNode) -> NodeVectors:
     return vectors
 
 
-# Skipped fragments (FR-BLD-12)
+# Skipped fragments
 
 
 def _skipped_lineage(plan: PlanArtifact, given: DiffInput) -> dict[str, tuple[str, ...]]:
@@ -1103,13 +1063,8 @@ def _skipped_lineage(plan: PlanArtifact, given: DiffInput) -> dict[str, tuple[st
 
 
 def _unextracted(plan: PlanArtifact, given: DiffInput) -> dict[str, str]:
-    """Persisted fragment ids whose edges this build did not extract again, each mapped to the current
-    fragment that carries it (its own id, or the fragment naming it ``previous_id``).
-
-    Those are the fragments persisted as ``skipped`` (``_skipped_lineage``), the fragments of
-    ``given.edge_failed_fragments`` (units whose edge call failed without a stored fallback, clean ones
-    included), and the unchanged, not dirty fragments of a unit with a skipped fragment (a failed edge
-    call skips the unit's dirty fragments and leaves its unchanged ones without an answer).
+    """Persisted fragment ids whose edges this build did not extract again, each mapped to the current fragment that
+    carries it (its own id, or the fragment naming it ``previous_id``).
     """
 
     carried = {fid: current for current, lineage in _skipped_lineage(plan, given).items() for fid in lineage}
@@ -1194,17 +1149,7 @@ def _kept_identity(placed: _Placed, current: CurrentNode, keys: set[str], rename
 
 
 def _keep_skipped_support(match: _NodeMatch, skipped: Mapping[str, tuple[str, ...]]) -> dict[str, str]:
-    """Keep the last extracted support of continuing nodes in ``skipped`` fragments (FR-BLD-12).
-
-    Conform grounds the nodes reused for a skipped fragment in its new text, which they were not
-    extracted from: their evidence falls back to the whole fragment and quote, statement and a span
-    identity key drift. The persisted node still holds its support from the last extracted version, so
-    for each target evidence fragment that is skipped, the current node's evidence lines and statement
-    there (under the fragment's own id or the id it replaces) are kept, re-pointed to the skipped
-    fragment, which carries the lineage while the old id retires. A node supported only by skipped
-    fragments also keeps its quote and its identity key (the drifted key becomes an alias, unless the
-    current key is another target's). Returns the replaced target keys (drifted to kept).
-    """
+    """Keep the last extracted support of continuing nodes in ``skipped`` fragments."""
 
     if not skipped:
         return {}
@@ -1278,24 +1223,77 @@ class _Placement:
 
 @dataclass(slots=True)
 class _EdgeWork:
-    """What ``_match_edges`` collects: edge operations, the edge uuids in use and a ``ref`` namer."""
+    """What ``_match_edges`` collects: edge operations, the edge uuids in use, a ``ref`` namer and the
+    edge changes (``DiffArtifact.edge_changes``; ``spec_ids_after``: node uuid to ``spec_id`` after the
+    diff)."""
 
     given: DiffInput
     spec_ids: dict[str, str]
     edge_uuids: set[str]
+    spec_ids_after: Mapping[str, str] = field(default_factory=dict)
     deletes: list[CurrentEdge] = field(default_factory=list)
     updates: list[EdgeUpdate] = field(default_factory=list)
     creates: list[EdgeCreate] = field(default_factory=list)
     inferred_removed: list[str] = field(default_factory=list)
+    changes: list[ChangedEdge] = field(default_factory=list)
 
     def ref(self, edge: CurrentEdge) -> str:
         return edge_ref(self.spec_ids.get(edge.source_uuid, ""), edge.relation, self.spec_ids.get(edge.target_uuid, ""))
 
+    def ref_after(self, relation: str, source: str, target: str) -> str:
+        return edge_ref(self.spec_ids_after.get(source, ""), relation, self.spec_ids_after.get(target, ""))
+
     def update(self, edge: CurrentEdge, changed: Properties) -> None:
-        """Update ``edge`` in place with ``changed`` and the build stamps."""
+        """Update ``edge`` in place with ``changed`` and the build stamps; a change other than of its
+        key is an edge change."""
 
         stamped = {**changed, "updated_at": self.given.at, "last_build_id": self.given.build_id}
         self.updates.append(_edge_update(edge, stamped))
+        causes = _edge_causes(changed)
+        if causes:
+            self.note(self.ref(edge), "changed", changed.get("basis", edge.basis), edge, causes)
+
+    def delete(self, edge: CurrentEdge) -> None:
+        """Delete ``edge`` (an edge change ``removed``; an inferred one is also listed as removed)."""
+
+        self.deletes.append(edge)
+        self.note(self.ref(edge), "removed", edge.basis, edge)
+        if edge.basis == INFERRED:
+            self.inferred_removed.append(self.ref(edge))
+
+    def note(
+        self,
+        ref: str,
+        change: EdgeChangeKind,
+        basis: Any,
+        inferred: CurrentEdge | None = None,
+        causes: Iterable[str] = (),
+    ) -> None:
+        rule = inferred.properties.get("inference_rule") if inferred is not None and basis == INFERRED else None
+        self.changes.append(
+            ChangedEdge(
+                ref=ref,
+                change=change,
+                basis=basis if basis in BASES else STATED,
+                rule=rule if isinstance(rule, str) else None,
+                causes=tuple(sorted(set(causes))),
+            )
+        )
+
+
+EDGE_KEY_PROPERTY: Final = "edge_key"
+ENDS_CAUSE: Final = "ends"
+"""``ChangedEdge.causes`` of an edge whose end moved to another node (a merge)."""
+BASES: Final = frozenset(get_args(Basis))
+STATED: Final = "stated"
+
+
+def _edge_causes(changed: Mapping[str, Any]) -> list[str]:
+    """The edge change causes of an update: the properties it sets, its key, the write stamps and the
+    inferred-only properties (removed with ``basis``) left out."""
+
+    skipped = {EDGE_KEY_PROPERTY, *_WRITE_STAMPS, *INFERRED_EDGE_PROPERTIES}
+    return sorted(name for name in changed if name not in skipped)
 
 
 def _match_target_edge(
@@ -1330,6 +1328,7 @@ def _match_target_edge(
                 given=given,
             )
         )
+        work.note(work.ref_after(edge.relation, source, target), "added", edge.basis)
         return
     chosen, rest = found[0], found[1:]
     if edge.fragment_ids and all(fid in skipped for fid in edge.fragment_ids):
@@ -1342,9 +1341,7 @@ def _match_target_edge(
             desired["source_fragment_ids"] = list(dict.fromkeys(kept_ids))
             desired["fact"] = chosen.edge.properties.get("fact")
     for other in rest:
-        work.deletes.append(other.edge)
-        if other.inferred:
-            work.inferred_removed.append(work.ref(other.edge))
+        work.delete(other.edge)
     if chosen.in_place:
         changed = {name: value for name, value in desired.items() if _stored(chosen.edge.properties.get(name)) != value}
         if chosen.inferred:
@@ -1353,6 +1350,9 @@ def _match_target_edge(
             work.update(chosen.edge, changed)
     else:
         work.deletes.append(chosen.edge)
+        moved = {name: value for name, value in desired.items() if _stored(chosen.edge.properties.get(name)) != value}
+        causes = {*_edge_causes(moved), ENDS_CAUSE}
+        work.note(work.ref_after(edge.relation, source, target), "changed", edge.basis, chosen.edge, causes)
         created_at = chosen.edge.properties.get("created_at") or given.at
         uuid = chosen.edge.uuid or _edge_uuid(given.project_id, edge.edge_key, work.edge_uuids)
         work.creates.append(
@@ -1380,6 +1380,8 @@ def _keep_leftover(work: _EdgeWork, placement: _Placement, fragment_ids: list[st
             work.update(edge, changed)
         return
     work.deletes.append(edge)
+    causes = {*_edge_causes(changed), ENDS_CAUSE}
+    work.note(work.ref_after(edge.relation, placement.source, placement.target), "changed", edge.basis, edge, causes)
     properties = {name: value for name, value in edge.properties.items() if name not in ("uuid", "group_id")}
     properties.update({**changed, "edge_key": key, "updated_at": given.at, "last_build_id": given.build_id})
     uuid = edge.uuid or _edge_uuid(given.project_id, key, work.edge_uuids)
@@ -1407,16 +1409,14 @@ def _settle_leftovers(
             if placement.inferred or fragment_ids is not None:
                 ranked.append((placement, fragment_ids))
             else:
-                work.deletes.append(placement.edge)
+                work.delete(placement.edge)
         ranked.sort(key=lambda item: (item[0].inferred, not item[0].in_place, item[0].edge.uuid))
         kept_one = False
         for placement, fragment_ids in ranked:
             edge = placement.edge
             loop = placement.source == placement.target and edge.source_uuid != edge.target_uuid
             if kept_one or loop:
-                work.deletes.append(edge)
-                if placement.inferred:
-                    work.inferred_removed.append(work.ref(edge))
+                work.delete(edge)
                 continue
             kept_one = True
             after[edge.relation] += 1
@@ -1432,27 +1432,13 @@ def _match_edges(
     *,
     skipped: Mapping[str, tuple[str, ...]] | None = None,
     unextracted: Mapping[str, str] | None = None,
-) -> tuple[list[EdgeDelete], list[Operation], list[str], Counter[str]]:
-    """``(edge deletes, edge updates then creates, inferred edges removed, edges after)``; the removed
-    inferred edges are named in ``edge_ref`` form, by their ends' current ``spec_id``s; ``edges
-    after``: the edges per relation the graph holds once these are applied (every target edge and
-    every kept leftover).
-
-    Each target edge takes the current edge that lands on its key (one already between its ends
-    first, then a stated or implied one, then the lowest uuid): updated in place when its ends are
-    unchanged, else deleted and created again with its ``uuid`` and ``created_at``; without one it is
-    created. A target edge whose evidence is only in ``skipped`` fragments keeps the matched edge's
-    ``fact`` and evidence (re-pointed to the fragments carrying their lineage), as its nodes keep theirs
-    (FR-BLD-12).
-
-    A current edge left over (no target edge has its key) whose ends both survive is kept, rekeyed or
-    moved with its ends, when it is inferred (outside the diff), or when it is stated or implied and
-    every one of its ``source_fragment_ids`` is ``unextracted`` (``_unextracted``: skipped, or unchanged
-    in a unit whose call failed): no call this build answered for its evidence, so its absence from the
-    target is no evidence of removal. Such a stated edge keeps its ``fact`` and its fragment ids,
-    re-pointed to the fragments that carry them. Per key one edge is kept (a stated one before an
-    inferred one, then the one in place, then the lowest uuid), never as a new self-loop; every other
-    leftover edge is deleted.
+    spec_ids_after: Mapping[str, str] | None = None,
+) -> tuple[list[EdgeDelete], list[Operation], list[str], Counter[str], list[ChangedEdge]]:
+    """``(edge deletes, edge updates then creates, inferred edges removed, edges after, edge changes)``; the removed
+    inferred edges are named in ``edge_ref`` form, by their ends' current ``spec_id``s; ``edges after``: the edges per
+    relation the graph holds once these are applied (every target edge and every kept leftover); ``edge changes``:
+    ``DiffArtifact.edge_changes`` unsorted (``spec_ids_after``: node uuid to ``spec_id`` after the diff, naming created
+    and moved edges).
     """
 
     skipped = skipped or {}
@@ -1464,13 +1450,12 @@ def _match_edges(
         given=given,
         spec_ids={node.uuid: node.spec_id for node in given.current.nodes},
         edge_uuids={edge.uuid for edge in given.current.edges if edge.uuid},
+        spec_ids_after=spec_ids_after or {},
     )
     for edge in given.current.edges:
         placement = _land(edge, ends, ontology)
         if placement is None:
-            work.deletes.append(edge)
-            if edge.basis == INFERRED:
-                work.inferred_removed.append(work.ref(edge))
+            work.delete(edge)
         else:
             landed.setdefault(placement.key, []).append(placement)
 
@@ -1495,7 +1480,7 @@ def _match_edges(
         *sorted(work.updates, key=lambda op: (op.relation, op.edge_key, op.uuid)),
         *sorted(work.creates, key=lambda op: (op.relation, op.edge_key)),
     ]
-    return removed, writes, work.inferred_removed, after
+    return removed, writes, work.inferred_removed, after, work.changes
 
 
 def _kept_fragment_ids(edge: CurrentEdge, unextracted: Mapping[str, str]) -> list[str] | None:

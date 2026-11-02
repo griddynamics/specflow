@@ -1,6 +1,8 @@
-// Spec nodes by label and attribute equality ($where; a null value requires the property to be absent).
+// Spec nodes by label and attribute equality ($where). An absent property reads as its label's default:
+// for a value, $defaulted names the labels whose default it is (absent matches); for null, the labels
+// with any default (absent does not match), hence the XOR.
 MATCH (n:SpecNode)
-WHERE n.group_id = $project_id AND n.spec_id IS NOT NULL AND any(label IN labels(n) WHERE label IN $labels) AND all(name IN keys($where) WHERE n[name] = $where[name] OR (n[name] IS NULL AND $where[name] IS NULL))
+WHERE n.group_id = $project_id AND n.spec_id IS NOT NULL AND any(label IN labels(n) WHERE label IN $labels) AND all(name IN keys($where) WHERE n[name] = $where[name] OR (n[name] IS NULL AND (any(label IN labels(n) WHERE label IN coalesce($defaulted[name], [])) XOR $where[name] IS NULL)))
 OPTIONAL MATCH (n)-[ref:REFERENCED_BY]->(f:Fragment)
 WHERE f.group_id = $project_id AND coalesce(f.status, '') <> $retired
 OPTIONAL MATCH (d:Document)-[:CONTAINS]->(f)

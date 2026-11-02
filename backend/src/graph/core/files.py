@@ -1,8 +1,4 @@
-"""File implementation of the core ports, rooted at a directory the host passes.
-
-Writes are atomic (write to a temporary file, then rename). These are the only core modules that touch
-the disk (docs/graph/architecture.md rule I5).
-"""
+"""File implementation of the core ports, rooted at a directory the host passes."""
 
 from __future__ import annotations
 
