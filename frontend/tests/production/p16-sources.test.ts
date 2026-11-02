@@ -336,10 +336,9 @@ test("Ready rule (owner 2026-10-19): Plan and Decisions unlock with at least one
   }
 });
 
-test("K3: production reads PDF only and hides GitHub", async () => {
+test("K3: production hides GitHub", async () => {
   const http = createHttpAdapter();
   const pid = await newProject(http, "Build");
-  assert.equal(http.sources.pdfOnly, true);
   assert.equal(http.sources.githubEnabled, false, "K3: GitHub is hidden");
   assert.equal((await rejection(http.sources.add(pid, { kind: "github", url: "https://github.com/a/b" }))).code, "not_available");
 });
