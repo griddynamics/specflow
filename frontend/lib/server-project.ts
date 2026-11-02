@@ -18,7 +18,7 @@ function get(url: URL, token: string): Promise<Answer | null> {
       const chunks: Buffer[] = [];
       res.on("data", (c: Buffer) => chunks.push(c));
       res.on("end", () => {
-        resolve({ status: res.statusCode ?? 502, body: Buffer.concat(chunks).toString("utf8") });
+        resolve({ status: res.statusCode ?? 502, body: Buffer.concat(chunks).toString() });
       });
       res.on("error", () => {
         resolve(null);
