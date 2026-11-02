@@ -1,0 +1,25 @@
+{
+  "comment": "Shape of the init message of `claude -p --output-format stream-json --verbose` (Claude Code 2.1.316), reduced to the fields the QA harness reads; names, ids and paths are placeholders. The stream never echoes the expanded prompt text: a typed MCP prompt command is expandable exactly when init.slash_commands lists it (the unknown command of the same session is absent).",
+  "init": {
+    "type": "system",
+    "subtype": "init",
+    "mcp_servers": [
+      {
+        "name": "specflow-qa-probe0001",
+        "status": "connected",
+        "source": "local"
+      }
+    ],
+    "tools": [
+      "Read",
+      "mcp__specflow-qa-probe0001__list_features",
+      "mcp__specflow-qa-probe0001__list_projects"
+    ],
+    "slash_commands": [
+      "init",
+      "review",
+      "example-plugin:command",
+      "mcp__specflow-qa-probe0001__select_project"
+    ]
+  }
+}

@@ -1,12 +1,14 @@
 // Shared helpers for tests/production/p16-*.test.ts (not a test file: the runner glob matches *.test.ts only).
-// TECH-SPECS §10.4: the stub API (tests/support/stub-api.mjs, R11: no model call) + the BUILT frontend (dev auth) + a dev login,
+// TECH-SPECS §10.4: the stub API (tests/support/stub-api.mjs, R11: no model call) + the BUILT frontend signed in over OIDC against the
+// in-process stub issuer (tests/support/oidc-stack.mjs),
 // and `globalThis.fetch` replaced by a wrapper that sends the relative `/api/backend/*` URLs of `lib/api.ts` (and of the `/me`
 // helper) to the built server with the session cookie and a same-origin `Origin`, as a browser would. The real `lib/api.ts`,
 // the real BFF and the stub API run end to end; no browser and no temporary page.
-import { devLogin } from "../support/session.mjs";
-import { frontendEnv, randomSecret, startFrontend } from "../support/servers.mjs";
-import { startStubApi } from "../support/stub-api.mjs";
+import { oidcLogin } from "../support/session.mjs";
+import { frontendEnv, startFrontend } from "../support/servers.mjs";
+import { startOidcStack } from "../support/oidc-stack.mjs";
 import { syntheticDocument, syntheticPdf } from "../support/pdf.mjs";
+import { defined } from "../support/defined";
 
 type ParseOutcome = "parsed" | "failed";
 type DocStatus = "processing" | ParseOutcome;
@@ -24,21 +26,42 @@ export interface Sent {
   faked?: boolean;
 }
 
+/** The stub's knobs; the graph ones belong to the knowledge build (a graphMs of Infinity keeps a build running). */
+export interface StubKnobs {
+  parseMs: number;
+  summarizeMs: number;
+  parseOutcome: ParseOutcome;
+  graphMs: number;
+  graphOutcome: string; // "succeeded" | "partially_succeeded" | "failed"
+  graphStartFail: string | null;
+}
+/** The graph knobs back to their defaults (call in `afterEach`). */
+export const GRAPH_DEFAULTS = { graphMs: 1500, graphOutcome: "succeeded", graphStartFail: null } as const;
+
 interface StubDoc {
   pid: string;
   row: Record<string, unknown> & { id: string; status: DocStatus; summarization_status: SummaryStatus };
 }
 export interface Stub {
   url: string;
-  log: { method: string; path: string; headers: Record<string, string>; contentType?: string; bytes?: number; head?: string }[];
-  state: { parseMs: number; summarizeMs: number; parseOutcome: ParseOutcome };
+  log: {
+    method: string;
+    path: string;
+    headers: Record<string, string>;
+    contentType?: string;
+    bytes?: number;
+    head?: string;
+    /** graph_build POST: the body text the stub received (set once the body passed validation). */
+    bodyText?: string;
+  }[];
+  state: StubKnobs;
   docs: Map<string, StubDoc>;
   /** Drive sources per project (SourceOut rows; tests mutate them to move an import along). */
   sources: Map<string, Record<string, unknown>[]>;
   drive: { identityReason: string | null; email: string };
   /** sources-ux model (tests/support/stub-sources.mjs): seed a source with chosen file states, or remove one as another tab would. */
   model: { seed: (pid: string, spec: Record<string, unknown>) => string; remove: (pid: string, sid: string) => void };
-  setTiming: (t: Partial<{ parseMs: number; summarizeMs: number; parseOutcome: ParseOutcome }>) => void;
+  setTiming: (t: Partial<StubKnobs>) => void;
   close: () => Promise<void>;
 }
 
@@ -53,21 +76,12 @@ export interface Env {
 }
 
 export async function startEnv(fePort: number, apiPort: number): Promise<Env> {
-  const key = randomSecret();
   const email = "p16.user@example.test";
-  const api: Stub = await startStubApi({ port: apiPort, signingKey: key, parseMs: 1500, summarizeMs: 1500 });
-  const fe = await startFrontend({
-    port: fePort,
-    env: frontendEnv(fePort, {
-      APP_ENV: "local",
-      AUTH_MODE: "dev",
-      API_INTERNAL_URL: api.url,
-      SESSION_SECRET: randomSecret(),
-      AUTH_DEV_SIGNING_KEY: key,
-      LOCAL_TEST_USER_EMAIL: email,
-    }),
-  });
-  const jar = await devLogin(fe.base, email);
+  // One stub issuer per environment, on the port 20 above the stub API's (3250-3259 -> 3270-3279).
+  const stack = await startOidcStack({ issuerPort: apiPort + 20, apiPort, api: { parseMs: 1500, summarizeMs: 1500 } });
+  const api: Stub = defined(stack.api, "the stub API");
+  const fe = await startFrontend({ port: fePort, env: frontendEnv(fePort, { APP_ENV: "local", ...stack.env }) });
+  const jar = await oidcLogin(fe.base, email);
   const realFetch = globalThis.fetch;
   const sent: Sent[] = [];
   const hooks: Env["hooks"] = [];
@@ -130,7 +144,7 @@ export async function startEnv(fePort: number, apiPort: number): Promise<Env> {
       globalThis.fetch = realFetch;
       Reflect.deleteProperty(globalThis, "window");
       await fe.stop();
-      await api.close();
+      await stack.close();
     },
   };
 }
@@ -176,6 +190,9 @@ export const EXISTING_ENDPOINTS: [string, RegExp][] = [
   ["GET", /^\/api\/v1\/drive\/identity$/],
   ["GET", new RegExp(`^/api/v1/projects/${UUID}/sources(\\?batches=1)?$`)],
   ["POST", new RegExp(`^/api/v1/projects/${UUID}/sources/gdrive(/test)?$`)],
+  // Knowledge build (plans/connect-build-kg-button)
+  ["GET", new RegExp(`^/api/v1/projects/${UUID}/graph_build$`)],
+  ["POST", new RegExp(`^/api/v1/projects/${UUID}/graph_build$`)],
   // sources-ux (INT-SRC-0002..0004)
   ["GET", new RegExp(`^/api/v1/projects/${UUID}/sources/${UUID}/files\\?limit=200(&cursor=[^&]+)?$`)],
   ["DELETE", new RegExp(`^/api/v1/projects/${UUID}/sources/${UUID}$`)],

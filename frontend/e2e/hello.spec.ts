@@ -1,15 +1,15 @@
 // AC-16.6, P17 s07 (FE-BP-09.AC2, D09, R11): the hello flow on the NEW production screens against the real stack:
-// dev login -> New project (name only) -> upload the fixture in Mission Control -> parse and summarize run on their own ->
+// sign in as alice through the Keycloak form -> New project (name only) -> upload the fixture in Mission Control -> parse and summarize run on their own ->
 // Ready -> summary (read through the API: real document contents have no screen, G01-13) -> Langfuse trace
 // (AC-11.3) -> sign out. One real agent run per execution: run it only with a Haiku model (D13) and never with retries.
 import {
   bffHeaders,
   createProject,
-  devLogin,
   expect,
   FIXTURE_PDF,
   evidence,
   Langfuse,
+  login,
   shot,
   signOut,
   storageCleanup,
@@ -40,8 +40,8 @@ test("hello: upload, parse, summarize, trace, sign out", { tag: "@e2e" }, async 
   test.setTimeout(PARSE_TIMEOUT + SUMMARIZE_TIMEOUT + 5 * 60_000);
   const base = defined(baseURL);
 
-  await test.step("dev login", async () => {
-    await devLogin(page);
+  await test.step("sign in through Keycloak", async () => {
+    await login(page);
     await shot(page, "01-after-login");
   });
 
@@ -110,7 +110,7 @@ test("hello: upload, parse, summarize, trace, sign out", { tag: "@e2e" }, async 
     const problems: string[] = []; // empty, or the one failure of the sign-out checks
     try {
       await signOut(page);
-      await expect(page.getByTestId("login-dev-submit")).toBeVisible();
+      await expect(page.getByTestId("login-oidc")).toBeVisible();
       await shot(page, "05-signed-out");
       await page.goto("/");
       await expect(page).toHaveURL(/\/login/); // the session is really gone

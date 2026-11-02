@@ -15,6 +15,7 @@ from collections.abc import AsyncIterator, Callable, Collection, Hashable, Itera
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field, replace
 from functools import cache, lru_cache
+from importlib.resources import files
 from pathlib import Path
 from typing import Any, Final, TypeVar
 
@@ -788,6 +789,43 @@ def with_v2_flags(data: Mapping[str, Any]) -> dict[str, Any]:
     rules[1]["container_paths"].append({"via": ["RELATES_TO"], "min": 1, "max": 1})
     rules[2]["exclude_where"] = {"is_assumption": ["yes"]}
     return data
+
+
+# The renamed-feature ontology (FR-MCP-TOOL-06): the shipped one with only the ``feature`` label and id prefix changed.
+RENAMED_FEATURE_LABEL: Final = "Funktion"
+RENAMED_FEATURE_PREFIX: Final = "FUNK::"
+
+
+def write_feature_renamed_ontology(
+    directory: Path, *, label: str = RENAMED_FEATURE_LABEL, id_prefix: str = RENAMED_FEATURE_PREFIX
+) -> Path:
+    """A copy of the shipped ontology whose ``feature`` type keeps its key but gets ``label`` and ``id_prefix``,
+    with the judge prompts it names, written into ``directory``; return the YAML file."""
+
+    source = files("graph") / "core" / "ontology"
+    data = yaml.safe_load((source / "spec-ontology.yaml").read_text(encoding="utf-8"))
+    feature = data["node_types"]["feature"]
+    old_prefix = shipped_ontology().node_types["feature"].id_prefix
+    assert feature["id"]["format"].startswith(old_prefix)
+    feature["label"] = label
+    feature["id"]["format"] = id_prefix + feature["id"]["format"].removeprefix(old_prefix)
+    path = directory / "feature-renamed-ontology.yaml"
+    path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    prompts = directory / "judge_prompts"
+    prompts.mkdir(exist_ok=True)
+    for prompt in (source / "judge_prompts").iterdir():
+        if prompt.name.endswith(".md"):
+            (prompts / prompt.name).write_bytes(prompt.read_bytes())
+    return path
+
+
+def load_feature_renamed_ontology(
+    directory: Path, *, label: str = RENAMED_FEATURE_LABEL, id_prefix: str = RENAMED_FEATURE_PREFIX
+) -> Ontology:
+    """``write_feature_renamed_ontology`` into ``directory``, loaded."""
+
+    path = write_feature_renamed_ontology(directory, label=label, id_prefix=id_prefix)
+    return load_ontology(path, submodule_files=[])
 
 
 def load_gap_ontology(directory: Path) -> Ontology:

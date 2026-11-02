@@ -71,6 +71,12 @@ export async function readEnvelope(res: Response): Promise<ParsedEnvelope> {
 export const getBackend = (path: string): Promise<Response> =>
   fetch(`${BASE}${path}`, { method: "GET", credentials: "same-origin", headers: HEADERS });
 
+/** POST to the BFF's own `/api/auth/end-session`: where the browser goes to finish a sign-out, or undefined when none came back. */
+export const endSessionDestination = (): Promise<unknown> =>
+  fetch("/api/auth/end-session", { method: "POST", cache: "no-store" })
+    .then(async (res) => (res.ok ? ((await res.json()) as { url?: unknown }).url : undefined))
+    .catch(() => undefined);
+
 async function call(path: string, init: RequestInit = {}): Promise<{ status: number; body: unknown }> {
   const headers = new Headers(HEADERS);
   new Headers(init.headers).forEach((value, key) => {
@@ -136,6 +142,11 @@ export const testDriveFolder = (pid: string, link: string) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/gdrive/test`, json({ link })).then((r) => r.body);
 export const saveDriveFolder = (pid: string, link: string) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/sources/gdrive`, json({ link })).then((r) => r.body);
+// Knowledge build (`/graph_build`): the GET is the build state, the POST starts a build. Bodies stay `unknown`; the knowledge port
+// (lib/data/http/knowledge.ts) checks their shape. The reasoning level is an integer 1..5 (the backend only logs it).
+export const getGraphBuild = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/graph_build`).then((r) => r.body);
+export const startGraphBuild = (pid: string, reasoningLevel: number) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/graph_build`, json({ reasoning_level: reasoningLevel })).then((r) => r.body);
 
 /** `created` = a new document (201). `duplicate` = the project already has this content and nothing new happened; `retried` =
  * it had it in status `failed`, and the server started its parse again (both 200, with the existing document). */

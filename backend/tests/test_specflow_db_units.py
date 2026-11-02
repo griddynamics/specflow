@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import re
 import shutil
 import subprocess
@@ -51,6 +52,11 @@ class RecordingSession:
         return str(statement.compile(dialect=postgresql.dialect()))
 
 
+EXTREME_CURSOR = (
+    base64.urlsafe_b64encode(f"0001-01-01T00:00:00+14:00|{DID}".encode()).decode().rstrip("=")
+)  # no UTC instant
+
+
 # Repositories -----------------------------------------------------------------
 
 
@@ -63,7 +69,7 @@ def test_cursor_round_trips_and_is_url_safe() -> None:
     assert repositories.decode_cursor(cursor) == (stamp, DID)
 
 
-@pytest.mark.parametrize("cursor", ["", "!!!", "bm90LWEtY3Vyc29y", "MjAyNi0xMC0wOHx4"])
+@pytest.mark.parametrize("cursor", ["", "!!!", "bm90LWEtY3Vyc29y", "MjAyNi0xMC0wOHx4", EXTREME_CURSOR])
 def test_a_bad_cursor_is_rejected(cursor: str) -> None:
     with pytest.raises(repositories.InvalidCursorError):
         repositories.decode_cursor(cursor)

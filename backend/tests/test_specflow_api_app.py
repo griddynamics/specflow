@@ -14,7 +14,8 @@ from api.app import create_app, untraced
 from api.runtime import Runtime
 from health import Readiness
 from settings import load_settings
-from specflow_api_support import FakeDriver, FakeRepo, FakeTemporal
+from specflow_api_support import FakeDriver, FakeRepo, FakeTemporal, bearer
+from specflow_auth_support import retired_dev_token
 
 
 def test_run_serves_uvicorn_on_all_interfaces_with_the_central_logger_only(monkeypatch, valid_env):
@@ -34,10 +35,8 @@ def test_run_serves_uvicorn_on_all_interfaces_with_the_central_logger_only(monke
     assert seen["ran"] is True
 
 
-async def lifespan_run(monkeypatch, env):
+async def lifespan_run(env):
     closed: list[str] = []
-    warned: list[bool] = []
-    monkeypatch.setattr("api.app.log_dev_mode_warning", lambda: warned.append(True))
 
     async def factory(settings):
         async def cleanup() -> None:
@@ -56,27 +55,27 @@ async def lifespan_run(monkeypatch, env):
     app = create_app(load_settings("api", env), runtime_factory=factory)
     async with app.router.lifespan_context(app):
         assert app.state.token_verifier is not None and app.state.runtime is not None
-    return closed, warned
+    return closed
 
 
-async def test_the_lifespan_builds_the_verifier_warns_in_dev_mode_and_closes_the_runtime(monkeypatch, valid_env):
-    closed, warned = await lifespan_run(monkeypatch, valid_env)
-    assert closed == ["runtime"] and warned == [True]
+async def test_the_lifespan_builds_the_verifier_and_closes_the_runtime(valid_env):
+    closed = await lifespan_run(valid_env)
+    assert closed == ["runtime"]
 
 
-async def test_a_short_dev_key_fails_the_start_before_any_resource_is_built(monkeypatch, valid_env):
+async def test_a_missing_issuer_fails_the_start_before_any_resource_is_built(valid_env):
     settings = load_settings("api", valid_env)
-    short = settings.auth.model_copy(update={"dev_signing_key": settings.auth.dev_signing_key.__class__("short")})
+    no_issuer = settings.auth.model_copy(update={"issuer": None})
     built: list[bool] = []
 
     async def factory(settings):
         built.append(True)
 
     app = create_app(
-        SimpleNamespace(**{**settings.__dict__, "auth": short}),
+        SimpleNamespace(**{**settings.__dict__, "auth": no_issuer}),
         runtime_factory=factory,
     )
-    with pytest.raises(ValueError, match="at least 32 bytes"):
+    with pytest.raises(ValueError, match="OIDC_ISSUER is required"):
         async with app.router.lifespan_context(app):
             pass
     assert built == []
@@ -88,9 +87,8 @@ def test_docs_are_served_only_locally(valid_env):
     deployed_env = {
         **valid_env,
         "APP_ENV": "dev",
-        "AUTH_MODE": "oidc",
         "OIDC_ISSUER": "https://idp.example.com/realms/x",
-        "AUTH_DEV_SIGNING_KEY": "",
+        "AUTH_JWKS_URL": "",
         "STORAGE_PREFIX": "dev/shared/",
     }
     deployed = create_app(load_settings("api", deployed_env))
@@ -123,7 +121,6 @@ async def test_probe_requests_make_no_spans_but_other_requests_do(monkeypatch, v
             readiness=Readiness({}, ttl=0),
         )
 
-    monkeypatch.setattr("api.app.log_dev_mode_warning", lambda: None)
     app = create_app(load_settings("api", valid_env), runtime_factory=factory)
     app._telemetry["tracer_provider"] = provider  # the global provider is set once per process
 
@@ -144,3 +141,15 @@ def test_the_exclude_hook_names_only_the_two_probes():
     assert untraced({"path": "/healthz"}) and untraced({"path": "/readyz"})
     assert not untraced({"path": "/api/v1/projects/x/documents/y/summarize"})
     assert not untraced({})
+
+
+async def test_a_removed_dev_login_token_is_401_and_a_run_idp_token_is_accepted(harness):
+    """B-05: HS256 and the removed dev login issuer never authenticate; the IdP's RS256 token does."""
+
+    forged = await harness.client.get("/api/v1/me", headers={"Authorization": f"Bearer {retired_dev_token()}"})
+    valid = await harness.client.get("/api/v1/me", headers=bearer())
+
+    assert forged.status_code == 401
+    assert forged.headers["www-authenticate"] == "Bearer"
+    assert forged.json()["error"]["code"] == "invalid_token"
+    assert valid.status_code == 200

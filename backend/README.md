@@ -23,7 +23,7 @@ its own image (`docker/api`, `docker/worker-agents`, `docker/worker-parse`, each
 | `settings.py` | Typed settings per role, `load_settings(role)`, all startup guards, `ConfigurationError` |
 | `cli.py` | The `specflow` entry point |
 | `api/` | FastAPI app (`/api/v1`, `/healthz`, `/readyz`), streaming upload, workflow starts, error envelope |
-| `auth/` | Token claims, OIDC verifier with a throttled JWKS cache, dev-token verifier |
+| `auth/` | Token claims, OIDC verifier with a throttled JWKS cache (the only verifier, shared by the API and MCP) |
 | `db/` | Models, repositories, async engine, `agent_scope` (RLS session), `migrate` |
 | `storage/` | `ObjectStore` protocol, GCS adapter (create-only resumable writes), in-memory store (tests only) |
 | `graph/` | The graph library (in progress, `docs/graph/`); the host uses `graph.core` for the Neo4j driver and readiness |
@@ -42,6 +42,8 @@ uv run --env-file ../.env.local specflow api                  # uvicorn on 0.0.0
 uv run --env-file ../.env.local specflow worker               # polls WORKER_QUEUES (default parse,agents)
 uv run --env-file ../.env.local specflow worker --queue parse # one queue only (repeatable)
 uv run --env-file ../.env.local specflow migrate              # alembic upgrade head; a second run is a no-op
+uv run --env-file ../.env.local specflow mcp                  # MCP endpoint on 0.0.0.0:$MCP_PORT (default 8002)
+uv run --env-file ../.env.local specflow mcp --check-config   # settings and guards only: exit 0, or 2
 uv run --env-file ../.env.local specflow api --check-config   # settings and guards only, no network: exit 0, or 2
 uv run --env-file ../.env.local specflow worker --check [--queue agents]   # live probes: exit 0 or 1
 ```
@@ -52,15 +54,17 @@ variables, never their values.
 
 ### Settings and guards
 
-Each role requires only its own variables (`api`, `worker`, `migrate`); a worker
+Each role requires only its own variables (`api`, `worker`, `migrate`, `mcp`); a worker
 that polls `agents` also needs Neo4j, the LLM gateway and the agent database password.
-Outside `APP_ENV=local` startup is refused for: `AUTH_MODE=dev`, a dev signing
-key, a non-https issuer, a JWKS URL on another host, a `STORAGE_PREFIX` that does
-not end in `/` or starts with `dev/local/`, an empty secret, or `specflow-smoke`
-in `AUTH_API_CLIENT_IDS`. Always: the worker refuses `DATABASE_AGENT_USER` equal to
-`DATABASE_USER`; `AUTH_MODE=dev` needs a signing key of 32 bytes or more and is
-refused when `KUBERNETES_SERVICE_HOST` is set; `AUTH_MODE=oidc` with a dev key is
-refused. Variable names and meaning: `.env.example`; the full table with roles and
+`mcp` needs `MCP_RESOURCE_URL` (https outside local) plus the database, Neo4j and auth
+variables, never Temporal, storage or the LLM gateway.
+Outside `APP_ENV=local` startup is refused for: a non-https issuer, a JWKS URL on
+another host, a `STORAGE_PREFIX` that does not end in `/` or starts with `dev/local/`,
+an empty secret, or `specflow-smoke` in `AUTH_API_CLIENT_IDS`. Always: the worker
+refuses `DATABASE_AGENT_USER` equal to `DATABASE_USER`; `api` and `mcp` refuse a
+missing `OIDC_ISSUER` and `AUTH_MODE=dev`. There is one sign-in mode, OIDC: `AUTH_MODE`
+is not a setting, the value `dev` stops startup with a hint to delete it, and
+`AUTH_DEV_SIGNING_KEY` is ignored. Variable names and meaning: `.env.example`; the full table with roles and
 secret flags: the deployment environment documentation.
 
 ### Tests
@@ -136,6 +140,36 @@ MCP servers, hooks, sandbox configuration, extra environment values, stderr
 callbacks, additional directories, and streamed event controls. Subagents
 inherit the parent model by default; model mismatches and unconstrained
 subagent tools require their own explicit opt-ins.
+
+## MCP server
+
+The `mcp` role serves the read-only project tools to coding agents such as Claude Code over MCP
+(streamable HTTP, path `/mcp`). Design, auth and operations: [MCP server](../docs/mcp-server/INDEX.md).
+Its settings are in [configuration](../docs/configuration.md).
+
+Local run, from the repository root:
+
+```shell
+make env-local           # once: secrets, your sign-in email, the Keycloak realm values
+make up                  # mcp on http://localhost:8002/mcp, with the local Keycloak (the same user as the web app)
+```
+
+Probes: `GET /healthz` (liveness) and `GET /readyz` (database and Neo4j) on port 8002. Clients use
+`localhost`, not `127.0.0.1`: on `/mcp` another `Host` answers `421`.
+
+Claude Code signs in through the local Keycloak: see
+[Local endpoint](../docs/mcp-server/deployment.md#local-endpoint).
+
+QA commands, from `backend/` with the stack up (a token is printed alone on its line, nothing else is). The QA users
+come from the Keycloak realm import; `seed` writes only the SpecFlow side (Postgres and Neo4j):
+
+```shell
+uv run --env-file ../.env.local python examples/mcp_qa.py seed
+uv run --env-file ../.env.local python examples/mcp_qa.py token alice [--client mcp|web]
+```
+
+The live tiers `SPECFLOW_TEST_MCP_E2E` and `SPECFLOW_TEST_MCP_CLAUDE` are described in
+[testing](../docs/mcp-server/testing.md#tiers).
 
 ## Native OS sandbox
 

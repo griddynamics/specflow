@@ -56,7 +56,6 @@ export const unavailable: UnavailablePorts = {
     create: notAvailable,
     leave: () => undefined,
     updateTaskBody: notFound,
-    develop: notFound,
   },
   assistant: {
     intro: () => Promise.resolve(unavailableIntro("")),

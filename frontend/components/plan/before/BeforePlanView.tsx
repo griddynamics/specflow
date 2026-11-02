@@ -7,6 +7,8 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { usePlanPort } from "../use-plan-ports";
+import { PlanViewSwitch, usePlanView } from "../PlanViewSwitch";
+import { DevelopTab, type DevelopInfo } from "../develop/DevelopTab";
 import type { PlanTable } from "@/lib/domain/plan";
 import { PlanFeatureTable } from "./PlanFeatureTable";
 import { createFailToast, createPress, tableView } from "./create-press";
@@ -38,7 +40,8 @@ function TableSlot({
   );
 }
 
-export function BeforePlanView({ projectId }: Readonly<{ projectId: string }>) {
+export function BeforePlanView({ projectId, develop }: Readonly<{ projectId: string; develop: DevelopInfo }>) {
+  const planView = usePlanView();
   const plan = usePlanPort();
   const [table, setTable] = useState<PlanTable | "failed" | null>(null);
   const [tries, setTries] = useState(0);
@@ -73,11 +76,12 @@ export function BeforePlanView({ projectId }: Readonly<{ projectId: string }>) {
   const view = tableView(table);
 
   return (
-    <div className="plan-before plan-scroll" data-testid="plan-before" data-project={projectId}>
-      {/* FE-PLAN-03.AC1, AC5-AC7 (Q16, P27-1, P27-15): "Create PLAN" lives in the shell's header row, so it leaves with this view. Stage 0 has no
-          tabs, so the button is the first line (`tabs`): `tools` would sit behind an empty first line, one flex gap to the right of the left edge. */}
+    <div className="plan-before plan-scroll" data-testid="plan-before" data-project={projectId} data-view={planView}>
+      {/* FE-PLAN-03.AC1, AC5-AC7 (Q16, P27-1, P27-15; MCP-M10 U5): the shell's header row holds the shared Plan | Develop switch (as Stage 2) and "Create PLAN"
+          as its `tools`, so the button leaves with this view. */}
       <ShellHeader
-        tabs={
+        tabs={<PlanViewSwitch projectId={projectId} view={planView} />}
+        tools={
           <Button
             onClick={() => {
               void create();
@@ -87,14 +91,18 @@ export function BeforePlanView({ projectId }: Readonly<{ projectId: string }>) {
           </Button>
         }
       />
-      <TableSlot
-        view={view}
-        table={table}
-        onRetry={() => {
-          setTable(null);
-          setTries((n) => n + 1);
-        }}
-      />
+      {planView === "develop" ? (
+        <DevelopTab projectId={projectId} info={develop} />
+      ) : (
+        <TableSlot
+          view={view}
+          table={table}
+          onRetry={() => {
+            setTable(null);
+            setTries((n) => n + 1);
+          }}
+        />
+      )}
     </div>
   );
 }

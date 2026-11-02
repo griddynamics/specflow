@@ -1,8 +1,6 @@
 import NextAuth, { customFetch, type Account, type NextAuthConfig } from "next-auth";
 import { encode as defaultEncode } from "next-auth/jwt";
-import Credentials from "next-auth/providers/credentials";
 import { appConfig, sessionCookieName, type AppConfig } from "@/lib/config";
-import { mintDevToken } from "@/lib/dev-token";
 import { backChannelFetch, needsRefresh, refreshSingleFlight } from "@/lib/oidc-refresh";
 
 const SESSION_MAX_AGE = 8 * 3600;
@@ -22,7 +20,7 @@ function isSignIn(account: Account | null | undefined, user: unknown): account i
 function oidcProvider(cfg: AppConfig): NextAuthConfig["providers"][number] {
   return {
     id: "oidc",
-    name: "Google",
+    name: "OIDC",
     type: "oidc",
     issuer: cfg.oidc.issuer,
     clientId: cfg.oidc.clientId,
@@ -33,35 +31,12 @@ function oidcProvider(cfg: AppConfig): NextAuthConfig["providers"][number] {
   };
 }
 
-function devProvider(cfg: AppConfig): NextAuthConfig["providers"][number] {
-  return Credentials({
-    id: "credentials",
-    name: "Dev login",
-    credentials: { email: { label: "Email", type: "email" } },
-    async authorize(credentials) {
-      const submitted: unknown = credentials.email;
-      const email = (typeof submitted === "string" ? submitted : "").trim().toLowerCase();
-      if (!/^[^@\s]+@[^\s@][^\s.@]*\.[^\s@]+$/.test(email)) return null;
-      const { token, exp } = await mintDevToken(email, cfg.devSigningKey);
-      return {
-        id: `dev:${email}`,
-        email,
-        name: email.split("@")[0],
-        accessToken: token,
-        accessExpiresAt: exp,
-      };
-    },
-  });
-}
-
 function buildConfig(): NextAuthConfig {
   const cfg = appConfig(); // throws on an invalid env: fail closed (AC-6.4)
-  const dev = cfg.authMode === "dev";
-  if (dev) log("auth.mode.dev_enabled", {});
   const cookieName = sessionCookieName(cfg.publicUrl);
 
   return {
-    providers: [dev ? devProvider(cfg) : oidcProvider(cfg)],
+    providers: [oidcProvider(cfg)],
     secret: cfg.sessionSecret,
     // Needed because Auth.js has no AUTH_URL here; the request it sees is already pinned
     // to PUBLIC_URL by app/api/auth/[...nextauth]/route.ts (setting AUTH_URL would need a
@@ -94,19 +69,16 @@ function buildConfig(): NextAuthConfig {
     callbacks: {
       async jwt({ token, user, account }) {
         if (isSignIn(account, user)) {
-          // Sign-in: keep only what the BFF needs; no picture, no id_token.
-          const base = { sub: token.sub, name: token.name, email: token.email };
-          if (dev) return { ...base, access_token: user.accessToken, expires_at: user.accessExpiresAt };
+          // Sign-in: keep only what the BFF needs; no picture. The id_token stays in this encrypted cookie as the logout hint.
           return {
-            ...base,
+            sub: token.sub,
+            name: token.name,
+            email: token.email,
+            id_token: account.id_token,
             access_token: account.access_token,
             refresh_token: account.refresh_token,
             expires_at: account.expires_at,
           };
-        }
-        if (dev) {
-          // No refresh for the dev token: it simply ends the session.
-          return typeof token.expires_at === "number" && token.expires_at > 0 && Date.now() < token.expires_at * 1000 ? token : null;
         }
         if (!needsRefresh(token.expires_at)) return token;
         if (token.refresh_token === undefined || token.refresh_token === "") return null;

@@ -57,7 +57,7 @@ your domain without code changes.
 ## Try it
 
 ```shell
-make env-local          # writes local secrets; then add your LLM gateway settings to .env.local
+make env-local          # writes local secrets and asks for your LLM gateway settings
 make up WITH=temporal   # starts the whole stack in Docker
 ```
 

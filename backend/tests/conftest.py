@@ -23,6 +23,7 @@ os.environ.update(
 )
 
 from collections.abc import Iterator
+from typing import Any
 
 import pytest
 
@@ -36,11 +37,12 @@ import logger.correlation as correlation_module
 pytest_plugins = [
     "logger_harness",
     "specflow_live",
+    "specflow_auth_support",  # before specflow_api_support, which imports it
     "specflow_api_support",
     "specflow_api_live_support",
-    "specflow_auth_support",
     "specflow_db_live_support",
     "specflow_sources_support",
+    "mcp_support",  # last: it imports the support modules above, which must register first
 ]
 
 
@@ -116,6 +118,7 @@ _SPECFLOW_ENV_PREFIXES = (
     "LANGFUSE_",
     "KUBERNETES_",
     "AWS_",
+    "MCP_",
 )
 # Exact names outside those prefixes. The cloud profile file: the root Makefile points host
 # targets at config/cloud.local.yaml, and a profile in the environment changes every storage check.
@@ -133,8 +136,8 @@ def clean_specflow_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
 
 
 @pytest.fixture
-def valid_env() -> dict[str, str]:
-    """A fresh, valid local environment for every role (dummy values only)."""
+def valid_env(run_idp: Any) -> dict[str, str]:
+    """A fresh, valid local environment for every role (dummy values only): OIDC against the run's loopback IdP."""
 
     return {
         "APP_ENV": "local",
@@ -146,10 +149,9 @@ def valid_env() -> dict[str, str]:
         "DATABASE_PASSWORD": "db-pass-9f1c",
         "DATABASE_AGENT_USER": "agent_user",
         "DATABASE_AGENT_PASSWORD": "agent-pass-7b2d",
-        "AUTH_MODE": "dev",
-        "OIDC_ISSUER": "specflow-dev-login",
+        "OIDC_ISSUER": run_idp.issuer,
+        "AUTH_JWKS_URL": run_idp.jwks_url,
         "AUTH_ALLOWED_EMAIL_DOMAINS": "example.com",
-        "AUTH_DEV_SIGNING_KEY": "k" * 40,
         "STORAGE_BACKEND": "gcs",
         "STORAGE_BUCKET": "test-bucket",
         "STORAGE_PREFIX": "dev/local/",

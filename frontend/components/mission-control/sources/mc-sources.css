@@ -26,6 +26,29 @@
   opacity: 0.55;
   cursor: not-allowed;
 }
+/* Busy (a build runs): off like the others (aria-disabled, focusable) but not dimmed, with a small spinner before the label. */
+.mcs-btn--busy {
+  cursor: progress;
+}
+.mcs-actions .gdg-btn.mcs-btn--busy {
+  opacity: 1; /* beats `.gdg-btn[aria-disabled="true"]` (ui-gaps-app.css): a running build is not dimmed */
+  cursor: progress;
+}
+.mcs-actions .gdg-btn.mcs-btn--busy,
+.mcs-actions .gdg-btn.mcs-btn--error {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+.mcs-btn__spin {
+  width: 14px;
+  height: 14px;
+}
+/* Error (the last build failed): a glass button with danger text and border, plus the warning icon; it is not disabled. */
+.mcs-actions .gdg-btn.mcs-btn--error {
+  color: var(--danger);
+  border-color: var(--danger);
+}
 
 /* ---- Sources ---- */
 .mcs-section {
@@ -472,4 +495,23 @@
 }
 .mcs-remove__error {
   color: var(--danger);
+}
+
+/* ---- Build error modal: the copyable ids and codes, and the copy hint. Tokens only. ---- */
+.mcs-build-error__text {
+  margin: 0;
+  padding: var(--space-sm);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--glass-rim);
+  background: var(--glass-fill-strong);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.mcs-build-error__hint {
+  margin: var(--space-xs) 0 0;
+  color: var(--ink-2);
 }

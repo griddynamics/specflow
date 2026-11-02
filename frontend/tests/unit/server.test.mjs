@@ -1,41 +1,32 @@
 // HTTP-level checks against the BUILT standalone server (ports 3210-3219):
-// AC-12.1, AC-6.4 (startup), AC-6.5 (dev form), AC-6.6 (BFF rules), AC-6.7 (cookie, session shape).
+// AC-12.1, AC-6.5 (sign-in over OIDC), AC-6.6 (BFF rules), AC-6.7 (cookie, session shape). The app signs in against the
+// in-process stub issuer (tests/oidc/stub-issuer.mjs); the stub API verifies the issuer's RS256 access tokens.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { frontendEnv, randomSecret, startFrontend } from "../support/servers.mjs";
-import { startStubApi } from "../support/stub-api.mjs";
-import { devLogin, sessionOf } from "../support/session.mjs";
+import { frontendEnv, startFrontend } from "../support/servers.mjs";
+import { startOidcStack } from "../support/oidc-stack.mjs";
+import { oidcLogin, sessionOf } from "../support/session.mjs";
 import { rawRequest } from "../support/http.mjs";
 
 const FE_PORT = 3210;
 const API_PORT = 3211;
-const BAD_PORT = 3212;
-const KEY = randomSecret();
-const EMAIL = "dev.user@example.test";
-let api, fe, jar, origin;
+const ISSUER_PORT = 3212;
+const EMAIL = "oidc.user@example.test";
+let stack, api, fe, jar, origin;
 
 const csrfHeaders = () => ({ cookie: jar.header(), origin, "x-requested-with": "specflow" });
 
 before(async () => {
-  api = await startStubApi({ port: API_PORT, signingKey: KEY });
-  fe = await startFrontend({
-    port: FE_PORT,
-    env: frontendEnv(FE_PORT, {
-      APP_ENV: "local",
-      AUTH_MODE: "dev",
-      API_INTERNAL_URL: api.url,
-      SESSION_SECRET: randomSecret(),
-      AUTH_DEV_SIGNING_KEY: KEY,
-      LOCAL_TEST_USER_EMAIL: EMAIL,
-    }),
-  });
+  stack = await startOidcStack({ issuerPort: ISSUER_PORT, apiPort: API_PORT });
+  api = stack.api;
+  fe = await startFrontend({ port: FE_PORT, env: frontendEnv(FE_PORT, { APP_ENV: "local", ...stack.env }) });
   origin = fe.base;
-  jar = await devLogin(fe.base, EMAIL);
+  jar = await oidcLogin(fe.base, EMAIL);
 });
 
 after(async () => {
   await fe?.stop();
-  await api?.close();
+  await stack?.close();
 });
 
 test("AC-12.1: unauthenticated page requests redirect to /login", async () => {
@@ -55,24 +46,14 @@ test("AC-12.1: /api/* is not matched by the proxy (health, backend, auth answer 
   assert.equal((await fetch(fe.base + "/api/auth/session", { redirect: "manual" })).status, 200);
 });
 
-test("AC-6.5: the dev form exists in dev mode, prefilled by LOCAL_TEST_USER_EMAIL; no OIDC button", async () => {
+test("AC-6.5: the login page offers the OIDC button", async () => {
   const html = await (await fetch(fe.base + "/login")).text();
-  assert.match(html, /data-testid="login-dev-email"/);
-  assert.match(html, /data-testid="login-dev-submit"/);
-  assert.ok(html.includes(EMAIL));
-  assert.doesNotMatch(html, /login-oidc/);
+  assert.match(html, /data-testid="login-oidc"/);
 });
 
 test("AC-6.7: session cookie attributes and a session that exposes only name and email", async () => {
-  const jarFresh = await devLogin(fe.base, EMAIL);
-  const csrf = await (await fetch(`${fe.base}/api/auth/csrf`, { headers: { cookie: jarFresh.header() } })).json();
-  const res = await fetch(`${fe.base}/api/auth/callback/credentials`, {
-    method: "POST",
-    redirect: "manual",
-    headers: { cookie: jarFresh.header(), "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ csrfToken: csrf.csrfToken, email: EMAIL }),
-  });
-  const cookie = res.headers.getSetCookie().find((c) => c.startsWith("specflow-session"));
+  const jarFresh = await oidcLogin(fe.base, EMAIL);
+  const cookie = jarFresh.setCookies.find((c) => c.startsWith("specflow-session"));
   assert.ok(cookie, "session cookie is named specflow-session on http");
   assert.match(cookie, /HttpOnly/i);
   assert.match(cookie, /SameSite=Lax/i);
@@ -155,7 +136,7 @@ test("AC-6.6: the BFF strips cookie/authorization/host/x-forwarded-*, adds the s
   assert.equal(res.status, 200);
   const seen = api.log.slice(before).at(-1);
   assert.equal(seen.path, "/api/v1/projects?limit=7");
-  assert.equal(seen.authOk, true, "the stub verified the minted HS256 dev token");
+  assert.equal(seen.authOk, true, "the stub verified the issuer's RS256 access token against its JWKS");
   assert.notEqual(seen.headers.authorization, "Bearer attacker");
   assert.ok(!("cookie" in seen.headers));
   assert.ok(!Object.keys(seen.headers).some((h) => h.startsWith("x-forwarded-")));
@@ -172,37 +153,4 @@ test("AC-6.6: upstream errors are passed through; unreachable upstream is a 502 
   });
   assert.equal(res.status, 404);
   assert.equal(JSON.parse(res.text).error.code, "project_not_found");
-});
-
-test("the dev token the BFF forwards carries the architecture-notes claims", async () => {
-  const { jwtVerify } = await import("jose");
-  const seen = api.log.filter((e) => e.authOk).at(-1);
-  const { payload, protectedHeader } = await jwtVerify(seen.headers.authorization.slice(7), new TextEncoder().encode(KEY), {
-    issuer: "specflow-dev-login",
-    audience: "specflow-api",
-  });
-  assert.equal(protectedHeader.alg, "HS256");
-  assert.equal(payload.azp, "specflow-web");
-  assert.equal(payload.typ, "Bearer");
-  assert.equal(payload.email, EMAIL);
-  assert.equal(payload.email_verified, true);
-  assert.equal(payload.sub, `dev:${EMAIL}`);
-  assert.equal(payload.exp - payload.iat, 8 * 3600);
-});
-
-test("AC-6.4: dev mode outside APP_ENV=local stops the server at startup, naming the variable", async () => {
-  await assert.rejects(
-    startFrontend({
-      port: BAD_PORT,
-      startTimeoutMs: 8000,
-      env: frontendEnv(BAD_PORT, {
-        APP_ENV: "dev",
-        AUTH_MODE: "dev",
-        API_INTERNAL_URL: api.url,
-        SESSION_SECRET: randomSecret(),
-        AUTH_DEV_SIGNING_KEY: randomSecret(),
-      }),
-    }),
-    (e) => /AUTH_MODE/.test(e.message) && !e.message.includes(KEY),
-  );
 });
