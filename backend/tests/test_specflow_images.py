@@ -416,10 +416,8 @@ def test_the_mcp_role_runs_the_api_image_against_the_bundled_keycloak():
         "AUTH_IGNORED_AUDIENCES",
     }  # an empty fallback would switch a check off
     assert [name for name, other in svcs.items() if claims & set(env_of(other))] == []
-    assert sorted(key for key, value in env.items() if ":?" in str(value)) == [
-        "DATABASE_PASSWORD",
-        "GRAPH_STORE_PASSWORD",
-    ]
+    # The graph password is checked by make up (check-graph-store-env), not required by compose.
+    assert sorted(key for key, value in env.items() if ":?" in str(value)) == ["DATABASE_PASSWORD"]
     for name in ("api", "frontend"):
         assert not {"AUTH_MODE", "AUTH_DEV_SIGNING_KEY"} & set(env_of(svcs[name])), name
 
@@ -927,15 +925,47 @@ async def test_ac_4_2_rss_for_100_mib_with_four_mib_chunks_against_a_fake_transp
 
 
 def test_the_graph_store_password_falls_back_to_the_older_env_file_name():
-    """An ``.env.local`` written before GRAPH_STORE_PASSWORD existed has only NEO4J_PASSWORD."""
+    """An ``.env.local`` written before GRAPH_STORE_PASSWORD existed has only NEO4J_PASSWORD. The inner default is
+    never a required variable: Compose v2 evaluates one inside a default even when the outer variable is set, so
+    ``make up`` checks that one of them is set (``check-graph-store-env``)."""
 
     text = (ROOT / "docker-compose.yml").read_text()
-    fallback = "${GRAPH_STORE_PASSWORD:-${NEO4J_PASSWORD:?"
+    fallback = "${GRAPH_STORE_PASSWORD:-${NEO4J_PASSWORD:-}}"
 
+    assert "${NEO4J_PASSWORD:?" not in text
     assert text.count(fallback) == 4  # the neo4j login, api, mcp and worker-agents
     for name in ("api", "mcp", "worker-agents"):
         assert fallback in env_of(services()[name])["GRAPH_STORE_PASSWORD"]
     assert fallback in env_of(services()["neo4j"])["NEO4J_AUTH"]
+
+
+@pytest.mark.parametrize(
+    ("lines", "selection", "ok"),
+    [
+        ("GRAPH_STORE_PASSWORD=a\n", "", True),
+        ("NEO4J_PASSWORD=a\n", "arcadedb", True),
+        ("GRAPH_STORE_PASSWORD=\nNEO4J_PASSWORD=\n", "", False),
+        ("DATABASE_PASSWORD=a\n", "arcadedb", False),
+        ("DATABASE_PASSWORD=a\n", "postgres", True),  # the graph lives in postgres, over the DATABASE_* login
+    ],
+)
+def test_make_up_refuses_a_stack_without_a_graph_password_and_never_prints_one(
+    lines: str, selection: str, *, ok: bool, tmp_path: Path
+) -> None:
+    env_file = tmp_path / "stack.env"
+    env_file.write_text(lines)
+    environment = {name: value for name, value in os.environ.items() if name not in ("GRAPH_STORE", "WITH")}
+    result = subprocess.run(
+        [str(shutil.which("make")), "check-graph-store-env", f"WITH={selection}", f"ENV_FILE={env_file}"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        env=environment,
+        check=False,
+    )
+    assert (result.returncode == 0) is ok, result.stderr
+    assert ("set GRAPH_STORE_PASSWORD" in result.stderr) is (not ok)
+    assert "=a" not in result.stdout + result.stderr
 
 
 def test_the_arcadedb_profile_is_pinned_limited_loopback_only_and_keeps_its_password_in_a_secret() -> None:

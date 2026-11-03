@@ -61,7 +61,7 @@ services:
       - "127.0.0.1:7474:7474"   # local only: the Neo4j browser
       - "127.0.0.1:7687:7687"
     environment:
-      NEO4J_AUTH: "neo4j/${GRAPH_STORE_PASSWORD:-${NEO4J_PASSWORD:?set GRAPH_STORE_PASSWORD in .env.local}}"
+      NEO4J_AUTH: "neo4j/${GRAPH_STORE_PASSWORD:-${NEO4J_PASSWORD:-}}"
       NEO4J_server_memory_heap_initial__size: "512m"
       NEO4J_server_memory_heap_max__size: "768m"
       NEO4J_server_memory_pagecache_size: "256m"
@@ -428,7 +428,7 @@ services:
       GRAPH_STORE: "${GRAPH_STORE:-neo4j}"   # the store of the stack: `make up WITH=arcadedb` or `WITH=postgres` (docs/configuration.md "Local stack")
       GRAPH_STORE_URI: "${GRAPH_STORE_URI:-bolt://specflow-neo4j:7687}"
       GRAPH_STORE_USER: "${GRAPH_STORE_USER:-neo4j}"
-      GRAPH_STORE_PASSWORD: "${GRAPH_STORE_PASSWORD:-${NEO4J_PASSWORD:?set GRAPH_STORE_PASSWORD in .env.local}}"   # an older .env.local with only NEO4J_PASSWORD still works
+      GRAPH_STORE_PASSWORD: "${GRAPH_STORE_PASSWORD:-${NEO4J_PASSWORD:-}}"   # an older .env.local with only NEO4J_PASSWORD still works; make up checks that one is set
       GRAPH_STORE_NAME: "${GRAPH_STORE_NAME:-neo4j}"
       AGENT_MODEL: "${AGENT_MODEL:-}"
       AGENT_TRACE_SENSITIVE_DATA: "${AGENT_TRACE_SENSITIVE_DATA:-true}"
@@ -511,7 +511,7 @@ services:
       GRAPH_STORE: "${GRAPH_STORE:-neo4j}"   # the store of the stack, as for the api
       GRAPH_STORE_URI: "${GRAPH_STORE_URI:-bolt://specflow-neo4j:7687}"
       GRAPH_STORE_USER: "${GRAPH_STORE_USER:-neo4j}"
-      GRAPH_STORE_PASSWORD: "${GRAPH_STORE_PASSWORD:-${NEO4J_PASSWORD:?set GRAPH_STORE_PASSWORD in .env.local}}"   # an older .env.local with only NEO4J_PASSWORD still works
+      GRAPH_STORE_PASSWORD: "${GRAPH_STORE_PASSWORD:-${NEO4J_PASSWORD:-}}"   # an older .env.local with only NEO4J_PASSWORD still works; make up checks that one is set
       GRAPH_STORE_NAME: "${GRAPH_STORE_NAME:-neo4j}"
       OIDC_ISSUER: "http://localhost:8180/realms/specflow"   # local only: the bundled Keycloak (public issuer)
       AUTH_JWKS_URL: "http://specflow-keycloak:8080/realms/specflow/protocol/openid-connect/certs"
@@ -623,7 +623,7 @@ services:
       GRAPH_STORE: "${GRAPH_STORE:-neo4j}"   # the store of the stack: `make up WITH=arcadedb` or `WITH=postgres` (docs/configuration.md "Local stack")
       GRAPH_STORE_URI: "${GRAPH_STORE_URI:-bolt://specflow-neo4j:7687}"
       GRAPH_STORE_USER: "${GRAPH_STORE_USER:-neo4j}"
-      GRAPH_STORE_PASSWORD: "${GRAPH_STORE_PASSWORD:-${NEO4J_PASSWORD:?set GRAPH_STORE_PASSWORD in .env.local}}"   # an older .env.local with only NEO4J_PASSWORD still works
+      GRAPH_STORE_PASSWORD: "${GRAPH_STORE_PASSWORD:-${NEO4J_PASSWORD:-}}"   # an older .env.local with only NEO4J_PASSWORD still works; make up checks that one is set
       GRAPH_STORE_NAME: "${GRAPH_STORE_NAME:-neo4j}"
       LLM_GATEWAY_URL: "${LLM_GATEWAY_URL:-}"
       LLM_GATEWAY_API_KEY: "${LLM_GATEWAY_API_KEY:-}"

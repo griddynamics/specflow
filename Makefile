@@ -138,7 +138,7 @@ BACKEND_TARGETS := setup models lint unit-test check test-graph-live \
 	db-upgrade db-revision mcp-manifest \
 	api worker temporal-check rss-test
 
-.PHONY: $(BACKEND_TARGETS) env-local check-keycloak-env up down down-volumes logs ps images \
+.PHONY: $(BACKEND_TARGETS) env-local check-keycloak-env check-graph-store-env up down down-volumes logs ps images \
 	frontend-setup frontend-dev frontend-lint frontend-build e2e e2e-production e2e-all
 
 $(BACKEND_TARGETS):
@@ -155,6 +155,13 @@ env-local:
 check-keycloak-env:
 	@sh "$(CURDIR)/scripts/env-local.sh" check-keycloak "$(ENV_FILE)"
 
+# The graph login of the stack: GRAPH_STORE_PASSWORD, or NEO4J_PASSWORD in an older env file (names only, no value
+# is printed). docker-compose.yml cannot require it itself: Compose v2 evaluates a required variable inside a default
+# even when the outer variable is set. WITH=postgres needs none (the graph uses the DATABASE_* login).
+check-graph-store-env:
+	@if [ "$(STACK_STORE)" != postgres ] && ! grep -Eq '^(GRAPH_STORE_PASSWORD|NEO4J_PASSWORD)=.' "$(ENV_FILE)" 2>/dev/null; then \
+		echo "make up: set GRAPH_STORE_PASSWORD in $(ENV_FILE) (make env-local writes it)" >&2; exit 1; fi
+
 # Needs Docker Compose 2.24 or later (`!reset` of WITH=postgres; `required: false` needs 2.20).
 # Build and start the stack and wait until all services are healthy: postgres, the graph store (neo4j;
 # `WITH=arcadedb` starts arcadedb and arcadedb-init instead, `WITH=postgres` no server: the graph lives in
@@ -169,7 +176,7 @@ ifneq ($(call envval,NEO4J_PASSWORD),)
 up: export GRAPH_STORE_PASSWORD = $(call envval,NEO4J_PASSWORD)
 endif
 endif
-up: check-keycloak-env
+up: check-keycloak-env check-graph-store-env
 	$(COMPOSE) up -d --build --wait --wait-timeout 600
 
 # Stops and removes the containers. The volumes (databases) stay; use `down-volumes` to drop them.
