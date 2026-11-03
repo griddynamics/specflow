@@ -31,6 +31,7 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE` | api, workers | Workflow engine address and namespace. |
 | `LLM_GATEWAY_URL`, `LLM_GATEWAY_API_KEY` | api, workers | OpenAI-compatible gateway route (no `/v1` suffix) and its key. |
 | `AGENT_MODEL` | api, workers | Model id of the agents on the gateway route. |
+| `GRAPH_LLM_MODEL`, `GRAPH_SMALL_MODEL`, `GRAPH_EMBEDDING_MODEL` | api, tools | Models of the graph build behind **Build knowledge** in Mission Control. Set all three: one set without the others stops the api at start. With none set the api starts with the graph build off: it logs `api.graph_build.disabled` at start, and each graph build request answers 503 `graph_build_unavailable` and logs `api.graph_build.unavailable`. Set `GRAPH_EMBEDDING_DIM` together with `GRAPH_EMBEDDING_MODEL`. |
 | `AUTH_ALLOWED_EMAIL_DOMAINS` | api, mcp | Comma-separated list of allowed e-mail domains. |
 | `PUBLIC_URL` | frontend | Public URL of the app, without a trailing slash. The sign-in redirect and the logout return address are built from it. Locally the Keycloak realm builds its redirect URIs from the same value. |
 | `API_INTERNAL_URL` | frontend | URL at which the frontend reaches the API. |
@@ -45,7 +46,6 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | Name | Read by | Meaning |
 |---|---|---|
 | `TEMPORAL_API_KEY`, `TEMPORAL_TLS_CERT`, `TEMPORAL_TLS_KEY` | api, workers, tools | Credentials for a managed workflow engine. Unset for a self-hosted one. |
-| `GRAPH_LLM_MODEL`, `GRAPH_SMALL_MODEL`, `GRAPH_EMBEDDING_MODEL` | api, tools | Models of the graph build. If you set any of them, the graph build routes are on and you must set all three. All unset = off. |
 | `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | api, workers | Tracing. Unset = no tracing. `LANGFUSE_HOST` is read when `LANGFUSE_BASE_URL` is unset. |
 | `SPECFLOW_CONFIG_FILE` | api, workers, tools | Path of the cloud profile file. Unset = environment only. |
 
@@ -57,7 +57,7 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `LOGS_RAISE_EXCEPTIONS` | off | all backend | Debug: a logging error raises. |
 | `NEO4J_DATABASE` | `neo4j` | api, mcp, workers, tools | Graph database name. |
 | `AGENT_TRACE_SENSITIVE_DATA` | `false` | api, workers | `true` puts document text into traces. Use it only for local debugging. |
-| `GRAPH_EMBEDDING_DIM` | `1536` | api, tools | Set it when the embedding model has another size. |
+| `GRAPH_EMBEDDING_DIM` | `1536` | api, tools | Vector size of `GRAPH_EMBEDDING_MODEL`; set it together with the model, because the default fits only models with 1536 dimensions (1 to 4096). The first build of each api process checks it with one embedding call, before the schema and any extraction: a mismatch fails that build at once with `embedding_dim_mismatch`, and the `api.graph_build.failed` log gives `expected` and `actual`. To change it after a build, see [Local stack](#local-stack). |
 | `GRAPH_STATE_DIR` | `.graph-build/state` | api | Folder of the graph build file stores, relative to the working directory. |
 | `GRAPH_LLM_CONCURRENCY` | `8` | api, tools | How many graph-build model calls may run at once. |
 | `API_PORT`, `WORKER_HEALTH_PORT` | `8000`, `8001` | api, workers | Listen ports. The worker port answers `GET /healthz`. |
@@ -137,11 +137,16 @@ S3 keys come from the standard AWS credential chain. A bucket is never created b
 
 Run `make env-local` first: it writes `.env.local` (git-ignored) with random local secrets, including the
 password and id of your local sign-in user. Then it asks for your sign-in email (`LOCAL_TEST_USER_EMAIL`; Enter takes
-`git config user.email`; with no terminal it uses `dev@example.com`) and for `AGENT_MODEL`, `LLM_GATEWAY_URL` and
-`LLM_GATEWAY_API_KEY` (the key without echo; with no terminal it lists the missing names instead). It writes
+`git config user.email`; with no terminal it uses `dev@example.com`), for `AGENT_MODEL`, `LLM_GATEWAY_URL` and
+`LLM_GATEWAY_API_KEY` (the key without echo), and for the graph build models: `GRAPH_LLM_MODEL` and `GRAPH_SMALL_MODEL`
+(Enter takes `AGENT_MODEL`), then `GRAPH_EMBEDDING_MODEL` (no default). When it gets an embedding model, it also asks
+for `GRAPH_EMBEDDING_DIM`, the vector size of that model: a required whole number from 1 to 4096 with no default,
+asked up to three times. It never writes `GRAPH_EMBEDDING_MODEL` without `GRAPH_EMBEDDING_DIM`. With no terminal it
+asks nothing and lists the missing names instead. It writes
 `AUTH_ALLOWED_EMAIL_DOMAINS` as the domain of your email plus `example.com` when the name is missing. It never
 overwrites or prints a value, so run it again after an update: it appends a missing or empty secret and asks only for
-a missing email or missing LLM settings. A secret appended to a file whose volumes already hold data does not match
+a missing email or missing LLM or graph settings (also for `GRAPH_EMBEDDING_DIM` when `GRAPH_EMBEDDING_MODEL` is set
+without it). A secret appended to a file whose volumes already hold data does not match
 them: run `make down-volumes` once. `make up` then starts postgres, neo4j, RustFS (S3-compatible,
 host port `RUSTFS_HOST_PORT`, default `19000`, bucket `specflow-local`), keycloak (the identity provider of the
 whole stack, `127.0.0.1:8180`, realm `specflow`), api, mcp (the MCP endpoint on `127.0.0.1:8002`), worker-parse,
@@ -149,6 +154,13 @@ worker-agents and frontend. `make up` stops before compose when `.env.local` lac
 (`KEYCLOAK_ADMIN_PASSWORD`, `KEYCLOAK_QA_PASSWORD`, `KEYCLOAK_WEB_CLIENT_SECRET`, `LOCAL_TEST_USER_EMAIL`,
 `LOCAL_TEST_USER_PASSWORD`, `LOCAL_TEST_USER_ID`) and names the missing ones. `docker-compose.yml` and the `Makefile`
 set the local values below.
+
+Changing `GRAPH_EMBEDDING_DIM` after a build, or moving to an embedding model of another size: the first build
+created the Neo4j vector indexes `graph_spec_node_embedding` and `graph_spec_node_name_embedding` at the old size,
+and schema setup refuses them with `vector_index_mismatch`; it does not re-create them. Drop both first, for example
+in the Neo4j browser (`http://localhost:7474`): `DROP INDEX graph_spec_node_embedding IF EXISTS` and
+`DROP INDEX graph_spec_node_name_embedding IF EXISTS`. Then recreate the api (`make up`); the next build creates them
+at the new size. Nodes built before keep vectors of the old size.
 
 Keycloak is not optional and has no data volume. Every container creation imports
 `config/keycloak/specflow-realm.json`, with the `${NAME}` placeholders filled from `.env.local`: your user (the fixed

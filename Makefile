@@ -131,6 +131,14 @@ env-local:
 		t="$$f.tmp.$$$$"; { grep -v "^$$1=" "$$f" 2>/dev/null || :; } > "$$t"; \
 		printf '%s=%s\n' "$$1" "$$2" >> "$$t"; chmod 600 "$$t"; mv "$$t" "$$f"; \
 	}; \
+	store() { \
+		case "$$2" in \
+			*"'"*) echo "env-local: $$1 holds a single quote; set it in $$f by hand" >&2; return 1;; \
+			*[!A-Za-z0-9._:/@+=-]*) put "$$1" "'$$2'";; \
+			*) put "$$1" "$$2";; \
+		esac; \
+		set="$$set $$1"; \
+	}; \
 	if [ ! -e "$$f" ]; then \
 		tmp="$$f.tmp.$$$$"; : > "$$tmp"; \
 		for name in $(ENV_LOCAL_NAMES); do \
@@ -192,13 +200,56 @@ env-local:
 				stty echo 2>/dev/null; trap - INT TERM; echo >&2; \
 			else IFS= read -r answer || answer=""; fi; \
 		fi; \
-		case "$$answer" in \
-			"") missing="$$missing $$name"; continue;; \
-			*"'"*) echo "env-local: $$name holds a single quote; set it in $$f by hand" >&2; missing="$$missing $$name"; continue;; \
-			*[!A-Za-z0-9._:/@+=-]*) answer="'$$answer'";; \
-		esac; \
-		put "$$name" "$$answer"; set="$$set $$name"; \
+		if [ -z "$$answer" ]; then missing="$$missing $$name"; continue; fi; \
+		store "$$name" "$$answer" || missing="$$missing $$name"; \
 	done; \
+	for name in GRAPH_LLM_MODEL GRAPH_SMALL_MODEL; do \
+		[ -n "$$(val $$name)" ] && continue; \
+		default="$$(val AGENT_MODEL)"; answer=""; \
+		if [ -t 0 ]; then \
+			case $$name in GRAPH_LLM_MODEL) hint="the graph build's main model";; *) hint="the graph build's small model";; esac; \
+			printf 'env-local: %s (%s; Enter = %s): ' "$$name" "$$hint" "$${default:-skip}" >&2; \
+			IFS= read -r answer || answer=""; answer="$${answer:-$$default}"; \
+		fi; \
+		if [ -z "$$answer" ]; then missing="$$missing $$name"; continue; fi; \
+		store "$$name" "$$answer" || missing="$$missing $$name"; \
+	done; \
+	model="$$(val GRAPH_EMBEDDING_MODEL)"; dim="$$(val GRAPH_EMBEDDING_DIM)"; typed=""; \
+	if [ -z "$$model" ]; then \
+		answer=""; \
+		if [ -t 0 ]; then \
+			printf 'env-local: GRAPH_EMBEDDING_MODEL (the embedding model your LLM gateway serves; Enter skips): ' >&2; \
+			IFS= read -r answer || answer=""; \
+		fi; \
+		case "$$answer" in \
+			"") ;; \
+			*"'"*) echo "env-local: GRAPH_EMBEDDING_MODEL holds a single quote; set it in $$f by hand" >&2;; \
+			*) typed="$$answer";; \
+		esac; \
+		if [ -z "$$typed" ]; then missing="$$missing GRAPH_EMBEDDING_MODEL"; [ -n "$$dim" ] || missing="$$missing GRAPH_EMBEDDING_DIM"; \
+		elif [ -n "$$dim" ]; then echo "env-local: GRAPH_EMBEDDING_DIM in $$f is kept; it must be the vector size of $$typed" >&2; fi; \
+	fi; \
+	if [ -z "$$dim" ] && [ -n "$$model$$typed" ]; then \
+		tries=0; \
+		if [ -t 0 ]; then \
+			while [ -z "$$dim" ] && [ $$tries -lt 3 ]; do \
+				printf 'env-local: GRAPH_EMBEDDING_DIM (required, no default: the vector size of %s, a whole number from 1 to 4096): ' "$${typed:-$$model}" >&2; \
+				IFS= read -r answer || answer=""; answer="$$(printf '%s' "$$answer" | tr -d ' \r')"; \
+				case "$$answer" in \
+					""|0*|*[!0-9]*|?????*) ;; \
+					*) [ "$$answer" -le 4096 ] && dim="$$answer";; \
+				esac; \
+				[ -n "$$dim" ] || echo "env-local: GRAPH_EMBEDDING_DIM must be a whole number from 1 to 4096: the vector size of the embedding model" >&2; \
+				tries=$$((tries + 1)); \
+			done; \
+		fi; \
+		if [ -n "$$dim" ]; then put GRAPH_EMBEDDING_DIM "$$dim"; set="$$set GRAPH_EMBEDDING_DIM"; \
+		else \
+			missing="$$missing GRAPH_EMBEDDING_DIM"; \
+			if [ -n "$$typed" ]; then echo "env-local: GRAPH_EMBEDDING_MODEL not written: it needs GRAPH_EMBEDDING_DIM" >&2; missing="$$missing GRAPH_EMBEDDING_MODEL"; fi; \
+		fi; \
+	fi; \
+	if [ -n "$$typed" ] && [ -n "$$dim" ]; then store GRAPH_EMBEDDING_MODEL "$$typed" || missing="$$missing GRAPH_EMBEDDING_MODEL"; fi; \
 	[ -z "$$set" ] || echo "env-local: set$$set in $$f"; \
 	[ -z "$$missing" ] || echo "env-local: add$$missing to $$f (docs/configuration.md)"; \
 	[ -n "$$added$$set$$missing" ] || echo "env-local: $$f is complete, left unchanged"

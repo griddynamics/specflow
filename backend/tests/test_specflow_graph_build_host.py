@@ -202,10 +202,18 @@ class StubUsage:
 
 class StubGateway:
     instances: ClassVar[list[StubGateway]] = []
+    embed_error: ClassVar[Exception | None] = None  # what ``embed`` raises (the real gateway's size check)
 
     def __init__(self, _llm: Any) -> None:
         self.closed = False
+        self.embedded: list[list[str]] = []
         StubGateway.instances.append(self)
+
+    async def embed(self, texts: list[str]) -> list[list[float]]:
+        self.embedded.append(list(texts))
+        if StubGateway.embed_error is not None:
+            raise StubGateway.embed_error
+        return [[0.0] for _ in texts]
 
     def usage(self):
         class Snapshot:
@@ -409,6 +417,62 @@ async def test_a_failed_step_shows_its_code_not_interrupted(tmp_path):
 
     state = await runner.status(PROJECT)
     assert (state.status, state.error_code) == ("failed", "unfinished_build")
+
+
+@pytest.fixture(autouse=True)
+def _gateway_embeds() -> Any:
+    StubGateway.embed_error = None
+    yield
+    StubGateway.embed_error = None
+
+
+async def test_one_embedding_call_checks_the_dimension_before_the_schema_once_per_process(tmp_path):
+    order: list[str] = []
+    runner = make_runner(tmp_path, StubBuild())
+    probe = runner._check_embedding_dim
+
+    async def check() -> None:
+        order.append("embed")
+        await probe()
+
+    async def ensure(*_args: Any) -> None:
+        order.append("ensure")
+
+    runner._check_embedding_dim = check
+    runner._ensure = ensure
+    before = len(StubGateway.instances)
+
+    await runner.start(PROJECT)
+    await finished(runner, PROJECT)
+    await runner.start(PROJECT)
+    await finished(runner, PROJECT)
+
+    assert order == ["embed", "ensure"]  # before the schema, and once per process
+    probe_gateway = StubGateway.instances[before]
+    assert probe_gateway.embedded == [[runner_module.DIMENSION_PROBE]] and probe_gateway.closed
+
+
+async def test_a_dimension_mismatch_fails_before_the_schema_and_any_extraction_and_logs_both_sizes(tmp_path, caplog):
+    caplog.set_level("INFO", logger="api.graph_build.runner")
+    StubGateway.embed_error = ConfigurationError("embedding_dim_mismatch", model="embed-x", expected=1536, actual=3072)
+    ensured: list = []
+    build = StubBuild()
+    runner = make_runner(tmp_path, build, ensured=ensured)
+
+    await runner.start(PROJECT)
+    await finished(runner, PROJECT)
+
+    state = await runner.status(PROJECT)
+    assert (state.status, state.error_code) == ("failed", "embedding_dim_mismatch")
+    assert ensured == [] and build.contexts == []  # no vector index of the wrong size, no model extraction
+    failed = next(record for record in caplog.records if record.getMessage() == "api.graph_build.failed")
+    assert fields(failed)["error_fields"] == {"model": "embed-x", "expected": 1536, "actual": 3072}
+    assert_json_plain(failed)
+
+    StubGateway.embed_error = None  # a failed check is not remembered: the next start checks again
+    await runner.start(PROJECT)
+    await finished(runner, PROJECT)
+    assert (await runner.status(PROJECT)).status == "succeeded" and len(ensured) == 1
 
 
 async def test_build_logs_carry_ids_and_counts_only(tmp_path, caplog):
