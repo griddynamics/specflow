@@ -32,6 +32,7 @@ from graph.stores.postgres.dialect import BACKEND, PostgresDialect, render_schem
 from graph.stores.postgres.executor import DATABASE_ERRORS, map_error, sqlstate
 from graph.stores.postgres.sqlfiles import load_ddl_sql, split_statements
 from logger.logger import INFO, get_logger, log_event
+from postgres import transaction
 
 logger = get_logger("graph.stores.postgres.schema")
 
@@ -283,7 +284,7 @@ async def ensure_postgres_schema(
     created: list[str] = []
     server = ""
     try:
-        async with engine.connect() as connection, connection.begin():
+        async with transaction(engine) as connection:
             server, vector = await _server_versions(connection, dialect)
             _require_environment(server, vector)
             await _rows(connection, load_ddl_sql("lock.sql"))

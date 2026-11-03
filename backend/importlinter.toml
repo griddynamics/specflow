@@ -14,6 +14,7 @@ root_packages = [
     "graph",
     "llm",
     "logger",
+    "postgres",
     "storage",
     "temporal",
 ]
@@ -28,7 +29,19 @@ type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["logger"]
 forbidden_modules = [
-    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "storage", "temporal",
+    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "postgres", "storage", "temporal",
+]
+
+# The shared PostgreSQL access (engines and connection transactions of the application database and the
+# PostgreSQL graph store) sits on SQLAlchemy alone, so the host and the graph library can both use it.
+[[tool.importlinter.contracts]]
+name = "The shared PostgreSQL access imports no project package"
+id = "postgres-is-base"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["postgres"]
+forbidden_modules = [
+    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
 ]
 
 # api is the outermost layer (HTTP). Nothing below it reaches back into it.
@@ -38,7 +51,8 @@ id = "api-is-outermost"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = [
-    "agent_runtime", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
+    "agent_runtime", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "postgres", "storage",
+    "temporal",
 ]
 forbidden_modules = ["api"]
 
@@ -157,12 +171,14 @@ type = "forbidden"
 allow_indirect_imports = true
 unmatched_ignore_imports_alerting = "none"
 source_modules = ["graph"]
-forbidden_modules = ["sqlalchemy", "asyncpg", "alembic"]
+forbidden_modules = ["sqlalchemy", "asyncpg", "alembic", "postgres"]
 ignore_imports = [
     "graph.stores.postgres -> sqlalchemy",
     "graph.stores.postgres.** -> sqlalchemy",
     "graph.stores.postgres -> asyncpg",
     "graph.stores.postgres.** -> asyncpg",
+    "graph.stores.postgres -> postgres",
+    "graph.stores.postgres.** -> postgres",
 ]
 
 # httpx (the ArcadeDB admin API) and pyTigerGraph (the `tigergraph` extra) belong to one adapter each.

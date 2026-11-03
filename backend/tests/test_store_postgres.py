@@ -473,7 +473,7 @@ def test_every_connection_gets_a_statement_and_a_lock_timeout_that_the_uri_can_c
     def capture(url: Any, **kwargs: Any) -> None:
         seen.append(kwargs["connect_args"])
 
-    monkeypatch.setattr(pg_executor, "create_async_engine", capture)
+    monkeypatch.setattr(pg_executor, "new_engine", capture)
     pg_executor.build_engine(config())
     server = seen[0]["server_settings"]
     assert server == {"application_name": "specflow-graph", "statement_timeout": "300000", "lock_timeout": "60000"}

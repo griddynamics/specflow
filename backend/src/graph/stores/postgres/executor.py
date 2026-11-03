@@ -21,7 +21,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import ArgumentError, DisconnectionError, InterfaceError, SQLAlchemyError
 from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from graph.core.dialect import ExecutionPlan, Record, run_plan
 from graph.core.errors import (
@@ -50,6 +50,7 @@ from graph.core.store import (
 from graph.stores.config import StoreConfig
 from graph.stores.postgres.dialect import BACKEND, POSTGRES_DIALECT, PostgresDialect
 from logger.logger import WARNING, get_logger, log_event
+from postgres import new_engine, transaction
 
 logger = get_logger("graph.stores.postgres")
 
@@ -256,13 +257,11 @@ def build_engine(config: StoreConfig, *, pool_size: int | None = None) -> AsyncE
 
     url, connect_args = connection_url(config)
     size = pool_size or config.pool_size or DEFAULT_POOL_SIZE
-    return create_async_engine(
+    return new_engine(
         url,
         pool_size=size,
         max_overflow=MAX_OVERFLOW,
-        pool_pre_ping=True,
         pool_timeout=POOL_TIMEOUT_SECONDS,
-        hide_parameters=True,
         connect_args={
             "timeout": CONNECTION_TIMEOUT_SECONDS,
             **connect_args,
@@ -362,24 +361,16 @@ class PostgresExecutor:
 
         project_id = validate_project_id(project_id)
         try:
-            async with self._engine.connect() as connection:
-                transaction = await connection.begin()
-                try:
-                    yield PostgresScopedTransaction(connection, project_id, self._dialect, self._backend)
-                except BaseException:
-                    await _rollback(transaction)
-                    raise
-                await transaction.commit()
+            async with transaction(self._engine, on_rollback_error=_rollback_failed) as connection:
+                yield PostgresScopedTransaction(connection, project_id, self._dialect, self._backend)
         except DATABASE_ERRORS as error:
             raise map_error(error, "tx", write=True, backend=self._backend) from None
 
     async def _managed(self, query: Query, plan: ExecutionPlan, *, write: bool) -> list[Record]:
         async def attempt() -> list[Record]:
-            async with self._engine.connect() as opened:
-                # a read cannot change data, whatever its statement says
-                connection = opened if write else await opened.execution_options(postgresql_readonly=True)
-                async with connection.begin():
-                    return await _run(connection, plan)
+            # a read cannot change data, whatever its statement says
+            async with transaction(self._engine, read_only=not write) as connection:
+                return await _run(connection, plan)
 
         def retrying(error: BaseException, number: int) -> None:
             log_event(
@@ -405,12 +396,8 @@ class PostgresExecutor:
         )
 
 
-async def _rollback(transaction: Any) -> None:
-    """Roll back a failed explicit transaction; the original error is the one that propagates."""
+def _rollback_failed(error: BaseException) -> None:
+    """A failed explicit transaction whose rollback failed too: logged; the original error is the one that
+    propagates."""
 
-    if not transaction.is_active:
-        return
-    try:
-        await transaction.rollback()
-    except DATABASE_ERRORS as error:
-        log_event(logger, WARNING, "graph.db.rollback_failed", error_type=type(error).__name__)
+    log_event(logger, WARNING, "graph.db.rollback_failed", error_type=type(error).__name__)

@@ -20,9 +20,9 @@ from typing import Final
 from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
-from sqlalchemy.ext.asyncio import create_async_engine
 
 from logger.logger import INFO, get_logger, log_event
+from postgres import new_engine
 from settings import DatabaseSettings, RoleSettings
 
 logger = get_logger("db.migrate")
@@ -60,7 +60,7 @@ def build_config(settings: RoleSettings, ini: Path | None = None) -> Config:
 async def current_revision(database: DatabaseSettings) -> str | None:
     """The stamped revision of the database, or ``None`` when unstamped."""
 
-    engine = create_async_engine(database.url())
+    engine = new_engine(database.url())
     try:
         async with engine.connect() as connection:
             return await connection.run_sync(lambda sync: MigrationContext.configure(sync).get_current_revision())

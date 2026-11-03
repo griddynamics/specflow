@@ -103,8 +103,8 @@ dev = [
 # Colocated test modules use the validation environment, not runtime imports.
 [tool.deptry]
 known_first_party = [
-    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
-    "cli", "cloud_profile", "health", "settings",
+    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "postgres", "storage",
+    "temporal", "cli", "cloud_profile", "health", "settings",
     "example_lib", "graph_build", "mcp_qa_lib",  # examples/
 ]
 extend_exclude = ["(^|.*/)(test_[^/]+|conftest)\\.py$"]

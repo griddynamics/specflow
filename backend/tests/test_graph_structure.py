@@ -38,6 +38,7 @@ THIRD_PARTY_ALLOWED: Final = frozenset(
         "neo4j",
         "sqlalchemy",
         "asyncpg",
+        "postgres",
         "httpx",
         "pyTigerGraph",
     }
@@ -54,6 +55,8 @@ ONLY_IN: Final = {
     "neo4j": frozenset({"stores/_bolt/", "stores/neo4j/", "stores/arcadedb/"}),
     "sqlalchemy": frozenset({"stores/postgres/"}),
     "asyncpg": frozenset({"stores/postgres/"}),
+    # the shared PostgreSQL access (src/postgres): engines and connection transactions, shared with the host's db
+    "postgres": frozenset({"stores/postgres/"}),
     "httpx": frozenset({"stores/arcadedb/"}),
     "pyTigerGraph": frozenset({"stores/tigergraph/"}),
 }

@@ -17,8 +17,9 @@ rules:
         - "**/src/api/runtime.py"
         - "**/src/api/graph_build/corpus.py"
         - "**/src/temporal/**/activities.py"
-        # project: the PostgreSQL graph store runs its own pool and transactions (design D5, D10).
-        - "**/src/graph/stores/postgres/**"
+        # project: src/postgres is the shared PostgreSQL access: the one connection-level transaction helper every
+        # raw connection (the PostgreSQL graph store) runs its units of work through.
+        - "**/src/postgres/**"
     message: >-
       A SQL transaction is committed or rolled back outside the service
       layer. A request's session dependency yields a session and never
@@ -43,8 +44,8 @@ rules:
       include:
         - "**/src/**"
       exclude:
-        - "**/src/db/**"   # project: db/session.py builds engines; db/migrate.py probes the revision
-        - "**/src/graph/stores/postgres/**"   # project: the graph store builds its own small pool
+        - "**/src/db/**"   # project: db/session.py builds the session factory
+        - "**/src/postgres/**"   # project: the shared PostgreSQL access builds every engine (db and the graph store)
     message: >-
       A SQL engine or session factory is constructed outside the database
       module. Sessions come from a dependency; a repository or
