@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from typing import Any, Final
+from typing import Any, Final, override
 
 from graph.core import connect
 from graph.core.queries import Query
@@ -75,6 +75,7 @@ def _end(row: Mapping[str, Any]) -> ProbeNode:
 class Neo4jProbe(GraphProbe):
     backend = "neo4j"
 
+    @override
     async def before_session_schema(self) -> None:
         """Nothing to note: the schema setup creates no database the session must remove."""
 
@@ -88,6 +89,7 @@ class Neo4jProbe(GraphProbe):
 
         return self._driver
 
+    @override
     async def _close(self) -> None:
         await self._driver.close()
 
@@ -97,6 +99,7 @@ class Neo4jProbe(GraphProbe):
 
     # -- reads -------------------------------------------------------------------------------------
 
+    @override
     async def nodes(self, project_id: str, label: str | None = None, **where: Any) -> list[ProbeNode]:
         conditions, params = _where("n", where, "w")
         scope = f":{identifier(label)}" if label else ""
@@ -109,6 +112,7 @@ class Neo4jProbe(GraphProbe):
         )
         return sorted((_node(row) for row in rows), key=lambda n: n.id)
 
+    @override
     async def edges(self, project_id: str, relation: str | None = None, **where: Any) -> list[ProbeEdge]:
         conditions, params = _where("r", where, "w")
         kind = f":{identifier(relation)}" if relation else ""
@@ -126,12 +130,14 @@ class Neo4jProbe(GraphProbe):
             key=lambda e: e.id,
         )
 
+    @override
     async def count_nodes(self, project_id: str) -> int:
         rows = await self.run("MATCH (n) WHERE n.group_id = $p RETURN count(n) AS n", p=project_id)
         return int(rows[0]["n"])
 
     # -- seeding and fault injection ---------------------------------------------------------------
 
+    @override
     async def create_nodes(self, project_id: str, specs: Sequence[NodeSpec]) -> int:
         by_labels: dict[tuple[str, ...], list[dict[str, Any]]] = defaultdict(list)
         for spec in specs:
@@ -157,6 +163,7 @@ class Neo4jProbe(GraphProbe):
         conditions += [f"{variable}.{identifier(name)} = row.{key}_{index}" for index, name in enumerate(match.props)]
         return f"({variable}{scope})", " AND ".join(conditions)
 
+    @override
     async def create_edges(self, project_id: str, specs: Sequence[EdgeSpec]) -> int:
         groups: dict[tuple[Any, ...], list[EdgeSpec]] = defaultdict(list)
         for spec in specs:
@@ -204,6 +211,7 @@ class Neo4jProbe(GraphProbe):
                 created += made
         return created
 
+    @override
     async def update_nodes(
         self,
         project_id: str,
@@ -227,6 +235,7 @@ class Neo4jProbe(GraphProbe):
         rows = await self.run(text + " RETURN count(n) AS n", p=project_id, props=dict(props or {}), **params)
         return int(rows[0]["n"])
 
+    @override
     async def delete_nodes(self, project_id: str, match: Match) -> int:
         conditions, params = _where("n", match.props, "m")
         scope = f":{identifier(match.label)}" if match.label else ""
@@ -238,6 +247,7 @@ class Neo4jProbe(GraphProbe):
         )
         return int(rows[0]["n"] or 0)
 
+    @override
     async def update_edges(self, edge_ids: Sequence[str], props: Mapping[str, Any]) -> int:
         check_flat(props)
         rows = await self.run(
@@ -247,6 +257,7 @@ class Neo4jProbe(GraphProbe):
         )
         return int(rows[0]["n"])
 
+    @override
     async def delete_edges(self, edge_ids: Sequence[str]) -> int:
         rows = await self.run(
             "MATCH ()-[r]->() WHERE elementId(r) IN $ids WITH r, count(r) AS c DELETE r RETURN sum(c) AS n",
@@ -254,6 +265,7 @@ class Neo4jProbe(GraphProbe):
         )
         return int(rows[0]["n"] or 0)
 
+    @override
     def failing_write_query(self, name: str) -> Query:
         return Query.literal(
             name, "UNWIND $rows AS row WITH row WHERE $project_id IS NOT NULL RETURN 1 / 0 AS written, [] AS refs"
@@ -261,6 +273,7 @@ class Neo4jProbe(GraphProbe):
 
     # -- schema ------------------------------------------------------------------------------------
 
+    @override
     async def schema_objects(self) -> list[SchemaObject]:
         constraints = await self.run(
             "SHOW CONSTRAINTS YIELD name, type, entityType, labelsOrTypes, properties "
@@ -293,6 +306,7 @@ class Neo4jProbe(GraphProbe):
             )
         return objects
 
+    @override
     async def drop_edge_key_index(self, relation: str) -> str | None:
         name = _LIBRARY_EDGE_KEY_INDEX.format(identifier(relation).lower())
         found = [o for o in await self.schema_objects() if o.name == name]
@@ -301,6 +315,7 @@ class Neo4jProbe(GraphProbe):
         await self.run(f"DROP INDEX {name}")
         return name
 
+    @override
     async def vector_index_dimension(self, name: str) -> int | None:
         rows = await self.run(
             "SHOW VECTOR INDEXES YIELD name, options WHERE name = $name "
@@ -309,21 +324,25 @@ class Neo4jProbe(GraphProbe):
         )
         return int(rows[0]["dimension"]) if rows else None
 
+    @override
     async def await_indexes(self, timeout_s: float = 60.0) -> None:
         await self.run("CALL db.awaitIndexes($timeout)", timeout=int(timeout_s))
 
+    @override
     async def server_edition(self) -> str:
         rows = await self.run("CALL dbms.components() YIELD name, edition RETURN name, edition")
         return str({row["name"]: row["edition"] for row in rows}["Neo4j Kernel"])
 
     # -- cleanup and isolation ---------------------------------------------------------------------
 
+    @override
     async def delete_projects(self, project_ids: Sequence[str]) -> int:
         ids = list(project_ids)
         await self.run("MATCH (n) WHERE n.group_id IN $ids DETACH DELETE n", ids=ids)
         rows = await self.run("MATCH (n) WHERE n.group_id IN $ids RETURN count(n) AS n", ids=ids)
         return int(rows[0]["n"])
 
+    @override
     async def outside_counts(self, prefix: str) -> dict[str, int]:
         rows = await self.run(OUTSIDE_TEST_PROJECTS, prefix=prefix)
         return {key: int(value) for key, value in rows[0].items()}

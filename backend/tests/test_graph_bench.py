@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import json
-import shutil
-import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -12,6 +10,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, SecretStr
 
+import graph_bench
 from graph.core import LLMConfig
 from graph.core.config import DEFAULT_BUDGETS
 from graph.core.errors import LLMError, LLMFatalError
@@ -420,34 +419,36 @@ async def test_recorder_never_stores_the_key_or_the_endpoint_even_when_an_error_
     assert replayed.value.fields["prompt"] == "p" and API_KEY not in str(replayed.value.fields)
 
 
-def git(directory: Path, *arguments: str) -> None:
-    subprocess.run([shutil.which("git") or "git", "-C", str(directory), *arguments], check=True, capture_output=True)
-
-
-def test_output_paths_must_be_ignored_inside_a_repository(tmp_path: Path) -> None:
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    git(repo, "init", "-q")
-    (repo / ".gitignore").write_text("data/\n", encoding="utf-8")
-    require_ignored_path(repo / "data" / "run" / "v1.summary.json", "--out")
-    with pytest.raises(SystemExit, match="not git-ignored"):
-        require_ignored_path(repo / "reports" / "v1.summary.json", "--out")
-    tracked = repo / "tracked.jsonl"
-    tracked.write_text("x", encoding="utf-8")
-    git(repo, "add", "-f", "tracked.jsonl")
-    with pytest.raises(SystemExit, match="not git-ignored"):
-        require_ignored_path(tracked, "--cassette")
-    require_ignored_path(tmp_path / "outside" / "v1.jsonl", "--cassette")
+def test_output_paths_inside_the_repository_must_be_under_the_ignored_bench_folder(tmp_path: Path) -> None:
+    outputs = graph_bench.OUTPUT_ROOT
+    assert outputs == graph_bench.REPOSITORY / ".graph-bench"
+    require_ignored_path(outputs / "run" / "v1.summary.json", "--out")
+    with pytest.raises(SystemExit, match="must be under"):
+        require_ignored_path(graph_bench.REPOSITORY / "reports" / "v1.summary.json", "--out")
+    with pytest.raises(SystemExit, match="must be under"):
+        require_ignored_path(graph_bench.REPOSITORY / "backend" / "v1.jsonl", "--cassette")
+    require_ignored_path(tmp_path / "outside" / "v1.jsonl", "--cassette")  # outside the repository: anything
     args = SimpleNamespace(
-        command="record", out=repo / "reports", label="v1", cassette=repo / "data" / "v1.jsonl", record_embeddings=False
+        command="record",
+        out=graph_bench.REPOSITORY / "reports",
+        label="v1",
+        cassette=outputs / "v1.jsonl",
+        record_embeddings=False,
     )
     with pytest.raises(SystemExit, match="--out"):
         check_output_paths(args)
-    args.out = repo / "data" / "reports"
+    args.out = outputs / "reports"
     check_output_paths(args)
-    args.cassette = repo / "cassettes" / "v1.jsonl"
+    args.cassette = graph_bench.REPOSITORY / "cassettes" / "v1.jsonl"
     with pytest.raises(SystemExit, match="--cassette"):
         check_output_paths(args)
+
+
+def test_the_bench_folder_is_git_ignored() -> None:
+    """The guard above lets outputs into .graph-bench/ only because the root .gitignore ignores that folder."""
+
+    lines = (graph_bench.REPOSITORY / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert ".graph-bench/" in lines
 
 
 def test_question_arguments_fail_loudly(tmp_path: Path) -> None:

@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping, Sequence
-from typing import Any, Final
+from typing import Any, Final, override
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -138,6 +138,7 @@ class PostgresProbe(GraphProbe):
     backend = "postgres"
     lucene_semantics = False
 
+    @override
     async def before_session_schema(self) -> None:
         """Nothing to note: the schema setup creates no database the session must remove."""
 
@@ -147,6 +148,7 @@ class PostgresProbe(GraphProbe):
         self._engine: AsyncEngine = build_engine(config, pool_size=POOL_SIZE)
         self._ready = False
 
+    @override
     async def _close(self) -> None:
         await self._engine.dispose()
 
@@ -183,11 +185,13 @@ class PostgresProbe(GraphProbe):
 
     # -- reads -------------------------------------------------------------------------------------
 
+    @override
     async def nodes(self, project_id: str, label: str | None = None, **where: Any) -> list[ProbeNode]:
         conditions, params = _node_conditions("n", label, where, "w")
         rows = await self.run(_sql(NODES_QUERY, conditions), {"p": project_id, **params})
         return sorted((_node(row) for row in rows), key=lambda n: n.id)
 
+    @override
     async def edges(self, project_id: str, relation: str | None = None, **where: Any) -> list[ProbeEdge]:
         clauses = ["(s.group_id = :p OR t.group_id = :p OR e.group_id = :p)"]
         params: dict[str, Any] = {"p": project_id}
@@ -231,12 +235,14 @@ class PostgresProbe(GraphProbe):
         ]
         return sorted(found, key=lambda e: e.id)
 
+    @override
     async def count_nodes(self, project_id: str) -> int:
         rows = await self.run("SELECT count(*) AS n FROM graph.node WHERE group_id = :p", {"p": project_id})
         return int(rows[0]["n"])
 
     # -- seeding and fault injection ---------------------------------------------------------------
 
+    @override
     async def create_nodes(self, project_id: str, specs: Sequence[NodeSpec]) -> int:
         rows: list[dict[str, Any]] = []
         for spec in specs:
@@ -270,6 +276,7 @@ class PostgresProbe(GraphProbe):
             raise ProbeError(f"{what}: the end must match one node, found {len(rows)}")
         return int(rows[0]["id"])
 
+    @override
     async def create_edges(self, project_id: str, specs: Sequence[EdgeSpec]) -> int:
         rows: list[dict[str, Any]] = []
         for spec in specs:
@@ -293,6 +300,7 @@ class PostgresProbe(GraphProbe):
             )
         return len(rows)
 
+    @override
     async def update_nodes(
         self,
         project_id: str,
@@ -321,6 +329,7 @@ class PostgresProbe(GraphProbe):
         )
         return len(rows)
 
+    @override
     async def delete_nodes(self, project_id: str, match: Match) -> int:
         conditions, params = _node_conditions("n", match.label, match.props, "w")
         rows = await self.run(
@@ -328,6 +337,7 @@ class PostgresProbe(GraphProbe):
         )
         return len(rows)
 
+    @override
     async def update_edges(self, edge_ids: Sequence[str], props: Mapping[str, Any]) -> int:
         check_flat(props)
         rows = await self.run(
@@ -337,6 +347,7 @@ class PostgresProbe(GraphProbe):
         )
         return len(rows)
 
+    @override
     async def delete_edges(self, edge_ids: Sequence[str]) -> int:
         rows = await self.run(
             "DELETE FROM graph.edge AS e WHERE e.id = ANY(CAST(:ids AS bigint[])) RETURNING e.id",
@@ -344,6 +355,7 @@ class PostgresProbe(GraphProbe):
         )
         return len(rows)
 
+    @override
     def failing_write_query(self, name: str) -> Query:
         return Query(
             name,
@@ -367,6 +379,7 @@ class PostgresProbe(GraphProbe):
         rows = await self.run("SELECT meta_value FROM graph.meta WHERE meta_key = :k", {"k": DIMENSION_KEY})
         return int(rows[0]["meta_value"]) if rows else None
 
+    @override
     async def schema_objects(self) -> list[SchemaObject]:
         """The store's objects in the neutral terms of the contract: its unique and range indexes as they are,
         the generated ``tsvector`` columns as the full-text objects, the vector column as two vector objects
@@ -438,24 +451,29 @@ class PostgresProbe(GraphProbe):
             )
         return objects
 
+    @override
     async def drop_edge_key_index(self, relation: str) -> str | None:
         identifier(relation)
         return None  # one index serves every relation type, under a name that is not the library's per-relation one
 
+    @override
     async def vector_index_dimension(self, name: str) -> int | None:
         if name not in (EMBEDDING_INDEX, NAME_EMBEDDING_INDEX):
             return None
         return await self._recorded_dimension()
 
+    @override
     async def await_indexes(self, timeout_s: float = 60.0) -> None:
         # Indexes are built inside the statement that creates them and a read sees every committed write.
         assert timeout_s >= 0
 
+    @override
     async def server_edition(self) -> str:
         return "postgresql"
 
     # -- cleanup and isolation ---------------------------------------------------------------------
 
+    @override
     async def delete_projects(self, project_ids: Sequence[str]) -> int:
         ids = list(project_ids)
         await self.run("DELETE FROM graph.node WHERE group_id = ANY(CAST(:ids AS text[]))", {"ids": ids})
@@ -465,6 +483,7 @@ class PostgresProbe(GraphProbe):
         )
         return int(rows[0]["n"])
 
+    @override
     async def outside_counts(self, prefix: str) -> dict[str, int]:
         rows = await self.run(
             "SELECT "

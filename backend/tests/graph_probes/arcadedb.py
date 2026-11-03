@@ -15,7 +15,7 @@ such a database (``before_session_schema``) and ``drop_session_databases`` drops
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any, Final
+from typing import Any, Final, Literal, override
 
 import httpx
 
@@ -83,10 +83,12 @@ class ArcadeDbProbe(Neo4jProbe):
         super().__init__(config)
         self._admin = AdminClient(admin_url(config.uri, config.admin_uri), config.user, config.password)
 
+    @override
     async def _close(self) -> None:
         await self._admin.close()
         await super()._close()
 
+    @override
     async def before_session_schema(self) -> None:
         name = self.database
         key = (self.config.uri, name or "")
@@ -95,6 +97,7 @@ class ArcadeDbProbe(Neo4jProbe):
         if not await self._admin.database_exists(name):
             _CREATED[key] = self.config
 
+    @override
     async def update_nodes(
         self,
         project_id: str,
@@ -132,9 +135,11 @@ class ArcadeDbProbe(Neo4jProbe):
 
     # -- reads -------------------------------------------------------------------------------------
 
+    @override
     async def nodes(self, project_id: str, label: str | None = None, **where: Any) -> list[ProbeNode]:
         return [_visible(node) for node in await super().nodes(project_id, label, **where)]
 
+    @override
     async def edges(self, project_id: str, relation: str | None = None, **where: Any) -> list[ProbeEdge]:
         return [
             ProbeEdge(edge.id, edge.type, _visible(edge.source), _visible(edge.target), edge.props)
@@ -143,6 +148,7 @@ class ArcadeDbProbe(Neo4jProbe):
 
     # -- fault injection ---------------------------------------------------------------------------
 
+    @override
     def failing_write_query(self, name: str) -> Query:
         # Two nodes with one key in one statement: the unique (group_id, uuid) index refuses the second.
         return Query.literal(
@@ -157,13 +163,15 @@ class ArcadeDbProbe(Neo4jProbe):
     async def _types(self) -> list[dict[str, Any]]:
         return await self._admin.types(self.database or "specflow")
 
+    @override
     async def schema_objects(self) -> list[SchemaObject]:
         objects: list[SchemaObject] = []
         for entry in await self._types():
-            entity = "relationship" if entry.get("type") == "edge" else "node"
+            entity: Literal["node", "relationship"] = "relationship" if entry.get("type") == "edge" else "node"
             for index in entry.get("indexes", ()):
                 properties = tuple(index.get("properties", ()))
                 kind = index["type"]
+                shape: tuple[str, Any, str | None]
                 if kind == _VECTOR:
                     shape = (
                         "vector",
@@ -193,6 +201,7 @@ class ArcadeDbProbe(Neo4jProbe):
                 )
         return objects
 
+    @override
     async def drop_edge_key_index(self, relation: str) -> str | None:
         name = _LIBRARY_EDGE_KEY_INDEX.format(identifier(relation).lower())
         if not [o for o in await self.schema_objects() if o.name == name]:
@@ -200,6 +209,7 @@ class ArcadeDbProbe(Neo4jProbe):
         await self._admin.sql(self.database or "specflow", f"DROP INDEX `{name}`")
         return name
 
+    @override
     async def vector_index_dimension(self, name: str) -> int | None:
         wanted = index_names().get(name, name)
         for entry in await self._types():
@@ -208,8 +218,10 @@ class ArcadeDbProbe(Neo4jProbe):
                     return int(index["dimensions"])
         return None
 
+    @override
     async def await_indexes(self, timeout_s: float = 60.0) -> None:
         del timeout_s  # index builds are synchronous: nothing to wait for
 
+    @override
     async def server_edition(self) -> str:
         return "arcadedb"

@@ -53,7 +53,7 @@ class ProbeError(AssertionError):
 def identifier(name: str) -> str:
     """``name`` when it is a plain label, relationship type or property name; probes inline these."""
 
-    if not isinstance(name, str) or not _IDENTIFIER.fullmatch(name):
+    if not _IDENTIFIER.fullmatch(name):
         raise ValueError(f"not a plain graph identifier: {name!r}")
     return name
 
@@ -449,7 +449,8 @@ def canonical_props(props: Mapping[str, Any], *, skip: Iterable[str] = ()) -> di
 
     omitted = {*VECTOR_PROPERTIES, *UNSTABLE_PROPERTIES, *skip}
     kept = {k: _stable_value(k, v) for k, v in props.items() if k not in omitted and not k.endswith(UNSTABLE_SUFFIXES)}
-    return json.loads(dump(kept))
+    stable: dict[str, Any] = json.loads(dump(kept))
+    return stable
 
 
 def canonical_node(node_: ProbeNode) -> dict[str, Any]:

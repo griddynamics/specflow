@@ -2,10 +2,10 @@
 
 Run from backend/ (record needs the LLM gateway environment, replay does not):
 
-    uv run python examples/graph_bench.py record --project bench-demo --corpus <v1 folder> \
-        --state <state folder> --cassette <dir>/v1.jsonl --out <report dir> --label v1 --wipe
-    uv run python examples/graph_bench.py replay --project bench-demo --corpus <v1 folder> \
-        --state <fresh state folder> --cassette <dir>/v1.jsonl --out <report dir> --label v1 --wipe
+    make graph-bench ARGS="record --project bench-demo --corpus <v1 folder> \
+        --state <state folder> --cassette ../.graph-bench/v1.jsonl --out ../.graph-bench/report --label v1 --wipe"
+    make graph-bench ARGS="replay --project bench-demo --corpus <v1 folder> \
+        --state <fresh state folder> --cassette ../.graph-bench/v1.jsonl --out ../.graph-bench/report --label v1 --wipe"
 
 ``record`` runs the build (what ``graph_build.py`` does: corpus folder, ``run_build``, file stores) with a
 recording gateway: every model call is passed to the real ``Gateway`` and stored in the cassette (JSONL)
@@ -33,9 +33,9 @@ A replay with cassette misses is a failed run: it writes ``<label>.snapshot.FAIL
 snapshot, and a stale one of the label is removed first), sets ``"ok": false`` in the summary and exits non-zero.
 
 Output paths are corpus-derived data (cassettes hold prompts, snapshots hold document text): ``--out``, a
-recording ``--cassette`` and a recorded ``--qa-cassette`` must be git-ignored when they are inside a git
-repository (``git check-ignore``), or outside any repository; anything else is refused. ``--wipe`` prints
-the store backend, host and project before it deletes.
+recording ``--cassette`` and a recorded ``--qa-cassette`` must be under ``.graph-bench/`` at the root of this
+repository (git-ignored by the root ``.gitignore``) or outside the repository; anything else is refused.
+``--wipe`` prints the store backend, host and project before it deletes.
 
 Both commands leave ``<out>/<label>.snapshot.json`` (canonical graph: nodes and edges without build ids,
 timestamps and vectors, sorted) and ``<out>/<label>.summary.json`` (build result, verification report, counts,
@@ -45,9 +45,10 @@ The graph store comes from GRAPH_STORE (default neo4j), GRAPH_STORE_URI, GRAPH_S
 GRAPH_STORE_NAME and GRAPH_STORE_ADMIN_URI (NEO4J_URI/_USER/_PASSWORD/_DATABASE stand in for a Neo4j store);
 ``--namespace`` replaces the store name for one run (ArcadeDB: a new database, PostgreSQL: a new schema; ensure_schema
 creates it). ``--wipe`` (Neo4j only) deletes the project first. Nodes and edges are read through the store's test probe
-(``tests/graph_probes``), so the snapshot is the same code on every store. ``qa`` reports invariants and, given a
-question file, fulltext/vector/fused MRR, top-1 and top-5. Record also needs LLM_GATEWAY_URL,
-LLM_GATEWAY_API_KEY, GRAPH_LLM_MODEL, GRAPH_SMALL_MODEL, GRAPH_EMBEDDING_MODEL, GRAPH_EMBEDDING_DIM.
+(``tests/graph_probes``), so the snapshot is the same code on every store; run the script with ``tests`` on the
+import path (``make graph-bench ARGS="..."``, or ``PYTHONPATH=tests uv run python examples/graph_bench.py ...``).
+``qa`` reports invariants and, given a question file, fulltext/vector/fused MRR, top-1 and top-5. Record also needs
+LLM_GATEWAY_URL, LLM_GATEWAY_API_KEY, GRAPH_LLM_MODEL, GRAPH_SMALL_MODEL, GRAPH_EMBEDDING_MODEL, GRAPH_EMBEDDING_DIM.
 """
 
 from __future__ import annotations
@@ -55,11 +56,8 @@ from __future__ import annotations
 import argparse
 import base64
 import hashlib
-import importlib
 import json
 import os
-import shutil
-import subprocess
 import sys
 import time
 from array import array
@@ -83,6 +81,8 @@ from graph.core.ontology.compiled import BUILD_OWNER
 from graph.core.queries import SEARCH_NODES_VECTOR_EXACT, Query
 from graph.core.store import Executor
 from graph.stores import StoreConfig, build_store
+from graph_probes import PROBES, views
+from graph_probes.base import GraphProbe
 from logger.logger import INFO, get_logger, log_event
 from settings import ConfigurationError, load_graph_store_settings
 
@@ -799,16 +799,12 @@ def store_settings(namespace: str | None) -> StoreConfig:
     return config.model_copy(update={"name": namespace}) if namespace else config
 
 
-def open_probe(config: StoreConfig) -> Any:
+def open_probe(config: StoreConfig) -> GraphProbe:
     """The test probe of the store (``tests/graph_probes``): the store-neutral reader of nodes and edges."""
 
-    tests = str(Path(__file__).resolve().parents[1] / "tests")
-    if tests not in sys.path:
-        sys.path.insert(0, tests)
-    graph_probes = importlib.import_module("graph_probes")
-    if config.backend not in graph_probes.PROBES:
+    if config.backend not in PROBES:
         raise SystemExit(f"no snapshot probe for graph store {config.backend!r} yet")
-    return graph_probes.PROBES[config.backend](config)
+    return PROBES[config.backend](config)
 
 
 def add_store_arguments(command: argparse.ArgumentParser) -> None:
@@ -873,31 +869,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+REPOSITORY: Final = Path(__file__).resolve().parents[2]
+# The bench's output folder inside the repository; the root .gitignore ignores it (tests/test_graph_bench.py pins it).
+OUTPUT_ROOT: Final = REPOSITORY / ".graph-bench"
+
+
 def require_ignored_path(path: Path, role: str) -> None:
-    """Refuse ``path`` when it is inside a git repository and not ignored (corpus-derived data must never land in
-    a tracked place). A path outside any repository passes."""
+    """Refuse ``path`` when it is inside this repository but not under ``.graph-bench/`` (corpus-derived data must
+    never land in a tracked place). A path outside the repository passes."""
 
     target = path.resolve()
-    directory = target
-    while not directory.exists():
-        directory = directory.parent
-    if directory.is_file():
-        directory = directory.parent
-    git = shutil.which("git")
-    if git is None:
-        raise SystemExit(f"cannot check {role} {path}: git is not installed")
-    inside = subprocess.run(
-        [git, "-C", str(directory), "rev-parse", "--is-inside-work-tree"], capture_output=True, check=False
-    )
-    if inside.returncode != 0:
-        return
-    ignored = subprocess.run(
-        [git, "-C", str(directory), "check-ignore", "-q", "--", str(target)], capture_output=True, check=False
-    )
-    if ignored.returncode != 0:
+    if target.is_relative_to(REPOSITORY) and not target.is_relative_to(OUTPUT_ROOT):
         raise SystemExit(
-            f"refusing {role} {path}: it is inside a git repository and not git-ignored "
-            "(corpus-derived data must stay out of tracked paths)"
+            f"refusing {role} {path}: inside this repository it must be under {OUTPUT_ROOT} "
+            "(git-ignored; corpus-derived data must stay out of tracked paths)"
         )
 
 
@@ -1019,7 +1004,6 @@ def llm_report(gateway: Any) -> dict[str, Any]:
 async def invariants(probe: Any, project: str, ontology: Any) -> dict[str, int]:
     """Counts a sound graph keeps at zero (except the totals), read through the probe's views."""
 
-    views = importlib.import_module("graph_probes.views")
     counts = await views.identity_counts(probe, project)
     return {
         "spec_nodes": counts["nodes"],

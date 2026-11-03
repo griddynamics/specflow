@@ -134,7 +134,7 @@ KIT_ENV := env -u VIRTUAL_ENV
 .PHONY: validate validate-list validate-install validate-install-python validate-install-python-clones validate-install-typescript validate-selftest validate-ci-selftest $(VALIDATE_TARGETS)
 
 # Python targets run in backend/ (ENV_FILE is passed down); compose is root-only.
-BACKEND_TARGETS := setup models lint unit-test check test-graph-live \
+BACKEND_TARGETS := setup models lint unit-test check test-graph-live graph-bench \
 	db-upgrade db-revision mcp-manifest \
 	api worker temporal-check rss-test
 
@@ -275,9 +275,10 @@ validate-list:
 	@echo $(VALIDATE_TRACKS)
 
 # backend/importlinter.toml lists real top-level packages (src/ is the import root, hence
-# PYTHONPATH=src); MYPYPATH lets mypy resolve them. backend/tests is excluded from mypy by mypy.ini.
+# PYTHONPATH=src); MYPYPATH lets mypy resolve them. backend/tests is excluded from mypy by mypy.ini, but its
+# store probes (tests/graph_probes) are resolvable: examples/graph_bench.py imports them, so they are checked too.
 validate-python-lint:
-	cd backend && $(KIT_ENV) PYTHONPATH=src MYPYPATH=src:examples IMPORTLINTER_CONFIG=importlinter.toml \
+	cd backend && $(KIT_ENV) PYTHONPATH=src MYPYPATH=src:examples:tests IMPORTLINTER_CONFIG=importlinter.toml \
 		uv run --project $(VALIDATION)/python/lint bash $(VALIDATION)/python/lint/run.sh .
 
 # Two runs: the backend checks (backend/pystatic.toml), then source-ownership over the whole

@@ -96,9 +96,6 @@ max-returns = 6
 # premise is the same as the tests/** scoping above ("tools invoked by argv"). Its callers pass
 # fixed argv tuples (git, uv, sys.executable -m ...) from in-repo code; no request or document data reaches it.
 "**/src/llm/evidence.py" = ["S603"]
-# project: examples/graph_bench.py runs two fixed `git` argv lists (rev-parse, check-ignore) on the output paths the
-# operator names, to refuse paths that are not git-ignored; no shell, no document data in the argv.
-"**/examples/graph_bench.py" = ["S603"]
 # project: graph.core.store.as_store wraps a Neo4j driver in the Neo4j store for the deprecated
 # `ensure_schema(driver, ...)` / `GraphReader(driver, ...)` call shape. The adapter module imports
 # graph.core.store, so a top-level import is a cycle and the import stays inside the function until

@@ -1,7 +1,7 @@
 # Relative to backend/. The root Makefile passes an absolute path down.
 ENV_FILE ?= ../.env.local
 
-.PHONY: setup models lint unit-test check test-graph-live \
+.PHONY: setup models lint unit-test check test-graph-live graph-bench \
 	db-upgrade db-revision mcp-manifest api worker temporal-check image-test rss-test
 
 # CI (CI=true) skips the model download: its unit job fetches them once into a cached folder, and the other
@@ -38,6 +38,12 @@ GRAPH_LIVE_TESTS := tests/test_graph_probes.py tests/test_graph_core_live.py tes
 test-graph-live:
 	@case "$(STORE)" in neo4j|arcadedb|postgres) ;; *) echo "test-graph-live: STORE must be neo4j, arcadedb or postgres, got: $(STORE)" >&2; exit 2;; esac
 	SPECFLOW_TEST_GRAPH_STORE=$(STORE) uv run --env-file $(ENV_FILE) pytest $(GRAPH_LIVE_TESTS) -q -rs
+
+# The cross-store benchmark (examples/graph_bench.py): `make graph-bench ARGS="replay --project ..."`. The script reads
+# the graph through the store probes of tests/graph_probes, so tests/ is on its import path; its outputs go under
+# ../.graph-bench/ (git-ignored).
+graph-bench:
+	PYTHONPATH=tests uv run --env-file $(ENV_FILE) python examples/graph_bench.py $(ARGS)
 
 # Rewrites frontend/lib/guides/mcp-tools.json from the MCP registry (a test fails when it is stale).
 mcp-manifest:

@@ -106,6 +106,7 @@ known_first_party = [
     "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "postgres", "storage",
     "temporal", "cli", "cloud_profile", "health", "settings",
     "example_lib", "graph_build", "mcp_qa_lib",  # examples/
+    "graph_probes",  # tests/graph_probes: the store probes examples/graph_bench.py reads the graph through
 ]
 extend_exclude = ["(^|.*/)(test_[^/]+|conftest)\\.py$"]
 
