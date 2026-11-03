@@ -44,7 +44,7 @@ from graph.core.queries import (
     SimilarTargets,
     safe_name,
 )
-from graph.core.query_files import render_query
+from graph.core.query_files import fragment, render_query
 from graph.stores.postgres.sqlfiles import load_build_sql, load_core_sql
 
 DEFAULT_SCHEMA: Final = "graph"
@@ -147,6 +147,7 @@ FRAGMENT_FILES: Final = frozenset(
         "match_foreign_node.sql",
         "vector_settings.sql",
         "plan_settings.sql",
+        "syntax_parts.sql",
     }
 )
 # Build fragments (not templates of their own): the branches of infer_endpoint_subjects.
@@ -307,7 +308,7 @@ def _relation(file: Callable[[], str], template: str) -> Callable[[Any], _Render
 def _boolean(*, symmetric: bool) -> str:
     """The SQL literal of a slot that says whether a relation is walked either way."""
 
-    return "TRUE" if symmetric else "FALSE"
+    return fragment(load_core_sql("syntax_parts.sql"), "true" if symmetric else "false")
 
 
 def _endpoint_subjects(args: Any) -> _Rendered:
@@ -327,7 +328,10 @@ def _endpoint_subjects(args: Any) -> _Rendered:
         )
     if endpoints.mentions:
         branches.append(load_build_sql("infer_endpoint_mentions.sql"))
-    text = render_query(load_build_sql("infer_endpoint_subjects.sql"), branches="\nUNION\n".join(branches))
+    text = render_query(
+        load_build_sql("infer_endpoint_subjects.sql"),
+        branches=f"\n{fragment(load_core_sql('syntax_parts.sql'), 'union').strip()}\n".join(branches),
+    )
     return _Rendered(text, extra)
 
 

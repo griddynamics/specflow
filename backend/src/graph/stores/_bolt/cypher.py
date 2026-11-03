@@ -15,7 +15,7 @@ the parameter is refused (``query_missing_project_id``).
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from functools import cache
 from typing import Any, Final
 
@@ -37,7 +37,7 @@ from graph.core.queries import (
     SimilarTargets,
     safe_name,
 )
-from graph.core.query_files import load_build_query, load_core_query, render_query
+from graph.core.query_files import fragment, load_build_query, load_core_query, render_query
 
 _PROJECT_ID_REFERENCE: Final = re.compile(r"\$project_id\b")
 _STATIC: Final[Mapping[str, Callable[[], str]]] = {
@@ -118,8 +118,20 @@ def _load(template: str) -> str:
     return loader()
 
 
+def _part(name: str) -> str:
+    """A syntax piece of ``core/queries/syntax_parts.cypher`` (an arrow, a separator)."""
+
+    return fragment(load_core_query("syntax_parts.cypher"), name)
+
+
 def _arrow(*, symmetric: bool) -> str:
-    return "-" if symmetric else "->"
+    return _part("either" if symmetric else "directed")
+
+
+def _types(names: Sequence[str]) -> str:
+    """Relationship types of one pattern, each a validated name, joined by the alternation of syntax_parts."""
+
+    return _part("or").join(safe_name(name) for name in names)
 
 
 def _match(shape: NodeShape, var: str) -> str:
@@ -145,7 +157,7 @@ def _upsert_relationship(args: RelationEnds) -> str:
 def _scope_via(args: ScopeVia) -> str:
     return render_query(
         load_core_query("scope_via.cypher"),
-        types="|".join(safe_name(name) for name in args.relations),
+        types=_types(args.relations),
         min_hops=str(int(args.min_hops)),
         max_hops=str(int(args.max_hops)),
     )
@@ -153,22 +165,22 @@ def _scope_via(args: ScopeVia) -> str:
 
 def _scope_sequence(args: ScopeSequence) -> str:
     either_way = {safe_name(name) for name in args.symmetric}
-    pattern = "(n:SpecNode)"
+    parts = load_core_query("scope_sequence_parts.cypher")
+    pattern = [fragment(parts, "start")]
     conditions = []
     for index, relation in enumerate(args.relations):
         last = index == len(args.relations) - 1
-        end = "(root)" if last else f"(x{index}:SpecNode)"
-        arrow = "-" if relation in either_way else "->"
-        pattern += f"-[r{index}:{safe_name(relation)}]{arrow}{end}"
-        conditions.append(f"r{index}.group_id = $project_id")
+        names = {"index": str(index), "type": safe_name(relation)}
+        pattern.append(render_query(fragment(parts, "hop"), **names))
+        pattern.append(_arrow(symmetric=safe_name(relation) in either_way))
+        pattern.append(fragment(parts, "root") if last else render_query(fragment(parts, "node"), index=str(index)))
+        conditions.append(render_query(fragment(parts, "hop_condition"), index=str(index)))
         if not last:
-            conditions.append(
-                f"x{index}.group_id = $project_id AND none(label IN labels(x{index}) WHERE label IN $roots)"
-            )
+            conditions.append(render_query(fragment(parts, "node_condition"), index=str(index)))
     return render_query(
         load_core_query("scope_sequence.cypher"),
-        pattern=pattern,
-        conditions=" AND ".join(conditions),
+        pattern="".join(pattern),
+        conditions=_part("and").join(conditions),
     )
 
 
@@ -186,7 +198,7 @@ def _endpoint_subjects(args: EndpointSubjects) -> str:
         branches.append(load_build_query("infer_endpoint_mentions.cypher"))
     return render_query(
         load_build_query("infer_endpoint_subjects.cypher"),
-        branches=" UNION ".join(branches),
+        branches=f" {_part('union')} ".join(branches),
     )
 
 
@@ -194,13 +206,19 @@ def _container_pattern(args: RealizationSubjects) -> str:
     """The pattern from a member to a container: one edge of each relation of a sequence (through spec
     nodes), else ``min_hops``..``max_hops`` edges of any of the relations, in their one direction."""
 
+    parts = load_build_query("infer_realization_path.cypher")
     if args.sequence:
-        return "(:SpecNode)".join(
-            f"-[:{safe_name(name)}]{_arrow(symmetric=either)}"
+        return fragment(parts, "through").join(
+            render_query(fragment(parts, "step"), type=safe_name(name)) + _arrow(symmetric=either)
             for name, either in zip(args.relations, args.symmetric, strict=True)
         )
-    names = "|".join(safe_name(name) for name in args.relations)
-    return f"-[:{names}*{int(args.min_hops)}..{int(args.max_hops)}]{_arrow(symmetric=all(args.symmetric))}"
+    hops = render_query(
+        fragment(parts, "range"),
+        types=_types(args.relations),
+        min_hops=str(int(args.min_hops)),
+        max_hops=str(int(args.max_hops)),
+    )
+    return hops + _arrow(symmetric=all(args.symmetric))
 
 
 def _realization_subjects(args: RealizationSubjects) -> str:

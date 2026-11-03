@@ -26,6 +26,9 @@ FRAGMENT_FILES: Final = frozenset(
         "match_node_checked",
         "infer_endpoint_via",
         "infer_endpoint_mentions",
+        "syntax_parts",
+        "scope_sequence_parts",
+        "infer_realization_path",
     }
 )
 

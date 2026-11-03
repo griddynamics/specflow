@@ -28,7 +28,7 @@ from typing import Any, Final
 from graph.core.dialect import ExecutionPlan, PlannedStatement, Record
 from graph.core.errors import ConformanceError
 from graph.core.queries import SAFE_NAME, Query, safe_name
-from graph.core.query_files import render_query
+from graph.core.query_files import fragment, render_query
 from graph.stores._bolt.cypher import CYPHER_DIALECT, binds_project_id, render_cypher, template_ids
 from graph.stores.arcadedb.chunking import chunked
 from graph.stores.arcadedb.names import index_fields, index_names
@@ -202,6 +202,15 @@ def _plan_merge_spec_nodes(query: Query, params: Mapping[str, Any], types: Seque
     return ExecutionPlan(statements, reduce)
 
 
+def _copy_statement(copy: str, labels: Sequence[str]) -> str:
+    """The copy statement of one final label set: its first label in ``__LABEL__``, one ``__MORE_LABELS__``
+    piece of the file per further label."""
+
+    first, *more = labels
+    piece = fragment(copy, "more_labels")
+    return render_query(copy, more_labels="".join(render_query(piece, label=name) for name in more), label=first)
+
+
 def _plan_repair_set_labels(query: Query, params: Mapping[str, Any], types: Sequence[str] | None) -> ExecutionPlan:
     """Set the kept label of each node and remove its other build-owned labels, one record move per node.
 
@@ -234,7 +243,7 @@ def _plan_repair_set_labels(query: Query, params: Mapping[str, Any], types: Sequ
     statements = (
         PlannedStatement(cypher("build", "build_repair_set_labels_unkeyed.cypher"), statement_params),
         *(
-            PlannedStatement(render_query(copy, label=":".join(labels)), {**statement_params, "ids": ids})
+            PlannedStatement(_copy_statement(copy, labels), {**statement_params, "ids": ids})
             for labels, ids in sorted(groups.items())
         ),
         *(

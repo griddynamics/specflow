@@ -53,6 +53,19 @@ def load_build_query(name: str) -> str:
     return read_query_file(BUILD_QUERY_DIRECTORY, name)
 
 
+def fragment(template: str, name: str) -> str:
+    """The default text of the slot ``name`` of ``template``: a fragment file holds the pieces a renderer puts
+    together (an arrow, a separator, one hop of a path) as the defaults of its slots, so no query text is written
+    in code. Raises ``ConformanceError("query_fragment_missing")`` when the file has no such slot."""
+
+    marker = f"/*__{name.upper()}__*/"
+    start = template.find(marker)
+    end = template.find(marker, start + len(marker)) if start >= 0 else -1
+    if start < 0 or end < 0:
+        raise ConformanceError("query_fragment_missing", fragment=name)
+    return template[start + len(marker) : end]
+
+
 def render_query(template: str, **names: str) -> str:
     """``template`` with each ``/*__<NAME>__*/default/*__<NAME>__*/`` slot, then each ``__<NAME>__``
     token, replaced by the (already validated) value; a slot or token left unfilled raises
