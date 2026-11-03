@@ -1,9 +1,4 @@
-"""Identity rules: project ids, identity keys, ``spec_id`` slugs and uuids (docs/graph/data-model.md "Identity").
-
-An identity key decides whether two extracted nodes are the same thing; a ``spec_id`` is the stable
-external id given once and never reused for another identity key; uuids are storage keys derived from
-the identity key at creation.
-"""
+"""Identity rules: project ids, identity keys, ``spec_id`` slugs and uuids."""
 
 from __future__ import annotations
 
@@ -86,14 +81,7 @@ def normalise_id(text: str) -> str:
 
 
 def explicit_id_pattern(families: Sequence[str]) -> re.Pattern[str] | None:
-    """The explicit-id grammar of data-model.md "Identity" for ``families`` (None without families).
-
-    An id is a family exactly as written (upper case), a separator (``-``, ``_``, or a space directly
-    before the digits), optional upper-case letter segments each ending in ``-`` or ``_``, then digits
-    (``.``, ``-`` or ``_`` may join more digit groups). It stands alone: no word character or ``-``
-    right before it, and no word character (or ``-`` and one) right after it. The same grammar as the
-    build's id finder.
-    """
+    """The explicit-id grammar of "Identity" for ``families`` (None without families)."""
 
     return _explicit_id_pattern(tuple(sorted(set(families), key=lambda family: (-len(family), family))))
 
@@ -107,10 +95,7 @@ def _explicit_id_pattern(families: tuple[str, ...]) -> re.Pattern[str] | None:
 
 
 def normalise_surface(text: str) -> str:
-    """Normalise a name or line: NFKC, case-folded, single spaces, no punctuation at either end.
-
-    A bracket at an end is kept when its partner is inside the text ("erp (external)").
-    """
+    """Normalise a name or line: NFKC, case-folded, single spaces, no punctuation at either end."""
 
     value = _WHITESPACE.sub(" ", unicodedata.normalize("NFKC", text).casefold()).strip()
     start, end = 0, len(value)
@@ -148,10 +133,7 @@ def bounded_key_value(value: str, limit: int = KEY_VALUE_MAX_CHARS) -> str:
 
 
 def slug(name: str, explicit_id: str | None = None) -> str:
-    """The ``spec_id`` SLUG: upper case, non-alphanumerics as ``_``, stop words dropped, first 5 words.
-
-    An explicit id leads the slug as one word. The result has at most 80 characters and is never empty.
-    """
+    """The ``spec_id`` SLUG: upper case, non-alphanumerics as ``_``, stop words dropped, first 5 words."""
 
     words = [
         word
@@ -203,11 +185,7 @@ class SpecIdRow:
 
 
 def allocate_spec_id(prefix: str, slug_text: str, key: str, taken: Mapping[str, SpecIdRow]) -> str:
-    """Return ``<prefix><slug>``, suffixed ``_2``, ``_3``... when taken by another identity key.
-
-    A ``spec_id`` issued for the same identity key that is still ``active`` or ``retired`` is returned
-    again; one issued for a different key, or kept as an alias of a merged node, is never reused.
-    """
+    """Return ``<prefix><slug>``, suffixed ``_2``, ``_3``..."""
 
     candidate = f"{prefix}{slug_text}"
     number = 1
@@ -220,7 +198,7 @@ def allocate_spec_id(prefix: str, slug_text: str, key: str, taken: Mapping[str, 
 
 
 class SpecIdRegistry(Protocol):
-    """Port: every ``spec_id`` issued in a project and its state (docs/graph/api.md "Ports")."""
+    """Port: every ``spec_id`` issued in a project and its state."""
 
     async def taken(self, project_id: str) -> dict[str, SpecIdRow]:
         """All issued ``spec_id``s of the project, by ``spec_id``."""

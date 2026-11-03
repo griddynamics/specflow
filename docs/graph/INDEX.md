@@ -19,10 +19,10 @@ project's documents and keeps it current. Shared core `graph.core`, build submod
 # ontology.md: ontology format, loading and validation, submodule files, the shipped ontology and what may change in it
 - [ontology.md](ontology.md), [spec-ontology.yaml](spec-ontology.yaml) (initial template)
 
-# build.md: modes, build steps, reuse in update builds, failures, build result, options
+# build.md: modes, build steps, normalisation and quarantine, reuse in update builds, failures, build result, migration, options
 - [build.md](build.md)
 
-# analysis.md: light inference, verification and repair
+# analysis.md: shared validator, light inference, verification and repair, consolidated metrics
 - [analysis.md](analysis.md)
 
 # api.md: public API: setup, owned writes, read and search, LLM gateway, judges, build, ports
@@ -34,6 +34,3 @@ project's documents and keeps it current. Shared core `graph.core`, build submod
 # later.md, questions.md: deferred features, open questions
 - [later.md](later.md), [questions.md](questions.md)
 
-# implementation/: implementation plan and code-level contracts, traced to requirement ids
-- [implementation/plan.md](implementation/plan.md): milestones, steps, gates, requirement coverage
-- [implementation/tech-specs.md](implementation/tech-specs.md): modules, signatures, Graphiti mapping, test design, files affected

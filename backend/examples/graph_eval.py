@@ -1,22 +1,4 @@
-"""Evaluate graph builds over corpus snapshots: speed, calls, tokens, estimate per step (docs: graph.md "Evaluation").
-
-Run from backend/:
-
-    uv run --env-file ../.env.local python examples/graph_eval.py --project eval-shop \
-        --state ../.graph-build/eval tests/fixtures/graph/shop/1 tests/fixtures/graph/shop/2 \
-        --queries queries.json --out eval.json --cleanup
-
-Wired like ``examples/graph_build.py`` (same environment, configs never printed). Each snapshot folder is
-built in order into one project; prefix a folder with ``rebuild:`` to ask for a rebuild. Per snapshot the
-script runs ``estimate_build``, then every step through ``graph.build.steps`` one by one, and prints one
-summary: status, settled, verification, per-step wall time, calls and tokens per call class, HTTP latency
-(mean, p50, p95, max), retries, backoff waits, timeouts, mean requests in flight, step counters
-(truncation splits, skips), persist batches, estimate against actual and graph size. Latency and in-flight
-counts come from the host's seams: an HTTP client that times every request and a sleep that records
-every backoff wait. ``--queries`` (a JSON list of ``{"text", "spec_id"}``) is run after the last build,
-fused and fulltext only: top-1, top-5, MRR and latency. ``--out`` gets everything as JSON; ``--progress``
-gets one line per event. ``--cleanup`` deletes the project by ``group_id`` and the state folder at the end.
-"""
+"""Evaluate graph builds over corpus snapshots: speed, calls, tokens and the estimate per step."""
 
 from __future__ import annotations
 
@@ -37,23 +19,47 @@ from typing import Any, cast, override
 import openai
 
 from example_lib import capture_failure, run_example
-from graph.build import STEPS, BuildContext, BuildSettings, estimate_build, open_file_stores, run_build, steps
+from graph.build import (
+    STEPS,
+    BuildContext,
+    BuildResult,
+    BuildSettings,
+    estimate_build,
+    open_file_stores,
+    run_build,
+    steps,
+)
 from graph.build.conform import DEDUP_PROMPT
 from graph.build.consolidate import HUBS_PROMPT
-from graph.build.graphiti import EDGES_PROMPT, NODES_PROMPT
-from graph.build.prompts import ATTRIBUTES_PROMPT, HUB_CATALOG_PROMPT
+from graph.build.hubjudge import TWINS_PROMPT
+from graph.build.prompts import (
+    ATTRIBUTES_PROMPT,
+    EDGE_WINDOW_PROMPT,
+    EDGE_WINDOW_WARM_UP_PROMPT,
+    NODE_HUBS_PROMPT,
+    NODE_STATEMENTS_PROMPT,
+    NODE_WARM_UP_PROMPT,
+)
+from graph.build.run import StepUsage
 from graph.core import Gateway, GraphReader, connect, ensure_schema, load_ontology
+from graph.core.ontology import Ontology
+from graph.core.ontology.model import CROSS_DOCUMENT
 from graph_build import environment, llm_config, neo4j_config
 
 ESTIMATE_STEP = {
-    HUB_CATALOG_PROMPT: "hub_catalog",
-    NODES_PROMPT: "node_extraction",
+    NODE_HUBS_PROMPT: "node_extraction",
+    NODE_STATEMENTS_PROMPT: "node_extraction",
+    NODE_WARM_UP_PROMPT: "node_extraction",
     HUBS_PROMPT: "hub_consolidation",
-    EDGES_PROMPT: "edge_extraction",
+    TWINS_PROMPT: "hub_consolidation",
+    EDGE_WINDOW_PROMPT: "edge_extraction",
+    EDGE_WINDOW_WARM_UP_PROMPT: "edge_extraction",
     ATTRIBUTES_PROMPT: "attributes",
     DEDUP_PROMPT: "requirement_dedup",
     "embed": "embeddings",
 }
+"""Estimate step of each prompt the build calls; the conform judge's, the answered check's and the
+inference rules' prompts come from the ontology (``estimate_steps_of``)."""
 TOP_K = 5
 
 CALL: contextvars.ContextVar[str] = contextvars.ContextVar("call", default="other")
@@ -128,6 +134,14 @@ class TimedGateway(Gateway):
             CALL.reset(token)
 
     @override
+    async def warm_up(self, call_class: Any, model: Any, messages: Any, output_type: Any, *, prompt: str) -> None:
+        token = CALL.set(call_class)
+        try:
+            await super().warm_up(call_class, model, messages, output_type, prompt=prompt)
+        finally:
+            CALL.reset(token)
+
+    @override
     async def embed(self, texts: Any) -> list[list[float]]:
         token = CALL.set("embedding")
         try:
@@ -145,7 +159,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out", type=Path, help="write everything as JSON here")
     parser.add_argument("--progress", type=Path, help="append one line per event here")
     parser.add_argument("--label", default="B", help="build label (prefix of a numbered one for several snapshots)")
-    parser.add_argument("--concurrency", type=int, default=8, help="LLMConfig.concurrency")
+    parser.add_argument("--concurrency", type=int, help="LLMConfig.concurrency (default: GRAPH_LLM_CONCURRENCY)")
     parser.add_argument("--no-inference", action="store_true", help="BuildSettings(inference=False)")
     parser.add_argument("--estimate-only", action="store_true", help="run only estimate_build per snapshot")
     parser.add_argument("--cleanup", action="store_true", help="delete the project and the state folder at the end")
@@ -170,7 +184,8 @@ def latency(values: list[float]) -> dict[str, float]:
 
 
 def usage_delta(before: Any, after: Any) -> dict[str, dict[str, dict[str, int]]]:
-    """Calls, requests, failures and tokens per call class and per prompt between two usage snapshots."""
+    """Calls, requests, failures and tokens (input, output and cached input) per call class and per prompt
+    between two usage snapshots."""
 
     old = {(entry.call_class, entry.prompt): entry for entry in before.entries}
     out: dict[str, dict[str, dict[str, int]]] = {"by_class": {}, "by_prompt": {}}
@@ -178,7 +193,7 @@ def usage_delta(before: Any, after: Any) -> dict[str, dict[str, dict[str, int]]]
         prior = old.get((entry.call_class, entry.prompt))
         delta = {
             name: getattr(entry, name) - (getattr(prior, name) if prior else 0)
-            for name in ("calls", "requests", "failures", "input_tokens", "output_tokens")
+            for name in ("calls", "requests", "failures", "input_tokens", "output_tokens", "cached_input_tokens")
         }
         if not any(delta.values()):
             continue
@@ -216,10 +231,33 @@ def counters(payload: dict[str, Any] | None) -> dict[str, Any]:
     return out
 
 
-def estimate_vs_actual(estimate: Any, by_prompt: dict[str, dict[str, int]]) -> dict[str, dict[str, Any]]:
+def estimate_steps_of(ontology: Ontology) -> dict[str, str]:
+    """``ESTIMATE_STEP`` plus the ontology's conform judge prompt (``conform.judge_prompt``) as ``conform_judge``, its
+    answered-elsewhere prompt (``conform.answered_elsewhere.prompt``) as ``answered_check`` and each inference rule's
+    prompt (and batch prompt) as ``cross_document_inference`` (template ``cross_document``) or ``inference`` (every
+    other template).
+    """
+
+    inference = {
+        prompt: "cross_document_inference" if rule.template == CROSS_DOCUMENT else "inference"
+        for rule in ontology.inference.rules
+        for prompt in (rule.prompt, rule.batch_prompt)
+        if prompt is not None
+    }
+    spec = ontology.conform_spec()
+    if spec is None:
+        return {**ESTIMATE_STEP, **inference}
+    answered = {spec.answered_elsewhere.prompt: "answered_check"} if spec.answered_elsewhere else {}
+    return {**ESTIMATE_STEP, spec.judge_prompt: "conform_judge", **answered, **inference}
+
+
+def estimate_vs_actual(
+    estimate: Any, by_prompt: dict[str, dict[str, int]], step_of: dict[str, str] | None = None
+) -> dict[str, dict[str, Any]]:
+    step_of = step_of or ESTIMATE_STEP
     actual: dict[str, Counter[str]] = defaultdict(Counter)
     for prompt, counts in by_prompt.items():
-        actual[ESTIMATE_STEP.get(prompt, "not_estimated:" + prompt)].update(counts)
+        actual[step_of.get(prompt, "not_estimated:" + prompt)].update(counts)
     names = sorted({*estimate.steps, *actual})
     return {
         name: {
@@ -263,12 +301,14 @@ async def build_one(
         return
     begin, total_before, per_step = time.monotonic(), gateway.usage(), {}
     batches: list[float] = []
+    usage = StepUsage()  # run_build below runs no step, so it records none: recorded here as it would
     for step in STEPS:
         probe.step, before = step, gateway.usage()
         marks = (len(probe.requests), len(gateway.logical), len(probe.waits))
         probe.log("start")
         started = time.monotonic()
         next_ctx, error = await capture_failure(run_step(ctx, step, batches))
+        usage.record(step, before, gateway.usage())
         if error is not None:
             probe.log("failed", error=type(error).__name__, code=getattr(error, "code", None))
             out["failed_step"] = step
@@ -285,22 +325,42 @@ async def build_one(
             s=round(wall, 1),
             calls=sum(v["calls"] for v in stats["by_class"].values()),
             input_tokens=sum(v["input_tokens"] for v in stats["by_class"].values()),
+            cached_input_tokens=sum(v.get("cached_input_tokens", 0) for v in stats["by_class"].values()),
         )
     probe.step = "finish"
     out["steps"] = per_step
-    # Finishes the record (resumes the failed step once when one failed) and returns the stored result.
-    result = await run_build(ctx)
-    total = usage_delta(total_before, gateway.usage())
+    # Finishes the record (resumes the failed step once when one failed) and runs the follow-up builds
+    # it asks for; returns the chain's last result.
+    finishing = gateway.usage()
+    head_usage = usage_delta(total_before, finishing)  # the estimated build's steps only
+    last, stepped = await run_build(ctx), ctx.build_id
+    stored = last if stepped in (None, last.build_id) else await ctx.builds.get_result(ctx.project_id, stepped)
+    if stored is None:
+        raise RuntimeError("the stepped build has no stored result")
+    result = stored.model_copy(update={"metrics": usage.filled(stored.metrics)})
+    await ctx.builds.finish_build(result)  # stored with the steps' usage, so graph_report reads it too
+    follow_ups = [await ctx.builds.get_result(ctx.project_id, build_id) for build_id in followed(last)]
+    total = usage_delta(total_before, gateway.usage())  # the follow-up builds' calls included
     out |= {
         "wall_s": round(time.monotonic() - begin, 1),
         "steps": per_step,
         "total": total,
+        "head_usage": head_usage,
+        "follow_up_usage": usage_delta(finishing, gateway.usage()),
         "result": result.model_dump(mode="json"),
-        "estimate_vs_actual": estimate_vs_actual(estimate, total["by_prompt"]),
+        "settlement": None if last.settlement is None else last.settlement.model_dump(mode="json"),
+        "follow_ups": [build.model_dump(mode="json") for build in follow_ups if build is not None],
+        "estimate_vs_actual": estimate_vs_actual(estimate, head_usage["by_prompt"], estimate_steps_of(ctx.ontology)),
         "max_rss_mb": round(
             resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (2**20 if sys.platform == "darwin" else 2**10), 1
         ),
     }
+
+
+def followed(last: BuildResult) -> tuple[str, ...]:
+    """The follow-up builds ``run_build`` chained after the stepped build (``Settlement.follow_up_builds``)."""
+
+    return last.settlement.follow_up_builds if last.settlement is not None else ()
 
 
 def summary(label: str, build: dict[str, Any]) -> dict[str, Any]:
@@ -310,6 +370,8 @@ def summary(label: str, build: dict[str, Any]) -> dict[str, Any]:
         "mode": result["mode"],
         "status": result["status"],
         "settled": result["settled"],
+        "settlement": build["settlement"],
+        "follow_ups": [{"build_id": b["build_id"], "status": b["status"]} for b in build["follow_ups"]],
         "failed_step": result["failed_step"],
         "verification_ok": verification.get("ok"),
         "verification": {key: verification.get(key) for key in ("found", "problems", "repairs", "metrics")},
@@ -327,6 +389,7 @@ def summary(label: str, build: dict[str, Any]) -> dict[str, Any]:
             for name, s in build["steps"].items()
         },
         "by_class": build["total"]["by_class"],
+        "follow_up_by_class": (build.get("follow_up_usage") or {}).get("by_class", {}),
         "estimate_vs_actual": build["estimate_vs_actual"],
         "spec_changes": {name: len(values) for name, values in result["spec_changes"].items() if values},
         "nodes_by_label": result["metrics"]["nodes_by_label"],
@@ -374,7 +437,9 @@ async def cleanup(driver: Any, database: str | None, project: str, state: Path) 
 async def main() -> None:
     args = parse_args()
     env = environment()
-    neo4j, llm = neo4j_config(env), llm_config(env).model_copy(update={"concurrency": args.concurrency})
+    neo4j, llm = neo4j_config(env), llm_config(env)
+    if args.concurrency is not None:
+        llm = llm.model_copy(update={"concurrency": args.concurrency})
     probe = Probe(args.progress)
     ontology, driver = load_ontology(), connect(neo4j)
     gateway = TimedGateway(llm, http_client=probe.client(), sleep=probe.sleep)

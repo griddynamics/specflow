@@ -2,8 +2,14 @@
 // Schema setup, unscoped: applied by graph.core.schema.ensure_schema, one statement per object.
 // Owned writes find a relationship by (group_id, edge_key) with an index seek. A relation the
 // ontology declares without its statement here fails setup with schema_ddl_incomplete.
+CREATE INDEX graph_edge_key_carries IF NOT EXISTS FOR ()-[r:CARRIES]-() ON (r.group_id, r.edge_key);
+CREATE INDEX graph_edge_key_consumed_by IF NOT EXISTS FOR ()-[r:CONSUMED_BY]-() ON (r.group_id, r.edge_key);
+CREATE INDEX graph_edge_key_depends_on IF NOT EXISTS FOR ()-[r:DEPENDS_ON]-() ON (r.group_id, r.edge_key);
+CREATE INDEX graph_edge_key_deployed_to IF NOT EXISTS FOR ()-[r:DEPLOYED_TO]-() ON (r.group_id, r.edge_key);
 CREATE INDEX graph_edge_key_grouped_by IF NOT EXISTS FOR ()-[r:GROUPED_BY]-() ON (r.group_id, r.edge_key);
 CREATE INDEX graph_edge_key_integrates_with IF NOT EXISTS FOR ()-[r:INTEGRATES_WITH]-() ON (r.group_id, r.edge_key);
 CREATE INDEX graph_edge_key_part_of IF NOT EXISTS FOR ()-[r:PART_OF]-() ON (r.group_id, r.edge_key);
+CREATE INDEX graph_edge_key_provided_by IF NOT EXISTS FOR ()-[r:PROVIDED_BY]-() ON (r.group_id, r.edge_key);
 CREATE INDEX graph_edge_key_realized_by IF NOT EXISTS FOR ()-[r:REALIZED_BY]-() ON (r.group_id, r.edge_key);
 CREATE INDEX graph_edge_key_relates_to IF NOT EXISTS FOR ()-[r:RELATES_TO]-() ON (r.group_id, r.edge_key);
+CREATE INDEX graph_edge_key_stored_in IF NOT EXISTS FOR ()-[r:STORED_IN]-() ON (r.group_id, r.edge_key);

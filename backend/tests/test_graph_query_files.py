@@ -1,7 +1,6 @@
 """Offline tests of the query-file templates (graph.core.query_files): ``__NAME__`` tokens and
-``/*__NAME__*/default/*__NAME__*/`` slots are filled by ``render_query``, and every query file is a
-complete statement as it stands (a slot's default keeps it one), so the Cypher checks need no rendering.
-No Neo4j.
+``/*__NAME__*/default/*__NAME__*/`` slots are filled by ``render_query``, and every query file is a complete statement
+as it stands (a slot's default keeps it one), so the Cypher checks need no rendering.
 """
 
 from __future__ import annotations

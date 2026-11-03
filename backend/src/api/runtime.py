@@ -27,7 +27,7 @@ from health import (
 )
 from logger.correlation import run_in_context
 from logger.logger import WARNING, get_logger, log_event
-from settings import RoleSettings
+from settings import GRAPH_BUILD_SWITCHES, RoleSettings
 from storage import factory as storage_factory
 from temporal import client as temporal_client
 
@@ -185,7 +185,10 @@ async def build_runtime(settings: RoleSettings) -> Runtime:
         )
         session_factory = db_session.build_session_factory(engine)
         graph_builds = None
-        if settings.graph_build is not None:
+        if settings.graph_build is None:
+            # Build knowledge answers 503 graph_build_unavailable until one of these is set (all three are needed).
+            log_event(logger, WARNING, "api.graph_build.disabled", missing=list(GRAPH_BUILD_SWITCHES))
+        else:
             graph_builds = GraphBuildRunner(
                 settings.graph_build,
                 driver=driver,

@@ -1,0 +1,91 @@
+# Hand-written model answers for the identity corpus `shop-v2/3/`: a corpus of its own,
+# not a revision of snapshots 1 and 2, built `first` and then `update` without change by
+# tests/test_graph_build_v2_live.py with hub blocks of 2 items (no overlap), so the two names of one
+# hub land in different blocks and only the pair pass can join them. Written by hand, never recorded.
+#
+# overview.md names two modules and gives each a second name, which the hub catalog keeps as an alias;
+# operations.md names them only by that second name:
+# - "Orders service" (alias "OMS") and "OMS": an alias pair across far vectors (their candidate
+#   vectors are hash-seeded, so far apart); the pair batch merges them (merge source `pair`, outcome
+#   `same`); the no-change update applies the stored decision without a call;
+# - "Reporting service" (alias "report generator") and "Report generator": the judge is unsure (`low`):
+#   not merged, nothing stored, so the update judges the pair again (and is unsure again).
+# The nearness under `related` orders the nearest-neighbour chain so that each block holds one name of
+# each hub: [OMS, Report generator] and [Orders service, Reporting service].
+
+snapshot: 3
+
+# One window per document (max_node_windows 1); sections stay separate fragments.
+options:
+  fragment_tokens: {min: 20, target: 120, max: 1200}
+  unit_tokens: 4000
+  max_node_windows: 1
+
+fragments:
+  ov.intro: ["Acme Shop v2 - Order Platform", "Acme Shop v2 is a made-up online store"]
+  ov.modules: ["Acme Shop v2 - Order Platform > Modules", "The Orders service is the backend"]
+  ops.intro: ["Order Platform Operations", "This document describes how the backends"]
+  ops.retention: ["Order Platform Operations > Retention", "The OMS keeps every confirmed order"]
+  ops.nightly: ["Order Platform Operations > Nightly files", "The report generator writes the nightly"]
+
+nodes:
+  - window: [ov.intro, ov.modules]
+    entities:
+      - [Orders service, Module, [ov.modules], null, [OMS]]
+      - [Reporting service, Module, [ov.modules], null, [report generator]]
+  - window: [ops.intro, ops.retention, ops.nightly]
+    entities:
+      - [OMS, Module, [ops.retention]]
+      - [Report generator, Module, [ops.nightly]]
+
+consolidation:
+  # the two blocks: no candidate pair inside either, nothing the same
+  - block: [OMS, Report generator]
+    groups: []
+  - block: [Orders service, Reporting service]
+    groups: []
+  # the first build's one pair batch: both alias pairs (alias pairs are queued first)
+  - block: [OMS, Orders service, Report generator, Reporting service]
+    groups:
+      - {names: [OMS, Orders service], label: Module, confidence: high}
+      - {names: [Report generator, Reporting service], label: Module, confidence: low}
+  # the update's pair batch: the unsure pair only (the merged one has a stored decision)
+  - block: [Report generator, Reporting service]
+    groups:
+      - {names: [Report generator, Reporting service], label: Module, confidence: low}
+
+edges:
+  - unit: [ov.intro, ov.modules]
+    facts: []
+  - unit: [ops.intro, ops.retention, ops.nightly]
+    facts: []
+
+attributes:
+  Orders service:
+    quote: The Orders service is the backend that stores confirmed orders
+    stmt: The Orders service stores confirmed orders and answers questions about order history.
+    external: "no"
+    type: backend
+  OMS:
+    quote: The OMS keeps every confirmed order for seven years
+    stmt: The OMS keeps every confirmed order for seven years.
+    external: "no"
+    type: backend
+  Reporting service:
+    quote: The Reporting service is the backend that generates large files for staff
+    stmt: The Reporting service generates large files for staff.
+    external: "no"
+    type: backend
+  Report generator:
+    quote: The report generator writes the nightly sales file at 02:00
+    stmt: The report generator writes the nightly sales file.
+    external: "no"
+    type: backend
+
+related:
+  - anchor: "Module: OMS"
+    cosine: 0.6
+    texts: ["Module: Report generator"]
+  - anchor: "Module: Orders service"
+    cosine: 0.6
+    texts: ["Module: Reporting service"]

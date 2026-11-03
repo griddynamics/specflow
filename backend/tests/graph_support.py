@@ -1,40 +1,4 @@
-"""Shared support for the graph library tests (docs/graph/implementation/tech-specs.md 9.1). No tests here.
-
-- ``ScriptedGateway``: the ``graph.core.llm.Gateway`` surface the library uses, answered from
-  hand-written data (no recorded model output is ever committed). Answers are keyed semantically:
-  per prompt name a key function maps the request to a key, and a ``(prompt, key) -> answer``
-  table, a per-prompt handler or a catch-all fallback gives the answer. Embeddings are deterministic
-  hash-seeded unit vectors; texts declared synonyms share one vector, and a text declared related to
-  an anchor text gets a vector at a set cosine to the anchor's (``relate``). Every call is recorded and
-  in-flight concurrency is tracked. Its public surface matches ``Gateway`` name for name and
-  signature for signature (``test_graph_support.py`` checks it).
-- ``scripted_gateway``: fixture factory of ``ScriptedGateway``s that fails the test at teardown when
-  any of them got a request nobody scripted (even when the library swallowed the error).
-- ``make_gateway``: fixture factory of real ``Gateway``s on an ``httpx.MockTransport`` handler, with
-  ``chat``/``ok``/``error`` response builders and ``gateway_config()`` (offline gateway tests).
-- ``llm_config()``: an ``LLMConfig`` for offline tests (nothing is ever sent to its endpoint).
-- ``neo4j_project`` (live, ``SPECFLOW_TEST_NEO4J=1``): a unique project id per test on the local
-  Neo4j, the schema ensured once per session, everything of the test's project ids deleted afterwards.
-- ``GAP_ONTOLOGY`` / ``gap_ontology``: the one hand-written ``gap`` submodule file of the tests and
-  the shipped ontology merged with it, for foreign-owner tests.
-- ``file_stores``: the core file ports rooted at the test's ``tmp_path``.
-- ``OfflineExecutor``: an ``Executor`` stand-in answering reads from canned rows, refusing writes.
-- ``shop_corpus`` / ``shop_answers``: the synthetic shop corpus (tech-specs 9.2) and its hand-written
-  answer files; ``ShopAnswers.install(gateway)`` scripts a ``ScriptedGateway`` for a whole build of
-  one snapshot, every answer keyed by what the request is about (fragments, unit, node name, pair),
-  never by its text. ``untrusted_blocks``/``outside_untrusted`` split a prompt along its
-  ``Gateway.untrusted`` blocks.
-- ``ShopBuilds`` / ``script_shop_judge``: shop builds of one project with inference and verification
-  on, the judge answered from the hand-written ``SHOP_ORPHAN_VERDICTS`` (no link for any other
-  subject); ``ShopBuilds(rename=...)`` builds with a renamed ontology (FR-ONT-03).
-- ``open_neo4j_project``: ``neo4j_project`` as an async context manager, for module-scoped fixtures.
-
-Usage from a test module (pytest needs the fixture names imported)::
-
-    from graph_support import ScriptedGateway, llm_config
-    from graph_support import file_stores, gap_ontology, neo4j_project
-    from graph_support import make_gateway, scripted_gateway
-"""
+"""Shared support for the graph library tests."""
 
 from __future__ import annotations
 
@@ -45,11 +9,13 @@ import inspect
 import json
 import os
 import re
+import shutil
+import tempfile
 import time
 import uuid
-from collections.abc import AsyncIterator, Callable, Hashable, Iterable, Iterator, Mapping, Sequence
-from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from collections.abc import AsyncIterator, Callable, Collection, Hashable, Iterable, Iterator, Mapping, Sequence
+from contextlib import asynccontextmanager, contextmanager
+from dataclasses import dataclass, field, replace
 from functools import cache, lru_cache
 from importlib.resources import files
 from pathlib import Path
@@ -72,17 +38,25 @@ from graph.build import (
     open_file_stores,
     run_build,
 )
+from graph.build import edges as edge_extraction
+from graph.build import run as build_run
+from graph.build.answers import HUBS_LIST, node_lists
 from graph.build.conform import DEDUP_PROMPT
 from graph.build.consolidate import HUBS_PROMPT
-from graph.build.graphiti import EDGES_PROMPT, NODES_PROMPT
+from graph.build.hubjudge import TWINS_PROMPT
 from graph.build.models import PlanArtifact
 from graph.build.prompts import (
     ATTRIBUTES_PROMPT,
-    EPISODE_LABEL,
-    HUB_CATALOG_PROMPT,
+    EDGE_WINDOW_PROMPT,
+    ENTITIES_LABEL,
+    FRAGMENT_LABEL,
+    KNOWN_TERMS_LABEL,
+    NODE_HUBS_PROMPT,
+    NODE_PROMPTS,
+    NODE_STATEMENTS_PROMPT,
     NODES_LABEL,
     breadcrumb,
-    window_episodes,
+    window_fragments,
 )
 from graph.core import (
     ConfigurationError,
@@ -101,7 +75,7 @@ from graph.core import (
 )
 from graph.core.config import CallClass
 from graph.core.errors import LLMError
-from graph.core.llm import untrusted
+from graph.core.llm import strict_json_schema, untrusted
 from graph.core.llm.usage import UsageRecorder
 from graph.core.queries import CORE_DDL
 from graph.core.query_files import read_ddl_file
@@ -129,6 +103,8 @@ class NoAnswer:
 
 
 NO_ANSWER: Final = NoAnswer()
+DEFAULT_CONFIDENCE: Final = "high"
+"""The judge's confidence a scripted consolidation group or dedup verdict gives unless it names one."""
 
 
 @dataclass(frozen=True)
@@ -162,13 +138,13 @@ class ScriptedRequest:
 
     @property
     def user(self) -> str:
-        """The last user message ("" when there is none)."""
+        """The user messages joined with blank lines ("" when there is none): a node or edge call's
+        unit message and the message after it read as one."""
 
-        contents = self.contents("user")
-        return contents[-1] if contents else ""
+        return "\n\n".join(self.contents("user"))
 
     def user_json(self) -> Any:
-        """The last user message parsed as JSON (for prompts whose payload is JSON)."""
+        """The user message parsed as JSON (for prompts whose payload is JSON)."""
 
         return json.loads(self.user)
 
@@ -195,35 +171,7 @@ def _default_key(_: ScriptedRequest) -> Hashable:
 
 
 class ScriptedGateway:
-    """Drop-in for ``graph.core.Gateway`` answering from hand-written data.
-
-    Resolution of a ``structured`` call with prompt name ``p``:
-
-    1. a handler registered for ``p`` (``handle``): its return value is the answer unless it returns
-       ``NO_ANSWER``;
-    2. the answer table of ``p`` (``answer``) under ``key_by(p)``'s key of the request (default key
-       ``None``: one answer for every request of the prompt);
-    3. the fallback (``fallback``), unless it returns ``NO_ANSWER``;
-    4. otherwise ``UnscriptedRequestError`` naming the prompt and the key.
-
-    An answer is a mapping/list (validated as the output type), an output-type instance, another
-    pydantic model (dumped and re-validated), or an exception (instance or class), which is raised
-    (e.g. ``LLMError("malformed")``). Handlers may be async.
-
-    ``rename`` (for renamed ontology names) is applied to every answer before validation: at any
-    depth of the answer's JSON form, a string value or a mapping key that is *exactly equal* to a
-    ``rename`` key is replaced by its value. Nothing else changes: a string that merely contains a
-    key (``"Module service"``), numbers, booleans and ``None`` stay as they are. It does not know
-    which fields carry names, so a free-text field whose whole value equals a key is renamed too.
-    Embeddings follow the rename the other way: an embedded text that starts with a renamed name and
-    ``": "`` (``"<Label>: <name>"``) gets the vector of the text with the original name, so vectors,
-    ``synonyms`` and ``relate`` declared in the original names do not change with the rename.
-    ``ShopAnswers.install`` reads ``rename`` too (entity labels of node answers).
-
-    An unscripted request raises ``UnscriptedRequestError`` *and* is appended to ``unscripted``,
-    so library code that catches the error cannot hide it: the ``scripted_gateway`` fixture fails
-    the test at teardown when ``unscripted`` is not empty.
-    """
+    """Drop-in for ``graph.core.Gateway`` answering from hand-written data."""
 
     untrusted = staticmethod(untrusted)
 
@@ -251,6 +199,7 @@ class ScriptedGateway:
         self._related: list[tuple[Callable[[str], bool], str, float]] = []
         self.rename: dict[str, str] = dict(rename or {})
         self.calls: list[RecordedCall] = []
+        self.warm_ups: list[RecordedCall] = []
         self.unscripted: list[str] = []
         self.in_flight = 0
         self.max_in_flight = 0
@@ -298,14 +247,8 @@ class ScriptedGateway:
         texts: Iterable[str] = (),
         matching: Callable[[str], bool] | None = None,
     ) -> ScriptedGateway:
-        """Give each of ``texts`` (and every embedded text ``matching`` accepts) a vector whose cosine to
-        ``anchor``'s vector is ``cosine``. A real embedding model puts a hub name near the fragments that
-        talk about it; the hash-seeded vectors of two different texts are nearly orthogonal (cosine about
-        ``1/sqrt(dim)``), so the tests declare the few nearness relations they rely on.
-
-        A text related to several anchors gets all of them (the anchors' vectors are orthogonalised in
-        declaration order, so the second and later cosines hold up to the anchors' own tiny overlap);
-        the cosines' squares must sum to less than 1. Anchors keep their own (hash or synonym) vector.
+        """Give each of ``texts`` (and every embedded text ``matching`` accepts) a vector whose cosine to ``anchor``'s
+        vector is ``cosine``.
         """
 
         if not -1.0 < cosine < 1.0:
@@ -369,6 +312,40 @@ class ScriptedGateway:
             )
             outcome["failed"] = False
             return result
+
+    async def warm_up(
+        self,
+        call_class: CallClass,
+        model: str | None,
+        messages: Sequence[Mapping[str, Any]],
+        output_type: type[BaseModel],
+        *,
+        prompt: str,
+    ) -> None:
+        """A prompt-cache warm-up: never scripted, recorded in ``warm_ups`` (not ``calls``) and in the
+        usage under ``prompt`` (input tokens estimated, no output)."""
+
+        if call_class not in STRUCTURED_CLASSES:
+            raise ConfigurationError("llm_call_class_invalid", call_class=str(call_class))
+        request = ScriptedRequest(
+            call_class=call_class,
+            model=model or self._config.model_for(call_class),
+            prompt=prompt,
+            messages=tuple(copy.deepcopy(dict(message)) for message in messages),
+            output_type=output_type,
+        )
+        self.warm_ups.append(
+            RecordedCall(
+                call_class=call_class,
+                prompt=prompt,
+                model=request.model,
+                messages=request.messages,
+                output_type=output_type,
+            )
+        )
+        async with self._track(call_class, prompt) as outcome:
+            self._usage.tokens(call_class, prompt, _token_estimate(request.text), 0)
+            outcome["failed"] = False
 
     async def embed(self, texts: Sequence[str]) -> list[list[float]]:
         items = tuple(texts)
@@ -578,10 +555,7 @@ def assert_all_scripted(*gateways: ScriptedGateway) -> None:
 
 @pytest.fixture
 def scripted_gateway() -> Iterator[Callable[..., ScriptedGateway]]:
-    """Factory ``scripted_gateway(config=None, **options) -> ScriptedGateway``.
-
-    At teardown the test fails when any gateway it made recorded an unscripted request.
-    """
+    """Factory ``scripted_gateway(config=None, **options) -> ScriptedGateway``."""
 
     made: list[ScriptedGateway] = []
 
@@ -683,12 +657,7 @@ GatewayFactory = Callable[..., tuple[Gateway, list[float]]]
 
 @pytest_asyncio.fixture
 async def make_gateway() -> AsyncIterator[GatewayFactory]:
-    """Factory ``make_gateway(handler, *, sleep=None, jitter=0.0, **config) -> (gateway, sleeps)``.
-
-    ``handler`` answers every HTTP request (``httpx.MockTransport``); backoff sleeps are recorded in
-    ``sleeps`` and return at once (or run ``sleep`` when given); ``config`` overrides
-    ``gateway_config()``. Every gateway is closed at teardown.
-    """
+    """Factory ``make_gateway(handler, *, sleep=None, jitter=0.0, **config) -> (gateway, sleeps)``."""
 
     made: list[Gateway] = []
 
@@ -738,7 +707,7 @@ def live_llm_config() -> LLMConfig:
 # foreign relations. ``FLAGS`` ends at build-owned labels (the ``requirement`` group, ``module``) and
 # also joins two modules; ``CITES`` ends at the built-in ``Fragment``. Tests deep-copy it to mutate.
 GAP_ONTOLOGY: Final[dict[str, Any]] = {
-    "format_version": 1,
+    "format_version": 2,
     "name": "gap-test",
     "version": "0.1",
     "owner": "gap",
@@ -776,6 +745,78 @@ def shipped_ontology() -> Ontology:
     """The shipped build ontology alone (no submodule files)."""
 
     return load_ontology(submodule_files=[])
+
+
+FROZEN_ONTOLOGY_FILE: Final = Path(__file__).resolve().parent / "fixtures" / "graph" / "ontology-v1.3-f2.yaml"
+"""Flag-off ontology used by mechanics tests. It names shipped judge prompts (``FROZEN_PROMPT_REFS``); load it
+with ``load_frozen_ontology``."""
+SHIPPED_PROMPTS: Final = Path(str(files("graph") / "core" / "ontology" / "judge_prompts"))
+"""The shipped judge prompts."""
+FROZEN_PROMPT_REFS: Final = ("judge_endpoints", "judge_realization", "judge_attach_orphan")
+"""The shipped judge prompts the frozen ontology names; ``copy_frozen_prompts`` copies only these."""
+
+
+def copy_frozen_prompts(directory: Path) -> Path:
+    """Write ``directory/judge_prompts/`` holding the frozen ontology's judge prompts (``FROZEN_PROMPT_REFS``)
+    and return it."""
+
+    prompts = directory / "judge_prompts"
+    prompts.mkdir(parents=True, exist_ok=True)
+    for ref in FROZEN_PROMPT_REFS:
+        shutil.copy(SHIPPED_PROMPTS / f"{ref}.md", prompts / f"{ref}.md")
+    return prompts
+
+
+def load_frozen_ontology(submodule_files: Sequence[Path] = ()) -> Ontology:
+    """Load ``FROZEN_ONTOLOGY_FILE`` with its judge prompts beside it, in a temporary directory."""
+
+    with tempfile.TemporaryDirectory(prefix="frozen-ontology-") as name:
+        directory = Path(name)
+        shutil.copy(FROZEN_ONTOLOGY_FILE, directory / FROZEN_ONTOLOGY_FILE.name)
+        copy_frozen_prompts(directory)
+        return load_ontology(directory / FROZEN_ONTOLOGY_FILE.name, submodule_files=list(submodule_files))
+
+
+@lru_cache(maxsize=1)
+def frozen_ontology() -> Ontology:
+    """The flag-off ontology alone (no submodule files)."""
+
+    return load_frozen_ontology()
+
+
+def with_v2_flags(data: Mapping[str, Any]) -> dict[str, Any]:
+    """A copy of the flag-off ontology ``data`` with every format-2 flag set."""
+
+    data = copy.deepcopy(dict(data))
+    data["node_groups"]["requirement"]["attributes"]["acceptance_criteria"]["inherit"] = {"via": "PART_OF"}
+    types = data["node_types"]
+    types["module"]["attributes"]["external"]["default"] = "no"
+    types["capability"]["merge_across_labels"] = False
+    types["capability"]["supported_by"] = [
+        {"relation": "REALIZED_BY", "direction": "out"},
+        {"relation": "GROUPED_BY", "direction": "in"},
+    ]
+    relations = data["edge_types"]
+    part_of = relations["PART_OF"]["pairs"]
+    part_of[0].update(owner=True, owner_rank=1)
+    for pair in part_of[1:7]:
+        pair.update(owner=True, owner_rank=2)
+    part_of[1].update(target_where={"external": ["no"]}, otherwise="RELATES_TO", where_reason="external_owner")
+    part_of[9].update(
+        default=True, cue_required=False, max_depth=1, not_across=["external"], target_where={"type": ["deployment"]}
+    )
+    relations["INTEGRATES_WITH"]["pairs"][0]["target_where"] = {"type": ["backend", "datastore"]}
+    relations["INTEGRATES_WITH"]["derive_via"] = {"consumer": "REALIZED_BY", "provider": "REALIZED_BY"}
+    relations["RELATES_TO"]["pairs"][0]["distinct_owner"] = True
+    relations["GROUPED_BY"]["pairs"][1]["redundant_via_owner"] = True
+    relations["GROUPED_BY"].update(acyclic=True, stated_only=True)
+    data["spine"]["exclude"] = {"external": ["yes"]}  # declared on the sources' owner (Module) only
+    data["conform"] = {"judge_prompt": "judge_endpoints", "cap": 10, "floor": 0.5, "fallback_relation": "RELATES_TO"}
+    rules = data["inference"]["rules"]
+    rules[0]["exclude_owned_by"] = ["feature"]
+    rules[1]["container_paths"].append({"via": ["RELATES_TO"], "min": 1, "max": 1})
+    rules[2]["exclude_where"] = {"is_assumption": ["yes"]}
+    return data
 
 
 # The renamed-feature ontology (FR-MCP-TOOL-06): the shipped one with only the ``feature`` label and id prefix changed.
@@ -919,10 +960,7 @@ class GraphSnapshot:
 
 @dataclass
 class Neo4jProject:
-    """One test's view of the local Neo4j: a project id (more on request) and helpers.
-
-    Everything whose ``group_id`` is one of ``project_ids`` is deleted when the test ends.
-    """
+    """One test's view of the local Neo4j: a project id (more on request) and helpers."""
 
     driver: Any
     database: str | None
@@ -1021,7 +1059,7 @@ async def ensure_session_schema(driver: Any, database: str | None) -> None:
     _SCHEMA_READY.add(marker)
 
 
-# What a test may never touch on the shared dev database: nodes without a project, spec nodes,
+# What a test may never touch on the shared dev database: nodes without a project, spec nodes
 # documents and fragments of projects that are not test projects, and relationships not between two
 # test-project nodes (a test's own relationships are deleted with its nodes before the second count).
 # Counted before and after every live test.
@@ -1046,10 +1084,10 @@ async def outside_counts(driver: Any, database: str | None) -> dict[str, int]:
 
 
 async def spine_unreachable_count(project: Neo4jProject, project_id: str, bases: Sequence[str] | None = None) -> int:
-    """Spine sources of a project that reach no spine root by a spine path, counted by Cypher
-    independently of ``graph.build.spine`` (shipped ontology: ``PART_OF`` 1-3 hops, ``GROUPED_BY``
-    then ``REALIZED_BY``, or one ``RELATES_TO`` in either direction, to a ``Module``). ``bases``
-    limits the edges walked (a missing ``basis`` reads as ``stated``); None walks every edge."""
+    """Spine sources of a project that reach no spine root by a spine path, counted by Cypher independently of
+    ``graph.build.spine`` (shipped ontology: ``PART_OF`` 1-3 hops, ``GROUPED_BY`` then ``REALIZED_BY``, or one
+    ``RELATES_TO`` in either direction, to a ``Module``).
+    """
 
     spine = project.ontology.spine
     assert spine.roots == {"Module"}, "the query below is written for the shipped spine"
@@ -1067,19 +1105,20 @@ async def spine_unreachable_count(project: Neo4jProject, project_id: str, bases:
     return int(rows[0]["n"])
 
 
+def live_ontology() -> Ontology:
+    """Ontology of a live shop project. Answers target the flag-off fixture, not the shipped ontology."""
+
+    return frozen_ontology()
+
+
 @pytest_asyncio.fixture
 async def neo4j_project() -> AsyncIterator[Neo4jProject]:
-    """Tier-2 fixture (its tests carry ``requires_live("NEO4J")``): unique project ids, cleaned up after.
-
-    Fails the test when any count of ``OUTSIDE_TEST_PROJECTS`` changed while it ran (nodes without
-    ``group_id``; ``SpecNode``, ``Document`` and ``Fragment`` nodes outside the ``pytest-graph-``
-    projects; relationships not between two test-project nodes): the dev database is shared.
-    """
+    """Tier-2 fixture (its tests carry ``requires_live("NEO4J")``): unique project ids, cleaned up after."""
 
     config = neo4j_config_from_env()
     driver = connect(config)
     project = Neo4jProject(
-        driver=driver, database=config.database, ontology=shipped_ontology(), project_id=new_project_id()
+        driver=driver, database=config.database, ontology=live_ontology(), project_id=new_project_id()
     )
     try:
         await ensure_session_schema(driver, config.database)
@@ -1095,17 +1134,16 @@ async def neo4j_project() -> AsyncIterator[Neo4jProject]:
     assert after == before, f"data outside the test projects changed: {before} -> {after}"
 
 
-# Shop corpus and its hand-written answers (tech-specs 9.1-9.2)
+# Shop corpus and its hand-written answers
 
 SHOP_DIR: Final = Path(__file__).resolve().parent / "fixtures" / "graph" / "shop"
-# Prompt names (``NODES_PROMPT``, ``EDGES_PROMPT``, ...) and block labels are the library's constants,
+# Prompt names (``NODE_HUBS_PROMPT``, ``EDGE_WINDOW_PROMPT``,...) and block labels are the library's constants
 # imported above; test modules import them from the library too.
-EPISODE_BLOCK_LABEL: Final = EPISODE_LABEL
+FRAGMENT_BLOCK_LABEL: Final = re.compile(re.escape(FRAGMENT_LABEL).replace(re.escape("{number}"), r"(\d+)"))
+"""A fragment block label of a node or edge request (``fragment <n>``), its number captured."""
 
 _UNTRUSTED_BLOCK: Final = re.compile(r"<<<DOCUMENT ([^>\n]*)>>>\n(.*?)\n<<<END>>>", re.DOTALL)
-_ENTITY_TYPE: Final = re.compile(r"'entity_type_id': (\d+), 'entity_type_name': '([^']+)'")
-_ENTITIES: Final = re.compile(r"<ENTITIES>\n(.*?)\n</ENTITIES>", re.DOTALL)
-_ATTRIBUTE_NODE: Final = re.compile(r'^(node_\d+): (\S+) "(.*)" \(fragments [\d, ]+\)$')
+_ATTRIBUTE_NODE: Final = re.compile(r'^(node_\d+): (\S+) "(.*?)" \(fragments [\d, ]+\)(?: also under: .*)?$')
 
 
 def shop_corpus(snapshot: int, index_root: Path) -> FileCorpusSource:
@@ -1126,9 +1164,29 @@ def outside_untrusted(text: str) -> str:
     return _UNTRUSTED_BLOCK.sub("", text)
 
 
+_KNOWN_TERM_LINE: Final = re.compile(r"^(.*) \(([^;()]+)(?:; also: (.*))?\)$")
+
+
+def known_terms_of(text: str) -> list[tuple[str, str, tuple[str, ...]]]:
+    """``(name, label, aliases)`` of every line of the known terms block of a node request's user
+    message (``prompts.known_term_line``), in order; ``[]`` without the block."""
+
+    found = []
+    for label, body in untrusted_blocks(text):
+        if label != KNOWN_TERMS_LABEL:
+            continue
+        for line in body.split("\n"):
+            match = _KNOWN_TERM_LINE.match(line)
+            if match is None:
+                raise ScriptError(f"unreadable known term line {line!r}")
+            aliases = tuple(match.group(3).split(", ")) if match.group(3) else ()
+            found.append((match.group(1), match.group(2), aliases))
+    return found
+
+
 @dataclass(frozen=True)
 class FragmentHandle:
-    """How an answer file names a fragment: the breadcrumb of its episode block, the start of its first
+    """How an answer file names a fragment: the breadcrumb of its fragment block, the start of its first
     body line (first non-blank line that is not a heading) and, for fragments equal in both, the
     occurrence (1-based, document order) among them."""
 
@@ -1150,7 +1208,8 @@ class Related:
 
 @dataclass(frozen=True)
 class Episode:
-    """One episode (fragment block) of a Graphiti request, identified as the answer file names it."""
+    """One fragment block of a node or edge request, identified as the answer file names it; ``index``
+    is its 0-based position (its block number minus one)."""
 
     index: int
     handle: str
@@ -1167,32 +1226,25 @@ def _first_body_line(text: str) -> str:
     return ""
 
 
+def node_labels(ontology: Ontology) -> frozenset[str]:
+    """The labels of every node answer list of ``ontology`` (both passes)."""
+
+    return frozenset(label for labels in node_lists(ontology).values() for label in labels)
+
+
+def answer_lists(output_type: type[BaseModel]) -> dict[str, frozenset[str]]:
+    """The answer lists of a node call's output model with the labels each list's ``label`` enum allows."""
+
+    schema = strict_json_schema(output_type)
+    lists: dict[str, frozenset[str]] = {}
+    for name, field_schema in schema["properties"].items():
+        reference = field_schema["items"]["$ref"].rsplit("/", 1)[-1]
+        lists[name] = frozenset(schema["$defs"][reference]["properties"]["label"]["enum"])
+    return lists
+
+
 class ShopAnswers:
-    """The hand-written answers of one shop snapshot (``shop/answers/<snapshot>.yaml``).
-
-    The file names fragments by ``FragmentHandle`` (``fragments``) and holds, per prompt:
-
-    - ``nodes``: per node-extraction window (the handles of the window's episodes) the entities as
-      ``[name, label, [episode handles]]`` (handles may be left out for a one-fragment window), or
-      ``error: <LLMError reason>``;
-    - ``edges``: per unit (the handles of all its episodes) the facts as
-      ``[source, RELATION, target, fact, [episode handles]]``, names as the request's ENTITIES list them;
-    - ``attributes``: attribute values by node name (unlisted attributes are null);
-    - ``hub_catalog``: per batch (its document titles) the hubs as ``[name, label]``;
-    - ``consolidation``: per block (the set of hub names) groups of names with the merged label;
-    - ``dedup``: per name pair the ``same`` verdict;
-    - ``synonyms``: groups of embedding texts sharing one vector;
-    - ``related``: nearness the build relies on, as ``{anchor, cosine, fragments, texts}``: the embedding
-      text ``anchor`` (a hub's ``"<Label>: <name>"``) gets its own vector and every fragment text of the
-      handles in ``fragments`` (matched by first body line, which must be unique among the handles) and
-      every text in ``texts`` a vector at ``cosine`` to it (``ScriptedGateway.relate``);
-    - ``options``: the ``BuildOptions`` the windows and units were written for.
-
-    ``install`` scripts a ``ScriptedGateway``: keys are semantic (``key_by``), answers are built per
-    request by handlers (episode handles become the request's indices, names the batch's ids). A
-    request whose key the file does not hold stays unscripted (the test fails); a scripted answer that
-    names an episode or entity the request does not hold raises ``ScriptError``.
-    """
+    """The hand-written answers of one shop snapshot (``shop/answers/<snapshot>.yaml``)."""
 
     def __init__(self, data: Mapping[str, Any], *, source: str = "answers") -> None:
         self.source = source
@@ -1211,14 +1263,15 @@ class ShopAnswers:
         self.attributes: dict[str, dict[str, Any]] = {
             str(name): dict(values or {}) for name, values in (data.get("attributes") or {}).items()
         }
-        self.hub_catalog: dict[tuple[str, ...], list[Any]] = {
-            tuple(sorted(item["documents"])): list(item["hubs"]) for item in data.get("hub_catalog") or ()
-        }
         self.consolidation: dict[tuple[str, ...], list[Mapping[str, Any]]] = {
             tuple(sorted(item["block"])): list(item["groups"]) for item in data.get("consolidation") or ()
         }
-        self.dedup: dict[tuple[str, ...], bool] = {
-            tuple(sorted(item["pair"])): bool(item["same"]) for item in data.get("dedup") or ()
+        self.dedup: dict[tuple[str, ...], dict[str, Any]] = {
+            tuple(sorted(item["pair"])): {
+                "same": bool(item["same"]),
+                "confidence": str(item.get("confidence", DEFAULT_CONFIDENCE)),
+            }
+            for item in data.get("dedup") or ()
         }
         self.synonyms: list[list[str]] = [list(group) for group in data.get("synonyms") or ()]
         self.related: list[Related] = [
@@ -1290,7 +1343,7 @@ class ShopAnswers:
     # Request parsing
 
     def handle_of(self, breadcrumb: str, text: str, occurrence: int = 1) -> str | None:
-        """The handle naming an episode (breadcrumb, fragment text, 1-based occurrence among episodes
+        """The handle naming a fragment block (breadcrumb, fragment text, 1-based occurrence among blocks
         equal in both); None when no handle matches; ``ScriptError`` when several do."""
 
         first = _first_body_line(text)
@@ -1302,18 +1355,22 @@ class ShopAnswers:
             and handle.occurrence == occurrence
         ]
         if len(matches) > 1:
-            raise ScriptError(f"{self.source}: fragment handles {matches} match one episode")
+            raise ScriptError(f"{self.source}: fragment handles {matches} match one fragment")
         return matches[0] if matches else None
 
     def episodes(self, request: ScriptedRequest) -> list[Episode]:
-        """The fragment episodes of a Graphiti request, in order, named by their handles (an episode
-        no handle matches gets ``?<breadcrumb> | <first line>``, which no answer key holds)."""
+        """The fragment blocks (``fragment <n>``) of a node or edge request, in order, named by their
+        handles (a block no handle matches gets ``?<breadcrumb> | <first line>``, which no answer key
+        holds)."""
 
         found: list[Episode] = []
         seen: dict[tuple[str, str], int] = {}
         for label, body in untrusted_blocks(request.user):
-            if label != EPISODE_BLOCK_LABEL:
+            number = FRAGMENT_BLOCK_LABEL.fullmatch(label)
+            if number is None:
                 continue
+            if int(number.group(1)) != len(found) + 1:
+                raise ScriptError(f"{self.source}: fragment block {label!r} out of order")
             breadcrumb, _, text = body.partition("\n")
             first = _first_body_line(text)
             seen[(breadcrumb, first)] = seen.get((breadcrumb, first), 0) + 1
@@ -1322,15 +1379,15 @@ class ShopAnswers:
         return found
 
     def window(self, request: ScriptedRequest, episodes: Sequence[Episode]) -> list[Episode]:
-        """The episodes the request extracts from (its window instruction, read with the library's
-        ``prompts.window_episodes``; all episodes without one)."""
+        """The fragment blocks the request extracts from (its window line, read with the library's
+        ``prompts.window_fragments``; all blocks without one)."""
 
-        indices = window_episodes(outside_untrusted(request.user))
-        if not indices:
+        numbers = window_fragments(outside_untrusted(request.user))
+        if not numbers:
             return list(episodes)
-        if indices[-1] >= len(episodes):
-            raise ScriptError(f"{self.source}: window {indices} beyond the request's {len(episodes)} episodes")
-        return [episodes[index] for index in indices]
+        if numbers[-1] > len(episodes):
+            raise ScriptError(f"{self.source}: window {numbers} beyond the request's {len(episodes)} fragments")
+        return [episodes[number - 1] for number in numbers]
 
     def node_key(self, request: ScriptedRequest) -> Hashable:
         return tuple(sorted(episode.handle for episode in self.window(request, self.episodes(request))))
@@ -1356,15 +1413,6 @@ class ShopAnswers:
         return tuple(name for _, _, name in self.attribute_nodes(request))
 
     @staticmethod
-    def catalog_key(request: ScriptedRequest) -> Hashable:
-        titles = []
-        for label, body in untrusted_blocks(request.user):
-            if label.startswith("document "):
-                first = body.split("\n", 1)[0]
-                titles.append(first.removeprefix("Title: "))
-        return tuple(sorted(titles))
-
-    @staticmethod
     def hub_items(request: ScriptedRequest) -> list[dict[str, Any]]:
         return [
             json.loads(line)
@@ -1386,10 +1434,16 @@ class ShopAnswers:
 
     # Answers
 
-    def _nodes(self, request: ScriptedRequest, rename: Mapping[str, str] | None = None) -> Any:
+    def _nodes(
+        self,
+        request: ScriptedRequest,
+        rename: Mapping[str, str] | None = None,
+        labels: Collection[str] | None = None,
+    ) -> Any:
         """``rename``: the gateway's renamed ontology names; an entity's label is looked up renamed."""
 
         rename = rename or {}
+        labels = node_labels(shipped_ontology()) if labels is None else labels
         episodes = self.episodes(request)
         window = self.window(request, episodes)
         item = self.nodes.get(tuple(sorted(episode.handle for episode in window)))
@@ -1397,91 +1451,166 @@ class ShopAnswers:
             return NO_ANSWER
         if "error" in item:
             return LLMError(item["error"])
-        type_ids = {name: int(number) for number, name in _ENTITY_TYPE.findall(request.user)}
-        index_of = {episode.handle: episode.index for episode in episodes}
-        entities = []
+        lists = answer_lists(request.output_type)
+        # both passes send one schema (every list): the pass's prompt names the list it fills
+        asked = next((name for name, prompt in NODE_PROMPTS.items() if prompt == request.prompt), None)
+        number_of = {episode.handle: episode.index + 1 for episode in episodes}
+        answer: dict[str, list[dict[str, Any]]] = {name: [] for name in lists}
         for entity in item.get("entities") or ():
             name, label, *rest = entity
             label = rename.get(label, label)
-            if rest:
-                handles = rest[0]
-            elif len(window) == 1:
-                handles = [window[0].handle]
-            else:
-                raise ScriptError(f"{self.source}: entity {name!r} of a multi-fragment window names no episode")
-            missing = [handle for handle in handles if handle not in index_of]
-            if label not in type_ids or missing:
-                raise ScriptError(
-                    f"{self.source}: entity {name!r}: unknown type {label!r} or episodes {missing} not in the request"
-                )
-            entities.append(
-                {
-                    "name": name,
-                    "entity_type_id": type_ids[label],
-                    "episode_indices": [index_of[handle] for handle in handles],
-                }
-            )
-        return {"extracted_entities": entities}
+            target = next((list_name for list_name, labels in lists.items() if label in labels), None)
+            if target is not None and asked is not None and target != asked:
+                continue  # the other pass's entity: its list stays empty
+            if target is None:
+                if entity[1] not in labels and label not in labels:
+                    raise ScriptError(f"{self.source}: entity {name!r}: label {entity[1]!r} is in neither node list")
+                continue  # the other pass's entity
+            handles = self._entity_handles(name, rest, window, number_of)
+            quote = rest[1] if len(rest) > 1 and rest[1] is not None else self.default_quote(name)
+            found: dict[str, Any] = {
+                "name": name,
+                "label": label,
+                "quote": quote,
+                "fragments": [number_of[handle] for handle in handles],
+            }
+            if target == HUBS_LIST:
+                found["aliases"] = list(rest[2]) if len(rest) > 2 else []
+            answer[target].append(found)
+        return answer
+
+    def _entity_handles(
+        self, name: str, rest: Sequence[Any], window: Sequence[Episode], number_of: Mapping[str, int]
+    ) -> list[str]:
+        """The fragment handles of an answer-file entity (a one-fragment window's own by default)."""
+
+        if rest:
+            handles = list(rest[0])
+        elif len(window) == 1:
+            handles = [window[0].handle]
+        else:
+            raise ScriptError(f"{self.source}: entity {name!r} of a multi-fragment window names no fragment")
+        missing = [handle for handle in handles if handle not in number_of]
+        if missing:
+            raise ScriptError(f"{self.source}: entity {name!r}: fragments {missing} not in the request")
+        return handles
+
+    def default_quote(self, name: str) -> str:
+        """The quote of an entity the answer file gives none: the ``attributes`` quote of its name, or
+        of its name without an explicit id (``FR-1: Name``, as the attributes table names the node)."""
+
+        for key in (name, name.partition(": ")[2]):
+            quote = (self.attributes.get(key) or {}).get("quote")
+            if isinstance(quote, str) and quote:
+                return quote
+        return ""
 
     def _edges(self, request: ScriptedRequest) -> Any:
+        """The scripted facts of the request's unit (keyed by all its fragments) that its edge window states: those with
+        a fragment in the window, with only those fragments (a window over the whole unit: every fact, as listed).
+        """
+
         episodes = self.episodes(request)
         facts = self.edges.get(tuple(sorted(episode.handle for episode in episodes)))
         if facts is None:
             return NO_ANSWER
-        match = _ENTITIES.search(request.user)
-        names = {entity["name"] for entity in json.loads(match.group(1))} if match else set()
-        index_of = {episode.handle: episode.index for episode in episodes}
+        window = {episode.handle for episode in self.window(request, episodes)}
+        if len(window) < len(episodes):
+            facts = [
+                (source, relation, target, fact, [handle for handle in handles if handle in window])
+                for source, relation, target, fact, handles in facts
+                if any(handle in window for handle in handles)
+            ]
+        names = {
+            json.loads(line)["name"]
+            for label, body in untrusted_blocks(request.user)
+            if label == ENTITIES_LABEL
+            for line in body.split("\n")
+            if line.strip()
+        }
+        number_of = {episode.handle: episode.index + 1 for episode in episodes}
         edges = []
         for source, relation, target, fact, handles in facts:
             missing = [name for name in (source, target) if name not in names]
-            missing += [handle for handle in handles if handle not in index_of]
+            missing += [handle for handle in handles if handle not in number_of]
             if missing:
                 raise ScriptError(f"{self.source}: fact {source!r} {relation} {target!r}: {missing} not in the request")
             edges.append(
                 {
-                    "source_entity_name": source,
-                    "target_entity_name": target,
-                    "relation_type": relation,
+                    "source": source,
+                    "relation": relation,
+                    "target": target,
                     "fact": fact,
-                    "valid_at": None,
-                    "invalid_at": None,
-                    "episode_indices": [index_of[handle] for handle in handles],
+                    "fragments": [number_of[handle] for handle in handles],
                 }
             )
         return {"edges": edges}
 
-    def _attributes(self, request: ScriptedRequest) -> Any:
+    def _attributes(self, request: ScriptedRequest, rename: Mapping[str, str] | None = None) -> Any:
+        """``rename``: the gateway's renamed ontology names; an attribute is kept when its renamed
+        name is a field of the request's output model (the gateway renames the keys afterwards)."""
+
+        rename = rename or {}
         nodes = self.attribute_nodes(request)
         if any(name not in self.attributes for _, _, name in nodes):
             return NO_ANSWER
-        return {field_name: self.attributes[name] for field_name, _, name in nodes}
-
-    def _catalog(self, request: ScriptedRequest) -> Any:
-        hubs = self.hub_catalog.get(self.catalog_key(request))
-        if hubs is None:
-            return NO_ANSWER
-        return {"hubs": [{"name": name, "label": label} for name, label in hubs]}
+        fields = request.output_type.model_fields
+        answer: dict[str, dict[str, Any]] = {}
+        for field_name, _, name in nodes:
+            model = fields[field_name].annotation
+            known = set(model.model_fields) if isinstance(model, type) and issubclass(model, BaseModel) else set()
+            answer[field_name] = {
+                key: value for key, value in self.attributes[name].items() if rename.get(key, key) in known
+            }
+        return answer
 
     def _consolidation(self, request: ScriptedRequest) -> Any:
         items = self.hub_items(request)
         groups = self.consolidation.get(tuple(sorted(item["name"] for item in items)))
         if groups is None:
             return NO_ANSWER
-        ids = {item["name"]: item["id"] for item in items}
+        # A name stands for every item of the block that carries it (one name under several labels).
+        ids: dict[str, list[str]] = {}
+        for item in items:
+            ids.setdefault(item["name"], []).append(item["id"])
         return {
-            "groups": [{"ids": [ids[name] for name in group["names"]], "label": group["label"]} for group in groups]
+            "groups": [
+                {
+                    "ids": [found for name in dict.fromkeys(group["names"]) for found in ids[name]],
+                    "label": group["label"],
+                    "confidence": group.get("confidence", DEFAULT_CONFIDENCE),
+                }
+                for group in groups
+            ]
         }
 
     def _dedup(self, request: ScriptedRequest) -> Any:
-        same = self.dedup.get(self.dedup_key(request))
-        return NO_ANSWER if same is None else {"same": same}
+        verdict = self.dedup.get(self.dedup_key(request))
+        return NO_ANSWER if verdict is None else dict(verdict)
 
-    def install(self, gateway: ScriptedGateway) -> ScriptedGateway:
-        """Script ``gateway`` with these answers (keys, handlers and synonyms); returns it."""
+    @staticmethod
+    def _twins(request: ScriptedRequest) -> Any:
+        """Cross-label twins the scripted block judge left apart stay apart: every pair is different."""
+
+        return {
+            "answers": [
+                {"id": json.loads(line)["id"], "same": False, "label": "", "confidence": "high"}
+                for label, body in untrusted_blocks(request.user)
+                if label == "hubs"
+                for line in body.split("\n")
+                if line.strip()
+            ]
+        }
+
+    def install(self, gateway: ScriptedGateway, ontology: Ontology | None = None) -> ScriptedGateway:
+        """Script ``gateway`` with these answers (keys, handlers and synonyms); returns it. ``ontology``:
+        the build's (its node labels check the answers' labels; default the shipped one)."""
+
+        labels = node_labels(ontology or shipped_ontology())
 
         def reported(handler: Handler) -> Handler:
-            # The library wraps errors of Graphiti requests, so a script error is also recorded where
-            # the ``scripted_gateway`` fixture reports it at teardown.
+            # The library may catch a script error, so it is also recorded where the
+            # ``scripted_gateway`` fixture reports it at teardown.
             def run(request: ScriptedRequest) -> Any:
                 try:
                     return handler(request)
@@ -1492,12 +1621,13 @@ class ShopAnswers:
             return run
 
         for prompt, key, handler in (
-            (NODES_PROMPT, self.node_key, lambda request: self._nodes(request, gateway.rename)),
-            (EDGES_PROMPT, self.edge_key, self._edges),
-            (ATTRIBUTES_PROMPT, self.attribute_key, self._attributes),
-            (HUB_CATALOG_PROMPT, self.catalog_key, self._catalog),
+            (NODE_HUBS_PROMPT, self.node_key, lambda request: self._nodes(request, gateway.rename, labels)),
+            (NODE_STATEMENTS_PROMPT, self.node_key, lambda request: self._nodes(request, gateway.rename, labels)),
+            (EDGE_WINDOW_PROMPT, self.edge_key, self._edges),
+            (ATTRIBUTES_PROMPT, self.attribute_key, lambda request: self._attributes(request, gateway.rename)),
             (HUBS_PROMPT, self.consolidation_key, self._consolidation),
             (DEDUP_PROMPT, self.dedup_key, self._dedup),
+            (TWINS_PROMPT, lambda _: None, self._twins),
         ):
             gateway.key_by(prompt, key).handle(prompt, reported(handler))
         for group in self.synonyms:
@@ -1526,6 +1656,43 @@ def shop_answers(snapshot: int) -> ShopAnswers:
     return ShopAnswers.load(snapshot)
 
 
+SHOP_NEARNESS: Final = "name"
+"""Edge nearness the shop answer files were written for.
+
+Their ``related`` nearness puts hubs with no line names into edge catalogs. A build leaves those
+out when ``EdgeWindowParams.nearness`` is ``off``.
+"""
+
+
+@contextmanager
+def shop_edge_windows() -> Iterator[None]:
+    """The build's edge window parameters (``edges.DEFAULT_EDGE_WINDOWS``) with ``SHOP_NEARNESS``; the
+    others stay as they are (a test may have set its own)."""
+
+    with pytest.MonkeyPatch.context() as patch:
+        written = replace(edge_extraction.DEFAULT_EDGE_WINDOWS, nearness=SHOP_NEARNESS)
+        patch.setattr(edge_extraction, "DEFAULT_EDGE_WINDOWS", written)
+        yield
+
+
+@contextmanager
+def follow_up_builds(limit: int) -> Iterator[None]:
+    """``run_build`` chains at most ``limit`` follow-up builds (``graph.build.run.MAX_FOLLOW_UPS``, "Follow-up builds
+    and settlement"); an internal bound, never part of the build API.
+    """
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(build_run, "MAX_FOLLOW_UPS", limit)
+        yield
+
+
+async def run_shop_build(ctx: BuildContext, *, follow_ups: int = 0) -> BuildResult:
+    """``run_build`` of a shop or shop-v2 build with the nearness its answers were written for."""
+
+    with shop_edge_windows(), follow_up_builds(follow_ups):
+        return await run_build(ctx)
+
+
 # Shop builds with inference and verification on (renamed-ontology and log-capture tests)
 
 # Hand-written attach-orphan verdicts of the shop builds, by subject name: the candidate to attach
@@ -1541,6 +1708,7 @@ NO_LINK_VERDICTS: Final[dict[str, dict[str, Any]]] = {
     "endpoints": {"confidence": 0.9, "evidence": [], "links": []},
     "realization": {"confidence": 0.9, "evidence": [], "targets": []},
     "attach_orphan": {"confidence": 0.9, "evidence": [], "target": None},
+    "cross_document": {"confidence": 0.9, "evidence": [], "links": [], "owners": []},
 }
 
 
@@ -1551,13 +1719,17 @@ def judge_payload(request: ScriptedRequest) -> dict[str, Any]:
 
 
 def judge_subject(request: ScriptedRequest) -> str:
-    return str(judge_payload(request)["subject"]["name"])
+    """The judged subject's name: the ``subject``, or the ``hub`` of a ``cross_document`` payload."""
+
+    payload = judge_payload(request)
+    return str((payload.get("subject") or payload["hub"])["name"])
 
 
 def script_shop_judge(gateway: ScriptedGateway, ontology: Ontology) -> ScriptedGateway:
-    """Script the judge prompts of ``ontology``'s inference rules for shop builds, keyed by subject
-    name: ``SHOP_ORPHAN_VERDICTS`` for attach-orphan subjects (the candidate's local id and the quoted
-    fragment are looked up in the request), a no-link verdict for every other subject."""
+    """Script the judge prompts of ``ontology``'s inference rules for shop builds, keyed by subject name:
+    ``SHOP_ORPHAN_VERDICTS`` for attach-orphan subjects (the candidate's local id and the quoted fragment are looked up
+    in the request), a no-link verdict for every other subject.
+    """
 
     def handler(template: str) -> Handler:
         def handle(request: ScriptedRequest) -> Any:
@@ -1586,9 +1758,9 @@ def script_shop_judge(gateway: ScriptedGateway, ontology: Ontology) -> ScriptedG
 
 @dataclass
 class ShopBuilds:
-    """Builds of shop snapshots into one project with inference and verification on, sharing file
-    stores and the corpus index under ``root``; every model answer is hand-written (``ShopAnswers``,
-    ``script_shop_judge``). ``rename`` is the scripted gateways' rename mapping (FR-ONT-03)."""
+    """Builds of shop snapshots into one project with inference and verification on, sharing file stores and the corpus
+    index under ``root``; every model answer is hand-written (``ShopAnswers``, ``script_shop_judge``).
+    """
 
     project: Neo4jProject
     factory: Callable[..., ScriptedGateway]
@@ -1607,7 +1779,7 @@ class ShopBuilds:
         self.stores = open_file_stores(self.root)
 
     def gateway(self, snapshot: int) -> ScriptedGateway:
-        gateway = shop_answers(snapshot).install(self.factory(self.llm, rename=self.rename))
+        gateway = shop_answers(snapshot).install(self.factory(self.llm, rename=self.rename), self.ontology)
         return script_shop_judge(gateway, self.ontology)
 
     def context(self, snapshot: int, gateway: Any) -> BuildContext:
@@ -1627,7 +1799,7 @@ class ShopBuilds:
 
     async def build(self, snapshot: int) -> tuple[BuildResult, ScriptedGateway]:
         gateway = self.gateway(snapshot)
-        return await run_build(self.context(snapshot, gateway)), gateway
+        return await run_shop_build(self.context(snapshot, gateway)), gateway
 
 
 # A live project shared by the tests of one module (expensive setups built once per module)
@@ -1636,14 +1808,14 @@ class ShopBuilds:
 @asynccontextmanager
 async def open_neo4j_project() -> AsyncIterator[Neo4jProject]:
     """What ``neo4j_project`` does, as a context manager for wider fixture scopes (its tests carry
-    ``requires_live("NEO4J")``): unique project ids, deleted on exit; fails when data outside the test
-    projects changed meanwhile. A module-scoped async fixture using it needs ``loop_scope="module"``
-    (the driver belongs to one event loop), and the tests reading it must not be async on another loop."""
+    ``requires_live("NEO4J")``): unique project ids, deleted on exit; fails when data outside the test projects changed
+    meanwhile.
+    """
 
     config = neo4j_config_from_env()
     driver = connect(config)
     project = Neo4jProject(
-        driver=driver, database=config.database, ontology=shipped_ontology(), project_id=new_project_id()
+        driver=driver, database=config.database, ontology=live_ontology(), project_id=new_project_id()
     )
     try:
         await ensure_session_schema(driver, config.database)

@@ -1,8 +1,4 @@
-"""Offline tests of the graph LLM gateway (plan 1.T5; FR-LLM-01..05, NFR-SEC-01 for logs and errors).
-
-Every test talks to an ``httpx.MockTransport`` handed to the gateway as ``http_client``, with an
-instant injected ``sleep`` and a fixed ``jitter``, so no test waits on a real backoff.
-"""
+"""Offline tests of the graph LLM gateway."""
 
 from __future__ import annotations
 
@@ -80,7 +76,7 @@ async def structured(gateway: Gateway, call_class: str = "extraction", **kw: Any
     return await gateway.structured(call_class, kw.pop("model", None), kw.pop("messages", MSG), Answer, **kw)
 
 
-# --- FR-LLM-01: concurrency and priority ---------------------------------------------------------
+# ---: concurrency and priority ---------------------------------------------------------
 #
 # No test sleeps: a ``QueueWatch`` on the gateway's limiter sets an event once a given number of
 # calls wait for a slot, and handlers hold their slot on an ``asyncio.Event`` the test releases.
@@ -302,7 +298,7 @@ async def test_cancelled_holder_frees_its_slot(make_gateway: GatewayFactory) -> 
     assert served == ["holder", "waiter", "after"]
 
 
-# --- FR-LLM-02: retries ---------------------------------------------------------------------------
+# ---: retries ---------------------------------------------------------------------------
 
 
 async def test_429_429_200_takes_three_attempts_and_honours_retry_after(make_gateway) -> None:
@@ -320,9 +316,9 @@ async def test_429_429_200_takes_three_attempts_and_honours_retry_after(make_gat
     assert (await structured(gateway)).name == "x"
     assert len(calls) == 3
     assert sleeps == [
-        1.0,
+        10.0,
         7.0,
-    ]  # first: backoff 1 s (jitter 0); second: the server's Retry-After
+    ]  # first: the rate-limit backoff 10 s (jitter 0); second: the server's Retry-After
     counts = gateway.usage().total(call_class="extraction", prompt="p")
     assert (counts.calls, counts.requests, counts.failures) == (1, 3, 0)
 
@@ -357,6 +353,20 @@ async def test_backoff_doubles_with_jitter_and_caps(make_gateway) -> None:
     with pytest.raises(LLMError):
         await structured(gateway)
     assert sleeps == [2.0, 4.0, 8.0, 16.0, 30.0, 30.0, 30.0]
+
+
+async def test_a_rate_limit_without_retry_after_backs_off_longer_than_other_errors(make_gateway) -> None:
+    gateway, sleeps = make_gateway(lambda _request: error(429), jitter=0.5)
+    with pytest.raises(LLMError):
+        await structured(gateway, "judge")  # judge: 3 attempts -> 2 sleeps
+    assert sleeps == [15.0, 30.0]
+
+    gateway, sleeps = make_gateway(
+        lambda _request: error(429), jitter=1.0, budgets={"extraction": {"timeout_s": 5, "attempts": 5}}
+    )
+    with pytest.raises(LLMError):
+        await structured(gateway)
+    assert sleeps == [20.0, 40.0, 60.0, 60.0]
 
 
 async def test_retry_after_http_date_is_honoured(make_gateway) -> None:
@@ -496,7 +506,7 @@ async def test_a_connection_error_then_success_recovers(make_gateway) -> None:
     assert (await structured(gateway)).name == "x"
 
 
-# --- FR-LLM-03 and the error mapping --------------------------------------------------------------
+# --- and the error mapping --------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -641,7 +651,7 @@ async def test_408_is_retried_to_success(make_gateway) -> None:
     assert len(calls) == 2
 
 
-# --- FR-LLM-04: structured output and one repair --------------------------------------------------
+# ---: structured output and one repair --------------------------------------------------
 
 
 async def test_two_malformed_answers_raise_malformed_after_two_requests(make_gateway) -> None:
@@ -724,6 +734,74 @@ async def test_request_uses_json_schema_response_format(make_gateway) -> None:
     assert "input" not in bodies[0]
 
 
+# --- Prompt-cache warm-up --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        chat('{"name": "x', finish="length"),  # cut at the output limit
+        chat("not json"),
+        chat(None),
+        chat(None, refusal="no"),
+        chat(None, finish="content_filter"),
+        {**chat(GOOD), "choices": []},
+    ],
+    ids=["length", "malformed", "empty", "refusal", "filtered", "no-choices"],
+)
+async def test_a_warm_up_sends_the_messages_as_structured_does_and_discards_any_answer(
+    make_gateway, answer: dict[str, Any]
+) -> None:
+    bodies: list[dict[str, Any]] = []
+    messages = [{"role": "system", "content": "sys"}, {"role": "user", "content": untrusted("fragment 1", DOC_TEXT)}]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        if len(bodies) == 1:
+            return httpx.Response(
+                200, json={**answer, "usage": {"prompt_tokens": 50, "completion_tokens": 16, "total_tokens": 66}}
+            )
+        return ok(GOOD)
+
+    gateway, _ = make_gateway(handler)
+    assert await gateway.warm_up("extraction", None, messages, Answer, prompt="nodes.warmup.1") is None
+    await structured(gateway, messages=[*messages, {"role": "user", "content": "window"}], prompt="nodes")
+    warm, call = bodies
+    # the same prefix (untrusted notice included), schema and model; only a small output limit added
+    assert warm["messages"] == call["messages"][:2]
+    assert warm["response_format"] == call["response_format"]
+    assert warm["model"] == call["model"] == "main"
+    assert warm["max_completion_tokens"] == 16 and "max_completion_tokens" not in call
+    counts = gateway.usage().total(prompt="nodes.warmup.1")
+    assert (counts.calls, counts.requests, counts.failures, counts.input_tokens, counts.output_tokens) == (
+        1,
+        1,
+        0,
+        50,
+        16,
+    )
+    assert gateway.usage().total(prompt="nodes").calls == 1
+
+
+async def test_a_warm_up_retries_and_raises_as_structured_does(make_gateway) -> None:
+    statuses = iter([429, 200])
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        status = next(statuses)
+        return error(status) if status != 200 else ok(GOOD)
+
+    gateway, sleeps = make_gateway(handler)
+    await gateway.warm_up("small", None, MSG, Answer, prompt="w")
+    assert len(sleeps) == 1 and gateway.usage().total(prompt="w").requests == 2
+
+    gateway, _ = make_gateway(lambda _request: error(401))
+    with pytest.raises(LLMFatalError):
+        await gateway.warm_up("extraction", None, MSG, Answer, prompt="w")
+    assert gateway.usage().total(prompt="w").failures == 1
+    with pytest.raises(ConfigurationError):
+        await gateway.warm_up("embedding", None, MSG, Answer, prompt="w")
+
+
 async def test_requests_go_to_chat_completions_with_the_bearer_key(make_gateway) -> None:
     seen: list[httpx.Request] = []
 
@@ -735,6 +813,88 @@ async def test_requests_go_to_chat_completions_with_the_bearer_key(make_gateway)
     await structured(gateway)
     assert seen[0].url.path == "/v1/chat/completions"
     assert seen[0].headers["authorization"] == f"Bearer {API_KEY}"
+
+
+# --- Usage: cached input tokens ----------------------------------------------------------------
+
+
+def cached_ok(**usage_extra: Any) -> httpx.Response:
+    """A 200 answer of ``GOOD`` whose ``usage`` (100 input, 5 output tokens) also carries ``usage_extra``."""
+
+    body = chat(GOOD, usage=(100, 5))
+    body["usage"].update(usage_extra)
+    return httpx.Response(200, json=body)
+
+
+async def test_cached_prompt_tokens_are_counted_per_class_and_prompt(make_gateway) -> None:
+    answers = iter(
+        [
+            cached_ok(prompt_tokens_details={"cached_tokens": 0}),
+            cached_ok(prompt_tokens_details={"cached_tokens": 64, "audio_tokens": 0}),
+            cached_ok(prompt_tokens_details={"cached_tokens": 32}),
+        ]
+    )
+    gateway, _ = make_gateway(lambda _request: next(answers))
+    await structured(gateway, "extraction", prompt="nodes")
+    await structured(gateway, "extraction", prompt="nodes")
+    await structured(gateway, "small", prompt="attrs")
+    usage = gateway.usage()
+    nodes = usage.total(call_class="extraction", prompt="nodes")
+    assert (nodes.calls, nodes.input_tokens, nodes.cached_input_tokens) == (2, 200, 64)
+    assert usage.total(call_class="small").cached_input_tokens == 32
+    assert usage.total().cached_input_tokens == 96
+    assert {(e.call_class, e.prompt): e.cached_input_tokens for e in usage.entries} == {
+        ("extraction", "nodes"): 64,
+        ("small", "attrs"): 32,
+    }
+
+
+@pytest.mark.parametrize(
+    "usage_extra",
+    [
+        {"cache_read_input_tokens": 40},
+        {"prompt_cache_hit_tokens": 40, "prompt_cache_miss_tokens": 60},
+        {"prompt_tokens_details": {"cached_tokens": None}, "cache_read_input_tokens": 40},
+        {"prompt_tokens_details": {"cached_tokens": 40}, "cache_read_input_tokens": 99},
+    ],
+)
+async def test_cached_tokens_of_other_openai_compatible_providers_are_counted(
+    make_gateway, usage_extra: dict[str, Any]
+) -> None:
+    gateway, _ = make_gateway(lambda _request: cached_ok(**usage_extra))
+    await structured(gateway)
+    assert gateway.usage().total().cached_input_tokens == 40
+
+
+@pytest.mark.parametrize(
+    "usage_extra",
+    [
+        {},
+        {"prompt_tokens_details": None},
+        {"prompt_tokens_details": {"audio_tokens": 0}},
+        {"prompt_tokens_details": {"cached_tokens": None}},
+        {"prompt_tokens_details": {"cached_tokens": -3}},
+        # The client coerces the typed ``cached_tokens``; the other providers' fields arrive as sent.
+        {"cache_read_input_tokens": "12"},
+        {"cache_read_input_tokens": True},
+        {"prompt_cache_hit_tokens": 1.5},
+    ],
+)
+async def test_missing_or_invalid_cached_tokens_count_as_zero(make_gateway, usage_extra: dict[str, Any]) -> None:
+    gateway, _ = make_gateway(lambda _request: cached_ok(**usage_extra))
+    assert await structured(gateway) == Answer(name="x", count=1)
+    counts = gateway.usage().total()
+    assert (counts.calls, counts.input_tokens, counts.output_tokens, counts.cached_input_tokens) == (1, 100, 5, 0)
+
+
+async def test_cached_tokens_of_a_repaired_call_add_up_over_both_requests(make_gateway) -> None:
+    body = chat("not json", usage=(100, 5))
+    body["usage"]["prompt_tokens_details"] = {"cached_tokens": 10}
+    answers = iter([httpx.Response(200, json=body), cached_ok(prompt_tokens_details={"cached_tokens": 90})])
+    gateway, _ = make_gateway(lambda _request: next(answers))
+    await structured(gateway, "small", prompt="attrs")
+    counts = gateway.usage().total(call_class="small", prompt="attrs")
+    assert (counts.requests, counts.input_tokens, counts.cached_input_tokens) == (2, 200, 100)
 
 
 class Leaf(BaseModel):
@@ -859,7 +1019,7 @@ async def test_the_default_class_timeouts_reach_the_request(make_gateway: Gatewa
     assert reads == [180.0, 60.0, 120.0, 60.0]
 
 
-# --- FR-LLM-05: untrusted blocks ------------------------------------------------------------------
+# ---: untrusted blocks ------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("opens", [3, 4, 6, 9])
@@ -1039,7 +1199,7 @@ async def test_embed_retries_a_429(make_gateway) -> None:
 
     gateway, sleeps = make_gateway(handler)
     assert len(await gateway.embed(["t1", "t2"])) == 2
-    assert sleeps == [1.0]
+    assert sleeps == [10.0]  # the rate-limit backoff (jitter 0)
 
 
 async def test_embed_failure_cancels_the_other_batches(make_gateway: GatewayFactory) -> None:
@@ -1123,7 +1283,7 @@ async def test_usage_counts_failed_calls_and_their_requests(make_gateway) -> Non
     assert (counts.calls, counts.failures, counts.requests) == (1, 1, 3)
 
 
-# --- NFR-SEC-01: no key and no document text in logs or errors --------------------------------------
+# ---: no key and no document text in logs or errors --------------------------------------
 
 
 async def test_no_api_key_or_document_text_in_logs_or_errors(

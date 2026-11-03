@@ -1,16 +1,5 @@
-"""Package data of the graph library (plan 5.T5; tech-specs 10 "Dependencies"): the shipped ontology
-``graph/core/ontology/spec-ontology.yaml`` and every judge prompt it references,
-``graph/core/ontology/judge_prompts/<prompt>.md``.
-
-1. The installed package: the files are resolved through ``importlib.resources`` from the ``graph``
-   package the interpreter imports, which must be the one the installed distribution
-   (``specflow``) provides. In this repo that is uv's editable install, whose
-   ``.pth`` points at ``backend/src``, so here the installed files are the source tree's; in a
-   regular install they are the copies in ``site-packages``. ``load_ontology()`` loads exactly them.
-2. The wheel: ``uv build --offline`` (it builds from uv's cache, no network; well under a second)
-   builds the wheel into a temp dir; it must hold the same files byte for byte, and the package
-   unpacked from it, imported ahead of the editable install, must load the ontology from itself.
-   Skipped only when the ``uv`` CLI is missing.
+"""Package data of the graph library: the shipped ontology ``graph/core/ontology/spec-ontology.yaml`` and every judge
+prompt it references, ``graph/core/ontology/judge_prompts/<prompt>.md``.
 """
 
 from __future__ import annotations
@@ -45,10 +34,16 @@ def ontology_dir():
 
 
 def referenced_prompts() -> list[str]:
-    """The judge prompt names the installed ontology file references."""
+    """The judge prompt names the installed ontology file references (inference rules, conform and its
+    answered-elsewhere check), the rules' ``batch_prompt`` included."""
 
     data = yaml.safe_load((ontology_dir() / ONTOLOGY_FILE).read_text(encoding="utf-8"))
-    return sorted({rule["prompt"] for rule in data["inference"]["rules"]})
+    conform = data.get("conform") or {}
+    answered = conform.get("answered_elsewhere") or {}
+    refs = {conform.get("judge_prompt"), answered.get("prompt")} - {None}
+    rules = data["inference"]["rules"]
+    batch = {rule["batch_prompt"] for rule in rules if rule.get("batch_prompt")}
+    return sorted({rule["prompt"] for rule in rules} | refs | batch)
 
 
 def package_data() -> dict[str, bytes]:

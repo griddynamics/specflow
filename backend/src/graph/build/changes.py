@@ -1,17 +1,12 @@
-"""Change set, units and windows of the Plan step (build.md Plan 2 and 5; tech-specs 5.4 "Windows").
-
-``change_set`` compares the snapshot with the persisted documents; ``match_fragments`` matches the
-fragments of the snapshot to the persisted ones and lists the fragments that retire (build.md Plan 4);
-``plan_units`` groups fragments into units and node-extraction windows; ``dirty_windows`` narrows a
-unit's windows to its dirty fragments.
-"""
+"""Change set, units and windows of the Plan step."""
 
 from __future__ import annotations
 
 import hashlib
 import itertools
 from collections.abc import Callable, Collection, Mapping, Sequence
-from typing import Final, get_args
+from dataclasses import dataclass
+from typing import Final, Literal, get_args
 
 from graph.build.models import ChangeSet, DocumentRec, FragmentRec, FragmentStatus, Unit, Window
 from graph.build.options import BuildOptions
@@ -19,13 +14,12 @@ from graph.build.ports import CorpusRevision
 from graph.build.queries import READ_PERSISTED_DOCUMENTS, READ_PERSISTED_FRAGMENTS, READ_PERSISTED_PRESENCE
 from graph.core.db import Executor
 
-# Cost of a unit cut per heading level below the top (build.md Plan 5 "preferring top-level
-# headings"): a cut moves to a higher-level heading when that costs less imbalance, measured as the
-# squared relative deviation of each part from the ideal size.
+# Extra cost of a unit cut per heading level below the top, so a higher-level heading is preferred when that
+# costs less size imbalance.
 HEADING_DEPTH_PENALTY: Final = 0.2
 UNIT_ID_PREFIX: Final = "unit:"
 LINE_JACCARD: Final = 0.5
-"""Line-set Jaccard at least this, under the same heading path, makes a fragment ``changed`` (tech-specs 5.4)."""
+"""Line-set Jaccard at least this, under the same heading path, makes a fragment ``changed``."""
 DIRTY_CHANGES: Final = frozenset({"new", "changed", "retried"})
 FRAGMENT_STATUSES: Final = frozenset(get_args(FragmentStatus))
 
@@ -45,12 +39,7 @@ async def has_persisted_graph(executor: Executor, project_id: str) -> bool:
 
 
 async def persisted_fragments(executor: Executor, project_id: str) -> list[FragmentRec]:
-    """Every persisted ``Fragment`` of the project that is not ``retired``, by document and ordinal.
-
-    The rows are fragments as they were persisted (``change`` left at its default); their ``tokens``
-    are not stored and read as 0. A status outside the data model (a fault verification reports as
-    ``fragment_state``) is read as ``active`` and never extracted (``extracted_hash`` None), so a
-    retry extracts the fragment again and its persisted status is rewritten."""
+    """Every persisted ``Fragment`` of the project that is not ``retired``, by document and ordinal."""
 
     rows = await executor.read(READ_PERSISTED_FRAGMENTS, project_id)
     fragments = []
@@ -77,12 +66,7 @@ def change_set(
     persisted: Sequence[DocumentRec],
     retry_lineages: Collection[str] = (),
 ) -> ChangeSet:
-    """Lineage ids by change (build.md Plan 2), each list in snapshot order (``removed``: persisted order).
-
-    A lineage without an active persisted document is new; another ``revision_id`` is revised; an
-    active document missing from the snapshot is removed. ``retried`` lists the requested lineages
-    that are in the snapshot and unchanged (a new or revised lineage is extracted anyway).
-    """
+    """Lineage ids by change, each list in snapshot order (``removed``: persisted order)."""
 
     active = {document.document_id: document for document in persisted if document.status == "active"}
     in_snapshot = {revision.lineage_id for revision in revisions}
@@ -159,20 +143,8 @@ def match_fragments(
     persisted: Sequence[FragmentRec],
     retry_lineages: Collection[str] = (),
 ) -> tuple[list[FragmentRec], tuple[str, ...]]:
-    """The snapshot's fragments with their ``change`` against the persisted fragments, and the ids of
-    the persisted fragments that retire (build.md Plan 4; FR-BLD-04, FR-BLD-05).
-
-    Per document, one to one, in this order: the same id and content hash, then the same content
-    hash (document order) → ``unchanged``; then the same heading path with a line-set Jaccard of at
-    least ``LINE_JACCARD`` (best first, ties by ordinal) → ``changed`` with ``previous_id``; the rest
-    are ``new``. An unchanged fragment keeps the persisted ``status``, ``extracted_hash`` and
-    ``error_code``; one in a lineage of ``retry_lineages`` that ``needs_retry`` (stored ``skipped``, or
-    ``active`` without its content extracted) becomes ``retried``. A
-    changed fragment takes the persisted ``extracted_hash`` (its last extracted version, FR-BLD-12).
-    ``previous_id`` is set whenever the match has another id.
-
-    Retired: persisted fragments without a match (every fragment of a removed document among them),
-    and matched ones whose id no current fragment carries any more; in persisted order.
+    """The snapshot's fragments with their ``change`` against the persisted fragments, and the ids of the persisted
+    fragments that retire.
     """
 
     retry = set(retry_lineages)
@@ -216,15 +188,7 @@ def dirty_ids(fragments: Sequence[FragmentRec], *, everything: bool, stale: Coll
 
 
 def plan_units(fragments: Sequence[FragmentRec], options: BuildOptions) -> list[Unit]:
-    """Units of consecutive fragments of one document, each with windows over all its fragments.
-
-    A document within ``unit_tokens`` is one unit; a longer one is cut into the fewest balanced parts
-    within ``unit_tokens`` at fragment boundaries, preferring top-level headings. Each unit's windows
-    are a balanced partition by tokens into ``ceil(tokens / window_tokens(options))`` windows, at most
-    ``max_node_windows``. A fragment larger than ``unit_tokens`` (an unsplittable code block) is a unit
-    of its own; its extraction call overflows or is truncated and its fragment is skipped (build.md
-    "Failures").
-    """
+    """Units of consecutive fragments of one document, each with windows over all its fragments."""
 
     units: list[Unit] = []
     for _, group in itertools.groupby(fragments, key=lambda fragment: fragment.document_id):
@@ -267,13 +231,8 @@ def window_tokens(options: BuildOptions) -> int:
 def dirty_windows(
     unit: Unit, dirty_ids: Collection[str], *, max_windows: int, tokens: Mapping[str, int]
 ) -> list[Window]:
-    """Windows over the unit's dirty fragments: one per maximal run of dirty fragments, each run cut
-    again where the unit's planned windows (``unit.windows``) start, so a fully dirty unit keeps its
-    planned windows. Empty when nothing in the unit is dirty.
-
-    Never more than ``max_windows``: while there are more, the adjacent pair whose merged window has
-    the fewest tokens (``tokens`` by fragment id; earliest on ties) is merged. A merged window also
-    covers the clean fragments between the two runs.
+    """Windows over the unit's dirty fragments: one per maximal run of dirty fragments, each run cut again where the
+    unit's planned windows (``unit.windows``) start, so a fully dirty unit keeps its planned windows.
     """
 
     starts = {start for start, _ in unit.windows}
@@ -353,9 +312,9 @@ def _cheapest_cuts(
 
 
 def _partition(sizes: Sequence[int], parts: int, limit: int | None, penalties: Sequence[float]) -> list[Window] | None:
-    """Cut ``sizes`` into ``parts`` contiguous non-empty runs, minimising the squared relative deviation
-    from the mean plus the cut penalties; a run over ``limit`` is allowed only as a single item.
-    None when no such cut exists. Ties keep the earliest cut, so the result is deterministic."""
+    """Cut ``sizes`` into ``parts`` contiguous non-empty runs, minimising the squared relative deviation from the mean
+    plus the cut penalties; a run over ``limit`` is allowed only as a single item.
+    """
 
     count = len(sizes)
     if parts < 1 or parts > count:
@@ -380,3 +339,100 @@ def _partition(sizes: Sequence[int], parts: int, limit: int | None, penalties: S
         windows.append((start, end))
         end = start
     return windows[::-1]
+
+
+# Edge windows
+
+EDGE_WINDOW_TOKENS: Final = 3000
+"""Target size of an edge window in tokens."""
+MAX_EDGE_WINDOWS: Final = 8
+"""At most this many edge windows per unit; the target is raised to fit."""
+EDGE_WINDOW_LOW: Final = 0.5
+EDGE_WINDOW_HIGH: Final = 1.5
+"""A window ends where it holds between these shares of the target size (``edge_windows``)."""
+EDGE_WINDOW_RAISE: Final = 1.25
+"""Step the target grows by while a unit has more than ``max_windows`` windows (``edge_windows``)."""
+
+NearnessMode = Literal["name", "rich", "off"]
+"""How foreign hubs enter an edge catalog by nearness: by ``name_embedding`` (``name``), by Resolve's candidate vector
+(``rich``) or not at all (``off``).
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class EdgeWindowParams:
+    """Internal parameters of edge extraction, recorded in the extractor fingerprint: window target size in tokens
+    (None: one window per unit), the most windows per unit, the nearness mode, whether local feature and module entries
+    carry their section heading, and whether references fill the catalog's referenced part.
+    """
+
+    target_tokens: int | None = EDGE_WINDOW_TOKENS
+    max_windows: int = MAX_EDGE_WINDOWS
+    # Nearness and section hints stay off; references stay on.
+    nearness: NearnessMode = "off"
+    section_hints: bool = False
+    references: bool = True
+
+
+DEFAULT_EDGE_WINDOWS: Final = EdgeWindowParams()
+"""The edge window parameters of a build (``edges.extract_edges``; replay passes others)."""
+
+
+def edge_windows(unit: Unit, fragments: Mapping[str, FragmentRec], params: EdgeWindowParams) -> tuple[Window, ...]:
+    """The unit's edge windows, ``(start, end)`` indexes into ``unit.fragment_ids`` (end exclusive), covering the unit
+    in order.
+    """
+
+    count = len(unit.fragment_ids)
+    if count == 0:
+        return ()
+    if params.target_tokens is None or count == 1:
+        return ((0, count),)
+    members = [fragments[fragment_id] for fragment_id in unit.fragment_ids]
+    prefix = list(itertools.accumulate((max(fragment.tokens, 0) for fragment in members), initial=0))
+    penalties = _cut_penalties(members)
+    limit = max(1, params.max_windows)
+    base = float(max(1, params.target_tokens))
+    windows = _content_cuts(members, prefix, penalties, base)
+    step = 0
+    while len(windows) > limit:
+        step += 1
+        while base * EDGE_WINDOW_RAISE**step * EDGE_WINDOW_HIGH * limit < prefix[-1]:
+            step += 1
+        windows = _content_cuts(members, prefix, penalties, base * EDGE_WINDOW_RAISE**step)
+    return tuple(windows)
+
+
+def _content_cuts(
+    members: Sequence[FragmentRec],
+    prefix: Sequence[int],
+    penalties: Sequence[float],
+    target: float,
+) -> list[Window]:
+    """The windows of ``edge_windows`` for one target size."""
+
+    count = len(members)
+    low, high = EDGE_WINDOW_LOW * target, EDGE_WINDOW_HIGH * target
+    total = prefix[-1]
+    windows: list[Window] = []
+    start = 0
+    while start < count:
+        if total - prefix[start] <= high:
+            windows.append((start, count))
+            break
+        fits: list[int] = []
+        for cut in range(start + 1, count):
+            if prefix[cut] - prefix[start] > high:
+                break
+            fits.append(cut)
+        candidates = [cut for cut in fits if prefix[cut] - prefix[start] >= low and total - prefix[cut] >= low]
+        if candidates:
+            end = min(
+                candidates,
+                key=lambda cut: (penalties[cut], members[cut].content_hash, cut),
+            )
+        else:
+            end = fits[-1] if fits else start + 1
+        windows.append((start, end))
+        start = end
+    return windows

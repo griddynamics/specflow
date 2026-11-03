@@ -1,32 +1,4 @@
-"""Log capture over full builds (plan 5.T4; NFR-SEC-01: logs never hold document text, prompt text
-or secrets; tech-specs 8 and 9.3 "Log capture over a full build").
-
-One test project is built once for the module from the shop corpus 1 -> 2 -> 3 with inference and
-verification on (``ShopBuilds``, every model answer hand-written), then read through ``GraphReader``
-(node and edge reads, scope, impact, evidence lookup, hybrid and fulltext search, and a search whose
-embedding fails). Every log record is captured on the root logger while the ``graph`` and
-``graphiti_core`` loggers (and the root) are at DEBUG; the central logger's third-party noise levels
-(``neo4j``, ``httpx``, ...) stay as shipped. Each record is checked raw (message, structured fields,
-exception and stack text) and as the central ``JsonFormatter`` prints it, whitespace collapsed.
-
-Texts are matched by shingles, so an excerpt is caught as well as a whole line: no record may hold any
-40-character window (one with at least four spaces, so prose and not an id, path or hash) or any
-8-word n-gram of a line of:
-
-- the corpus: the shop documents of the three snapshots, markdown markers stripped;
-- prompt text: every message the library sent to the model, the judge prompt files and the
-  ontology's prompt text (framing, exclusions, descriptions, guidance);
-- model output: the hand-written answers' facts and attribute values, and the judge quotes;
-- query text: the Cypher text of the library's ``Query`` constants.
-
-And no record may hold, as a substring: a node or hub name of the answers of at least 15 characters
-(shorter ones, such as "ERP" or "Stripe", are too generic to search for), an identity key, identity
-alias or edge key of the built project, the LLM API key, the Neo4j password of the environment, a
-reader search text or a whole Cypher line longer than 40 characters.
-
-Gate: ``SPECFLOW_TEST_NEO4J=1`` and ``uv run --env-file ../.env.local``; the project is a
-``pytest-graph-<hex>`` id (``open_neo4j_project``), deleted after the module.
-"""
+"""Log capture over full builds."""
 
 from __future__ import annotations
 
@@ -77,7 +49,7 @@ WINDOW_MIN_SPACES = 4
 NGRAM_WORDS = 8
 NAME_MIN_CHARS = 15
 CYPHER_MIN_CHARS = 40
-DEBUG_LOGGERS = ("", "graph", "graphiti_core")
+DEBUG_LOGGERS = ("", "graph")
 _MARKDOWN = re.compile(r"^(?:#+|[-*+]|\d+\.|>)\s+")
 _SPACE = re.compile(r"\s+")
 
@@ -253,7 +225,9 @@ def model_output() -> tuple[list[str], set[str]]:
     for snapshot in (1, 2, 3):
         answers = shop_answers(snapshot)
         for item in answers.nodes.values():
-            names.update(str(entity[0]) for entity in item.get("entities") or ())
+            for entity in item.get("entities") or ():
+                names.add(str(entity[0]))
+                names.update(str(alias) for alias in (entity[4] if len(entity) > 4 else ()))  # hub aliases
         for facts in answers.edges.values():
             for source, _, target, fact, _ in facts:
                 names.update((str(source), str(target)))
@@ -261,8 +235,6 @@ def model_output() -> tuple[list[str], set[str]]:
         for name, values in answers.attributes.items():
             names.add(name)
             texts.extend(str(value) for value in values.values() if isinstance(value, str))
-        for hubs in answers.hub_catalog.values():
-            names.update(str(hub[0]) for hub in hubs)
         for pair in answers.dedup:
             names.update(pair)
     return texts, {name for name in names if len(name) >= NAME_MIN_CHARS}
@@ -360,7 +332,7 @@ async def read_everything(builds: ShopBuilds, gateway: ScriptedGateway) -> None:
         raise InfrastructureUnavailableError("llm_unreachable")
 
     gateway.embed = unreachable
-    await reader.find_nodes(pid, SEARCHES[0])  # embedding fails: fulltext only (FR-READ-03)
+    await reader.find_nodes(pid, SEARCHES[0])  # embedding fails: fulltext only
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
@@ -415,13 +387,13 @@ async def run(tmp_path_factory: pytest.TempPathFactory) -> AsyncIterator[Run]:
         yield Run(list(capture.records), gateways, keys, builds, forbidden)
 
 
-def test_the_capture_sees_debug_records_of_the_library_and_graphiti(run: Run, request: pytest.FixtureRequest) -> None:
+def test_the_capture_sees_debug_records_of_the_library(run: Run, request: pytest.FixtureRequest) -> None:
     by_logger = Counter(record.name.split(".")[0] for record in run.records)
     reporter = request.config.pluginmanager.get_plugin("terminalreporter")
     if reporter is not None:
         reporter.write_line(f"\ncaptured records by top-level logger: {dict(by_logger)}")
     levels = Counter(record.levelname for record in run.records if record.name.startswith("graph."))
-    assert by_logger["graph"] > 50 and by_logger["graphiti_core"] > 50, by_logger
+    assert by_logger["graph"] > 50, by_logger
     assert levels["DEBUG"] > 0 and levels["WARNING"] > 0, levels  # the malformed window warns
     events = {getattr(record, "event", None) for record in run.records}
     assert {"graph.build.started", "graph.infer.rule_done", "graph.verify.checked", "graph.read.find_nodes"} <= events

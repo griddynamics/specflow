@@ -17,10 +17,13 @@ tags: [graph]
 | Caches and determinism | Response, embedding and verdict caches; the guarantee that a re-run with the same inputs gives the same graph and makes no model calls |
 | Faithfulness check | Verification samples stated edges and judges them against their text |
 | Recall re-extraction | One more extraction for an active fragment without nodes |
-| Cross-document links | Citation edges between fragments and relatedness edges between documents |
+| Cross-document links | Citation edges between fragments and relatedness edges between documents (requirement links across documents exist already: the edge catalog's `referenced` part and inference `INF-XDOC-01`) |
 | Retype | Correcting a wrongly typed node while keeping its identity |
 | Merge reporting | Report merges of requirements separately from rekeys |
 | Build speed | Tuning options measured in the large-corpus scale test, below |
+| Inference reads beyond realization | `reads` on other templates (decided in `realization` only), such as `INF-INT-01` reading the `INF-CONT` owner edges of the same build, so an integration requirement attached in that build gets its modules |
+| Host build status | The host exposes `settlement` and `project_status` and holds readers back while a project builds (graph side: [build.md](build.md) Building status); gap and plan read `change_report` |
+| Judge concurrency | A gateway limit for judge calls apart from extraction, which sets the wall time of an inference drain |
 | Durable build runs | The API's `/graph_build` runs the build as an in-process task (one API process, file stores); a Temporal workflow and worker take it over with the same HTTP contract, plus Postgres-backed stores and multi-instance coordination |
 
 ## Build speed
@@ -28,8 +31,7 @@ tags: [graph]
 Options from the 2026-10-23 scale test on input-specflow (568 KB; its `first` build took 598 s at concurrency 8,
 model-bound), with the measured or expected effect:
 
-- `LLMConfig.concurrency` 16 (a host setting): about 600 s → about 400 s expected; tokens unchanged.
+- `LLMConfig.concurrency` 16 (a host setting: `GRAPH_LLM_CONCURRENCY` in the API and the examples, default 8): about 600 s → about 400 s expected; tokens unchanged.
 - Fewer node windows (`max_node_windows` 8 → 4, or narrower windows): about −29% input tokens; needs a quality check.
-- Windowed edge extraction (or smaller edge units): about 3× edge calls at about the same input, for edge recall (42% of nodes had no domain edge).
 - Larger attribute batches: doubling the batch size halves the attribute calls and their prompt overhead.
 - A lower exact-vector threshold in `find_nodes` (2,000 → about 500): index path 11 ms vs exact 131 ms at 1,271 vectors.

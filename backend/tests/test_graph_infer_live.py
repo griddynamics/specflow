@@ -1,26 +1,10 @@
-"""Live Neo4j tests of light inference with the scripted judge (plan 4.T1; FR-INF-01..05).
-
-docs/graph/analysis.md "Light inference" and the approved M4 spec edits (G1-G4, G9-G13):
-judge memory, ``declined``, ``INF-INT-01`` targets from ``PART_OF`` / ``RELATES_TO`` / mentions with
-one direction per pair, the exclusive-pair exclusion and the exact, project-scoped orphan candidates,
-and fatal errors that propagate.
-
-Most tests seed a small graph by Cypher and call ``graph.build.infer.infer`` directly; the shop tests
-at the end run whole builds (``run_build``) of the shop corpus. Every judge answer is hand-written
-(decision P3), keyed by ``(rule prompt, subject name)`` as tech-specs 9.1 says. A verdict names the
-payload's local ids (``T1``, ``M1``, ``C1``), which follow from the seeded ``spec_id``s (``endpoints``
-targets, ``realization`` members and candidates in ``spec_id`` order) or from the seeded vectors
-(``attach_orphan`` candidates, most similar first); each answer says which node an id stands for.
-
-Gate: ``SPECFLOW_TEST_NEO4J=1`` and ``uv run --env-file ../.env.local``. Every test writes into its
-own ``pytest-graph-<hex>`` project ids; ``neo4j_project`` deletes them by ``group_id`` afterwards and
-checks that nothing outside them changed.
-"""
+"""Live Neo4j tests of light inference with the scripted judge."""
 
 from __future__ import annotations
 
 import dataclasses
 import hashlib
+import itertools
 import json
 import math
 from collections import Counter
@@ -32,10 +16,11 @@ from typing import Any
 
 import pytest
 
-from graph.build import BuildContext, BuildResult, BuildSettings, FileStores, open_file_stores, run_build
+from graph.build import BuildContext, BuildResult, BuildSettings, FileStores, infer_reads, infer_xdoc, open_file_stores
 from graph.build import infer as inference
 from graph.build.files import FileExtractionStore
 from graph.build.models import InferenceReport, RuleReport
+from graph.build.spine import load_spine_graph
 from graph.core.errors import ConformanceError, GraphWriteError, InfrastructureUnavailableError, LLMError, LLMFatalError
 from graph.core.identity import edge_uuid
 from graph.core.llm import JudgeRunner
@@ -47,7 +32,9 @@ from graph_support import (
     ScriptedGateway,
     ScriptedRequest,
     ScriptError,
+    frozen_ontology,
     live_llm_config,
+    run_shop_build,
     shipped_ontology,
     shop_answers,
     shop_corpus,
@@ -63,9 +50,9 @@ pytestmark = requires_live("NEO4J")
 DIM = live_llm_config().embedding_dim
 AT = "2026-10-23T00:00:00+00:00"
 JUDGE_MODEL = "judge-test"
-RULES: dict[str, InferenceRule] = {rule.template: rule for rule in shipped_ontology().inference.rules}
+RULES: dict[str, InferenceRule] = {rule.template: rule for rule in frozen_ontology().inference.rules}
 INT, CAP, ORPH = RULES["endpoints"], RULES["realization"], RULES["attach_orphan"]
-RULE_IDS = tuple(rule.id for rule in shipped_ontology().inference.rules)
+RULE_IDS = tuple(rule.id for rule in frozen_ontology().inference.rules)
 GatewayFactory = Callable[..., ScriptedGateway]
 
 
@@ -106,7 +93,7 @@ class Seed:
     edges: list[dict[str, Any]] = field(default_factory=list)
     mentions: list[dict[str, str]] = field(default_factory=list)
 
-    def fragment(self, fragment_id: str, text: str, status: str = "active") -> Seed:
+    def fragment(self, fragment_id: str, text: str, status: str = "active", document: str = "d1") -> Seed:
         self.fragments.append(
             {
                 "fragment_id": fragment_id,
@@ -114,6 +101,7 @@ class Seed:
                 "status": status,
                 "ordinal": len(self.fragments),
                 "content_hash": content_hash(text),
+                "document_id": document,
             }
         )
         return self
@@ -161,7 +149,7 @@ class Seed:
     async def write(self, project: Neo4jProject, project_id: str) -> Seed:
         await project.run(
             "UNWIND $rows AS row CREATE (f:Fragment {group_id: $p, fragment_id: row.fragment_id, "
-            "document_id: 'd1', ordinal: row.ordinal, text: row.text, status: row.status, "
+            "document_id: row.document_id, ordinal: row.ordinal, text: row.text, status: row.status, "
             "content_hash: row.content_hash})",
             p=project_id,
             rows=self.fragments,
@@ -208,7 +196,8 @@ def fragments_of(call: Any) -> dict[str, str]:
 
 
 def subject_name(request: ScriptedRequest) -> str:
-    return str(payload_of(request)["subject"]["name"])
+    payload = payload_of(request)
+    return str((payload.get("subject") or payload["hub"])["name"])
 
 
 def evidence(fragment_id: str, quote: str) -> list[dict[str, str]]:
@@ -261,9 +250,9 @@ def judged(gateway: ScriptedGateway, rule: InferenceRule | None = None) -> list[
 
 
 def only(*rules: InferenceRule, cap: int | None = None) -> Ontology:
-    """The shipped ontology with only ``rules`` (default all) and, when given, another ``cap``."""
+    """The frozen ontology with only ``rules`` (default all) and, when given, another ``cap``."""
 
-    base = shipped_ontology()
+    base = frozen_ontology()
     spec = base.inference
     return dataclasses.replace(
         base, inference=InferenceSpec(cap=cap or spec.cap, floor=spec.floor, rules=tuple(rules) or spec.rules)
@@ -279,7 +268,7 @@ async def run(
     memory: inference.JudgeMemory | None = None,
     build_id: str = "b-1",
     runner: Any = None,
-    graph_changed: bool = True,
+    changes: inference.BuildChanges | None = None,
 ) -> InferenceReport:
     ontology = ontology or project.ontology
     return await inference.infer(
@@ -289,8 +278,12 @@ async def run(
         runner or JudgeRunner(gateway, ontology),
         stamp=inference.InferenceStamp(build_id=build_id, at=AT, judge_model=JUDGE_MODEL),
         memory=memory,
-        graph_changed=graph_changed,
+        changes=changes,
     )
+
+
+NO_CHANGE = inference.BuildChanges(graph_changed=False)
+"""A build whose diff changed nothing."""
 
 
 def remembering(root: Path, project_id: str, judge_model: str = JUDGE_MODEL) -> inference.JudgeMemory:
@@ -383,7 +376,7 @@ async def graph_a(neo4j_project: Neo4jProject) -> str:
     return neo4j_project.project_id
 
 
-# FR-INF-01: each rule once per build; edge properties and report names
+# each rule once per build; edge properties and report names
 
 
 async def test_each_rule_runs_once_and_judges_each_subject_once(
@@ -413,7 +406,7 @@ async def test_inferred_edges_carry_the_data_model_properties_and_keep_their_uui
     report = await run(neo4j_project, graph_a, judge(scripted_gateway, accept_all()), build_id="b-1")
     assert report.inferred_added == tuple(sorted((REF_INT, REF_CAP, REF_ORPH)))
     assert report.inferred_removed == ()
-    for ref in report.inferred_added:  # spec-id form, never the edge key (G9, NFR-SEC-01)
+    for ref in report.inferred_added:  # spec-id form, never the edge key
         assert "k|" not in ref and ref.count("|") == 2
 
     edges = await inferred(neo4j_project, graph_a)
@@ -444,7 +437,7 @@ async def test_inferred_edges_carry_the_data_model_properties_and_keep_their_uui
     assert await inferred(neo4j_project, graph_a) == {}
 
 
-# FR-INF-02: selection reads only stated and implied edges
+# selection reads only stated and implied edges
 
 
 async def test_an_orphan_attached_by_inference_is_still_a_subject(
@@ -469,14 +462,14 @@ async def test_an_orphan_attached_by_inference_is_still_a_subject(
     assert set(await inferred(neo4j_project, graph_a)) == {EDGE_INT, EDGE_CAP, EDGE_ORPH}
 
 
-# FR-INF-03: acceptance
+# acceptance
 
 
 @pytest.mark.parametrize(("confidence", "accepted"), [(0.6, False), (0.69, False), (0.7, True), (1.0, True)], ids=str)
 async def test_the_confidence_floor_decides_for_every_template(
     neo4j_project: Neo4jProject, graph_a: str, scripted_gateway: GatewayFactory, confidence: float, *, accepted: bool
 ) -> None:
-    assert shipped_ontology().inference.floor == 0.7
+    assert frozen_ontology().inference.floor == 0.7
     report = await run(neo4j_project, graph_a, judge(scripted_gateway, accept_all(confidence)))
     for rule in report.rules:
         assert counts(rule, "judged", "accepted", "rejected", "edges_added") == (
@@ -504,8 +497,13 @@ async def test_a_verdict_without_valid_quotes_is_rejected(
     for (prompt, name), quote in zip(list(answers), (QUOTE_INT, QUOTE_CAP, QUOTE_ORPH), strict=True):
         answers[(prompt, name)] = {**answers[(prompt, name)], "evidence": BAD_EVIDENCE[case](quote)}
     report = await run(neo4j_project, graph_a, judge(scripted_gateway, answers))
-    assert all(counts(rule, "judged", "accepted", "rejected", "edges_added") == (1, 0, 1, 0) for rule in report.rules)
-    assert await inferred(neo4j_project, graph_a) == {}
+    # an attach_orphan quote held by a shown fragment of its subject is cited from there
+    relocated = case in ("fragment-not-shown", "quote-from-another-fragment")
+    for rule in report.rules:
+        accepted = relocated and rule.rule == ORPH.id
+        expected = (1, 1, 0, 1) if accepted else (1, 0, 1, 0)
+        assert counts(rule, "judged", "accepted", "rejected", "edges_added") == expected, rule.rule
+    assert set(await inferred(neo4j_project, graph_a)) == ({EDGE_ORPH} if relocated else set())
 
 
 INVALID_VERDICTS = {
@@ -569,7 +567,7 @@ async def test_a_rejected_or_invalid_rejudgement_removes_the_earlier_inferred_ed
     assert set(await inferred(neo4j_project, graph_a)) == {EDGE_INT, EDGE_CAP, EDGE_ORPH} - {EDGE_OF[rule_id]}
 
 
-# FR-INF-04: one swap transaction
+# one swap transaction
 
 
 def failing_writes(relation_to_fail: str) -> Callable[[str], Query]:
@@ -611,15 +609,16 @@ async def test_a_failure_inside_the_swap_leaves_the_previous_inferred_edges_inta
     assert await inferred(neo4j_project, graph_a) == before
     monkeypatch.undo()
 
-    # Judge memory is written only after the swap commits: the subjects are judged again.
+    # fresh judgements are written to judge memory per chunk before the swap, so the
+    # resumed step reuses all three without a call (no rule here is cross_document: no members key).
     gateway = judge(scripted_gateway, second)
     report = await run(neo4j_project, graph_a, gateway, memory=memory)
-    assert len(judged(gateway)) == 3 and all(rule.reused == 0 for rule in report.rules)
+    assert judged(gateway) == [] and sum(rule.reused for rule in report.rules) == 3
     after = await inferred(neo4j_project, graph_a)
     assert set(after) == {EDGE_INT, EDGE_ORPH} and after[EDGE_ORPH]["confidence"] == 0.95
 
 
-# FR-INF-05: failure tolerance
+# failure tolerance
 
 
 async def test_a_judge_that_always_fails_keeps_the_previous_inferred_edges(
@@ -651,6 +650,7 @@ class EscapingJudge:
     def __init__(self, inner: JudgeRunner, prompt: str) -> None:
         self._inner = inner
         self._prompt = prompt
+        self.concurrency = inner.concurrency
 
     async def judge(self, prompt: str, payload: Mapping[str, Any], verdict_type: type[Any]) -> Any:
         if prompt == self._prompt:
@@ -767,10 +767,10 @@ async def test_reused_judgements_do_not_count_against_the_cap(
     assert len(await inferred(neo4j_project, pid)) == 3
 
 
-# A build whose diff changed nothing judges no new subject (scale report F2)
+# A build whose diff changed nothing drains the never-judged subjects under the cap
 
 
-async def test_a_no_change_build_makes_no_judge_call_and_keeps_the_backlog(
+async def test_a_no_change_build_drains_never_judged_subjects_under_the_cap(
     neo4j_project: Neo4jProject, scripted_gateway: GatewayFactory, tmp_path: Path
 ) -> None:
     pid = neo4j_project.project_id
@@ -780,15 +780,18 @@ async def test_a_no_change_build_makes_no_judge_call_and_keeps_the_backlog(
     await run(
         neo4j_project, pid, judge(scripted_gateway, attach_own("Requirement two")), ontology=capped, memory=memory
     )
-    before = await inferred(neo4j_project, pid)
-    for build in (2, 3):
-        gateway = judge(scripted_gateway)
+    for build, (name, reused) in enumerate((("Requirement three", 1), ("Requirement one", 2)), 2):
+        gateway = judge(scripted_gateway, attach_own(name))
         report = await run(
-            neo4j_project, pid, gateway, ontology=capped, memory=memory, build_id=f"b-{build}", graph_changed=False
+            neo4j_project, pid, gateway, ontology=capped, memory=memory, build_id=f"b-{build}", changes=NO_CHANGE
         )
-        assert judged(gateway) == []
-        assert counts(report.rules[0], "subjects", "reused", "judged", "deferred") == (3, 1, 0, 2)
-        assert await inferred(neo4j_project, pid) == before
+        assert judged(gateway) == [name]
+        assert counts(report.rules[0], "subjects", "reused", "judged", "deferred") == (3, reused, 1, 2 - reused)
+    before = await inferred(neo4j_project, pid)
+    gateway = judge(scripted_gateway)
+    report = await run(neo4j_project, pid, gateway, ontology=capped, memory=memory, build_id="b-4", changes=NO_CHANGE)
+    assert judged(gateway) == [] and counts(report.rules[0], "reused", "judged", "deferred") == (3, 0, 0)
+    assert len(before) == 3 and await inferred(neo4j_project, pid) == before
 
 
 async def test_a_changing_build_judges_changed_subjects_first_then_the_backlog(
@@ -810,26 +813,31 @@ async def test_a_changing_build_judges_changed_subjects_first_then_the_backlog(
 
     # A judged subject whose inputs changed goes before the never-judged one (X::R3), even under the cap.
     await neo4j_project.run(
-        "MATCH (n:SpecNode {group_id: $p, uuid: 'o-2'}) SET n.statements = $s",
+        "MATCH (n:SpecNode {group_id: $p, uuid: 'o-2'}) SET n.statements = $s, n.quote = $s_quote",
         p=pid,
         s=json.dumps([{"text": "Requirement two, reworded."}]),
+        s_quote="Requirement two, reworded.",
     )
     gateway = judge(scripted_gateway, attach_own("Requirement two"))
     report = await run(neo4j_project, pid, gateway, ontology=capped, memory=memory, build_id="b-3")
     assert judged(gateway) == ["Requirement two"]
     assert counts(report.rules[0], "reused", "judged", "deferred") == (1, 1, 1)
 
-    # Without a change in the build, a changed subject waits too: no call, it keeps its edge.
+    # Without a change in the build, a changed subject waits: no call, it keeps its edge; the
+    # never-judged one (X::R3) is drained under the cap.
     await neo4j_project.run(
-        "MATCH (n:SpecNode {group_id: $p, uuid: 'o-3'}) SET n.statements = $s",
+        "MATCH (n:SpecNode {group_id: $p, uuid: 'o-3'}) SET n.statements = $s, n.quote = $s_quote",
         p=pid,
         s=json.dumps([{"text": "Requirement three, reworded."}]),
+        s_quote="Requirement three, reworded.",
     )
     before = await inferred(neo4j_project, pid)
-    gateway = judge(scripted_gateway)
-    report = await run(neo4j_project, pid, gateway, ontology=capped, memory=memory, build_id="b-4", graph_changed=False)
-    assert judged(gateway) == [] and counts(report.rules[0], "reused", "judged", "deferred") == (1, 0, 2)
-    assert await inferred(neo4j_project, pid) == before
+    gateway = judge(scripted_gateway, attach_own("Requirement one"))
+    report = await run(neo4j_project, pid, gateway, ontology=capped, memory=memory, build_id="b-4", changes=NO_CHANGE)
+    assert judged(gateway) == ["Requirement one"]
+    assert counts(report.rules[0], "reused", "judged", "deferred") == (1, 1, 1)
+    after = await inferred(neo4j_project, pid)
+    assert {key: after[key] for key in before} == before and len(after) == len(before) + 1
 
 
 async def test_a_changed_subject_goes_before_never_judged_ones_with_lower_spec_ids(
@@ -845,9 +853,10 @@ async def test_a_changed_subject_goes_before_never_judged_ones_with_lower_spec_i
     }
     await run(neo4j_project, pid, judge(scripted_gateway, answers), ontology=only(ORPH), memory=memory)
     await neo4j_project.run(
-        "MATCH (n:SpecNode {group_id: $p, uuid: 'o-1'}) SET n.statements = $s",
+        "MATCH (n:SpecNode {group_id: $p, uuid: 'o-1'}) SET n.statements = $s, n.quote = $s_quote",
         p=pid,
         s=json.dumps([{"text": "Requirement one, reworded."}]),
+        s_quote="Requirement one, reworded.",
     )
     gateway = judge(scripted_gateway, attach_own("Requirement one"))
     report = await run(neo4j_project, pid, gateway, ontology=only(ORPH, cap=1), memory=memory, build_id="b-2")
@@ -873,11 +882,22 @@ async def test_judge_memory_reuses_unchanged_subjects_and_rejudges_changed_ones(
     assert report.inferred_added == () and report.inferred_removed == ()
     assert await inferred(neo4j_project, graph_a) == before
 
-    # The orphan's statement changes: only it is judged again; it declines and loses its edge.
+    # A re-extraction rewords the orphan's statements only (same quote, name, fragments): reused, no call.
     await neo4j_project.run(
         "MATCH (n:SpecNode {group_id: $p, uuid: 'req-1'}) SET n.statements = $s",
         p=graph_a,
+        s=json.dumps([{"text": "Customers may download every order as CSV."}]),
+    )
+    gateway = judge(scripted_gateway)
+    report = await run(neo4j_project, graph_a, gateway, memory=memory, build_id="b-2b")
+    assert judged(gateway) == [] and report.inferred_removed == ()
+
+    # The orphan's statement and quote change: only it is judged again; it declines and loses its edge.
+    await neo4j_project.run(
+        "MATCH (n:SpecNode {group_id: $p, uuid: 'req-1'}) SET n.statements = $s, n.quote = $s_quote",
+        p=graph_a,
         s=json.dumps([{"text": "Customer can download each order as a CSV file."}]),
+        s_quote="Customer can download each order as a CSV file.",
     )
     gateway = judge(scripted_gateway, {(ORPH.prompt, ORPH_SUBJECT): NO_LINK[ORPH.prompt]})
     report = await run(neo4j_project, graph_a, gateway, memory=memory, build_id="b-3")
@@ -1130,9 +1150,10 @@ async def test_a_fresh_verdict_wins_over_a_remembered_one_for_the_same_edge(
     await run(neo4j_project, pid, judge(scripted_gateway, answers), ontology=only(INT), memory=memory)
 
     await neo4j_project.run(
-        "MATCH (n:SpecNode {group_id: $p, uuid: 'i-y'}) SET n.statements = $s",
+        "MATCH (n:SpecNode {group_id: $p, uuid: 'i-y'}) SET n.statements = $s, n.quote = $s_quote",
         p=pid,
         s=json.dumps([{"text": "Orders are pushed to the Orders service."}]),
+        s_quote="Orders are pushed to the Orders service.",
     )
     fresh = {(INT.prompt, "Checkout pushes orders"): links(("T1", "T2"), quote=("f-y", "to the Orders service"))}
     gateway = judge(scripted_gateway, fresh)
@@ -1148,7 +1169,7 @@ async def test_an_inferred_edge_that_became_stated_is_neither_removed_nor_duplic
     neo4j_project: Neo4jProject, graph_a: str, scripted_gateway: GatewayFactory
 ) -> None:
     await run(neo4j_project, graph_a, judge(scripted_gateway, accept_all()))
-    # Extraction later states the inferred PART_OF (data-model.md: the edge becomes stated in place).
+    # Extraction later states the inferred PART_OF.
     await neo4j_project.run(
         "MATCH ()-[r:PART_OF {group_id: $p, edge_key: $k}]->() SET r.basis = 'stated'",
         p=graph_a,
@@ -1171,9 +1192,10 @@ async def test_an_inferred_edge_that_became_stated_is_neither_removed_nor_duplic
 
 
 def seed_realization() -> Seed:
-    """``cap-x`` with members feat-1 (GROUPED_BY) and req-1 (a requirement GROUPED_BY): candidates
-    m-hop3 (feat-1 -> feat-2 -> feat-3 -> m-hop3, 3 hops) and m-req (req-1 -> m-req); not m-hop4
-    (4 hops), m-done (already stated REALIZED_BY) or m-inf (reached only by an inferred edge)."""
+    """``cap-x`` with members feat-1 (GROUPED_BY) and req-1 (a requirement GROUPED_BY): candidates m-hop3 (feat-1 ->
+    feat-2 -> feat-3 -> m-hop3, 3 hops) and m-req (req-1 -> m-req); not m-hop4 (4 hops), m-done (already stated
+    REALIZED_BY) or m-inf (reached only by an inferred edge).
+    """
 
     seed = Seed().fragment("f-audit", "Audit logging: the export module writes every download to the audit log.")
     for key, name in (
@@ -1202,7 +1224,7 @@ async def test_realization_candidates_follow_members_up_to_max_hops(
 ) -> None:
     pid = neo4j_project.project_id
     await seed_realization().write(neo4j_project, pid)
-    assert CAP.max_hops == 3
+    assert CAP.container_paths[0].max_hops == 3
     answers = {
         (CAP.prompt, "Audit logging"): realized("C1", quote=("f-audit", "writes every download to the audit log"))
     }
@@ -1248,11 +1270,9 @@ async def test_realization_payload_shows_at_most_twelve_members_and_candidates(
 
 
 def seed_orphans() -> Seed:
-    """The orphan r-main (axis 0) and its candidates by exact cosine: feat-near 0.9, mod-mid 0.8, then
-    feat-tie-a and feat-tie-b at 0.7 (ties by spec_id); cap-close (0.95) is no target label. Other
-    requirements: r-excl holds an exclusive pair (no subject), r-excl-inf holds it only by an inferred
-    edge (a subject), r-novec has no embedding (no candidate), r-rel and r-cap reach a module (no
-    orphan), r-inf reaches one only by an inferred edge (an orphan)."""
+    """The orphan r-main (axis 0) and its candidates by exact cosine: feat-near 0.9, mod-mid 0.8, then feat-tie-a and
+    feat-tie-b at 0.7 (ties by spec_id); cap-close (0.95) is no target label.
+    """
 
     seed = Seed().fragment("f-main", "Customer can export the orders of one month as a spreadsheet.")
     seed.fragment("f-misc", "Further requirements of the shop.")
@@ -1326,11 +1346,7 @@ async def test_orphan_subjects_and_their_exact_project_scoped_candidates(
 async def test_candidates_already_linked_by_the_written_relation_are_left_out(
     neo4j_project: Neo4jProject, scripted_gateway: GatewayFactory
 ) -> None:
-    """G4. With the shipped rule this cannot occur (an orphan's stated PART_OF is an exclusive pair or
-    reaches a module), so a variant of the rule attaches quality requirements to functional ones by the
-    symmetric RELATES_TO:
-    the orphan's nearest target, already related to it (stored the other way), is no candidate; one
-    related only by an inferred edge still is."""
+    """G4."""
 
     pid = neo4j_project.project_id
     rule = dataclasses.replace(
@@ -1385,9 +1401,10 @@ SHOP_VERDICTS: dict[str, tuple[str, str] | None] = {
 
 
 def shop_judge(gateway: ScriptedGateway, failure: Exception | None = None) -> ScriptedGateway:
-    """Script the attach-orphan judgements of the shop builds from ``SHOP_VERDICTS`` (keyed by subject
-    name; the candidate's local id and the quoted fragment are looked up in the request), or answer
-    every judgement with ``failure``. The other rules have no subject in the shop corpus."""
+    """Script the attach-orphan judgements of the shop builds from ``SHOP_VERDICTS`` (keyed by subject name; the
+    candidate's local id and the quoted fragment are looked up in the request), or answer every judgement with
+    ``failure``.
+    """
 
     def handle(request: ScriptedRequest) -> Any:
         name = subject_name(request)
@@ -1453,7 +1470,7 @@ class ShopProject:
             database=self.project.database,
             settings=BuildSettings(inference=True),
         )
-        return await run_build(ctx), gateway
+        return await run_shop_build(ctx), gateway
 
     async def report(self, result: BuildResult) -> InferenceReport:
         payload = await self.stores.builds.get_artifact(self.project.project_id, result.build_id, "infer")
@@ -1481,7 +1498,7 @@ async def test_shop_build_infers_and_a_no_change_update_makes_no_judge_call(
     assert (result.status, result.failed_step, result.error_code) == ("partially_succeeded", None, None)
     assert result.verification is not None and result.verification.ok
     report = await shop.report(result)
-    assert tuple(rule.rule for rule in report.rules) == RULE_IDS  # FR-INF-01: each rule once per build
+    assert tuple(rule.rule for rule in report.rules) == RULE_IDS  # each rule once per build
     orphan = by_rule(report)[ORPH.id]
     assert counts(orphan, "subjects", "judged", "accepted", "declined", "edges_added") == (6, 6, 2, 4, 2)
     assert sorted(judged(gateway)) == sorted(SHOP_VERDICTS)  # each subject once
@@ -1493,9 +1510,10 @@ async def test_shop_build_infers_and_a_no_change_update_makes_no_judge_call(
     assert {props["last_build_id"] for props in edges.values()} == {result.build_id}
     assert {props["judge_model"] for props in edges.values()} == {live_llm_config().model_for("judge")}
 
+    # a no-change update drains the queues; the first build judged every subject, so none
     again, gateway = await shop.build(1, judge_calls=False)
     assert again.mode == "update" and (again.status, again.failed_step) == (result.status, None)
-    assert judged(gateway) == []
+    assert judged(gateway) == [] and report.backlog in (None, {})
     assert (again.spec_changes.inferred_added, again.spec_changes.inferred_removed) == ((), ())
     report = await shop.report(again)
     assert tuple(rule.rule for rule in report.rules) == RULE_IDS
@@ -1541,22 +1559,560 @@ async def test_shop_update_fails_on_a_fatal_judge_error_with_the_inferred_edges_
     assert stored is not None and (stored.status, stored.failed_step) == ("failed", "infer")
 
 
-async def test_shop_no_change_update_leaves_the_backlog_and_a_changing_update_works_it_off(
-    shop: ShopProject, neo4j_project: Neo4jProject
+async def test_shop_no_change_update_drains_the_queue_and_a_changing_update_works_it_off(
+    shop: ShopProject,
 ) -> None:
     capped = only(cap=2)
     first, gateway = await shop.build(1, ontology=capped)
     assert len(judged(gateway)) == 2
-    assert counts(by_rule(await shop.report(first))[ORPH.id], "subjects", "judged", "deferred") == (6, 2, 4)
-    edges = await inferred(neo4j_project, neo4j_project.project_id)
+    report = await shop.report(first)
+    assert counts(by_rule(report)[ORPH.id], "subjects", "judged", "deferred", "backlog") == (6, 2, 4, 4)
+    assert report.backlog is not None
+    queue = report.backlog[ORPH.id]
+    assert (len(queue.spec_ids), queue.since_build, queue.age_builds) == (4, first.build_id, 1)
 
-    again, gateway = await shop.build(1, judge_calls=False, ontology=capped)
-    assert again.mode == "update" and judged(gateway) == []
-    assert counts(by_rule(await shop.report(again))[ORPH.id], "reused", "judged", "deferred") == (2, 0, 4)
-    assert await inferred(neo4j_project, neo4j_project.project_id) == edges
+    # a no-change update judges the queue (oldest first) under the cap.
+    again, gateway = await shop.build(1, ontology=capped)
+    assert again.mode == "update" and len(judged(gateway)) == 2
+    report = await shop.report(again)
+    assert counts(by_rule(report)[ORPH.id], "reused", "judged", "deferred", "backlog") == (2, 2, 2, 2)
+    assert report.backlog is not None
+    assert report.backlog[ORPH.id].spec_ids == queue.spec_ids[2:]
+    assert (report.backlog[ORPH.id].since_build, report.backlog[ORPH.id].age_builds) == (first.build_id, 2)
 
     changed, gateway = await shop.build(2, ontology=capped)
     assert changed.spec_changes.model_dump() != dict.fromkeys(changed.spec_changes.model_dump(), ())
     orphan = by_rule(await shop.report(changed))[ORPH.id]
     assert len(judged(gateway)) == orphan.judged == 2
     assert orphan.reused + orphan.judged + orphan.deferred == orphan.subjects
+
+
+# Inference v2.0: the shipped ontology's rules on a live graph. Owner-based orphan
+# subjects (INF-CONT-01, INF-CONT-02), exclude_owned_by (INF-INT-01), several container paths
+# (INF-CAP-01) and the shared validator with the invalid_proposal quarantine.
+
+V2 = shipped_ontology()
+V2_RULES: dict[str, InferenceRule] = {rule.id: rule for rule in V2.inference.rules}
+CONT1, CONT2 = V2_RULES["INF-CONT-01"], V2_RULES["INF-CONT-02"]
+INT2, CAP2 = V2_RULES["INF-INT-01"], V2_RULES["INF-CAP-01"]
+
+
+def judge_v2(factory: GatewayFactory, answers: Answers | None = None) -> ScriptedGateway:
+    """``judge`` for the shipped rules' prompts."""
+
+    gateway = factory(live_llm_config())
+    for rule in V2.inference.rules:
+        gateway.key_by(rule.prompt, subject_name)
+    for (prompt, name), value in (answers or {}).items():
+        gateway.answer(prompt, name, value)
+    return gateway
+
+
+def only_v2(*rule_ids: str) -> Ontology:
+    spec = V2.inference
+    rules = tuple(V2_RULES[rule_id] for rule_id in rule_ids) or spec.rules
+    return dataclasses.replace(V2, inference=InferenceSpec(cap=spec.cap, floor=spec.floor, rules=rules))
+
+
+async def set_props(project: Neo4jProject, project_id: str, uuid: str, **props: str) -> None:
+    await project.run("MATCH (n:SpecNode {group_id: $p, uuid: $u}) SET n += $props", p=project_id, u=uuid, props=props)
+
+
+async def test_v2_inf_cont_02_attaches_features_and_never_shows_modules_its_owner_pair_forbids(
+    neo4j_project: Neo4jProject, scripted_gateway: GatewayFactory
+) -> None:
+    pid = neo4j_project.project_id
+    seed = Seed().fragment("f-feat", "Order export runs in the shop backend; card payments go through Stripe.")
+    seed.node("feat-a", "Feature", "Order export", "f-feat", embedding=vector((0, 1.0)))
+    seed.node("feat-b", "Feature", "Card payments", "f-feat", embedding=vector((1, 1.0)))
+    seed.node("feat-c", "Feature", "Owned feature", "f-feat", embedding=vector((0, 1.0)))
+    seed.node("feat-out", "Feature", "Dropped feature", "f-feat", embedding=vector((0, 1.0)))
+    seed.node("mod-ok", "Module", "Shop backend", "f-feat", embedding=near(0, 0.9, 20))
+    seed.node("mod-dep", "Module", "Cluster", "f-feat", embedding=near(0, 0.5, 21))
+    seed.node("mod-ext", "Module", "Stripe", "f-feat", embedding=near(1, 0.9, 22))
+    seed.edge("PART_OF", "feat-c", "mod-ok")
+    await seed.write(neo4j_project, pid)
+    for uuid, props in (
+        ("mod-ok", {"type": "backend"}),
+        ("mod-dep", {"type": "deployment"}),
+        ("mod-ext", {"type": "backend", "external": "yes"}),
+        ("feat-out", {"in_scope": "no"}),
+    ):
+        await set_props(neo4j_project, pid, uuid, **props)
+    answers = {
+        (CONT2.prompt, "Order export"): attach("C1", quote=("f-feat", "Order export runs in the shop backend")),
+        (CONT2.prompt, "Card payments"): NO_LINK[ORPH.prompt],
+    }
+    gateway = judge_v2(scripted_gateway, answers)
+    report = await run(neo4j_project, pid, gateway, ontology=V2)
+
+    assert [rule.rule for rule in report.rules] == [
+        "INF-CONT-01",
+        "INF-CONT-02",
+        "INF-INT-01",
+        "INF-CAP-01",
+        "INF-XDOC-01",
+    ]
+    rule = by_rule(report)[CONT2.id]
+    assert counts(rule, "subjects", "accepted", "declined", "invalid", "edges_added") == (2, 1, 1, 0, 1)
+    for name in ("Order export", "Card payments"):  # a deployment and an external module are never shown
+        shown = payload_of(next(call for call in gateway.calls if call.key == name))
+        assert [c["name"] for c in shown["candidates"]] == ["Shop backend"]
+    assert set(await inferred(neo4j_project, pid)) == {"feat-a>PART_OF>mod-ok"}
+    assert report.quarantine == ()
+
+
+async def test_v2_inf_cont_01_subjects_have_no_owner_and_candidates_among_their_owner_labels(
+    neo4j_project: Neo4jProject, scripted_gateway: GatewayFactory
+) -> None:
+    pid = neo4j_project.project_id
+    seed = Seed().fragment("f-r", "Requirements of the shop.")
+    seed.node("fr-1", "FunctionalRequirement", "Customer exports orders", "f-r", embedding=vector((0, 1.0)))
+    seed.node("int-1", "IntegrationRequirement", "Shop calls the ERP", "f-r", embedding=vector((0, 1.0)))
+    seed.node("data-1", "DataRequirement", "Orders keep a total", "f-r", embedding=vector((0, 1.0)))
+    seed.node("fr-own", "FunctionalRequirement", "Owned requirement", "f-r", embedding=vector((0, 1.0)))
+    seed.node("feat-1", "Feature", "Order export", "f-r", embedding=near(0, 0.9, 30))
+    seed.node("mod-1", "Module", "Shop backend", "f-r", embedding=near(0, 0.8, 31))
+    seed.node("ent-1", "DataEntity", "Order", "f-r", embedding=near(0, 0.95, 32))
+    seed.edge("RELATES_TO", "fr-1", "mod-1")  # reaches a module, owns none: still a subject
+    seed.edge("PART_OF", "fr-own", "feat-1")
+    await seed.write(neo4j_project, pid)
+    answers = {
+        (CONT1.prompt, "Customer exports orders"): NO_LINK[ORPH.prompt],
+        (CONT1.prompt, "Shop calls the ERP"): NO_LINK[ORPH.prompt],
+    }
+    gateway = judge_v2(scripted_gateway, answers)
+    report = await run(neo4j_project, pid, gateway, ontology=only_v2("INF-CONT-01"))
+    assert sorted(judged(gateway, CONT1)) == ["Customer exports orders", "Shop calls the ERP"]
+    labels = {
+        call.key: sorted({c["label"] for c in payload_of(call)["candidates"]})
+        for call in gateway.calls_for(CONT1.prompt)
+    }
+    assert labels == {"Customer exports orders": ["Feature", "Module"], "Shop calls the ERP": ["Module"]}
+    assert report.orphans_without_candidate == ()  # the data requirement is no subject at all
+    assert counts(report.rules[0], "subjects", "declined") == (2, 2)
+
+
+async def test_v2_inf_int_01_skips_integration_requirements_owned_by_an_interface(
+    neo4j_project: Neo4jProject, scripted_gateway: GatewayFactory
+) -> None:
+    pid = neo4j_project.project_id
+    seed = Seed().fragment("f-i", "The shop calls the ERP.")
+    for key in ("mod-1", "mod-2"):
+        seed.node(key, "Module", key, "f-i")
+    seed.node("iface-1", "Interface", "ERP API", "f-i")
+    seed.node("int-a", "IntegrationRequirement", "Owned by the API", "f-i")
+    seed.node("int-b", "IntegrationRequirement", "Not owned by an interface", "f-i")
+    for key in ("int-a", "int-b"):
+        seed.edge("RELATES_TO", key, "mod-1").edge("RELATES_TO", key, "mod-2")
+    seed.edge("PART_OF", "int-a", "iface-1")
+    await seed.write(neo4j_project, pid)
+    gateway = judge_v2(scripted_gateway, {(INT2.prompt, "Not owned by an interface"): NO_LINK[INT.prompt]})
+    report = await run(neo4j_project, pid, gateway, ontology=only_v2("INF-INT-01"))
+    assert judged(gateway, INT2) == ["Not owned by an interface"]
+    assert counts(report.rules[0], "subjects", "declined") == (1, 1)
+    assert report.integration_outliers == ()
+
+
+def seed_cap_paths() -> Seed:
+    """``cap-1`` "Ordering" with a candidate over every ``INF-CAP-01`` container path, and mod-far two
+    ``RELATES_TO`` hops away (no candidate)."""
+
+    seed = Seed().fragment("f-c", "Ordering: the shop takes and keeps orders.")
+    seed.node("cap-1", "Capability", "Ordering", "f-c")
+    for key, name in (
+        ("mod-own", "Order module"),
+        ("mod-rel", "Mail module"),
+        ("mod-prov", "Order API host"),
+        ("mod-cons", "Order API client"),
+        ("mod-far", "Far module"),
+    ):
+        seed.node(key, "Module", name, "f-c", spec_id=f"X::{key.upper()}")
+    seed.node("feat-1", "Feature", "Order taking", "f-c")
+    seed.node("fr-1", "FunctionalRequirement", "Shop mails a receipt", "f-c")
+    seed.node("int-1", "IntegrationRequirement", "Shop calls the order API", "f-c")
+    seed.node("iface-1", "Interface", "Order API", "f-c")
+    for member in ("feat-1", "fr-1", "int-1"):
+        seed.edge("GROUPED_BY", member, "cap-1")
+    seed.edge("PART_OF", "feat-1", "mod-own")  # PART_OF 1-3
+    seed.edge("RELATES_TO", "mod-rel", "fr-1")  # RELATES_TO 1, stored the other way
+    seed.edge("PART_OF", "int-1", "iface-1").edge("PROVIDED_BY", "iface-1", "mod-prov")
+    seed.edge("CONSUMED_BY", "iface-1", "mod-cons")
+    seed.edge("RELATES_TO", "mod-rel", "mod-far")  # two RELATES_TO hops: no candidate
+    return seed
+
+
+async def test_v2_inf_cap_01_candidates_come_from_every_container_path(
+    neo4j_project: Neo4jProject, scripted_gateway: GatewayFactory
+) -> None:
+    pid = neo4j_project.project_id
+    await seed_cap_paths().write(neo4j_project, pid)
+    gateway = judge_v2(scripted_gateway, {(CAP2.prompt, "Ordering"): NO_LINK[CAP.prompt]})
+    report = await run(neo4j_project, pid, gateway, ontology=only_v2("INF-CAP-01"))
+    payload = payload_of(gateway.calls_for(CAP2.prompt)[0])
+    members = {m["id"]: m["name"] for m in payload["members"]}
+    candidates = {c["name"]: sorted(members[i] for i in c["via"]) for c in payload["candidates"]}
+    assert candidates == {
+        "Order module": ["Order taking"],
+        "Mail module": ["Shop mails a receipt"],
+        "Order API host": ["Shop calls the order API"],
+        "Order API client": ["Shop calls the order API"],
+    }
+    assert counts(report.rules[0], "subjects", "declined", "truncated") == (1, 1, 0)
+
+
+# The realization walk in code equals the graph query it replaced, without read edges
+
+RealizationRows = list[tuple[str, str, tuple[str, ...], tuple[tuple[str, tuple[str, ...]], ...]]]
+
+
+async def queried_realization_rows(
+    executor: Any, project_id: str, ontology: Ontology, rule: InferenceRule
+) -> RealizationRows:
+    """The rows of the graph query the walk replaced (one per container path, merged)."""
+
+    merged: dict[str, tuple[str, set[str], dict[str, set[str]]]] = {}
+    for query in inference._realization_queries(ontology, rule):
+        rows = await executor.read(
+            query,
+            project_id,
+            subject_labels=sorted(rule.subject),
+            target_labels=sorted(rule.targets),
+            bases=["stated", "implied"],
+        )
+        for row in rows:
+            _, members, via = merged.setdefault(row["uuid"], (row["spec_id"], set(), {}))
+            members.update(row["members"])
+            for item in row["containers"]:
+                via.setdefault(item["uuid"], set()).update(item["via"])
+    return sorted(
+        (
+            uuid,
+            spec_id,
+            tuple(sorted(members)),
+            tuple((key, tuple(sorted(found))) for key, found in sorted(via.items())),
+        )
+        for uuid, (spec_id, members, via) in merged.items()
+    )
+
+
+async def walked_realization_rows(
+    executor: Any, project_id: str, ontology: Ontology, rule: InferenceRule
+) -> RealizationRows:
+    spine = await load_spine_graph(executor, project_id, ontology)
+    rows = infer_reads.realization_rows(ontology, rule, spine, bases=("stated", "implied"))
+    return sorted(
+        (row.uuid, row.spec_id, row.members, tuple((key, found.via) for key, found in sorted(row.containers.items())))
+        for row in rows
+    )
+
+
+@pytest.mark.parametrize("version", ["v13", "v2"])
+async def test_the_realization_walk_equals_the_graph_query_without_reads(
+    neo4j_project: Neo4jProject, version: str
+) -> None:
+    pid = neo4j_project.project_id
+    seeded, ontology, rule = (
+        (seed_cap_paths, V2, CAP2) if version == "v2" else (seed_realization, frozen_ontology(), CAP)
+    )
+    await seeded().write(neo4j_project, pid)
+    queried = await queried_realization_rows(neo4j_project.executor, pid, ontology, rule)
+    assert queried and await walked_realization_rows(neo4j_project.executor, pid, ontology, rule) == queried
+
+
+async def test_the_realization_walk_equals_the_graph_query_on_a_shop_build(shop: ShopProject) -> None:
+    result, _ = await shop.build(1)
+    assert result.failed_step is None
+    executor, pid, ontology = shop.project.executor, shop.project.project_id, shop.project.ontology
+    for rule in (rule for rule in ontology.inference.rules if rule.template == "realization"):
+        queried = await queried_realization_rows(executor, pid, ontology, rule)
+        assert await walked_realization_rows(executor, pid, ontology, rule) == queried
+
+
+# INF-XDOC-01: members of one hub from different documents
+
+XDOC = V2_RULES["INF-XDOC-01"]
+
+
+def seed_xdoc() -> Seed:
+    """The module "Orders service" with three requirement members: fr-a (document d1, RELATES_TO the hub), fr-b (d2,
+    grounded where the hub is mentioned) and fr-c (d2, RELATES_TO the hub, part of the feature "Refunds").
+    """
+
+    seed = Seed()
+    seed.fragment("f-a", "A refund is accepted only after the order is cancelled.", document="d1")
+    seed.fragment("f-hub", "The Orders service keeps every order.", document="d1")
+    seed.fragment("f-b", "Paid orders can be cancelled in the Orders service within 24 hours.", document="d2")
+    seed.fragment("f-c", "Refunds: requests over 500 EUR are rejected.", document="d2")
+    seed.fragment("f-feat", "Refunds: the refund feature covers every refund.", document="d2")
+    seed.node("mod-hub", "Module", "Orders service", "f-hub", embedding=vector((5, 1.0)))
+    seed.node("feat-x", "Feature", "Refunds", "f-feat", embedding=vector((6, 1.0)))
+    seed.node("fr-a", "FunctionalRequirement", "Refund request", "f-a", embedding=vector((0, 1.0)))
+    seed.node("fr-b", "FunctionalRequirement", "Order cancel", "f-b", embedding=near(0, 0.9, 40))
+    seed.node("fr-c", "FunctionalRequirement", "Refund limit", "f-c", embedding=near(0, 0.8, 41))
+    seed.edge("RELATES_TO", "fr-a", "mod-hub").edge("RELATES_TO", "mod-hub", "fr-c")
+    seed.edge("PART_OF", "fr-c", "feat-x")
+    seed.mention("mod-hub", "f-b")
+    return seed
+
+
+async def test_v2_inf_xdoc_01_links_members_of_different_documents_and_attaches_an_orphan(
+    neo4j_project: Neo4jProject, scripted_gateway: GatewayFactory, tmp_path: Path
+) -> None:
+    pid = neo4j_project.project_id
+    await seed_xdoc().write(neo4j_project, pid)
+    await set_props(neo4j_project, pid, "mod-hub", type="backend")
+    verdict = {
+        "confidence": 0.9,
+        "evidence": [],
+        "links": [
+            {
+                "a": "M1",
+                "b": "M2",
+                "relation": "DEPENDS_ON",
+                "source": "M1",
+                "confidence": 0.9,
+                "evidence": evidence("f-a", "accepted only after the order is cancelled")
+                + evidence("f-b", "Paid orders can be cancelled"),
+            }
+        ],
+        "owners": [
+            {
+                "member": "M2",
+                "owner": "O2",
+                "confidence": 0.9,
+                "evidence": evidence("f-b", "cancelled in the Orders service") + evidence("f-hub", "keeps every order"),
+            }
+        ],
+    }
+    gateway = judge_v2(scripted_gateway, {(XDOC.prompt, "Orders service"): verdict})
+    memory = remembering(tmp_path, pid)
+    report = await run(neo4j_project, pid, gateway, ontology=only_v2("INF-XDOC-01"), memory=memory)
+
+    payload = payload_of(gateway.calls_for(XDOC.prompt)[0])
+    assert [(m["id"], m["name"], m["document"], m["owner"]) for m in payload["members"]] == [
+        ("M1", "Refund request", "d1", None),
+        ("M2", "Order cancel", "d2", None),
+        ("M3", "Refund limit", "d2", "Refunds"),
+    ]
+    assert payload["pairs"] == [["M1", "M2"], ["M1", "M3"]]  # best cosine first; fr-b and fr-c share d2
+    owners = {o["member"]: [(c["id"], c["name"]) for c in o["candidates"]] for o in payload["owners"]}
+    assert owners == {"M1": [("O1", "Refunds"), ("O2", "Orders service")], "M2": [("O2", "Orders service")]}
+    (rule,) = report.rules
+    assert counts(rule, "subjects", "accepted", "edges_added") == (1, 1, 2)
+    assert rule.items_by_outcome == {"accepted": 2}
+    edges = await inferred(neo4j_project, pid)
+    assert set(edges) == {"fr-a>DEPENDS_ON>fr-b", "fr-b>PART_OF>mod-hub"}
+    depends = edges["fr-a>DEPENDS_ON>fr-b"]
+    assert (depends["inference_rule"], depends["source_fragment_ids"]) == (XDOC.id, ["f-a", "f-b"])
+    assert [item["fragment_id"] for item in json.loads(depends["evidence"])] == ["f-a", "f-b"]
+
+    # Inferred edges never make or unmake a subject: the same judgement is reused, its edges kept.
+    again = await run(
+        neo4j_project, pid, judge_v2(scripted_gateway), ontology=only_v2("INF-XDOC-01"), memory=memory, build_id="b-2"
+    )
+    assert counts(again.rules[0], "subjects", "judged", "reused", "edges_added", "edges_removed") == (1, 0, 1, 0, 0)
+    assert set(await inferred(neo4j_project, pid)) == set(edges)
+
+
+async def test_v2_inf_xdoc_01_drops_an_owner_edge_of_a_deferred_hub_once_its_member_has_an_owner(
+    neo4j_project: Neo4jProject, scripted_gateway: GatewayFactory
+) -> None:
+    pid = neo4j_project.project_id
+    seed = seed_xdoc()
+    seed.edge("PART_OF", "fr-c", "mod-hub", basis="inferred", inference_rule=XDOC.id)  # stale: fr-c has a stated owner
+    await seed.write(neo4j_project, pid)
+    report = await run(  # an update changing none of its members, no queue: the hub is deferred
+        neo4j_project,
+        pid,
+        judge_v2(scripted_gateway),
+        ontology=only_v2("INF-XDOC-01"),
+        changes=inference.BuildChanges(update=inference.UpdateScope()),
+    )
+    (rule,) = report.rules
+    assert counts(rule, "subjects", "judged", "deferred", "edges_removed") == (1, 0, 1, 1)
+    assert report.inferred_removed == ("X::FR-C|PART_OF|X::MOD-HUB",)
+    assert await inferred(neo4j_project, pid) == {}
+
+
+async def test_v2_inf_xdoc_01_pair_cosines_equal_neo4j_vector_similarity_cosine(neo4j_project: Neo4jProject) -> None:
+    """The cosines computed from the members' embeddings (read once) equal Neo4j's
+    ``vector.similarity.cosine`` on the same pairs, scale (1 + cos) / 2 included: the seeded unit
+    vectors plus spread vectors that are not unit length; a node without an embedding has none."""
+
+    pid = neo4j_project.project_id
+    seed = seed_xdoc()
+    for index in range(4):
+        spread = [(index + 1) * math.sin(7.3 * index + 1.7 * axis + 0.4) for axis in range(DIM)]
+        seed.node(f"fr-r{index}", "FunctionalRequirement", f"Spread {index}", "f-a", embedding=spread)
+    seed.node("fr-none", "FunctionalRequirement", "No vector", "f-a")
+    await seed.write(neo4j_project, pid)
+    uuids = ["mod-hub", "feat-x", "fr-a", "fr-b", "fr-c", "fr-none", *(f"fr-r{index}" for index in range(4))]
+    pairs = list(itertools.combinations(sorted(uuids), 2))
+
+    embeddings = await infer_xdoc.member_embeddings(neo4j_project.executor, pid, uuids)
+    ours = infer_xdoc.pair_cosines(pairs, embeddings)
+    rows = await neo4j_project.run(
+        "UNWIND $pairs AS pair "
+        "MATCH (a:SpecNode {group_id: $p, uuid: pair[0]}), (b:SpecNode {group_id: $p, uuid: pair[1]}) "
+        "WHERE a.embedding IS NOT NULL AND b.embedding IS NOT NULL "
+        "RETURN a.uuid AS a, b.uuid AS b, vector.similarity.cosine(a.embedding, b.embedding) AS score",
+        p=pid,
+        pairs=[list(pair) for pair in pairs],
+    )
+    neo4j = {frozenset((row["a"], row["b"])): row["score"] for row in rows}
+    assert "fr-none" not in embeddings
+    assert len(ours) == len(neo4j) == math.comb(len(uuids) - 1, 2)
+    assert ours == pytest.approx(neo4j, abs=1e-6)  # Neo4j computes in float32 (differences ~1e-7)
+
+
+async def test_v2_inf_xdoc_01_dry_run_writes_nothing(
+    neo4j_project: Neo4jProject, scripted_gateway: GatewayFactory, tmp_path: Path
+) -> None:
+    pid = neo4j_project.project_id
+    await seed_xdoc().write(neo4j_project, pid)
+    answer = {"confidence": 0.9, "evidence": [], "links": [], "owners": []}
+    gateway = judge_v2(scripted_gateway, {(XDOC.prompt, "Orders service"): answer})
+    memory = remembering(tmp_path, pid)
+    report = await inference.infer(
+        neo4j_project.executor,
+        pid,
+        only_v2("INF-XDOC-01"),
+        JudgeRunner(gateway, V2),
+        stamp=inference.InferenceStamp(build_id="b-1", at=AT, judge_model=JUDGE_MODEL),
+        memory=memory,
+        write=False,
+    )
+    assert counts(report.rules[0], "subjects", "declined") == (1, 1)
+    assert await inferred(neo4j_project, pid) == {}
+    assert await memory.seen(XDOC, ["X::MOD-HUB"]) == set()
+
+
+async def test_v2_inf_xdoc_01_a_requirement_sharing_an_evidence_fragment_with_the_hub_is_a_member(
+    neo4j_project: Neo4jProject,
+) -> None:
+    """A fragment that grounds the hub has no MENTIONED_IN to it; a requirement grounded there whose own text names the
+    hub is a member all the same (no edge to the hub needed).
+    """
+
+    pid = neo4j_project.project_id
+    seed = Seed()
+    seed.fragment("f-hub", "The Orders service keeps every order.", document="d1")
+    seed.fragment("f-a", "A refund is accepted only after the order is cancelled.", document="d1")
+    seed.fragment("f-hub-2", "The Orders service lets paid orders be cancelled within 24 hours.", document="d2")
+    seed.node("mod-hub", "Module", "Orders service", "f-hub", "f-hub-2", embedding=vector((5, 1.0)))
+    seed.node("mod-other", "Module", "Billing", "f-hub-2", embedding=vector((6, 1.0)))
+    seed.node("fr-a", "FunctionalRequirement", "Refund request", "f-a", embedding=vector((0, 1.0)))
+    seed.node(
+        "fr-d", "FunctionalRequirement", "Orders service cancels paid orders", "f-hub-2", embedding=near(0, 0.9, 40)
+    )
+    seed.node("fr-e", "FunctionalRequirement", "Cancel window", "f-hub-2", embedding=near(0, 0.9, 41))
+    seed.edge("RELATES_TO", "fr-a", "mod-hub")
+    await seed.write(neo4j_project, pid)
+
+    selection = await inference._select(neo4j_project.executor, pid, V2, XDOC)
+    assert [(subject.spec_id, subject.targets) for subject in selection.subjects] == [("X::MOD-HUB", ("fr-a", "fr-d"))]
+    without = await inference._select(neo4j_project.executor, pid, V2, dataclasses.replace(XDOC, mentions=False))
+    assert without.subjects == ()  # fr-a alone: one document
+
+
+# INF-CAP-01 reads INF-CONT-01 and INF-CONT-02, so the owner edges they accept in a
+# build lead it to its candidates in the same build
+
+
+def seed_reads() -> Seed:
+    """``cap-1`` groups the orphan fr-1; feat-1 sits in mod-1. Only an INF-CONT-01 edge fr-1 -> feat-1
+    links fr-1 to a module (over PART_OF twice)."""
+
+    seed = Seed().fragment("f-cap", "Order export lets staff download orders.")
+    seed.fragment("f-fr", "Staff downloads orders as CSV.")
+    seed.fragment("f-mod", "The Orders service holds the export screen.")
+    seed.node("cap-1", "Capability", "Order export", "f-cap")
+    seed.node("fr-1", "FunctionalRequirement", "Staff downloads orders", "f-fr", embedding=vector((0, 1.0)))
+    seed.node("feat-1", "Feature", "Export screen", "f-mod", embedding=near(0, 0.9, 30))
+    seed.node("mod-1", "Module", "Orders service", "f-mod")
+    return seed.edge("GROUPED_BY", "fr-1", "cap-1").edge("PART_OF", "feat-1", "mod-1")
+
+
+async def test_v2_inf_cap_01_sees_the_inf_cont_01_edge_accepted_in_the_same_build(
+    neo4j_project: Neo4jProject, scripted_gateway: GatewayFactory
+) -> None:
+    pid = neo4j_project.project_id
+    await seed_reads().write(neo4j_project, pid)
+    assert CAP2.reads == (CONT1.id, CONT2.id)
+    answers = {
+        (CONT1.prompt, "Staff downloads orders"): attach("C1", quote=("f-fr", "Staff downloads orders as CSV")),
+        (CAP2.prompt, "Order export"): realized("C1", quote=("f-cap", "lets staff download orders")),
+    }
+    gateway = judge_v2(scripted_gateway, answers)
+    report = await run(neo4j_project, pid, gateway, ontology=only_v2("INF-CONT-01", "INF-CAP-01"))
+
+    rules = by_rule(report)
+    assert counts(rules[CONT1.id], "subjects", "accepted") == (1, 1) and rules[CONT1.id].read_edges is None
+    assert counts(rules[CAP2.id], "subjects", "accepted", "read_edges") == (1, 1, 1)
+    (call,) = gateway.calls_for(CAP2.prompt)
+    assert [(c["name"], c["via"]) for c in payload_of(call)["candidates"]] == [("Orders service", ["M1"])]
+    assert set(report.inferred_added) == {"X::FR-1|PART_OF|X::FEAT-1", "X::CAP-1|REALIZED_BY|X::MOD-1"}
+    assert set(await inferred(neo4j_project, pid)) == {"fr-1>PART_OF>feat-1", "cap-1>REALIZED_BY>mod-1"}
+
+
+# in an update INF-XDOC-01 judges the hubs its UpdateScope covers first, then drains its
+# queue under its cap
+
+
+def seed_xdoc_two_hubs() -> Seed:
+    """``seed_xdoc`` plus a second hub, "Payment service", with members fr-p (d1) and fr-q (d2)."""
+
+    seed = seed_xdoc()
+    seed.fragment("f-p", "Card payments are captured once the order ships.", document="d1")
+    seed.fragment("f-q", "The Payment service refunds a capture within a week.", document="d2")
+    seed.node("mod-pay", "Module", "Payment service", "f-q", embedding=vector((8, 1.0)))
+    seed.node("fr-p", "FunctionalRequirement", "Capture on shipping", "f-p", embedding=vector((7, 1.0)))
+    seed.node("fr-q", "FunctionalRequirement", "Refund a capture", "f-q", embedding=near(7, 0.9, 43))
+    return seed.edge("RELATES_TO", "fr-p", "mod-pay").edge("RELATES_TO", "fr-q", "mod-pay")
+
+
+XDOC_NO_LINK: dict[str, Any] = {"confidence": 0.9, "evidence": [], "links": [], "owners": []}
+
+
+async def test_v2_inf_xdoc_01_update_judges_its_scope_first_then_drains_its_queue_under_its_cap(
+    neo4j_project: Neo4jProject, scripted_gateway: GatewayFactory, tmp_path: Path
+) -> None:
+    pid = neo4j_project.project_id
+    await seed_xdoc_two_hubs().write(neo4j_project, pid)
+    memory = remembering(tmp_path, pid)
+    capped = dataclasses.replace(
+        V2, inference=dataclasses.replace(V2.inference, rules=(dataclasses.replace(XDOC, cap=1),))
+    )
+    hubs = ("Orders service", "Payment service")
+
+    async def build(build_id: str, changes: inference.BuildChanges | None = None) -> tuple[list[Any], InferenceReport]:
+        gateway = judge_v2(scripted_gateway, {(XDOC.prompt, hub): XDOC_NO_LINK for hub in hubs})
+        report = await run(
+            neo4j_project, pid, gateway, ontology=capped, memory=memory, build_id=build_id, changes=changes
+        )
+        return judged(gateway, XDOC), report
+
+    def queue(report: InferenceReport) -> tuple[tuple[str, ...], str | None, int] | None:
+        found = (report.backlog or {}).get(XDOC.id)
+        return None if found is None else (found.spec_ids, found.since_build, found.age_builds)
+
+    # cap 1: the first hub in spec_id order is judged, the other one queued
+    names, report = await build("b-1")
+    assert names == ["Orders service"]
+    assert counts(report.rules[0], "subjects", "judged", "deferred", "backlog") == (2, 1, 1, 1)
+    assert queue(report) == (("X::MOD-PAY",), "b-1", 1)
+
+    # an update renaming a member of "Orders service": the covered hub takes the cap, the queue waits
+    await set_props(neo4j_project, pid, "fr-b", name="Order cancel within a day")
+    scope = inference.UpdateScope(changed=frozenset({"X::FR-B"}))
+    names, report = await build("b-2", inference.BuildChanges(update=scope, backlog=report.backlog or {}))
+    assert names == ["Orders service"] and counts(report.rules[0], "judged", "deferred") == (1, 1)
+    assert queue(report) == (("X::MOD-PAY",), "b-1", 2)
+
+    # an update covering no hub drains the queue (before the never-judged hub waited)
+    changes = inference.BuildChanges(update=inference.UpdateScope(), backlog=report.backlog or {})
+    names, report = await build("b-3", changes)
+    assert names == ["Payment service"]
+    assert counts(report.rules[0], "reused", "judged", "deferred", "backlog") == (1, 1, 0, 0)
+    assert queue(report) is None

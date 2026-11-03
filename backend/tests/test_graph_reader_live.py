@@ -1,15 +1,4 @@
-"""Live Neo4j tests of ``GraphReader`` search and traversal (plan 5.T1).
-
-FR-READ-02..09 and m5-spec-edits H1-H7: fused search and its fallbacks, project scoping on the shared
-indexes (paged fulltext, the exact-cosine and the index vector paths), query text handling, ``scope``
-over the declared spine paths, ``impact`` and its truncation, ``nodes_for_fragment`` boundaries,
-``find_fragments``, and reads without vectors. Graphs are written with raw Cypher (hand-written names
-and vectors) or built from the shop corpus with the hand-written ``ShopAnswers`` (no model output).
-
-Gate: ``SPECFLOW_TEST_NEO4J=1`` and ``uv run --env-file ../.env.local``. Every test works in its own
-``pytest-graph-<hex>`` project ids; ``neo4j_project`` deletes them by ``group_id`` afterwards and
-checks that nothing outside them changed.
-"""
+"""Live Neo4j tests of ``GraphReader`` search and traversal."""
 
 from __future__ import annotations
 
@@ -21,7 +10,9 @@ from typing import Any
 import numpy as np
 import pytest
 
-from graph.build import BuildContext, BuildSettings, open_file_stores, run_build
+from graph.build import BuildContext, BuildSettings, open_file_stores
+from graph.build.spine import load_spine_graph
+from graph.build.verify import OwnedNames, load_state
 from graph.core import ConfigurationError, GraphReader, LLMError, NodePage, Ontology
 from graph.core import reader as reader_module
 from graph.core.queries import READ_NODES, READ_NODES_PAGE
@@ -34,6 +25,8 @@ from graph_support import (
     live_embedding_dim,
     live_llm_config,
     load_feature_renamed_ontology,
+    run_shop_build,
+    shipped_ontology,
     shop_answers,
     shop_corpus,
 )
@@ -205,7 +198,7 @@ async def crowd_project(project: Neo4jProject, count: int = 400) -> str:
     return pid
 
 
-# --- FR-READ-02, 03, 08 / H2, H5: fused search ---------------------------------------------------
+# ---, 03, 08 / H2, H5: fused search ---------------------------------------------------
 
 
 async def test_node_hit_by_both_indexes_ranks_first(neo4j_project: Neo4jProject) -> None:
@@ -521,7 +514,7 @@ async def test_limit_500_returns_every_node_of_a_small_project(neo4j_project: Ne
     assert len(hits) == len(FUSION_VECTORS)
 
 
-# --- FR-READ-07 / H1: scope ----------------------------------------------------------------------
+# --- / H1: scope ----------------------------------------------------------------------
 
 
 async def scope_graph(project: Neo4jProject, pid: str) -> None:
@@ -559,7 +552,7 @@ async def test_scope_of_a_module_is_its_spine_paths(neo4j_project: Neo4jProject)
     pid = neo4j_project.project_id
     await scope_graph(neo4j_project, pid)
     reader = reader_of(neo4j_project)
-    # FR-READ-07: the feature, the capability and the 3 requirements; F2, F3 by 2-3 PART_OF hops.
+    # the feature, the capability and the 3 requirements; F2, F3 by 2-3 PART_OF hops.
     assert ids(await reader.scope(pid, "M")) == ["C", "F", "F2", "F3", "R1", "R2", "R3"]
     await link(neo4j_project, pid, [("M", "RELATES_TO", "R4")])  # symmetric, stored from the module
     assert ids(await reader.scope(pid, "M")) == ["C", "F", "F2", "F3", "R1", "R2", "R3", "R4"]
@@ -608,7 +601,7 @@ async def test_scope_is_project_scoped(neo4j_project: Neo4jProject) -> None:
     assert ids(await reader_of(neo4j_project).scope(other, "M")) == ["R9"]
 
 
-# --- FR-READ-05 / H5: impact ---------------------------------------------------------------------
+# --- / H5: impact ---------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("reachable", [500, 501, 600])
@@ -659,7 +652,7 @@ async def test_impact_is_nearest_first_in_both_directions(neo4j_project: Neo4jPr
     assert (await reader.impact(pid, ["NOPE"])).nodes == ()
 
 
-# --- FR-READ-04 / H6: nodes_for_fragment ---------------------------------------------------------
+# --- / H6: nodes_for_fragment ---------------------------------------------------------
 
 
 async def test_nodes_for_fragment_overlaps_evidence_lines_of_active_fragments(neo4j_project: Neo4jProject) -> None:
@@ -703,7 +696,7 @@ async def test_nodes_for_fragment_overlaps_evidence_lines_of_active_fragments(ne
         await reader.nodes_for_fragment(pid, "doc1", 5, 4)
 
 
-# --- FR-READ-09: find_fragments ------------------------------------------------------------------
+# ---: find_fragments ------------------------------------------------------------------
 
 
 async def fragment_corpus(project: Neo4jProject, pid: str) -> None:
@@ -760,7 +753,7 @@ async def test_find_fragments_pages_past_many_matches_elsewhere(neo4j_project: N
     assert counts["search_fragments"] > 1
 
 
-# --- shop graph: independent walks, two identical projects, no vectors (FR-READ-04..07, H7) ------
+# --- shop graph: independent walks, two identical projects, no vectors ------
 
 
 async def build(project: Neo4jProject, gateway: ScriptedGateway, root: Path, pid: str) -> None:
@@ -778,7 +771,7 @@ async def build(project: Neo4jProject, gateway: ScriptedGateway, root: Path, pid
         database=project.database,
         settings=BuildSettings(inference=False),
     )
-    await run_build(ctx)
+    await run_shop_build(ctx)
 
 
 def sequence_reach(steps: Sequence[str], target: str, back: Callable[..., set[str]]) -> set[str]:
@@ -901,7 +894,9 @@ async def test_reads_never_carry_vectors(neo4j_project: Neo4jProject, scripted_g
         p=pid,
     )
     reader = reader_of(neo4j_project)
-    rows = await reader._executor.read(READ_NODES, pid, labels=list(reader._spec_labels), where={}, retired="retired")
+    rows = await reader._executor.read(
+        READ_NODES, pid, labels=list(reader._spec_labels), where={}, defaulted={}, retired="retired"
+    )
     assert stored[0]["n"] == len(rows) > 0
     assert all(row["props"]["embedding"] is None and row["props"]["name_embedding"] is None for row in rows)
     for node in await reader.nodes(pid):
@@ -1015,6 +1010,84 @@ async def test_filters_apply_to_id_hits(neo4j_project: Neo4jProject) -> None:
     assert all(h.matched != "id" for h in await reader.find_nodes(pid, "FR-AUTH-012", labels=[MODULE, QR]))
     hits = await reader.find_nodes(pid, "FR-AUTH-012 FR-AUTH-013", where={"is_assumption": "yes"})
     assert [(h.node.name, h.matched) for h in hits] == [("FR-AUTH-013: Users log out", "id")]
+
+
+# --- Attributes: read-time inherit, default-aware where, spine/verify reads--------
+
+
+async def attribute_project(project: Neo4jProject) -> str:
+    """Shipped-ontology nodes: a feature (``release`` MVP, ``in_scope`` no) owning ``A`` (no release),
+    ``B`` (own release); ``C`` without owner; ``LEGACY`` without ``in_scope`` (stored before defaults);
+    a module ``M`` the feature is part of."""
+
+    pid = project.project_id
+    await create(project, pid, FEATURE, [{"key": "F", "release": "MVP", "in_scope": "no"}])
+    await create(project, pid, MODULE, [{"key": "M", "in_scope": "yes"}])
+    await create(
+        project,
+        pid,
+        FR,
+        [
+            {"key": "A", "in_scope": "yes"},
+            {"key": "B", "in_scope": "yes", "release": "v2"},
+            {"key": "C", "in_scope": "no"},
+            {"key": "LEGACY"},
+        ],
+    )
+    await link(project, pid, [("A", "PART_OF", "F"), ("B", "PART_OF", "F"), ("F", "PART_OF", "M")])
+    return pid
+
+
+async def test_a_null_release_is_inherited_from_the_owner_when_read_and_never_stored(
+    neo4j_project: Neo4jProject,
+) -> None:
+    pid = await attribute_project(neo4j_project)
+    reader = neo4j_project.reader(ontology=shipped_ontology())
+    releases = {node.spec_id: node.attributes.get("release") for node in await reader.nodes(pid, labels=[FR])}
+    assert releases == {"A": "MVP", "B": "v2", "C": None, "LEGACY": None}
+    node = await reader.node(pid, "A")
+    assert node is not None and node.attributes["release"] == "MVP"
+    assert [n.attributes.get("release") for n in await reader.scope(pid, "M", labels=[FR])] == ["MVP", "v2"]
+    stored = await neo4j_project.run("MATCH (n:SpecNode {group_id: $p, spec_id: 'A'}) RETURN n.release AS r", p=pid)
+    assert stored == [{"r": None}]
+    # The frozen v1.3 ontology declares no inherit: the stored values only.
+    frozen = {
+        node.spec_id: node.attributes.get("release") for node in await reader_of(neo4j_project).nodes(pid, labels=[FR])
+    }
+    assert frozen["A"] is None
+
+
+async def test_where_on_a_defaulted_attribute_matches_nodes_stored_without_it(neo4j_project: Neo4jProject) -> None:
+    pid = await attribute_project(neo4j_project)
+    reader = neo4j_project.reader(ontology=shipped_ontology())
+    assert ids(await reader.nodes(pid, labels=[FR], where={"in_scope": "yes"})) == ["A", "B", "LEGACY"]
+    assert ids(await reader.nodes(pid, labels=[FR], where={"in_scope": "no"})) == ["C"]
+    # LEGACY's absent in_scope is the default "yes", not None; acceptance_criteria has no default.
+    assert ids(await reader.nodes(pid, labels=[FR], where={"in_scope": None})) == []
+    assert ids(await reader.nodes(pid, labels=[FR, FEATURE], where={"acceptance_criteria": None})) == [
+        "A",
+        "B",
+        "C",
+        "F",
+        "LEGACY",
+    ]
+    await neo4j_project.run("CALL db.awaitIndexes(60)")
+    hits = await reader.find_nodes(pid, "LEGACY B C", labels=[FR], where={"in_scope": "yes"})
+    assert {hit.node.spec_id for hit in hits} == {"B", "LEGACY"}
+
+
+async def test_spine_and_verify_reads_return_the_condition_attributes(neo4j_project: Neo4jProject) -> None:
+    pid = await attribute_project(neo4j_project)
+    ontology = shipped_ontology()
+    graph = await load_spine_graph(neo4j_project.executor, pid, ontology)
+    attributes = {node.spec_id: dict(node.attributes) for node in graph.nodes}
+    assert attributes["F"] == {"in_scope": "no"} and attributes["LEGACY"] == {}
+    # A and B are PART_OF the out-of-scope feature (their owner): excluded; C is out of scope itself
+    # LEGACY (no in_scope: the default "yes") reaches no module.
+    assert [node.spec_id for node in graph.unreached(ontology, ontology.spine.sources)] == ["LEGACY"]
+    state = await load_state(neo4j_project.executor, pid, OwnedNames.of(ontology))
+    by_spec = {node.spec_id: dict(node.attributes) for node in state.nodes.values()}
+    assert by_spec["C"] == {"in_scope": "no"} and by_spec["M"] == {"in_scope": "yes"}
 
 
 # --- FR-MCP-TOOL-10: count_nodes and nodes_page ---------------------------------------------------

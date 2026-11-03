@@ -169,15 +169,20 @@ async def test_a_non_member_gets_404(harness, processed):
     assert runner.starts == []
 
 
-async def test_without_graph_settings_the_feature_answers_503(harness, processed):
+async def test_without_graph_settings_the_feature_answers_503_and_logs_it(harness, processed, caplog):
     assert harness.runtime.graph_builds is None  # valid_env has no GRAPH_* model
     pid = await project(harness)
     processed[pid] = 1
 
-    for method in ("POST", "GET"):
-        response = await harness.client.request(method, url(pid), headers=bearer())
-        assert response.status_code == 503
-        assert response.json()["error"]["code"] == "graph_build_unavailable"
+    with caplog.at_level("INFO"):
+        for method in ("POST", "GET"):
+            response = await harness.client.request(method, url(pid), headers=bearer())
+            assert response.status_code == 503
+            assert response.json()["error"]["code"] == "graph_build_unavailable"
+
+    refused = events(caplog, "api.graph_build.unavailable")
+    assert len(refused) == 2
+    assert fields(refused[0])["missing"] == ["GRAPH_LLM_MODEL", "GRAPH_SMALL_MODEL", "GRAPH_EMBEDDING_MODEL"]
 
 
 async def test_a_project_without_processed_documents_gets_409(harness, processed):

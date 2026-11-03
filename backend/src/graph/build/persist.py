@@ -1,21 +1,4 @@
-"""Persist step: apply a diff to Neo4j in batches (build.md step 7; tech-specs 5.4 "Persist batches").
-
-Operations are cut into batches of at most ``BATCH_OPERATIONS`` in diff order (which is persist phase
-order: removed edges, merges, updates and carry-overs, node deletes, creates, edges and structural
-relationships, documents and fragments). Each batch is one transaction; inside it, each run of
-consecutive operations of one kind (and one relation) is one ``UNWIND`` query. Every write MERGEs on a
-key, replaces a whole set, or finds its target by uuid (edges: by key and uuid, an updated edge by its
-old or new key), so a batch applied twice leaves the same graph: after an interruption, the batch after
-the stored cursor is applied again. The cursor is saved by the caller through ``save`` after every batch.
-
-A merge (W3) moves every relationship of a merged node whose type build does not own to the survivor,
-then deletes the merged node; a carry-over keeps the node (the new target takes its uuid), so its
-relationships stay where they are and it is written like an update.
-
-Node operations carry their vectors as text hashes (``vectors``); before a batch runs, the vectors of
-its operations are fetched in one call (``fetch_vectors``, the build's vector store) and written as
-float lists under their property names, so at most one batch of vectors is in memory at a time.
-"""
+"""Persist step: apply a diff to Neo4j in batches."""
 
 from __future__ import annotations
 
@@ -104,15 +87,7 @@ async def persist(
     on_batch: OnBatch | None = None,
     batch_size: int = BATCH_OPERATIONS,
 ) -> PersistCursor:
-    """Apply the batches after ``cursor.batch_index``; return the final cursor (``done``).
-
-    ``fetch_vectors`` returns the vectors of the text hashes the batch's node operations name.
-
-    ``save`` stores the cursor after each committed batch; ``on_batch(index)`` runs after that (a
-    test hook for fault injection). A cursor that is already ``done`` writes nothing. ``batch_size``
-    must be the same for every run of one diff (the cursor counts batches). ``target`` gives the
-    executor, project and build.
-    """
+    """Apply the batches after ``cursor.batch_index``; return the final cursor (``done``)."""
 
     executor, project_id, build_id = target.executor, target.project_id, target.build_id
     if cursor.done:

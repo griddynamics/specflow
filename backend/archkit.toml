@@ -9,8 +9,8 @@ project_root = "."
 # zero-argument app factory.
 python_path = ["src", "."]
 app_factory = "archkit_support.factory:create_app"
-# project: graphiti_core (third party) declares class-based pydantic config; the track runs
-# with warnings as errors, so that one category is ignored.
+# Third-party packages declare class-based pydantic config; the track runs with warnings as
+# errors, so that one category is ignored.
 filterwarnings = ["ignore::pydantic.warnings.PydanticDeprecatedSince20"]
 
 # No `settings_class`: backend settings are several classes built by `load_settings`, and the

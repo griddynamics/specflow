@@ -1,8 +1,4 @@
-"""Every expected failure of the library is a ``GraphError`` (docs/graph/architecture.md "Errors").
-
-An error carries a stable ``code`` and fields that hold ids, counts and codes only, never document
-text, prompt text or secrets, so it is safe to log and to show in a build result.
-"""
+"""Every expected failure of the library is a ``GraphError``."""
 
 from __future__ import annotations
 

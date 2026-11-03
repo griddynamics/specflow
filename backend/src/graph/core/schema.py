@@ -1,16 +1,5 @@
-"""Schema setup: the ``graph_*`` constraints and indexes of docs/graph/data-model.md.
-
-The objects are defined in the static DDL files under ``graph/core/ddl/`` (``CORE_DDL``), one
-idempotent statement per object. ``schema_objects`` parses each statement into a ``SchemaObject`` and
-checks that the DDL covers the ontology it runs with: the core keys and search indexes, a
-``(group_id, edge_key)`` range index per declared relation and a ``(group_id, uuid)`` uniqueness
-constraint per foreign label. The ontology never renders a statement; a gap fails loudly with
-``ConfigurationError("schema_ddl_incomplete")``.
-
-``ensure_schema`` checks the Neo4j version, then runs the statement of every missing object and waits
-until the indexes are online. It is idempotent: an object that already exists, under its ``graph_*``
-name or as an equivalent object under another name, is left alone. Schema setup is not project-scoped
-(rule I3), so it runs on the driver directly.
+"""Schema setup: the ``graph_*`` constraints and indexes of The objects are defined in the static DDL files under
+``graph/core/ddl/`` (``CORE_DDL``), one idempotent statement per object.
 """
 
 from __future__ import annotations
@@ -161,15 +150,7 @@ def _ddl_objects(statements: tuple[str, ...]) -> tuple[SchemaObject, ...]:
 
 
 def schema_objects(ontology: Ontology, ddl: Sequence[str] | None = None) -> tuple[SchemaObject, ...]:
-    """Every ``graph_*`` object of data-model.md "Constraints and indexes", in DDL order.
-
-    ``ddl`` None reads the shipped DDL files (``CORE_DDL``); a sequence of statements (tests, an
-    ontology with submodule files) replaces them. The DDL must define the core objects, a
-    ``(group_id, edge_key)`` range index for every declared relation (owned writes of any owner find a
-    relationship by its key with an index seek) and a ``(group_id, uuid)`` uniqueness constraint for
-    every foreign label (a declared label of another owner than build, from a submodule ontology file;
-    the key its owned upsert MERGEs on). A missing one raises ``ConfigurationError("schema_ddl_incomplete")``.
-    """
+    """Every ``graph_*`` object of "Constraints and indexes", in DDL order."""
 
     objects = _ddl_objects(tuple(CORE_DDL if ddl is None else ddl))
     defined = {(item.kind, item.entity, item.label, item.properties) for item in objects}
@@ -210,17 +191,7 @@ async def ensure_schema(
     *,
     ddl: Sequence[str] | None = None,
 ) -> tuple[str, ...]:
-    """Create the missing ``graph_*`` constraints and indexes; return the names created.
-
-    The objects and their statements come from the DDL (``schema_objects``; ``ddl`` None: the shipped
-    files), which must cover ``ontology`` (else ``ConfigurationError("schema_ddl_incomplete")``, before
-    anything reaches Neo4j). Raises ``ConfigurationError`` when Neo4j is older than 5.26 (nothing is
-    created), when an existing vector index on a ``SpecNode`` embedding has another dimension or
-    similarity, or when a ``graph_*`` name is taken by a different object. All checks run before the
-    first create. A create the server refuses (for example a uniqueness constraint over nodes that
-    already hold duplicate keys) raises ``ConfigurationError("schema_setup_failed")`` naming the query;
-    the objects created before it stay.
-    """
+    """Create the missing ``graph_*`` constraints and indexes; return the names created."""
 
     wanted = schema_objects(ontology, ddl)
     version = await require_version(driver, database=database)

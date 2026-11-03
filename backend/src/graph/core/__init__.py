@@ -1,7 +1,4 @@
-"""Shared core of the graph library: Neo4j access, ontology, identity, owned writes, reads, LLM gateway.
-
-Public names are re-exported here as their modules land; submodules import from ``graph.core``.
-"""
+"""Shared core of the graph library: Neo4j access, ontology, identity, owned writes, reads, LLM gateway."""
 
 from __future__ import annotations
 

@@ -1,15 +1,11 @@
-"""Verification offline: checks, problem identifiers, repair planning, the valve, the loop bound,
-metrics, the shared spine walk and the example's retry options (plan 4.T2;
-analysis.md "Verification"; m4-spec-edits G5-G10; FR-VER-01..04).
-
-Graph states are hand-built ``VNode``/``VEdge``/``VFragment`` values (``graph.build.verify``) over the
-shipped ontology; the loop runs on in-memory executors that answer the three verify reads, so no
-test reaches Neo4j. The live tier is ``test_graph_verify_live.py``.
+"""Verification offline: checks, problem identifiers, repair planning, the valve, the loop bound, metrics, the shared
+spine walk and the example's retry options.
 """
 
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import sys
 from collections.abc import Mapping, Sequence
 from contextlib import asynccontextmanager
@@ -18,15 +14,22 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import yaml
 
 import graph_build
 from graph.build import open_file_stores
 from graph.build import verify as verification
 from graph.build.models import (
+    CanonicalNode,
     DiffArtifact,
     EdgeCreate,
     EvidenceLines,
+    InferenceReport,
+    NodeCounters,
     NodeLinks,
+    NodesArtifact,
+    RawNode,
+    ResolveArtifact,
     SpecChanges,
     TargetCounters,
     TargetEdge,
@@ -36,7 +39,7 @@ from graph.build.models import (
 )
 from graph.build.queries import VERIFY_DOMAIN_EDGES, VERIFY_FRAGMENTS, VERIFY_SPEC_NODES
 from graph.build.run import _with_repairs
-from graph.build.spine import SpineEdge, SpineGraph, SpineNode
+from graph.build.spine import SpineEdge, SpineGraph, SpineNode, condition_attributes, load_spine_graph
 from graph.build.verify import (
     MAX_REPAIR_ROUNDS,
     VALVE_FRACTION,
@@ -59,10 +62,19 @@ from graph.build.verify import (
     valve,
     verify_graph,
 )
+from graph.core import Ontology, load_ontology
 from graph.core.identity import SpecIdRow
-from graph_support import OfflineExecutor, shipped_ontology
+from graph_support import (
+    FROZEN_ONTOLOGY_FILE,
+    OfflineExecutor,
+    copy_frozen_prompts,
+    frozen_ontology,
+    shipped_ontology,
+    with_v2_flags,
+)
 
-ONTOLOGY = shipped_ontology()
+# Mechanics tests: pinned to the frozen v1.3 ontology (graph_support.FROZEN_ONTOLOGY_FILE), not the shipped one.
+ONTOLOGY = frozen_ontology()
 NAMES = OwnedNames.of(ONTOLOGY)
 PROJECT = "p-offline"
 
@@ -160,7 +172,7 @@ def test_valve_and_round_constants() -> None:
     assert (VALVE_FRACTION, VALVE_MIN, MAX_REPAIR_ROUNDS) == (0.05, 1, 2)
 
 
-# Valve arithmetic (FR-VER-02, G5)
+# Valve arithmetic
 
 
 @pytest.mark.parametrize(
@@ -228,7 +240,7 @@ def test_valve_counts_the_edges_deleted_with_their_node() -> None:
     assert valve(RoundPlan(delete_nodes={"hub": hub}), alone) is None
 
 
-# Problem identifiers and checks (analysis.md "Verification" table; G9, G10)
+# Problem identifiers and checks
 
 
 def test_edge_subject_is_spec_id_form_and_never_an_edge_key() -> None:
@@ -550,7 +562,7 @@ def test_spec_id_repair_resumed_after_the_registry_write_keeps_the_alias() -> No
     assert plan(graph, spec_ids=other).spec_ids == [{"id": "victim", "spec_id": "REQ::FR::VICTIM", "aliases": None}]
 
 
-# The loop: read-only, valve, at most 2 rounds (FR-VER-01, 02, 04)
+# The loop: read-only, valve, at most 2 rounds
 
 
 def node_row(item: VNode) -> dict[str, Any]:
@@ -564,6 +576,7 @@ def node_row(item: VNode) -> dict[str, Any]:
         "spec_id_aliases": list(item.spec_id_aliases) or None,
         "label_disagreement": item.label_disagreement,
         "labels": list(item.labels),
+        "attributes": [[name, value] for name, value in item.attributes.items()],
         "evidence": list(item.evidence),
     }
 
@@ -872,6 +885,133 @@ def test_spine_walk_bases_and_label_problem_nodes() -> None:
     assert [item.key for item in walk.unreached(ONTOLOGY, ONTOLOGY.spine.sources)] == ["r"]
 
 
+# Spine exclude (Q10): a source is skipped when it or its owner matches; attributes read with the nodes
+
+
+def flagged_ontology(directory: Path, **spine: Any) -> Ontology:
+    """The frozen v1.3 content with every format-2 flag set (``with_v2_flags``: requirement -> feature
+    and requirement -> module are owner pairs, spine ``exclude {external: [yes]}`` on the owner), the
+    spine section updated with ``spine``."""
+
+    data = with_v2_flags(yaml.safe_load(FROZEN_ONTOLOGY_FILE.read_text(encoding="utf-8")))
+    data["spine"].update(spine)
+    copy_frozen_prompts(directory)
+    path = directory / "ontology.yaml"
+    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    return load_ontology(path, submodule_files=[])
+
+
+@pytest.fixture(scope="module")
+def flagged(tmp_path_factory: pytest.TempPathFactory) -> Ontology:
+    return flagged_ontology(tmp_path_factory.mktemp("flagged"))
+
+
+def attributed(
+    nodes: Sequence[tuple[str, str, dict[str, Any]]], edges: Sequence[tuple[str, str, str, str]]
+) -> SpineGraph:
+    return SpineGraph(
+        nodes=tuple(SpineNode(key, f"S::{key.upper()}", label, attributes) for key, label, attributes in nodes),
+        edges=tuple(SpineEdge(relation, source, target, basis) for relation, source, target, basis in edges),
+    )
+
+
+def test_spine_exclude_skips_sources_whose_owner_matches(flagged: Ontology) -> None:
+    graph = attributed(
+        [
+            ("ext", MOD, {"external": "yes"}),
+            ("own", MOD, {"external": "no"}),
+            ("f", FEAT, {}),
+            ("owned", FR, {}),  # PART_OF the external module (its owner): skipped
+            ("in_feature", FR, {}),  # its owner, the feature, does not match: counted
+            ("related", FR, {}),  # RELATES_TO is no owner pair: counted
+            ("lone", FR, {}),
+        ],
+        [
+            ("PART_OF", "owned", "ext", "stated"),
+            ("PART_OF", "in_feature", "f", "stated"),
+            ("RELATES_TO", "related", "ext", "stated"),
+        ],
+    )
+    sources = flagged.spine.sources
+    assert [item.key for item in graph.unreached(flagged, sources)] == ["in_feature", "lone"]
+    assert graph.excluded(flagged, graph.nodes) == frozenset({"owned", "ext"})  # any node may be asked about
+    # The owner edge is read with the walked bases: an inferred one does not exclude before inference.
+    inferred = attributed([("ext", MOD, {"external": "yes"}), ("r", FR, {})], [("PART_OF", "r", "ext", "inferred")])
+    assert [item.key for item in inferred.unreached(flagged, sources, ("stated", "implied"))] == ["r"]
+    assert inferred.unreached(flagged, sources) == []
+
+
+def test_spine_exclude_skips_a_matching_source_and_reads_null_as_the_default(tmp_path: Path) -> None:
+    ontology = flagged_ontology(tmp_path, exclude={"is_assumption": ["yes"]})
+    graph = attributed(
+        [("yes", FR, {"is_assumption": "yes"}), ("no", FR, {"is_assumption": "no"}), ("null", FR, {})], []
+    )
+    assert [item.key for item in graph.unreached(ontology, ontology.spine.sources)] == ["no", "null"]
+    data = with_v2_flags(yaml.safe_load(FROZEN_ONTOLOGY_FILE.read_text(encoding="utf-8")))
+    data["node_groups"]["requirement"]["attributes"]["is_assumption"]["default"] = "yes"
+    data["spine"]["exclude"] = {"is_assumption": ["yes"]}
+    (tmp_path / "defaulted").mkdir()
+    copy_frozen_prompts(tmp_path / "defaulted")
+    (tmp_path / "defaulted" / "ontology.yaml").write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    defaulted = load_ontology(tmp_path / "defaulted" / "ontology.yaml", submodule_files=[])
+    assert [item.key for item in graph.unreached(defaulted, defaulted.spine.sources)] == ["no"]
+
+
+def test_spine_metrics_skip_excluded_sources_through_the_verify_read(flagged: Ontology) -> None:
+    nodes = [node("ext", MOD, attributes={"external": "yes"}), node("r1", FR), node("r2", FR)]
+    metrics = measure(state(nodes, [edge("a", "PART_OF", "r1", "ext")]), flagged, {})
+    assert (metrics.spine_unreachable_before, metrics.spine_unreachable) == (1, 1)  # r2 only
+
+
+def test_frozen_v13_declares_no_exclude_and_reads_no_attributes() -> None:
+    assert ONTOLOGY.spine_exclude() == {}
+    assert condition_attributes(ONTOLOGY) == () and NAMES.attributes == ()
+    graph = attributed(
+        [("m", MOD, {"external": "yes"}), ("r", FR, {"is_assumption": "yes"})], [("PART_OF", "r", "m", "stated")]
+    )
+    assert graph.excluded(ONTOLOGY, graph.nodes) == frozenset()
+    assert graph.unreached(ONTOLOGY, ONTOLOGY.spine.sources) == []
+
+
+def test_condition_attributes_cover_exclude_where_and_not_across(flagged: Ontology) -> None:
+    assert condition_attributes(flagged) == ("external", "is_assumption", "type")
+    assert OwnedNames.of(flagged).attributes == ("external", "is_assumption", "type")
+
+
+class _Recorder(OfflineExecutor):
+    def __init__(self, rows: Mapping[str, list[dict[str, Any]]]) -> None:
+        super().__init__(rows)
+        self.params: dict[str, dict[str, Any]] = {}
+
+    async def read(self, query: Any, project_id: str, /, **params: Any) -> list[dict[str, Any]]:
+        self.params[query.name] = params
+        return await super().read(query, project_id, **params)
+
+
+async def test_spine_and_verify_reads_return_the_condition_attributes(flagged: Ontology) -> None:
+    executor = _Recorder(
+        {
+            "build_read_spine_nodes": [
+                {"uuid": "u-r", "spec_id": "FR::R", "labels": [FR], "attributes": []},
+                {"uuid": "u-m", "spec_id": "MOD::M", "labels": [MOD], "attributes": [["external", "yes"]]},
+            ],
+            "build_read_spine_edges": [{"relation": "PART_OF", "source": "u-r", "target": "u-m", "basis": "stated"}],
+            "build_verify_spec_nodes": [
+                {**node_row(node("m", MOD)), "attributes": [["external", "yes"], ["type", "backend"]]},
+            ],
+        }
+    )
+    graph = await load_spine_graph(executor, PROJECT, flagged)
+    assert executor.params["build_read_spine_nodes"]["attributes"] == ["external", "is_assumption", "type"]
+    assert set(flagged.spine_relations) <= set(executor.params["build_read_spine_edges"]["relations"])
+    assert [(item.key, dict(item.attributes)) for item in graph.nodes] == [("u-r", {}), ("u-m", {"external": "yes"})]
+    assert graph.unreached(flagged, flagged.spine.sources) == []  # excluded through its owner
+    names = OwnedNames.of(flagged)
+    loaded = await verification.load_state(executor, PROJECT, names)
+    assert executor.params["build_verify_spec_nodes"]["attributes"] == list(names.attributes)
+    assert dict(loaded.nodes["m"].attributes) == {"external": "yes", "type": "backend"}
+
+
 # The example's retry options (examples/graph_build.py)
 
 
@@ -912,3 +1052,391 @@ async def test_example_retry_lineages_merge_explicit_and_follow_ups(monkeypatch:
     assert await graph_build.retry_lineages(SimpleNamespace(builds=_Builds(None)), "p", args) == ()
     no_verification = SimpleNamespace(builds=_Builds(SimpleNamespace(verification=None)))
     assert await graph_build.retry_lineages(no_verification, "p", args) == ()
+
+
+# v2.0 rules and the v2.0 metrics, on the shipped ontology
+
+SHIPPED = shipped_ontology()
+V2_NAMES = OwnedNames.of(SHIPPED)
+IFC, ENT, DATA = "Interface", "DataEntity", "DataRequirement"
+
+
+def v2node(element: str, label: str, name: str | None = None, **attributes: Any) -> VNode:
+    return VNode(
+        id=element,
+        uuid=f"u-{element}",
+        spec_id=f"{SHIPPED.id_prefix(label)}{element.upper()}",
+        name=name or element,
+        identity_key=f"{label}|name|{element}",
+        labels=(label,),
+        evidence=("f1",),
+        attributes=attributes,
+    )
+
+
+def v2_findings(graph: GraphState) -> list[tuple[str, str, str | None]]:
+    return [(f.problem.check, f.problem.subject, f.problem.code) for f in find_problems(graph, SHIPPED, V2_NAMES)]
+
+
+def v2_plan(graph: GraphState) -> RoundPlan:
+    findings = find_problems(graph, SHIPPED, V2_NAMES)
+    return plan_round(findings, graph, SHIPPED, V2_NAMES, Evidence(), spec_ids=None, round_=1)
+
+
+def rule_graph() -> GraphState:
+    """One fault per validator check: stated ones (reported) and inferred ones (deleted)."""
+
+    nodes = [
+        v2node("r1", FR),
+        v2node("r2", FR),
+        v2node("fa", FEAT),
+        v2node("fb", FEAT),
+        v2node("fc", FEAT),
+        v2node("ma", MOD, external="no", type="backend"),
+        v2node("mb", MOD, external="no", type="backend"),
+        v2node("mc", MOD, external="no", type="backend"),
+        v2node("md", MOD, external="no", type="backend"),
+        v2node("ext", MOD, external="yes", type="backend"),
+        v2node("ifc", IFC),
+    ]
+    edges = [
+        edge("where-stated", "PART_OF", "fb", "ext"),  # feature -> external module: where
+        inferred("where-inferred", "PART_OF", "r2", "ext"),  # requirement -> external module: where
+        edge("own", "PART_OF", "r1", "fa"),
+        inferred("owner-inferred", "PART_OF", "r1", "ma"),  # a second owner: owner
+        edge("prov-a", "PROVIDED_BY", "ifc", "ma"),
+        edge("prov-b", "PROVIDED_BY", "ifc", "mb"),  # two providers: exclusive (both edges)
+        edge("up1", "PART_OF", "ma", "mb"),
+        edge("up2", "PART_OF", "mb", "mc"),  # a chain of 2 past max_depth 1: depth on the first
+        edge("ext-in", "PART_OF", "md", "ext"),  # internal into external: across (not_across external)
+        edge("dep-1", "DEPENDS_ON", "fa", "fb"),
+        edge("dep-2", "DEPENDS_ON", "fb", "fa"),  # a cycle: acyclic on the closing edge
+        inferred("dep-inferred", "DEPENDS_ON", "fa", "fc"),  # not stated: stated_only
+        edge("illegal", "PART_OF", "ifc", "fa"),  # undeclared pair: illegal_edge, never v2_rule
+    ]
+    return state(nodes, edges)
+
+
+def test_v2_rule_reports_each_validator_check_once_per_edge_and_never_an_illegal_pair() -> None:
+    found = [item for item in v2_findings(rule_graph()) if item[0] in {"v2_rule", "illegal_edge"}]
+    assert found == [
+        ("illegal_edge", "IFC::IFC|PART_OF|FEAT::FA", "illegal_pair"),
+        ("v2_rule", "FEAT::FA|DEPENDS_ON|FEAT::FC", "stated_only"),
+        ("v2_rule", "FEAT::FB|DEPENDS_ON|FEAT::FA", "acyclic"),
+        ("v2_rule", "FEAT::FB|PART_OF|MOD::EXT", "where"),
+        ("v2_rule", "IFC::IFC|PROVIDED_BY|MOD::MA", "exclusive"),
+        ("v2_rule", "IFC::IFC|PROVIDED_BY|MOD::MB", "exclusive"),
+        ("v2_rule", "MOD::MA|PART_OF|MOD::MB", "depth"),
+        ("v2_rule", "MOD::MD|PART_OF|MOD::EXT", "across"),
+        ("v2_rule", "REQ::FR::R1|PART_OF|MOD::MA", "owner"),  # the inferred second owner, not the stated one
+        ("v2_rule", "REQ::FR::R2|PART_OF|MOD::EXT", "where"),
+    ]
+
+
+def test_v2_rule_deletes_inferred_edges_and_keeps_stated_ones() -> None:
+    round_plan = v2_plan(rule_graph())
+    assert set(round_plan.delete_edges) == {"illegal", "where-inferred", "owner-inferred", "dep-inferred"}
+    assert [item for item in repairs(round_plan) if item[0] == "v2_rule"] == [
+        ("v2_rule", "delete_edge", "FEAT::FA|DEPENDS_ON|FEAT::FC", None),
+        ("v2_rule", "delete_edge", "REQ::FR::R1|PART_OF|MOD::MA", None),
+        ("v2_rule", "delete_edge", "REQ::FR::R2|PART_OF|MOD::EXT", None),
+    ]
+
+
+def test_an_inferred_edge_is_checked_against_the_stated_graph_plus_the_inferred_edges_before_it() -> None:
+    nodes = [v2node("r1", FR), v2node("r2", FR), v2node("fa", FEAT), v2node("ma", MOD, external="no")]
+    # r1 has no owner: its first inferred owner is valid, the second one adds an owner conflict.
+    graph = state(
+        nodes,
+        [
+            inferred("i1", "PART_OF", "r1", "fa"),
+            inferred("i2", "PART_OF", "r1", "ma"),
+            inferred("i3", "PART_OF", "r2", "ma"),
+        ],
+    )
+    assert v2_findings(graph) == [("v2_rule", "REQ::FR::R1|PART_OF|MOD::MA", "owner")]
+    # A graph without a violation reads no proposal at all: nothing found.
+    assert v2_findings(state(nodes, [inferred("i1", "PART_OF", "r1", "fa")])) == []
+
+
+def same_owner_graph(*, stated_owner: bool = False) -> GraphState:
+    nodes = [v2node("r1", FR), v2node("r2", FR), v2node("fa", FEAT), v2node("fb", FEAT)]
+    owner_of_r2 = edge("own2", "PART_OF", "r2", "fa") if stated_owner else inferred("own2", "PART_OF", "r2", "fa")
+    edges = [
+        edge("own1", "PART_OF", "r1", "fa"),
+        owner_of_r2,
+        edge("link", "RELATES_TO", "r1", "r2"),  # distinct_owner pair: same owner once r2 is attached
+        edge("dep", "DEPENDS_ON", "r2", "r1"),  # distinct_owner too
+        edge("fdep", "DEPENDS_ON", "fa", "fb"),  # feature -> feature: no distinct_owner flag
+    ]
+    return state(nodes, edges)
+
+
+def test_links_made_redundant_by_inference_are_counted_never_problems_nor_repaired() -> None:
+    graph = same_owner_graph()
+    assert [item for item in v2_findings(graph) if item[0] == "v2_rule"] == []
+    redundant = verification.redundant_links(graph, SHIPPED, V2_NAMES)
+    assert [item.id for item in redundant] == ["link", "dep"]
+    round_plan = v2_plan(graph)
+    assert not round_plan.writes and round_plan.repairs == []
+    assert measure(graph, SHIPPED, {}).redundant_after_inference == 2
+    # One owner already over the stated edges: Conform's to drop, not a link inference made redundant.
+    assert verification.redundant_links(same_owner_graph(stated_owner=True), SHIPPED, V2_NAMES) == []
+
+
+async def test_a_repairing_run_keeps_redundant_links_and_reports_stated_violations(tmp_path: Path) -> None:
+    registry = open_file_stores(tmp_path).registry
+    graph = same_owner_graph()
+    # Any write or transaction fails the test: the redundant links are counted, never deleted.
+    report = await verify_graph(
+        OfflineExecutor(rows_of(graph)), PROJECT, SHIPPED, dropped={}, repair=RepairScope("b1", Evidence(), registry)
+    )
+    assert (report.ok, report.rounds, report.found, report.repairs) == (True, 0, {}, ())
+    assert report.metrics.redundant_after_inference == 2
+    # A stated violation is reported and kept: no transaction, the run is not ok.
+    stated = state(
+        [v2node("ifc", IFC), v2node("ma", MOD), v2node("mb", MOD)],
+        [edge("a", "PROVIDED_BY", "ifc", "ma"), edge("b", "PROVIDED_BY", "ifc", "mb")],
+    )
+    report = await verify_graph(
+        OfflineExecutor(rows_of(stated)), PROJECT, SHIPPED, dropped={}, repair=RepairScope("b1", Evidence(), registry)
+    )
+    assert (report.ok, report.rounds, report.repairs, report.found) == (False, 0, (), {"v2_rule": 2})
+    assert [(p.check, p.code) for p in report.problems] == [("v2_rule", "exclusive")] * 2
+
+
+def test_frozen_v13_ontology_finds_no_v2_rule_and_drops_nothing() -> None:
+    nodes = [node("r", FR), node("s", FR), node("f", FEAT), node("m", MOD)]
+    edges = [
+        edge("own", "PART_OF", "r", "f"),
+        inferred("inf", "PART_OF", "s", "f"),
+        edge("link", "RELATES_TO", "r", "s"),
+        inferred("mod", "PART_OF", "r", "m"),  # another exclusive pair of r: no conflict
+        edge("up", "PART_OF", "f", "m"),
+    ]
+    graph = state(nodes, edges)
+    assert problems(graph) == []
+    assert verification.redundant_links(graph, ONTOLOGY, NAMES) == []
+    metrics = measure(graph, ONTOLOGY, {})
+    v2_only = (
+        "owner_conflicts_judged",
+        "cycles_broken",
+        "interfaces_without_provider",
+        "features_named_like_statements",
+        "unsupported_entities_dropped",
+        "entity_relates_fan_out",
+        "relates_fan_out",
+        "deployed_to_fan_out",
+        "ownerless_requirements",
+        "in_scope_disagreements",
+        "in_scope_dirty_wins",
+        "unsnapped_quote_nodes",
+        "unsnapped_source_quotes",
+        "provisional_keys_left",
+        "attributed_fragments_dropped",
+        "nodes_missing_source_documents",
+        "label_collapses",
+        "derive_fallback_matches",
+        "derive_fallback_refused",
+        "quarantine_by_reason",
+        "quarantine_by_pair",
+    )
+    assert all(getattr(metrics, name) is None for name in v2_only)
+    assert (metrics.spine_unreachable, metrics.exclusive_conflicts, metrics.redundant_after_inference) == (0, 0, None)
+
+
+def test_measure_fills_the_consolidated_v2_metrics_on_the_persisted_graph() -> None:
+    nodes = [
+        v2node("owned", FR),
+        v2node("orphan", FR),
+        v2node("out", FR, in_scope="no"),  # spine exclude: not ownerless, not unreachable
+        v2node("fa", FEAT, name="Users must sign in"),
+        v2node("fb", FEAT, name="Checkout."),
+        v2node("fc", FEAT, name="Scan and pay"),  # no modal word
+        v2node("ent", ENT, name="Order."),  # a group without an owner pair: not checked
+        v2node("ifc", IFC),
+        v2node("lonely", IFC),
+        v2node("ma", MOD, type="backend"),
+        v2node("mb", MOD, type="backend"),
+        v2node("d1", MOD, type="deployment"),
+        v2node("d2", MOD, type="deployment"),
+    ]
+    edges = [
+        edge("e1", "PART_OF", "owned", "fa"),
+        edge("e2", "PART_OF", "fa", "ma"),
+        edge("e3", "RELATES_TO", "orphan", "ma"),
+        edge("e4", "RELATES_TO", "mb", "orphan"),  # symmetric, stored module first
+        edge("e5", "RELATES_TO", "ent", "owned"),
+        edge("e6", "PROVIDED_BY", "ifc", "ma"),
+        edge("e7", "DEPLOYED_TO", "ma", "d1"),
+        edge("e8", "DEPLOYED_TO", "ma", "d2"),
+        edge("e9", "DEPLOYED_TO", "mb", "d1"),
+        edge("e10", "STORED_IN", "ent", "ma", basis="implied"),
+    ]
+    metrics = measure(state(nodes, edges), SHIPPED, {})
+    assert metrics.ownerless_requirements == 1
+    assert metrics.interfaces_without_provider == 1
+    assert metrics.features_named_like_statements == 2
+    assert metrics.relates_fan_out == {2: 1}  # orphan: ma and mb
+    assert metrics.entity_relates_fan_out == {1: 1}  # owned: ent
+    assert metrics.deployed_to_fan_out == {1: 1, 2: 1}
+    assert metrics.spine_unreachable == 0 and metrics.spine_unreachable_by_label == {}
+    assert metrics.nodes_by_label == {ENT: 1, FEAT: 3, FR: 3, IFC: 2, MOD: 4}
+    assert metrics.edges_by_relation_basis["STORED_IN"] == {"implied": 1}
+    assert metrics.edges_by_relation_basis["PART_OF"] == {"stated": 2}
+    # No conform artifact: its counts are n/a; with one, read from it.
+    assert metrics.quarantine_by_reason is None and metrics.owner_conflicts_judged is None
+    with_target = measure(state(nodes, edges), SHIPPED, {}, target=TargetGraph(quarantine=()))
+    assert (with_target.quarantine_by_reason, with_target.quarantine_by_pair) == ({}, {})
+
+
+def persisted_edge_graph() -> GraphState:
+    """Requirements in two documents with stated, inferred and basis-less owner edges ."""
+
+    def placed(element: str, label: str, *evidence: str, **attributes: Any) -> VNode:
+        return dataclasses.replace(v2node(element, label, **attributes), evidence=evidence)
+
+    nodes = [
+        placed("r1", FR, "f1"),
+        placed("r2", FR, "fb"),
+        placed("r3", FR, "f-old"),  # only a retired fragment: no document, no owner
+        placed("r4", FR, "fb"),
+        placed("out", FR, "fb", in_scope="no"),  # spine exclude: no requirement
+        placed("fa", FEAT, "f1"),
+        placed("fb", FEAT, "fb"),
+    ]
+    edges = [
+        edge("own1", "PART_OF", "r1", "fa"),
+        inferred("own2", "PART_OF", "r2", "fa"),  # across d1/d2, after inference
+        edge("own4", "PART_OF", "r4", "fb", basis=None),  # no basis: stated
+        edge("link", "RELATES_TO", "r1", "r2"),  # across d1/d2
+        edge("lost", "RELATES_TO", "r3", "r1"),  # r3 has no document: left out
+    ]
+    fragments = (ACTIVE, RETIRED, VFragment("fb", "d2.md", "active", "hb", "hb", grounds=True))
+    return state(nodes, edges, fragments)
+
+
+async def test_verify_stores_owners_and_cross_document_edges_after_inference() -> None:
+    graph = persisted_edge_graph()
+    metrics = measure(graph, SHIPPED, {})
+    assert metrics.owners_by_source == {"stated": 2, "implied": 0, "inferred": 1, "none": 1}
+    assert metrics.cross_document_edges == {"PART_OF": {"inferred": 1}, "RELATES_TO": {"stated": 1}}
+    # Through the verify read, as the Verify step stores it.
+    report = await verify_graph(OfflineExecutor(rows_of(graph)), PROJECT, SHIPPED, dropped={}, repair=None)
+    assert report.metrics.owners_by_source == metrics.owners_by_source
+    assert report.metrics.cross_document_edges == metrics.cross_document_edges
+
+    lone = state([v2node("r1", FR)], [edge("x", "RELATES_TO", "r1", "missing")])
+    assert measure(lone, SHIPPED, {}).cross_document_edges is None
+    # An ontology without an owned spine-source label measures no owners.
+    assert measure(state([node("r", FR)]), ONTOLOGY, {}).owners_by_source is None
+
+
+def test_shipped_spine_paths_and_exclude() -> None:
+    """Each of the 7 shipped spine paths reaches the module on its own; exclude skips through the owner."""
+
+    def spine_node(key: str, label: str, **attributes: Any) -> SpineNode:
+        return SpineNode(key, key, label, attributes)
+
+    nodes = (
+        spine_node("m", MOD),
+        spine_node("feat", FEAT),
+        spine_node("feat2", FEAT),
+        spine_node("feat3", FEAT, in_scope="no"),
+        spine_node("ifc", IFC),
+        spine_node("ifc2", IFC),
+        spine_node("ent", ENT),
+        spine_node("cap", CAP),
+        *(spine_node(f"r{index}", FR) for index in (1, 2, 3, 4, 5, 7)),
+        spine_node("r6", FR, in_scope="no"),
+        spine_node("int1", "IntegrationRequirement"),
+        spine_node("int2", "IntegrationRequirement"),
+        spine_node("data1", DATA),
+    )
+    first_hops = (
+        SpineEdge("PART_OF", "r1", "feat"),  # PART_OF 1-3 (r1 -> feat -> m)
+        SpineEdge("PART_OF", "int1", "ifc"),  # PART_OF, PROVIDED_BY
+        SpineEdge("PART_OF", "int2", "ifc2"),  # PART_OF, CONSUMED_BY
+        SpineEdge("PART_OF", "data1", "ent"),  # PART_OF, STORED_IN
+        SpineEdge("GROUPED_BY", "r2", "cap"),  # GROUPED_BY, REALIZED_BY
+        SpineEdge("PART_OF", "r3", "feat2"),  # PART_OF, GROUPED_BY, REALIZED_BY
+        SpineEdge("RELATES_TO", "m", "r4"),  # RELATES_TO 1, either direction
+        SpineEdge("PART_OF", "r7", "feat3"),  # its owner is out of scope: excluded
+    )
+    last_hops = (
+        SpineEdge("PART_OF", "feat", "m"),
+        SpineEdge("PROVIDED_BY", "ifc", "m"),
+        SpineEdge("CONSUMED_BY", "ifc2", "m"),
+        SpineEdge("STORED_IN", "ent", "m"),
+        SpineEdge("REALIZED_BY", "cap", "m"),
+        SpineEdge("GROUPED_BY", "feat2", "cap"),
+    )
+    graph = SpineGraph(nodes, (*first_hops, *last_hops))
+    assert [node.key for node in graph.unreached(SHIPPED, SHIPPED.spine.sources)] == ["r5"]
+    alone = SpineGraph(nodes, first_hops)
+    assert [node.key for node in alone.unreached(SHIPPED, SHIPPED.spine.sources)] == [
+        "data1",
+        "int1",
+        "int2",
+        "r1",
+        "r2",
+        "r3",
+        "r5",
+    ]
+    assert len(SHIPPED.spine.paths) == 7
+
+
+def test_measure_takes_exclusive_conflicts_and_quarantine_from_the_build_artifacts() -> None:
+    nodes = [node("r", FR), node("f1", FEAT), node("f2", FEAT)]
+    graph = state(nodes, [edge("a", "PART_OF", "r", "f1"), edge("b", "PART_OF", "r", "f2")])
+    assert measure(graph, ONTOLOGY, {}).exclusive_conflicts == 1  # no artifact: counted on the graph
+    conformed = TargetGraph(counters=TargetCounters(exclusive_conflicts=3), quarantine=())
+    proposal = {
+        "reason": "invalid_proposal",
+        "relation": "PART_OF",
+        "source_label": FR,
+        "target_label": MOD,
+        "basis": "inferred",
+        "source_spec_id": "REQ::FR::R",
+        "target_spec_id": "MOD::M",
+    }
+    inference = InferenceReport.model_validate({"quarantine": [proposal]})
+    metrics = measure(graph, ONTOLOGY, {}, target=conformed, inference=inference)
+    assert metrics.exclusive_conflicts == 3  # as Conform counted them before normalisation
+    assert metrics.quarantine_by_reason == {"invalid_proposal": 1}
+    assert metrics.quarantine_by_pair == {f"PART_OF|{FR}|{MOD}": 1}
+    v13 = TargetGraph(counters=TargetCounters(exclusive_conflicts=3))  # predates quarantine
+    assert measure(graph, ONTOLOGY, {}, target=v13).exclusive_conflicts == 1
+
+
+def test_with_node_counts_adds_label_collapses_and_the_naming_metrics() -> None:
+    names = ("Orders service", "Order services", "Billing")
+    nodes = NodesArtifact(
+        raw_nodes=tuple(
+            RawNode(
+                raw_id=f"r{index}",
+                name=name,
+                label="Module",
+                unit_id="u1",
+                call_id="c1",
+                window=(0, 1),
+                fragment_ids=("f1",),
+            )
+            for index, name in enumerate(names)
+        ),
+        counters=NodeCounters(label_collapses=1),
+    )
+    resolved = ResolveArtifact(
+        canonical=(
+            CanonicalNode(cid="m1", identity_key="m1", name="Orders service", label="Module", member_ids=("r0", "r1")),
+            CanonicalNode(cid="m2", identity_key="m2", name="Billing", label="Module", member_ids=("r2",)),
+        )
+    )
+    report = verification.with_node_counts(VerificationReport(), nodes, ONTOLOGY, resolved=resolved)
+    assert report.metrics.label_collapses == 1
+    assert report.metrics.hub_surfaces_per_hub is not None
+    assert report.metrics.hub_surfaces_per_hub["all"] == {"hubs": 2, "mean": 1.0, "max": 1, "share_over_1": 0.0}
+    assert report.metrics.hub_raw_names_per_hub is not None
+    assert report.metrics.hub_raw_names_per_hub["Module"]["max"] == 2
+    assert report.metrics.catalog_hubs is None  # written without the catalog counters
+    assert report.metrics.nearby_term_uses is None

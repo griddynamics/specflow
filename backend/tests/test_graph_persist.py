@@ -1,9 +1,4 @@
-"""Persist batching offline (build.md step 7; tech-specs 5.4 "Persist batches"; FR-BLD-13 groundwork).
-
-``persist.batches`` cuts the diff into batches of at most ``BATCH_OPERATIONS`` in diff (phase) order;
-``persist.persist`` applies each batch in one transaction, saves the cursor after it and resumes after
-the stored cursor. A fake executor records every transaction, so no Neo4j is needed.
-"""
+"""Persist batching offline."""
 
 from __future__ import annotations
 
@@ -35,9 +30,10 @@ from graph.build.models import (
 )
 from graph.build.queries import CREATE_SPEC_NODES, UPSERT_FRAGMENTS
 from graph.core.errors import ConformanceError
-from graph_support import shipped_ontology
+from graph_support import frozen_ontology
 
-ONT = shipped_ontology()
+# Mechanics tests: pinned to the frozen v1.3 ontology (graph_support.FROZEN_ONTOLOGY_FILE), not the shipped one.
+ONT = frozen_ontology()
 PROJECT = "p-persist"
 LIMIT = writing.BATCH_OPERATIONS
 

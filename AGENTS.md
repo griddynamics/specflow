@@ -9,8 +9,8 @@ Rules for anyone, person or coding agent, who changes this repository.
 - `frontend/` - Next.js web app. Rules: `frontend/AGENTS.md`.
 - `validation/` - the static checks that CI runs (`make validate`).
 - `docs/` - configuration reference, graph design, file parsers, design system.
-- Repo root - `docker-compose.yml`, `.env.example`, `config/` and the `Makefile` that runs
-  everything.
+- Repo root - `docker-compose.yml`, `.env.example`, `config/`, the `Makefile` that runs
+  everything and `scripts/` (shell scripts the `Makefile` calls, such as `env-local.sh`).
 
 ## Area rules
 

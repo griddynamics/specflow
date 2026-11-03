@@ -1,15 +1,4 @@
-"""Live e2e of the graph builder with the REAL model (LLM gateway) and the real Neo4j (tech-specs 9.2).
-
-Builds shop 1, updates to 2, updates to 3 and runs two no-change updates, wiring the library like
-``examples/graph_build.py`` (host-style configs from the environment). Only what is stable with a
-real model is asserted; calls and tokens per build are printed, asserted only as the update/first
-ratio of snapshot 2 and 0 calls for a no-change update. Gate: ``SPECFLOW_TEST_NEO4J=1`` and
-``SPECFLOW_TEST_LLM_GATEWAY=1`` with
-``uv run --env-file ../.env.local`` (never part of ``make check``). It costs real tokens and minutes.
-
-One scratch corpus folder whose contents are replaced between builds, file stores under ``tmp_path``,
-a unique ``pytest-graph-`` project id; ``neo4j_project`` deletes the project by ``group_id`` afterwards.
-"""
+"""Live e2e of the graph builder with the REAL model (LLM gateway) and the real Neo4j."""
 
 from __future__ import annotations
 
@@ -268,10 +257,17 @@ async def build_once(
         spec_changes={k: len(v) for k, v in result.spec_changes.model_dump().items()},
         seconds=round(seconds, 1),
     )
+    # a build with lineages to retry chains follow-up updates; the result is the chain's
+    # last build, the expected mode the first one's
+    record = await stores.builds.get_build(project.project_id, result.build_id)
+    first = record.follow_up_of if record is not None else None
+    chained = await stores.builds.get_build(project.project_id, first) if first is not None else None
+    mode = chained.mode if chained is not None else result.mode
+    log.record(name, follow_up_builds=list(result.settlement.follow_up_builds) if result.settlement else [])
     log.ensure(
         name,
-        f"mode {result.mode!r} != expected {expected_mode!r}",
-        condition=result.mode == expected_mode,
+        f"mode {mode!r} != expected {expected_mode!r}",
+        condition=mode == expected_mode,
     )
     log.ensure(
         name,
@@ -298,7 +294,7 @@ async def build_once(
     return Built(result, usage, snapshot, seconds, plan, nodes, diff_operations)
 
 
-# D1-D4 (data-model.md) by Cypher
+# D1-D4 by Cypher
 
 
 async def check_invariants(project: Neo4jProject, name: str, log: RunLog) -> None:
@@ -461,10 +457,9 @@ async def check_provenance(project: Neo4jProject, name: str, log: RunLog) -> Non
 
 
 def retention(before: Snapshot, after: Snapshot, built: Built) -> dict[str, tuple[list[str], list[str]]]:
-    """Per class, (spec_ids of ``before`` grounded only in unchanged fragments (same id, active and
-    the same text in both snapshots), the ones lost). ``reused``: every evidence fragment is in a unit not
-    re-extracted in
-    ``built``; ``reextracted``: some evidence fragment is in a re-extracted unit (model variance)."""
+    """Per class, (spec_ids of ``before`` grounded only in unchanged fragments (same id, active and the same text in
+    both snapshots), the ones lost).
+    """
 
     unchanged = unchanged_fragments(before, after)
     reextracted_units = {raw.unit_id for raw in built.nodes_artifact.raw_nodes if not raw.reused}
@@ -766,7 +761,7 @@ async def scenario(neo4j_project: Neo4jProject, tmp_path: Path, llm: LLMConfig, 
     log.record(name, calls_ratio=round(ratio, 3))
     await check_admin_removed(log, name, neo4j_project, third)
     # The rename: only the identity is stable with a real model. The module keeps spec_id and uuid
-    # and stays one node; whether its name follows the text (FR-BLD-23 known terms map the new
+    # and stays one node; whether its name follows the text ( known terms map the new
     # wording onto the old name) is model behaviour, printed, never asserted.
     check_rename(log, name, third.snapshot, orders_spec_id, orders_uuid)
     check_retention(log, name, second.snapshot, third.snapshot, third, require_stable=False)

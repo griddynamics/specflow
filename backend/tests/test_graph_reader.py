@@ -1,11 +1,4 @@
-"""Offline tests of the reader's pure parts (plan 5.T1): query terms and escaping, the embedded
-search text, reciprocal rank fusion and its tie-breaks, fulltext paging, the vector-path choice,
-argument validation, and scope queries built from the spine paths (the gateway's overflow class for an
-embedding endpoint's too-long 400, H9, is tested in ``test_graph_gateway.py``).
-
-FR-READ-02, 03, 05, 07, 08, 09; m5-spec-edits H1-H5. The live behaviour (the same paths on
-Neo4j) is in ``test_graph_reader_live.py``. No Neo4j: a scripted executor answers each query by name.
-"""
+"""Offline tests of the reader's pure parts: query terms, search ranking, paging and scope queries."""
 
 from __future__ import annotations
 
@@ -43,6 +36,7 @@ from graph.core.reader import (
 from graph_support import (
     RENAMED_FEATURE_LABEL,
     RENAMED_FEATURE_PREFIX,
+    frozen_ontology,
     llm_config,
     load_feature_renamed_ontology,
     shipped_ontology,
@@ -60,10 +54,10 @@ Answer = Callable[[Mapping[str, Any]], list[dict[str, Any]]]
 
 class ScriptedExecutor(Executor):
     """An ``Executor`` answering each read by query name with ``answers[name](params)``; records
-    every call. An unscripted query fails the test."""
+    every call. An unscripted query fails the test; inheritance reads find no owner by default."""
 
     def __init__(self, answers: Mapping[str, Answer]) -> None:
-        self.answers = dict(answers)
+        self.answers = {"read_owner_values": lambda _params: [], **answers}
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.project_ids: list[str] = []
 
@@ -213,7 +207,7 @@ def test_embedded_text_is_the_text_up_to_the_fulltext_cut() -> None:
     assert _embedding_text("???") == "???"
 
 
-# --- FR-READ-02 / H2 / H5: fusion ---------------------------------------------------------------
+# --- / H2 / H5: fusion ---------------------------------------------------------------
 
 
 def test_tuned_fusion_constants() -> None:
@@ -284,7 +278,7 @@ def test_vector_floor_must_be_0_to_1(floor: Any) -> None:
     assert raised.value.code == "invalid_vector_floor"
 
 
-# --- FR-READ-03 / H2: when the vector list is left out -------------------------------------------
+# --- / H2: when the vector list is left out -------------------------------------------
 
 
 async def test_without_gateway_results_are_fulltext_only() -> None:
@@ -395,7 +389,8 @@ async def test_index_after_three_doublings_falls_back_to_exact_cosine() -> None:
     executor = vector_executor(5000, [(2, []), (4, []), (8, []), (16, [hit("A", 0.9)])])
     await reader(executor, FakeGateway()).find_nodes(PROJECT, "x", limit=2)
     assert executor.names().count("search_nodes_vector") == 4
-    assert executor.names()[-2:] == ["search_nodes_vector_exact", "read_nodes_by_uuid"]
+    # The hydrated node (a requirement without ``release``) then asks for its owner's value.
+    assert executor.names()[-3:] == ["search_nodes_vector_exact", "read_nodes_by_uuid", "read_owner_values"]
 
 
 # --- H2: fulltext paging -----------------------------------------------------------------------
@@ -474,7 +469,7 @@ async def test_other_query_rejections_stay_conformance_errors() -> None:
         await reader(ScriptedExecutor({"search_fragments": rejected})).find_fragments(PROJECT, "x")
 
 
-# --- H4 / FR-READ-08: validation (before any query) ---------------------------------------------
+# --- H4 /: validation (before any query) ---------------------------------------------
 
 
 @pytest.mark.parametrize("limit", [0, -1, MAX_SEARCH_LIMIT + 1, True, 2.5])
@@ -540,7 +535,7 @@ async def test_line_range_must_be_valid(start: Any, end: Any) -> None:
     assert raised.value.code == "invalid_line_range"
 
 
-# --- FR-READ-05 / H5: impact truncation ---------------------------------------------------------
+# --- / H5: impact truncation ---------------------------------------------------------
 
 
 @pytest.mark.parametrize("reachable", [499, 500, 501, 600])
@@ -574,15 +569,24 @@ def ids_in_order(nodes: Any) -> list[str]:
     return [node.spec_id for node in nodes]
 
 
-# --- H1 / FR-READ-07: scope queries from the spine paths ----------------------------------------
+# --- H1 /: scope queries from the spine paths ----------------------------------------
 
 
 def test_scope_queries_follow_the_shipped_spine_paths() -> None:
     queries = reader(ScriptedExecutor({}))._scope_queries
     assert sorted(query.name for query in queries) == [
+        "read_scope_sequence_CONSUMED_BY",
         "read_scope_sequence_GROUPED_BY",
         "read_scope_sequence_GROUPED_BY_REALIZED_BY",
+        "read_scope_sequence_PART_OF",
+        "read_scope_sequence_PART_OF_CONSUMED_BY",
+        "read_scope_sequence_PART_OF_GROUPED_BY",
+        "read_scope_sequence_PART_OF_GROUPED_BY_REALIZED_BY",
+        "read_scope_sequence_PART_OF_PROVIDED_BY",
+        "read_scope_sequence_PART_OF_STORED_IN",
+        "read_scope_sequence_PROVIDED_BY",
         "read_scope_sequence_REALIZED_BY",
+        "read_scope_sequence_STORED_IN",
         "read_scope_via_PART_OF_1_3",
         "read_scope_via_RELATES_TO_1_1",
     ]
@@ -594,6 +598,8 @@ def test_scope_queries_follow_the_shipped_spine_paths() -> None:
     sequence = by_name["read_scope_sequence_GROUPED_BY_REALIZED_BY"]
     assert "(n:SpecNode)-[r0:GROUPED_BY]->(x0:SpecNode)-[r1:REALIZED_BY]->(root)" in sequence
     assert "none(label IN labels(x0) WHERE label IN $roots)" in sequence
+    provided = by_name["read_scope_sequence_PART_OF_PROVIDED_BY"]
+    assert "(n:SpecNode)-[r0:PART_OF]->(x0:SpecNode)-[r1:PROVIDED_BY]->(root)" in provided
 
 
 def test_sequence_parts_are_every_contiguous_run_and_symmetric_steps_go_either_way() -> None:
@@ -628,9 +634,10 @@ async def test_scope_unions_every_path_query_and_reads_each_node_once() -> None:
     for query in reader(ScriptedExecutor({}))._scope_queries:
         answers[query.name] = lambda _params, name=query.name: [{"uuid": uuid_of("SHARED")}, {"uuid": uuid_of(name)}]
     executor = ScriptedExecutor(answers)
+    queries = reader(ScriptedExecutor({}))._scope_queries
     nodes = await reader(executor).scope(PROJECT, "M")
     assert executor.names().count("read_nodes_by_uuid") == 1
-    assert len(nodes) == len({node.spec_id for node in nodes}) == 6
+    assert len(nodes) == len({node.spec_id for node in nodes}) == len(queries) + 1  # one each, plus SHARED
     scope_params = [params for name, params in executor.calls if name.startswith("read_scope")]
     assert all(params["roots"] == ["Module"] and params["symmetric"] == ["RELATES_TO"] for params in scope_params)
 
@@ -720,6 +727,106 @@ async def test_an_id_naming_no_node_falls_back_to_the_fused_results() -> None:
     assert [(h.node.spec_id, h.matched) for h in hits] == [("X", "fulltext")]
 
 
+# --- Attributes: read-time ``inherit`` and default-aware ``where``---------------------
+
+FEATURE, MODULE, CAPABILITY = "Feature", "Module", "Capability"
+
+
+def owner_row(uuid: str, spec_id: str, label: str, **values: Any) -> dict[str, Any]:
+    """A ``read_owner_values`` row: a node one ``PART_OF`` hop from ``uuid`` with its requested values."""
+
+    return {
+        "uuid": uuid,
+        "relation": "PART_OF",
+        "labels": ["SpecNode", label],
+        "spec_id": spec_id,
+        "values": [[name, value] for name, value in values.items()],
+    }
+
+
+def inherit_executor(nodes: list[dict[str, Any]], owners: list[dict[str, Any]]) -> ScriptedExecutor:
+    return ScriptedExecutor({"read_nodes": lambda _params: nodes, "read_owner_values": lambda _params: owners})
+
+
+async def test_a_null_inheriting_attribute_is_filled_from_the_owner() -> None:
+    rows = [node_row("FR::A"), node_row("FR::B", release="v2"), node_row(FEATURE + "::F", FEATURE, release="MVP")]
+    executor = inherit_executor(rows, [owner_row(uuid_of("FR::A"), "F", FEATURE, release="MVP")])
+    nodes = {node.spec_id: node for node in await reader(executor).nodes(PROJECT)}
+    assert nodes["FR::A"].attributes["release"] == "MVP"
+    assert nodes["FR::B"].attributes["release"] == "v2"  # its own value stays
+    # One request, for the requirement whose inheriting attribute is null (the feature has none).
+    requests = dict(executor.calls)["read_owner_values"]["requests"]
+    assert requests == [{"uuid": uuid_of("FR::A"), "relation": "PART_OF", "attributes": ["release"]}]
+
+
+async def test_inheritance_reads_owner_pairs_lowest_rank_first_and_stored_attributes_only() -> None:
+    a, b, c = uuid_of("FR::A"), uuid_of("FR::B"), uuid_of("FR::C")
+    owners = [
+        owner_row(a, "M", MODULE, release="from-module"),  # rank 2 and Module stores no release
+        owner_row(a, "F2", FEATURE, release="second"),
+        owner_row(a, "F1", FEATURE, release="first"),  # rank 1, lowest spec_id: the owner
+        owner_row(b, "C", CAPABILITY, release="x"),  # PART_OF Capability is no declared pair
+        {**owner_row(b, "G", FEATURE, release="y"), "labels": ["SpecNode", FEATURE, MODULE]},  # label problem
+        owner_row(c, "F0", FEATURE, release=None),  # the owner has none: null stays null
+        owner_row(c, "F9", FEATURE, release="later"),
+    ]
+    executor = inherit_executor([node_row("FR::A"), node_row("FR::B"), node_row("FR::C")], owners)
+    nodes = {node.spec_id: node for node in await reader(executor).nodes(PROJECT, labels=[FR])}
+    assert nodes["FR::A"].attributes["release"] == "first"
+    assert "release" not in nodes["FR::B"].attributes
+    assert "release" not in nodes["FR::C"].attributes
+
+
+async def test_inheritance_applies_to_node_search_and_scope_reads() -> None:
+    owners = [owner_row(uuid_of("FR::A"), "F", FEATURE, release="MVP")]
+    executor = ScriptedExecutor(
+        {
+            "read_node_by_spec_id": lambda _params: [node_row("FR::A")],
+            "read_owner_values": lambda _params: owners,
+            "read_nodes_by_uuid": hydrate,
+        }
+    )
+    node = await reader(executor).node(PROJECT, "FR::A")
+    assert node is not None and node.attributes["release"] == "MVP"
+    hydrated = await reader(executor)._nodes_by_uuid(PROJECT, [uuid_of("FR::A")])
+    assert hydrated[0].attributes["release"] == "MVP"
+
+
+def test_inheritance_is_driven_by_the_ontology_only() -> None:
+    assert reader(ScriptedExecutor({}))._inherit == {
+        label: {"release": "PART_OF"} for label in ONT.labels if "release" in ONT.inherit_rules(label)
+    }
+    assert GraphReader(ScriptedExecutor({}), frozen_ontology())._inherit == {}  # v1.3: nothing inherits
+
+
+async def test_frozen_v13_reads_run_no_inheritance_query_and_no_default_matching() -> None:
+    executor = ScriptedExecutor({"read_nodes": lambda _params: [node_row("FR::A")]})
+    executor.answers.pop("read_owner_values")
+    nodes = await GraphReader(executor, frozen_ontology()).nodes(PROJECT, where={"is_assumption": "no"})
+    assert [node.spec_id for node in nodes] == ["FR::A"]
+    assert executor.names() == ["read_nodes"]
+    assert executor.calls[0][1]["defaulted"] == {}
+
+
+async def test_where_on_a_defaulted_attribute_also_matches_nodes_without_it() -> None:
+    executor = ScriptedExecutor({"read_nodes": lambda _params: []})
+    await reader(executor).nodes(PROJECT, labels=[FR, FEATURE, CAPABILITY], where={"in_scope": "yes"})
+    await reader(executor).nodes(PROJECT, labels=[FR, FEATURE], where={"in_scope": "no"})
+    await reader(executor).nodes(PROJECT, labels=[FR], where={"in_scope": None})
+    await reader(executor).nodes(PROJECT, labels=[FR], where={"is_assumption": None})
+    defaulted = [params["defaulted"] for _, params in executor.calls]
+    # A value: the labels whose default it is; a non-default value: none (exact match); None: the labels
+    # with any default (their absent property is the default, not None); no default declared: none.
+    assert defaulted == [{"in_scope": [FR, FEATURE]}, {}, {"in_scope": [FR]}, {}]
+
+
+async def test_search_filters_carry_the_defaulted_labels() -> None:
+    executor = search_executor([hit("A", 1.0)])
+    await reader(executor, FakeGateway()).find_nodes(PROJECT, "x", labels=[FR], where={"in_scope": "yes"})
+    for name in ("search_nodes_fulltext", "count_search_vectors", "search_nodes_vector_exact"):
+        assert dict(executor.calls)[name]["defaulted"] == {"in_scope": [FR]}
+
+
 # --- FR-MCP-TOOL-10: paged read -------------------------------------------------------------------
 
 
@@ -744,10 +851,24 @@ async def test_fr_mcp_tool_10_the_page_reads_limit_plus_one_rows_with_its_parame
 
     executor = paged_executor(fr_ids(3))
     result = await reader(executor).nodes_page(PROJECT, [FR])
-    assert executor.calls == [("read_nodes_page", {"labels": [FR], "after": None, "limit": 51, "retired": "retired"})]
-    assert executor.project_ids == [PROJECT]
+    # The page read, then the owner read that fills the inheriting ``release`` (as ``nodes`` does).
+    assert executor.calls[0] == ("read_nodes_page", {"labels": [FR], "after": None, "limit": 51, "retired": "retired"})
+    assert executor.names() == ["read_nodes_page", "read_owner_values"]
+    assert set(executor.project_ids) == {PROJECT}
     assert [n.spec_id for n in result.items] == fr_ids(3)
     assert "read_nodes" not in executor.names()
+
+
+async def test_a_page_fills_inherited_values_as_nodes_does() -> None:
+    rows = [node_row("FR::A"), node_row("FR::B", release="v2")]
+    executor = ScriptedExecutor(
+        {
+            "read_nodes_page": lambda _params: rows,
+            "read_owner_values": lambda _params: [owner_row(uuid_of("FR::A"), "F", FEATURE, release="MVP")],
+        }
+    )
+    page = await reader(executor).nodes_page(PROJECT, [FR])
+    assert {n.spec_id: n.attributes.get("release") for n in page.items} == {"FR::A": "MVP", "FR::B": "v2"}
 
 
 async def test_fr_mcp_tool_10_the_page_limit_parameter_is_limit_plus_one_and_after_is_passed() -> None:

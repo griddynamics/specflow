@@ -20,7 +20,8 @@ from api.routers.documents import require_project
 from api.runtime import Runtime
 from api.schemas import GraphBuildRequest, GraphBuildStatus
 from db import sources as sources_repo
-from logger.logger import INFO, get_logger, log_event
+from logger.logger import INFO, WARNING, get_logger, log_event
+from settings import GRAPH_BUILD_SWITCHES
 
 logger = get_logger("api.routers.graph_build")
 router = APIRouter(prefix="/projects/{pid}/graph_build", tags=["graph"])
@@ -36,6 +37,7 @@ def no_processed_documents() -> ApiError:
 
 def _runner(runtime: Runtime) -> BuildRunner:
     if runtime.graph_builds is None:
+        log_event(logger, WARNING, "api.graph_build.unavailable", missing=list(GRAPH_BUILD_SWITCHES))
         raise graph_build_unavailable()
     runner: BuildRunner = runtime.graph_builds
     return runner

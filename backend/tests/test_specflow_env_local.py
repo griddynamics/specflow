@@ -1,4 +1,4 @@
-"""``make env-local``: generated secrets, the personal sign-in identity and the LLM settings it asks for.
+"""``make env-local``: generated secrets, the personal sign-in identity and the LLM and graph settings it asks for.
 
 The target runs on a scratch env file (``ENV_FILE``), never on the repository's ``.env.local``. Without a
 terminal on stdin it asks nothing; the interactive tests give it a pseudo-terminal and type the answers.
@@ -33,7 +33,14 @@ GENERATED = (
 )
 IDENTITY = ("LOCAL_TEST_USER_EMAIL", "AUTH_ALLOWED_EMAIL_DOMAINS")
 INPUTS = ("AGENT_MODEL", "LLM_GATEWAY_URL", "LLM_GATEWAY_API_KEY")
-COMPLETE = "".join(f"{name}=synthetic-{index}\n" for index, name in enumerate(GENERATED + INPUTS))
+GRAPH_MODELS = ("GRAPH_LLM_MODEL", "GRAPH_SMALL_MODEL")
+EMBEDDING = ("GRAPH_EMBEDDING_MODEL", "GRAPH_EMBEDDING_DIM")
+ASKED = INPUTS + GRAPH_MODELS + EMBEDDING  # in the order the target asks and reports them
+COMPLETE = "".join(f"{name}=synthetic-{index}\n" for index, name in enumerate(GENERATED + INPUTS + GRAPH_MODELS))
+COMPLETE += "GRAPH_EMBEDDING_MODEL=embed-model\nGRAPH_EMBEDDING_DIM=1024\n"
+AGENT_MODEL = f"synthetic-{(GENERATED + INPUTS).index('AGENT_MODEL')}"
+# Enter at the two graph model prompts and at the embedding model prompt (no AGENT_MODEL: all three skip).
+GRAPH_SKIPS = ["", "", ""]
 COMPLETE += "LOCAL_TEST_USER_EMAIL=me@corp.io\nAUTH_ALLOWED_EMAIL_DOMAINS=corp.io,example.com\n"
 UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 GIT_EMAIL = "Git.User@Git-Corp.io"
@@ -96,7 +103,7 @@ def test_a_new_file_gets_every_secret_private_and_unprinted_and_names_the_llm_se
         assert re.fullmatch(shape, value), name
         assert value not in result.stdout + result.stderr
     assert stat.S_IMODE(env_file.stat().st_mode) == 0o600
-    assert f"add {' '.join(INPUTS)} to {env_file}" in result.stdout
+    assert f"add {' '.join(ASKED)} to {env_file}" in result.stdout
 
 
 def test_an_existing_file_keeps_its_lines_and_gets_only_the_missing_or_empty_secrets(tmp_path):
@@ -115,7 +122,7 @@ def test_an_existing_file_keeps_its_lines_and_gets_only_the_missing_or_empty_sec
     assert appended is not None
     assert {"KEYCLOAK_QA_PASSWORD", "SESSION_SECRET"} <= set(appended.group(1).split())
     assert "DATABASE_PASSWORD" not in appended.group(1).split()
-    assert "add LLM_GATEWAY_URL LLM_GATEWAY_API_KEY to" in result.stdout
+    assert f"add LLM_GATEWAY_URL LLM_GATEWAY_API_KEY {' '.join(GRAPH_MODELS + EMBEDDING)} to" in result.stdout
 
 
 def test_a_complete_file_is_left_byte_for_byte_unchanged(tmp_path):
@@ -189,7 +196,7 @@ def test_without_a_terminal_the_email_is_dev_example_com_and_the_domains_follow(
 
 def test_on_a_terminal_enter_takes_the_git_email_lowercased_and_the_domains_are_derived(tmp_path):
     env_file = tmp_path / "scratch.env"
-    result = _run(env_file, answers=["", "", "", ""])
+    result = _run(env_file, answers=["", "", "", "", *GRAPH_SKIPS])
     values = _values(env_file)
 
     assert f"LOCAL_TEST_USER_EMAIL (Enter = {GIT_EMAIL.lower()})" in result.stderr
@@ -200,14 +207,14 @@ def test_on_a_terminal_enter_takes_the_git_email_lowercased_and_the_domains_are_
 def test_a_typed_email_is_lowercased_and_malformed_or_qa_addresses_are_asked_again(tmp_path):
     env_file = tmp_path / "scratch.env"
     bad = ["no-at-sign", "two@@ats.io", "a@nodot", "a@b..io", "me@x.io;rm", "alice@example.com", "carol@other.example"]
-    result = _run(env_file, answers=[*bad[:2], "Jane.Doe@Corp.IO", "", "", ""])
+    result = _run(env_file, answers=[*bad[:2], "Jane.Doe@Corp.IO", "", "", "", *GRAPH_SKIPS])
     values = _values(env_file)
 
     assert values["LOCAL_TEST_USER_EMAIL"] == ["jane.doe@corp.io"]
     assert result.stderr.count("not usable as your sign-in email") == 2
     for address in bad[2:]:
         env_file.unlink()
-        _run(env_file, answers=[address, address, address, "", "", ""])
+        _run(env_file, answers=[address, address, address, "", "", "", *GRAPH_SKIPS])
         assert _values(env_file)["LOCAL_TEST_USER_EMAIL"] == ["dev@example.com"], address
 
 
@@ -245,7 +252,7 @@ def test_an_empty_domains_line_is_replaced_and_an_existing_email_is_kept(tmp_pat
 
 def test_nothing_the_target_generates_or_asks_is_printed(tmp_path):
     env_file = tmp_path / "scratch.env"
-    result = _run(env_file, answers=["Secret.Person@Private-Corp.io", "", "", ""])
+    result = _run(env_file, answers=["Secret.Person@Private-Corp.io", "", "", "", *GRAPH_SKIPS])
     values = _values(env_file)
     shown = result.stdout + result.stderr.replace("Enter = " + GIT_EMAIL.lower(), "")
 
@@ -282,3 +289,109 @@ def test_an_existing_file_stays_private_and_no_temp_file_is_left_behind(tmp_path
 
     assert stat.S_IMODE(env_file.stat().st_mode) == 0o600
     assert [path.name for path in tmp_path.iterdir()] == ["scratch.env"]
+
+
+# --- Graph build settings (CTORNDGAIN-2247) -------------------------------------------------------
+
+
+def _without(*names: str) -> str:
+    return "".join(line for line in COMPLETE.splitlines(keepends=True) if line.partition("=")[0] not in names)
+
+
+def test_enter_at_the_graph_model_prompts_takes_agent_model_and_the_prompt_shows_it(tmp_path):
+    env_file = tmp_path / "scratch.env"
+    env_file.write_text(_without(*GRAPH_MODELS, *EMBEDDING))
+    result = _run(env_file, answers=["", "small-typed", "embed-typed", "3072"])
+    assert result.returncode == 0, result.stderr
+    values = _values(env_file)
+
+    assert values["GRAPH_LLM_MODEL"] == [AGENT_MODEL] and values["GRAPH_SMALL_MODEL"] == ["small-typed"]
+    assert values["GRAPH_EMBEDDING_MODEL"] == ["embed-typed"] and values["GRAPH_EMBEDDING_DIM"] == ["3072"]
+    assert f"GRAPH_LLM_MODEL (the graph build's main model; Enter = {AGENT_MODEL})" in result.stderr
+    assert f"GRAPH_SMALL_MODEL (the graph build's small model; Enter = {AGENT_MODEL})" in result.stderr
+    assert "GRAPH_EMBEDDING_MODEL (" in result.stderr and "Enter skips" in result.stderr
+    assert "GRAPH_EMBEDDING_DIM (required, no default: the vector size of embed-typed" in result.stderr
+    assert f"set {' '.join(GRAPH_MODELS)} GRAPH_EMBEDDING_DIM GRAPH_EMBEDDING_MODEL in" in result.stdout
+
+
+def test_the_agent_model_typed_in_the_same_run_is_the_graph_models_default(tmp_path):
+    env_file = tmp_path / "scratch.env"
+    env_file.write_text(_without("AGENT_MODEL", *GRAPH_MODELS, *EMBEDDING))
+    result = _run(env_file, answers=["agent-new", "", "", ""])
+    assert result.returncode == 0, result.stderr
+    values = _values(env_file)
+
+    assert values["AGENT_MODEL"] == values["GRAPH_LLM_MODEL"] == values["GRAPH_SMALL_MODEL"] == ["agent-new"]
+    assert "GRAPH_EMBEDDING_MODEL" not in values and "GRAPH_EMBEDDING_DIM" not in values
+    assert "add GRAPH_EMBEDDING_MODEL GRAPH_EMBEDDING_DIM to" in result.stdout
+    assert "GRAPH_EMBEDDING_DIM (" not in result.stderr  # no model entered: no dimension prompt
+
+
+@pytest.mark.parametrize("bad", ["", "0", "0768", "-5", "3072x", "1 5 3 6x", "4097", "99999", "1e3"])
+def test_the_dimension_is_asked_again_until_a_whole_number_from_1_to_4096(tmp_path, bad):
+    env_file = tmp_path / "scratch.env"
+    env_file.write_text(_without(*EMBEDDING))
+    result = _run(env_file, answers=["embed-typed", bad, " 768 "])
+    assert result.returncode == 0, result.stderr
+    values = _values(env_file)
+
+    assert values["GRAPH_EMBEDDING_DIM"] == ["768"] and values["GRAPH_EMBEDDING_MODEL"] == ["embed-typed"]
+    assert result.stderr.count("GRAPH_EMBEDDING_DIM must be a whole number from 1 to 4096") == 1
+
+
+def test_no_usable_dimension_in_three_tries_writes_neither_the_dimension_nor_the_model(tmp_path):
+    env_file = tmp_path / "scratch.env"
+    env_file.write_text(_without(*EMBEDDING))
+    result = _run(env_file, answers=["embed-typed", "", "abc", "0", "never-read"])
+    assert result.returncode == 0, result.stderr
+    values = _values(env_file)
+
+    assert "GRAPH_EMBEDDING_MODEL" not in values and "GRAPH_EMBEDDING_DIM" not in values
+    assert result.stderr.count("GRAPH_EMBEDDING_DIM (") == 3
+    assert "GRAPH_EMBEDDING_MODEL not written: it needs GRAPH_EMBEDDING_DIM" in result.stderr
+    assert "add GRAPH_EMBEDDING_DIM GRAPH_EMBEDDING_MODEL to" in result.stdout
+
+
+def test_an_existing_embedding_model_without_a_dimension_gets_only_the_dimension_prompt(tmp_path):
+    env_file = tmp_path / "scratch.env"
+    env_file.write_text(_without("GRAPH_EMBEDDING_DIM"))
+    result = _run(env_file, answers=["3072"])
+    assert result.returncode == 0, result.stderr
+    values = _values(env_file)
+
+    assert values["GRAPH_EMBEDDING_MODEL"] == ["embed-model"] and values["GRAPH_EMBEDDING_DIM"] == ["3072"]
+    assert "the vector size of embed-model" in result.stderr
+    assert "GRAPH_EMBEDDING_MODEL (" not in result.stderr and "GRAPH_LLM_MODEL (" not in result.stderr
+
+
+def test_an_existing_dimension_is_kept_when_a_model_is_typed_and_its_size_is_named(tmp_path):
+    env_file = tmp_path / "scratch.env"
+    env_file.write_text(_without("GRAPH_EMBEDDING_MODEL"))
+    result = _run(env_file, answers=["embed-typed", "never-read"])
+    assert result.returncode == 0, result.stderr
+    values = _values(env_file)
+
+    assert values["GRAPH_EMBEDDING_MODEL"] == ["embed-typed"] and values["GRAPH_EMBEDDING_DIM"] == ["1024"]
+    assert "GRAPH_EMBEDDING_DIM in" in result.stderr and "must be the vector size of embed-typed" in result.stderr
+    assert "GRAPH_EMBEDDING_DIM (" not in result.stderr
+
+
+def test_without_a_terminal_the_graph_settings_are_named_never_written(tmp_path):
+    env_file = tmp_path / "scratch.env"
+    text = _without(*GRAPH_MODELS, "GRAPH_EMBEDDING_DIM")
+    env_file.write_text(text)
+    result = _run(env_file)
+    assert result.returncode == 0, result.stderr
+
+    assert env_file.read_text() == text  # AGENT_MODEL is set, yet nothing is chosen without a terminal
+    assert f"add {' '.join(GRAPH_MODELS)} GRAPH_EMBEDDING_DIM to" in result.stdout
+
+
+def test_set_graph_settings_stay_unchanged(tmp_path):
+    env_file = tmp_path / "scratch.env"
+    env_file.write_text(COMPLETE.replace("GRAPH_EMBEDDING_DIM=1024", "GRAPH_EMBEDDING_DIM=99999"))
+    before = env_file.read_text()
+    result = _run(env_file, answers=["never-read"])
+
+    assert env_file.read_text() == before  # an existing value is never checked or changed here
+    assert "complete, left unchanged" in result.stdout

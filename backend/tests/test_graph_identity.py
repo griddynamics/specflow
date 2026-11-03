@@ -1,4 +1,4 @@
-"""Identity rules and the ``SpecIdRegistry`` contract (plan 1.T3; FR-CORE-06; data-model.md "Identity")."""
+"""Identity rules and the ``SpecIdRegistry`` contract."""
 
 from __future__ import annotations
 
@@ -199,7 +199,7 @@ def test_uuids_are_stable_and_partitioned() -> None:
     uuid.UUID(node_uuid("p1", key))
 
 
-# allocate_spec_id (FR-CORE-06)
+# allocate_spec_id
 
 
 def row(spec_id: str, key: str, state: str = "active") -> SpecIdRow:

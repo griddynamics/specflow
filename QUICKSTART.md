@@ -21,8 +21,11 @@ Node.js 20.9 or newer.
 
 1. Write the local env file. It generates the local secrets, including the password and the id of your local
    sign-in user. Then it asks for your sign-in email (Enter takes `git config user.email`; with no terminal it uses
-   `dev@example.com`) and for your LLM settings: `AGENT_MODEL`, `LLM_GATEWAY_URL` and `LLM_GATEWAY_API_KEY` (the key is
-   not shown as you type; Enter skips a question). It also sets `AUTH_ALLOWED_EMAIL_DOMAINS` to the domain of your
+   `dev@example.com`), for your LLM settings: `AGENT_MODEL`, `LLM_GATEWAY_URL` and `LLM_GATEWAY_API_KEY` (the key is
+   not shown as you type; Enter skips a question), and for the knowledge-graph models that **Build knowledge** needs:
+   `GRAPH_LLM_MODEL` and `GRAPH_SMALL_MODEL` (Enter takes your `AGENT_MODEL`) and `GRAPH_EMBEDDING_MODEL`. When you
+   give an embedding model it also asks for `GRAPH_EMBEDDING_DIM`, the vector size of that model (required, no
+   default; check it in your gateway's model list). It also sets `AUTH_ALLOWED_EMAIL_DOMAINS` to the domain of your
    email plus `example.com`. Run it again after every update: it adds any secret a release introduced, asks only for
    settings that are still missing, and never changes a value or prints one:
 
@@ -30,13 +33,14 @@ Node.js 20.9 or newer.
    make env-local
    ```
 
-2. Optional: add the knowledge-graph settings to `.env.local`. You can also edit the LLM settings there by hand:
+2. Optional: edit the LLM and knowledge-graph settings in `.env.local` by hand instead. Without the graph models,
+   **Build knowledge** answers `graph_build_unavailable`:
 
    ```dotenv
-   # The knowledge-graph build stays off until these three are set:
    GRAPH_LLM_MODEL=<model name>
    GRAPH_SMALL_MODEL=<smaller, cheaper model name>
    GRAPH_EMBEDDING_MODEL=<embedding model name>
+   GRAPH_EMBEDDING_DIM=<vector size of the embedding model, for example 1536 or 3072>
    ```
 
 3. Start the stack. Pick the line that fits you:

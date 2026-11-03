@@ -1,58 +1,33 @@
-"""Renamed-ontology test (plan 5.T3; FR-ONT-03, ASR2: no ontology literal in code).
-
-A copy of the shipped ``spec-ontology.yaml`` and its judge prompts is written at test time with every
-name the format leaves free renamed (``renamed_ontology_data``): node type keys, labels, the node
-group, relations, ``id.format`` prefixes, attribute names, vocabulary names, enum values, inference
-rule ids, judge prompt names, the ontology name, and the label and relation names inside prompt text.
-The shop corpus is then built 1 -> 2 -> 3 twice, with inference and verification on, into two projects:
-once with the shipped ontology, once with the renamed copy and the scripted gateway's ``rename``
-mapping. Every model answer is the same hand-written one (``ShopAnswers``, ``script_shop_judge``);
-the renamed build only sees it under the renamed names.
-
-Kept, because the format or the data model fixes them: format keys, ``owner``, ``origin``, ``tier``,
-``role``, ``identity`` values, template names and parameters, the built-in labels and relations,
-``{SLUG}``, ``stmt`` and ``quote`` (attribute names the data model gives a meaning:
-data-model.md "Spec node", ``graph.build.conform.QUOTE_ATTRIBUTE``). Also kept: ``id_families``
-(the format allows renaming them, but the corpus text names them: ``FR-CHK-001`` is an ``FR`` id;
-renaming them changes what the text says, not what the code knows) and ``cues`` (regexes over the
-text). The test fails when the shipped ontology gains a name the rename tables do not cover.
-
-The two graphs must map onto each other (``Mapper``): the same nodes per mapped label with the same
-names, mapped ``spec_id``s, identity keys and attributes; the same edges per mapped relation with the
-same basis, evidence and facts; the same ``spec_id`` registry; the same build results (spec changes,
-metrics, verification) and inference reports; the same model calls per prompt. And no original label,
-relation name, id prefix or rule id reaches a prompt of the renamed builds outside document blocks.
-
-Gate: ``SPECFLOW_TEST_NEO4J=1`` and ``uv run --env-file ../.env.local`` (the ontology checks at the
-top run offline). The chains are built once per module (``open_neo4j_project``) into two
-``pytest-graph-<hex>`` projects, deleted after the module.
-"""
+"""Renamed-ontology test."""
 
 from __future__ import annotations
 
 import json
 import re
 from collections import Counter
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import pytest
 import pytest_asyncio
 import yaml
 
 from graph.build import BuildResult
-from graph.build.models import InferenceReport
+from graph.build.models import InferenceReport, VerificationMetrics
 from graph.core import Ontology, load_ontology
 from graph_support import (
+    FROZEN_ONTOLOGY_FILE,
     ScriptedGateway,
     ShopBuilds,
     assert_all_scripted,
+    frozen_ontology,
     open_neo4j_project,
     outside_untrusted,
     shipped_ontology,
+    with_v2_flags,
 )
 from specflow_live import requires_live
 
@@ -70,6 +45,9 @@ TYPE_KEYS: dict[str, str] = {
     "integration_requirement": "schnittstelle",
     "data_requirement": "datensatz",
     "business_rule": "geschaeftsregel",
+    "interface": "vertrag",
+    "data_entity": "geschaeftsobjekt",
+    "open_question": "offene_frage",
 }
 GROUPS: dict[str, str] = {"requirement": "anforderung"}
 LABELS: dict[str, str] = {
@@ -82,6 +60,9 @@ LABELS: dict[str, str] = {
     "IntegrationRequirement": "Schnittstelle",
     "DataRequirement": "Datensatz",
     "BusinessRule": "Geschaeftsregel",
+    "Interface": "Vertrag",
+    "DataEntity": "Geschaeftsobjekt",
+    "OpenQuestion": "OffeneFrage",
 }
 RELATIONS: dict[str, str] = {
     "PART_OF": "TEIL_VON",
@@ -89,6 +70,12 @@ RELATIONS: dict[str, str] = {
     "REALIZED_BY": "UMGESETZT_VON",
     "INTEGRATES_WITH": "RUFT_AUF",
     "RELATES_TO": "VERWEIST_AUF",
+    "DEPLOYED_TO": "LAEUFT_IN",
+    "PROVIDED_BY": "BEREITGESTELLT_VON",
+    "CONSUMED_BY": "GENUTZT_VON",
+    "STORED_IN": "GESPEICHERT_IN",
+    "CARRIES": "TRAEGT",
+    "DEPENDS_ON": "HAENGT_AB_VON",
 }
 PREFIXES: dict[str, str] = {
     "MOD::": "KOMP::",
@@ -100,6 +87,9 @@ PREFIXES: dict[str, str] = {
     "REQ::INT::": "ANF::SS::",
     "REQ::DATA::": "ANF::DS::",
     "REQ::BR::": "ANF::GR::",
+    "IFC::": "VERT::",
+    "ENT::": "OBJ::",
+    "QST::": "FRAGE::",
 }
 ATTRIBUTES: dict[str, str] = {
     "acceptance_criteria": "abnahme",
@@ -108,6 +98,12 @@ ATTRIBUTES: dict[str, str] = {
     "module": "gehoert_zu",
     "external": "extern",
     "type": "art",
+    "release": "freigabe",
+    "in_scope": "im_umfang",
+    "kind": "sorte",
+    "interface": "nutzt_vertrag",
+    "entity": "beschreibt_objekt",
+    "provider": "anbieter",
 }
 FIXED_ATTRIBUTES = frozenset({"stmt", "quote"})
 VOCABULARIES: dict[str, str] = {"source_status": "herkunftsarten", "yes_no": "ja_nein"}
@@ -121,13 +117,28 @@ VALUES: dict[str, str] = {
     "datastore": "speicher",
     "deployment": "betrieb",
     "other": "sonstiges",
+    "api": "aufruf",
+    "event": "ereignis",
+    "queue": "warteschlange",
+    "file": "datei",
 }
-RULES: dict[str, str] = {"INF-INT-01": "R-SS-1", "INF-CAP-01": "R-QU-1", "INF-CONT-01": "R-TV-1"}
+RULES: dict[str, str] = {
+    "INF-CONT-01": "R-TV-1",
+    "INF-CONT-02": "R-TV-2",
+    "INF-INT-01": "R-SS-1",
+    "INF-CAP-01": "R-QU-1",
+    "INF-XDOC-01": "R-QD-1",
+}
 PROMPTS: dict[str, str] = {
-    "judge_endpoints.2": "richter_enden.2",
-    "judge_realization.1": "richter_umsetzung.1",
-    "judge_attach_orphan.2": "richter_waisen.2",
+    "judge_attach_orphan": "richter_waisen",
+    "judge_endpoints": "richter_enden",
+    "judge_realization": "richter_umsetzung",
+    "judge_owner_conflict": "richter_besitz",
+    "judge_cross_document": "richter_dokumente",
+    "judge_answered_elsewhere": "richter_beantwortet",
+    "judge_attach_orphan_batch": "richter_waisen_stapel",
 }
+_PROMPT_NAMES: dict[str, str] = PROMPTS
 NAME = "umbenannte-ontologie"
 
 # The scripted gateway's ``rename``: the names a hand-written answer may hold (labels in node, hub and
@@ -166,6 +177,10 @@ def _attributes(attributes: Mapping[str, Any]) -> dict[str, Any]:
             spec["aliases"] = {alias: VALUES[value] for alias, value in spec["aliases"].items()}
         if "target" in spec:
             spec["target"] = _type_ref(spec["target"])
+        if "default" in spec:
+            spec["default"] = VALUES[spec["default"]]
+        if "inherit" in spec:
+            spec["inherit"] = {**spec["inherit"], "via": RELATIONS[spec["inherit"]["via"]]}
         if "description" in spec:
             spec["description"] = rename_text(spec["description"])
         renamed[ATTRIBUTES.get(name, name)] = spec
@@ -189,6 +204,33 @@ def _derive(entry: str) -> str:
     return f"{_type_ref(owner)}.{ATTRIBUTES.get(attribute, attribute)}"
 
 
+def _condition(condition: Mapping[str, Any]) -> dict[str, Any]:
+    """A ``where``, spine ``exclude``, ``exclude_where`` or ``target_exclude_where``: attribute names and
+    enum values renamed."""
+
+    return {ATTRIBUTES.get(name, name): [VALUES[value] for value in values] for name, values in condition.items()}
+
+
+def _path(path: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        key: [RELATIONS[name] for name in value] if key in ("via", "sequence") else value for key, value in path.items()
+    }
+
+
+def _pair(pair: Mapping[str, Any]) -> dict[str, Any]:
+    renamed = {**pair, "from": _type_ref(pair["from"]), "to": _type_ref(pair["to"])}
+    for key in ("source_where", "target_where"):
+        if key in pair:
+            renamed[key] = _condition(pair[key])
+    if "not_across" in pair:
+        renamed["not_across"] = [ATTRIBUTES.get(name, name) for name in pair["not_across"]]
+    if "otherwise" in pair:
+        renamed["otherwise"] = RELATIONS[pair["otherwise"]]
+    if "default_from" in pair:
+        renamed["default_from"] = [RELATIONS[name] for name in pair["default_from"]]
+    return renamed
+
+
 def _rename_node_types(node_types: Mapping[str, Any]) -> dict[str, Any]:
     types = {}
     for key, declared_type in node_types.items():
@@ -200,6 +242,10 @@ def _rename_node_types(node_types: Mapping[str, Any]) -> dict[str, Any]:
             node_type["id"] = {**node_type["id"], "format": _prefix(node_type["id"]["format"])}
         if "attributes" in node_type:
             node_type["attributes"] = _attributes(node_type["attributes"])
+        if "supported_by" in node_type:
+            node_type["supported_by"] = [
+                {**support, "relation": RELATIONS[support["relation"]]} for support in node_type["supported_by"]
+            ]
         types[TYPE_KEYS[key]] = node_type
     return types
 
@@ -208,11 +254,11 @@ def _rename_edge_types(edge_types: Mapping[str, Any]) -> dict[str, Any]:
     relations = {}
     for name, declared_relation in edge_types.items():
         relation = _texts(dict(declared_relation))
-        relation["pairs"] = [
-            {**pair, "from": _type_ref(pair["from"]), "to": _type_ref(pair["to"])} for pair in relation["pairs"]
-        ]
+        relation["pairs"] = [_pair(pair) for pair in relation["pairs"]]
         if "derive" in relation:
             relation["derive"] = [_derive(entry) for entry in relation["derive"]]
+        if "derive_via" in relation:
+            relation["derive_via"] = {key: RELATIONS[name] for key, name in relation["derive_via"].items()}
         relations[RELATIONS[name]] = relation
     return relations
 
@@ -220,18 +266,34 @@ def _rename_edge_types(edge_types: Mapping[str, Any]) -> dict[str, Any]:
 def _rename_rule(rule: Mapping[str, Any]) -> dict[str, Any]:
     renamed = dict(rule)
     renamed["id"] = RULES[rule["id"]]
-    renamed["prompt"] = PROMPTS[rule["prompt"]]
-    for key in ("subject", "target", "container"):
+    renamed["prompt"] = _PROMPT_NAMES[rule["prompt"]]
+    if "batch_prompt" in rule:
+        renamed["batch_prompt"] = _PROMPT_NAMES[rule["batch_prompt"]]
+    for key in ("subject", "target", "container", "members"):
         if key in rule:
-            renamed[key] = _type_ref(rule[key])
-    if "targets" in rule:
-        renamed["targets"] = [_type_ref(name) for name in rule["targets"]]
-    for key in ("member_relation", "container_relation", "writes"):
+            value = rule[key]
+            renamed[key] = [_type_ref(name) for name in value] if isinstance(value, list) else _type_ref(value)
+    for key in ("member_relation", "writes"):
         if key in rule:
             renamed[key] = RELATIONS[rule[key]]
-    if "via" in rule:
-        renamed["via"] = [RELATIONS[name] for name in rule["via"]]
+    for key, rename in _RULE_LISTS.items():
+        if key in rule:
+            renamed[key] = [rename(item) for item in rule[key]]
+    for key in ("exclude_where", "target_exclude_where"):
+        if key in rule:
+            renamed[key] = _condition(rule[key])
     return renamed
+
+
+_RULE_LISTS: Final[Mapping[str, Callable[[Any], Any]]] = {
+    "targets": _type_ref,
+    "via": lambda name: RELATIONS[name],
+    "also_writes": lambda name: RELATIONS[name],
+    "exclude_owned_by": _type_ref,
+    "container_paths": _path,
+    "reads": lambda rule_id: RULES[rule_id],
+}
+"""Rule parameters that list names, and how one item is renamed."""
 
 
 def renamed_ontology_data(data: Mapping[str, Any]) -> dict[str, Any]:
@@ -259,15 +321,30 @@ def renamed_ontology_data(data: Mapping[str, Any]) -> dict[str, Any]:
     spine = data["spine"]
     spine["sources"] = [_type_ref(name) for name in spine["sources"]]
     spine["roots"] = [_type_ref(name) for name in spine["roots"]]
-    spine["paths"] = [
-        {
-            key: [RELATIONS[name] for name in value] if key in ("via", "sequence") else value
-            for key, value in path.items()
-        }
-        for path in spine["paths"]
-    ]
+    spine["paths"] = [_path(path) for path in spine["paths"]]
+    if "exclude" in spine:
+        spine["exclude"] = _condition(spine["exclude"])
+    if data.get("conform"):
+        conform = data["conform"]
+        conform["judge_prompt"] = _PROMPT_NAMES[conform["judge_prompt"]]
+        conform["fallback_relation"] = RELATIONS[conform["fallback_relation"]]
+        if conform.get("answered_elsewhere"):
+            answered = conform["answered_elsewhere"]
+            answered["label"] = LABELS.get(answered["label"]) or TYPE_KEYS[answered["label"]]
+            answered["prompt"] = _PROMPT_NAMES[answered["prompt"]]
     data["inference"]["rules"] = [_rename_rule(rule) for rule in data["inference"]["rules"]]
     return data
+
+
+def judge_prompt_refs(data: Mapping[str, Any]) -> set[str]:
+    """The judge prompts a parsed ontology file references: its inference rules', its conform judge's and
+    its answered-elsewhere check's."""
+
+    refs = {rule["prompt"] for rule in data["inference"]["rules"]}
+    refs |= {rule["batch_prompt"] for rule in data["inference"]["rules"] if rule.get("batch_prompt")}
+    conform = data.get("conform") or {}
+    answered = conform.get("answered_elsewhere") or {}
+    return refs | ({conform.get("judge_prompt"), answered.get("prompt")} - {None})
 
 
 def shipped_ontology_dir() -> Any:
@@ -279,19 +356,37 @@ def write_renamed_ontology(directory: Path) -> Path:
 
     source = shipped_ontology_dir()
     data = yaml.safe_load((source / "spec-ontology.yaml").read_text(encoding="utf-8"))
+    return write_renamed_data(directory, data)
+
+
+def write_renamed_data(directory: Path, data: Mapping[str, Any], source: Any = None) -> Path:
+    """Write the renamed copy of the parsed ontology file ``data`` and the renamed judge prompts it
+    references, read from the directory ``source`` (default: the shipped one), into ``directory``;
+    return the file."""
+
+    source = source or shipped_ontology_dir()
     path = Path(directory) / "renamed-ontology.yaml"
     path.write_text(yaml.safe_dump(renamed_ontology_data(data), sort_keys=False, allow_unicode=True), encoding="utf-8")
     prompts = Path(directory) / "judge_prompts"
     prompts.mkdir(exist_ok=True)
-    for original, renamed in PROMPTS.items():
+    for original in judge_prompt_refs(data):
         text = (source / "judge_prompts" / f"{original}.md").read_text(encoding="utf-8")
-        (prompts / f"{renamed}.md").write_text(rename_text(text), encoding="utf-8")
+        (prompts / f"{_PROMPT_NAMES[original]}.md").write_text(rename_text(text), encoding="utf-8")
     return path
 
 
 @pytest.fixture(scope="module")
 def renamed_ontology(tmp_path_factory: pytest.TempPathFactory) -> Ontology:
     return load_ontology(write_renamed_ontology(tmp_path_factory.mktemp("renamed-ontology")), submodule_files=[])
+
+
+@pytest.fixture(scope="module")
+def renamed_frozen_ontology(tmp_path_factory: pytest.TempPathFactory) -> Ontology:
+    """Renamed copy of the flag-off ontology. The live chains build with it because the shop answers do."""
+
+    data = yaml.safe_load(FROZEN_ONTOLOGY_FILE.read_text(encoding="utf-8"))
+    path = write_renamed_data(tmp_path_factory.mktemp("renamed-frozen"), data)
+    return load_ontology(path, submodule_files=[])
 
 
 # The rename is total and the copy is valid (offline)
@@ -311,7 +406,7 @@ def test_the_rename_tables_cover_every_free_name_of_the_shipped_ontology() -> No
     values = {value for t in shipped.node_types.values() for a in t.attributes.values() for value in a.values}
     assert values == set(VALUES)
     assert {rule.id for rule in shipped.inference.rules} == set(RULES)
-    assert {rule.prompt for rule in shipped.inference.rules} == set(PROMPTS)
+    assert judge_prompt_refs(data) == set(PROMPTS) == set(shipped.judge_prompts)
     # Renamed names never reuse an original one (a mapping that kept a name would prove nothing).
     for table in (TYPE_KEYS, GROUPS, LABELS, RELATIONS, PREFIXES, ATTRIBUTES, VOCABULARIES, VALUES, RULES, PROMPTS):
         assert not set(table.values()) & set(table), table
@@ -358,6 +453,97 @@ def test_the_renamed_copy_loads_with_the_same_structure(renamed_ontology: Ontolo
     )
     assert not _TEXT_NAMES.search(text)
     assert not [prefix for prefix in PREFIXES if f"{prefix}{{SLUG}}" in text]
+
+
+def _renamed_condition(condition: Mapping[str, frozenset[str]]) -> dict[str, frozenset[str]]:
+    return {
+        ATTRIBUTES.get(name, name): frozenset(VALUES[value] for value in values) for name, values in condition.items()
+    }
+
+
+@pytest.mark.parametrize("source", ["shipped", "frozen-flagged"])
+def test_the_renamed_copy_carries_every_format_2_flag(tmp_path: Path, source: str) -> None:
+    """The rename helpers cover the names format-2 keys hold (``where``, ``not_across``, ``otherwise``,
+    ``default_from``, attribute ``default`` and ``inherit``, ``supported_by``, ``derive_via``, spine ``exclude``,
+    ``conform``, ``exclude_owned_by``, ``container_paths``, ``exclude_where``): the shipped v2.0 file, and the frozen
+    v1.3 file with every flag set (``with_v2_flags``), renamed load and compile to the same flags under the renamed
+    names (offline).
+    """
+
+    if source == "shipped":
+        prompts = shipped_ontology_dir()
+        data = yaml.safe_load((prompts / "spec-ontology.yaml").read_text(encoding="utf-8"))
+    else:
+        prompts = shipped_ontology_dir()
+        data = with_v2_flags(yaml.safe_load(FROZEN_ONTOLOGY_FILE.read_text(encoding="utf-8")))
+    original_dir = tmp_path / "original"
+    original_dir.mkdir()
+    (original_dir / "ontology.yaml").write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    (original_dir / "judge_prompts").mkdir()
+    for ref in judge_prompt_refs(data):
+        name = f"{ref}.md"
+        (original_dir / "judge_prompts" / name).write_text(
+            (prompts / "judge_prompts" / name).read_text(encoding="utf-8"), encoding="utf-8"
+        )
+    original = load_ontology(original_dir / "ontology.yaml", submodule_files=[])
+    (tmp_path / "renamed").mkdir()
+    renamed = load_ontology(write_renamed_data(tmp_path / "renamed", data, prompts), submodule_files=[])
+    for name, relation in original.relations.items():
+        other = renamed.relation(RELATIONS[name])
+        assert (other.acyclic, other.stated_only) == (relation.acyclic, relation.stated_only)
+        if relation.derive_via is not None:
+            assert other.derive_via is not None
+            assert (other.derive_via.consumer, other.derive_via.provider) == (
+                RELATIONS[relation.derive_via.consumer],
+                RELATIONS[relation.derive_via.provider],
+            )
+        for pair in relation.pairs:
+            mapped = renamed.pair_rule(RELATIONS[name], LABELS[pair.source], LABELS[pair.target])
+            assert mapped is not None
+            assert (mapped.owner, mapped.owner_rank, mapped.default, mapped.where_reason, mapped.max_depth) == (
+                pair.owner,
+                pair.owner_rank,
+                pair.default,
+                pair.where_reason,
+                pair.max_depth,
+            )
+            assert mapped.source_where == _renamed_condition(pair.source_where)
+            assert mapped.target_where == _renamed_condition(pair.target_where)
+            assert mapped.not_across == tuple(ATTRIBUTES.get(item, item) for item in pair.not_across)
+            assert mapped.otherwise == (RELATIONS[pair.otherwise] if pair.otherwise else None)
+            assert mapped.default_from == frozenset(RELATIONS[item] for item in pair.default_from)
+            assert (mapped.distinct_owner, mapped.redundant_via_owner) == (
+                pair.distinct_owner,
+                pair.redundant_via_owner,
+            )
+    for label in original.labels:
+        assert renamed.supported_by(LABELS[label]) == tuple(
+            type(support)(RELATIONS[support.relation], support.direction) for support in original.supported_by(label)
+        )
+        assert renamed.merge_across_labels(LABELS[label]) == original.merge_across_labels(label)
+        assert renamed.inherit_rules(LABELS[label]) == {
+            ATTRIBUTES.get(name, name): RELATIONS[via] for name, via in original.inherit_rules(label).items()
+        }
+        for name, spec in original.attribute_specs(label).items():
+            default = renamed.attribute_default(LABELS[label], ATTRIBUTES.get(name, name))
+            assert default == (VALUES[spec.default] if spec.default else None)
+    assert renamed.spine_exclude() == _renamed_condition(original.spine_exclude())
+    conform, renamed_conform = original.conform_spec(), renamed.conform_spec()
+    assert conform is not None and renamed_conform is not None
+    assert (renamed_conform.judge_prompt, renamed_conform.fallback_relation) == (
+        _PROMPT_NAMES[conform.judge_prompt],
+        RELATIONS[conform.fallback_relation],
+    )
+    for rule, other in zip(original.inference.rules, renamed.inference.rules, strict=True):
+        assert other.exclude_owned_by == {LABELS[label] for label in rule.exclude_owned_by}
+        assert other.exclude_where == _renamed_condition(rule.exclude_where)
+        assert other.target_exclude_where == _renamed_condition(rule.target_exclude_where)
+        assert [path.relations for path in other.container_paths] == [
+            tuple(RELATIONS[name] for name in path.relations) for path in rule.container_paths
+        ]
+        assert other.reads == tuple(RULES[rule_id] for rule_id in rule.reads)
+    text = yaml.safe_dump(renamed_ontology_data(data))
+    assert not _TEXT_NAMES.search(text)
 
 
 # Mapping the shipped graph onto the renamed one
@@ -548,6 +734,37 @@ def map_dropped(key: str) -> str:
     return f"{RELATIONS.get(relation, relation)}{separator}{reason}"
 
 
+def map_name(part: str) -> str:
+    """A label or relation name in renamed names (anything else as is)."""
+
+    return LABELS.get(part, RELATIONS.get(part, part))
+
+
+def map_verification_metrics(metrics: VerificationMetrics) -> dict[str, Any]:
+    """Verification metrics in renamed names: every key that holds a label or relation (per label, per
+    relation, per ``<RELATION>|<source label>|<target label>`` pair, dropped-edge keys)."""
+
+    def keys(values: Mapping[str, Any] | None, rename: Callable[[str], str] = map_name) -> Any:
+        return None if values is None else {rename(key): value for key, value in values.items()}
+
+    dumped = metrics.model_dump(mode="json")
+    return {
+        **dumped,
+        "dropped_edges": keys(dumped["dropped_edges"], map_dropped),
+        "nodes_by_label": keys(dumped["nodes_by_label"]),
+        "edges_by_relation_basis": keys(dumped["edges_by_relation_basis"]),
+        "cross_document_edges": keys(dumped["cross_document_edges"]),
+        "unsnapped_quote_nodes": keys(dumped["unsnapped_quote_nodes"]),
+        "spine_unreachable_before_by_label": keys(dumped["spine_unreachable_before_by_label"]),
+        "spine_unreachable_by_label": keys(dumped["spine_unreachable_by_label"]),
+        "hub_surfaces_per_hub": keys(dumped["hub_surfaces_per_hub"]),
+        "hub_raw_names_per_hub": keys(dumped["hub_raw_names_per_hub"]),
+        "quarantine_by_pair": keys(
+            dumped["quarantine_by_pair"], lambda key: "|".join(map_name(part) for part in key.split("|"))
+        ),
+    }
+
+
 def map_result(result: BuildResult) -> dict[str, Any]:
     """The comparable part of a shipped build result, in renamed names."""
 
@@ -565,10 +782,7 @@ def map_result(result: BuildResult) -> dict[str, Any]:
         "spec_changes": {name: map_refs(getattr(changes, name)) for name in type(changes).model_fields},
         "verification": {
             **verification.model_dump(mode="json", exclude={"metrics"}),
-            "metrics": {
-                **verification.metrics.model_dump(mode="json"),
-                "dropped_edges": {map_dropped(k): v for k, v in verification.metrics.dropped_edges.items()},
-            },
+            "metrics": map_verification_metrics(verification.metrics),
         },
         "metrics": {
             "fragments_by_status": metrics.fragments_by_status,
@@ -626,7 +840,16 @@ def map_report(report: InferenceReport, *, mapped: bool) -> dict[str, Any]:
     rule = (lambda value: RULES[value]) if mapped else (lambda value: value)
     return {
         "enabled": report.enabled,
-        "rules": [{**item.model_dump(mode="json"), "rule": rule(item.rule)} for item in report.rules],
+        # budget_tokens counts the rendered judge requests, whose names differ in length:
+        # only whether a rule spent any is compared
+        "rules": [
+            {**item.model_dump(mode="json"), "rule": rule(item.rule), "budget_tokens": item.budget_tokens > 0}
+            for item in report.rules
+        ],
+        "backlog": {
+            rule(name): [ref(spec_id) for spec_id in queue.spec_ids] for name, queue in (report.backlog or {}).items()
+        },
+        "spine_unreachable_after": report.spine_unreachable_after,
         "integration_outliers": sorted(ref(value) for value in report.integration_outliers),
         "orphans_without_candidate": sorted(ref(value) for value in report.orphans_without_candidate),
         "spine_unreachable_before": report.spine_unreachable_before,
@@ -641,13 +864,13 @@ def calls(gateway: ScriptedGateway, *, mapped: bool) -> Counter[tuple[str, str]]
 
     found: Counter[tuple[str, str]] = Counter()
     for call in gateway.calls:
-        prompt = PROMPTS.get(call.prompt, call.prompt) if mapped else call.prompt
+        prompt = _PROMPT_NAMES.get(call.prompt, call.prompt) if mapped else call.prompt
         found[(prompt, call.call_class)] += len(call.texts) if call.call_class == "embedding" else 1
     return found
 
 
 def judged(gateway: ScriptedGateway, prompts: Mapping[str, str] | None = None) -> list[tuple[str, Any]]:
-    judge_prompts = set(PROMPTS) | set(PROMPTS.values())
+    judge_prompts = set(_PROMPT_NAMES) | set(_PROMPT_NAMES.values())
     return sorted(
         ((prompts or {}).get(call.prompt, call.prompt), call.key)
         for call in gateway.calls
@@ -686,9 +909,10 @@ async def run_chain(builds: ShopBuilds) -> list[Step]:
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
-async def chains(renamed_ontology: Ontology, tmp_path_factory: pytest.TempPathFactory) -> AsyncIterator[Chains]:
-    """Both chains, built once for the module (12 builds) into two projects deleted afterwards. The
-    tests reading them are synchronous: the driver lives on this fixture's module loop."""
+async def chains(renamed_frozen_ontology: Ontology, tmp_path_factory: pytest.TempPathFactory) -> AsyncIterator[Chains]:
+    """Both chains, built once for the module (12 builds) into two projects deleted afterwards: the frozen
+    v1.3 ontology and its renamed copy. The tests reading them are synchronous: the driver lives on this
+    fixture's module loop."""
 
     root = tmp_path_factory.mktemp("renamed-chains")
     gateways: list[ScriptedGateway] = []
@@ -699,13 +923,13 @@ async def chains(renamed_ontology: Ontology, tmp_path_factory: pytest.TempPathFa
         return gateway
 
     async with open_neo4j_project() as project:
-        shipped = ShopBuilds(project, factory, root / "shipped")
+        shipped = ShopBuilds(project, factory, root / "shipped", ontology=frozen_ontology())
         renamed = ShopBuilds(
             project,
             factory,
             root / "renamed",
             project_id=project.new_project(),
-            ontology=renamed_ontology,
+            ontology=renamed_frozen_ontology,
             rename=ANSWER_RENAME,
         )
         built = Chains(await run_chain(shipped), await run_chain(renamed))
@@ -786,21 +1010,39 @@ def test_build_results_inference_and_verification_map_onto_each_other(chains: Ch
 def test_the_builds_make_the_same_model_calls(chains: Chains) -> None:
     for shipped, renamed in pairs(chains):
         assert calls(renamed.gateway, mapped=False) == calls(shipped.gateway, mapped=True), shipped.snapshot
-        assert judged(renamed.gateway) == judged(shipped.gateway, PROMPTS), shipped.snapshot
+        assert judged(renamed.gateway) == judged(shipped.gateway, _PROMPT_NAMES), shipped.snapshot
         assert [
             call.key
             for call in renamed.gateway.calls
-            if call.call_class != "embedding" and call.prompt not in PROMPTS.values()
+            if call.call_class != "embedding" and call.prompt not in _PROMPT_NAMES.values()
         ] == [
-            call.key for call in shipped.gateway.calls if call.call_class != "embedding" and call.prompt not in PROMPTS
+            call.key
+            for call in shipped.gateway.calls
+            if call.call_class != "embedding" and call.prompt not in _PROMPT_NAMES
         ], shipped.snapshot
 
 
 # Distinctive original names a renamed build's prompt must not show. Skipped as too generic to search
 # for in English prompt text: the one-word type keys (module, feature, capability, constraint), the
-# group key (requirement), the attribute names module, external and type, and every enum value
+# group key (requirement), the attribute names module, external, type and provider, and every enum value
 # (stated, implied, yes, no, frontend, backend, datastore, deployment, other).
-GENERIC_NAMES = frozenset({"module", "feature", "capability", "constraint", "requirement", "external", "type", *VALUES})
+GENERIC_NAMES = frozenset(
+    {
+        "module",
+        "feature",
+        "capability",
+        "constraint",
+        "requirement",
+        "external",
+        "type",
+        "interface",
+        "entity",
+        "kind",
+        "release",
+        "provider",
+        *VALUES,
+    }
+)
 DISTINCTIVE_NAMES = tuple(
     name
     for name in (
@@ -810,8 +1052,8 @@ DISTINCTIVE_NAMES = tuple(
         *TYPE_KEYS,
         *ATTRIBUTES,
         *VOCABULARIES,
-        *PROMPTS,
-        *(prompt.partition(".")[0] for prompt in PROMPTS),
+        *_PROMPT_NAMES,
+        *(prompt.partition(".")[0] for prompt in _PROMPT_NAMES),
         shipped_ontology().name,
     )
     if name not in GENERIC_NAMES

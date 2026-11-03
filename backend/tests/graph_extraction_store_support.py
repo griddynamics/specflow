@@ -1,8 +1,4 @@
-"""An in-memory ``ExtractionStore`` shared by the graph build step tests. No tests here.
-
-``test_graph_graphiti``, ``test_graph_resolve`` and ``test_graph_conform`` hand it to the build steps
-(``StoredResults``, ``VectorCache``, decision memories) and read its entries back.
-"""
+"""An in-memory ``ExtractionStore`` shared by the graph build step tests."""
 
 from __future__ import annotations
 

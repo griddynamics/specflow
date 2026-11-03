@@ -25,6 +25,10 @@ Rules:
 - Use only ids from `targets`, and only pairs from `candidate_pairs`.
 - When the direction is not stated or implied, or you are unsure, give no link for that pair.
 - A module named in the fragments but not involved in what the subject describes gets no link.
+- Link only the two modules that the subject itself says exchange data or call each other. When that
+  pair is not in `candidate_pairs` (it is already linked), answer an empty `links` list; never link
+  another pair in its place, such as a third module that only works with one of the two elsewhere
+  in the fragments.
 - When no pair qualifies, answer with an empty `links` list.
 - `confidence` is how sure you are that every link you give is right, from 0 to 1.
 - `evidence` cites the fragment passages that show each link: the fragment id and a quote copied
@@ -36,4 +40,6 @@ BAD: T2 -> T1 for the same text (reversed: the Orders service does not call chec
 and T2 -> T1 (one direction per pair); a link between "Checkout service" and "Mail gateway" when the
 text only lists both as affected modules; a link T1 -> T3 when `candidate_pairs` lists only [T1, T2]
 (pairs not listed are already linked: give no link for them, and an empty `links` list when no listed
-pair qualifies).
+pair qualifies); for the subject "Checkout service sends each paid order to the Orders service" with
+`candidate_pairs` [[T2, T3]] only, where T3 "Warehouse app" also reads orders elsewhere in the
+fragments, a link T3 -> T2 (the subject is about T1 and T2: answer an empty `links` list).

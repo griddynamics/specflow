@@ -31,22 +31,25 @@ Each submodule exports its public names from its package root. `build`, `gap` an
 | core | Read and search | `GraphReader` | [api.md](api.md) |
 | core | LLM gateway | Chat, structured output and embedding calls with one shared limiter; judge runner | [api.md](api.md) |
 | build | Corpus and changes | Read the corpus, segment it into fragments, work out what changed | [build.md](build.md) |
-| build | Extraction | Node and edge extraction through Graphiti, resolution of duplicates | [build.md](build.md) |
-| build | Conform, diff, persist | Ground and legalise the result, match it to the current graph, write the difference | [build.md](build.md) |
-| build | Analysis | Light inference; verification and repair | [analysis.md](analysis.md) |
+| build | Extraction | The build's own node and edge calls (`build/calls.py`: one structured gateway call per window and node pass, hub pass then statement pass, or per edge window; prompts in `build/prompts.py`, answer schemas in `build/answers.py`, both rendered from the ontology); the hub catalog merged in code from the hub pass, known terms and edge catalogs (`build/terms.py`; no model call of its own); the attributes pass; resolution of duplicates | [build.md](build.md) |
+| build | Conform, diff, persist | Ground, legalise and normalise the result (conform judge, quarantine), match it to the current graph, write the difference | [build.md](build.md) |
+| build | Analysis | Shared validator of the ontology's hard rules; light inference; verification and repair; consolidated metrics | [analysis.md](analysis.md) |
 | build | Run | `run_build`, phase functions, build options, build result | [build.md](build.md), [api.md](api.md) |
 
 ## Import rules
 
 | # | Rule |
 |---|---|
-| I1 | Allowed imports: the standard library, `graph` modules per the layout rule, the repository `logger` utility, `pydantic`, `pyyaml`, `numpy`, `neo4j`, `openai`, `graphiti_core`. Nothing else. |
-| I2 | `openai` only in the core gateway; `graphiti_core` only in the build's extraction adapter. |
+| I1 | Allowed imports: the standard library, `graph` modules per the layout rule, the repository `logger` utility, `pydantic`, `pyyaml`, `numpy`, `neo4j`, `openai`. Nothing else. |
+| I2 | `openai` only in the core gateway (`core/llm/gateway.py`); `httpx` nowhere. |
 | I3 | Cypher only in query modules: one in the core, one per writing submodule. Every query runs through the core executor and binds `$project_id`, except schema setup. |
 | I4 | No ontology label, relation, id prefix or vocabulary value as a literal in code. Allowed built-in names: `SpecNode`, `Document`, `Fragment`, `CONTAINS`, `REFERENCED_BY`, `MENTIONED_IN`, and the edge `basis` values of the data model (`stated`, `implied`, `inferred`), even where they equal an ontology vocabulary value. |
 | I5 | No environment reads, no printing, no disk writes outside file port implementations. |
 
-Structure tests check I1-I5; a renamed-ontology test checks I4 ([ontology.md](ontology.md)).
+Structure tests (`backend/tests/test_graph_structure.py`) check I1-I5; a renamed-ontology test checks
+I4 ([ontology.md](ontology.md)). The import contracts of `backend/importlinter.toml` add: `graph`
+imports no other project package except `logger`, `graph.core` never imports `graph.build`,
+`graph.gap` or `graph.plan`, and `neo4j` is imported only under `graph`.
 
 ## Write ownership
 
@@ -90,7 +93,7 @@ Secrets use a redacting type and are never logged or stored.
 | Object | Holds |
 |---|---|
 | `Neo4jConfig` (core) | URI, user, password, database |
-| `LLMConfig` (core) | Endpoint, API key, main model, small model, judge model (default: the main model), embedding model and dimension, concurrency, timeouts |
+| `LLMConfig` (core) | Endpoint, API key, main model, small model, judge model (default: the main model), embedding model and dimension, concurrency (default 8), timeout and attempts per call class |
 | `BuildOptions` (build) | Per-project options that shape extraction; frozen by the last `first` or `rebuild` ([build.md](build.md)) |
 | `BuildSettings` (build) | Inference on or off |
 
@@ -100,7 +103,7 @@ Every expected failure is a `GraphError`. Error fields hold ids, counts and code
 
 | Error | Raised when | Host action |
 |---|---|---|
-| `ConfigurationError` | Invalid settings or options; invalid read arguments (`invalid_limit`, `invalid_depth`, `invalid_line_range`, `query_too_long`, `invalid_vector_floor`); unsupported Neo4j; Neo4j rejects the credentials | Fix configuration |
+| `ConfigurationError` | Invalid settings or options; invalid read arguments (`invalid_limit`, `invalid_depth`, `invalid_line_range`, `query_too_long`, `invalid_vector_floor`); unsupported Neo4j; Neo4j rejects the credentials; an `update` build after the ontology's labels or relations changed (`ontology_changed`) | Fix configuration; for `ontology_changed`, migrate the project ([build.md](build.md) Migration) |
 | `OntologyError` (a `ConfigurationError`) | Invalid ontology; lists every problem | Fix the ontology |
 | `CorpusError` | Corpus breaks its contract (missing lineage id, version or markdown) | Fix the corpus |
 | `OwnershipError` | A write targets a type its owner does not own | Bug |

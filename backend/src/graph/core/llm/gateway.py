@@ -1,10 +1,4 @@
-"""The LLM gateway: every model and embedding call of the process (docs/graph/api.md "LLM gateway").
-
-One ``Gateway`` per process holds one ``AsyncOpenAI`` client on the OpenAI-compatible endpoint, one
-priority limiter shared by every call class, the retry policy, JSON-schema structured output with one
-repair retry, untrusted-text marking and usage counting. It uses Chat Completions, never the Responses
-API. Logs, errors and usage carry ids, codes and counts only, never prompt, document or answer text.
-"""
+"""The LLM gateway: every model and embedding call of the process."""
 
 from __future__ import annotations
 
@@ -49,12 +43,19 @@ NAME_MAX_CHARS: Final = 200
 EMBED_PROMPT: Final = "embed"
 BACKOFF_MIN_S: Final = 1.0
 BACKOFF_MAX_S: Final = 30.0
+RATE_LIMIT_BACKOFF_MIN_S: Final = 10.0
+RATE_LIMIT_BACKOFF_MAX_S: Final = 60.0
+"""A 429 without ``Retry-After`` backs off from 10 s (doubling, 1-2 jitter, at most 60 s): with the
+judge's three attempts that waits 30-60 s for the provider's window instead of the 3-6 s of the
+general backoff, which a rate limit outlasts."""
 RETRY_AFTER_MAX_S: Final = 120.0
 SDK_RETRIES: Final = 0
 """Retries of the OpenAI client itself: none, the gateway retries within the class budget."""
 RETRYABLE_STATUS: Final = frozenset({408, 429})
 FATAL_STATUS: Final = frozenset({401, 403, 404})
 REPAIR_ERRORS_SHOWN: Final = 10
+WARM_UP_OUTPUT_TOKENS: Final = 16
+"""Output tokens a ``warm_up`` request allows at most: its answer is discarded."""
 OVERFLOW_MARKERS: Final = (
     "context_length_exceeded",
     "context length",
@@ -70,6 +71,10 @@ OVERFLOW_MARKERS: Final = (
     "max_tokens_per_request",
 )
 CONTENT_FILTER_CODES: Final = frozenset({"content_filter", "content_policy_violation"})
+CACHED_USAGE_FIELDS: Final = ("cache_read_input_tokens", "prompt_cache_hit_tokens")
+"""Fields of a completion's ``usage`` that some OpenAI-compatible providers use, instead of
+``prompt_tokens_details.cached_tokens``, for the input tokens read from their prompt cache
+(Anthropic-style proxies and DeepSeek)."""
 
 UNTRUSTED_OPEN: Final = "<<<DOCUMENT"
 UNTRUSTED_CLOSE: Final = "<<<END>>>"
@@ -87,7 +92,7 @@ REPAIR_NOTE: Final = (
 
 
 def estimate_tokens(text: str) -> int:
-    """Estimated tokens of ``text``: ``ceil(len / 3.6)`` (``CHARS_PER_TOKEN``; tech-specs 5.4)."""
+    """Estimated tokens of ``text``: ``ceil(len / 3.6)`` (``CHARS_PER_TOKEN``)."""
 
     return -(-len(text) * 5 // 18)
 
@@ -99,19 +104,15 @@ def defuse(text: str) -> str:
 
 
 def prompt_name(name: str, limit: int = NAME_MAX_CHARS) -> str:
-    """A document-derived name as a prompt may show it: whitespace collapsed, marker runs defused
-    (``defuse``) and at most ``limit`` characters (FR-LLM-05)."""
+    """A document-derived name as a prompt may show it: whitespace collapsed, marker runs defused (``defuse``) and at
+    most ``limit`` characters.
+    """
 
     return defuse(" ".join(name.split()))[:limit].rstrip()
 
 
 def untrusted(label: str, text: str) -> str:
-    """Wrap document text in a marked block; the gateway adds ``UNTRUSTED_NOTICE`` to the instructions.
-
-    Marker sequences inside the label or the text are defused so a document cannot open or close a
-    block: every run of three or more ``<`` or ``>`` collapses to two, so no ``<<<`` or ``>>>`` remains
-    in the body; the label loses every ``<`` and ``>``.
-    """
+    """Wrap document text in a marked block; the gateway adds ``UNTRUSTED_NOTICE`` to the instructions."""
 
     clean_label = " ".join(_ANGLES.sub("", label).split()) or "-"
     body = defuse(text)
@@ -209,6 +210,28 @@ def request_tokens(messages: Sequence[Mapping[str, Any]]) -> int:
         for message in _with_notice(messages)
         if isinstance(content := message.get("content"), str)
     )
+
+
+def _count(value: object) -> int | None:
+    """``value`` when it is a non-negative int (a bool is not), else None."""
+
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+
+def cached_input_tokens(usage: object) -> int:
+    """Input tokens a completion's ``usage`` reports as read from the provider's prompt cache, 0 when
+    it reports none: ``prompt_tokens_details.cached_tokens``, else the first ``CACHED_USAGE_FIELDS``
+    field present."""
+
+    details = getattr(usage, "prompt_tokens_details", None)
+    cached = _count(getattr(details, "cached_tokens", None))
+    if cached is not None:
+        return cached
+    for name in CACHED_USAGE_FIELDS:
+        cached = _count(getattr(usage, name, None))
+        if cached is not None:
+            return cached
+    return 0
 
 
 def _repair_message(error: ValidationError | None) -> dict[str, Any]:
@@ -353,10 +376,7 @@ class _PriorityLimiter:
 
 
 class Gateway:
-    """All model calls of the process: limiter, retries, structured output, embeddings, usage.
-
-    ``http_client`` (an ``httpx.AsyncClient``), ``sleep`` and ``jitter`` are test seams.
-    """
+    """All model calls of the process: limiter, retries, structured output, embeddings, usage."""
 
     untrusted = staticmethod(untrusted)
 
@@ -402,19 +422,9 @@ class Gateway:
         *,
         prompt: str,
     ) -> T:
-        """One Chat Completions call with JSON-schema output, validated into ``output_type``.
+        """One Chat Completions call with JSON-schema output, validated into ``output_type``."""
 
-        A malformed answer gets one repair request; then ``LLMError(malformed)``. ``model`` None uses the
-        call class's model.
-        """
-
-        if call_class not in PRIORITY or call_class == "embedding":
-            raise ConfigurationError("llm_call_class_invalid", call_class=str(call_class))
-        model_name = model or self._config.model_for(call_class)
-        fields: dict[str, str] = {"call_class": call_class, "prompt": prompt, "model": model_name}
-        response_format = self._formats.get(output_type)
-        if response_format is None:
-            response_format = self._formats[output_type] = _response_format(output_type)
+        model_name, fields, response_format = self._chat_request(call_class, model, output_type, prompt)
         conversation = _with_notice(messages)
         started = time.monotonic()
         failed = True
@@ -450,13 +460,57 @@ class Gateway:
         finally:
             self._usage.call(call_class, prompt, duration_s=time.monotonic() - started, failed=failed)
 
-    async def embed(self, texts: Sequence[str]) -> list[list[float]]:
-        """Embedding vectors for ``texts`` in order, each of ``embedding_dim``.
-
-        Requests hold at most ``EMBED_BATCH`` texts and ``EMBED_BATCH_TOKENS`` estimated tokens (a
-        single text always fits: one longer than ``EMBED_TEXT_TOKENS`` is cut to that length, and the
-        cuts are counted in one ``graph.llm.embed_truncated`` record, never with the text).
+    async def warm_up(
+        self,
+        call_class: CallClass,
+        model: str | None,
+        messages: Sequence[Mapping[str, Any]],
+        output_type: type[BaseModel],
+        *,
+        prompt: str,
+    ) -> None:
+        """One request that only fills the provider's prompt cache: ``messages`` sent as ``structured`` sends them, with
+        the same ``output_type`` schema, so a later ``structured`` call whose messages start with them reads them from
+        the cache.
         """
+
+        model_name, fields, response_format = self._chat_request(call_class, model, output_type, prompt)
+        request_messages = _with_notice(messages)
+
+        async def send(timeout_s: float) -> Any:
+            return await self._client.chat.completions.create(
+                model=model_name,
+                messages=cast(list[ChatCompletionMessageParam], request_messages),
+                response_format=response_format,
+                max_completion_tokens=WARM_UP_OUTPUT_TOKENS,
+                timeout=timeout_s,
+            )
+
+        started = time.monotonic()
+        failed = True
+        try:
+            completion = await self._send(call_class, prompt, send, fields)
+            self._record_tokens(completion, call_class, prompt)
+            failed = False
+        finally:
+            self._usage.call(call_class, prompt, duration_s=time.monotonic() - started, failed=failed)
+
+    def _chat_request(
+        self, call_class: CallClass, model: str | None, output_type: type[BaseModel], prompt: str
+    ) -> tuple[str, dict[str, str], ResponseFormatJSONSchema]:
+        """Model name, error fields and response format of a chat request; a ``ConfigurationError``
+        for a class that makes no chat calls."""
+
+        if call_class not in PRIORITY or call_class == "embedding":
+            raise ConfigurationError("llm_call_class_invalid", call_class=str(call_class))
+        model_name = model or self._config.model_for(call_class)
+        response_format = self._formats.get(output_type)
+        if response_format is None:
+            response_format = self._formats[output_type] = _response_format(output_type)
+        return model_name, {"call_class": call_class, "prompt": prompt, "model": model_name}, response_format
+
+    async def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        """Embedding vectors for ``texts`` in order, each of ``embedding_dim``."""
 
         items, truncated = embed_inputs(texts)
         if truncated:
@@ -509,9 +563,7 @@ class Gateway:
 
         if not isinstance(completion, ChatCompletion):
             return None
-        usage = completion.usage
-        if usage is not None:
-            self._usage.tokens(call_class, prompt, usage.prompt_tokens or 0, usage.completion_tokens or 0)
+        self._record_tokens(completion, call_class, prompt)
         if not completion.choices:
             return None
         choice = completion.choices[0]
@@ -520,6 +572,13 @@ class Gateway:
         if choice.finish_reason == "content_filter" or choice.message.refusal:
             raise LLMError("refused", **fields)
         return choice.message.content
+
+    def _record_tokens(self, completion: Any, call_class: CallClass, prompt: str) -> None:
+        usage = completion.usage if isinstance(completion, ChatCompletion) else None
+        if usage is not None:
+            self._usage.tokens(
+                call_class, prompt, usage.prompt_tokens or 0, usage.completion_tokens or 0, cached_input_tokens(usage)
+            )
 
     async def _send(
         self,
@@ -552,7 +611,7 @@ class Gateway:
                 last = "connection"
             if attempt == budget.attempts:
                 break
-            delay = retry_after if retry_after is not None else self._backoff(attempt)
+            delay = retry_after if retry_after is not None else self._backoff(attempt, rate_limited=last == "http_429")
             log_event(
                 logger,
                 DEBUG,
@@ -568,8 +627,12 @@ class Gateway:
             raise InfrastructureUnavailableError("llm_unreachable", **fields, attempts=budget.attempts)
         raise LLMError("exhausted", **fields, attempts=budget.attempts, last=last)
 
-    def _backoff(self, attempt: int) -> float:
-        """Exponential from 1 s, doubled per failed attempt, times 1-2 jitter, capped at 30 s."""
+    def _backoff(self, attempt: int, *, rate_limited: bool = False) -> float:
+        """Exponential from 1 s, doubled per failed attempt, times 1-2 jitter, capped at 30 s; after a
+        429 without ``Retry-After`` from 10 s, capped at 60 s (``RATE_LIMIT_BACKOFF_MIN_S``)."""
 
-        base = min(BACKOFF_MAX_S, BACKOFF_MIN_S * 2.0 ** (attempt - 1))
-        return min(BACKOFF_MAX_S, base * (1.0 + self._jitter()))
+        low, high = (
+            (RATE_LIMIT_BACKOFF_MIN_S, RATE_LIMIT_BACKOFF_MAX_S) if rate_limited else (BACKOFF_MIN_S, BACKOFF_MAX_S)
+        )
+        base = min(high, low * 2.0 ** (attempt - 1))
+        return min(high, base * (1.0 + self._jitter()))

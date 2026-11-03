@@ -1,10 +1,4 @@
-"""Neo4j access: driver factory, readiness check, version gate and the project-scoped executor.
-
-The host owns the driver: it calls ``connect`` once per process and closes the driver on shutdown.
-Every project query runs through ``Executor``, which refuses a scoped query that does not bind
-``$project_id``, validates and injects the project id, and maps driver errors to ``GraphError``s
-(docs/graph/implementation/tech-specs.md sections 4.3 and 7).
-"""
+"""Neo4j access: driver factory, readiness check, version gate and the project-scoped executor."""
 
 from __future__ import annotations
 
@@ -137,7 +131,7 @@ def _configuration_error(error: Exception, code: Any, query: str) -> Configurati
 
 
 def _map_error(error: Exception, query: str, *, write: bool, attempts: int = 1) -> GraphError:
-    """The ``GraphError`` a driver error stands for (tech-specs.md section 7)."""
+    """The ``GraphError`` a driver error stands for."""
 
     code = getattr(error, "code", None)
     fields: dict[str, Any] = {
@@ -180,11 +174,7 @@ class ScopedTransaction:
 
 
 class Executor:
-    """Runs project-scoped queries: reads and writes as managed transactions, ``tx`` as one explicit one.
-
-    A transient failure is retried after each delay of ``retry_delays``; a write still failing then
-    raises ``GraphWriteError``. ``tx`` is not retried: its body is caller code.
-    """
+    """Runs project-scoped queries: reads and writes as managed transactions, ``tx`` as one explicit one."""
 
     def __init__(
         self,
