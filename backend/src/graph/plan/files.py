@@ -15,16 +15,13 @@ gzip JSON without a timestamp. I/O failures raise ``InfrastructureUnavailableErr
 from __future__ import annotations
 
 import asyncio
-import gzip
 import hashlib
-import json
-import zlib
 from collections.abc import Collection, Mapping
 from pathlib import Path
 from typing import Any
 
 from graph.core.errors import ConfigurationError, InfrastructureUnavailableError
-from graph.core.files import write_atomic
+from graph.core.files import encode_gzip_json, read_gzip_json, write_store_file
 from graph.core.identity import validate_project_id
 from graph.plan.models import MeaningRevisions, PlanRunRecord, PlanStepName, StepState
 from graph.plan.names import PlanMode
@@ -38,26 +35,6 @@ REVISIONS_FILE = "plan-revisions.json.gz"
 RECORD_FILE = "run.json.gz"
 RESULT_FILE = "result.json.gz"
 ARTIFACT_SUFFIX = ".json.gz"
-
-
-def _encode(payload: Any) -> bytes:
-    return gzip.compress(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), mtime=0)
-
-
-def _read_gzip_json(path: Path) -> Any | None:
-    try:
-        return json.loads(gzip.decompress(path.read_bytes()).decode("utf-8"))
-    except FileNotFoundError:
-        return None
-    except (OSError, EOFError, ValueError, zlib.error) as error:
-        raise InfrastructureUnavailableError("file_store_unreadable", error_type=type(error).__name__) from None
-
-
-def _write(path: Path, data: bytes) -> None:
-    try:
-        write_atomic(path, data)
-    except OSError as error:
-        raise InfrastructureUnavailableError("file_store_unwritable", error_type=type(error).__name__) from None
 
 
 def _list_folders(folder: Path) -> list[str]:
@@ -89,12 +66,12 @@ class FilePlanStore:
         return self._project(project_id) / ANSWERS_FOLDER / kind / f"{digest}{ARTIFACT_SUFFIX}"
 
     async def _load_record(self, project_id: str, run_id: str) -> PlanRunRecord | None:
-        stored = await asyncio.to_thread(_read_gzip_json, self._folder(project_id, run_id) / RECORD_FILE)
+        stored = await asyncio.to_thread(read_gzip_json, self._folder(project_id, run_id) / RECORD_FILE)
         return None if stored is None else PlanRunRecord.model_validate(stored)
 
     async def _store_record(self, record: PlanRunRecord) -> None:
         path = self._folder(record.project_id, record.run_id) / RECORD_FILE
-        await asyncio.to_thread(_write, path, _encode(record.model_dump(mode="json")))
+        await asyncio.to_thread(write_store_file, path, encode_gzip_json(record.model_dump(mode="json")))
 
     async def _require(self, project_id: str, run_id: str) -> PlanRunRecord:
         record = await self._load_record(project_id, run_id)
@@ -155,12 +132,12 @@ class FilePlanStore:
         async with self._lock:
             record = await self._require(project_id, run_id)
             folder = self._folder(project_id, run_id)
-            await asyncio.to_thread(_write, folder / RESULT_FILE, _encode(dict(result)))
+            await asyncio.to_thread(write_store_file, folder / RESULT_FILE, encode_gzip_json(dict(result)))
             finished = record.model_copy(update={"status": status, "failure": failure})
             await self._store_record(finished)
 
     async def get_result(self, project_id: str, run_id: str) -> dict[str, Any] | None:
-        stored = await asyncio.to_thread(_read_gzip_json, self._folder(project_id, run_id) / RESULT_FILE)
+        stored = await asyncio.to_thread(read_gzip_json, self._folder(project_id, run_id) / RESULT_FILE)
         if stored is None:
             return None
         if not isinstance(stored, dict):
@@ -169,10 +146,10 @@ class FilePlanStore:
 
     async def put_artifact(self, project_id: str, run_id: str, step: PlanStepName, payload: Mapping[str, Any]) -> None:
         path = self._folder(project_id, run_id) / f"{step}{ARTIFACT_SUFFIX}"
-        await asyncio.to_thread(_write, path, _encode(payload))
+        await asyncio.to_thread(write_store_file, path, encode_gzip_json(payload))
 
     async def get_artifact(self, project_id: str, run_id: str, step: PlanStepName) -> dict[str, Any] | None:
-        stored = await asyncio.to_thread(_read_gzip_json, self._folder(project_id, run_id) / f"{step}{ARTIFACT_SUFFIX}")
+        stored = await asyncio.to_thread(read_gzip_json, self._folder(project_id, run_id) / f"{step}{ARTIFACT_SUFFIX}")
         if stored is None:
             return None
         if not isinstance(stored, dict):
@@ -188,7 +165,7 @@ class FilePlanStore:
         *,
         run_id: str | None = None,
     ) -> dict[str, Any] | None:
-        stored = await asyncio.to_thread(_read_gzip_json, self._answer_path(project_id, kind, key))
+        stored = await asyncio.to_thread(read_gzip_json, self._answer_path(project_id, kind, key))
         if not isinstance(stored, dict):
             return None
         if stored.get("key") != key or stored.get("reuse_key") != reuse_key:
@@ -208,18 +185,18 @@ class FilePlanStore:
         *,
         payload: Mapping[str, Any],
     ) -> None:
-        data = _encode({"key": key, "reuse_key": reuse_key, "run_id": run_id, "payload": payload})
-        await asyncio.to_thread(_write, self._answer_path(project_id, kind, key), data)
+        data = encode_gzip_json({"key": key, "reuse_key": reuse_key, "run_id": run_id, "payload": payload})
+        await asyncio.to_thread(write_store_file, self._answer_path(project_id, kind, key), data)
 
     async def get_revisions(self, project_id: str) -> MeaningRevisions:
-        stored = await asyncio.to_thread(_read_gzip_json, self._project(project_id) / REVISIONS_FILE)
+        stored = await asyncio.to_thread(read_gzip_json, self._project(project_id) / REVISIONS_FILE)
         if stored is None:
             return MeaningRevisions()
         return MeaningRevisions.model_validate(stored)
 
     async def put_revisions(self, project_id: str, revisions: MeaningRevisions) -> None:
         path = self._project(project_id) / REVISIONS_FILE
-        await asyncio.to_thread(_write, path, _encode(revisions.model_dump(mode="json")))
+        await asyncio.to_thread(write_store_file, path, encode_gzip_json(revisions.model_dump(mode="json")))
 
 
 def open_plan_store(root: str | Path) -> FilePlanStore:
