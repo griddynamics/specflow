@@ -785,3 +785,41 @@ def _validate_shop_fixture(
         raise ValueError("shop fixture has duplicate fragment ids")
     if any(fragment.document_id not in document_ids for fragment in fragments):
         raise ValueError("shop fragment names an unknown document")
+
+
+def shop_fixture_data() -> dict[str, Any]:
+    """The parsed shop fixture file, for tests that plan a variant of it."""
+
+    with _SHOP_FIXTURE.open(encoding="utf-8") as stream:
+        data = yaml.safe_load(stream)
+    if not isinstance(data, dict):
+        raise TypeError("shop fixture must be a mapping")
+    return data
+
+
+def fixture_graph(data: Mapping[str, Any], ontology: Ontology) -> ShopGraphReader:
+    """A fake reader over parsed fixture data in the shop fixture's format."""
+
+    nodes = tuple(GraphNode.model_validate(item) for item in data.get("nodes", ()))
+    edges = tuple(GraphEdge.model_validate(item) for item in data.get("edges", ()))
+    documents = tuple(GraphDocument.model_validate(item) for item in data.get("documents", ()))
+    fragments = tuple(GraphFragment.model_validate(item) for item in data.get("fragments", ()))
+    _validate_shop_fixture(nodes, edges, documents, fragments)
+    return ShopGraphReader(_ShopFixture(str(data["build_id"]), nodes, edges, documents, fragments), ontology)
+
+
+async def fixture_view(reader: ShopGraphReader, ontology: Ontology, rules: PlanRules) -> PlanView:
+    """Snapshot and Partition of ``reader`` under ``ontology`` and ``rules``, as ``shop_view`` builds them."""
+
+    context = PlanContext(
+        project_id="shop",
+        ontology=ontology,
+        rules=rules,
+        driver=None,
+        gateway=None,
+        store=_MemoryPlanStore(),
+        build_id="build-2",
+        options=PlanOptions(),
+    )
+    artifact = await snapshot(reader, SnapshotQueries(), context)
+    return PlanView(artifact, partition(artifact, rules, ontology), rules)
