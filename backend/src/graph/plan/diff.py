@@ -102,7 +102,7 @@ def diff(
     story_ops, active_stories = _story_ops(view, describe, project)
     area_ops = _area_ops(view, describe, tasks)
     deletes, creates = _link_ops(view, state, key_to_id, stitch, active_stories)
-    summary = _summary(state, area_ops, story_ops)
+    summary = _summary(state, area_ops, story_ops, task_ops)
     artifact = DiffArtifact(
         areas=tuple(area_ops),
         stories=tuple(story_ops),
@@ -113,6 +113,7 @@ def diff(
             "plan_id": PLAN_ID,
             "profile": json.dumps(project.profile.model_dump(mode="json"), sort_keys=True),
             "last_build_id": view.snapshot.build_id,
+            "consumed_build_ids": list(view.snapshot.revisions.consumed),
             "graph_fingerprint": view.snapshot.fingerprint,
             "ontology_version": inputs.ontology_version,
             "plan_ontology_version": inputs.plan_ontology_version,
@@ -167,6 +168,8 @@ def _decide(view: PlanView, targets: Sequence[PlannedTask], inputs: DiffInputs) 
             state.decisions[target.task_key] = _TaskPlan(target.task_key, target, None, "create")
             continue
         cause = _cause(view, found, inputs)
+        if _unverified(view, found, cause, inputs):
+            state.unverified.add(found.task_id)
         _decide_matched(state, target, found, cause, revisions)
     for task in latest.values():
         if task.task_id in matched_ids:
@@ -178,6 +181,17 @@ def _decide(view: PlanView, targets: Sequence[PlannedTask], inputs: DiffInputs) 
     _cascade(view, state, revisions)
     _flag_in_progress(view, state)
     return state
+
+
+def _unverified(view: PlanView, task: CurrentTask, cause: str | None, inputs: DiffInputs) -> bool:
+    """A completed task a report-less replan keeps although an implemented node was written after it."""
+
+    return (
+        inputs.replan_without_reports
+        and task.status == "completed"
+        and cause is None
+        and view.spec_change(task.implements, task.spec_build_id) is not None
+    )
 
 
 def _cause(view: PlanView, task: CurrentTask, inputs: DiffInputs) -> str | None:
@@ -295,6 +309,19 @@ def _task_properties(target: PlannedTask, task_id: str, build_id: str) -> dict[s
     }
 
 
+def _changed(task: CurrentTask, properties: Mapping[str, Any]) -> bool:
+    """Whether writing ``properties`` would change the stored task (an unchanged task is not written). A new
+    ``spec_build_id`` alone is no change: an older one is still in the consumed chain, so it stays correct."""
+
+    stored = {
+        **task.model_dump(mode="json"),
+        "done_when": json.dumps([item.model_dump(mode="json") for item in task.done_when]),
+    }
+    return any(
+        _plain(stored.get(name)) != _plain(value) for name, value in properties.items() if name != "spec_build_id"
+    )
+
+
 def _task_ops(view: PlanView, state: _State) -> list[NodeOp]:
     build_id = view.snapshot.build_id
     ops: list[NodeOp] = []
@@ -308,9 +335,12 @@ def _task_ops(view: PlanView, state: _State) -> list[NodeOp]:
         elif found is not None and decision.op == "keep":
             content = {
                 name: properties[name]
-                for name in ("title", "description", "done_when", "story_id", "release", "spec_build_id")
+                for name in ("area_id", "title", "description", "done_when", "story_id", "release", "spec_build_id")
             }
-            ops.append(NodeOp(op="keep", label="Task", id=final_id, expected_status=found.status, properties=content))
+            if _changed(found, content):
+                ops.append(
+                    NodeOp(op="keep", label="Task", id=final_id, expected_status=found.status, properties=content)
+                )
         elif found is not None and decision.op in ("reset", "revive"):
             ops.append(
                 NodeOp(
@@ -321,7 +351,7 @@ def _task_ops(view: PlanView, state: _State) -> list[NodeOp]:
                     properties={**properties, "status": "pending", "block_reason": None},
                 )
             )
-        elif found is not None:
+        elif found is not None and (decision.cause is not None or _changed(found, properties)):
             ops.append(
                 NodeOp(op="update", label="Task", id=final_id, expected_status=found.status, properties=properties)
             )
@@ -379,11 +409,13 @@ def _story_ops(
 
 def _area_ops(view: PlanView, describe: DescribeArtifact, tasks: TasksArtifact) -> list[NodeOp]:
     current = {area.area_id: area for area in view.snapshot.current.areas}
+    busy = {task.area_id for task in view.snapshot.current.tasks if task.status == "in_progress"}
     ops: list[NodeOp] = []
     for area in sorted(view.partition.areas, key=lambda item: item.area_id):
         existing = current.get(area.area_id)
         if area.status == "retired":
-            if existing is not None and existing.status == "active":
+            # An area keeps its status while it holds claimed work; a later run retires it.
+            if existing is not None and existing.status == "active" and area.area_id not in busy:
                 ops.append(NodeOp(op="retire", label="WorkArea", id=area.area_id, properties={"status": "retired"}))
             continue
         planned = describe.areas.get(area.area_id)
@@ -434,7 +466,10 @@ def _area_links(
     active_areas = {area.area_id for area in view.active_areas}
     for spec_id, placement in view.partition.placements.items():
         if placement.area_id in active_areas:
-            wanted[(IN_AREA, spec_id, placement.area_id)] = {"rule": placement.rule, "via": list(placement.via)}
+            properties = {"rule": placement.rule, "via": list(placement.via)}
+            if spec_id in view.partition.home_story:
+                properties["story"] = view.partition.home_story[spec_id]
+            wanted[(IN_AREA, spec_id, placement.area_id)] = properties
         managed.add((IN_AREA, spec_id))
     managed.update((IN_AREA, link.source) for link in view.snapshot.current.links if link.type == IN_AREA)
 
@@ -542,14 +577,16 @@ def _endpoint(view: PlanView, node_id: str) -> str:
     return node.uuid if node is not None else node_id
 
 
-def _summary(state: _State, areas: Sequence[NodeOp], stories: Sequence[NodeOp]) -> PlanChangesSummary:
+def _summary(
+    state: _State, areas: Sequence[NodeOp], stories: Sequence[NodeOp], tasks: Sequence[NodeOp]
+) -> PlanChangesSummary:
     def ids(ops: Sequence[NodeOp], op: str) -> tuple[str, ...]:
         return tuple(sorted(item.id for item in ops if item.op == op))
 
     decisions = state.decisions.values()
     return PlanChangesSummary(
         tasks_added=tuple(sorted(item.final_id for item in decisions if item.op == "create")),
-        tasks_updated=tuple(sorted(item.final_id for item in decisions if item.op == "update")),
+        tasks_updated=ids(tasks, "update"),
         tasks_reopened=tuple(sorted(item.final_id for item in decisions if item.op in ("reset", "revive"))),
         tasks_superseded=tuple(
             SupersededTask(task_id=task_id, successor=successor, cause=cause)

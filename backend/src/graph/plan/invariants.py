@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Final, Literal
 
 from graph.plan.dag import find_cycle
+from graph.plan.names import StoryProgress
 
 CheckName = Literal["membership", "task_area", "coverage", "dependencies", "task_state", "stories", "lost_target"]
 CHECKS: Final[tuple[CheckName, ...]] = (
@@ -119,7 +120,9 @@ def _dependencies(state: PlanState) -> tuple[str, ...]:
         and target in state.tasks
         and state.tasks[target].status in CLOSED
     }
-    cycle = find_cycle(live, [(source, target) for source, target in waits if source in live and target in live])
+    # Waits of claimed tasks are frozen (a plan run never touches them), so they take no part in the cycle check.
+    planned = {task_id for task_id in live if state.tasks[task_id].status != "in_progress"}
+    cycle = find_cycle(planned, [(source, target) for source, target in waits if source in planned and target in live])
     return tuple(sorted(broken | set(cycle)))
 
 
@@ -141,25 +144,36 @@ def _stories(state: PlanState) -> tuple[str, ...]:
             homes.setdefault(source, []).append(target)
         elif kind == IMPLEMENTS and source in state.stories:
             anchors.setdefault(source, []).append(target)
-    wrong = set()
-    for task_id, task in state.tasks.items():
-        if task.status not in OPEN:
-            continue
-        story = state.stories.get(task.story_id)
-        if (
-            homes.get(task_id) != [task.story_id]
-            or story is None
-            or story.status != "active"
-            or story.area_id != task.area_id
-        ):
-            wrong.add(task_id)
+    wrong = {
+        task_id
+        for task_id, task in state.tasks.items()
+        if task.status in OPEN and not _homed(state, task_id, task, homes)
+    }
+    claimed = {task.story_id for task in state.tasks.values() if task.status == "in_progress"}
     for story_id, story in state.stories.items():
-        if story.status == "active" and story.kind in _ANCHORED and anchors.get(story_id) != [story.anchor]:
+        if story.status != "active" or story.kind not in _ANCHORED:
+            continue
+        # A story kept active for claimed work after its anchor was deleted has no anchor to implement.
+        if story.anchor not in state.plannable and story_id in claimed:
+            continue
+        if anchors.get(story_id) != [story.anchor]:
             wrong.add(story_id)
     return tuple(sorted(wrong))
 
 
-def story_progress(statuses: Iterable[str]) -> str:
+def _homed(state: PlanState, task_id: str, task: TaskState, homes: Mapping[str, list[str]]) -> bool:
+    """The task is ``IN_STORY`` exactly its own active story of its own area."""
+
+    story = state.stories.get(task.story_id)
+    return (
+        homes.get(task_id) == [task.story_id]
+        and story is not None
+        and story.status == "active"
+        and story.area_id == task.area_id
+    )
+
+
+def story_progress(statuses: Iterable[str]) -> StoryProgress:
     """A story's derived progress from its tasks' statuses; closed tasks are ignored, the first row wins."""
 
     live = [status for status in statuses if status not in CLOSED]

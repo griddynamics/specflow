@@ -319,3 +319,11 @@ def _plan(last_build_id: str) -> dict[str, object]:
         "created_at": CREATED,
         "updated_at": UPDATED,
     }
+
+
+async def test_a_first_run_consumes_every_build_the_graph_already_reflects() -> None:
+    artifact = await shop_snapshot()
+
+    builds = {node.last_build_id for node in artifact.plannable if node.last_build_id}
+    assert set(artifact.revisions.consumed) >= builds
+    assert artifact.revisions.consumed[-1] == artifact.build_id

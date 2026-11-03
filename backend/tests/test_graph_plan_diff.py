@@ -67,9 +67,8 @@ async def test_a_first_plan_creates_every_area_story_and_task_with_links(tmp_pat
 async def test_an_unchanged_second_run_keeps_completed_work_and_writes_no_link(tmp_path: Path) -> None:
     _, artifact = await _second(tmp_path, _done(PLACE))
 
-    assert _ops(artifact)[PLACE] == "keep"
-    keep = next(op for op in artifact.tasks if op.id == PLACE)
-    assert set(keep.properties) == {"title", "description", "done_when", "story_id", "release", "spec_build_id"}
+    assert PLACE not in _ops(artifact) and PLACE in artifact.summary.tasks_kept
+    assert artifact.tasks == ()
     assert artifact.links_create == () and artifact.links_delete == ()
     assert artifact.stale_commits == {}
 
@@ -158,8 +157,8 @@ async def test_a_renamed_action_with_the_same_implements_keeps_the_current_task(
 
     artifact = await _diff(next_view(first_view, current), tmp_path)
 
-    assert _ops(artifact)["TASK::ORDERS_SERVICE::OLD"] == "keep"
-    assert PLACE not in _ops(artifact)
+    assert "TASK::ORDERS_SERVICE::OLD" in artifact.summary.tasks_kept
+    assert PLACE not in _ops(artifact) and PLACE not in artifact.summary.tasks_added
 
 
 async def test_redone_work_cascades_to_completed_planner_dependants_inside_the_area(tmp_path: Path) -> None:
@@ -209,7 +208,8 @@ async def test_a_replan_without_reports_keeps_completed_work_it_cannot_verify(tm
 
     artifact = await _diff(view, tmp_path, inputs=DiffInputs("2.0", "2.0", "2.0", replan_without_reports=True))
 
-    assert _ops(artifact)[PLACE] == "keep"
+    assert PLACE in artifact.summary.tasks_kept
+    assert artifact.unverified_completed == (PLACE,)
 
 
 async def test_a_target_that_breaks_an_invariant_is_refused(tmp_path: Path) -> None:
@@ -222,3 +222,46 @@ async def test_a_target_that_breaks_an_invariant_is_refused(tmp_path: Path) -> N
         await _diff(broken, tmp_path)
 
     assert raised.value.code == "plan_invariant" and raised.value.fields["check"] == "membership"
+
+
+async def test_an_area_holding_claimed_work_stays_active_after_its_anchor_left(tmp_path: Path) -> None:
+    first_view, first = await _first(tmp_path)
+    claim = {"status": "in_progress", "claimed_by": "agent", "claimed_at": "2026-01-01T12:00:00+00:00"}
+    current = applied_plan(first_view, first, states={CHECKOUT: claim})
+    gone = {"MOD::WEB_SHOP", "FEAT::CHECKOUT", "REQ::FR::CHECKOUT", "REQ::Q::CHECKOUT_SPEED"}
+    nodes = tuple(node for node in first_view.snapshot.plannable if node.spec_id not in gone)
+    view = next_view(first_view, current, changed=dict.fromkeys(gone, "removed"), snapshot_updates={"plannable": nodes})
+
+    artifact = await _diff(view, tmp_path)
+
+    assert "AREA::WEB_SHOP" not in {op.id for op in artifact.areas if op.op == "retire"}
+    assert CHECKOUT not in _ops(artifact) and CHECKOUT in artifact.in_progress_changed
+
+
+async def test_a_kept_completed_task_whose_story_changed_is_written(tmp_path: Path) -> None:
+    first_view, first = await _first(tmp_path)
+    moved = [
+        op.model_copy(update={"properties": {**op.properties, "title": "An older title"}}) if op.id == PLACE else op
+        for op in first.tasks
+    ]
+    current = applied_plan(first_view, first.model_copy(update={"tasks": tuple(moved)}), states=_done(PLACE))
+
+    artifact = await _diff(next_view(first_view, current), tmp_path)
+
+    write = next(op for op in artifact.tasks if op.id == PLACE)
+    assert write.op == "keep" and write.properties["title"] != "An older title"
+    assert set(write.properties) == {
+        "area_id",
+        "title",
+        "description",
+        "done_when",
+        "story_id",
+        "release",
+        "spec_build_id",
+    }
+
+
+async def test_an_unchanged_open_task_is_not_written_again(tmp_path: Path) -> None:
+    _, artifact = await _second(tmp_path, {})
+
+    assert artifact.tasks == () and artifact.summary.tasks_updated == ()

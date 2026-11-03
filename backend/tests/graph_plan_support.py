@@ -31,6 +31,7 @@ from graph.plan.answers import (
 )
 from graph.plan.describe import describe
 from graph.plan.fallback import spec_interfaces
+from graph.plan.files import open_plan_store
 from graph.plan.inputs import setup_members
 from graph.plan.models import (
     BuildChangeReport,
@@ -57,6 +58,7 @@ from graph.plan.ports import PlanStore
 from graph.plan.project import project
 from graph.plan.prompts import PromptName, gateway_prompt
 from graph.plan.rules import PlanRules, load_plan_rules
+from graph.plan.run import StepFunctions, run_with
 from graph.plan.snapshot import snapshot
 from graph.plan.tasks import plan_tasks
 from graph.plan.view import PlanView
@@ -68,9 +70,11 @@ __all__ = [
     "SnapshotQueries",
     "applied_plan",
     "change_reports",
+    "live_context",
     "next_view",
     "plan_ontology",
     "plan_rules",
+    "planned_live_shop",
     "planned_shop",
     "planner_key",
     "planner_payload",
@@ -545,6 +549,37 @@ def next_view(
     )
     ontology = plan_ontology()
     return PlanView(snapshot, partition(snapshot, view.rules, ontology), view.rules)
+
+
+def live_context(project: Any, project_id: str, store: PlanStore, gateway: Any, **fields: Any) -> PlanContext:
+    """A plan context over a live test project (the shop fixture's ontology and rules)."""
+
+    ontology = plan_ontology()
+    values: dict[str, Any] = {
+        "project_id": project_id,
+        "ontology": ontology,
+        "rules": plan_rules(ontology),
+        "driver": project.driver,
+        "gateway": gateway,
+        "store": store,
+        "build_id": "build-1",
+        "database": project.database,
+        **fields,
+    }
+    return PlanContext(**values)
+
+
+async def planned_live_shop(project: Any, store_root: Path) -> tuple[str, PlanContext]:
+    """A live project holding the shop fixture and its first plan (scripted planners)."""
+
+    project_id = project.new_project()
+    await write_spec_graph(project, project_id, shop_graph(), plan_ontology())
+    gateway = script_plan(ScriptedGateway(), shop_answers(await shop_view()))
+    context = live_context(project, project_id, open_plan_store(store_root), gateway)
+    result = await run_with(context, StepFunctions())
+    if result.checks is None or not result.checks.ok:
+        raise AssertionError("the first shop plan does not pass its checks")
+    return project_id, context
 
 
 def planner_payload(request: ScriptedRequest) -> dict[str, Any]:

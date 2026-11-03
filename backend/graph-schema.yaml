@@ -90,6 +90,7 @@ nodes:
       plan_id: {type: string}
       profile: {type: json}
       last_build_id: {type: string}
+      consumed_build_ids: {type: "list<string>"}
       graph_fingerprint: {type: string}
       ontology_version: {type: string}
       plan_ontology_version: {type: string}
@@ -183,14 +184,14 @@ relationships:
   IN_AREA:
     from: [SpecNode]
     to: [WorkArea]
-    properties: [group_id, edge_key, rule, via]
+    properties: [group_id, edge_key, rule, via, story]
   IN_STORY:
     from: [Task]
     to: [Story]
     properties: [group_id, edge_key]
   IMPLEMENTS:
     from: [Task, Story]
-    to: [Module, Feature, Capability, Interface, DataEntity, FunctionalRequirement, QualityRequirement, Constraint, BusinessRule, IntegrationRequirement, DataRequirement]
+    to: [SpecNode, Module, Feature, Capability, Interface, DataEntity, FunctionalRequirement, QualityRequirement, Constraint, BusinessRule, IntegrationRequirement, DataRequirement]
     properties: [group_id, edge_key]
   WAITS_FOR:
     from: [Task]
@@ -282,6 +283,7 @@ policy:
     - update_edges
     - read_current_edges
     - plan_read_links
+    - plan_delete_links
     - infer_delete_edges
     - delete_relationship
     - upsert_relationship

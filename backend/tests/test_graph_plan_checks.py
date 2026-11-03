@@ -140,3 +140,11 @@ def test_persisted_relationship_properties_are_kept_on_read() -> None:
     )
     assert dict(link.properties) == {"source": "stitch"}
     assert TaskState(area_id="A", story_id="S", status="pending").claimed is False
+
+
+async def test_waits_of_claimed_tasks_take_no_part_in_the_cycle_check(tmp_path: Path) -> None:
+    view, current = await _plan(tmp_path)
+    state = _with_task(_state(view, current), "TASK::PROJECT::TOOLCHAIN", status="in_progress", claimed=True)
+    cycle = replace(state, links=state.links | {("WAITS_FOR", "TASK::PROJECT::WORKSPACE", "TASK::PROJECT::TOOLCHAIN")})
+
+    assert problems(cycle)["dependencies"] == ()

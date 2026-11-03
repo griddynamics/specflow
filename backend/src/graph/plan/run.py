@@ -269,6 +269,7 @@ class StepFunctions:
                 plan_properties={
                     "plan_id": PLAN_ID,
                     "last_build_id": artifact.build_id,
+                    "consumed_build_ids": list(artifact.revisions.consumed),
                     "graph_fingerprint": artifact.fingerprint,
                 },
                 revisions=artifact.revisions,
@@ -316,9 +317,10 @@ async def run_with(context: PlanContext, functions: StepFunctions) -> PlanResult
             stored = await context.store.get_result(context.project_id, record.run_id)
             if stored is not None:
                 return PlanResult.model_validate(stored)
-        if record.progress.get("snapshot") == "done" and record.fingerprint != await functions.graph_fingerprint(
-            context
-        ):
+        # Once Persist has started, the diff is applied to the end whatever changed since: a half-applied
+        # plan must not stay behind (the next check reports the plan outdated).
+        guarded = record.progress.get("snapshot") == "done" and record.progress.get("persist") == "pending"
+        if guarded and record.fingerprint != await functions.graph_fingerprint(context):
             return await _finish(context, functions, failure=GRAPH_CHANGED)
         run_id = record.run_id if record.progress.get("snapshot") == "done" else await functions.snapshot(context)
     else:

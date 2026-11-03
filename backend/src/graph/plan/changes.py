@@ -131,6 +131,7 @@ def meaning_revisions(
     *,
     aliases: Mapping[str, str] | None = None,
     consumed: Iterable[str] = (),
+    previous: Iterable[str] = (),
     replan_without_reports: bool = False,
 ) -> MeaningRevisions:
     """Derive the run's meaning revisions from reports, stored revisions and the graph.
@@ -149,8 +150,10 @@ def meaning_revisions(
     revisions = {spec_id: stored_nodes[spec_id] for spec_id in sorted(current_nodes) if spec_id in stored_nodes}
 
     if not ordered and replan_without_reports:
+        # Newer means written by a build the plan had not consumed before this run (``previous``).
+        before = frozenset(previous)
         for spec_id, last_build_id in sorted(node_build_ids.items()):
-            if last_build_id not in consumed_chain:
+            if last_build_id not in before:
                 revisions[spec_id] = build_id
         for spec_id in sorted(current_nodes):
             revisions.setdefault(spec_id, build_id)

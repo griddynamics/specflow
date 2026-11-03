@@ -2,6 +2,7 @@
 MATCH (p:Plan)
 WHERE p.group_id = $project_id
 RETURN p.plan_id AS plan_id, p.profile AS profile, p.last_build_id AS last_build_id,
+       p.consumed_build_ids AS consumed_build_ids,
        p.graph_fingerprint AS graph_fingerprint, p.ontology_version AS ontology_version,
        p.plan_ontology_version AS plan_ontology_version, p.rules_version AS rules_version,
        p.applying AS applying, p.last_run_id AS last_run_id,

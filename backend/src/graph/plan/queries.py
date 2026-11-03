@@ -107,6 +107,16 @@ UPSERT_SUPERSEDES: Final = Query(
     load_plan_query("plan_upsert_supersedes.cypher"),
 )
 
+TRANSITION_TASK: Final = Query(
+    "plan_transition_task",
+    load_plan_query("plan_transition_task.cypher"),
+)
+
+CLAIM_TASK: Final = Query(
+    "plan_claim_task",
+    load_plan_query("plan_claim_task.cypher"),
+)
+
 _READ_LINKS_PREFIX: Final = "plan_read_links_"
 
 

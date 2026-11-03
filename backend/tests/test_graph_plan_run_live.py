@@ -214,3 +214,31 @@ def _now() -> str:
 def _run_id(context: PlanContext) -> str:
     assert context.run_id is not None
     return context.run_id
+
+
+async def test_a_run_interrupted_in_persist_finishes_on_resume_even_after_a_spec_write(
+    neo4j_project: Neo4jProject, tmp_path: Path
+) -> None:
+    project_id = await _project(neo4j_project)
+    store = open_plan_store(tmp_path)
+    gateway = script_plan(ScriptedGateway(), await _answers())
+    failing = _FailingExecutor(neo4j_project.driver, neo4j_project.database, fail_at=4)
+    context = _context(neo4j_project, project_id, store, gateway, query_executor=failing)
+
+    with pytest.raises(InfrastructureUnavailableError):
+        await run_with(context, StepFunctions())
+    run = await store.latest_run(project_id)
+    assert run is not None and run.progress["persist"] == "failed" and not run.finished
+    await neo4j_project.run(
+        "MATCH (n:SpecNode {group_id: $p, spec_id: 'REQ::FR::CHECKOUT'}) SET n.last_build_id = 'build-9'",
+        p=project_id,
+    )
+
+    result = await run_with(
+        _context(neo4j_project, project_id, store, gateway).with_run_id(run.run_id), StepFunctions()
+    )
+
+    current = await read_current_plan(Executor(neo4j_project.driver, neo4j_project.database), project_id)
+    assert result.status == "succeeded" and result.failure is None
+    assert current.plan is not None and not current.plan.applying
+    assert result.checks is not None and result.checks.metrics.outdated is True

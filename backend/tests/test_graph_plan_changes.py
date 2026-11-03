@@ -217,6 +217,7 @@ def test_replan_without_reports_sets_every_node_newer_than_the_consumed_chain() 
         stored={"REQ-1": "build-2", "REQ-2": "build-2"},
         build_id="build-4",
         consumed=("build-2", "build-4"),
+        previous=("build-2",),
         replan_without_reports=True,
     )
 
@@ -224,3 +225,17 @@ def test_replan_without_reports_sets_every_node_newer_than_the_consumed_chain() 
         nodes={"REQ-1": "build-4", "REQ-2": "build-2", "REQ-3": "build-4"},
         consumed=("build-2", "build-4"),
     )
+
+
+def test_a_replan_of_an_already_consumed_build_revises_nothing() -> None:
+    revisions = meaning_revisions(
+        (),
+        node_build_ids={"REQ-1": "build-2"},
+        stored={"REQ-1": "build-1"},
+        build_id="build-2",
+        consumed=("build-1", "build-2"),
+        previous=("build-1", "build-2"),
+        replan_without_reports=True,
+    )
+
+    assert revisions.nodes == {"REQ-1": "build-1"}

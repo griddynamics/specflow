@@ -216,8 +216,11 @@ async def snapshot(reader: Any, executor: Any, context: PlanContext) -> Snapshot
         links=changes.links,
     )
     stored_revisions = await context.store.get_revisions(project_id)
-    consumed = _consumed_chain(stored_revisions.consumed, reports, context.build_id)
     node_build_ids = {node.spec_id: node.last_build_id or context.build_id for node in (*plannable, *context_views)}
+    # A plan's first run consumes every build the graph already reflects, not only the last one, so nodes
+    # written by earlier builds never read as changed later.
+    seen = sorted(set(node_build_ids.values()) - {context.build_id}) if mode == "first" else ()
+    consumed = _consumed_chain((*stored_revisions.consumed, *seen), reports, context.build_id)
     revisions = meaning_revisions(
         reports,
         node_build_ids,
@@ -225,6 +228,7 @@ async def snapshot(reader: Any, executor: Any, context: PlanContext) -> Snapshot
         context.build_id,
         aliases=aliases,
         consumed=consumed,
+        previous=(*stored_revisions.consumed, *seen),
         replan_without_reports=context.replan,
     )
     previous_run = await context.store.latest_run(project_id, finished_only=True)

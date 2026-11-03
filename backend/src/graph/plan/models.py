@@ -29,6 +29,7 @@ from graph.plan.names import (
     PlannedBy,
     PlanRelation,
     StoryKind,
+    StoryProgress,
     StoryStatus,
     TaskStatus,
 )
@@ -167,6 +168,7 @@ class PlanInfo(PlanModel):
     plan_id: str = Field(min_length=1)
     profile: str | None = None
     last_build_id: str | None = None
+    consumed_build_ids: tuple[str, ...] = ()
     graph_fingerprint: str | None = None
     ontology_version: str = Field(min_length=1)
     plan_ontology_version: str = Field(min_length=1)
@@ -182,6 +184,11 @@ class PlanInfo(PlanModel):
         """Neo4j stores the applying run id, or nothing."""
 
         return bool(value) if value is None or isinstance(value, str) else value
+
+    @field_validator("consumed_build_ids", mode="before")
+    @classmethod
+    def _builds(cls, value: object) -> object:
+        return () if value is None else value
 
 
 class WorkAreaInfo(PlanModel):
@@ -713,6 +720,165 @@ class PlanResult(PlanModel):
     planning: PlanningSummary = PlanningSummary()
     checks: PlanCheckReport | None = None
     metrics: PlanMetrics = PlanMetrics()
+
+
+class PlanTask(CurrentTask):
+    """A task as reads return it (never its claim token), with its waits and revision neighbours."""
+
+    waits_for: tuple[str, ...] = ()
+    waited_by: tuple[str, ...] = ()
+    predecessor: str | None = None
+    successor: str | None = None
+
+
+class Claim(PlanModel):
+    """A claimed task and the token every later transition of the claim must carry."""
+
+    task: PlanTask
+    claim_token: str = Field(min_length=1)
+
+
+class PlanArea(WorkAreaInfo):
+    """A work area with its members, task counts by status and story counts by progress."""
+
+    members: tuple[str, ...] = ()
+    task_counts: dict[str, int] = {}
+    story_counts: dict[str, int] = {}
+
+
+class PlanStory(StoryInfo):
+    """A story with its derived progress and task counts by status."""
+
+    progress: StoryProgress
+    task_counts: dict[str, int] = {}
+
+
+class StoryMember(PlanModel):
+    """A plannable node whose home story this is, with the open or completed tasks that implement it."""
+
+    spec_id: str = Field(min_length=1)
+    label: str | None = None
+    name: str | None = None
+    task_ids: tuple[str, ...] = ()
+    not_buildable_reason: NotBuildableReason | None = None
+    covered: bool = False
+
+
+class StoryDetail(PlanModel):
+    story: PlanStory
+    anchor: dict[str, Any] | None = None
+    members: tuple[StoryMember, ...] = ()
+    tasks: tuple[PlanTask, ...] = ()
+    waits_on: tuple[str, ...] = ()
+    waited_by: tuple[str, ...] = ()
+
+
+class WorkEntry(PlanModel):
+    """One task of a story's work: the story's open tasks and their unfinished prerequisites."""
+
+    task_id: str = Field(min_length=1)
+    story_id: str = Field(min_length=1)
+    area_id: str = Field(min_length=1)
+    status: TaskStatus
+    ready: bool = False
+    waits_for: tuple[str, ...] = ()
+    claimed_by: str | None = None
+    claimed_at: AwareDatetime | None = None
+
+
+class StoryWork(PlanModel):
+    story_id: str = Field(min_length=1)
+    entries: tuple[WorkEntry, ...] = ()
+
+
+class DagTask(PlanModel):
+    task_id: str = Field(min_length=1)
+    story_id: str = Field(min_length=1)
+    area_id: str = Field(min_length=1)
+    status: TaskStatus
+    phase: Phase
+
+
+class DagStory(PlanModel):
+    story_id: str = Field(min_length=1)
+    area_id: str = Field(min_length=1)
+    progress: StoryProgress
+    task_ids: tuple[str, ...] = ()
+
+
+class PlanDag(PlanModel):
+    """Open and completed tasks in topological order with their waits, and the story projection."""
+
+    tasks: tuple[DagTask, ...] = ()
+    edges: tuple[tuple[str, str], ...] = ()
+    stories: tuple[DagStory, ...] = ()
+    story_edges: tuple[tuple[str, str], ...] = ()
+    story_groups: tuple[tuple[str, ...], ...] = ()
+
+
+class BriefNode(PlanModel):
+    """An implemented spec node with its evidence."""
+
+    spec_id: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    name: str
+    attributes: dict[str, Any] = {}
+    statements: tuple[dict[str, Any], ...] = ()
+    provenance: tuple[dict[str, Any], ...] = ()
+    assumption: bool = False
+
+
+class BriefContract(PlanModel):
+    """A completed direct prerequisite: what the task builds on."""
+
+    task_id: str = Field(min_length=1)
+    title: str
+    commit: str | None = None
+    implements: tuple[str, ...] = ()
+    interfaces: tuple[dict[str, Any], ...] = ()
+
+
+class BriefQuestion(PlanModel):
+    spec_id: str = Field(min_length=1)
+    statement: str = ""
+    provenance: tuple[dict[str, Any], ...] = ()
+    about: str = Field(min_length=1)
+
+
+class BriefNeighbour(PlanModel):
+    spec_id: str = Field(min_length=1)
+    label: str
+    name: str
+    relation: str
+    direction: Literal["out", "in"]
+    of: str
+    basis: str | None = None
+    confidence: float | None = None
+
+
+class BriefPlacement(PlanModel):
+    """How an implemented node was placed in the area, with the edges the placement followed."""
+
+    spec_id: str = Field(min_length=1)
+    rule: int | None = None
+    via: tuple[dict[str, Any], ...] = ()
+
+
+class TaskBrief(PlanModel):
+    """What one coding agent needs for one task, assembled when it is asked for."""
+
+    task: PlanTask
+    done_when: tuple[DoneWhen, ...] = ()
+    story: PlanStory | None = None
+    area: WorkAreaInfo | None = None
+    profile: dict[str, Any] = {}
+    implements: tuple[BriefNode, ...] = ()
+    contracts: tuple[BriefContract, ...] = ()
+    open_questions: tuple[BriefQuestion, ...] = ()
+    neighbours: tuple[BriefNeighbour, ...] = ()
+    placement: tuple[BriefPlacement, ...] = ()
+    spec_changed: bool = False
+    missing: tuple[str, ...] = ()
 
 
 class PlanStepEstimate(PlanModel):
