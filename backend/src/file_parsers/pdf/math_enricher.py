@@ -23,9 +23,9 @@ from file_parsers.pdf.schema import (
 from llm.client import Client
 from llm.content import Attachment
 
-EQUATION_PROMPT_ID = "equation_latex.v1"
-MATH_PAGE_PROMPT_ID = "math_page_latex.v2"
-TABLE_PROMPT_ID = "formula_table_latex.v1"
+EQUATION_PROMPT_ID = "equation_latex"
+MATH_PAGE_PROMPT_ID = "math_page_latex"
+TABLE_PROMPT_ID = "formula_table_latex"
 
 PAGE_DPI = 220
 MAX_CONTEXT_CHARS = 6000

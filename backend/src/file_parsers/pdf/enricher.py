@@ -26,7 +26,7 @@ from file_parsers.pdf.schema import PDFDocument, PDFFigure
 from llm.client import Client
 from llm.content import Attachment
 
-PROMPT_ID = "figure_description.v2"
+PROMPT_ID = "figure_description"
 DEFAULT_MODEL = "claude-haiku-4-5"
 MAX_CONTEXT_CHARS = 4000
 

@@ -80,8 +80,8 @@ from specflow_live import requires_live
 pytestmark = [requires_live("NEO4J"), pytest.mark.asyncio(loop_scope="module")]
 
 ONTOLOGY: Final = shipped_ontology()
-CONFORM_PROMPT: Final = "judge_owner_conflict.2"
-ORPHAN_PROMPT: Final = "judge_attach_orphan.4"
+CONFORM_PROMPT: Final = "judge_owner_conflict"
+ORPHAN_PROMPT: Final = "judge_attach_orphan"
 
 CSV_FR: Final = "Customer can export order history as CSV"
 COUPON_RULE: Final = "Order: at most one coupon"
@@ -773,8 +773,8 @@ async def test_an_unsure_pair_is_not_merged_nor_stored_and_the_no_change_update_
 # the cross-document corpus (shop-v2/4)
 
 CROSSDOC_SNAPSHOT: Final = 4
-ANSWERED_PROMPT: Final = "judge_answered_elsewhere.3"
-XDOC_PROMPT: Final = "judge_cross_document.4"
+ANSWERED_PROMPT: Final = "judge_answered_elsewhere"
+XDOC_PROMPT: Final = "judge_cross_document"
 PAYMENT_SERVICE: Final = "Payment service"
 CARD_BRANDS: Final = "Card: Visa or Mastercard only"
 CHECKOUT_BRANDS: Final = "Checkout service accepts only listed card brands"

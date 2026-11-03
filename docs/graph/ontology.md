@@ -97,8 +97,9 @@ and `rules`, run in file order. A rule has an `id`, a `template`, a judge `promp
 node types (`subject`, one key or, for `cross_document`, a list; `members`, `target`, `targets`,
 `container`) take type or group keys, never labels; only `conform.answered_elsewhere.label` also
 accepts a label. A judge prompt
-`<name>.<revision>` is the file `judge_prompts/<name>.<revision>.md` next to the ontology file that
-references it. The four templates are code ([analysis.md](analysis.md)):
+`<name>` (snake_case, no version) is the file `judge_prompts/<name>.md` next to the ontology file that
+references it. Stored judgements are keyed under `<name>@<first 12 hex of the text's SHA-256>`
+(`Ontology.judge_prompt_version`), so editing a prompt file expires them without renaming it. The four templates are code ([analysis.md](analysis.md)):
 
 | Template | Parameters | Subject | Candidates |
 |---|---|---|---|
@@ -127,7 +128,7 @@ immutable `Ontology`. Any problem raises one `OntologyError` that lists every pr
 13. `inherit.via` is a relation of an owner pair of the type, and an attribute has `inherit` or `default`, not both; `derive` and `derive_via` rules yield legal pairs.
 14. Relations normalisation adds late are never checked again: a `derive_via` relation is not `acyclic` and has no `owner` or `exclusive` pair, and the `fallback_relation` has no `source_where` or `target_where` on a pair it can produce (the ends of an owner pair or of an `acyclic` relation's pair, either way round).
 15. `conform.answered_elsewhere` names a declared extracted atomic type and a shipped judge prompt; `candidates` and `cap` are positive integers; `min_cosine` and `floor` lie in 0..1.
-16. `reads` names each rule once, and only rules declared before it in the file (never itself or a later one), and appears only on a `realization` rule (a narrowing of the concept's `reads`): the other templates read only `stated` and `implied` edges, and a `cross_document` rule reads earlier rules' owner edges implicitly ([analysis.md](analysis.md)). `batch` and `batch_prompt` appear only on an `attach_orphan` rule; `batch` is an integer of at least 2 and needs a `batch_prompt`; a `batch_prompt` names a shipped judge prompt (in the file's `judge_prompts/`) and may be named without `batch` (batching off), so a replay can turn batching on (shipped: `INF-CONT-01` and `INF-CONT-02` name `judge_attach_orphan_batch.3`, no `batch`).
+16. `reads` names each rule once, and only rules declared before it in the file (never itself or a later one), and appears only on a `realization` rule (a narrowing of the concept's `reads`): the other templates read only `stated` and `implied` edges, and a `cross_document` rule reads earlier rules' owner edges implicitly ([analysis.md](analysis.md)). `batch` and `batch_prompt` appear only on an `attach_orphan` rule; `batch` is an integer of at least 2 and needs a `batch_prompt`; a `batch_prompt` names a shipped judge prompt (in the file's `judge_prompts/`) and may be named without `batch` (batching off), so a replay can turn batching on (shipped: `INF-CONT-01` and `INF-CONT-02` name `judge_attach_orphan_batch`, no `batch`).
 
 ## Ontology files of submodules
 
@@ -243,17 +244,17 @@ Spine: requirements reach a module by 1-3 `PART_OF` edges; by `PART_OF` then `PR
 relation on a spine path counts in either direction, because it is stored in canonical order. A
 requirement with `in_scope: no`, or whose owner has it, is excluded.
 
-Conform: judge prompt `judge_owner_conflict.2`, cap 200 calls per build, floor 0.7, fallback relation
-`RELATES_TO`. Answered elsewhere: `OpenQuestion`, judge prompt `judge_answered_elsewhere.3`, 4
+Conform: judge prompt `judge_owner_conflict`, cap 200 calls per build, floor 0.7, fallback relation
+`RELATES_TO`. Answered elsewhere: `OpenQuestion`, judge prompt `judge_answered_elsewhere`, 4
 candidate fragments, `min_cosine` 0.35 (set at TEST.4 from offline cosines, [build.md](build.md)), floor 0.8, cap 60 calls per build.
 
 | Inference rule (in order) | Template | Writes |
 |---|---|---|
-| `INF-CONT-01` | `attach_orphan`: a requirement with no owner, not `in_scope: no`, 3 candidate features or modules among its legal owners, none `in_scope: no` (`target_exclude_where`); prompt `judge_attach_orphan.4`; floor 0.8 | `PART_OF` |
-| `INF-CONT-02` | `attach_orphan`: a feature with no module, not `in_scope: no`, 3 candidate modules, none `in_scope: no`, external or a deployment target (its owner pair's `target_where`); prompt `judge_attach_orphan.4` | `PART_OF` |
-| `INF-INT-01` | `endpoints`: an integration requirement not owned by an interface, with 2-4 modules by `PART_OF`, `RELATES_TO` or mentions (`via: [PART_OF, RELATES_TO]`, `mentions: true`, `exclude_owned_by: [interface]`); prompt `judge_endpoints.3` | `INTEGRATES_WITH` between those modules |
-| `INF-CAP-01` | `realization`: a capability and the modules its grouped members reach by 1-3 `PART_OF`, one `RELATES_TO`, or `PART_OF` then `PROVIDED_BY` or `CONSUMED_BY`; `reads: [INF-CONT-01, INF-CONT-02]`, so the `PART_OF` edges those rules infer in the same build count on the paths; prompt `judge_realization.2` | `REALIZED_BY` |
-| `INF-XDOC-01` | `cross_document` (last): a module, feature, interface or data entity whose requirement members (`via: [PART_OF, RELATES_TO]`, `mentions: true`, not `in_scope: no`) come from 2 or more documents; at most 8 member pairs from different documents (`pair_floor` 0.55, calibrated at TEST.4 R0); 3 owner candidates per member with no owner of any basis (inferred owners of earlier builds count); prompt `judge_cross_document.4` | `RELATES_TO`; also `DEPENDS_ON` (only with a dependency cue) and `PART_OF` (an orphan member's owner) |
+| `INF-CONT-01` | `attach_orphan`: a requirement with no owner, not `in_scope: no`, 3 candidate features or modules among its legal owners, none `in_scope: no` (`target_exclude_where`); prompt `judge_attach_orphan`; floor 0.8 | `PART_OF` |
+| `INF-CONT-02` | `attach_orphan`: a feature with no module, not `in_scope: no`, 3 candidate modules, none `in_scope: no`, external or a deployment target (its owner pair's `target_where`); prompt `judge_attach_orphan` | `PART_OF` |
+| `INF-INT-01` | `endpoints`: an integration requirement not owned by an interface, with 2-4 modules by `PART_OF`, `RELATES_TO` or mentions (`via: [PART_OF, RELATES_TO]`, `mentions: true`, `exclude_owned_by: [interface]`); prompt `judge_endpoints` | `INTEGRATES_WITH` between those modules |
+| `INF-CAP-01` | `realization`: a capability and the modules its grouped members reach by 1-3 `PART_OF`, one `RELATES_TO`, or `PART_OF` then `PROVIDED_BY` or `CONSUMED_BY`; `reads: [INF-CONT-01, INF-CONT-02]`, so the `PART_OF` edges those rules infer in the same build count on the paths; prompt `judge_realization` | `REALIZED_BY` |
+| `INF-XDOC-01` | `cross_document` (last): a module, feature, interface or data entity whose requirement members (`via: [PART_OF, RELATES_TO]`, `mentions: true`, not `in_scope: no`) come from 2 or more documents; at most 8 member pairs from different documents (`pair_floor` 0.55, calibrated at TEST.4 R0); 3 owner candidates per member with no owner of any basis (inferred owners of earlier builds count); prompt `judge_cross_document` | `RELATES_TO`; also `DEPENDS_ON` (only with a dependency cue) and `PART_OF` (an orphan member's owner) |
 
 Cap 100 subjects per rule per build in every mode (was 50; P8.1). In `first` and `rebuild` builds a rule
 goes on past it up to `first_cap` 2000 subjects while the build's inference input stays within
@@ -285,8 +286,8 @@ changes, and are watched by the metric or sample named.
 | An integration requirement is owned by the caller | `PART_OF` description | sample of integration requirements owned by an external or called module |
 | A requirement is `PART_OF` a feature or module only when the fact is in that part's section or names it | edge system message | `PART_OF` sample precision; `owners_by_source` |
 | Each interface a window names gets `PROVIDED_BY` when the text, its section heading or a Provider, Owner or Service column names the module | edge system message; `interface.provider` description | `interfaces_without_provider`; `PROVIDED_BY` sample by basis |
-| A shared topic is not a cross-document link: both quotes must constrain the same attribute, value or behaviour (not only name the same entity, workflow, agent or parameter), the same parameter on two surfaces is no link, a decision-log row links only to the rule it decides, and each quote states its own member's fact; members of one owner are not linked; a dependency needs "requires", "only after" or the like; an owner only when the owner-side quote shows the member belongs to that part (not a part it only acts on, not when its own section is another part's, never the whole system, a list of tools that "may provide" something, a scope bullet or a separate success metric) | `judge_cross_document.4` | sample of accepted `INF-XDOC-01` items |
+| A shared topic is not a cross-document link: both quotes must constrain the same attribute, value or behaviour (not only name the same entity, workflow, agent or parameter), the same parameter on two surfaces is no link, a decision-log row links only to the rule it decides, and each quote states its own member's fact; members of one owner are not linked; a dependency needs "requires", "only after" or the like; an owner only when the owner-side quote shows the member belongs to that part (not a part it only acts on, not when its own section is another part's, never the whole system, a list of tools that "may provide" something, a scope bullet or a separate success metric) | `judge_cross_document` | sample of accepted `INF-XDOC-01` items |
 | A requirement the window's text refers to by section, chapter or id is linked as the referring sentence says: `RELATES_TO` by default, `DEPENDS_ON` only with a dependency cue, never `PART_OF` from a reference alone | edge system message (reference line; relations from the `id_references`, cue-gated and owner flags) | "§" reference recall sheet |
-| A question is answered elsewhere only when a candidate text answers it, quoted; a partial answer keeps it | `judge_answered_elsewhere.3` | sample of dropped questions; `oq_partly_kept` |
-| An inferred integration links only the two modules the integration requirement says exchange data or call each other; when that pair is already linked, no other pair is linked in its place | `judge_endpoints.3` | sample of accepted `INF-INT-01` items |
-| A capability is realised only by the part the text says does its work; a part that only stores, holds or receives something the capability deals with (the holder of a rotated key, the store a report reads) or that the capability acts on does not realise it, nor does a part only listed in a member's row | `judge_realization.2` | sample of accepted `INF-CAP-01` items |
+| A question is answered elsewhere only when a candidate text answers it, quoted; a partial answer keeps it | `judge_answered_elsewhere` | sample of dropped questions; `oq_partly_kept` |
+| An inferred integration links only the two modules the integration requirement says exchange data or call each other; when that pair is already linked, no other pair is linked in its place | `judge_endpoints` | sample of accepted `INF-INT-01` items |
+| A capability is realised only by the part the text says does its work; a part that only stores, holds or receives something the capability deals with (the holder of a rotated key, the store a report reads) or that the capability acts on does not realise it, nor does a part only listed in a member's row | `judge_realization` | sample of accepted `INF-CAP-01` items |

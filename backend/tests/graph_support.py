@@ -9,6 +9,8 @@ import inspect
 import json
 import os
 import re
+import shutil
+import tempfile
 import time
 import uuid
 from collections.abc import AsyncIterator, Callable, Collection, Hashable, Iterable, Iterator, Mapping, Sequence
@@ -746,14 +748,40 @@ def shipped_ontology() -> Ontology:
 
 
 FROZEN_ONTOLOGY_FILE: Final = Path(__file__).resolve().parent / "fixtures" / "graph" / "ontology-v1.3-f2.yaml"
-"""Flag-off ontology used by mechanics tests. Its judge prompts sit in ``fixtures/graph/judge_prompts/``."""
+"""Flag-off ontology used by mechanics tests. It names shipped judge prompts (``FROZEN_PROMPT_REFS``); load it
+with ``load_frozen_ontology``."""
+SHIPPED_PROMPTS: Final = Path(str(files("graph") / "core" / "ontology" / "judge_prompts"))
+"""The shipped judge prompts."""
+FROZEN_PROMPT_REFS: Final = ("judge_endpoints", "judge_realization", "judge_attach_orphan")
+"""The shipped judge prompts the frozen ontology names; ``copy_frozen_prompts`` copies only these."""
+
+
+def copy_frozen_prompts(directory: Path) -> Path:
+    """Write ``directory/judge_prompts/`` holding the frozen ontology's judge prompts (``FROZEN_PROMPT_REFS``)
+    and return it."""
+
+    prompts = directory / "judge_prompts"
+    prompts.mkdir(parents=True, exist_ok=True)
+    for ref in FROZEN_PROMPT_REFS:
+        shutil.copy(SHIPPED_PROMPTS / f"{ref}.md", prompts / f"{ref}.md")
+    return prompts
+
+
+def load_frozen_ontology(submodule_files: Sequence[Path] = ()) -> Ontology:
+    """Load ``FROZEN_ONTOLOGY_FILE`` with its judge prompts beside it, in a temporary directory."""
+
+    with tempfile.TemporaryDirectory(prefix="frozen-ontology-") as name:
+        directory = Path(name)
+        shutil.copy(FROZEN_ONTOLOGY_FILE, directory / FROZEN_ONTOLOGY_FILE.name)
+        copy_frozen_prompts(directory)
+        return load_ontology(directory / FROZEN_ONTOLOGY_FILE.name, submodule_files=list(submodule_files))
 
 
 @lru_cache(maxsize=1)
 def frozen_ontology() -> Ontology:
     """The flag-off ontology alone (no submodule files)."""
 
-    return load_ontology(FROZEN_ONTOLOGY_FILE, submodule_files=[])
+    return load_frozen_ontology()
 
 
 def with_v2_flags(data: Mapping[str, Any]) -> dict[str, Any]:
@@ -783,7 +811,7 @@ def with_v2_flags(data: Mapping[str, Any]) -> dict[str, Any]:
     relations["GROUPED_BY"]["pairs"][1]["redundant_via_owner"] = True
     relations["GROUPED_BY"].update(acyclic=True, stated_only=True)
     data["spine"]["exclude"] = {"external": ["yes"]}  # declared on the sources' owner (Module) only
-    data["conform"] = {"judge_prompt": "judge_endpoints.2", "cap": 10, "floor": 0.5, "fallback_relation": "RELATES_TO"}
+    data["conform"] = {"judge_prompt": "judge_endpoints", "cap": 10, "floor": 0.5, "fallback_relation": "RELATES_TO"}
     rules = data["inference"]["rules"]
     rules[0]["exclude_owned_by"] = ["feature"]
     rules[1]["container_paths"].append({"via": ["RELATES_TO"], "min": 1, "max": 1})

@@ -130,21 +130,15 @@ RULES: dict[str, str] = {
     "INF-XDOC-01": "R-QD-1",
 }
 PROMPTS: dict[str, str] = {
-    "judge_attach_orphan.4": "richter_waisen.4",
-    "judge_endpoints.3": "richter_enden.3",
-    "judge_realization.2": "richter_umsetzung.2",
-    "judge_owner_conflict.2": "richter_besitz.2",
-    "judge_cross_document.4": "richter_dokumente.4",
-    "judge_answered_elsewhere.3": "richter_beantwortet.3",
-    "judge_attach_orphan_batch.3": "richter_waisen_stapel.3",
+    "judge_attach_orphan": "richter_waisen",
+    "judge_endpoints": "richter_enden",
+    "judge_realization": "richter_umsetzung",
+    "judge_owner_conflict": "richter_besitz",
+    "judge_cross_document": "richter_dokumente",
+    "judge_answered_elsewhere": "richter_beantwortet",
+    "judge_attach_orphan_batch": "richter_waisen_stapel",
 }
-FROZEN_PROMPTS: dict[str, str] = {
-    "judge_attach_orphan.2": "richter_waisen.2",
-    "judge_realization.1": "richter_umsetzung.1",
-    "judge_endpoints.2": "richter_enden.2",
-}
-"""Judge prompts only the flag-off ontology references. The live chains build with that ontology."""
-_PROMPT_NAMES: dict[str, str] = {**PROMPTS, **FROZEN_PROMPTS}
+_PROMPT_NAMES: dict[str, str] = PROMPTS
 NAME = "umbenannte-ontologie"
 
 # The scripted gateway's ``rename``: the names a hand-written answer may hold (labels in node, hub and
@@ -391,7 +385,7 @@ def renamed_frozen_ontology(tmp_path_factory: pytest.TempPathFactory) -> Ontolog
     """Renamed copy of the flag-off ontology. The live chains build with it because the shop answers do."""
 
     data = yaml.safe_load(FROZEN_ONTOLOGY_FILE.read_text(encoding="utf-8"))
-    path = write_renamed_data(tmp_path_factory.mktemp("renamed-frozen"), data, FROZEN_ONTOLOGY_FILE.parent)
+    path = write_renamed_data(tmp_path_factory.mktemp("renamed-frozen"), data)
     return load_ontology(path, submodule_files=[])
 
 
@@ -480,7 +474,7 @@ def test_the_renamed_copy_carries_every_format_2_flag(tmp_path: Path, source: st
         prompts = shipped_ontology_dir()
         data = yaml.safe_load((prompts / "spec-ontology.yaml").read_text(encoding="utf-8"))
     else:
-        prompts = FROZEN_ONTOLOGY_FILE.parent
+        prompts = shipped_ontology_dir()
         data = with_v2_flags(yaml.safe_load(FROZEN_ONTOLOGY_FILE.read_text(encoding="utf-8")))
     original_dir = tmp_path / "original"
     original_dir.mkdir()

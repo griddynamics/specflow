@@ -26,13 +26,12 @@ from graph.core.ontology import (
     SpinePath,
     load_ontology,
 )
-from graph_support import FROZEN_ONTOLOGY_FILE, GAP_ONTOLOGY
+from graph_support import FROZEN_ONTOLOGY_FILE, GAP_ONTOLOGY, copy_frozen_prompts, load_frozen_ontology
 
 SHIPPED_DIR = Path(ontology_package.__file__).parent
 SHIPPED_FILE = SHIPPED_DIR / "spec-ontology.yaml"
 SHIPPED_PROMPTS = SHIPPED_DIR / "judge_prompts"
 SHIPPED_DATA: dict[str, Any] = yaml.safe_load(SHIPPED_FILE.read_text(encoding="utf-8"))
-FROZEN_PROMPTS = FROZEN_ONTOLOGY_FILE.parent / "judge_prompts"
 BASE: dict[str, Any] = yaml.safe_load(FROZEN_ONTOLOGY_FILE.read_text(encoding="utf-8"))
 """The flag-off ontology file, parsed: the base every bad file mutates."""
 
@@ -105,14 +104,17 @@ def write_ontology(
     *,
     prompts: bool = True,
     filename: str = "ontology.yaml",
-    prompts_from: Path = FROZEN_PROMPTS,
+    prompts_from: Path | None = None,
 ) -> Path:
     """Write ``data`` as an ontology file in ``directory`` with the judge prompts of ``prompts_from``
-    (default: the frozen ones) next to it."""
+    (default: the frozen ontology's, ``copy_frozen_prompts``) next to it."""
 
     directory.mkdir(parents=True, exist_ok=True)
     if prompts and not (directory / "judge_prompts").exists():
-        shutil.copytree(prompts_from, directory / "judge_prompts")
+        if prompts_from is None:
+            copy_frozen_prompts(directory)
+        else:
+            shutil.copytree(prompts_from, directory / "judge_prompts")
     path = directory / filename
     path.write_text(data if isinstance(data, str) else yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
     return path
@@ -210,7 +212,7 @@ def test_shipped_ontology_has_five_inference_rules_with_resolved_judge_prompts(
     # INF-CONT-01/02 name their batch prompt without ``batch`` (off), so a replay can turn batching on.
     refs |= {rule.batch_prompt for rule in rules if rule.batch_prompt}
     assert [(rule.batch, rule.batch_prompt) for rule in rules if rule.template == "attach_orphan"] == [
-        (None, "judge_attach_orphan_batch.3")
+        (None, "judge_attach_orphan_batch")
     ] * 2
     for ref in refs:
         text = shipped.judge_prompt(ref)
@@ -222,7 +224,7 @@ def test_shipped_ontology_has_five_inference_rules_with_resolved_judge_prompts(
 
 def test_judge_prompt_unknown_reference_is_a_conformance_error(shipped: Ontology) -> None:
     with pytest.raises(ConformanceError) as raised:
-        shipped.judge_prompt("judge_nothing.1")
+        shipped.judge_prompt("judge_nothing")
     assert raised.value.code == "ontology_unknown_judge_prompt"
 
 
@@ -246,7 +248,7 @@ def test_inference_rules_resolve_groups_to_labels(shipped: Ontology) -> None:
     assert by_id["INF-CONT-02"].targets == frozenset({"Module"})
     for rule_id in ("INF-CONT-01", "INF-CONT-02"):
         assert by_id[rule_id].exclude_where == {"in_scope": frozenset({"no"})}
-        assert (by_id[rule_id].prompt, by_id[rule_id].writes) == ("judge_attach_orphan.4", "PART_OF")
+        assert (by_id[rule_id].prompt, by_id[rule_id].writes) == ("judge_attach_orphan", "PART_OF")
     assert by_id["INF-CAP-01"].container_paths == (
         SpinePath(("PART_OF",), sequence=False, min_hops=1, max_hops=3),
         SpinePath(("RELATES_TO",), sequence=False, min_hops=1, max_hops=1),
@@ -254,7 +256,7 @@ def test_inference_rules_resolve_groups_to_labels(shipped: Ontology) -> None:
         SpinePath(("PART_OF", "CONSUMED_BY"), sequence=True, min_hops=2, max_hops=2),
     )
     xdoc = by_id["INF-XDOC-01"]
-    assert (xdoc.template, xdoc.prompt) == ("cross_document", "judge_cross_document.4")
+    assert (xdoc.template, xdoc.prompt) == ("cross_document", "judge_cross_document")
     assert xdoc.subject == frozenset({"Module", "Feature", "Interface", "DataEntity"})
     assert xdoc.targets == frozenset(REQUIREMENT_LABELS)
     assert xdoc.via == ("PART_OF", "RELATES_TO") and xdoc.mentions
@@ -272,7 +274,7 @@ def test_inference_rules_resolve_groups_to_labels(shipped: Ontology) -> None:
     assert by_id["INF-CONT-01"].floor == 0.8 and shipped.inference.floor_of(by_id["INF-CONT-01"]) == 0.8
     for rule_id in ("INF-CONT-02", "INF-INT-01", "INF-CAP-01"):
         assert by_id[rule_id].floor is None and shipped.inference.floor_of(by_id[rule_id]) == 0.7
-    assert by_id["INF-CAP-01"].prompt == "judge_realization.2"
+    assert by_id["INF-CAP-01"].prompt == "judge_realization"
     assert shipped.cue_gated_rules("DEPENDS_ON") == frozenset({"INF-XDOC-01"})
 
 
@@ -308,8 +310,8 @@ def test_spine_and_hubs_of_the_shipped_ontology(shipped: Ontology) -> None:
 
 
 def test_conform_section_of_the_shipped_ontology(shipped: Ontology) -> None:
-    answered = AnsweredElsewhereSpec("OpenQuestion", "judge_answered_elsewhere.3", 4, 0.35, 0.8, 60)
-    assert shipped.conform_spec() == ConformSpec("judge_owner_conflict.2", 200, 0.7, "RELATES_TO", answered)
+    answered = AnsweredElsewhereSpec("OpenQuestion", "judge_answered_elsewhere", 4, 0.35, 0.8, 60)
+    assert shipped.conform_spec() == ConformSpec("judge_owner_conflict", 200, 0.7, "RELATES_TO", answered)
 
 
 # Format 2 flags: one bad file per flag (the valid case of each is in test_graph_ontology_v2.py)
@@ -318,7 +320,7 @@ PART_OF_PAIRS = "edge_types.PART_OF.pairs"
 FR_TO_MODULE = f"{PART_OF_PAIRS}.1"  # functional_requirement -> module
 FEATURE_TO_MODULE = f"{PART_OF_PAIRS}.7"
 MODULE_TO_MODULE = f"{PART_OF_PAIRS}.9"
-CONFORM = {"judge_prompt": "judge_endpoints.2", "cap": 10, "floor": 0.5, "fallback_relation": "RELATES_TO"}
+CONFORM = {"judge_prompt": "judge_endpoints", "cap": 10, "floor": 0.5, "fallback_relation": "RELATES_TO"}
 
 
 def owner_pairs(d: dict[str, Any]) -> None:
@@ -629,9 +631,9 @@ V2_BAD_FILES = [
     ),
     # Conform
     pytest.param(
-        [lambda d: put(d, "conform", {**CONFORM, "judge_prompt": "judge_nothing.1"})],
+        [lambda d: put(d, "conform", {**CONFORM, "judge_prompt": "judge_nothing"})],
         "conform.judge_prompt",
-        "judge prompt file judge_prompts/judge_nothing.1.md not found",
+        "judge prompt file judge_prompts/judge_nothing.md not found",
         id="check7-conform-judge-prompt",
     ),
     pytest.param(
@@ -756,7 +758,7 @@ def xdoc(**changes: Any) -> Callable[[dict[str, Any]], None]:
     rule = {
         "id": "INF-XDOC-T",
         "template": "cross_document",
-        "prompt": "judge_endpoints.2",
+        "prompt": "judge_endpoints",
         "subject": ["module", "feature"],
         "members": "requirement",
         "via": ["PART_OF", "RELATES_TO"],
@@ -791,7 +793,7 @@ def answered(**changes: Any) -> list[Callable[[dict[str, Any]], None]]:
 
     block = {
         "label": "functional_requirement",
-        "prompt": "judge_endpoints.2",
+        "prompt": "judge_endpoints",
         "candidates": 3,
         "min_cosine": 0.5,
         "floor": 0.8,
@@ -988,9 +990,9 @@ PKG4_BAD_FILES = [
         id="check15-answered-elsewhere-label-group",
     ),
     pytest.param(
-        answered(prompt="judge_answered_elsewhere.1"),
+        answered(prompt="judge_answered_elsewhere"),
         "conform.answered_elsewhere.prompt",
-        "judge prompt file judge_prompts/judge_answered_elsewhere.1.md not found",
+        "judge prompt file judge_prompts/judge_answered_elsewhere.md not found",
         id="check15-answered-elsewhere-prompt-missing",
     ),
     pytest.param(
@@ -1327,9 +1329,9 @@ BAD_FILES = [
         id="check7-template",
     ),
     pytest.param(
-        [lambda d: put(d, "inference.rules.1.prompt", "judge_missing.1")],
+        [lambda d: put(d, "inference.rules.1.prompt", "judge_missing")],
         "inference.rules[1].prompt",
-        "judge_missing.1.md not found",
+        "judge_missing.md not found",
         id="check7-judge-prompt",
     ),
     pytest.param(
@@ -1554,16 +1556,16 @@ def test_a_missing_judge_prompt_file_fails_loading(tmp_path: Path) -> None:
     path = write_ontology(tmp_path, BASE, prompts=False)
     problems = load_problems(path)
     assert len(problems) == 3
-    for ref in ("judge_endpoints.2", "judge_realization.1", "judge_attach_orphan.2"):
+    for ref in ("judge_endpoints", "judge_realization", "judge_attach_orphan"):
         assert has_problem(problems, f"{ref}.md not found")
 
 
 def test_one_missing_judge_prompt_names_only_that_rule(tmp_path: Path) -> None:
     path = write_ontology(tmp_path, BASE)
-    (path.parent / "judge_prompts" / "judge_realization.1.md").unlink()
+    (path.parent / "judge_prompts" / "judge_realization.md").unlink()
     problems = load_problems(path)
     assert len(problems) == 1
-    assert has_problem(problems, "inference.rules[1].prompt", "judge_realization.1.md not found")
+    assert has_problem(problems, "inference.rules[1].prompt", "judge_realization.md not found")
 
 
 def test_a_rule_floor_of_any_template_overrides_the_inference_floor_for_that_rule(tmp_path: Path) -> None:
@@ -1583,11 +1585,11 @@ def test_inference_limits_by_mode_reads_and_batch_load(tmp_path: Path) -> None:
         lambda d: put(d, "inference.rules.0.first_cap", 7),
         lambda d: put(d, "inference.rules.1.reads", ["INF-INT-01"]),
         lambda d: put(d, "inference.rules.2.batch", 6),
-        lambda d: put(d, "inference.rules.2.batch_prompt", "judge_attach_orphan_batch.3"),
+        lambda d: put(d, "inference.rules.2.batch_prompt", "judge_attach_orphan_batch"),
         xdoc(cap=2, first_cap=900),
     )
     assert any(
-        "inference.rules[2].batch_prompt: judge prompt file judge_prompts/judge_attach_orphan_batch.3.md not found"
+        "inference.rules[2].batch_prompt: judge prompt file judge_prompts/judge_attach_orphan_batch.md not found"
         in problem
         for problem in load_problems(write_ontology(tmp_path / "without", data))
     )  # a named batch prompt must ship
@@ -1596,13 +1598,13 @@ def test_inference_limits_by_mode_reads_and_batch_load(tmp_path: Path) -> None:
         "inference.rules[2].batch: needs a batch_prompt" in problem
         for problem in load_problems(write_ontology(tmp_path / "unnamed", no_prompt))
     )
-    endpoints_batch = mutated(lambda d: put(d, "inference.rules.0.batch_prompt", "judge_attach_orphan_batch.3"))
+    endpoints_batch = mutated(lambda d: put(d, "inference.rules.0.batch_prompt", "judge_attach_orphan_batch"))
     assert any(
         "batch_prompt: not a parameter of template 'endpoints'" in problem
         for problem in load_problems(write_ontology(tmp_path / "endpoints", endpoints_batch))
     )
     path = write_ontology(tmp_path, data)
-    shutil.copy(SHIPPED_PROMPTS / "judge_attach_orphan_batch.3.md", path.parent / "judge_prompts")
+    shutil.copy(SHIPPED_PROMPTS / "judge_attach_orphan_batch.md", path.parent / "judge_prompts")
     loaded = load_ontology(path, submodule_files=[])
     spec = loaded.inference
     endpoints, realization, orphan, cross = spec.rules
@@ -1615,7 +1617,7 @@ def test_inference_limits_by_mode_reads_and_batch_load(tmp_path: Path) -> None:
     assert [rule.reads for rule in (endpoints, orphan, cross)] == [(), (), ()]
     assert spec.reads_of(orphan) == ()
     assert orphan.batch == 6 and [rule.batch for rule in (endpoints, realization, cross)] == [None, None, None]
-    assert (orphan.batch_prompt, endpoints.batch_prompt) == ("judge_attach_orphan_batch.3", None)
+    assert (orphan.batch_prompt, endpoints.batch_prompt) == ("judge_attach_orphan_batch", None)
     assert orphan.batch_prompt in loaded.judge_prompts
 
 
@@ -1633,7 +1635,7 @@ def test_reads_may_name_several_earlier_rules_in_any_order(tmp_path: Path) -> No
 def test_without_first_cap_and_first_budget_a_first_build_keeps_the_cap() -> None:
     """The frozen v1.3-f2 file sets none of the  fields and loads unchanged."""
 
-    spec = load_ontology(FROZEN_ONTOLOGY_FILE, submodule_files=[]).inference
+    spec = load_frozen_ontology().inference
     assert (spec.first_cap, spec.first_budget) == (None, None)
     for rule in spec.rules:
         assert (rule.first_cap, rule.reads, rule.batch) == (None, (), None)
@@ -1642,12 +1644,12 @@ def test_without_first_cap_and_first_budget_a_first_build_keeps_the_cap() -> Non
 
 
 def test_a_rule_naming_a_new_prompt_loads_once_its_file_exists(tmp_path: Path) -> None:
-    data = mutated(lambda d: put(d, "inference.rules.1.prompt", "judge_realization.2"))
+    data = mutated(lambda d: put(d, "inference.rules.1.prompt", "judge_realization_next"))
     path = write_ontology(tmp_path, data)
-    assert has_problem(load_problems(path), "judge_realization.2.md not found")
-    (path.parent / "judge_prompts" / "judge_realization.2.md").write_text("v2 prompt\n")
+    assert has_problem(load_problems(path), "judge_realization_next.md not found")
+    (path.parent / "judge_prompts" / "judge_realization_next.md").write_text("next prompt\n")
     loaded = load_ontology(path, submodule_files=[])
-    assert loaded.judge_prompt("judge_realization.2") == "v2 prompt\n"
+    assert loaded.judge_prompt("judge_realization_next") == "next prompt\n"
 
 
 def test_all_problems_come_back_in_one_ontology_error(tmp_path: Path) -> None:
@@ -2513,7 +2515,7 @@ def test_fingerprints_survive_reformatting_the_file(tmp_path: Path) -> None:
 def test_fingerprints_ignore_judge_prompt_text_and_inference_settings(tmp_path: Path) -> None:
     baseline = fingerprints(write_ontology(tmp_path / "base", BASE))
     path = write_ontology(tmp_path / "other", mutated(lambda d: put(d, "inference.cap", 7)))
-    (path.parent / "judge_prompts" / "judge_endpoints.2.md").write_text("changed\n")
+    (path.parent / "judge_prompts" / "judge_endpoints.md").write_text("changed\n")
     assert fingerprints(path) == baseline
 
 

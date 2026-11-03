@@ -15,7 +15,7 @@ from file_parsers.pdf.schema import PDFDocument, PDFFigure
 from llm.client import Client
 from llm.content import Attachment
 
-PROMPT_ID = "diagram_mermaid.v2"
+PROMPT_ID = "diagram_mermaid"
 MAX_CONTEXT_CHARS = 4000
 
 

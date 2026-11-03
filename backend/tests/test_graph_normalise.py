@@ -53,7 +53,7 @@ from graph_support import ScriptedGateway, ScriptedRequest, frozen_ontology, shi
 pytest_plugins = ["graph_support"]
 
 ONT = shipped_ontology()
-PROMPT = "judge_owner_conflict.2"
+PROMPT = "judge_owner_conflict"
 PROJECT = "p-normalise"
 FR, NFR, CON, BR, INT, DATA = (
     "FunctionalRequirement",

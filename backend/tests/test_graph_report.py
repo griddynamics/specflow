@@ -1512,7 +1512,7 @@ def test_inference_samples_give_accepted_items_per_rule_and_band_and_change_repo
     builds = {"baseline": stored("baseline", BASELINE), "candidate": sampled}
     evals = {
         "baseline": {
-            "estimate_vs_actual": {"not_estimated:judge_attach_orphan.4": {"estimate": None, "actual": [5, 50]}}
+            "estimate_vs_actual": {"not_estimated:judge_attach_orphan": {"estimate": None, "actual": [5, 50]}}
         },
         "candidate": {
             "estimate_vs_actual": {

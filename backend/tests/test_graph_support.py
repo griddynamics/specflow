@@ -291,14 +291,14 @@ async def test_scripted_gateway_tracks_concurrency(scripted_gateway) -> None:
 async def test_scripted_gateway_drives_judge_runner(scripted_gateway) -> None:
     gateway = scripted_gateway(llm_config())
     gateway.answer(
-        "judge_endpoints.3",
+        "judge_endpoints",
         None,
         {"confidence": 0.9, "evidence": [{"fragment_id": "f1", "quote": "q"}]},
     )
-    verdict = await JudgeRunner(gateway, shipped_ontology()).judge("judge_endpoints.3", {"subject": "S"}, Verdict)
+    verdict = await JudgeRunner(gateway, shipped_ontology()).judge("judge_endpoints", {"subject": "S"}, Verdict)
     assert isinstance(verdict, Verdict)
     assert verdict.confidence == 0.9
-    assert verdict.prompt_ref == "judge_endpoints.3"
+    assert verdict.prompt_ref == "judge_endpoints"
     assert gateway.calls[0].call_class == "judge"
     assert gateway.calls[0].model == "test-main"
 

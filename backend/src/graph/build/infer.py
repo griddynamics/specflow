@@ -159,16 +159,21 @@ VERDICT_TYPES: Final[dict[str, type[Verdict]]] = {
 
 class JudgeMemory:
     """Stored judgements of one project: ExtractionStore kind ``decisions``, key ``<project_id>|<rule id>|<subject
-    spec_id>|<input hash>``, fingerprint ``<prompt>|<judge model>``.
+    spec_id>|<input hash>``, fingerprint ``<prompt version>|<judge model>`` (``Ontology.judge_prompt_version`` when
+    ``ontology`` is given, else the bare prompt reference).
     """
 
-    def __init__(self, store: ExtractionStore | None, project_id: str, judge_model: str) -> None:
+    def __init__(
+        self, store: ExtractionStore | None, project_id: str, judge_model: str, ontology: Ontology | None = None
+    ) -> None:
         self._store = store
         self._project_id = project_id
         self.judge_model = judge_model
+        self._ontology = ontology
 
     def _fingerprint(self, prompt: str) -> str:
-        return f"{prompt}|{self.judge_model}"
+        version = self._ontology.judge_prompt_version(prompt) if self._ontology is not None else prompt
+        return f"{version}|{self.judge_model}"
 
     def key(self, rule: InferenceRule, spec_id: str, digest: str) -> str:
         return f"{self._project_id}|{rule.id}|{spec_id}|{digest}"

@@ -79,13 +79,13 @@ limits that depend on the mode, and queues the rest for later builds.
 
 An `attach_orphan` rule with `batch: N` judges up to N orphans written in the same section of the same
 document (the heading path of each one's first grounding fragment; that fragment when it has no section)
-in one call (its `batch_prompt`; shipped `judge_attach_orphan_batch.3`). Each subject is listed with its
+in one call (its `batch_prompt`; shipped `judge_attach_orphan_batch`). Each subject is listed with its
 own candidates and fragments, those its single call would show; a candidate or fragment several
 subjects share is shown once. One verdict, quotes and checks per subject: its target only from its own
 candidates (another subject's candidate makes its answer `invalid`), its quotes only from the fragments
 its own call would show. Judge memory per subject under the input hash of its own single call (the
 single prompt's key, whether it is judged in a batch or alone), so turning `batch` on or off,
-regrouping or a new batch prompt version judges nothing again; only a change of the single prompt or of
+regrouping or an edit of the batch prompt judges nothing again; only a change of the single prompt or of
 the subject's inputs does. A failed batch, or one whose answers are malformed (a subject id it does not
 show, or a subject answered twice), is judged again one subject per call; a subject a batch leaves
 without an answer is judged again on its own. Groups form over the whole judging order, within one part

@@ -21,8 +21,8 @@ from graph_support import frozen_ontology
 SHIPPED_DIR = Path(ontology_package.__file__).parent
 SHIPPED_FILE = SHIPPED_DIR / "spec-ontology.yaml"
 SHIPPED_PROMPTS = SHIPPED_DIR / "judge_prompts"
-XDOC_PROMPT = "judge_xdoc_test.1"
-ANSWERED_PROMPT = "judge_answered_test.1"
+XDOC_PROMPT = "judge_xdoc_test"
+ANSWERED_PROMPT = "judge_answered_test"
 REQUIREMENT_LABELS = frozenset(
     {
         "BusinessRule",
@@ -238,7 +238,7 @@ def test_the_answered_elsewhere_block_compiles(tmp_path: Path, label: str) -> No
 
 def test_without_the_block_the_check_is_off(tmp_path: Path) -> None:
     spec = load(tmp_path, base()).conform_spec()
-    assert spec == ConformSpec("judge_owner_conflict.2", 200, 0.7, "RELATES_TO")
+    assert spec == ConformSpec("judge_owner_conflict", 200, 0.7, "RELATES_TO")
     assert spec is not None and spec.answered_elsewhere is None
 
 

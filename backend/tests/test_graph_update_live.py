@@ -37,11 +37,10 @@ from graph.build.conform import DEDUP_PROMPT
 from graph.build.consolidate import HUBS_PROMPT
 from graph.build.models import DiffArtifact, EdgesArtifact, NodesArtifact, PersistCursor, PlanArtifact, ResolveArtifact
 from graph.build.prompts import ATTRIBUTES_PROMPT, EDGE_WINDOW_PROMPT, NODE_HUBS_PROMPT, NODE_STATEMENTS_PROMPT
-from graph.core import ConfigurationError, Ontology, load_ontology
+from graph.core import ConfigurationError, Ontology
 from graph.core.identity import SpecIdRow
 from graph.core.writer import NodeRef
 from graph_support import (
-    FROZEN_ONTOLOGY_FILE,
     GAP_ONTOLOGY,
     SHOP_DIR,
     Neo4jProject,
@@ -50,6 +49,7 @@ from graph_support import (
     ShopAnswers,
     known_terms_of,
     live_llm_config,
+    load_frozen_ontology,
     run_shop_build,
     shop_answer_data,
     shop_answers,
@@ -801,7 +801,7 @@ def gap_variant(directory: Path) -> Ontology:
     ]
     path = directory / "gap-flags-capability.yaml"
     path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
-    return load_ontology(FROZEN_ONTOLOGY_FILE, submodule_files=[path])
+    return load_frozen_ontology(submodule_files=[path])
 
 
 FINDING = "finding"

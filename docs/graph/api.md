@@ -114,8 +114,9 @@ build may send a `warm_up` of their shared prefix (prompts `nodes.warmup.1`, `ed
 
 `JudgeRunner(gateway, ontology)`: `judge(prompt, payload, verdict_type) -> verdict | failure`. One
 structured call per judgement on the `judge` class. Prompts are the ontology's judge prompts, versioned
-files (`judge_prompts/<name>.<revision>.md`, [ontology.md](ontology.md)); the prompt version is recorded
-on what a verdict produces. Helpers (sync) `quotes_valid(verdict, fragments)` checks that every quote a
+files (`judge_prompts/<name>.md`, [ontology.md](ontology.md)); the prompt name is recorded on what a
+verdict produces, and the judge memories key on `Ontology.judge_prompt_version(name)` (the name and a hash
+of the prompt text), so editing a prompt drops its stored verdicts. Helpers (sync) `quotes_valid(verdict, fragments)` checks that every quote a
 verdict cites occurs in the cited fragment, `meets_floor(verdict, floor)` that confidence meets a floor.
 Conform's owner-conflict judge and the inference rules use it. Later submodules add their own prompts
 and verdict types without changing the core.

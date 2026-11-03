@@ -22,6 +22,8 @@ EVIDENCE_LABELS: Final = frozenset({"Document", "Fragment"})
 """Built-in labels a relation of another owner than build may end at, to cite evidence."""
 
 BUILD_OWNER: Final = "build"
+PROMPT_DIGEST_LENGTH: Final = 12
+"""Hex characters of the prompt text digest in ``Ontology.judge_prompt_version``."""
 EXTRACTED_ORIGIN: Final = "extracted"
 HUB_ROLES: Final = frozenset({"anchor", "group"})
 
@@ -395,7 +397,7 @@ class Ontology:
     spine: Spine
     inference: InferenceSpec
     judge_prompts: Mapping[str, str] = field(repr=False)
-    """Judge prompt text by reference ``<name>.<revision>``."""
+    """Judge prompt text by reference (the file ``judge_prompts/<ref>.md``)."""
     declared_labels: tuple[str, ...] = ()
     """Node type labels in the order the ontology files declare them (tie-breaks use this order)."""
     conform: ConformSpec | None = None
@@ -902,6 +904,13 @@ class Ontology:
             return self.judge_prompts[ref]
         except KeyError:
             raise ConformanceError("ontology_unknown_judge_prompt", prompt=ref) from None
+
+    def judge_prompt_version(self, ref: str) -> str:
+        """``<ref>@<first 12 hex of the prompt text's SHA-256>``: names the exact prompt text, so stored
+        judgements keyed under it are dropped when the prompt file changes."""
+
+        digest = hashlib.sha256(self.judge_prompt(ref).encode("utf-8")).hexdigest()[:PROMPT_DIGEST_LENGTH]
+        return f"{ref}@{digest}"
 
 
 def _view(node: NodeView | str) -> NodeView:

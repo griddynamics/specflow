@@ -600,27 +600,35 @@ async def conform(ctx: BuildContext) -> None:
 
 
 def _conform_judge_memory(ctx: BuildContext) -> normalisation.ConformJudgeMemory | None:
-    """The project's stored conform judge verdicts (``ExtractionStore``), keyed under the ontology's
-    judge prompt and the judge model; None when the ontology has no ``conform`` section."""
+    """The project's stored conform judge verdicts (``ExtractionStore``), keyed under the ontology's judge prompt
+    version (``Ontology.judge_prompt_version``) and the judge model; None when the ontology has no ``conform``
+    section."""
 
     spec = ctx.ontology.conform_spec()
     if spec is None:
         return None
     return normalisation.ConformJudgeMemory(
-        ctx.extraction, ctx.project_id, spec.judge_prompt, ctx.gateway.config.model_for("judge")
+        ctx.extraction,
+        ctx.project_id,
+        ctx.ontology.judge_prompt_version(spec.judge_prompt),
+        ctx.gateway.config.model_for("judge"),
     )
 
 
 def _answered_memory(ctx: BuildContext) -> answering.AnsweredMemory | None:
-    """The project's stored answered-elsewhere verdicts (``ExtractionStore``), keyed under the flag's
-    judge prompt and the small model; None when the ontology has no ``conform.answered_elsewhere``."""
+    """The project's stored answered-elsewhere verdicts (``ExtractionStore``), keyed under the flag's judge prompt
+    version (``Ontology.judge_prompt_version``) and the small model; None when the ontology has no
+    ``conform.answered_elsewhere``."""
 
     spec = ctx.ontology.conform_spec()
     flag = spec.answered_elsewhere if spec is not None else None
     if flag is None:
         return None
     return answering.AnsweredMemory(
-        ctx.extraction, ctx.project_id, flag.prompt, ctx.gateway.config.model_for(answering.ANSWERED_CLASS)
+        ctx.extraction,
+        ctx.project_id,
+        ctx.ontology.judge_prompt_version(flag.prompt),
+        ctx.gateway.config.model_for(answering.ANSWERED_CLASS),
     )
 
 
@@ -752,7 +760,7 @@ async def infer(ctx: BuildContext) -> None:
             ctx.ontology,
             JudgeRunner(ctx.gateway, ctx.ontology),
             stamp=inference.InferenceStamp(build_id=record.build_id, at=_stamp(record), judge_model=judge_model),
-            memory=inference.JudgeMemory(ctx.extraction, ctx.project_id, judge_model),
+            memory=inference.JudgeMemory(ctx.extraction, ctx.project_id, judge_model, ctx.ontology),
             changes=inference.BuildChanges(
                 graph_changed,
                 scope,
