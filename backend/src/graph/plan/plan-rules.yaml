@@ -18,16 +18,16 @@ types:                            # plannable spec types: ontology type keys or 
     role: member
     phase: contract               # placed with its provider; consumers' work waits for its contract task
     required: true
-    story: true                   # anchors a story
+    story: interface              # anchors a story of this kind (interface, entity or feature)
   data_entity:
     role: member
     phase: data                   # placed with the single internal module that stores it
     required: true
-    story: true
+    story: entity
   feature:
     role: member
     phase: logic                  # a feature without requirements still gets a logic task
-    story: true
+    story: feature
   functional_requirement: {role: member, phase: logic, required: true}
   business_rule: {role: member, phase: logic, required: true}
   data_requirement: {role: member, phase: data, required: true}

@@ -173,7 +173,7 @@ def _data(view: PlanView, graph: _Graph) -> None:
     for source, target in _ordering(view, "reference"):
         owned.setdefault(target, set()).add(source)
         owned.setdefault(source, set()).add(target)
-    for entity in sorted(spec_id for spec_id in view.nodes if view.is_type(spec_id, "data_entity")):
+    for entity in sorted(spec_id for spec_id in view.nodes if view.anchors(spec_id, "entity")):
         home = view.area_of(entity)
         data_tasks = _implementing(graph, home, [entity], "data")
         users = [key for key in _implementing(graph, None, owned.get(entity, ())) if graph.tasks[key].area_id != home]

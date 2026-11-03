@@ -59,7 +59,7 @@ def test_story_on_a_non_story_member_is_refused(tmp_path: Path) -> None:
     rules = yaml.safe_load(
         (Path(__file__).parent.parent / "src" / "graph" / "plan" / "plan-rules.yaml").read_text(encoding="utf-8")
     )
-    rules["types"]["functional_requirement"]["story"] = True
+    rules["types"]["functional_requirement"]["story"] = "feature"
     path = tmp_path / "plan-rules.yaml"
     path.write_text(yaml.safe_dump(rules, sort_keys=False), encoding="utf-8")
 
@@ -67,6 +67,20 @@ def test_story_on_a_non_story_member_is_refused(tmp_path: Path) -> None:
         load_plan_rules(path, ontology=load_ontology())
 
     assert any("functional_requirement" in problem for problem in raised.value.problems)
+
+
+def test_a_story_value_must_be_a_story_kind(tmp_path: Path) -> None:
+    rules = yaml.safe_load(
+        (Path(__file__).parent.parent / "src" / "graph" / "plan" / "plan-rules.yaml").read_text(encoding="utf-8")
+    )
+    rules["types"]["interface"]["story"] = True
+    path = tmp_path / "plan-rules.yaml"
+    path.write_text(yaml.safe_dump(rules, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(PlanRulesError) as raised:
+        load_plan_rules(path, ontology=load_ontology())
+
+    assert any("types.interface.story" in problem for problem in raised.value.problems)
 
 
 def test_check_5_a_missing_relation_role_is_refused(tmp_path: Path) -> None:

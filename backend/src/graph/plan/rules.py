@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from importlib.resources import files
 from pathlib import Path
 from types import MappingProxyType
-from typing import Literal
+from typing import Final, Literal
 
 import yaml
 import yaml.constructor
@@ -44,6 +44,9 @@ def _shipped_relation_roles() -> frozenset[str]:
 
 # The relation roles are those the shipped rules declare; a custom rules file must use the same set.
 RELATION_KEYS = _shipped_relation_roles()
+# The story kinds a type can anchor; the plan finds interfaces, data entities and features by these, never
+# by the ontology's type keys.
+ANCHORED_STORY_KINDS: Final = ("feature", "interface", "entity")
 _AREA_RELATION_ROLES = tuple(sorted(RELATION_KEYS - frozenset(("containment", "grouping", "dependency", "reference"))))
 
 
@@ -57,7 +60,7 @@ class TypeRule:
     exclude: Mapping[str, tuple[str, ...]] = MappingProxyType({})
     phase: str | None = None
     required: bool = False
-    story: bool = False
+    story: str | None = None
     project_input: bool = False
 
 
@@ -104,6 +107,11 @@ class PlanRules:
         if isinstance(value, list | tuple):
             return tuple(str(item) for item in value if str(item).strip())
         return ()
+
+    def story_kind(self, label: str) -> str | None:
+        """The story kind a label's type anchors (``interface``, ``entity``, ``feature``), else None."""
+
+        return self.rule_of(label).story
 
     def rule_of(self, label: str) -> TypeRule:
         return next(rule for rule in self.types.values() if label in rule.labels)
@@ -221,19 +229,25 @@ def _type_rules(raw: dict[str, object], ontology: Ontology, problems: list[str])
             exclude=exclude,
             phase=value.get("phase"),
             required=value.get("required", False),
-            story=value.get("story", False),
+            story=_story_kind(value.get("story")),
             project_input=value.get("project_input", False),
         )
     _role_checks(rules, ontology, problems)
     return rules
 
 
+def _story_kind(value: object) -> str | None:
+    return value if isinstance(value, str) and value in ANCHORED_STORY_KINDS else None
+
+
 def _type_value_problems(key: str, value: dict[str, object], problems: list[str]) -> None:
     problems.extend(
         f"types.{key}.{boolean} must be a boolean"
-        for boolean in ("required", "story", "project_input")
+        for boolean in ("required", "project_input")
         if boolean in value and not isinstance(value[boolean], bool)
     )
+    if "story" in value and _story_kind(value["story"]) is None:
+        problems.append(f"types.{key}.story must be one of {', '.join(ANCHORED_STORY_KINDS)}")
     if "phase" in value and not isinstance(value["phase"], str):
         problems.append(f"types.{key}.phase must be a phase")
     if "exclude" in value and not isinstance(value["exclude"], dict):

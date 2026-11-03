@@ -172,7 +172,7 @@ def _contract_tasks(view: PlanView) -> dict[str, tuple[str, ...]]:
     for area in view.active_areas:
         for task in current_tasks(view.snapshot.current, area.area_id):
             for spec_id in task.implements:
-                if view.is_type(spec_id, "interface"):
+                if view.anchors(spec_id, "interface"):
                     found.setdefault(spec_id, set()).add(task.task_id)
     return {interface: tuple(sorted(ids)) for interface, ids in sorted(found.items())}
 

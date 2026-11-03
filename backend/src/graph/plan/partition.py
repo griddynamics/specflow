@@ -205,8 +205,8 @@ def _place_members(
             continue
         if (
             rules.rule_of(node.label).role == "shared"
-            or _is_type(node, "interface", rules)
-            or _is_type(node, "data_entity", rules)
+            or _anchors(node, "interface", rules)
+            or _anchors(node, "entity", rules)
         ):
             continue
         selection = _owner_walk(
@@ -554,9 +554,9 @@ def _story_id_for_anchor(
 
 
 def _story_kind(node: SpecNodeView, rules: PlanRules) -> StoryKind:
-    if _is_type(node, "feature", rules):
+    if _anchors(node, "feature", rules):
         return "feature"
-    if _is_type(node, "interface", rules):
+    if _anchors(node, "interface", rules):
         return "interface"
     return "entity"
 
@@ -642,7 +642,7 @@ def _place_interfaces(
     consumption = rules.relation("consumption")
     integration = rules.relation("integration")
     for spec_id, node in sorted(nodes.items()):
-        if rules.rule_of(node.label).role != "member" or not _is_type(node, "interface", rules):
+        if rules.rule_of(node.label).role != "member" or not _anchors(node, "interface", rules):
             continue
         provider = next(
             ((edge.target, edge.edge_key) for edge in edges if edge.relation == provision and edge.source == spec_id),
@@ -693,7 +693,7 @@ def _place_entities(
 ) -> None:
     storage = rules.relation("storage")
     for spec_id, node in sorted(nodes.items()):
-        if not _is_type(node, "data_entity", rules):
+        if not _anchors(node, "entity", rules):
             continue
         stores = tuple(
             (edge.target, edge.edge_key)
@@ -729,7 +729,7 @@ def _place_capabilities(
 ) -> None:
     realisation = rules.relation("realisation")
     for spec_id, node in sorted(nodes.items()):
-        if not _is_type(node, "capability", rules):
+        if rules.rule_of(node.label).role != "shared":
             continue
         modules = tuple(
             (edge.target, edge.edge_key)
@@ -752,8 +752,10 @@ def _place_capabilities(
         )
 
 
-def _is_type(node: SpecNodeView, type_key: str, rules: PlanRules) -> bool:
-    return node.label in rules.labels_of(type_key)
+def _anchors(node: SpecNodeView, kind: str, rules: PlanRules) -> bool:
+    """Whether the node's type anchors stories of ``kind`` (how interfaces, entities and features are known)."""
+
+    return rules.story_kind(node.label) == kind
 
 
 def _single_provider(

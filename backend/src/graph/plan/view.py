@@ -94,9 +94,11 @@ class PlanView:
                 cause = meaning.get(survivor) or meaning.get(spec_id) or "changed_meaning"
         return cause
 
-    def is_type(self, spec_id: str, type_key: str) -> bool:
+    def anchors(self, spec_id: str, kind: str) -> bool:
+        """Whether a node's type anchors stories of ``kind``: ``interface``, ``entity`` or ``feature``."""
+
         node = self.nodes.get(spec_id) or self.context.get(spec_id)
-        return node is not None and type_key in self.rules.types and node.label in self.rules.labels_of(type_key)
+        return node is not None and self.rules.story_kind(node.label) == kind
 
     def phase_of(self, spec_id: str) -> Phase:
         """The default phase of a member's type (``logic`` when its type names none)."""
@@ -126,10 +128,10 @@ class PlanView:
         """The spec Interfaces placed in an area (rule 3 places an interface with its provider)."""
 
         area = self.area(area_id)
-        return tuple(spec_id for spec_id in area.members if self.is_type(spec_id, "interface"))
+        return tuple(spec_id for spec_id in area.members if self.anchors(spec_id, "interface"))
 
     def provider_area(self, interface_id: str) -> str | None:
-        return self.area_of(interface_id) if self.is_type(interface_id, "interface") else None
+        return self.area_of(interface_id) if self.anchors(interface_id, "interface") else None
 
     def consumed(self, area_id: str) -> tuple[tuple[str, str], ...]:
         """``(interface, provider area)`` of every interface a module of the area consumes from another area."""
