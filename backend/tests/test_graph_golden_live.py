@@ -10,7 +10,9 @@ the store ``SPECFLOW_TEST_GRAPH_STORE`` selects, twice, into separate projects:
   ``golden_live/search_rankings.json`` (rank differences are printed, not failures).
 
 ``SPECFLOW_GOLDEN_WRITE=1`` rewrites the golden files from the first run (Neo4j only; a store whose
-probe is not the reference one refuses). Gate: ``SPECFLOW_TEST_GRAPH_STORE=<store>`` (or
+probe is not the reference one refuses). Record on an empty Neo4j database (a new container): Lucene's
+fulltext statistics span the whole database, so other projects in it shift the scores and near-ties at the
+top-five cut. Gate: ``SPECFLOW_TEST_GRAPH_STORE=<store>`` (or
 ``SPECFLOW_TEST_NEO4J=1``); one run takes a few minutes.
 """
 
