@@ -154,6 +154,12 @@ EXPLAINED_SET_DIFFERENCES: Final[dict[str, dict[tuple[str, str], ExplainedDiffer
             "against the reference's database-wide statistics",
             frozenset({"FEAT::ORDER_HISTORY_EXPORT", "REQ::FR::STAFF_REACH_DOWNLOAD_SCREEN_FINANCE"}),
         ),
+        ("fused_exact", "staff download CSV file"): ExplainedDifference(
+            "fulltext ranks 3 and 4 swap: Lucene scores them 4.0404 and 3.9445 (2.4% apart), BM25 per project 3.2556 "
+            "and 3.3783; the fused top five hold the two vector hits and fulltext ranks 1 to 3, so the swap crosses "
+            "the cut",
+            frozenset({"REQ::FR::SYSTEM_RECORD_EVERY_ORDER_FILE", "REQ::FR::SYSTEM_REVOKE_DOWNLOAD_ACCESS_WHEN"}),
+        ),
     },
 }
 
