@@ -80,6 +80,29 @@
           "default": true,
           "title": "Store",
           "type": "boolean"
+        },
+        "default": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Default"
+        },
+        "inherit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InheritDef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -105,6 +128,26 @@
         }
       },
       "title": "CorpusDef",
+      "type": "object"
+    },
+    "DeriveViaDef": {
+      "additionalProperties": false,
+      "description": "An implied edge from each module a hub is ``consumer`` of to the module it is ``provider`` of.",
+      "properties": {
+        "consumer": {
+          "title": "Consumer",
+          "type": "string"
+        },
+        "provider": {
+          "title": "Provider",
+          "type": "string"
+        }
+      },
+      "required": [
+        "consumer",
+        "provider"
+      ],
+      "title": "DeriveViaDef",
       "type": "object"
     },
     "EdgeTypeDef": {
@@ -148,6 +191,16 @@
           "title": "Symmetric",
           "type": "boolean"
         },
+        "acyclic": {
+          "default": false,
+          "title": "Acyclic",
+          "type": "boolean"
+        },
+        "stated_only": {
+          "default": false,
+          "title": "Stated Only",
+          "type": "boolean"
+        },
         "id_references": {
           "default": false,
           "title": "Id References",
@@ -166,6 +219,17 @@
           },
           "title": "Derive",
           "type": "array"
+        },
+        "derive_via": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeriveViaDef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -225,6 +289,32 @@
           "title": "Cap",
           "type": "integer"
         },
+        "first_cap": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "First Cap"
+        },
+        "first_budget": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "First Budget"
+        },
         "floor": {
           "maximum": 1.0,
           "minimum": 0.0,
@@ -267,7 +357,81 @@
           "title": "Writes",
           "type": "string"
         },
+        "cap": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cap"
+        },
+        "first_cap": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "First Cap"
+        },
+        "floor": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Floor"
+        },
+        "reads": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reads"
+        },
         "subject": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subject"
+        },
+        "members": {
           "anyOf": [
             {
               "type": "string"
@@ -277,7 +441,7 @@
             }
           ],
           "default": null,
-          "title": "Subject"
+          "title": "Members"
         },
         "via": {
           "anyOf": [
@@ -356,18 +520,6 @@
           "default": null,
           "title": "Member Relation"
         },
-        "container_relation": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Container Relation"
-        },
         "container": {
           "anyOf": [
             {
@@ -380,18 +532,37 @@
           "default": null,
           "title": "Container"
         },
-        "max_hops": {
+        "container_paths": {
           "anyOf": [
             {
-              "minimum": 1,
-              "type": "integer"
+              "items": {
+                "$ref": "#/$defs/SpinePathDef"
+              },
+              "minItems": 1,
+              "type": "array"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
-          "title": "Max Hops"
+          "title": "Container Paths"
+        },
+        "exclude_owned_by": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exclude Owned By"
         },
         "targets": {
           "anyOf": [
@@ -420,6 +591,125 @@
           ],
           "default": null,
           "title": "Max Candidates"
+        },
+        "exclude_where": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Exclude Where"
+        },
+        "target_exclude_where": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Exclude Where"
+        },
+        "min_documents": {
+          "anyOf": [
+            {
+              "minimum": 2,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min Documents"
+        },
+        "max_pairs": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Pairs"
+        },
+        "pair_floor": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pair Floor"
+        },
+        "also_writes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Also Writes"
+        },
+        "batch": {
+          "anyOf": [
+            {
+              "minimum": 2,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Batch"
+        },
+        "batch_prompt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Batch Prompt"
         }
       },
       "required": [
@@ -429,6 +719,21 @@
         "writes"
       ],
       "title": "InferenceRuleDef",
+      "type": "object"
+    },
+    "InheritDef": {
+      "additionalProperties": false,
+      "description": "Read-time inheritance: a null value is filled from the owner one ``via`` hop away.",
+      "properties": {
+        "via": {
+          "title": "Via",
+          "type": "string"
+        }
+      },
+      "required": [
+        "via"
+      ],
+      "title": "InheritDef",
       "type": "object"
     },
     "NodeGroupDef": {
@@ -621,6 +926,18 @@
           ],
           "default": null
         },
+        "merge_across_labels": {
+          "default": true,
+          "title": "Merge Across Labels",
+          "type": "boolean"
+        },
+        "supported_by": {
+          "items": {
+            "$ref": "#/$defs/SupportDef"
+          },
+          "title": "Supported By",
+          "type": "array"
+        },
         "description": {
           "default": "",
           "title": "Description",
@@ -661,6 +978,13 @@
           "default": false,
           "title": "Default"
         },
+        "default_from": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Default From",
+          "type": "array"
+        },
         "cue_required": {
           "default": false,
           "title": "Cue Required",
@@ -669,6 +993,86 @@
         "exclusive": {
           "default": false,
           "title": "Exclusive",
+          "type": "boolean"
+        },
+        "owner": {
+          "default": false,
+          "title": "Owner",
+          "type": "boolean"
+        },
+        "owner_rank": {
+          "default": 1,
+          "minimum": 1,
+          "title": "Owner Rank",
+          "type": "integer"
+        },
+        "source_where": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "title": "Source Where",
+          "type": "object"
+        },
+        "target_where": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "title": "Target Where",
+          "type": "object"
+        },
+        "where_reason": {
+          "default": "condition_failed",
+          "title": "Where Reason",
+          "type": "string"
+        },
+        "otherwise": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Otherwise"
+        },
+        "max_depth": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Depth"
+        },
+        "not_across": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Not Across",
+          "type": "array"
+        },
+        "distinct_owner": {
+          "default": false,
+          "title": "Distinct Owner",
+          "type": "boolean"
+        },
+        "redundant_via_owner": {
+          "default": false,
+          "title": "Redundant Via Owner",
           "type": "boolean"
         }
       },
@@ -705,6 +1109,17 @@
           "minItems": 1,
           "title": "Paths",
           "type": "array"
+        },
+        "exclude": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "title": "Exclude",
+          "type": "object"
         }
       },
       "required": [
@@ -778,13 +1193,37 @@
       },
       "title": "SpinePathDef",
       "type": "object"
+    },
+    "SupportDef": {
+      "additionalProperties": false,
+      "description": "An edge that supports a node: ``relation`` ending at it (``in``) or starting at it (``out``).",
+      "properties": {
+        "relation": {
+          "title": "Relation",
+          "type": "string"
+        },
+        "direction": {
+          "enum": [
+            "in",
+            "out"
+          ],
+          "title": "Direction",
+          "type": "string"
+        }
+      },
+      "required": [
+        "relation",
+        "direction"
+      ],
+      "title": "SupportDef",
+      "type": "object"
     }
   },
   "additionalProperties": false,
   "description": "One ontology file with every section typed by the model the loader validates its entries with.",
   "properties": {
     "format_version": {
-      "const": 1,
+      "const": 2,
       "title": "Format Version",
       "type": "integer"
     },
@@ -872,6 +1311,10 @@
         }
       ],
       "default": null
+    },
+    "conform": {
+      "default": null,
+      "title": "Conform"
     },
     "inference": {
       "anyOf": [

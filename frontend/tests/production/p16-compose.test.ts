@@ -40,7 +40,6 @@ const http: HttpPorts = {
   missionControl: { snapshot: never, subscribe: never, start: never, retry: never, dismiss: never, leave: never },
   sources: {
     githubEnabled: false,
-    pdfOnly: true,
     add: never,
     remove: never,
     files: never,
@@ -51,7 +50,7 @@ const http: HttpPorts = {
     testDrive: never,
     saveDrive: never,
   },
-  knowledge: { buildAvailable: false, status: never, subscribe: never, build: never, leave: never },
+  knowledge: { status: never, subscribe: never, build: never, leave: never },
 };
 const ports = composeProductionPorts(http);
 
@@ -79,15 +78,22 @@ test("SPL-DEMO-02: connectors list is empty and the only category is All", async
   assert.deepEqual(await ports.connectors.categories(), ["All"]);
 });
 
-test("SPL-DEMO-02: plan answers an empty table and idle; create is not_available; develop is not_found; subscribe and leave do nothing", async () => {
+test("SPL-DEMO-02: plan answers an empty table and idle; create is not_available; subscribe and leave do nothing", async () => {
   assert.deepEqual(await ports.plan.table(UUID), { rows: [], distinct: { critical: 0, high: 0, medium: 0, low: 0 }, unlinked: 0 });
   assert.deepEqual(await ports.plan.state(UUID), { phase: "idle" });
   await rejectsWith(ports.plan.create(UUID), "not_available");
-  await rejectsWith(ports.plan.develop(UUID), "not_found");
   await rejectsWith(ports.plan.updateTaskBody(UUID, "t", { start: 0, end: 1 }, "x", 1), "not_found");
   const off = ports.plan.subscribe(UUID, never);
   off();
   ports.plan.leave(UUID);
+});
+
+test("AC-D6: the composed knowledge port has no buildAvailable (the build is real: no not_available path)", () => {
+  assert.equal("buildAvailable" in ports.knowledge, false);
+  assert.deepEqual(
+    Object.keys(ports.knowledge).toSorted((a, b) => a.localeCompare(b)),
+    ["build", "leave", "status", "subscribe"],
+  );
 });
 
 test("SPL-DEMO-02: the table answer is a fresh object each time (a caller cannot change the next answer)", async () => {

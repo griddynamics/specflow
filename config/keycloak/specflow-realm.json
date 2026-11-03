@@ -1,0 +1,155 @@
+{
+  "realm": "specflow",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "accessTokenLifespan": 300,
+  "offlineSessionMaxLifespanEnabled": true,
+  "offlineSessionMaxLifespan": 2592000,
+  "clients": [
+    {
+      "clientId": "specflow-mcp",
+      "name": "SpecFlow MCP",
+      "protocol": "openid-connect",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "consentRequired": false,
+      "redirectUris": [
+        "http://localhost:8765/callback",
+        "http://127.0.0.1:8765/callback"
+      ],
+      "webOrigins": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "oauth2.device.authorization.grant.enabled": "false",
+        "client.offline.session.max.lifespan": "2592000"
+      },
+      "protocolMappers": [
+        {
+          "name": "mcp-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "http://localhost:8002/mcp",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "specflow-web",
+      "name": "SpecFlow web",
+      "protocol": "openid-connect",
+      "enabled": true,
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "consentRequired": false,
+      "redirectUris": [
+        "${SPECFLOW_WEB_URL}/api/auth/callback/oidc"
+      ],
+      "webOrigins": [],
+      "attributes": {
+        "oauth2.device.authorization.grant.enabled": "false",
+        "post.logout.redirect.uris": "${SPECFLOW_WEB_URL}/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "specflow-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ],
+      "secret": "${KEYCLOAK_WEB_CLIENT_SECRET}"
+    }
+  ],
+  "users": [
+    {
+      "id": "${LOCAL_TEST_USER_ID}",
+      "username": "${LOCAL_TEST_USER_EMAIL}",
+      "email": "${LOCAL_TEST_USER_EMAIL}",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Local",
+      "lastName": "Developer",
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${LOCAL_TEST_USER_PASSWORD}",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "7a1c0e52-3b6d-4f0a-9d21-5c8e1a4b0001",
+      "username": "alice",
+      "email": "alice@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Alice",
+      "lastName": "QA",
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_QA_PASSWORD}",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "7a1c0e52-3b6d-4f0a-9d21-5c8e1a4b0002",
+      "username": "bob",
+      "email": "bob@example.com",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Bob",
+      "lastName": "QA",
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_QA_PASSWORD}",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "id": "7a1c0e52-3b6d-4f0a-9d21-5c8e1a4b0003",
+      "username": "carol",
+      "email": "carol@other.example",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Carol",
+      "lastName": "QA",
+      "requiredActions": [],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${KEYCLOAK_QA_PASSWORD}",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

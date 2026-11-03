@@ -32,7 +32,7 @@ from graph.core.queries import NodeShape, Query
 from graph.stores import StoreConfig, build_store
 from graph.stores.postgres import PostgresStore
 from graph.stores.postgres.dialect import render_schema, schema_identifier
-from graph_support import shipped_ontology
+from graph_support import frozen_ontology, shipped_ontology
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("SPECFLOW_TEST_GRAPH_STORE", "").strip().lower() != "postgres",
@@ -448,7 +448,9 @@ async def test_reads_return_the_row_contract_of_the_cypher_queries(
     assert (await executor.read(q.READ_NODE_BY_ALIAS, project, spec_id="MOD::OLD", retired=RETIRED))[0]["props"][
         "spec_id"
     ] == "MOD::CHECKOUT"
-    nodes = await executor.read(q.READ_NODES, project, labels=labels, where={"external": "no"}, retired=RETIRED)
+    nodes = await executor.read(
+        q.READ_NODES, project, labels=labels, where={"external": "no"}, defaulted={}, retired=RETIRED
+    )
     assert [item["props"]["spec_id"] for item in nodes] == ["MOD::CHECKOUT"]
     by_uuid = await executor.read(q.READ_NODES_BY_UUID, project, uuids=["u-stripe", "u-fr"], retired=RETIRED)
     assert sorted(item["props"]["spec_id"] for item in by_uuid) == ["MOD::STRIPE", "REQ::PAY"]
@@ -461,7 +463,13 @@ async def test_reads_return_the_row_contract_of_the_cypher_queries(
     )
     assert none == []
     ids = await executor.read(
-        q.READ_NODES_BY_IDS, project, labels=labels, where={}, keys=[], spec_ids=["MOD::OLD", "REQ::MAYBE"]
+        q.READ_NODES_BY_IDS,
+        project,
+        labels=labels,
+        where={},
+        defaulted={},
+        keys=[],
+        spec_ids=["MOD::OLD", "REQ::MAYBE"],
     )
     assert [(item["spec_id"], item["spec_ids"]) for item in ids] == [
         ("MOD::CHECKOUT", ["MOD::CHECKOUT", "MOD::OLD"]),
@@ -485,14 +493,16 @@ async def test_the_where_filter_treats_a_missing_property_as_not_equal(
     executor = store.executor()
     labels = [MODULE, FR]
     kwargs: dict[str, Any] = {"labels": labels, "retired": RETIRED}
-    eq = await executor.read(q.READ_NODES, project, where={"is_assumption": "yes"}, **kwargs)
+    eq = await executor.read(q.READ_NODES, project, where={"is_assumption": "yes"}, defaulted={}, **kwargs)
     assert [item["props"]["spec_id"] for item in eq] == ["REQ::MAYBE"]
-    absent = await executor.read(q.READ_NODES, project, where={"is_assumption": None}, **kwargs)
+    absent = await executor.read(q.READ_NODES, project, where={"is_assumption": None}, defaulted={}, **kwargs)
     assert [item["props"]["spec_id"] for item in absent] == ["MOD::CHECKOUT", "MOD::STRIPE"]
-    both = await executor.read(q.READ_NODES, project, where={"is_assumption": "no", "external": "no"}, **kwargs)
+    both = await executor.read(
+        q.READ_NODES, project, where={"is_assumption": "no", "external": "no"}, defaulted={}, **kwargs
+    )
     assert both == []
     counts = await executor.read(
-        q.COUNT_SEARCH_VECTORS, project, model="m", labels=labels, where={"is_assumption": "yes"}
+        q.COUNT_SEARCH_VECTORS, project, model="m", labels=labels, where={"is_assumption": "yes"}, defaulted={}
     )
     assert counts == [{"matching": 0, "stored": 0}]
 
@@ -537,10 +547,9 @@ async def test_edges_neighbours_and_impact(store: PostgresStore, ontology: Ontol
     assert [item["spec_id"] for item in limited] == ["REQ::PAY"]
 
 
-async def test_scope_walks_follow_direction_symmetry_and_the_root_barrier(
-    store: PostgresStore, ontology: Ontology, project: str
-) -> None:
-    build = writer(store, ontology, project)
+async def test_scope_walks_follow_direction_symmetry_and_the_root_barrier(store: PostgresStore, project: str) -> None:
+    # The walk needs a feature inside a feature; the shipped ontology forbids that pair, the frozen v1.3 one has it.
+    build = writer(store, frozen_ontology(), project)
     for key in ("m", "m2", "f1", "f2", "r1"):
         label = MODULE if key.startswith("m") else FR if key.startswith("r") else FEATURE
         await build.upsert_node(label, f"u-{key}", {"spec_id": f"S::{key}", "name": key})
@@ -616,7 +625,7 @@ async def test_fulltext_search_is_bm25_with_known_scores(
     for key, value in names.items():
         await build.upsert_node(FR, f"u-{key}", {"spec_id": f"R::{key}", "name": value})
     executor = store.executor()
-    base = {"index": "i", "labels": [FR], "where": {}, "skip": 0, "page": 10}
+    base = {"index": "i", "labels": [FR], "where": {}, "defaulted": {}, "skip": 0, "page": 10}
     rows = await executor.read(q.SEARCH_NODES_FULLTEXT, project, query="card checkout", **base)
     assert rows[0]["fetched"] == len(rows[0]["hits"]) == 3
     expected = bm25_reference({f"R::{key}": value for key, value in names.items()}, "card checkout")
@@ -669,14 +678,14 @@ async def test_the_vector_score_is_one_plus_cosine_over_two(
     await build.upsert_node(FR, "u-other", {"spec_id": "R::other", "embedding": vec(1.0), "embedding_model": "other"})
     executor = store.executor()
     query = vec(1.0, 0.5)
-    params = {"model": "m", "vector": query, "labels": [FR], "where": {}, "limit": 10}
+    params = {"model": "m", "vector": query, "labels": [FR], "where": {}, "defaulted": {}, "limit": 10}
     rows = await executor.read(q.SEARCH_NODES_VECTOR_EXACT, project, **params)
     assert [row["spec_id"] for row in rows] == ["R::b", "R::a", "R::c"]  # the zero vector (NaN) never appears
     for row in rows:
         assert row["score"] == pytest.approx(cosine_score(query, vectors[row["spec_id"][3:]]), abs=1e-6)
     mismatched = await executor.read(q.SEARCH_NODES_VECTOR_EXACT, project, **{**params, "vector": [1.0, 2.0]})
     assert mismatched == []
-    counts = await executor.read(q.COUNT_SEARCH_VECTORS, project, model="m", labels=[FR], where={})
+    counts = await executor.read(q.COUNT_SEARCH_VECTORS, project, model="m", labels=[FR], where={}, defaulted={})
     assert counts == [{"matching": 4, "stored": 5}]
     page = await executor.read(q.SEARCH_NODES_VECTOR, project, index="i", k=10, **params)
     assert page[0]["fetched"] >= 3
@@ -694,7 +703,7 @@ async def test_a_vector_query_keeps_its_plan_after_many_executions(
             FR, f"u-{index}", {"spec_id": f"R::{index:02d}", "embedding": vec(1.0, index / 30), "embedding_model": "m"}
         )
     executor = store.executor()
-    params = {"model": "m", "vector": vec(1.0, 0.5), "labels": [FR], "where": {}, "limit": 5}
+    params = {"model": "m", "vector": vec(1.0, 0.5), "labels": [FR], "where": {}, "defaulted": {}, "limit": 5}
     first = await executor.read(q.SEARCH_NODES_VECTOR_EXACT, project, **params)
     for _ in range(12):
         again = await executor.read(q.SEARCH_NODES_VECTOR_EXACT, project, **params)
@@ -764,7 +773,7 @@ async def test_a_project_over_two_thousand_vectors_gets_an_hnsw_index_that_the_s
     assert await store.ensure_schema(ontology, DIM) == ()
     executor = store.executor()
     query = [0.9, 0.1, 0.5, 0.5, 0.2, 0.7, 0.3, 0.4]
-    params = {"model": "hnsw-m", "vector": query, "labels": [FR], "where": {}, "limit": 5}
+    params = {"model": "hnsw-m", "vector": query, "labels": [FR], "where": {}, "defaulted": {}, "limit": 5}
     exact = await executor.read(q.SEARCH_NODES_VECTOR_EXACT, project, **params)
     wanted = {row["spec_id"] for row in exact}
     for _ in range(10):  # more than the five runs after which a prepared statement switches plans
@@ -1113,7 +1122,7 @@ async def test_a_vector_search_skips_vectors_of_another_dimension(
     await build.upsert_node(FR, "u-a", {"spec_id": "R::a", "embedding": vec(1.0), "embedding_model": "m"})
     await build.upsert_node(FR, "u-b", {"spec_id": "R::b", "embedding_model": "m"})
     await raw(store, "UPDATE graph.node SET embedding = '[1,0,0,0]' WHERE group_id = :p AND uuid = 'u-b'", p=project)
-    params = {"model": "m", "vector": vec(1.0), "labels": [FR], "where": {}, "limit": 10}
+    params = {"model": "m", "vector": vec(1.0), "labels": [FR], "where": {}, "defaulted": {}, "limit": 10}
     page = await store.executor().read(q.SEARCH_NODES_VECTOR, project, index="i", k=10, **params)
     assert [hit["spec_id"] for hit in page[0]["hits"]] == ["R::a"]
 

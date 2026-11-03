@@ -14,6 +14,7 @@ from pydantic import SecretStr
 
 from api.graph_build.runner import BuildState
 from db import sources as sources_repo
+from logger_harness import events, fields
 from runtime_defaults_support import RUNTIME_DEFAULTS
 from settings import DEFAULT_GRAPH_STATE_DIR, ConfigurationError, load_settings
 from specflow_api_support import bearer
@@ -86,6 +87,60 @@ async def test_post_starts_one_build_and_answers_202_at_once(harness, processed)
     assert harness.graph_store.queries == 0
 
 
+@pytest.mark.parametrize("payload", [None, {}, {"reasoning_level": None}])
+async def test_post_without_a_level_behaves_as_before(harness, processed, caplog, payload):
+    runner = harness.runtime.graph_builds = FakeRunner()
+    pid = await project(harness)
+    processed[pid] = 1
+
+    with caplog.at_level("INFO"):
+        response = await harness.client.post(
+            url(pid), headers=bearer(), **({} if payload is None else {"json": payload})
+        )
+
+    assert response.status_code == 202
+    assert runner.starts == [str(pid)]
+    [requested] = events(caplog, "api.graph_build.requested")
+    assert fields(requested)["reasoning_level"] is None
+
+
+@pytest.mark.parametrize("level", [1, 2, 3, 4, 5])
+async def test_post_logs_a_valid_reasoning_level(harness, processed, caplog, level):
+    runner = harness.runtime.graph_builds = FakeRunner()
+    pid = await project(harness)
+    processed[pid] = 1
+
+    with caplog.at_level("INFO"):
+        response = await harness.client.post(url(pid), json={"reasoning_level": level}, headers=bearer())
+
+    assert response.status_code == 202
+    assert runner.starts == [str(pid)]
+    [requested] = events(caplog, "api.graph_build.requested")
+    assert fields(requested)["reasoning_level"] == level
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"reasoning_level": 0},
+        {"reasoning_level": 6},
+        {"reasoning_level": "high"},
+        {"reasoning_level": 2.5},
+        {"x": 1},
+    ],
+)
+async def test_post_with_a_bad_body_gets_422_and_starts_nothing(harness, processed, payload):
+    runner = harness.runtime.graph_builds = FakeRunner()
+    pid = await project(harness)
+    processed[pid] = 1
+
+    response = await harness.client.post(url(pid), json=payload, headers=bearer())
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_failed"
+    assert runner.starts == []
+
+
 async def test_a_second_post_while_running_returns_the_same_build(harness, processed):
     runner = harness.runtime.graph_builds = FakeRunner()
     pid = await project(harness)
@@ -114,15 +169,20 @@ async def test_a_non_member_gets_404(harness, processed):
     assert runner.starts == []
 
 
-async def test_without_graph_settings_the_feature_answers_503(harness, processed):
+async def test_without_graph_settings_the_feature_answers_503_and_logs_it(harness, processed, caplog):
     assert harness.runtime.graph_builds is None  # valid_env has no GRAPH_* model
     pid = await project(harness)
     processed[pid] = 1
 
-    for method in ("POST", "GET"):
-        response = await harness.client.request(method, url(pid), headers=bearer())
-        assert response.status_code == 503
-        assert response.json()["error"]["code"] == "graph_build_unavailable"
+    with caplog.at_level("INFO"):
+        for method in ("POST", "GET"):
+            response = await harness.client.request(method, url(pid), headers=bearer())
+            assert response.status_code == 503
+            assert response.json()["error"]["code"] == "graph_build_unavailable"
+
+    refused = events(caplog, "api.graph_build.unavailable")
+    assert len(refused) == 2
+    assert fields(refused[0])["missing"] == ["GRAPH_LLM_MODEL", "GRAPH_SMALL_MODEL", "GRAPH_EMBEDDING_MODEL"]
 
 
 async def test_a_project_without_processed_documents_gets_409(harness, processed):

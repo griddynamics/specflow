@@ -7,6 +7,7 @@ and can hang. Nothing here touches the network beyond that loopback stub.
 
 from __future__ import annotations
 
+import functools
 import json
 import threading
 import time
@@ -27,14 +28,18 @@ AUDIENCE = "specflow-api"
 CLIENT_ID = "specflow-web"
 DOMAIN = "example.com"
 EMAIL = f"alice@{DOMAIN}"
-# Synthetic, test-only HS256 key material (not a real secret).
-DEV_KEY = "k" * 40
+
+# The removed dev login, kept only to prove its tokens are refused: its issuer name and a synthetic HS256 key
+# (not a secret). Nothing signs with them but ``retired_dev_token``.
+RETIRED_DEV_ISSUER = "specflow-dev-login"
+RETIRED_DEV_KEY = "k" * 40
 
 POLICY = ClaimPolicy.build(
     issuer=ISSUER,
     audience=AUDIENCE,
     client_ids=[CLIENT_ID],
     allowed_email_domains=[DOMAIN],
+    typ_rule="keycloak",  # the earlier tests assert the claim `typ` rule
 )
 
 
@@ -56,6 +61,13 @@ def claims(**overrides: Any) -> dict[str, Any]:
     }
     base.update(overrides)
     return {key: value for key, value in base.items() if value is not None}
+
+
+def retired_dev_token(email: str = EMAIL, **overrides: Any) -> str:
+    """An HS256 token of the removed dev login (claims valid for the API); every surface must answer 401."""
+
+    payload = claims(**{"iss": RETIRED_DEV_ISSUER, "sub": f"dev:{email}", "email": email, **overrides})
+    return jwt.encode(payload, RETIRED_DEV_KEY, algorithm="HS256")
 
 
 def rsa_key() -> rsa.RSAPrivateKey:
@@ -87,11 +99,11 @@ def auth_settings(**env: str) -> AuthSettings:
     """``AuthSettings`` built directly (no ``load_settings`` guards)."""
 
     values = {
-        "AUTH_MODE": "oidc",
         "OIDC_ISSUER": ISSUER,
         "AUTH_API_AUDIENCE": AUDIENCE,
         "AUTH_API_CLIENT_IDS": CLIENT_ID,
         "AUTH_ALLOWED_EMAIL_DOMAINS": DOMAIN,
+        "AUTH_TOKEN_TYPE": "keycloak",
     }
     values.update(env)
     return AuthSettings(**values)
@@ -216,6 +228,53 @@ def stub_issuer() -> Iterator[StubIssuer]:
         yield stub
     finally:
         stub.close()
+
+
+class SessionIdp:
+    """The one loopback IdP of the whole run: ``valid_env`` points every app at it, ``token()`` signs for it.
+
+    Module state set once (``token()`` is a plain function, not a fixture): a generated RS256 key published
+    through a ``StubIssuer``. Tests that change the key set or the answers use their own ``stub_issuer``.
+    """
+
+    KID = "session"
+
+    def __init__(self) -> None:
+        self.stub = StubIssuer()
+        self.key = rsa_key()
+        self.stub.keys = [jwk(self.key, self.KID)]
+
+    @property
+    def issuer(self) -> str:
+        return self.stub.issuer
+
+    @property
+    def jwks_url(self) -> str:
+        return self.stub.jwks_url
+
+    def sign(self, payload: dict[str, Any]) -> str:
+        return sign(payload, self.key, kid=self.KID)
+
+
+@functools.cache
+def session_idp() -> SessionIdp:
+    """The run's IdP, started on first use."""
+
+    return SessionIdp()
+
+
+@pytest.fixture(scope="session")
+def run_idp() -> SessionIdp:
+    return session_idp()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _close_session_idp() -> Iterator[None]:
+    """Stop the run's loopback IdP when it was started (on first use by ``valid_env`` or a module import)."""
+
+    yield
+    if session_idp.cache_info().currsize:
+        session_idp().stub.close()
 
 
 class FakeClock:

@@ -1,0 +1,54 @@
+/* FE-PLAN-08 (GAPS.md "## P25", G-PLAN-3), moved with CodeBlock (MCP-M10): the design system has `.gdg-prose` code blocks but no code block
+   with a Copy bar. Additive, tokens only. */
+/* G-PLAN-3: the Copy bar above a block; the block scrolls inside its card, the page does not. */
+.code-block {
+  display: grid;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+.code-block__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+.code-block__caption {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  color: var(--ink-2);
+}
+.code-block__status {
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.code-block__scroll {
+  min-width: 0;
+  max-width: none;
+}
+.code-block__scroll pre {
+  margin: 0;
+  max-height: calc(var(--space-2xl) * 4);
+  max-width: 100%;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+}
+.code-block__scroll pre:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* R25-04: the polite announcement of "Copied" (the button label already shows it). */
+.code-block__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* The Copy button is a small button; its target is still 44px high. */
+.code-block__bar .gdg-btn {
+  min-height: 44px;
+}

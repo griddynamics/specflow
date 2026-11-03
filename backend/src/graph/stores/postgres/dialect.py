@@ -100,7 +100,11 @@ _STATIC: Final[Mapping[str, Callable[[], str]]] = {
     "build.build_verify_domain_edges": lambda: load_build_sql("build_verify_domain_edges.sql"),
     "build.build_verify_fragments": lambda: load_build_sql("build_verify_fragments.sql"),
     "build.build_verify_spec_nodes": lambda: load_build_sql("build_verify_spec_nodes.sql"),
+    "build.infer_xdoc_documents": lambda: load_build_sql("infer_xdoc_documents.sql"),
+    "build.infer_xdoc_embeddings": lambda: load_build_sql("infer_xdoc_embeddings.sql"),
+    "build.infer_xdoc_members": lambda: load_build_sql("infer_xdoc_members.sql"),
     "core.await_indexes": lambda: load_core_sql("await_indexes.sql"),
+    "core.count_nodes": lambda: load_core_sql("count_nodes.sql"),
     "core.count_search_vectors": lambda: load_core_sql("count_search_vectors.sql"),
     "core.delete_spec_node": lambda: load_core_sql("delete_spec_node.sql"),
     "core.move_foreign_relationships": lambda: load_core_sql("move_foreign_relationships.sql"),
@@ -118,6 +122,8 @@ _STATIC: Final[Mapping[str, Callable[[], str]]] = {
     "core.read_nodes_by_ids": lambda: load_core_sql("read_nodes_by_ids.sql"),
     "core.read_nodes_by_uuid": lambda: load_core_sql("read_nodes_by_uuid.sql"),
     "core.read_nodes_for_lines": lambda: load_core_sql("read_nodes_for_lines.sql"),
+    "core.read_nodes_page": lambda: load_core_sql("read_nodes_page.sql"),
+    "core.read_owner_values": lambda: load_core_sql("read_owner_values.sql"),
     "core.search_fragments": lambda: load_core_sql("search_fragments.sql"),
     "core.search_nodes_fulltext": lambda: load_core_sql("search_nodes_fulltext.sql"),
     "core.search_nodes_vector": lambda: load_core_sql("search_nodes_vector.sql"),
@@ -327,13 +333,28 @@ def _endpoint_subjects(args: Any) -> _Rendered:
 
 def _realization_subjects(args: Any) -> _Rendered:
     plan = _expect(args, RealizationSubjects, "build.infer_realization_subjects")
+    template = "build.infer_realization_subjects"
+    relations = [safe_name(name) for name in plan.relations]
+    low, high = _hops(plan.min_hops, template), _hops(plan.max_hops, template)
+    if not relations or len(plan.symmetric) != len(relations) or int(low) > int(high):
+        raise _unsafe(template)
+    if plan.sequence:
+        if int(low) != len(relations) or int(high) != len(relations):
+            raise _unsafe(template)
+        either = [bool(value) for value in plan.symmetric]
+    else:
+        if len(set(plan.symmetric)) != 1:
+            raise _unsafe(template)
+        either = [bool(plan.symmetric[0])] * int(high)
     text = render_query(
         load_build_sql("infer_realization_subjects.sql"),
         member_symmetric=_boolean(symmetric=plan.member_symmetric),
-        container_symmetric=_boolean(symmetric=plan.container_symmetric),
-        hops=_hops(plan.max_hops, "build.infer_realization_subjects"),
+        sequence=_boolean(symmetric=plan.sequence),
+        min_hops=low,
+        max_hops=high,
     )
-    return _Rendered(text, {"member_type": safe_name(plan.member), "container_type": safe_name(plan.container)})
+    extra = {"member_type": safe_name(plan.member), "container_types": relations, "container_either": either}
+    return _Rendered(text, extra)
 
 
 def _similar_targets(args: Any) -> _Rendered:

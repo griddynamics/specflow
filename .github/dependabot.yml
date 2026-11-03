@@ -25,15 +25,13 @@ updates:
         update-types: [minor, patch]
 
   - package-ecosystem: docker
-    directory: /frontend
+    directories: ["/backend/docker/*", "/frontend"]
     schedule:
       interval: weekly
     groups:
       docker-minor-patch:
         update-types: [minor, patch]
 
-  # Dependabot finds only files named Dockerfile, so backend/api.Dockerfile and
-  # backend/worker.Dockerfile are not covered. Their base images are checked by hand.
   - package-ecosystem: docker-compose
     directory: /
     schedule:

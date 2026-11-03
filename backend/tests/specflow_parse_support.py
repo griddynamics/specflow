@@ -18,6 +18,7 @@ import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Final
 from uuid import UUID
 
@@ -28,11 +29,13 @@ from temporalio.worker import Worker
 
 from db.repositories import PARSE_ERROR_CODES
 from db.session import build_session_factory
-from file_parsers.pdf.to_markdown import pdf_file_to_markdown
+from file_parsers.formats import PDF_MEDIA_TYPE
 from settings import DatabaseSettings, StorageSettings
 from storage.gcs import GcsObjectStore
+from storage.keys import document_original
 from temporal.documents import activities as document_activities
 from temporal.documents.activities import ParseActivities
+from temporal.documents.conversion import convert
 from temporal.documents.workflows import ParseDocumentWorkflow
 
 FIXTURE_DIR: Final = Path(__file__).parent / "fixtures" / "temporal"
@@ -77,9 +80,14 @@ class FakeRepository:
         self.parsed: list[tuple[str, str]] = []
         self.failed: list[str] = []
         self.fail_with: Exception | None = None
+        self.media_type = PDF_MEDIA_TYPE  # the row's type; the default original key follows it
+        self.original_key: str | None = None  # a stored key that differs from the rebuilt one
 
-    async def get_document(self, _session: Any, _project_id: UUID, _document_id: UUID) -> object | None:
-        return object() if self.exists else None
+    async def get_document(self, _session: Any, project_id: UUID, document_id: UUID) -> object | None:
+        if not self.exists:
+            return None
+        key = self.original_key or document_original(str(project_id), str(document_id), self.media_type)
+        return SimpleNamespace(original_key=key, media_type=self.media_type)
 
     async def mark_parsed(self, _session, _project_id, _document_id, markdown, parser) -> bool:
         if self.fail_with is not None:
@@ -188,10 +196,10 @@ async def _run_slow_worker(sleep_seconds: float) -> None:
         GOOGLE_CLOUD_PROJECT=os.environ["GOOGLE_CLOUD_PROJECT"],
     )
 
-    def slow_parse(path: Path):
+    def slow_parse(path: Path, media_type: str, on_progress: Any):
         Path(os.environ["PARSE_TEST_MARKER"]).write_text("parsing")
         threading.Event().wait(sleep_seconds)
-        return pdf_file_to_markdown(path)
+        return convert(path, media_type, on_progress)
 
     client = await Client.connect(
         os.environ["TEMPORAL_ADDRESS"],

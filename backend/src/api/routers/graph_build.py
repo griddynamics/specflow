@@ -18,9 +18,10 @@ from api.errors import ApiError
 from api.graph_build.state import BuildRunner, BuildState
 from api.routers.documents import require_project
 from api.runtime import Runtime
-from api.schemas import GraphBuildStatus
+from api.schemas import GraphBuildRequest, GraphBuildStatus
 from db import sources as sources_repo
-from logger.logger import INFO, get_logger, log_event
+from logger.logger import INFO, WARNING, get_logger, log_event
+from settings import GRAPH_BUILD_SWITCHES
 
 logger = get_logger("api.routers.graph_build")
 router = APIRouter(prefix="/projects/{pid}/graph_build", tags=["graph"])
@@ -36,6 +37,7 @@ def no_processed_documents() -> ApiError:
 
 def _runner(runtime: Runtime) -> BuildRunner:
     if runtime.graph_builds is None:
+        log_event(logger, WARNING, "api.graph_build.unavailable", missing=list(GRAPH_BUILD_SWITCHES))
         raise graph_build_unavailable()
     runner: BuildRunner = runtime.graph_builds
     return runner
@@ -47,7 +49,12 @@ def _out(state: BuildState) -> GraphBuildStatus:
 
 
 @router.post("", status_code=202, response_model=GraphBuildStatus)
-async def start_graph_build(pid: uuid.UUID, runtime: RuntimeDep, user: UserDep) -> GraphBuildStatus:
+async def start_graph_build(
+    pid: uuid.UUID,
+    runtime: RuntimeDep,
+    user: UserDep,
+    body: GraphBuildRequest | None = None,
+) -> GraphBuildStatus:
     await require_project(runtime, user.id, pid)
     runner = _runner(runtime)
     async with runtime.transaction() as session:
@@ -65,6 +72,7 @@ async def start_graph_build(pid: uuid.UUID, runtime: RuntimeDep, user: UserDep) 
         project_id=project_id,
         already_running=already,
         documents=processed,
+        reasoning_level=body.reasoning_level if body is not None else None,
     )
     return _out(state)
 

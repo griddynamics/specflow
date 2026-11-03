@@ -54,14 +54,16 @@
           "entities": {
             "type": "array",
             "items": {
-              "description": "[name, label, [episode handles]]; the handles may be left out for a one-fragment window.",
+              "description": "[name, label, handles, quote, aliases]. Handles, quote and aliases may be left out. Quote may be null.",
               "type": "array",
               "minItems": 2,
-              "maxItems": 3,
+              "maxItems": 5,
               "prefixItems": [
                 { "type": "string", "minLength": 1 },
                 { "$ref": "#/$defs/label" },
-                { "$ref": "#/$defs/handles" }
+                { "$ref": "#/$defs/handles" },
+                { "type": ["string", "null"] },
+                { "type": "array", "items": { "type": "string", "minLength": 1 } }
               ],
               "items": false
             }

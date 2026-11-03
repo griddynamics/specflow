@@ -1,28 +1,4 @@
-"""Owned writes: idempotent, ownership-checked node and relationship writes (api.md "Owned writes").
-
-Keys (docs/graph/data-model.md):
-
-- A node is addressed by ``NodeRef(label, key)``. For a declared label the key is the node's
-  ``uuid``; for ``Document`` it is ``document_id``; for ``Fragment`` it is ``fragment_id``. A label
-  owned by ``build`` is a spec node: stored with ``SpecNode`` plus that one domain label. A declared
-  label of another owner is a foreign node: stored with its own label only, never ``SpecNode``.
-- A relationship is addressed by its type and ``key``, stored as its ``edge_key`` property: for a
-  domain edge the data-model edge key (``<source identity key>|<RELATION>|<target identity key>``),
-  for any other declared type a deterministic key its owner chooses. At most one relationship per
-  type and key: an ``edge_key`` names one pair of endpoints. Only relation types the ontology
-  declares are written here (each has a ``(group_id, edge_key)`` index); the built-in structural
-  relationships (``CONTAINS``, ``REFERENCED_BY``, ``MENTIONED_IN``) have no ``edge_key`` and are
-  written by build's own persist queries, so this writer refuses them.
-
-Every operation first checks that the label or type belongs to the writer's owner
-(``Ontology.owner_of``; built-in names belong to ``build``) and raises ``OwnershipError`` before
-writing anything otherwise (W1). Writes stamp ``group_id`` (W5), MERGE on the key so a repeat is a
-no-op, and set only the given keys with ``SET += ``: other properties stay, a ``None`` value
-removes that property. W2 (a write sets only its owner's properties) is the caller's
-responsibility: the writer does not know which property belongs to which owner, so a caller must
-pass only its own properties. Each operation is its own transaction unless run inside
-``transaction()``.
-"""
+"""Owned writes: idempotent, ownership-checked node and relationship writes."""
 
 from __future__ import annotations
 
@@ -77,12 +53,7 @@ class NodeRef:
 
 
 class OwnedWriter:
-    """Writes of one owner (``build``, ``gap`` or ``plan``) in one project (W1-W5).
-
-    The writer enforces W1 (owned labels and types only), W3 (``move_foreign_relationships``) and
-    W5 (``group_id``). W2 is the caller's job: the writer sets exactly the property keys it is
-    given (``SET +=``) and never checks whose they are, so pass only the owner's own properties.
-    """
+    """Writes of one owner (``build``, ``gap`` or ``plan``) in one project."""
 
     def __init__(
         self,
@@ -114,11 +85,7 @@ class OwnedWriter:
 
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator[OwnedWriter]:
-        """Group operations into one transaction: ``async with writer.transaction() as w: ...``.
-
-        The transaction commits when the block ends and rolls back when it raises (including an
-        ``OwnershipError``), so a refused operation leaves nothing of the group behind.
-        """
+        """Group operations into one transaction: ``async with writer.transaction as w:...``."""
 
         if self.active_transaction is not None:
             raise ConformanceError("writer_transaction_nested")
@@ -132,17 +99,7 @@ class OwnedWriter:
     # Nodes
 
     async def upsert_node(self, label: str, key: str, properties: Mapping[str, Any]) -> None:
-        """Create or update the node ``label``/``key``; set only ``properties``.
-
-        Only the given keys are written (``SET +=``); a ``None`` value removes that property. The
-        writer does not check that the keys belong to its owner: W2 is the caller's responsibility.
-        A spec node gets ``SpecNode`` and its domain label at creation; labels never change, so an
-        existing node with this ``uuid`` and another domain label raises
-        ``ConformanceError("node_label_mismatch")``. ``uuid`` and ``spec_id`` are fixed at creation
-        (data-model.md): ``uuid`` is the key (``property_reserved`` in ``properties``), and a
-        ``spec_id`` that differs from the node's existing one (or ``None`` for it) raises
-        ``ConformanceError("spec_id_immutable")``. Either way nothing is written.
-        """
+        """Create or update the node ``label``/``key``; set only ``properties``."""
 
         self._require_owned(label)
         shape = self._shape(label)
@@ -159,11 +116,7 @@ class OwnedWriter:
             raise ConformanceError("spec_id_immutable", label=label)
 
     async def delete_node(self, label: str, key: str) -> bool:
-        """Delete the node and its relationships; absent is a no-op. Return whether it existed.
-
-        A writer other than ``build`` may not delete a node that has relationships of another owner
-        (``OwnershipError``).
-        """
+        """Delete the node and its relationships; absent is a no-op."""
 
         self._require_owned(label)
         shape = self._shape(label)
@@ -196,16 +149,7 @@ class OwnedWriter:
         key: str,
         properties: Mapping[str, Any],
     ) -> None:
-        """Create or update relationship ``rel_type`` with ``edge_key = key`` from source to target.
-
-        ``rel_type`` must be a declared relation (a built-in structural type raises
-        ``ConformanceError("structural_relationship_not_supported")``), both nodes must exist and
-        the pair must be legal for the type (``ConformanceError`` otherwise); only ``properties``
-        are set (W2 is the caller's responsibility). An ``edge_key`` names one pair of endpoints:
-        when a ``rel_type`` relationship with this key already joins other nodes, the write raises
-        ``ConformanceError("edge_key_endpoint_mismatch")`` and changes nothing. Build re-keys an
-        edge (an endpoint changed) by deleting the old relationship first.
-        """
+        """Create or update relationship ``rel_type`` with ``edge_key = key`` from source to target."""
 
         self._refuse_structural(rel_type)
         self._require_owned(rel_type)
@@ -226,10 +170,7 @@ class OwnedWriter:
             raise ConformanceError("edge_key_endpoint_mismatch", relation=rel_type)
 
     async def delete_relationship(self, rel_type: str, key: str) -> bool:
-        """Delete the ``rel_type`` relationship with ``edge_key = key``; absent is a no-op.
-
-        A built-in structural type raises ``ConformanceError("structural_relationship_not_supported")``.
-        """
+        """Delete the ``rel_type`` relationship with ``edge_key = key``; absent is a no-op."""
 
         self._refuse_structural(rel_type)
         self._require_owned(rel_type)
@@ -238,14 +179,7 @@ class OwnedWriter:
         return bool(rows and rows[0]["deleted"])
 
     async def move_foreign_relationships(self, from_node: NodeRef, to_node: NodeRef) -> int:
-        """Build only (W3): move each relationship of ``from_node`` that build does not own.
-
-        Each moved relationship keeps its type, direction, other end and properties; one equal to a
-        relationship ``to_node`` already has is not duplicated; a self-loop of ``from_node`` becomes
-        a self-loop of ``to_node``; one between the two nodes is deleted, not turned into a
-        self-loop. Both must be spec nodes and ``to_node`` must exist. Returns the number of
-        relationships taken off ``from_node`` (0 when both refs name one node).
-        """
+        """Build only: move each relationship of ``from_node`` that build does not own."""
 
         if self._owner != BUILD:
             raise OwnershipError("move_requires_build", owner=self._owner)

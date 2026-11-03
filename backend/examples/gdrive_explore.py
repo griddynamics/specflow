@@ -74,8 +74,15 @@ LINK_CASES = [
     ("drive.google.com/abc", False),
 ]
 
-# DATA-GDUI-0001: Drive type -> (category label, processing class)
+# DATA-GDUI-0001: Drive type -> (category label, processing class). Since the Docling parser change (design N1)
+# the types of the parser table (file_parsers.formats: PDF, OOXML Word/PowerPoint/Excel, HTML, Markdown,
+# CSV) are processed; legacy .doc/.ppt/.xls and every other type keep the class of their category
+# (tests/drive/test_drive_parity.py).
 CLASS_ORDER = {"processed": 0, "stored only": 1, "skipped": 2}
+HINT = (
+    "Google Docs, Slides, Sheets, PDF, Word, PowerPoint, Excel, HTML, Markdown and CSV files become knowledge. "
+    "Older .doc, .ppt and .xls files and other types are stored only."
+)
 FLAGS = {"stored only": " (stored, not read yet)", "skipped": " (skipped)"}
 CATEGORIES = {
     GOOGLE + "document": ("Google Docs", "processed"),
@@ -85,19 +92,22 @@ CATEGORIES = {
     "application/msword": ("Word documents", "stored only"),
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": (
         "Word documents",
-        "stored only",
+        "processed",
     ),
     "application/vnd.ms-powerpoint": ("PowerPoint files", "stored only"),
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": (
         "PowerPoint files",
-        "stored only",
+        "processed",
     ),
     "application/vnd.ms-excel": ("Excel files", "stored only"),
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": (
         "Excel files",
-        "stored only",
+        "processed",
     ),
     SHORTCUT: ("Shortcuts", "skipped"),
+    "text/html": ("Other files", "processed"),
+    "text/markdown": ("Other files", "processed"),
+    "text/csv": ("Other files", "processed"),
 }
 
 ListChildren = Callable[[str], Iterable[dict[str, Any]]]
@@ -168,7 +178,7 @@ def summary_lines(name: str, tree: dict[str, Any]) -> list[str]:
     for (label, kind), n in sorted(counts.items(), key=lambda kv: (CLASS_ORDER[kv[0][1]], -kv[1], kv[0][0])):
         lines.append(f"• {label}: {n}{FLAGS.get(kind, '')}")
     if any(kind != "processed" for _, kind in counts):
-        lines.append("Only Google Docs, Slides, Sheets and PDFs become knowledge for now.")
+        lines.append(HINT)
     if not any(kind in ("processed", "stored only") for _, kind in counts):
         lines.append("There is nothing to import from this folder.")
     return lines
@@ -241,9 +251,12 @@ def self_test() -> int:
         "We found 4 files in 2 folders.",
         "• Google Docs: 1",
         "• PDF: 1",
-        "• Word documents: 1 (stored, not read yet)",
+        "• Word documents: 1",
         "• Other Google files: 1 (skipped)",
-        "Only Google Docs, Slides, Sheets and PDFs become knowledge for now.",
+        (
+            "Google Docs, Slides, Sheets, PDF, Word, PowerPoint, Excel, HTML, Markdown and CSV files become knowledge. "
+            "Older .doc, .ppt and .xls files and other types are stored only."
+        ),
     ]
     for got, want in zip(summary_lines("Specs", tree), expected_lines, strict=True):
         ok = got == want

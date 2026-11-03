@@ -6,7 +6,7 @@ from llm.client import Client
 
 DEFAULT_MODELS = ["gemini/gemini-3.7-flash", "openai/gpt-5.6-terra", "anthropic/claude-sonnet-5"]
 DEFAULT_MODEL = DEFAULT_MODELS[0]
-DEFAULT_PROMPT = "format.v2"
+DEFAULT_PROMPT = "format"
 MAX_TOKENS = 8000
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"

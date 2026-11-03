@@ -1,9 +1,4 @@
-"""The validated, immutable ``Ontology`` and its parts (docs/graph/ontology.md, tech-specs 4.4).
-
-The loader builds an ``Ontology`` from merged, checked files; nothing here re-validates. Groups are
-already expanded to labels, so every lookup works on labels and relation names. Library code knows
-this format, never its content: no label, relation or id prefix appears here as a literal.
-"""
+"""The validated, immutable ``Ontology`` and its parts."""
 
 from __future__ import annotations
 
@@ -13,7 +8,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Any, Final, Literal
+from typing import Any, Final, Literal, NamedTuple, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
@@ -27,22 +22,47 @@ EVIDENCE_LABELS: Final = frozenset({"Document", "Fragment"})
 """Built-in labels a relation of another owner than build may end at, to cite evidence."""
 
 BUILD_OWNER: Final = "build"
+PROMPT_DIGEST_LENGTH: Final = 12
+"""Hex characters of the prompt text digest in ``Ontology.judge_prompt_version``."""
 EXTRACTED_ORIGIN: Final = "extracted"
 HUB_ROLES: Final = frozenset({"anchor", "group"})
 
 FingerprintPart = Literal["nodes", "edges", "attributes", "resolution"]
 DropReason = Literal["unknown_relation", "illegal_pair", "cue_missing"]
+QuarantineReason = Literal[
+    "unknown_relation",
+    "illegal_pair",
+    "cue_missing",
+    "locality",
+    "condition_failed",
+    "external_owner",
+    "owner_conflict",
+    "judge_rejected",
+    "depth_cut",
+    "cycle_broken",
+    "invalid_proposal",
+]
+"""Why Conform or inference cannot keep an edge."""
+QUARANTINE_REASONS: Final = frozenset(get_args(QuarantineReason))
+DEFAULT_WHERE_REASON: Final = "condition_failed"
+
+QUOTE_ATTRIBUTE: Final = "quote"
+"""Format-level attribute name: a node's verbatim source text; Conform grounds it in the node's fragments and stores the
+grounded text.
+"""
+_NOT_ASKED: Final[frozenset[str]] = frozenset({QUOTE_ATTRIBUTE})
+"""Attributes the attributes pass never asks for: the node call returns them with the node itself
+(``attribute_output_model`` and the attributes prompt leave them out)."""
+
+Condition = Mapping[str, frozenset[str]]
+"""``{attribute: allowed values}``: a pair ``where``, the spine ``exclude`` or a rule's ``exclude_where``."""
 
 _ID_FAMILY = re.compile(r"^[A-Z]+")
 
 
 @dataclass(frozen=True)
 class IdentityRule:
-    """How a node's identity key is formed.
-
-    ``key`` is ``id`` (explicit id, falling back to ``fallback``) or ``surface``; ``scope`` is the
-    resolved scope name: the group key for ``scope: group``, else the label.
-    """
+    """How a node's identity key is formed."""
 
     key: Literal["id", "surface"]
     scope: str
@@ -63,6 +83,18 @@ class AttributeSpec:
     """Case-folded alias to declared value."""
     target_labels: frozenset[str] = frozenset()
     store: bool = True
+    default: str | None = None
+    """Declared value Conform stores when the value is null."""
+    inherit_via: str | None = None
+    """Read time only: a null value is filled from the owner one ``inherit_via`` hop away."""
+
+
+@dataclass(frozen=True)
+class Support:
+    """An edge that supports a node: ``relation`` ending at it (``in``) or starting at it (``out``)."""
+
+    relation: str
+    direction: Literal["in", "out"]
 
 
 @dataclass(frozen=True)
@@ -83,6 +115,8 @@ class NodeType:
     description: str
     guidance: str
     attributes: Mapping[str, AttributeSpec]
+    merge_across_labels: bool = True
+    supported_by: tuple[Support, ...] = ()
 
     @property
     def extracted(self) -> bool:
@@ -99,15 +133,32 @@ class NodeGroup:
     labels: tuple[str, ...]
 
 
+def _no_condition() -> Condition:
+    return MappingProxyType({})
+
+
 @dataclass(frozen=True)
 class Pair:
-    """One legal ``(source label, target label)`` pair of a relation, groups expanded."""
+    """One legal ``(source label, target label)`` pair of ``relation``, groups expanded, with its flags."""
 
+    relation: str
     source: str
     target: str
     default: bool = False
+    default_from: frozenset[str] = frozenset()
+    """Empty: the default for any extracted relation; else only for an edge extracted as one of these."""
     cue_required: bool = False
     exclusive: bool = False
+    owner: bool = False
+    owner_rank: int = 1
+    source_where: Condition = field(default_factory=_no_condition, hash=False)
+    target_where: Condition = field(default_factory=_no_condition, hash=False)
+    where_reason: str = DEFAULT_WHERE_REASON
+    otherwise: str | None = None
+    max_depth: int | None = None
+    not_across: tuple[str, ...] = ()
+    distinct_owner: bool = False
+    redundant_via_owner: bool = False
 
 
 @dataclass(frozen=True)
@@ -121,6 +172,16 @@ class DeriveRule:
 
 
 @dataclass(frozen=True)
+class DeriveViaRule:
+    """An implied ``relation`` edge from each module a hub is ``consumer`` of to the module it is
+    ``provider`` of (``consumer`` and ``provider`` are relations from the hub)."""
+
+    relation: str
+    consumer: str
+    provider: str
+
+
+@dataclass(frozen=True)
 class Relation:
     name: str
     owner: str
@@ -131,7 +192,13 @@ class Relation:
     symmetric: bool = False
     id_references: bool = False
     cues: tuple[re.Pattern[str], ...] = ()
+    """Searched anywhere in an evidence line, case-insensitive (``cue_required`` pairs)."""
+    cue_words: tuple[re.Pattern[str], ...] = ()
+    """The same cues matched only as whole words, case-insensitive (``Ontology.cue_matches``)."""
     derive: tuple[DeriveRule, ...] = ()
+    acyclic: bool = False
+    stated_only: bool = False
+    derive_via: DeriveViaRule | None = None
 
     @property
     def extracted(self) -> bool:
@@ -153,18 +220,40 @@ class Spine:
     sources: frozenset[str]
     roots: frozenset[str]
     paths: tuple[SpinePath, ...]
+    exclude: Condition = field(default_factory=_no_condition, hash=False)
+    """A source is skipped by spine checks and metrics when it or its owner matches."""
+
+
+@dataclass(frozen=True)
+class AnsweredElsewhereSpec:
+    """The answered-elsewhere check of Conform: nodes of ``label`` are judged by ``prompt`` against at most
+    ``candidates`` fragments of other units with a cosine of at least ``min_cosine``; an answer of confidence ``floor``
+    or more drops the node; at most ``cap`` fresh calls per build.
+    """
+
+    label: str
+    prompt: str
+    candidates: int
+    min_cosine: float
+    floor: float
+    cap: int
+
+
+@dataclass(frozen=True)
+class ConformSpec:
+    """The owner-conflict judge of normalisation."""
+
+    judge_prompt: str
+    cap: int
+    floor: float
+    fallback_relation: str
+    answered_elsewhere: AnsweredElsewhereSpec | None = None
+    """None when the file turns the answered-elsewhere check off (no ``answered_elsewhere`` block)."""
 
 
 @dataclass(frozen=True)
 class InferenceRule:
-    """One inference rule with endpoints resolved to labels.
-
-    Per template (docs/graph/ontology.md): ``endpoints`` uses ``subject``, ``via`` (relations from the
-    subject to a target), ``mentions`` (targets mentioned in the subject's evidence fragments count
-    too), ``targets`` (its ``target``), ``min_targets``, ``max_targets``; ``realization`` uses ``subject``,
-    ``member_relation``, ``container_relation``, ``targets`` (its ``container``), ``max_hops``;
-    ``attach_orphan`` uses ``subject``, ``targets``, ``max_candidates``.
-    """
+    """One inference rule with endpoints resolved to labels."""
 
     id: str
     template: str
@@ -172,21 +261,72 @@ class InferenceRule:
     writes: str
     subject: frozenset[str]
     targets: frozenset[str]
+    cap: int | None = None
+    first_cap: int | None = None
+    floor: float | None = None
+    reads: tuple[str, ...] = ()
+    also_writes: tuple[str, ...] = ()
     via: tuple[str, ...] = ()
     mentions: bool = False
     member_relation: str | None = None
-    container_relation: str | None = None
     min_targets: int | None = None
     max_targets: int | None = None
-    max_hops: int | None = None
     max_candidates: int | None = None
+    exclude_owned_by: frozenset[str] = frozenset()
+    container_paths: tuple[SpinePath, ...] = ()
+    exclude_where: Condition = field(default_factory=_no_condition, hash=False)
+    target_exclude_where: Condition = field(default_factory=_no_condition, hash=False)
+    min_documents: int | None = None
+    max_pairs: int | None = None
+    pair_floor: float | None = None
+    batch: int | None = None
+    batch_prompt: str | None = None
+    """``attach_orphan``: the judge prompt subjects are judged together with (required with ``batch``;
+    named without ``batch`` too, so a replay can turn batching on); None: no batch prompt."""
+
+    @property
+    def written(self) -> tuple[str, ...]:
+        """Every relation the rule writes: ``writes``, then its ``also_writes`` in file order."""
+
+        return (self.writes, *self.also_writes)
 
 
 @dataclass(frozen=True)
 class InferenceSpec:
+    """The ``inference`` section: ``cap`` (fresh subjects per rule in every build), ``first_cap`` (fresh subjects per
+    rule at most in a ``first`` or ``rebuild`` build; None: the ``cap``), ``first_budget`` (estimated input tokens of
+    such a build's inference calls; None: no budget), ``floor`` and the rules in file order.
+    """
+
     cap: int
     floor: float
     rules: tuple[InferenceRule, ...]
+    first_cap: int | None = None
+    first_budget: int | None = None
+
+    def cap_of(self, rule: InferenceRule) -> int:
+        """Subjects judged per build for ``rule``: its own ``cap``, else the ontology's ``cap``."""
+
+        return self.cap if rule.cap is None else rule.cap
+
+    def first_cap_of(self, rule: InferenceRule) -> int:
+        """Fresh subjects ``rule`` judges at most in a ``first`` or ``rebuild`` build: its own
+        ``first_cap``, else the ontology's ``first_cap``; never below ``cap_of(rule)``, the cap every rule
+        keeps in every mode."""
+
+        first_cap = self.first_cap if rule.first_cap is None else rule.first_cap
+        return max(self.cap_of(rule), first_cap or 0)
+
+    def reads_of(self, rule: InferenceRule) -> tuple[InferenceRule, ...]:
+        """The rules ``rule`` reads (its ``reads``), in the order it names them."""
+
+        by_id = {other.id: other for other in self.rules}
+        return tuple(by_id[rule_id] for rule_id in rule.reads)
+
+    def floor_of(self, rule: InferenceRule) -> float:
+        """The least confidence ``rule`` accepts: its own ``floor``, else the ontology's ``floor``."""
+
+        return self.floor if rule.floor is None else rule.floor
 
 
 @dataclass(frozen=True)
@@ -202,7 +342,14 @@ class Dropped:
     reason: DropReason
 
 
-class _GraphitiModel(BaseModel):
+class NodeView(NamedTuple):
+    """A node as legalisation sees it: its label and its attribute values (by attribute name)."""
+
+    label: str
+    attributes: Mapping[str, object] = MappingProxyType({})
+
+
+class _PromptModel(BaseModel):
     model_config = ConfigDict(frozen=True)
 
 
@@ -250,14 +397,18 @@ class Ontology:
     spine: Spine
     inference: InferenceSpec
     judge_prompts: Mapping[str, str] = field(repr=False)
-    """Judge prompt text by reference ``<name>.<revision>``."""
+    """Judge prompt text by reference (the file ``judge_prompts/<ref>.md``)."""
     declared_labels: tuple[str, ...] = ()
     """Node type labels in the order the ontology files declare them (tie-breaks use this order)."""
+    conform: ConformSpec | None = None
+    """The ``conform`` section; None when the file has none."""
+    declared_relations: tuple[str, ...] = ()
+    """Relation names in the order the ontology files declare them ("first declared" default pair)."""
 
     _by_label: Mapping[str, NodeType] = field(init=False, repr=False)
     _family_labels: Mapping[str, str] = field(init=False, repr=False)
     _legal: Mapping[tuple[str, str, str], Pair] = field(init=False, repr=False)
-    _defaults: Mapping[tuple[str, str], str] = field(init=False, repr=False)
+    _defaults: Mapping[tuple[str, str], tuple[str, ...]] = field(init=False, repr=False)
     _entity_models: Mapping[str, type[BaseModel]] = field(init=False, repr=False)
     _edge_models: Mapping[str, type[BaseModel]] = field(init=False, repr=False)
     _attribute_models: Mapping[str, type[BaseModel]] = field(init=False, repr=False)
@@ -268,12 +419,14 @@ class Ontology:
             family: node_type.label for node_type in self.node_types.values() for family in node_type.id_families
         }
         legal: dict[tuple[str, str, str], Pair] = {}
-        defaults: dict[tuple[str, str], str] = {}
-        for relation in self.relations.values():
-            for pair in relation.pairs:
-                legal[(relation.name, pair.source, pair.target)] = pair
+        defaults: dict[tuple[str, str], tuple[str, ...]] = {}
+        order = [name for name in self.declared_relations if name in self.relations]
+        order += sorted(set(self.relations) - set(order))
+        for name in order:
+            for pair in self.relations[name].pairs:
+                legal[(name, pair.source, pair.target)] = pair
                 if pair.default:
-                    defaults[(pair.source, pair.target)] = relation.name
+                    defaults[(pair.source, pair.target)] = (*defaults.get((pair.source, pair.target), ()), name)
         values: dict[str, Any] = {
             "_by_label": MappingProxyType(by_label),
             "_family_labels": MappingProxyType(families),
@@ -366,12 +519,31 @@ class Ontology:
     def attribute_specs(self, label: str) -> Mapping[str, AttributeSpec]:
         return self.node_type(label).attributes
 
-    def normalise_attribute(self, label: str, name: str, raw: Any) -> str | None:
-        """Normalise a model-returned attribute value; None when unknown, empty or not allowed.
+    def attribute_default(self, label: str, attribute: str) -> str | None:
+        """The declared ``default`` of an attribute; None when it has none or the label or attribute is
+        unknown."""
 
-        Text is stripped and cut to ``max_chars``; an enum value is matched case-insensitively to
-        the declared values, then to the aliases; a reference is the stripped name it gives.
-        """
+        node_type = self._by_label.get(label)
+        spec = node_type.attributes.get(attribute) if node_type else None
+        return spec.default if spec else None
+
+    def inherit_rules(self, label: str) -> Mapping[str, str]:
+        """Attribute name to the ``inherit.via`` relation, for the label's inheriting attributes."""
+
+        return MappingProxyType(
+            {name: spec.inherit_via for name, spec in self.node_type(label).attributes.items() if spec.inherit_via}
+        )
+
+    def supported_by(self, label: str) -> tuple[Support, ...]:
+        """The edges one of which a node of the label needs after normalisation; empty: no such rule."""
+
+        return self.node_type(label).supported_by
+
+    def merge_across_labels(self, label: str) -> bool:
+        return self.node_type(label).merge_across_labels
+
+    def normalise_attribute(self, label: str, name: str, raw: Any) -> str | None:
+        """Normalise a model-returned attribute value; None when unknown, empty or not allowed."""
 
         spec = self.node_type(label).attributes.get(name)
         if spec is None:
@@ -403,22 +575,93 @@ class Ontology:
         return self.relation(relation).symmetric
 
     def default_relation(self, source_label: str, target_label: str) -> str | None:
-        return self._defaults.get((source_label, target_label))
+        """The first declared default relation of the label pair, or None. Label only: it ignores the
+        ends' attributes and the pairs' ``where``; ``default_for`` chooses by attributes."""
+
+        defaults = self._defaults.get((source_label, target_label), ())
+        return defaults[0] if defaults else None
+
+    def default_relations(self, source_label: str, target_label: str) -> tuple[str, ...]:
+        """Every default relation of the label pair, in declaration order."""
+
+        return self._defaults.get((source_label, target_label), ())
+
+    def pair_rule(self, relation: str, source_label: str, target_label: str) -> Pair | None:
+        """The declared pair of ``relation`` from ``source_label`` to ``target_label`` with its flags."""
+
+        return self._legal.get((relation, source_label, target_label))
+
+    def owner_pairs(self, source_label: str) -> tuple[Pair, ...]:
+        """The ``owner`` pairs of a source label over all relations, lowest ``owner_rank`` first."""
+
+        pairs = [pair for (_, source, _), pair in self._legal.items() if source == source_label and pair.owner]
+        return tuple(sorted(pairs, key=lambda p: (p.owner_rank, p.relation, p.target)))
+
+    def default_for(self, source: NodeView | str, target: NodeView | str) -> str | None:
+        """The default relation for the ends, as ``legalise`` chooses it (cues aside) for an edge of no listed relation,
+        so a ``default_from`` pair never applies: the first declared default whose ``where`` the ends meet, else the
+        first declared; None when the label pair has none.
+        """
+
+        ordered = self._ordered_defaults(_view(source), _view(target), None)
+        return ordered[0].relation if ordered else None
+
+    def _ordered_defaults(self, source: NodeView, target: NodeView, extracted: str | None) -> list[Pair]:
+        """The default pairs of the ends' labels that apply to an edge extracted as ``extracted`` (a
+        ``default_from`` pair only when it lists it): those whose ``where`` holds first, each part in
+        declaration order."""
+
+        defaults = [
+            pair
+            for name in self.default_relations(source.label, target.label)
+            if not (pair := self._legal[(name, source.label, target.label)]).default_from
+            or extracted in pair.default_from
+        ]
+        held = [pair for pair in defaults if self.where_holds(pair, source, target)]
+        return [*held, *(pair for pair in defaults if pair not in held)]
+
+    def condition_matches(self, condition: Condition, node: NodeView | str) -> bool:
+        """True when ``node`` matches a spine ``exclude`` or a rule's ``exclude_where``: every attribute of
+        ``condition`` has a listed value, a null value read as the attribute's ``default``.
+        """
+
+        view = _view(node)
+        if not condition:
+            return False
+        for attribute, allowed in condition.items():
+            value = view.attributes.get(attribute)
+            if value is None:
+                value = self.attribute_default(view.label, attribute)
+            if value is None or _value_text(value) not in allowed:
+                return False
+        return True
+
+    def where_holds(self, pair: Pair, source: NodeView | str, target: NodeView | str) -> bool:
+        """True when the ends meet the pair's ``source_where`` and ``target_where``: an end's value (or
+        its attribute ``default`` when null) is listed; a null value without a default holds."""
+
+        return self._meets(_view(source), pair.source_where) and self._meets(_view(target), pair.target_where)
+
+    def _meets(self, node: NodeView, condition: Condition) -> bool:
+        for attribute, allowed in condition.items():
+            value = node.attributes.get(attribute)
+            if value is None:
+                value = self.attribute_default(node.label, attribute)
+            if value is not None and _value_text(value) not in allowed:
+                return False
+        return True
 
     def legalise(
         self,
         relation: str,
-        source_label: str,
-        target_label: str,
+        source: NodeView | str,
+        target: NodeView | str,
         evidence_lines: Sequence[str],
     ) -> Legalised | Dropped:
-        """Legalise one extracted edge (docs/graph/build.md "Conform", step 3).
+        """Legalise one extracted edge."""
 
-        In order: keep a legal relation; flip a reversed one (never a symmetric relation); use the
-        pair's default relation; a ``cue_required`` pair is only chosen when one of the relation's
-        cues matches an evidence line; otherwise drop with a reason.
-        """
-
+        source_view, target_view = _view(source), _view(target)
+        source_label, target_label = source_view.label, target_view.label
         known = relation in self.relations
         if known:
             pair = self._legal.get((relation, source_label, target_label))
@@ -428,11 +671,9 @@ class Ontology:
                 reverse = self._legal.get((relation, target_label, source_label))
                 if reverse is not None and self._cue_ok(relation, reverse, evidence_lines):
                     return Legalised(relation, flipped=True)
-        default = self._defaults.get((source_label, target_label))
-        if default is not None:
-            pair = self._legal[(default, source_label, target_label)]
-            if self._cue_ok(default, pair, evidence_lines):
-                return Legalised(default, flipped=False)
+        for pair in self._ordered_defaults(source_view, target_view, relation):
+            if self._cue_ok(pair.relation, pair, evidence_lines):
+                return Legalised(pair.relation, flipped=False)
         if not known:
             return Dropped("unknown_relation")
         held = (relation, source_label, target_label) in self._legal or (
@@ -441,6 +682,22 @@ class Ontology:
             source_label,
         ) in self._legal
         return Dropped("cue_missing" if held else "illegal_pair")
+
+    def cue_matches(self, relation: str, text: str) -> bool:
+        """True when one of ``relation``'s cues occurs in ``text`` as whole words, ignoring case (the
+        cue gate of a ``stated_only`` relation a ``cross_document`` rule writes); False for a relation
+        without cues. An undeclared relation is a ``ConformanceError``."""
+
+        return any(cue.search(text) for cue in self.relation(relation).cue_words)
+
+    def cue_gated_rules(self, relation: str) -> frozenset[str]:
+        """Ids of the inference rules that may write ``relation`` although it is ``stated_only``: the rules naming it in
+        ``also_writes`` (only ``cross_document`` rules can, and only when the relation has cues; check 12).
+        """
+
+        if not self.relation(relation).stated_only:
+            return frozenset()
+        return frozenset(rule.id for rule in self.inference.rules if relation in rule.also_writes)
 
     def _cue_ok(self, relation: str, pair: Pair, evidence_lines: Sequence[str]) -> bool:
         if not pair.cue_required:
@@ -458,32 +715,33 @@ class Ontology:
     def derive_rules(self) -> tuple[DeriveRule, ...]:
         return tuple(rule for relation in self.relations.values() for rule in relation.derive)
 
+    def derive_via_rules(self) -> tuple[DeriveViaRule, ...]:
+        return tuple(r.derive_via for r in self.relations.values() if r.derive_via is not None)
+
+    def acyclic_relations(self) -> frozenset[str]:
+        return frozenset(r.name for r in self.relations.values() if r.acyclic)
+
+    def stated_only_relations(self) -> frozenset[str]:
+        return frozenset(r.name for r in self.relations.values() if r.stated_only)
+
     @property
     def id_reference_relations(self) -> tuple[str, ...]:
         return tuple(sorted(r.name for r in self.relations.values() if r.id_references))
 
-    # Graphiti-facing models
+    # Prompt-facing models
 
     def entity_models(self) -> dict[str, type[BaseModel]]:
-        """Extracted types for Graphiti ``extract_nodes``: label to a model whose docstring is the prompt.
-
-        Graphiti reads only the docstring of an entity type; attributes are filled by a separate
-        pass (``attribute_output_model``), so the models have no fields.
-        """
+        """Extracted types for the node prompt: label to a model whose docstring is the type's prompt text."""
 
         return dict(self._entity_models)
 
     def edge_models(self) -> dict[str, type[BaseModel]]:
-        """Extracted relations for Graphiti ``extract_edges``: name to a field-less model (docstring)."""
+        """Extracted relations for the edge prompt: name to a field-less model (docstring)."""
 
         return dict(self._edge_models)
 
     def edge_type_map(self) -> dict[tuple[str, str], list[str]]:
-        """``(source label, target label)`` to the extracted relations legal on it.
-
-        Groups are expanded; symmetric relations appear in both directions (their pairs hold both
-        ways). Only pairs between extracted types are listed.
-        """
+        """``(source label, target label)`` to the extracted relations legal on it."""
 
         extracted = set(self.extracted_labels)
         result: dict[tuple[str, str], list[str]] = {}
@@ -498,11 +756,7 @@ class Ontology:
         return dict(sorted(result.items()))
 
     def attribute_output_model(self, label: str) -> type[BaseModel]:
-        """Structured output model of the attributes pass for one extracted label.
-
-        Every attribute is an optional string; enum fields list their values in the field
-        description and are normalised afterwards with ``normalise_attribute``.
-        """
+        """Structured output model of the attributes pass for one extracted label."""
 
         try:
             return self._attribute_models[label]
@@ -514,7 +768,7 @@ class Ontology:
         for node_type in sorted(self.node_types.values(), key=lambda t: t.label):
             if node_type.extracted:
                 doc = "\n\n".join(part for part in (_clean(node_type.description), _clean(node_type.guidance)) if part)
-                models[node_type.label] = create_model(node_type.label, __base__=_GraphitiModel, __doc__=doc)
+                models[node_type.label] = create_model(node_type.label, __base__=_PromptModel, __doc__=doc)
         return models
 
     def _build_edge_models(self) -> dict[str, type[BaseModel]]:
@@ -522,7 +776,7 @@ class Ontology:
         for relation in sorted(self.relations.values(), key=lambda r: r.name):
             if relation.extracted:
                 models[relation.name] = create_model(
-                    relation.name, __base__=_GraphitiModel, __doc__=_clean(relation.description)
+                    relation.name, __base__=_PromptModel, __doc__=_clean(relation.description)
                 )
         return models
 
@@ -533,10 +787,12 @@ class Ontology:
                 continue
             fields: dict[str, Any] = {}
             for spec in node_type.attributes.values():
+                if spec.name in _NOT_ASKED:
+                    continue
                 fields[spec.name] = (str | None, Field(default=None, description=_field_text(spec)))
             models[node_type.label] = create_model(
                 f"{node_type.label}Attributes",
-                __base__=_GraphitiModel,
+                __base__=_PromptModel,
                 __doc__=f"Attribute values of one {node_type.label} node, null when the text gives none.",
                 **fields,
             )
@@ -585,6 +841,8 @@ class Ontology:
                         "description": r.description,
                         "symmetric": r.symmetric,
                         "pairs": sorted([p.source, p.target] for p in r.pairs),
+                        # Present only when set, so a file without the flag keeps its fingerprint.
+                        **({"stated_only": True} if r.stated_only else {}),
                     }
                     for r in sorted(self.relations.values(), key=lambda r: r.name)
                     if r.extracted
@@ -635,11 +893,32 @@ class Ontology:
     def spine_relations(self) -> frozenset[str]:
         return frozenset(name for path in self.spine.paths for name in path.relations)
 
+    def spine_exclude(self) -> Condition:
+        return self.spine.exclude
+
+    def conform_spec(self) -> ConformSpec | None:
+        return self.conform
+
     def judge_prompt(self, ref: str) -> str:
         try:
             return self.judge_prompts[ref]
         except KeyError:
             raise ConformanceError("ontology_unknown_judge_prompt", prompt=ref) from None
+
+    def judge_prompt_version(self, ref: str) -> str:
+        """``<ref>@<first 12 hex of the prompt text's SHA-256>``: names the exact prompt text, so stored
+        judgements keyed under it are dropped when the prompt file changes."""
+
+        digest = hashlib.sha256(self.judge_prompt(ref).encode("utf-8")).hexdigest()[:PROMPT_DIGEST_LENGTH]
+        return f"{ref}@{digest}"
+
+
+def _view(node: NodeView | str) -> NodeView:
+    return NodeView(node) if isinstance(node, str) else node
+
+
+def _value_text(value: object) -> str:
+    return value if isinstance(value, str) else str(value)
 
 
 def _field_text(spec: AttributeSpec) -> str:

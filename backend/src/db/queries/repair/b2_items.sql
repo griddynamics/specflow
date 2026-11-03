@@ -9,8 +9,14 @@ SELECT
     d.content_hash,
     d.original_filename,
     d.media_type,
+    -- the category of an uploaded type, as db.batches.item_category
+    -- (HTML, Markdown and CSV are other_files)
     CASE
-        WHEN d.media_type = 'application/pdf' THEN 'pdf' ELSE 'other_files'
+        WHEN d.media_type = 'application/pdf' THEN 'pdf'
+        WHEN d.media_type LIKE '%.wordprocessingml.document' THEN 'word'
+        WHEN d.media_type LIKE '%.presentationml.presentation' THEN 'powerpoint'
+        WHEN d.media_type LIKE '%.spreadsheetml.sheet' THEN 'excel'
+        ELSE 'other_files'
     END,
     'processed',
     d.size_bytes,

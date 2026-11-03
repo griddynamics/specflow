@@ -32,7 +32,6 @@ PROBE_FILES: Final = {"tests/graph_probes/neo4j.py", "tests/graph_probes/arcaded
 DIALECT_TESTS: Final = {
     "tests/test_graph_core.py": "Bolt executor and error mapping over a fake driver, statements as literals",
     "tests/test_graph_dialect.py": "dialect planning of literal statements",
-    "tests/test_graph_graphiti.py": "graphiti driver shim over literal statements",
     "tests/test_graph_query_files.py": "query-file template rendering",
     "tests/test_graph_reader.py": "reader against scripted executors",
     "tests/graph_ddl_support.py": "Cypher DDL fixture of the gap ontology for the schema tests",

@@ -61,7 +61,7 @@ test.describe("D21 brand polish on production routes", { tag: "@production" }, (
       ).toEqual({ h: 36, f: "none", nw: 2192 });
       await expect.poll(() => status[theme === "light" ? BLACK_H : WHITE_H]).toBe(200);
       // the sign-in text that stays
-      await expect(page.getByTestId("login-dev-submit")).toBeVisible();
+      await expect(page.getByTestId("login-oidc")).toBeVisible();
     });
   }
 
@@ -69,7 +69,7 @@ test.describe("D21 brand polish on production routes", { tag: "@production" }, (
     await page.goto("/login?signedout=1");
     await expect(page).toHaveTitle("Specflow");
     await expect(page.getByTestId("login-page")).toBeVisible();
-    await expect(page.getByTestId("login-dev-submit")).toBeVisible();
+    await expect(page.getByTestId("login-oidc")).toBeVisible();
     await expect(page.getByTestId("login-signed-out")).toHaveCount(0);
     await expect(page.getByTestId("login-still-signed-in")).toHaveCount(0);
     await expect(page.getByTestId("login-error")).toHaveCount(0);

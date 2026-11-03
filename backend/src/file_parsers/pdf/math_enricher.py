@@ -12,25 +12,26 @@ from file_parsers.pdf.enrichment_utils import (
     render_prompt,
     request_json,
 )
-from file_parsers.pdf.pymupdf_typed import PageView, TableView, make_rect, open_document
+from file_parsers.pdf.pdfium_typed import PdfiumDocument, open_document
 from file_parsers.pdf.schema import (
     PDFDocument,
     PDFFigure,
     PDFPageContent,
+    PDFTableBox,
     PDFTableReplacement,
 )
 from llm.client import Client
 from llm.content import Attachment
 
-EQUATION_PROMPT_ID = "equation_latex.v1"
-MATH_PAGE_PROMPT_ID = "math_page_latex.v2"
-TABLE_PROMPT_ID = "formula_table_latex.v1"
+EQUATION_PROMPT_ID = "equation_latex"
+MATH_PAGE_PROMPT_ID = "math_page_latex"
+TABLE_PROMPT_ID = "formula_table_latex"
 
 PAGE_DPI = 220
 MAX_CONTEXT_CHARS = 6000
 MIN_EQUATIONS_FOR_MATH_PAGE = 2
 _MIN_TABLE_LINES = 2
-_TABLE_SEPARATOR = re.compile(r"^\|(?:\s*:?-{3,}:?\s*\|)+\s*$")
+_TABLE_SEPARATOR = re.compile(r"^\|(?:\s*:?-+:?\s*\|)+\s*$")
 _FENCED_MARKDOWN = re.compile(r"^\s*```(?:markdown|md)?\s*(?P<body>.*?)\s*```\s*$", re.DOTALL)
 
 
@@ -91,14 +92,13 @@ class PdfMathEnricher:
     def enrich(self, document: PDFDocument) -> PDFDocument:
         with open_document(document.source_path) as source:
             for page in document.pages:
-                source_page = source[page.page_number - 1]
-                if self._replace_math_page(page, source_page):
+                if self._replace_math_page(page, source):
                     continue
                 self._replace_equations(page)
-                self._replace_formula_tables(page, source_page)
+                self._replace_formula_tables(page, source)
         return document
 
-    def _replace_math_page(self, page: PDFPageContent, source_page: PageView) -> bool:
+    def _replace_math_page(self, page: PDFPageContent, source: PdfiumDocument) -> bool:
         if sum(figure.kind == "equation" for figure in page.figures) < MIN_EQUATIONS_FOR_MATH_PAGE:
             return False
 
@@ -111,7 +111,7 @@ class PdfMathEnricher:
             prompt=prompt,
             model=self.model,
             max_tokens=self.page_max_tokens,
-            attachment=_page_attachment(source_page, page.page_number),
+            attachment=_page_attachment(source, page.page_number),
             schema=MathPageExtraction,
             attempts=self.attempts,
         )
@@ -154,16 +154,15 @@ class PdfMathEnricher:
             attempts=self.attempts,
         )
 
-    def _replace_formula_tables(self, page: PDFPageContent, source_page: PageView) -> None:
+    def _replace_formula_tables(self, page: PDFPageContent, source: PdfiumDocument) -> None:
         markdown_tables = _table_blocks(page.markdown)
         if not markdown_tables:
             return
 
-        source_tables = list(source_page.find_tables())
         for index, source_markdown in enumerate(markdown_tables):
             if not _looks_like_formula_table(source_markdown):
                 continue
-            if index >= len(source_tables):
+            if index >= len(page.tables):
                 continue
 
             prompt = render_prompt(
@@ -175,7 +174,7 @@ class PdfMathEnricher:
                 prompt=prompt,
                 model=self.model,
                 max_tokens=self.table_max_tokens,
-                attachment=_table_attachment(source_page, source_tables[index], page.page_number, index),
+                attachment=_table_attachment(source, page.tables[index], page.page_number, index),
                 schema=FormulaTableExtraction,
                 attempts=self.attempts,
             )
@@ -194,20 +193,17 @@ class PdfMathEnricher:
             )
 
 
-def _page_attachment(page: PageView, page_number: int) -> Attachment:
-    pixmap = page.get_pixmap(dpi=PAGE_DPI, alpha=False)
+def _page_attachment(source: PdfiumDocument, page_number: int) -> Attachment:
     return Attachment(
-        data=pixmap.tobytes("png"),
+        data=source.render_png(page_number - 1, PAGE_DPI),
         media_type="image/png",
         name=f"page-{page_number}.png",
     )
 
 
-def _table_attachment(page: PageView, table: TableView, page_number: int, table_index: int) -> Attachment:
-    bbox = make_rect(table.bbox)
-    pixmap = page.get_pixmap(dpi=PAGE_DPI, clip=bbox, alpha=False)
+def _table_attachment(source: PdfiumDocument, table: PDFTableBox, page_number: int, table_index: int) -> Attachment:
     return Attachment(
-        data=pixmap.tobytes("png"),
+        data=source.render_png(page_number - 1, PAGE_DPI, clip=table.bbox),
         media_type="image/png",
         name=f"page-{page_number}-table-{table_index}.png",
     )

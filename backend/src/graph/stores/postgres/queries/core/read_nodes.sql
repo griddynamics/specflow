@@ -1,6 +1,8 @@
--- Spec nodes by label and attribute equality (:where; a null value requires
--- the property to be absent), with their provenance (the vectors are left
--- out).
+-- Spec nodes by label and attribute equality (:where), with their provenance
+-- (the vectors are left out). An absent property reads as its label's
+-- default: for a value, :defaulted names the labels whose default it is
+-- (absent matches); for null, the labels with any default (absent does not
+-- match), hence the <> (XOR) of the two tests.
 WITH picked AS (
     SELECT
         n.id,
@@ -21,7 +23,19 @@ WITH picked AS (
                 coalesce(n.props -> w.key = w.value, FALSE)
                 OR (
                     n.props -> w.key IS NULL
-                    AND w.value = cast('null' AS jsonb)
+                    AND (
+                        (
+                            n.labels && array(
+                                SELECT jsonb_array_elements_text(
+                                    coalesce(
+                                        cast(:defaulted AS jsonb) -> w.key,
+                                        cast('[]' AS jsonb)
+                                    )
+                                )
+                            )
+                        )
+                        <> (w.value = cast('null' AS jsonb))
+                    )
                 )
             )
         )

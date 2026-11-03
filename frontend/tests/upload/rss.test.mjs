@@ -2,7 +2,7 @@
 // and the frontend's peak RSS minus its warm baseline stays under a FIXED 128 MiB gate.
 // Measured on the built standalone server (never `next dev`), loopback-speed and slow
 // upstream cases, fresh process per run. The real API + GCS leg runs in S11/S13.
-// Ports 3230-3239. The 200 MiB file is generated here and deleted afterwards.
+// Ports 3230-3239 (3232: the stub issuer the app signs in against). The 200 MiB file is generated here and deleted afterwards.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
@@ -10,14 +10,16 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { frontendEnv, randomSecret, rssKiB, startFrontend } from "../support/servers.mjs";
+import { frontendEnv, rssKiB, startFrontend } from "../support/servers.mjs";
 import { startCountingUpstream } from "../support/counting-upstream.mjs";
-import { devLogin } from "../support/session.mjs";
+import { startOidcStack } from "../support/oidc-stack.mjs";
+import { oidcLogin } from "../support/session.mjs";
 
 const GATE_MIB = 128; // fixed (C28): a miss is reported to the owner, never relaxed
 const SIZE_MIB = 200;
 const FE_PORT = 3230;
 const UP_PORT = 3231;
+const ISSUER_PORT = 3232;
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "specflow-fe-upload-"));
 const bigFile = path.join(dir, "synthetic-200mib.pdf");
 let bigSha;
@@ -78,18 +80,13 @@ function post({ base, cookie, file, abortAfterMs }) {
 /** One fresh frontend + upstream: warm up, baseline, upload, sample RSS. */
 async function scenario({ label, throttleMiBps }) {
   const upstream = await startCountingUpstream({ port: UP_PORT, throttleMiBps });
+  const stack = await startOidcStack({ issuerPort: ISSUER_PORT });
   const fe = await startFrontend({
     port: FE_PORT,
-    env: frontendEnv(FE_PORT, {
-      APP_ENV: "local",
-      AUTH_MODE: "dev",
-      API_INTERNAL_URL: upstream.url,
-      SESSION_SECRET: randomSecret(),
-      AUTH_DEV_SIGNING_KEY: randomSecret(),
-    }),
+    env: frontendEnv(FE_PORT, { APP_ENV: "local", ...stack.env, API_INTERNAL_URL: upstream.url }),
   });
   try {
-    const jar = await devLogin(fe.base, "rss.user@example.test");
+    const jar = await oidcLogin(fe.base, "rss.user@example.test");
     const warmFile = path.join(dir, "warm.pdf");
     fs.writeFileSync(warmFile, Buffer.concat([Buffer.from("%PDF-1.7\n"), crypto.randomBytes(1024 * 1024)]));
     const warm = await post({ base: fe.base, cookie: jar.header(), file: warmFile });
@@ -116,6 +113,7 @@ async function scenario({ label, throttleMiBps }) {
   } finally {
     await fe.stop();
     await upstream.close();
+    await stack.close();
   }
 }
 
@@ -135,19 +133,14 @@ for (const i of [1, 2]) {
 
 test("AC-6.6: a client abort mid-upload destroys the upstream request", async () => {
   const upstream = await startCountingUpstream({ port: UP_PORT, throttleMiBps: 5 });
+  const stack = await startOidcStack({ issuerPort: ISSUER_PORT });
   const fe = await startFrontend({
     port: FE_PORT,
-    env: frontendEnv(FE_PORT, {
-      APP_ENV: "local",
-      AUTH_MODE: "dev",
-      API_INTERNAL_URL: upstream.url,
-      SESSION_SECRET: randomSecret(),
-      AUTH_DEV_SIGNING_KEY: randomSecret(),
-    }),
+    env: frontendEnv(FE_PORT, { APP_ENV: "local", ...stack.env, API_INTERNAL_URL: upstream.url }),
   });
   try {
     generate();
-    const jar = await devLogin(fe.base, "abort.user@example.test");
+    const jar = await oidcLogin(fe.base, "abort.user@example.test");
     await post({ base: fe.base, cookie: jar.header(), file: bigFile, abortAfterMs: 1500 });
     const deadline = Date.now() + 8000;
     while (!upstream.uploads.at(-1)?.aborted && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
@@ -157,5 +150,6 @@ test("AC-6.6: a client abort mid-upload destroys the upstream request", async ()
   } finally {
     await fe.stop();
     await upstream.close();
+    await stack.close();
   }
 });

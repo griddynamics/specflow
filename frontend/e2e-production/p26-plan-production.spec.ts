@@ -134,4 +134,24 @@ test.describe("P26 Plan page on production routes", { tag: "@production" }, () =
     await expect(screen(page)).toHaveAttribute(DATA_STAGE, "idle");
     await expect(create(page)).toBeVisible();
   });
+
+  // MCP-M10 U5: the switch is on the idle screen; Develop mounts the per-project tab; "Create PLAN" is still there and the stage stays idle
+  test("MCP-M10 U5: Stage 0 shows the Plan | Develop switch; Develop shows the project tab, Plan the table; the URL carries the view", async ({
+    page,
+    requests,
+  }) => {
+    const pid = await readyProject(page);
+    await openPlan(page, requests);
+    const switchGroup = page.getByRole("group", { name: "Plan view" });
+    await expect(switchGroup.getByRole("button", { name: "Plan", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await switchGroup.getByRole("button", { name: "Develop", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/projects/${pid}/plan\\?view=develop$`));
+    await expect(page.getByTestId("plan-develop")).toBeVisible();
+    await expect(screen(page)).toHaveAttribute(DATA_STAGE, "idle");
+    await page.reload();
+    await expect(page.getByTestId("plan-develop")).toBeVisible();
+    await switchGroup.getByRole("button", { name: "Plan", exact: true }).click();
+    await expect(screen(page).getByRole("table")).toBeVisible();
+    await expect(page.getByTestId("plan-develop")).toHaveCount(0);
+  });
 });

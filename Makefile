@@ -8,9 +8,9 @@ envval = $(shell sed -n 's/^$(1)=//p' "$(ENV_FILE)" 2>/dev/null | tail -n 1 | tr
 FRONTEND_PORT ?= $(or $(call envval,FRONTEND_PORT),3001)
 E2E_BASE_URL ?= $(or $(call envval,E2E_BASE_URL),http://localhost:$(FRONTEND_PORT))
 
-# Optional bundled services (D32): `make up WITH=temporal,langfuse` (either one, or both). Without
-# WITH the stack uses your own Temporal (TEMPORAL_ADDRESS, default host.docker.internal:7233 in
-# the containers) and your own Langfuse (LANGFUSE_BASE_URL and keys, empty = no tracing).
+# Optional bundled services (D32): `make up WITH=temporal,langfuse` (either one, or both). Keycloak is not
+# optional: it is always part of `make up` (docs/mcp-server/deployment.md#local-stack). Without WITH the stack uses your own Temporal
+# (TEMPORAL_ADDRESS, default host.docker.internal:7233 in the containers) and your own Langfuse (LANGFUSE_BASE_URL and keys, empty = no tracing).
 # down, ps and logs always cover every profile, so they act on what `up` started.
 comma := ,
 space := $(empty) $(empty)
@@ -127,47 +127,49 @@ COMPOSE_ALL := env COMPOSE_PROFILES=$(subst $(space),$(comma),$(strip $(WITH_PRO
 # `env -u VIRTUAL_ENV`: the kit tools run in the kit's own environments, not a shell's active venv.
 VALIDATION := $(CURDIR)/validation
 VALIDATE_REPORTS ?= $(CURDIR)/.validation-reports
-VALIDATE_TRACKS := python-lint python-scripts python-arch cypher sql typescript-lint typescript-scripts
+VALIDATE_TRACKS := python-lint python-scripts python-arch cypher sql licences typescript-lint typescript-scripts
 VALIDATE_TARGETS := $(addprefix validate-,$(VALIDATE_TRACKS))
 KIT_ENV := env -u VIRTUAL_ENV
 
 .PHONY: validate validate-list validate-install validate-install-python validate-install-python-clones validate-install-typescript validate-selftest validate-ci-selftest $(VALIDATE_TARGETS)
 
 # Python targets run in backend/ (ENV_FILE is passed down); compose is root-only.
-BACKEND_TARGETS := setup lint unit-test check test-graph-live \
-	db-upgrade db-revision \
+BACKEND_TARGETS := setup models lint unit-test check test-graph-live \
+	db-upgrade db-revision mcp-manifest \
 	api worker temporal-check rss-test
 
-.PHONY: $(BACKEND_TARGETS) env-local up down down-volumes logs ps images \
+.PHONY: $(BACKEND_TARGETS) env-local check-keycloak-env up down down-volumes logs ps images \
 	frontend-setup frontend-dev frontend-lint frontend-build e2e e2e-production e2e-all
 
 $(BACKEND_TARGETS):
 	$(MAKE) --no-print-directory -C backend ENV_FILE=$(ENV_FILE) $@
 
-# Writes the env file with random local secrets (Postgres, the graph store, dev login and session keys,
-# RustFS keys). Does nothing when the file exists: it never overwrites and never prints a value.
+# Writes the env file with random local secrets and asks for the settings it cannot generate; safe to run
+# again, it never overwrites or prints a value. The logic lives in scripts/env-local.sh (see its header).
 # `make env-local ENV_FILE=/path` writes there instead.
-ENV_LOCAL_NAMES := POSTGRES_ADMIN_PASSWORD DATABASE_PASSWORD DATABASE_AGENT_PASSWORD GRAPH_STORE_PASSWORD \
-	AUTH_DEV_SIGNING_KEY SESSION_SECRET RUSTFS_ACCESS_KEY RUSTFS_SECRET_KEY
-
 env-local:
-	@if [ -e "$(ENV_FILE)" ]; then echo "env-local: $(ENV_FILE) exists, left unchanged"; exit 0; fi; \
-	command -v openssl >/dev/null || { echo "env-local: openssl not found" >&2; exit 1; }; \
-	umask 077; tmp="$(ENV_FILE).tmp.$$$$"; : > "$$tmp"; \
-	for name in $(ENV_LOCAL_NAMES); do \
-		case $$name in RUSTFS_ACCESS_KEY) bytes=10;; *) bytes=32;; esac; \
-		printf '%s=%s\n' "$$name" "$$(openssl rand -hex $$bytes)" >> "$$tmp"; \
-	done; \
-	ln "$$tmp" "$(ENV_FILE)" 2>/dev/null && rm -f "$$tmp" || { rm -f "$$tmp"; echo "env-local: $(ENV_FILE) exists, left unchanged"; exit 0; }; \
-	echo "env-local: wrote $(ENV_FILE) ($(ENV_LOCAL_NAMES))"; \
-	echo "env-local: add AGENT_MODEL, LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY to $(ENV_FILE) (docs/configuration.md)"
+	@sh "$(CURDIR)/scripts/env-local.sh" write "$(ENV_FILE)"
+
+# `make up` stops here, before compose, when the env file lacks a name the Keycloak realm is imported from or
+# holds an unusable LOCAL_TEST_USER_EMAIL (scripts/env-local.sh check-keycloak). Names only, never a value.
+check-keycloak-env:
+	@sh "$(CURDIR)/scripts/env-local.sh" check-keycloak "$(ENV_FILE)"
 
 # Needs Docker Compose 2.24 or later (`!reset` of WITH=postgres; `required: false` needs 2.20).
 # Build and start the stack and wait until all services are healthy: postgres, the graph store (neo4j;
 # `WITH=arcadedb` starts arcadedb and arcadedb-init instead, `WITH=postgres` no server: the graph lives in
-# postgres), rustfs, rustfs-init, api, worker-parse, worker-agents, frontend. `WITH=temporal,langfuse` adds the
-# bundled Temporal and Langfuse. Logs are JSON on stdout only (`make logs`).
-up:
+# postgres), rustfs, rustfs-init, keycloak (the realm is imported from the env file), api, mcp, worker-parse,
+# worker-agents, frontend. `WITH=temporal,langfuse` adds the bundled Temporal and Langfuse. Logs are JSON on
+# stdout only (`make logs`).
+# An env file written before GRAPH_STORE_PASSWORD existed has only NEO4J_PASSWORD. The services fall back to it in
+# docker-compose.yml; the ArcadeDB root password secret is read from the environment, so it gets the same fallback here
+# (exported to the recipe, never printed).
+ifeq ($(call envval,GRAPH_STORE_PASSWORD),)
+ifneq ($(call envval,NEO4J_PASSWORD),)
+up: export GRAPH_STORE_PASSWORD = $(call envval,NEO4J_PASSWORD)
+endif
+endif
+up: check-keycloak-env
 	$(COMPOSE) up -d --build --wait --wait-timeout 600
 
 # Stops and removes the containers. The volumes (databases) stay; use `down-volumes` to drop them.
@@ -190,9 +192,9 @@ logs:
 ps:
 	$(COMPOSE_ALL) ps
 
-# Build the api, worker and frontend images, then run the image tests against them.
+# Build the api, worker-parse, worker-agents and frontend images, then run the image tests against them.
 images:
-	$(COMPOSE) build api worker-parse frontend
+	$(COMPOSE) build api worker-parse worker-agents frontend
 	$(MAKE) --no-print-directory -C backend ENV_FILE=$(ENV_FILE) image-test
 
 # Frontend on the host with live reload (stop the `frontend` container first: same port).
@@ -219,7 +221,7 @@ frontend-build:
 
 # Playwright against the running stack (the live pack: needs `make up` and spends model budget, so CI never runs it).
 e2e:
-	E2E_BASE_URL=$(E2E_BASE_URL) npm --prefix frontend run e2e
+	E2E_BASE_URL=$(E2E_BASE_URL) E2E_ENV_FILE=$(ENV_FILE) npm --prefix frontend run e2e
 
 # The offline browser pack, as the e2e-production job of .github/workflows/validate.yaml runs it: against
 # the BUILT app (`make frontend-build` first) and a stub API, never the real backend. SHARD=i/N runs one shard
@@ -244,11 +246,11 @@ e2e-all:
 # ---- Validation ---------------------------------------------------------------------------
 # make validate                           every track, keeps going after a failure, lists the failed ones
 # make validate TRACKS="python-lint sql"  a subset
-# make validate-<track>                   one track: python-lint python-scripts python-arch cypher sql typescript-lint typescript-scripts
+# make validate-<track>                   one track: python-lint python-scripts python-arch cypher sql licences typescript-lint typescript-scripts
 # make validate-install                   install the kit tools (uv sync / npm install); once, and after a kit update
 # make validate-install-python-clones     only the jscpd engine of validate-python-scripts' clones step (Node.js 24)
 # make validate-selftest                  the kit's own tests (only after editing a kit rule)
-# make validate-ci-selftest               the CI report script's tests (after editing validation/ci)
+# make validate-ci-selftest               the CI report and licence gate scripts' tests (after editing validation/ci)
 # KIT_SKIP="mypy deptry" make validate-python-lint   skip steps of python-lint (names: validation/python/lint/README.md)
 # The kit is zero-baseline: any finding fails the target. Exit status 0 clean, non-zero findings.
 TRACKS ?= $(VALIDATE_TRACKS)
@@ -301,6 +303,13 @@ validate-cypher:
 validate-sql:
 	$(KIT_ENV) sh $(VALIDATION)/run-all.sh --project backend --tracks sql
 
+# Licence gate G6 (validation/ci/licence_gate.py, input backend/licence-gate.toml): the locked dependency set of
+# each image (api, worker-agents, worker-parse) is synced into a scratch environment, no Docker, and checked
+# against the licence allowlist; pymupdf, pymupdf4llm and pymupdf-layout must be absent; NOTICE must name the
+# parse components. It needs uv, network access to the package indexes (or a warm uv cache) and Python 3.11+.
+validate-licences:
+	$(KIT_ENV) python3 $(VALIDATION)/ci/licence_gate.py --config backend/licence-gate.toml
+
 # Frontend: ESLint/Prettier/stylelint/tsc/knip/semgrep, then the token, contrast, CSS and clone
 # checks. tsc needs Next's generated types (`npx next typegen`, part of `make frontend-setup` flow).
 validate-typescript-lint:
@@ -330,6 +339,6 @@ validate-install-typescript:
 validate-selftest: validate-ci-selftest
 	$(KIT_ENV) sh $(VALIDATION)/run-all.sh --selftest --tracks python-lint,python-scripts,python-arch,cypher,sql,typescript-lint,typescript-scripts
 
-# The CI report script's own tests (validation/ci/test_ci_report.py), in the python-lint kit's pytest.
+# The CI report and licence gate scripts' own tests (validation/ci/test_*.py), in the python-lint kit's pytest.
 validate-ci-selftest:
 	$(KIT_ENV) uv run --project $(VALIDATION)/python/lint pytest -q -p no:cacheprovider $(VALIDATION)/ci

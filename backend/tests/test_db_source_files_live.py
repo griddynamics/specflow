@@ -46,9 +46,9 @@ ITEM_SCENARIOS: list[tuple[str, str, str | None, str | None, str | None, timedel
         for s in ("pending", "processing", "processed", "stored", "skipped")
     ],
     *[(f"err-{r}", "error", r, None, None, None, False) for r in ERROR_REASONS],
-    ("hold-uploaded-59", "pending", None, "uploaded", None, timedelta(minutes=59), True),
-    ("hold-uploaded-61", "pending", None, "uploaded", None, timedelta(minutes=61), True),
-    ("hold-uploaded-61-parse", "pending", None, "uploaded", "pdf_parse_failed", timedelta(minutes=61), True),
+    ("hold-uploaded-249", "pending", None, "uploaded", None, timedelta(minutes=249), True),
+    ("hold-uploaded-251", "pending", None, "uploaded", None, timedelta(minutes=251), True),
+    ("hold-uploaded-251-parse", "pending", None, "uploaded", "pdf_parse_failed", timedelta(minutes=251), True),
     ("hold-processing-fresh", "pending", None, "processing", None, FRESH, True),
     ("hold-processing-stale", "pending", None, "processing", None, STALE, True),
     ("hold-processing-stale-parse", "pending", None, "processing", "pdf_parse_failed", STALE, True),

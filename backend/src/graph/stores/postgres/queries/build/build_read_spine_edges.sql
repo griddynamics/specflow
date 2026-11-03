@@ -1,11 +1,13 @@
--- Spine reachability: the spine-relation edges between spec nodes of the
--- project, with their basis.
+-- Spine reachability and realization walks: the edges of :relations between
+-- spec nodes of the project, with their basis and, for an inferred edge, the
+-- rule that wrote it.
 WITH found AS (
     SELECT
         r.rel_type AS relation,
         s.uuid AS source,
         t.uuid AS target,
-        coalesce(r.props ->> 'basis', 'stated') AS basis
+        coalesce(r.props ->> 'basis', 'stated') AS basis,
+        r.props ->> 'inference_rule' AS inference_rule
     FROM graph.edge AS r
     INNER JOIN graph.node AS s ON r.source_id = s.id
     INNER JOIN graph.node AS t ON r.target_id = t.id
@@ -23,6 +25,7 @@ SELECT
     relation,
     source,
     target,
-    basis
+    basis,
+    inference_rule
 FROM found
 ORDER BY relation COLLATE "C", source COLLATE "C", target COLLATE "C"

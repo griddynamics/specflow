@@ -1,12 +1,12 @@
-# Hand-written model answers for a `first` build of shop snapshot 1 (tech-specs 9.1-9.2).
+# Hand-written model answers for a `first` build of shop snapshot 1.
 #
-# Nothing here was recorded from a model (owner decision P3): every entity, fact, attribute and
+# Nothing here was recorded from a model: every entity, fact, attribute and
 # verdict is written by hand as a careful extractor would answer. `graph_support.ShopAnswers` reads
 # this file and answers each request by what it is about, never by its text:
 #
-# - node extraction by the fragments of the call's window, edges by the fragments of the unit,
-#   attributes by node name, the hub catalog by the titles of its batch, hub consolidation by the
-#   names in its block, requirement dedup by the name pair;
+# - node extraction by the fragments of the call's window (the hub pass takes the window's hubs, the
+#   statement pass the rest), edges by the fragments of the unit, attributes by node name, hub
+#   consolidation by the names in its block, requirement dedup by the name pair;
 # - fragments are named by handles (breadcrumb, start of the first body line, occurrence);
 # - edges and attributes name nodes as the requests show them: after Resolve, so an explicit-id node
 #   appears without its leading id ("System can show every basket line ..." for FR-CHK-001) and the
@@ -18,16 +18,18 @@
 # - explicit ids FR-CHK-001..006, FR_CHK_006 written with underscores, FR-CHK-005 extracted as a
 #   QualityRequirement (its FR id family wins the label);
 # - a cross-document link: the admin.md date-range requirement PART_OF "Order history export",
-#   the feature orders.md defines (FR-BLD-21);
+#   the feature orders.md defines;
 # - a reversed edge in two places (Orders database REALIZED_BY Audit logging; Checkout service
 #   PART_OF a quality requirement), an illegal edge (Authentication RELATES_TO Audit logging);
 # - a requirement dedup pair across documents, judged the same commitment (dedup_adjudicate);
 # - a hub alias pair, "Audit trail" and "Audit logging", merged by hub consolidation;
 # - one node window (orders.md, second "Export details" fragment) answering malformed output, so
-#   that fragment is skipped and the build ends `partially_succeeded` (FR-BLD-11);
+#   that fragment is skipped and the build ends `partially_succeeded`;
 # - an implied RELATES_TO from "see FR-CHK-002" in a quote, an implied PART_OF from a `module`
 #   attribute;
 # - notes.md, with the prompt-injection line, yields no entity (so its unit makes no edge call);
+# - the hub pass gives the ERP its other name "enterprise resource planning system" (the text states
+#   it), so the hub catalog holds it as an alias and the known terms show it ("also:");
 # - declared nearness (`related`) puts the hubs admin.md and "Export details" link by meaning into
 #   their edge catalogs.
 
@@ -90,34 +92,13 @@ fragments:
   ov.arch: ["Acme Shop - System Overview > Architecture", "The modules interact as follows."]
   ov.glossary: ["Acme Shop - System Overview > Glossary", "- Basket: the list of products"]
 
-# One batch: every outline fits the small model. Basket review is not in any outline (its heading is
-# folded into the "Features" fragment), so the catalog does not list it.
-hub_catalog:
-  - documents:
-      - Acme Shop - System Overview
-      - Admin console Requirements
-      - Checkout service Requirements
-      - Orders service Requirements
-      - Weekly sync notes
-    hubs:
-      - [Checkout service, Module]
-      - [Orders service, Module]
-      - [Orders database, Module]
-      - [ERP, Module]
-      - [Stripe, Module]
-      - [Authentication, Capability]
-      - [Audit logging, Capability]
-      - [Payment flow, Feature]
-      - [Order confirmation, Feature]
-      - [Order history export, Feature]
-
 nodes:
   - window: [ov.intro, ov.scope, ov.checkout, ov.orders, ov.db, ov.erp, ov.stripe]
     entities:
       - [Checkout service, Module, [ov.checkout]]
       - [Orders service, Module, [ov.orders]]
       - [Orders database, Module, [ov.db]]
-      - [ERP, Module, [ov.erp]]
+      - [ERP, Module, [ov.erp], null, [enterprise resource planning system]]
       - [Stripe, Module, [ov.stripe]]
       - [System cannot store full card numbers, FunctionalRequirement, [ov.stripe]]
   - window: [ov.auth, ov.audit, ov.arch, ov.glossary]
@@ -249,7 +230,7 @@ edges:
       - [System can send the confirmed order to Orders service within 5 seconds, PART_OF, Order confirmation, "- FR-CHK-005: The Checkout service must send the confirmed order to the Orders service within 5 seconds of a successful payment.", [chk.confirm]]
       - [System can send the confirmed order to Orders service within 5 seconds, RELATES_TO, Orders service, "- FR-CHK-005: The Checkout service must send the confirmed order to the Orders service within 5 seconds of a successful payment.", [chk.confirm]]
       - [System can display an order number on the confirmation page, PART_OF, Order confirmation, "- FR_CHK_006: The Checkout service must display an order number on the confirmation page.", [chk.confirm]]
-      # reversed: a module is not PART_OF a requirement; Conform flips it (FR-BLD-09)
+      # reversed: a module is not PART_OF a requirement; Conform flips it
       - [Checkout service, PART_OF, Pay now responds within 800 ms at p95 under 200 concurrent checkouts, "The Checkout service must respond to the \"Pay now\" action with a p95 latency of at most 800 ms under a load of 200 concurrent checkouts, measured at the service boundary and excluding the time spent inside Stripe.", [chk.quality]]
       - ["Order over $1,000: needs manager approval", PART_OF, Checkout service, "Orders with a total over $1,000 need manager approval before they are confirmed.", [chk.rules]]
       - [System can record the manager approval as an audit event, PART_OF, Checkout service, "The approval is recorded as an audit event and the customer is told that the order is awaiting approval.", [chk.rules]]
@@ -286,7 +267,7 @@ edges:
 
   - unit: [adm.intro, adm.finance, adm.retention, adm.access, adm.scope, adm.screens, adm.questions]
     facts:
-      # cross-document: admin.md never names the feature; orders.md defines it (FR-BLD-21)
+      # cross-document: admin.md never names the feature; orders.md defines it
       - [System can default the date range to the last full month, PART_OF, Order history export, "- The screen must let staff pick a date range, and the range must default to the last full month.", [adm.finance]]
       - [Staff can download past orders as a CSV file, PART_OF, Order history export, "- Staff users must be able to download the list of past orders as a CSV file.", [adm.finance]]
       - [System can record every order file download, GROUPED_BY, Audit logging, "- Every download must be recorded so that it can be reviewed later.", [adm.finance]]
@@ -546,7 +527,7 @@ synonyms:
 # nearness only at cosine >= max(0.40, 0.8 x the fragment's best foreign hub)). A real embedding model
 # puts these fragments near the hubs they talk about without naming them; hash-seeded vectors are
 # nearly orthogonal, so the relations are declared and every other hub stays below the floor:
-# - admin.md never names "Order history export", "Audit logging" or "Authentication" (FR-BLD-21);
+# - admin.md never names "Order history export", "Audit logging" or "Authentication";
 # - the second orders.md unit ("Export details") does not name the feature either.
 related:
   - anchor: "Feature: Order history export"

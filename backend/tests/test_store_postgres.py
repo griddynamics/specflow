@@ -100,8 +100,8 @@ def test_the_sql_folders_hold_exactly_the_templates_fragments_and_settings() -> 
 def test_the_catalog_has_core_and_build_templates_of_which_postgres_runs_all_but_the_cypher_only_ones() -> None:
     all_core = {name for name in (*cypher._STATIC, *cypher._RENDERERS) if name.startswith("core.")}
     all_build = {name for name in (*cypher._STATIC, *cypher._RENDERERS) if name.startswith("build.")}
-    assert (len(all_core), len(all_build)) == (39, 39)
-    assert len(templates()) == 37 + 39
+    assert (len(all_core), len(all_build)) == (42, 42)
+    assert len(templates()) == 40 + 42
     assert (all_core | all_build) - templates() == CYPHER_ONLY
 
 
@@ -135,9 +135,8 @@ def catalog_queries() -> list[Query]:
         build_queries.infer_delete_edges("REALIZED_BY"),
         build_queries.infer_endpoint_subjects(("PART_OF", "RELATES_TO"), ("RELATES_TO",), mentions=True),
         build_queries.infer_endpoint_subjects(("PART_OF",), (), mentions=False),
-        build_queries.infer_realization_subjects(
-            "GROUPED_BY", "PART_OF", member_symmetric=False, container_symmetric=True, max_hops=2
-        ),
+        build_queries.infer_realization_subjects("GROUPED_BY", "PART_OF*1..2", ("PART_OF",), member_symmetric=False),
+        build_queries.infer_realization_subjects("GROUPED_BY", "PART_OF>PROVIDED_BY", (), member_symmetric=True),
         build_queries.infer_similar_targets("REALIZED_BY", symmetric=True),
     ]
     return [query for query in queries if query.template not in CYPHER_ONLY]
@@ -184,9 +183,16 @@ def test_every_catalog_query_plans_one_statement_binding_the_project_id() -> Non
 def test_a_scoped_statement_binds_the_project_id_and_unscoped_ones_do_not_need_it() -> None:
     dialect = PostgresDialect()
     plan = dialect.plan(
-        core_queries.READ_NODES, {"project_id": "p", "labels": ["L"], "where": {"a": "b"}, "retired": "r"}
+        core_queries.READ_NODES,
+        {"project_id": "p", "labels": ["L"], "where": {"a": "b"}, "defaulted": {"a": ["L"]}, "retired": "r"},
     )
-    assert plan.statements[0].params == {"project_id": "p", "labels": ["L"], "where": '{"a":"b"}', "retired": "r"}
+    assert plan.statements[0].params == {
+        "project_id": "p",
+        "labels": ["L"],
+        "where": '{"a":"b"}',
+        "defaulted": '{"a":["L"]}',
+        "retired": "r",
+    }
     ping = dialect.plan(core_queries.PING, {})
     assert ping.statements[0].params == {}
 
@@ -298,6 +304,7 @@ def test_the_fulltext_term_list_is_derived_from_the_lucene_string() -> None:
         "query": "pay  card checkout",
         "labels": [],
         "where": {},
+        "defaulted": {},
         "skip": 0,
         "page": 5,
     }
@@ -318,6 +325,7 @@ def test_a_vector_search_sets_the_plan_cache_mode_and_the_hnsw_settings_before_i
         "vector": [0.1] * 12,
         "labels": ["L"],
         "where": {},
+        "defaulted": {},
         "limit": 5,
         "k": 7,
     }

@@ -1,11 +1,18 @@
 -- Infer (realization): each subject node with its members and the container
--- nodes reached from them by 1 to HOPS container-relation edges; subjects
--- without any container are left out. Parameters: member_type, container_type
--- (bind values), subject_labels, target_labels, bases (text[]). The slots
--- MEMBER_SYMMETRIC and CONTAINER_SYMMETRIC are boolean literals (TRUE: the
--- relation is walked either way; default FALSE), HOPS the hop count (default
--- 3). Rows: uuid, spec_id, members (sorted uuids) and containers (a JSON list
--- of uuid and via, by uuid); ordered by spec_id, uuid.
+-- nodes reached from them by one container path, each with the members it is
+-- reached from; subjects without any container are left out. A rule with
+-- several container paths runs this once per path (graph.build.infer).
+-- Parameters: member_type (bind value), container_types (text[]: the path's
+-- relations), container_either (boolean[]: per edge of the walk, whether it
+-- may be walked either way), subject_labels, target_labels, bases (text[]).
+-- The slot MEMBER_SYMMETRIC is a boolean literal (TRUE: the member relation is
+-- walked either way; default FALSE). SEQUENCE is a boolean literal: TRUE, the
+-- path is one edge of each relation of container_types in order (through spec
+-- nodes); FALSE (the default), MIN_HOPS to MAX_HOPS edges of any of them.
+-- MIN_HOPS and MAX_HOPS are the hop bounds (default 1 and 3; a sequence has
+-- both equal to its length). Every edge of the path is stated or implied and
+-- used once. Rows: uuid, spec_id, members (sorted uuids) and containers (a
+-- JSON list of uuid and via, by uuid); ordered by spec_id, uuid.
 WITH RECURSIVE subj AS (
     SELECT
         n.id,
@@ -80,7 +87,12 @@ walk (sid, mid, node_id, depth, edge_ids) AS (
             FROM graph.edge AS e
             WHERE
                 e.source_id = w.node_id
-                AND e.rel_type = :container_type
+                AND e.rel_type = any(cast(:container_types AS text[]))
+                AND (
+                    NOT /*__SEQUENCE__*/FALSE/*__SEQUENCE__*/
+                    OR e.rel_type
+                    = (cast(:container_types AS text[]))[w.depth + 1]
+                )
                 AND e.group_id = :project_id
                 AND coalesce(e.props ->> 'basis', 'stated')
                 = any(cast(:bases AS text[]))
@@ -90,17 +102,31 @@ walk (sid, mid, node_id, depth, edge_ids) AS (
                 e.source_id AS next_id
             FROM graph.edge AS e
             WHERE
-            /*__CONTAINER_SYMMETRIC__*/FALSE/*__CONTAINER_SYMMETRIC__*/
+                (cast(:container_either AS boolean[]))[w.depth + 1]
                 AND e.target_id = w.node_id
                 AND e.source_id <> e.target_id
-                AND e.rel_type = :container_type
+                AND e.rel_type = any(cast(:container_types AS text[]))
+                AND (
+                    NOT /*__SEQUENCE__*/FALSE/*__SEQUENCE__*/
+                    OR e.rel_type
+                    = (cast(:container_types AS text[]))[w.depth + 1]
+                )
                 AND e.group_id = :project_id
                 AND coalesce(e.props ->> 'basis', 'stated')
                 = any(cast(:bases AS text[]))
         ) AS hop
     WHERE
-        w.depth < /*__HOPS__*/3/*__HOPS__*/
+        w.depth < /*__MAX_HOPS__*/3/*__MAX_HOPS__*/
         AND NOT (hop.edge_id = any(w.edge_ids))
+        AND (
+            NOT /*__SEQUENCE__*/FALSE/*__SEQUENCE__*/
+            OR w.depth + 1 = /*__MAX_HOPS__*/3/*__MAX_HOPS__*/
+            OR EXISTS (
+                SELECT 1
+                FROM graph.node AS x
+                WHERE x.id = hop.next_id AND x.kind = 'spec'
+            )
+        )
 ),
 
 reached AS (
@@ -112,7 +138,7 @@ reached AS (
     INNER JOIN graph.node AS c ON w.node_id = c.id
     INNER JOIN graph.node AS m ON w.mid = m.id
     WHERE
-        w.depth >= 1
+        w.depth >= /*__MIN_HOPS__*/1/*__MIN_HOPS__*/
         AND c.id <> w.sid
         AND c.group_id = :project_id
         AND c.kind = 'spec'

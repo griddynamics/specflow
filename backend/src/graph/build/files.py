@@ -1,22 +1,4 @@
-"""File implementations of the build ports, rooted at a directory the host passes (api.md "Ports").
-
-Layout under the root given to ``open_file_stores`` (tech-specs 5.1):
-
-- ``<root>/<project_id>/spec-ids.json``: the core ``FileSpecIdRegistry``;
-- ``<root>/<project_id>/builds/<build_id>/{build,result,<step>}.json.gz``: build records, results and
-  step artifacts;
-- ``<root>/<project_id>/corpus-index.json``: versions of the lineages ``FileCorpusSource`` has seen;
-- ``<root>/_extraction/<kind>/<sha256(key)>.json.gz``: reusable extraction results. The
-  ``ExtractionStore`` port carries no project id, so these are shared by the projects under the root;
-  ``_`` cannot start a project id, so the folder never collides with a project.
-
-Every file is written atomically through ``graph.core.files.write_atomic``; ``.json.gz`` files are
-gzip JSON without a timestamp. This is the only build module that touches the disk (architecture.md
-I5). I/O failures raise ``InfrastructureUnavailableError``, except in the extraction store, which is a
-cache: an unreadable or corrupt entry is a miss (logged); ``get_many`` reads a batch in one pass and
-``put_many`` writes one without an fsync per file (a file torn by a crash fails its gzip check and
-reads as a miss). Kind ``vectors`` holds one embedding per distinct text (``graph.build.vectors``).
-"""
+"""File implementations of the build ports, rooted at a directory the host passes."""
 
 from __future__ import annotations
 
@@ -273,16 +255,7 @@ def _list_folders(folder: Path) -> list[str]:
 
 
 class FileCorpusSource:
-    """``CorpusSource`` over a folder: every ``.md`` file under it is one lineage.
-
-    ``lineage_id`` and ``path`` are the file's path relative to the folder (POSIX); ``revision_id`` is
-    the sha256 of its bytes; ``version`` starts at 1 and increments whenever the content hash
-    changes, tracked in ``<index_root>/<project_id>/corpus-index.json``; ``title`` is the first
-    heading, else the file name without its extension. Files and folders whose name starts with ``.``
-    are ignored. Document order is the order of the relative paths. An unreadable file or one that
-    is not UTF-8 raises ``CorpusError``. ``snapshot(..., dry_run=True)`` computes the same versions
-    without writing the index (``estimate_build``).
-    """
+    """``CorpusSource`` over a folder: every ``.md`` file under it is one lineage."""
 
     def __init__(self, folder: Path, index_root: Path) -> None:
         self._folder = Path(folder)

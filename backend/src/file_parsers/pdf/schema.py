@@ -22,7 +22,7 @@ class PDFFigure(BaseModel):
     latex: str | None = Field(default=None, description="LaTeX for a displayed equation")
     latex_confidence: str | None = Field(default=None, description="high | medium | low")
     latex_model: str | None = Field(default=None, description="Model that produced the LaTeX")
-    latex_prompt_version: str | None = Field(default=None, description="Prompt id and version that produced the LaTeX")
+    latex_prompt_version: str | None = Field(default=None, description="Prompt id that produced the LaTeX")
     latex_uncertain_tokens: list[str] = Field(
         default_factory=list,
         description="Mathematical tokens that require human review",
@@ -35,14 +35,27 @@ class PDFFigure(BaseModel):
     mermaid_model: str | None = Field(default=None, description="Model that produced the Mermaid source")
     mermaid_prompt_version: str | None = Field(
         default=None,
-        description="Prompt id and version that produced the Mermaid source",
+        description="Prompt id that produced the Mermaid source",
     )
     mermaid_uncertain_labels: list[str] = Field(
         default_factory=list,
         description="Source labels that were preserved literally but are ambiguous",
     )
     model: str | None = Field(default=None, description="Model that produced the description")
-    prompt_version: str | None = Field(default=None, description="Prompt id and version that produced the description")
+    prompt_version: str | None = Field(default=None, description="Prompt id that produced the description")
+
+
+class PDFTableBox(BaseModel):
+    """Where one table sits on its page, in the order of the page's Markdown tables."""
+
+    x0: float = Field(description="Left edge in PDF points, origin at the top left of the page")
+    y0: float = Field(description="Top edge in PDF points")
+    x1: float = Field(description="Right edge in PDF points")
+    y1: float = Field(description="Bottom edge in PDF points")
+
+    @property
+    def bbox(self) -> tuple[float, float, float, float]:
+        return (self.x0, self.y0, self.x1, self.y1)
 
 
 class PDFTableReplacement(BaseModel):
@@ -54,13 +67,17 @@ class PDFTableReplacement(BaseModel):
     confidence: str = Field(description="high | medium | low")
     uncertain_cells: list[str] = Field(default_factory=list, description="Cells that require human review")
     model: str = Field(description="Model that produced the table")
-    prompt_version: str = Field(description="Prompt id and version")
+    prompt_version: str = Field(description="Prompt id")
 
 
 class PDFPageContent(BaseModel):
     page_number: int = Field(description="The page number of the document")
     markdown: str = Field(description="Cleaned markdown for this page")
     figures: list[PDFFigure] = Field(description="Figures rendered from this page")
+    tables: list[PDFTableBox] = Field(
+        default_factory=list,
+        description="Boxes of the tables the engine found, in the order of the Markdown tables",
+    )
     table_replacements: list[PDFTableReplacement] = Field(default_factory=list)
     math_markdown: str | None = Field(
         default=None,
@@ -68,9 +85,7 @@ class PDFPageContent(BaseModel):
     )
     math_confidence: str | None = Field(default=None, description="high | medium | low")
     math_model: str | None = Field(default=None, description="Model that produced math_markdown")
-    math_prompt_version: str | None = Field(
-        default=None, description="Prompt id and version that produced math_markdown"
-    )
+    math_prompt_version: str | None = Field(default=None, description="Prompt id that produced math_markdown")
     math_uncertain_regions: list[str] = Field(
         default_factory=list,
         description="Page regions that require human review",

@@ -52,7 +52,7 @@ async def test_parse_marks_processing_then_starts_the_named_workflow(harness):
     assert call["id"] == f"doc-parse-{did}" and call["task_queue"] == "specflow-parse"
     assert call["id_conflict_policy"] == WorkflowIDConflictPolicy.USE_EXISTING
     assert call["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE
-    assert call["execution_timeout"] == timedelta(minutes=60)
+    assert call["execution_timeout"] == timedelta(minutes=250)
     assert (str(call["arg"].project_id), str(call["arg"].document_id)) == (pid, did)
 
 

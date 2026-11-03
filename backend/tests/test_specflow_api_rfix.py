@@ -60,8 +60,8 @@ async def test_the_four_mutation_events_log_the_acting_user_and_no_email_or_toke
     assert headers["Authorization"].split()[1] not in caplog.text
 
 
-async def test_the_store_is_closed_when_the_api_runtime_shuts_down(monkeypatch, valid_env):
-    """R-code LOW 8: ``build_runtime`` pushes ``store.close`` on its exit stack."""
+def stub_runtime_services(monkeypatch) -> list[str]:
+    """Engine, Neo4j driver, store and Temporal of ``build_runtime`` as stubs; returns the close order."""
 
     order: list[str] = []
 
@@ -95,7 +95,13 @@ async def test_the_store_is_closed_when_the_api_runtime_shuts_down(monkeypatch, 
     monkeypatch.setattr(runtime_module, "build_store", lambda _config: GraphStore())
     monkeypatch.setattr("storage.factory.build_object_store", Store)
     monkeypatch.setattr(temporal_module, "open_connection", open_connection)
+    return order
 
+
+async def test_the_store_is_closed_when_the_api_runtime_shuts_down(monkeypatch, valid_env):
+    """R-code LOW 8: ``build_runtime`` pushes ``store.close`` on its exit stack."""
+
+    order = stub_runtime_services(monkeypatch)
     runtime = await runtime_module.build_runtime(load_settings("api", valid_env))
     assert order == []
     await runtime.aclose()
@@ -103,6 +109,19 @@ async def test_the_store_is_closed_when_the_api_runtime_shuts_down(monkeypatch, 
 
     assert sorted(order) == ["engine", "graph", "store", "tracing"]
     assert order.index("store") < order.index("engine")
+
+
+async def test_an_api_without_graph_models_logs_at_start_that_the_graph_build_is_off(monkeypatch, valid_env, caplog):
+    """CTORNDGAIN-2247: Build knowledge answers 503 until a graph model is set; the start says so."""
+
+    stub_runtime_services(monkeypatch)
+    with caplog.at_level("INFO"):
+        runtime = await runtime_module.build_runtime(load_settings("api", valid_env))
+    await runtime.aclose()
+
+    [disabled] = events(caplog, "api.graph_build.disabled")
+    assert fields(disabled)["missing"] == ["GRAPH_LLM_MODEL", "GRAPH_SMALL_MODEL", "GRAPH_EMBEDDING_MODEL"]
+    assert runtime.graph_builds is None
 
 
 class FakeBucketClient:

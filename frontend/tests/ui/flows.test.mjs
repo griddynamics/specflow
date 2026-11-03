@@ -1,44 +1,35 @@
 // P17 s06 (FE-BP-09.AC1, D09): the hello UI tests ported to the new screens on the production routes. UI behaviour (AC-12.2,
-// AC-12.3, AC-6.5 login form, AC-6.7 logout; FE-BP-03, FE-BP-08) driven with the already installed Playwright chromium against the
-// BUILT server + stub API (no backend, no model call). Ports 3213-3214. Time-dependent checks use Playwright's fake clock.
+// AC-12.3, AC-6.5 OIDC sign-in, AC-6.7 logout; FE-BP-03, FE-BP-08) driven with the already installed Playwright chromium against the
+// BUILT server, the stub issuer + stub API (no backend, no model call). Ports 3213-3216. Time-dependent checks use Playwright's fake clock.
 // Mapping (TECH-SPECS §1.7): `/` project list + create form -> `/` (newest project or the empty state) + the "New" modal;
 // `/projects/<id>` upload -> Mission Control, now the sources screen (GDRIVE plan 07): Local files card, parse on the server.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { chromium } from "@playwright/test";
-import { frontendEnv, randomSecret, startFrontend } from "../support/servers.mjs";
-import { startStubApi } from "../support/stub-api.mjs";
-import { devLogin } from "../support/session.mjs";
+import { frontendEnv, startFrontend } from "../support/servers.mjs";
+import { startOidcStack } from "../support/oidc-stack.mjs";
+import { oidcLogin } from "../support/session.mjs";
 import { syntheticPdf } from "../support/pdf.mjs";
 
 const FE_PORT = 3213;
 const API_PORT = 3214;
-const KEY = randomSecret();
+const ISSUER_PORT = 3216;
 const EMAIL = "ui.user@example.test";
 const TIMING = { parseMs: 1500, summarizeMs: 1500, parseOutcome: "parsed" };
-let api, fe, browser, jar;
+let stack, api, fe, browser, jar;
 
 before(async () => {
-  api = await startStubApi({ port: API_PORT, signingKey: KEY, ...TIMING });
-  fe = await startFrontend({
-    port: FE_PORT,
-    env: frontendEnv(FE_PORT, {
-      APP_ENV: "local",
-      AUTH_MODE: "dev",
-      API_INTERNAL_URL: api.url,
-      SESSION_SECRET: randomSecret(),
-      AUTH_DEV_SIGNING_KEY: KEY,
-      LOCAL_TEST_USER_EMAIL: EMAIL,
-    }),
-  });
-  jar = await devLogin(fe.base, EMAIL);
+  stack = await startOidcStack({ issuerPort: ISSUER_PORT, apiPort: API_PORT, defaultEmail: EMAIL, api: TIMING });
+  api = stack.api;
+  fe = await startFrontend({ port: FE_PORT, env: frontendEnv(FE_PORT, { APP_ENV: "local", ...stack.env }) });
+  jar = await oidcLogin(fe.base, EMAIL);
   browser = await chromium.launch();
 });
 
 after(async () => {
   await browser?.close();
   await fe?.stop();
-  await api?.close();
+  await stack?.close();
 });
 
 async function newPage({ loggedIn = true, clock = false } = {}) {
@@ -79,13 +70,12 @@ const card = (page) => page.getByTestId("source-card");
 // The card once the server parsed its files and the poll read it: its state text (from the same state as `data-state`) is "Done".
 const doneCard = (page) => card(page).filter({ has: page.getByTestId("source-state-text").filter({ hasText: /^Done$/ }) });
 
-test("AC-6.5, AC-6.7, FE-BP-03.AC2, AC4, AC5: dev login form, the empty `/` creates a project through New, sign out ends the session", async () => {
+test("AC-6.5, AC-6.7, FE-BP-03.AC2, AC4, AC5: OIDC sign-in button, the empty `/` creates a project through New, sign out ends the session", async () => {
   const { context, page, errors } = await newPage({ loggedIn: false });
   try {
     await page.goto(fe.base + "/");
     await page.waitForURL("**/login");
-    assert.equal(await page.getByTestId("login-dev-email").inputValue(), EMAIL);
-    await page.getByTestId("login-dev-submit").click();
+    await page.getByTestId("login-oidc").click();
     await page.waitForURL(fe.base + "/");
     // No project yet (first test on a fresh stub): the empty state offers "New project" (O12).
     await page.getByTestId("home-empty").waitFor();
@@ -116,7 +106,7 @@ test("AC-6.5, AC-6.7, FE-BP-03.AC2, AC4, AC5: dev login form, the empty `/` crea
   }
 });
 
-test("AC-12.2, K4, K5: Local files through the sources screen send the raw PDF, show the Local files card, the server parses (no browser parse), and the Build button unlocks with 'not available' (Q12)", async () => {
+test("AC-12.2, K4, K5: Local files through the sources screen send the raw PDF, show the Local files card, the server parses (no browser parse), and the Build button unlocks and starts the knowledge build after the confirm (AC-U17)", async () => {
   const pid = await seedProject(`Upload ${Date.now()}`);
   const { context, page, errors } = await newPage();
   try {
@@ -143,26 +133,45 @@ test("AC-12.2, K4, K5: Local files through the sources screen send the raw PDF, 
     assert.equal(calls(pid, "parse"), 0, "the browser never calls parse (K5)");
     assert.equal(calls(pid, "summarize"), 0, "the browser never calls summarize (K1, K5)");
     assert.equal(await page.getByTestId("screen-mission-control").getAttribute("data-phase"), "ready_to_build");
-    // Q12: unlocked, a click shows the existing "not available" message and sends nothing.
+    // AC-U17: unlocked, a click opens the confirm and sends nothing; Build starts POST graph_build; "Not available yet" is gone.
     const before = api.log.length;
     await page.getByTestId("kb-build").click();
-    await page.getByText("Building knowledge is not available yet.").waitFor();
+    await page.getByTestId("kb-build-dialog").waitFor();
+    assert.deepEqual(
+      api.log.slice(before).filter((e) => e.method !== "GET"),
+      [],
+      "the click sent no write (the confirm comes first); the screen's own polling GETs are fine",
+    );
+    assert.equal(await page.getByText("Not available yet").count(), 0);
     assert.equal(await page.getByText(/\bdemo\b/i).count(), 0, "production never says demo");
-    assert.equal(api.log.length, before, "the click made no request");
+    // The button shows Building… before the stub has logged the POST, so wait for the response of that POST itself.
+    const buildPosted = page.waitForResponse((r) => r.request().method() === "POST" && r.url().endsWith(`/projects/${pid}/graph_build`));
+    await page.getByTestId("kb-build-dialog-confirm").click();
+    await buildPosted;
+    await page.getByTestId("kb-build-dialog").waitFor({ state: "detached" });
+    // The button shows the build (Building…, or already Update knowledge once the stub finished it); then the POST is in the log.
+    await page
+      .getByTestId("kb-build")
+      .filter({ hasText: /Building…|Update knowledge/ })
+      .waitFor();
+    const started = api.log.filter((e) => e.method === "POST" && e.path === `/api/v1/projects/${pid}/graph_build`);
+    assert.equal(started.length, 1, "one POST graph_build");
+    assert.equal(started[0].bodyText, '{"reasoning_level":2}', "the default level (Medium) is sent");
+    assert.equal(await page.getByText("Not available yet").count(), 0);
     // K3: GitHub is not offered in Add source; Google Drive and Local files are.
     await page.getByTestId("mcs-add-source").click();
     await page.getByRole("menuitem", { name: /Google Drive/ }).waitFor();
     assert.equal(await page.getByRole("menuitem", { name: /GitHub/ }).count(), 0);
     assert.equal(await page.getByRole("menuitem", { name: /Local files/ }).count(), 1);
-    assert.equal(await page.getByText("Upload PDF files").count(), 1);
-    assert.equal(await fileInput(page).getAttribute("accept"), "application/pdf,.pdf");
+    assert.equal(await page.getByText("Upload PDF, Office, HTML, Markdown or CSV files").count(), 1);
+    assert.match(await fileInput(page).getAttribute("accept"), /^\.pdf,application\/pdf,\.docx,/);
     assert.deepEqual(errors, []);
   } finally {
     await context.close();
   }
 });
 
-test("AC-7.6, AC-7.7: an upload of bytes already in the project adds no second document; a non-PDF is not sent (the PDF-only toast names it) and the good file stays", async () => {
+test("AC-7.6, AC-7.7: an upload of bytes already in the project adds no second document; an unsupported type is not sent (the refusal toast names it) and the good file stays", async () => {
   const pdf = syntheticPdf(300);
   const pid = await seedProject(`Dup and non-PDF ${Date.now()}`);
   const { context, page, errors } = await newPage();
@@ -174,7 +183,9 @@ test("AC-7.6, AC-7.7: an upload of bytes already in the project adds no second d
       { name: "same copy.pdf", mimeType: "application/pdf", buffer: pdf },
       { name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("not a pdf") },
     ]);
-    await page.getByText("notes.txt was not added; Specflow reads PDF files.").waitFor({ timeout: 15_000 });
+    await page
+      .getByText(/notes\.txt was not added\. Specflow reads PDF, Word, PowerPoint, Excel, HTML, Markdown or CSV files/)
+      .waitFor({ timeout: 15_000 });
     // The success toast does not call the duplicate "added".
     await page.getByText("1 file added", { exact: true }).waitFor({ timeout: 15_000 });
     await page.getByText("1 file is already in this project; nothing new was added.").waitFor({ timeout: 15_000 });

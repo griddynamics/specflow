@@ -132,9 +132,8 @@ def test_every_canonical_template_file_is_rendered_by_some_query() -> None:
         build_queries.update_edges("R"),
         build_queries.delete_edges("R"),
         build_queries.infer_endpoint_subjects(("R",), (), mentions=True),
-        build_queries.infer_realization_subjects(
-            "M", "C", member_symmetric=False, container_symmetric=True, max_hops=2
-        ),
+        build_queries.infer_realization_subjects("M", "C*1..2", ("C",), member_symmetric=False),
+        build_queries.infer_realization_subjects("M", "A>B", ("B",), member_symmetric=True),
         build_queries.infer_similar_targets("R", symmetric=True),
         build_queries.infer_exclusive_holders("R"),
         build_queries.infer_write_edges("R"),

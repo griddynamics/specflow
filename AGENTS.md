@@ -8,9 +8,9 @@ Rules for anyone, person or coding agent, who changes this repository.
   Rules: `backend/AGENTS.md`.
 - `frontend/` - Next.js web app. Rules: `frontend/AGENTS.md`.
 - `validation/` - the static checks that CI runs (`make validate`).
-- `docs/` - configuration reference, graph design, design system.
-- Repo root - `docker-compose.yml`, `.env.example`, `config/` and the `Makefile` that runs
-  everything.
+- `docs/` - configuration reference, graph design, file parsers, design system.
+- Repo root - `docker-compose.yml`, `.env.example`, `config/`, the `Makefile` that runs
+  everything and `scripts/` (shell scripts the `Makefile` calls, such as `env-local.sh`).
 
 ## Area rules
 
@@ -19,6 +19,8 @@ Before you read or change anything under `frontend/`, read `frontend/AGENTS.md`.
 This file applies everywhere; an area file adds the rules for its code.
 
 ## Check a change
+
+Name branches `fix/<title>`, for example `fix/docling-pdf-parser`.
 
 Run these from the repo root before you open a pull request:
 

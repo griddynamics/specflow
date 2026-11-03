@@ -1,4 +1,4 @@
-"""Documents: raw-body PDF upload, list/get, parse and summarize (SPECS section 9)."""
+"""Documents: raw-body upload (PDF, Office, HTML, Markdown, CSV), list/get, parse and summarize (SPECS section 9)."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ from api.schemas import (
     SummarizeStarted,
     UploadOut,
 )
-from api.uploads import is_pdf_content_type
+from api.uploads import accepted_format
 from db import repositories as repo
 from db.batches import AddOutcome
 from db.models import Document
@@ -98,8 +98,7 @@ async def upload_document(
 ) -> JSONResponse:
     await require_project(runtime, user.id, pid)
     name = clean_filename(filename)
-    if not is_pdf_content_type(request.headers.get("content-type")):
-        raise ApiError(415, "unsupported_format", "The body must be a PDF sent as application/pdf.")
+    spec = accepted_format(request.headers.get("content-type"), name)
 
     def build(outcome: AddOutcome) -> DocumentOut:
         if outcome.document is None:  # unreachable: every upload item has a document
@@ -113,6 +112,7 @@ async def upload_document(
         user_id=user.id,
         project_id=pid,
         filename=name,
+        spec=spec,
         batch_id=None,
         build=build,
     )

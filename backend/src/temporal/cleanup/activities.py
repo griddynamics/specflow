@@ -20,11 +20,7 @@ from temporalio.exceptions import ApplicationError
 from db import source_files
 from logger.logger import ERROR, INFO, get_logger, log_event
 from storage import ObjectStore
-from storage.keys import (
-    document_original,
-    document_original_bin,
-    document_original_json,
-)
+from storage.keys import document_prefix
 from temporal.cleanup import workflows as wf
 from temporal.cleanup.models import SweepInput, SweepResult
 from temporal.containment import Contain
@@ -86,12 +82,7 @@ class SourceCleanupActivities:
 
         async def drop(document_id: uuid.UUID) -> None:
             async with slots:
-                for key in (
-                    document_original(project, str(document_id)),
-                    document_original_json(project, str(document_id)),
-                    document_original_bin(project, str(document_id)),
-                ):
-                    await self._store.delete(key)
+                await self._store.delete_by_prefix(document_prefix(project, str(document_id)))
 
         await asyncio.gather(*(drop(document_id) for document_id in missing))
         return SweepResult(

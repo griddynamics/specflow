@@ -8,9 +8,9 @@ import fs from "node:fs";
 import {
   bffHeaders,
   createProject,
-  devLogin,
   expect,
   FIXTURE_PDF,
+  login,
   evidence,
   networkQuiet,
   shot,
@@ -42,7 +42,7 @@ interface DocList {
 test("duplicate, non-PDF and a 200 MiB upload", { tag: "@e2e" }, async ({ page, context, baseURL, track }) => {
   test.setTimeout(15 * 60_000);
   const base = defined(baseURL);
-  await devLogin(page);
+  await login(page);
   const projectId = await createProject(page, uniqueName("e2e-edge"));
   track(projectId);
   const api = `${base}/api/backend/projects/${projectId}/documents`;

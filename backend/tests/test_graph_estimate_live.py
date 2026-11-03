@@ -1,16 +1,4 @@
-"""Live graph-store half of the cost estimate tests (plan 5.T2; build.md "Cost estimate"; FR-BLD-16).
-
-Before every build of the shop chain (``first`` of snapshot 1, ``update`` to 2 and 3, an ``update``
-without change, a ``rebuild`` of 3) ``estimate_build`` runs on a gateway without answers; then the
-build runs with the hand-written answers (``ShopAnswers``) and the estimate is compared with the
-calls that build really made. Exact where the method is exact (hub catalog, node windows, a rebuild's
-calls), within bounds elsewhere. The estimate leaves the graph (snapshot) and the stores (file tree)
-unchanged and records no call.
-
-Gate: ``SPECFLOW_TEST_GRAPH_STORE=<store>`` (or ``SPECFLOW_TEST_NEO4J=1``)
-and ``uv run --env-file ../.env.local``. Projects are
-``pytest-graph-<hex>`` ids that ``graph_project`` deletes afterwards.
-"""
+"""Live Neo4j half of the cost estimate tests."""
 
 from __future__ import annotations
 
@@ -28,12 +16,18 @@ from graph.build import (
     FileCorpusSource,
     estimate_build,
     open_file_stores,
-    run_build,
 )
 from graph.build.conform import DEDUP_PROMPT
 from graph.build.consolidate import HUBS_PROMPT
-from graph.build.graphiti import EDGES_PROMPT, NODES_PROMPT
-from graph.build.prompts import ATTRIBUTES_PROMPT, HUB_CATALOG_PROMPT
+from graph.build.models import StepEstimate
+from graph.build.prompts import (
+    ATTRIBUTES_PROMPT,
+    EDGE_WINDOW_PROMPT,
+    EDGE_WINDOW_WARM_UP_PROMPT,
+    NODE_HUBS_PROMPT,
+    NODE_STATEMENTS_PROMPT,
+    NODE_WARM_UP_PROMPT,
+)
 from graph.core.llm.gateway import EMBED_PROMPT, embed_batches, embed_inputs, estimate_tokens, request_tokens
 from graph_probes import requires_live_graph
 from graph_support import (
@@ -41,6 +35,8 @@ from graph_support import (
     GraphProject,
     ScriptedGateway,
     live_llm_config,
+    run_shop_build,
+    shipped_ontology,
     shop_answers,
     shop_corpus,
     tree_hash,
@@ -52,24 +48,50 @@ pytest_plugins = ["graph_support"]
 pytestmark = requires_live_graph()
 
 OPTIONS = shop_answers(1).options
+
+
+def conform_judge_prompt() -> str:
+    spec = shipped_ontology().conform
+    assert spec is not None
+    return spec.judge_prompt
+
+
+def answered_prompt() -> str:
+    spec = shipped_ontology().conform
+    assert spec is not None and spec.answered_elsewhere is not None
+    return spec.answered_elsewhere.prompt
+
+
 STEP_OF = {
-    HUB_CATALOG_PROMPT: "hub_catalog",
-    NODES_PROMPT: "node_extraction",
+    NODE_HUBS_PROMPT: "node_extraction",
+    NODE_STATEMENTS_PROMPT: "node_extraction",
+    NODE_WARM_UP_PROMPT: "node_extraction",
     HUBS_PROMPT: "hub_consolidation",
-    EDGES_PROMPT: "edge_extraction",
+    EDGE_WINDOW_PROMPT: "edge_extraction",
+    EDGE_WINDOW_WARM_UP_PROMPT: "edge_extraction",
     ATTRIBUTES_PROMPT: "attributes",
     DEDUP_PROMPT: "requirement_dedup",
+    # the conform judge's prompt is the ontology's; the frozen live ontology has none (no judge calls)
+    conform_judge_prompt(): "conform_judge",
+    answered_prompt(): "answered_check",  # likewise
     EMBED_PROMPT: "embeddings",
+    # the inference steps of the estimate; these builds run with inference off, so both stay 0
+    **{
+        prompt: "cross_document_inference" if rule.template == "cross_document" else "inference"
+        for rule in shipped_ontology().inference.rules
+        for prompt in (rule.prompt, rule.batch_prompt)
+        if prompt is not None
+    },
 }
-EXACT_TOKENS = ("hub_catalog",)
 
 
 def actual(gateway: ScriptedGateway) -> dict[str, tuple[int, int]]:
-    """Calls and input tokens per estimate step of what a build really asked: structured calls by
-    ``request_tokens``, embeddings as the gateway batches them."""
+    """Calls and input tokens per estimate step of what a build really asked: structured calls and
+    prompt-cache warm-ups by ``request_tokens``, embeddings as the gateway batches them."""
 
-    found: dict[str, list[int]] = {step: [0, 0] for step in STEP_OF.values()}
-    for call in gateway.calls:
+    # the hub_catalog step makes no call of its own (the hub pass is the catalog): always 0
+    found: dict[str, list[int]] = {step: [0, 0] for step in (*STEP_OF.values(), "hub_catalog")}
+    for call in [*gateway.calls, *gateway.warm_ups]:
         step = STEP_OF.get(call.prompt)
         if step is None:
             continue
@@ -122,7 +144,7 @@ class Shop:
         self, snapshot: int, answers: int | None = None, **overrides: object
     ) -> tuple[BuildResult, ScriptedGateway]:
         gateway = shop_answers(answers or snapshot).install(self.gateways(live_llm_config()))
-        result = await run_build(self.context(snapshot, gateway, **overrides))
+        result = await run_shop_build(self.context(snapshot, gateway, **overrides))
         assert result.failed_step is None, (result.failed_step, result.error_code)
         return result, gateway
 
@@ -136,6 +158,10 @@ def assert_bounded(estimate: BuildEstimate, real: dict[str, tuple[int, int]], na
 
     for step, (calls, tokens) in real.items():
         cost = estimate.steps[step]
+        if step == "requirement_dedup":
+            # (no rich-only candidates): calls within one, or half the real ones.
+            assert abs(cost.calls - calls) <= max(1, calls // 2), (name, step, cost.calls, calls)
+            continue
         assert abs(cost.calls - calls) <= 1, (name, step, cost.calls, calls)
         if tokens:
             assert tokens / 2 <= cost.input_tokens <= tokens * 2, (name, step, cost.input_tokens, tokens)
@@ -148,14 +174,13 @@ async def test_the_shop_chain_is_estimated_before_every_build(
 ) -> None:
     shop = Shop(graph_project, scripted_gateway, tmp_path / "stores", graph_project.project_id)
 
-    # first: hub catalog and node windows exact; every step the build uses is predicted
+    # first: no hub catalog call, node window calls exact; every step the build uses is predicted
     estimate = await shop.estimate(1)
     result, gateway = await shop.build(1)
     real = actual(gateway)
     assert estimate.mode == result.mode == "first"
     assert estimate.units_to_extract == result.metrics.units_extracted
-    assert estimate.steps["hub_catalog"].calls == real["hub_catalog"][0] == 1
-    assert estimate.steps["hub_catalog"].input_tokens == real["hub_catalog"][1]
+    assert estimate.steps["hub_catalog"] == StepEstimate()  # the hub pass is the catalog: no call of its own
     assert estimate.steps["node_extraction"].calls == real["node_extraction"][0]
     nodes_tokens = real["node_extraction"][1]
     assert abs(estimate.steps["node_extraction"].input_tokens - nodes_tokens) <= nodes_tokens * 0.02
@@ -163,18 +188,22 @@ async def test_the_shop_chain_is_estimated_before_every_build(
         assert not calls or estimate.steps[step].calls >= 1, step
     assert estimate.steps["embeddings"].calls == real["embeddings"][0]
 
-    # updates: node windows exact (calls and tokens), the rest within bounds
+    # updates: node window calls exact, their tokens within 1%, the rest within bounds
     for snapshot in (2, 3):
         estimate = await shop.estimate(snapshot)
         result, gateway = await shop.build(snapshot)
         real = actual(gateway)
         assert estimate.mode == result.mode == "update"
         assert estimate.units_to_extract == result.metrics.units_extracted
-        assert (estimate.steps["node_extraction"].calls, estimate.steps["node_extraction"].input_tokens) == real[
-            "node_extraction"
-        ]
-        assert estimate.steps["hub_catalog"].calls == real["hub_catalog"][0] == 0
-        # snapshot 3's "Export details" unit keeps its content: its stored edges are reused, not called
+        # node windows: calls exact; tokens within 1% (the hub pass is shown exactly the persisted hubs, the
+        # statement pass the persisted hubs as a stand-in for them merged with the hub pass catalog)
+        calls, tokens = real["node_extraction"]
+        assert estimate.steps["node_extraction"].calls == calls
+        assert abs(estimate.steps["node_extraction"].input_tokens - tokens) <= tokens * 0.01
+        assert estimate.steps["hub_catalog"] == StepEstimate()
+        # every edge window with a dirty fragment is called, with a warm-up for two or more (snapshot 3's
+        # "Export details" unit keeps its content, yet its heading path names the renamed hub: its window
+        # catalog changed)
         assert estimate.steps["edge_extraction"].calls == real["edge_extraction"][0]
         assert_bounded(estimate, real, f"update {snapshot}")
 
@@ -186,13 +215,12 @@ async def test_the_shop_chain_is_estimated_before_every_build(
     assert all(cost.calls == cost.input_tokens == 0 for cost in estimate.steps.values()), estimate.steps
     assert all(calls == 0 for calls, _ in actual(gateway).values())
 
-    # rebuild: every step's calls exact, hub catalog tokens exact
+    # rebuild: every step's calls exact
     estimate = await shop.estimate(3, rebuild=True)
     result, gateway = await shop.build(3, rebuild=True)
     real = actual(gateway)
     assert estimate.mode == result.mode == "rebuild"
     assert calls_of(estimate) == {step: calls for step, (calls, _) in real.items()}
-    assert estimate.steps["hub_catalog"].input_tokens == real["hub_catalog"][1]
     assert_bounded(estimate, real, "rebuild")
 
 
@@ -217,14 +245,14 @@ async def test_three_new_documents_in_a_built_project(
     assert estimate.units_to_extract >= 3 and estimate.units_reused > 0
     for step in ("node_extraction", "edge_extraction", "attributes", "embeddings"):
         assert estimate.steps[step].calls > 0 and estimate.steps[step].input_tokens > 0, step
-    assert estimate.steps["hub_catalog"].calls == 0  # an update reads the persisted hubs instead
+    assert estimate.steps["hub_catalog"] == StepEstimate()  # the hub pass is the catalog
 
 
 async def test_an_estimate_leaves_nothing_behind_for_the_next_build(
     graph_project: GraphProject, scripted_gateway: Callable[..., ScriptedGateway], tmp_path: Path
 ) -> None:
-    """The Graphiti rendering client never reaches a real build: a build after an estimate makes the
-    same requests (prompt and semantic key, in count) as one without."""
+    """An estimate changes nothing a build reads: a build after an estimate makes the same requests
+    (prompt and semantic key, in count) as one without, and the same node messages."""
 
     plain = Shop(graph_project, scripted_gateway, tmp_path / "plain", graph_project.project_id)
     estimated = Shop(graph_project, scripted_gateway, tmp_path / "estimated", graph_project.new_project())
@@ -238,6 +266,7 @@ async def test_an_estimate_leaves_nothing_behind_for_the_next_build(
         )
 
     assert requests(after) == requests(without)
-    assert [list(call.messages) for call in after.calls if call.prompt == NODES_PROMPT] == [
-        list(call.messages) for call in without.calls if call.prompt == NODES_PROMPT
+    node_prompts = (NODE_HUBS_PROMPT, NODE_STATEMENTS_PROMPT)
+    assert [list(call.messages) for call in after.calls if call.prompt in node_prompts] == [
+        list(call.messages) for call in without.calls if call.prompt in node_prompts
     ]

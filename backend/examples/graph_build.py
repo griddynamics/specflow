@@ -1,22 +1,4 @@
-"""Build the knowledge graph of a folder of markdown documents into the graph store (graph library, plan 2.20).
-
-Run from backend/:
-
-    uv run --env-file ../.env.local python examples/graph_build.py \
-        --project shop-demo --corpus tests/fixtures/graph/shop/1 --state ../.graph-build/state
-
-Host-style wiring: this script reads the environment (the library never does) and passes configs:
-GRAPH_STORE (default neo4j), GRAPH_STORE_URI, GRAPH_STORE_USER, GRAPH_STORE_PASSWORD, GRAPH_STORE_NAME (optional;
-the NEO4J_* names work as aliases for neo4j; docs/configuration.md), LLM_GATEWAY_URL, LLM_GATEWAY_API_KEY,
-GRAPH_LLM_MODEL, GRAPH_SMALL_MODEL, GRAPH_EMBEDDING_MODEL, GRAPH_EMBEDDING_DIM. Build records,
-artifacts, reusable extraction results, the spec_id registry and the corpus index live under
---state (file stores). It runs ensure_schema, then run_build (or only the plan step with
---plan-only), and prints a summary: ids, counts, status and LLM usage, never document text or keys.
-
-A build whose verification requested a follow-up (``follow_up_lineages`` in its summary, not
-``settled``) is settled by a next build that retries those lineages: pass --retry-follow-ups to take
-them from the project's latest finished build result, or name them with --retry-lineage.
-"""
+"""Build the knowledge graph of a folder of markdown documents into Neo4j."""
 
 from __future__ import annotations
 
@@ -26,7 +8,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from pydantic import SecretStr
+from pydantic import ValidationError
 
 from example_lib import build_result_summary, run_example
 from graph.build import BuildContext, BuildResult, FileStores, open_file_stores, plan, run_build
@@ -34,7 +16,7 @@ from graph.build.models import PlanArtifact
 from graph.core import Gateway, LLMConfig, ensure_schema, load_ontology
 from graph.stores import StoreConfig, build_store
 from logger.logger import INFO, get_logger, log_event
-from settings import ConfigurationError, load_graph_store_settings
+from settings import ConfigurationError, GraphBuildSettings, load_graph_store_settings
 
 logger = get_logger("examples.graph_build")
 
@@ -46,6 +28,7 @@ REQUIRED_ENVIRONMENT = (
     "GRAPH_EMBEDDING_MODEL",
     "GRAPH_EMBEDDING_DIM",
 )
+OPTIONAL_LLM_ENVIRONMENT = ("GRAPH_LLM_CONCURRENCY",)
 
 
 def parse_args() -> argparse.Namespace:
@@ -90,14 +73,14 @@ def store_config() -> StoreConfig:
 
 
 def llm_config(env: dict[str, str]) -> LLMConfig:
-    return LLMConfig(
-        endpoint=env["LLM_GATEWAY_URL"],
-        api_key=SecretStr(env["LLM_GATEWAY_API_KEY"]),
-        main_model=env["GRAPH_LLM_MODEL"],
-        small_model=env["GRAPH_SMALL_MODEL"],
-        embedding_model=env["GRAPH_EMBEDDING_MODEL"],
-        embedding_dim=int(env["GRAPH_EMBEDDING_DIM"]),
-    )
+    """The API's mapping (``settings.GraphBuildSettings``); ``GRAPH_LLM_CONCURRENCY`` is optional (blank: 8)."""
+
+    optional = {name: os.environ[name].strip() for name in OPTIONAL_LLM_ENVIRONMENT if os.environ.get(name, "").strip()}
+    try:
+        return GraphBuildSettings.model_validate({**env, **optional}).to_llm_config()
+    except ValidationError as error:
+        names = sorted({str(item["loc"][0]) for item in error.errors(include_url=False, include_input=False)})
+        raise SystemExit("invalid environment variables: " + ", ".join(names)) from None
 
 
 def result_summary(result: BuildResult) -> dict[str, Any]:

@@ -1,8 +1,4 @@
-"""The ontology: file format, loading and validation, and the compiled ``Ontology`` (docs/graph/ontology.md).
-
-The shipped build file is ``spec-ontology.yaml`` next to this module; judge prompts live in
-``judge_prompts/`` next to the ontology file that references them.
-"""
+"""The ontology: file format, loading and validation, and the compiled ``Ontology``."""
 
 from __future__ import annotations
 
@@ -10,8 +6,14 @@ from graph.core.ontology.compiled import (
     BUILT_IN_LABELS,
     BUILT_IN_NAMES,
     BUILT_IN_RELATIONS,
+    QUARANTINE_REASONS,
+    QUOTE_ATTRIBUTE,
+    AnsweredElsewhereSpec,
     AttributeSpec,
+    Condition,
+    ConformSpec,
     DeriveRule,
+    DeriveViaRule,
     Dropped,
     DropReason,
     FingerprintPart,
@@ -21,11 +23,14 @@ from graph.core.ontology.compiled import (
     Legalised,
     NodeGroup,
     NodeType,
+    NodeView,
     Ontology,
     Pair,
+    QuarantineReason,
     Relation,
     Spine,
     SpinePath,
+    Support,
 )
 from graph.core.ontology.loader import NAME_PATTERN, load_ontology
 
@@ -34,8 +39,14 @@ __all__ = [
     "BUILT_IN_NAMES",
     "BUILT_IN_RELATIONS",
     "NAME_PATTERN",
+    "QUARANTINE_REASONS",
+    "QUOTE_ATTRIBUTE",
+    "AnsweredElsewhereSpec",
     "AttributeSpec",
+    "Condition",
+    "ConformSpec",
     "DeriveRule",
+    "DeriveViaRule",
     "DropReason",
     "Dropped",
     "FingerprintPart",
@@ -45,10 +56,13 @@ __all__ = [
     "Legalised",
     "NodeGroup",
     "NodeType",
+    "NodeView",
     "Ontology",
     "Pair",
+    "QuarantineReason",
     "Relation",
     "Spine",
     "SpinePath",
+    "Support",
     "load_ontology",
 ]

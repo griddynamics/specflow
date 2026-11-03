@@ -1,12 +1,13 @@
 "use client";
-// The dialogs of the sources screen (add link, Drive, token, details, remove, rebuild): which one is open is the screen's `Dialog` state.
+// The dialogs of the sources screen (add link, Drive, token, details, remove, build confirm, build error): which one is open is the screen's `Dialog` state.
 import type { ToastInput } from "@/components/ui/Toast";
-import { plural } from "./kb-logic";
-import type { BuildMode, ProjectSourcesStatus, Source, SourcesPort } from "@/lib/domain/sources";
+import { buildButtonView } from "./kb-logic";
+import type { ProjectSourcesStatus, ReasoningLevel, Source, SourcesPort } from "@/lib/domain/sources";
+import { BuildConfirmDialog, BuildErrorDialog } from "./BuildDialogs";
 import { DriveDialog } from "./DriveDialog";
 import { RemoveSourceDialog } from "./RemoveSourceDialog";
 import { SourceDetailsModal, type GithubActions } from "./SourceDetailsModal";
-import { AddLinkDialog, ConfirmDialog, TokenDialog } from "./SourceDialogs";
+import { AddLinkDialog, TokenDialog } from "./SourceDialogs";
 
 export type Dialog =
   | { kind: "add" }
@@ -14,7 +15,8 @@ export type Dialog =
   | { kind: "token"; sid: string; label: string }
   | { kind: "details"; sid: string }
   | { kind: "remove"; sid: string } // over the details of the same source, which stay mounted
-  | { kind: "rebuild" }
+  | { kind: "build"; mode: "first" | "update" }
+  | { kind: "buildError" } // open only while `status.buildFailure` is set
   | null;
 
 export interface ScreenDialogsProps {
@@ -35,7 +37,7 @@ export interface ScreenDialogsProps {
   onCloseDetails: (sid: string) => void;
   onFail: (e: unknown) => void;
   onReload: () => void;
-  onBuild: (mode: BuildMode) => void;
+  onBuild: (level: ReasoningLevel) => void;
 }
 
 function githubActionsOf({
@@ -116,16 +118,19 @@ export function ScreenDialogs(props: Readonly<ScreenDialogsProps>) {
           onConfirm={() => props.onRemove(detailsSource)}
         />
       ) : null}
-      {dialog?.kind === "rebuild" && status ? (
-        <ConfirmDialog
-          title="Rebuild from scratch?"
-          description={`Specflow processes all ${plural(status.totals.documents, "document")} again. This takes longer and costs more than an update. The current knowledge stays until the rebuild is done.`}
-          confirmLabel="Rebuild"
-          onConfirm={() => {
-            props.onBuild("rebuild");
+      {dialog?.kind === "build" && status ? (
+        <BuildConfirmDialog mode={dialog.mode} documents={status.totals.documents} onConfirm={props.onBuild} onClose={close} />
+      ) : null}
+      {dialog?.kind === "buildError" && status?.buildFailure ? (
+        <BuildErrorDialog
+          projectId={projectId}
+          failure={status.buildFailure}
+          blocked={buildButtonView(status).blocked}
+          onRetry={() => {
+            const mode = buildButtonView(status).mode;
+            if (mode) onDialog({ kind: "build", mode });
           }}
           onClose={close}
-          testId="kb-rebuild-dialog"
         />
       ) : null}
     </>

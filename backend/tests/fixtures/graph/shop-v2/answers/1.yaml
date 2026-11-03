@@ -1,0 +1,282 @@
+# Hand-written model answers for a `first` build of shop-v2 snapshot 1 under the shipped ontology.
+# Same format and loader as `shop/answers/*.yaml` (`graph_support.ShopAnswers`);
+# nothing here was recorded from a model. The judge verdicts (conform owner conflict, inference) live
+# in `tests/graph_v2_support.py`, keyed by subject name.
+#
+# The corpus is a made-up shop, cut down to the cases a build must handle
+# (asserted by tests/test_graph_build_v2_live.py):
+# - the interface "Checkout API" PROVIDED_BY the Checkout service and CONSUMED_BY the Web app,
+#   owning the integration requirement; INTEGRATES_WITH Web app -> Checkout service is derived (implied);
+# - the data entity "Purchase order" with its DataRequirement (PART_OF) and STORED_IN the
+#   Orders database; the entity "Invoice" has no supporting edge and is dropped (unsupported);
+# - the external module Stripe owning a Constraint;
+# - the deployment module "Production environment" owning the infrastructure Constraint, with
+#   DEPLOYED_TO from the Orders service (stated) and from the Checkout service (extracted as
+#   INTEGRATES_WITH, converted by its pair's `otherwise`);
+# - the feature Coupons with release "Phase 2" (its business rule inherits it when read), an
+#   out-of-scope requirement, an out-of-scope feature (Gift cards) and an OpenQuestion RELATES_TO Coupons;
+# - Refunds DEPENDS_ON Order cancellation and the reverse edge: the cycle's weaker edge (lowest
+#   edge key: Order cancellation -> Refunds) has no legal fallback for features -> `cycle_broken`;
+# - the CSV requirement PART_OF its feature, PART_OF the feature's own module (redundant), PART_OF
+#   the Reporting service and PART_OF the Web app (in the catalog by nearness only): one conform judge
+#   group, `relates` for the Reporting service -> RELATES_TO, `unrelated` for the Web app ->
+#   `judge_rejected`; the feature also PART_OF the Reporting service has no legal fallback -> `owner_conflict`;
+# - Partial refunds PART_OF Refunds (feature -> feature) -> `illegal_pair`, leaving the feature
+#   without a module: INF-CONT-02 attaches it to the Orders service.
+# - the constraint CON-001 is stated in two documents in different words (overview.md
+#   "Deployment", checkout.md "Hosting"); Resolve merges it by its id and Conform grounds each quote in
+#   its own document, so the node has evidence and a statement in both (snapshot 2 rewords the
+#   checkout.md one).
+
+snapshot: 1
+
+# One window per document (max_node_windows 1); sections stay separate fragments.
+options:
+  fragment_tokens: {min: 20, target: 120, max: 1200}
+  unit_tokens: 4000
+  max_node_windows: 1
+
+fragments:
+  ov.intro: ["Acme Shop v2 - System Overview", "Acme Shop v2 is a made-up online store"]
+  ov.modules: ["Acme Shop v2 - System Overview > Modules", "The Web app is the browser front end"]
+  ov.providers: ["Acme Shop v2 - System Overview > External providers", "Stripe is an external payment provider"]
+  ov.interfaces: ["Acme Shop v2 - System Overview > Interfaces", "The Checkout service exposes the Checkout API"]
+  ov.data: ["Acme Shop v2 - System Overview > Data", "A purchase order holds id, lines and currency."]
+  ov.deploy: ["Acme Shop v2 - System Overview > Deployment", "The Orders service runs in the Production environment"]
+  chk.intro: ["Checkout service Requirements", "This document specifies the coupon and gift card features"]
+  chk.coupons: ["Checkout service Requirements > Coupons (Phase 2)", "Coupons is the feature of the Checkout service"]
+  chk.gift: ["Checkout service Requirements > Gift cards", "Gift cards are out of scope for this release."]
+  chk.hosting: ["Checkout service Requirements > Hosting", "CON-001: The Checkout service runs only in the EU region"]
+  ord.intro: ["Orders service Requirements", "This document specifies the order history export"]
+  ord.export: ["Orders service Requirements > Order history export", "Order history export is the feature"]
+  ord.refunds: ["Orders service Requirements > Refunds", "Refunds is the feature of the Orders service"]
+  ord.cancel: ["Orders service Requirements > Order cancellation", "Order cancellation is the feature"]
+
+nodes:
+  - window: [ov.intro, ov.modules, ov.providers, ov.interfaces, ov.data, ov.deploy]
+    entities:
+      - [Web app, Module, [ov.modules, ov.interfaces]]
+      - [Checkout service, Module, [ov.modules, ov.interfaces, ov.deploy]]
+      - [Orders service, Module, [ov.modules, ov.deploy]]
+      - [Orders database, Module, [ov.modules, ov.data]]
+      - [Reporting service, Module, [ov.modules]]
+      - [Stripe, Module, [ov.providers]]
+      - [Production environment, Module, [ov.deploy]]
+      - [Checkout API, Interface, [ov.interfaces]]
+      - [Purchase order, DataEntity, [ov.data]]
+      - [Invoice, DataEntity, [ov.data]]
+      - [Stripe API calls must stay at most 100 per minute, Constraint, [ov.providers]]
+      - [Web app calls Checkout API to place an order, IntegrationRequirement, [ov.interfaces]]
+      - ["Purchase order holds id, lines, currency", DataRequirement, [ov.data]]
+      - ["CON-001: All services must run in the EU region, as the client contract requires", Constraint, [ov.deploy],
+         "All services must run in the EU region, as the client contract requires."]
+  - window: [chk.intro, chk.coupons, chk.gift, chk.hosting]
+    entities:
+      - [Checkout service, Module, [chk.intro, chk.coupons]]
+      - [Coupons, Feature, [chk.coupons]]
+      - ["Order: at most one coupon", BusinessRule, [chk.coupons]]
+      - [Customer can stack coupons, FunctionalRequirement, [chk.coupons]]
+      - ["Which coupon provider is used?", OpenQuestion, [chk.coupons]]
+      - [Gift cards, Feature, [chk.gift]]
+      # the same constraint as overview.md's, by its id, in other words
+      - ["CON-001: All services must run in the EU region, as the client contract requires", Constraint, [chk.hosting],
+         "The Checkout service runs only in the EU region, because the client contract requires it."]
+  - window: [ord.intro, ord.export, ord.refunds, ord.cancel]
+    entities:
+      - [Orders service, Module, [ord.intro, ord.export, ord.refunds, ord.cancel]]
+      - [Reporting service, Module, [ord.export]]
+      - [Order history export, Feature, [ord.export]]
+      - [Customer can export order history as CSV, FunctionalRequirement, [ord.export]]
+      - [Refunds, Feature, [ord.refunds]]
+      - [Partial refunds, Feature, [ord.refunds]]
+      - [Order cancellation, Feature, [ord.refunds, ord.cancel]]
+
+# Every hub is one block; no two of them are the same thing.
+# Each label part is judged on its own: the data entities (merge_across_labels: false) in a block of
+# their own, the one interface in none, all other hubs together.
+consolidation:
+  - block:
+      - Checkout service
+      - Coupons
+      - Gift cards
+      - Order cancellation
+      - Order history export
+      - Orders database
+      - Orders service
+      - Partial refunds
+      - Production environment
+      - Refunds
+      - Reporting service
+      - Stripe
+      - Web app
+    groups: []
+  - block:
+      - Invoice
+      - Purchase order
+    groups: []
+
+edges:
+  - unit: [ov.intro, ov.modules, ov.providers, ov.interfaces, ov.data, ov.deploy]
+    facts:
+      - [Checkout API, PROVIDED_BY, Checkout service, "The Checkout service exposes the Checkout API, a request-response API for placing orders.", [ov.interfaces]]
+      - [Checkout API, CONSUMED_BY, Web app, "The Web app calls the Checkout API to place an order once the customer confirms the basket.", [ov.interfaces]]
+      - [Web app calls Checkout API to place an order, PART_OF, Checkout API, "The Web app calls the Checkout API to place an order once the customer confirms the basket.", [ov.interfaces]]
+      - [Stripe API calls must stay at most 100 per minute, PART_OF, Stripe, "Stripe allows at most 100 API calls per minute, so the shop must keep its calls below that limit.", [ov.providers]]
+      - ["Purchase order holds id, lines, currency", PART_OF, Purchase order, "A purchase order holds id, lines and currency.", [ov.data]]
+      - [Purchase order, STORED_IN, Orders database, "Purchase orders are kept in the Orders database.", [ov.data]]
+      - [Orders service, DEPLOYED_TO, Production environment, "The Orders service runs in the Production environment, and so does the Checkout service.", [ov.deploy]]
+      # extracted as INTEGRATES_WITH: its pair's `where` fails on a deployment target, `otherwise` DEPLOYED_TO
+      - [Checkout service, INTEGRATES_WITH, Production environment, "The Orders service runs in the Production environment, and so does the Checkout service.", [ov.deploy]]
+      - ["All services must run in the EU region, as the client contract requires", PART_OF, Production environment, "All services must run in the EU region, as the client contract requires.", [ov.deploy]]
+
+  - unit: [chk.intro, chk.coupons, chk.gift, chk.hosting]
+    facts:
+      - [Coupons, PART_OF, Checkout service, "Coupons is the feature of the Checkout service that lets customers lower the price of an order with a coupon code.", [chk.coupons]]
+      - ["Order: at most one coupon", PART_OF, Coupons, "Customers can apply one coupon per order.", [chk.coupons]]
+      - [Customer can stack coupons, PART_OF, Coupons, "Stacking coupons is not supported.", [chk.coupons]]
+      - ["Which coupon provider is used?", RELATES_TO, Coupons, "TBD: which coupon provider is used?", [chk.coupons]]
+
+  - unit: [ord.intro, ord.export, ord.refunds, ord.cancel]
+    facts:
+      - [Order history export, PART_OF, Orders service, "Order history export is the feature of the Orders service that lets customers download their past orders.", [ord.export]]
+      - [Customer can export order history as CSV, PART_OF, Order history export, "Customers can export their order history as CSV.", [ord.export]]
+      # the feature's own module: dropped as redundant
+      - [Customer can export order history as CSV, PART_OF, Orders service, "Customers can export their order history as CSV.", [ord.export]]
+      # two other modules: the conform judge decides each (Reporting service: relates -> RELATES_TO;
+      # Web app, in the catalog by nearness only: unrelated -> judge_rejected)
+      - [Customer can export order history as CSV, PART_OF, Reporting service, "The file is generated by the Reporting service.", [ord.export]]
+      - [Customer can export order history as CSV, PART_OF, Web app, "Customers can export their order history as CSV.", [ord.export]]
+      # a feature in a second module: no legal fallback and no default for the pair -> owner_conflict
+      - [Order history export, PART_OF, Reporting service, "The file is generated by the Reporting service.", [ord.export]]
+      - [Refunds, PART_OF, Orders service, "Refunds is the feature of the Orders service that pays money back to customers.", [ord.refunds]]
+      - [Refunds, DEPENDS_ON, Order cancellation, "Refunds require order cancellation to be available, because a refund request is accepted only for a cancelled order.", [ord.refunds]]
+      # illegal in v2.0 (no feature -> feature PART_OF): quarantined illegal_pair
+      - [Partial refunds, PART_OF, Refunds, "Partial refunds is a part of the Refunds feature: it pays back only some lines of an order", [ord.refunds]]
+      - [Order cancellation, PART_OF, Orders service, "Order cancellation is the feature of the Orders service that lets customers cancel an unpaid order.", [ord.cancel]]
+      # closes the DEPENDS_ON cycle; the weaker edge of the two (lowest edge key) is cut
+      - [Order cancellation, DEPENDS_ON, Refunds, "Order cancellation reuses the refund flow to release the payments it holds.", [ord.cancel]]
+
+attributes:
+  # Modules
+  Web app:
+    quote: The Web app is the browser front end that customers use to browse products
+    stmt: The Web app is the browser front end customers use to browse, fill a basket and order.
+    external: "no"
+    type: frontend
+  Checkout service:
+    quote: The Checkout service is the backend that turns a basket into a paid order.
+    stmt: The Checkout service turns a basket into a paid order.
+    external: "no"
+    type: backend
+  Orders service:
+    quote: The Orders service is the backend that stores confirmed orders
+    stmt: The Orders service stores confirmed orders and answers questions about order history.
+    external: "no"
+    type: backend
+  Orders database:
+    quote: The Orders database is the relational store of the Orders service.
+    stmt: The Orders database is the relational store of the Orders service.
+    external: "no"
+    type: datastore
+  Reporting service:
+    quote: The Reporting service is the backend that generates large files for staff and customers.
+    stmt: The Reporting service generates large files for staff and customers.
+    external: "no"
+    type: backend
+  Stripe:
+    quote: Stripe is an external payment provider that authorises and captures card payments
+    stmt: Stripe is an external payment provider that authorises and captures card payments.
+    external: "yes"
+    type: other
+  Production environment:
+    quote: The Orders service runs in the Production environment
+    stmt: The Production environment is where the Orders service and the Checkout service run.
+    external: "no"
+    type: deployment
+  # Interface and data entities
+  Checkout API:
+    quote: The Checkout service exposes the Checkout API, a request-response API for placing orders.
+    stmt: The Checkout API is the request-response API for placing orders.
+    kind: api
+  Purchase order:
+    quote: Purchase orders are kept in the Orders database.
+    stmt: A purchase order is kept in the Orders database.
+  Invoice:
+    quote: Invoices are mentioned by the finance team, but no requirement describes them yet.
+    stmt: An invoice is mentioned by the finance team.
+  # Features
+  Coupons:
+    quote: Coupons is the feature of the Checkout service that lets customers lower the price of an order
+    stmt: Customers lower the price of an order with a coupon code.
+    module: Checkout service
+    release: Phase 2
+  Gift cards:
+    quote: Gift cards are out of scope for this release.
+    stmt: Customers pay for an order with a gift card.
+    in_scope: "no"
+  Order history export:
+    quote: Order history export is the feature of the Orders service that lets customers download their past
+    stmt: Customers download their past orders.
+    module: Orders service
+  Refunds:
+    quote: Refunds is the feature of the Orders service that pays money back to customers.
+    stmt: Money is paid back to customers.
+    module: Orders service
+  Partial refunds:
+    quote: "Partial refunds is a part of the Refunds feature: it pays back only some lines of an order"
+    stmt: Only some lines of an order are paid back.
+  Order cancellation:
+    quote: Order cancellation is the feature of the Orders service that lets customers cancel an unpaid order.
+    stmt: Customers cancel an unpaid order.
+    module: Orders service
+  # Requirements and the open question
+  Stripe API calls must stay at most 100 per minute:
+    quote: Stripe allows at most 100 API calls per minute
+    stmt: The shop keeps its Stripe API calls at most 100 per minute.
+    source_status: stated
+    is_assumption: "no"
+    module: Stripe
+  Web app calls Checkout API to place an order:
+    quote: app calls the Checkout API to place an order once the customer confirms the basket.
+    stmt: The Web app calls the Checkout API to place an order.
+    source_status: stated
+    is_assumption: "no"
+    interface: Checkout API
+  "Purchase order holds id, lines, currency":
+    quote: A purchase order holds id, lines and currency.
+    stmt: A purchase order holds id, lines and currency.
+    source_status: stated
+    is_assumption: "no"
+    entity: Purchase order
+  "All services must run in the EU region, as the client contract requires":
+    quote: services must run in the EU region, as the client contract requires.
+    stmt: All services run in the EU region.
+    source_status: stated
+    is_assumption: "no"
+    module: Production environment
+  "Order: at most one coupon":
+    quote: Customers can apply one coupon per order.
+    stmt: An order takes at most one coupon.
+    source_status: stated
+    is_assumption: "no"
+  Customer can stack coupons:
+    quote: Stacking coupons is not supported.
+    stmt: Customers stack coupons.
+    source_status: stated
+    is_assumption: "no"
+    in_scope: "no"
+  "Which coupon provider is used?":
+    quote: "TBD: which coupon provider is used?"
+    stmt: Which coupon provider is used?
+  Customer can export order history as CSV:
+    quote: Customers can export their order history as CSV.
+    stmt: Customers export their order history as CSV.
+    source_status: stated
+    is_assumption: "no"
+
+# Nearness the orders.md edge catalog relies on: the export section never names the Web app, but a real
+# embedding model puts it near, so the hub joins the unit's catalog by nearness (build.md step 4).
+related:
+  - anchor: "Module: Web app"
+    cosine: 0.7
+    fragments: [ord.export]

@@ -1,9 +1,10 @@
 -- Infer (attach_orphan): for each node of :uuids, the :limit most similar
--- target nodes by exact embedding cosine, leaving out those it already has an
--- edge of the relation with; best first, ties by spec_id, then uuid.
--- Parameters: rel_type, uuids, target_labels, bases (text[]), limit. The slot
--- SYMMETRIC is a boolean literal (TRUE: the relation counts either way;
--- default FALSE). Score = (1 + cos) / 2 = (2 - distance) / 2. A vector of
+-- target nodes by exact embedding cosine, leaving out those of :excluded and
+-- those it already has an edge of the relation with; best first, ties by
+-- spec_id, then uuid.
+-- Parameters: rel_type, uuids, target_labels, excluded, bases (text[]),
+-- limit. The slot SYMMETRIC is a boolean literal (TRUE: the relation counts
+-- either way; default FALSE). Score = (1 + cos) / 2 = (2 - distance) / 2. A vector of
 -- another size or a zero vector (NaN distance) never matches; the size is
 -- compared inside CASE so the planner cannot call <=> on mixed sizes. Rows:
 -- uuid and candidates (a JSON list of uuid and score); ordered by uuid.
@@ -39,7 +40,8 @@ scored AS (
             AND c.labels && cast(:target_labels AS text[])
             AND c.embedding IS NOT NULL
     WHERE
-        NOT EXISTS (
+        NOT c.uuid = any(cast(:excluded AS text[]))
+        AND NOT EXISTS (
             SELECT 1
             FROM graph.edge AS x
             WHERE

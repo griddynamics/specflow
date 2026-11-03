@@ -55,7 +55,7 @@ Quality is shown by tests, verification checks and the metrics each build report
 | Corpus provider | Implements the corpus port: one snapshot of the current revision of every active document, with lineage id, version and immutable markdown. |
 | LLM endpoint | One OpenAI-compatible endpoint for chat and embeddings. |
 | Graph store | One database (Neo4j, ArcadeDB) or schema (PostgreSQL) for all projects, partitioned by project. |
-| Reader | Code that reads the graph through the core read API, including later `gap` and `plan`. |
+| Reader | Code that reads the graph through the core read API, including later `gap` and `plan`, and the MCP server ([../mcp-server/overview.md](../mcp-server/overview.md)). |
 
 ## Boundaries
 
@@ -64,7 +64,6 @@ Quality is shown by tests, verification checks and the metrics each build report
 | Host | Offers build functions, read API, typed results and errors; never decides when to build | Orchestration, retries across processes, storage of results, UI |
 | Ingestion | Requires lineage id, version and markdown that never changes after parsing | Decides lineages and versions, parses files |
 | `graph.gap`, `graph.plan` | Keeps statements, provenance and stable `spec_id`s; preserves their nodes and relationships | Own their graph parts |
-| Graphiti | Uses only its node and edge extraction functions, with model calls routed through the core gateway | Stores and searches nothing |
 
 ## Constraints
 

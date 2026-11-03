@@ -36,7 +36,11 @@ export function AppShell({ children, accountItems }: Readonly<{ children: ReactN
   );
 }
 
-const SIDEBAR_ITEMS: SidebarEntry[] = SIDEBAR_SECTIONS.map((s) => ({ value: s.value, label: s.label, icon: s.icon }));
+/** Guides sits under its own "Help" header at the bottom of the sidebar (E6). */
+const SIDEBAR_ITEMS: SidebarEntry[] = SIDEBAR_SECTIONS.flatMap((s): SidebarEntry[] => {
+  const item = { value: s.value, label: s.label, icon: s.icon };
+  return s.value === "guides" ? [{ section: "Help" }, item] : [item];
+});
 
 /** What the content region shows while the project in the path is being checked: the error note, or the spinner. */
 function ProjectPending({ failed }: Readonly<{ failed: boolean }>) {
@@ -99,7 +103,7 @@ function ShellFrame({ children, accountItems }: Readonly<{ children: ReactNode; 
   const activeProject: string | null = current ?? (routeProject !== undefined && confirmed ? routeProject : null);
 
   function onSection(value: string) {
-    if (!truthy(activeProject) && value !== "connections") return; // list not loaded yet: the link would lead to the entry route
+    if (!truthy(activeProject) && value !== "connections" && value !== "guides") return; // list not loaded yet: the link would lead to the entry route
     router.push(sectionHref(routes, value as SectionKey, activeProject));
   }
 

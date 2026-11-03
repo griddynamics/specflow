@@ -1,9 +1,4 @@
-"""Build options, settings and the build context (docs/graph/build.md "Build options", api.md "Build").
-
-``BuildOptions`` shape extraction and are frozen by the last ``first`` or ``rebuild`` build;
-``BuildSettings`` may change between builds. Both are immutable; invalid values raise
-``ConfigurationError`` naming the fields. ``BuildContext`` bundles what every step function needs.
-"""
+"""Build options, settings and the build context."""
 
 from __future__ import annotations
 

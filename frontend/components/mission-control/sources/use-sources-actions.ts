@@ -1,15 +1,15 @@
 "use client";
-// The actions of the sources screen that end in a toast: the failure toast, the "Knowledge built" notice, starting a build and
-// uploading local files.
+// The actions of the sources screen that end in a toast: the failure toast, the "Knowledge built" notice and uploading local files;
+// and starting a build, whose failure shows on the status (the red Error button), not in a toast.
 import { useCallback, useEffect, useRef, type RefObject } from "react";
 import { useNotAvailable } from "@/components/shell/use-not-available";
 import { useToast } from "@/components/ui/Toast";
 import { isDataError } from "@/lib/domain/errors";
-import type { BuildMode, KnowledgePort, ProjectSourcesStatus, SourcesPort } from "@/lib/domain/sources";
+import type { KnowledgePort, ProjectSourcesStatus, ReasoningLevel, SourcesPort } from "@/lib/domain/sources";
 import { plural } from "./kb-logic";
-import { pdfOnlyToast, splitUpload, startFailedToast, toastFor } from "./source-logic";
+import { splitUpload, startFailedToast, toastFor, unsupportedFilesToast } from "./source-logic";
 
-/** The danger toast of a failed action; production Build knowledge says "not available yet" instead (Q12, FR-GDUI-0021 note). */
+/** The danger toast of a failed action (upload, sync); an action the port does not offer shows its own notice instead. */
 export function useFailToast() {
   const toast = useToast();
   const notAvailable = useNotAvailable();
@@ -27,16 +27,19 @@ export function useFailToast() {
   );
 }
 
-/** The first build just succeeded: say so. */
+/** The first build just succeeded: say so. Only after this screen saw it run: a reload, or a late first read, never toasts. */
 export function useKnowledgeBuiltToast(status: ProjectSourcesStatus | null) {
   const toast = useToast();
   const wasReady = useRef<boolean | null>(null);
+  const sawBuild = useRef(false);
   useEffect(() => {
     if (!status) return;
-    if (wasReady.current === false && status.ready) {
+    if (status.build !== null) sawBuild.current = true;
+    if (wasReady.current === false && status.ready && sawBuild.current) {
+      sawBuild.current = false;
       toast({
         title: "Knowledge built",
-        message: `${plural(status.lastBuild?.documentCount ?? status.totals.documents, "document")} are in the project's knowledge.`,
+        message: `${plural(status.totals.documents, "document")} are in the project's knowledge.`,
         tone: "success",
       });
     }
@@ -44,25 +47,20 @@ export function useKnowledgeBuiltToast(status: ProjectSourcesStatus | null) {
   }, [status, toast]);
 }
 
-/** Starts a build; where no build exists (production) a click says so, in the app's own words. */
-export function useBuild(knowledge: KnowledgePort, projectId: string, fail: (e: unknown) => void) {
-  const toast = useToast();
-  return (mode: BuildMode) =>
-    knowledge.build(projectId, mode).catch((e: unknown) => {
-      if (!knowledge.buildAvailable && isDataError(e) && e.code === "not_available") {
-        toast({ title: "Not available yet", message: "Building knowledge is not available yet.", tone: "info" });
-        return;
-      }
-      fail(e);
-    });
+/**
+ * Starts a build with the chosen level. The rejection is swallowed on purpose: the port also puts the failure in the next status
+ * (`buildFailure`), which turns the button into Error; a toast on top would say it twice.
+ */
+export function useBuild(knowledge: KnowledgePort, projectId: string) {
+  return (level: ReasoningLevel): Promise<void> => knowledge.build(projectId, { reasoningLevel: level }).catch(() => undefined);
 }
 
-/** Uploads the picked files (production reads PDF only: one toast names the rest); one pick is one batch (FR-SRC-0020). */
+/** Uploads the picked files (only the accepted types are sent: one toast names the rest); one pick is one batch (FR-SRC-0020). */
 export function useUpload(sources: SourcesPort, projectId: string, fail: (e: unknown) => void, reload: RefObject<() => void>) {
   const toast = useToast();
   return async (picked: File[]) => {
-    const { files, skipped } = splitUpload(picked, sources.pdfOnly);
-    if (skipped.length) toast(pdfOnlyToast(skipped));
+    const { files, skipped } = splitUpload(picked);
+    if (skipped.length) toast(unsupportedFilesToast(skipped));
     if (files.length === 0) return;
     try {
       const report = await sources.upload(projectId, files);

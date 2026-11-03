@@ -13,11 +13,13 @@ import {
   type SourceKind,
   type SourceRef,
   type SourceState,
+  type TooLargeFile,
   type UploadReport,
 } from "@/lib/domain/sources";
 import { driveReasonMessage, LISTING } from "./drive-logic";
 import { plural } from "./kb-logic";
 import { nonEmpty } from "@/components/ui/utils";
+import { ACCEPTED_EXTENSIONS, FORMAT_LABELS, formatOf, limitsText, sizeText } from "@/lib/domain/upload-formats";
 
 const files = (n: number): string => `${String(n)} ${n === 1 ? "file" : "files"}`;
 
@@ -222,8 +224,18 @@ export function toastFor(r: UploadReport): { title: string; message: string; ton
   if (r.readAgain > 0)
     lines.push(`${plural(r.readAgain, "file")} could not be read before; Specflow reads ${r.readAgain === 1 ? "it" : "them"} again.`);
   if (already > 0) lines.push(`${plural(already, "file")} ${already === 1 ? "is" : "are"} already in this project; nothing new was added.`);
-  if (r.notAdded > 0) lines.push(`${plural(r.notAdded, "file")} ${r.notAdded === 1 ? "was" : "were"} not added.`);
+  const big = r.tooLarge ?? [];
+  lines.push(...tooLargeLines(big));
+  const other = r.notAdded - big.length;
+  if (other > 0) lines.push(`${plural(other, "file")} ${other === 1 ? "was" : "were"} not added.`);
   return { title: uploadTitle(r, already), message: lines.join(" "), tone: uploadTone(r) };
+}
+
+/** One sentence per cap: "a.pdf is over the 100 MB limit." (the cap is the API's `details.max_bytes` for that file's type). */
+function tooLargeLines(files: TooLargeFile[]): string[] {
+  const byCap = new Map<number, string[]>();
+  for (const f of files) byCap.set(f.maxBytes, [...(byCap.get(f.maxBytes) ?? []), f.name]);
+  return [...byCap].map(([cap, names]) => `${names.join(", ")} ${names.length === 1 ? "is" : "are"} over the ${sizeText(cap)} limit.`);
 }
 
 function uploadTitle(r: UploadReport, already: number): string {
@@ -244,15 +256,13 @@ export const startFailedToast = (names: string[]): { title: string; message: str
   tone: "danger",
 });
 
-/** Production reads PDF only (the upload API): the other picked files are not sent, and one toast names them. */
-export function splitUpload(picked: File[], pdfOnly: boolean): { files: File[]; skipped: string[] } {
-  if (!pdfOnly) return { files: picked, skipped: [] };
-  const isPdf = (f: File) => f.type === "application/pdf" || /\.pdf$/i.test(f.name);
-  return { files: picked.filter(isPdf), skipped: picked.filter((f) => !isPdf(f)).map((f) => f.name) };
+/** Only the accepted types are sent (the API's table, by extension): the other picked files are not sent, and one toast names them. */
+export function splitUpload(picked: File[]): { files: File[]; skipped: string[] } {
+  return { files: picked.filter((f) => formatOf(f.name)), skipped: picked.filter((f) => !formatOf(f.name)).map((f) => f.name) };
 }
 
-export const pdfOnlyToast = (names: string[]): { title: string; message: string; tone: "danger" } => ({
-  title: "PDF only",
-  message: `${names.join(", ")} ${names.length === 1 ? "was" : "were"} not added; Specflow reads PDF files.`,
+export const unsupportedFilesToast = (names: string[]): { title: string; message: string; tone: "danger" } => ({
+  title: "File type not supported",
+  message: `${names.join(", ")} ${names.length === 1 ? "was" : "were"} not added. Specflow reads ${FORMAT_LABELS} files (${ACCEPTED_EXTENSIONS}). Limits: ${limitsText()}.`,
   tone: "danger",
 });

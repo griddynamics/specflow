@@ -34,22 +34,25 @@ the host builds a store from `StoreConfig` with `graph.stores.build_store`.
 | core | Read and search | `GraphReader` | [api.md](api.md) |
 | core | LLM gateway | Chat, structured output and embedding calls with one shared limiter; judge runner | [api.md](api.md) |
 | build | Corpus and changes | Read the corpus, segment it into fragments, work out what changed | [build.md](build.md) |
-| build | Extraction | Node and edge extraction through Graphiti, resolution of duplicates | [build.md](build.md) |
-| build | Conform, diff, persist | Ground and legalise the result, match it to the current graph, write the difference | [build.md](build.md) |
-| build | Analysis | Light inference; verification and repair | [analysis.md](analysis.md) |
+| build | Extraction | The build's own node and edge calls (`build/calls.py`: one structured gateway call per window and node pass, hub pass then statement pass, or per edge window; prompts in `build/prompts.py`, answer schemas in `build/answers.py`, both rendered from the ontology); the hub catalog merged in code from the hub pass, known terms and edge catalogs (`build/terms.py`; no model call of its own); the attributes pass; resolution of duplicates | [build.md](build.md) |
+| build | Conform, diff, persist | Ground, legalise and normalise the result (conform judge, quarantine), match it to the current graph, write the difference | [build.md](build.md) |
+| build | Analysis | Shared validator of the ontology's hard rules; light inference; verification and repair; consolidated metrics | [analysis.md](analysis.md) |
 | build | Run | `run_build`, phase functions, build options, build result | [build.md](build.md), [api.md](api.md) |
 
 ## Import rules
 
 | # | Rule |
 |---|---|
-| I1 | Allowed imports: the standard library, `graph` modules per the layout rule, the repository `logger` utility, `pydantic`, `pyyaml`, `numpy`, `openai`, `graphiti_core`, and the graph store SDKs where I2 places them. Nothing else. |
-| I2 | `openai` only in the core gateway; `graphiti_core` only in the build's extraction adapter; each store SDK only in the folders of the adapters that use it: `neo4j` in `stores/_bolt`, `stores/neo4j` and `stores/arcadedb`, `sqlalchemy` and `asyncpg` in `stores/postgres`, `httpx` in `stores/arcadedb`, `pyTigerGraph` in `stores/tigergraph`. The import-linter contracts of the backend repeat this per SDK. |
+| I1 | Allowed imports: the standard library, `graph` modules per the layout rule, the repository `logger` utility, `pydantic`, `pyyaml`, `numpy`, `openai` and the graph store SDKs where I2 places them. Nothing else. |
+| I2 | `openai` only in the core gateway (`core/llm/gateway.py`); each store SDK only in the folders of the adapters that use it: `neo4j` in `stores/_bolt`, `stores/neo4j` and `stores/arcadedb`, `sqlalchemy` and `asyncpg` in `stores/postgres`, `httpx` in `stores/arcadedb`, `pyTigerGraph` in `stores/tigergraph`. The import-linter contracts of the backend repeat this per SDK. |
 | I3 | Query text only in query modules and adapter folders: Cypher in the core and build query modules (canonical `.cypher` files) and the Cypher dialect of `stores/_bolt`; a backend's own query language (SQL, GSQL) only in its adapter folder. Every scoped query runs through the store's executor and binds the project id (`$project_id` in Cypher), except schema setup. |
 | I4 | No ontology label, relation, id prefix or vocabulary value as a literal in code. Allowed built-in names: `SpecNode`, `Document`, `Fragment`, `CONTAINS`, `REFERENCED_BY`, `MENTIONED_IN`, and the edge `basis` values of the data model (`stated`, `implied`, `inferred`), even where they equal an ontology vocabulary value. |
 | I5 | No environment reads, no printing, no disk writes outside file port implementations. |
 
-Structure tests check I1-I5; a renamed-ontology test checks I4 ([ontology.md](ontology.md)).
+Structure tests (`backend/tests/test_graph_structure.py`) check I1-I5; a renamed-ontology test checks
+I4 ([ontology.md](ontology.md)). The import contracts of `backend/importlinter.toml` add: `graph`
+imports no other project package except `logger`, `graph.core` never imports `graph.build`,
+`graph.gap` or `graph.plan`, and `neo4j` is imported only under `graph`.
 
 ## Write ownership
 
@@ -93,7 +96,7 @@ Secrets use a redacting type and are never logged or stored.
 | Object | Holds |
 |---|---|
 | `StoreConfig` (stores) | Backend (`neo4j`, `arcadedb`, `postgres`, `tigergraph`), URI, user, password, name (database, schema or graph), optional admin URI, optional pool size. `Neo4jConfig` (core) is the deprecated Neo4j-only form and converts with `StoreConfig.from_neo4j` |
-| `LLMConfig` (core) | Endpoint, API key, main model, small model, judge model (default: the main model), embedding model and dimension, concurrency, timeouts |
+| `LLMConfig` (core) | Endpoint, API key, main model, small model, judge model (default: the main model), embedding model and dimension, concurrency (default 8), timeout and attempts per call class |
 | `BuildOptions` (build) | Per-project options that shape extraction; frozen by the last `first` or `rebuild` ([build.md](build.md)) |
 | `BuildSettings` (build) | Inference on or off |
 
@@ -103,7 +106,7 @@ Every expected failure is a `GraphError`. Error fields hold ids, counts and code
 
 | Error | Raised when | Host action |
 |---|---|---|
-| `ConfigurationError` | Invalid settings or options; invalid read arguments (`invalid_limit`, `invalid_depth`, `invalid_line_range`, `query_too_long`, `invalid_vector_floor`); a graph store that is not shipped (`store_not_available`) or whose SDK is not installed (`store_sdk_missing`); an unsupported server version; the store rejects the credentials or denies access; an unknown database, schema or graph | Fix configuration |
+| `ConfigurationError` | Invalid settings or options; invalid read arguments (`invalid_limit`, `invalid_depth`, `invalid_line_range`, `query_too_long`, `invalid_vector_floor`); a graph store that is not shipped (`store_not_available`) or whose SDK is not installed (`store_sdk_missing`); an unsupported server version; the store rejects the credentials or denies access; an unknown database, schema or graph; an `update` build after the ontology's labels or relations changed (`ontology_changed`) | Fix configuration; for `ontology_changed`, migrate the project ([build.md](build.md) Migration) |
 | `OntologyError` (a `ConfigurationError`) | Invalid ontology; lists every problem | Fix the ontology |
 | `CorpusError` | Corpus breaks its contract (missing lineage id, version or markdown) | Fix the corpus |
 | `OwnershipError` | A write targets a type its owner does not own | Bug |

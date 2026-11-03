@@ -2,15 +2,38 @@
 // It is a test double only: the real API is built in S7. In-memory, one process.
 import http from "node:http";
 import crypto from "node:crypto";
-import { jwtVerify } from "jose";
+import { createLocalJWKSet, jwtVerify } from "jose";
 import { listen, close } from "./servers.mjs";
 import { createSourcesModel, StubError } from "./stub-sources.mjs";
+
+const LEEWAY_SECONDS = 60; // as backend/src/auth/claims.py
+const DEFAULT_CLIENT_ID = "specflow-web";
 
 const json = (res, status, body) => {
   res.writeHead(status, { "content-type": "application/json" });
   res.end(JSON.stringify(body));
 };
-const err = (res, status, code) => json(res, status, { error: { code, message: code, details: {} } });
+const err = (res, status, code, details = {}) => json(res, status, { error: { code, message: code, details } });
+
+// The upload table of the API (backend/src/file_parsers/formats.py, src/api/uploads.py MAX_BYTES). The extension picks the type; the
+// stub is STRICTER than the API on the header: it wants the canonical type exactly, so a frontend that sends `file.type` (empty for
+// .md, application/vnd.ms-excel for .csv on Windows) fails here. tests/production/upload-formats.test.ts checks this table against
+// the backend's.
+const MB = 1024 * 1024;
+const OOXML = "application/vnd.openxmlformats-officedocument";
+export const UPLOAD_TABLE = {
+  ".pdf": { type: "application/pdf", cap: 100 * MB, magic: "%PDF-" },
+  ".docx": { type: `${OOXML}.wordprocessingml.document`, cap: 50 * MB, magic: "PK\x03\x04" },
+  ".pptx": { type: `${OOXML}.presentationml.presentation`, cap: 50 * MB, magic: "PK\x03\x04" },
+  ".xlsx": { type: `${OOXML}.spreadsheetml.sheet`, cap: 50 * MB, magic: "PK\x03\x04" },
+  ".html": { type: "text/html", cap: 10 * MB, magic: null },
+  ".md": { type: "text/markdown", cap: 10 * MB, magic: null },
+  ".csv": { type: "text/csv", cap: 10 * MB, magic: null },
+};
+const extensionOf = (name) => {
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? name.slice(dot).toLowerCase() : "";
+};
 
 // ---- Drive sources (GDRIVE plan 04, architecture-notes B4): a close-enough double of the sources endpoints ----
 const REASON_HTTP = {
@@ -40,14 +63,21 @@ const SAMPLE = {
 const PARSED = new Set(["parsed", "ingested", "partially_ingested"]);
 
 /**
- * @param {{port:number, signingKey?:string, parseMs?:number, summarizeMs?:number}} opts
+ * @param {{port:number, verify?:{issuer:string, audience:string, jwks:{keys:object[]}, clientIds?:string[]}, parseMs?:number, summarizeMs?:number}} opts
+ * `verify` makes the API check every bearer against the issuer's JWKS, as backend/src/auth/claims.py `validate` does: RS256 signature,
+ * `iss` equal to `issuer`, `aud` equal to `audience`, `exp` not past, `iat` not in the future (both with 60 s leeway), `azp` one of
+ * `clientIds` (default: the web client "specflow-web"), and `email_verified` true. Anything else is a 401. `typ` is not checked.
+ * Without `verify` any bearer is accepted (the open mode of the contract tests).
  * parseMs/summarizeMs = Infinity keeps the work "in progress" forever (stuck tests).
+ * Knowledge build knobs on `state` (see `graphRoute`): graphMs (a build resolves when it has run that long; Infinity = never),
+ * graphOutcome ("succeeded" | "partially_succeeded" | "failed") and graphStartFail (null | an API code: the POST answers 503 with it).
  */
-export async function startStubApi({ port, signingKey, parseMs = 1500, summarizeMs = 1500, parseOutcome = "parsed" }) {
+export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs = 1500, parseOutcome = "parsed" }) {
+  const keys = verify ? createLocalJWKSet(verify.jwks) : undefined;
   const projects = new Map();
   const docs = new Map(); // id -> doc
   const log = []; // {method, path, headers, authOk, contentType, bytes}
-  const state = { parseMs, summarizeMs, parseOutcome };
+  const state = { parseMs, summarizeMs, parseOutcome, graphMs: 1500, graphOutcome: "succeeded", graphStartFail: null };
   /** Drive: sources per project (SourceOut rows, mutable by tests), and the identity answer (a Reason string = 503 with that code). */
   const sources = new Map(); // pid -> SourceOut[]
   const drive = { identityReason: null, email: "specflow-sa@example.test" };
@@ -77,6 +107,68 @@ export async function startStubApi({ port, signingKey, parseMs = 1500, summarize
       processed_documents: mine.filter((d) => PARSED.has(d.row.status)).length,
     };
   };
+  // Knowledge build (`/graph_build`): one state per project, idle at first. No timer: a running build is resolved when it is read.
+  const graphs = new Map(); // pid -> {status, build_id, mode, started_at, finished_at, error_code, startedMs, succeededBefore}
+  let graphSeq = 0;
+  const graphOf = (pid) => {
+    const g = graphs.get(pid) ?? { status: "idle", build_id: null, mode: null, started_at: null, finished_at: null, error_code: null };
+    if (g.status === "running" && Date.now() - g.startedMs >= state.graphMs) {
+      g.status = state.graphOutcome;
+      g.finished_at = new Date().toISOString();
+      if (g.status === "failed") g.error_code = "stub_failure";
+      else g.succeededBefore = true;
+    }
+    graphs.set(pid, g);
+    return g;
+  };
+  const graphWire = ({ status, build_id, mode, started_at, finished_at, error_code }) => ({
+    status,
+    build_id,
+    mode,
+    started_at,
+    finished_at,
+    error_code,
+  });
+  /** The POST body is empty or JSON whose only key is `reasoning_level`: null or an integer 1..5 (the backend's GraphBuildRequest). */
+  const validGraphBody = (text) => {
+    if (text.trim() === "") return true;
+    try {
+      const b = JSON.parse(text);
+      if (typeof b !== "object" || b === null || Array.isArray(b)) return false;
+      const keys = Object.keys(b);
+      if (keys.some((k) => k !== "reasoning_level")) return false;
+      const n = b.reasoning_level;
+      return keys.length === 0 || n === null || (Number.isInteger(n) && n >= 1 && n <= 5);
+    } catch {
+      return false;
+    }
+  };
+  async function graphRoute({ req, res, pid, entry }) {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    if (req.method === "GET") return json(res, 200, graphWire(graphOf(pid)));
+    if (req.method !== "POST") return err(res, 405, "method_not_allowed");
+    const text = Buffer.concat(chunks).toString();
+    if (!validGraphBody(text)) return err(res, 422, "validation_failed");
+    entry.bodyText = text;
+    if (state.graphStartFail) return err(res, 503, state.graphStartFail);
+    if (model.status(pid).processed_documents === 0) return err(res, 409, "no_processed_documents");
+    const g = graphOf(pid);
+    if (g.status === "running") return json(res, 202, graphWire(g));
+    const now = Date.now();
+    graphs.set(pid, {
+      status: "running",
+      build_id: `gb-${String(++graphSeq)}`,
+      mode: g.succeededBefore ? "update" : "first",
+      started_at: new Date(now).toISOString(),
+      finished_at: null,
+      error_code: null,
+      startedMs: now,
+      succeededBefore: g.succeededBefore === true,
+    });
+    return json(res, 202, graphWire(graphs.get(pid)));
+  }
+
   async function sourcesRoute({ req, res, url, pid, did, action, entry }) {
     const drain = async () => {
       for await (const c of req) void c;
@@ -196,9 +288,11 @@ export async function startStubApi({ port, signingKey, parseMs = 1500, summarize
     const body = await readBody(req);
     Object.assign(entry, body);
     if (!filename) return { error: [400, "missing_filename"] };
-    if (req.headers["content-type"] !== "application/pdf" || (body.bytes && body.head !== "%PDF-"))
+    const spec = UPLOAD_TABLE[extensionOf(filename)];
+    if (!spec || req.headers["content-type"] !== spec.type || (spec.magic && body.bytes && !body.head.startsWith(spec.magic)))
       return { error: [415, "unsupported_format"] };
     if (body.bytes === 0) return { error: [400, "empty_file"] };
+    if (body.bytes > spec.cap) return { error: [413, "file_too_large", { max_bytes: spec.cap }] };
     return { filename, body };
   }
   const makeDoc = (pid, batchId, { filename, body }) => {
@@ -232,7 +326,7 @@ export async function startStubApi({ port, signingKey, parseMs = 1500, summarize
     const summary = model.summaries(pid).find((s) => s.id === did);
     if (!summary) return err(res, 404, "source_not_found");
     if (summary.kind !== "upload" || !summary.open) return err(res, 409, "batch_ended");
-    if (up.error) return err(res, up.error[0], up.error[1]);
+    if (up.error) return err(res, ...up.error);
     const r = model.add(
       pid,
       did,
@@ -245,13 +339,22 @@ export async function startStubApi({ port, signingKey, parseMs = 1500, summarize
   async function authOk(req) {
     const header = req.headers.authorization ?? "";
     if (!header.startsWith("Bearer ")) return false;
-    if (!signingKey) return true;
+    if (!verify) return true;
     try {
-      await jwtVerify(header.slice(7), new TextEncoder().encode(signingKey), {
-        issuer: "specflow-dev-login",
-        audience: "specflow-api",
+      const { payload } = await jwtVerify(header.slice(7), keys, {
+        issuer: verify.issuer,
+        audience: verify.audience,
+        algorithms: ["RS256"],
+        clockTolerance: LEEWAY_SECONDS,
       });
-      return true;
+      const clientIds = verify.clientIds ?? [DEFAULT_CLIENT_ID];
+      return (
+        typeof payload.azp === "string" &&
+        clientIds.includes(payload.azp) &&
+        payload.email_verified === true &&
+        typeof payload.iat === "number" &&
+        payload.iat <= Date.now() / 1000 + LEEWAY_SECONDS
+      );
     } catch {
       return false;
     }
@@ -312,6 +415,7 @@ export async function startStubApi({ port, signingKey, parseMs = 1500, summarize
     }
     if (!b) return json(res, 200, project);
     if (b === "sources") return sourcesRoute({ req, res, url, pid, did, action, entry });
+    if (b === "graph_build") return graphRoute({ req, res, pid, entry });
     if (b !== "documents") return err(res, 404, "not_found");
 
     if (!did) {
@@ -324,7 +428,7 @@ export async function startStubApi({ port, signingKey, parseMs = 1500, summarize
       }
       // POST upload (legacy, SPECS §4.5): raw body, application/pdf; fills the project's day batch.
       const up = await receiveFile({ req, url, entry });
-      if (up.error) return err(res, up.error[0], up.error[1]);
+      if (up.error) return err(res, ...up.error);
       const existing = [...docs.values()].find((d) => d.pid === pid && d.sha256 === up.body.sha256);
       // A re-upload of a failed document parses it again (backend `upload_document`); the rest stay plain duplicates.
       if (existing && existing.row.status !== "failed") return json(res, 200, { outcome: "duplicate", document: publicDoc(existing) });

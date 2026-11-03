@@ -6,8 +6,11 @@ from pathlib import Path
 
 import pytest
 
+from engine_stub_support import StubEngine, one_page
+from file_parsers import convert as convert_module
+from file_parsers.convert import ParsedMarkdown, PdfParseError, file_to_markdown
+from file_parsers.formats import PDF_MEDIA_TYPE
 from file_parsers.pdf import parser as parser_module
-from file_parsers.pdf.to_markdown import ParsedMarkdown, PdfParseError, pdf_file_to_markdown
 
 FIXTURE = Path(__file__).parent / "data" / "specs" / "extraction.pdf"
 
@@ -26,20 +29,22 @@ def test_parses_the_fixture_without_llm_or_leftovers(temp_root, monkeypatch):
 
     monkeypatch.setattr(parser_module, "Client", forbidden)
     monkeypatch.setattr(parser_module.PDFParser, "enrich", forbidden)
-    result = pdf_file_to_markdown(FIXTURE)
+    result = file_to_markdown(FIXTURE, PDF_MEDIA_TYPE)
     assert isinstance(result, ParsedMarkdown)
-    assert result.parser == "pymupdf4llm"
+    assert result.parser == "docling@2.145.0+sf1"
     assert result.markdown.strip()
-    assert list(temp_root.iterdir()) == []
+    # torch may create its own cache folder (torchinductor_*) in the temp dir: only ours must be gone
+    assert [p.name for p in temp_root.iterdir() if p.name.startswith("specflow-")] == []
 
 
 def test_uses_parse_then_render_only(monkeypatch, temp_root):
+    monkeypatch.setattr(convert_module, "default_engine", lambda: StubEngine(one_page("body")))
     calls = []
     real_parse, real_render = parser_module.PDFParser.parse, parser_module.PDFParser.render
 
-    def parse(self):
+    def parse(self, *args):
         calls.append("parse")
-        return real_parse(self)
+        return real_parse(self, *args)
 
     def render(self):
         calls.append("render")
@@ -47,7 +52,7 @@ def test_uses_parse_then_render_only(monkeypatch, temp_root):
 
     monkeypatch.setattr(parser_module.PDFParser, "parse", parse)
     monkeypatch.setattr(parser_module.PDFParser, "render", render)
-    pdf_file_to_markdown(FIXTURE)
+    file_to_markdown(FIXTURE, PDF_MEDIA_TYPE)
     assert calls == ["parse", "render"]
 
 
@@ -55,7 +60,7 @@ def test_corrupt_pdf_raises_and_cleans_up(tmp_path, temp_root):
     bad = tmp_path / "bad.pdf"
     bad.write_bytes(b"this is not a pdf at all")
     with pytest.raises(PdfParseError):
-        pdf_file_to_markdown(bad)
+        file_to_markdown(bad, PDF_MEDIA_TYPE)
     assert [p.name for p in temp_root.iterdir()] == ["bad.pdf"]
 
 
@@ -63,12 +68,12 @@ def test_truncated_pdf_raises(tmp_path):
     bad = tmp_path / "cut.pdf"
     bad.write_bytes(FIXTURE.read_bytes()[:200])
     with pytest.raises(PdfParseError):
-        pdf_file_to_markdown(bad)
+        file_to_markdown(bad, PDF_MEDIA_TYPE)
 
 
 def test_missing_file_raises_parse_error(tmp_path):
     with pytest.raises(PdfParseError):
-        pdf_file_to_markdown(tmp_path / "nope.pdf")
+        file_to_markdown(tmp_path / "nope.pdf", PDF_MEDIA_TYPE)
 
 
 def test_failing_parse_still_finishes_stages(tmp_path, monkeypatch):
@@ -78,5 +83,5 @@ def test_failing_parse_still_finishes_stages(tmp_path, monkeypatch):
     bad = tmp_path / "bad.pdf"
     bad.write_bytes(b"nope")
     with pytest.raises(PdfParseError):
-        pdf_file_to_markdown(bad)
+        file_to_markdown(bad, PDF_MEDIA_TYPE)
     assert finished == [1]

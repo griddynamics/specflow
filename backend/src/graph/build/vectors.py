@@ -1,17 +1,4 @@
-"""Embedding vectors of a build, stored once per distinct embedded text (build.md "Reuse in update builds").
-
-Step artifacts never hold vectors: they keep the embedded text, and operations keep its sha256
-(``text_hash``). Every step gets its vectors through a ``VectorCache``: first its in-memory memo, then
-the ``ExtractionStore`` (kind ``vectors``), then ``Gateway.embed`` for the rest, which are written back
-in one batch. Fragment vectors (known-term ranking), hub vectors, ``name_embedding`` (Resolve, edge
-catalogs, Conform) and the search ``embedding`` all share this one store.
-
-Store entry: key ``<project_id>|<embedding_model>|<sha256(text)>`` (the store is shared by the
-projects under one root), fingerprint the embedding model, payload ``{"dim": n, "f32": base64}`` with
-the vector's little-endian float32 bytes. An entry of another dimension, or one that does not decode,
-is a miss. In memory vectors are float32 ``numpy`` arrays, so a vector read back from the store equals
-the one first embedded.
-"""
+"""Embedding vectors of a build, stored once per distinct embedded text."""
 
 from __future__ import annotations
 
@@ -103,12 +90,7 @@ async def put_many(
 
 
 class VectorCache:
-    """Vectors of embedded texts for one project and embedding model (see the module docstring).
-
-    ``get_or_embed`` serves any text; ``by_hash`` serves operations that carry only ``text_hash``
-    values (Persist). The memo keeps every vector served by ``get_or_embed`` for the cache's lifetime
-    (one step); ``by_hash`` does not fill it.
-    """
+    """Vectors of embedded texts for one project and embedding model (see the module docstring)."""
 
     def __init__(self, gateway: Gateway, store: ExtractionStore, project_id: str) -> None:
         self._gateway = gateway
@@ -173,6 +155,18 @@ class VectorCache:
         by_digest = {text_hash(text): text for text in texts}
         found = await self._read([digest for digest in by_digest if digest not in self._memo])
         return {text for digest, text in by_digest.items() if digest in self._memo or digest in found}
+
+    async def stored_vectors(self, texts: Iterable[str]) -> dict[str, np.ndarray]:
+        """The vector of each distinct text the memo or the store holds, by text; reads only, embeds
+        nothing and leaves the memo as it is (``estimate_build``)."""
+
+        by_digest = {text_hash(text): text for text in texts}
+        found = await self._read([digest for digest in by_digest if digest not in self._memo])
+        return {
+            text: self._memo[digest] if digest in self._memo else found[digest]
+            for digest, text in by_digest.items()
+            if digest in self._memo or digest in found
+        }
 
     async def by_hash(
         self, digests: Collection[str], texts: Callable[[], Awaitable[Mapping[str, str]]]

@@ -38,3 +38,10 @@ reason = "the kit's track runner; validation/ci/test_run_all.py runs it in make 
 [[source-ownership.external]]
 paths = ["docs/design-system/components/**/*", "docs/design-system/tokens.css"]
 reason = "vendored read-only third-party design system (GD Liquid Glass components and design tokens); validated by nobody in this repository"
+
+# `make env-local` and `make check-keycloak-env` run this script; backend/tests/test_specflow_env_local.py and
+# the check-keycloak-env tests in backend/tests/test_specflow_images.py run it through make.
+[[source-ownership.external]]
+paths = ["scripts/env-local.sh"]
+owner = "backend"
+reason = "the local env file script; backend/tests/test_specflow_env_local.py and test_specflow_images.py run it via make"

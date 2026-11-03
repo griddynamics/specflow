@@ -33,6 +33,10 @@ async def delete(harness, pid, sid, email=ALICE):
     return await harness.client.delete(url(pid, f"/{sid}"), headers=bearer(email))
 
 
+def prefix_of(pid, document):
+    return f"projects/{pid}/documents/{document.id}/"
+
+
 def put_doc(harness, pid, source, name, *, status="parsed", content=None):
     """A document held by ``source`` with its object in the store and an item for it."""
 
@@ -95,7 +99,11 @@ def trace(harness, monkeypatch):
         if armed["on"]:
             order.append("commit")
 
-    start_workflow, handle, delete_object = temporal.start_workflow, temporal.get_workflow_handle, store.delete
+    start_workflow, handle, delete_object = (
+        temporal.start_workflow,
+        temporal.get_workflow_handle,
+        store.delete_by_prefix,
+    )
 
     async def started(workflow, arg, **options):
         order.append(f"start:{workflow}")
@@ -112,9 +120,9 @@ def trace(harness, monkeypatch):
         found.terminate = terminate
         return found
 
-    async def deleted(key):
+    async def deleted(prefix):
         order.append("delete")
-        return await delete_object(key)
+        return await delete_object(prefix)
 
     remove_source = harness.batches.remove_source
 
@@ -126,7 +134,7 @@ def trace(harness, monkeypatch):
     monkeypatch.setattr(runtime, "transaction", tx)
     monkeypatch.setattr(temporal, "start_workflow", started)
     monkeypatch.setattr(temporal, "get_workflow_handle", handled)
-    monkeypatch.setattr(store, "delete", deleted)
+    monkeypatch.setattr(store, "delete_by_prefix", deleted)
 
     monkeypatch.setattr(removal, "remove_source", removing)
     return order
@@ -252,15 +260,17 @@ async def test_slow_deletes_stop_at_the_budget_log_the_rest_and_answer_204(harne
     pid = await project(harness)
     source = await batch_of(harness, pid, 6)
     monkeypatch.setattr(source_removal, "DELETE_BUDGET_SECONDS", 0.2)
-    real = harness.store.delete
-    slow = sorted(d.original_key for d in harness.repo.documents.values())[:2]
+    real = harness.store.delete_by_prefix
+    docs = sorted(harness.repo.documents.values(), key=lambda d: prefix_of(pid, d))[:2]
+    stuck = [prefix_of(pid, d) for d in docs]
+    slow = [d.original_key for d in docs]
 
-    async def delete_object(key):
-        if key in slow:
+    async def delete_object(prefix):
+        if prefix in stuck:
             await asyncio.Event().wait()  # never ends inside the budget
-        await real(key)
+        return await real(prefix)
 
-    monkeypatch.setattr(harness.store, "delete", delete_object)
+    monkeypatch.setattr(harness.store, "delete_by_prefix", delete_object)
     with caplog.at_level("INFO"):
         response = await asyncio.wait_for(delete(harness, pid, source.id), 5)
     assert response.status_code == 204
@@ -274,15 +284,15 @@ async def test_slow_deletes_stop_at_the_budget_log_the_rest_and_answer_204(harne
 async def test_a_failing_object_delete_is_counted_not_raised(harness, monkeypatch, caplog):
     pid = await project(harness)
     source = await batch_of(harness, pid, 3)
-    real = harness.store.delete
-    first = min(d.original_key for d in harness.repo.documents.values())
+    real = harness.store.delete_by_prefix
+    first = min(prefix_of(pid, d) for d in harness.repo.documents.values())
 
-    async def delete_object(key):
-        if key == first:
+    async def delete_object(prefix):
+        if prefix == first:
             raise OSError("gcs 503")
-        await real(key)
+        return await real(prefix)
 
-    monkeypatch.setattr(harness.store, "delete", delete_object)
+    monkeypatch.setattr(harness.store, "delete_by_prefix", delete_object)
     with caplog.at_level("INFO"):
         assert (await delete(harness, pid, source.id)).status_code == 204
     [left] = events(caplog, "api.source.objects_left")
@@ -293,12 +303,13 @@ async def test_deletes_run_sixteen_at_a_time(harness):
     running = peak = 0
 
     class Store:
-        async def delete(self, _key):
+        async def delete_by_prefix(self, _prefix):
             nonlocal running, peak
             running += 1
             peak = max(peak, running)
             await asyncio.sleep(0)
             running -= 1
+            return 0
 
     left = await source_removal.delete_objects(Store(), [f"k{n}" for n in range(60)], budget=5, concurrency=16)
     assert (left, peak) == (0, 16)

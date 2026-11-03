@@ -2,8 +2,8 @@
 
 An in-memory repository stands in for ``db.repositories`` (the real
 queries are covered by the tier-2 tests), the object store is the S3 memory
-store, Temporal and Neo4j are small fakes, and tokens are real dev-mode JWTs
-checked by the real ``DevTokenVerifier``.
+store, Temporal and Neo4j are small fakes, and tokens are real RS256 JWTs signed
+for the run's loopback IdP and checked by the real ``OidcJwtVerifier``.
 """
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import httpx
-import jwt
 import pytest_asyncio
 from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -24,22 +23,23 @@ from api.app import create_app
 from api.runtime import Runtime
 from health import Readiness
 from settings import RoleSettings, load_settings
+from specflow_auth_support import session_idp
 from specflow_batches_support import FakeBatches
 from storage.memory import InMemoryObjectStore
 from test_specflow_api_fakes import FakeRepo
 
-DEV_KEY = "k" * 40
 PDF = b"%PDF-1.4\n" + b"synthetic body\n" * 20
 
 
 def token(email: str = "alice@example.com", sub: str | None = None, **claims: Any) -> str:
+    idp = session_idp()
     now = int(time.time())
     payload = {
-        "iss": "specflow-dev-login",
+        "iss": idp.issuer,
         "aud": "specflow-api",
         "azp": "specflow-web",
         "typ": "Bearer",
-        "sub": sub or f"dev:{email}",
+        "sub": sub or f"user:{email}",
         "email": email,
         "email_verified": True,
         "name": email.split("@", maxsplit=1)[0].title(),
@@ -47,7 +47,7 @@ def token(email: str = "alice@example.com", sub: str | None = None, **claims: An
         "exp": now + 300,
     }
     payload.update(claims)
-    return jwt.encode({k: v for k, v in payload.items() if v is not None}, DEV_KEY, "HS256")
+    return idp.sign({k: v for k, v in payload.items() if v is not None})
 
 
 def bearer(email: str = "alice@example.com", **claims: Any) -> dict[str, str]:

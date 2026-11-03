@@ -11,12 +11,12 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Final
 
-from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.errors import database_unavailable, required
 from api.graph_build.runner import GraphBuildRunner
 from db import session as db_session
+from db.session import is_database_unreachable
 from graph.stores import build_store
 from health import (
     Readiness,
@@ -27,7 +27,7 @@ from health import (
 )
 from logger.correlation import run_in_context
 from logger.logger import WARNING, get_logger, log_event
-from settings import RoleSettings
+from settings import GRAPH_BUILD_SWITCHES, RoleSettings
 from storage import factory as storage_factory
 from temporal import client as temporal_client
 
@@ -40,31 +40,6 @@ DRIVE_TEST_CONCURRENCY: Final = 4  # Drive calls in flight per process (B4)
 
 class DriveTimeoutError(Exception):
     """The time budget of a Drive call ran out (waiting for a slot counts)."""
-
-
-_ASYNCPG_CONNECTION_ERRORS: Final = frozenset({"PostgresConnectionError", "InterfaceError"})
-
-
-def _is_asyncpg_connection_error(error: BaseException) -> bool:
-    """``isinstance`` of ``asyncpg.PostgresConnectionError | asyncpg.InterfaceError`` by class name.
-
-    asyncpg ships no type information, so its classes are recognised along the error's MRO.
-    """
-
-    return any(
-        cls.__module__.split(".", 1)[0] == "asyncpg" and cls.__name__ in _ASYNCPG_CONNECTION_ERRORS
-        for cls in type(error).__mro__
-    )
-
-
-def is_database_unreachable(error: BaseException) -> bool:
-    """True only for connectivity failures; a programming error stays a bug (500)."""
-
-    if isinstance(error, OperationalError | InterfaceError | OSError):
-        return True  # OSError covers ConnectionError, timeouts, DNS failures
-    if isinstance(error, DBAPIError):
-        return error.connection_invalidated
-    return _is_asyncpg_connection_error(error)
 
 
 @dataclass
@@ -210,7 +185,10 @@ async def build_runtime(settings: RoleSettings) -> Runtime:
         )
         session_factory = db_session.build_session_factory(engine)
         graph_builds = None
-        if settings.graph_build is not None:
+        if settings.graph_build is None:
+            # Build knowledge answers 503 graph_build_unavailable until one of these is set (all three are needed).
+            log_event(logger, WARNING, "api.graph_build.disabled", missing=list(GRAPH_BUILD_SWITCHES))
+        else:
             graph_builds = GraphBuildRunner(
                 settings.graph_build,
                 store=graph_store,

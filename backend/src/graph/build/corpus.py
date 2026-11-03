@@ -1,15 +1,4 @@
-"""Corpus text rules of the Plan step: token estimate, masked lines, segmentation (build.md Plan 1-3).
-
-Pure functions over markdown; no I/O. Line numbers are 1-based and count every line of the revision
-(``markdown.split("\\n")``, a trailing ``\\r`` dropped), masked lines included (tech-specs 5.4).
-
-Segmentation walks the heading tree: a heading subtree within ``fragment_tokens.target`` is one
-fragment; a larger one is split into its own text and its children, and pieces below
-``fragment_tokens.min`` merge with their neighbours under the same parent while the result stays within
-``fragment_tokens.max``. A section whose own text is over ``max`` is cut at the paragraph boundary whose
-content hash is lowest within the allowed window, so the cut depends on the content around it and an
-edit elsewhere does not move it. Fenced code blocks are never split.
-"""
+"""Corpus text rules of the Plan step: token estimate, masked lines, segmentation."""
 
 from __future__ import annotations
 
@@ -42,7 +31,7 @@ _COMMENT_CLOSE: Final = "-->"
 
 
 def estimate_tokens(text: str) -> int:
-    """Estimated tokens of ``text``: ``ceil(len(text) / 3.6)`` (tech-specs 5.4)."""
+    """Estimated tokens of ``text``: ``ceil(len(text) / 3.6)``."""
 
     return -(-len(text) * _TOKEN_NUMERATOR // _TOKEN_DENOMINATOR)
 
@@ -54,14 +43,7 @@ def split_lines(markdown: str) -> list[str]:
 
 
 def masked_lines(markdown: str) -> frozenset[int]:
-    """Line numbers (1-based) of ``<!-- ... -->`` blocks: parser comment lines (build.md Plan 1).
-
-    A comment block opens only where a line outside fenced code starts with ``<!--`` after optional
-    indentation, and closes at the first ``-->`` after it. A ``<!--`` mid-line (inline code
-    included) never opens one. Every line of the block is masked except a closing line with text
-    after ``-->``, which is kept whole. An unclosed ``<!--`` is not a comment. Lines of fenced code
-    blocks are code, never masked.
-    """
+    """Line numbers (1-based) of ``<!--..."""
 
     return _Layout.of(split_lines(markdown)).masked
 
@@ -86,11 +68,7 @@ class Segmentation:
 
 
 def segment(revision: CorpusRevision, options: BuildOptions) -> list[FragmentRec]:
-    """Fragments of one revision in document order (build.md Plan 3; data-model.md "Fragment").
-
-    Deterministic: the same markdown and options give the same fragments and ids. A revision without
-    unmasked content gives no fragment.
-    """
+    """Fragments of one revision in document order."""
 
     return segment_revision(revision, options).fragments
 
@@ -380,7 +358,7 @@ class _Packer:
         return merged
 
     def cut(self, piece: Piece) -> list[Piece]:
-        """Cut a long section's own text at content-chosen boundaries (tech-specs 5.4 "Fragment cut")."""
+        """Cut a long section's own text at content-chosen boundaries."""
 
         start, end = piece
         out: list[Piece] = []

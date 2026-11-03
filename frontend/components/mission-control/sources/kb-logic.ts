@@ -1,7 +1,7 @@
-// Phase 1 Mission Control sources (DESIGN D4, D6-D9; owner redesign 2026-10-15): the pure rules of the new screen. One build button
-// on the header row, and the source cards. No React.
+// Phase 1 Mission Control sources (DESIGN D4, D6-D9; owner redesign 2026-10-15; plans/connect-build-kg-button): the pure rules of the
+// screen: the build button on the header row (its state, the confirm estimate, the error report) and the source cards. No React.
 import { sourceState } from "@/lib/domain/source-state";
-import type { Connection, ProjectSourcesStatus } from "@/lib/domain/sources";
+import type { BuildFailure, Connection, ProjectSourcesStatus, ReasoningLevel } from "@/lib/domain/sources";
 import { importLock } from "./drive-logic";
 import { truthy } from "@/components/ui/utils";
 
@@ -29,89 +29,145 @@ export function when(iso: string, now: Date = new Date()): string {
 
 // ---- The build button (owner: one button beside the project dropdown; the label carries the state) ----
 
-export const REBUILD_LABEL = "Rebuild from scratch";
-
 export interface BuildButtonView {
   label: string;
-  /** What a click starts; null = the button is off (aria-disabled) and only says the state. */
+  /** What a click (or "Try again" after an error) starts; null = it starts nothing. */
   mode: "first" | "update" | null;
-  /** The detail per state (counts, changes, last build): the button's tooltip and its accessible description. */
+  /** The detail per state (counts, last build, error): the button's tooltip and its accessible description. */
   detail: string;
-  /** "⋯" with Rebuild from scratch (after the first build). */
-  menu: boolean;
+  tone: "primary" | "off" | "danger";
+  /** A build runs: the button is off and spins. */
+  busy: boolean;
+  /** The last build failed: the button is red and opens the error details. */
+  failed: boolean;
+  /** Set only when `failed`: why "Try again" is off. */
+  blocked: string | null;
 }
 
 const syncingCount = (s: ProjectSourcesStatus) => s.sources.filter((src) => sourceState(src) === "processing").length;
 const sourceCount = (s: ProjectSourcesStatus) => s.sources.length;
 
-/** "4 new · 2 changed · 1 removed" (zero parts left out). */
-export function changesText(c: ProjectSourcesStatus["changes"]): string {
-  return [
-    c.new ? `${String(c.new)} new` : "",
-    c.changed ? `${String(c.changed)} changed` : "",
-    c.removed ? `${String(c.removed)} removed` : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
-}
+const offView = (label: string, detail: string): BuildButtonView => ({
+  label,
+  mode: null,
+  detail,
+  tone: "off",
+  busy: false,
+  failed: false,
+  blocked: null,
+});
 
 /**
- * BUILD KNOWLEDGE -> BUILDING 18/42 -> UP TO DATE -> UPDATE KNOWLEDGE (owner, 2026-10-15). Off while sources sync (it waits), while a
- * build runs, and when nothing changed. The design's detail per state ("42 documents from 3 sources · 2 skipped", …) is the tooltip.
+ * BUILD KNOWLEDGE -> BUILDING… -> UPDATE KNOWLEDGE, or ERROR (a failed build or a refused start). Off while sources sync (it waits)
+ * and while a build runs; after a success it stays active. The design's detail per state ("42 documents from 3 sources · 2 skipped",
+ * …) is the tooltip.
  */
-export function buildButtonView(s: ProjectSourcesStatus, now: Date = new Date()): BuildButtonView {
-  // FR-GDUI-0021: while a source lists or a file is not finished, the button is off under any label and its tooltip says why.
+export function buildButtonView(s: ProjectSourcesStatus, now: Date = new Date(), pending = false): BuildButtonView {
+  // `pending`: a build was just confirmed and no status shows it yet; the button already looks busy.
+  if (s.build || pending) return runningView(s.build, now);
+  const base = stateButtonView(s, now);
+  // FR-GDUI-0021: while a source lists or a file is not finished, no build starts under any label and the tooltip says why.
   const lock = importLock(s.progress);
-  const v = stateButtonView(s, now);
-  return truthy(lock) ? { ...v, mode: null, detail: lock } : v;
+  const mode = truthy(lock) ? null : base.mode;
+  if (s.buildFailure) {
+    return {
+      label: "Error",
+      mode,
+      detail: `The build failed (${s.buildFailure.code}). Open for details.`,
+      tone: "danger",
+      busy: false,
+      failed: true,
+      blocked: lock ?? (mode === null ? base.detail : null),
+    };
+  }
+  return truthy(lock) ? { ...base, mode: null, tone: "off", detail: lock } : base;
 }
 
-/** A build runs: its counter is the label, its current step the detail. */
-function runningView(build: NonNullable<ProjectSourcesStatus["build"]>): BuildButtonView {
-  const unit = build.mode === "update" ? "change" : "document";
-  const current = truthy(build.current) ? ` · now: ${build.current}` : "";
-  return {
-    label: `Building ${String(build.completed)}/${String(build.total)}`,
-    mode: null,
-    detail: `${String(build.completed)} of ${plural(build.total, unit)}${current}`,
-    menu: false,
-  };
+/** A build runs: "Started 10:42 · 3 min so far". The import lock does not apply: the build already started. */
+function runningView(build: ProjectSourcesStatus["build"], now: Date): BuildButtonView {
+  const startedAt = build?.startedAt ?? null;
+  const started = startedAt === null ? Number.NaN : Date.parse(startedAt);
+  let detail = "Building knowledge";
+  if (startedAt !== null && !Number.isNaN(started)) {
+    const minutes = Math.floor((now.getTime() - started) / 60_000);
+    const elapsed = minutes < 1 ? "less than a minute" : `${String(minutes)} min`;
+    detail = `Started ${clock(startedAt)} · ${elapsed} so far`;
+  }
+  return { ...offView("Building…", detail), busy: true };
 }
 
 /** Something still syncs: normally the import lock answers first; this is the fallback when the progress says finished. */
 function syncingView(s: ProjectSourcesStatus, syncing: number): BuildButtonView {
   const who = syncing === 1 ? "1 source finishes" : `${String(syncing)} sources finish`;
-  return {
-    label: s.ready ? "Update knowledge" : "Build knowledge",
-    mode: null,
-    detail: `Waits until ${who} syncing · ${plural(s.totals.documents, "document")} so far`,
-    menu: s.ready,
-  };
+  return offView(
+    s.ready ? "Update knowledge" : "Build knowledge",
+    `Waits until ${who} syncing · ${plural(s.totals.documents, "document")} so far`,
+  );
 }
 
 function firstBuildView(s: ProjectSourcesStatus): BuildButtonView {
   const skipped = s.totals.skipped ? ` · ${String(s.totals.skipped)} skipped` : "";
   return {
-    label: "Build knowledge",
+    ...offView("Build knowledge", `${plural(s.totals.documents, "document")} from ${plural(sourceCount(s), "source")}${skipped}`),
     mode: "first",
-    detail: `${plural(s.totals.documents, "document")} from ${plural(sourceCount(s), "source")}${skipped}`,
-    menu: false,
+    tone: "primary",
   };
 }
 
+function updateView(s: ProjectSourcesStatus, now: Date): BuildButtonView {
+  const last = s.lastBuild;
+  const at = last ? (last.finishedAt ?? last.startedAt) : null;
+  const detail = [
+    at === null || Number.isNaN(Date.parse(at)) ? "" : `Built ${when(at, now)}`,
+    last?.state === "partially_succeeded" ? "Last build finished with some problems" : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return { ...offView("Update knowledge", detail || "Ready to update"), mode: "update", tone: "primary" };
+}
+
+/** Rows 3-7 of the button table: the view without the build failure and the import lock. */
 function stateButtonView(s: ProjectSourcesStatus, now: Date): BuildButtonView {
-  if (s.build) return runningView(s.build);
-  if (sourceCount(s) === 0) return { label: "Build knowledge", mode: null, detail: "Add a source first.", menu: false };
+  if (sourceCount(s) === 0) return offView("Build knowledge", "Add a source first.");
   const syncing = syncingCount(s);
   if (syncing > 0) return syncingView(s, syncing);
   if (s.nextBuild === "first") return firstBuildView(s);
-  const built = s.lastBuild
-    ? `built ${when(s.lastBuild.finishedAt ?? s.lastBuild.startedAt, now)} from ${plural(s.lastBuild.documentCount, "document")}`
-    : "";
-  if (s.nextBuild === "update")
-    return { label: "Update knowledge", mode: "update", detail: [changesText(s.changes), built].filter(Boolean).join(" · "), menu: true };
-  if (s.ready) return { label: "Up to date", mode: null, detail: built.charAt(0).toUpperCase() + built.slice(1), menu: true };
-  return { label: "Build knowledge", mode: null, detail: "No documents to build yet.", menu: false };
+  if (s.nextBuild === "update") return updateView(s, now);
+  return offView(s.ready ? "Update knowledge" : "Build knowledge", "No documents to build yet.");
+}
+
+// ---- The build dialogs ----
+
+/** The reasoning level names; the level is the index + 1. */
+export const REASONING_LEVELS = ["Low", "Medium", "High", "Extra high", "Max"] as const;
+/** Time factor per level (Medium = 1). Calibrated on a 598 s corpus of about 25 documents; these constants exist only here. */
+const FACTOR = [0.6, 1.0, 1.4, 2.0, 2.8] as const;
+
+/** "about 4–9 minutes", or "more than an hour" above 60: a rough range from the document count and the level. */
+export function estimateText(documents: number, level: ReasoningLevel): string {
+  const base = (2 + 0.4 * documents) * FACTOR[level - 1];
+  const low = Math.max(1, Math.round(base * 0.7));
+  const high = Math.max(low + 1, Math.round(base * 1.5));
+  return high > 60 ? "more than an hour" : `about ${String(low)}–${String(high)} minutes`;
+}
+
+const iso = (t: string | null): string => {
+  const d = t === null ? null : new Date(t);
+  return d === null || Number.isNaN(d.getTime()) ? "—" : d.toISOString();
+};
+
+/** The copyable text of a failed build: ids, codes and times only, never server text or file names. `page` has no query and no hash. */
+export function buildErrorReport(projectId: string, f: BuildFailure, page: string): string {
+  return [
+    "Specflow knowledge build failed",
+    `Project: ${projectId}`,
+    `Build: ${f.buildId ?? "—"}`,
+    `Mode: ${f.mode ?? "—"}`,
+    `Error code: ${f.code}`,
+    `Started (UTC): ${iso(f.startedAt)}`,
+    `Finished (UTC): ${iso(f.finishedAt)}`,
+    `Page: ${page}`,
+  ].join("\n");
 }
 
 // ---- Sources ----

@@ -43,6 +43,7 @@ _PROJECT_ID_REFERENCE: Final = re.compile(r"\$project_id\b")
 _STATIC: Final[Mapping[str, Callable[[], str]]] = {
     "core.await_indexes": lambda: load_core_query("await_indexes.cypher"),
     "core.count_search_vectors": lambda: load_core_query("count_search_vectors.cypher"),
+    "core.count_nodes": lambda: load_core_query("count_nodes.cypher"),
     "core.delete_spec_node": lambda: load_core_query("delete_spec_node.cypher"),
     "core.move_foreign_relationships": lambda: load_core_query("move_foreign_relationships.cypher"),
     "core.ping": lambda: load_core_query("ping.cypher"),
@@ -59,6 +60,8 @@ _STATIC: Final[Mapping[str, Callable[[], str]]] = {
     "core.read_nodes_by_ids": lambda: load_core_query("read_nodes_by_ids.cypher"),
     "core.read_nodes_by_uuid": lambda: load_core_query("read_nodes_by_uuid.cypher"),
     "core.read_nodes_for_lines": lambda: load_core_query("read_nodes_for_lines.cypher"),
+    "core.read_nodes_page": lambda: load_core_query("read_nodes_page.cypher"),
+    "core.read_owner_values": lambda: load_core_query("read_owner_values.cypher"),
     "core.search_fragments": lambda: load_core_query("search_fragments.cypher"),
     "core.search_nodes_fulltext": lambda: load_core_query("search_nodes_fulltext.cypher"),
     "core.search_nodes_vector": lambda: load_core_query("search_nodes_vector.cypher"),
@@ -100,6 +103,9 @@ _STATIC: Final[Mapping[str, Callable[[], str]]] = {
     "build.build_verify_domain_edges": lambda: load_build_query("build_verify_domain_edges.cypher"),
     "build.build_verify_fragments": lambda: load_build_query("build_verify_fragments.cypher"),
     "build.build_verify_spec_nodes": lambda: load_build_query("build_verify_spec_nodes.cypher"),
+    "build.infer_xdoc_documents": lambda: load_build_query("infer_xdoc_documents.cypher"),
+    "build.infer_xdoc_embeddings": lambda: load_build_query("infer_xdoc_embeddings.cypher"),
+    "build.infer_xdoc_members": lambda: load_build_query("infer_xdoc_members.cypher"),
 }
 
 
@@ -184,14 +190,25 @@ def _endpoint_subjects(args: EndpointSubjects) -> str:
     )
 
 
+def _container_pattern(args: RealizationSubjects) -> str:
+    """The pattern from a member to a container: one edge of each relation of a sequence (through spec
+    nodes), else ``min_hops``..``max_hops`` edges of any of the relations, in their one direction."""
+
+    if args.sequence:
+        return "(:SpecNode)".join(
+            f"-[:{safe_name(name)}]{_arrow(symmetric=either)}"
+            for name, either in zip(args.relations, args.symmetric, strict=True)
+        )
+    names = "|".join(safe_name(name) for name in args.relations)
+    return f"-[:{names}*{int(args.min_hops)}..{int(args.max_hops)}]{_arrow(symmetric=all(args.symmetric))}"
+
+
 def _realization_subjects(args: RealizationSubjects) -> str:
     return render_query(
         load_build_query("infer_realization_subjects.cypher"),
         member=safe_name(args.member),
         member_arrow=_arrow(symmetric=args.member_symmetric),
-        container=safe_name(args.container),
-        container_arrow=_arrow(symmetric=args.container_symmetric),
-        hops=str(int(args.max_hops)),
+        pattern=_container_pattern(args),
     )
 
 

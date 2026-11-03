@@ -1,7 +1,7 @@
 """Compose and image checks (AC-13.x static, AC-14.x, AC-16.5).
 
-The local stack (``docker-compose.yml``) mirrors the deployment: the same six services,
-images and variables.
+The local stack (``docker-compose.yml``) mirrors the deployment: the same services (``mcp`` runs
+from the api image), images and variables.
 Static checks read the repo files and need no docker. The image tests are gated by
 ``SPECFLOW_TEST_IMAGES=1`` (``make images`` builds the images and runs them): they start
 the built images with synthetic, otherwise valid NON-local settings and ``AUTH_MODE=dev``
@@ -35,6 +35,7 @@ import yaml
 from google.auth.credentials import AnonymousCredentials
 from google.cloud import storage
 
+from runtime_defaults_support import RUNTIME_DEFAULTS
 from settings import StorageSettings
 from storage.base import CHUNK_SIZE
 from storage.gcs import GcsObjectStore
@@ -45,19 +46,21 @@ OWNED = [
     COMPOSE,
     ROOT / "Makefile",
     ROOT / "backend" / "Makefile",
-    ROOT / "backend" / "api.Dockerfile",
-    ROOT / "backend" / "worker.Dockerfile",
+    ROOT / "backend" / "docker" / "api" / "Dockerfile",
+    ROOT / "backend" / "docker" / "worker-agents" / "Dockerfile",
+    ROOT / "backend" / "docker" / "worker-parse" / "Dockerfile",
     ROOT / "backend" / ".dockerignore",
 ]
 API_IMAGE = os.environ.get("SPECFLOW_API_IMAGE", "specflow-api:local")
-WORKER_IMAGE = os.environ.get("SPECFLOW_WORKER_IMAGE", "specflow-worker:local")
+WORKER_IMAGE = os.environ.get("SPECFLOW_WORKER_AGENTS_IMAGE", "specflow-worker-agents:local")
+WORKER_PARSE_IMAGE = os.environ.get("SPECFLOW_WORKER_PARSE_IMAGE", "specflow-worker-parse:local")
 FRONTEND_IMAGE = os.environ.get("SPECFLOW_FRONTEND_IMAGE", "specflow-frontend:local")
 
 # App service -> (build context, Dockerfile), as in the deployment.
 BUILT = {
-    "api": ("./backend", "api.Dockerfile"),
-    "worker-parse": ("./backend", "worker.Dockerfile"),
-    "worker-agents": ("./backend", "worker.Dockerfile"),
+    "api": ("./backend", "docker/api/Dockerfile"),
+    "worker-parse": ("./backend", "docker/worker-parse/Dockerfile"),
+    "worker-agents": ("./backend", "docker/worker-agents/Dockerfile"),
     "frontend": ("./frontend", "Dockerfile"),
 }
 # Database service -> public image.
@@ -67,6 +70,7 @@ GRAPH_STORE_PROFILES = {"neo4j": {"neo4j"}, "arcadedb": {"arcadedb", "arcadedb-i
 # Local-only platform services this file runs itself (a deployment provides them in its own cluster).
 LOCAL_PLATFORM = {
     "temporal",
+    "keycloak",
     "rustfs",
     "rustfs-init",
     "langfuse-postgres",
@@ -77,6 +81,18 @@ LOCAL_PLATFORM = {
     "langfuse-web",
 }
 BACKEND_SERVICES = ("api", "worker-parse", "worker-agents")
+KEYCLOAK_ISSUER = "http://localhost:8180/realms/specflow"
+KEYCLOAK_JWKS_URL = "http://specflow-keycloak:8080/realms/specflow/protocol/openid-connect/certs"
+MCP_SERVICE = "mcp"  # the api image with `specflow mcp`; no Temporal, storage or LLM variables
+DOCKERFILES = ("api", "worker-agents", "worker-parse")  # service = directory under backend/docker/
+
+
+def dockerfile_of(service: str) -> Path:
+    return ROOT / "backend" / "docker" / service / "Dockerfile"
+
+
+# Packages only the worker-parse image may carry (the `parse` extra and what it pulls in).
+PARSE_ONLY_MODULES = ("docling", "torch", "pymupdf", "pymupdf4llm", "cv2", "pypdfium2")
 
 images_enabled = os.environ.get("SPECFLOW_TEST_IMAGES") == "1"
 needs_docker = pytest.mark.skipif(
@@ -114,10 +130,10 @@ def env_of(service: dict) -> dict[str, str]:
 # --- static: compose (no docker) -----------------------------------------------------
 
 
-def test_the_stack_is_the_six_deployments_plus_the_local_platform_services():
+def test_the_stack_is_the_built_services_the_databases_mcp_and_the_local_platform_services():
     svcs = services()
     extra = set().union(*GRAPH_STORE_PROFILES.values())
-    assert set(svcs) == set(BUILT) | set(PUBLIC) | LOCAL_PLATFORM | extra
+    assert set(svcs) == set(BUILT) | set(PUBLIC) | LOCAL_PLATFORM | {MCP_SERVICE} | extra
     for name, svc in svcs.items():
         assert svc["container_name"] == f"specflow-{name}", name
     assert compose()["name"] == "specflow"
@@ -156,13 +172,23 @@ def test_the_file_uses_no_anchors_merge_keys_or_extension_fields():
             assert current.startswith("langfuse-"), (current, line)
 
 
-DEFAULT_SERVICES = {"postgres", "rustfs", "rustfs-init", "api", "worker-parse", "worker-agents", "frontend"}
+DEFAULT_SERVICES = {
+    "postgres",
+    "keycloak",
+    "rustfs",
+    "rustfs-init",
+    "api",
+    "mcp",
+    "worker-parse",
+    "worker-agents",
+    "frontend",
+}
 LANGFUSE_SERVICES = {f"langfuse-{n}" for n in ("postgres", "clickhouse", "redis", "minio", "worker", "web")}
 
 
-def test_temporal_and_langfuse_are_optional_profiles():
-    """D32: the default stack starts no Temporal and no Langfuse; WITH=... turns them on. A graph store
-    with a server of its own is a profile too: the Makefile starts neo4j unless WITH names another store."""
+def test_temporal_and_langfuse_are_optional_profiles_and_keycloak_is_always_started():
+    """D32: the default stack starts no Temporal or Langfuse (WITH=... turns them on); Keycloak has no profile. A
+    graph store with a server of its own is a profile too: the Makefile starts neo4j unless WITH names another store."""
 
     svcs = services()
     by_profile = {}
@@ -195,6 +221,11 @@ def test_make_up_with_selects_the_profiles_and_points_the_app_at_them():
         [make, "-n", "down"], cwd=ROOT, capture_output=True, text=True, check=True, env=environment
     ).stdout
     assert f"COMPOSE_PROFILES=temporal,langfuse,{','.join(GRAPH_STORE_PROFILES)} " in dry_run
+    keycloak = make_dry_run("up", WITH="keycloak")  # WITH=keycloak is refused: Keycloak is always started
+    assert keycloak.returncode != 0 and "WITH accepts temporal langfuse" in keycloak.stderr
+    # Local sign-in is always Keycloak: no override block, no names make assigns for the services.
+    assert not re.search(r"MCP_OIDC_ENV|KEYCLOAK_ISSUER|-u MCP_|MCP_AUTH_|AUTH_DEV_SIGNING_KEY|AUTH_MODE", makefile)
+    assert not re.search(r"(?<![A-Z_])(OIDC_ISSUER|AUTH_JWKS_URL)=", makefile)
     assert "specflow-temporal:7233" in makefile
     assert "LANGFUSE_BASE_URL=http://specflow-langfuse-web:3000" in makefile
     recipe_uses_all_profiles = r"^{}:.*\n(?:\t@?if[^\n]*\n(?:\t[^\n]*\n)*?)?\t[^\n]*\$\(COMPOSE_ALL\)"
@@ -219,7 +250,7 @@ def test_every_published_port_is_loopback_and_never_3000_8080_or_5432():
             host_port = text.split(":")[1]
             if (name, text) != ("langfuse-web", "127.0.0.1:3000:3000"):
                 assert not re.fullmatch(r"(3000|8080|5432)", host_port), (name, text)
-    assert {name for name, _ in seen} == {
+    expected = {
         "postgres",
         "neo4j",
         "api",
@@ -228,9 +259,14 @@ def test_every_published_port_is_loopback_and_never_3000_8080_or_5432():
         "langfuse-web",
         "rustfs",
         "arcadedb",
+        "keycloak",
+        "mcp",
     }
+    assert {name for name, _ in seen} == expected
     assert services()["frontend"]["ports"] == ["127.0.0.1:${FRONTEND_PORT:-3001}:3000"]
     assert services()["rustfs"]["ports"] == ["127.0.0.1:${RUSTFS_HOST_PORT:-19000}:9000"]
+    assert services()["keycloak"]["ports"] == ["127.0.0.1:8180:8080"]
+    assert services()["mcp"]["ports"] == ["127.0.0.1:8002:8002"]
 
 
 def test_services_list_their_variables_explicitly():
@@ -245,7 +281,7 @@ def test_in_network_values_use_the_deployment_host_names():
         env = env_of(services()[name])
         assert env["DATABASE_HOST"] == "specflow-postgres", name
         assert env["DATABASE_NAME"] == env["DATABASE_USER"] == "specflow", name
-    for name in ("api", "worker-agents"):
+    for name in ("api", "mcp", "worker-agents"):
         env = env_of(services()[name])
         # The defaults are the neo4j of the stack; `make up WITH=<store>` passes the values of another store.
         assert env["GRAPH_STORE"] == "${GRAPH_STORE:-neo4j}", name
@@ -266,10 +302,17 @@ def test_secret_variables_reach_only_their_roles():
     assert holders("DATABASE_AGENT_PASSWORD") == {"postgres", "worker-agents"}
     # The api runs the graph build in-process (POST /projects/{pid}/graph_build).
     assert holders("LLM_GATEWAY_API_KEY") == {"api", "worker-agents"}
-    assert holders("GRAPH_STORE_PASSWORD") == {"api", "worker-agents"}
+    assert holders("GRAPH_STORE_PASSWORD") == {"api", "worker-agents", "mcp"}
+    assert holders("DATABASE_PASSWORD") == {"postgres", "api", "worker-parse", "worker-agents", "mcp"}
     assert holders("POSTGRES_PASSWORD") == {"postgres", "langfuse-postgres"}  # the latter is its own store
-    assert holders("AUTH_DEV_SIGNING_KEY") == {"api", "frontend"}
-    allowed = {"SESSION_SECRET", "OIDC_CLIENT_SECRET", "AUTH_DEV_SIGNING_KEY"}
+    assert holders("AUTH_DEV_SIGNING_KEY") == set()
+    assert holders("AUTH_MODE") == set()
+    assert holders("KC_BOOTSTRAP_ADMIN_PASSWORD") == {"keycloak"}
+    assert holders("KEYCLOAK_WEB_CLIENT_SECRET") == {"keycloak"}
+    assert holders("OIDC_CLIENT_SECRET") == {"frontend"}
+    assert holders("KEYCLOAK_QA_PASSWORD") == {"keycloak"}
+    assert holders("LOCAL_TEST_USER_PASSWORD") == {"keycloak"}
+    allowed = {"SESSION_SECRET", "OIDC_CLIENT_SECRET"}
     secrets = {
         var for var in names["frontend"] if re.search(r"(PASSWORD|SECRET|API_KEY|SIGNING_KEY|PUBLIC_KEY|TLS_KEY)$", var)
     }
@@ -288,8 +331,8 @@ def test_base_images_are_pinned_to_exact_tags():
         stages = {stage for _, stage in bases if stage}
         for image, _ in bases:
             assert image in stages or pin.match(image), (path.name, image)
-    for name in ("api.Dockerfile", "worker.Dockerfile"):
-        assert re.search(r"pip install uv==\d+\.\d+\.\d+\b", (ROOT / "backend" / name).read_text()), name
+    for name in DOCKERFILES:
+        assert re.search(r"pip install uv==\d+\.\d+\.\d+\b", dockerfile_of(name).read_text()), name
 
 
 def test_the_cloud_profile_mount_no_adc_and_no_log_files_for_the_backend_services():
@@ -333,17 +376,115 @@ def test_rustfs_is_pinned_needs_both_keys_and_has_a_one_shot_bucket_init():
     assert init["restart"] == "no"
     assert init["depends_on"] == {"rustfs": {"condition": "service_healthy"}}
     assert env_of(init)["INIT_BUCKET"] == "specflow-local"
+    # Off-the-shelf image pinned by tag and digest; it builds nothing and reuses no image of ours.
+    assert re.fullmatch(r"amazon/aws-cli:\d+\.\d+\.\d+@sha256:[0-9a-f]{64}", init["image"])
+    assert "build" not in init
+    script = init["entrypoint"]
+    assert script[:2] == ["/bin/sh", "-c"]
+    assert "aws s3api create-bucket" in script[2] and "|| aws s3api head-bucket" in script[2]
+
+
+def test_the_mcp_role_runs_the_api_image_against_the_bundled_keycloak():
+    """FR-MCP-OPS-08: the same image as the api, token checks against the local Keycloak by literals."""
+
+    svcs = services()
+    svc = svcs[MCP_SERVICE]
+    env = env_of(svc)
+    port = RUNTIME_DEFAULTS["MCP_PORT"]
+    assert svc["build"] == svcs["api"]["build"]
+    assert svc["image"] == svcs["api"]["image"]
+    assert svc["command"] == ["specflow", "mcp"]
+    assert "volumes" not in svc and "extra_hosts" not in svc
+    assert f"http://127.0.0.1:{port}/readyz" in " ".join(svc["healthcheck"]["test"])
+    assert env["APP_ENV"] == "${APP_ENV:-local}"
+    assert env["MCP_PORT"] == str(port)
+    assert env["MCP_RESOURCE_URL"] == f"http://localhost:{port}/mcp"
+    assert env["DATABASE_HOST"] == "specflow-postgres"
+    assert env["GRAPH_STORE_URI"] == "${GRAPH_STORE_URI:-bolt://specflow-neo4j:7687}"
+    assert env["OIDC_ISSUER"] == KEYCLOAK_ISSUER
+    assert env["AUTH_JWKS_URL"] == KEYCLOAK_JWKS_URL
+    assert env["AUTH_ALLOWED_EMAIL_DOMAINS"] == "${AUTH_ALLOWED_EMAIL_DOMAINS:-example.com}"
+    assert not {"AUTH_MODE", "AUTH_DEV_SIGNING_KEY"} & set(env)
+    prefixes = ("TEMPORAL_", "AWS_", "LLM_", "LANGFUSE_", "GRAPH_", "AGENT_", "DATABASE_AGENT_")
+    unused = [key for key in env if key.startswith(prefixes) and not key.startswith("GRAPH_STORE")]
+    assert [*unused, *(key for key in env if key == "SPECFLOW_CONFIG_FILE")] == []
+    claims = {"AUTH_SUBJECT_CLAIM", "AUTH_CLIENT_ID_CLAIM", "AUTH_EMAIL_CLAIM", "AUTH_EMAIL_VERIFIED_CLAIM"}
+    claims |= {
+        "AUTH_TOKEN_TYPE",
+        "AUTH_TOKEN_TYPE_CLAIM",
+        "AUTH_TOKEN_TYPE_VALUE",
+        "AUTH_IGNORED_AUDIENCES",
+    }  # an empty fallback would switch a check off
+    assert [name for name, other in svcs.items() if claims & set(env_of(other))] == []
+    assert sorted(key for key, value in env.items() if ":?" in str(value)) == [
+        "DATABASE_PASSWORD",
+        "GRAPH_STORE_PASSWORD",
+    ]
+    for name in ("api", "frontend"):
+        assert not {"AUTH_MODE", "AUTH_DEV_SIGNING_KEY"} & set(env_of(svcs[name])), name
+
+
+def test_api_and_frontend_are_wired_to_keycloak_by_config_only():
+    """SPECS 4.1: literals for the issuer and client, the web secret from the Keycloak name, a local server name."""
+
+    svcs = services()
+    for name in ("api", MCP_SERVICE):
+        env = env_of(svcs[name])
+        assert env["OIDC_ISSUER"] == KEYCLOAK_ISSUER, name
+        assert env["AUTH_JWKS_URL"] == KEYCLOAK_JWKS_URL, name
+    frontend = env_of(svcs["frontend"])
+    assert frontend["OIDC_ISSUER"] == KEYCLOAK_ISSUER
+    assert frontend["OIDC_INTERNAL_URL"] == "http://specflow-keycloak:8080/realms/specflow"
+    assert frontend["OIDC_CLIENT_ID"] == "specflow-web"
+    web_client_ref = "${KEYCLOAK_WEB_CLIENT_SECRET:-}"
+    assert frontend["OIDC_CLIENT_SECRET"] == web_client_ref
+    assert frontend["MCP_SERVER_NAME"] == "${MCP_SERVER_NAME:-specflow-local}"
+    assert "LOCAL_TEST_USER_EMAIL" not in frontend
+    text = COMPOSE.read_text()
+    assert not re.search(r"AUTH_MODE|AUTH_DEV_SIGNING_KEY|MCP_AUTH_|MCP_OIDC_", text)
+
+
+def test_keycloak_is_pinned_always_started_and_imports_the_realm_read_only():
+    """Local OIDC provider: digest-pinned, no profile, no data volume, realm mounted read-only, no literal secret."""
+
+    svc = services()["keycloak"]
+    assert re.fullmatch(r"quay\.io/keycloak/keycloak:26\.4\.\d+@sha256:[0-9a-f]{64}", svc["image"])
+    assert svc["command"] == ["start-dev", "--import-realm"]
+    assert svc["volumes"] == ["./config/keycloak:/opt/keycloak/data/import:ro"]  # no data volume: a recreate re-imports
+    assert "profiles" not in svc
+    assert "healthcheck" in svc
+    env = env_of(svc)
+    admin = [value for key, value in env.items() if key.endswith("_ADMIN_PASSWORD")]
+    assert admin == ["${KEYCLOAK_ADMIN_PASSWORD:-}"]  # an empty fallback, never a literal
+    assert env["KC_HOSTNAME"] == "http://localhost:8180"
+    assert env["KC_HEALTH_ENABLED"] == "true"
+    assert not any(":?" in str(value) for value in env.values())  # a required variable breaks older .env.local files
+    assert "read_only" not in svc  # start-dev writes its H2 data under /opt/keycloak/data
+    for name in (
+        "KEYCLOAK_WEB_CLIENT_SECRET",
+        "KEYCLOAK_QA_PASSWORD",
+        "LOCAL_TEST_USER_EMAIL",
+        "LOCAL_TEST_USER_PASSWORD",
+        "LOCAL_TEST_USER_ID",
+    ):
+        assert env[name] == f"${{{name}:-}}", name  # realm placeholders, empty fallback
+    assert env["SPECFLOW_WEB_URL"] == "${PUBLIC_URL:-http://localhost:3001}"
+    assert env["SPECFLOW_WEB_URL"].split(":-", 1) == env_of(services()["frontend"])["PUBLIC_URL"].split(":-", 1)
+    assert (ROOT / "config/keycloak/specflow-realm.json").is_file()
 
 
 def test_the_backend_services_run_on_a_read_only_root_filesystem():
-    """AC-15: read_only on exactly the three backend services, as on Kubernetes; tmpfs /tmp on the two workers only."""
+    """AC-15: read_only on the three backend services and mcp, as on Kubernetes; tmpfs /tmp on the two workers only."""
 
     svcs = services()
     readonly = {name for name, svc in svcs.items() if svc.get("read_only") is True}
-    assert readonly == set(BACKEND_SERVICES)
+    assert readonly == set(BACKEND_SERVICES) | {MCP_SERVICE}
     assert svcs["worker-parse"]["tmpfs"] == [f"{PurePosixPath('/', 'tmp')}:size=1g"]
+    assert svcs["worker-parse"]["mem_limit"] == "3g"  # Docling; the 1 GB tmpfs counts against it
+    assert svcs["worker-parse"]["image"] == "specflow-worker-parse:local"
     assert svcs["worker-agents"]["tmpfs"] == [f"{PurePosixPath('/', 'tmp')}:size=256m"]
     assert "tmpfs" not in svcs["api"]
+    assert "tmpfs" not in svcs[MCP_SERVICE]
     assert not (ROOT / "docker-compose.readonly.yml").exists()
     makefile = (ROOT / "Makefile").read_text()
     assert "logs/compose" not in makefile
@@ -354,6 +495,7 @@ def test_the_start_order_follows_the_blueprint():
     svcs = services()
     assert svcs["api"]["depends_on"] == {
         "postgres": {"condition": "service_healthy"},
+        "keycloak": {"condition": "service_healthy"},
         # Present only when the profile of the store (neo4j, arcadedb) or of temporal / langfuse is on.
         "neo4j": {"condition": "service_healthy", "required": False},
         "arcadedb-init": {"condition": "service_completed_successfully", "required": False},
@@ -366,7 +508,13 @@ def test_the_start_order_follows_the_blueprint():
             "api": {"condition": "service_healthy"},
             "rustfs-init": {"condition": "service_completed_successfully"},
         }, name
-    assert svcs["frontend"]["depends_on"] == {"api": {"condition": "service_healthy"}}
+    healthy = {"condition": "service_healthy"}  # api has migrated; keycloak holds the realm they check tokens against
+    assert svcs["frontend"]["depends_on"] == {"api": healthy, "keycloak": healthy}
+    assert svcs[MCP_SERVICE]["depends_on"] == {  # the graph store of the stack: through api
+        "postgres": healthy,
+        "api": healthy,
+        "keycloak": healthy,
+    }
 
 
 def test_each_worker_polls_one_queue_and_drains_on_stop():
@@ -400,20 +548,51 @@ def test_the_backend_dockerignore_keeps_secrets_tests_and_caches_out():
 
 
 def test_the_backend_dockerfiles_have_the_runtime_contract():
-    """AC-14.1 (static part) for the api and worker images."""
+    """AC-14.1 (static part) for the api and the two worker images."""
 
-    for name in ("api.Dockerfile", "worker.Dockerfile"):
-        text = (ROOT / "backend" / name).read_text()
+    for name in DOCKERFILES:
+        text = dockerfile_of(name).read_text()
         runtime = text[text.rindex("\nFROM ") :]
         assert "uv sync --frozen --no-dev" in text and "--extra gcp --extra aws" in text, name
         assert "USER 10001:10001" in runtime, name
         assert "LOGS_" not in text and "/app/logs" not in text, name
         assert "COPY tests" not in text and ".env" not in runtime, name
-    api = (ROOT / "backend" / "api.Dockerfile").read_text()
+    api = dockerfile_of("api").read_text()
     assert 'CMD ["sh", "-c", "specflow migrate && exec specflow api"]' in api
     assert "COPY alembic.ini" in api and "COPY migrations" in api
-    worker = (ROOT / "backend" / "worker.Dockerfile").read_text()
-    assert 'CMD ["specflow", "worker"]' in worker and "EXPOSE 8001" in worker
+    for name in ("worker-agents", "worker-parse"):
+        worker = dockerfile_of(name).read_text()
+        assert 'CMD ["specflow", "worker"]' in worker and "EXPOSE 8001" in worker, name
+
+
+def test_only_the_worker_parse_image_installs_the_parse_extra():
+    """Per-role images: Docling, torch and PyMuPDF reach no other image through any extra."""
+
+    for name in ("api", "worker-agents"):
+        text = dockerfile_of(name).read_text()
+        assert "--extra parse" not in text and "--all-extras" not in text, name
+    parse = dockerfile_of("worker-parse").read_text()
+    assert parse.count("uv sync --frozen --no-dev") == 2
+    assert parse.count("--extra gcp --extra aws --extra parse") == 2
+
+
+def test_the_worker_parse_image_bakes_the_pinned_models_and_runs_offline():
+    text = dockerfile_of("worker-parse").read_text()
+    runtime = text[text.rindex("\nFROM ") :]
+    for repo in ("docling-project/docling-layout-heron", "docling-project/docling-models"):
+        assert repo in text, repo
+    for arg in ("LAYOUT_REVISION", "TABLEFORMER_REVISION"):
+        assert re.search(rf"^\s*ARG {arg}=[0-9a-f]{{40}}$", text, re.MULTILINE), arg  # a full commit, not a branch
+    assert "COPY --from=models /models /opt/docling-models" in runtime
+    for setting in ("HF_HUB_OFFLINE=1", "DOCLING_ARTIFACTS_PATH=/opt/docling-models", "MALLOC_ARENA_MAX=2"):
+        assert setting in runtime, setting
+
+
+def test_the_lock_resolves_torch_from_the_cpu_index_and_has_no_cuda_packages():
+    lock = (ROOT / "backend" / "uv.lock").read_text()
+    assert not re.search(r'^name = "(nvidia-|triton)', lock, re.MULTILINE)
+    assert 'source = { registry = "https://download.pytorch.org/whl/cpu" }' in lock
+    assert re.search(r'^version = "[\d.]+\+cpu"', lock, re.MULTILINE)
 
 
 # --- images (docker, SPECFLOW_TEST_IMAGES=1) -------------------------------------------
@@ -464,16 +643,19 @@ def docker_run(
     *args: str,
     entrypoint: str | None = None,
     read_only: bool = False,
+    mounts: tuple[str, ...] = (),
 ):
     command = ["docker", "run", "--rm", "--network", "none"]
     if read_only:
-        command.append("--read-only")
+        command += ["--read-only", "--tmpfs", f"{PurePosixPath('/', 'tmp')}:size=1g"]  # as in compose
+    for mount in mounts:
+        command += ["-v", mount]
     if entrypoint:
         command += ["--entrypoint", entrypoint]
     for name, value in env.items():
         command += ["-e", f"{name}={value}"]
     command += [image, *args]
-    return subprocess.run(command, capture_output=True, text=True, timeout=120, check=False)
+    return subprocess.run(command, capture_output=True, text=True, timeout=600, check=False)
 
 
 def shown(result) -> str:
@@ -496,15 +678,41 @@ def test_the_backend_control_runs_pass_check_config():
     env = {**DEPLOYED_BACKEND_ENV, "AUTH_MODE": "oidc"}
     result = docker_run(API_IMAGE, env, "specflow", "api", "--check-config")
     assert result.returncode == 0, shown(result)[-400:]
-    for queues in ("parse", "agents"):
+    for queues, image in (("parse", WORKER_PARSE_IMAGE), ("agents", WORKER_IMAGE)):
         worker = docker_run(
-            WORKER_IMAGE,
+            image,
             {**env, "WORKER_QUEUES": queues},
             "specflow",
             "worker",
             "--check-config",
         )
         assert worker.returncode == 0, (queues, shown(worker)[-400:])
+
+
+MCP_ONLY_ENV = {
+    "APP_ENV": "dev",
+    "DATABASE_HOST": "db.invalid",
+    "DATABASE_NAME": "app",
+    "DATABASE_USER": "app_user",
+    "DATABASE_PASSWORD": "synthetic-db-password-1",
+    "NEO4J_URI": "bolt://neo4j.invalid:7687",
+    "NEO4J_USER": "neo4j",
+    "NEO4J_PASSWORD": "synthetic-neo4j-password-1",
+    "OIDC_ISSUER": "https://sso.invalid/realms/app",
+    "AUTH_JWKS_URL": "https://sso.invalid/realms/app/certs",
+    "AUTH_ALLOWED_EMAIL_DOMAINS": "example.com",
+    "MCP_RESOURCE_URL": "https://mcp.invalid/mcp",
+    "AUTH_MODE": "oidc",
+}
+
+
+@needs_docker
+def test_the_mcp_role_control_run_passes_check_config_with_only_its_own_variables():
+    """FR-MCP-OPS-08: the api image runs `specflow mcp --check-config` without Temporal, storage or LLM variables."""
+
+    assert not {"TEMPORAL_ADDRESS", "STORAGE_BACKEND", "AGENT_MODEL", "LLM_GATEWAY_URL"} & set(MCP_ONLY_ENV)
+    result = docker_run(API_IMAGE, MCP_ONLY_ENV, "specflow", "mcp", "--check-config")
+    assert result.returncode == 0, shown(result)[-400:]
 
 
 @needs_docker
@@ -523,7 +731,7 @@ def test_the_frontend_control_run_passes_check_env():
 
 
 @needs_docker
-@pytest.mark.parametrize("image", [API_IMAGE, WORKER_IMAGE])
+@pytest.mark.parametrize("image", [API_IMAGE, WORKER_IMAGE, WORKER_PARSE_IMAGE])
 def test_the_backend_image_layout_and_user(image):
     """AC-14: non-root 10001, no tests, no env files, no deploy/, no /app/logs, specflow importable."""
 
@@ -537,7 +745,7 @@ def test_the_backend_image_layout_and_user(image):
 
 
 @needs_docker
-@pytest.mark.parametrize("image", [API_IMAGE, WORKER_IMAGE])
+@pytest.mark.parametrize("image", [API_IMAGE, WORKER_IMAGE, WORKER_PARSE_IMAGE])
 def test_the_backend_image_logs_json_to_stdout_on_a_read_only_filesystem(image):
     """AC-14: --read-only, no network: bootstrap, log one event, rc 0, JSON line, no logger stderr."""
 
@@ -558,6 +766,56 @@ def test_the_api_image_carries_the_migrations_and_the_three_roles():
     result = docker_run(API_IMAGE, {}, "-c", script, entrypoint="sh")
     assert result.returncode == 0, shown(result)[-400:]
     assert all(role in result.stdout for role in ("api", "worker", "migrate"))
+
+
+@needs_docker
+@pytest.mark.parametrize("image", [API_IMAGE, WORKER_IMAGE])
+def test_the_api_and_worker_agents_images_carry_no_parser_packages(image):
+    """Per-role images: Docling, torch, PyMuPDF, OpenCV and pypdfium2 are not installed (and `pip list` agrees)."""
+
+    code = (
+        "import importlib.util as u, json, sys; "
+        f"print(json.dumps({{m: u.find_spec(m) is not None for m in {PARSE_ONLY_MODULES!r}}}))"
+    )
+    result = docker_run(image, {}, "-c", code, entrypoint="python")
+    assert result.returncode == 0, shown(result)[-400:]
+    assert json.loads(result.stdout.strip().splitlines()[-1]) == dict.fromkeys(PARSE_ONLY_MODULES, False)
+    names_code = "import importlib.metadata as m; print(*sorted(d.name.lower() for d in m.distributions()))"
+    listing = docker_run(image, {}, "-c", names_code, entrypoint="python")
+    names = listing.stdout.split()
+    assert not [n for n in names if n.startswith(("docling", "torch", "pymupdf", "nvidia", "opencv"))], names
+
+
+@needs_docker
+def test_the_worker_parse_image_imports_the_parser_and_converts_a_pdf_offline():
+    """Models are baked in: no network (`--network none`), read-only root, uid 10001, HF_HUB_OFFLINE=1."""
+
+    pdf = ROOT / "backend" / "tests" / "data" / "specs" / "extraction.pdf"
+    code = (
+        "import importlib.util, os, docling, cv2, pypdfium2; "
+        "assert os.environ['HF_HUB_OFFLINE'] == '1'; "
+        "assert importlib.util.find_spec('pymupdf') is None and importlib.util.find_spec('pymupdf4llm') is None; "
+        "from docling.datamodel.base_models import InputFormat; "
+        "from docling.datamodel.pipeline_options import PdfPipelineOptions, TableFormerMode; "
+        "from docling.document_converter import DocumentConverter, PdfFormatOption; "
+        "o = PdfPipelineOptions("
+        "artifacts_path=os.environ['DOCLING_ARTIFACTS_PATH'], do_ocr=False, enable_remote_services=False); "
+        "o.table_structure_options.mode = TableFormerMode.FAST; "
+        "c = DocumentConverter(allowed_formats=[InputFormat.PDF], "
+        "format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=o)}); "
+        "md = c.convert('/in/extraction.pdf', page_range=(1, 3)).document.export_to_markdown(); "
+        "print('md-ok', len(md))"
+    )
+    result = docker_run(
+        WORKER_PARSE_IMAGE,
+        {},
+        "-c",
+        code,
+        entrypoint="python",
+        read_only=True,
+        mounts=(f"{pdf}:/in/extraction.pdf:ro",),
+    )
+    assert result.returncode == 0 and "md-ok" in result.stdout, shown(result)[-600:]
 
 
 # --- AC-4.2 on Linux: 100 MiB through the real GCS writer, fake transport ---------------
@@ -674,8 +932,8 @@ def test_the_graph_store_password_falls_back_to_the_older_env_file_name():
     text = (ROOT / "docker-compose.yml").read_text()
     fallback = "${GRAPH_STORE_PASSWORD:-${NEO4J_PASSWORD:?"
 
-    assert text.count(fallback) == 3  # the neo4j login, api and worker-agents
-    for name in ("api", "worker-agents"):
+    assert text.count(fallback) == 4  # the neo4j login, api, mcp and worker-agents
+    for name in ("api", "mcp", "worker-agents"):
         assert fallback in env_of(services()[name])["GRAPH_STORE_PASSWORD"]
     assert fallback in env_of(services()["neo4j"])["NEO4J_AUTH"]
 
@@ -759,13 +1017,13 @@ def test_make_up_refuses_two_stores_and_a_graph_store_that_disagrees_with_with()
 def test_the_postgres_override_leaves_the_graph_connection_to_the_database_settings() -> None:
     text = POSTGRES_OVERRIDE.read_text()
     override = yaml.safe_load(text.replace("!reset null", "null"))["services"]  # `!reset null` reads as null
-    assert set(override) == {"api", "worker-agents"}
+    assert set(override) == {"api", "mcp", "worker-agents"}
     reset = ("GRAPH_STORE_URI", "GRAPH_STORE_USER", "GRAPH_STORE_PASSWORD", "GRAPH_STORE_NAME")
     for name, svc in override.items():
         env = svc["environment"]
         assert env["GRAPH_STORE"] == "postgres", name
         assert {key for key, value in env.items() if value is None} == set(reset), name
-    assert text.count("!reset null") == 2 * len(reset)
+    assert text.count("!reset null") == 3 * len(reset)
 
 
 @needs_compose_cli

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from settings import ConfigurationError, load_settings
+from settings import AUTH_MODE_REMOVED_HINT, ConfigurationError, load_settings
 
 
 def refused(role, env, **kwargs) -> tuple[str, ...]:
@@ -14,15 +14,14 @@ def refused(role, env, **kwargs) -> tuple[str, ...]:
 
 
 def deployed(env: dict[str, str], app_env: str = "dev") -> dict[str, str]:
-    """A valid non-local api/worker environment (oidc, https, real prefix)."""
+    """A valid non-local api/worker environment (https issuer, no local JWKS address, real prefix)."""
 
     env.update(
         APP_ENV=app_env,
-        AUTH_MODE="oidc",
         OIDC_ISSUER="https://sso.example.test/realms/app",
         STORAGE_PREFIX="dev/",
     )
-    env.pop("AUTH_DEV_SIGNING_KEY")
+    env.pop("AUTH_JWKS_URL")
     return env
 
 
@@ -59,24 +58,17 @@ def test_a_valid_deployed_environment_passes(valid_env):
 
 
 @pytest.mark.parametrize("app_env", ["dev", "prod"])
-def test_dev_auth_is_refused_outside_local(app_env, valid_env):
+def test_the_local_http_idp_is_refused_outside_local(app_env, valid_env):
     valid_env["APP_ENV"] = app_env
 
-    assert {"AUTH_MODE", "AUTH_DEV_SIGNING_KEY", "OIDC_ISSUER", "STORAGE_PREFIX"} <= set(refused("api", valid_env))
+    assert {"OIDC_ISSUER", "AUTH_JWKS_URL", "STORAGE_PREFIX"} <= set(refused("api", valid_env))
 
 
-def test_dev_auth_is_accepted_locally(valid_env):
-    assert load_settings("api", valid_env).auth.mode == "dev"
+def test_the_loopback_idp_is_accepted_locally(valid_env):
+    assert load_settings("api", valid_env).auth.issuer == valid_env["OIDC_ISSUER"]
 
 
-def test_a_dev_signing_key_is_refused_outside_local(valid_env):
-    env = deployed(valid_env)
-    env["AUTH_DEV_SIGNING_KEY"] = "k" * 40
-
-    assert refused("api", env) == ("AUTH_DEV_SIGNING_KEY",)
-
-
-@pytest.mark.parametrize("issuer", ["http://sso.example.test/realms/app", "specflow-dev-login"])
+@pytest.mark.parametrize("issuer", ["http://sso.example.test/realms/app", "not-a-url"])
 def test_a_non_https_issuer_is_refused_outside_local(issuer, valid_env):
     env = deployed(valid_env)
     env["OIDC_ISSUER"] = issuer
@@ -85,8 +77,16 @@ def test_a_non_https_issuer_is_refused_outside_local(issuer, valid_env):
 
 
 def test_a_non_https_issuer_is_accepted_locally(valid_env):
-    valid_env["AUTH_MODE"] = "dev"
     valid_env["OIDC_ISSUER"] = "http://localhost:8180/realms/app"
+
+    load_settings("api", valid_env)
+
+
+def test_a_local_issuer_with_an_internal_jwks_origin_is_accepted_locally(valid_env):
+    """The bundled Keycloak: public issuer on localhost, JWKS via the compose network (same origin elsewhere)."""
+
+    valid_env["OIDC_ISSUER"] = "http://localhost:8180/realms/specflow"
+    valid_env["AUTH_JWKS_URL"] = "http://specflow-keycloak:8080/realms/specflow/protocol/openid-connect/certs"
 
     load_settings("api", valid_env)
 
@@ -190,7 +190,6 @@ def test_all_refusals_arrive_in_one_error(valid_env):
     env = deployed(valid_env)
     env.update(
         AUTH_MODE="dev",
-        AUTH_DEV_SIGNING_KEY="k" * 40,
         OIDC_ISSUER="http://x.test",
         STORAGE_PREFIX="dev/local/",
         GRAPH_STORE_PASSWORD="",
@@ -199,7 +198,6 @@ def test_all_refusals_arrive_in_one_error(valid_env):
 
     assert set(refused("api", env)) == {
         "AUTH_MODE",
-        "AUTH_DEV_SIGNING_KEY",
         "OIDC_ISSUER",
         "STORAGE_PREFIX",
         "GRAPH_STORE_PASSWORD",
@@ -210,26 +208,48 @@ def test_all_refusals_arrive_in_one_error(valid_env):
 # --- AC-1.4 ---------------------------------------------------------------
 
 
-def test_dev_auth_needs_a_signing_key_of_at_least_32_bytes(valid_env):
-    valid_env["AUTH_DEV_SIGNING_KEY"] = "k" * 32
-    load_settings("api", valid_env)
-    valid_env["AUTH_DEV_SIGNING_KEY"] = "k" * 31
-    assert refused("api", valid_env) == ("AUTH_DEV_SIGNING_KEY",)
-    del valid_env["AUTH_DEV_SIGNING_KEY"]
-    assert refused("api", valid_env) == ("AUTH_DEV_SIGNING_KEY",)
+@pytest.mark.parametrize("app_env", ["local", "dev"])
+@pytest.mark.parametrize("value", ["dev", "DEV", " dev "])
+@pytest.mark.parametrize("role", ["api", "mcp"])
+def test_the_removed_dev_auth_mode_is_refused_with_a_fix_hint(role, value, app_env, valid_env):
+    """B-06: stale ``AUTH_MODE=dev`` names AUTH_MODE and says what to delete (one line, names only)."""
+
+    env = valid_env if app_env == "local" else deployed(valid_env, app_env)
+    origin = "http://localhost:8002" if app_env == "local" else "https://mcp.example.test"
+    env.update(AUTH_MODE=value, MCP_RESOURCE_URL=f"{origin}/mcp")
+
+    with pytest.raises(ConfigurationError) as raised:
+        load_settings(role, env)
+
+    assert raised.value.variables == ("AUTH_MODE",)
+    assert raised.value.hint == AUTH_MODE_REMOVED_HINT
+    assert "\n" not in str(raised.value)
+    assert "delete AUTH_MODE and AUTH_DEV_SIGNING_KEY" in str(raised.value)
 
 
-def test_the_signing_key_length_counts_bytes_not_characters(valid_env):
-    valid_env["AUTH_DEV_SIGNING_KEY"] = "é" * 16
+@pytest.mark.parametrize("role", ["worker", "migrate"])
+def test_the_roles_that_read_no_auth_ignore_the_removed_auth_mode(role, valid_env):
+    valid_env["AUTH_MODE"] = "dev"
 
-    load_settings("api", valid_env)
+    load_settings(role, valid_env)
 
 
-def test_dev_auth_is_refused_when_running_in_kubernetes(valid_env):
-    load_settings("api", valid_env)
-    valid_env["KUBERNETES_SERVICE_HOST"] = "10.0.0.1"
+@pytest.mark.parametrize("value", ["oidc", "OIDC", "", "  ", "anything"])
+def test_every_other_auth_mode_value_is_ignored(value, valid_env):
+    valid_env["AUTH_MODE"] = value
 
-    assert refused("api", valid_env) == ("AUTH_MODE",)
+    assert load_settings("api", valid_env).auth.issuer == valid_env["OIDC_ISSUER"]
+
+
+@pytest.mark.parametrize("app_env", ["local", "dev"])
+@pytest.mark.parametrize("key", ["k" * 40, "short"])
+def test_a_stale_dev_key_variable_is_ignored_everywhere(app_env, key, valid_env):
+    env = valid_env if app_env == "local" else deployed(valid_env, app_env)
+    env["AUTH_DEV_SIGNING_KEY"] = key
+
+    settings = load_settings("api", env)
+
+    assert key not in repr(settings.auth)
 
 
 def test_oidc_auth_is_accepted_in_kubernetes(valid_env):
@@ -239,20 +259,12 @@ def test_oidc_auth_is_accepted_in_kubernetes(valid_env):
     load_settings("api", env)
 
 
-@pytest.mark.parametrize("app_env", ["local", "dev"])
-def test_oidc_with_a_dev_signing_key_is_refused_everywhere(app_env, valid_env):
-    valid_env.update(APP_ENV=app_env, AUTH_MODE="oidc")
-    if app_env == "dev":
-        valid_env.update(OIDC_ISSUER="https://sso.example.test", STORAGE_PREFIX="dev/")
+def test_the_issuer_is_required_for_every_role_that_reads_auth(valid_env):
+    del valid_env["OIDC_ISSUER"]
+    valid_env["MCP_RESOURCE_URL"] = "http://localhost:8002/mcp"
 
-    assert refused("api", valid_env) == ("AUTH_DEV_SIGNING_KEY",)
-
-
-def test_oidc_without_a_dev_signing_key_is_accepted_locally(valid_env):
-    valid_env["AUTH_MODE"] = "oidc"
-    del valid_env["AUTH_DEV_SIGNING_KEY"]
-
-    assert load_settings("api", valid_env).auth.mode == "oidc"
+    assert refused("api", valid_env) == ("OIDC_ISSUER",)
+    assert refused("mcp", valid_env) == ("OIDC_ISSUER",)
 
 
 # --- AC-1.5 ---------------------------------------------------------------
@@ -317,3 +329,121 @@ def test_the_same_non_default_port_on_both_is_accepted(valid_env):
     env["AUTH_JWKS_URL"] = "https://sso.example.test:8443/certs"
 
     load_settings("api", env)
+
+
+# --- FR-MCP-AUTH-12 and the claim profile (FR-MCP-AUTH-07) ---------------------------
+
+
+@pytest.mark.parametrize("app_env", ["local", "dev"])
+def test_the_api_refuses_an_audience_equal_to_a_client_id(app_env, valid_env):
+    """FR-MCP-AUTH-12: names AUTH_API_AUDIENCE, locally and deployed."""
+
+    env = valid_env if app_env == "local" else deployed(valid_env, app_env)
+    env["AUTH_API_AUDIENCE"] = "specflow-web"
+
+    assert refused("api", env) == ("AUTH_API_AUDIENCE",)
+
+
+def test_the_api_audience_guard_holds_with_the_loopback_idp(valid_env):
+    """FR-MCP-AUTH-12: locally against the run's loopback IdP too."""
+
+    valid_env["AUTH_API_AUDIENCE"] = "specflow-web"
+
+    assert refused("api", valid_env) == ("AUTH_API_AUDIENCE",)
+
+
+def test_the_api_audience_guard_checks_every_client_id(valid_env):
+    """FR-MCP-AUTH-12: an audience equal to the second of several client ids is refused."""
+
+    valid_env["AUTH_API_CLIENT_IDS"] = "specflow-web,specflow-api"
+
+    assert refused("api", valid_env) == ("AUTH_API_AUDIENCE",)
+
+
+def test_the_api_refuses_ignored_audiences_holding_the_api_audience(valid_env):
+    """FR-MCP-AUTH-12."""
+
+    valid_env["AUTH_IGNORED_AUDIENCES"] = "account, specflow-api"
+
+    assert refused("api", valid_env) == ("AUTH_IGNORED_AUDIENCES",)
+
+
+def test_both_api_audience_guards_fire_at_once(valid_env):
+    """FR-MCP-AUTH-12: every bad name is reported together."""
+
+    valid_env["AUTH_API_AUDIENCE"] = "specflow-web"
+    valid_env["AUTH_IGNORED_AUDIENCES"] = "specflow-web"
+
+    assert set(refused("api", valid_env)) == {
+        "AUTH_API_AUDIENCE",
+        "AUTH_IGNORED_AUDIENCES",
+    }
+
+
+def test_the_api_audience_guards_do_not_apply_to_the_worker(valid_env):
+    """FR-MCP-AUTH-12: an api-role guard."""
+
+    valid_env["AUTH_API_AUDIENCE"] = "specflow-web"
+
+    load_settings("worker", valid_env)
+
+
+@pytest.mark.parametrize(
+    ("name", "field", "default"),
+    [
+        ("AUTH_SUBJECT_CLAIM", "subject_claim", "sub"),
+        ("AUTH_CLIENT_ID_CLAIM", "client_id_claims", ("azp", "client_id")),
+        ("AUTH_EMAIL_CLAIM", "email_claim", "email"),
+        ("AUTH_TOKEN_TYPE", "token_type", "none"),
+        ("AUTH_IGNORED_AUDIENCES", "ignored_audiences", ("account",)),
+    ],
+)
+def test_a_blank_claim_setting_falls_back_to_its_default(name, field, default, valid_env):
+    """FR-MCP-AUTH-07: blank is unset for these five."""
+
+    valid_env[name] = "  "
+
+    assert getattr(load_settings("api", valid_env).auth, field) == default
+
+
+def test_a_blank_email_verified_claim_stays_blank_and_means_no_check(valid_env):
+    """FR-MCP-AUTH-07: the one claim setting whose empty value has a meaning."""
+
+    valid_env["AUTH_EMAIL_VERIFIED_CLAIM"] = ""
+
+    assert load_settings("api", valid_env).auth.email_verified_claim == ""
+    assert load_settings("api", {**valid_env, "AUTH_EMAIL_VERIFIED_CLAIM": " xms_edov "}).auth.email_verified_claim == (
+        "xms_edov"
+    )
+
+
+def test_the_email_verified_claim_defaults_to_email_verified(valid_env):
+    """FR-MCP-AUTH-07."""
+
+    assert load_settings("api", valid_env).auth.email_verified_claim == "email_verified"
+
+
+@pytest.mark.parametrize("value", ["Keycloak", "bogus", "RFC9068"])
+def test_an_unknown_token_type_is_refused(value, valid_env):
+    """FR-MCP-AUTH-07: exact lowercase values only."""
+
+    valid_env["AUTH_TOKEN_TYPE"] = value
+
+    assert refused("api", valid_env) == ("AUTH_TOKEN_TYPE",)
+
+
+@pytest.mark.parametrize("value", ["keycloak", "rfc9068", "none"])
+def test_the_token_types_are_accepted(value, valid_env):
+    """FR-MCP-AUTH-07."""
+
+    valid_env["AUTH_TOKEN_TYPE"] = value
+
+    assert load_settings("api", valid_env).auth.token_type == value
+
+
+def test_the_client_id_claim_list_is_parsed_stripped_and_deduplicated(valid_env):
+    """FR-MCP-AUTH-07: order is kept (first present wins)."""
+
+    valid_env["AUTH_CLIENT_ID_CLAIM"] = " cid , azp,, cid "
+
+    assert load_settings("api", valid_env).auth.client_id_claims == ("cid", "azp")

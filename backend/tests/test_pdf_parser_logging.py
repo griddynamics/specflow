@@ -4,8 +4,9 @@ central logger).
 
 Source: the central-logger test catalog §3, INT-33.
 
-Builds a minimal real PDF with `fitz` (pymupdf is already a project
-dependency) so `PDFParser.parse()` runs its real extraction path, then
+Builds a minimal real PDF (tests/pdf_builder_support.py) and runs
+`PDFParser.parse()` over it with a stub engine (the logging is the subject, not
+Docling's output; the Docling engine has its own tests), then
 forces `PDFParser.enrich()` down its `AnthropicError` fallback branch by
 monkeypatching `PdfFigureEnricher.enrich` directly. No network call happens
 either way: today `Client()`'s underlying `Anthropic()` SDK client is lazy
@@ -36,51 +37,42 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-import fitz
 import pytest
 from anthropic import AnthropicError
 
 import file_parsers.pdf.parser as pdf_parser_module
+from engine_stub_support import StubEngine, one_page
 from file_parsers.pdf.parser import PDFParser
 from logger_harness import events, fields
+from pdf_builder_support import Line, write_pdf
 
 PARSER_LOGGER_NAME = "file_parsers.pdf.parser"
 
 
-def _write_minimal_pdf(path: Path) -> None:
-    document = fitz.open()
-    page = document.new_page()
-    page.insert_textbox(
-        fitz.Rect(50, 50, 500, 300),
-        "Central Logger Test Spec\n\nThis is a minimal fixture PDF used only to exercise PDFParser's stage logging.",
-        fontsize=14,
-    )
-    document.save(str(path))
-    document.close()
-
-
 @pytest.fixture
 def pdf_parser(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> PDFParser:
-    """Build a `PDFParser` over a fresh fitz-made PDF, ready to run its real
-    extraction path.
+    """Build a `PDFParser` over a fresh minimal PDF and a stub engine, ready to run
+    its parse stages.
 
     Deliberately does NOT call `.parse()` here: `caplog.records` only
     captures records emitted during the test's `call` phase by default, not
     `setup` (fixture bodies run during setup), so a `parse()` call inside
     this fixture would make every `pdf.stage.start`/`pdf.stage.done`
     assertion fail against a correct implementation too. Each test calls
-    `.parse()` itself, inside its own body. `PdfMarkdownExtractor.extract()`
-    (what `parse()` calls) only reads the local fitz-generated PDF above —
-    no network, no LLM call — so re-running it per test is cheap; there is
-    no need for a shared parse-once fixture here.
+    `.parse()` itself, inside its own body. `parse()` only reads the local
+    generated PDF above and the stub engine's fixed page — no network, no LLM
+    call — so re-running it per test is cheap; there is no need for a shared
+    parse-once fixture here.
     """
 
-    pdf_path = tmp_path / "sample.pdf"
-    _write_minimal_pdf(pdf_path)
+    pdf_path = write_pdf(
+        tmp_path / "sample.pdf",
+        [[Line("Central Logger Test Spec", 14), Line("A minimal fixture PDF used only for stage logging.", 12)]],
+    )
 
     caplog.set_level(logging.DEBUG, logger=PARSER_LOGGER_NAME)
 
-    return PDFParser(pdf_path, tmp_path / "out")
+    return PDFParser(pdf_path, tmp_path / "out", StubEngine(one_page("Central Logger Test Spec")))
 
 
 def test_parse_emits_a_stage_start_and_done_event_pair(pdf_parser: PDFParser, caplog: pytest.LogCaptureFixture) -> None:

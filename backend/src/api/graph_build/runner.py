@@ -1,12 +1,15 @@
 """In-process graph builds of the API: one background task per project (no Temporal yet).
 
 Wired like ``examples/graph_build.py``: file stores under ``GRAPH_STATE_DIR`` with the Postgres
-corpus, the runtime's graph store, ``load_ontology()``, one ``Gateway`` per build, ``ensure_schema``
-once per process, then ``run_build``. A project's unfinished build (interrupted by a shutdown, or
-failed) is resumed by the next start; a new build retries the follow-up lineages of the latest
-finished one. ``status`` combines the running task with the build store, so it survives a restart.
+corpus, the runtime's graph store, ``load_ontology()``, one ``Gateway`` per build, an embedding
+dimension check and ``ensure_schema`` once per process, then ``run_build``. The check is one embedding
+call before the schema and any extraction, so a ``GRAPH_EMBEDDING_DIM`` that does not match the
+embedding model fails the build in seconds and never creates vector indexes of the wrong size.
+A project's unfinished build (interrupted by a shutdown, or failed) is resumed by the next start;
+a new build retries the follow-up lineages of the latest finished one. ``status`` combines the
+running task with the build store, so it survives a restart.
 
-Logs carry ids, counts and error codes only (``api.graph_build.*``).
+Logs carry ids, counts, error codes and the error's own fields only (``api.graph_build.*``).
 """
 
 from __future__ import annotations
@@ -32,6 +35,8 @@ logger = get_logger("api.graph_build.runner")
 MAX_CONCURRENT_BUILDS: Final = 1  # projects building at once in this process; the rest wait
 INTERRUPTED: Final = "interrupted"  # a stored build left running by a stopped process
 UNEXPECTED_ERROR: Final = "unexpected_error"
+# The text embedded once per process to check that the model's vectors have ``GRAPH_EMBEDDING_DIM`` dimensions.
+DIMENSION_PROBE: Final = "SpecFlow embedding dimension check"
 
 
 class RunnerClosedError(RuntimeError):
@@ -177,9 +182,20 @@ class GraphBuildRunner:
             if self._lazy.ontology is None:
                 self._lazy.ontology = await asyncio.to_thread(load_ontology)
             if not self._lazy.schema_ready:
+                await self._check_embedding_dim()
                 await self._ensure(self._store, self._lazy.ontology, self._llm)
                 self._lazy.schema_ready = True
         return self._lazy.ontology, self._stores()
+
+    async def _check_embedding_dim(self) -> None:
+        """One embedding call; the gateway raises ``ConfigurationError("embedding_dim_mismatch")`` with the
+        expected and actual sizes when the model's vectors do not have ``GRAPH_EMBEDDING_DIM`` dimensions."""
+
+        gateway = self._gateway_factory(self._llm)
+        try:
+            await gateway.embed([DIMENSION_PROBE])
+        finally:
+            await gateway.aclose()
 
     async def _run(self, project_id: str, run: _Run) -> None:
         with Contained() as build:  # a failed build is recorded and logged, never raised
@@ -207,6 +223,7 @@ class GraphBuildRunner:
             project_id=project_id,
             build_id=run.resumed_build_id,
             error_code=code,
+            error_fields=error.fields if isinstance(error, GraphError) else None,  # ids, counts, sizes
             error_type=build.error_type,
             exc_info=error if unexpected else None,  # the traceback of an unexpected error only
         )

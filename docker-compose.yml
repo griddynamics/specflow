@@ -330,12 +330,9 @@ services:
       start_period: 10s
 
   # Local only: one-shot. Creates the bucket of config/cloud.local.yaml, then exits 0 (also when
-  # it exists). Uses the api image (boto3 is in it); api and workers wait for it.
+  # it exists: create-bucket may fail on a second run, then head-bucket must succeed). api and workers wait for it.
   rustfs-init:
-    build:
-      context: ./backend
-      dockerfile: api.Dockerfile
-    image: specflow-api:local
+    image: amazon/aws-cli:2.38.0@sha256:ed3233c28ad56d6a66e9e7623a495ab2d7eb08d425f8eea0fdbdfacb12de2ba8
     container_name: specflow-rustfs-init
     restart: "no"
     mem_limit: 256m
@@ -346,27 +343,58 @@ services:
       AWS_REGION: "us-east-1"
       INIT_BUCKET: "specflow-local"
     entrypoint:
-      - python
+      - /bin/sh
       - -c
       - |
-        import os
-        import boto3
-        from botocore.exceptions import ClientError
-        try:
-            boto3.client("s3").create_bucket(Bucket=os.environ["INIT_BUCKET"])
-        except ClientError as error:
-            # RustFS 1.0.1 answers 200 for an existing bucket of ours; S3 itself says BucketAlreadyOwnedByYou.
-            if error.response["Error"]["Code"] != "BucketAlreadyOwnedByYou":
-                raise
+        aws s3api create-bucket --bucket "$$INIT_BUCKET" || aws s3api head-bucket --bucket "$$INIT_BUCKET"
     depends_on:
       rustfs:
         condition: service_healthy
+
+  # Local OIDC provider for every service and test suite (docs/mcp-server/deployment.md#local-stack). Always part of
+  # `make up`, pinned by digest. No data volume: start-dev keeps its H2 data inside the container, so it is not
+  # read_only, and a recreate imports the realm again from the template (config/keycloak/specflow-realm.json) with the
+  # ${NAME} values below, which `make env-local` generated. Users and their ids stay the same across a recreate; sessions
+  # and the Claude Code sign-in reset. No seed step. Variables fall back to empty, never ${...:?}: a required one would
+  # fail every compose command on an older .env.local; `make up` checks them first (check-keycloak-env).
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4.7@sha256:9409c59bdfb65dbffa20b11e6f18b8abb9281d480c7ca402f51ed3d5977e6007
+    container_name: specflow-keycloak
+    mem_limit: 1g
+    command: ["start-dev", "--import-realm"]
+    ports:
+      - "127.0.0.1:8180:8080"
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: "admin"
+      KC_BOOTSTRAP_ADMIN_PASSWORD: "${KEYCLOAK_ADMIN_PASSWORD:-}"
+      KC_HOSTNAME: "http://localhost:8180"
+      KC_HEALTH_ENABLED: "true"
+      # Realm template placeholders (imported at container creation).
+      KEYCLOAK_WEB_CLIENT_SECRET: "${KEYCLOAK_WEB_CLIENT_SECRET:-}"
+      KEYCLOAK_QA_PASSWORD: "${KEYCLOAK_QA_PASSWORD:-}"
+      LOCAL_TEST_USER_EMAIL: "${LOCAL_TEST_USER_EMAIL:-}"
+      LOCAL_TEST_USER_PASSWORD: "${LOCAL_TEST_USER_PASSWORD:-}"
+      LOCAL_TEST_USER_ID: "${LOCAL_TEST_USER_ID:-}"
+      SPECFLOW_WEB_URL: "${PUBLIC_URL:-http://localhost:3001}"   # the web app's address, as the frontend's PUBLIC_URL (no trailing slash: it is joined with paths in the realm)
+    volumes:
+      - ./config/keycloak:/opt/keycloak/data/import:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '"status": "UP"' <&3
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
 
   # Runs `specflow migrate`, then the API on port 8000. Starts the Temporal workflows.
   api:
     build:
       context: ./backend
-      dockerfile: api.Dockerfile
+      dockerfile: docker/api/Dockerfile
     image: specflow-api:local
     container_name: specflow-api
     # Read-only root filesystem, as on Kubernetes: the service writes no files (logs go to stdout).
@@ -385,13 +413,11 @@ services:
       DATABASE_USER: "specflow"
       DATABASE_PASSWORD: "${DATABASE_PASSWORD:?set DATABASE_PASSWORD in .env.local}"
       DATABASE_AGENT_USER: "specflow_agent"
-      AUTH_MODE: "${AUTH_MODE:-dev}"
-      AUTH_DEV_SIGNING_KEY: "${AUTH_DEV_SIGNING_KEY:-}"   # local only: dev login
-      OIDC_ISSUER: "${OIDC_ISSUER:-}"
-      AUTH_JWKS_URL: "${AUTH_JWKS_URL:-}"
+      OIDC_ISSUER: "http://localhost:8180/realms/specflow"   # local only: the bundled Keycloak (public issuer)
+      AUTH_JWKS_URL: "http://specflow-keycloak:8080/realms/specflow/protocol/openid-connect/certs"
       AUTH_API_AUDIENCE: "${AUTH_API_AUDIENCE:-}"
       AUTH_API_CLIENT_IDS: "${AUTH_API_CLIENT_IDS:-}"
-      AUTH_ALLOWED_EMAIL_DOMAINS: "${AUTH_ALLOWED_EMAIL_DOMAINS:-example.com}"   # local only: matches the dev login user
+      AUTH_ALLOWED_EMAIL_DOMAINS: "${AUTH_ALLOWED_EMAIL_DOMAINS:-example.com}"   # local only: QA users (example.com) + your domain (make env-local)
       SPECFLOW_CONFIG_FILE: "/etc/specflow/cloud.yaml"   # local only: S3 storage on RustFS (config/cloud.local.yaml)
       AWS_ACCESS_KEY_ID: "${RUSTFS_ACCESS_KEY:?set RUSTFS_ACCESS_KEY (run make env-local)}"   # local only: the RustFS keys
       AWS_SECRET_ACCESS_KEY: "${RUSTFS_SECRET_KEY:?set RUSTFS_SECRET_KEY (run make env-local)}"
@@ -415,6 +441,7 @@ services:
       GRAPH_SMALL_MODEL: "${GRAPH_SMALL_MODEL:-}"
       GRAPH_EMBEDDING_MODEL: "${GRAPH_EMBEDDING_MODEL:-}"
       GRAPH_EMBEDDING_DIM: "${GRAPH_EMBEDDING_DIM:-1536}"
+      GRAPH_LLM_CONCURRENCY: "${GRAPH_LLM_CONCURRENCY:-8}"
       GRAPH_STATE_DIR: "/var/lib/specflow/graph"
       LANGFUSE_BASE_URL: "${LANGFUSE_BASE_URL:-}"
       LANGFUSE_PUBLIC_KEY: "${LANGFUSE_PUBLIC_KEY:-}"
@@ -430,6 +457,8 @@ services:
         source: specflow-graph-state
         target: /var/lib/specflow/graph
     depends_on:
+      keycloak:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       neo4j:   # only when the neo4j profile is on (the default store)
@@ -454,18 +483,70 @@ services:
       retries: 6
       start_period: 60s
 
-  # Polls the Temporal queue specflow-parse: PDF parsing. No Neo4j, LLM gateway or agent password.
-  worker-parse:
+  # The MCP role (docs/mcp-server/deployment.md#role-and-process): the api image with `specflow mcp` instead of its
+  # migrate-then-api command; starts after api has migrated the schema. Tokens come from the bundled Keycloak.
+  # No claim-profile variable is forwarded: Keycloak tokens match the defaults, and an empty
+  # AUTH_EMAIL_VERIFIED_CLAIM would turn the verified-email check off.
+  mcp:
     build:
       context: ./backend
-      dockerfile: worker.Dockerfile
-    image: specflow-worker:local
+      dockerfile: docker/api/Dockerfile
+    image: specflow-api:local
+    container_name: specflow-mcp
+    command: ["specflow", "mcp"]
+    # Read-only root filesystem, as on Kubernetes: the role writes no files (logs go to stdout).
+    read_only: true
+    mem_limit: 512m
+    ports:
+      - "127.0.0.1:8002:8002"
+    environment:
+      APP_ENV: "${APP_ENV:-local}"
+      MCP_PORT: "8002"
+      MCP_RESOURCE_URL: "http://localhost:8002/mcp"   # local only; clients use localhost (the Host allowlist)
+      DATABASE_HOST: "specflow-postgres"
+      DATABASE_PORT: "5432"
+      DATABASE_NAME: "specflow"
+      DATABASE_USER: "specflow"
+      DATABASE_PASSWORD: "${DATABASE_PASSWORD:?set DATABASE_PASSWORD in .env.local}"
+      GRAPH_STORE: "${GRAPH_STORE:-neo4j}"   # the store of the stack, as for the api
+      GRAPH_STORE_URI: "${GRAPH_STORE_URI:-bolt://specflow-neo4j:7687}"
+      GRAPH_STORE_USER: "${GRAPH_STORE_USER:-neo4j}"
+      GRAPH_STORE_PASSWORD: "${GRAPH_STORE_PASSWORD:-${NEO4J_PASSWORD:?set GRAPH_STORE_PASSWORD in .env.local}}"   # an older .env.local with only NEO4J_PASSWORD still works
+      GRAPH_STORE_NAME: "${GRAPH_STORE_NAME:-neo4j}"
+      OIDC_ISSUER: "http://localhost:8180/realms/specflow"   # local only: the bundled Keycloak (public issuer)
+      AUTH_JWKS_URL: "http://specflow-keycloak:8080/realms/specflow/protocol/openid-connect/certs"
+      AUTH_ALLOWED_EMAIL_DOMAINS: "${AUTH_ALLOWED_EMAIL_DOMAINS:-example.com}"   # local only: QA users (example.com) + your domain (make env-local)
+      LOGS_STDOUT_LEVEL: "INFO"
+      LOGS_LEVEL: "${LOGS_LEVEL:-INFO}"
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      api:   # api runs `specflow migrate` first and waits for the graph store of the stack
+        condition: service_healthy
+    healthcheck:
+      # /readyz probes the database and the graph store; the Host allowlist applies to /mcp only, so 127.0.0.1 is fine here.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/readyz', timeout=4)"]
+      interval: 10s
+      timeout: 6s
+      retries: 6
+      start_period: 30s
+
+  # Polls the Temporal queue specflow-parse: parsing of every supported format (PDF, Word, PowerPoint, Excel, HTML, Markdown, CSV). No Neo4j, LLM gateway or agent password.
+  worker-parse:
+    # Own image (Docling, torch CPU and the baked models): backend/docker/worker-parse/Dockerfile. 3g: page ranges
+    # keep the peak under it (gate G5, docs/file-parsers/acceptance-gates.md); the 1 GB /tmp tmpfs counts against it.
+    build:
+      context: ./backend
+      dockerfile: docker/worker-parse/Dockerfile
+    image: specflow-worker-parse:local
     container_name: specflow-worker-parse
     # Read-only root filesystem, as on Kubernetes; /tmp is the only writable place (the pod's emptyDir).
     read_only: true
     tmpfs:
       - /tmp:size=1g
-    mem_limit: 2g
+    mem_limit: 3g
     extra_hosts:
       - "host.docker.internal:host-gateway"   # reaches a Temporal or Langfuse on the host (Linux)
     stop_grace_period: 150s   # on SIGTERM, running activities finish for up to 130 s
@@ -510,8 +591,8 @@ services:
   worker-agents:
     build:
       context: ./backend
-      dockerfile: worker.Dockerfile
-    image: specflow-worker:local
+      dockerfile: docker/worker-agents/Dockerfile
+    image: specflow-worker-agents:local
     container_name: specflow-worker-agents
     # Read-only root filesystem, as on Kubernetes; /tmp is the only writable place (the pod's emptyDir).
     read_only: true
@@ -582,17 +663,20 @@ services:
       - "127.0.0.1:${FRONTEND_PORT:-3001}:3000"
     environment:
       APP_ENV: "${APP_ENV:-local}"
-      AUTH_MODE: "${AUTH_MODE:-dev}"
-      AUTH_DEV_SIGNING_KEY: "${AUTH_DEV_SIGNING_KEY:-}"     # local only: dev login
-      LOCAL_TEST_USER_EMAIL: "${LOCAL_TEST_USER_EMAIL:-dev@example.com}"   # local only: dev login
       PUBLIC_URL: "${PUBLIC_URL:-http://localhost:3001}"
       API_INTERNAL_URL: "http://specflow-api:8000"
-      OIDC_ISSUER: "${OIDC_ISSUER:-}"
-      OIDC_INTERNAL_URL: "${OIDC_INTERNAL_URL:-}"
-      OIDC_CLIENT_ID: "${OIDC_CLIENT_ID:-}"
-      OIDC_CLIENT_SECRET: "${OIDC_CLIENT_SECRET:-}"
+      OIDC_ISSUER: "http://localhost:8180/realms/specflow"   # local only: the bundled Keycloak
+      OIDC_INTERNAL_URL: "http://specflow-keycloak:8080/realms/specflow"   # back channel inside the compose network
+      OIDC_CLIENT_ID: "specflow-web"
+      OIDC_CLIENT_SECRET: "${KEYCLOAK_WEB_CLIENT_SECRET:-}"
       SESSION_SECRET: "${SESSION_SECRET:-}"
+      # What the Guides page shows: the mcp service's address (PUBLIC_URL is the web app, so the default would be wrong) and client id.
+      MCP_PUBLIC_URL: "${MCP_PUBLIC_URL:-http://localhost:8002/mcp}"
+      MCP_CLIENT_ID: "${MCP_CLIENT_ID:-specflow-mcp}"
+      MCP_SERVER_NAME: "${MCP_SERVER_NAME:-specflow-local}"
     depends_on:
+      keycloak:
+        condition: service_healthy
       api:
         condition: service_healthy
     healthcheck:

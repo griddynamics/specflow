@@ -1,10 +1,4 @@
-"""Offline tests of ``ensure_schema`` (plan 1.T4; FR-CORE-02, FR-CORE-03; data-model.md "Constraints and indexes").
-
-A stateful fake driver backs ``SHOW CONSTRAINTS`` / ``SHOW INDEXES`` with the exact columns
-``graph.core.schema`` reads, applies the DDL statements ``schema_objects`` reads from the static DDL
-files (graph/core/ddl/), and answers ``dbms.components()`` and ``db.awaitIndexes``. Nothing connects
-to Neo4j.
-"""
+"""Offline tests of ``ensure_schema``."""
 
 from __future__ import annotations
 
@@ -91,11 +85,7 @@ def constraint_rows(item: SchemaObject, *, name: str | None = None, type_: str |
 
 
 class SchemaDriver:
-    """Fake async driver with a schema state; the DDL statements of ``objects`` add their rows.
-
-    ``fail_on`` maps a query name (``Query.name`` of the text) to an exception raised when it runs;
-    ``stays`` keeps every created index in that state (e.g. ``POPULATING`` after awaiting).
-    """
+    """Fake async driver with a schema state; the DDL statements of ``objects`` add their rows."""
 
     def __init__(self, ontology: Ontology, *, version: str = "5.26.0", ddl: tuple[str, ...] | None = None) -> None:
         self.version = version
@@ -182,7 +172,7 @@ def objects_by_name(ontology: Ontology, ddl: tuple[str, ...] | None = None) -> d
 
 
 def expected_shipped_objects(ontology: Ontology) -> list[tuple[str, str, str, str, tuple[str, ...]]]:
-    """The objects of data-model.md "Constraints and indexes" for ``ontology`` (no foreign label)."""
+    """The objects of "Constraints and indexes" for ``ontology`` (no foreign label)."""
 
     return [
         ("graph_spec_node_spec_id", "unique", "NODE", "SpecNode", ("group_id", "spec_id")),
@@ -421,9 +411,10 @@ def test_the_shipped_ontology_has_no_foreign_label(ontology: Ontology) -> None:
 
 
 def test_the_cypher_schema_maps_the_foreign_placeholder_to_the_foreign_labels(ontology: Ontology) -> None:
-    """Drift guard: graph-schema.yaml declares the ``__FOREIGN_LABEL__.uuid`` constraint of the DDL template,
-    and its ``policy.placeholder_labels`` maps ``__FOREIGN_LABEL__`` to exactly ``foreign_labels`` of the
-    shipped ontology, the concrete labels whose DDL the cypher parity check then asks for."""
+    """Drift guard: graph-schema.yaml declares the ``__FOREIGN_LABEL__.uuid`` constraint of the DDL template, and its
+    ``policy.placeholder_labels`` maps ``__FOREIGN_LABEL__`` to exactly ``foreign_labels`` of the shipped ontology, the
+    concrete labels whose DDL the cypher parity check then asks for.
+    """
 
     data = yaml.safe_load(GRAPH_SCHEMA_FILE.read_text(encoding="utf-8"))
     assert f"{FOREIGN_PLACEHOLDER}.{FOREIGN_KEY}" in data["constraints"]["unique"]

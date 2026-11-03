@@ -223,17 +223,17 @@ async def test_hanging_reparse_starts_stop_at_the_budget_are_logged_and_the_answ
     pid = await project(harness)
     key = "projects/p/documents/d/original.pdf"
     harness.store.objects[key] = PDF
-    ids = reparse_removal(monkeypatch, 5, keys=[key])
+    ids = reparse_removal(monkeypatch, 5, keys=["projects/p/documents/d/"])
     monkeypatch.setattr(source_removal, "DELETE_BUDGET_SECONDS", 0.2)
 
     async def hanging(workflow, arg, **options):
         await asyncio.Event().wait()
 
-    async def stuck_delete(key):
+    async def stuck_delete(prefix):
         await asyncio.Event().wait()
 
     monkeypatch.setattr(harness.temporal, "start_workflow", hanging)
-    monkeypatch.setattr(harness.store, "delete", stuck_delete)
+    monkeypatch.setattr(harness.store, "delete_by_prefix", stuck_delete)
     with caplog.at_level("INFO"):
         response = await asyncio.wait_for(delete(harness, pid, uuid.uuid4()), 5)
     assert response.status_code == 204

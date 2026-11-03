@@ -25,7 +25,7 @@ DATABASE = (
 STORAGE = ("STORAGE_BUCKET", "STORAGE_PREFIX")
 TEMPORAL = ("TEMPORAL_ADDRESS", "TEMPORAL_NAMESPACE")
 NEO4J = ("GRAPH_STORE_URI", "GRAPH_STORE_USER", "GRAPH_STORE_PASSWORD")
-AUTH = ("AUTH_ALLOWED_EMAIL_DOMAINS",)
+AUTH = ("OIDC_ISSUER", "AUTH_ALLOWED_EMAIL_DOMAINS")
 AGENT = ("AGENT_MODEL", "LLM_GATEWAY_URL", "LLM_GATEWAY_API_KEY")
 
 REQUIRED = {
@@ -48,9 +48,8 @@ NOT_NEEDED = {
         "DATABASE_AGENT_PASSWORD",
         "LLM_GATEWAY_URL",
         "LLM_GATEWAY_API_KEY",
-        # optional: a default exists, or the value is only needed in oidc mode
+        # optional: a default exists
         "DATABASE_PORT",
-        "OIDC_ISSUER",
         "GOOGLE_CLOUD_PROJECT",
     ),
     "worker": (*AUTH, "DATABASE_PORT", "GOOGLE_CLOUD_PROJECT"),
@@ -128,8 +127,7 @@ def test_the_message_names_variables_and_never_values(valid_env):
     canary = "s3cr3t-value-XYZ"
     valid_env["API_PORT"] = canary
     valid_env.update({"DATABASE_PASSWORD": "  "})
-    valid_env["AUTH_DEV_SIGNING_KEY"] = canary
-    valid_env["AUTH_MODE"] = "oidc"
+    valid_env["AUTH_DEV_SIGNING_KEY"] = canary  # a stale name: ignored, never echoed
     valid_env["TEMPORAL_API_KEY"] = canary
 
     with pytest.raises(ConfigurationError) as raised:
@@ -178,7 +176,7 @@ def test_defaults(valid_env):
     assert settings.temporal.worker_queues == ("parse", "agents")
     assert settings.graph_store.name == "neo4j"
     assert settings.agent_run.trace_sensitive_data is False
-    api = load_settings("api", valid_env)
+    api = load_settings("api", {k: v for k, v in valid_env.items() if k != "AUTH_JWKS_URL"})
     assert api.auth.api_audience == "specflow-api"
     assert api.auth.api_client_ids == ("specflow-web",)
     assert api.auth.allowed_email_domains == ("example.com",)
@@ -333,33 +331,14 @@ def test_an_unknown_role_is_a_programming_error(valid_env):
 
 
 def test_the_code_defaults_of_the_public_contract(valid_env):
-    for name in ("DATABASE_PORT", "GOOGLE_CLOUD_PROJECT", "AUTH_MODE", "OIDC_ISSUER", "AUTH_DEV_SIGNING_KEY"):
+    for name in ("DATABASE_PORT", "GOOGLE_CLOUD_PROJECT", "OIDC_ISSUER"):
         valid_env.pop(name)
 
     api = load_settings("api", {**valid_env, "OIDC_ISSUER": "https://idp.example.com/realms/app"})
 
     assert api.database.port == 5432
     assert api.storage.google_cloud_project is None
-    assert api.auth.mode == "oidc"
     assert api.auth.issuer == "https://idp.example.com/realms/app"
-
-
-def test_a_blank_auth_mode_means_oidc(valid_env):
-    valid_env.update(AUTH_MODE="  ", OIDC_ISSUER="https://idp.example.com/realms/app")
-    del valid_env["AUTH_DEV_SIGNING_KEY"]
-
-    assert load_settings("api", valid_env).auth.mode == "oidc"
-
-
-def test_oidc_mode_needs_the_issuer_and_dev_mode_does_not(valid_env):
-    del valid_env["OIDC_ISSUER"]
-    assert load_settings("api", valid_env).auth.issuer is None  # dev mode
-
-    valid_env.update(AUTH_MODE="oidc")
-    del valid_env["AUTH_DEV_SIGNING_KEY"]
-    with pytest.raises(ConfigurationError) as raised:
-        load_settings("api", valid_env)
-    assert raised.value.variables == ("OIDC_ISSUER",)
 
 
 def test_the_embedding_dimension_defaults_to_1536(valid_env):

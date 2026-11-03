@@ -5,7 +5,8 @@
 -- BM25 replacement of core/queries/search_nodes_fulltext.cypher (Lucene
 -- BM25Similarity per field, summed over name and statement_text).
 -- Parameters: project_id, terms (text[], OR semantics), labels, where
--- (jsonb), skip, page. The slots BM25_K (1.2) and BM25_B (0.75) hold the
+-- (jsonb), defaulted (jsonb, as in read_nodes.sql), skip,
+-- page. The slots BM25_K (1.2) and BM25_B (0.75) hold the
 -- constants. One row: fetched (rows of this page, already filtered by
 -- project, label and where) and hits (jsonb list of uuid, spec_id and score)
 -- in score order, ties by spec_id then uuid; the reader's loop (skip +=
@@ -140,7 +141,19 @@ hits AS (
                 coalesce(c.props -> w.key = w.value, FALSE)
                 OR (
                     c.props -> w.key IS NULL
-                    AND w.value = cast('null' AS jsonb)
+                    AND (
+                        (
+                            c.labels && array(
+                                SELECT jsonb_array_elements_text(
+                                    coalesce(
+                                        cast(:defaulted AS jsonb) -> w.key,
+                                        cast('[]' AS jsonb)
+                                    )
+                                )
+                            )
+                        )
+                        <> (w.value = cast('null' AS jsonb))
+                    )
                 )
             )
         )

@@ -374,7 +374,7 @@ def test_the_progress_statement_is_one_statement_with_the_read_time_rules() -> N
 
 
 def test_the_read_time_limits_are_the_planned_constants() -> None:
-    assert sources.UPLOAD_STALE_AFTER.total_seconds() == 60 * 60
+    assert sources.UPLOAD_STALE_AFTER.total_seconds() == 250 * 60
     assert sources.DRIVE_IMPORT_EXECUTION_TIMEOUT.total_seconds() == 12 * 60 * 60
 
 

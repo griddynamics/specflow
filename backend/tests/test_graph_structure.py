@@ -1,8 +1,4 @@
-"""Structure rules of the graph library (plan 1.T6; docs/graph/architecture.md I1-I5, FR-CORE-07, NFR-SEC-02).
-
-Static checks over every module of ``backend/src/graph/`` (AST; only the query modules are
-imported), so they also hold for the submodules later milestones add.
-"""
+"""Structure rules of the graph library."""
 
 from __future__ import annotations
 
@@ -39,7 +35,6 @@ THIRD_PARTY_ALLOWED: Final = frozenset(
         "yaml",
         "numpy",
         "openai",
-        "graphiti_core",
         "neo4j",
         "sqlalchemy",
         "asyncpg",
@@ -56,7 +51,6 @@ HOST_PACKAGES: Final = frozenset(
 # ArcadeDB the HTTP client for its admin API, TigerGraph its own SDK.
 ONLY_IN: Final = {
     "openai": frozenset({"core/llm/gateway.py"}),
-    "graphiti_core": frozenset({"build/graphiti.py"}),
     "neo4j": frozenset({"stores/_bolt/", "stores/neo4j/", "stores/arcadedb/"}),
     "sqlalchemy": frozenset({"stores/postgres/"}),
     "asyncpg": frozenset({"stores/postgres/"}),
@@ -170,7 +164,7 @@ def test_graph_package_has_modules() -> None:
     assert {"core/queries.py", "core/db.py", "core/writer.py", "core/reader.py"} <= rels
 
 
-# I1, FR-CORE-07: imports
+# I1,: imports
 
 
 def test_i1_only_allowed_imports() -> None:
@@ -232,18 +226,7 @@ def test_every_sdk_the_graph_may_import_is_confined() -> None:
     assert THIRD_PARTY_ALLOWED - base == set(ONLY_IN)
 
 
-def test_i2_graphiti_never_in_core() -> None:
-    violations = [
-        module.where(node)
-        for module in modules()
-        if module.rel.startswith("core/")
-        for node, name in imports(module)
-        if name == "graphiti_core"
-    ]
-    assert violations == []
-
-
-# I3, NFR-SEC-02: Cypher only in the query modules; scoped queries bind $project_id
+# I3,: Cypher only in the query modules; scoped queries bind $project_id
 
 
 def test_i3_cypher_only_in_query_modules() -> None:
@@ -504,7 +487,7 @@ def ontology_literals() -> tuple[set[str], tuple[str, ...]]:
             names |= set(spec.values)
         if node_type.id_prefix:
             prefixes.append(node_type.id_prefix)
-    # Edge basis values are data-model vocabulary of the library (data-model.md "Edges"); two of them
+    # Edge basis values are data-model vocabulary of the library; two of them
     # also occur in the shipped ontology's source_status vocabulary.
     return names - set(BUILT_IN_NAMES) - DATA_MODEL_VALUES, tuple(prefixes)
 

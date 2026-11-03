@@ -40,7 +40,19 @@ WITH page AS (
                 coalesce(n.props -> w.key = w.value, FALSE)
                 OR (
                     n.props -> w.key IS NULL
-                    AND w.value = cast('null' AS jsonb)
+                    AND (
+                        (
+                            n.labels && array(
+                                SELECT jsonb_array_elements_text(
+                                    coalesce(
+                                        cast(:defaulted AS jsonb) -> w.key,
+                                        cast('[]' AS jsonb)
+                                    )
+                                )
+                            )
+                        )
+                        <> (w.value = cast('null' AS jsonb))
+                    )
                 )
             )
         )

@@ -1,8 +1,4 @@
-"""Immutable typed settings the host builds (docs/graph/architecture.md "Settings").
-
-The library never reads environment variables; the host maps its own settings onto these objects.
-Invalid values raise ``ConfigurationError`` naming the fields, never their values.
-"""
+"""Immutable typed settings the host builds."""
 
 from __future__ import annotations
 

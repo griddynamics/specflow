@@ -1,14 +1,17 @@
 "use client";
 // Mission Control sources (plans/mission-control-sources/DESIGN.md D9, D11; owner redesign 2026-10-15; sources-ux SPECS §7.4). Rendered by
-// MissionControlScreen in both trees (the demo mock and the production http adapter, GDRIVE plan 07). The page is the source cards; the header row, left of the project dropdown, holds the build button and "Add source"
-// (HeaderActions). No knowledge bar, no item list, no README / Business / Architecture / Files views. A document link (Decisions,
+// MissionControlScreen with the production http adapter (GDRIVE plan 07). The page is the source cards; the header row, left of the
+// project dropdown, holds the build button and "Add source" (HeaderActions). No knowledge bar, no item list, no README / Business / Architecture / Files views. A document link (Decisions,
 // SpecBot: `?view=files&file=`) opens that one document with a Back link.
 //
 // A card opens its details modal (FR-SRC-0005); Remove source opens a confirmation over it (FR-SRC-0014/0015) and the details stay mounted
 // under it. Files are uploaded only from Add source -> Local files; each pick is one new batch (FR-SRC-0020).
 //
+// Build knowledge (plans/connect-build-kg-button): a click opens the confirm dialog with the reasoning-level slider; its confirm starts the
+// build. A failed build turns the button into Error, which opens the error details (closed again when the failure clears).
+//
 // Data: one status read, read again on every change the port reports (`knowledge.subscribe`). A failed read is an error, never
-// "empty" (D9). Leaving the screen stops only the listener: sync and build are server work in the target design.
+// "empty" (D9). Leaving the screen stops only the listener: sync and build are server work.
 import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FilesView } from "@/components/files/FilesView";
@@ -19,6 +22,7 @@ import { PageTitle } from "@/components/ui/TopBar";
 import { useToast } from "@/components/ui/Toast";
 import type { KnowledgePort, ProjectSourcesStatus, Source, SourcesPort } from "@/lib/domain/sources";
 import { parseMissionControlQuery } from "@/lib/routes";
+import { UPLOAD_ACCEPT } from "@/lib/domain/upload-formats";
 import { HeaderActions } from "./HeaderActions";
 import { buildButtonView } from "./kb-logic";
 import { ScreenDialogs, type Dialog } from "./ScreenDialogs";
@@ -92,6 +96,10 @@ export function SourcesMissionControl({
   const toast = useToast();
   const { status, failed, reload } = useSourcesStatus(knowledge, projectId);
   const [dialog, setDialog] = useState<Dialog>(null);
+  // From Confirm until the next status after the POST settled: "posting" while it is in flight, then the status shown when it
+  // settled (the next, different status ends it). The button is busy meanwhile, so it never looks clickable after Confirm.
+  const [pending, setPending] = useState<"posting" | ProjectSourcesStatus | null>(null);
+  const latest = useRef<ProjectSourcesStatus | null>(null);
   const driveEmail = useDriveEmail(sources);
   const me = useMemberId();
   const screen = useRef<HTMLElement>(null);
@@ -118,7 +126,7 @@ export function SourcesMissionControl({
 
   const fail = useFailToast();
   useKnowledgeBuiltToast(status);
-  const build = useBuild(knowledge, projectId, fail);
+  const build = useBuild(knowledge, projectId);
   const upload = useUpload(sources, projectId, fail, reload);
   const pickFiles = () => picker.current?.click();
 
@@ -161,11 +169,19 @@ export function SourcesMissionControl({
   const q = useMemo(() => new URLSearchParams(query.toString()), [query]);
   const parsed = useMemo(() => parseMissionControlQuery(q), [q]);
   const doc = parsed.view === "files" && truthy(parsed.file) ? parsed.file : null; // a document link (Decisions, SpecBot citations)
-  // The live region says the state, not each build step ("Building 18/42" -> "Building"): the counter is in the button's description.
-  const label = status ? buildButtonView(status).label.replace(/ \d+\/\d+$/, "") : "";
+  // The live region says the state without the ellipsis ("Building…" -> "Building"); the details are in the button's description.
+  const buttonLabel = status ? buildButtonView(status, new Date(), pending !== null).label : "";
+  const label = buttonLabel.endsWith("…") ? buttonLabel.slice(0, -1) : buttonLabel;
+
+  // The error details show only while a failure is on the status: a poll that clears it closes them (the focus returns to the button).
+  if (dialog?.kind === "buildError" && status && !status.buildFailure) setDialog(null);
 
   const detailsSid = dialog?.kind === "details" || dialog?.kind === "remove" ? dialog.sid : null;
   const detailsSource = truthy(detailsSid) ? status?.sources.find((x) => x.id === detailsSid) : undefined;
+  useEffect(() => {
+    latest.current = status;
+  }, [status]);
+  if (pending !== null && pending !== "posting" && status !== pending) setPending(null);
   useEffect(() => {
     for (const src of status?.sources ?? []) known.current.set(src.id, src);
   }, [status]);
@@ -198,18 +214,18 @@ export function SourcesMissionControl({
           tabs={
             <HeaderActions
               status={status}
-              onBuild={(mode) => {
-                void build(mode);
+              onOpenBuild={(mode) => {
+                setDialog({ kind: "build", mode });
               }}
-              onRebuild={() => {
-                setDialog({ kind: "rebuild" });
+              pending={pending !== null}
+              onError={() => {
+                setDialog({ kind: "buildError" });
               }}
               onAdd={(source) => {
                 setDialog(source === "gdrive" ? { kind: "drive" } : { kind: "add" });
               }}
               onPickFiles={pickFiles}
               github={sources.githubEnabled}
-              pdfOnly={sources.pdfOnly}
               addSourceRef={addSourceButton}
             />
           }
@@ -220,7 +236,7 @@ export function SourcesMissionControl({
         type="file"
         multiple
         hidden
-        accept={sources.pdfOnly ? "application/pdf,.pdf" : undefined}
+        accept={UPLOAD_ACCEPT}
         data-testid="mcs-upload-input"
         aria-label="Upload local files"
         onChange={(e) => {
@@ -262,8 +278,11 @@ export function SourcesMissionControl({
         onReload={() => {
           reload.current();
         }}
-        onBuild={(mode) => {
-          void build(mode);
+        onBuild={(level) => {
+          setPending("posting");
+          void build(level).then(() => {
+            setPending(latest.current); // a rejection shows as the Error button in the next status
+          });
         }}
       />
     </section>

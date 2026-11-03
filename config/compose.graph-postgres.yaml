@@ -1,5 +1,5 @@
-# Added by `make up WITH=postgres` (the Makefile passes it after docker-compose.yml): the api and the
-# agents worker keep the graph in the postgres service, in the schema `graph`, over the DATABASE_* login.
+# Added by `make up WITH=postgres` (the Makefile passes it after docker-compose.yml): the api, the mcp role and
+# the agents worker keep the graph in the postgres service, in the schema `graph`, over the DATABASE_* login.
 # GRAPH_STORE_URI, _USER, _PASSWORD and _NAME are removed so that the settings layer reuses DATABASE_*
 # (docs/configuration.md "PostgreSQL"). The vector extension must exist in the database: it does on a
 # new data volume (backend/postgres-init); on an existing one run `make postgres-vector`.
@@ -13,6 +13,13 @@ services:
       GRAPH_STORE_PASSWORD: !reset null
       GRAPH_STORE_NAME: !reset null
   worker-agents:
+    environment:
+      GRAPH_STORE: "postgres"
+      GRAPH_STORE_URI: !reset null
+      GRAPH_STORE_USER: !reset null
+      GRAPH_STORE_PASSWORD: !reset null
+      GRAPH_STORE_NAME: !reset null
+  mcp:
     environment:
       GRAPH_STORE: "postgres"
       GRAPH_STORE_URI: !reset null

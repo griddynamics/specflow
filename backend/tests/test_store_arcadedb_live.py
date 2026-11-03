@@ -28,7 +28,9 @@ RELATIONS = ["PART_OF"]
 
 
 async def verified_nodes(project: GraphProject) -> dict[str, dict[str, Any]]:
-    rows = await project.store.executor().read(build_queries.VERIFY_SPEC_NODES, project.project_id, labels=LABELS)
+    rows = await project.store.executor().read(
+        build_queries.VERIFY_SPEC_NODES, project.project_id, labels=LABELS, attributes=[]
+    )
     return {row["spec_id"]: row for row in rows}
 
 
@@ -202,6 +204,7 @@ async def test_a_library_size_batch_of_vector_rows_is_written_and_similar_target
         pid,
         uuids=[row["uuid"] for row in rows],
         target_labels=["Feature"],
+        excluded=[],
         bases=["stated", "implied"],
         limit=TOP,
     )

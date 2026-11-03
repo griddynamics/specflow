@@ -1,19 +1,29 @@
-"""Conform unit tests (plan 2.T3; build.md step 5; FR-BLD-08, 09, 18, 19, 20, 24).
-
-Plans, canonical nodes, raw edges and attributes are built by hand. Embeddings are the gateway's
-deterministic fakes (texts declared synonyms share a vector, cosine 1); ``AngleGateway`` pins chosen
-vectors to reach exact cosines. The small model answers ``dedup_adjudicate.2`` through handlers.
-"""
+"""Conform unit tests."""
 
 from __future__ import annotations
 
 import math
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Final
 
 import pytest
 
-from graph.build.conform import DEDUP_PROMPT, _refusal, _Signature, check_invariants, conform
+from graph.build.conform import (
+    DEDUP_PROMPT,
+    DEDUP_RICH_FLOOR,
+    ConformJudging,
+    DedupMemory,
+    GroundingStats,
+    _refusal,
+    _Signature,
+    _surviving_refusals,
+    check_invariants,
+    conform,
+    dedup_candidate_text,
+    grounding_stats,
+)
 from graph.build.corpus import segment
 from graph.build.models import (
     AttributeValue,
@@ -24,8 +34,11 @@ from graph.build.models import (
     EvidenceLines,
     FragmentRec,
     PlanArtifact,
+    QuarantinedTargetEdge,
     RawEdge,
+    RefusedDedupPair,
     ResolveArtifact,
+    SourceQuote,
     TargetGraph,
     TargetNode,
     Unit,
@@ -37,10 +50,14 @@ from graph.build.vectors import VectorCache
 from graph.core.errors import ConformanceError, LLMError
 from graph.core.identity import bounded_key_value, normalise_surface
 from graph.core.llm.gateway import UNTRUSTED_CLOSE, UNTRUSTED_OPEN
+from graph.core.ontology import Ontology, load_ontology
 from graph_extraction_store_support import MemoryStore
 from graph_support import (
+    FROZEN_ONTOLOGY_FILE,
     ScriptedGateway,
     ScriptedRequest,
+    copy_frozen_prompts,
+    frozen_ontology,
     llm_config,
     shipped_ontology,
 )
@@ -48,11 +65,13 @@ from graph_support import (
 # The graph fixtures (scripted_gateway, make_gateway, gap_ontology, graph_project) live in graph_support.
 pytest_plugins = ["graph_support"]
 
-ONT = shipped_ontology()
+# Mechanics tests: pinned to the frozen v1.3 ontology (graph_support.FROZEN_ONTOLOGY_FILE), not the shipped one.
+ONT = frozen_ontology()
 PROJECT = "p-conform"
 STAMP = "2026-01-01T00:00:00+00:00"
 FR = "FunctionalRequirement"
 QR = "QualityRequirement"
+QUOTE = "quote"
 Factory = Callable[..., ScriptedGateway]
 
 
@@ -190,6 +209,17 @@ def edge(
     )
 
 
+@dataclass(frozen=True)
+class Setup:
+    """The ontology and locality option of one ``run_conform``."""
+
+    locality: str = "grounded"
+    ontology: Ontology = ONT
+    quotes_from_attributes: bool = True
+    """A ``quote`` attribute becomes the node's one source quote (``with_quotes``); False: passed on as given."""
+    judging: ConformJudging | None = None
+
+
 async def run_conform(
     plan: PlanArtifact,
     nodes: Sequence[CanonicalNode],
@@ -197,22 +227,47 @@ async def run_conform(
     *,
     edges: Sequence[RawEdge] = (),
     attributes: Mapping[str, Mapping[str, AttributeValue]] | None = None,
-    locality: str = "grounded",
+    setup: Setup | None = None,
     persisted: Mapping[str, PersistedIdentity] | None = None,
     store: MemoryStore | None = None,
 ) -> TargetGraph:
+    """Conform over ``nodes``; a ``quote`` among a node's ``attributes`` becomes its one source quote
+    over all its fragments (``with_quotes``), as Resolve hands it over, and leaves the attributes
+    (``Setup.quotes_from_attributes`` false: the attributes are passed on as given)."""
+
+    setup = setup or Setup()
+    if setup.quotes_from_attributes:
+        nodes, values = with_quotes(nodes, attributes or {})
+    else:
+        values = {cid: dict(found) for cid, found in (attributes or {}).items()}
     return await conform(
         plan,
         ResolveArtifact(canonical=tuple(sorted(nodes, key=lambda item: item.identity_key))),
-        EdgesArtifact(
-            raw_edges=tuple(edges),
-            attributes={cid: dict(values) for cid, values in (attributes or {}).items()},
-        ),
-        services=StepServices(gateway=gateway, ontology=ONT, options=BuildOptions(locality=locality)),
+        EdgesArtifact(raw_edges=tuple(edges), attributes=values),
+        services=StepServices(gateway=gateway, ontology=setup.ontology, options=BuildOptions(locality=setup.locality)),
         vectors=VectorCache(gateway, store or MemoryStore(), PROJECT),
         at=STAMP,
         persisted=persisted,
+        judging=setup.judging,
     )
+
+
+def with_quotes(
+    nodes: Sequence[CanonicalNode], attributes: Mapping[str, Mapping[str, AttributeValue]]
+) -> tuple[list[CanonicalNode], dict[str, dict[str, AttributeValue]]]:
+    """``nodes`` with the ``quote`` of their attributes as their one source quote (over all their
+    fragments) unless they carry quotes already, and the attributes without it."""
+
+    quoted = []
+    for given in nodes:
+        quote = (attributes.get(given.cid) or {}).get(QUOTE)
+        if isinstance(quote, str) and quote and not given.quotes:
+            source = SourceQuote(quote=quote, fragment_ids=given.fragment_ids)
+            quoted.append(given.model_copy(update={"quotes": (source,)}))
+        else:
+            quoted.append(given)
+    values = {cid: {name: value for name, value in found.items() if name != QUOTE} for cid, found in attributes.items()}
+    return quoted, {cid: found for cid, found in values.items() if found}
 
 
 def by_name(graph: TargetGraph) -> dict[str, TargetNode]:
@@ -227,8 +282,8 @@ def lines(fragment_id: str, start: int, end: int | None = None) -> EvidenceLines
     )
 
 
-def same(*, answer: bool) -> Callable[[ScriptedRequest], dict[str, bool]]:
-    return lambda _: {"same": answer}
+def same(*, answer: bool, confidence: str = "high") -> Callable[[ScriptedRequest], dict[str, Any]]:
+    return lambda _: {"same": answer, "confidence": confidence}
 
 
 # 1. Quote snapping
@@ -386,6 +441,285 @@ async def test_node_without_quote_is_grounded_in_its_fragments_and_states_the_li
     ]
 
 
+# Grounding per source and its statistics
+
+
+def quoted(item: CanonicalNode, *quotes: tuple[str, Sequence[str]]) -> CanonicalNode:
+    return item.model_copy(
+        update={"quotes": tuple(SourceQuote(quote=quote, fragment_ids=tuple(ids)) for quote, ids in quotes)}
+    )
+
+
+TWO_DOCS = plan_of(
+    ("a", ["FR-001: Customers can export orders as CSV.", "Other text."]),
+    ("b", ["Intro text.", "Downloads.\nFR-001 lets customers download their orders as a CSV file."]),
+)
+
+
+async def test_an_id_requirement_worded_differently_in_two_documents_keeps_evidence_from_both(
+    scripted_gateway: Factory,
+) -> None:
+    item = quoted(
+        node("c1", "Customers can export orders as CSV", FR, ["a#s0", "b#s1"], explicit="FR-001"),
+        ("lets customers download their orders as a CSV file", ["b#s1"]),
+        ("Customers can export orders as CSV", ["a#s0"]),
+    )
+    graph = await run_conform(TWO_DOCS, [item], scripted_gateway())
+    (target,) = graph.nodes
+    assert target.evidence == (lines("a#s0", 1), lines("b#s1", 4))
+    assert [(statement.document_id, statement.text) for statement in target.statements] == [
+        ("a", "FR-001: Customers can export orders as CSV."),
+        ("b", "FR-001 lets customers download their orders as a CSV file."),
+    ]
+    # the primary span is the best-ranked one: equal overlap and length, the earlier fragment
+    assert target.quote == "FR-001: Customers can export orders as CSV."
+    counters = graph.counters
+    assert (counters.unsnapped_source_quotes, counters.attributed_fragments_dropped) == (0, 0)
+    assert (counters.nodes_missing_source_documents, counters.quote_fallbacks) == (0, 0)
+    assert counters.unsnapped_quote_nodes == {}
+
+
+async def test_an_unsnapped_quote_falls_back_to_an_id_line_else_its_fragment_is_dropped_and_counted(
+    scripted_gateway: Factory,
+) -> None:
+    plan = plan_of(
+        ("a", ["FR-001: Customers can export orders as CSV."]),
+        ("b", ["Background.\nSee FR-001 for the file format."]),
+        ("c", ["Nothing about it here."]),
+    )
+    item = quoted(
+        node("c1", "Customers can export orders as CSV", FR, ["a#s0", "b#s0", "c#s0"], explicit="FR-001"),
+        ("Customers can export orders as CSV", ["a#s0"]),
+        ("the export writes one row per order", ["b#s0"]),
+        ("exports are kept for a year", ["c#s0"]),
+    )
+    graph = await run_conform(plan, [item], scripted_gateway())
+    (target,) = graph.nodes
+    # b: the line holding the node's id is secondary evidence; c: dropped
+    assert target.evidence == (lines("a#s0", 1), lines("b#s0", 2))
+    assert [statement.text for statement in target.statements] == [
+        "FR-001: Customers can export orders as CSV.",
+        "See FR-001 for the file format.",
+    ]
+    assert target.quote == "FR-001: Customers can export orders as CSV."
+    counters = graph.counters
+    assert (counters.unsnapped_source_quotes, counters.attributed_fragments_dropped) == (2, 1)
+    assert (counters.nodes_missing_source_documents, counters.quote_fallbacks) == (1, 0)
+
+
+async def test_an_id_line_never_becomes_the_primary_span_nor_grounds_a_hub(scripted_gateway: Factory) -> None:
+    plan = plan_of(("a", ["See FR-001 for the file format.\nCheckout service handles payment."]))
+    requirement = quoted(
+        node("c1", "Customers can export orders as CSV", FR, ["a#s0"], explicit="FR-001"),
+        ("Customers can export orders as CSV", ["a#s0"]),
+    )
+    hub = quoted(node("c2", "Checkout service", "Module", ["a#s0"]), ("the service that bills orders", ["a#s0"]))
+    graph = await run_conform(plan, [requirement, hub], scripted_gateway())
+    nodes = by_name(graph)
+    target = nodes["Customers can export orders as CSV"]
+    assert target.evidence == (lines("a#s0", 1),)
+    assert target.quote is None  # an id line is evidence, not the node's quote
+    assert nodes["Checkout service"].evidence == (lines("a#s0", 2),)  # its name line, not the id line
+    assert graph.counters.unsnapped_quote_nodes == {"Module": 1, FR: 1}
+
+
+async def test_without_any_span_a_node_keeps_its_fragments_whole_and_its_provisional_key(
+    scripted_gateway: Factory,
+) -> None:
+    plan = plan_of(("a", ["Customers export.", "Other line."]))
+    item = quoted(node("c1", "Customers can download invoices", FR, ["a#s0", "a#s1"]), ("invoices as PDF", ["a#s0"]))
+    graph = await run_conform(plan, [item], scripted_gateway())
+    (target,) = graph.nodes
+    assert target.evidence == (lines("a#s0", 1), lines("a#s1", 3))
+    assert target.identity_key == item.identity_key  # still provisional: nothing snapped
+    counters = graph.counters
+    assert (counters.provisional_keys_left, counters.unsnapped_source_quotes) == (1, 1)
+    assert (counters.attributed_fragments_dropped, counters.nodes_missing_source_documents) == (0, 0)
+
+
+async def test_conform_never_reads_a_quote_attribute(scripted_gateway: Factory) -> None:
+    plan = plan_of(("doc", ["Customers can export order history as CSV."]))
+    graph = await run_conform(
+        plan,
+        [node("c1", "Customer can export order history as CSV", FR, ["doc#s0"])],
+        scripted_gateway(),
+        attributes={"c1": {"quote": "Customers can export order history as CSV"}},
+        setup=Setup(quotes_from_attributes=False),
+    )
+    (target,) = graph.nodes
+    assert target.quote is None and "quote" not in target.attributes
+    assert graph.counters.quote_fallbacks == 1
+
+
+async def test_grounding_stats_give_conforms_counts_and_read_older_artifacts_by_their_quote_attribute(
+    scripted_gateway: Factory,
+) -> None:
+    plan = plan_of(
+        ("a", ["FR-001: Customers can export orders as CSV."]),
+        ("b", ["FR-001 lets customers download their orders as a CSV file."]),
+    )
+    item = node("c1", "Customers can export orders as CSV", FR, ["a#s0", "b#s0"], explicit="FR-001")
+    lone = node("c2", "Admins can purge exports", FR, ["a#s0"])
+    current = [
+        quoted(item, ("Customers can export orders as CSV", ["a#s0"]), ("download their orders", ["b#s0"])),
+        quoted(lone, ("Admins can purge exports", ["a#s0"])),
+    ]
+    graph = await run_conform(plan, current, scripted_gateway())
+    stats = grounding_stats(plan, ResolveArtifact(canonical=tuple(current)), EdgesArtifact(), ONT)
+    counters = graph.counters
+    assert stats == GroundingStats(
+        unsnapped_quote_nodes=counters.unsnapped_quote_nodes,
+        unsnapped_source_quotes=counters.unsnapped_source_quotes,
+        provisional_keys_left=counters.provisional_keys_left,
+        attributed_fragments_dropped=counters.attributed_fragments_dropped,
+        nodes_missing_source_documents=counters.nodes_missing_source_documents,
+    )
+    assert stats == GroundingStats({FR: 1}, 1, 1, 0, 0)  # the purge quote is nowhere; FR-001 by its id line
+    # An artifact written before per-source quotes (no ``quotes`` field): its one quote attribute over
+    # all the node's fragments, no id lines, source quotes n/a.
+    older = ResolveArtifact.model_validate(
+        {"canonical": [node.model_dump(mode="json", exclude={"quotes"}) for node in (item, lone)]}
+    )
+    attributes = EdgesArtifact(attributes={"c1": {"quote": "Customers can export orders as CSV"}})
+    assert grounding_stats(plan, older, attributes, ONT) == GroundingStats(
+        unsnapped_quote_nodes={FR: 1},
+        unsnapped_source_quotes=None,
+        provisional_keys_left=1,
+        attributed_fragments_dropped=1,  # b: the one quote snaps in a only
+        nodes_missing_source_documents=1,
+    )
+
+
+async def test_a_fragment_without_its_own_quote_is_grounded_by_the_nodes_other_quotes(
+    scripted_gateway: Factory,
+) -> None:
+    plan = plan_of(
+        ("a", ["Customers can export orders as CSV."]),
+        ("b", ["Recap: customers can export orders as CSV."]),
+        ("c", ["Again: customers can export orders as CSV."]),
+    )
+    # a: the quote's own fragment; b: a member without a quote; c: a member whose quote snaps nowhere
+    item = quoted(
+        node("c1", "Customers can export orders as CSV", FR, ["a#s0", "b#s0", "c#s0"]),
+        ("Customers can export orders as CSV", ["a#s0"]),
+        ("exports are kept for a year", ["c#s0"]),
+    )
+    graph = await run_conform(plan, [item], scripted_gateway())
+    (target,) = graph.nodes
+    assert [lines.fragment_id for lines in target.evidence] == ["a#s0", "b#s0", "c#s0"]
+    assert (graph.counters.unsnapped_source_quotes, graph.counters.attributed_fragments_dropped) == (1, 0)
+
+
+async def test_of_two_quotes_on_the_same_lines_the_better_snapped_one_names_the_span(
+    scripted_gateway: Factory,
+) -> None:
+    plan = plan_of(("a", ["Customers can export orders. Exports run nightly."]))
+    item = quoted(
+        node("c1", "Customers can export orders", FR, ["a#s0"]),
+        ("Exports run nightly and customers can export", ["a#s0"]),  # 6 of 7 tokens: snaps, not located
+        ("Customers can export orders", ["a#s0"]),  # all tokens, located: its sentence is the key
+    )
+    graph = await run_conform(plan, [item], scripted_gateway())
+    (target,) = graph.nodes
+    assert target.identity_key == "requirement|span|customers can export orders"
+
+
+async def test_an_update_keeps_the_span_key_a_persisted_node_holds(scripted_gateway: Factory) -> None:
+    plan = plan_of(("a", ["Customers can export orders."]), ("b", ["Customers export every order."]))
+    item = quoted(
+        node("c1", "Customers can export orders", FR, ["a#s0", "b#s0"]),
+        ("Customers can export orders", ["a#s0"]),
+        ("Customers export every order", ["b#s0"]),
+    )
+    first = await run_conform(plan, [item], scripted_gateway())
+    assert [target.identity_key for target in first.nodes] == ["requirement|span|customers can export orders"]
+    kept = "requirement|span|customers export every order"
+    again = await run_conform(
+        plan.model_copy(update={"mode": "update"}),
+        [item],
+        scripted_gateway(),
+        persisted=persisted_identities([(kept, (), FR)]),
+    )
+    (target,) = again.nodes
+    assert target.identity_key == kept
+    assert target.quote == "Customers export every order."
+    assert [lines.fragment_id for lines in target.evidence] == ["a#s0", "b#s0"]
+
+
+# T12 (limited): the spine exclude value of merged nodes
+
+
+@pytest.mark.parametrize(
+    ("change_set", "in_scope", "wins"),
+    [
+        (ChangeSet(new=("a", "b")), "yes", 0),  # first build: every document is new, the first value stays
+        (ChangeSet(unchanged=("a",), revised=("b",)), "no", 1),  # b revised: its member's value wins
+        (ChangeSet(revised=("a",), unchanged=("b",)), "yes", 0),  # the first member is the fresh one
+        (ChangeSet(revised=("a", "b")), "yes", 0),  # both fresh: the first value stays
+    ],
+)
+async def test_merged_members_that_disagree_on_scope_take_the_value_grounded_in_a_dirty_document(
+    scripted_gateway: Factory, change_set: ChangeSet, in_scope: str, wins: int
+) -> None:
+    shipped = shipped_ontology()
+    plan = plan_of(
+        ("a", ["Customers can export orders as CSV."]), ("b", ["Customers can export orders as CSV."])
+    ).model_copy(update={"mode": "first" if change_set.new else "update", "change_set": change_set})
+    nodes = [
+        node("c1", "Customers can export orders as CSV", FR, ["a#s0"]),
+        node("c2", "Customers export orders as CSV", FR, ["b#s0"]),
+    ]
+    graph = await run_conform(
+        plan,
+        nodes,
+        scripted_gateway(),
+        attributes={
+            "c1": {"quote": "Customers can export orders as CSV", "in_scope": "yes"},
+            "c2": {"quote": "Customers can export orders as CSV", "in_scope": "no"},
+        },
+        setup=Setup(ontology=shipped),
+    )
+    (target,) = graph.nodes  # one span key: the two members merge
+    assert {statement.document_id for statement in target.statements} == {"a", "b"}
+    assert target.attributes["in_scope"] == in_scope
+    assert (graph.counters.in_scope_disagreements, graph.counters.in_scope_dirty_wins) == (1, wins)
+
+
+async def test_a_value_a_fresh_member_set_stays_in_a_later_build_without_fresh_members(
+    scripted_gateway: Factory,
+) -> None:
+    plan = plan_of(("a", ["Customers can export orders as CSV."]), ("b", ["Customers can export orders as CSV."]))
+    nodes = [
+        node("c1", "Customers can export orders as CSV", FR, ["a#s0"]),
+        node("c2", "Customers export orders as CSV", FR, ["b#s0"]),
+    ]
+    attributes: dict[str, dict[str, AttributeValue]] = {
+        "c1": {"quote": "Customers can export orders as CSV", "in_scope": "yes"},
+        "c2": {"quote": "Customers can export orders as CSV", "in_scope": "no"},
+    }
+    setup = Setup(ontology=shipped_ontology())
+
+    async def build(
+        changes: ChangeSet, persisted: Mapping[str, PersistedIdentity] | None = None, mode: str = "update"
+    ) -> TargetGraph:
+        update = plan.model_copy(update={"mode": mode, "change_set": changes})
+        return await run_conform(
+            update, nodes, scripted_gateway(), attributes=attributes, setup=setup, persisted=persisted
+        )
+
+    revised = await build(ChangeSet(unchanged=("a",), revised=("b",)))  # b revised: its value wins
+    (target,) = revised.nodes
+    assert (target.attributes["in_scope"], revised.counters.in_scope_dirty_wins) == ("no", 1)
+    stored = persisted_identities([(target.identity_key, (), FR)], {target.identity_key: {"in_scope": "no"}})
+    later = await build(ChangeSet(unchanged=("a", "b")), stored)  # no fresh member: the persisted value stays
+    assert (later.nodes[0].attributes["in_scope"], later.counters.in_scope_dirty_wins) == ("no", 0)
+    assert later.counters.in_scope_disagreements == 1
+    unknown = await build(ChangeSet(unchanged=("a", "b")))  # nothing persisted: the first value
+    assert unknown.nodes[0].attributes["in_scope"] == "yes"
+    rebuilt = await build(ChangeSet(unchanged=("a",), revised=("b",)), mode="rebuild")  # fresh only in updates
+    assert (rebuilt.nodes[0].attributes["in_scope"], rebuilt.counters.in_scope_dirty_wins) == ("yes", 0)
+
+
 # Edge facts
 
 
@@ -513,6 +847,71 @@ async def test_quote_across_two_sentences_keys_both_and_a_reworded_quote_keys_th
     assert keys["Admin can purge exports"] == "requirement|span|admins purge exports nightly"
 
 
+@pytest.mark.parametrize(
+    ("text", "quote", "persisted"),
+    [
+        pytest.param(
+            "Orders are kept. Export completes within 5 s. Retries happen.",
+            "export completes within 5 s",
+            "Export completes within 5 s.",
+            id="one-sentence-of-three",
+        ),
+        pytest.param(
+            "Orders are kept. Export completes within 5 s. Retries happen.",
+            "kept. Export completes within 5 s",
+            "Orders are kept. Export completes within 5 s.",
+            id="two-sentences",
+        ),
+        pytest.param(
+            "Retries happen. Export completes within 5 s, e.g. for small orders.",
+            "export completes within 5 s e.g. for small orders",
+            "Export completes within 5 s, e.g. for small orders.",
+            id="lower-case-after-a-period-is-no-sentence-end",
+        ),
+        pytest.param(
+            "Export of orders is fast. It completes within 5 s.",
+            "export completes within 5 s",
+            "Export of orders is fast. It completes within 5 s.",
+            id="no-single-sentence-holds-the-quote-whole-line",
+        ),
+        pytest.param(
+            "- Export completes within 5 s.",
+            "export completes within 5 s",
+            "Export completes within 5 s.",
+            id="one-sentence-line",
+        ),
+        pytest.param(
+            "Exports follow the layout per section No. 7. Retries happen.",
+            "exports follow the layout per section No. 7",
+            "Exports follow the layout per section No. 7.",
+            id="no-sentence-end-after-an-abbreviation",
+        ),
+        pytest.param(
+            "Retries happen. Charts follow Fig. 3 and use a cache, e.g. Redis. Admins purge.",
+            "charts follow fig 3 and use a cache e.g. Redis",
+            "Charts follow Fig. 3 and use a cache, e.g. Redis.",
+            id="fig-and-eg-before-a-capital",
+        ),
+    ],
+)
+async def test_the_persisted_quote_is_the_sentences_of_its_line_that_hold_the_quote(
+    scripted_gateway: Factory, text: str, quote: str, persisted: str
+) -> None:
+    """evidence stays line-ranged, the persisted ``quote`` is the fewest whole sentences of
+    the primary span holding the source quote, verbatim (else the line); the span key is unchanged."""
+
+    graph = await run_conform(
+        plan_of(("doc", ["Intro.", text])),
+        [node("c1", "Order export completes within 5 s", QR, ["doc#s1"])],
+        scripted_gateway(),
+        attributes={"c1": {"quote": quote}},
+    )
+    (target,) = graph.nodes
+    assert target.quote == persisted
+    assert persisted in text
+    assert target.evidence == (lines("doc#s1", 3),)
+
+
 async def test_id_leading_the_defining_line_becomes_the_key_and_its_family_the_label(
     scripted_gateway: Factory,
 ) -> None:
@@ -558,6 +957,7 @@ async def test_alike_nodes_on_one_span_key_merge(scripted_gateway: Factory) -> N
     assert graph.counters.span_merges == 1 and graph.counters.span_splits == 0
     assert graph.edges == ()
     assert graph.counters.dropped_edges == {"RELATES_TO": {"self_loop": 1}}
+    assert graph.quarantine == ()  # a self-loop is counted only
 
 
 async def test_names_with_close_vectors_are_alike(scripted_gateway: Factory) -> None:
@@ -756,7 +1156,7 @@ async def test_a_split_key_naming_a_persisted_node_keeps_its_label(scripted_gate
     }
 
 
-# 2. Requirement dedup (FR-BLD-18, FR-BLD-24)
+# 2. Requirement dedup
 
 
 async def dedup_case(
@@ -844,11 +1244,205 @@ async def test_dedup_candidates_need_cosine_085(cosine: float, *, candidate: boo
     a, b = at_cosine(cosine)
     gateway = AngleGateway({f"{FR}: {first}": a, f"{FR}: {second}": b})
     gateway.handle(DEDUP_PROMPT, same(answer=False))
-    graph = await dedup_case(gateway, first, second)
+    # Quotes other than the names: candidate texts of their own, far apart (no rich candidate).
+    quotes = ("Customers export the order history from the portal", "Shoppers download a purchase list")
+    graph = await dedup_case(gateway, first, second, quotes=quotes)
     assert len(graph.nodes) == 2
     assert graph.counters.dedup_candidates == int(candidate)
+    assert graph.counters.dedup_candidates_rich_only == 0
     assert len(gateway.calls_for(DEDUP_PROMPT)) == int(candidate)
     assert gateway.unscripted == []
+
+
+RICH_QUOTES: Final = ("Invoices are downloadable as PDF files", "Past invoices can be fetched in PDF")
+
+
+def rich_case_gateway(name_cosine: float, rich_cosine: float, first: str, second: str) -> AngleGateway:
+    """Names and candidate texts (``dedup_candidate_text``, quotes ``RICH_QUOTES``) at the given cosines."""
+
+    names = at_cosine(name_cosine)
+    rich = at_cosine(rich_cosine)
+    texts = [
+        dedup_candidate_text(FR, name, "", quote) for name, quote in zip((first, second), RICH_QUOTES, strict=True)
+    ]
+    return AngleGateway({f"{FR}: {first}": names[0], f"{FR}: {second}": names[1], texts[0]: rich[0], texts[1]: rich[1]})
+
+
+def test_the_dedup_candidate_text_holds_label_name_stmt_and_a_bounded_new_quote() -> None:
+    assert dedup_candidate_text(FR, "Export orders", "Users export orders.", "Users can export orders") == (
+        f"{FR}: Export orders. Users export orders. Users can export orders"
+    )
+    # A quote (or stmt) equal to an earlier part, case and punctuation aside, is left out; so is an empty one.
+    assert dedup_candidate_text(FR, "Export orders", "", "export orders.") == f"{FR}: Export orders"
+    assert dedup_candidate_text(FR, "Export orders", "Users export", "users  EXPORT") == (
+        f"{FR}: Export orders. Users export"
+    )
+    long = "word " * 100
+    assert dedup_candidate_text(FR, "N", "", long) == f"{FR}: N. " + " ".join(long[:300].split())
+
+
+@pytest.mark.parametrize(
+    ("rich_cosine", "candidate"), [(DEDUP_RICH_FLOOR + 0.01, True), (DEDUP_RICH_FLOOR - 0.01, False)]
+)
+async def test_a_rich_only_candidate_is_found_and_always_judged(rich_cosine: float, *, candidate: bool) -> None:
+    """D7: names far apart (0.5) but candidate texts close: a candidate of the rich vectors only, at
+    cosine >= ``DEDUP_RICH_FLOOR``; it is never merged directly, the small model decides."""
+
+    first, second = INVOICES
+    gateway = rich_case_gateway(0.5, rich_cosine, first, second)
+    gateway.handle(DEDUP_PROMPT, same(answer=True))
+    graph = await dedup_case(gateway, first, second, quotes=RICH_QUOTES)
+    counters = graph.counters
+    assert (counters.dedup_candidates, counters.dedup_candidates_rich_only) == (int(candidate), int(candidate))
+    assert len(gateway.calls_for(DEDUP_PROMPT)) == counters.dedup_adjudications == int(candidate)
+    assert len(graph.nodes) == (1 if candidate else 2)
+
+
+async def test_a_rich_only_candidate_goes_through_the_guards_and_is_listed_when_refused() -> None:
+    first, second = "Invoice export completes within 5 s", "Invoice export completes within 10 s"
+    gateway = rich_case_gateway(0.5, 0.9, first, second)  # no dedup script: a call fails the test
+    graph = await dedup_case(gateway, first, second, label=FR, quotes=RICH_QUOTES)
+    assert len(graph.nodes) == 2
+    assert graph.counters.dedup_guard_refusals == graph.counters.dedup_candidates_rich_only == 1
+    (refused,) = graph.dedup_refused
+    assert (refused.guard, refused.label, round(refused.name_cosine, 3)) == ("numbers", FR, 0.5)
+    assert refused.rich_cosine is not None and round(refused.rich_cosine, 3) == 0.9
+
+
+def span_key(name: str) -> str:
+    return f"requirement|span|{normalise_surface(name)}"
+
+
+async def test_a_guard_refused_pair_is_listed_by_identity_key(scripted_gateway: Factory) -> None:
+    """D8: "5 s" / "10 s" is refused by the numbers guard and kept in the artifact, ends by key (lower
+    first), with its name and candidate cosines."""
+
+    first, second = "Export completes within 5 s", "Export completes within 10 s"
+    gateway = scripted_gateway(synonyms=[(f"{QR}: {first}", f"{QR}: {second}")])  # no dedup call allowed
+    graph = await dedup_case(gateway, first, second, label=QR)
+    assert len(graph.nodes) == 2
+    (refused,) = graph.dedup_refused
+    assert (refused.first_key, refused.second_key) == (span_key(second), span_key(first))
+    assert (refused.label, refused.guard) == (QR, "numbers")
+    # The quote is the name, so the candidate text is the name's: one vector for all four.
+    assert (round(refused.name_cosine, 6), round(refused.rich_cosine or 0, 6)) == (1.0, 1.0)
+    assert "dedup_refused" in TargetGraph.model_validate_json(graph.model_dump_json()).model_fields_set
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "merged"),
+    [
+        # Two commitments extraction split from one source line: refused, never asked.
+        ("User can export orders", "Admin can delete old orders", False),
+        # Near-identical names (the direct-merge rule): the exception, merged directly.
+        ("Customer can export order history as CSV", "Customer can export the order history as CSV", True),
+    ],
+    ids=["siblings-refused", "near-identical-merge"],
+)
+async def test_statements_of_one_source_sentence_stay_apart_unless_their_names_are_near_identical(
+    scripted_gateway: Factory, first: str, second: str, *, merged: bool
+) -> None:
+    """Statements whose primary spans overlap in one fragment stay apart unless their names are near identical."""
+
+    gateway = scripted_gateway(synonyms=[(f"{FR}: {first}", f"{FR}: {second}")])  # no dedup script: no call
+    line = f"{first}; {second}."
+    graph = await run_conform(
+        plan_of(("doc", [line])),
+        [node("c1", first, FR, ["doc#s0"]), node("c2", second, FR, ["doc#s0"])],
+        gateway,
+        attributes={"c1": {"quote": first}, "c2": {"quote": second}},
+    )
+    assert len(graph.nodes) == (1 if merged else 2)
+    assert gateway.calls_for(DEDUP_PROMPT) == []
+    assert [pair.guard for pair in graph.dedup_refused] == ([] if merged else ["same_sentence"])
+    assert graph.counters.dedup_guard_refusals == int(not merged)
+
+
+async def test_an_equal_quote_marks_one_sentence_across_fragments() -> None:
+    """One quote in two documents: the span key splits by name (names at 0.88: not alike), then the two
+    are a dedup candidate that ``same_sentence`` refuses."""
+
+    quote = "Users export orders and admins delete old orders"
+    first, second = "User can export orders", "Admin can delete old orders"
+    a, b = at_cosine(0.88)
+    gateway = AngleGateway({f"{FR}: {first}": a, f"{FR}: {second}": b})
+    graph = await run_conform(
+        plan_of(("a", [f"Intro. {quote}."]), ("b", [f"{quote}. Outro."])),
+        [node("c1", first, FR, ["a#s0"]), node("c2", second, FR, ["b#s0"])],
+        gateway,
+        attributes={"c1": {"quote": quote}, "c2": {"quote": quote}},
+    )
+    assert len(graph.nodes) == 2
+    assert graph.counters.span_splits == 2
+    assert [pair.guard for pair in graph.dedup_refused] == ["same_sentence"]
+
+
+async def three_exports(scripted_gateway: Factory, middle: str) -> TargetGraph:
+    """ "5 s", ``middle`` and "10 s" quality requirements, one vector, every verdict "same"."""
+
+    names = ["Export completes within 5 s", middle, "Export completes within 10 s"]
+    gateway = scripted_gateway(synonyms=[tuple(f"{QR}: {name}" for name in names)])
+    gateway.handle(DEDUP_PROMPT, same(answer=True))
+    plan = plan_of(*((f"d{index}", [f"{name}."]) for index, name in enumerate(names)))
+    return await run_conform(
+        plan,
+        [node(f"c{index}", name, QR, [f"d{index}#s0"]) for index, name in enumerate(names)],
+        gateway,
+        attributes={f"c{index}": {"quote": name} for index, name in enumerate(names)},
+    )
+
+
+async def test_both_refusals_of_a_merged_node_name_its_survivor(scripted_gateway: Factory) -> None:
+    """ "finishes" ~ "completes within 5 s" merge: both refusals of "10 s" name the survivor, one stays."""
+
+    graph = await three_exports(scripted_gateway, "Export finishes within 5 s")
+    keys = {item.identity_key for item in graph.nodes}
+    assert [(pair.first_key, pair.second_key, pair.collapsed) for pair in graph.dedup_refused] == [
+        (span_key("Export completes within 10 s"), span_key("Export completes within 5 s"), False)
+    ]
+    assert all(pair.first_key in keys and pair.second_key in keys for pair in graph.dedup_refused)
+    assert graph.counters.dedup_guard_refusals == 2
+
+
+async def test_refused_ends_never_join_through_a_third_statement(scripted_gateway: Factory) -> None:
+    """Review MEDIUM 2: "5 s" ~ "quickly" and "quickly" ~ "10 s" are both confirmed, but "5 s" / "10 s" is a
+    cannot-link: the second union is refused and counted, so no node holds both values."""
+
+    graph = await three_exports(scripted_gateway, "Export completes quickly")
+    assert len(graph.nodes) == 2
+    for item in graph.nodes:
+        values = {key for key in (item.identity_key, *item.identity_aliases) if "within" in key}
+        assert len(values) <= 1, values
+    counters = graph.counters
+    assert (counters.dedup_merges, counters.dedup_union_refused, counters.dedup_refused_collapsed) == (1, 1, 0)
+    (refused,) = graph.dedup_refused
+    assert refused.guard == "numbers" and not refused.collapsed
+    keys = {item.identity_key for item in graph.nodes}
+    assert {refused.first_key, refused.second_key} <= keys
+
+
+def test_a_refusal_whose_ends_end_in_one_node_is_kept_and_flagged_collapsed() -> None:
+    """Review MEDIUM 3: a refused pair whose ends end in one node keeps its own keys, marked collapsed; two
+    refusals that now name the same survivors keep the closer one."""
+
+    def refused(first: str, second: str, cosine: float) -> RefusedDedupPair:
+        return RefusedDedupPair(first_key=first, second_key=second, label=QR, guard="numbers", name_cosine=cosine)
+
+    owner = {"k|b": "k|a", "k|c": "k|a", "k|e": "k|d"}
+    kept = _surviving_refusals(
+        [
+            refused("k|c", "k|b", 0.9),
+            refused("k|b", "k|x", 0.8),
+            refused("k|e", "k|x", 0.95),
+            refused("k|d", "k|x", 0.7),
+        ],
+        owner,
+    )
+    assert [(pair.first_key, pair.second_key, pair.collapsed, pair.name_cosine) for pair in kept] == [
+        ("k|a", "k|x", False, 0.8),
+        ("k|b", "k|c", True, 0.9),
+        ("k|d", "k|x", False, 0.95),
+    ]
 
 
 @pytest.mark.parametrize(("verdict", "nodes"), [(True, 1), (False, 2), (LLMError("malformed"), 2)])
@@ -862,7 +1456,7 @@ async def test_other_candidates_merge_only_on_the_small_models_word(
     gateway = scripted_gateway(synonyms=[(f"{FR}: {first}", f"{FR}: {second}")])
     gateway.handle(
         DEDUP_PROMPT,
-        lambda _: verdict if isinstance(verdict, LLMError) else {"same": verdict},
+        lambda _: verdict if isinstance(verdict, LLMError) else {"same": verdict, "confidence": "high"},
     )
     graph = await dedup_case(gateway, first, second)
     assert len(graph.nodes) == nodes
@@ -873,6 +1467,91 @@ async def test_other_candidates_merge_only_on_the_small_models_word(
     assert first in user and second in user
     assert first not in call.messages[0]["content"]
     assert graph.counters.dedup_adjudications == 1
+
+
+INVOICES: Final = ("Customer can download invoices as PDF", "Shopper fetches past invoices in PDF format")
+
+
+async def remembered_dedup(
+    gateway: ScriptedGateway,
+    store: MemoryStore,
+    *,
+    attributes: Mapping[str, Mapping[str, AttributeValue]] | None = None,
+) -> TargetGraph:
+    """The invoice pair of ``INVOICES`` (one vector: the small model is asked) with a dedup memory in ``store``."""
+
+    first, second = INVOICES
+    plan = plan_of(("a", [f"{first}."]), ("b", [f"{second}."]))
+    values: dict[str, dict[str, AttributeValue]] = {"c1": {"quote": first}, "c2": {"quote": second}}
+    for cid, extra in (attributes or {}).items():
+        values[cid].update(extra)
+    memory = DedupMemory(store, PROJECT, "small-model")
+    return await run_conform(
+        plan,
+        [node("c1", first, FR, ["a#s0"]), node("c2", second, FR, ["b#s0"])],
+        gateway,
+        attributes=values,
+        setup=Setup(judging=ConformJudging(dedup_memory=memory)),
+        store=store,
+    )
+
+
+def invoice_gateway(factory: Factory, handler: Callable[[ScriptedRequest], Any] | None) -> ScriptedGateway:
+    gateway = factory(synonyms=[(f"{FR}: {INVOICES[0]}", f"{FR}: {INVOICES[1]}")])
+    if handler is not None:
+        gateway.handle(DEDUP_PROMPT, handler)
+    return gateway
+
+
+async def test_a_dedup_verdict_is_stored_with_its_evidence_and_reused_while_it_matches(
+    scripted_gateway: Factory,
+) -> None:
+    store = MemoryStore()
+    one = await remembered_dedup(invoice_gateway(scripted_gateway, same(answer=True, confidence="medium")), store)
+    assert len(one.nodes) == 1
+    ((_, payload),) = store.of("decisions").values()
+    assert {name: value for name, value in payload.items() if name != "evidence"} == {
+        "same": True,
+        "confidence": "medium",
+    }
+    gateway = invoice_gateway(scripted_gateway, None)  # no script: a call fails the test
+    two = await remembered_dedup(gateway, store)
+    assert len(two.nodes) == 1
+    assert gateway.calls_for(DEDUP_PROMPT) == []
+    assert (two.counters.dedup_verdicts_reused, two.counters.dedup_verdicts_expired) == (1, 0)
+
+
+async def test_a_dedup_verdict_on_changed_evidence_expires_and_is_asked_again(scripted_gateway: Factory) -> None:
+    store = MemoryStore()
+    await remembered_dedup(invoice_gateway(scripted_gateway, same(answer=True)), store)
+    gateway = invoice_gateway(scripted_gateway, same(answer=False))
+    graph = await remembered_dedup(gateway, store, attributes={"c2": {"stmt": "Shoppers fetch invoices."}})
+    assert len(gateway.calls_for(DEDUP_PROMPT)) == 1
+    assert len(graph.nodes) == 2
+    counters = graph.counters
+    assert (counters.dedup_verdicts_expired, counters.dedup_verdicts_reused, counters.dedup_adjudications) == (1, 0, 1)
+    ((_, payload),) = store.of("decisions").values()
+    assert payload["same"] is False
+
+
+async def test_an_unsure_dedup_verdict_merges_nothing_and_is_not_stored(scripted_gateway: Factory) -> None:
+    store = MemoryStore()
+    graph = await remembered_dedup(invoice_gateway(scripted_gateway, same(answer=True, confidence="low")), store)
+    assert len(graph.nodes) == 2
+    assert (graph.counters.dedup_unsure, graph.counters.dedup_merges) == (1, 0)
+    assert store.of("decisions") == {}
+
+
+async def test_a_dedup_payload_without_evidence_is_a_miss(scripted_gateway: Factory) -> None:
+    store = MemoryStore()
+    memory = DedupMemory(store, PROJECT, "small-model")
+    keys = sorted(f"requirement|span|{normalise_surface(name)}" for name in INVOICES)
+    await store.put("decisions", memory.key(*keys), memory.fingerprint, {"same": True})
+    gateway = invoice_gateway(scripted_gateway, same(answer=False))
+    graph = await remembered_dedup(gateway, store)
+    assert len(gateway.calls_for(DEDUP_PROMPT)) == 1
+    assert len(graph.nodes) == 2
+    assert (graph.counters.dedup_verdicts_reused, graph.counters.dedup_verdicts_expired) == (0, 0)
 
 
 @pytest.mark.parametrize(
@@ -953,6 +1632,83 @@ async def test_guards_let_compatible_restatements_through(
     assert graph.counters.dedup_guard_refusals == 0
 
 
+_RELEASE_GATE: Final = (
+    "Releases require a pass rate of at least 4 of 5 runs, recall of at least 0.90, faithfulness of at "
+    "least 0.85 (sample 20, batches of 5), 100% plan coverage; the judge writes an edge only at 0.7 or more"
+)
+
+
+async def test_a_statement_is_compared_by_its_own_number_not_its_source_sentences(
+    scripted_gateway: Factory,
+) -> None:
+    """A table row "recall | every specification | >=0.90 | Section 19.7" and the
+    release sentence holding five statements' numbers state one gate; each name states its own number,
+    so the sentence's other numbers never refuse the pair: the judge is asked."""
+
+    first, second = "Every specification has a recall of at least 0.90", "Release needs recall of at least 0.90"
+    gateway = scripted_gateway(synonyms=[(f"{QR}: {first}", f"{QR}: {second}")])
+    gateway.handle(DEDUP_PROMPT, same(answer=True))
+    quotes = ("| Recall | Every specification | >=0.90 | Section 19.7 |", _RELEASE_GATE)
+    graph = await dedup_case(gateway, first, second, label=QR, quotes=quotes)
+    assert graph.counters.dedup_guard_refusals == 0
+    assert len(gateway.calls_for(DEDUP_PROMPT)) == 1
+    assert len(graph.nodes) == 1
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "quotes"),
+    [
+        # siblings of one sentence: each name's own number differs
+        (
+            "Recall is at least 0.90",
+            "Faithfulness is at least 0.85",
+            (_RELEASE_GATE, "Gates: recall of at least 0.90 and faithfulness of at least 0.85"),
+        ),
+        # a name without a number of that kind is compared by its quote's
+        ("Export completes within 5 s", "Export completes quickly", ("Export within 5 s", "Export within 10 s")),
+        # a kind the name does not state still comes from the quote
+        ("Retry a call 3 times", "Retry a call 3 times", ("Retry 3 times within 10 s", "Retry 3 times within 30 s")),
+    ],
+    ids=["sibling-numbers", "quote-number", "quote-kind"],
+)
+async def test_own_numbers_still_refuse_different_values(
+    scripted_gateway: Factory, first: str, second: str, quotes: tuple[str, str]
+) -> None:
+    gateway = scripted_gateway(synonyms=[(f"{QR}: {first}", f"{QR}: {second}")])  # no dedup call allowed
+    graph = await dedup_case(gateway, first, second, label=QR, quotes=quotes)
+    assert graph.counters.dedup_guard_refusals == 1
+    assert [refused.guard for refused in graph.dedup_refused] == ["numbers"]
+    assert len(graph.nodes) == 2
+
+
+async def test_a_decision_row_restating_a_rule_is_not_refused_by_its_date(scripted_gateway: Factory) -> None:
+    """A decision-log row and the ADR row it cites state one rule; their record dates
+    are no values of the rule, so the numbers guard leaves them to the judge."""
+
+    first, second = "System can skip failed fragments and notify", "System can skip failed fragments"
+    quotes = (
+        "|DEC-016 | 2026-10-02 | Skip failed fragment, notify | Platform Owner | ADR-014|",
+        "| ADR-014 | 2026-09-29 | One fragment must not block a lane | Skip failed fragment with notification |",
+    )
+    gateway = scripted_gateway(synonyms=[(f"{FR}: {first}", f"{FR}: {second}")])
+    gateway.handle(DEDUP_PROMPT, same(answer=True))
+    graph = await dedup_case(gateway, first, second, quotes=quotes)
+    assert graph.counters.dedup_guard_refusals == 0
+    assert len(graph.nodes) == 1
+
+
+async def test_two_different_decision_records_stay_apart_by_their_ids(scripted_gateway: Factory) -> None:
+    first, second = "System can run agents in the worker", "System can run agents through the SDK"
+    quotes = (
+        "|DEC-004 | 2026-09-10 | Walking skeleton first | Platform Owner | none|",
+        "|DEC-023 | 2026-10-07 | Agents SDK via Bifrost | Engineering Lead | ADR-005|",
+    )
+    gateway = scripted_gateway(synonyms=[(f"{FR}: {first}", f"{FR}: {second}")])  # no dedup call allowed
+    graph = await dedup_case(gateway, first, second, quotes=quotes)
+    assert [refused.guard for refused in graph.dedup_refused] == ["ids"]
+    assert len(graph.nodes) == 2
+
+
 async def test_dedup_leaves_explicit_ids_and_other_labels_alone(
     scripted_gateway: Factory,
 ) -> None:
@@ -1020,7 +1776,7 @@ async def test_a_statement_without_modality_never_joins_must_and_should_into_one
     assert counters.dedup_guard_refusals == 2  # the must/should pair, then the chain through "none"
 
 
-# 3. Implied edges (derive, id_references; FR-BLD-20)
+# 3. Implied edges
 
 
 async def test_derive_turns_a_module_reference_into_an_implied_part_of(
@@ -1056,7 +1812,188 @@ async def test_derive_turns_a_module_reference_into_an_implied_part_of(
     assert implied.target_key == "Module|surface|order service"
     assert implied.fragment_ids == ("doc#s0",)
     assert graph.counters.implied_edges == 1
+    assert graph.derive_fallback_edges == ()  # resolved by its name, not by the fallback
     assert "module" not in graph.nodes[0].attributes  # store: false
+
+
+@pytest.mark.parametrize(
+    ("reference", "modules", "target"),
+    [
+        pytest.param("Orders", ["Orders service", "Billing service"], "Orders service", id="starts-with"),
+        pytest.param("Orders", ["Legacy orders service", "Billing service"], "Legacy orders service", id="holds"),
+        pytest.param("Orders", ["Orders service", "Legacy orders store"], "Orders service", id="start-beats-hold"),
+        pytest.param("Orders", ["Orders service", "Orders database"], None, id="two-start-none"),
+        pytest.param("Order", ["Reorder service"], None, id="whole-words-only"),
+        pytest.param("Workflow orchestration", ["Orders service"], None, id="a-heading-names-nothing"),
+        pytest.param("the Orders", ["Orders service", "Billing service"], "Orders service", id="article-dropped"),
+        pytest.param("Checkout", ["Checkout service"], None, id="names-a-hub-of-another-label"),
+    ],
+)
+async def test_an_unmatched_reference_falls_back_to_the_one_hub_holding_its_words(
+    scripted_gateway: Factory, reference: str, modules: list[str], target: str | None
+) -> None:
+    """a reference that names no node by its name resolves to the one hub of the rule's target labels whose name starts
+    with its words, else holds them as whole words (a leading article dropped); never to one of several, and never when
+    it is the exact name of a hub of another label (the feature "Checkout").
+    """
+
+    text = "Customer can export order history as CSV.\n" + "\n".join(f"The {name} runs." for name in modules)
+    text += "\nCheckout is a feature."
+    graph = await run_conform(
+        plan_of(("doc", [text])),
+        [
+            node("c1", "Customer can export order history as CSV", FR, ["doc#s0"]),
+            node("f1", "Checkout", "Feature", ["doc#s0"]),
+            *(node(f"m{index}", name, "Module", ["doc#s0"]) for index, name in enumerate(modules)),
+        ],
+        scripted_gateway(),
+        attributes={"c1": {"quote": "Customer can export order history as CSV", "module": reference}},
+    )
+    names = {item.identity_key: item.name for item in graph.nodes}
+    assert [(edge.relation, names[edge.target_key]) for edge in graph.edges] == (
+        [("PART_OF", target)] if target else []
+    )
+    assert graph.counters.derive_fallback_matches == (1 if target else 0)
+    # The fallback edge is marked by its edge key in the artifact, so a review can sample it.
+    assert graph.derive_fallback_edges == tuple(edge.edge_key for edge in graph.edges)
+
+
+async def test_an_interface_reference_naming_the_provider_reaches_the_providers_interface(
+    scripted_gateway: Factory,
+) -> None:
+    """The reference names the provider ("Stripe"), the interface is "Stripe API": the integration
+    requirement is PART_OF that interface, the one interface whose name starts with the reference."""
+
+    shipped = shipped_ontology()
+    text = "Checkout service calls Stripe to take card payments.\nThe Stripe API takes card payments."
+    integration = node("c1", "Checkout service calls Stripe to take card payments", FR, ["doc#s0"])
+    interface = node("c2", "Stripe API", FR, ["doc#s0"])
+    graph = await run_conform(
+        plan_of(("doc", [text])),
+        [
+            integration.model_copy(update={"label": "IntegrationRequirement"}),
+            interface.model_copy(
+                update={
+                    "label": "Interface",
+                    "identity_key": f"Interface|surface|{hub_surface('Stripe API')}",
+                    "provisional": False,
+                }
+            ),
+        ],
+        scripted_gateway(),
+        attributes={
+            "c1": {"quote": "Checkout service calls Stripe to take card payments", "interface": "Stripe"},
+            "c2": {"quote": "The Stripe API takes card payments"},
+        },
+        setup=Setup(ontology=shipped),
+    )
+    (part_of,) = graph.edges
+    assert (part_of.relation, part_of.basis, part_of.target_key) == (
+        "PART_OF",
+        "implied",
+        "Interface|surface|stripe api",
+    )
+
+
+@pytest.mark.parametrize(
+    ("requirement_text", "reference", "target", "heading"),
+    [
+        pytest.param("The API shall return orders as JSON.", "API", None, None, id="api-client-not-named-no-edge"),
+        pytest.param(
+            "The API client shall show orders as JSON.", "API", "API client", None, id="api-client-named-mentioned-in"
+        ),
+        pytest.param(
+            "The Orders service shall return orders as JSON.", "Orders", "Orders service", None, id="grounded"
+        ),
+        pytest.param(
+            "The SpecFlow API shall return orders as JSON.",
+            "API",
+            "SpecFlow API",
+            None,
+            id="unnamed-start-passed-over-for-a-named-hold",
+        ),
+        pytest.param(
+            "The API shall return orders as JSON.",
+            "API",
+            "API client",
+            ("Architecture", "API client"),
+            id="named-in-the-heading-path",
+        ),
+    ],
+)
+async def test_the_derive_fallback_needs_its_hub_named_in_the_sources_evidence(
+    scripted_gateway: Factory,
+    requirement_text: str,
+    reference: str,
+    target: str | None,
+    heading: tuple[str, ...] | None,
+) -> None:
+    """a reference resolved by the starts-with/holds fallback (not by its exact name) reaches the hub only when the hub
+    is named in one of the requirement's evidence fragments (it may be grounded elsewhere: the fragment is then a
+    ``MENTIONED_IN`` one) or in their heading path.
+    """
+
+    texts = [
+        requirement_text,
+        "The API client runs in the browser.",
+        "The Orders service runs.",
+        "The SpecFlow API serves requests.",
+    ]
+    fragments = fragments_of("doc", texts)
+    if heading is not None:
+        fragments[0] = fragments[0].model_copy(update={"heading_path": heading})
+    graph = await run_conform(
+        plan_from(fragments),
+        [
+            node("c1", "API returns orders as JSON", FR, ["doc#s0"]),
+            node("m1", "API client", "Module", ["doc#s1"]),
+            node("m2", "Orders service", "Module", ["doc#s0", "doc#s2"]),
+            node("m3", "SpecFlow API", "Module", ["doc#s3"]),
+        ],
+        scripted_gateway(),
+        attributes={"c1": {"quote": requirement_text.removesuffix("."), "module": reference}},
+    )
+    names = {item.identity_key: item.name for item in graph.nodes}
+    assert [(edge.relation, names[edge.target_key]) for edge in graph.edges] == (
+        [("PART_OF", target)] if target else []
+    )
+    assert graph.counters.derive_fallback_matches == (1 if target else 0)
+
+
+@pytest.mark.parametrize("named", [True, False])
+async def test_stripe_reaches_the_stripe_api_only_when_its_fragment_names_it(
+    scripted_gateway: Factory, *, named: bool
+) -> None:
+    """The integration requirement's reference "Stripe" reaches the interface "Stripe API" (grounded in
+    another document) when the requirement's own fragment names "Stripe API"; else no edge."""
+
+    text = "Checkout calls Stripe to take card payments" + (" through the Stripe API." if named else ".")
+    interface = node("c2", "Stripe API", FR, ["b#s0"])
+    graph = await run_conform(
+        plan_of(("a", [text]), ("b", ["The Stripe API takes card payments."])),
+        [
+            node("c1", "Checkout calls Stripe to take card payments", FR, ["a#s0"]).model_copy(
+                update={"label": "IntegrationRequirement"}
+            ),
+            interface.model_copy(
+                update={
+                    "label": "Interface",
+                    "identity_key": f"Interface|surface|{hub_surface('Stripe API')}",
+                    "provisional": False,
+                }
+            ),
+        ],
+        scripted_gateway(),
+        attributes={
+            "c1": {"quote": "Checkout calls Stripe to take card payments", "interface": "Stripe"},
+            "c2": {"quote": "The Stripe API takes card payments"},
+        },
+        setup=Setup(ontology=shipped_ontology()),
+    )
+    assert [(edge.relation, edge.target_key) for edge in graph.edges] == (
+        [("PART_OF", "Interface|surface|stripe api")] if named else []
+    )
+    assert by_name(graph)["Stripe API"].mentions == ({"a#s0": 1} if named else {})
 
 
 async def test_a_named_requirement_id_relates_two_requirements_without_merging_them(
@@ -1126,7 +2063,7 @@ async def test_an_id_in_stmt_relates_too_and_a_stated_edge_beats_an_implied_one(
     assert merged.source_key == "requirement|id|FR-012"
 
 
-# 4. Legalisation (FR-BLD-09) and edge keys (FR-BLD-19)
+# 4. Legalisation and edge keys
 
 
 LEGALISE_LINES = [
@@ -1184,6 +2121,96 @@ async def test_legalise_flips_defaults_honours_cues_and_counts_drops(
         "PART_OF": {"illegal_pair": 1},
     }
     assert all(item.edge_key == f"{item.source_key}|{item.relation}|{item.target_key}" for item in graph.edges)
+    # Each drop is quarantined with the extracted relation and direction, ordered by reason.
+    assert graph.quarantine == (
+        quarantined("illegal_pair", "PART_OF", ("Capability", "authentication"), ("Capability", "audit logging")),
+        quarantined("unknown_relation", "LIKES", (FR, fr), ("Module", "order service")),
+    )
+
+
+def quarantined(
+    reason: str, relation: str, source: tuple[str, str], target: tuple[str, str], fragments: Sequence[str] = ("doc#s0",)
+) -> QuarantinedTargetEdge:
+    """A stated quarantine entry; an end is ``(label, key)``, a hub's key given by its surface."""
+
+    def key(label: str, value: str) -> str:
+        return value if "|" in value else f"{label}|surface|{value}"
+
+    return QuarantinedTargetEdge.model_validate(
+        {
+            "reason": reason,
+            "relation": relation,
+            "source_label": source[0],
+            "target_label": target[0],
+            "basis": "stated",
+            "fragment_ids": tuple(fragments),
+            "source_key": key(*source),
+            "target_key": key(*target),
+        }
+    )
+
+
+def without_module_default(directory: Path) -> Ontology:
+    """The frozen ontology without its module -> module default (INTEGRATES_WITH): a module PART_OF a
+    module then needs the relation's cue, else it is dropped ``cue_missing``."""
+
+    text = FROZEN_ONTOLOGY_FILE.read_text(encoding="utf-8")
+    default = "- {from: module, to: module, default: true}"
+    assert text.count(default) == 1
+    path = directory / FROZEN_ONTOLOGY_FILE.name
+    path.write_text(text.replace(default, "- {from: module, to: module}"), encoding="utf-8")
+    copy_frozen_prompts(directory)
+    return load_ontology(path, submodule_files=[])
+
+
+async def test_a_cue_required_pair_without_its_cue_is_quarantined_cue_missing(
+    scripted_gateway: Factory, tmp_path: Path
+) -> None:
+    plan, nodes, raw, attributes = legalise_scenario()
+    graph = await run_conform(
+        plan,
+        nodes,
+        scripted_gateway(),
+        edges=raw,
+        attributes=attributes,
+        setup=Setup(ontology=without_module_default(tmp_path)),
+    )
+    ledger, billing = ("Module", "ledger"), ("Module", "billing service")
+    assert graph.counters.dropped_edges == {
+        "GROUPED_BY": {"illegal_pair": 1},
+        "LIKES": {"unknown_relation": 1},
+        "PART_OF": {"cue_missing": 1, "illegal_pair": 1},
+    }
+    assert [(entry.reason, entry.relation) for entry in graph.quarantine] == [
+        ("cue_missing", "PART_OF"),
+        ("illegal_pair", "PART_OF"),  # by reason, then source key
+        ("illegal_pair", "GROUPED_BY"),
+        ("unknown_relation", "LIKES"),
+    ]
+    assert graph.quarantine[0] == quarantined("cue_missing", "PART_OF", billing, ledger)
+    assert graph.quarantine[2] == quarantined("illegal_pair", "GROUPED_BY", ledger, billing)
+
+
+async def test_repeated_drops_of_one_edge_are_one_quarantine_entry_with_joined_evidence(
+    scripted_gateway: Factory,
+) -> None:
+    plan = plan_of(("a", ["Authentication and Audit logging overlap."]), ("b", ["Audit logging and Authentication."]))
+    nodes = [
+        node("c5", "Authentication", "Capability", ["a#s0", "b#s0"]),
+        node("c6", "Audit logging", "Capability", ["a#s0", "b#s0"]),
+    ]
+    graph = await run_conform(
+        plan,
+        nodes,
+        scripted_gateway(),
+        edges=[
+            edge("PART_OF", "c5", "c6", None, ["b#s0"], unit="b@u0"),
+            edge("PART_OF", "c5", "c6", None, ["a#s0"], unit="a@u0"),
+        ],
+    )
+    assert graph.counters.dropped_edges["PART_OF"] == {"illegal_pair": 2}
+    auth, audit = ("Capability", "authentication"), ("Capability", "audit logging")
+    assert graph.quarantine == (quarantined("illegal_pair", "PART_OF", auth, audit, ("a#s0", "b#s0")),)
 
 
 async def test_symmetric_edges_take_canonical_order_and_merge_their_evidence(
@@ -1253,10 +2280,14 @@ async def test_locality(scripted_gateway: Factory, locality: str, *, kept: bool)
                 unit="a@u0",
             )
         ],
-        locality=locality,
+        setup=Setup(locality=locality),
     )
     assert len(graph.edges) == int(kept)
     assert graph.counters.dropped_edges == ({} if kept else {"RELATES_TO": {"locality": 1}})
+    requirement = (FR, "requirement|span|customer can export order history")
+    # RELATES_TO is symmetric: its ends in canonical order, as a kept edge's.
+    entry = quarantined("locality", "RELATES_TO", ("Module", "order service"), requirement, ("a#s0",))
+    assert graph.quarantine == (() if kept else (entry,))
 
 
 # 6. Hub grounding, statements and mentions
@@ -1294,6 +2325,57 @@ async def test_hub_is_grounded_in_every_attributed_fragment(
         "doc#s1",
     ]
     assert all(statement.at == STAMP and statement.revision_id == "doc-r1" for statement in hub.statements)
+
+
+async def test_a_hubs_primary_quote_is_a_span_naming_it_before_a_better_ranked_context_line(
+    scripted_gateway: Factory,
+) -> None:
+    """the hub "SpecFlow Web" quoted with a context line of an earlier fragment and with a line naming it: the line
+    naming it gives the persisted quote, although the other ranks first.
+    """
+
+    plan = plan_of(("doc", ["Membership confers edit rights.", "SpecFlow Web serves the browser screens."]))
+    hub = quoted(
+        node("c1", "SpecFlow Web", "Module", ["doc#s0", "doc#s1"]),
+        ("Membership confers edit rights", ["doc#s0"]),
+        ("SpecFlow Web serves the browser screens", ["doc#s1"]),
+    )
+    graph = await run_conform(plan, [hub], scripted_gateway())
+    (target,) = graph.nodes
+    assert target.quote == "SpecFlow Web serves the browser screens."
+    assert target.evidence == (lines("doc#s0", 1), lines("doc#s1", 3))
+
+
+async def test_a_hubs_quote_keeps_the_sentence_naming_it(scripted_gateway: Factory) -> None:
+    """Trimmed to sentences, a hub's quote keeps the sentence that names it,
+    though a shorter run holds the quote ("It stores carts in Redis")."""
+
+    plan = plan_of(("doc", ["Intro.", "Checkout service handles payments. It stores carts in Redis."]))
+    graph = await run_conform(
+        plan,
+        [node("c1", "Checkout service", "Module", ["doc#s1"])],
+        scripted_gateway(),
+        attributes={"c1": {"quote": "It stores carts in Redis"}},
+    )
+    (target,) = graph.nodes
+    assert target.quote == "Checkout service handles payments. It stores carts in Redis."
+
+
+async def test_a_dropped_hub_is_left_out_of_the_mentions_counted_once_before_normalisation(
+    scripted_gateway: Factory,
+) -> None:
+    """Hub names are counted once (before normalisation); a hub normalisation drops (a DataEntity
+    without a supporting edge) is no target node and has no mentions, the others keep theirs."""
+
+    plan = plan_of(("doc", ["The Orders service runs.\nCart is a record.", "Orders service saves the Cart."]))
+    graph = await run_conform(
+        plan,
+        [node("m1", "Orders service", "Module", ["doc#s0"]), node("d1", "Cart", "DataEntity", ["doc#s0"])],
+        scripted_gateway(),
+        setup=Setup(ontology=shipped_ontology()),
+    )
+    assert graph.counters.unsupported_nodes == 1
+    assert {item.name: item.mentions for item in graph.nodes} == {"Orders service": {"doc#s1": 1}}
 
 
 async def test_mentions_are_counted_for_hubs_only_longest_name_first(
@@ -1432,7 +2514,7 @@ async def test_hub_named_nowhere_has_no_statement(scripted_gateway: Factory) -> 
     assert hub.embedding_text == "Module: Rate Database"
 
 
-# 7. Invariants (FR-BLD-08)
+# 7. Invariants
 
 
 @pytest.fixture

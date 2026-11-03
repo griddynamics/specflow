@@ -1,22 +1,4 @@
-"""Live graph-store verification with repair on the shop corpus: injected faults, their repairs, the
-deletion valve, foreign data, read-only ``verify_project`` and the build result (plan 4.T2).
-
-FR-VER-01..04, FR-BLD-15; analysis.md "Verification"; m4-spec-edits G5 (valve max(1, 5%), edges
-deleted with their node counted), G6 (a follow-up leaves the problem in place), G8 (a retried lineage
-re-extracts never-extracted and unknown-status fragments), G9 (spec_id forms, repair deletions in
-``spec_changes``), G10 (an edge without ``basis`` is stated).
-
-Builds use the hand-written shop answers (``ShopAnswers``) and, where inference runs, a hand-written
-judge rule (``judge`` below: every orphan goes to its first candidate, quoting its first shown
-fragment; nothing else is linked). Faults are raw Cypher, as a bug or another writer would leave
-them: between builds, inside a build right after the infer step (``Shop.build(fault=...)``, so the
-build's own verify step meets them), or before a re-run of the verify step of a finished build.
-
-Gate: ``SPECFLOW_TEST_GRAPH_STORE=<store>`` (or ``SPECFLOW_TEST_NEO4J=1``)
-and ``uv run --env-file ../.env.local``. Every test builds into its
-own ``pytest-graph-<hex>`` project ids; ``graph_project`` deletes them afterwards and checks that
-nothing outside them changed.
-"""
+"""Live graph-store verification with repair on the shop corpus."""
 
 from __future__ import annotations
 
@@ -37,13 +19,11 @@ from graph.build import (
     BuildResult,
     BuildSettings,
     open_file_stores,
-    run_build,
     steps,
     verify_project,
 )
 from graph.build import run as runner
 from graph.build import verify as verification
-from graph.build.graphiti import NODES_PROMPT
 from graph.build.models import (
     InferenceReport,
     PlanArtifact,
@@ -52,6 +32,7 @@ from graph.build.models import (
     TargetGraph,
     VerificationReport,
 )
+from graph.build.prompts import NODE_HUBS_PROMPT, NODE_STATEMENTS_PROMPT
 from graph.build.verify import READ_BASES, verify_build
 from graph_probes import requires_live_graph
 from graph_probes.base import EdgeSpec, NodeSpec, ProbeEdge, select
@@ -60,7 +41,9 @@ from graph_support import (
     GraphProject,
     ScriptedGateway,
     ScriptedRequest,
+    frozen_ontology,
     live_llm_config,
+    run_shop_build,
     shipped_ontology,
     shop_answers,
     shop_corpus,
@@ -74,9 +57,9 @@ pytest_plugins = ["graph_support"]
 pytestmark = requires_live_graph()
 
 ANSWERS = shop_answers(1)
-ONTOLOGY = shipped_ontology()
+ONTOLOGY = frozen_ontology()
 JUDGE = {rule.template: rule.prompt for rule in ONTOLOGY.inference.rules}
-CLEAN_STATUS = "partially_succeeded"  # the shop answers skip one orders.md fragment (FR-BLD-11)
+CLEAN_STATUS = "partially_succeeded"  # the shop answers skip one orders.md fragment
 DROPPED = {"RELATES_TO": 1}  # the illegal "Authentication RELATES_TO Audit logging" of the answers
 OBLIGATIONS = "ord.obligations"  # a fragment that is one node window of its own (8 entities)
 DETAILS3 = "ord.details3"  # one node window of its own, no entity
@@ -161,7 +144,7 @@ class Shop:
                     await fault(self.project, self.project_id)
 
                 patch.setitem(runner.STEP_FUNCTIONS, "infer", infer_then_fault)
-            result = await run_build(ctx)
+            result = await run_shop_build(ctx)
         assert result.failed_step is None, (result.failed_step, result.error_code)
         return Built(ctx.with_build_id(result.build_id), result, gateway)
 
@@ -207,8 +190,9 @@ def edge_ends(subject: str) -> tuple[str, str, str]:
 
 
 async def assert_spec_id_forms(project: GraphProject, *payloads: Any, known: set[str] = frozenset()) -> None:
-    """NFR-SEC-01, G9: results and reports name edges ``<source spec_id>|<RELATION>|<target spec_id>``
-    and hold no identity key, edge key or document text."""
+    """G9: results and reports name edges ``<source spec_id>|<RELATION>|<target spec_id>`` and hold no identity key,
+    edge key or document text.
+    """
 
     pid = project.project_id
     nodes = [
@@ -242,7 +226,7 @@ async def assert_spec_id_forms(project: GraphProject, *payloads: Any, known: set
             assert relation in ONTOLOGY.relations and {source, target} <= ids, subject
 
 
-# FR-BLD-15: every field of the build result, on first, update and no-change builds
+# every field of the build result, on first, update and no-change builds
 
 
 async def test_clean_builds_report_every_result_field(shop: Shop, graph_project: GraphProject) -> None:
@@ -324,7 +308,7 @@ async def graph_counts(project: GraphProject) -> dict[str, dict[str, int]]:
     return {"nodes": dict(sorted(nodes.items())), "edges": dict(sorted(edges.items()))}
 
 
-# FR-VER-01: an illegal edge written by a fault is deleted and the run is ok
+# an illegal edge written by a fault is deleted and the run is ok
 
 
 async def test_illegal_edge_is_deleted_and_the_run_is_ok(shop: Shop, graph_project: GraphProject) -> None:
@@ -613,7 +597,9 @@ async def test_unextracted_and_unknown_fragments_request_a_follow_up_that_settle
     retry = await example.retry_lineages(shop.stores, shop.project_id, args)
     assert retry == ("orders.md",)
     second = await shop.build(1, retry=retry)
-    assert (OBLIGATIONS,) in set(second.gateway.keys_for(NODES_PROMPT))
+    assert all(
+        (OBLIGATIONS,) in set(second.gateway.keys_for(prompt)) for prompt in (NODE_HUBS_PROMPT, NODE_STATEMENTS_PROMPT)
+    )
     assert await fragment(graph_project, fid) == {"status": "active", "extracted": True}
     assert second.result.settled and second.result.verification is not None and second.result.verification.ok
     assert await spec_ids(graph_project) == nodes
@@ -645,7 +631,9 @@ async def test_unextracted_and_unknown_fragments_request_a_follow_up_that_settle
     assert await spec_ids(graph_project) == nodes
     retry = await example.retry_lineages(shop.stores, shop.project_id, args)
     fourth = await shop.build(1, retry=retry)
-    assert (OBLIGATIONS,) in set(fourth.gateway.keys_for(NODES_PROMPT))
+    assert all(
+        (OBLIGATIONS,) in set(fourth.gateway.keys_for(prompt)) for prompt in (NODE_HUBS_PROMPT, NODE_STATEMENTS_PROMPT)
+    )
     assert await fragment(graph_project, fid) == {"status": "active", "extracted": True}
     assert fourth.result.settled and fourth.result.verification is not None and fourth.result.verification.ok
     assert await spec_ids(graph_project) == nodes
@@ -661,7 +649,7 @@ async def fragment(project: GraphProject, fragment_id: str) -> dict[str, Any]:
     return {"status": f.get("status"), "extracted": same}
 
 
-# FR-VER-02: the valve, max(1, 5%) of spec nodes and of domain edges
+# the valve, max(1, 5%) of spec nodes and of domain edges
 
 
 async def test_half_the_nodes_ungrounded_deletes_nothing(shop: Shop, graph_project: GraphProject) -> None:
@@ -851,8 +839,9 @@ async def test_valve_counts_the_edges_deleted_with_a_node(graph_project: GraphPr
             )
         ]
     )
-    await bad_part_of(graph_project, "R0", "M9", "to-m9-a")
-    await bad_part_of(graph_project, "R1", "M9", "to-m9-b")  # 2 edges of 12 go with it: over max(1, 0.6)
+    # Module -> module (no exclusive pair): only the node is a problem, no v2_rule.
+    await bad_part_of(graph_project, "M0", "M9", "to-m9-a")
+    await bad_part_of(graph_project, "M1", "M9", "to-m9-b")  # 2 edges of 12 go with it: over max(1, 0.6)
     faulty = await graph_project.snapshot()
     report = await small_verify(graph_project, tmp_path)
     assert report.found == {"ungrounded_node": 1}
@@ -892,7 +881,7 @@ async def test_at_most_two_repair_rounds_when_a_fault_comes_back(shop: Shop, gra
     assert [(p.check, p.subject) for p in report.problems] == [("illegal_edge", subject)]
 
 
-# FR-VER-03: foreign nodes, relationships, properties and labels are never reported or touched
+# foreign nodes, relationships, properties and labels are never reported or touched
 
 
 async def plant_foreign(project: GraphProject) -> dict[str, str]:
@@ -963,7 +952,7 @@ async def test_foreign_data_is_never_reported_or_touched_even_while_repairing(
     ]
 
 
-# FR-VER-04: verify_project reports problems and changes nothing
+# verify_project reports problems and changes nothing
 
 
 async def test_verify_project_reports_problems_and_changes_nothing(shop: Shop, graph_project: GraphProject) -> None:
@@ -1086,6 +1075,162 @@ async def test_metrics_match_independent_counts(shop: Shop, graph_project: Graph
         ]
     )
     report = await verify_project(built.ctx)
-    assert report.ok, report.problems  # metrics are reported, never blocking
-    assert report.metrics.exclusive_conflicts == 2
+    # The metric is Conform's count before normalisation (none in the built conform artifact); the
+    # planted conflict shows as v2_rule problems on each edge of the group, stated ones as a Conform
+    # bug: kept, so the run is not ok.
+    assert report.metrics.exclusive_conflicts == metrics.exclusive_conflicts == 0
+    assert not report.ok and report.found == {"v2_rule": 3}
+    assert {(problem.check, problem.code) for problem in report.problems} == {("v2_rule", "exclusive")}
     assert report.metrics.fragments_without_nodes == metrics.fragments_without_nodes + 1
+
+
+# v2.0 rules on a small project over the shipped ontology
+
+SHIPPED = shipped_ontology()
+INFERRED_PROPERTIES: dict[str, Any] = {
+    "basis": "inferred",
+    "inference_rule": "INF-CONT-01",
+    "confidence": 0.9,
+    "evidence": '[{"fragment_id": "f1", "quote": "q"}]',
+}
+STATED_PROPERTIES: dict[str, Any] = {"basis": "stated", "source_fragment_ids": ["f1"]}
+
+
+async def seed_v2_project(project: GraphProject) -> None:
+    """The small project's shape over the shipped ontology: modules M0-M4 (internal backends), an external module EXT,
+    an interface I0 and requirements R0-R11 in one active fragment; R0-R9 each PART_OF a module (stated); I0 PROVIDED_BY
+    M0 and M1 (stated: an exclusive conflict Conform should never leave); R10 PART_OF EXT (inferred: a failed
+    ``where``).
+    """
+
+    pid = project.project_id
+    fragment = {"fragment_id": "f1", "document_id": "d1.md", "ordinal": 0, "status": "active"}
+    await project.create_nodes([NodeSpec(("Fragment",), {**fragment, "content_hash": "h", "extracted_hash": "h"})])
+    modules = [("Module", f"M{i}", "no") for i in range(5)] + [("Module", "EXT", "yes")]
+    others = [("FunctionalRequirement", f"R{i}", None) for i in range(12)] + [("Interface", "I0", None)]
+    rows = [*modules, *others]
+    await project.create_nodes(
+        [
+            NodeSpec(
+                ("SpecNode", label),
+                {
+                    "uuid": key,
+                    "spec_id": f"{SHIPPED.id_prefix(label)}{key}",
+                    "name": key,
+                    "identity_key": f"k|{key}",
+                    **({} if external is None else {"external": external, "type": "backend"}),
+                },
+            )
+            for label, key, external in rows
+        ]
+    )
+    await project.create_edges(
+        [
+            EdgeSpec(
+                "REFERENCED_BY",
+                select("SpecNode", uuid=key),
+                select("Fragment", fragment_id="f1"),
+                {"group_id": pid, "line_start": 1, "line_end": 1},
+            )
+            for _, key, _ in rows
+        ]
+    )
+    await project.create_edges(
+        [
+            EdgeSpec(
+                "PART_OF",
+                select("SpecNode", uuid=f"R{i}"),
+                select("SpecNode", uuid=f"M{i % 5}"),
+                {"group_id": pid, "edge_key": f"k|R{i}|PART_OF", "uuid": f"e{i}", **STATED_PROPERTIES},
+            )
+            for i in range(10)
+        ]
+    )
+    await project.create_edges(
+        [
+            EdgeSpec(
+                "PROVIDED_BY",
+                select("SpecNode", uuid="I0"),
+                select("SpecNode", uuid=module),
+                {"group_id": pid, "edge_key": f"k|I0|{module}", "uuid": f"prov-{module}", **STATED_PROPERTIES},
+            )
+            for module in ("M0", "M1")
+        ]
+    )
+    await inferred_edge(project, "R10", "EXT", "where-inferred")
+
+
+async def inferred_edge(project: GraphProject, source: str, target: str, uuid: str) -> None:
+    await project.create_edges(
+        [
+            EdgeSpec(
+                "PART_OF",
+                select("SpecNode", uuid=source),
+                select("SpecNode", uuid=target),
+                {"group_id": project.project_id, "edge_key": uuid, "uuid": uuid, **INFERRED_PROPERTIES},
+            )
+        ]
+    )
+
+
+async def edge_count(project: GraphProject, uuid: str) -> int:
+    """How many edges of the project (their own ``group_id``) carry ``uuid``."""
+
+    return len(await project.edges(group_id=project.project_id, uuid=uuid))
+
+
+async def v2_verify(project: GraphProject, tmp_path: Path, *, repair: bool = True) -> VerificationReport:
+    if not repair:
+        return await verification.verify_graph(project.executor, project.project_id, SHIPPED, dropped={}, repair=None)
+    return await verify_build(
+        project.executor,
+        project.project_id,
+        SHIPPED,
+        build_id="b-v2",
+        registry=open_file_stores(tmp_path / "v2").registry,
+        target=None,
+        diff=None,
+    )
+
+
+async def test_v2_rules_delete_inferred_edges_report_stated_ones_and_count_redundant_links(
+    graph_project: GraphProject, tmp_path: Path
+) -> None:
+    await seed_v2_project(graph_project)
+    pid = graph_project.project_id
+    report = await v2_verify(graph_project, tmp_path)
+    assert report.found == {"v2_rule": 3} and (report.spec_nodes, report.domain_edges) == (19, 13)
+    assert [(r.check, r.action, r.subject) for r in report.repairs] == [
+        ("v2_rule", "delete_edge", "REQ::FR::R10|PART_OF|MOD::EXT")
+    ]
+    assert report.removed_inferred_edges == ("REQ::FR::R10|PART_OF|MOD::EXT",)
+    # The stated exclusive conflict is reported and kept: the run is not ok.
+    assert (report.ok, report.rounds) == (False, 1)
+    assert [(p.check, p.subject, p.code) for p in report.problems] == [
+        ("v2_rule", "IFC::I0|PROVIDED_BY|MOD::M0", "exclusive"),
+        ("v2_rule", "IFC::I0|PROVIDED_BY|MOD::M1", "exclusive"),
+    ]
+    assert await edge_count(graph_project, "where-inferred") == 0
+    assert await edge_count(graph_project, "prov-M0") == await edge_count(graph_project, "prov-M1") == 1
+    assert report.metrics.ownerless_requirements == 2  # R10 (its inferred owner deleted), R11
+    assert report.metrics.interfaces_without_provider == 0
+
+    # R11 gets R0's owner through inference: their stated link becomes redundant.
+    await graph_project.create_edges(
+        [
+            EdgeSpec(
+                "RELATES_TO",
+                select("SpecNode", uuid="R0"),
+                select("SpecNode", uuid="R11"),
+                {"group_id": pid, "edge_key": "k|link", "uuid": "link", **STATED_PROPERTIES},
+            )
+        ]
+    )
+    await inferred_edge(graph_project, "R11", "M0", "attach")
+    read_only = await v2_verify(graph_project, tmp_path, repair=False)
+    assert (read_only.metrics.redundant_after_inference, read_only.repairs) == (1, ())
+    report = await v2_verify(graph_project, tmp_path)
+    # The stated conflict only: a redundant link is no problem, counted and never deleted.
+    assert report.found == {"v2_rule": 2}
+    assert (report.rounds, report.repairs, report.metrics.redundant_after_inference) == (0, (), 1)
+    assert await edge_count(graph_project, "link") == await edge_count(graph_project, "attach") == 1

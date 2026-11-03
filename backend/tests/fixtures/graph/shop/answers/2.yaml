@@ -1,9 +1,8 @@
-# Hand-written model answers for the `update` build from shop snapshot 1 to snapshot 2 (tech-specs
-# 9.1-9.2), with the options of 1.yaml. Written by hand like 1.yaml (owner decision P3), never recorded.
+# Hand-written model answers for the `update` build from shop snapshot 1 to snapshot 2, with the options of 1.yaml. Written by hand like 1.yaml, never recorded.
 #
 # Only checkout.md changed (README "Snapshot 2"), so an update build asks only about its dirty
 # fragments; every other fragment and unit reuses its stored results and makes no call. That is the
-# reuse contract (FR-BLD-03, FR-BLD-22): a request this file does not answer fails the test. It holds:
+# reuse contract: a request this file does not answer fails the test. It holds:
 # - node windows: the edited "Payment flow" fragment and the new "Delivery options" fragment, one
 #   window each (the windows cover only dirty fragments);
 # - edges: the checkout.md unit, whose content changed (the whole unit is asked again; its facts are
@@ -11,7 +10,7 @@
 # - attributes of the new and changed nodes;
 # - hub consolidation: the block is sent because it holds a new hub ("Delivery options"); the answer
 #   groups nothing, and the decision stored by build 1 still keeps "Audit trail" in "Audit logging"
-#   (FR-BLD-25: a stored decision overrides the model).
+#   (a stored decision overrides the model).
 # The removed "Business rules" section retires its fragment; the business rule and its two FRs are
 # grounded only there, so they are deleted.
 
