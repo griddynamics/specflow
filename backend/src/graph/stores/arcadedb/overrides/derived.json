@@ -39,12 +39,6 @@
    "MATCH (n:SpecNode {group_id: $project_id}) WHERE coalesce(n.uuid, elementId(n)) = id"
   ]
  ],
- "build.build_repair_set_labels": [
-  [
-   "MATCH (n:SpecNode) WHERE elementId(n) = row.id AND n.group_id = $project_id",
-   "MATCH (n:SpecNode {group_id: $project_id}) WHERE coalesce(n.uuid, elementId(n)) = row.id"
-  ]
- ],
  "build.build_repair_node_evidence": [
   [
    "MATCH (n:SpecNode) WHERE elementId(n) = row.id AND n.group_id = $project_id",

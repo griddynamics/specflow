@@ -20,7 +20,13 @@ from graph.core.errors import ConformanceError, GraphError
 from graph.core.queries import Query
 from graph.core.store import QUERY_TOO_COMPLEX, RETRY_DELAYS_SECONDS, StoreCapabilities, bind_project
 from graph.stores._bolt.executor import BoltExecutor, BoltScopedTransaction, _map_error
-from graph.stores.arcadedb.dialect import ARCADEDB_DIALECT, NEEDS_EDGE_TYPES, RELATIONSHIP_TYPES
+from graph.stores.arcadedb.dialect import (
+    ARCADEDB_DIALECT,
+    NEEDS_EDGE_TYPES,
+    NEEDS_NODE_LABELS,
+    RELATIONSHIP_TYPES,
+    node_labels_statement,
+)
 
 BACKEND: Final = "arcadedb"
 CAPABILITIES: Final = StoreCapabilities(multi_statement_tx=True)
@@ -56,6 +62,12 @@ def _types(rows: Sequence[Mapping[str, Any]]) -> tuple[str, ...]:
     return tuple(str(row["relationshipType"]) for row in rows)
 
 
+def _with_node_labels(params: Mapping[str, Any], rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """``params`` with ``node_labels``: the labels of each keyed node of the rows (by uuid)."""
+
+    return {**params, "node_labels": {str(row["id"]): list(row["labels"]) for row in rows}}
+
+
 class ArcadeDbScopedTransaction(BoltScopedTransaction):
     """The explicit transaction of one project; it reads the relationship types in the same transaction."""
 
@@ -65,6 +77,10 @@ class ArcadeDbScopedTransaction(BoltScopedTransaction):
         if query.template in NEEDS_EDGE_TYPES:
             result = await self._transaction.run(RELATIONSHIP_TYPES)
             types = _types(await result.data())
+        if query.template in NEEDS_NODE_LABELS:
+            read = node_labels_statement(params)
+            result = await self._transaction.run(read.text, dict(read.params))
+            params = _with_node_labels(params, await result.data())
         return ARCADEDB_DIALECT.plan(query, params, types)
 
 
@@ -95,7 +111,26 @@ class ArcadeDbExecutor(BoltExecutor):
         if query.template not in NEEDS_EDGE_TYPES:
             return self._plan(query, project_id, params)
         bound = bind_project(query, project_id, params, require_binding=self._dialect.require_project_binding)
+        if query.template in NEEDS_NODE_LABELS:
+            bound = _with_node_labels(bound, await self._node_labels(bound))
         return ARCADEDB_DIALECT.plan(query, bound, await self._relationship_types())
+
+    async def _node_labels(self, params: Mapping[str, Any]) -> list[dict[str, Any]]:
+        """The labels of the keyed nodes of a label repair run as a managed write (read just before it)."""
+
+        read = node_labels_statement(params)
+
+        async def work(transaction: Any) -> list[dict[str, Any]]:
+            result = await transaction.run(read.text, dict(read.params))
+            rows: list[dict[str, Any]] = await result.data()
+            return rows
+
+        try:
+            async with self._session(write=False) as session:
+                rows: list[dict[str, Any]] = await session.execute_read(work)
+        except (Neo4jError, DriverError, OSError) as error:
+            raise self._error_mapper(error, "node_labels", write=False, backend=BACKEND) from None
+        return rows
 
     async def _relationship_types(self) -> tuple[str, ...]:
         async def work(transaction: Any) -> list[dict[str, Any]]:

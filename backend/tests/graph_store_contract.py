@@ -52,7 +52,7 @@ from graph.core.store import (
 )
 from graph.stores._bolt.cypher import render_cypher
 from graph.stores.arcadedb import AdminClient, ArcadeDbStore
-from graph.stores.arcadedb.dialect import RELATIONSHIP_TYPES
+from graph.stores.arcadedb.dialect import NODE_LABELS_READ, RELATIONSHIP_TYPES
 from graph.stores.neo4j import Neo4jStore
 
 CANARY: Final = "message carrying secret-value-123"
@@ -156,6 +156,8 @@ class _Transaction:
         h = self._harness
         if text == RELATIONSHIP_TYPES:  # ArcadeDB: read before a merge or a move, not a library query
             return _Result([{"relationshipType": name} for name in h.relationship_types])
+        if text == NODE_LABELS_READ:  # ArcadeDB: read before a label repair, not a library query
+            return _Result([])
         params = params or {}
         h.events.append("statement")
         h.statements.append(Executed(self._mode, dict(params)))

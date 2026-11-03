@@ -49,11 +49,12 @@ PLANNED_TEMPLATES = frozenset(
         "build.build_create_spec_nodes",
         "build.build_merge_spec_nodes",
         "core.move_foreign_relationships",
+        "build.build_repair_set_labels",
     }
 )
 PLAN_PARAMS: dict[str, Any] = {
     "label": "Module",
-    "rows": [{"label": "Module", "uuid": "u1", "props": {}}],
+    "rows": [{"id": "u1", "label": "Module", "remove": [], "uuid": "u1", "props": {}}],
     "owned_types": ["PART_OF"],
 }
 PLAIN_QUERIES = [query for query in SCOPED_QUERIES if query.template not in PLANNED_TEMPLATES]

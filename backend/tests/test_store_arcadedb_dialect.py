@@ -298,6 +298,55 @@ def test_merge_spec_nodes_is_aliases_then_one_move_per_foreign_type_then_guard_t
     assert planned.reduce([[{"written": 4}], [], [], nothing_left, []]) == [{"written": 4}]  # the survivors found
 
 
+RELABEL_ROWS = [
+    {"id": "u-1", "label": "FunctionalRequirement", "remove": ["BusinessRule"], "label_disagreement": None},
+    {"id": "u-2", "label": "Module", "remove": ["Feature"], "label_disagreement": "x"},
+]
+
+
+def test_a_label_repair_copies_a_keyed_node_so_each_record_moves_once() -> None:
+    """Two label writes in place move a record twice, which ArcadeDB refuses in one transaction: a node with a
+    uuid is copied with its final labels, its relationships moved, the old node deleted, the keys restored."""
+
+    current = {"u-1": ["BusinessRule", "SpecNode"], "u-2": ["Feature", "Pinned", "SpecNode"]}
+    planned = plan(build_queries.REPAIR_SET_LABELS, rows=RELABEL_ROWS, node_labels=current)
+    unkeyed, *rest = planned.statements
+    copies, moves, (left, delete, keys) = rest[:2], rest[2:-3], rest[-3:]
+    assert "WHERE n.uuid IS NULL AND elementId(n) = row.id REMOVE n:$(row.remove) SET n:$(row.label)" in unkeyed.text
+    # the labels the repair does not change are kept (Pinned, another owner's label)
+    assert [
+        (c.params["ids"], "CREATE (n:SpecNode:" + c.text.split("CREATE (n:SpecNode:")[1].split(")")[0]) for c in copies
+    ] == [
+        (["u-1"], "CREATE (n:SpecNode:FunctionalRequirement"),
+        (["u-2"], "CREATE (n:SpecNode:Module:Pinned"),
+    ]
+    assert all("n.uuid = row.id + '|relabel', n.spec_key = null" in c.text for c in copies)
+    assert [name for name in EDGE_TYPES if any(f"[r:{name}]" in m.text for m in moves)] == [
+        "FLAGS",
+        "PART_OF",
+        "REFERENCED_BY",
+        "ZETA",
+    ]  # every renderable type, build-owned ones included: the node keeps all its relationships
+    assert len(moves) == 4 * len(RELABEL_ROWS)  # one statement per type and row
+    assert "RETURN count(x) AS left" in left.text and delete.text.endswith("DETACH DELETE old")
+    assert "SET n.uuid = row.id, n.spec_key = CASE WHEN n.spec_id IS NULL" in keys.text
+    assert all("node_labels" not in s.params for s in planned.statements)
+    results: list[list[dict[str, int]]] = [[] for _ in planned.statements]
+    results[0], results[-3], results[-1] = [{"written": 1}], [{"left": 0}], [{"written": 2}]
+    assert planned.reduce(results) == [{"written": 3}]
+
+
+def test_a_label_repair_refuses_a_relationship_it_could_not_move() -> None:
+    planned = plan(
+        build_queries.REPAIR_SET_LABELS, rows=RELABEL_ROWS, node_labels={"u-1": ["BusinessRule", "SpecNode"]}
+    )
+    results: list[list[dict[str, int]]] = [[] for _ in planned.statements]
+    results[-3] = [{"left": 1}]
+    with pytest.raises(ConformanceError) as raised:
+        planned.reduce(results)
+    assert raised.value.code == "arcadedb_unrenderable_edge_type"
+
+
 def test_a_merge_refuses_when_a_relationship_could_not_be_carried_over() -> None:
     """A type whose name cannot be rendered has no move statement: its edges would go with the node."""
 
@@ -428,7 +477,6 @@ def test_verify_reads_nodes_by_uuid_and_edge_ends_by_the_same_ids() -> None:
     ("query", "key"),
     [
         (build_queries.REPAIR_DELETE_NODES, "= id"),
-        (build_queries.REPAIR_SET_LABELS, "= row.id"),
         (build_queries.REPAIR_NODE_EVIDENCE, "= row.id"),
         (build_queries.REPAIR_SET_SPEC_IDS, "= row.id"),
     ],

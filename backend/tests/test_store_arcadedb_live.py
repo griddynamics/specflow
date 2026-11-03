@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 
 from graph.build import queries as build_queries
+from graph.core import NodeRef, OwnedWriter
 from graph_probes import requires_live_graph
 from graph_probes.base import EdgeSpec, NodeSpec, select
 from graph_support import GraphProject
@@ -124,6 +125,39 @@ async def test_an_edge_without_a_uuid_is_repaired_by_type_and_edge_key_after_its
     assert moved == [{"written": 1}] and fixed == [{"written": 1}]
     (after,) = await project.probe.edges(pid, "PART_OF")
     assert after["source_fragment_ids"] == ["a", "b"] and after.source.kind == "FunctionalRequirement"
+
+
+async def test_a_keyed_node_changes_label_in_one_transaction_and_keeps_its_keys_and_relationships(
+    graph_project: GraphProject,
+) -> None:
+    """A node written by the library (uuid and spec_key) changes label without a second record move: ArcadeDB
+    refuses two moves of one record in one transaction, so the repair copies the node and moves its edges."""
+
+    project, pid = graph_project, graph_project.project_id
+    writer = OwnedWriter(project.store, project.ontology, "build", pid)
+    for label, key in (("BusinessRule", "a"), ("Feature", "b"), ("Module", "m")):
+        spec_id = f"{project.ontology.id_prefix(label)}{key.upper()}"
+        await writer.upsert_node(label, f"u-{key}", {"name": key, "identity_key": f"k-{key}", "spec_id": spec_id})
+    await writer.upsert_relationship("PART_OF", NodeRef("BusinessRule", "u-a"), NodeRef("Module", "u-m"), "e1", {})
+    await project.create_edges(
+        [EdgeSpec("RELATES_TO", select("Feature", uuid="u-b"), select("BusinessRule", uuid="u-a"), {"edge_key": "e2"})]
+    )
+    rows = [
+        {"id": "u-a", "label": "FunctionalRequirement", "remove": ["BusinessRule"], "label_disagreement": None},
+        {"id": "u-b", "label": "FunctionalRequirement", "remove": ["Feature"], "label_disagreement": "was a feature"},
+    ]
+    async with project.store.executor().tx(pid) as tx:
+        moved = await tx.run(build_queries.REPAIR_SET_LABELS, rows=rows)
+    assert moved == [{"written": 2}]
+    nodes = {n["uuid"]: n for n in await project.nodes("SpecNode")}
+    assert set(nodes) == {"u-a", "u-b", "u-m"}  # no copy left under its temporary uuid
+    assert sorted(nodes["u-a"].labels) == sorted(nodes["u-b"].labels) == ["FunctionalRequirement", "SpecNode"]
+    assert nodes["u-a"]["spec_id"] == "REQ::BR::A" and nodes["u-b"]["label_disagreement"] == "was a feature"
+    found = await project.reader().node(pid, "REQ::BR::A")  # the spec_id lookup still finds it
+    assert found is not None and found.uuid == "u-a" and found.label == "FunctionalRequirement"
+    edges = {(e.type, e.source["uuid"], e.target["uuid"], e.get("edge_key")) for e in await project.edges()}
+    assert edges == {("PART_OF", "u-a", "u-m", "e1"), ("RELATES_TO", "u-b", "u-a", "e2")}
+    assert set(await verified_nodes(project)) == {"REQ::BR::A", "FEAT::B", "MOD::M"}
 
 
 async def test_an_edge_without_uuid_or_edge_key_falls_back_to_its_element_id(graph_project: GraphProject) -> None:

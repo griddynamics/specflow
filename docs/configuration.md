@@ -221,6 +221,11 @@ Known differences from Neo4j (the adapter handles them; they matter when you rea
 - A node with several labels is one type named `A~B` and `labels(n)` returns them sorted alphabetically.
   Setting a label moves the record, so its record id (and its edges') changes: use `uuid` and `edge_key`,
   never an element id kept across transactions.
+- ArcadeDB moves a record only once per transaction: a second label write on the same node in one transaction
+  fails on the node's unique keys. Verify's label repair therefore copies a node that has a `uuid` (all its
+  labels but the removed ones, with the kept one, under a temporary uuid), moves its relationships to the copy,
+  deletes the old node and gives the copy its `uuid` back, all in one transaction. A node with an edge type the
+  adapter cannot name in a statement is refused (`arcadedb_unrenderable_edge_type`) rather than losing the edge.
 - `scope` walks: ArcadeDB returns no rows for `all(b IN nodes(p)[1..] ...)` after a quantified path (a slice or an indexed `range` form also failed), so the adapter checks every node of the path and exempts `n`, the start node, by identity. The canonical query exempts the first position only. The two differ only for a path that comes back through `n` in its interior while `n` itself carries a spine-root label: the canonical text rejects it, the adapter accepts it (`n <> root` and the bounded hop count keep such paths rare; a root-labelled start node is not a spine source).
 - Search scores: vector scores are on the same `(1 + cosine) / 2` scale; fulltext scores are BM25-like and
   not comparable with Neo4j's Lucene numbers, so the order of fulltext-only hits can differ.

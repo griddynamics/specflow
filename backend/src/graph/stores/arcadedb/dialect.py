@@ -34,7 +34,24 @@ from graph.stores.arcadedb.chunking import chunked
 from graph.stores.arcadedb.names import index_fields, index_names
 from graph.stores.arcadedb.statements import OVERRIDE_DIRECTORY, cypher
 
-NEEDS_EDGE_TYPES: Final = frozenset({"core.move_foreign_relationships", "build.build_merge_spec_nodes"})
+NEEDS_EDGE_TYPES: Final = frozenset(
+    {"core.move_foreign_relationships", "build.build_merge_spec_nodes", "build.build_repair_set_labels"}
+)
+SPEC_NODE: Final = "SpecNode"
+# Templates whose plan needs the current labels of the nodes of ``$rows``: the executor reads them with
+# ``NODE_LABELS`` (in the caller's transaction when there is one) and hands them to ``plan`` as ``node_labels``.
+NEEDS_NODE_LABELS: Final = frozenset({"build.build_repair_set_labels"})
+NODE_LABELS_READ: Final = cypher("build", "build_repair_set_labels_read.cypher")
+
+
+def node_labels_statement(params: Mapping[str, Any]) -> PlannedStatement:
+    """The read of the labels of the keyed nodes of ``params["rows"]`` (its ``project_id`` already bound)."""
+
+    return PlannedStatement(
+        NODE_LABELS_READ, {"rows": list(params.get("rows", ())), "project_id": params["project_id"]}
+    )
+
+
 # What the executor runs to learn them (unscoped: it reads the schema, not project data).
 RELATIONSHIP_TYPES: Final = cypher("core", "relationship_types.cypher")
 
@@ -185,6 +202,61 @@ def _plan_merge_spec_nodes(query: Query, params: Mapping[str, Any], types: Seque
     return ExecutionPlan(statements, reduce)
 
 
+def _plan_repair_set_labels(query: Query, params: Mapping[str, Any], types: Sequence[str] | None) -> ExecutionPlan:
+    """Set the kept label of each node and remove its other build-owned labels, one record move per node.
+
+    A label written in place moves the ArcadeDB record to another composite type; the canonical statement
+    removes and sets a label, two moves of one record, and ArcadeDB refuses the second in one transaction
+    (``DuplicatedKeyException``: the record of the first move still holds the unique keys ``(group_id, uuid)``
+    and ``spec_key``). So a node with a uuid is copied: a copy of its final labels (``node_labels``, read by the
+    executor, less the removed labels, with the kept one; one statement per label set, the labels static) under
+    a temporary uuid, every relationship moved to it (one statement per type and row: a relationship between two
+    nodes of the repair moves with the first and must then be seen on the second, which a later row of the same
+    statement does not see), the old node deleted, and the uuid and spec_key restored on the copy. A guard
+    refuses a relationship no move statement carried. A node without a uuid (addressed by element id) changes its
+    labels in place, one move. ``written`` counts both."""
+
+    if types is None:
+        raise ConformanceError("arcadedb_edge_types_missing", query=query.name)
+    rows = list(params.get("rows", ()))
+    current: Mapping[str, Sequence[str]] = params.get("node_labels") or {}
+    groups: dict[tuple[str, ...], list[Any]] = {}
+    for row in rows:
+        if row.get("id") not in current:
+            continue  # no keyed node: the unkeyed statement handles it (or nothing matches)
+        removed = {*row.get("remove", ()), SPEC_NODE}
+        final = {safe_name(label) for label in current[row["id"]] if label not in removed} | {safe_name(row["label"])}
+        groups.setdefault(tuple(sorted(final)), []).append(row["id"])
+    statement_params = {key: value for key, value in params.items() if key != "node_labels"}
+    copy = cypher("build", "build_repair_set_labels_copy.cypher")
+    move = cypher("build", "build_repair_set_labels_move.cypher")
+    names = foreign_types(types, ())
+    statements = (
+        PlannedStatement(cypher("build", "build_repair_set_labels_unkeyed.cypher"), statement_params),
+        *(
+            PlannedStatement(render_query(copy, label=":".join(labels)), {**statement_params, "ids": ids})
+            for labels, ids in sorted(groups.items())
+        ),
+        *(
+            PlannedStatement(render_query(move, type=name), {**statement_params, "rows": [row]})
+            for name in names
+            for row in rows
+        ),
+        PlannedStatement(cypher("build", "build_repair_set_labels_left.cypher"), statement_params),
+        PlannedStatement(cypher("build", "build_repair_set_labels_delete.cypher"), statement_params),
+        PlannedStatement(cypher("build", "build_repair_set_labels_keys.cypher"), statement_params),
+    )
+    left = 1 + len(groups) + len(names) * len(rows)
+
+    def reduce(results: Sequence[list[Record]]) -> list[Record]:
+        _refuse_left_over(results[left] if len(results) > left else [], query.name)
+        unkeyed = int(results[0][0]["written"]) if results[0] else 0
+        keyed = int(results[-1][0]["written"]) if results[-1] else 0
+        return [{"written": unkeyed + keyed}]
+
+    return ExecutionPlan(statements, reduce)
+
+
 def _plan_move_foreign(query: Query, params: Mapping[str, Any], types: Sequence[str] | None) -> ExecutionPlan:
     if types is None:
         raise ConformanceError("arcadedb_edge_types_missing", query=query.name)
@@ -285,7 +357,7 @@ OVERRIDES: Final[Mapping[str, Override]] = {
     "build.build_repair_delete_edges": _derived(),
     "build.build_repair_edge_evidence": _derived(),
     "build.build_repair_delete_nodes": _derived(),
-    "build.build_repair_set_labels": _derived(),
+    "build.build_repair_set_labels": _plan_repair_set_labels,
     "build.build_repair_node_evidence": _derived(),
 }
 

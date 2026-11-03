@@ -14,16 +14,18 @@ such a database (``before_session_schema``) and ``drop_session_databases`` drops
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import Any, Final
 
 import httpx
 
+from graph.build.queries import REPAIR_SET_LABELS
 from graph.core.queries import Query
 from graph.stores.arcadedb.admin import AdminClient, admin_url, check_database_name
 from graph.stores.arcadedb.names import index_names
 from graph.stores.arcadedb.schema import SPEC_KEY, SPEC_KEY_INDEX
 from graph.stores.config import StoreConfig
-from graph_probes.base import ProbeEdge, ProbeNode, SchemaObject, identifier
+from graph_probes.base import Match, ProbeEdge, ProbeNode, SchemaObject, identifier
 from graph_probes.neo4j import Neo4jProbe
 
 _LIBRARY_EDGE_KEY_INDEX: Final = "graph_edge_key_{}"
@@ -92,6 +94,41 @@ class ArcadeDbProbe(Neo4jProbe):
             return
         if not await self._admin.database_exists(name):
             _CREATED[key] = self.config
+
+    async def update_nodes(
+        self,
+        project_id: str,
+        match: Match,
+        props: Mapping[str, Any] | None = None,
+        *,
+        add_labels: Sequence[str] = (),
+        remove_labels: Sequence[str] = (),
+    ) -> int:
+        """As on Neo4j, except that one label swapped for others (both lists given) goes through the library's
+        label repair: in place it would move each record twice, which ArcadeDB refuses in one transaction."""
+
+        if not (add_labels and remove_labels):
+            return await super().update_nodes(
+                project_id, match, props, add_labels=add_labels, remove_labels=remove_labels
+            )
+        if len(add_labels) != 1:
+            raise ValueError("a label swap on ArcadeDB keeps one label")
+        matched = await self.nodes(project_id, match.label, **match.props)
+        if props:
+            await super().update_nodes(project_id, match, props)
+        rows = [
+            {
+                "id": node["uuid"],
+                "label": add_labels[0],
+                "remove": list(remove_labels),
+                "label_disagreement": node.get("label_disagreement"),  # kept as it is
+            }
+            for node in matched
+        ]
+        if rows:
+            async with self.store.executor().tx(project_id) as transaction:
+                await transaction.run(REPAIR_SET_LABELS, rows=rows)
+        return len(matched)
 
     # -- reads -------------------------------------------------------------------------------------
 

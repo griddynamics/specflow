@@ -58,7 +58,7 @@ backend. Fields never hold server messages, queries' text or secrets.
 | `store_schema_outdated` | `ConfigurationError` | PostgreSQL: the schema carries no or another schema version; it is not upgraded in place |
 | `vector_index_mismatch` | `ConfigurationError` | The vector index or column has another dimension or similarity than the settings |
 | `schema_setup_failed` | `ConfigurationError` | The server refused a schema statement (names the statement, never the server text) |
-| `arcadedb_edge_types_missing`, `arcadedb_unrenderable_edge_type` | `ConformanceError` | ArcadeDB: a merge or move was planned without the relationship types, or a record move would drop an edge of a type the dialect cannot render: a bug |
+| `arcadedb_edge_types_missing`, `arcadedb_unrenderable_edge_type` | `ConformanceError` | ArcadeDB: a merge, move or label repair was planned without the relationship types, or would drop an edge of a type the dialect cannot render: a bug |
 
 `backend_code` carries the server's own error code (for Neo4j and ArcadeDB `Neo.ClientError...`, for PostgreSQL the SQLSTATE). Transient failures
 are retried inside the executor (delays 0.1, 0.3 and 1.0 s) before they surface.
