@@ -57,7 +57,7 @@ from graph.core.reader import (
     Provenance,
     Statement,
 )
-from graph.core.schema import ensure_schema
+from graph.core.schema import ensure_ddl, ensure_schema
 from graph.core.writer import NodeRef, OwnedWriter
 
 __all__ = [
@@ -108,6 +108,7 @@ __all__ = [
     "check",
     "connect",
     "edge_uuid",
+    "ensure_ddl",
     "ensure_schema",
     "identity_key",
     "load_ontology",

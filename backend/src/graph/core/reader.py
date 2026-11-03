@@ -133,6 +133,7 @@ class GraphNode(_Frozen):
     uuid: str
     label: str
     name: str
+    last_build_id: str | None = None
     spec_id_aliases: tuple[str, ...] = ()
     attributes: dict[str, Any] = {}
     statements: tuple[Statement, ...] = ()
@@ -910,6 +911,7 @@ class GraphReader:
             uuid=props.get("uuid", ""),
             label=label,
             name=props.get("name") or "",
+            last_build_id=props.get("last_build_id"),
             spec_id_aliases=tuple(props.get("spec_id_aliases") or ()),
             attributes=attributes,
             statements=statements,

@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from functools import cache
+from importlib.resources import files
 from pathlib import Path
 from typing import Final
 
@@ -15,6 +16,9 @@ PROJECT_ID_PARAMETER: Final = "project_id"
 _PROJECT_ID_REFERENCE: Final = re.compile(r"\$project_id\b")
 _QUERY_DIRECTORY: Final = Path(__file__).resolve().parent / "queries"
 _DDL_DIRECTORY: Final = Path(__file__).resolve().parent / "ddl"
+_GRAPH_PACKAGE: Final = "graph"
+_SUBMODULE_DDL_DIRECTORY: Final = "ddl"
+_SUBMODULE_DDL_SUFFIX: Final = ".cypher"
 
 
 def load_core_query(name: str) -> str:
@@ -103,6 +107,23 @@ def load_core_ddl(name: str) -> tuple[str, ...]:
 
 
 CORE_DDL: Final = tuple(statement for name in CORE_DDL_FILES for statement in load_core_ddl(name))
+
+
+def submodule_ddl() -> tuple[str, ...]:
+    """The statements of every ``graph/<sub>/ddl/*.cypher``, sorted, without importing a submodule."""
+
+    statements: list[str] = []
+    package = Path(str(files(_GRAPH_PACKAGE)))
+    for child in sorted(package.iterdir(), key=lambda item: item.name):
+        if child.name == "core" or child.name.startswith(("_", ".")) or not child.is_dir():
+            continue
+        directory = child / _SUBMODULE_DDL_DIRECTORY
+        if not directory.is_dir():
+            continue
+        for file in sorted(directory.iterdir(), key=lambda item: item.name):
+            if file.is_file() and file.name.endswith(_SUBMODULE_DDL_SUFFIX):
+                statements.extend(read_ddl_file(Path(str(file))))
+    return tuple(statements)
 
 
 _DDL_HEAD: Final = re.compile(

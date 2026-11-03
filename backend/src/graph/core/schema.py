@@ -30,6 +30,7 @@ from graph.core.queries import (
     DdlStatement,
     Query,
     ddl_query,
+    submodule_ddl,
 )
 from logger.logger import INFO, get_logger, log_event
 
@@ -150,9 +151,12 @@ def _ddl_objects(statements: tuple[str, ...]) -> tuple[SchemaObject, ...]:
 
 
 def schema_objects(ontology: Ontology, ddl: Sequence[str] | None = None) -> tuple[SchemaObject, ...]:
-    """Every ``graph_*`` object of "Constraints and indexes", in DDL order."""
+    """Every ``graph_*`` object of "Constraints and indexes", in DDL order.
 
-    objects = _ddl_objects(tuple(CORE_DDL if ddl is None else ddl))
+    ``ddl`` None reads the shipped core DDL plus every installed submodule's ``ddl/*.cypher``.
+    """
+
+    objects = _ddl_objects(tuple((*CORE_DDL, *submodule_ddl()) if ddl is None else ddl))
     defined = {(item.kind, item.entity, item.label, item.properties) for item in objects}
     required = [
         *_CORE_OBJECTS,
@@ -216,6 +220,46 @@ async def ensure_schema(
         objects_created=len(created),
         objects_existing=len(wanted) - len(created),
         server_version=".".join(map(str, version)),
+    )
+    return tuple(created)
+
+
+async def ensure_ddl(
+    driver: Any,
+    statements: Sequence[str],
+    database: str | None = None,
+) -> tuple[str, ...]:
+    """Create the missing non-vector objects of ``statements``; return the names created.
+
+    The statements follow the same form and safety rules as the schema DDL. Presence, name-conflict
+    and online checks are those of ``ensure_schema``; a vector statement is refused because its
+    dimension is an embedding-model option, not a DDL fact. The call is idempotent.
+    """
+
+    wanted = _ddl_objects(tuple(statements))
+    vector = next((item for item in wanted if item.kind == "vector"), None)
+    if vector is not None:
+        raise ConfigurationError("schema_ddl_unsupported", name=vector.name)
+    await require_version(driver, database=database)
+    constraints = await _run(driver, SHOW_CONSTRAINTS, database)
+    indexes = await _run(driver, SHOW_INDEXES, database)
+    missing = [item for item in wanted if not _present(item, constraints, indexes, dimension=0)]
+    taken = {row["name"] for row in [*constraints, *indexes]}
+    for item in missing:
+        if item.name in taken:
+            raise ConfigurationError("schema_name_conflict", name=item.name)
+    created: list[str] = []
+    for item in missing:
+        await _run(driver, item.query(), database)
+        created.append(item.name)
+    await _run(driver, AWAIT_INDEXES, database, timeout_s=INDEX_ONLINE_TIMEOUT_S)
+    _require_online(wanted, await _run(driver, SHOW_INDEXES, database))
+    log_event(
+        logger,
+        INFO,
+        "graph.schema.ddl_ensured",
+        objects_created=len(created),
+        objects_existing=len(wanted) - len(created),
     )
     return tuple(created)
 

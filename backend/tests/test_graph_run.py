@@ -6,10 +6,11 @@ import contextlib
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import httpx
 import pytest
+import yaml
 from pydantic import BaseModel
 
 from graph.build import STEPS, BuildContext, FileStores, open_file_stores, run_build, steps
@@ -67,8 +68,9 @@ from graph.build.queries import (
 from graph.core.errors import ConfigurationError, ConformanceError, LLMError
 from graph.core.identity import SpecIdRow, SpecIdState
 from graph.core.llm.usage import UsageCounts
-from graph.core.ontology import Ontology
+from graph.core.ontology import Ontology, load_ontology
 from graph_support import (
+    FROZEN_ONTOLOGY_FILE,
     GatewayFactory,
     OfflineExecutor,
     ScriptedGateway,
@@ -125,7 +127,7 @@ async def test_a_project_without_persisted_graph_gets_a_first_build(stores: File
     build_id = await runner.start_build(ctx)
     record = await record_of(ctx, build_id)
     assert (record.mode, record.status, record.progress, record.finished) == ("first", "running", {}, False)
-    assert record.options == ctx.options and record.label_set == ctx.ontology.labels
+    assert record.options == ctx.options and record.label_set == runner.label_set(ctx.ontology)
     # mode selection only asks whether anything is persisted (select_mode, then start_build)
     assert ctx.executor.reads == [(READ_PERSISTED_PRESENCE.name, PROJECT)] * 2
 
@@ -451,7 +453,7 @@ async def recorded(
         "mode": mode,
         "options": ctx.options,
         "ontology_fingerprint": runner.ontology_fingerprint(ctx.ontology),
-        "label_set": ctx.ontology.labels,
+        "label_set": runner.label_set(ctx.ontology),
         "relation_set": runner.relation_set(ctx.ontology),
         "embedding_model": ctx.gateway.config.embedding_model,
         "started_at": T0 + timedelta(minutes=minutes),
@@ -531,6 +533,66 @@ async def test_an_update_that_breaks_what_the_last_full_build_froze_is_refused_b
 async def test_a_record_without_a_relation_set_is_not_checked_for_relations(stores: FileStores) -> None:
     await recorded(stores, "first", 0, relation_set=None)
     assert await runner.select_mode(context(stores, persisted=True)) == "update"
+
+
+PLAN_ONTOLOGY: Final[dict[str, Any]] = {
+    "format_version": 2,
+    "name": "plan-test",
+    "version": "0.1",
+    "owner": "plan",
+    "node_types": {
+        "work_area": {
+            "label": "WorkArea",
+            "origin": "planner",
+            "tier": "plan",
+            "description": "A work area.",
+        },
+    },
+    "edge_types": {
+        "IN_AREA": {
+            "origin": "planner",
+            "tier": "plan",
+            "description": "A module is planned in a work area.",
+            "pairs": [{"from": "work_area", "to": "module"}],
+        },
+    },
+}
+
+
+def plan_ontology(stores: FileStores, tmp_path: Path) -> Ontology:
+    path = tmp_path / "plan-ontology.yaml"
+    path.write_text(yaml.safe_dump(PLAN_ONTOLOGY, sort_keys=False), encoding="utf-8")
+    return load_ontology(FROZEN_ONTOLOGY_FILE, submodule_files=[path])
+
+
+@pytest.mark.parametrize("part", ["labels", "relations"])
+async def test_names_owned_by_a_submodule_do_not_block_an_update(stores: FileStores, tmp_path: Path, part: str) -> None:
+    ontology = plan_ontology(stores, tmp_path)
+    record: dict[str, Any] = {}
+    # An older record holds the full label set, including names a submodule owns.
+    record["label_set"] = tuple(frozen_ontology().labels)
+    if part == "labels":
+        record["relation_set"] = runner.relation_set(frozen_ontology())
+    else:
+        record["relation_set"] = tuple(frozen_ontology().relations)
+    await recorded(stores, "first", 0, **record)
+
+    assert await runner.select_mode(context(stores, persisted=True, ontology=ontology)) == "update"
+
+
+@pytest.mark.parametrize(
+    ("record", "expected"),
+    [
+        (("Feature", "Finding"), ("Feature",)),
+        (("Feature", "WorkArea"), ("Feature",)),
+        (("PART_OF", "FLAGS", "CITES"), ("PART_OF",)),
+        (("PART_OF", "IN_AREA"), ("PART_OF",)),
+    ],
+)
+def test_an_old_full_set_record_compares_only_names_the_current_ontology_owns(
+    record: tuple[str, ...], expected: tuple[str, ...], gap_ontology: Ontology
+) -> None:
+    assert runner._build_owned_subset(record, gap_ontology) == expected
 
 
 # Plan of update and rebuild builds

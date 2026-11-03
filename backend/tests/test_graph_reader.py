@@ -792,6 +792,14 @@ async def test_inheritance_applies_to_node_search_and_scope_reads() -> None:
     assert hydrated[0].attributes["release"] == "MVP"
 
 
+async def test_a_node_returns_its_last_build_id() -> None:
+    executor = ScriptedExecutor({"read_nodes": lambda _params: [node_row("FR::A", last_build_id="build-42")]})
+
+    nodes = await reader(executor).nodes(PROJECT)
+
+    assert nodes[0].last_build_id == "build-42"
+
+
 def test_inheritance_is_driven_by_the_ontology_only() -> None:
     assert reader(ScriptedExecutor({}))._inherit == {
         label: {"release": "PART_OF"} for label in ONT.labels if "release" in ONT.inherit_rules(label)

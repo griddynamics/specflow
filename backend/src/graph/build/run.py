@@ -86,6 +86,7 @@ from graph.core.llm.judge import JudgeRunner
 from graph.core.llm.usage import UsageCounts, UsageSnapshot
 from graph.core.logfields import count_fields
 from graph.core.ontology import FingerprintPart, Ontology
+from graph.core.ontology.compiled import BUILD_OWNER
 from logger.logger import INFO, WARNING, get_logger, log_event
 
 logger = get_logger("graph.build.run")
@@ -131,21 +132,36 @@ async def select_mode(ctx: BuildContext) -> BuildMode:
     return "update"
 
 
-def relation_set(ontology: Ontology) -> tuple[str, ...]:
-    """Every relation name of the ontology, sorted (recorded with each build)."""
+def label_set(ontology: Ontology) -> tuple[str, ...]:
+    """Every build-owned label, sorted (recorded with each build)."""
 
-    return tuple(sorted(ontology.relations))
+    return tuple(sorted(name for name in ontology.labels if ontology.owner_of(name) == BUILD_OWNER))
+
+
+def relation_set(ontology: Ontology) -> tuple[str, ...]:
+    """Every build-owned relation name, sorted (recorded with each build)."""
+
+    return tuple(sorted(name for name in ontology.relations if ontology.owner_of(name) == BUILD_OWNER))
+
+
+def _build_owned_subset(names: tuple[str, ...], ontology: Ontology) -> tuple[str, ...]:
+    """The build-owned names of a set, whatever other names an old full-set record also holds."""
+
+    return tuple(name for name in names if ontology.owner_of(name) == BUILD_OWNER)
 
 
 def check_frozen(ctx: BuildContext, last_full: BuildRecord) -> None:
     """An ``update`` keeps what the last ``first`` or ``rebuild`` build froze: its options (``frozen_options_changed``,
-    ``fields`` names the changed options), the ontology's labels and relations (``ontology_changed``, ``part``
-    ``labels`` or ``relations``) and the embedding model (``embedding_model_changed``).
+    ``fields`` names the changed options), the ontology's build-owned labels and relations (``ontology_changed``,
+    ``part`` ``labels`` or ``relations``) and the embedding model (``embedding_model_changed``). Names owned by a
+    submodule (the plan ontology) never count, and a record that also holds them compares only its build-owned names.
     """
 
-    if tuple(ctx.ontology.labels) != tuple(last_full.label_set):
+    if _build_owned_subset(tuple(last_full.label_set), ctx.ontology) != label_set(ctx.ontology):
         raise ConfigurationError("ontology_changed", part="labels")
-    if last_full.relation_set is not None and relation_set(ctx.ontology) != tuple(last_full.relation_set):
+    if last_full.relation_set is not None and _build_owned_subset(
+        tuple(last_full.relation_set), ctx.ontology
+    ) != relation_set(ctx.ontology):
         raise ConfigurationError("ontology_changed", part="relations")
     if ctx.options != last_full.options:
         now, then = (ctx.options.model_dump(mode="json"), last_full.options.model_dump(mode="json"))
@@ -165,7 +181,7 @@ async def start_build(ctx: BuildContext, *, follow_up_of: str | None = None, fol
         mode=mode,
         options=ctx.options,
         ontology_fingerprint=ontology_fingerprint(ctx.ontology),
-        label_set=ctx.ontology.labels,
+        label_set=label_set(ctx.ontology),
         relation_set=relation_set(ctx.ontology),
         embedding_model=ctx.gateway.config.embedding_model,
         started_at=datetime.now(UTC),
