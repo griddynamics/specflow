@@ -8,6 +8,8 @@ from typing import get_args
 from graph.core import Ontology, load_ontology
 from graph.core.schema import schema_objects
 from graph.plan.names import (
+    PLAN_LABELS,
+    PLAN_RELATIONS,
     AreaKind,
     AreaStatus,
     BlockReason,
@@ -93,3 +95,12 @@ def test_default_schema_objects_cover_the_shipped_plan_ontology() -> None:
         "graph_edge_key_waits_for",
         "graph_edge_key_supersedes",
     } <= {item.name for item in objects}
+
+
+def test_the_plan_owns_every_plan_label_and_relation_and_build_owns_spec_dependencies() -> None:
+    ontology = load_ontology()
+
+    assert {name: ontology.owner_of(name) for name in (*PLAN_LABELS, *PLAN_RELATIONS)} == dict.fromkeys(
+        (*PLAN_LABELS, *PLAN_RELATIONS), "plan"
+    )
+    assert ontology.owner_of("DEPENDS_ON") == "build"

@@ -70,6 +70,7 @@ __all__ = [
     "SnapshotQueries",
     "applied_plan",
     "change_reports",
+    "generic_planners",
     "live_context",
     "next_view",
     "plan_ontology",
@@ -495,8 +496,8 @@ def applied_plan(
     for task_id, overrides in (states or {}).items():
         tasks[task_id] = {**tasks[task_id], **overrides}
     uuid_to_id = {node.uuid: node.spec_id for node in view.snapshot.plannable}
-    deleted = {(link.type, link.source, link.target) for link in artifact.links_delete}
-    links = [link for link in current.links if (link.type, link.source, link.target) not in deleted]
+    deleted = {(link.type, link.source, link.target, link.key) for link in artifact.links_delete}
+    links = [link for link in current.links if (link.type, link.source, link.target, link.edge_key) not in deleted]
     links.extend(
         PlanLink(
             type=link.type,
@@ -823,3 +824,84 @@ async def fixture_view(reader: ShopGraphReader, ontology: Ontology, rules: PlanR
     )
     artifact = await snapshot(reader, SnapshotQueries(), context)
     return PlanView(artifact, partition(artifact, rules, ontology), rules)
+
+
+def generic_planners(rules: PlanRules) -> ScriptedGateway:
+    """Planners that answer any project from the request itself: one task per home story and phase."""
+
+    gateway = ScriptedGateway()
+
+    def describe(request: ScriptedRequest) -> DescribeAnswer:
+        payload = planner_payload(request)
+        return DescribeAnswer(
+            title=f"Area {payload['area']['area_id']}",
+            description="What the area builds.",
+            interfaces=[
+                InterfaceAnswer(spec_id=item["spec_id"], name="Interface", kind=item["kind"], summary="", spec_ids=[])
+                for item in payload["interfaces"]
+            ],
+            stories=[
+                StorySummaryAnswer(story_id=item["story_id"], summary="Delivers it.") for item in payload["stories"]
+            ],
+        )
+
+    def project(request: ScriptedRequest) -> ProjectAnswer:
+        members = [item["spec_id"] for item in planner_payload(request)["members"]]
+        return ProjectAnswer(
+            profile=ProfileAnswer(
+                languages=["python"],
+                frameworks=[],
+                layout="src",
+                test_command="pytest",
+                test_paths=[],
+                spec_ids=[],
+                conventions=[],
+            ),
+            setup_tasks=[
+                _generic_task("WORKSPACE", "setup", [], []),
+                _generic_task("TOOLCHAIN", "setup", members, ["WORKSPACE"]),
+            ],
+            closing_tasks=[_generic_task("END_TO_END", "acceptance", [], [])],
+            setup_summary="Setup.",
+            closing_summary="Closing.",
+        )
+
+    def tasks(request: ScriptedRequest) -> TasksAnswer:
+        payload = planner_payload(request)
+        groups: dict[tuple[str, str], list[str]] = {}
+        for member in payload["members"]:
+            phase = rules.rule_of(member["label"]).phase or "logic"
+            groups.setdefault((member["home_story"], phase), []).append(member["spec_id"])
+        return TasksAnswer(
+            tasks=[
+                _generic_task(_stable_action(phase, story), phase, implements, [], story=story)
+                for (story, phase), implements in sorted(groups.items())
+            ],
+            not_buildable=[],
+        )
+
+    gateway.handle(gateway_prompt("describe"), describe)
+    gateway.handle(gateway_prompt("project"), project)
+    gateway.handle(gateway_prompt("tasks"), tasks)
+    gateway.handle(gateway_prompt("review"), lambda _request: ReviewAnswer(issues=[]))
+    return gateway
+
+
+def _stable_action(phase: str, story_id: str) -> str:
+    """An action that stays the same across runs for the same story and phase, as planners are asked to."""
+
+    return f"{phase.upper()}_{story_id.rsplit('::', 1)[-1]}"[:40].rstrip("_")
+
+
+def _generic_task(action: str, phase: str, implements: list[str], waits: list[str], *, story: str = "") -> TaskAnswer:
+    return TaskAnswer(
+        story=story,
+        action=action,
+        phase=phase,
+        title=f"Build {action.lower()}",
+        description="What to build.",
+        implements=implements,
+        waits_for=waits,
+        done_when=[DoneWhenAnswer(text=f"{action} works", source="planner")],
+        complexity="medium",
+    )

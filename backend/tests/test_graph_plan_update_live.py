@@ -80,6 +80,13 @@ async def test_a_meaning_change_redoes_finished_work_and_calls_only_its_area(
 async def test_a_link_only_change_keeps_finished_work(neo4j_project: Neo4jProject, tmp_path: Path) -> None:
     project_id, _ = await planned_live_shop(neo4j_project, tmp_path)
     await _complete(neo4j_project, project_id, PLACE)
+    await neo4j_project.run(
+        "MATCH (r:SpecNode {group_id: $p, spec_id: 'REQ::FR::PLACE_ORDER'}), "
+        "(e:SpecNode {group_id: $p, spec_id: 'ENT::ORDER'}) "
+        "CREATE (r)-[:RELATES_TO {group_id: $p, edge_key: 'REQ_FR_PLACE_ORDER|RELATES_TO|ENT_ORDER', "
+        "basis: 'inferred', confidence: 0.8}]->(e)",
+        p=project_id,
+    )
     report = BuildChangeReport(
         build_id="build-2",
         previous_build_id="build-1",
@@ -102,6 +109,8 @@ async def test_a_link_only_change_keeps_finished_work(neo4j_project: Neo4jProjec
 
     assert result.status == "succeeded" and not result.unchanged
     assert result.changes.tasks_superseded == () and PLACE in result.changes.tasks_kept
+    # The new edge touches an Orders service member and the Order entity: those two areas are planned again.
+    assert (_calls(gateway, "describe"), _calls(gateway, "tasks")) == (2, 2)
 
 
 async def test_a_fallback_is_planned_again_by_the_next_run(neo4j_project: Neo4jProject, tmp_path: Path) -> None:

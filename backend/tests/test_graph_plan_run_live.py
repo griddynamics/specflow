@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,9 @@ import pytest
 
 from graph.core.db import Executor
 from graph.core.errors import ConfigurationError, InfrastructureUnavailableError, LLMFatalError
+from graph.plan.errors import TaskStateError
 from graph.plan.files import FilePlanStore, open_plan_store
+from graph.plan.lifecycle import TaskLifecycle
 from graph.plan.models import BuildChangeReport, DiffArtifact
 from graph.plan.options import PlanContext
 from graph.plan.persist import persist
@@ -27,11 +30,16 @@ from graph_plan_support import (
     write_spec_graph,
 )
 from graph_support import Neo4jProject, ScriptedGateway
+from logger_harness import fields
 from specflow_live import requires_live
 
 pytest_plugins = ["graph_support"]
 
 pytestmark = requires_live("NEO4J")
+
+PLACE = "TASK::ORDERS_SERVICE::LOGIC_PLACE_ORDER"
+REPLAN_COMMIT = "56" * 20
+PRIVATE_AGENT_NOTE = "AGENT-NOTE the tests are red"
 
 
 async def _project(neo4j_project: Neo4jProject) -> str:
@@ -222,13 +230,20 @@ async def test_a_run_interrupted_in_persist_finishes_on_resume_even_after_a_spec
     project_id = await _project(neo4j_project)
     store = open_plan_store(tmp_path)
     gateway = script_plan(ScriptedGateway(), await _answers())
-    failing = _FailingExecutor(neo4j_project.driver, neo4j_project.database, fail_at=4)
+    # Batch 5 is the first relationship batch: areas, stories and tasks are written, Plan.applying is set.
+    failing = _FailingExecutor(neo4j_project.driver, neo4j_project.database, fail_at=5)
     context = _context(neo4j_project, project_id, store, gateway, query_executor=failing)
 
     with pytest.raises(InfrastructureUnavailableError):
         await run_with(context, StepFunctions())
     run = await store.latest_run(project_id)
     assert run is not None and run.progress["persist"] == "failed" and not run.finished
+    ontology = plan_ontology()
+    life = TaskLifecycle(neo4j_project.driver, ontology, plan_rules(ontology), database=neo4j_project.database)
+    assert await life.ready_tasks(project_id) == []
+    with pytest.raises(TaskStateError) as applying:
+        await life.claim_task(project_id, "TASK::PROJECT::WORKSPACE", claimed_by="agent")
+    assert applying.value.code == "plan_applying"
     await neo4j_project.run(
         "MATCH (n:SpecNode {group_id: $p, spec_id: 'REQ::FR::CHECKOUT'}) SET n.last_build_id = 'build-9'",
         p=project_id,
@@ -242,3 +257,100 @@ async def test_a_run_interrupted_in_persist_finishes_on_resume_even_after_a_spec
     assert result.status == "succeeded" and result.failure is None
     assert current.plan is not None and not current.plan.applying
     assert result.checks is not None and result.checks.metrics.outdated is True
+    assert [task.task_id for task in await life.ready_tasks(project_id)] == ["TASK::PROJECT::WORKSPACE"]
+
+
+async def _snapshot(neo4j_project: Neo4jProject, project_id: str) -> tuple[Any, ...]:
+    current = await read_current_plan(Executor(neo4j_project.driver, neo4j_project.database), project_id)
+    return (
+        sorted((task.task_id, task.status, task.story_id, task.implements) for task in current.tasks),
+        sorted((link.type, link.source, link.target) for link in current.links),
+        sorted((story.story_id, story.status) for story in current.stories),
+    )
+
+
+async def test_a_resumed_run_plans_exactly_what_an_uninterrupted_run_plans(
+    neo4j_project: Neo4jProject, tmp_path: Path
+) -> None:
+    answers = dict(await _answers())
+    whole = await _project(neo4j_project)
+    await run_with(
+        _context(neo4j_project, whole, open_plan_store(tmp_path / "whole"), script_plan(ScriptedGateway(), answers)),
+        StepFunctions(),
+    )
+    resumed = await _project(neo4j_project)
+    store = open_plan_store(tmp_path / "resumed")
+    failing = script_plan(ScriptedGateway(), {**answers, ("tasks", "AREA::ORDERS_SERVICE#1"): LLMFatalError()})
+    with pytest.raises(LLMFatalError):
+        await run_with(_context(neo4j_project, resumed, store, failing), StepFunctions())
+    run = await store.latest_run(resumed)
+    assert run is not None
+    await run_with(
+        _context(neo4j_project, resumed, store, script_plan(ScriptedGateway(), answers)).with_run_id(run.run_id),
+        StepFunctions(),
+    )
+
+    assert await _snapshot(neo4j_project, resumed) == await _snapshot(neo4j_project, whole)
+
+
+async def test_a_replan_keeps_completed_work_and_its_commit(neo4j_project: Neo4jProject, tmp_path: Path) -> None:
+    project_id = await _project(neo4j_project)
+    store = open_plan_store(tmp_path)
+    answers = await _answers()
+    await run_with(_context(neo4j_project, project_id, store, script_plan(ScriptedGateway(), answers)), StepFunctions())
+    await neo4j_project.run(
+        "MATCH (t:Task {group_id: $p}) WHERE t.task_id IN ['TASK::PROJECT::WORKSPACE', $place] "
+        "SET t.status = 'completed', t.commit = $c",
+        p=project_id,
+        place=PLACE,
+        c=REPLAN_COMMIT,
+    )
+
+    result = await run_with(
+        _context(neo4j_project, project_id, store, script_plan(ScriptedGateway(), answers), replan=True),
+        StepFunctions(),
+    )
+
+    current = await read_current_plan(Executor(neo4j_project.driver, neo4j_project.database), project_id)
+    kept = {task.task_id: task for task in current.tasks}
+    assert result.mode == "replan" and result.status == "succeeded"
+    assert result.changes.tasks_superseded == ()
+    assert (kept[PLACE].status, kept[PLACE].commit) == ("completed", REPLAN_COMMIT)
+
+
+async def test_logs_and_the_result_of_a_run_and_task_work_carry_no_text(
+    neo4j_project: Neo4jProject, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    project_id = await _project(neo4j_project)
+    result = await run_with(
+        _context(
+            neo4j_project, project_id, open_plan_store(tmp_path), script_plan(ScriptedGateway(), await _answers())
+        ),
+        StepFunctions(),
+    )
+    ontology = plan_ontology()
+    life = TaskLifecycle(neo4j_project.driver, ontology, plan_rules(ontology), database=neo4j_project.database)
+    claim = await life.claim_task(project_id, "TASK::PROJECT::WORKSPACE", claimed_by="agent")
+    await life.fail_task(project_id, "TASK::PROJECT::WORKSPACE", claim_token=claim.claim_token, note=PRIVATE_AGENT_NOTE)
+    with pytest.raises(TaskStateError):
+        await life.claim_task(project_id, PLACE, claimed_by="agent")
+
+    texts = {node.name for node in await shop_graph().nodes(project_id)} | {PRIVATE_AGENT_NOTE, claim.claim_token}
+    records = [record for record in caplog.records if str(getattr(record, "event", "")).startswith("graph.plan.")]
+    seen = " ".join(
+        " ".join(str(value) for value in (record.getMessage(), *fields(record).values())) for record in records
+    )
+    assert {str(getattr(record, "event", "")) for record in records} >= {
+        "graph.plan.run_started",
+        "graph.plan.step_done",
+        "graph.plan.persist_batch",
+        "graph.plan.check_done",
+        "graph.plan.run_finished",
+        "graph.plan.task_claimed",
+        "graph.plan.task_transition",
+        "graph.plan.claim_refused",
+    }
+    assert not [text for text in texts if text in seen]
+    dumped = result.model_dump_json()
+    assert not [text for text in texts if text in dumped]

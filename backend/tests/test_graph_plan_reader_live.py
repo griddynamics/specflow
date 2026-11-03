@@ -150,3 +150,67 @@ async def test_a_brief_flags_a_node_written_by_a_build_the_plan_did_not_consume(
     brief = await _lifecycle(neo4j_project).task_brief(project_id, PLACE)
 
     assert brief.spec_changed is True
+
+
+async def test_mutually_waiting_stories_collapse_into_one_group(neo4j_project: Neo4jProject, tmp_path: Path) -> None:
+    project_id, _ = await planned_live_shop(neo4j_project, tmp_path)
+    # Checkout's logic waits on the Stripe API contract; the Stripe integration task now waits on checkout's
+    # quality task: the two stories wait on each other while the tasks stay acyclic.
+    await neo4j_project.run(
+        "MATCH (a:Task {group_id: $p, task_id: $a}), (b:Task {group_id: $p, task_id: $b}) "
+        "CREATE (a)-[:WAITS_FOR {group_id: $p, edge_key: $k, source: 'stitch'}]->(b)",
+        p=project_id,
+        a="TASK::PAYMENTS_SERVICE::INTEGRATION_STRIPE_API",
+        b="TASK::WEB_SHOP::QUALITY_CHECKOUT",
+        k="TASK::PAYMENTS_SERVICE::INTEGRATION_STRIPE_API|WAITS_FOR|TASK::WEB_SHOP::QUALITY_CHECKOUT",
+    )
+
+    dag = await _reader(neo4j_project).plan_dag(project_id)
+
+    assert isinstance(dag, PlanDag)
+    grouped = [group for group in dag.story_groups if "STORY::WEB_SHOP::CHECKOUT" in group]
+    assert grouped and "STORY::PAYMENTS_SERVICE::STRIPE_API" in grouped[0]
+    assert len(dag.tasks) == len({task.task_id for task in dag.tasks})
+
+
+async def test_a_story_lists_an_uncovered_member_and_stories_filter_by_area(
+    neo4j_project: Neo4jProject, tmp_path: Path
+) -> None:
+    project_id, _ = await planned_live_shop(neo4j_project, tmp_path)
+    reader = _reader(neo4j_project)
+    await neo4j_project.run(
+        "MATCH (t:Task {group_id: $p, task_id: 'TASK::WEB_SHOP::QUALITY_CHECKOUT'}) SET t.status = 'retired'",
+        p=project_id,
+    )
+
+    detail = await reader.story(project_id, "STORY::WEB_SHOP::CHECKOUT")
+    stories = await reader.stories(project_id, area_id="AREA::WEB_SHOP")
+
+    assert detail is not None
+    members = {member.spec_id: member for member in detail.members}
+    assert members["REQ::Q::CHECKOUT_SPEED"].covered is False and members["REQ::Q::CHECKOUT_SPEED"].task_ids == ()
+    assert [story.story_id for story in stories] == ["STORY::WEB_SHOP::CHECKOUT"]
+
+
+async def test_a_brief_carries_evidence_neighbours_releases_and_missing_nodes(
+    neo4j_project: Neo4jProject, tmp_path: Path
+) -> None:
+    project_id, _ = await planned_live_shop(neo4j_project, tmp_path)
+    life = _lifecycle(neo4j_project)
+
+    place = await life.task_brief(project_id, PLACE)
+    export = await life.task_brief(project_id, "TASK::ORDERS_SERVICE::LOGIC_ORDER_HISTORY_EXPORT")
+    order = await life.task_brief(project_id, "TASK::ORDERS_DATABASE::DATA_ORDER")
+
+    requirement = next(node for node in export.implements if node.spec_id == "REQ::LOGIC_EXPORT")
+    assert requirement.provenance and requirement.provenance[0]["line_start"] == 6
+    assert place.neighbours[0].basis == "stated"
+    assert place.task.release == ("MVP",) and place.story is not None and place.story.release == "MVP"
+    assert {item.source for item in place.done_when} == {"planner", "spec"}
+    assert order.task.has_open_questions is True
+
+    await neo4j_project.run(
+        "MATCH (n:SpecNode {group_id: $p, spec_id: 'REQ::FR::PLACE_ORDER'}) DETACH DELETE n", p=project_id
+    )
+    gone = await life.task_brief(project_id, PLACE)
+    assert gone.missing == ("REQ::FR::PLACE_ORDER",)

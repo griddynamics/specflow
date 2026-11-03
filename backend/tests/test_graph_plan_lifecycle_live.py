@@ -212,3 +212,27 @@ async def test_a_task_claimed_while_a_plan_run_writes_is_left_alone_as_a_conflic
     assert task is not None and task.status == "in_progress" and task.claimed_by == "agent"
     assert result.conflicts == (claimed.task.task_id,)
     assert context.project_id == project_id
+
+
+async def test_claim_next_takes_ready_tasks_in_order_and_refuses_while_a_plan_persists(
+    neo4j_project: Neo4jProject, tmp_path: Path
+) -> None:
+    project_id, _ = await planned_live_shop(neo4j_project, tmp_path)
+    life = _lifecycle(neo4j_project)
+    await _complete(life, project_id, WORKSPACE)
+    await _complete(life, project_id, TOOLCHAIN)
+    story = "STORY::PAYMENTS_SERVICE::STRIPE_API"
+    ready = [task.task_id for task in await life.ready_tasks(project_id, story_id=story)]
+    assert ready == ["TASK::PAYMENTS_SERVICE::CONTRACT_STRIPE_API"]
+
+    first = await life.claim_next(project_id, story, claimed_by="agent-1")
+    with pytest.raises(TaskStateError) as waiting:
+        await life.claim_next(project_id, story, claimed_by="agent-2")
+
+    assert first.task.task_id == ready[0]
+    assert waiting.value.code == "nothing_ready" and ready[0] in waiting.value.blockers
+
+    await neo4j_project.run("MATCH (p:Plan {group_id: $p}) SET p.applying = 'run-x'", p=project_id)
+    with pytest.raises(TaskStateError) as applying:
+        await life.claim_next(project_id, "STORY::ORDERS_SERVICE::ORDERS_API", claimed_by="agent")
+    assert applying.value.code == "plan_applying"

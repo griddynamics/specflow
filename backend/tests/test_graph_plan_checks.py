@@ -3,19 +3,24 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from graph.plan.checks import plan_state
+from graph.plan.checks import _metrics, check_with, plan_state
 from graph.plan.diff import DiffInputs, diff
 from graph.plan.files import open_plan_store
 from graph.plan.invariants import CheckName, PlanState, TaskState, failing, problems, ready_tasks, story_progress
 from graph.plan.models import CurrentPlan, PlanLink
+from graph.plan.names import PLAN_RELATIONS
+from graph.plan.options import PlanContext
+from graph.plan.queries import READ_AREAS, READ_PLAN, READ_STORIES, READ_TASKS, read_links
 from graph.plan.stitch import stitch
 from graph.plan.view import PlanView
-from graph_plan_support import applied_plan, planned_shop, shop_view
+from graph_plan_support import applied_plan, plan_ontology, planned_shop, shop_graph, shop_view
+from graph_support import OfflineExecutor
 
 COMMIT = "d" * 40
 PLACE = "TASK::ORDERS_SERVICE::LOGIC_PLACE_ORDER"
@@ -80,12 +85,12 @@ async def test_membership_coverage_and_dependency_problems_are_found(tmp_path: P
     view, current = await _plan(tmp_path)
     state = _state(view, current)
     without_area = replace(
-        state, links=frozenset(link for link in state.links if link[:2] != ("IN_AREA", "REQ::FR::CHECKOUT"))
+        state, links=tuple(link for link in state.links if link[:2] != ("IN_AREA", "REQ::FR::CHECKOUT"))
     )
     without_task = replace(state, tasks={key: task for key, task in state.tasks.items() if key != PLACE})
     cycle = replace(
         state,
-        links=state.links | {("WAITS_FOR", "TASK::PROJECT::WORKSPACE", "TASK::PROJECT::TOOLCHAIN")},
+        links=(*state.links, ("WAITS_FOR", "TASK::PROJECT::WORKSPACE", "TASK::PROJECT::TOOLCHAIN")),
     )
     closed = _with_task(state, "TASK::PROJECT::WORKSPACE", status="retired")
 
@@ -145,6 +150,94 @@ def test_persisted_relationship_properties_are_kept_on_read() -> None:
 async def test_waits_of_claimed_tasks_take_no_part_in_the_cycle_check(tmp_path: Path) -> None:
     view, current = await _plan(tmp_path)
     state = _with_task(_state(view, current), "TASK::PROJECT::TOOLCHAIN", status="in_progress", claimed=True)
-    cycle = replace(state, links=state.links | {("WAITS_FOR", "TASK::PROJECT::WORKSPACE", "TASK::PROJECT::TOOLCHAIN")})
+    cycle = replace(state, links=(*state.links, ("WAITS_FOR", "TASK::PROJECT::WORKSPACE", "TASK::PROJECT::TOOLCHAIN")))
 
     assert problems(cycle)["dependencies"] == ()
+
+
+async def test_a_node_with_two_memberships_breaks_the_membership_check(tmp_path: Path) -> None:
+    view, current = await _plan(tmp_path)
+    state = _state(view, current)
+
+    doubled = replace(state, links=(*state.links, ("IN_AREA", "REQ::FR::CHECKOUT", "AREA::WEB_SHOP")))
+
+    assert problems(doubled)["membership"] == ("REQ::FR::CHECKOUT",)
+
+
+async def test_a_convention_covers_a_required_node(tmp_path: Path) -> None:
+    view, current = await _plan(tmp_path)
+    state = replace(_state(view, current), tasks={})
+
+    cited = replace(state, conventions=frozenset({"REQ::FR::PLACE_ORDER"}))
+
+    assert "REQ::FR::PLACE_ORDER" not in problems(cited)["coverage"]
+    assert "REQ::FR::CHECKOUT" in problems(cited)["coverage"]
+
+
+async def test_an_open_task_of_a_retired_story_breaks_the_stories_check(tmp_path: Path) -> None:
+    view, current = await _plan(tmp_path)
+    state = _state(view, current)
+    story = "STORY::ORDERS_SERVICE::PLACE_ORDER"
+
+    retired = replace(state, stories={**state.stories, story: replace(state.stories[story], status="retired")})
+
+    assert problems(state)["stories"] == ()
+    assert PLACE in problems(retired)["stories"]
+
+
+def _with_metrics_data(current: CurrentPlan) -> CurrentPlan:
+    """One required node recorded not buildable and exactly two open tasks with open questions."""
+
+    flagged = {PLACE, "TASK::WEB_SHOP::LOGIC_CHECKOUT"}
+    areas = tuple(
+        area.model_copy(update={"not_buildable": ({"spec_id": "REQ::BR::ORDER_LIMIT", "reason": "governance"},)})
+        if area.area_id == "AREA::ORDERS_SERVICE"
+        else area
+        for area in current.areas
+    )
+    tasks = tuple(task.model_copy(update={"has_open_questions": task.task_id in flagged}) for task in current.tasks)
+    return current.model_copy(update={"areas": areas, "tasks": tasks})
+
+
+async def test_metrics_count_not_buildable_reasons_and_open_questions_on_open_tasks(tmp_path: Path) -> None:
+    view, current = await _plan(tmp_path)
+    current = _with_metrics_data(current)
+
+    metrics = _metrics(current, _state(view, current), "fingerprint", None, datetime.now(UTC))
+
+    assert metrics.not_buildable == {"governance": 1}
+    assert sum(metrics.not_buildable.values()) == 1
+    assert metrics.open_questions_on_tasks == 2
+
+
+async def test_the_plan_checks_read_the_persisted_plan_and_never_write(tmp_path: Path) -> None:
+    view, current = await _plan(tmp_path)
+    current = _with_metrics_data(current)
+    assert current.plan is not None
+    rows: dict[str, list[dict[str, Any]]] = {
+        READ_PLAN.name: [current.plan.model_dump()],
+        READ_AREAS.name: [area.model_dump() for area in current.areas],
+        READ_STORIES.name: [story.model_dump() for story in current.stories],
+        READ_TASKS.name: [task.model_dump() for task in current.tasks],
+    }
+    for relation in PLAN_RELATIONS:
+        rows[read_links(relation).name] = [link.model_dump() for link in current.links if link.type == relation]
+    executor = OfflineExecutor(rows)
+    ontology = plan_ontology()
+    context = PlanContext(
+        project_id="shop",
+        ontology=ontology,
+        rules=view.rules,
+        driver=None,
+        gateway=None,
+        store=open_plan_store(tmp_path / "check"),
+        build_id="build-2",
+        query_executor=executor,
+    )
+
+    report = await check_with(context, shop_graph())
+
+    assert report.ok and report.problems == {}
+    assert report.metrics.not_buildable == {"governance": 1}
+    assert report.metrics.open_questions_on_tasks == 2
+    assert {name for name, _ in executor.reads} == set(rows)

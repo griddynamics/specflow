@@ -120,3 +120,17 @@ def test_check_7_a_later_phase_reference_is_refused(tmp_path: Path) -> None:
         load_plan_rules(path, ontology=load_ontology())
 
     assert any("setup" in problem and "earlier" in problem for problem in raised.value.problems)
+
+
+def test_the_shipped_rules_give_each_spec_type_its_role_and_story_kind() -> None:
+    rules = load_plan_rules(ontology=load_ontology())
+
+    assert rules.rule_of("Module").role == "area_anchor"
+    assert rules.rule_of("Capability").role == "shared"
+    assert rules.rule_of("OpenQuestion").role == "context"
+    entity = rules.rule_of("DataEntity")
+    assert entity.role == "member" and entity.required and entity.story == "entity"
+    assert rules.story_kind("DataEntity") == "entity"
+    assert rules.story_kind("Interface") == "interface"
+    assert rules.story_kind("Feature") == "feature"
+    assert rules.story_kind("FunctionalRequirement") is None

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from graph.plan.dag import find_cycle
 from graph.plan.files import open_plan_store
-from graph.plan.models import SpecEdgeView, StitchArtifact
+from graph.plan.models import PlannedTask, SpecEdgeView, StitchArtifact
 from graph.plan.stitch import stitch
 from graph.plan.view import PlanView
 from graph_plan_support import PlannedShop, planned_shop, shop_view
@@ -90,3 +90,66 @@ async def test_a_cycle_is_broken_by_dropping_the_last_added_stitch_wait(tmp_path
     assert len(artifact.dropped) == 1
     assert artifact.dropped[0].kind == "stitch" and artifact.dropped[0].rule == 4
     assert artifact.dropped[0].source.startswith("TASK::WEB_SHOP::")
+
+
+def _task(key: str, area_id: str, phase: str, *, waits: tuple[str, ...] = ()) -> PlannedTask:
+    return PlannedTask.model_validate(
+        {
+            "task_key": key,
+            "area_id": area_id,
+            "story_id": f"STORY::{area_id.split('::', 1)[1]}::DEPLOY",
+            "action": key.rsplit("::", 1)[-1],
+            "phase": phase,
+            "title": f"Build {key}",
+            "complexity": "medium",
+            "planned_by": "model",
+            "waits": waits,
+        }
+    )
+
+
+async def _stitched_with(tmp_path: Path, *extra: PlannedTask) -> StitchArtifact:
+    view = await shop_view()
+    shop = await planned_shop(view, open_plan_store(tmp_path / "plans"))
+    tasks = shop.tasks.model_copy(update={"tasks": (*shop.tasks.tasks, *extra)})
+    return stitch(view, shop.project, tasks)
+
+
+async def test_the_deployment_target_area_waits_for_setup_and_closing_acceptance_waits_for_it(tmp_path: Path) -> None:
+    cluster = "TASK::PRODUCTION_CLUSTER::LOGIC_CLUSTER"
+    check = "TASK::PRODUCTION_CLUSTER::QUALITY_CLUSTER"
+    artifact = await _stitched_with(
+        tmp_path,
+        _task(cluster, "AREA::PRODUCTION_CLUSTER", "logic"),
+        _task(check, "AREA::PRODUCTION_CLUSTER", "quality", waits=(cluster,)),
+    )
+
+    assert (cluster, "TASK::PROJECT::TOOLCHAIN") in _waits(artifact, 1)
+    assert not [wait for wait in _waits(artifact, 1) if wait[0] == check]
+    deployment = _waits(artifact, 6)
+    assert ("TASK::PROJECT::END_TO_END", check) in deployment
+    assert {target for source, target in deployment if source == "TASK::PROJECT::END_TO_END"} == {check}
+
+
+async def test_an_acceptance_task_never_waits_for_another_areas_acceptance_task(tmp_path: Path) -> None:
+    accept = "TASK::WEB_SHOP::ACCEPTANCE_CHECKOUT"
+    artifact = await _stitched_with(
+        tmp_path, _task(accept, "AREA::WEB_SHOP", "acceptance", waits=("TASK::WEB_SHOP::QUALITY_CHECKOUT",))
+    )
+
+    assert not [wait for wait in _waits(artifact) if wait == ("TASK::PROJECT::END_TO_END", accept)]
+    assert (accept, "TASK::WEB_SHOP::QUALITY_CHECKOUT") in _waits(artifact)
+    assert ("TASK::PROJECT::END_TO_END", "TASK::ORDERS_SERVICE::LOGIC_PLACE_ORDER") in _waits(artifact, 8)
+
+
+async def test_closing_work_that_implements_an_area_node_waits_only_for_that_areas_sinks(tmp_path: Path) -> None:
+    view = await shop_view()
+    shop = await planned_shop(view, open_plan_store(tmp_path / "plans"))
+    closing = shop.project.closing[0].model_copy(update={"implements": ("REQ::FR::CHECKOUT",)})
+    project = shop.project.model_copy(update={"closing": (closing,)})
+
+    artifact = stitch(view, project, shop.tasks)
+
+    waited = {target for source, target in _waits(artifact) if source == closing.task_key}
+    assert waited == {"TASK::WEB_SHOP::QUALITY_CHECKOUT"}
+    assert {wait.rule for wait in artifact.waits if wait.source == closing.task_key} == {8}

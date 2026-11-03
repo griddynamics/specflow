@@ -2,21 +2,25 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from graph.plan.answers import (
     DescribeAnswer,
+    DoneWhenAnswer,
     InterfaceAnswer,
     NotBuildableAnswer,
     ProjectAnswer,
     StorySummaryAnswer,
     TasksAnswer,
 )
+from graph.plan.files import open_plan_store
 from graph.plan.validate import oversized, problem_counts, validate_describe, validate_project, validate_tasks
 from graph.plan.view import PlanView
-from graph_plan_support import shop_answers, shop_view
+from graph_plan_support import planned_shop, script_plan, shop_answers, shop_view
+from graph_support import ScriptedGateway
 
 ORDERS_PART = "AREA::ORDERS_SERVICE#1"
 
@@ -171,3 +175,49 @@ async def test_a_describe_answer_names_only_the_areas_interfaces_and_stories() -
     counts = problem_counts(validate_describe(answer, view=view, area_id="AREA::ORDERS_SERVICE"))
 
     assert counts == {"invalid_interface_kind": 1, "unknown_interface": 1, "unknown_member": 1, "unknown_story": 1}
+
+
+async def test_a_spec_done_when_item_is_accepted_when_an_implemented_node_has_acceptance_criteria() -> None:
+    view, answer = await _tasks()
+    place = next(task for task in answer.tasks if "REQ::FR::PLACE_ORDER" in task.implements)
+    spec_only = place.model_copy(
+        update={"done_when": [DoneWhenAnswer(text="The order is created and queued", source="spec")]}
+    )
+    tasks = [spec_only if task.action == place.action else task for task in answer.tasks]
+
+    assert view.rules.acceptance_of(view.nodes["REQ::FR::PLACE_ORDER"].attributes)
+    assert _check(view, answer.model_copy(update={"tasks": tasks})) == []
+
+
+async def test_an_interface_implemented_only_by_a_logic_task_misses_its_contract_phase() -> None:
+    view, answer = await _tasks()
+    tasks = [
+        task.model_copy(update={"phase": "logic"}) if "IFC::ORDERS_API" in task.implements else task
+        for task in answer.tasks
+    ]
+
+    problems = _check(view, answer.model_copy(update={"tasks": tasks}))
+
+    assert "missing_phase:contract:IFC::ORDERS_API" in problems
+    assert problem_counts(problems) == {"missing_phase": 1}
+
+
+async def test_a_not_buildable_entry_is_accepted_and_counted_for_its_area(tmp_path: Path) -> None:
+    view, answer = await _tasks()
+    tasks = [
+        task.model_copy(update={"implements": [item for item in task.implements if item != "REQ::BR::ORDER_LIMIT"]})
+        for task in answer.tasks
+    ]
+    entry = NotBuildableAnswer(spec_id="REQ::BR::ORDER_LIMIT", reason="governance", note="An approval rule.")
+    listed = answer.model_copy(update={"tasks": tasks, "not_buildable": [entry]})
+    assert _check(view, listed) == []
+
+    answers: dict[tuple[str, str], Any] = {**shop_answers(view), ("tasks", ORDERS_PART): listed}
+    shop = await planned_shop(view, open_plan_store(tmp_path / "plans"), script_plan(ScriptedGateway(), answers))
+
+    outcome = shop.tasks.outcomes[ORDERS_PART]
+    assert outcome.invalid == 0 and not outcome.fallback
+    entries = shop.tasks.not_buildable["AREA::ORDERS_SERVICE"]
+    assert [(item.spec_id, item.reason) for item in entries] == [("REQ::BR::ORDER_LIMIT", "governance")]
+    assert sum(len(items) for items in shop.tasks.not_buildable.values()) == 1
+    assert not [task for task in shop.tasks.tasks if "REQ::BR::ORDER_LIMIT" in task.implements]

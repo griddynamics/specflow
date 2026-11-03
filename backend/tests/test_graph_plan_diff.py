@@ -18,6 +18,7 @@ from graph_plan_support import applied_plan, next_view, planned_shop, shop_view
 INPUTS = DiffInputs(ontology_version="2.0", plan_ontology_version="2.0", rules_version="2.0")
 COMMIT = "c" * 40
 PLACE = "TASK::ORDERS_SERVICE::LOGIC_PLACE_ORDER"
+PLACE_REQ = "REQ::FR::PLACE_ORDER"
 EXPORT = "TASK::ORDERS_SERVICE::LOGIC_ORDER_HISTORY_EXPORT"
 CHECKOUT = "TASK::WEB_SHOP::LOGIC_CHECKOUT"
 API = "TASK::ORDERS_SERVICE::CONTRACT_ORDERS_API"
@@ -265,3 +266,49 @@ async def test_an_unchanged_open_task_is_not_written_again(tmp_path: Path) -> No
     _, artifact = await _second(tmp_path, {})
 
     assert artifact.tasks == () and artifact.summary.tasks_updated == ()
+
+
+async def test_a_new_revision_after_a_meaning_change_records_the_consumed_build(tmp_path: Path) -> None:
+    _, artifact = await _second(tmp_path, _done(PLACE), changed={"REQ::FR::PLACE_ORDER": "changed_meaning"})
+
+    created = next(op for op in artifact.tasks if op.id == f"{PLACE}_R2")
+    assert created.op == "create"
+    assert created.properties["spec_build_id"] == "build-3"
+
+
+async def test_an_active_core_story_has_no_implements_link(tmp_path: Path) -> None:
+    _, artifact = await _first(tmp_path)
+    implements = {link.source for link in artifact.links_create if link.type == "IMPLEMENTS"}
+
+    assert "STORY::ORDERS_SERVICE::PLACE_ORDER" in implements
+    assert "STORY::ORDERS_SERVICE::CORE" not in implements
+    assert "STORY::PAYMENTS_SERVICE::CORE" not in implements
+
+
+async def test_a_kept_completed_task_keeps_one_implements_per_surviving_node(tmp_path: Path) -> None:
+    first_view, first = await _first(tmp_path)
+    current = applied_plan(first_view, first, states=_done(PLACE))
+    merged = "REQ::FR::ORDER_PLACEMENT"
+    original = next(
+        link for link in current.links if (link.type, link.source, link.target) == ("IMPLEMENTS", PLACE, PLACE_REQ)
+    )
+    duplicate = original.model_copy(update={"edge_key": f"{PLACE}|IMPLEMENTS|{merged}"})
+    tasks = tuple(
+        task.model_copy(update={"implements": (*task.implements, merged)}) if task.task_id == PLACE else task
+        for task in current.tasks
+    )
+    current = current.model_copy(update={"tasks": tasks, "links": (*current.links, duplicate)})
+    view = next_view(first_view, current, snapshot_updates={"aliases": {merged: PLACE_REQ}})
+
+    artifact = await _diff(view, tmp_path)
+
+    assert PLACE in artifact.summary.tasks_kept
+    deleted = {link.key for link in artifact.links_delete}
+    assert [key for key in deleted if key.startswith(f"{PLACE}|")] == [duplicate.edge_key]
+    assert not [link for link in artifact.links_create if link.source == PLACE]
+    kept = [
+        link.target
+        for link in current.links
+        if link.type == "IMPLEMENTS" and link.source == PLACE and link.edge_key not in deleted
+    ]
+    assert sorted(kept) == ["FEAT::PLACE_ORDER", PLACE_REQ]

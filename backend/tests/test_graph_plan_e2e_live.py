@@ -12,25 +12,13 @@ import pytest_asyncio
 
 from graph.build.models import BuildResult
 from graph.core import load_ontology
-from graph.plan.answers import (
-    DescribeAnswer,
-    DoneWhenAnswer,
-    InterfaceAnswer,
-    ProfileAnswer,
-    ProjectAnswer,
-    ReviewAnswer,
-    StorySummaryAnswer,
-    TaskAnswer,
-    TasksAnswer,
-)
 from graph.plan.files import open_plan_store
 from graph.plan.lifecycle import TaskLifecycle
 from graph.plan.models import PlanResult
-from graph.plan.prompts import gateway_prompt
 from graph.plan.rules import PlanRules, load_plan_rules
 from graph.plan.run import StepFunctions, run_with
-from graph_plan_support import change_reports, live_context, planner_payload
-from graph_support import Neo4jProject, ScriptedGateway, ScriptedRequest, open_neo4j_project
+from graph_plan_support import change_reports, generic_planners, live_context
+from graph_support import Neo4jProject, ScriptedGateway, open_neo4j_project
 from graph_v2_support import ShopV2Builds
 from specflow_live import requires_live
 
@@ -43,79 +31,6 @@ def _build_gateways(config: Any = None, **options: Any) -> ScriptedGateway:
     """The build's gateway factory: a scripted gateway answering from shop-v2's hand-written answers."""
 
     return ScriptedGateway(config, **options)
-
-
-def generic_planners(rules: PlanRules) -> ScriptedGateway:
-    """Planners that answer any project from the request itself: one task per home story and phase."""
-
-    gateway = ScriptedGateway()
-
-    def describe(request: ScriptedRequest) -> DescribeAnswer:
-        payload = planner_payload(request)
-        return DescribeAnswer(
-            title=f"Area {payload['area']['area_id']}",
-            description="What the area builds.",
-            interfaces=[
-                InterfaceAnswer(spec_id=item["spec_id"], name="Interface", kind=item["kind"], summary="", spec_ids=[])
-                for item in payload["interfaces"]
-            ],
-            stories=[
-                StorySummaryAnswer(story_id=item["story_id"], summary="Delivers it.") for item in payload["stories"]
-            ],
-        )
-
-    def project(request: ScriptedRequest) -> ProjectAnswer:
-        members = [item["spec_id"] for item in planner_payload(request)["members"]]
-        return ProjectAnswer(
-            profile=ProfileAnswer(
-                languages=["python"],
-                frameworks=[],
-                layout="src",
-                test_command="pytest",
-                test_paths=[],
-                spec_ids=[],
-                conventions=[],
-            ),
-            setup_tasks=[_task("WORKSPACE", "setup", [], []), _task("TOOLCHAIN", "setup", members, ["WORKSPACE"])],
-            closing_tasks=[_task("END_TO_END", "acceptance", [], [])],
-            setup_summary="Setup.",
-            closing_summary="Closing.",
-        )
-
-    def tasks(request: ScriptedRequest) -> TasksAnswer:
-        payload = planner_payload(request)
-        number = payload["part_id"].rsplit("#", 1)[1]
-        groups: dict[tuple[str, str], list[str]] = {}
-        for member in payload["members"]:
-            phase = rules.rule_of(member["label"]).phase or "logic"
-            groups.setdefault((member["home_story"], phase), []).append(member["spec_id"])
-        return TasksAnswer(
-            tasks=[
-                _task(f"{phase.upper()}_{number}_{index}", phase, implements, [], story=story)
-                for index, ((story, phase), implements) in enumerate(sorted(groups.items()), start=1)
-            ],
-            not_buildable=[],
-        )
-
-    gateway.handle(gateway_prompt("describe"), describe)
-    gateway.handle(gateway_prompt("project"), project)
-    gateway.handle(gateway_prompt("tasks"), tasks)
-    gateway.handle(gateway_prompt("review"), lambda _request: ReviewAnswer(issues=[]))
-    return gateway
-
-
-def _task(action: str, phase: str, implements: list[str], waits: list[str], *, story: str = "") -> TaskAnswer:
-    return TaskAnswer(
-        story=story,
-        action=action,
-        phase=phase,
-        title=f"Build {action.lower()}",
-        description="What to build.",
-        implements=implements,
-        waits_for=waits,
-        done_when=[DoneWhenAnswer(text=f"{action} works", source="planner")],
-        complexity="medium",
-    )
 
 
 @dataclass
