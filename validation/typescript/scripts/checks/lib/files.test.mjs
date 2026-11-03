@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import { listFiles, relPath } from './files.mjs';
 
-test('listFiles skips dependency and build output folders, including the Next.js .next folder', (t) => {
+test('listFiles skips dependency, build and test-run output folders, including .next and the Playwright report', (t) => {
   const root = mkdtempSync(path.join(tmpdir(), 'list-files-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   for (const file of [
@@ -14,6 +14,9 @@ test('listFiles skips dependency and build output folders, including the Next.js
     'node_modules/pkg/index.ts',
     'dist/out.ts',
     '.next/static/chunk.css',
+    'playwright-report/trace/index.css',
+    'test-results/run/trace.css',
+    'logs/e2e/report/trace/uiMode.css',
   ]) {
     mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
     writeFileSync(path.join(root, file), '');

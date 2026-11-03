@@ -9,7 +9,19 @@ import path from 'node:path';
 
 // `.next` is the Next.js build output (generated, gitignored CSS/JS chunks that
 // inline third-party custom properties); like `dist` it is not source to check.
-const DEFAULT_SKIP = new Set(['node_modules', 'dist', '.next', '.git', 'coverage', '.reports']);
+// `playwright-report`, `test-results` and `logs` hold test-run output: the Playwright
+// HTML report and traces bundle the trace viewer's own CSS, which is not source either.
+const DEFAULT_SKIP = new Set([
+  'node_modules',
+  'dist',
+  '.next',
+  '.git',
+  'coverage',
+  '.reports',
+  'playwright-report',
+  'test-results',
+  'logs',
+]);
 
 /**
  * Every file under `root` (recursive), skipping `DEFAULT_SKIP` directory

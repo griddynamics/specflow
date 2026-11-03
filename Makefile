@@ -314,9 +314,9 @@ validate-sql:
 # Licence gate G6 (validation/ci/licence_gate.py, input backend/licence-gate.toml): the locked dependency set of
 # each image (api, worker-agents, worker-parse) is synced into a scratch environment, no Docker, and checked
 # against the licence allowlist; pymupdf, pymupdf4llm and pymupdf-layout must be absent; NOTICE must name the
-# parse components. It needs uv, network access to the package indexes (or a warm uv cache) and Python 3.11+.
+# parse components. It needs uv, network access to the package indexes (or a warm uv cache); uv provides the Python 3.12 it runs on.
 validate-licences:
-	$(KIT_ENV) python3 $(VALIDATION)/ci/licence_gate.py --config backend/licence-gate.toml
+	$(KIT_ENV) uv run --no-project --python 3.12 python $(VALIDATION)/ci/licence_gate.py --config backend/licence-gate.toml
 
 # Frontend: ESLint/Prettier/stylelint/tsc/knip/semgrep, then the token, contrast, CSS and clone
 # checks. tsc needs Next's generated types (`npx next typegen`, part of `make frontend-setup` flow).
