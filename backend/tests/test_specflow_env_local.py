@@ -37,7 +37,7 @@ GRAPH_MODELS = ("GRAPH_LLM_MODEL", "GRAPH_SMALL_MODEL")
 EMBEDDING = ("GRAPH_EMBEDDING_MODEL", "GRAPH_EMBEDDING_DIM")
 ASKED = INPUTS + GRAPH_MODELS + EMBEDDING  # in the order the target asks and reports them
 COMPLETE = "".join(f"{name}=synthetic-{index}\n" for index, name in enumerate(GENERATED + INPUTS + GRAPH_MODELS))
-COMPLETE += "GRAPH_EMBEDDING_MODEL=embed-model\nGRAPH_EMBEDDING_DIM=1536\n"
+COMPLETE += "GRAPH_EMBEDDING_MODEL=embed-model\nGRAPH_EMBEDDING_DIM=1024\n"
 AGENT_MODEL = f"synthetic-{(GENERATED + INPUTS).index('AGENT_MODEL')}"
 # Enter at the two graph model prompts and at the embedding model prompt (no AGENT_MODEL: all three skip).
 GRAPH_SKIPS = ["", "", ""]
@@ -371,7 +371,7 @@ def test_an_existing_dimension_is_kept_when_a_model_is_typed_and_its_size_is_nam
     assert result.returncode == 0, result.stderr
     values = _values(env_file)
 
-    assert values["GRAPH_EMBEDDING_MODEL"] == ["embed-typed"] and values["GRAPH_EMBEDDING_DIM"] == ["1536"]
+    assert values["GRAPH_EMBEDDING_MODEL"] == ["embed-typed"] and values["GRAPH_EMBEDDING_DIM"] == ["1024"]
     assert "GRAPH_EMBEDDING_DIM in" in result.stderr and "must be the vector size of embed-typed" in result.stderr
     assert "GRAPH_EMBEDDING_DIM (" not in result.stderr
 
@@ -389,7 +389,7 @@ def test_without_a_terminal_the_graph_settings_are_named_never_written(tmp_path)
 
 def test_set_graph_settings_stay_unchanged(tmp_path):
     env_file = tmp_path / "scratch.env"
-    env_file.write_text(COMPLETE.replace("GRAPH_EMBEDDING_DIM=1536", "GRAPH_EMBEDDING_DIM=99999"))
+    env_file.write_text(COMPLETE.replace("GRAPH_EMBEDDING_DIM=1024", "GRAPH_EMBEDDING_DIM=99999"))
     before = env_file.read_text()
     result = _run(env_file, answers=["never-read"])
 
