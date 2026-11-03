@@ -64,6 +64,16 @@ allow_indirect_imports = true
 source_modules = ["graph.core"]
 forbidden_modules = ["graph.build", "graph.gap", "graph.plan"]
 
+# graph.plan reads only graph.core. It never reaches the build pipeline or the gap detector, whose
+# results arrive through host-converted models. Build likewise never depends on the planner.
+[[tool.importlinter.contracts]]
+name = "Graph submodules are independent"
+id = "graph-submodules-independent"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["graph.plan", "graph.build"]
+forbidden_modules = ["graph.build", "graph.plan", "graph.gap"]
+
 # Provider and integration packages are reusable on their own: they know neither the database,
 # the workflow engine nor the HTTP layer.
 [[tool.importlinter.contracts]]

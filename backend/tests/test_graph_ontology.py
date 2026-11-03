@@ -45,7 +45,15 @@ REQUIREMENT_LABELS = [
     "QualityRequirement",
 ]
 EXTRACTED_LABELS = sorted(
-    ["Module", "Feature", "Capability", "Interface", "DataEntity", "OpenQuestion", *REQUIREMENT_LABELS]
+    [
+        "Module",
+        "Feature",
+        "Capability",
+        "Interface",
+        "DataEntity",
+        "OpenQuestion",
+        *REQUIREMENT_LABELS,
+    ]
 )
 RELATIONS = [
     "CARRIES",
@@ -114,7 +122,10 @@ def write_ontology(
     if prompts and not (directory / "judge_prompts").exists():
         shutil.copytree(prompts_from, directory / "judge_prompts")
     path = directory / filename
-    path.write_text(data if isinstance(data, str) else yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    path.write_text(
+        data if isinstance(data, str) else yaml.safe_dump(data, sort_keys=False),
+        encoding="utf-8",
+    )
     return path
 
 
@@ -157,7 +168,7 @@ def test_shipped_ontology_loads_with_twelve_types_and_eleven_relations(shipped: 
 
 
 def test_load_ontology_without_arguments_has_exactly_the_shipped_extracted_surface() -> None:
-    """: no installed submodule ships an ontology file yet, so discovery adds nothing."""
+    """The plan ontology adds no extracted surface; discovery still loads it by default."""
 
     discovered = load_ontology()
     assert discovered.extracted_labels == tuple(EXTRACTED_LABELS)
@@ -220,7 +231,9 @@ def test_shipped_ontology_has_five_inference_rules_with_resolved_judge_prompts(
     assert sorted(path.stem for path in SHIPPED_PROMPTS.glob("*.md")) == sorted(refs)
 
 
-def test_judge_prompt_unknown_reference_is_a_conformance_error(shipped: Ontology) -> None:
+def test_judge_prompt_unknown_reference_is_a_conformance_error(
+    shipped: Ontology,
+) -> None:
     with pytest.raises(ConformanceError) as raised:
         shipped.judge_prompt("judge_nothing.1")
     assert raised.value.code == "ontology_unknown_judge_prompt"
@@ -246,7 +259,10 @@ def test_inference_rules_resolve_groups_to_labels(shipped: Ontology) -> None:
     assert by_id["INF-CONT-02"].targets == frozenset({"Module"})
     for rule_id in ("INF-CONT-01", "INF-CONT-02"):
         assert by_id[rule_id].exclude_where == {"in_scope": frozenset({"no"})}
-        assert (by_id[rule_id].prompt, by_id[rule_id].writes) == ("judge_attach_orphan.4", "PART_OF")
+        assert (by_id[rule_id].prompt, by_id[rule_id].writes) == (
+            "judge_attach_orphan.4",
+            "PART_OF",
+        )
     assert by_id["INF-CAP-01"].container_paths == (
         SpinePath(("PART_OF",), sequence=False, min_hops=1, max_hops=3),
         SpinePath(("RELATES_TO",), sequence=False, min_hops=1, max_hops=1),
@@ -276,7 +292,9 @@ def test_inference_rules_resolve_groups_to_labels(shipped: Ontology) -> None:
     assert shipped.cue_gated_rules("DEPENDS_ON") == frozenset({"INF-XDOC-01"})
 
 
-def test_dependency_cues_of_the_shipped_ontology_match_whole_words(shipped: Ontology) -> None:
+def test_dependency_cues_of_the_shipped_ontology_match_whole_words(
+    shipped: Ontology,
+) -> None:
     for text in (
         "A refund requires a cancelled order.",
         "Refunds require order cancellation.",
@@ -301,7 +319,15 @@ def test_spine_and_hubs_of_the_shipped_ontology(shipped: Ontology) -> None:
     assert shipped.spine.sources == frozenset(REQUIREMENT_LABELS)
     assert shipped.spine_exclude() == {"in_scope": frozenset({"no"})}
     assert shipped.spine_relations == frozenset(
-        {"PART_OF", "PROVIDED_BY", "CONSUMED_BY", "STORED_IN", "GROUPED_BY", "REALIZED_BY", "RELATES_TO"}
+        {
+            "PART_OF",
+            "PROVIDED_BY",
+            "CONSUMED_BY",
+            "STORED_IN",
+            "GROUPED_BY",
+            "REALIZED_BY",
+            "RELATES_TO",
+        }
     )
     assert shipped.hub_labels == frozenset({"Module", "Feature", "Capability", "Interface", "DataEntity"})
     assert len(shipped.spine.paths) == 7
@@ -318,7 +344,12 @@ PART_OF_PAIRS = "edge_types.PART_OF.pairs"
 FR_TO_MODULE = f"{PART_OF_PAIRS}.1"  # functional_requirement -> module
 FEATURE_TO_MODULE = f"{PART_OF_PAIRS}.7"
 MODULE_TO_MODULE = f"{PART_OF_PAIRS}.9"
-CONFORM = {"judge_prompt": "judge_endpoints.2", "cap": 10, "floor": 0.5, "fallback_relation": "RELATES_TO"}
+CONFORM = {
+    "judge_prompt": "judge_endpoints.2",
+    "cap": 10,
+    "floor": 0.5,
+    "fallback_relation": "RELATES_TO",
+}
 
 
 def owner_pairs(d: dict[str, Any]) -> None:
@@ -337,7 +368,13 @@ V2_BAD_FILES = [
         id="check3-attribute-default-value",
     ),
     pytest.param(
-        [lambda d: put(d, "node_groups.requirement.attributes.acceptance_criteria.default", "none")],
+        [
+            lambda d: put(
+                d,
+                "node_groups.requirement.attributes.acceptance_criteria.default",
+                "none",
+            )
+        ],
         "acceptance_criteria.default",
         "not allowed for a 'text' attribute",
         id="check1-attribute-default-on-text",
@@ -351,14 +388,24 @@ V2_BAD_FILES = [
     pytest.param(
         [
             owner_pairs,
-            lambda d: put(d, "node_groups.requirement.attributes.acceptance_criteria.inherit", {"via": "NOPE"}),
+            lambda d: put(
+                d,
+                "node_groups.requirement.attributes.acceptance_criteria.inherit",
+                {"via": "NOPE"},
+            ),
         ],
         "node_groups.requirement.attributes.acceptance_criteria.inherit.via",
         "'NOPE' is not a declared relation",
         id="check3-inherit-relation",
     ),
     pytest.param(
-        [lambda d: put(d, "node_groups.requirement.attributes.acceptance_criteria.inherit", {"via": "PART_OF"})],
+        [
+            lambda d: put(
+                d,
+                "node_groups.requirement.attributes.acceptance_criteria.inherit",
+                {"via": "PART_OF"},
+            )
+        ],
         "node_groups.requirement.attributes.acceptance_criteria.inherit.via",
         "'PART_OF' is not the relation of an owner pair of BusinessRule",
         id="check13-inherit-without-owner-pair",
@@ -482,8 +529,16 @@ V2_BAD_FILES = [
     pytest.param(
         [
             lambda d: put(d, f"{MODULE_TO_MODULE}.default", value=True),
-            lambda d: put(d, f"{MODULE_TO_MODULE}.target_where", {"type": ["backend", "deployment"]}),
-            lambda d: put(d, "edge_types.INTEGRATES_WITH.pairs.0.target_where", {"type": ["backend"]}),
+            lambda d: put(
+                d,
+                f"{MODULE_TO_MODULE}.target_where",
+                {"type": ["backend", "deployment"]},
+            ),
+            lambda d: put(
+                d,
+                "edge_types.INTEGRATES_WITH.pairs.0.target_where",
+                {"type": ["backend"]},
+            ),
         ],
         "edge_types.PART_OF.pairs[9]: pair Module -> Module already has default relation INTEGRATES_WITH",
         "with a where condition that is not disjoint",
@@ -523,7 +578,11 @@ V2_BAD_FILES = [
     pytest.param(
         [
             lambda d: put(d, "edge_types.GROUPED_BY.stated_only", value=True),
-            lambda d: put(d, "edge_types.GROUPED_BY.derive_via", {"consumer": "PART_OF", "provider": "PART_OF"}),
+            lambda d: put(
+                d,
+                "edge_types.GROUPED_BY.derive_via",
+                {"consumer": "PART_OF", "provider": "PART_OF"},
+            ),
         ],
         "edge_types.GROUPED_BY",
         "a stated_only relation may not have derive_via",
@@ -532,7 +591,9 @@ V2_BAD_FILES = [
     pytest.param(
         [
             lambda d: put(
-                d, "edge_types.INTEGRATES_WITH.derive_via", {"consumer": "REALIZED_BY", "provider": "REALIZED_BY"}
+                d,
+                "edge_types.INTEGRATES_WITH.derive_via",
+                {"consumer": "REALIZED_BY", "provider": "REALIZED_BY"},
             ),
             lambda d: put(d, "edge_types.INTEGRATES_WITH.acyclic", value=True),
         ],
@@ -543,7 +604,9 @@ V2_BAD_FILES = [
     pytest.param(
         [
             lambda d: put(
-                d, "edge_types.INTEGRATES_WITH.derive_via", {"consumer": "REALIZED_BY", "provider": "REALIZED_BY"}
+                d,
+                "edge_types.INTEGRATES_WITH.derive_via",
+                {"consumer": "REALIZED_BY", "provider": "REALIZED_BY"},
             ),
             lambda d: put(d, "edge_types.INTEGRATES_WITH.pairs.0.exclusive", value=True),
         ],
@@ -562,7 +625,13 @@ V2_BAD_FILES = [
         id="check14-fallback-where",
     ),
     pytest.param(
-        [lambda d: put(d, "edge_types.INTEGRATES_WITH.derive_via", {"consumer": "NOPE", "provider": "REALIZED_BY"})],
+        [
+            lambda d: put(
+                d,
+                "edge_types.INTEGRATES_WITH.derive_via",
+                {"consumer": "NOPE", "provider": "REALIZED_BY"},
+            )
+        ],
         "edge_types.INTEGRATES_WITH.derive_via.consumer",
         "'NOPE' is not a declared relation",
         id="check3-derive-via-relation",
@@ -570,7 +639,9 @@ V2_BAD_FILES = [
     pytest.param(
         [
             lambda d: put(
-                d, "edge_types.INTEGRATES_WITH.derive_via", {"consumer": "GROUPED_BY", "provider": "REALIZED_BY"}
+                d,
+                "edge_types.INTEGRATES_WITH.derive_via",
+                {"consumer": "GROUPED_BY", "provider": "REALIZED_BY"},
             )
         ],
         "edge_types.INTEGRATES_WITH.derive_via",
@@ -578,26 +649,50 @@ V2_BAD_FILES = [
         id="check13-derive-via-no-hub",
     ),
     pytest.param(
-        [lambda d: put(d, "edge_types.INTEGRATES_WITH.derive_via", {"consumer": "PART_OF", "provider": "PART_OF"})],
+        [
+            lambda d: put(
+                d,
+                "edge_types.INTEGRATES_WITH.derive_via",
+                {"consumer": "PART_OF", "provider": "PART_OF"},
+            )
+        ],
         "edge_types.INTEGRATES_WITH.derive_via",
         "derive_via yields Feature -> Feature",
         id="check13-derive-via-illegal",
     ),
     # Node types: supported_by, merge_across_labels
     pytest.param(
-        [lambda d: put(d, "node_types.capability.supported_by", [{"relation": "NOPE", "direction": "in"}])],
+        [
+            lambda d: put(
+                d,
+                "node_types.capability.supported_by",
+                [{"relation": "NOPE", "direction": "in"}],
+            )
+        ],
         "node_types.capability.supported_by[0]",
         "'NOPE' is not a declared relation",
         id="check3-supported-by-relation",
     ),
     pytest.param(
-        [lambda d: put(d, "node_types.capability.supported_by", [{"relation": "PART_OF", "direction": "in"}])],
+        [
+            lambda d: put(
+                d,
+                "node_types.capability.supported_by",
+                [{"relation": "PART_OF", "direction": "in"}],
+            )
+        ],
         "node_types.capability.supported_by[0]",
         "PART_OF has no pair to Capability",
         id="check3-supported-by-end",
     ),
     pytest.param(
-        [lambda d: put(d, "node_types.capability.supported_by", [{"relation": "PART_OF", "direction": "up"}])],
+        [
+            lambda d: put(
+                d,
+                "node_types.capability.supported_by",
+                [{"relation": "PART_OF", "direction": "up"}],
+            )
+        ],
         "node_types.capability.supported_by.0.direction",
         "Input should be 'in' or 'out'",
         id="check1-supported-by-direction",
@@ -635,13 +730,22 @@ V2_BAD_FILES = [
         id="check7-conform-judge-prompt",
     ),
     pytest.param(
-        [lambda d: put(d, "conform", {key: value for key, value in CONFORM.items() if key != "cap"})],
+        [
+            lambda d: put(
+                d,
+                "conform",
+                {key: value for key, value in CONFORM.items() if key != "cap"},
+            )
+        ],
         "conform.cap",
         "required field missing",
         id="check1-conform-cap",
     ),
     pytest.param(
-        [owner_pairs, lambda d: put(d, "conform", {**CONFORM, "fallback_relation": "NOPE"})],
+        [
+            owner_pairs,
+            lambda d: put(d, "conform", {**CONFORM, "fallback_relation": "NOPE"}),
+        ],
         "conform.fallback_relation",
         "'NOPE' is not a declared relation",
         id="check3-conform-fallback-relation",
@@ -664,7 +768,11 @@ V2_BAD_FILES = [
     ),
     pytest.param(
         [
-            lambda d: put(d, "node_groups.requirement.attributes.is_assumption.inherit", {"via": "PART_OF"}),
+            lambda d: put(
+                d,
+                "node_groups.requirement.attributes.is_assumption.inherit",
+                {"via": "PART_OF"},
+            ),
             lambda d: put(d, "node_groups.requirement.attributes.is_assumption.default", "no"),
             owner_pairs,
         ],
@@ -769,7 +877,11 @@ def xdoc(**changes: Any) -> Callable[[dict[str, Any]], None]:
         "also_writes": ["PART_OF"],
         **changes,
     }
-    return lambda d: add(d, "inference.rules", {key: value for key, value in rule.items() if value is not None})
+    return lambda d: add(
+        d,
+        "inference.rules",
+        {key: value for key, value in rule.items() if value is not None},
+    )
 
 
 def depends_on(*cues: str) -> Callable[[dict[str, Any]], None]:
@@ -798,7 +910,10 @@ def answered(**changes: Any) -> list[Callable[[dict[str, Any]], None]]:
         "cap": 60,
         **changes,
     }
-    return [owner_pairs, lambda d: put(d, "conform", {**CONFORM, "answered_elsewhere": block})]
+    return [
+        owner_pairs,
+        lambda d: put(d, "conform", {**CONFORM, "answered_elsewhere": block}),
+    ]
 
 
 PKG4_BAD_FILES = [
@@ -1190,13 +1305,25 @@ BAD_FILES = [
         id="check2-relation-pattern",
     ),
     pytest.param(
-        [lambda d: put(d, "node_types.module.attributes.Bad-Name", {"type": "text", "max_chars": 5})],
+        [
+            lambda d: put(
+                d,
+                "node_types.module.attributes.Bad-Name",
+                {"type": "text", "max_chars": 5},
+            )
+        ],
         "attributes.Bad-Name",
         "must match",
         id="check2-attribute-pattern",
     ),
     pytest.param(
-        [lambda d: put(d, "node_types.module.attributes.spec_id", {"type": "text", "max_chars": 5})],
+        [
+            lambda d: put(
+                d,
+                "node_types.module.attributes.spec_id",
+                {"type": "text", "max_chars": 5},
+            )
+        ],
         "attributes.spec_id",
         "reserved property name",
         id="check2-reserved-attribute",
@@ -1463,7 +1590,10 @@ BAD_FILES = [
 
 @pytest.mark.parametrize(("edits", "where", "message"), BAD_FILES)
 def test_each_validation_check_rejects_its_bad_file(
-    tmp_path: Path, edits: list[Callable[[dict[str, Any]], None]], where: str, message: str
+    tmp_path: Path,
+    edits: list[Callable[[dict[str, Any]], None]],
+    where: str,
+    message: str,
 ) -> None:
     path = write_ontology(tmp_path, mutated(*edits))
     problems = load_problems(path)
@@ -1519,7 +1649,9 @@ def checks_reported(problems: Sequence[str]) -> set[int]:
     return {number for problem in problems for number, pattern in CHECK_PROBLEMS.items() if pattern.search(problem)}
 
 
-def test_the_bad_files_cover_every_check_by_the_problems_they_raise(tmp_path: Path) -> None:
+def test_the_bad_files_cover_every_check_by_the_problems_they_raise(
+    tmp_path: Path,
+) -> None:
     """Coverage by actual problem text: each bad file reports a problem of the check it is filed under,
     and the problems of all bad files together cover checks 1-16."""
 
@@ -1540,12 +1672,17 @@ def test_problems_name_the_file(tmp_path: Path) -> None:
     assert all(str(path) in problem for problem in load_problems(path))
 
 
-def test_invalid_yaml_and_duplicate_keys_and_non_mappings_are_reported(tmp_path: Path) -> None:
+def test_invalid_yaml_and_duplicate_keys_and_non_mappings_are_reported(
+    tmp_path: Path,
+) -> None:
     text = SHIPPED_FILE.read_text(encoding="utf-8")
     duplicate = text.replace("name: spec-ontology", "name: spec-ontology\nname: again", 1)
     assert has_problem(load_problems(write_ontology(tmp_path / "dup", duplicate)), "duplicate key")
     assert has_problem(load_problems(write_ontology(tmp_path / "bad", "a: [unclosed")), "invalid YAML")
-    assert has_problem(load_problems(write_ontology(tmp_path / "list", "- a\n- b\n")), "must be a mapping")
+    assert has_problem(
+        load_problems(write_ontology(tmp_path / "list", "- a\n- b\n")),
+        "must be a mapping",
+    )
     missing = tmp_path / "missing" / "ontology.yaml"
     assert has_problem(load_problems(missing), "cannot read the file")
 
@@ -1566,7 +1703,9 @@ def test_one_missing_judge_prompt_names_only_that_rule(tmp_path: Path) -> None:
     assert has_problem(problems, "inference.rules[1].prompt", "judge_realization.1.md not found")
 
 
-def test_a_rule_floor_of_any_template_overrides_the_inference_floor_for_that_rule(tmp_path: Path) -> None:
+def test_a_rule_floor_of_any_template_overrides_the_inference_floor_for_that_rule(
+    tmp_path: Path,
+) -> None:
     data = mutated(lambda d: put(d, "inference.rules.0.floor", 0.9), xdoc(floor=0.0))
     loaded = load_ontology(write_ontology(tmp_path, data), submodule_files=[])
     first, *_, last = loaded.inference.rules
@@ -1602,7 +1741,10 @@ def test_inference_limits_by_mode_reads_and_batch_load(tmp_path: Path) -> None:
         for problem in load_problems(write_ontology(tmp_path / "endpoints", endpoints_batch))
     )
     path = write_ontology(tmp_path, data)
-    shutil.copy(SHIPPED_PROMPTS / "judge_attach_orphan_batch.3.md", path.parent / "judge_prompts")
+    shutil.copy(
+        SHIPPED_PROMPTS / "judge_attach_orphan_batch.3.md",
+        path.parent / "judge_prompts",
+    )
     loaded = load_ontology(path, submodule_files=[])
     spec = loaded.inference
     endpoints, realization, orphan, cross = spec.rules
@@ -1610,12 +1752,20 @@ def test_inference_limits_by_mode_reads_and_batch_load(tmp_path: Path) -> None:
     # A rule's first_cap overrides the ontology's, and never takes a rule below its cap.
     assert (endpoints.first_cap, spec.first_cap_of(endpoints)) == (7, 50)
     assert (realization.first_cap, spec.first_cap_of(realization)) == (None, 400)
-    assert (cross.cap, cross.first_cap, spec.cap_of(cross), spec.first_cap_of(cross)) == (2, 900, 2, 900)
+    assert (
+        cross.cap,
+        cross.first_cap,
+        spec.cap_of(cross),
+        spec.first_cap_of(cross),
+    ) == (2, 900, 2, 900)
     assert realization.reads == ("INF-INT-01",) and spec.reads_of(realization) == (endpoints,)
     assert [rule.reads for rule in (endpoints, orphan, cross)] == [(), (), ()]
     assert spec.reads_of(orphan) == ()
     assert orphan.batch == 6 and [rule.batch for rule in (endpoints, realization, cross)] == [None, None, None]
-    assert (orphan.batch_prompt, endpoints.batch_prompt) == ("judge_attach_orphan_batch.3", None)
+    assert (orphan.batch_prompt, endpoints.batch_prompt) == (
+        "judge_attach_orphan_batch.3",
+        None,
+    )
     assert orphan.batch_prompt in loaded.judge_prompts
 
 
@@ -1627,7 +1777,10 @@ def test_reads_may_name_several_earlier_rules_in_any_order(tmp_path: Path) -> No
     loaded = load_ontology(write_ontology(tmp_path, data), submodule_files=[])
     last = loaded.inference.rules[-1]
     assert last.reads == ("INF-CONT-01", "INF-INT-01")
-    assert [rule.id for rule in loaded.inference.reads_of(last)] == ["INF-CONT-01", "INF-INT-01"]
+    assert [rule.id for rule in loaded.inference.reads_of(last)] == [
+        "INF-CONT-01",
+        "INF-INT-01",
+    ]
 
 
 def test_without_first_cap_and_first_budget_a_first_build_keeps_the_cap() -> None:
@@ -1678,7 +1831,11 @@ def test_all_problems_come_back_in_one_ontology_error(tmp_path: Path) -> None:
         ("edge_types.RELATES_TO.pairs[0]", "exclusive"),
     ]
     for where, message in expected:
-        assert has_problem(error.problems, where, message), (where, message, error.problems)
+        assert has_problem(error.problems, where, message), (
+            where,
+            message,
+            error.problems,
+        )
     text = str(error)
     assert all(problem in text for problem in error.problems)
 
@@ -1749,7 +1906,9 @@ def test_build_relation_to_fragment_fails(tmp_path: Path) -> None:
     assert has_problem(problems, "built-in label 'Fragment'", "another owner than build")
 
 
-def test_gap_relation_to_a_built_in_label_other_than_evidence_fails(tmp_path: Path) -> None:
+def test_gap_relation_to_a_built_in_label_other_than_evidence_fails(
+    tmp_path: Path,
+) -> None:
     data = copy.deepcopy(GAP_FILE)
     data["edge_types"]["CITES"]["pairs"] = [{"from": "finding", "to": "SpecNode"}]
     problems = load_problems(None, [write_ontology(tmp_path / "gap", data)])
@@ -1780,7 +1939,11 @@ def test_submodule_file_may_not_declare_build_only_sections(tmp_path: Path, sect
 
 def test_names_stay_unique_across_files(tmp_path: Path) -> None:
     data = copy.deepcopy(GAP_FILE)
-    data["node_types"]["module"] = {"label": "Module", "origin": "analysis", "tier": "context"}
+    data["node_types"]["module"] = {
+        "label": "Module",
+        "origin": "analysis",
+        "tier": "context",
+    }
     data["node_types"]["finding"]["label"] = "Feature"
     data["edge_types"]["PART_OF"] = {
         "origin": "analysis",
@@ -1800,7 +1963,9 @@ def test_a_relation_may_not_share_its_name_with_a_label(tmp_path: Path) -> None:
     assert has_problem(problems, "edge_types.Finding", "may not share its name with a label")
 
 
-def test_vocabularies_and_groups_are_shared_by_name_across_files(tmp_path: Path) -> None:
+def test_vocabularies_and_groups_are_shared_by_name_across_files(
+    tmp_path: Path,
+) -> None:
     same = copy.deepcopy(GAP_FILE)
     same["vocabularies"] = copy.deepcopy(SHIPPED_DATA["vocabularies"])
     same["node_groups"] = {"requirement": copy.deepcopy(SHIPPED_DATA["node_groups"]["requirement"])}
@@ -1819,7 +1984,10 @@ def test_cross_file_problems_are_reported_together(tmp_path: Path) -> None:
     data["node_types"]["finding"]["origin"] = "extracted"
     data["edge_types"]["CITES"]["pairs"] = [{"from": "finding", "to": "nowhere"}]
     build = mutated(lambda d: put(d, "node_types.module.colour", "red"))
-    problems = load_problems(write_ontology(tmp_path / "build", build), [write_ontology(tmp_path / "gap", data)])
+    problems = load_problems(
+        write_ontology(tmp_path / "build", build),
+        [write_ontology(tmp_path / "gap", data)],
+    )
     assert has_problem(problems, "colour", "unknown key")
     assert has_problem(problems, "origin", "is not owned by owner 'gap'")
     assert has_problem(problems, "'nowhere' is not a declared node type or group")
@@ -1840,10 +2008,20 @@ PLAIN_LINE = ["The checkout service calls the payment service."]
 LEGALISE_TABLE = [
     # a legal pair is kept
     pytest.param(
-        "PART_OF", "FunctionalRequirement", "Feature", PLAIN_LINE, Legalised("PART_OF", flipped=False), id="keep"
+        "PART_OF",
+        "FunctionalRequirement",
+        "Feature",
+        PLAIN_LINE,
+        Legalised("PART_OF", flipped=False),
+        id="keep",
     ),
     pytest.param(
-        "GROUPED_BY", "Feature", "Capability", PLAIN_LINE, Legalised("GROUPED_BY", flipped=False), id="keep-group"
+        "GROUPED_BY",
+        "Feature",
+        "Capability",
+        PLAIN_LINE,
+        Legalised("GROUPED_BY", flipped=False),
+        id="keep-group",
     ),
     pytest.param(
         "RELATES_TO",
@@ -1871,10 +2049,20 @@ LEGALISE_TABLE = [
         id="flip-feature-part-of-rule",
     ),
     pytest.param(
-        "GROUPED_BY", "Capability", "Feature", PLAIN_LINE, Legalised("GROUPED_BY", flipped=True), id="flip-grouped-by"
+        "GROUPED_BY",
+        "Capability",
+        "Feature",
+        PLAIN_LINE,
+        Legalised("GROUPED_BY", flipped=True),
+        id="flip-grouped-by",
     ),
     pytest.param(
-        "REALIZED_BY", "Module", "Capability", PLAIN_LINE, Legalised("REALIZED_BY", flipped=True), id="flip-realized-by"
+        "REALIZED_BY",
+        "Module",
+        "Capability",
+        PLAIN_LINE,
+        Legalised("REALIZED_BY", flipped=True),
+        id="flip-realized-by",
     ),
     # a symmetric relation is never flipped, either order
     pytest.param(
@@ -1895,14 +2083,29 @@ LEGALISE_TABLE = [
     ),
     # a wrong relation on a pair with a default becomes the default
     pytest.param(
-        "REALIZED_BY", "Module", "Module", PLAIN_LINE, Legalised("INTEGRATES_WITH", flipped=False), id="pair-default"
+        "REALIZED_BY",
+        "Module",
+        "Module",
+        PLAIN_LINE,
+        Legalised("INTEGRATES_WITH", flipped=False),
+        id="pair-default",
     ),
     pytest.param(
-        "GROUPED_BY", "Module", "Module", [], Legalised("INTEGRATES_WITH", flipped=False), id="pair-default-no-evidence"
+        "GROUPED_BY",
+        "Module",
+        "Module",
+        [],
+        Legalised("INTEGRATES_WITH", flipped=False),
+        id="pair-default-no-evidence",
     ),
     # an unknown relation on a pair with a default becomes the default
     pytest.param(
-        "CALLS", "Module", "Module", PLAIN_LINE, Legalised("INTEGRATES_WITH", flipped=False), id="unknown-then-default"
+        "CALLS",
+        "Module",
+        "Module",
+        PLAIN_LINE,
+        Legalised("INTEGRATES_WITH", flipped=False),
+        id="unknown-then-default",
     ),
     pytest.param(
         "INTEGRATES_WITH",
@@ -1913,7 +2116,14 @@ LEGALISE_TABLE = [
         id="default-kept",
     ),
     # cue_required: PART_OF between modules needs a cue in the evidence
-    pytest.param("PART_OF", "Module", "Module", CUE_LINE, Legalised("PART_OF", flipped=False), id="cue-matches"),
+    pytest.param(
+        "PART_OF",
+        "Module",
+        "Module",
+        CUE_LINE,
+        Legalised("PART_OF", flipped=False),
+        id="cue-matches",
+    ),
     pytest.param(
         "PART_OF",
         "Module",
@@ -1965,28 +2175,70 @@ LEGALISE_TABLE = [
         id="requirement-entity-default",
     ),
     pytest.param(
-        "PART_OF", "DataRequirement", "DataEntity", PLAIN_LINE, Legalised("PART_OF", flipped=False), id="data-kept"
+        "PART_OF",
+        "DataRequirement",
+        "DataEntity",
+        PLAIN_LINE,
+        Legalised("PART_OF", flipped=False),
+        id="data-kept",
     ),
     pytest.param(
-        "DEPENDS_ON", "FunctionalRequirement", "Feature", PLAIN_LINE, Dropped("illegal_pair"), id="default-from-only"
+        "DEPENDS_ON",
+        "FunctionalRequirement",
+        "Feature",
+        PLAIN_LINE,
+        Dropped("illegal_pair"),
+        id="default-from-only",
     ),
     pytest.param(
-        "REALIZED_BY", "BusinessRule", "Feature", PLAIN_LINE, Dropped("illegal_pair"), id="default-from-realized-by"
+        "REALIZED_BY",
+        "BusinessRule",
+        "Feature",
+        PLAIN_LINE,
+        Dropped("illegal_pair"),
+        id="default-from-realized-by",
     ),
     pytest.param(
-        "GROUPED_BY", "FunctionalRequirement", "DataEntity", PLAIN_LINE, Dropped("illegal_pair"), id="entity-from-only"
+        "GROUPED_BY",
+        "FunctionalRequirement",
+        "DataEntity",
+        PLAIN_LINE,
+        Dropped("illegal_pair"),
+        id="entity-from-only",
     ),
     pytest.param(
-        "GROUPED_BY", "IntegrationRequirement", "Feature", PLAIN_LINE, Dropped("illegal_pair"), id="no-int-default"
+        "GROUPED_BY",
+        "IntegrationRequirement",
+        "Feature",
+        PLAIN_LINE,
+        Dropped("illegal_pair"),
+        id="no-int-default",
     ),
     pytest.param(
-        "RELATES_TO", "Feature", "FunctionalRequirement", PLAIN_LINE, Dropped("illegal_pair"), id="no-reverse-default"
+        "RELATES_TO",
+        "Feature",
+        "FunctionalRequirement",
+        PLAIN_LINE,
+        Dropped("illegal_pair"),
+        id="no-reverse-default",
     ),
     # illegal and unknown are dropped
     pytest.param(
-        "REALIZED_BY", "IntegrationRequirement", "Feature", PLAIN_LINE, Dropped("illegal_pair"), id="illegal-pair"
+        "REALIZED_BY",
+        "IntegrationRequirement",
+        "Feature",
+        PLAIN_LINE,
+        Dropped("illegal_pair"),
+        id="illegal-pair",
     ),
-    pytest.param("RELATES_TO", "Feature", "Feature", PLAIN_LINE, Dropped("illegal_pair"), id="illegal-symmetric"),
+    pytest.param(
+        "RELATES_TO",
+        "Feature",
+        "Feature",
+        PLAIN_LINE,
+        Dropped("illegal_pair"),
+        id="illegal-symmetric",
+    ),
     pytest.param(
         "RELATES_TO",
         "FunctionalRequirement",
@@ -1995,12 +2247,38 @@ LEGALISE_TABLE = [
         Legalised("RELATES_TO", flipped=False),
         id="symmetric-requirement-module",
     ),
-    pytest.param("PART_OF", "Capability", "Capability", PLAIN_LINE, Dropped("illegal_pair"), id="illegal-same-label"),
-    pytest.param("CALLS", "Feature", "Capability", PLAIN_LINE, Dropped("unknown_relation"), id="unknown-relation"),
     pytest.param(
-        "SpecNode", "Feature", "Module", PLAIN_LINE, Dropped("unknown_relation"), id="built-in-name-is-unknown"
+        "PART_OF",
+        "Capability",
+        "Capability",
+        PLAIN_LINE,
+        Dropped("illegal_pair"),
+        id="illegal-same-label",
     ),
-    pytest.param("PART_OF", "Nowhere", "Module", PLAIN_LINE, Dropped("illegal_pair"), id="unknown-label"),
+    pytest.param(
+        "CALLS",
+        "Feature",
+        "Capability",
+        PLAIN_LINE,
+        Dropped("unknown_relation"),
+        id="unknown-relation",
+    ),
+    pytest.param(
+        "SpecNode",
+        "Feature",
+        "Module",
+        PLAIN_LINE,
+        Dropped("unknown_relation"),
+        id="built-in-name-is-unknown",
+    ),
+    pytest.param(
+        "PART_OF",
+        "Nowhere",
+        "Module",
+        PLAIN_LINE,
+        Dropped("illegal_pair"),
+        id="unknown-label",
+    ),
 ]
 
 
@@ -2026,7 +2304,9 @@ def test_legalise_cue_missing_when_the_pair_has_no_default(tmp_path: Path) -> No
     assert loaded.legalise("REALIZED_BY", "Module", "Module", PLAIN_LINE) == Dropped("illegal_pair")
 
 
-def test_legalise_flips_a_reversed_cue_required_pair_only_with_a_cue(tmp_path: Path) -> None:
+def test_legalise_flips_a_reversed_cue_required_pair_only_with_a_cue(
+    tmp_path: Path,
+) -> None:
     """The reversed pair is the one that needs the cue; a missing cue drops the edge."""
 
     data = mutated(lambda d: put(d, "edge_types.PART_OF.pairs.1.cue_required", value=True))
@@ -2063,14 +2343,22 @@ def test_pair_helpers(shipped: Ontology) -> None:
     assert not shipped.is_legal("PART_OF", "Module", "Feature")
     assert shipped.is_legal("PART_OF", "Module", "Module")  # cues are not considered
     assert shipped.default_relation("Module", "Module") == "INTEGRATES_WITH"
-    assert shipped.default_relations("Module", "Module") == ("INTEGRATES_WITH", "DEPLOYED_TO")
+    assert shipped.default_relations("Module", "Module") == (
+        "INTEGRATES_WITH",
+        "DEPLOYED_TO",
+    )
     assert shipped.default_relation("Feature", "Module") is None
     assert shipped.is_symmetric("RELATES_TO")
     assert not shipped.is_symmetric("PART_OF")
     assert shipped.exclusive_pairs == frozenset(
         {("PART_OF", "Module", "Module"), ("PROVIDED_BY", "Interface", "Module")}
     )
-    for label in ("FunctionalRequirement", "QualityRequirement", "Constraint", "BusinessRule"):
+    for label in (
+        "FunctionalRequirement",
+        "QualityRequirement",
+        "Constraint",
+        "BusinessRule",
+    ):
         assert [(pair.relation, pair.target, pair.owner_rank) for pair in shipped.owner_pairs(label)] == [
             ("PART_OF", "Feature", 1),
             ("PART_OF", "Module", 2),
@@ -2103,7 +2391,11 @@ def test_derive_rules_resolve_to_labels(shipped: Ontology) -> None:
     assert not shipped.attribute_specs("Interface")["provider"].store
     part_of_sources = set().union(*(rule.source_labels for rule in by_relation["PART_OF"]))
     assert part_of_sources == {"Feature", *REQUIREMENT_LABELS}
-    assert {rule.attribute for rule in by_relation["PART_OF"]} == {"module", "interface", "entity"}
+    assert {rule.attribute for rule in by_relation["PART_OF"]} == {
+        "module",
+        "interface",
+        "entity",
+    }
     assert {rule.target_labels for rule in by_relation["PART_OF"]} == {
         frozenset({"Module"}),
         frozenset({"Interface"}),
@@ -2171,18 +2463,24 @@ def test_normalise_attribute_cuts_text_to_max_chars(shipped: Ontology, label: st
     assert shipped.normalise_attribute(label, "quote", "y" * 300) == "y" * 300
 
 
-def test_normalise_attribute_cuts_at_each_attributes_own_limit(shipped: Ontology) -> None:
+def test_normalise_attribute_cuts_at_each_attributes_own_limit(
+    shipped: Ontology,
+) -> None:
     assert len(shipped.normalise_attribute("FunctionalRequirement", "stmt", "s" * 900) or "") == 600
     assert len(shipped.normalise_attribute("FunctionalRequirement", "acceptance_criteria", "a" * 2000) or "") == 1200
 
 
-def test_normalise_attribute_for_an_unknown_label_is_a_conformance_error(shipped: Ontology) -> None:
+def test_normalise_attribute_for_an_unknown_label_is_a_conformance_error(
+    shipped: Ontology,
+) -> None:
     with pytest.raises(ConformanceError) as raised:
         shipped.normalise_attribute("Nowhere", "stmt", "x")
     assert raised.value.code == "ontology_unknown_label"
 
 
-def test_attribute_specs_resolve_vocabularies_and_group_inheritance(shipped: Ontology) -> None:
+def test_attribute_specs_resolve_vocabularies_and_group_inheritance(
+    shipped: Ontology,
+) -> None:
     status = shipped.attribute_specs("Constraint")["source_status"]
     assert status.kind == "enum"
     assert status.values == ("stated", "implied")
@@ -2192,19 +2490,46 @@ def test_attribute_specs_resolve_vocabularies_and_group_inheritance(shipped: Ont
     assert yes_no.values == ("yes", "no")
     assert dict(yes_no.value_descriptions) == {}
     module_type = shipped.attribute_specs("Module")["type"]
-    assert module_type.values == ("frontend", "backend", "datastore", "deployment", "other")
+    assert module_type.values == (
+        "frontend",
+        "backend",
+        "datastore",
+        "deployment",
+        "other",
+    )
     assert dict(module_type.value_descriptions)["datastore"].startswith("a database")
     ref = shipped.attribute_specs("Feature")["module"]
-    assert (ref.kind, ref.target_labels, ref.store) == ("ref", frozenset({"Module"}), False)
-    group = {"stmt", "quote", "acceptance_criteria", "source_status", "is_assumption", "release", "in_scope"}
-    refs = {"IntegrationRequirement": {"module", "interface"}, "DataRequirement": {"entity"}}
+    assert (ref.kind, ref.target_labels, ref.store) == (
+        "ref",
+        frozenset({"Module"}),
+        False,
+    )
+    group = {
+        "stmt",
+        "quote",
+        "acceptance_criteria",
+        "source_status",
+        "is_assumption",
+        "release",
+        "in_scope",
+    }
+    refs = {
+        "IntegrationRequirement": {"module", "interface"},
+        "DataRequirement": {"entity"},
+    }
     for label in REQUIREMENT_LABELS:
         assert set(shipped.attribute_specs(label)) == group | refs.get(label, {"module"})
     in_scope = shipped.attribute_specs("FunctionalRequirement")["in_scope"]
     assert (in_scope.values, in_scope.default) == (("yes", "no"), "yes")
     assert shipped.inherit_rules("FunctionalRequirement") == {"release": "PART_OF"}
     assert shipped.inherit_rules("Feature") == {}
-    assert shipped.attribute_specs("Interface")["kind"].values == ("api", "event", "queue", "file", "other")
+    assert shipped.attribute_specs("Interface")["kind"].values == (
+        "api",
+        "event",
+        "queue",
+        "file",
+        "other",
+    )
     assert (
         set(shipped.attribute_specs("DataEntity"))
         == set(shipped.attribute_specs("OpenQuestion"))
@@ -2221,7 +2546,12 @@ def test_attribute_output_model_has_optional_string_fields(shipped: Ontology) ->
     assert "quote" in shipped.attribute_specs("Module")
     model = shipped.attribute_output_model("Module")
     assert set(model.model_fields) == {"stmt", "external", "type", "in_scope"}
-    assert model().model_dump() == {"stmt": None, "external": None, "type": None, "in_scope": None}
+    assert model().model_dump() == {
+        "stmt": None,
+        "external": None,
+        "type": None,
+        "in_scope": None,
+    }
     assert model.model_validate({"type": "db"}).type == "db"  # normalised afterwards
     assert "One of:" in (model.model_fields["type"].description or "")
     assert "datastore: a database" in (model.model_fields["type"].description or "")
@@ -2288,7 +2618,9 @@ def test_id_prefix(shipped: Ontology, label: str, prefix: str) -> None:
     assert shipped.node_type(label).id_format == f"{prefix}{{SLUG}}"
 
 
-def test_id_prefixes_are_unique_and_none_is_a_prefix_of_another(shipped: Ontology) -> None:
+def test_id_prefixes_are_unique_and_none_is_a_prefix_of_another(
+    shipped: Ontology,
+) -> None:
     prefixes = [shipped.id_prefix(label) for label in shipped.labels]
     assert len(set(prefixes)) == len(prefixes)
     assert not [a for a in prefixes for b in prefixes if a != b and b.startswith(a)]
@@ -2336,7 +2668,9 @@ def test_new_types_of_the_shipped_ontology(shipped: Ontology) -> None:
     assert shipped.derive_via_rules()[0].relation == "INTEGRATES_WITH"
 
 
-def test_requirement_scope_is_shared_by_the_requirement_types(shipped: Ontology) -> None:
+def test_requirement_scope_is_shared_by_the_requirement_types(
+    shipped: Ontology,
+) -> None:
     scopes = {shipped.requirement_scope(label) for label in REQUIREMENT_LABELS}
     assert scopes == {"requirement"}
     assert shipped.requirement_scope("Module") == "Module"
@@ -2356,7 +2690,11 @@ def test_identity_defaults_follow_the_role(tmp_path: Path) -> None:
         put(d, "node_types.module.identity", {"key": "id", "scope": "group"})
 
     loaded_problems = load_problems(write_ontology(tmp_path, mutated(unset)))
-    assert has_problem(loaded_problems, "node_types.module.identity.scope", "scope 'group' needs a group")
+    assert has_problem(
+        loaded_problems,
+        "node_types.module.identity.scope",
+        "scope 'group' needs a group",
+    )
 
     def fine(d: dict[str, Any]) -> None:
         drop(d, "node_groups.requirement.identity")
@@ -2382,7 +2720,9 @@ def test_owner_of_and_is_declared(shipped: Ontology) -> None:
     assert shipped.is_declared("RELATES_TO")
 
 
-def test_node_type_and_relation_lookups_raise_for_unknown_names(shipped: Ontology) -> None:
+def test_node_type_and_relation_lookups_raise_for_unknown_names(
+    shipped: Ontology,
+) -> None:
     with pytest.raises(ConformanceError) as label_error:
         shipped.node_type("Nowhere")
     assert label_error.value.code == "ontology_unknown_label"
@@ -2431,9 +2771,15 @@ def test_edge_models_carry_the_relation_description(shipped: Ontology) -> None:
     assert "Symmetric" in (models["RELATES_TO"].__doc__ or "")
 
 
-def test_edge_type_map_lists_extracted_relations_per_label_pair(shipped: Ontology) -> None:
+def test_edge_type_map_lists_extracted_relations_per_label_pair(
+    shipped: Ontology,
+) -> None:
     mapping = shipped.edge_type_map()
-    assert mapping[("Module", "Module")] == ["DEPLOYED_TO", "INTEGRATES_WITH", "PART_OF"]
+    assert mapping[("Module", "Module")] == [
+        "DEPLOYED_TO",
+        "INTEGRATES_WITH",
+        "PART_OF",
+    ]
     assert mapping[("Feature", "Module")] == ["PART_OF"]
     assert mapping[("Feature", "Feature")] == ["DEPENDS_ON"]
     assert mapping[("Interface", "Module")] == ["CONSUMED_BY", "PROVIDED_BY"]
@@ -2451,14 +2797,25 @@ def test_edge_type_map_lists_extracted_relations_per_label_pair(shipped: Ontolog
     assert all(source in labels and target in labels for source, target in mapping)
 
 
-def test_edge_type_map_includes_both_directions_of_a_symmetric_relation(shipped: Ontology) -> None:
+def test_edge_type_map_includes_both_directions_of_a_symmetric_relation(
+    shipped: Ontology,
+) -> None:
     mapping = shipped.edge_type_map()
     for source in REQUIREMENT_LABELS:
         for target in REQUIREMENT_LABELS:
             assert "RELATES_TO" in mapping[(source, target)], (source, target)
-    assert mapping[("Constraint", "FunctionalRequirement")] == ["DEPENDS_ON", "RELATES_TO"]
-    assert mapping[("FunctionalRequirement", "Constraint")] == ["DEPENDS_ON", "RELATES_TO"]
-    assert mapping[("FunctionalRequirement", "FunctionalRequirement")] == ["DEPENDS_ON", "RELATES_TO"]
+    assert mapping[("Constraint", "FunctionalRequirement")] == [
+        "DEPENDS_ON",
+        "RELATES_TO",
+    ]
+    assert mapping[("FunctionalRequirement", "Constraint")] == [
+        "DEPENDS_ON",
+        "RELATES_TO",
+    ]
+    assert mapping[("FunctionalRequirement", "FunctionalRequirement")] == [
+        "DEPENDS_ON",
+        "RELATES_TO",
+    ]
     assert mapping[("Feature", "OpenQuestion")] == ["RELATES_TO"]
     assert mapping[("Module", "FunctionalRequirement")] == ["RELATES_TO"]
     assert mapping[("FunctionalRequirement", "Module")] == ["PART_OF", "RELATES_TO"]
@@ -2479,7 +2836,9 @@ def fingerprints(path: Path) -> dict[str, str]:
     return {part: loaded.fingerprint(part) for part in PARTS}
 
 
-def test_fingerprints_are_distinct_hex_digests_and_stable_across_loads(shipped: Ontology) -> None:
+def test_fingerprints_are_distinct_hex_digests_and_stable_across_loads(
+    shipped: Ontology,
+) -> None:
     values = {part: shipped.fingerprint(part) for part in PARTS}
     assert len(set(values.values())) == 4
     assert all(len(value) == 64 and int(value, 16) >= 0 for value in values.values())
@@ -2510,7 +2869,9 @@ def test_fingerprints_survive_reformatting_the_file(tmp_path: Path) -> None:
     assert fingerprints(write_ontology(tmp_path / "again", reordered)) == baseline
 
 
-def test_fingerprints_ignore_judge_prompt_text_and_inference_settings(tmp_path: Path) -> None:
+def test_fingerprints_ignore_judge_prompt_text_and_inference_settings(
+    tmp_path: Path,
+) -> None:
     baseline = fingerprints(write_ontology(tmp_path / "base", BASE))
     path = write_ontology(tmp_path / "other", mutated(lambda d: put(d, "inference.cap", 7)))
     (path.parent / "judge_prompts" / "judge_endpoints.2.md").write_text("changed\n")
@@ -2526,7 +2887,10 @@ def changed_parts(tmp_path: Path, *edits: Callable[[dict[str, Any]], None]) -> s
 def test_a_node_description_edit_changes_the_node_and_resolution_fingerprints(
     tmp_path: Path,
 ) -> None:
-    assert changed_parts(tmp_path, lambda d: put(d, "node_types.module.description", "Reworded definition.")) == {
+    assert changed_parts(
+        tmp_path,
+        lambda d: put(d, "node_types.module.description", "Reworded definition."),
+    ) == {
         "nodes",
         "resolution",
     }
@@ -2538,14 +2902,18 @@ def test_a_node_guidance_edit_changes_only_the_node_fingerprint(tmp_path: Path) 
 
 def test_a_group_description_edit_changes_the_node_fingerprint(tmp_path: Path) -> None:
     assert "nodes" in changed_parts(
-        tmp_path, lambda d: put(d, "node_groups.requirement.description", "Reworded group.")
+        tmp_path,
+        lambda d: put(d, "node_groups.requirement.description", "Reworded group."),
     )
 
 
-def test_a_relation_description_edit_changes_only_the_edge_fingerprint(tmp_path: Path) -> None:
-    assert changed_parts(tmp_path, lambda d: put(d, "edge_types.PART_OF.description", "Reworded relation.")) == {
-        "edges"
-    }
+def test_a_relation_description_edit_changes_only_the_edge_fingerprint(
+    tmp_path: Path,
+) -> None:
+    assert changed_parts(
+        tmp_path,
+        lambda d: put(d, "edge_types.PART_OF.description", "Reworded relation."),
+    ) == {"edges"}
 
 
 def test_an_attribute_description_edit_changes_only_the_attribute_fingerprint(
@@ -2560,7 +2928,13 @@ def test_an_attribute_description_edit_changes_only_the_attribute_fingerprint(
 def test_an_alias_edit_changes_no_fingerprint(tmp_path: Path) -> None:
     """Aliases only normalise answers; they never reach a prompt."""
 
-    assert changed_parts(tmp_path, lambda d: put(d, "node_types.module.attributes.type.aliases.vm", "backend")) == set()
+    assert (
+        changed_parts(
+            tmp_path,
+            lambda d: put(d, "node_types.module.attributes.type.aliases.vm", "backend"),
+        )
+        == set()
+    )
 
 
 def test_a_corpus_edit_changes_every_fingerprint(tmp_path: Path) -> None:
@@ -2590,7 +2964,10 @@ def test_target_exclude_where_is_an_attach_orphan_filter_over_its_targets(tmp_pa
     def problems(name: str, index: int, condition: dict[str, list[str]]) -> tuple[str, ...]:
         data = copy.deepcopy(SHIPPED_DATA)
         put(data, f"inference.rules.{index}.target_exclude_where", condition)
-        return load_problems(write_ontology(tmp_path / name, data, prompts_from=SHIPPED_PROMPTS), submodule_files=[])
+        return load_problems(
+            write_ontology(tmp_path / name, data, prompts_from=SHIPPED_PROMPTS),
+            submodule_files=[],
+        )
 
     assert any(
         "inference.rules[2].target_exclude_where: not a parameter of template 'endpoints'" in problem

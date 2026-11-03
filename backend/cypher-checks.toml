@@ -6,14 +6,15 @@
 # (graph.build.queries). A query whose relationship type or label is only known at run time is a
 # file with `__NAME__` tokens, filled by `render_query` (graph.core.query_files).
 #
-# The constraints and indexes are static DDL files under src/graph/core/ddl/ (one idempotent
-# statement per object), loaded by `load_core_ddl` (graph.core.queries) and applied by
-# `ensure_schema` (graph.core.schema). `parity` holds them to graph-schema.yaml `constraints`.
+# The constraints and indexes are static DDL files under src/graph/core/ddl/ and src/graph/plan/ddl/
+# (one idempotent statement per object), loaded by `load_core_ddl` plus submodule discovery
+# (graph.core.queries) and applied by `ensure_schema` (graph.core.schema). `parity` holds them to
+# graph-schema.yaml `constraints`.
 
 schema = "graph-schema.yaml"
 root = "."
-queries = ["src/graph/core/queries", "src/graph/build/queries"]
-ddl = ["src/graph/core/ddl"]
+queries = ["src/graph/core/queries", "src/graph/build/queries", "src/graph/plan/queries"]
+ddl = ["src/graph/core/ddl", "src/graph/plan/ddl"]
 
 [live]
 # cyver and explain start one throwaway Neo4j container of the kit (Docker); they check every query
@@ -22,8 +23,8 @@ enabled = true
 
 [python]
 root = "src"
-loaders = { load_core_query = "graph/core/queries", load_build_query = "graph/build/queries", load_core_ddl = "graph/core/ddl" }
-query_dirs = ["graph/core/queries", "graph/build/queries", "graph/core/ddl"]
+loaders = { load_core_query = "graph/core/queries", load_build_query = "graph/build/queries", load_plan_query = "graph/plan/queries", load_core_ddl = "graph/core/ddl" }
+query_dirs = ["graph/core/queries", "graph/build/queries", "graph/plan/queries", "graph/core/ddl"]
 # The Postgres side is judged by the sql track (SQL strings in src/db and src/temporal).
 exclude = ["db/**", "temporal/**", "drive/**", "storage/**", "auth/**", "llm/**", "logger/**", "file_parsers/**", "agent_runtime/**"]
 
