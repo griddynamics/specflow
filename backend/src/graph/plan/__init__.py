@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from graph.plan.checks import check_plan
 from graph.plan.errors import PlanRulesError, TaskStateError
 from graph.plan.estimate import estimate_plan
 from graph.plan.files import FilePlanStore, open_plan_store
@@ -10,7 +11,10 @@ from graph.plan.models import (
     ChangedSpecEdge,
     ChangedSpecNode,
     MeaningRevisions,
+    PlanCheckMetrics,
+    PlanCheckReport,
     PlanEstimate,
+    PlanResult,
     PlanRunRecord,
     PlanStepEstimate,
 )
@@ -35,9 +39,13 @@ from graph.plan.names import (
     plan_vocabularies,
 )
 from graph.plan.options import PlanContext, PlanOptions
+from graph.plan.ports import PlanStore
+from graph.plan.rules import PlanRules, load_plan_rules
+from graph.plan.run import STEPS, StepFunctions, run_plan, steps
 from graph.plan.schema import ensure_plan_schema
 
 __all__ = [
+    "STEPS",
     "AreaKind",
     "AreaStatus",
     "BlockReason",
@@ -51,24 +59,34 @@ __all__ = [
     "MeaningRevisions",
     "NotBuildableReason",
     "Phase",
+    "PlanCheckMetrics",
+    "PlanCheckReport",
     "PlanContext",
     "PlanEstimate",
     "PlanLabel",
     "PlanMode",
     "PlanOptions",
     "PlanRelation",
+    "PlanResult",
+    "PlanRules",
     "PlanRulesError",
     "PlanRunRecord",
     "PlanStepEstimate",
+    "PlanStore",
     "PlannedBy",
+    "StepFunctions",
     "StoryKind",
     "StoryProgress",
     "StoryStatus",
     "TaskStateError",
     "TaskStatus",
+    "check_plan",
     "ensure_plan_schema",
     "estimate_plan",
+    "load_plan_rules",
     "open_plan_store",
     "plan_ontology_version",
     "plan_vocabularies",
+    "run_plan",
+    "steps",
 ]

@@ -24,25 +24,41 @@ from graph.plan.answers import (
     InterfaceAnswer,
     ProfileAnswer,
     ProjectAnswer,
+    ReviewAnswer,
     StorySummaryAnswer,
     TaskAnswer,
     TasksAnswer,
 )
+from graph.plan.describe import describe
 from graph.plan.fallback import spec_interfaces
 from graph.plan.inputs import setup_members
 from graph.plan.models import (
     BuildChangeReport,
     ChangedSpecEdge,
     ChangedSpecNode,
+    ChangeSet,
+    CurrentPlan,
+    CurrentTask,
+    DescribeArtifact,
+    DiffArtifact,
     MeaningRevisions,
+    PlanInfo,
+    PlanLink,
     PlanOptions,
+    ProjectArtifact,
+    StoryInfo,
+    TasksArtifact,
+    WorkAreaInfo,
 )
+from graph.plan.names import PlanMode
 from graph.plan.options import PlanContext
 from graph.plan.partition import partition
 from graph.plan.ports import PlanStore
+from graph.plan.project import project
 from graph.plan.prompts import PromptName, gateway_prompt
 from graph.plan.rules import PlanRules, load_plan_rules
 from graph.plan.snapshot import snapshot
+from graph.plan.tasks import plan_tasks
 from graph.plan.view import PlanView
 from graph_support import NO_ANSWER, ScriptedGateway, ScriptedRequest
 from test_graph_schema import SchemaDriver
@@ -50,9 +66,12 @@ from test_graph_schema import SchemaDriver
 __all__ = [
     "SchemaDriver",
     "SnapshotQueries",
+    "applied_plan",
     "change_reports",
+    "next_view",
     "plan_ontology",
     "plan_rules",
+    "planned_shop",
     "planner_key",
     "planner_payload",
     "planning_context",
@@ -246,6 +265,21 @@ async def write_spec_graph(
 
     writer = OwnedWriter(project.driver, ontology, "build", project_id, database=project.database)
     by_spec_id = {node.spec_id: node for node in fixture._fixture.nodes}
+    # Documents and fragments first: statements and provenance link spec nodes to existing fragments.
+    for document in fixture._fixture.documents:
+        properties = document.model_dump(exclude={"document_id"}, exclude_none=True)
+        await writer.upsert_node(DOCUMENT, document.document_id, properties)
+    for fragment in fixture._fixture.fragments:
+        properties = fragment.model_dump(exclude={"fragment_id"}, exclude_none=True)
+        properties["heading_path"] = list(fragment.heading_path or ())
+        await writer.upsert_node(FRAGMENT, fragment.fragment_id, properties)
+        await project.run(
+            "MATCH (d:Document {group_id: $p, document_id: $did}), "
+            "(f:Fragment {group_id: $p, fragment_id: $fid}) MERGE (d)-[:CONTAINS]->(f)",
+            p=project_id,
+            did=fragment.document_id,
+            fid=fragment.fragment_id,
+        )
     for node in sorted(fixture._fixture.nodes, key=lambda item: item.spec_id):
         properties = {
             "spec_id": node.spec_id,
@@ -296,20 +330,6 @@ async def write_spec_graph(
             NodeRef(target.label, f"{project_id}-{target.uuid}"),
             edge.edge_key or f"{edge.source}|{edge.relation}|{edge.target}",
             properties,
-        )
-    for document in fixture._fixture.documents:
-        properties = document.model_dump(exclude={"document_id"}, exclude_none=True)
-        await writer.upsert_node(DOCUMENT, document.document_id, properties)
-    for fragment in fixture._fixture.fragments:
-        properties = fragment.model_dump(exclude={"fragment_id"}, exclude_none=True)
-        properties["heading_path"] = list(fragment.heading_path or ())
-        await writer.upsert_node(FRAGMENT, fragment.fragment_id, properties)
-        await project.run(
-            "MATCH (d:Document {group_id: $p, document_id: $did}), "
-            "(f:Fragment {group_id: $p, fragment_id: $fid}) MERGE (d)-[:CONTAINS]->(f)",
-            p=project_id,
-            did=fragment.document_id,
-            fid=fragment.fragment_id,
         )
 
 
@@ -421,6 +441,112 @@ def planning_context(
     )
 
 
+@dataclass(frozen=True)
+class PlannedShop:
+    """The shop planned with the scripted answers: the view and the planner artifacts."""
+
+    view: PlanView
+    describe: DescribeArtifact
+    project: ProjectArtifact
+    tasks: TasksArtifact
+
+
+async def planned_shop(view: PlanView, store: PlanStore, gateway: ScriptedGateway | None = None) -> PlannedShop:
+    """Run Describe, Project and Tasks over ``view`` with the scripted shop answers (or ``gateway``)."""
+
+    gateway = gateway or script_plan(ScriptedGateway(), shop_answers(view))
+    ctx = planning_context(view, store, gateway)
+    mode = view.snapshot.mode
+    described = await describe(ctx, view, mode=mode)
+    projected = await project(ctx, view, described, mode=mode)
+    return PlannedShop(view, described, projected, await plan_tasks(ctx, view, described, projected, mode=mode))
+
+
+APPLIED_AT = "2026-01-01T12:00:00+00:00"
+
+
+def applied_plan(
+    view: PlanView,
+    artifact: DiffArtifact,
+    *,
+    states: Mapping[str, Mapping[str, Any]] | None = None,
+) -> CurrentPlan:
+    """The current plan after ``artifact`` is applied, in memory (what Persist would write); ``states``
+    overrides task properties by task id (status, commit, claim fields), as an agent's work would."""
+
+    plan = PlanInfo.model_validate(
+        {**artifact.plan_properties, "created_at": APPLIED_AT, "updated_at": APPLIED_AT, "applying": None}
+    )
+    current = view.snapshot.current
+    stamps = {"created_at": APPLIED_AT, "updated_at": APPLIED_AT}
+    areas = {area.area_id: area.model_dump() for area in current.areas}
+    for op in artifact.areas:
+        areas[op.id] = {**areas.get(op.id, {}), **op.properties, **stamps}
+    stories = {story.story_id: story.model_dump() for story in current.stories}
+    for op in artifact.stories:
+        stories[op.id] = {**stories.get(op.id, {}), **op.properties, **stamps}
+    tasks = {task.task_id: task.model_dump() for task in current.tasks}
+    for op in artifact.tasks:
+        tasks[op.id] = {**tasks.get(op.id, {}), **op.properties, **stamps}
+    for task_id, overrides in (states or {}).items():
+        tasks[task_id] = {**tasks[task_id], **overrides}
+    uuid_to_id = {node.uuid: node.spec_id for node in view.snapshot.plannable}
+    deleted = {(link.type, link.source, link.target) for link in artifact.links_delete}
+    links = [link for link in current.links if (link.type, link.source, link.target) not in deleted]
+    links.extend(
+        PlanLink(
+            type=link.type,
+            source=uuid_to_id.get(link.source, link.source),
+            target=uuid_to_id.get(link.target, link.target),
+            edge_key=link.key,
+            properties=tuple(
+                sorted(
+                    (key, tuple(value) if isinstance(value, list) else value) for key, value in link.properties.items()
+                )
+            ),
+        )
+        for link in artifact.links_create
+    )
+    return CurrentPlan(
+        plan=plan,
+        areas=tuple(WorkAreaInfo.model_validate(row) for _, row in sorted(areas.items())),
+        stories=tuple(StoryInfo.model_validate(row) for _, row in sorted(stories.items())),
+        tasks=tuple(CurrentTask.model_validate(row) for _, row in sorted(tasks.items())),
+        links=tuple(sorted(links, key=lambda link: link.edge_key)),
+    )
+
+
+def next_view(
+    view: PlanView,
+    current: CurrentPlan,
+    *,
+    build_id: str = "build-3",
+    changed: Mapping[str, str] | None = None,
+    mode: PlanMode = "update",
+    snapshot_updates: Mapping[str, Any] | None = None,
+) -> PlanView:
+    """The view of the next run over ``current``: ``changed`` maps spec ids to meaning-change classes of
+    build ``build_id`` (their revision becomes that build)."""
+
+    changes = dict(changed or {})
+    consumed = (*view.snapshot.revisions.consumed, build_id)
+    revisions = MeaningRevisions(
+        nodes={**view.snapshot.revisions.nodes, **dict.fromkeys(changes, build_id)}, consumed=consumed
+    )
+    snapshot = view.snapshot.model_copy(
+        update={
+            "mode": mode,
+            "build_id": build_id,
+            "current": current,
+            "revisions": revisions,
+            "change_set": ChangeSet(meaning=changes),
+            **(snapshot_updates or {}),
+        }
+    )
+    ontology = plan_ontology()
+    return PlanView(snapshot, partition(snapshot, view.rules, ontology), view.rules)
+
+
 def planner_payload(request: ScriptedRequest) -> dict[str, Any]:
     """The JSON input of a planner request (text fields hold block ids)."""
 
@@ -514,6 +640,7 @@ def shop_answers(view: PlanView) -> dict[tuple[str, str], BaseModel]:
                 tasks.append(_answer_task(action, phase, by_phase[phase], list(earlier), story=story_id, view=view))
                 earlier.append(action)
         answers[("tasks", part.part_id)] = TasksAnswer(tasks=tasks, not_buildable=[])
+    answers[("review", "review")] = ReviewAnswer(issues=[])
     return answers
 
 

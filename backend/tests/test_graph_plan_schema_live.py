@@ -48,7 +48,9 @@ async def test_shop_fixture_written_to_neo4j_reads_back_like_the_fake_reader(
     written_documents = await reader.documents(project_id)
     written_fragments = await reader.fragments(project_id)
 
-    assert [node.spec_id for node in written_nodes] == [node.spec_id for node in await fixture.nodes(project_id)]
+    expected_nodes = await fixture.nodes(project_id)
+    assert [node.spec_id for node in written_nodes] == [node.spec_id for node in expected_nodes]
+    assert [len(node.provenance) for node in written_nodes] == [len(node.provenance) for node in expected_nodes]
     assert [(edge.source, edge.relation, edge.target) for edge in written_edges] == [
         (edge.source, edge.relation, edge.target) for edge in await fixture.edges(project_id)
     ]

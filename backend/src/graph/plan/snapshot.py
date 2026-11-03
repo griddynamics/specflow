@@ -136,11 +136,31 @@ def _edge_view(edge: GraphEdge) -> SpecEdgeView:
     )
 
 
+def select_nodes(
+    nodes: Sequence[GraphNode], edges: Sequence[GraphEdge], rules: PlanRules
+) -> tuple[list[GraphNode], list[GraphNode]]:
+    """The plannable and the context nodes. A node matching ``exclude_all`` itself or through its owner is
+    neither; a node of role ``context`` or matching its type's ``exclude`` (an external module) is context."""
+
+    by_spec_id = {node.spec_id: node for node in nodes}
+    plannable: list[GraphNode] = []
+    context: list[GraphNode] = []
+    for node in nodes:
+        rule = rules.rule_of(node.label)
+        if _matches_exclusions(node, rules.exclude_all) or _owner_excluded(node, edges, by_spec_id, rules):
+            continue
+        if rule.role == "context" or _matches_exclusions(node, rule.exclude):
+            context.append(node)
+        else:
+            plannable.append(node)
+    return plannable, context
+
+
 def fingerprint(
     ontology: Ontology,
     rules: PlanRules,
-    nodes: Sequence[SpecNodeView],
-    edges: Sequence[SpecEdgeView],
+    nodes: Sequence[SpecNodeView | GraphNode],
+    edges: Sequence[SpecEdgeView | GraphEdge],
     *,
     task_size: int,
     planner_members: int,
@@ -175,20 +195,8 @@ async def snapshot(reader: Any, executor: Any, context: PlanContext) -> Snapshot
     documents_list = await reader.documents(project_id)
     fragments = {fragment.fragment_id: fragment for fragment in fragments_list}
     documents = {document.document_id: document for document in documents_list}
-    by_spec_id = {node.spec_id: node for node in nodes}
 
-    plannable_nodes = []
-    context_nodes = []
-    for node in nodes:
-        rule = context.rules.rule_of(node.label)
-        if _matches_exclusions(node, context.rules.exclude_all) or _owner_excluded(
-            node, edges, by_spec_id, context.rules
-        ):
-            continue
-        if rule.role == "context" or _matches_exclusions(node, rule.exclude):
-            context_nodes.append(node)
-            continue
-        plannable_nodes.append(node)
+    plannable_nodes, context_nodes = select_nodes(nodes, edges, context.rules)
     if not plannable_nodes:
         raise ConfigurationError("no_spec_graph")
 

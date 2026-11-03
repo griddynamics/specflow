@@ -8,6 +8,7 @@ is deterministic.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from typing import Any, Literal
 
@@ -23,8 +24,10 @@ from graph.plan.names import (
     InterfaceKind,
     NotBuildableReason,
     Phase,
+    PlanLabel,
     PlanMode,
     PlannedBy,
+    PlanRelation,
     StoryKind,
     StoryStatus,
     TaskStatus,
@@ -69,6 +72,12 @@ class PlanModel(BaseModel):
         if isinstance(value, Mapping):
             return {key: value[key] for key in sorted(value)}
         return value
+
+
+def _json_text(value: object) -> object:
+    """A JSON property as Neo4j stores it (text) decoded; other values unchanged."""
+
+    return json.loads(value) if isinstance(value, str) else value
 
 
 class PlanOptions(PlanModel):
@@ -167,6 +176,13 @@ class PlanInfo(PlanModel):
     created_at: AwareDatetime
     updated_at: AwareDatetime
 
+    @field_validator("applying", mode="before")
+    @classmethod
+    def _applying(cls, value: object) -> object:
+        """Neo4j stores the applying run id, or nothing."""
+
+        return bool(value) if value is None or isinstance(value, str) else value
+
 
 class WorkAreaInfo(PlanModel):
     """A persisted work area, without derived aggregates."""
@@ -184,6 +200,11 @@ class WorkAreaInfo(PlanModel):
     updated_at: AwareDatetime
     last_run_id: str | None = None
 
+    @field_validator("interfaces", "not_buildable", mode="before")
+    @classmethod
+    def _json(cls, value: object) -> object:
+        return () if value is None else _json_text(value)
+
 
 class StoryInfo(PlanModel):
     """A persisted story, without derived progress."""
@@ -200,6 +221,11 @@ class StoryInfo(PlanModel):
     created_at: AwareDatetime
     updated_at: AwareDatetime
     last_run_id: str | None = None
+
+    @field_validator("chapter", mode="before")
+    @classmethod
+    def _json(cls, value: object) -> object:
+        return _json_text(value)
 
 
 class CurrentTask(PlanModel):
@@ -232,6 +258,16 @@ class CurrentTask(PlanModel):
     updated_at: AwareDatetime
     created_run_id: str | None = None
     last_run_id: str | None = None
+
+    @field_validator("done_when", mode="before")
+    @classmethod
+    def _json(cls, value: object) -> object:
+        return () if value is None else _json_text(value)
+
+    @field_validator("implements", "release", mode="before")
+    @classmethod
+    def _list(cls, value: object) -> object:
+        return () if value is None else value
 
 
 class PlanLink(PlanModel):
@@ -480,6 +516,203 @@ class TasksArtifact(PlanModel):
     not_buildable: dict[str, tuple[NotBuildable, ...]] = {}
     outcomes: dict[str, PlannerOutcome] = {}
     oversized: tuple[str, ...] = ()
+
+
+class Wait(PlanModel):
+    """A wait between target tasks, by task key: ``source`` waits for ``target``; ``rule`` 0 is a planner wait."""
+
+    source: str = Field(min_length=1)
+    target: str = Field(min_length=1)
+    kind: Literal["planner", "stitch"]
+    rule: int = Field(default=0, ge=0, le=8)
+
+
+class StitchArtifact(PlanModel):
+    """Every wait of the target plan, and the stitch waits dropped to break cycles."""
+
+    waits: tuple[Wait, ...] = ()
+    dropped: tuple[Wait, ...] = ()
+
+
+ReviewSeverity = Literal["blocking", "advisory"]
+
+
+class ReviewIssue(PlanModel):
+    """One advisory finding of the review; it changes nothing."""
+
+    area_id: str = Field(min_length=1)
+    task_id: str | None = None
+    problem: str = Field(min_length=1)
+    severity: ReviewSeverity
+
+
+class ReviewArtifact(PlanModel):
+    issues: tuple[ReviewIssue, ...] = ()
+    failed: bool = False
+    skipped: bool = False
+    outcome: PlannerOutcome = PlannerOutcome()
+
+
+NodeOpKind = Literal["create", "update", "reset", "supersede", "retire", "revive", "keep"]
+
+
+class NodeOp(PlanModel):
+    """One plan node write; a task write applies only while its status is ``expected_status``."""
+
+    op: NodeOpKind
+    label: PlanLabel
+    id: str = Field(min_length=1)
+    expected_status: TaskStatus | None = None
+    properties: dict[str, Any] = {}
+
+
+class LinkOp(PlanModel):
+    """One plan relationship write. A spec end is a ``spec_id`` in deletes and a node ``uuid`` in creates."""
+
+    type: PlanRelation
+    source: str = Field(min_length=1)
+    target: str = Field(min_length=1)
+    key: str = Field(min_length=1)
+    properties: dict[str, Any] = {}
+
+
+class SupersededTask(PlanModel):
+    task_id: str = Field(min_length=1)
+    successor: str = Field(min_length=1)
+    cause: str = Field(min_length=1)
+
+
+class PlanChangesSummary(PlanModel):
+    """What a run changed, by id."""
+
+    tasks_added: tuple[str, ...] = ()
+    tasks_updated: tuple[str, ...] = ()
+    tasks_reopened: tuple[str, ...] = ()
+    tasks_superseded: tuple[SupersededTask, ...] = ()
+    tasks_retired: tuple[str, ...] = ()
+    tasks_kept: tuple[str, ...] = ()
+    areas_added: tuple[str, ...] = ()
+    areas_retired: tuple[str, ...] = ()
+    areas_reactivated: tuple[str, ...] = ()
+    stories_added: tuple[str, ...] = ()
+    stories_retired: tuple[str, ...] = ()
+    stories_reactivated: tuple[str, ...] = ()
+
+
+class DiffArtifact(PlanModel):
+    """The writes from the current plan to the target plan, and what they mean."""
+
+    areas: tuple[NodeOp, ...] = ()
+    stories: tuple[NodeOp, ...] = ()
+    tasks: tuple[NodeOp, ...] = ()
+    links_delete: tuple[LinkOp, ...] = ()
+    links_create: tuple[LinkOp, ...] = ()
+    plan_properties: dict[str, Any] = {}
+    summary: PlanChangesSummary = PlanChangesSummary()
+    stale_commits: dict[str, str] = {}
+    unverified_completed: tuple[str, ...] = ()
+    in_progress_changed: tuple[str, ...] = ()
+    affected_dependants: tuple[str, ...] = ()
+    revisions: MeaningRevisions = MeaningRevisions()
+
+
+class PersistArtifact(PlanModel):
+    """Persist progress: batches applied so far (the cursor) and the tasks skipped as conflicts."""
+
+    cursor: int = Field(default=0, ge=0)
+    batches: int = Field(default=0, ge=0)
+    conflicts: tuple[str, ...] = ()
+
+
+class PlanCheckMetrics(PlanModel):
+    """Counts of the plan checks; ``stale_claims`` only when a staleness limit was given."""
+
+    outdated: bool = False
+    ready: int = 0
+    blocked: int = 0
+    failed: int = 0
+    stale_claims: int | None = None
+    stale_commits: int = 0
+    not_buildable: dict[str, int] = {}
+    open_questions_on_tasks: int = 0
+    stories: dict[str, int] = {}
+
+
+class PlanCheckReport(PlanModel):
+    """Read-only checks of the persisted plan: ``ok`` when no check has a problem; ids only."""
+
+    ok: bool
+    problems: dict[str, tuple[str, ...]] = {}
+    metrics: PlanCheckMetrics = PlanCheckMetrics()
+
+
+class PlannerCounts(PlanModel):
+    """One planner's answers in a run."""
+
+    calls: int = 0
+    reused: int = 0
+    fallbacks: int = 0
+    invalid: int = 0
+
+
+class PlanningSummary(PlanModel):
+    """How the run planned: planner counts, review issues, dropped dependencies."""
+
+    describe: PlannerCounts = PlannerCounts()
+    project: PlannerCounts = PlannerCounts()
+    tasks: PlannerCounts = PlannerCounts()
+    review_issues: dict[str, int] = {}
+    review_failed: bool = False
+    dropped_dependencies: int = 0
+
+
+class StepUsage(PlanModel):
+    """Model calls, tokens and duration of one step (approximate when the gateway is shared)."""
+
+    calls: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    duration_s: float = 0.0
+
+
+class PlanMetrics(PlanModel):
+    """Counts of the target plan and the run."""
+
+    areas: int = 0
+    stories_by_kind: dict[str, int] = {}
+    tasks_by_status: dict[str, int] = {}
+    tasks_by_phase: dict[str, int] = {}
+    not_buildable: dict[str, int] = {}
+    open_questions_on_tasks: int = 0
+    oversized_task: int = 0
+    ambiguous_membership: int = 0
+    cross_cutting: int = 0
+    unplaced: int = 0
+    describe_truncated: int = 0
+    steps: dict[str, StepUsage] = {}
+
+
+class PlanResult(PlanModel):
+    """The result of a plan run; tasks, stories, areas and spec nodes are named by id, never by text."""
+
+    project_id: str = Field(min_length=1)
+    run_id: str = Field(min_length=1)
+    status: PlanRunStatus
+    mode: PlanMode
+    unchanged: bool = False
+    build_id: str = Field(min_length=1)
+    started_at: AwareDatetime
+    finished_at: AwareDatetime
+    failure: str | None = None
+    changes: PlanChangesSummary = PlanChangesSummary()
+    stale_commits: dict[str, str] = {}
+    unverified_completed: tuple[str, ...] = ()
+    in_progress_changed: tuple[str, ...] = ()
+    affected_dependants: tuple[str, ...] = ()
+    conflicts: tuple[str, ...] = ()
+    planning: PlanningSummary = PlanningSummary()
+    checks: PlanCheckReport | None = None
+    metrics: PlanMetrics = PlanMetrics()
 
 
 class PlanStepEstimate(PlanModel):
