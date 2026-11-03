@@ -49,14 +49,15 @@ class StoryState:
 
 @dataclass(frozen=True)
 class PlanState:
-    """A plan as the invariants see it; ``links`` are ``(type, source id, target id)``."""
+    """A plan as the invariants see it; ``links`` are ``(type, source id, target id)``, one per relationship
+    (two relationships with the same ends, as a build merge leaves them, are two entries)."""
 
     plannable: frozenset[str]
     required: frozenset[str]
     areas: Mapping[str, str]
     stories: Mapping[str, StoryState]
     tasks: Mapping[str, TaskState]
-    links: frozenset[tuple[str, str, str]]
+    links: tuple[tuple[str, str, str], ...]
     not_buildable: frozenset[str] = frozenset()
     conventions: frozenset[str] = frozenset()
 

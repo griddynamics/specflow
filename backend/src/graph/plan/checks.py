@@ -98,7 +98,7 @@ def plan_state(current: CurrentPlan, *, plannable: frozenset[str], required: fro
             )
             for task in current.tasks
         },
-        links=frozenset((link.type, link.source, link.target) for link in current.links),
+        links=tuple((link.type, link.source, link.target) for link in current.links),
         not_buildable=frozenset(str(entry.get("spec_id")) for area in current.areas for entry in area.not_buildable),
         conventions=conventions,
     )

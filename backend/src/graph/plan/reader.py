@@ -263,7 +263,9 @@ class PlanReader:
         live = [task for task in loaded.current.tasks if task.status not in CLOSED]
         ids = [task.task_id for task in live]
         edges = sorted(loaded.edges(ids))
-        order = topological_order(ids, edges)
+        ordered = topological_order(ids, edges)
+        # A wait cycle (a broken plan) leaves its tasks out of the order; they are listed after it, not lost.
+        order = (*ordered, *sorted(set(ids) - set(ordered)))
         by_story: dict[str, list[str]] = {}
         for task_id in order:
             by_story.setdefault(loaded.tasks[task_id].story_id, []).append(task_id)

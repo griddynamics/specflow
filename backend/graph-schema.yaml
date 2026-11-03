@@ -110,6 +110,7 @@ nodes:
       interfaces: {type: json}
       not_buildable: {type: json}
       planned_by: {type: string, enum: [model, rules]}
+      prompt_ref: {type: string}
       status: {type: string, enum: [active, retired]}
       created_at: {type: timestamp}
       updated_at: {type: timestamp}
@@ -124,6 +125,7 @@ nodes:
       chapter: {type: json}
       title: {type: string}
       summary: {type: string}
+      prompt_ref: {type: string}
       release: {type: string}
       status: {type: string, enum: [active, retired]}
       created_at: {type: timestamp}

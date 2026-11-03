@@ -170,9 +170,10 @@ class PlanInfo(PlanModel):
     last_build_id: str | None = None
     consumed_build_ids: tuple[str, ...] = ()
     graph_fingerprint: str | None = None
-    ontology_version: str = Field(min_length=1)
-    plan_ontology_version: str = Field(min_length=1)
-    rules_version: str = Field(min_length=1)
+    # None only while the plan's first persist runs: its first batch creates the node, its last writes these.
+    ontology_version: str | None = None
+    plan_ontology_version: str | None = None
+    rules_version: str | None = None
     applying: bool = False
     last_run_id: str | None = None
     created_at: AwareDatetime
@@ -202,6 +203,7 @@ class WorkAreaInfo(PlanModel):
     interfaces: tuple[dict[str, Any], ...] = ()
     not_buildable: tuple[dict[str, Any], ...] = ()
     planned_by: PlannedBy
+    prompt_ref: str | None = None
     status: AreaStatus
     created_at: AwareDatetime
     updated_at: AwareDatetime
@@ -223,6 +225,7 @@ class StoryInfo(PlanModel):
     chapter: ChapterRef | None = None
     title: str = Field(min_length=1)
     summary: str | None = None
+    prompt_ref: str | None = None
     release: str | None = None
     status: StoryStatus
     created_at: AwareDatetime

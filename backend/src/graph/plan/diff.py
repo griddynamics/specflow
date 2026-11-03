@@ -379,6 +379,7 @@ def _story_ops(
     current = {story.story_id: story for story in view.snapshot.current.stories}
     busy = {task.story_id for task in view.snapshot.current.tasks if task.status == "in_progress"}
     summaries = {**describe.story_summaries, **project.summaries}
+    refs = _summary_refs(view, describe, project)
     ops: list[NodeOp] = []
     active: dict[str, Any] = {}
     for story in sorted(view.partition.stories, key=lambda item: item.story_id):
@@ -398,6 +399,7 @@ def _story_ops(
             "chapter": json.dumps(story.chapter.model_dump()) if story.chapter is not None else None,
             "title": story.title,
             "summary": summary,
+            "prompt_ref": refs.get(story.story_id),
             "release": story.release,
             "status": "active",
         }
@@ -405,6 +407,21 @@ def _story_ops(
         ops.append(NodeOp(op=op, label="Story", id=story.story_id, properties=properties))
         active[story.story_id] = story
     return ops, active
+
+
+def _summary_refs(view: PlanView, describe: DescribeArtifact, project: ProjectArtifact) -> dict[str, str]:
+    """The prompt revision that wrote each story summary (a summary a fallback kept records none)."""
+
+    refs: dict[str, str] = {}
+    for story_id in describe.story_summaries:
+        story = view.stories.get(story_id)
+        planned = describe.areas.get(story.area_id) if story is not None else None
+        if planned is not None and planned.planned_by == "model" and planned.prompt_ref is not None:
+            refs[story_id] = planned.prompt_ref
+    if not project.outcome.fallback and (project.setup or project.closing):
+        ref = next((task.prompt_ref for task in project.setup if task.prompt_ref), None)
+        refs.update(dict.fromkeys(project.summaries, ref) if ref else {})
+    return refs
 
 
 def _area_ops(view: PlanView, describe: DescribeArtifact, tasks: TasksArtifact) -> list[NodeOp]:
@@ -432,6 +449,7 @@ def _area_ops(view: PlanView, describe: DescribeArtifact, tasks: TasksArtifact) 
                 [entry.model_dump(mode="json") for entry in tasks.not_buildable.get(area.area_id, ())]
             ),
             "planned_by": planned.planned_by if planned is not None else "rules",
+            "prompt_ref": planned.prompt_ref if planned is not None else None,
             "status": "active",
         }
         op: NodeOpKind = "create" if existing is None else ("revive" if existing.status == "retired" else "update")
@@ -493,6 +511,11 @@ def _task_links(
         managed.add((IN_STORY, final_id))
         wanted[(IN_STORY, final_id, target.story_id)] = {}
         if decision.op == "keep":
+            # Kept work keeps what it implemented; after a merge, one relationship per surviving node.
+            managed.add((IMPLEMENTS, final_id))
+            implemented = decision.current.implements if decision.current is not None else ()
+            for survivor in {view.resolve(spec_id) for spec_id in implemented} & set(view.nodes):
+                wanted[(IMPLEMENTS, final_id, survivor)] = {}
             continue
         managed.update({(IMPLEMENTS, final_id), (WAITS_FOR, final_id)})
         for survivor in {view.resolve(spec_id) for spec_id in target.implements} & set(view.nodes):
@@ -676,20 +699,25 @@ def target_state(view: PlanView, artifact: DiffArtifact, tasks: TasksArtifact, p
             kind=properties.get("kind", story.kind if story else "core"),
             anchor=view.resolve(anchor) if anchor else None,
         )
-    deleted = {(link.type, link.source, link.target) for link in artifact.links_delete}
-    links = {(link.type, link.source, link.target) for link in view.snapshot.current.links} - deleted
+    # A delete names one stored relationship by its key and ends; another with the same ends stays.
+    deleted = {(link.type, link.source, link.target, link.key) for link in artifact.links_delete}
     uuid_to_id = {node.uuid: node.spec_id for node in view.snapshot.plannable}
-    links |= {
+    links = [
+        (link.type, link.source, link.target)
+        for link in view.snapshot.current.links
+        if (link.type, link.source, link.target, link.edge_key) not in deleted
+    ]
+    links.extend(
         (link.type, uuid_to_id.get(link.source, link.source), uuid_to_id.get(link.target, link.target))
         for link in artifact.links_create
-    }
+    )
     return PlanState(
         plannable=frozenset(view.nodes),
         required=frozenset(spec_id for spec_id in view.nodes if view.required(spec_id)),
         areas=areas,
         stories=stories,
         tasks=task_state,
-        links=frozenset(links),
+        links=tuple(links),
         not_buildable=frozenset(entry.spec_id for entries in tasks.not_buildable.values() for entry in entries),
         conventions=frozenset(spec_id for item in project.profile.conventions for spec_id in item.spec_ids),
     )

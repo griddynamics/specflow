@@ -21,6 +21,7 @@ from graph.plan.view import PlanView
 _REVISION_SUFFIX: Final = re.compile(r"_R\d+$")
 _SETUP_PHASE: Final = "setup"
 _SPEC_SOURCE: Final = "spec"
+_ANCHOR_PHASES: Final = (("interface", "contract"), ("entity", "data"))
 
 
 def validate_tasks(
@@ -63,7 +64,26 @@ def validate_tasks(
         for spec_id in sorted(members)
         if spec_id in view.nodes and view.required(spec_id) and spec_id not in covered
     )
+    problems.extend(_phase_problems(answer, view=view, members=members, listed=listed))
     return problems
+
+
+def _phase_problems(answer: TasksAnswer, *, view: PlanView, members: frozenset[str], listed: set[str]) -> list[str]:
+    """Every interface member needs a ``contract`` task and every data entity a ``data`` task: the cross-area
+    waits of Stitch hang on those phases."""
+
+    built: dict[str, set[str]] = {}
+    for task in answer.tasks:
+        for spec_id in task.implements:
+            built.setdefault(spec_id, set()).add(task.phase)
+    found: list[str] = []
+    for kind, phase in _ANCHOR_PHASES:
+        found.extend(
+            problem("missing_phase", phase, spec_id)
+            for spec_id in sorted(members)
+            if view.anchors(spec_id, kind) and spec_id not in listed and phase not in built.get(spec_id, set())
+        )
+    return found
 
 
 def validate_project(answer: ProjectAnswer, *, view: PlanView, setup_members: Collection[str] = ()) -> list[str]:
