@@ -32,7 +32,7 @@ def test_the_shipped_plan_rules_load() -> None:
     assert rules.rule_of("Interface").story
     assert rules.relation("containment") == "PART_OF"
     assert rules.relation_role("PART_OF") == "containment"
-    assert rules.relation("deployment") == "DEPLOYED_TO"
+    assert rules.relation("deploy") == "DEPLOYED_TO"
     assert rules.relation("provision") == "PROVIDED_BY"
     assert rules.relation("consumption") == "CONSUMED_BY"
     assert rules.hop_limit == 3

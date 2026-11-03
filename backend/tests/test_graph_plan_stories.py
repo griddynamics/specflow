@@ -34,7 +34,7 @@ async def test_shop_stories_and_home_stories_are_created_without_a_model() -> No
     assert artifact.home_story["REQ::BR::ORDER_LIMIT"] == "STORY::ORDERS_SERVICE::CORE"
     assert artifact.home_story["CON::EU_REGION"].startswith("STORY::PROJECT::CH_")
     active_story_ids = {story.story_id for story in artifact.stories if story.status == "active"}
-    assert artifact.home_story.keys() == set(artifact.placements)
+    assert artifact.home_story.keys() == {spec_id for spec_id in artifact.placements if not spec_id.startswith("MOD::")}
     assert set(artifact.home_story.values()) <= active_story_ids
     assert artifact.home_story["CAP::AUTHENTICATION"] == "STORY::PROJECT::SETUP"
     assert artifact.home_story["CAP::UNREALISED"] == "STORY::PROJECT::SETUP"

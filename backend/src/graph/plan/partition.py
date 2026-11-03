@@ -30,6 +30,7 @@ class _WalkCandidate:
 
 
 _DEFAULT_PLANNER_MEMBERS = PlanOptions().planner_members
+_ANCHOR_RULE = 1
 _PROJECT_PLANNED_KINDS = frozenset({"setup", "closing"})
 
 
@@ -57,6 +58,9 @@ def partition(
         areas[area_id_value] = set()
 
     placements: dict[str, Placement] = {}
+    for anchor in anchors:
+        areas[anchor_areas[anchor]].add(anchor)
+        placements[anchor] = Placement(area_id=anchor_areas[anchor], rule=_ANCHOR_RULE)
     counts = {"cross_cutting": 0, "ambiguous_membership": 0, "unplaced": 0}
     _place_interfaces(
         nodes,
@@ -285,7 +289,9 @@ def _stories(
         placements=placements,
     )
     anchor_ids = {story.anchor: story.story_id for story in target_stories if story.anchor is not None}
-    home_story = _home_stories(placements, edges=edges, rules=rules, anchors=anchors, anchor_ids=anchor_ids)
+    # An area anchor is its area: it is a member of the area, but of no story.
+    story_members = {spec_id: placement for spec_id, placement in placements.items() if placement.rule != _ANCHOR_RULE}
+    home_story = _home_stories(story_members, edges=edges, rules=rules, anchors=anchors, anchor_ids=anchor_ids)
     _set_anchor_members(target_stories, home_story, anchor_ids)
     _add_core_stories(target_stories, home_story=home_story, snapshot=snapshot, areas=areas, anchors=anchors)
     _add_chapter_stories(
@@ -353,7 +359,7 @@ def _add_core_stories(
     for area_id_value, members in sorted(
         {
             area_id_value: {
-                member for member in members if member not in anchors and home_story[member] == area_id_value
+                member for member in members if member not in anchors and home_story.get(member) == area_id_value
             }
             for area_id_value, members in areas.items()
             if area_id_value != PROJECT_AREA_ID

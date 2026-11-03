@@ -48,7 +48,7 @@ relations:                        # relation roles used by Partition, Stitch and
   provision: PROVIDED_BY          # interface -> providing module
   consumption: CONSUMED_BY        # interface -> consuming module
   storage: STORED_IN              # data entity -> storing module
-  deployment: DEPLOYED_TO         # module -> deployment module
+  deploy: DEPLOYED_TO             # module -> the deployment module it runs on
   dependency: DEPENDS_ON          # spec dependency (feature -> feature, requirement -> requirement)
   reference: RELATES_TO           # symmetric reference: placement fallback, brief neighbours, open questions
 

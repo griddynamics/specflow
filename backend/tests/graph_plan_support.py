@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import yaml
+from pydantic import BaseModel
 
 from graph.build.models import BuildResult, ChangedEdge
 from graph.core import load_ontology
@@ -15,6 +17,19 @@ from graph.core.ontology import Ontology
 from graph.core.queries import DOCUMENT, FRAGMENT
 from graph.core.reader import GraphDocument, GraphEdge, GraphFragment, GraphNode
 from graph.core.writer import NodeRef, OwnedWriter
+from graph.plan.answers import (
+    ConventionAnswer,
+    DescribeAnswer,
+    DoneWhenAnswer,
+    InterfaceAnswer,
+    ProfileAnswer,
+    ProjectAnswer,
+    StorySummaryAnswer,
+    TaskAnswer,
+    TasksAnswer,
+)
+from graph.plan.fallback import spec_interfaces
+from graph.plan.inputs import setup_members
 from graph.plan.models import (
     BuildChangeReport,
     ChangedSpecEdge,
@@ -24,20 +39,33 @@ from graph.plan.models import (
 )
 from graph.plan.options import PlanContext
 from graph.plan.partition import partition
+from graph.plan.ports import PlanStore
+from graph.plan.prompts import PromptName, gateway_prompt
 from graph.plan.rules import PlanRules, load_plan_rules
 from graph.plan.snapshot import snapshot
+from graph.plan.view import PlanView
+from graph_support import NO_ANSWER, ScriptedGateway, ScriptedRequest
 from test_graph_schema import SchemaDriver
 
 __all__ = [
     "SchemaDriver",
+    "SnapshotQueries",
     "change_reports",
     "plan_ontology",
     "plan_rules",
+    "planner_key",
+    "planner_payload",
+    "planning_context",
+    "script_plan",
+    "shop_answers",
     "shop_graph",
     "shop_partition",
     "shop_snapshot",
+    "shop_view",
     "write_spec_graph",
 ]
+
+PLANNER_KINDS: tuple[PromptName, ...] = ("describe", "project", "tasks", "review")
 
 _SHOP_FIXTURE: Path = Path(__file__).resolve().parent / "fixtures" / "graph" / "plan" / "shop.yaml"
 _EMPTY_REVISIONS = MeaningRevisions()
@@ -185,7 +213,7 @@ class _MemoryRun:
     run_id: str = "run-1"
 
 
-class _SnapshotQueries:
+class SnapshotQueries:
     """Offline current-plan reads return no persisted plan by default."""
 
     def __init__(self, plan_rows: Sequence[Mapping[str, Any]] = ()) -> None:
@@ -348,7 +376,7 @@ async def shop_snapshot(
         options=options or PlanOptions(),
     )
     plan_rows = () if plan is None else (plan,)
-    return await snapshot(reader, _SnapshotQueries(plan_rows), context)
+    return await snapshot(reader, SnapshotQueries(plan_rows), context)
 
 
 async def shop_partition(*mutations: str) -> Any:
@@ -357,6 +385,161 @@ async def shop_partition(*mutations: str) -> Any:
     artifact = await shop_snapshot(*mutations)
     ontology = plan_ontology()
     return partition(artifact, plan_rules(ontology), ontology)
+
+
+async def shop_view(*mutations: str, **snapshot_options: Any) -> PlanView:
+    """The shop fixture's Snapshot and Partition seen together, as the planning steps see them."""
+
+    artifact = await shop_snapshot(*mutations, **snapshot_options)
+    ontology = plan_ontology()
+    rules = plan_rules(ontology)
+    return PlanView(artifact, partition(artifact, rules, ontology), rules)
+
+
+def planning_context(
+    view: PlanView,
+    store: PlanStore,
+    gateway: Any,
+    *,
+    run_id: str | None = "run-1",
+    options: PlanOptions | None = None,
+    replan: bool = False,
+) -> PlanContext:
+    """A context bound to a run for the planning steps (no driver: they make no query)."""
+
+    return PlanContext(
+        project_id="shop",
+        ontology=plan_ontology(),
+        rules=view.rules,
+        driver=None,
+        gateway=gateway,
+        store=store,
+        build_id=view.snapshot.build_id,
+        options=options or PlanOptions(),
+        replan=replan,
+        run_id=run_id,
+    )
+
+
+def planner_payload(request: ScriptedRequest) -> dict[str, Any]:
+    """The JSON input of a planner request (text fields hold block ids)."""
+
+    user = request.contents("user")[0]
+    start = user.index("{")
+    payload, _ = json.JSONDecoder().raw_decode(user[start:])
+    return dict(payload)
+
+
+def planner_key(request: ScriptedRequest) -> str:
+    """The store key of a planner request: the area of Describe, the part of Tasks, else the planner name."""
+
+    payload = planner_payload(request)
+    if "part_id" in payload:
+        return str(payload["part_id"])
+    area = payload.get("area")
+    if isinstance(area, dict) and request.prompt == gateway_prompt("describe"):
+        return str(area["area_id"])
+    return request.prompt.split(".")[1]
+
+
+def script_plan(gateway: ScriptedGateway, answers: Mapping[tuple[str, str], Any]) -> ScriptedGateway:
+    """Answer planner calls by ``(planner, key)`` (``planner_key``); a value may be an answer, a dict, an
+    exception, or a list of those answered one per call (the last one repeats)."""
+
+    remaining = {key: list(value) if isinstance(value, list) else [value] for key, value in answers.items()}
+    for kind in PLANNER_KINDS:
+
+        def handle(request: ScriptedRequest, kind: str = kind) -> Any:
+            queue = remaining.get((kind, planner_key(request)))
+            if not queue:
+                return NO_ANSWER
+            return queue.pop(0) if len(queue) > 1 else queue[0]
+
+        gateway.handle(gateway_prompt(kind), handle)
+    return gateway
+
+
+def shop_answers(view: PlanView) -> dict[tuple[str, str], BaseModel]:
+    """A valid answer for every planner call of the shop plan, derived from the partition."""
+
+    answers: dict[tuple[str, str], BaseModel] = {}
+    for area in view.active_areas:
+        answers[("describe", area.area_id)] = DescribeAnswer(
+            title=f"Area {area.area_id}",
+            description="What the area builds.",
+            interfaces=[
+                InterfaceAnswer(
+                    spec_id=item.spec_id or "", name=item.name, kind=item.kind, summary="Summary.", spec_ids=[]
+                )
+                for item in spec_interfaces(view, area.area_id)
+            ],
+            stories=[
+                StorySummaryAnswer(story_id=story.story_id, summary="Delivers the story.")
+                for story in view.area_stories(area.area_id)
+                if story.kind not in ("setup", "closing")
+            ],
+        )
+    answers[("project", "project")] = ProjectAnswer(
+        profile=ProfileAnswer(
+            languages=["python"],
+            frameworks=[],
+            layout="src",
+            test_command="pytest",
+            test_paths=["tests"],
+            spec_ids=[],
+            conventions=[ConventionAnswer(text="Every service runs in the EU region.", spec_ids=["CON::EU_REGION"])],
+        ),
+        setup_tasks=[
+            _answer_task("WORKSPACE", "setup", [], []),
+            _answer_task("TOOLCHAIN", "setup", list(setup_members(view)), ["WORKSPACE"]),
+        ],
+        closing_tasks=[_answer_task("END_TO_END", "acceptance", [], [])],
+        setup_summary="Workspace and toolchain.",
+        closing_summary="End-to-end acceptance.",
+    )
+    for part in view.partition.parts:
+        tasks: list[TaskAnswer] = []
+        for story_id in part.story_ids:
+            story = view.stories[story_id]
+            by_phase: dict[str, list[str]] = {}
+            for spec_id in story.members:
+                if spec_id in part.members and spec_id != "CON::EU_REGION":
+                    by_phase.setdefault(view.phase_of(spec_id), []).append(spec_id)
+            slug = story_id.rsplit("::", 1)[-1]
+            earlier: list[str] = []
+            for phase in ("contract", "data", "logic", "integration", "quality"):
+                if phase not in by_phase:
+                    continue
+                action = f"{phase.upper()}_{slug}"[:40].rstrip("_")
+                tasks.append(_answer_task(action, phase, by_phase[phase], list(earlier), story=story_id, view=view))
+                earlier.append(action)
+        answers[("tasks", part.part_id)] = TasksAnswer(tasks=tasks, not_buildable=[])
+    return answers
+
+
+def _answer_task(
+    action: str,
+    phase: str,
+    implements: Sequence[str],
+    waits: Sequence[str],
+    *,
+    story: str = "",
+    view: PlanView | None = None,
+) -> TaskAnswer:
+    done_when = [DoneWhenAnswer(text=f"{action} is done", source="planner")]
+    if view is not None and any(view.rules.acceptance_of(view.nodes[spec_id].attributes) for spec_id in implements):
+        done_when.append(DoneWhenAnswer(text="The acceptance criteria hold", source="spec"))
+    return TaskAnswer(
+        story=story,
+        action=action,
+        phase=phase,
+        title=f"Build {action.lower()}",
+        description="What to build.",
+        implements=list(implements),
+        waits_for=list(waits),
+        done_when=done_when,
+        complexity="medium",
+    )
 
 
 def change_reports(results: Iterable[BuildResult]) -> tuple[BuildChangeReport, ...]:

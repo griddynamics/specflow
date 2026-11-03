@@ -84,9 +84,26 @@ class PlanRules:
     hop_limit: int
     release: str = "release"
     exclude_all: Mapping[str, tuple[str, ...]] = MappingProxyType({})
+    acceptance_criteria: str | None = None
+    assumption: tuple[str, str] | None = None
 
     def labels_of(self, key: str) -> tuple[str, ...]:
         return self.types[key].labels
+
+    def is_assumption(self, attributes: Mapping[str, object]) -> bool:
+        """Whether a node's attributes flag it as an assumption."""
+
+        return self.assumption is not None and attributes.get(self.assumption[0]) == self.assumption[1]
+
+    def acceptance_of(self, attributes: Mapping[str, object]) -> tuple[str, ...]:
+        """A node's acceptance criteria, as a tuple of texts."""
+
+        value = attributes.get(self.acceptance_criteria) if self.acceptance_criteria else None
+        if isinstance(value, str):
+            return (value,) if value.strip() else ()
+        if isinstance(value, list | tuple):
+            return tuple(str(item) for item in value if str(item).strip())
+        return ()
 
     def rule_of(self, label: str) -> TypeRule:
         return next(rule for rule in self.types.values() if label in rule.labels)
@@ -140,6 +157,8 @@ def load_plan_rules(path: Path | None = None, *, ontology: Ontology) -> PlanRule
         phase_guidance=data.get("phase_guidance", ""),
         hop_limit=_hop_limit(relations, ontology),
         release=_attribute_name(data.get("release")) or "release",
+        acceptance_criteria=_attribute_name(data.get("acceptance_criteria")),
+        assumption=_assumption(data.get("assumption")),
     )
 
 
@@ -387,6 +406,12 @@ def _has_attribute(rules: dict[str, TypeRule], ontology: Ontology, attribute: st
         if rule.role != "context"
         for label in rule.labels
     )
+
+
+def _assumption(value: object) -> tuple[str, str] | None:
+    attribute = _attribute_name(value)
+    flag = value.get("value") if isinstance(value, dict) else None
+    return (attribute, flag) if attribute and isinstance(flag, str) else None
 
 
 def _attribute_name(value: object) -> str | None:

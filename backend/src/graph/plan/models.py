@@ -20,6 +20,8 @@ from graph.plan.names import (
     BlockReason,
     Complexity,
     DoneWhenSource,
+    InterfaceKind,
+    NotBuildableReason,
     Phase,
     PlanMode,
     PlannedBy,
@@ -372,6 +374,127 @@ class PartitionArtifact(PlanModel):
     home_story: dict[str, str] = {}
     parts: tuple[PlanningPart, ...] = ()
     counts: dict[str, int] = {}
+
+
+class AreaInterface(PlanModel):
+    """What an area offers other areas: a spec Interface (``planned_by`` rules) or one the describer adds."""
+
+    name: str = Field(min_length=1)
+    kind: InterfaceKind
+    spec_id: str | None = None
+    spec_ids: tuple[str, ...] = ()
+    summary: str | None = None
+    planned_by: PlannedBy
+
+
+class PlannerOutcome(PlanModel):
+    """How one planner answer came about: model calls, reuse, fallback and invalid answers."""
+
+    calls: int = 0
+    reused: bool = False
+    fallback: bool = False
+    invalid: int = 0
+    problems: tuple[str, ...] = ()
+
+
+class PlannedArea(PlanModel):
+    """Title, description and interfaces of an area."""
+
+    title: str = Field(min_length=1)
+    description: str | None = None
+    interfaces: tuple[AreaInterface, ...] = ()
+    planned_by: PlannedBy
+    prompt_ref: str | None = None
+
+
+class DescribeArtifact(PlanModel):
+    """The Describe step: every active area and the summary of its stories."""
+
+    areas: dict[str, PlannedArea] = {}
+    story_summaries: dict[str, str] = {}
+    outcomes: dict[str, PlannerOutcome] = {}
+    truncated: tuple[str, ...] = ()
+
+
+class Convention(PlanModel):
+    """A convention or policy every task follows, with the spec nodes it rests on."""
+
+    text: str = Field(min_length=1)
+    spec_ids: tuple[str, ...] = ()
+
+
+class Profile(PlanModel):
+    """The project profile."""
+
+    languages: tuple[str, ...] = ()
+    frameworks: tuple[str, ...] = ()
+    layout: str | None = None
+    test_command: str | None = None
+    test_paths: tuple[str, ...] = ()
+    spec_ids: tuple[str, ...] = ()
+    conventions: tuple[Convention, ...] = ()
+
+
+class PlannedTask(PlanModel):
+    """A target task before Diff; ``task_key`` is its id without revision, ``waits`` are task keys."""
+
+    task_key: str = Field(min_length=1)
+    area_id: str = Field(min_length=1)
+    story_id: str = Field(min_length=1)
+    action: str = Field(min_length=1)
+    phase: Phase
+    title: str = Field(min_length=1)
+    description: str | None = None
+    done_when: tuple[DoneWhen, ...] = ()
+    complexity: Complexity
+    implements: tuple[str, ...] = ()
+    release: tuple[str, ...] = ()
+    has_open_questions: bool = False
+    planned_by: PlannedBy
+    prompt_ref: str | None = None
+    waits: tuple[str, ...] = ()
+
+
+class ProjectArtifact(PlanModel):
+    """The Project step: profile, setup and closing tasks and their story summaries."""
+
+    profile: Profile = Profile()
+    setup: tuple[PlannedTask, ...] = ()
+    closing: tuple[PlannedTask, ...] = ()
+    summaries: dict[str, str] = {}
+    outcome: PlannerOutcome = PlannerOutcome()
+
+
+class NotBuildable(PlanModel):
+    """A member the Tasks planner returned as no code work."""
+
+    spec_id: str = Field(min_length=1)
+    reason: NotBuildableReason
+    note: str = Field(default="", max_length=300)
+
+
+class TasksArtifact(PlanModel):
+    """The Tasks step: the tasks of every area and the members that are not buildable."""
+
+    tasks: tuple[PlannedTask, ...] = ()
+    not_buildable: dict[str, tuple[NotBuildable, ...]] = {}
+    outcomes: dict[str, PlannerOutcome] = {}
+    oversized: tuple[str, ...] = ()
+
+
+class PlanStepEstimate(PlanModel):
+    """Model calls and estimated input tokens of one step."""
+
+    calls: int = 0
+    input_tokens: int = 0
+
+
+class PlanEstimate(PlanModel):
+    """What a plan run would cost, without calling a model."""
+
+    mode: PlanMode
+    unchanged: bool = False
+    steps: dict[PlanStepName, PlanStepEstimate] = {}
 
 
 PlanRunRecord.model_rebuild()

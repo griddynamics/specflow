@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from graph.plan.errors import PlanRulesError, TaskStateError
+from graph.plan.estimate import estimate_plan
 from graph.plan.files import FilePlanStore, open_plan_store
 from graph.plan.models import (
     BuildChangeReport,
     ChangedSpecEdge,
     ChangedSpecNode,
     MeaningRevisions,
+    PlanEstimate,
     PlanRunRecord,
+    PlanStepEstimate,
 )
 from graph.plan.names import (
     AreaKind,
@@ -49,12 +52,14 @@ __all__ = [
     "NotBuildableReason",
     "Phase",
     "PlanContext",
+    "PlanEstimate",
     "PlanLabel",
     "PlanMode",
     "PlanOptions",
     "PlanRelation",
     "PlanRulesError",
     "PlanRunRecord",
+    "PlanStepEstimate",
     "PlannedBy",
     "StoryKind",
     "StoryProgress",
@@ -62,6 +67,7 @@ __all__ = [
     "TaskStateError",
     "TaskStatus",
     "ensure_plan_schema",
+    "estimate_plan",
     "open_plan_store",
     "plan_ontology_version",
     "plan_vocabularies",

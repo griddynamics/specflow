@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from graph.plan.models import AreaPlan, CurrentPlan, WorkAreaInfo
+from graph.plan.models import AreaPlan, CurrentPlan, Placement, WorkAreaInfo
 from graph.plan.partition import partition
 from graph_plan_support import plan_ontology, plan_rules, shop_partition, shop_snapshot
 
@@ -70,7 +70,8 @@ async def test_every_plannable_node_is_placed_and_shop_rule6_paths_are_correct()
     artifact = await shop_partition()
     plannable = (await shop_snapshot()).plannable
 
-    assert set(artifact.placements) == {node.spec_id for node in plannable if node.label != "Module"}
+    assert set(artifact.placements) == {node.spec_id for node in plannable}
+    assert artifact.placements["MOD::ORDERS_SERVICE"] == Placement(area_id="AREA::ORDERS_SERVICE", rule=1)
     assert artifact.placements["REQ::FR::PLACE_ORDER"].area_id == "AREA::ORDERS_SERVICE"
     assert artifact.placements["REQ::FR::PLACE_ORDER"].rule == 6
     assert artifact.placements["REQ::FR::PLACE_ORDER"].via == (
@@ -226,6 +227,7 @@ async def test_a_persisted_area_keeps_its_id_through_an_anchor_alias() -> None:
             "FEAT::ORDER_HISTORY_EXPORT",
             "FEAT::PLACE_ORDER",
             "IFC::ORDERS_API",
+            "MOD::ORDERS_SERVICE",
             "REQ::BR::ORDER_LIMIT",
             "REQ::FR::ORDER_HISTORY_EXPORT",
             "REQ::FR::PLACE_ORDER",
