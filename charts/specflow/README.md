@@ -27,6 +27,91 @@ The component profiles under `examples/components` refer to one existing
 Secret per component. Create those Secrets manually or through a secret
 controller before installing. The examples never contain secret values.
 
+### External service prerequisites
+
+The chart does not install or manage PostgreSQL, ArcadeDB, Temporal, or
+Langfuse. Provision the required services, databases, namespaces, accounts,
+network access, TLS material, backups, and availability controls before
+installing Specflow. PostgreSQL and Temporal are required for the complete
+application. ArcadeDB is required only when it is the selected graph store;
+Langfuse is optional.
+
+| Service | Requirement | Used by |
+| --- | --- | --- |
+| PostgreSQL | Required | API, MCP, agent worker, and parse worker |
+| ArcadeDB | Required when `GRAPH_STORE=arcadedb` | API, MCP, and agent worker |
+| Temporal | Required | API, agent worker, and parse worker |
+| Langfuse | Optional | API and tracing-enabled workers |
+
+#### PostgreSQL
+
+- Provide a reachable PostgreSQL database before installing the API. The API
+  image runs the shipped database migration during startup, so the application
+  login must be allowed to apply those migrations.
+- Create the application database, `DATABASE_USER`, and the separate
+  `DATABASE_AGENT_USER` role used by agent tools. Grant only the permissions
+  required by the application and its row-level-security model.
+- Supply `DATABASE_HOST`, `DATABASE_NAME`, `DATABASE_USER`, and
+  `DATABASE_PASSWORD` through each applicable component Secret.
+  `DATABASE_PORT` defaults to `5432`. The API and agent worker also require
+  `DATABASE_AGENT_PASSWORD`.
+- For TLS, provide `PGSSLMODE` and, when required, mount a CA certificate and
+  set `PGSSLROOTCERT` to its container path. See
+  `examples/integrations/mounted-ca.yaml`.
+- A PostgreSQL instance used only for application data does not need pgvector.
+  If PostgreSQL is also selected as the graph store, use PostgreSQL 15 or newer
+  with pgvector 0.8 or newer and follow the graph-store preparation in the
+  configuration reference.
+
+#### ArcadeDB graph store
+
+- Use ArcadeDB 26.10 or newer with the Bolt plugin enabled. The application
+  uses Bolt for graph queries and the HTTP admin API for server checks and
+  index creation.
+- Create the target database before the first Specflow graph build. The
+  application login must be allowed to create the required types, constraints,
+  and indexes. Size and operate ArcadeDB independently of this chart; the
+  application guidance recommends at least 4 GB of memory.
+- Set `GRAPH_STORE=arcadedb` and supply `GRAPH_STORE_URI`,
+  `GRAPH_STORE_USER`, `GRAPH_STORE_PASSWORD`, and `GRAPH_STORE_NAME` to the
+  API, MCP, and agent-worker releases. Set `GRAPH_STORE_ADMIN_URI` when the
+  admin API cannot be derived from the Bolt host or uses a different port,
+  proxy, or TLS endpoint.
+- Ensure the relevant Pods can reach both the Bolt endpoint and the HTTP admin
+  endpoint. Keep credentials in Kubernetes Secrets; do not place them in a
+  values file.
+
+#### Temporal
+
+- Provide a reachable Temporal service and create `TEMPORAL_NAMESPACE` before
+  installing Specflow; the application never creates the namespace.
+- Supply the same `TEMPORAL_ADDRESS` and `TEMPORAL_NAMESPACE` to the API and
+  both worker releases. Keep `TEMPORAL_QUEUE_PARSE` and
+  `TEMPORAL_QUEUE_AGENTS` consistent across producers and workers when
+  overriding their defaults.
+- For a managed Temporal service, also provide the applicable
+  `TEMPORAL_API_KEY`, `TEMPORAL_TLS_CERT`, and `TEMPORAL_TLS_KEY` through
+  Secret references. Leave those settings unset when the self-hosted service
+  does not require them.
+- Verify DNS, network policy, authentication, TLS, and namespace access from
+  the Specflow namespace before installing the API and workers.
+
+#### Langfuse (optional)
+
+- No Langfuse setting is required when tracing is disabled. Leave
+  `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, and `LANGFUSE_SECRET_KEY` unset.
+- To enable tracing, provision Langfuse externally and provide those three
+  settings to the API and tracing-enabled worker releases. Store the secret key
+  in a Kubernetes Secret. `LANGFUSE_HOST` is supported only as a compatibility
+  fallback when `LANGFUSE_BASE_URL` is unset.
+- Confirm endpoint reachability and TLS trust from the Specflow namespace.
+  Langfuse unavailability must not be addressed by installing Langfuse
+  resources through this chart.
+
+Provision PostgreSQL, the selected graph store, Temporal, and optional
+Langfuse first; then create or synchronize the component Secrets before
+installing the API and the remaining releases in the order below.
+
 ## Install all components
 
 Use the same chart version for all releases. First install the API and wait for
