@@ -1,6 +1,7 @@
 """Planner prompts: versioned system texts and the user message of one planner call.
 
-A prompt file ``prompts/<name>.<revision>.md`` is the system text. The user message is the planner input
+A prompt file ``prompts/<name>.md`` is the system text; its revision (``PROMPT_REVISIONS``) is raised with
+every change of the text and recorded with each planner answer. The user message is the planner input
 as JSON in which every specification or model text is replaced by the id of a text block (``T1``,
 ``T2``, ...); the blocks follow the JSON, each wrapped by ``Gateway.untrusted``, so the model reads them
 as data. Ids, codes and counts stay in the JSON.
@@ -44,7 +45,7 @@ def gateway_prompt(name: PromptName) -> str:
 def system_text(name: PromptName) -> str:
     """The system text of a planner, read once from the package."""
 
-    path = files("graph.plan") / _PROMPT_DIRECTORY / f"{prompt_ref(name)}.md"
+    path = files("graph.plan") / _PROMPT_DIRECTORY / f"{name}.md"
     return path.read_text(encoding="utf-8").strip()
 
 
