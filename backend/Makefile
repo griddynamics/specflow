@@ -33,7 +33,7 @@ GRAPH_LIVE_TESTS := tests/test_graph_probes.py tests/test_graph_core_live.py tes
 	tests/test_graph_build_live.py tests/test_graph_update_live.py tests/test_graph_verify_live.py \
 	tests/test_graph_infer_live.py tests/test_graph_renamed_ontology_live.py tests/test_graph_estimate_live.py \
 	tests/test_graph_golden_live.py tests/test_graph_neo4j_live.py tests/test_store_arcadedb_live.py \
-	tests/test_store_postgres_integration.py
+	tests/test_store_postgres_integration.py $(sort $(wildcard tests/test_graph_plan_*_live.py))
 
 test-graph-live:
 	@case "$(STORE)" in neo4j|arcadedb|postgres) ;; *) echo "test-graph-live: STORE must be neo4j, arcadedb or postgres, got: $(STORE)" >&2; exit 2;; esac
