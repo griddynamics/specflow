@@ -25,12 +25,11 @@ from graph.core.ontology import (
     Support,
     load_ontology,
 )
-from graph_support import FROZEN_ONTOLOGY_FILE, frozen_ontology, with_v2_flags
+from graph_support import FROZEN_ONTOLOGY_FILE, copy_frozen_prompts, frozen_ontology, with_v2_flags
 
 SHIPPED_DIR = Path(ontology_package.__file__).parent
 SHIPPED_FILE = SHIPPED_DIR / "spec-ontology.yaml"
 SHIPPED_PROMPTS = SHIPPED_DIR / "judge_prompts"
-FROZEN_PROMPTS = FROZEN_ONTOLOGY_FILE.parent / "judge_prompts"
 DOCS_TEMPLATE = Path(__file__).resolve().parents[2] / "docs" / "graph" / "spec-ontology.yaml"
 BASE: dict[str, Any] = yaml.safe_load(FROZEN_ONTOLOGY_FILE.read_text(encoding="utf-8"))
 """The flag-off ontology file, parsed: the base the flag mechanics edit."""
@@ -51,15 +50,19 @@ def write(
     data: dict[str, Any] | str,
     *,
     extra_prompts: tuple[str, ...] = (),
-    prompts_from: Path = FROZEN_PROMPTS,
+    prompts_from: Path | None = None,
 ) -> Path:
     """``data`` as ``ontology.yaml`` in ``directory`` with copies of the judge prompts in ``prompts_from``
-    (default: the frozen ones), plus a stub prompt file for each of ``extra_prompts``."""
+    (default: the frozen ontology's, ``copy_frozen_prompts``), plus a stub prompt file for each of
+    ``extra_prompts``."""
 
     directory.mkdir(parents=True, exist_ok=True)
     prompts = directory / "judge_prompts"
     if not prompts.exists():
-        shutil.copytree(prompts_from, prompts)
+        if prompts_from is None:
+            copy_frozen_prompts(directory)
+        else:
+            shutil.copytree(prompts_from, prompts)
     for ref in extra_prompts:
         (prompts / f"{ref}.md").write_text(f"Stub judge prompt {ref} (test only).\n", encoding="utf-8")
     path = directory / "ontology.yaml"
@@ -111,12 +114,12 @@ def test_the_frozen_file_is_format_2_with_every_new_flag_off() -> None:
         assert rule.exclude_owned_by == frozenset() and rule.exclude_where == {}
 
 
-def test_the_frozen_test_ontology_loads_with_its_frozen_prompts() -> None:
+def test_the_frozen_test_ontology_loads_with_the_shipped_prompts_it_names() -> None:
     frozen = frozen_ontology()
     assert frozen.version == "1.3"
     assert {rule.prompt for rule in frozen.inference.rules} == set(frozen.judge_prompts)
     for ref, text in frozen.judge_prompts.items():
-        assert text == (FROZEN_ONTOLOGY_FILE.parent / "judge_prompts" / f"{ref}.md").read_text(encoding="utf-8")
+        assert text == (SHIPPED_PROMPTS / f"{ref}.md").read_text(encoding="utf-8")
 
 
 def test_the_v2_docs_template_loads_with_no_problem(tmp_path: Path) -> None:
@@ -130,8 +133,8 @@ def test_the_v2_docs_template_loads_with_no_problem(tmp_path: Path) -> None:
         submodule_files=[],
     )
     assert template.version == "2.0"
-    answered = AnsweredElsewhereSpec("OpenQuestion", "judge_answered_elsewhere.3", 4, 0.35, 0.8, 60)
-    assert template.conform_spec() == ConformSpec("judge_owner_conflict.2", 200, 0.7, "RELATES_TO", answered)
+    answered = AnsweredElsewhereSpec("OpenQuestion", "judge_answered_elsewhere", 4, 0.35, 0.8, 60)
+    assert template.conform_spec() == ConformSpec("judge_owner_conflict", 200, 0.7, "RELATES_TO", answered)
     assert [rule.id for rule in template.inference.rules][-1] == "INF-XDOC-01"
     assert template.stated_only_relations() == template.acyclic_relations() == frozenset({"DEPENDS_ON"})
     assert template.default_relations("Module", "Module") == ("INTEGRATES_WITH", "DEPLOYED_TO")
@@ -251,7 +254,7 @@ def test_the_structure_comparison_sees_a_flag_and_ignores_prompt_text() -> None:
     reworded["node_types"]["module"]["description"] = "Reworded."
     reworded["node_types"]["module"]["attributes"]["type"]["values"]["other"] = "anything else"
     reworded["edge_types"]["PART_OF"]["cues"] = ["consists of"]
-    reworded["conform"]["judge_prompt"] = "judge_owner_conflict.3"
+    reworded["conform"]["judge_prompt"] = "judge_owner_conflict_reworded"
     assert _file_structure(reworded) == _file_structure(template)
     flagged = copy.deepcopy(template)
     flagged["edge_types"]["PART_OF"]["pairs"][0]["owner_rank"] = 2
@@ -363,20 +366,20 @@ def test_spine_exclude_may_name_an_attribute_of_the_owner(flagged: Ontology) -> 
 
 
 def test_conform_section_and_its_judge_prompt(flagged: Ontology) -> None:
-    assert flagged.conform_spec() == ConformSpec("judge_endpoints.2", 10, 0.5, "RELATES_TO")
-    assert flagged.judge_prompt("judge_endpoints.2") == (FROZEN_PROMPTS / "judge_endpoints.2.md").read_text(
+    assert flagged.conform_spec() == ConformSpec("judge_endpoints", 10, 0.5, "RELATES_TO")
+    assert flagged.judge_prompt("judge_endpoints") == (SHIPPED_PROMPTS / "judge_endpoints.md").read_text(
         encoding="utf-8"
     )
 
 
 def test_a_conform_prompt_loads_from_judge_prompts_once_its_file_exists(tmp_path: Path) -> None:
     data = with_v2_flags(BASE)
-    data["conform"]["judge_prompt"] = "judge_owner_conflict.1"
+    data["conform"]["judge_prompt"] = "judge_owner_conflict"
     with pytest.raises(OntologyError) as raised:
         load(tmp_path / "missing", data)
-    assert any("judge_prompts/judge_owner_conflict.1.md not found" in problem for problem in raised.value.problems)
-    loaded = load(tmp_path / "present", data, extra_prompts=("judge_owner_conflict.1",))
-    assert loaded.judge_prompt("judge_owner_conflict.1").startswith("Stub judge prompt")
+    assert any("judge_prompts/judge_owner_conflict.md not found" in problem for problem in raised.value.problems)
+    loaded = load(tmp_path / "present", data, extra_prompts=("judge_owner_conflict",))
+    assert loaded.judge_prompt("judge_owner_conflict").startswith("Stub judge prompt")
 
 
 def test_inference_parameters(flagged: Ontology) -> None:

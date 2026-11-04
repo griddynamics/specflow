@@ -1,47 +1,82 @@
-"""Live Neo4j tests of the plan schema setup."""
+"""Live graph-store tests of the plan schema setup."""
 
 from __future__ import annotations
 
-from graph.core import ensure_schema, load_ontology
+import re
+from pathlib import Path
+from typing import Final
+
+import graph.plan
 from graph.core.reader import GraphReader
 from graph.plan.schema import ensure_plan_schema
 from graph_plan_support import plan_ontology, shop_graph, write_spec_graph
-from graph_support import Neo4jProject, live_llm_config
-from specflow_live import requires_live
+from graph_probes import requires_live_graph
+from graph_support import GraphProject, live_llm_config
 
 pytest_plugins = ["graph_support"]
 
-pytestmark = requires_live("NEO4J")
+pytestmark = requires_live_graph()
+
+PLAN_DDL: Final = Path(graph.plan.__file__).resolve().parent / "ddl" / "plan_schema.cypher"
+_STATEMENT: Final = re.compile(
+    r"CREATE[ ](?:CONSTRAINT|INDEX) (?P<name>\w+) IF NOT EXISTS "
+    r"FOR (?:\(\w+:(?P<label>\w+)\)|\(\)-\[\w+:(?P<relation>\w+)\]-\(\)) "
+    r"(?:REQUIRE|ON) \((?P<properties>[^)]*)\)"
+)
 
 
-async def test_plan_schema_entry_point_is_idempotent_and_default_schema_covers_it(
-    neo4j_project: Neo4jProject,
-) -> None:
-    ontology = load_ontology()
-    created = await ensure_plan_schema(neo4j_project.driver, neo4j_project.database)
+def _plan_objects() -> dict[str, tuple[str, str, tuple[str, ...]]]:
+    """Name -> (entity, label or relationship type, properties) of every object ``plan_schema.cypher`` declares."""
 
-    assert created == ()
-    assert await ensure_plan_schema(neo4j_project.driver, neo4j_project.database) == ()
-    assert (
-        await ensure_schema(
-            neo4j_project.driver,
-            ontology,
-            live_llm_config(),
-            neo4j_project.database,
-        )
-        == ()
-    )
+    objects: dict[str, tuple[str, str, tuple[str, ...]]] = {}
+    for found in _STATEMENT.finditer(PLAN_DDL.read_text(encoding="utf-8")):
+        properties = tuple(item.strip().split(".", 1)[1] for item in found["properties"].split(","))
+        if found["label"]:
+            objects[found["name"]] = ("node", found["label"], properties)
+        else:
+            objects[found["name"]] = ("relationship", found["relation"], properties)
+    return objects
 
 
-async def test_shop_fixture_written_to_neo4j_reads_back_like_the_fake_reader(
-    neo4j_project: Neo4jProject,
-) -> None:
-    project_id = neo4j_project.new_project()
+async def test_plan_schema_entry_point_is_idempotent(graph_project: GraphProject) -> None:
+    ontology = plan_ontology()
+
+    await ensure_plan_schema(graph_project.store, ontology, live_llm_config())
+    assert await ensure_plan_schema(graph_project.store, ontology, live_llm_config()) == ()
+
+
+# plan_schema.cypher declares the plan objects of the Cypher stores; PostgreSQL keeps plan nodes and
+# relationships in its generic tables, whose keys its own schema suite checks.
+
+
+@requires_live_graph("neo4j")
+async def test_neo4j_holds_every_plan_object_by_name(graph_project: GraphProject) -> None:
+    await ensure_plan_schema(graph_project.store, plan_ontology(), live_llm_config())
+    expected = _plan_objects()
+    assert len(expected) == 16, "plan_schema.cypher was not parsed"
+    names = {item.name for item in await graph_project.probe.schema_objects()}
+    assert set(expected) <= names, sorted(set(expected) - names)
+
+
+@requires_live_graph("arcadedb")
+async def test_arcadedb_holds_every_plan_object_by_shape(graph_project: GraphProject) -> None:
+    """ArcadeDB names its indexes itself: compare by what each object covers."""
+
+    await ensure_plan_schema(graph_project.store, plan_ontology(), live_llm_config())
+    expected = _plan_objects()
+    assert len(expected) == 16, "plan_schema.cypher was not parsed"
+    shapes = {(item.entity, item.label, item.properties) for item in await graph_project.probe.schema_objects()}
+    missing = {name for name, shape in expected.items() if shape not in shapes}
+    assert not missing, sorted(missing)
+
+
+async def test_shop_fixture_written_to_the_store_reads_back_like_the_fake_reader(graph_project: GraphProject) -> None:
+    project_id = graph_project.new_project()
     ontology = plan_ontology()
     fixture = shop_graph()
 
-    await write_spec_graph(neo4j_project, project_id, fixture, ontology)
-    reader = GraphReader(neo4j_project.driver, ontology, database=neo4j_project.database)
+    await write_spec_graph(graph_project, project_id, fixture, ontology)
+    reader = GraphReader(graph_project.store, ontology)
 
     written_nodes = await reader.nodes(project_id)
     written_edges = await reader.edges(project_id)

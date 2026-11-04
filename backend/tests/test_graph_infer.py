@@ -6,7 +6,6 @@ import copy
 import dataclasses
 import json
 import re
-import shutil
 from pathlib import Path
 from typing import Any, cast
 
@@ -40,9 +39,11 @@ from graph.core.llm import JudgeRunner, Verdict
 from graph.core.llm.judge import EVIDENCE_RULE
 from graph.core.ontology import InferenceRule, InferenceSpec, SpinePath, load_ontology
 from graph.core.ontology.model import CROSS_DOCUMENT, TEMPLATE_PARAMETERS
+from graph.stores._bolt.cypher import render_cypher
 from graph_support import (
     FROZEN_ONTOLOGY_FILE,
     ScriptedGateway,
+    copy_frozen_prompts,
     frozen_ontology,
     outside_untrusted,
     shipped_ontology,
@@ -414,7 +415,7 @@ def test_the_input_hash_changes_with_every_input(change: str) -> None:
             pairs=(("mod-a", "mod-b"), ("mod-a", "mod-z")),
         )
     elif change == "prompt":
-        rule = dataclasses.replace(INT, prompt="judge_endpoints.3")
+        rule = dataclasses.replace(INT, prompt="judge_endpoints_next")
     elif change == "judge-model":
         model = "another-judge"
     else:
@@ -461,8 +462,30 @@ async def test_judge_memory_keys_by_project_rule_subject_and_hash_and_is_fingerp
     await memory.remember(ORPH, {key: entry})
     assert await memory.recall(ORPH, [key]) == {key: entry}
     assert await inference.JudgeMemory(store, "p-1", "another-judge").recall(ORPH, [key]) == {}
-    assert await memory.recall(dataclasses.replace(ORPH, prompt="judge_attach_orphan.3"), [key]) == {}
+    assert await memory.recall(dataclasses.replace(ORPH, prompt="judge_attach_orphan_next"), [key]) == {}
     assert await inference.JudgeMemory(None, "p-1", MODEL).recall(ORPH, [key]) == {}
+
+
+async def test_judge_memory_with_the_ontology_is_fingerprinted_by_the_prompt_text(tmp_path: Path) -> None:
+    store = FileExtractionStore(tmp_path)
+    memory = inference.JudgeMemory(store, "p-1", MODEL, ONTOLOGY)
+    key = memory.key(ORPH, "SPEC::REQ-1", "abc")
+    entry = {"outcome": "declined", "edges": []}
+    await memory.remember(ORPH, {key: entry})
+    assert await inference.JudgeMemory(store, "p-1", MODEL, ONTOLOGY).recall(ORPH, [key]) == {key: entry}
+    assert await inference.JudgeMemory(store, "p-1", MODEL).recall(ORPH, [key]) == {}  # bare reference
+    prompts = {**ONTOLOGY.judge_prompts, ORPH.prompt: f"{ONTOLOGY.judge_prompt(ORPH.prompt)}\nMore."}
+    edited = dataclasses.replace(ONTOLOGY, judge_prompts=prompts)
+    assert await inference.JudgeMemory(store, "p-1", MODEL, edited).recall(ORPH, [key]) == {}
+
+
+async def test_the_build_budget_is_kept_with_the_ontology_given(tmp_path: Path) -> None:
+    """The budget entry names no judge prompt: it reads and writes with or without an ontology."""
+
+    store = FileExtractionStore(tmp_path)
+    await inference.JudgeMemory(store, "p-1", MODEL, ONTOLOGY).record_spent("b-1", 120)
+    assert await inference.JudgeMemory(store, "p-1", MODEL, ONTOLOGY).spent("b-1") == 120
+    assert await inference.JudgeMemory(store, "p-1", MODEL).spent("b-1") == 120
 
 
 def test_a_stored_judgement_reads_back_or_is_judged_again() -> None:
@@ -506,7 +529,7 @@ def load_variant(directory: Path, edit: Any) -> Any:
     data = copy.deepcopy(data)
     edit(data["inference"]["rules"])
     directory.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(FROZEN_ONTOLOGY_FILE.parent / "judge_prompts", directory / "judge_prompts")
+    copy_frozen_prompts(directory)
     path = directory / "ontology.yaml"
     path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
     try:
@@ -1026,7 +1049,7 @@ async def test_endpoints_skip_subjects_owned_by_an_excluded_label() -> None:
 
 def test_realization_reads_one_query_per_container_path() -> None:
     assert len(CAP2.container_paths) == 4
-    texts = [query.text for query in inference._realization_queries(V2, CAP2)]
+    texts = [render_cypher(query) for query in inference._realization_queries(V2, CAP2)]
     patterns = (
         "(m)-[:PART_OF*1..3]->(c:SpecNode)",
         "(m)-[:RELATES_TO*1..1]-(c:SpecNode)",  # symmetric: either direction
@@ -1037,7 +1060,7 @@ def test_realization_reads_one_query_per_container_path() -> None:
         [index == position for index in range(4)] for position in range(4)
     ]
     (frozen,) = inference._realization_queries(ONTOLOGY, CAP)
-    assert "(m)-[:PART_OF*1..3]->(c:SpecNode)" in frozen.text
+    assert "(m)-[:PART_OF*1..3]->(c:SpecNode)" in render_cypher(frozen)
 
 
 def realization_graph() -> FakeGraph:
@@ -1256,7 +1279,7 @@ def test_a_read_rule_without_a_plan_keeps_its_current_inferred_edges() -> None:
 
 # Batched attach_orphan calls
 
-BATCH_PROMPT = "judge_attach_orphan_batch.3"
+BATCH_PROMPT = "judge_attach_orphan_batch"
 SECTION = "Order export: staff downloads orders. Staff filters orders by date. Staff prints the list."
 
 
@@ -1467,7 +1490,7 @@ async def test_batched_judgements_are_remembered_per_subject_under_its_single_in
     unbatched = scripted({})  # batching off: the same single inputs, still reused
     (rule,) = (await run_infer(batch_graph(), with_rules(V2, CONT1), unbatched, memory)).rules
     assert (rule.reused, rule.judged, unbatched.calls) == (5, 0, [])
-    other_batch = with_rules(V2, dataclasses.replace(CONT1, batch=3, batch_prompt="judge_attach_orphan_batch.9"))
+    other_batch = with_rules(V2, dataclasses.replace(CONT1, batch=3, batch_prompt="judge_attach_orphan_batch_next"))
     rebatched = scripted({})  # another batch prompt: the single inputs did not change
     (rule,) = (await run_infer(batch_graph(), other_batch, rebatched, memory)).rules
     assert (rule.reused, rebatched.calls) == (5, [])

@@ -16,7 +16,7 @@ This is an explainer for engineers and product people. It covers four things:
 4. what verification checks, how it repairs, and the rules it follows.
 
 The reference files hold the exact contracts: [ontology.md](ontology.md) (format),
-[data-model.md](data-model.md) (Neo4j model, identity), [build.md](build.md) (steps, modes, reuse),
+[data-model.md](data-model.md) (Neo4j model, per-store mapping, identity), [build.md](build.md) (steps, modes, reuse),
 [analysis.md](analysis.md) (inference, verification), [api.md](api.md) (public API). The shipped
 ontology is `backend/src/graph/core/ontology/spec-ontology.yaml`, version 2.0. All numbers below
 are the ones the code uses.
@@ -145,7 +145,7 @@ containment tree a tree, and that tree is what a work breakdown is. When the tex
 under two owners, Conform keeps one (lower `owner_rank` first, then stronger basis, then more
 evidence) and counts each extra target as `exclusive_conflicts`, because a requirement the text
 places in two features is a finding in itself. The other targets become `RELATES_TO`, directly or
-after the owner-conflict judge (`judge_owner_conflict.2`, at most 200 calls per build, floor 0.7),
+after the owner-conflict judge (`judge_owner_conflict`, at most 200 calls per build, floor 0.7),
 unless they are redundant or the judge finds them unrelated. A requirement about the whole system
 (deployment, security, operations) is `PART_OF` nothing. It `RELATES_TO` each module the text names.
 Forcing it into one module would hide that it is cross-cutting.
@@ -266,7 +266,7 @@ section over the range is cut at the paragraph boundary with the lowest content 
 window, so the cut depends on the content around it and an edit elsewhere does not move it. Fenced
 code blocks are never split. The fragment id is `<document_id>#<heading path slug>#<8 hex chars
 from the first body line>`, so an unchanged section keeps its id across revisions. A fragment is
-the unit of evidence (`:Fragment` in Neo4j).
+the unit of evidence (`:Fragment` in the Neo4j model).
 
 **Change set.** Plan compares the snapshot with the persisted `Document`s: each document is new,
 revised or removed. Fragments of a revised document are matched to the persisted ones: the same
@@ -300,7 +300,7 @@ flowchart TD
     ES -. reuse .-> E
     ES -. reuse .-> C
     ES -. judge memory .-> I
-    W --> NEO[(Neo4j)]
+    W --> NEO[(Graph store)]
     NEO --> I
     NEO --> V
     BS[(BuildStore<br/>record, progress, artifacts)] -. every step .- P
@@ -319,11 +319,11 @@ Embeddings are looked up in the vector store by text first; only a text not seen
 | 2 | `extract_nodes` | Plan; persisted hubs (`update`) | Raw nodes per fragment and pass; the hub catalog; stored node results | `extraction`: two node calls per window, the hub pass (`nodes.hubs.14`) over every window first, then the statement pass (`nodes.statements.15`) with the hub catalog as known terms. `embedding`: fragment and hub vectors to rank known terms, only when some unit is extracted. One cache warm-up (`nodes.warmup.1`) per pass and unit with two or more windows to extract |
 | 3 | `resolve` | Plan, raw nodes; in `update`, persisted identities; decision memory | Canonical nodes with identity keys, aliases, names, labels, `name_embedding` texts | `judge`: one hub consolidation call (`consolidate_hubs.4`) per block of up to 120 hubs of one label part not already decided, then pair-pass batches of up to 16 hubs (at most 60 calls), then cross-label twin calls (`hub_twins.3`) of up to 8 pairs each. `embedding`: name and candidate vectors |
 | 4 | `extract_edges` | Plan, canonical nodes, raw nodes; in `update`, hub aliases and last catalogs | Raw edges per edge window; catalog parts per unit; attribute values per node | `extraction`: one edge call (`edges.8`) per edge window (at most 8 per unit) that holds a dirty fragment or whose window catalog changed, after one warm-up (`edges.warmup.4`) per unit with two or more such windows. `small`: attributes for new and changed nodes, batches of at most 20 nodes and about 12,000 tokens of fragment text, up to 3 fragments per node |
-| 5 | `conform` | Plan, canonical nodes, raw edges and attributes; dedup memory; in `update`, persisted identities | Target graph: grounded nodes, legal edges, statements, `MENTIONED_IN`, counters | `small`: one dedup verdict (`dedup_adjudicate.3`) per candidate pair not merged directly and not remembered; answered-elsewhere verdicts for open questions (at most 60). `judge`: owner-conflict calls (`judge_owner_conflict.2`, at most 200, floor 0.7). `embedding`: dedup candidate vectors, search `embedding` |
-| 6 | `diff` | Plan, target graph, current graph from Neo4j, `spec_id` registry | Diff: operations in persist order, `spec_changes`, registry rows | None |
-| 7 | `persist` | Diff; persist cursor | Neo4j writes; `spec_id` registry rows (before the first batch); cursor after each batch | `embedding` only for a vector missing from the store |
-| 8 | `infer` | Neo4j (`stated` and `implied` edges only); judge memory | Inferred edges (one transaction); inference report | `judge`: the rule's cap of fresh subjects per build in every mode (100; 36 for `INF-XDOC-01`), in `first` and `rebuild` up to `first_cap` (2000) per rule within `first_budget` (11M tokens) for the build |
-| 9 | `verify` | Neo4j; this build's diff and target graph (to restore evidence); registry | Repairs; verification report | None |
+| 5 | `conform` | Plan, canonical nodes, raw edges and attributes; dedup memory; in `update`, persisted identities | Target graph: grounded nodes, legal edges, statements, `MENTIONED_IN`, counters | `small`: one dedup verdict (`dedup_adjudicate.3`) per candidate pair not merged directly and not remembered; answered-elsewhere verdicts for open questions (at most 60). `judge`: owner-conflict calls (`judge_owner_conflict`, at most 200, floor 0.7). `embedding`: dedup candidate vectors, search `embedding` |
+| 6 | `diff` | Plan, target graph, current graph from the store, `spec_id` registry | Diff: operations in persist order, `spec_changes`, registry rows | None |
+| 7 | `persist` | Diff; persist cursor | Graph store writes; `spec_id` registry rows (before the first batch); cursor after each batch | `embedding` only for a vector missing from the store |
+| 8 | `infer` | Graph store (`stated` and `implied` edges only); judge memory | Inferred edges (one transaction); inference report | `judge`: the rule's cap of fresh subjects per build in every mode (100; 36 for `INF-XDOC-01`), in `first` and `rebuild` up to `first_cap` (2000) per rule within `first_budget` (11M tokens) for the build |
+| 9 | `verify` | Graph store; this build's diff and target graph (to restore evidence); registry | Repairs; verification report | None |
 
 Notes per step:
 
@@ -755,11 +755,11 @@ them. It is on unless `BuildSettings.inference` is false.
 
 | Rule | Subject | Candidates | Writes |
 |---|---|---|---|
-| `INF-INT-01` (`endpoints`, `judge_endpoints.3`) | An `IntegrationRequirement` not owned by an interface, with 2-4 modules, reached by `PART_OF` or `RELATES_TO` or mentioned in its evidence fragments | Pairs of those modules not yet linked by `INTEGRATES_WITH` in either direction | `INTEGRATES_WITH`, one direction per pair, caller → called |
-| `INF-CAP-01` (`realization`, `judge_realization.2`) | A `Capability` | Modules its grouped members reach by 1-3 `PART_OF` edges, one `RELATES_TO` edge, or `PART_OF` then `PROVIDED_BY` or `CONSUMED_BY`; `PART_OF` edges `INF-CONT-01` and `INF-CONT-02` add in this build count (at most 12 members and 12 candidates shown) | `REALIZED_BY` |
-| `INF-CONT-01` (`attach_orphan`, `judge_attach_orphan.4`) | A requirement with no target on any owner pair, not `in_scope: no` and with no out-of-scope owner | Its 3 most similar features or modules by exact cosine over `embedding`, plus the hub its section heading names (nearest heading first, by whole name or a contained name of two or more words), none `in_scope: no` and none its owner pair forbids (an external module) | `PART_OF` to at most one |
-| `INF-CONT-02` (`attach_orphan`, `judge_attach_orphan.4`) | A feature with no module, not `in_scope: no` | Its 3 most similar modules by exact cosine over `embedding`, none `in_scope: no`, external or a deployment target | `PART_OF` to at most one |
-| `INF-XDOC-01` (`cross_document`, `judge_cross_document.4`; runs last) | A module, feature, interface or data entity whose requirement members (by `PART_OF`, `RELATES_TO` or mentions) come from 2 or more documents | Up to 8 member pairs from different documents, each pair under one hub per run (hubs with more members choose first); 3 owner candidates per member with no owner | `RELATES_TO` between members; `DEPENDS_ON` only when the source-side quote has a dependency cue, else `RELATES_TO`; `PART_OF` for an orphan member's owner |
+| `INF-INT-01` (`endpoints`, `judge_endpoints`) | An `IntegrationRequirement` not owned by an interface, with 2-4 modules, reached by `PART_OF` or `RELATES_TO` or mentioned in its evidence fragments | Pairs of those modules not yet linked by `INTEGRATES_WITH` in either direction | `INTEGRATES_WITH`, one direction per pair, caller → called |
+| `INF-CAP-01` (`realization`, `judge_realization`) | A `Capability` | Modules its grouped members reach by 1-3 `PART_OF` edges, one `RELATES_TO` edge, or `PART_OF` then `PROVIDED_BY` or `CONSUMED_BY`; `PART_OF` edges `INF-CONT-01` and `INF-CONT-02` add in this build count (at most 12 members and 12 candidates shown) | `REALIZED_BY` |
+| `INF-CONT-01` (`attach_orphan`, `judge_attach_orphan`) | A requirement with no target on any owner pair, not `in_scope: no` and with no out-of-scope owner | Its 3 most similar features or modules by exact cosine over `embedding`, plus the hub its section heading names (nearest heading first, by whole name or a contained name of two or more words), none `in_scope: no` and none its owner pair forbids (an external module) | `PART_OF` to at most one |
+| `INF-CONT-02` (`attach_orphan`, `judge_attach_orphan`) | A feature with no module, not `in_scope: no` | Its 3 most similar modules by exact cosine over `embedding`, none `in_scope: no`, external or a deployment target | `PART_OF` to at most one |
+| `INF-XDOC-01` (`cross_document`, `judge_cross_document`; runs last) | A module, feature, interface or data entity whose requirement members (by `PART_OF`, `RELATES_TO` or mentions) come from 2 or more documents | Up to 8 member pairs from different documents, each pair under one hub per run (hubs with more members choose first); 3 owner candidates per member with no owner | `RELATES_TO` between members; `DEPENDS_ON` only when the source-side quote has a dependency cue, else `RELATES_TO`; `PART_OF` for an orphan member's owner |
 
 Rules run in the ontology's order: `INF-CONT-01`, `INF-CONT-02`, `INF-INT-01`, `INF-CAP-01`,
 `INF-XDOC-01`. The rules that keep inference safe:

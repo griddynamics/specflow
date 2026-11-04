@@ -112,13 +112,17 @@ class FakeTemporal:
         return SimpleNamespace(id=workflow_id, describe=describe, terminate=terminate)
 
 
-class FakeDriver:
-    """The Neo4j driver the runtime holds; no request handler may use it (only ``/readyz``)."""
+class FakeGraphStore:
+    """The graph store the runtime holds; no request handler may use it (only ``/readyz``)."""
 
     def __init__(self) -> None:
         self.queries = 0
 
-    async def execute_query(self, *_args: Any, **_kwargs: Any):
+    def executor(self) -> Any:
+        self.queries += 1
+        raise ConnectionError("graph down")
+
+    async def check(self) -> None:
         self.queries += 1
         raise ConnectionError("graph down")
 
@@ -130,7 +134,7 @@ class Harness:
     repo: FakeRepo
     store: InMemoryObjectStore
     temporal: FakeTemporal
-    driver: FakeDriver
+    graph_store: FakeGraphStore
     runtime: Runtime
     probes: dict[str, Any]
     batches: FakeBatches | None = None  # the live tier has no in-memory model
@@ -146,10 +150,10 @@ async def harness(monkeypatch, valid_env):
     fake.install(monkeypatch)
     batches = FakeBatches(fake)
     batches.install(monkeypatch)
-    store, temporal, driver = (
+    store, temporal, graph_store = (
         InMemoryObjectStore(app_env="local"),
         FakeTemporal(),
-        FakeDriver(),
+        FakeGraphStore(),
     )
     settings = api_settings(valid_env)
     probes: dict[str, Any] = {}
@@ -157,7 +161,7 @@ async def harness(monkeypatch, valid_env):
     async def ok() -> None:
         return None
 
-    for name in ("database", "temporal", "storage", "neo4j"):
+    for name in ("database", "temporal", "storage", "graph"):
         probes[name] = ok
 
     async def factory(settings: RoleSettings) -> Runtime:
@@ -166,7 +170,7 @@ async def harness(monkeypatch, valid_env):
             session_factory=fake,
             store=store,
             temporal=temporal,
-            driver=driver,
+            graph_store=graph_store,
             readiness=Readiness(probes, ttl=0),
         )
 
@@ -180,7 +184,7 @@ async def harness(monkeypatch, valid_env):
                 fake,
                 store,
                 temporal,
-                driver,
+                graph_store,
                 app.state.runtime,
                 probes,
                 batches,

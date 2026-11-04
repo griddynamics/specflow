@@ -80,7 +80,7 @@ KEY_PATTERN: Final = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 """Type, group, vocabulary and attribute names (snake_case)."""
 ID_FORMAT_PATTERN: Final = re.compile(r"^((?:[A-Z][A-Z0-9_]*::)+)\{SLUG\}$")
 ID_FAMILY_PATTERN: Final = re.compile(r"^[A-Z]{1,16}$")
-PROMPT_REF_PATTERN: Final = re.compile(r"^[a-z][a-z0-9_]{0,63}\.[0-9]{1,4}$")
+PROMPT_REF_PATTERN: Final = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 BUILT_IN_ID_PREFIXES: Final = ("DOC::", "FRG::")
 RESERVED_ATTRIBUTES: Final = frozenset(
     {

@@ -14,6 +14,7 @@ root_packages = [
     "graph",
     "llm",
     "logger",
+    "postgres",
     "storage",
     "temporal",
 ]
@@ -28,7 +29,19 @@ type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["logger"]
 forbidden_modules = [
-    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "storage", "temporal",
+    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "postgres", "storage", "temporal",
+]
+
+# The shared PostgreSQL access (engines and connection transactions of the application database and the
+# PostgreSQL graph store) sits on SQLAlchemy alone, so the host and the graph library can both use it.
+[[tool.importlinter.contracts]]
+name = "The shared PostgreSQL access imports no project package"
+id = "postgres-is-base"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["postgres"]
+forbidden_modules = [
+    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
 ]
 
 # api is the outermost layer (HTTP). Nothing below it reaches back into it.
@@ -38,7 +51,8 @@ id = "api-is-outermost"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = [
-    "agent_runtime", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
+    "agent_runtime", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "postgres", "storage",
+    "temporal",
 ]
 forbidden_modules = ["api"]
 
@@ -73,6 +87,23 @@ type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["graph.plan", "graph.build"]
 forbidden_modules = ["graph.build", "graph.plan", "graph.gap"]
+
+# graph.stores imports graph.core, so graph.core reaches back into graph.stores only from the compatibility
+# shims (``db``, ``schema``, which resolve their names lazily) and from the one deprecated driver path of
+# ``store`` (imported late). Anything else would make importing the core load a store, and with it the SDK.
+[[tool.importlinter.contracts]]
+name = "Graph core imports the stores only from its shims"
+id = "graph-core-stores-from-shims"
+type = "forbidden"
+allow_indirect_imports = true
+unmatched_ignore_imports_alerting = "none"
+source_modules = ["graph.core"]
+forbidden_modules = ["graph.stores"]
+ignore_imports = [
+    "graph.core.db -> graph.stores.**",
+    "graph.core.schema -> graph.stores.**",
+    "graph.core.store -> graph.stores.neo4j",
+]
 
 # Provider and integration packages are reusable on their own: they know neither the database,
 # the workflow engine nor the HTTP layer.
@@ -120,8 +151,76 @@ name = "The ORM stays in api, db and temporal"
 id = "orm-confined"
 type = "forbidden"
 allow_indirect_imports = true
-source_modules = ["agent_runtime", "auth", "drive", "file_parsers", "graph", "llm", "logger", "storage"]
+source_modules = ["agent_runtime", "auth", "drive", "file_parsers", "llm", "logger", "storage"]
 forbidden_modules = ["sqlalchemy", "asyncpg", "alembic"]
+
+# Inside graph, each graph store SDK stays in the folders of the adapters that use it (design D3). The
+# ignore lists are the allowances; a folder that does not exist yet (its adapter is not shipped) is
+# not an error. The same names are confined per module path by tests/test_graph_structure.py.
+[[tool.importlinter.contracts]]
+name = "The Neo4j SDK stays in the Bolt-speaking graph stores"
+id = "graph-neo4j-sdk-confined"
+type = "forbidden"
+allow_indirect_imports = true
+unmatched_ignore_imports_alerting = "none"
+source_modules = ["graph"]
+forbidden_modules = ["neo4j"]
+ignore_imports = [
+    "graph.stores._bolt -> neo4j",
+    "graph.stores._bolt.** -> neo4j",
+    "graph.stores.neo4j -> neo4j",
+    "graph.stores.neo4j.** -> neo4j",
+    "graph.stores.arcadedb -> neo4j",
+    "graph.stores.arcadedb.** -> neo4j",
+]
+
+[[tool.importlinter.contracts]]
+name = "The SQL SDKs stay in the PostgreSQL graph store"
+id = "graph-sql-sdk-confined"
+type = "forbidden"
+allow_indirect_imports = true
+unmatched_ignore_imports_alerting = "none"
+source_modules = ["graph"]
+forbidden_modules = ["sqlalchemy", "asyncpg", "alembic", "postgres"]
+ignore_imports = [
+    "graph.stores.postgres -> sqlalchemy",
+    "graph.stores.postgres.** -> sqlalchemy",
+    "graph.stores.postgres -> asyncpg",
+    "graph.stores.postgres.** -> asyncpg",
+    "graph.stores.postgres -> postgres",
+    "graph.stores.postgres.** -> postgres",
+]
+
+# httpx (the ArcadeDB admin API) and pyTigerGraph (the `tigergraph` extra) belong to one adapter each.
+[[tool.importlinter.contracts]]
+name = "httpx is used by the ArcadeDB graph store only"
+id = "httpx-confined"
+type = "forbidden"
+allow_indirect_imports = true
+unmatched_ignore_imports_alerting = "none"
+source_modules = [
+    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
+]
+forbidden_modules = ["httpx"]
+ignore_imports = [
+    "graph.stores.arcadedb -> httpx",
+    "graph.stores.arcadedb.** -> httpx",
+]
+
+[[tool.importlinter.contracts]]
+name = "pyTigerGraph is used by the TigerGraph graph store only"
+id = "tigergraph-sdk-confined"
+type = "forbidden"
+allow_indirect_imports = true
+unmatched_ignore_imports_alerting = "none"
+source_modules = [
+    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
+]
+forbidden_modules = ["pyTigerGraph"]
+ignore_imports = [
+    "graph.stores.tigergraph -> pyTigerGraph",
+    "graph.stores.tigergraph.** -> pyTigerGraph",
+]
 
 # Production code reaches no test module and no test-only library, directly or indirectly.
 [[tool.importlinter.contracts]]

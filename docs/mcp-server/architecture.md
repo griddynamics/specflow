@@ -49,7 +49,7 @@ flowchart TB
 | Tools | Validate arguments, read, shape the result; one module per domain ([tools.md](tools.md)) | access, reader |
 | Membership check | One function every project-scoped tool calls before any read ([access-control.md](access-control.md)) | `db.repositories.get_member_project` |
 | Graph read | Count and page spec nodes of given labels, ordered by `spec_id` ([tools.md](tools.md#graph-read-used-by-list_features)) | new `GraphReader` methods in `graph.core` |
-| Health | `/healthz` liveness; `/readyz` database and Neo4j probes | `health.Readiness` |
+| Health | `/healthz` liveness; `/readyz` database and graph store probes (`database`, `graph`) | `health.Readiness` |
 
 ## HTTP surface of the role
 

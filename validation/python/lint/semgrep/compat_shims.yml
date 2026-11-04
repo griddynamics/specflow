@@ -3,7 +3,15 @@ rules:
     languages: [python]
     severity: ERROR
     paths:
-      exclude: ["**/__init__.py"]
+      exclude:
+        - "**/__init__.py"
+        # project: graph.core.db and graph.core.schema are the one-release compatibility shims of the
+        # graph store port (docs/graph/api.md "Deprecated for one release"): the graph build step
+        # modules import `Executor` from graph.core.db and are not changed, and library callers keep
+        # their `graph.core.db` / `graph.core.schema` imports. Both modules go with the deprecated
+        # driver arguments.
+        - "**/src/graph/core/db.py"
+        - "**/src/graph/core/schema.py"
     message: >-
       This module only imports and re-exports other modules' definitions.
       Consumers use the canonical definition owner, without an intermediate shim.

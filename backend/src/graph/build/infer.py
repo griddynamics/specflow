@@ -159,16 +159,26 @@ VERDICT_TYPES: Final[dict[str, type[Verdict]]] = {
 
 class JudgeMemory:
     """Stored judgements of one project: ExtractionStore kind ``decisions``, key ``<project_id>|<rule id>|<subject
-    spec_id>|<input hash>``, fingerprint ``<prompt>|<judge model>``.
+    spec_id>|<input hash>``, fingerprint ``<prompt version>|<judge model>`` (``Ontology.judge_prompt_version`` when
+    ``ontology`` is given, else the bare prompt reference).
     """
 
-    def __init__(self, store: ExtractionStore | None, project_id: str, judge_model: str) -> None:
+    def __init__(
+        self, store: ExtractionStore | None, project_id: str, judge_model: str, ontology: Ontology | None = None
+    ) -> None:
         self._store = store
         self._project_id = project_id
         self.judge_model = judge_model
+        self._ontology = ontology
 
     def _fingerprint(self, prompt: str) -> str:
-        return f"{prompt}|{self.judge_model}"
+        version = self._ontology.judge_prompt_version(prompt) if self._ontology is not None else prompt
+        return f"{version}|{self.judge_model}"
+
+    def _budget_fingerprint(self) -> str:
+        """The budget entry is no judgement: no prompt text expires it, only the judge model."""
+
+        return f"{BUDGET}|{self.judge_model}"
 
     def key(self, rule: InferenceRule, spec_id: str, digest: str) -> str:
         return f"{self._project_id}|{rule.id}|{spec_id}|{digest}"
@@ -216,7 +226,7 @@ class JudgeMemory:
         if self._store is None:
             return 0
         key = self.budget_key(build_id)
-        found = await get_many(self._store, DECISION_KIND, [key], self._fingerprint(BUDGET))
+        found = await get_many(self._store, DECISION_KIND, [key], self._budget_fingerprint())
         tokens = found.get(key, {}).get(TOKENS)
         return tokens if isinstance(tokens, int) and tokens > 0 else 0
 
@@ -225,7 +235,7 @@ class JudgeMemory:
 
         if self._store is not None:
             entries = {self.budget_key(build_id): {TOKENS: tokens}}
-            await put_many(self._store, DECISION_KIND, self._fingerprint(BUDGET), entries)
+            await put_many(self._store, DECISION_KIND, self._budget_fingerprint(), entries)
 
 
 # Selection

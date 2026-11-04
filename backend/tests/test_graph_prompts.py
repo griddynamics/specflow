@@ -50,7 +50,7 @@ from graph.core.errors import ConformanceError
 from graph.core.llm import Gateway, strict_json_schema, untrusted
 from graph.core.llm.gateway import UNTRUSTED_CLOSE, UNTRUSTED_OPEN
 from graph.core.ontology import QUOTE_ATTRIBUTE, Ontology, compiled, load_ontology
-from graph_support import FROZEN_ONTOLOGY_FILE, frozen_ontology, shipped_ontology
+from graph_support import frozen_ontology, load_frozen_ontology, shipped_ontology
 
 ONTOLOGIES = {"frozen-v1.3": frozen_ontology, "shipped-v2.0": shipped_ontology}
 
@@ -658,8 +658,7 @@ def test_the_attributes_pass_never_asks_for_the_quote(ontology: Ontology, monkey
     assert "stmt: one sentence in your words" in system
 
     monkeypatch.setattr(compiled, "_NOT_ASKED", frozenset())
-    source = FROZEN_ONTOLOGY_FILE if ontology is frozen_ontology() else None
-    asking = load_ontology(source, submodule_files=[])
+    asking = load_frozen_ontology() if ontology is frozen_ontology() else load_ontology(submodule_files=[])
     assert all(QUOTE_ATTRIBUTE in asking.attribute_output_model(label).model_fields for label in asked)
     assert "quote: copy one passage" in attribute_system(asking, gateway)
 

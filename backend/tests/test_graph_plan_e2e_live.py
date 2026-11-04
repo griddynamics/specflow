@@ -18,11 +18,11 @@ from graph.plan.models import PlanResult
 from graph.plan.rules import PlanRules, load_plan_rules
 from graph.plan.run import StepFunctions, run_with
 from graph_plan_support import change_reports, generic_planners, live_context
-from graph_support import Neo4jProject, ScriptedGateway, open_neo4j_project
+from graph_probes import requires_live_graph
+from graph_support import GraphProject, ScriptedGateway, open_graph_project
 from graph_v2_support import ShopV2Builds
-from specflow_live import requires_live
 
-pytestmark = [requires_live("NEO4J"), pytest.mark.asyncio(loop_scope="module")]
+pytestmark = [requires_live_graph(), pytest.mark.asyncio(loop_scope="module")]
 
 COMMIT = "ef" * 20
 
@@ -35,7 +35,7 @@ def _build_gateways(config: Any = None, **options: Any) -> ScriptedGateway:
 
 @dataclass
 class Planned:
-    project: Neo4jProject
+    project: GraphProject
     builds: ShopV2Builds
     rules: PlanRules
     store_root: Path
@@ -47,7 +47,7 @@ class Planned:
 async def planned(tmp_path_factory: pytest.TempPathFactory) -> AsyncIterator[Planned]:
     """shop-v2 snapshot 1 built with inference, then planned with the generic planners."""
 
-    async with open_neo4j_project() as project:
+    async with open_graph_project() as project:
         builds = ShopV2Builds(project, _build_gateways, Path(tmp_path_factory.mktemp("shop-v2-plan")))
         first_build, _ = await builds.build(1)
         rules = load_plan_rules(ontology=load_ontology())
@@ -77,7 +77,7 @@ async def test_the_first_plan_of_a_real_build_passes_every_check(planned: Planne
 async def test_work_then_an_unchanged_rebuild_plans_nothing(planned: Planned) -> None:
     project_id = planned.builds.project_id
     ontology = load_ontology()
-    life = TaskLifecycle(planned.project.driver, ontology, planned.rules, database=planned.project.database)
+    life = TaskLifecycle(planned.project.store, ontology, planned.rules)
     claim = await life.claim_task(project_id, "TASK::PROJECT::WORKSPACE", claimed_by="agent")
     await life.complete_task(project_id, "TASK::PROJECT::WORKSPACE", claim_token=claim.claim_token, commit=COMMIT)
     rebuild, _ = await planned.builds.build(1)

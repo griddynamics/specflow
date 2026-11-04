@@ -16,11 +16,10 @@ from graph.core import (
     InfrastructureUnavailableError,
     LLMConfig,
     Ontology,
-    ensure_ddl,
     ensure_schema,
     load_ontology,
-    queries,
 )
+from graph.core import queries as core_query_module
 from graph.core.errors import ConformanceError
 from graph.core.queries import (
     AWAIT_INDEXES,
@@ -35,19 +34,10 @@ from graph.core.queries import (
     submodule_ddl,
 )
 from graph.core.query_files import read_ddl_file
-from graph.core.schema import (
-    SchemaObject,
-    foreign_labels,
-    parse_ddl_statement,
-    schema_objects,
-)
-from graph_support import (
-    GAP_DDL_TEXT,
-    llm_config,
-    load_gap_ddl,
-    load_gap_ontology,
-    shipped_ontology,
-)
+from graph.core.schema import SchemaObject, foreign_labels, parse_ddl_statement, schema_objects
+from graph.stores._bolt.cypher import render_cypher
+from graph_ddl_support import GAP_DDL_TEXT, load_gap_ddl
+from graph_support import llm_config, load_gap_ontology, shipped_ontology
 
 DIM = 16
 POPULATING = "POPULATING"
@@ -76,10 +66,7 @@ def index_row(
     if item.kind == "vector":
         options = {
             "indexProvider": "vector-2.0",
-            "indexConfig": {
-                "vector.dimensions": dimension,
-                "vector.similarity_function": similarity,
-            },
+            "indexConfig": {"vector.dimensions": dimension, "vector.similarity_function": similarity},
         }
     return {
         "name": name or item.name,
@@ -111,7 +98,7 @@ class SchemaDriver:
 
     def __init__(self, ontology: Ontology, *, version: str = "5.26.0", ddl: tuple[str, ...] | None = None) -> None:
         self.version = version
-        self.objects = {item.query().text: item for item in schema_objects(ontology, ddl)}
+        self.objects = {render_cypher(item.query()): item for item in schema_objects(ontology, ddl)}
         self.constraints: list[dict[str, Any]] = []
         self.indexes: list[dict[str, Any]] = []
         self.created: list[str] = []
@@ -143,21 +130,13 @@ class SchemaDriver:
         name = self._name(text)
         if name in self.fail_on:
             raise self.fail_on[name]
-        if text == SERVER_COMPONENTS.text:
-            return records(
-                [
-                    {
-                        "name": "Neo4j Kernel",
-                        "versions": [self.version],
-                        "edition": "community",
-                    }
-                ]
-            )
-        if text == SHOW_CONSTRAINTS.text:
+        if text == render_cypher(SERVER_COMPONENTS):
+            return records([{"name": "Neo4j Kernel", "versions": [self.version], "edition": "community"}])
+        if text == render_cypher(SHOW_CONSTRAINTS):
             return records(copy.deepcopy(self.constraints))
-        if text == SHOW_INDEXES.text:
+        if text == render_cypher(SHOW_INDEXES):
             return records(copy.deepcopy(self.indexes))
-        if text == AWAIT_INDEXES.text:
+        if text == render_cypher(AWAIT_INDEXES):
             assert params == {"timeout_s": 300}
             return records([])
         item = self.objects.get(text)
@@ -174,7 +153,7 @@ class SchemaDriver:
 
     def _name(self, text: str) -> str:
         for query in (SERVER_COMPONENTS, SHOW_CONSTRAINTS, SHOW_INDEXES, AWAIT_INDEXES):
-            if text == query.text:
+            if text == render_cypher(query):
                 return query.name
         item = self.objects.get(text)
         return item.query().name if item else "?"
@@ -230,39 +209,6 @@ def test_the_shipped_ddl_defines_exactly_the_objects_of_the_shipped_ontology(ont
     ]
     assert found == expected_shipped_objects(ontology)
     assert len(found) == 9 + len(ontology.relations)
-
-
-def test_default_schema_objects_include_discovered_submodule_ddl(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Submodule DDL is found as package data, without importing the submodule."""
-
-    for name in ("plan/ddl/first.cypher", "_private/ddl/ignored.cypher"):
-        path = tmp_path / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text("CREATE INDEX graph_index IF NOT EXISTS FOR (n:A) ON (n.group_id, n.a);\n", encoding="utf-8")
-    (tmp_path / "plan" / "ddl" / "notes.txt").write_text("not DDL\n", encoding="utf-8")
-    monkeypatch.setattr("graph.core.queries.files", lambda _: tmp_path)
-
-    assert schema_objects(shipped_ontology())[-1].statement == (
-        "CREATE INDEX graph_index IF NOT EXISTS FOR (n:A) ON (n.group_id, n.a)"
-    )
-
-
-def test_submodule_ddl_reads_statements_from_discovered_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    directory = tmp_path / "plan" / "ddl"
-    directory.mkdir(parents=True)
-    statement = (
-        "CREATE INDEX graph_edge_key_planned_by IF NOT EXISTS FOR ()-[r:PLANNED_BY]-() ON (r.group_id, r.edge_key)"
-    )
-    (directory / "second.cypher").write_text("// ignored\n" + statement + ";\n", encoding="utf-8")
-    (directory / "first.cypher").write_text(
-        "CREATE INDEX graph_first IF NOT EXISTS FOR (n:A) ON (n.group_id, n.a);\n", encoding="utf-8"
-    )
-    (directory / "notes.txt").write_text("not DDL\n", encoding="utf-8")
-    monkeypatch.setattr(queries, "files", lambda _: tmp_path)
-
-    assert submodule_ddl() == ("CREATE INDEX graph_first IF NOT EXISTS FOR (n:A) ON (n.group_id, n.a)", statement)
 
 
 def test_every_ddl_statement_is_one_idempotent_create_with_its_text(ontology: Ontology) -> None:
@@ -330,16 +276,10 @@ def test_a_ddl_file_is_split_into_statements_without_comments(tmp_path: Path) ->
 def test_a_statement_of_no_known_form_is_refused(ontology: Ontology, statement: str) -> None:
     with pytest.raises(ConfigurationError) as raised:
         parse_ddl_statement(statement, position=3)
-    assert (raised.value.code, raised.value.fields) == (
-        "schema_ddl_unrecognised",
-        {"position": 3},
-    )
+    assert (raised.value.code, raised.value.fields) == ("schema_ddl_unrecognised", {"position": 3})
     with pytest.raises(ConfigurationError) as raised:
         schema_objects(ontology, (*CORE_DDL, statement))
-    assert (raised.value.code, raised.value.fields["position"]) == (
-        "schema_ddl_unrecognised",
-        len(CORE_DDL),
-    )
+    assert (raised.value.code, raised.value.fields["position"]) == ("schema_ddl_unrecognised", len(CORE_DDL))
 
 
 def test_a_name_defined_twice_is_refused(ontology: Ontology) -> None:
@@ -366,7 +306,7 @@ async def test_a_relation_without_its_ddl_statement_fails_loudly(ontology: Ontol
         "label": "PART_OF",
         "properties": "group_id, edge_key",
     }
-    driver = SchemaDriver(ontology, ddl=CORE_DDL)
+    driver = SchemaDriver(ontology)
     with pytest.raises(ConfigurationError) as raised:
         await ensure_schema(driver, ontology, config, ddl=ddl)
     assert raised.value.code == "schema_ddl_incomplete"
@@ -406,13 +346,7 @@ def test_a_foreign_label_without_its_ddl_statement_fails_loudly(tmp_path: Path) 
         ),
         (
             "graph_spec_node_name_embedding ",
-            {
-                "missing": 1,
-                "kind": "vector",
-                "entity": "NODE",
-                "label": "SpecNode",
-                "properties": "name_embedding",
-            },
+            {"missing": 1, "kind": "vector", "entity": "NODE", "label": "SpecNode", "properties": "name_embedding"},
         ),
     ],
 )
@@ -444,6 +378,37 @@ def test_a_schema_object_without_ddl_has_no_query() -> None:
 # Creation and idempotence
 
 
+def test_default_schema_objects_include_discovered_submodule_ddl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Submodule DDL is found as package data, without importing the submodule."""
+
+    for name in ("plan/ddl/first.cypher", "_private/ddl/ignored.cypher", "stores/ddl/ignored.cypher"):
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("CREATE INDEX graph_index IF NOT EXISTS FOR (n:A) ON (n.group_id, n.a);\n", encoding="utf-8")
+    (tmp_path / "plan" / "ddl" / "notes.txt").write_text("not DDL\n", encoding="utf-8")
+    monkeypatch.setattr(core_query_module, "GRAPH_ROOT", tmp_path)
+    assert schema_objects(shipped_ontology())[-1].statement == (
+        "CREATE INDEX graph_index IF NOT EXISTS FOR (n:A) ON (n.group_id, n.a)"
+    )
+
+
+def test_submodule_ddl_reads_statements_from_discovered_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    directory = tmp_path / "plan" / "ddl"
+    directory.mkdir(parents=True)
+    statement = (
+        "CREATE INDEX graph_edge_key_planned_by IF NOT EXISTS FOR ()-[r:PLANNED_BY]-() ON (r.group_id, r.edge_key)"
+    )
+    (directory / "second.cypher").write_text("// ignored\n" + statement + ";\n", encoding="utf-8")
+    (directory / "first.cypher").write_text(
+        "CREATE INDEX graph_first IF NOT EXISTS FOR (n:A) ON (n.group_id, n.a);\n", encoding="utf-8"
+    )
+    (directory / "notes.txt").write_text("not DDL\n", encoding="utf-8")
+    monkeypatch.setattr(core_query_module, "GRAPH_ROOT", tmp_path)
+    assert submodule_ddl() == ("CREATE INDEX graph_first IF NOT EXISTS FOR (n:A) ON (n.group_id, n.a)", statement)
+
+
 async def test_empty_database_gets_every_object_and_a_second_run_creates_none(
     ontology: Ontology, config: LLMConfig
 ) -> None:
@@ -472,11 +437,11 @@ async def test_empty_database_gets_every_object_and_a_second_run_creates_none(
     assert await ensure_schema(driver, ontology, config, ddl=CORE_DDL) == ()
     assert driver.created == wanted  # nothing new
     assert driver.texts == [
-        SERVER_COMPONENTS.text,
-        SHOW_CONSTRAINTS.text,
-        SHOW_INDEXES.text,
-        AWAIT_INDEXES.text,
-        SHOW_INDEXES.text,
+        render_cypher(SERVER_COMPONENTS),
+        render_cypher(SHOW_CONSTRAINTS),
+        render_cypher(SHOW_INDEXES),
+        render_cypher(AWAIT_INDEXES),
+        render_cypher(SHOW_INDEXES),
     ]
 
 
@@ -502,9 +467,7 @@ def test_the_cypher_schema_maps_the_foreign_placeholder_to_the_foreign_labels(on
     assert f"FOR (n:{FOREIGN_PLACEHOLDER}) REQUIRE (n.group_id, n.{FOREIGN_KEY}) IS UNIQUE" in template
 
 
-def test_every_foreign_label_gets_a_group_and_uuid_unique_constraint(
-    tmp_path: Path,
-) -> None:
+def test_every_foreign_label_gets_a_group_and_uuid_unique_constraint(tmp_path: Path) -> None:
     gap = load_gap_ontology(tmp_path)
     labels = foreign_labels(gap)
     assert labels == tuple(sorted(label for label in gap.labels if gap.owner_of(label) != "build"))
@@ -513,13 +476,8 @@ def test_every_foreign_label_gets_a_group_and_uuid_unique_constraint(
     by_name = objects_by_name(gap, load_gap_ddl(tmp_path))
     for label in labels:
         item = by_name[f"graph_foreign_uuid_{label.lower()}"]
-        assert (item.kind, item.entity, item.label, item.properties) == (
-            "unique",
-            "NODE",
-            label,
-            ("group_id", "uuid"),
-        )
-        assert item.query().text == (
+        assert (item.kind, item.entity, item.label, item.properties) == ("unique", "NODE", label, ("group_id", "uuid"))
+        assert render_cypher(item.query()) == (
             f"CREATE CONSTRAINT {item.name} IF NOT EXISTS FOR (n:{label}) REQUIRE (n.group_id, n.uuid) IS UNIQUE"
         )
     assert {item.label for item in by_name.values() if item.kind == "unique"} == {
@@ -530,9 +488,7 @@ def test_every_foreign_label_gets_a_group_and_uuid_unique_constraint(
     }
 
 
-def test_the_foreign_constraint_template_renders_the_statement_a_submodule_ddl_holds(
-    tmp_path: Path,
-) -> None:
+def test_the_foreign_constraint_template_renders_the_statement_a_submodule_ddl_holds(tmp_path: Path) -> None:
     gap = load_gap_ontology(tmp_path)
     ddl = load_gap_ddl(tmp_path)
     rendered = tuple(foreign_node_constraint(label) for label in foreign_labels(gap))
@@ -576,15 +532,14 @@ async def test_a_foreign_constraint_over_duplicate_nodes_fails_the_setup(tmp_pat
     driver.constraints = [row for row in driver.constraints if row["name"] != item.name]
     driver.indexes = [row for row in driver.indexes if row["name"] != item.name]
     error = ClientError._hydrate_neo4j(
-        code="Neo.ClientError.Schema.ConstraintCreationFailed",
-        message=f"duplicates: {SERVER_REPLY}",
+        code="Neo.ClientError.Schema.ConstraintCreationFailed", message=f"duplicates: {SERVER_REPLY}"
     )
     driver.fail_on[item.query().name] = error
     with pytest.raises(ConfigurationError) as raised:
         await ensure_schema(driver, gap, config, ddl=ddl)
     assert raised.value.code == "schema_setup_failed"
     assert raised.value.fields["query"] == f"create_{item.name}"
-    assert raised.value.fields["neo4j_code"] == "Neo.ClientError.Schema.ConstraintCreationFailed"
+    assert raised.value.fields["backend_code"] == "Neo.ClientError.Schema.ConstraintCreationFailed"
     assert "secret-xyz" not in str(raised.value)
     assert driver.created == []
 
@@ -642,23 +597,14 @@ async def test_range_and_unique_property_order_matters(ontology: Ontology, confi
     driver = SchemaDriver(ontology)
     driver.add_all()
     by_name = objects_by_name(ontology)
-    range_item, unique_item = (
-        by_name["graph_spec_node_identity_key"],
-        by_name["graph_fragment_id"],
-    )
+    range_item, unique_item = by_name["graph_spec_node_identity_key"], by_name["graph_fragment_id"]
     driver.indexes = [row for row in driver.indexes if row["name"] not in {range_item.name, unique_item.name}]
     driver.constraints = [row for row in driver.constraints if row["name"] != unique_item.name]
     driver.add_index(range_item, name="reversed_range", properties=["identity_key", "group_id"])
     driver.constraints.append(
-        {
-            **constraint_rows(unique_item, name="reversed_unique")[0],
-            "properties": ["fragment_id", "group_id"],
-        }
+        {**constraint_rows(unique_item, name="reversed_unique")[0], "properties": ["fragment_id", "group_id"]}
     )
-    assert set(await ensure_schema(driver, ontology, config)) == {
-        range_item.name,
-        unique_item.name,
-    }
+    assert set(await ensure_schema(driver, ontology, config)) == {range_item.name, unique_item.name}
 
 
 async def test_a_fulltext_index_does_not_stand_in_for_a_range_index(ontology: Ontology, config: LLMConfig) -> None:
@@ -694,10 +640,7 @@ async def test_a_graph_name_held_by_a_constraint_is_a_conflict(ontology: Ontolog
     driver.constraints.append({**constraint_rows(unrelated)[0], "name": item.name, "labelsOrTypes": ["Other"]})
     with pytest.raises(ConfigurationError) as raised:
         await ensure_schema(driver, ontology, config)
-    assert (raised.value.code, raised.value.fields["name"]) == (
-        "schema_name_conflict",
-        item.name,
-    )
+    assert (raised.value.code, raised.value.fields["name"]) == ("schema_name_conflict", item.name)
     assert driver.created == []
 
 
@@ -707,11 +650,7 @@ async def test_a_graph_name_held_by_a_constraint_is_a_conflict(ontology: Ontolog
 )
 @pytest.mark.parametrize("name", ["graph_spec_node_embedding", "graph_spec_node_name_embedding"])
 async def test_a_mismatching_vector_index_raises_and_creates_nothing(
-    ontology: Ontology,
-    config: LLMConfig,
-    name: str,
-    dimension: int | None,
-    similarity: str,
+    ontology: Ontology, config: LLMConfig, name: str, dimension: int | None, similarity: str
 ) -> None:
     driver = SchemaDriver(ontology)
     item = objects_by_name(ontology)[name]
@@ -756,11 +695,7 @@ async def test_an_equivalent_existing_index_that_is_not_online_raises(ontology: 
     driver.add_index(item, name="fragment_text_failed", state="FAILED")
     with pytest.raises(ConfigurationError) as raised:
         await ensure_schema(driver, ontology, config)
-    assert (
-        raised.value.code,
-        raised.value.fields["index"],
-        raised.value.fields["state"],
-    ) == (
+    assert (raised.value.code, raised.value.fields["index"], raised.value.fields["state"]) == (
         "schema_index_not_online",
         "fragment_text_failed",
         "FAILED",
@@ -775,37 +710,12 @@ async def test_an_unrelated_index_that_is_not_online_is_ignored(ontology: Ontolo
     assert await ensure_schema(driver, ontology, config) == ()
 
 
-async def test_ensure_ddl_creates_only_the_missing_statements_once(
-    ontology: Ontology,
-) -> None:
-    driver = SchemaDriver(ontology)
-    missing = next(
-        statement for statement in CORE_DDL if statement.startswith("CREATE INDEX graph_spec_node_identity_key ")
-    )
-
-    assert await ensure_ddl(driver, (missing,)) == ("graph_spec_node_identity_key",)
-    assert await ensure_ddl(driver, (missing,)) == ()
-    assert driver.create_params["graph_spec_node_identity_key"] == {}
-
-
-async def test_ensure_ddl_refuses_vector_statements(ontology: Ontology) -> None:
-    vector = next(statement for statement in CORE_DDL if "CREATE VECTOR INDEX " in statement)
-    driver = SchemaDriver(ontology)
-
-    with pytest.raises(ConfigurationError) as raised:
-        await ensure_ddl(driver, (vector,))
-
-    assert raised.value.code == "schema_ddl_unsupported"
-    assert raised.value.fields["name"] == "graph_spec_node_embedding"
-    assert driver.texts == []
-
-
 async def test_old_neo4j_creates_nothing(ontology: Ontology, config: LLMConfig) -> None:
     driver = SchemaDriver(ontology, version="5.25.9")
     with pytest.raises(ConfigurationError) as raised:
         await ensure_schema(driver, ontology, config)
-    assert raised.value.code == "neo4j_version_unsupported"
-    assert driver.texts == [SERVER_COMPONENTS.text]
+    assert raised.value.code == "store_version_unsupported"
+    assert driver.texts == [render_cypher(SERVER_COMPONENTS)]
 
 
 # Driver errors
@@ -815,40 +725,24 @@ SERVER_REPLY = "server said secret-xyz"
 
 
 @pytest.mark.parametrize(
-    "stage",
-    [
-        "show_constraints",
-        "show_indexes",
-        "create_graph_spec_node_spec_id",
-        "await_indexes",
-    ],
+    "stage", ["show_constraints", "show_indexes", "create_graph_spec_node_spec_id", "await_indexes"]
 )
 @pytest.mark.parametrize(
     ("make_error", "expected", "code"),
     [
-        (lambda: AuthError(SERVER_REPLY), ConfigurationError, "neo4j_auth_rejected"),
-        (
-            lambda: ServiceUnavailable(SERVER_REPLY),
-            InfrastructureUnavailableError,
-            "neo4j_unreachable",
-        ),
-        (
-            lambda: OSError(SERVER_REPLY),
-            InfrastructureUnavailableError,
-            "neo4j_unreachable",
-        ),
+        (lambda: AuthError(SERVER_REPLY), ConfigurationError, "store_auth_rejected"),
+        (lambda: ServiceUnavailable(SERVER_REPLY), InfrastructureUnavailableError, "store_unreachable"),
+        (lambda: OSError(SERVER_REPLY), InfrastructureUnavailableError, "store_unreachable"),
         (
             lambda: ClientError._hydrate_neo4j(
-                code="Neo.ClientError.Schema.EquivalentSchemaRuleAlreadyExists",
-                message=SERVER_REPLY,
+                code="Neo.ClientError.Schema.EquivalentSchemaRuleAlreadyExists", message=SERVER_REPLY
             ),
             ConfigurationError,
             "schema_setup_failed",
         ),
         (
             lambda: DatabaseError._hydrate_neo4j(
-                code="Neo.DatabaseError.Schema.IndexCreationFailed",
-                message=SERVER_REPLY,
+                code="Neo.DatabaseError.Schema.IndexCreationFailed", message=SERVER_REPLY
             ),
             ConfigurationError,
             "schema_setup_failed",
@@ -856,13 +750,7 @@ SERVER_REPLY = "server said secret-xyz"
     ],
 )
 async def test_driver_errors_map_to_graph_errors(
-    ontology: Ontology,
-    config: LLMConfig,
-    stage: str,
-    make_error: Any,
-    expected: type,
-    *,
-    code: str,
+    ontology: Ontology, config: LLMConfig, stage: str, make_error: Any, expected: type, *, code: str
 ) -> None:
     driver = SchemaDriver(ontology)
     error = make_error()
@@ -873,9 +761,9 @@ async def test_driver_errors_map_to_graph_errors(
     assert raised.value.code == code
     if code == "schema_setup_failed":
         assert raised.value.fields["query"] == stage
-        assert raised.value.fields["neo4j_code"] == error.code
+        assert raised.value.fields["backend_code"] == error.code
         assert raised.value.fields["error_type"] == type(error).__name__
-    if code == "neo4j_unreachable":
+    if code == "store_unreachable":
         assert raised.value.fields["error_type"] == type(error).__name__
     assert "secret-xyz" not in str(raised.value)
     assert raised.value.__cause__ is None and raised.value.__suppress_context__

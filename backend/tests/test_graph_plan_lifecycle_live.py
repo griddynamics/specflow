@@ -22,12 +22,13 @@ from graph_plan_support import (
     shop_answers,
     shop_view,
 )
-from graph_support import Neo4jProject, ScriptedGateway
-from specflow_live import requires_live
+from graph_probes import requires_live_graph
+from graph_probes.base import select
+from graph_support import GraphProject, ScriptedGateway
 
 pytest_plugins = ["graph_support"]
 
-pytestmark = requires_live("NEO4J")
+pytestmark = requires_live_graph()
 
 WORKSPACE = "TASK::PROJECT::WORKSPACE"
 TOOLCHAIN = "TASK::PROJECT::TOOLCHAIN"
@@ -36,14 +37,10 @@ COMMIT = "ab" * 20
 UNKNOWN_CLAIM = "0" * 32
 
 
-def _lifecycle(neo4j_project: Neo4jProject, clock: datetime | None = None) -> TaskLifecycle:
+def _lifecycle(graph_project: GraphProject, clock: datetime | None = None) -> TaskLifecycle:
     ontology = plan_ontology()
     return TaskLifecycle(
-        neo4j_project.driver,
-        ontology,
-        plan_rules(ontology),
-        database=neo4j_project.database,
-        clock=(lambda: clock) if clock is not None else None,
+        graph_project.store, ontology, plan_rules(ontology), clock=(lambda: clock) if clock is not None else None
     )
 
 
@@ -53,10 +50,10 @@ async def _complete(life: TaskLifecycle, project_id: str, task_id: str) -> None:
 
 
 async def test_only_the_setup_root_is_ready_and_a_blocked_claim_lists_its_prerequisites(
-    neo4j_project: Neo4jProject, tmp_path: Path
+    graph_project: GraphProject, tmp_path: Path
 ) -> None:
-    project_id, _ = await planned_live_shop(neo4j_project, tmp_path)
-    life = _lifecycle(neo4j_project)
+    project_id, _ = await planned_live_shop(graph_project, tmp_path)
+    life = _lifecycle(graph_project)
 
     assert [task.task_id for task in await life.ready_tasks(project_id)] == [WORKSPACE]
     with pytest.raises(TaskStateError) as raised:
@@ -68,10 +65,10 @@ async def test_only_the_setup_root_is_ready_and_a_blocked_claim_lists_its_prereq
 
 
 async def test_a_claim_moves_through_its_transitions_with_its_token(
-    neo4j_project: Neo4jProject, tmp_path: Path
+    graph_project: GraphProject, tmp_path: Path
 ) -> None:
-    project_id, _ = await planned_live_shop(neo4j_project, tmp_path)
-    life = _lifecycle(neo4j_project)
+    project_id, _ = await planned_live_shop(graph_project, tmp_path)
+    life = _lifecycle(graph_project)
 
     with pytest.raises(TaskStateError) as pending:
         await life.complete_task(project_id, WORKSPACE, claim_token=UNKNOWN_CLAIM, commit=COMMIT)
@@ -92,9 +89,9 @@ async def test_a_claim_moves_through_its_transitions_with_its_token(
     assert [task.task_id for task in await life.ready_tasks(project_id)] == [TOOLCHAIN]
 
 
-async def test_fail_retry_block_unblock_and_forced_release(neo4j_project: Neo4jProject, tmp_path: Path) -> None:
-    project_id, _ = await planned_live_shop(neo4j_project, tmp_path)
-    life = _lifecycle(neo4j_project)
+async def test_fail_retry_block_unblock_and_forced_release(graph_project: GraphProject, tmp_path: Path) -> None:
+    project_id, _ = await planned_live_shop(graph_project, tmp_path)
+    life = _lifecycle(graph_project)
 
     claim = await life.claim_task(project_id, WORKSPACE, claimed_by="agent")
     failed = await life.fail_task(project_id, WORKSPACE, claim_token=claim.claim_token, note="tests red")
@@ -116,9 +113,9 @@ async def test_fail_retry_block_unblock_and_forced_release(neo4j_project: Neo4jP
     assert unknown.value.code == "unknown_task"
 
 
-async def test_exactly_one_of_ten_concurrent_claims_wins(neo4j_project: Neo4jProject, tmp_path: Path) -> None:
-    project_id, _ = await planned_live_shop(neo4j_project, tmp_path)
-    life = _lifecycle(neo4j_project)
+async def test_exactly_one_of_ten_concurrent_claims_wins(graph_project: GraphProject, tmp_path: Path) -> None:
+    project_id, _ = await planned_live_shop(graph_project, tmp_path)
+    life = _lifecycle(graph_project)
 
     results = await asyncio.gather(
         *(life.claim_task(project_id, WORKSPACE, claimed_by=f"agent-{index}") for index in range(10)),
@@ -132,10 +129,10 @@ async def test_exactly_one_of_ten_concurrent_claims_wins(neo4j_project: Neo4jPro
 
 
 async def test_claim_next_takes_the_first_ready_task_or_lists_outside_blockers(
-    neo4j_project: Neo4jProject, tmp_path: Path
+    graph_project: GraphProject, tmp_path: Path
 ) -> None:
-    project_id, _ = await planned_live_shop(neo4j_project, tmp_path)
-    life = _lifecycle(neo4j_project)
+    project_id, _ = await planned_live_shop(graph_project, tmp_path)
+    life = _lifecycle(graph_project)
 
     with pytest.raises(TaskStateError) as nothing:
         await life.claim_next(project_id, "STORY::WEB_SHOP::CHECKOUT", claimed_by="agent")
@@ -151,46 +148,45 @@ async def test_claim_next_takes_the_first_ready_task_or_lists_outside_blockers(
     assert unknown.value.code == "unknown_story"
 
 
-async def test_no_task_is_ready_or_claimable_while_a_plan_persists(neo4j_project: Neo4jProject, tmp_path: Path) -> None:
-    project_id, _ = await planned_live_shop(neo4j_project, tmp_path)
-    life = _lifecycle(neo4j_project)
-    await neo4j_project.run("MATCH (p:Plan {group_id: $p}) SET p.applying = 'run-x'", p=project_id)
+async def test_no_task_is_ready_or_claimable_while_a_plan_persists(graph_project: GraphProject, tmp_path: Path) -> None:
+    project_id, _ = await planned_live_shop(graph_project, tmp_path)
+    life = _lifecycle(graph_project)
+    await graph_project.update_nodes(select("Plan"), {"applying": "run-x"}, project_id=project_id)
 
     assert await life.ready_tasks(project_id) == []
     with pytest.raises(TaskStateError) as applying:
         await life.claim_task(project_id, WORKSPACE, claimed_by="agent")
     assert applying.value.code == "plan_applying"
 
-    await neo4j_project.run("MATCH (p:Plan {group_id: $p}) REMOVE p.applying", p=project_id)
+    await graph_project.update_nodes(select("Plan"), {"applying": None}, project_id=project_id)
     assert [task.task_id for task in await life.ready_tasks(project_id)] == [WORKSPACE]
 
 
-async def test_stale_claims_are_those_older_than_the_limit(neo4j_project: Neo4jProject, tmp_path: Path) -> None:
-    project_id, _ = await planned_live_shop(neo4j_project, tmp_path)
+async def test_stale_claims_are_those_older_than_the_limit(graph_project: GraphProject, tmp_path: Path) -> None:
+    project_id, _ = await planned_live_shop(graph_project, tmp_path)
     start = datetime(2026, 1, 1, 10, tzinfo=UTC)
-    await _complete(_lifecycle(neo4j_project, start), project_id, WORKSPACE)
-    await _lifecycle(neo4j_project, start).claim_task(project_id, TOOLCHAIN, claimed_by="old")
+    await _complete(_lifecycle(graph_project, start), project_id, WORKSPACE)
+    await _lifecycle(graph_project, start).claim_task(project_id, TOOLCHAIN, claimed_by="old")
 
-    later = _lifecycle(neo4j_project, start + timedelta(hours=2))
+    later = _lifecycle(graph_project, start + timedelta(hours=2))
     assert [task.task_id for task in await later.stale_claims(project_id, older_than=timedelta(hours=1))] == [TOOLCHAIN]
-    sooner = _lifecycle(neo4j_project, start + timedelta(minutes=5))
+    sooner = _lifecycle(graph_project, start + timedelta(minutes=5))
     assert await sooner.stale_claims(project_id, older_than=timedelta(hours=1)) == []
 
 
 async def test_a_task_claimed_while_a_plan_run_writes_is_left_alone_as_a_conflict(
-    neo4j_project: Neo4jProject, tmp_path: Path
+    graph_project: GraphProject, tmp_path: Path
 ) -> None:
-    project_id, context = await planned_live_shop(neo4j_project, tmp_path)
-    life = _lifecycle(neo4j_project)
+    project_id, context = await planned_live_shop(graph_project, tmp_path)
+    life = _lifecycle(graph_project)
     await _complete(life, project_id, WORKSPACE)
     await _complete(life, project_id, TOOLCHAIN)
-    await neo4j_project.run(
-        "MATCH (n:SpecNode {group_id: $p}) WHERE n.spec_id IN ['ENT::ORDER', 'REQ::DATA::ORDER_FIELDS'] "
-        "SET n.last_build_id = 'build-2'",
-        p=project_id,
-    )
+    for spec_id in ("ENT::ORDER", "REQ::DATA::ORDER_FIELDS"):
+        await graph_project.update_nodes(
+            select("SpecNode", spec_id=spec_id), {"last_build_id": "build-2"}, project_id=project_id
+        )
     replan = live_context(
-        neo4j_project,
+        graph_project,
         project_id,
         open_plan_store(tmp_path),
         script_plan(ScriptedGateway(), shop_answers(await shop_view())),
@@ -207,7 +203,7 @@ async def test_a_task_claimed_while_a_plan_run_writes_is_left_alone_as_a_conflic
     result = await run_with(bound, functions)
 
     ontology = plan_ontology()
-    reader = PlanReader(neo4j_project.driver, ontology, plan_rules(ontology), database=neo4j_project.database)
+    reader = PlanReader(graph_project.store, ontology, plan_rules(ontology))
     task = await reader.task(project_id, claimed.task.task_id)
     assert task is not None and task.status == "in_progress" and task.claimed_by == "agent"
     assert result.conflicts == (claimed.task.task_id,)
@@ -215,10 +211,10 @@ async def test_a_task_claimed_while_a_plan_run_writes_is_left_alone_as_a_conflic
 
 
 async def test_claim_next_takes_ready_tasks_in_order_and_refuses_while_a_plan_persists(
-    neo4j_project: Neo4jProject, tmp_path: Path
+    graph_project: GraphProject, tmp_path: Path
 ) -> None:
-    project_id, _ = await planned_live_shop(neo4j_project, tmp_path)
-    life = _lifecycle(neo4j_project)
+    project_id, _ = await planned_live_shop(graph_project, tmp_path)
+    life = _lifecycle(graph_project)
     await _complete(life, project_id, WORKSPACE)
     await _complete(life, project_id, TOOLCHAIN)
     story = "STORY::PAYMENTS_SERVICE::STRIPE_API"
@@ -232,7 +228,7 @@ async def test_claim_next_takes_ready_tasks_in_order_and_refuses_while_a_plan_pe
     assert first.task.task_id == ready[0]
     assert waiting.value.code == "nothing_ready" and ready[0] in waiting.value.blockers
 
-    await neo4j_project.run("MATCH (p:Plan {group_id: $p}) SET p.applying = 'run-x'", p=project_id)
+    await graph_project.update_nodes(select("Plan"), {"applying": "run-x"}, project_id=project_id)
     with pytest.raises(TaskStateError) as applying:
         await life.claim_next(project_id, "STORY::ORDERS_SERVICE::ORDERS_API", claimed_by="agent")
     assert applying.value.code == "plan_applying"

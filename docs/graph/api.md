@@ -20,19 +20,56 @@ constants (`STEPS`, `STEP_FUNCTIONS`, `StepFunctions`, `MAX_FOLLOW_UPS`, `EXTRAC
 | Name | Contract |
 |---|---|
 | `load_ontology(path=None, *, submodule_files=None) -> Ontology` (sync) | Shipped ontology by default; `submodule_files` None merges the installed submodules' `ontology.yaml` files, a list replaces discovery; raises `OntologyError` ([ontology.md](ontology.md)) |
-| `connect(Neo4jConfig) -> driver` (sync) | Creates the Neo4j driver; the host owns and closes it |
-| `ensure_schema(driver, ontology, llm_config, database=None, *, ddl=None) -> tuple[str, ...]` | Creates missing constraints and indexes and returns the names it created; checks the Neo4j version; idempotent (a second run returns `()`). The objects come from the static DDL files (`ddl` None: the shipped `graph/core/ddl/*.cypher`; a sequence of statements replaces them), which must cover the ontology (else `ConfigurationError("schema_ddl_incomplete")`) |
-| `check(driver, database=None)` | Raises `InfrastructureUnavailableError` when Neo4j is unreachable, `ConfigurationError` on rejected credentials, denied access or an unknown database |
+| `graph.stores.build_store(StoreConfig) -> GraphStore` (sync) | The store of `config.backend` (`neo4j`, `arcadedb`, `postgres`, `tigergraph`); imports only that adapter and its SDK; no connection is opened until first use. A backend without an adapter raises `ConfigurationError("store_not_available", store=...)`, one whose SDK is missing `ConfigurationError("store_sdk_missing", store=..., install_extra=...)`. The host owns the store and calls `close()` |
+| `StoreConfig(backend, uri, user, password, name=None, admin_uri=None, pool_size=None)` | Immutable settings (`password` is a secret); `name` is the backend's database, schema or graph (None: the backend's default); the host builds it from its settings (`GRAPH_STORE_*`, [configuration.md](../configuration.md#graph-store)), the library reads no environment; `Neo4jConfig` still works and converts with `StoreConfig.from_neo4j` |
+| `GraphStore` | `info` (`StoreInfo`: backend name, server version once read, `capabilities.multi_statement_tx`), `executor()`, `await check()`, `await ensure_schema(ontology, embedding_dim, *, ddl=None) -> tuple[str, ...]`, `await close()` |
+| `ensure_schema(store, ontology, llm_config, database=None, *, ddl=None) -> tuple[str, ...]` | Creates missing constraints and indexes and returns the names it created; checks the server version; idempotent (a second run returns `()`); refuses a vector index of another dimension or similarity. The objects come from the static DDL files (`ddl` None: the shipped `graph/core/ddl/*.cypher`; a sequence of statements replaces them), which must cover the ontology (else `ConfigurationError("schema_ddl_incomplete")`) |
+| `check(store, database=None)` | Raises `InfrastructureUnavailableError` when the store is unreachable, `ConfigurationError` on rejected credentials, denied access or an unknown database |
+| `connect(Neo4jConfig) -> driver` (sync) | Deprecated: creates the Neo4j driver; the host owns and closes it |
 
-`database` None uses the driver's default database. Also exported: `require_version`, `server_version`,
-`Executor` (project-scoped query runner).
+Deprecated for one release: passing a Neo4j driver where a store is expected (`ensure_schema`, `check`,
+`GraphReader`, `OwnedWriter`, `BuildContext.driver`, with `database` naming its database; None uses the
+driver's default). The driver is wrapped in the Neo4j store. `Executor` and `ScopedTransaction` are protocols
+(project-scoped query runner and its transaction); `graph.stores.neo4j.Neo4jStore(driver, database).executor()`
+builds one from a driver. Also exported: `require_version`, `server_version` (Neo4j).
+
+## Store errors
+
+Every store reports failures with the same codes and the field `store=<backend name>`, whatever the
+backend. Fields never hold server messages, queries' text or secrets.
+
+| Code | Error class | Meaning |
+|---|---|---|
+| `store_unreachable` | `InfrastructureUnavailableError` | The store cannot be reached |
+| `store_auth_rejected` | `ConfigurationError` | The credentials are rejected |
+| `store_access_denied` | `ConfigurationError` | The credentials may not do this (field `query`) |
+| `store_database_not_found` | `ConfigurationError` | The configured database, schema or graph does not exist |
+| `store_version_unsupported` | `ConfigurationError` | The server is older than the adapter's minimum (fields `found`, `minimum`) |
+| `store_version_unknown` | `ConfigurationError` | The server version could not be read |
+| `store_write_failed` | `GraphWriteError` | A write failed after retries (fields `query`, `error_type`, `backend_code`, `attempts`) |
+| `store_query_rejected` | `ConformanceError` | The server rejected a read query: a bug |
+| `store_read_failed` | `InfrastructureUnavailableError` | A read failed for another reason |
+| `query_too_complex` | `ConformanceError` | The backend refuses a search text as too complex; the reader turns it into `ConfigurationError("query_too_long")` |
+| `store_not_available`, `store_sdk_missing` | `ConfigurationError` | Routing: no adapter for the backend, or its SDK is not installed |
+| `store_transactions_unsupported` | `ConfigurationError` | `OwnedWriter.transaction()` on a store without multi-statement transactions |
+| `store_uri_invalid` | `ConfigurationError` | The URI (or admin URI) is not valid for the backend (ArcadeDB, PostgreSQL) |
+| `store_name_invalid`, `store_database_name_invalid` | `ConfigurationError` | The schema name (PostgreSQL) or database name (ArcadeDB) is not a safe identifier |
+| `store_extension_missing` | `ConfigurationError` | PostgreSQL: the `vector` extension is not installed in the database |
+| `store_schema_outdated` | `ConfigurationError` | PostgreSQL: the schema carries no or another schema version; it is not upgraded in place |
+| `vector_index_mismatch` | `ConfigurationError` | The vector index or column has another dimension or similarity than the settings |
+| `schema_setup_failed` | `ConfigurationError` | The server refused a schema statement (names the statement, never the server text) |
+| `arcadedb_edge_types_missing`, `arcadedb_unrenderable_edge_type` | `ConformanceError` | ArcadeDB: a merge, move or label repair was planned without the relationship types, or would drop an edge of a type the dialect cannot render: a bug |
+
+`backend_code` carries the server's own error code (for Neo4j and ArcadeDB `Neo.ClientError...`, for PostgreSQL the SQLSTATE). Transient failures
+are retried inside the executor (delays 0.1, 0.3 and 1.0 s) before they surface.
 
 ## Owned writes
 
-`OwnedWriter(driver_or_executor, ontology, owner, project_id, *, database=None)` with `owner` in `build`,
+`OwnedWriter(store_or_executor, ontology, owner, project_id, *, database=None)` with `owner` in `build`,
 `gap`, `plan`. Every operation checks that the type belongs to the owner (else `OwnershipError`), stamps
 `group_id`, and is idempotent. Operations may be grouped into one transaction with
-`async with writer.transaction() as w:` (commits at the end, rolls back on any error).
+`async with writer.transaction() as w:` (commits at the end, rolls back on any error); a store whose
+`info.capabilities.multi_statement_tx` is false refuses it with `ConfigurationError("store_transactions_unsupported")`.
 
 | Operation | Contract |
 |---|---|
@@ -44,7 +81,7 @@ constants (`STEPS`, `STEP_FUNCTIONS`, `StepFunctions`, `MAX_FOLLOW_UPS`, `EXTRAC
 
 ## Read and search
 
-`GraphReader(driver_or_executor, ontology, gateway=None, *, database=None, vector_floor=0.60)`. `vector_floor`: lowest vector
+`GraphReader(store_or_executor, ontology, gateway=None, *, database=None, vector_floor=0.60)`. `vector_floor`: lowest vector
 score `(1+cos)/2`, 0..1, for a vector-only hit; set for the embedding model (default tuned for
 text-embedding-3-large). Returns spec nodes only (never documents, fragments or
 foreign nodes) unless a method says otherwise. Aliases of `spec_id` resolve. Read results never carry
@@ -69,7 +106,7 @@ depth outside 1-3 (`invalid_depth`), a line range not 1 ≤ `line_start` ≤ `li
 
 Search text (`find_nodes`, `find_fragments`) is split into terms the way Lucene's standard analyser
 does, at most 256 terms and 1000 characters. Operators such as `+`, `-`, `*`, `~` and `AND`/`OR`/`NOT`
-are plain terms. Text Lucene still rejects raises `ConfigurationError("query_too_long")`. The embedding
+are plain terms. Text the backend still rejects as too complex (`query_too_complex`) raises `ConfigurationError("query_too_long")`. The embedding
 gets the same capped text.
 
 `GraphNode`: `spec_id`, `uuid`, `label`, `name`, `spec_id_aliases`, attributes (a null attribute with `inherit` filled from the owner, [data-model.md](data-model.md)), `statements`, provenance (one
@@ -114,8 +151,9 @@ build may send a `warm_up` of their shared prefix (prompts `nodes.warmup.1`, `ed
 
 `JudgeRunner(gateway, ontology)`: `judge(prompt, payload, verdict_type) -> verdict | failure`. One
 structured call per judgement on the `judge` class. Prompts are the ontology's judge prompts, versioned
-files (`judge_prompts/<name>.<revision>.md`, [ontology.md](ontology.md)); the prompt version is recorded
-on what a verdict produces. Helpers (sync) `quotes_valid(verdict, fragments)` checks that every quote a
+files (`judge_prompts/<name>.md`, [ontology.md](ontology.md)); the prompt name is recorded on what a
+verdict produces, and the judge memories key on `Ontology.judge_prompt_version(name)` (the name and a hash
+of the prompt text), so editing a prompt drops its stored verdicts. Helpers (sync) `quotes_valid(verdict, fragments)` checks that every quote a
 verdict cites occurs in the cited fragment, `meets_floor(verdict, floor)` that confidence meets a floor.
 Conform's owner-conflict judge and the inference rules use it. Later submodules add their own prompts
 and verdict types without changing the core.
@@ -124,7 +162,7 @@ and verdict types without changing the core.
 
 | Name | Contract |
 |---|---|
-| `BuildContext` | `project_id`, `rebuild` flag, `BuildOptions`, `BuildSettings`, ontology, driver, gateway, ports, lineages to retry, `build_id` (none: a new build; set: resume that build from its first unfinished step), `database` (none: the driver's default), `executor` (none: `Executor(driver, database)`; tests may pass one) |
+| `BuildContext` | `project_id`, `rebuild` flag, `BuildOptions`, `BuildSettings`, ontology, `driver` (the `GraphStore`; a Neo4j driver is deprecated), gateway, ports, lineages to retry, `build_id` (none: a new build; set: resume that build from its first unfinished step), `database` (for a driver only; none: the driver's default), `executor` (none: the store's executor; tests may pass one) |
 | `run_build(context) -> BuildResult` | Runs every step of [build.md](build.md) and the analysis of [analysis.md](analysis.md), then at most 2 follow-up `update` builds for lineages left to retry (retryable codes only; none after a follow-up that recovered nothing), and returns the last build's result ([build.md](build.md) Follow-up builds and settlement); a follow-up that fails raises as any build |
 | Step functions | `graph.build.steps.<name>` (module names would clash with direct exports): `plan`, `extract_nodes`, `resolve`, `extract_edges`, `conform`, `diff`, `persist`, `infer`, `verify`; each reads its inputs from and writes its output to the `BuildStore`, so a host can run and resume steps one by one. `plan(context)` starts a build when `build_id` is None and returns the build id (also `graph.build.plan`); run the other steps with `context.with_build_id(id)`. Steps never finish the build: after the last step call `run_build(context.with_build_id(id))`, which finds no open step, stores the `BuildResult` and starts any follow-up builds. A resumed `infer` reuses the judgements it wrote before it stopped ([analysis.md](analysis.md) Limits and backlog) |
 | `estimate_build(context) -> BuildEstimate` | Cost estimate without model calls or writes, inference included ([build.md](build.md)) |

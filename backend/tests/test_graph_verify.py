@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
-import shutil
 import sys
 from collections.abc import Mapping, Sequence
 from contextlib import asynccontextmanager
@@ -65,7 +64,14 @@ from graph.build.verify import (
 )
 from graph.core import Ontology, load_ontology
 from graph.core.identity import SpecIdRow
-from graph_support import FROZEN_ONTOLOGY_FILE, OfflineExecutor, frozen_ontology, shipped_ontology, with_v2_flags
+from graph_support import (
+    FROZEN_ONTOLOGY_FILE,
+    OfflineExecutor,
+    copy_frozen_prompts,
+    frozen_ontology,
+    shipped_ontology,
+    with_v2_flags,
+)
 
 # Mechanics tests: pinned to the frozen v1.3 ontology (graph_support.FROZEN_ONTOLOGY_FILE), not the shipped one.
 ONTOLOGY = frozen_ontology()
@@ -889,7 +895,7 @@ def flagged_ontology(directory: Path, **spine: Any) -> Ontology:
 
     data = with_v2_flags(yaml.safe_load(FROZEN_ONTOLOGY_FILE.read_text(encoding="utf-8")))
     data["spine"].update(spine)
-    shutil.copytree(FROZEN_ONTOLOGY_FILE.parent / "judge_prompts", directory / "judge_prompts")
+    copy_frozen_prompts(directory)
     path = directory / "ontology.yaml"
     path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
     return load_ontology(path, submodule_files=[])
@@ -945,7 +951,7 @@ def test_spine_exclude_skips_a_matching_source_and_reads_null_as_the_default(tmp
     data["node_groups"]["requirement"]["attributes"]["is_assumption"]["default"] = "yes"
     data["spine"]["exclude"] = {"is_assumption": ["yes"]}
     (tmp_path / "defaulted").mkdir()
-    shutil.copytree(FROZEN_ONTOLOGY_FILE.parent / "judge_prompts", tmp_path / "defaulted" / "judge_prompts")
+    copy_frozen_prompts(tmp_path / "defaulted")
     (tmp_path / "defaulted" / "ontology.yaml").write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
     defaulted = load_ontology(tmp_path / "defaulted" / "ontology.yaml", submodule_files=[])
     assert [item.key for item in graph.unreached(defaulted, defaulted.spine.sources)] == ["no"]

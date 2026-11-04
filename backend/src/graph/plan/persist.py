@@ -111,7 +111,7 @@ async def persist(
                 params["rows"] = rows
             records = await executor.write(batch.query, project_id, **params)
         if batch.query is UPDATE_TASKS:
-            conflicts.update(record["task_id"] for record in records if not record["applies"])
+            conflicts.update(task_id for record in records for task_id in record["conflicts"])
         progress = PersistArtifact(cursor=index + 1, batches=len(planned), conflicts=tuple(sorted(conflicts)))
         await store.put_artifact(project_id, run_id, "persist", progress.model_dump(mode="json"))
         log_event(

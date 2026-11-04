@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-import shutil
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -57,12 +56,13 @@ from graph_support import (
     FROZEN_ONTOLOGY_FILE,
     ScriptedGateway,
     ScriptedRequest,
+    copy_frozen_prompts,
     frozen_ontology,
     llm_config,
     shipped_ontology,
 )
 
-# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, neo4j_project) live in graph_support.
+# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, graph_project) live in graph_support.
 pytest_plugins = ["graph_support"]
 
 # Mechanics tests: pinned to the frozen v1.3 ontology (graph_support.FROZEN_ONTOLOGY_FILE), not the shipped one.
@@ -2159,7 +2159,7 @@ def without_module_default(directory: Path) -> Ontology:
     assert text.count(default) == 1
     path = directory / FROZEN_ONTOLOGY_FILE.name
     path.write_text(text.replace(default, "- {from: module, to: module}"), encoding="utf-8")
-    shutil.copytree(FROZEN_ONTOLOGY_FILE.parent / "judge_prompts", directory / "judge_prompts")
+    copy_frozen_prompts(directory)
     return load_ontology(path, submodule_files=[])
 
 

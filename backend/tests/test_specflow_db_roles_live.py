@@ -1,7 +1,7 @@
 """Tier 2 (AC-3.5): the roles the Postgres image created on its first start.
 
 Needs ``SPECFLOW_TEST_POSTGRES=1`` and the local stack's ``postgres`` service
-(``postgres:17.11`` with ``backend/postgres-init/`` mounted). Its init script
+(``pgvector/pgvector:0.8.7-pg17`` with ``backend/postgres-init/`` mounted). Its init script
 ``10-specflow-roles.sh`` creates the app role (owner of the database, not a superuser)
 and the agent role (row-level security applies, limited). This test only reads
 ``pg_roles`` and ``pg_database`` as the app role; it changes nothing.

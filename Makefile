@@ -17,10 +17,59 @@ space := $(empty) $(empty)
 empty :=
 WITH ?=
 WITH_LIST := $(subst $(comma), ,$(WITH))
-BAD_WITH := $(filter-out temporal langfuse,$(WITH_LIST))
+# The graph store of the local stack is chosen with WITH, next to temporal and langfuse:
+# `make up WITH=arcadedb` or `WITH=postgres`; with none of them the store is neo4j. Each backend owns
+# one section below (docs/configuration.md "Graph store"). It adds its name to GRAPH_STORE_NAMES, its
+# compose profile (when it has a server of its own) to GRAPH_STORE_PROFILES, and defines
+# STACK_ENV_<name>: the GRAPH_STORE* values the containers get (they win over the env file, whose
+# GRAPH_STORE_URI may be a host address for the host tools).
+GRAPH_STORE_NAMES :=
+GRAPH_STORE_PROFILES :=
+# graph-store: neo4j
+GRAPH_STORE_NAMES += neo4j
+GRAPH_STORE_PROFILES += neo4j
+STACK_ENV_neo4j := GRAPH_STORE=neo4j GRAPH_STORE_URI=bolt://specflow-neo4j:7687 GRAPH_STORE_USER=neo4j GRAPH_STORE_NAME=neo4j
+# graph-store: arcadedb
+GRAPH_STORE_NAMES += arcadedb
+GRAPH_STORE_PROFILES += arcadedb
+STACK_ENV_arcadedb := GRAPH_STORE=arcadedb GRAPH_STORE_URI=bolt://specflow-arcadedb:7687 GRAPH_STORE_USER=root \
+	GRAPH_STORE_NAME=$(or $(ARCADEDB_DATABASE),$(call envval,ARCADEDB_DATABASE),specflow)
+# graph-store: postgres
+# The PostgreSQL graph store needs no profile: it lives in the main postgres service, whose pgvector image
+# carries the extension. backend/postgres-init creates it on a new data volume; on a volume that exists
+# already run `make postgres-vector` once (an admin step: creating an extension takes the admin login).
+# WITH=postgres adds config/compose.graph-postgres.yaml, which leaves the connection to DATABASE_*.
+GRAPH_STORE_NAMES += postgres
+STACK_ENV_postgres := GRAPH_STORE=postgres
+STACK_FILES_postgres := -f config/compose.graph-postgres.yaml
+.PHONY: postgres-vector
+postgres-vector:
+	$(COMPOSE) exec -T postgres sh -c 'psql -U postgres -d "$$DATABASE_NAME" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS vector"'
+# graph-store: tigergraph
+# end graph-store
+WITH_PROFILES := temporal langfuse $(GRAPH_STORE_PROFILES)
+WITH_NAMES := $(strip $(WITH_PROFILES) $(filter-out $(WITH_PROFILES),$(GRAPH_STORE_NAMES)))
+BAD_WITH := $(filter-out $(WITH_NAMES),$(WITH_LIST))
 ifneq ($(BAD_WITH),)
-$(error WITH accepts temporal and langfuse (comma separated), got: $(BAD_WITH))
+$(error WITH accepts $(WITH_NAMES) (comma separated), got: $(BAD_WITH))
 endif
+STACK_STORES := $(filter $(GRAPH_STORE_NAMES),$(WITH_LIST))
+ifneq ($(word 2,$(STACK_STORES)),)
+$(error WITH names more than one graph store ($(STACK_STORES)): pick one of $(GRAPH_STORE_NAMES))
+endif
+STACK_STORE := $(or $(STACK_STORES),neo4j)
+# For the compose targets, GRAPH_STORE on the command line must agree with WITH (the stack has one store).
+# The host targets (api, worker, test-graph-live, ...) take any GRAPH_STORE.
+COMPOSE_GOALS := up down down-volumes logs ps images postgres-vector
+ifeq ($(origin GRAPH_STORE),command line)
+ifneq ($(filter $(COMPOSE_GOALS),$(MAKECMDGOALS)),)
+ifneq ($(GRAPH_STORE),$(STACK_STORE))
+$(error GRAPH_STORE=$(GRAPH_STORE) does not match the stack store $(STACK_STORE): use WITH=$(GRAPH_STORE))
+endif
+endif
+endif
+# The profiles `up` starts: those of WITH, plus neo4j when WITH names no other store (the default).
+STACK_PROFILES := $(strip $(filter $(WITH_PROFILES),$(WITH_LIST)) $(if $(STACK_STORES),,neo4j))
 
 # Local values for the backend run on the host against the local stack (HOST_TARGETS only, so
 # unit tests, validation and CI never get a cloud profile they did not ask for). Environment
@@ -43,8 +92,14 @@ $(HOST_TARGETS): export DATABASE_PORT ?= 5433
 $(HOST_TARGETS): export DATABASE_NAME ?= specflow
 $(HOST_TARGETS): export DATABASE_USER ?= specflow
 $(HOST_TARGETS): export DATABASE_AGENT_USER ?= specflow_agent
-$(HOST_TARGETS): export NEO4J_URI ?= bolt://localhost:7687
-$(HOST_TARGETS): export NEO4J_USER ?= neo4j
+# The host tools default to the neo4j of the local stack. A NEO4J_URI or NEO4J_USER from your shell still counts;
+# the password comes from the env file (GRAPH_STORE_PASSWORD, or NEO4J_PASSWORD in an older one). For another
+# store (GRAPH_STORE in your shell or the env file) set GRAPH_STORE_URI, _USER and _NAME there: no default applies.
+HOST_STORE := $(or $(GRAPH_STORE),$(call envval,GRAPH_STORE),neo4j)
+ifeq ($(HOST_STORE),neo4j)
+$(HOST_TARGETS): export GRAPH_STORE_URI ?= $(or $(NEO4J_URI),bolt://localhost:7687)
+$(HOST_TARGETS): export GRAPH_STORE_USER ?= $(or $(NEO4J_USER),neo4j)
+endif
 $(HOST_TARGETS): export TEMPORAL_ADDRESS ?= localhost:7233
 $(HOST_TARGETS): export TEMPORAL_NAMESPACE ?= specflow-local
 # What compose passes to the containers as TEMPORAL_ADDRESS (the host default above is not).
@@ -59,10 +114,11 @@ LANGFUSE_SECRET_KEY_LOCAL = $(or $(call envval,LANGFUSE_SECRET_KEY),sk-lf-specfl
 COMPOSE_ENV = env -u TEMPORAL_ADDRESS \
 	$(if $(COMPOSE_TEMPORAL_ADDRESS),TEMPORAL_ADDRESS=$(COMPOSE_TEMPORAL_ADDRESS)) \
 	$(if $(filter langfuse,$(WITH_LIST)),LANGFUSE_BASE_URL=http://specflow-langfuse-web:3000 LANGFUSE_PUBLIC_KEY=$(LANGFUSE_PUBLIC_KEY_LOCAL) LANGFUSE_SECRET_KEY=$(LANGFUSE_SECRET_KEY_LOCAL)) \
-	$(if $(WITH_LIST),COMPOSE_PROFILES=$(subst $(space),$(comma),$(strip $(WITH_LIST))))
-COMPOSE_BASE := docker compose --env-file $(ENV_FILE) -f docker-compose.yml
+	$(if $(STACK_PROFILES),COMPOSE_PROFILES=$(subst $(space),$(comma),$(STACK_PROFILES))) \
+	$(STACK_ENV_$(STACK_STORE))
+COMPOSE_BASE := docker compose --env-file $(ENV_FILE) -f docker-compose.yml $(STACK_FILES_$(STACK_STORE))
 COMPOSE := $(COMPOSE_ENV) $(COMPOSE_BASE)
-COMPOSE_ALL := env COMPOSE_PROFILES=temporal,langfuse $(COMPOSE_BASE)
+COMPOSE_ALL := env COMPOSE_PROFILES=$(subst $(space),$(comma),$(strip $(WITH_PROFILES))) $(COMPOSE_BASE)
 
 # Static validation kit (validation/README.md): one target per track, `make validate` runs all.
 # Project inputs of each track sit beside the code they describe: backend/ (importlinter.toml,
@@ -78,199 +134,49 @@ KIT_ENV := env -u VIRTUAL_ENV
 .PHONY: validate validate-list validate-install validate-install-python validate-install-python-clones validate-install-typescript validate-selftest validate-ci-selftest $(VALIDATE_TARGETS)
 
 # Python targets run in backend/ (ENV_FILE is passed down); compose is root-only.
-BACKEND_TARGETS := setup models lint unit-test check \
+BACKEND_TARGETS := setup models lint unit-test check test-graph-live graph-bench \
 	db-upgrade db-revision mcp-manifest \
 	api worker temporal-check rss-test
 
-.PHONY: $(BACKEND_TARGETS) env-local check-keycloak-env up down down-volumes logs ps images \
+.PHONY: $(BACKEND_TARGETS) env-local check-keycloak-env check-graph-store-env up down down-volumes logs ps images \
 	frontend-setup frontend-dev frontend-lint frontend-build e2e e2e-production e2e-all
 
 $(BACKEND_TARGETS):
 	$(MAKE) --no-print-directory -C backend ENV_FILE=$(ENV_FILE) $@
 
-# Writes the env file with random local secrets (Postgres, Neo4j, session key, RustFS keys, the bundled
-# Keycloak's admin, QA, web-client and personal-user passwords) and a fixed id for the personal user. It asks
-# for your email (LOCAL_TEST_USER_EMAIL; Enter = git user.email; without a terminal dev@example.com), derives
-# AUTH_ALLOWED_EMAIL_DOMAINS from it (your domain and example.com, written only when missing) and asks for the
-# LLM settings it cannot generate. Keycloak imports these values as your sign-in at container creation. Safe to run again
-# after every update: it never overwrites a value and never prints one. A secret that is missing or
-# empty is generated and appended, so a release that adds a secret needs only this command. An LLM
-# setting that is missing or empty is asked for when stdin is a terminal (Enter skips it; the API key
-# is read without echo); without a terminal (CI, agents) nothing is asked and the missing names are
-# listed. A value outside [A-Za-z0-9._:/@+=-] is written single-quoted, so compose takes it literally.
-# A secret appended to a file whose volumes already hold data does not match them: `make down-volumes`.
+# Writes the env file with random local secrets and asks for the settings it cannot generate; safe to run
+# again, it never overwrites or prints a value. The logic lives in scripts/env-local.sh (see its header).
 # `make env-local ENV_FILE=/path` writes there instead.
-ENV_LOCAL_NAMES := POSTGRES_ADMIN_PASSWORD DATABASE_PASSWORD DATABASE_AGENT_PASSWORD NEO4J_PASSWORD \
-	SESSION_SECRET RUSTFS_ACCESS_KEY RUSTFS_SECRET_KEY \
-	KEYCLOAK_ADMIN_PASSWORD KEYCLOAK_QA_PASSWORD KEYCLOAK_WEB_CLIENT_SECRET \
-	LOCAL_TEST_USER_PASSWORD LOCAL_TEST_USER_ID
-# The names `make up` needs in the env file (the Keycloak realm is imported from them).
-KEYCLOAK_ENV_NAMES := KEYCLOAK_ADMIN_PASSWORD KEYCLOAK_QA_PASSWORD KEYCLOAK_WEB_CLIENT_SECRET \
-	LOCAL_TEST_USER_EMAIL LOCAL_TEST_USER_PASSWORD LOCAL_TEST_USER_ID
-# Shell function (one line, for the recipes of env-local and check-keycloak-env): is $1 usable as the personal sign-in
-# email: one @, a dotted domain, only [A-Za-z0-9._:/@+=-], and not one of the QA users of the realm.
-EMAIL_OK_FN = email_ok() { case "$$1" in *@*) ;; *) return 1;; esac; \
-	case "$$1" in *[!A-Za-z0-9._:/@+=-]*|@*|*@|*@*@*) return 1;; esac; \
-	case "$${1\#*@}" in .*|*.|*..*) return 1;; *.*) ;; *) return 1;; esac; \
-	case "$$(printf '%s' "$$1" | tr 'A-Z' 'a-z')" in alice@example.com|bob@example.com|carol@other.example) return 1;; esac; };
-ENV_LOCAL_INPUT_NAMES := AGENT_MODEL LLM_GATEWAY_URL LLM_GATEWAY_API_KEY
-
 env-local:
-	@command -v openssl >/dev/null || { echo "env-local: openssl not found" >&2; exit 1; }; \
-	f="$(ENV_FILE)"; umask 077; \
-	val() { sed -n "s/^$$1=//p" "$$f" | tail -n 1 | tr -d "\"' \r"; }; \
-	$(EMAIL_OK_FN) \
-	gen() { \
-		case $$1 in \
-			RUSTFS_ACCESS_KEY) openssl rand -hex 10;; \
-			LOCAL_TEST_USER_ID) openssl rand -hex 16 | sed -E 's/^(.{8})(.{4})(.{4})(.{4})(.{12})$$/\1-\2-\3-\4-\5/';; \
-			*) openssl rand -hex 32;; \
-		esac; \
-	}; \
-	put() { \
-		t="$$f.tmp.$$$$"; { grep -v "^$$1=" "$$f" 2>/dev/null || :; } > "$$t"; \
-		printf '%s=%s\n' "$$1" "$$2" >> "$$t"; chmod 600 "$$t"; mv "$$t" "$$f"; \
-	}; \
-	store() { \
-		case "$$2" in \
-			*"'"*) echo "env-local: $$1 holds a single quote; set it in $$f by hand" >&2; return 1;; \
-			*[!A-Za-z0-9._:/@+=-]*) put "$$1" "'$$2'";; \
-			*) put "$$1" "$$2";; \
-		esac; \
-		set="$$set $$1"; \
-	}; \
-	if [ ! -e "$$f" ]; then \
-		tmp="$$f.tmp.$$$$"; : > "$$tmp"; \
-		for name in $(ENV_LOCAL_NAMES); do \
-			printf '%s=%s\n' "$$name" "$$(gen $$name)" >> "$$tmp"; \
-		done; \
-		if ln "$$tmp" "$$f" 2>/dev/null; then echo "env-local: wrote $$f ($(ENV_LOCAL_NAMES))"; fi; \
-		rm -f "$$tmp"; \
-	fi; \
-	added=""; \
-	for name in $(ENV_LOCAL_NAMES); do \
-		[ -n "$$(val $$name)" ] && continue; \
-		put "$$name" "$$(gen $$name)"; added="$$added $$name"; \
-	done; \
-	if [ -z "$$(val LOCAL_TEST_USER_EMAIL)" ]; then \
-		email=""; gitmail="$$(git config user.email 2>/dev/null | tr 'A-Z' 'a-z' | tr -d ' \r')"; \
-		if [ -t 0 ]; then \
-			tries=0; \
-			while [ -z "$$email" ] && [ $$tries -lt 3 ]; do \
-				printf 'env-local: LOCAL_TEST_USER_EMAIL (Enter = %s): ' "$${gitmail:-no default}" >&2; \
-				IFS= read -r answer || answer=""; \
-				answer="$$(printf '%s' "$${answer:-$$gitmail}" | tr 'A-Z' 'a-z' | tr -d ' \r')"; \
-				if email_ok "$$answer"; then email="$$answer"; \
-				else echo "env-local: not usable as your sign-in email (one @, a dotted domain, characters A-Za-z0-9._:/@+=-, not a QA user)" >&2; fi; \
-				tries=$$((tries + 1)); \
-			done; \
-		fi; \
-		if [ -z "$$email" ]; then email=dev@example.com; [ ! -t 0 ] || echo "env-local: no usable email given, using $$email" >&2; fi; \
-		put LOCAL_TEST_USER_EMAIL "$$email"; added="$$added LOCAL_TEST_USER_EMAIL"; \
-	fi; \
-	domain="$$(val LOCAL_TEST_USER_EMAIL | tr 'A-Z' 'a-z')"; \
-	if email_ok "$$domain"; then domain="$${domain#*@}"; \
-	else domain=""; echo "env-local: LOCAL_TEST_USER_EMAIL in $$f is not usable as a sign-in email (one @, a dotted domain, characters A-Za-z0-9._:/@+=-, not a QA user); fix it by hand" >&2; fi; \
-	domains="$$(val AUTH_ALLOWED_EMAIL_DOMAINS)"; \
-	if [ -z "$$domains" ] && [ -n "$$domain" ]; then \
-		if [ "$$domain" = example.com ]; then want=example.com; else want="$$domain,example.com"; fi; \
-		put AUTH_ALLOWED_EMAIL_DOMAINS "$$want"; added="$$added AUTH_ALLOWED_EMAIL_DOMAINS"; \
-	elif [ -n "$$domain" ]; then \
-		lacks=""; \
-		for d in $$(printf '%s\n' "$$domain" example.com | sort -u); do \
-			case ",$$(printf '%s' "$$domains" | tr 'A-Z' 'a-z')," in *",$$d,"*) ;; *) lacks="$$lacks $$d";; esac; \
-		done; \
-		[ -z "$$lacks" ] || echo "env-local: AUTH_ALLOWED_EMAIL_DOMAINS in $$f lacks$$lacks; sign-in of those users is refused (domain_not_allowed)" >&2; \
-	fi; \
-	[ -z "$$added" ] || echo "env-local: appended$$added to $$f"; \
-	set=""; missing=""; \
-	for name in $(ENV_LOCAL_INPUT_NAMES); do \
-		[ -n "$$(val $$name)" ] && continue; \
-		answer=""; \
-		if [ -t 0 ]; then \
-			case $$name in \
-				AGENT_MODEL) hint="the model name your LLM gateway serves";; \
-				LLM_GATEWAY_URL) hint="the URL of your OpenAI-compatible gateway";; \
-				*) hint="input hidden";; \
-			esac; \
-			printf 'env-local: %s (%s; Enter skips): ' "$$name" "$$hint" >&2; \
-			if [ "$$name" = LLM_GATEWAY_API_KEY ]; then \
-				trap 'stty echo 2>/dev/null; exit 130' INT TERM; stty -echo 2>/dev/null; \
-				IFS= read -r answer || answer=""; \
-				stty echo 2>/dev/null; trap - INT TERM; echo >&2; \
-			else IFS= read -r answer || answer=""; fi; \
-		fi; \
-		if [ -z "$$answer" ]; then missing="$$missing $$name"; continue; fi; \
-		store "$$name" "$$answer" || missing="$$missing $$name"; \
-	done; \
-	for name in GRAPH_LLM_MODEL GRAPH_SMALL_MODEL; do \
-		[ -n "$$(val $$name)" ] && continue; \
-		default="$$(val AGENT_MODEL)"; answer=""; \
-		if [ -t 0 ]; then \
-			case $$name in GRAPH_LLM_MODEL) hint="the graph build's main model";; *) hint="the graph build's small model";; esac; \
-			printf 'env-local: %s (%s; Enter = %s): ' "$$name" "$$hint" "$${default:-skip}" >&2; \
-			IFS= read -r answer || answer=""; answer="$${answer:-$$default}"; \
-		fi; \
-		if [ -z "$$answer" ]; then missing="$$missing $$name"; continue; fi; \
-		store "$$name" "$$answer" || missing="$$missing $$name"; \
-	done; \
-	model="$$(val GRAPH_EMBEDDING_MODEL)"; dim="$$(val GRAPH_EMBEDDING_DIM)"; typed=""; \
-	if [ -z "$$model" ]; then \
-		answer=""; \
-		if [ -t 0 ]; then \
-			printf 'env-local: GRAPH_EMBEDDING_MODEL (the embedding model your LLM gateway serves; Enter skips): ' >&2; \
-			IFS= read -r answer || answer=""; \
-		fi; \
-		case "$$answer" in \
-			"") ;; \
-			*"'"*) echo "env-local: GRAPH_EMBEDDING_MODEL holds a single quote; set it in $$f by hand" >&2;; \
-			*) typed="$$answer";; \
-		esac; \
-		if [ -z "$$typed" ]; then missing="$$missing GRAPH_EMBEDDING_MODEL"; [ -n "$$dim" ] || missing="$$missing GRAPH_EMBEDDING_DIM"; \
-		elif [ -n "$$dim" ]; then echo "env-local: GRAPH_EMBEDDING_DIM in $$f is kept; it must be the vector size of $$typed" >&2; fi; \
-	fi; \
-	if [ -z "$$dim" ] && [ -n "$$model$$typed" ]; then \
-		tries=0; \
-		if [ -t 0 ]; then \
-			while [ -z "$$dim" ] && [ $$tries -lt 3 ]; do \
-				printf 'env-local: GRAPH_EMBEDDING_DIM (required, no default: the vector size of %s, a whole number from 1 to 4096): ' "$${typed:-$$model}" >&2; \
-				IFS= read -r answer || answer=""; answer="$$(printf '%s' "$$answer" | tr -d ' \r')"; \
-				case "$$answer" in \
-					""|0*|*[!0-9]*|?????*) ;; \
-					*) [ "$$answer" -le 4096 ] && dim="$$answer";; \
-				esac; \
-				[ -n "$$dim" ] || echo "env-local: GRAPH_EMBEDDING_DIM must be a whole number from 1 to 4096: the vector size of the embedding model" >&2; \
-				tries=$$((tries + 1)); \
-			done; \
-		fi; \
-		if [ -n "$$dim" ]; then put GRAPH_EMBEDDING_DIM "$$dim"; set="$$set GRAPH_EMBEDDING_DIM"; \
-		else \
-			missing="$$missing GRAPH_EMBEDDING_DIM"; \
-			if [ -n "$$typed" ]; then echo "env-local: GRAPH_EMBEDDING_MODEL not written: it needs GRAPH_EMBEDDING_DIM" >&2; missing="$$missing GRAPH_EMBEDDING_MODEL"; fi; \
-		fi; \
-	fi; \
-	if [ -n "$$typed" ] && [ -n "$$dim" ]; then store GRAPH_EMBEDDING_MODEL "$$typed" || missing="$$missing GRAPH_EMBEDDING_MODEL"; fi; \
-	[ -z "$$set" ] || echo "env-local: set$$set in $$f"; \
-	[ -z "$$missing" ] || echo "env-local: add$$missing to $$f (docs/configuration.md)"; \
-	[ -n "$$added$$set$$missing" ] || echo "env-local: $$f is complete, left unchanged"
+	@sh "$(CURDIR)/scripts/env-local.sh" write "$(ENV_FILE)"
 
 # `make up` stops here, before compose, when the env file lacks a name the Keycloak realm is imported from or
-# holds an unusable LOCAL_TEST_USER_EMAIL (compose defaults them to empty so that other commands still work).
-# Names only, never a value.
+# holds an unusable LOCAL_TEST_USER_EMAIL (scripts/env-local.sh check-keycloak). Names only, never a value.
 check-keycloak-env:
-	@missing=""; \
-	for name in $(KEYCLOAK_ENV_NAMES); do \
-		[ -n "$$(sed -n "s/^$$name=//p" "$(ENV_FILE)" 2>/dev/null | tail -n 1 | tr -d "\"' \r")" ] || missing="$$missing $$name"; \
-	done; \
-	[ -z "$$missing" ] || { echo "up: $(ENV_FILE) lacks$$missing; run make env-local" >&2; exit 1; }; \
-	$(EMAIL_OK_FN) \
-	email="$$(sed -n "s/^LOCAL_TEST_USER_EMAIL=//p" "$(ENV_FILE)" | tail -n 1 | tr -d "\"' \r")"; \
-	email_ok "$$email" || { echo "up: LOCAL_TEST_USER_EMAIL in $(ENV_FILE) is not usable as a sign-in email; fix it, or delete the line and run make env-local" >&2; exit 1; }
+	@sh "$(CURDIR)/scripts/env-local.sh" check-keycloak "$(ENV_FILE)"
 
-# Build and start the stack and wait until all services are healthy: postgres, neo4j, rustfs,
-# rustfs-init, keycloak (the realm is imported from the env file), api, mcp, worker-parse, worker-agents, frontend.
-# `WITH=temporal,langfuse` adds the bundled Temporal and Langfuse. Logs are JSON on stdout only (`make logs`).
-up: check-keycloak-env
+# The graph login of the stack: GRAPH_STORE_PASSWORD, or NEO4J_PASSWORD in an older env file (names only, no value
+# is printed). docker-compose.yml cannot require it itself: Compose v2 evaluates a required variable inside a default
+# even when the outer variable is set. WITH=postgres needs none (the graph uses the DATABASE_* login).
+check-graph-store-env:
+	@if [ "$(STACK_STORE)" != postgres ] && ! grep -Eq '^(GRAPH_STORE_PASSWORD|NEO4J_PASSWORD)=.' "$(ENV_FILE)" 2>/dev/null; then \
+		echo "make up: set GRAPH_STORE_PASSWORD in $(ENV_FILE) (make env-local writes it)" >&2; exit 1; fi
+
+# Needs Docker Compose 2.24 or later (`!reset` of WITH=postgres; `required: false` needs 2.20).
+# Build and start the stack and wait until all services are healthy: postgres, the graph store (neo4j;
+# `WITH=arcadedb` starts arcadedb and arcadedb-init instead, `WITH=postgres` no server: the graph lives in
+# postgres), rustfs, rustfs-init, keycloak (the realm is imported from the env file), api, mcp, worker-parse,
+# worker-agents, frontend. `WITH=temporal,langfuse` adds the bundled Temporal and Langfuse. Logs are JSON on
+# stdout only (`make logs`).
+# An env file written before GRAPH_STORE_PASSWORD existed has only NEO4J_PASSWORD. The services fall back to it in
+# docker-compose.yml; the ArcadeDB root password secret is read from the environment, so it gets the same fallback here
+# (exported to the recipe, never printed).
+ifeq ($(call envval,GRAPH_STORE_PASSWORD),)
+ifneq ($(call envval,NEO4J_PASSWORD),)
+up: export GRAPH_STORE_PASSWORD = $(call envval,NEO4J_PASSWORD)
+endif
+endif
+up: check-keycloak-env check-graph-store-env
 	$(COMPOSE) up -d --build --wait --wait-timeout 600
 
 # Stops and removes the containers. The volumes (databases) stay; use `down-volumes` to drop them.
@@ -369,9 +275,10 @@ validate-list:
 	@echo $(VALIDATE_TRACKS)
 
 # backend/importlinter.toml lists real top-level packages (src/ is the import root, hence
-# PYTHONPATH=src); MYPYPATH lets mypy resolve them. backend/tests is excluded from mypy by mypy.ini.
+# PYTHONPATH=src); MYPYPATH lets mypy resolve them. backend/tests is excluded from mypy by mypy.ini, but its
+# store probes (tests/graph_probes) are resolvable: examples/graph_bench.py imports them, so they are checked too.
 validate-python-lint:
-	cd backend && $(KIT_ENV) PYTHONPATH=src MYPYPATH=src:examples IMPORTLINTER_CONFIG=importlinter.toml \
+	cd backend && $(KIT_ENV) PYTHONPATH=src MYPYPATH=src:examples:tests IMPORTLINTER_CONFIG=importlinter.toml \
 		uv run --project $(VALIDATION)/python/lint bash $(VALIDATION)/python/lint/run.sh .
 
 # Two runs: the backend checks (backend/pystatic.toml), then source-ownership over the whole
@@ -407,9 +314,9 @@ validate-sql:
 # Licence gate G6 (validation/ci/licence_gate.py, input backend/licence-gate.toml): the locked dependency set of
 # each image (api, worker-agents, worker-parse) is synced into a scratch environment, no Docker, and checked
 # against the licence allowlist; pymupdf, pymupdf4llm and pymupdf-layout must be absent; NOTICE must name the
-# parse components. It needs uv, network access to the package indexes (or a warm uv cache) and Python 3.11+.
+# parse components. It needs uv, network access to the package indexes (or a warm uv cache); uv provides the Python 3.12 it runs on.
 validate-licences:
-	$(KIT_ENV) python3 $(VALIDATION)/ci/licence_gate.py --config backend/licence-gate.toml
+	$(KIT_ENV) uv run --no-project --python 3.12 python $(VALIDATION)/ci/licence_gate.py --config backend/licence-gate.toml
 
 # Frontend: ESLint/Prettier/stylelint/tsc/knip/semgrep, then the token, contrast, CSS and clone
 # checks. tsc needs Next's generated types (`npx next typegen`, part of `make frontend-setup` flow).

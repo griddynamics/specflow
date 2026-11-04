@@ -14,6 +14,7 @@ dependencies = [
     "google-api-python-client>=2.201.0",
     "google-auth>=2.62.0",
     "httplib2>=0.22",
+    "httpx>=0.28.1",
     "langfuse>=4,<5",
     "mcp>=2.3,<3",
     "neo4j>=6.4.1",
@@ -37,6 +38,8 @@ dependencies = [
 # One object-storage SDK per cloud, imported lazily by storage/factory.py. The images install both.
 gcp = ["google-cloud-storage>=3.17.1"]
 aws = ["boto3>=1.43,<2"]
+# The TigerGraph graph store (GRAPH_STORE=tigergraph), imported lazily by graph/stores/tigergraph only.
+tigergraph = ["pyTigerGraph==2.0.5"]
 # The document parser (worker-parse image and dev/CI only; never the api or worker-agents image).
 # Docling pin and set of format packages: docs/file-parsers/engines/docling.md, 'Packages'.
 # opencv-python-headless: imported by docling_ibm_models (TableFormer v1) without being declared by docling-slim.
@@ -87,7 +90,6 @@ select = ["S110"]
 [dependency-groups]
 dev = [
     "google-api-python-client-stubs>=1.40.0",
-    "httpx>=0.28.1",
     "jsonschema>=4.26.0",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.1",
@@ -101,9 +103,10 @@ dev = [
 # Colocated test modules use the validation environment, not runtime imports.
 [tool.deptry]
 known_first_party = [
-    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
-    "cli", "cloud_profile", "health", "settings",
+    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "postgres", "storage",
+    "temporal", "cli", "cloud_profile", "health", "settings",
     "example_lib", "graph_build", "mcp_qa_lib",  # examples/
+    "graph_probes",  # tests/graph_probes: the store probes examples/graph_bench.py reads the graph through
 ]
 extend_exclude = ["(^|.*/)(test_[^/]+|conftest)\\.py$"]
 
@@ -123,14 +126,20 @@ openinference-instrumentation = ["openinference"]
 # botocore ships inside the `aws` extra's boto3 (same release train); storage/s3.py imports its Config and ClientError.
 # The MCP SDK client takes an `httpx2.AsyncClient` (httpx2 is a dependency of mcp 2.x); used by examples/mcp_qa_lib.py.
 DEP001 = ["botocore", "httpx2"]
-# opencv-python-headless is imported by docling_ibm_models (TableFormer v1), not by our code; torch and
-# torchvision are docling's runtime and pinned here only to select the CPU wheels.
-DEP002 = ["asyncpg", "temporalio-openai-agents", "opencv-python-headless", "torch", "torchvision"]
+# The tigergraph extra is used by the graph store adapter when it ships. opencv-python-headless is imported by
+# docling_ibm_models (TableFormer v1), not by our code; torch and torchvision are docling's runtime and pinned here
+# only to select the CPU wheels.
+DEP002 = [
+    "asyncpg",
+    "pyTigerGraph",
+    "temporalio-openai-agents",
+    "opencv-python-headless",
+    "torch",
+    "torchvision",
+]
 # examples/mcp_qa_lib.py catches anyio's BrokenResourceError/ClosedResourceError, which the MCP SDK client raises
 # (anyio is a dependency of mcp).
 DEP003 = ["anyio"]
-# examples/mcp_qa_lib.py uses httpx, a dev dependency here (the QA harness is dev-only; it is installed at runtime
-# through anthropic and openai).
-# examples/mcp_qa_lib.py also validates the workspace binding file with jsonschema, a dev dependency here (it is
-# installed at runtime through the agent SDKs).
-DEP004 = ["httpx", "jsonschema"]
+# examples/mcp_qa_lib.py validates the workspace binding file with jsonschema, a dev dependency here (it is
+# installed at runtime through the agent SDKs). httpx is a runtime dependency (the ArcadeDB admin API).
+DEP004 = ["jsonschema"]

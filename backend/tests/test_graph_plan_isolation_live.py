@@ -19,66 +19,63 @@ from graph_plan_support import (
     shop_view,
     write_spec_graph,
 )
-from graph_support import Neo4jProject, ScriptedGateway
-from specflow_live import requires_live
+from graph_probes import requires_live_graph
+from graph_support import GraphProject, ScriptedGateway
 
 pytest_plugins = ["graph_support"]
 
-pytestmark = requires_live("NEO4J")
+pytestmark = requires_live_graph()
 
 WORKSPACE = "TASK::PROJECT::WORKSPACE"
+SPEC_LABELS = frozenset({"SpecNode", "Document", "Fragment"})
+PLAN_LABELS = frozenset({"Plan", "WorkArea", "Story", "Task"})
 
 
-async def _owned(project: Neo4jProject, project_id: str) -> list[Any]:
-    """Every spec node, document and fragment of a project with all of its properties."""
+async def _owned(project: GraphProject, project_id: str) -> list[Any]:
+    """Every spec node, document and fragment of a project with all of its properties (in the probe's order)."""
 
-    rows = await project.run(
-        "MATCH (n {group_id: $p}) WHERE n:SpecNode OR n:Document OR n:Fragment "
-        "RETURN labels(n) AS labels, properties(n) AS properties ORDER BY elementId(n)",
-        p=project_id,
-    )
-    return [(sorted(row["labels"]), dict(row["properties"])) for row in rows]
+    nodes = await project.nodes(project_id=project_id)
+    return [(sorted(node.labels), dict(node.props)) for node in nodes if SPEC_LABELS.intersection(node.labels)]
 
 
 async def test_two_plans_stay_apart_and_spec_properties_never_change(
-    neo4j_project: Neo4jProject, tmp_path: Path
+    graph_project: GraphProject, tmp_path: Path
 ) -> None:
-    first, _ = await planned_live_shop(neo4j_project, tmp_path / "a")
-    second, _ = await planned_live_shop(neo4j_project, tmp_path / "b")
-    before = await _owned(neo4j_project, second)
-    worked = await _owned(neo4j_project, first)
+    first, _ = await planned_live_shop(graph_project, tmp_path / "a")
+    second, _ = await planned_live_shop(graph_project, tmp_path / "b")
+    before = await _owned(graph_project, second)
+    worked = await _owned(graph_project, first)
     ontology = plan_ontology()
-    life = TaskLifecycle(neo4j_project.driver, ontology, plan_rules(ontology), database=neo4j_project.database)
+    life = TaskLifecycle(graph_project.store, ontology, plan_rules(ontology))
 
     claim = await life.claim_task(first, WORKSPACE, claimed_by="agent")
     await life.complete_task(first, WORKSPACE, claim_token=claim.claim_token, commit="ab" * 20)
 
     assert [task.task_id for task in await life.ready_tasks(second)] == [WORKSPACE]
     assert [task.task_id for task in await life.ready_tasks(first)] == ["TASK::PROJECT::TOOLCHAIN"]
-    assert await _owned(neo4j_project, second) == before
-    assert await _owned(neo4j_project, first) == worked
-    plan_labels = await neo4j_project.run(
-        "MATCH (n {group_id: $p}) WHERE n:Plan OR n:WorkArea OR n:Story OR n:Task RETURN DISTINCT labels(n) AS labels",
-        p=first,
-    )
-    assert all("SpecNode" not in row["labels"] for row in plan_labels)
-    crossing = await neo4j_project.run(
-        "MATCH (a)-[r]->(b) WHERE a.group_id = $p AND b.group_id <> $p RETURN count(r) AS crossing", p=first
-    )
-    assert crossing[0]["crossing"] == 0
+    assert await _owned(graph_project, second) == before
+    assert await _owned(graph_project, first) == worked
+    plan_nodes = [node for node in await graph_project.nodes(project_id=first) if PLAN_LABELS.intersection(node.labels)]
+    assert plan_nodes and all("SpecNode" not in node.labels for node in plan_nodes)
+    crossing = [
+        edge
+        for edge in await graph_project.edges(project_id=first)
+        if (edge.source.get("group_id") == first) != (edge.target.get("group_id") == first)
+    ]
+    assert crossing == []
 
 
 async def test_a_plan_run_leaves_every_spec_document_and_fragment_property_as_it_was(
-    neo4j_project: Neo4jProject, tmp_path: Path
+    graph_project: GraphProject, tmp_path: Path
 ) -> None:
-    project_id = neo4j_project.new_project()
-    await write_spec_graph(neo4j_project, project_id, shop_graph(), plan_ontology())
-    before = await _owned(neo4j_project, project_id)
+    project_id = graph_project.new_project()
+    await write_spec_graph(graph_project, project_id, shop_graph(), plan_ontology())
+    before = await _owned(graph_project, project_id)
 
     gateway = script_plan(ScriptedGateway(), shop_answers(await shop_view()))
     result = await run_with(
-        live_context(neo4j_project, project_id, open_plan_store(tmp_path), gateway), StepFunctions()
+        live_context(graph_project, project_id, open_plan_store(tmp_path), gateway), StepFunctions()
     )
 
     assert result.status == "succeeded"
-    assert await _owned(neo4j_project, project_id) == before
+    assert await _owned(graph_project, project_id) == before

@@ -288,6 +288,7 @@ def secret_values() -> list[str]:
         "DATABASE_PASSWORD",
         "DATABASE_AGENT_PASSWORD",
         "NEO4J_PASSWORD",
+        "GRAPH_STORE_PASSWORD",
         "LLM_GATEWAY_API_KEY",
         "LANGFUSE_SECRET_KEY",
         "LANGFUSE_PUBLIC_KEY",

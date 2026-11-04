@@ -16,7 +16,7 @@ from graph.core import load_ontology
 from graph.core.ontology import Ontology
 from graph.core.queries import DOCUMENT, FRAGMENT
 from graph.core.reader import GraphDocument, GraphEdge, GraphFragment, GraphNode
-from graph.core.writer import NodeRef, OwnedWriter
+from graph.core.writer import NodeRef
 from graph.plan.answers import (
     ConventionAnswer,
     DescribeAnswer,
@@ -62,7 +62,8 @@ from graph.plan.run import StepFunctions, run_with
 from graph.plan.snapshot import snapshot
 from graph.plan.tasks import plan_tasks
 from graph.plan.view import PlanView
-from graph_support import NO_ANSWER, ScriptedGateway, ScriptedRequest
+from graph_probes.base import SPEC_NODE, EdgeSpec, Match, select
+from graph_support import NO_ANSWER, GraphProject, ScriptedGateway, ScriptedRequest
 from test_graph_schema import SchemaDriver
 
 __all__ = [
@@ -256,21 +257,25 @@ def ontology_labels(rules: PlanRules, key: str) -> tuple[str, ...]:
 
 
 async def write_spec_graph(
-    project: Any,
-    project_id: str,
-    fixture: ShopGraphReader,
-    ontology: Ontology,
+    project: GraphProject, project_id: str, fixture: ShopGraphReader, ontology: Ontology
 ) -> None:
-    """Write the shop fixture to a live project for live plan tests.
+    """Write the shop fixture to a live project for live plan tests (idempotent: a rewrite adds what is gone).
 
     Spec nodes and domain relationships go through ``OwnedWriter(owner="build")``; documents and
     fragments through its keyed upserts. Statements and provenance links are test data the owner
-    writer refuses (structural relationships), so they are written by raw test Cypher.
+    writer refuses (structural relationships), so the test probe creates them; one link per type and
+    pair of ends, as a merge would, and none that the project already holds.
     """
 
-    writer = OwnedWriter(project.driver, ontology, "build", project_id, database=project.database)
+    writer = project.writer(project_id=project_id, ontology=ontology)
     by_spec_id = {node.spec_id: node for node in fixture._fixture.nodes}
-    # Documents and fragments first: statements and provenance link spec nodes to existing fragments.
+    links: dict[tuple[str, str, str], EdgeSpec] = {}
+
+    def link(relation: str, source: Match, target: Match, properties: Mapping[str, Any] | None = None) -> None:
+        key = (relation, *(str(next(iter(end.props.values()))) for end in (source, target)))
+        kept = {name: value for name, value in (properties or {}).items() if value is not None}
+        links[key] = EdgeSpec(relation, source, target, kept)
+
     for document in fixture._fixture.documents:
         properties = document.model_dump(exclude={"document_id"}, exclude_none=True)
         await writer.upsert_node(DOCUMENT, document.document_id, properties)
@@ -278,12 +283,10 @@ async def write_spec_graph(
         properties = fragment.model_dump(exclude={"fragment_id"}, exclude_none=True)
         properties["heading_path"] = list(fragment.heading_path or ())
         await writer.upsert_node(FRAGMENT, fragment.fragment_id, properties)
-        await project.run(
-            "MATCH (d:Document {group_id: $p, document_id: $did}), "
-            "(f:Fragment {group_id: $p, fragment_id: $fid}) MERGE (d)-[:CONTAINS]->(f)",
-            p=project_id,
-            did=fragment.document_id,
-            fid=fragment.fragment_id,
+        link(
+            "CONTAINS",
+            select(DOCUMENT, document_id=fragment.document_id),
+            select(FRAGMENT, fragment_id=fragment.fragment_id),
         )
     for node in sorted(fixture._fixture.nodes, key=lambda item: item.spec_id):
         properties = {
@@ -293,32 +296,25 @@ async def write_spec_graph(
             **node.attributes,
         }
         await writer.upsert_node(node.label, f"{project_id}-{node.uuid}", properties)
+        spec = select(SPEC_NODE, spec_id=node.spec_id)
         for statement in node.statements:
-            await project.run(
-                "MATCH (n:SpecNode {group_id: $p, spec_id: $id}), "
-                "(f:Fragment {group_id: $p, fragment_id: $fid}) "
-                "MERGE (n)-[r:HAS_STATEMENT]->(f) "
-                "SET r.text = $text, r.revision_id = $revision_id, r.version = $version",
-                p=project_id,
-                id=node.spec_id,
-                fid=statement.fragment_id,
-                text=statement.text,
-                revision_id=statement.revision_id,
-                version=statement.version,
+            link(
+                "HAS_STATEMENT",
+                spec,
+                select(FRAGMENT, fragment_id=statement.fragment_id),
+                {"text": statement.text, "revision_id": statement.revision_id, "version": statement.version},
             )
         for provenance in node.provenance:
-            await project.run(
-                "MATCH (n:SpecNode {group_id: $p, spec_id: $id}), "
-                "(f:Fragment {group_id: $p, fragment_id: $fid}) "
-                "MERGE (n)-[r:REFERENCED_BY]->(f) "
-                "SET r.line_start = $line_start, r.line_end = $line_end, r.quote = $quote",
-                p=project_id,
-                id=node.spec_id,
-                fid=provenance.fragment_id,
-                line_start=provenance.line_start,
-                line_end=provenance.line_end,
-                quote=provenance.quote,
+            link(
+                "REFERENCED_BY",
+                spec,
+                select(FRAGMENT, fragment_id=provenance.fragment_id),
+                {"line_start": provenance.line_start, "line_end": provenance.line_end, "quote": provenance.quote},
             )
+    held = {
+        (edge.type, str(edge.source.ref), str(edge.target.ref)) for edge in await project.edges(project_id=project_id)
+    }
+    await project.create_edges([spec for key, spec in links.items() if key not in held], project_id=project_id)
     for edge in fixture._fixture.edges:
         source = by_spec_id[edge.source]
         target = by_spec_id[edge.target]
@@ -552,25 +548,24 @@ def next_view(
     return PlanView(snapshot, partition(snapshot, view.rules, ontology), view.rules)
 
 
-def live_context(project: Any, project_id: str, store: PlanStore, gateway: Any, **fields: Any) -> PlanContext:
-    """A plan context over a live test project (the shop fixture's ontology and rules)."""
+def live_context(project: GraphProject, project_id: str, store: PlanStore, gateway: Any, **fields: Any) -> PlanContext:
+    """A plan context over a live test project's store (the shop fixture's ontology and rules)."""
 
     ontology = plan_ontology()
     values: dict[str, Any] = {
         "project_id": project_id,
         "ontology": ontology,
         "rules": plan_rules(ontology),
-        "driver": project.driver,
+        "driver": project.store,
         "gateway": gateway,
         "store": store,
         "build_id": "build-1",
-        "database": project.database,
         **fields,
     }
     return PlanContext(**values)
 
 
-async def planned_live_shop(project: Any, store_root: Path) -> tuple[str, PlanContext]:
+async def planned_live_shop(project: GraphProject, store_root: Path) -> tuple[str, PlanContext]:
     """A live project holding the shop fixture and its first plan (scripted planners)."""
 
     project_id = project.new_project()

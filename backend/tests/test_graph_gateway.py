@@ -31,7 +31,7 @@ from graph_support import (
 from logger.logger import get_logger
 from logger_harness import LogHarness
 
-# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, neo4j_project) live in graph_support.
+# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, graph_project) live in graph_support.
 pytest_plugins = ["graph_support"]
 
 API_KEY = TEST_API_KEY

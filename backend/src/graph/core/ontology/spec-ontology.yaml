@@ -1095,13 +1095,13 @@ spine:
     - {via: [RELATES_TO], min: 1, max: 1}
 
 conform:
-  judge_prompt: judge_owner_conflict.2
+  judge_prompt: judge_owner_conflict
   cap: 200
   floor: 0.7
   fallback_relation: RELATES_TO
   answered_elsewhere:
     label: OpenQuestion
-    prompt: judge_answered_elsewhere.3
+    prompt: judge_answered_elsewhere
     candidates: 4
     min_cosine: 0.35
     floor: 0.8
@@ -1115,9 +1115,9 @@ inference:
   rules:
     - id: INF-CONT-01
       template: attach_orphan
-      prompt: judge_attach_orphan.4
+      prompt: judge_attach_orphan
       floor: 0.8
-      batch_prompt: judge_attach_orphan_batch.3   # batched judging is off (no batch); a replay's --batch turns it on 
+      batch_prompt: judge_attach_orphan_batch   # batched judging is off (no batch); a replay's --batch turns it on 
       subject: requirement
       targets: [feature, module]
       max_candidates: 3
@@ -1126,8 +1126,8 @@ inference:
       writes: PART_OF
     - id: INF-CONT-02
       template: attach_orphan
-      prompt: judge_attach_orphan.4
-      batch_prompt: judge_attach_orphan_batch.3   # batched judging is off (no batch); a replay's --batch turns it on 
+      prompt: judge_attach_orphan
+      batch_prompt: judge_attach_orphan_batch   # batched judging is off (no batch); a replay's --batch turns it on 
       subject: feature
       targets: [module]
       max_candidates: 3
@@ -1136,7 +1136,7 @@ inference:
       writes: PART_OF
     - id: INF-INT-01
       template: endpoints
-      prompt: judge_endpoints.3
+      prompt: judge_endpoints
       subject: integration_requirement
       via: [PART_OF, RELATES_TO]
       mentions: true
@@ -1147,7 +1147,7 @@ inference:
       writes: INTEGRATES_WITH
     - id: INF-CAP-01
       template: realization
-      prompt: judge_realization.2
+      prompt: judge_realization
       subject: capability
       member_relation: GROUPED_BY
       container_paths:
@@ -1160,7 +1160,7 @@ inference:
       writes: REALIZED_BY
     - id: INF-XDOC-01                  # last: owners = stated, implied, accepted earlier in this build, inferred in earlier builds
       template: cross_document
-      prompt: judge_cross_document.4
+      prompt: judge_cross_document
       subject: [module, feature, interface, data_entity]
       members: requirement
       via: [PART_OF, RELATES_TO]

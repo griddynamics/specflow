@@ -15,20 +15,19 @@ from graph.core import (
     OwnedWriter,
     OwnershipError,
     ensure_schema,
-    require_version,
-    server_version,
 )
+from graph_probes import requires_live_graph
+from graph_probes.base import EdgeSpec, NodeSpec, SchemaObject, select
 from graph_support import (
-    Neo4jProject,
+    GraphProject,
     live_llm_config,
     shipped_ontology,
 )
-from specflow_live import requires_live
 
-# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, neo4j_project) live in graph_support.
+# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, graph_project) live in graph_support.
 pytest_plugins = ["graph_support"]
 
-pytestmark = requires_live("NEO4J")
+pytestmark = requires_live_graph()
 
 MODULE = "Module"
 FR = "FunctionalRequirement"
@@ -53,7 +52,7 @@ STATEMENTS = json.dumps(
 )
 
 
-async def seed(project: Neo4jProject, project_id: str, ontology: Ontology) -> OwnedWriter:
+async def seed(project: GraphProject, project_id: str, ontology: Ontology) -> OwnedWriter:
     """The same small graph in any project: same keys, same spec ids, same properties."""
 
     build = project.writer("build", project_id=project_id, ontology=ontology)
@@ -104,24 +103,26 @@ async def seed(project: Neo4jProject, project_id: str, ontology: Ontology) -> Ow
                 "evidence": json.dumps([{"fragment_id": "f1", "quote": "pay"}]),
             },
         )
-    # Structural relationships are written by build's persist queries (later milestone): raw here.
-    await project.run(
-        "MATCH (d:Document {group_id: $p, document_id: 'd1'}), (f:Fragment {group_id: $p, fragment_id: 'f1'}), "
-        "(n:SpecNode {group_id: $p, uuid: 'u-fr'}) "
-        "CREATE (d)-[:CONTAINS]->(f), (n)-[:REFERENCED_BY {line_start: 3, line_end: 4}]->(f)",
-        p=project_id,
+    # Structural relationships are written by build's persist queries (later milestone): through the probe here.
+    await project.create_edges(
+        [
+            EdgeSpec("CONTAINS", select(DOCUMENT, document_id="d1"), select(FRAGMENT, fragment_id="f1")),
+            EdgeSpec(
+                "REFERENCED_BY",
+                select("SpecNode", uuid="u-fr"),
+                select(FRAGMENT, fragment_id="f1"),
+                {"line_start": 3, "line_end": 4},
+            ),
+        ],
+        project_id=project_id,
     )
     return build
 
 
-async def node_props(project: Neo4jProject, key: str, project_id: str | None = None) -> dict[str, Any]:
-    rows = await project.run(
-        "MATCH (n:SpecNode {group_id: $p, uuid: $k}) RETURN properties(n) AS props",
-        p=project_id or project.project_id,
-        k=key,
-    )
-    assert len(rows) == 1
-    return rows[0]["props"]
+async def node_props(project: GraphProject, key: str, project_id: str | None = None) -> dict[str, Any]:
+    nodes = await project.nodes("SpecNode", project_id=project_id, uuid=key)
+    assert len(nodes) == 1
+    return nodes[0].props
 
 
 async def assert_code(awaitable: Any, error_type: type[Exception], code: str) -> None:
@@ -133,106 +134,83 @@ async def assert_code(awaitable: Any, error_type: type[Exception], code: str) ->
 # Schema
 
 
-async def show_objects(project: Neo4jProject) -> list[dict[str, Any]]:
-    constraints = await project.run(
-        "SHOW CONSTRAINTS YIELD name, type, entityType, labelsOrTypes, properties "
-        "RETURN name, type, entityType, labelsOrTypes, properties"
-    )
-    indexes = await project.run(
-        "SHOW INDEXES YIELD name, type, entityType, labelsOrTypes, properties, options, state "
-        "RETURN name, type, entityType, labelsOrTypes, properties, options, state"
-    )
-    return constraints + indexes
-
-
 def find_object(
-    objects: list[dict[str, Any]], types: set[str], entity: str, label: str, properties: list[str]
-) -> dict[str, Any] | None:
+    objects: list[SchemaObject], kinds: set[str], entity: str, label: str, properties: list[str]
+) -> SchemaObject | None:
     for row in objects:
         if (
-            row["type"] in types
-            and row["entityType"] == entity
-            and list(row["labelsOrTypes"] or []) == [label]
-            and sorted(row["properties"] or []) == sorted(properties)
+            row.kind in kinds
+            and row.entity == entity
+            and row.label == label
+            and sorted(row.properties) == sorted(properties)
         ):
             return row
     return None
 
 
-async def test_schema_has_every_data_model_object_and_is_idempotent(neo4j_project: Neo4jProject) -> None:
-    project, ontology, llm = neo4j_project, shipped_ontology(), live_llm_config()
-    assert await ensure_schema(project.driver, ontology, llm, project.database) == ()
+async def test_schema_has_every_data_model_object_and_is_idempotent(graph_project: GraphProject) -> None:
+    project, ontology, llm = graph_project, shipped_ontology(), live_llm_config()
+    assert await ensure_schema(project.store, ontology, llm) == ()
 
-    objects = await show_objects(project)
-    unique = {"UNIQUENESS", "NODE_PROPERTY_UNIQUENESS", "NODE_KEY"}
+    objects = await project.probe.schema_objects()
+    unique = {"unique"}
     expected = [
-        (unique, "NODE", "SpecNode", ["group_id", "spec_id"]),
-        (unique, "NODE", "SpecNode", ["group_id", "uuid"]),
-        (unique, "NODE", DOCUMENT, ["group_id", "document_id"]),
-        (unique, "NODE", FRAGMENT, ["group_id", "fragment_id"]),
-        ({"RANGE"}, "NODE", "SpecNode", ["group_id", "identity_key"]),
-        ({"FULLTEXT"}, "NODE", "SpecNode", ["name", "statement_text"]),
-        ({"FULLTEXT"}, "NODE", FRAGMENT, ["text"]),
-        *[({"RANGE"}, "RELATIONSHIP", relation, ["group_id", "edge_key"]) for relation in ontology.relations],
+        (unique, "node", "SpecNode", ["group_id", "spec_id"]),
+        (unique, "node", "SpecNode", ["group_id", "uuid"]),
+        (unique, "node", DOCUMENT, ["group_id", "document_id"]),
+        (unique, "node", FRAGMENT, ["group_id", "fragment_id"]),
+        ({"range"}, "node", "SpecNode", ["group_id", "identity_key"]),
+        ({"fulltext"}, "node", "SpecNode", ["name", "statement_text"]),
+        ({"fulltext"}, "node", FRAGMENT, ["text"]),
+        *[({"range"}, "relationship", relation, ["group_id", "edge_key"]) for relation in ontology.relations],
     ]
-    for types, entity, label, properties in expected:
-        assert find_object(objects, types, entity, label, properties), (entity, label, properties)
+    for kinds, entity, label, properties in expected:
+        assert find_object(objects, kinds, entity, label, properties), (entity, label, properties)
     for prop in ("embedding", "name_embedding"):
-        vector = find_object(objects, {"VECTOR"}, "NODE", "SpecNode", [prop])
+        vector = find_object(objects, {"vector"}, "node", "SpecNode", [prop])
         assert vector is not None, prop
-        config = vector["options"]["indexConfig"]
-        assert config["vector.dimensions"] == llm.embedding_dim
-        assert config["vector.similarity_function"].lower() == "cosine"
-    assert all(row["state"] == "ONLINE" for row in objects if row["name"].startswith("graph_") and "state" in row)
+        assert vector.dimensions == llm.embedding_dim
+        assert vector.similarity == "cosine"
+    assert all(row.online for row in objects if row.name.startswith("graph_"))
 
     # A missing object is created again under its graph_* name; the next run changes nothing.
     # The dev database is shared: drop only the library's own index, never an equivalent one a
     # developer created under another name (ensure_schema would put it back as graph_*), and
     # restore it in ``finally`` whatever happens.
-    relates = find_object(objects, {"RANGE"}, "RELATIONSHIP", "RELATES_TO", ["group_id", "edge_key"])
+    relates = find_object(objects, {"range"}, "relationship", "RELATES_TO", ["group_id", "edge_key"])
     assert relates is not None
-    if relates["name"] == "graph_edge_key_relates_to":
-        await project.run("DROP INDEX graph_edge_key_relates_to")
+    dropped = (
+        await project.probe.drop_edge_key_index("RELATES_TO") if relates.name == "graph_edge_key_relates_to" else None
+    )
+    if dropped is not None:
         try:
-            assert await ensure_schema(project.driver, ontology, llm, project.database) == (
-                "graph_edge_key_relates_to",
-            )
+            assert await ensure_schema(project.store, ontology, llm) == (dropped,)
         finally:
-            assert await ensure_schema(project.driver, ontology, llm, project.database) == ()
+            assert await ensure_schema(project.store, ontology, llm) == ()
 
 
-async def test_schema_vector_dimension_mismatch_raises_and_creates_nothing(neo4j_project: Neo4jProject) -> None:
-    project = neo4j_project
-    before = await show_objects(project)
+async def test_schema_vector_dimension_mismatch_raises_and_creates_nothing(graph_project: GraphProject) -> None:
+    project = graph_project
+    before = await project.probe.schema_objects()
     other_dim = live_llm_config().embedding_dim // 2
     with pytest.raises(ConfigurationError) as raised:
         await ensure_schema(
-            project.driver,
+            project.store,
             shipped_ontology(),
             live_llm_config().model_copy(update={"embedding_dim": other_dim}),
-            project.database,
         )
     assert raised.value.code == "vector_index_mismatch"
-    after = await show_objects(project)
-    assert sorted(row["name"] for row in after) == sorted(row["name"] for row in before)
-
-
-async def test_nfr_port_01_server_is_neo4j_community_5_26_or_later(neo4j_project: Neo4jProject) -> None:
-    project = neo4j_project
-    version = await server_version(project.driver, project.database)
-    assert version >= (5, 26)
-    assert await require_version(project.driver, database=project.database) == version
-    rows = await project.run("CALL dbms.components() YIELD name, edition RETURN name, edition")
-    assert {row["name"]: row["edition"] for row in rows}["Neo4j Kernel"] == "community"
+    after = await project.probe.schema_objects()
+    assert sorted(row.name for row in after) == sorted(row.name for row in before)
 
 
 # Project isolation
 
 
 async def test_two_projects_with_equal_content_are_isolated(
-    neo4j_project: Neo4jProject, gap_ontology: Ontology
+    graph_project: GraphProject, gap_ontology: Ontology
 ) -> None:
-    project = neo4j_project
+    project = graph_project
     a, b = project.project_id, project.new_project()
     for project_id in (a, b):
         await seed(project, project_id, gap_ontology)
@@ -285,9 +263,9 @@ async def test_two_projects_with_equal_content_are_isolated(
 
 
 async def test_writer_refuses_types_of_another_owner_and_writes_nothing(
-    neo4j_project: Neo4jProject, gap_ontology: Ontology
+    graph_project: GraphProject, gap_ontology: Ontology
 ) -> None:
-    project = neo4j_project
+    project = graph_project
     build = await seed(project, project.project_id, gap_ontology)
     gap = project.writer("gap", ontology=gap_ontology)
     await gap.upsert_node(FINDING, GAP_FINDING.key, {"title": "Missing SLA"})
@@ -322,23 +300,21 @@ async def test_writer_refuses_types_of_another_owner_and_writes_nothing(
 
 
 async def test_gap_cannot_delete_its_node_with_relationships_of_another_owner(
-    neo4j_project: Neo4jProject, gap_ontology: Ontology
+    graph_project: GraphProject, gap_ontology: Ontology
 ) -> None:
-    project = neo4j_project
+    project = graph_project
     await seed(project, project.project_id, gap_ontology)
     gap = project.writer("gap", ontology=gap_ontology)
     await gap.upsert_node(FINDING, GAP_FINDING.key, {"title": "Missing SLA"})
     await gap.upsert_relationship("CITES", GAP_FINDING, FRAG, "g1|CITES|f1", {})
-    await project.run(
-        "MATCH (g:Finding {group_id: $p, uuid: 'g1'}), (f:Fragment {group_id: $p, fragment_id: 'f1'}) "
-        "CREATE (g)-[:MENTIONED_IN]->(f)",
-        p=project.project_id,
+    await project.create_edges(
+        [EdgeSpec("MENTIONED_IN", select(FINDING, uuid="g1"), select(FRAGMENT, fragment_id="f1"))]
     )
     before = await project.snapshot()
     await assert_code(gap.delete_node(FINDING, GAP_FINDING.key), OwnershipError, "node_has_foreign_relationships")
     assert await project.snapshot() == before
 
-    await project.run("MATCH (:Finding {group_id: $p})-[r:MENTIONED_IN]->() DELETE r", p=project.project_id)
+    await project.probe.delete_edges([e.id for e in await project.edges("MENTIONED_IN") if FINDING in e.source.labels])
     assert await gap.delete_node(FINDING, GAP_FINDING.key) is True
     assert await gap.delete_node(FINDING, GAP_FINDING.key) is False
 
@@ -347,14 +323,13 @@ async def test_gap_cannot_delete_its_node_with_relationships_of_another_owner(
 
 
 async def test_build_update_leaves_foreign_properties_unchanged(
-    neo4j_project: Neo4jProject, gap_ontology: Ontology
+    graph_project: GraphProject, gap_ontology: Ontology
 ) -> None:
-    project = neo4j_project
+    project = graph_project
     build = await seed(project, project.project_id, gap_ontology)
-    await project.run(
-        "MATCH (n:SpecNode {group_id: $p, uuid: 'u-mod'}) SET n.gap_note = 'keep me' "
-        "WITH n MATCH (n)<-[r:PART_OF]-() SET r.gap_weight = 7",
-        p=project.project_id,
+    await project.update_nodes(select("SpecNode", uuid="u-mod"), {"gap_note": "keep me"})
+    await project.probe.update_edges(
+        [e.id for e in await project.edges("PART_OF") if e.target.get("uuid") == "u-mod"], {"gap_weight": 7}
     )
 
     await build.upsert_node(MODULE, CHECKOUT.key, {"name": "Checkout service", "stmt": None})
@@ -366,36 +341,30 @@ async def test_build_update_leaves_foreign_properties_unchanged(
     assert props["external"] == "no"  # build-owned, not in this write: unchanged
     assert "stmt" not in props  # None removes only that property
     assert props["group_id"] == project.project_id
-    rows = await project.run(
-        "MATCH ()-[r:PART_OF {group_id: $p, edge_key: $k}]->() RETURN properties(r) AS props",
-        p=project.project_id,
-        k=PART_KEY,
-    )
-    assert len(rows) == 1
-    assert rows[0]["props"]["gap_weight"] == 7
-    assert rows[0]["props"]["fact"] == "pays"
-    assert rows[0]["props"]["basis"] == "stated"
+    edges = await project.edges("PART_OF", group_id=project.project_id, edge_key=PART_KEY)
+    assert len(edges) == 1
+    assert edges[0].props["gap_weight"] == 7
+    assert edges[0].props["fact"] == "pays"
+    assert edges[0].props["basis"] == "stated"
 
 
-async def test_upserts_are_idempotent_and_labels_never_change(neo4j_project: Neo4jProject) -> None:
-    project = neo4j_project
+async def test_upserts_are_idempotent_and_labels_never_change(graph_project: GraphProject) -> None:
+    project = graph_project
     build = await seed(project, project.project_id, shipped_ontology())
     before = await project.snapshot()
     await build.upsert_node(MODULE, CHECKOUT.key, {"name": "Checkout"})
     await build.upsert_relationship(PART_OF, PAY, CHECKOUT, PART_KEY, {"basis": "stated"})
     assert await project.snapshot() == before
-    rows = await project.run(
-        "MATCH (n:SpecNode {group_id: $p, uuid: 'u-mod'}) RETURN labels(n) AS labels", p=project.project_id
-    )
-    assert sorted(rows[0]["labels"]) == [MODULE, "SpecNode"]
+    labelled = await project.nodes("SpecNode", uuid="u-mod")
+    assert sorted(labelled[0].labels) == [MODULE, "SpecNode"]
     await assert_code(build.upsert_node(FEATURE, CHECKOUT.key, {"name": "x"}), ConformanceError, "node_label_mismatch")
     assert await project.snapshot() == before
 
 
-async def test_spec_id_and_uuid_are_fixed_at_creation(neo4j_project: Neo4jProject) -> None:
+async def test_spec_id_and_uuid_are_fixed_at_creation(graph_project: GraphProject) -> None:
     """: ``uuid`` and ``spec_id`` are fixed at creation; a change writes nothing."""
 
-    project = neo4j_project
+    project = graph_project
     build = await seed(project, project.project_id, shipped_ontology())
     before = await project.snapshot()
     for props in (
@@ -435,8 +404,8 @@ async def test_spec_id_and_uuid_are_fixed_at_creation(neo4j_project: Neo4jProjec
 # The foreign relationship move
 
 
-async def test_move_foreign_relationships(neo4j_project: Neo4jProject, gap_ontology: Ontology) -> None:
-    project = neo4j_project
+async def test_move_foreign_relationships(graph_project: GraphProject, gap_ontology: Ontology) -> None:
+    project = graph_project
     build = project.writer("build", ontology=gap_ontology)
     gap = project.writer("gap", ontology=gap_ontology)
     modules = {name: NodeRef(MODULE, f"u-{name.lower()}") for name in ("OLD", "NEW", "X")}
@@ -453,13 +422,19 @@ async def test_move_foreign_relationships(neo4j_project: Neo4jProject, gap_ontol
     await gap.upsert_relationship("FLAGS", old, old, "e-loop", {"w": 4})
     await gap.upsert_relationship("FLAGS", old, x, "e-old-x", {"w": 5})
     # An equal relationship already on the survivor is not duplicated.
-    await project.run(
-        "MATCH (f:Finding {group_id: $p, uuid: 'g1'}), (o:SpecNode {group_id: $p, uuid: 'u-old'}), "
-        "(n:SpecNode {group_id: $p, uuid: 'u-new'}) "
-        "CREATE (f)-[:FLAGS {group_id: $p, edge_key: 'dup', w: 6}]->(o), "
-        "(f)-[:FLAGS {group_id: $p, edge_key: 'dup', w: 6}]->(n), "
-        "(o)-[:REFERENCED_BY {line_start: 1}]->(:Fragment {group_id: $p, fragment_id: 'f-old'})",
-        p=project.project_id,
+    dup = {"group_id": project.project_id, "edge_key": "dup", "w": 6}
+    await project.create_nodes([NodeSpec((FRAGMENT,), {"fragment_id": "f-old"})])
+    await project.create_edges(
+        [
+            EdgeSpec("FLAGS", select(FINDING, uuid="g1"), select("SpecNode", uuid="u-old"), dup),
+            EdgeSpec("FLAGS", select(FINDING, uuid="g1"), select("SpecNode", uuid="u-new"), dup),
+            EdgeSpec(
+                "REFERENCED_BY",
+                select("SpecNode", uuid="u-old"),
+                select(FRAGMENT, fragment_id="f-old"),
+                {"line_start": 1},
+            ),
+        ]
     )
     await build.upsert_relationship("INTEGRATES_WITH", old, x, "own", {})
 
@@ -470,28 +445,19 @@ async def test_move_foreign_relationships(neo4j_project: Neo4jProject, gap_ontol
     )
     await assert_code(build.move_foreign_relationships(GAP_FINDING, new), ConformanceError, "move_needs_spec_nodes")
     assert await build.move_foreign_relationships(old, old) == 0
-    assert await project.run("MATCH ()-[r:FLAGS {group_id: $p}]->() RETURN count(r) AS n", p=project.project_id) == [
-        {"n": 7}
-    ]
+    assert len(await project.edges("FLAGS", group_id=project.project_id)) == 7
 
     assert await build.move_foreign_relationships(old, new) == 6
 
-    rows = await project.run(
-        "MATCH (s)-[r:FLAGS {group_id: $p}]->(t) "
-        "RETURN coalesce(s.name, 'F') AS s, coalesce(t.name, 'F') AS t, r.edge_key AS k, r.w AS w",
-        p=project.project_id,
-    )
-    assert sorted((r["s"], r["t"], r["k"], r["w"]) for r in rows) == [
+    flags = await project.edges("FLAGS", group_id=project.project_id)
+    assert sorted((e.source.get("name", "F"), e.target.get("name", "F"), e["edge_key"], e["w"]) for e in flags) == [
         ("F", "NEW", "dup", 6),
         ("F", "NEW", "e-f-old", 1),
         ("NEW", "NEW", "e-loop", 4),  # a self-loop of OLD becomes a self-loop of NEW
         ("NEW", "X", "e-old-x", 5),
     ]  # OLD<->NEW relationships are deleted, not turned into self-loops
-    kept = await project.run(
-        "MATCH (o:SpecNode {group_id: $p, uuid: 'u-old'})-[r]-() RETURN type(r) AS t ORDER BY t",
-        p=project.project_id,
-    )
-    assert [row["t"] for row in kept] == ["INTEGRATES_WITH", "REFERENCED_BY"]  # build-owned stay
+    kept = [e for e in await project.edges() if "u-old" in (e.source.get("uuid"), e.target.get("uuid"))]
+    assert sorted(e.type for e in kept) == ["INTEGRATES_WITH", "REFERENCED_BY"]  # build-owned stay
     assert await build.move_foreign_relationships(old, new) == 0
 
 
@@ -500,9 +466,9 @@ async def test_move_foreign_relationships(neo4j_project: Neo4jProject, gap_ontol
 
 @pytest.mark.parametrize("rel_type", ["CONTAINS", "REFERENCED_BY", "MENTIONED_IN"])
 async def test_owned_writer_refuses_structural_relationship_types(
-    neo4j_project: Neo4jProject, gap_ontology: Ontology, rel_type: str
+    graph_project: GraphProject, gap_ontology: Ontology, rel_type: str
 ) -> None:
-    project = neo4j_project
+    project = graph_project
     build = await seed(project, project.project_id, gap_ontology)
     gap = project.writer("gap", ontology=gap_ontology)
     before = await project.snapshot()
@@ -515,19 +481,22 @@ async def test_owned_writer_refuses_structural_relationship_types(
 
 
 async def test_foreign_relation_to_fragment_is_written_once(
-    neo4j_project: Neo4jProject, gap_ontology: Ontology
+    graph_project: GraphProject, gap_ontology: Ontology
 ) -> None:
-    project = neo4j_project
+    project = graph_project
     await seed(project, project.project_id, gap_ontology)
     gap = project.writer("gap", ontology=gap_ontology)
     await gap.upsert_node(FINDING, GAP_FINDING.key, {"title": "f"})
     await gap.upsert_relationship("CITES", GAP_FINDING, FRAG, "cite-1", {"note": "x"})
     await gap.upsert_relationship("CITES", GAP_FINDING, FRAG, "cite-1", {"note": "y"})
-    rows = await project.run(
-        "MATCH (:Finding {group_id: $p})-[r:CITES]->(:Fragment {group_id: $p}) RETURN r.note AS note, r.group_id AS g",
-        p=project.project_id,
-    )
-    assert rows == [{"note": "y", "g": project.project_id}]
+    cites = [
+        e
+        for e in await project.edges("CITES")
+        if FINDING in e.source.labels
+        and FRAGMENT in e.target.labels
+        and e.source.get("group_id") == e.target.get("group_id") == project.project_id
+    ]
+    assert [{"note": e["note"], "g": e["group_id"]} for e in cites] == [{"note": "y", "g": project.project_id}]
     assert await gap.delete_relationship("CITES", "cite-1") is True
     assert await gap.delete_relationship("CITES", "cite-1") is False
 
@@ -535,8 +504,8 @@ async def test_foreign_relation_to_fragment_is_written_once(
 # Relationship keys and endpoints
 
 
-async def test_edge_key_names_one_pair_of_endpoints(neo4j_project: Neo4jProject) -> None:
-    project = neo4j_project
+async def test_edge_key_names_one_pair_of_endpoints(graph_project: GraphProject) -> None:
+    project = graph_project
     build = project.writer("build")
     refs = {name: NodeRef(MODULE, f"u-{name.lower()}") for name in ("A", "B", "C")}
     for name, ref in refs.items():
@@ -561,30 +530,25 @@ async def test_edge_key_names_one_pair_of_endpoints(neo4j_project: Neo4jProject)
     )
     await assert_code(build.upsert_relationship("NOT_DECLARED", a, b, "k7", {}), OwnershipError, "type_not_owned")
     assert await project.snapshot() == before
-    rows = await project.run(
-        "MATCH (s)-[r:INTEGRATES_WITH {group_id: $p, edge_key: 'k1'}]->(t) RETURN s.name AS s, t.name AS t, r.fact "
-        "AS fact",
-        p=project.project_id,
-    )
-    assert rows == [{"s": "A", "t": "B", "fact": "2"}]
+    keyed = await project.edges("INTEGRATES_WITH", group_id=project.project_id, edge_key="k1")
+    assert [{"s": e.source["name"], "t": e.target["name"], "fact": e["fact"]} for e in keyed] == [
+        {"s": "A", "t": "B", "fact": "2"}
+    ]
 
     # Re-keying an edge is delete, then upsert.
     assert await build.delete_relationship("INTEGRATES_WITH", "k1") is True
     await build.upsert_relationship("INTEGRATES_WITH", a, c, "k1", {})
-    rows = await project.run(
-        "MATCH (s)-[r:INTEGRATES_WITH {group_id: $p, edge_key: 'k1'}]->(t) RETURN s.name AS s, t.name AS t",
-        p=project.project_id,
-    )
-    assert rows == [{"s": "A", "t": "C"}]
+    keyed = await project.edges("INTEGRATES_WITH", group_id=project.project_id, edge_key="k1")
+    assert [{"s": e.source["name"], "t": e.target["name"]} for e in keyed] == [{"s": "A", "t": "C"}]
 
 
 # Reader
 
 
-async def test_reader_resolves_merged_node_through_alias(neo4j_project: Neo4jProject, gap_ontology: Ontology) -> None:
+async def test_reader_resolves_merged_node_through_alias(graph_project: GraphProject, gap_ontology: Ontology) -> None:
     """: given A merged into B, ``node(A)`` returns B."""
 
-    project = neo4j_project
+    project = graph_project
     build = project.writer("build", ontology=gap_ontology)
     a, b = NodeRef(MODULE, "u-a"), NodeRef(MODULE, "u-b")
     await build.upsert_node(MODULE, a.key, {"spec_id": "MOD::ORDERS_SERVICE", "name": "Orders service"})
@@ -608,20 +572,19 @@ async def test_reader_resolves_merged_node_through_alias(neo4j_project: Neo4jPro
 
 
 async def test_reader_never_returns_foreign_nodes_documents_or_fragments(
-    neo4j_project: Neo4jProject, gap_ontology: Ontology
+    graph_project: GraphProject, gap_ontology: Ontology
 ) -> None:
     """."""
 
-    project = neo4j_project
+    project = graph_project
     await seed(project, project.project_id, gap_ontology)
     gap = project.writer("gap", ontology=gap_ontology)
     await gap.upsert_node(FINDING, GAP_FINDING.key, {"spec_id": "FIND::MISSING_SLA", "name": "Missing SLA"})
     await gap.upsert_relationship("FLAGS", GAP_FINDING, CHECKOUT, "g1|FLAGS|u-mod", {})
     await gap.upsert_relationship("FLAGS", CHECKOUT, STRIPE, "u-mod|FLAGS|u-stripe", {})
     # A node carrying SpecNode plus a foreign label only (never written by the library).
-    await project.run(
-        "CREATE (:SpecNode:Finding {group_id: $p, uuid: 'raw', spec_id: 'FIND::RAW', name: 'raw'})",
-        p=project.project_id,
+    await project.create_nodes(
+        [NodeSpec(("SpecNode", FINDING), {"uuid": "raw", "spec_id": "FIND::RAW", "name": "raw"})]
     )
 
     reader = project.reader(ontology=gap_ontology)
@@ -641,10 +604,10 @@ async def test_reader_never_returns_foreign_nodes_documents_or_fragments(
     )
 
 
-async def test_reader_filters_by_attribute_values(neo4j_project: Neo4jProject) -> None:
+async def test_reader_filters_by_attribute_values(graph_project: GraphProject) -> None:
     """: ``where`` filters; an unknown attribute name raises ``ConfigurationError``."""
 
-    project = neo4j_project
+    project = graph_project
     await seed(project, project.project_id, shipped_ontology())
     reader = project.reader()
     pid = project.project_id
@@ -667,20 +630,22 @@ async def test_reader_filters_by_attribute_values(neo4j_project: Neo4jProject) -
         await assert_code(reader.nodes(pid, labels=labels, where=where), ConfigurationError, code)
 
 
-async def test_retired_fragments_are_not_provenance(neo4j_project: Neo4jProject) -> None:
-    project = neo4j_project
+async def test_retired_fragments_are_not_provenance(graph_project: GraphProject) -> None:
+    project = graph_project
     build = await seed(project, project.project_id, shipped_ontology())
     await build.upsert_node(
         FRAGMENT, "f2", {"document_id": "d1", "text": "Old wording", "status": "retired", "ordinal": 1}
     )
     await build.upsert_node(FRAGMENT, "f3", {"document_id": "d1", "text": "Pay by card", "ordinal": 2})  # no status
-    await project.run(
-        "MATCH (d:Document {group_id: $p, document_id: 'd1'}), (n:SpecNode {group_id: $p, uuid: 'u-fr'}), "
-        "(f2:Fragment {group_id: $p, fragment_id: 'f2'}), (f3:Fragment {group_id: $p, fragment_id: 'f3'}) "
-        "CREATE (d)-[:CONTAINS]->(f2), (d)-[:CONTAINS]->(f3), "
-        "(n)-[:REFERENCED_BY {line_start: 9, line_end: 9}]->(f2), (n)-[:REFERENCED_BY {line_start: 12, line_end: "
-        "13}]->(f3)",
-        p=project.project_id,
+    d1, fr = select(DOCUMENT, document_id="d1"), select("SpecNode", uuid="u-fr")
+    f2, f3 = select(FRAGMENT, fragment_id="f2"), select(FRAGMENT, fragment_id="f3")
+    await project.create_edges(
+        [
+            EdgeSpec("CONTAINS", d1, f2),
+            EdgeSpec("CONTAINS", d1, f3),
+            EdgeSpec("REFERENCED_BY", fr, f2, {"line_start": 9, "line_end": 9}),
+            EdgeSpec("REFERENCED_BY", fr, f3, {"line_start": 12, "line_end": 13}),
+        ]
     )
     reader = project.reader()
     pay = await reader.node(project.project_id, "REQ::FR::PAY")
@@ -694,8 +659,8 @@ async def test_retired_fragments_are_not_provenance(neo4j_project: Neo4jProject)
     assert [p.fragment_id for p in (await reader.nodes(project.project_id, labels=[FR]))[1].provenance] == ["f1"]
 
 
-async def test_reader_basics(neo4j_project: Neo4jProject) -> None:
-    project = neo4j_project
+async def test_reader_basics(graph_project: GraphProject) -> None:
+    project = graph_project
     await seed(project, project.project_id, shipped_ontology())
     reader = project.reader()
     pid = project.project_id

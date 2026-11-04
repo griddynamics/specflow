@@ -68,19 +68,19 @@ from graph.build.queries import (
 from graph.core.errors import ConfigurationError, ConformanceError, LLMError
 from graph.core.identity import SpecIdRow, SpecIdState
 from graph.core.llm.usage import UsageCounts
-from graph.core.ontology import Ontology, load_ontology
+from graph.core.ontology import Ontology
 from graph_support import (
-    FROZEN_ONTOLOGY_FILE,
     GatewayFactory,
     OfflineExecutor,
     ScriptedGateway,
     chat,
     frozen_ontology,
     llm_config,
+    load_frozen_ontology,
 )
 from logger_harness import events, fields
 
-# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, neo4j_project) live in graph_support.
+# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, graph_project) live in graph_support.
 pytest_plugins = ["graph_support"]
 
 PROJECT = "pytest-graph-run"
@@ -562,7 +562,7 @@ PLAN_ONTOLOGY: Final[dict[str, Any]] = {
 def plan_ontology(stores: FileStores, tmp_path: Path) -> Ontology:
     path = tmp_path / "plan-ontology.yaml"
     path.write_text(yaml.safe_dump(PLAN_ONTOLOGY, sort_keys=False), encoding="utf-8")
-    return load_ontology(FROZEN_ONTOLOGY_FILE, submodule_files=[path])
+    return load_frozen_ontology(submodule_files=[path])
 
 
 @pytest.mark.parametrize("part", ["labels", "relations"])

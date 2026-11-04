@@ -1,6 +1,6 @@
 """What the graph build routes need from a build runner, without loading the graph library.
 
-``api.graph_build.runner`` imports the graph library; the HTTP layer only needs the status
+``api.graph_build.runner`` imports the graph library and the graph store; the HTTP layer only needs the status
 shape and the three runner calls, so the routes type against this module and the app loads
 the runner lazily (``api.runtime.build_runtime``).
 """

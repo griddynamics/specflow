@@ -18,20 +18,20 @@ import yaml
 from graph.build import BuildResult
 from graph.build.models import InferenceReport, VerificationMetrics
 from graph.core import Ontology, load_ontology
+from graph_probes import requires_live_graph
 from graph_support import (
     FROZEN_ONTOLOGY_FILE,
     ScriptedGateway,
     ShopBuilds,
     assert_all_scripted,
     frozen_ontology,
-    open_neo4j_project,
+    open_graph_project,
     outside_untrusted,
     shipped_ontology,
     with_v2_flags,
 )
-from specflow_live import requires_live
 
-live = requires_live("NEO4J")
+live = requires_live_graph()
 
 # Rename tables: original name -> renamed name.
 
@@ -130,21 +130,15 @@ RULES: dict[str, str] = {
     "INF-XDOC-01": "R-QD-1",
 }
 PROMPTS: dict[str, str] = {
-    "judge_attach_orphan.4": "richter_waisen.4",
-    "judge_endpoints.3": "richter_enden.3",
-    "judge_realization.2": "richter_umsetzung.2",
-    "judge_owner_conflict.2": "richter_besitz.2",
-    "judge_cross_document.4": "richter_dokumente.4",
-    "judge_answered_elsewhere.3": "richter_beantwortet.3",
-    "judge_attach_orphan_batch.3": "richter_waisen_stapel.3",
+    "judge_attach_orphan": "richter_waisen",
+    "judge_endpoints": "richter_enden",
+    "judge_realization": "richter_umsetzung",
+    "judge_owner_conflict": "richter_besitz",
+    "judge_cross_document": "richter_dokumente",
+    "judge_answered_elsewhere": "richter_beantwortet",
+    "judge_attach_orphan_batch": "richter_waisen_stapel",
 }
-FROZEN_PROMPTS: dict[str, str] = {
-    "judge_attach_orphan.2": "richter_waisen.2",
-    "judge_realization.1": "richter_umsetzung.1",
-    "judge_endpoints.2": "richter_enden.2",
-}
-"""Judge prompts only the flag-off ontology references. The live chains build with that ontology."""
-_PROMPT_NAMES: dict[str, str] = {**PROMPTS, **FROZEN_PROMPTS}
+_PROMPT_NAMES: dict[str, str] = PROMPTS
 NAME = "umbenannte-ontologie"
 
 # The scripted gateway's ``rename``: the names a hand-written answer may hold (labels in node, hub and
@@ -391,7 +385,7 @@ def renamed_frozen_ontology(tmp_path_factory: pytest.TempPathFactory) -> Ontolog
     """Renamed copy of the flag-off ontology. The live chains build with it because the shop answers do."""
 
     data = yaml.safe_load(FROZEN_ONTOLOGY_FILE.read_text(encoding="utf-8"))
-    path = write_renamed_data(tmp_path_factory.mktemp("renamed-frozen"), data, FROZEN_ONTOLOGY_FILE.parent)
+    path = write_renamed_data(tmp_path_factory.mktemp("renamed-frozen"), data)
     return load_ontology(path, submodule_files=[])
 
 
@@ -480,7 +474,7 @@ def test_the_renamed_copy_carries_every_format_2_flag(tmp_path: Path, source: st
         prompts = shipped_ontology_dir()
         data = yaml.safe_load((prompts / "spec-ontology.yaml").read_text(encoding="utf-8"))
     else:
-        prompts = FROZEN_ONTOLOGY_FILE.parent
+        prompts = shipped_ontology_dir()
         data = with_v2_flags(yaml.safe_load(FROZEN_ONTOLOGY_FILE.read_text(encoding="utf-8")))
     original_dir = tmp_path / "original"
     original_dir.mkdir()
@@ -647,14 +641,19 @@ async def read_graph(builds: ShopBuilds) -> Graph:
     ontology = builds.ontology
     assert ontology is not None
     nodes = {}
-    for row in await project.run(
-        "MATCH (n:SpecNode) WHERE n.group_id = $p "
-        "RETURN [l IN labels(n) WHERE l <> 'SpecNode'] AS labels, properties(n) AS props, "
-        "COLLECT { MATCH (n)-[:REFERENCED_BY]->(f:Fragment) RETURN f.fragment_id ORDER BY f.fragment_id } AS "
-        "referenced, "
-        "COLLECT { MATCH (n)-[:MENTIONED_IN]->(f:Fragment) RETURN f.fragment_id ORDER BY f.fragment_id } AS mentioned",
-        p=pid,
-    ):
+    linked: dict[tuple[str, str], list[str]] = {}
+    for e in await project.edges(project_id=pid):
+        if e.type in ("REFERENCED_BY", "MENTIONED_IN") and "Fragment" in e.target.labels:
+            linked.setdefault((e.source.id, e.type), []).append(e.target["fragment_id"])
+    for row in [
+        {
+            "labels": list(n.kinds),
+            "props": n.props,
+            "referenced": sorted(linked.get((n.id, "REFERENCED_BY"), [])),
+            "mentioned": sorted(linked.get((n.id, "MENTIONED_IN"), [])),
+        }
+        for n in await project.nodes("SpecNode", project_id=pid)
+    ]:
         assert len(row["labels"]) == 1, row["labels"]
         props = {key: value for key, value in row["props"].items() if key not in VOLATILE_NODE}
         if "statements" in props:  # JSON statements: their times differ
@@ -665,11 +664,11 @@ async def read_graph(builds: ShopBuilds) -> Graph:
             {"label": row["labels"][0], "props": props, "referenced": row["referenced"], "mentioned": row["mentioned"]}
         )
     edges = []
-    for row in await project.run(
-        "MATCH (s:SpecNode)-[r]->(t:SpecNode) WHERE r.group_id = $p "
-        "RETURN type(r) AS relation, s.spec_id AS source, t.spec_id AS target, properties(r) AS props",
-        p=pid,
-    ):
+    for row in [
+        {"relation": e.type, "source": e.source.get("spec_id"), "target": e.target.get("spec_id"), "props": e.props}
+        for e in await project.edges(project_id=pid, group_id=pid)
+        if "SpecNode" in e.source.labels and "SpecNode" in e.target.labels
+    ]:
         symmetric = ontology.relations[row["relation"]].symmetric
         ends = (row["source"], row["target"])
         props = {key: value for key, value in row["props"].items() if key not in VOLATILE_EDGE}
@@ -687,15 +686,17 @@ async def read_graph(builds: ShopBuilds) -> Graph:
         )
     documents = [
         _plain({key: value for key, value in row["props"].items() if key not in VOLATILE_NODE})
-        for row in await project.run(
-            "MATCH (d:Document) WHERE d.group_id = $p RETURN properties(d) AS props ORDER BY d.document_id", p=pid
-        )
+        for row in [
+            {"props": d.props}
+            for d in sorted(await project.nodes("Document", project_id=pid), key=lambda d: d["document_id"])
+        ]
     ]
     fragments = [
         _plain({key: value for key, value in row["props"].items() if key not in VOLATILE_NODE})
-        for row in await project.run(
-            "MATCH (f:Fragment) WHERE f.group_id = $p RETURN properties(f) AS props ORDER BY f.fragment_id", p=pid
-        )
+        for row in [
+            {"props": f.props}
+            for f in sorted(await project.nodes("Fragment", project_id=pid), key=lambda f: f["fragment_id"])
+        ]
     ]
     registry = sorted(
         (row.spec_id, row.identity_key, row.state) for row in (await builds.stores.registry.taken(pid)).values()
@@ -928,7 +929,7 @@ async def chains(renamed_frozen_ontology: Ontology, tmp_path_factory: pytest.Tem
         gateways.append(gateway)
         return gateway
 
-    async with open_neo4j_project() as project:
+    async with open_graph_project() as project:
         shipped = ShopBuilds(project, factory, root / "shipped", ontology=frozen_ontology())
         renamed = ShopBuilds(
             project,

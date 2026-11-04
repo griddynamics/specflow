@@ -11,20 +11,23 @@ tags: [graph]
 
 ```
 graph/
-  core/    shared by every submodule
+  core/    shared by every submodule: the store port, queries, reader, writer, ontology, gateway
+  stores/  one folder per graph database behind the port (neo4j, arcadedb, postgres, tigergraph; _bolt is shared)
   build/   builds and updates the graph
   gap/     reserved, empty
   plan/    reserved, empty
 ```
 
 Each submodule exports its public names from its package root. `build`, `gap` and `plan` import
-`graph.core` and never each other; `graph.core` imports none of them.
+`graph.core` and never each other; `graph.core` imports none of them. `graph.stores` implements the `GraphStore` port of `graph.core`;
+the host builds a store from `StoreConfig` with `graph.stores.build_store`.
 
 ## Components
 
 | Package | Component | Responsibility | Spec |
 |---|---|---|---|
-| core | Database | Neo4j driver factory, readiness check, project-scoped query executor, schema setup (constraints, indexes) | [data-model.md](data-model.md) |
+| core | Store port | `GraphStore`, `Executor`: readiness check, project-scoped query executor, schema setup (constraints, indexes), neutral error codes, capabilities | [api.md](api.md), [data-model.md](data-model.md) |
+| stores | Store adapters | One folder per backend: the SDK, the query dialect, the schema manager, the error mapping; `build_store(StoreConfig)` routes by backend | [api.md](api.md) |
 | core | Ontology | Load and validate an ontology file; the shipped ontology | [ontology.md](ontology.md) |
 | core | Identity | `spec_id` and uuid rules, `SpecIdRegistry` port | [data-model.md](data-model.md) |
 | core | Owned writes | `OwnedWriter`: idempotent, ownership-checked node and relationship writes | [api.md](api.md) |
@@ -40,9 +43,9 @@ Each submodule exports its public names from its package root. `build`, `gap` an
 
 | # | Rule |
 |---|---|
-| I1 | Allowed imports: the standard library, `graph` modules per the layout rule, the repository `logger` utility, `pydantic`, `pyyaml`, `numpy`, `neo4j`, `openai`. Nothing else. |
-| I2 | `openai` only in the core gateway (`core/llm/gateway.py`); `httpx` nowhere. |
-| I3 | Cypher only in query modules: one in the core, one per writing submodule. Every query runs through the core executor and binds `$project_id`, except schema setup. |
+| I1 | Allowed imports: the standard library, `graph` modules per the layout rule, the repository `logger` utility, `pydantic`, `pyyaml`, `numpy`, `openai` and the graph store SDKs where I2 places them. Nothing else. |
+| I2 | `openai` only in the core gateway (`core/llm/gateway.py`); each store SDK only in the folders of the adapters that use it: `neo4j` in `stores/_bolt`, `stores/neo4j` and `stores/arcadedb`, `sqlalchemy`, `asyncpg` and the shared PostgreSQL access `postgres` (the service's one engine factory and connection-transaction helper, also used by `db`) in `stores/postgres`, `httpx` in `stores/arcadedb`, `pyTigerGraph` in `stores/tigergraph`. The import-linter contracts of the backend repeat this per SDK. |
+| I3 | Query text only in query modules and adapter folders: Cypher in the core and build query modules (canonical `.cypher` files) and the Cypher dialect of `stores/_bolt`; a backend's own query language (SQL, GSQL) only in its adapter folder. Every scoped query runs through the store's executor and binds the project id (`$project_id` in Cypher), except schema setup. |
 | I4 | No ontology label, relation, id prefix or vocabulary value as a literal in code. Allowed built-in names: `SpecNode`, `Document`, `Fragment`, `CONTAINS`, `REFERENCED_BY`, `MENTIONED_IN`, and the edge `basis` values of the data model (`stated`, `implied`, `inferred`), even where they equal an ontology vocabulary value. |
 | I5 | No environment reads, no printing, no disk writes outside file port implementations. |
 
@@ -74,7 +77,7 @@ Each node type and relation in the ontology has an `origin`, and the origin name
 
 ## Ports
 
-State outside Neo4j goes through async ports the library defines. The library ships a file
+State outside the graph database goes through async ports the library defines. The library ships a file
 implementation of each, rooted at a directory the host passes; a host may supply its own. One contract
 test suite runs against every implementation. Methods: [api.md](api.md).
 
@@ -92,7 +95,7 @@ Secrets use a redacting type and are never logged or stored.
 
 | Object | Holds |
 |---|---|
-| `Neo4jConfig` (core) | URI, user, password, database |
+| `StoreConfig` (stores) | Backend (`neo4j`, `arcadedb`, `postgres`, `tigergraph`), URI, user, password, name (database, schema or graph), optional admin URI, optional pool size. `Neo4jConfig` (core) is the deprecated Neo4j-only form and converts with `StoreConfig.from_neo4j` |
 | `LLMConfig` (core) | Endpoint, API key, main model, small model, judge model (default: the main model), embedding model and dimension, concurrency (default 8), timeout and attempts per call class |
 | `BuildOptions` (build) | Per-project options that shape extraction; frozen by the last `first` or `rebuild` ([build.md](build.md)) |
 | `BuildSettings` (build) | Inference on or off |
@@ -103,15 +106,18 @@ Every expected failure is a `GraphError`. Error fields hold ids, counts and code
 
 | Error | Raised when | Host action |
 |---|---|---|
-| `ConfigurationError` | Invalid settings or options; invalid read arguments (`invalid_limit`, `invalid_depth`, `invalid_line_range`, `query_too_long`, `invalid_vector_floor`); unsupported Neo4j; Neo4j rejects the credentials; an `update` build after the ontology's labels or relations changed (`ontology_changed`) | Fix configuration; for `ontology_changed`, migrate the project ([build.md](build.md) Migration) |
+| `ConfigurationError` | Invalid settings or options; invalid read arguments (`invalid_limit`, `invalid_depth`, `invalid_line_range`, `query_too_long`, `invalid_vector_floor`); a graph store that is not shipped (`store_not_available`) or whose SDK is not installed (`store_sdk_missing`); an unsupported server version; the store rejects the credentials or denies access; an unknown database, schema or graph; an `update` build after the ontology's labels or relations changed (`ontology_changed`) | Fix configuration; for `ontology_changed`, migrate the project ([build.md](build.md) Migration) |
 | `OntologyError` (a `ConfigurationError`) | Invalid ontology; lists every problem | Fix the ontology |
 | `CorpusError` | Corpus breaks its contract (missing lineage id, version or markdown) | Fix the corpus |
 | `OwnershipError` | A write targets a type its owner does not own | Bug |
 | `LLMError` | Model call failed: malformed or refused output, overflow (a chat or embedding input too long), truncation, exhausted retries | Handled inside a build (except `LLMFatalError`): a skipped fragment in extraction, a failed judgement in inference; raised elsewhere |
 | `LLMFatalError` (an `LLMError`) | Authentication, unknown model or endpoint, or another non-retryable 4xx that is not overflow or a content filter (a configuration problem such as an unsupported schema) | Fix configuration |
-| `InfrastructureUnavailableError` | Gateway, Neo4j or a port backend unreachable | Retry later |
-| `GraphWriteError` | A Neo4j write failed | Retry; persist resumes where it stopped |
-| `ConformanceError` | An internal consistency check failed | Bug |
+| `InfrastructureUnavailableError` | Gateway, graph store (`store_unreachable`, `store_read_failed`) or a port backend unreachable | Retry later |
+| `GraphWriteError` | A graph store write failed (`store_write_failed`) | Retry; persist resumes where it stopped |
+| `ConformanceError` | An internal consistency check failed, or the store rejected a read query (`store_query_rejected`) | Bug |
+
+Store errors carry neutral codes (`store_*`, table in [api.md](api.md#store-errors)) and the field `store`
+(the backend); a driver's own code is only in `backend_code`, never the driver's text.
 
 ## Logging and concurrency
 

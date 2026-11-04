@@ -40,7 +40,7 @@ pytest_plugins = ["graph_support"]
 
 ONT = shipped_ontology()
 FLAG = ONT.conform.answered_elsewhere if ONT.conform else None
-PROMPT = "judge_answered_elsewhere.3"
+PROMPT = "judge_answered_elsewhere"
 PROJECT = "p-answered"
 OQ = "OpenQuestion"
 QUESTION = "Which currency is used for refunds?"
@@ -366,14 +366,17 @@ def context(stores: FileStores, ontology: Ontology = ONT) -> BuildContext:
 def test_conform_small_calls_other_than_dedup_count_as_the_answered_check() -> None:
     assert runner._judge_step("conform", PROMPT, "small") == "answered_check"
     assert runner._judge_step("conform", DEDUP_PROMPT, "small") == "requirement_dedup"
-    assert runner._judge_step("conform", "judge_owner_conflict.2", "judge") == "conform_judge"
+    assert runner._judge_step("conform", "judge_owner_conflict", "judge") == "conform_judge"
     assert "answered_check" in runner.JUDGING_STEPS["conform"]
 
 
 def test_the_conform_step_remembers_verdicts_only_with_the_flag(stores: FileStores) -> None:
-    memory = runner._answered_memory(context(stores))
+    ctx = context(stores)
+    memory = runner._answered_memory(ctx)
     assert memory is not None
-    assert memory.fingerprint == f"{PROMPT}|{ScriptedGateway().config.model_for('small')}"
+    version = ctx.ontology.judge_prompt_version(PROMPT)
+    assert version.startswith(f"{PROMPT}@") and len(version) == len(PROMPT) + 13
+    assert memory.fingerprint == f"{version}|{ScriptedGateway().config.model_for('small')}"
     assert memory.key("k") == f"{PROJECT}|answered|k"
     assert runner._answered_memory(context(stores, frozen_ontology())) is None
 

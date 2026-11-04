@@ -86,7 +86,7 @@ Each row states the behavior and links the section that defines it; values are d
 | ID | Requirement | Acceptance |
 |---|---|---|
 | FR-MCP-OPS-01 | The `mcp` role shall start with only the settings that [architecture.md](architecture.md#settings) names for it. | Given no Temporal, storage or LLM variable, then `specflow mcp --check-config` succeeds. |
-| FR-MCP-OPS-02 | `/readyz` shall report readiness as [architecture.md](architecture.md#components) (Health) defines. | Given Neo4j stopped, then 503 with `neo4j` not ok. |
+| FR-MCP-OPS-02 | `/readyz` shall report readiness as [architecture.md](architecture.md#components) (Health) defines. | Given the graph store stopped, then 503 with `graph` not ok. |
 | FR-MCP-OPS-03 | The service shall not need session affinity ([architecture.md](architecture.md#transport), Sessions). | Given two app instances, when `initialize` goes to one and `tools/call` to the other, then the call succeeds. |
 | FR-MCP-OPS-04 | The service shall refuse a `Host` and an `Origin` as [architecture.md](architecture.md#transport) defines. | Given `Host: evil.example` or `Origin: https://evil.example`, then refused. |
 | FR-MCP-OPS-05 | The service shall refuse oversized request bodies as [architecture.md](architecture.md#transport) defines. | Given a 2 MiB body, then 413. |

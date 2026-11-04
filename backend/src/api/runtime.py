@@ -17,11 +17,11 @@ from api.errors import database_unavailable, required
 from api.graph_build.runner import GraphBuildRunner
 from db import session as db_session
 from db.session import is_database_unreachable
-from graph import core as graph_core
+from graph.stores import build_store
 from health import (
     Readiness,
     database_probe,
-    neo4j_probe,
+    graph_probe,
     storage_probe,
     temporal_probe,
 )
@@ -50,7 +50,7 @@ class Runtime:
     session_factory: Any
     store: Any
     temporal: Any
-    driver: Any
+    graph_store: Any  # graph.core.store.GraphStore; only /readyz and the graph build runner use it
     readiness: Readiness
     id_prefix: str = ""  # tier-2 tests prefix workflow ids and task queues
     drive: Any = None  # drive.gateway.DriveGateway; None = Drive unavailable
@@ -156,23 +156,23 @@ RuntimeFactory = Callable[[RoleSettings], Awaitable[Runtime]]
 
 
 async def build_runtime(settings: RoleSettings) -> Runtime:
-    """Engine, ONE storage client, the Temporal client, the Neo4j driver and,
+    """Engine, ONE storage client, the Temporal client, the graph store and,
     when configured, the graph build runner.
 
     A Temporal that cannot be reached fails the start (the container restarts);
-    the database, storage and Neo4j are lazy and show up in ``/readyz``.
+    the database, storage and graph store are lazy and show up in ``/readyz``.
     """
 
     storage = required(settings.storage, "the api role requires storage settings")
     required(settings.temporal, "the api role requires temporal settings")
-    neo4j = required(settings.neo4j, "the api role requires neo4j settings")
+    graph_settings = required(settings.graph_store, "the api role requires graph store settings")
     async with AsyncExitStack() as stack:
         engine = db_session.build_engine(settings.database)
         stack.push_async_callback(engine.dispose)
         store = storage_factory.build_object_store(storage, app_env=settings.app.app_env)
         stack.push_async_callback(store.close)
-        driver = graph_core.connect(neo4j.to_graph_config())
-        stack.push_async_callback(driver.close)
+        graph_store = build_store(graph_settings.to_store_config())
+        stack.push_async_callback(graph_store.close)
         connection = await temporal_client.open_connection(settings)
         stack.push_async_callback(asyncio.to_thread, connection.tracing.shutdown)
         readiness = Readiness(
@@ -180,7 +180,7 @@ async def build_runtime(settings: RoleSettings) -> Runtime:
                 "database": database_probe(engine),
                 "temporal": temporal_probe(connection.client),
                 "storage": storage_probe(store),
-                "neo4j": neo4j_probe(driver, neo4j.database),
+                "graph": graph_probe(graph_store),
             }
         )
         session_factory = db_session.build_session_factory(engine)
@@ -191,18 +191,17 @@ async def build_runtime(settings: RoleSettings) -> Runtime:
         else:
             graph_builds = GraphBuildRunner(
                 settings.graph_build,
-                driver=driver,
+                store=graph_store,
                 session_factory=session_factory,
-                database=neo4j.database,
             )
-            # Pushed last, so it runs first: builds stop before the driver and engine close.
+            # Pushed last, so it runs first: builds stop before the store and engine close.
             stack.push_async_callback(graph_builds.aclose)
         runtime = Runtime(
             settings=settings,
             session_factory=session_factory,
             store=store,
             temporal=connection.client,
-            driver=driver,
+            graph_store=graph_store,
             readiness=readiness,
             graph_builds=graph_builds,
         )

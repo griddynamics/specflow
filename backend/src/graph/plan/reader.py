@@ -12,9 +12,9 @@ from dataclasses import dataclass
 from functools import cached_property
 from typing import Any, Literal, cast
 
-from graph.core.db import Executor
 from graph.core.ontology import Ontology
 from graph.core.reader import GraphEdge, GraphNode, GraphReader
+from graph.core.store import Executor, as_executor
 from graph.plan.changes import resolve_spec_id
 from graph.plan.checks import plan_state
 from graph.plan.dag import strongly_connected, to_mermaid, topological_order, transitive_prerequisites
@@ -119,8 +119,10 @@ async def load_plan(executor: Executor, project_id: str) -> LoadedPlan:
     return LoadedPlan(await read_current_plan(executor, project_id))
 
 
-def executor_of(driver_or_executor: Any, database: str | None) -> Executor:
-    return driver_or_executor if isinstance(driver_or_executor, Executor) else Executor(driver_or_executor, database)
+def executor_of(source: Any, database: str | None) -> Executor:
+    """The executor of a ``GraphStore``, an executor itself or, deprecated, a Neo4j driver on ``database``."""
+
+    return as_executor(source, database)
 
 
 class PlanReader:

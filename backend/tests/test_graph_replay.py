@@ -18,10 +18,11 @@ from graph.build.consolidate import HUBS_PROMPT
 from graph.build.models import ArtifactModel, EdgesArtifact, InferenceReport, ResolveArtifact, TargetGraph
 from graph.build.prompts import ATTRIBUTES_PROMPT, EDGE_WINDOW_PROMPT
 from graph.core.ontology import Ontology
+from graph_probes import requires_live_graph
 from graph_replay import BuildSpec, InferSettings, ReplayRequest, ReplayStep, parse_build_spec, replay
 from graph_support import (
     SHOP_NEARNESS,
-    Neo4jProject,
+    GraphProject,
     OfflineExecutor,
     ScriptedGateway,
     live_llm_config,
@@ -30,9 +31,8 @@ from graph_support import (
     tree_hash,
 )
 from graph_v2_support import ShopV2Builds, nearness, script_conform_judge, shop_v2_answers, shop_v2_corpus
-from specflow_live import requires_live
 
-# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, neo4j_project) live in graph_support.
+# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, graph_project) live in graph_support.
 pytest_plugins = ["graph_support"]
 
 PROJECT = "pytest-graph-replay"
@@ -320,25 +320,25 @@ def judge_counts(rules: Any) -> list[dict[str, Any]]:
     return [{key: rule[key] for key in JUDGE_COUNTS} for rule in rules]
 
 
-@requires_live("NEO4J")
+@requires_live_graph()
 async def test_a_dry_run_infer_replay_judges_as_the_build_did_and_writes_nothing(
-    neo4j_project: Neo4jProject, tmp_path: Path, scripted_gateway: Callable[..., ScriptedGateway]
+    graph_project: GraphProject, tmp_path: Path, scripted_gateway: Callable[..., ScriptedGateway]
 ) -> None:
-    builds = ShopV2Builds(neo4j_project, scripted_gateway, tmp_path / "source")
+    builds = ShopV2Builds(graph_project, scripted_gateway, tmp_path / "source")
     result, _ = await builds.build(1)
     report = InferenceReport.model_validate(
         await builds.stores.builds.get_artifact(builds.project_id, result.build_id, "infer")
     )
     assert any(rule.judged for rule in report.rules)
-    graph, state = await neo4j_project.snapshot(), tree_hash(builds.root)
+    graph, state = await graph_project.snapshot(), tree_hash(builds.root)
     gateway = builds.gateway(1)
     spec = BuildSpec(builds.root, builds.project_id, result.build_id)
 
     metrics = await replay(
-        ReplayRequest(spec, "infer", tmp_path / "dry-run"), gateway, builds.ontology, executor=neo4j_project.executor
+        ReplayRequest(spec, "infer", tmp_path / "dry-run"), gateway, builds.ontology, executor=graph_project.executor
     )
 
-    assert await neo4j_project.snapshot() == graph
+    assert await graph_project.snapshot() == graph
     assert tree_hash(builds.root) == state
     assert metrics["dry_run"] is True
     assert metrics["warnings"] == []

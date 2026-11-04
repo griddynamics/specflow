@@ -40,6 +40,7 @@ graph-build-test-input/
 archive/
 # Local state of backend/examples/graph_build.py
 .graph-build/
+.graph-bench/
 # Output of `make validate` (pystatic reports, build artifacts)
 .validation-reports/
 # JUnit output of the CI report (tools/ci_report.py)

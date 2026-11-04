@@ -1,4 +1,4 @@
-"""Live Neo4j check that an update refuses a graph whose ontology labels changed."""
+"""Live check (any graph store) that an update refuses a graph whose ontology labels changed."""
 
 from __future__ import annotations
 
@@ -15,21 +15,22 @@ import pytest_asyncio
 
 from graph.build import BuildResult, run_build
 from graph.core import ConfigurationError
+from graph_probes import requires_live_graph
+from graph_probes.base import SPEC_NODE, ProbeEdge, select
 from graph_support import (
-    Neo4jProject,
+    GraphProject,
     ScriptedGateway,
     ShopBuilds,
     assert_all_scripted,
     frozen_ontology,
     live_llm_config,
-    open_neo4j_project,
+    open_graph_project,
     run_shop_build,
     shipped_ontology,
 )
-from graph_v2_support import ShopV2Builds
-from specflow_live import requires_live
+from graph_v2_support import ShopV2Builds, has_short_cycle
 
-pytestmark = [requires_live("NEO4J"), pytest.mark.asyncio(loop_scope="module")]
+pytestmark = [requires_live_graph(), pytest.mark.asyncio(loop_scope="module")]
 
 ONTOLOGY: Final = shipped_ontology()
 # Properties that differ between two builds of the same graph by construction.
@@ -52,7 +53,6 @@ STATEMENT_STAMPS: Final = frozenset({"revision_id", "version", "at"})
 # The requirement relabeled in the probe: v2.0 types it a BusinessRule; the probe leaves it as a
 # FunctionalRequirement, as a v1.3 type would have.
 RELABELED: Final = "Order: at most one coupon"
-DROP_BATCH: Final = 2000
 
 
 @dataclass(frozen=True)
@@ -67,7 +67,7 @@ class GraphView:
 
 @dataclass
 class Migration:
-    project: Neo4jProject
+    project: GraphProject
     clean_id: str
     drop_id: str
     clean: BuildResult
@@ -101,70 +101,59 @@ def _row(*parts: Any) -> str:
     return json.dumps(parts, sort_keys=True, default=str)
 
 
-async def graph_view(project: Neo4jProject, project_id: str) -> GraphView:
-    nodes = await project.run(
-        "MATCH (n) WHERE n.group_id = $p RETURN elementId(n) AS id, labels(n) AS labels, properties(n) AS props",
-        p=project_id,
-    )
+async def graph_view(project: GraphProject, project_id: str) -> GraphView:
     name: dict[str, str] = {}
     spec_nodes: dict[str, dict[str, Any]] = {}
     active, history = [], Counter[str]()
-    for node in nodes:
-        props, labels = node["props"], sorted(node["labels"])
-        if "SpecNode" in labels:
-            name[node["id"]] = props["spec_id"]
+    for node in await project.nodes(project_id=project_id):
+        props, labels = node.props, sorted(node.labels)
+        if SPEC_NODE in labels:
+            name[node.id] = props["spec_id"]
             spec_nodes[props["spec_id"]] = {"labels": labels, **_stable(props)}
             continue
-        name[node["id"]] = f"{labels[0]}:{props.get('fragment_id') or props.get('document_id')}"
+        name[node.id] = f"{labels[0]}:{props.get('fragment_id') or props.get('document_id')}"
         if props.get("status") == "active":
             active.append(_row(labels, _stable(props)))
         else:
             history[f"{labels[0]}:{props.get('status')}"] += 1
-    links = await project.run(
-        "MATCH (s)-[r]->(t) WHERE s.group_id = $p "
-        "RETURN elementId(s) AS s, labels(s) AS source, type(r) AS type, elementId(t) AS t, "
-        "labels(t) AS target, t.status AS status, properties(r) AS props",
-        p=project_id,
-    )
     spec_links = []
-    for link in links:
-        row = _row(name[link["s"]], link["type"], name[link["t"]], _stable(link["props"]))
-        if "SpecNode" in link["source"]:
+    for link in await project.edges(project_id=project_id):
+        if link.source.get("group_id") != project_id:
+            continue
+        row = _row(name[link.source.id], link.type, name[link.target.id], _stable(link.props))
+        if SPEC_NODE in link.source.labels:
             spec_links.append(row)
-        elif link["status"] == "active":  # CONTAINS of an active fragment
+        elif link.target.get("status") == "active":  # CONTAINS of an active fragment
             active.append(row)
     return GraphView(spec_nodes, tuple(sorted(spec_links)), tuple(sorted(active)), dict(history))
 
 
-async def drop_project_graph(project: Neo4jProject, project_id: str) -> int:
-    """Delete every node of the project's ``group_id`` with its relationships, in batches; return how many (the
+async def drop_project_graph(project: GraphProject, project_id: str) -> int:
+    """Delete every node of the project's ``group_id`` with its relationships; return how many (the
     procedure of "Migration", as ``examples/graph_eval.py --cleanup`` runs it).
     """
 
-    deleted = 0
-    while True:
-        rows = await project.run(
-            "MATCH (n {group_id: $p}) WITH n LIMIT $batch DETACH DELETE n RETURN count(*) AS c",
-            p=project_id,
-            batch=DROP_BATCH,
-        )
-        if not rows[0]["c"]:
-            return deleted
-        deleted += int(rows[0]["c"])
+    return await project.delete_nodes(select(), project_id=project_id)
 
 
-async def _labels_and_relations(project: Neo4jProject, project_id: str) -> tuple[frozenset[str], frozenset[str]]:
-    labels = await project.run(
-        "MATCH (n:SpecNode) WHERE n.group_id = $p UNWIND labels(n) AS l RETURN DISTINCT l", p=project_id
-    )
-    relations = await project.run(
-        "MATCH (s:SpecNode)-[r]->(:SpecNode) WHERE s.group_id = $p RETURN DISTINCT type(r) AS r", p=project_id
-    )
-    return frozenset(row["l"] for row in labels) - {"SpecNode"}, frozenset(row["r"] for row in relations)
+async def _spec_edges_from(project: GraphProject, project_id: str) -> list[ProbeEdge]:
+    """The edges from a spec node of the project to a spec node."""
+
+    return [
+        e
+        for e in await project.edges(project_id=project_id)
+        if SPEC_NODE in e.source.labels and SPEC_NODE in e.target.labels and e.source.get("group_id") == project_id
+    ]
+
+
+async def _labels_and_relations(project: GraphProject, project_id: str) -> tuple[frozenset[str], frozenset[str]]:
+    labels = {label for n in await project.nodes(SPEC_NODE, project_id=project_id) for label in n.labels}
+    relations = {e.type for e in await _spec_edges_from(project, project_id)}
+    return frozenset(labels) - {SPEC_NODE}, frozenset(relations)
 
 
 async def _v13_build(
-    project: Neo4jProject, factory: Any, root: Path, project_id: str
+    project: GraphProject, factory: Any, root: Path, project_id: str
 ) -> tuple[ShopBuilds, BuildResult]:
     builds = ShopBuilds(project, factory, root, project_id=project_id, ontology=frozen_ontology())
     result, _ = await builds.build(1)
@@ -186,7 +175,7 @@ async def migration(tmp_path_factory: pytest.TempPathFactory) -> AsyncIterator[M
         return gateway
 
     root = Path(tmp_path_factory.mktemp("migration"))
-    async with open_neo4j_project() as project:
+    async with open_graph_project() as project:
         # the reference: a clean v2.0 first build of shop-v2
         clean_id = project.new_project()
         clean, _ = await ShopV2Builds(project, factory, root / "clean", project_id=clean_id).build(1)
@@ -223,22 +212,19 @@ async def migration(tmp_path_factory: pytest.TempPathFactory) -> AsyncIterator[M
         probe_id = project.new_project()
         probe = ShopV2Builds(project, factory, root / "probe", project_id=probe_id)
         probe_first, _ = await probe.build(1)
-        await project.run(
-            "MATCH (n:BusinessRule) WHERE n.group_id = $p AND n.name = $name "
-            "REMOVE n:BusinessRule SET n:FunctionalRequirement, n.spec_id = $fr + substring(n.spec_id, size($br))",
-            p=probe_id,
-            name=RELABELED,
-            fr=ONTOLOGY.id_prefix("FunctionalRequirement"),
-            br=ONTOLOGY.id_prefix("BusinessRule"),
+        rule = await project.one_node("BusinessRule", project_id=probe_id, name=RELABELED)
+        prefix = ONTOLOGY.id_prefix("BusinessRule")
+        await project.update_nodes(
+            select("BusinessRule", name=RELABELED),
+            {"spec_id": ONTOLOGY.id_prefix("FunctionalRequirement") + str(rule["spec_id"])[len(prefix) :]},
+            project_id=probe_id,
+            add_labels=["FunctionalRequirement"],
+            remove_labels=["BusinessRule"],
         )
         probe_rebuild = await _rebuild(probe)
-        rows = await project.run(
-            "MATCH (n:SpecNode) WHERE n.group_id = $p AND n.name = $name "
-            "RETURN labels(n) AS labels, n.label_disagreement AS disagreement, n.spec_id AS spec_id",
-            p=probe_id,
-            name=RELABELED,
-        )
+        rows = await project.nodes(SPEC_NODE, project_id=probe_id, name=RELABELED)
         assert len(rows) == 1, rows
+        (relabeled,) = rows
         assert_all_scripted(*gateways)
         yield Migration(
             project=project,
@@ -260,7 +246,11 @@ async def migration(tmp_path_factory: pytest.TempPathFactory) -> AsyncIterator[M
             first_view=first_view,
             probe_first=probe_first,
             probe_rebuild=probe_rebuild,
-            probe_node=dict(rows[0]),
+            probe_node={
+                "labels": list(relabeled.labels),
+                "disagreement": relabeled.get("label_disagreement"),
+                "spec_id": relabeled.get("spec_id"),
+            },
         )
 
 
@@ -294,23 +284,22 @@ def _assert_same_graph(view: GraphView, clean: GraphView) -> None:
     assert clean.history == {}
 
 
-async def _assert_d6_d7(project: Neo4jProject, project_id: str) -> None:
-    owners = sorted(label for label in ONTOLOGY.labels if ONTOLOGY.owner_pairs(label))
-    rows = await project.run(
-        "MATCH (n:SpecNode) WHERE n.group_id = $p "
-        "WITH n, [l IN labels(n) WHERE l IN $owned][0] AS owned "
-        "OPTIONAL MATCH (n)-[r]->(t:SpecNode) "
-        "WHERE (owned IS NOT NULL AND type(r) = 'PART_OF') OR (n:Interface AND type(r) = 'PROVIDED_BY') "
-        "OR (n:Module AND t:Module AND type(r) = 'PART_OF') "
-        "WITH n, count(DISTINCT t) AS targets WHERE targets > 1 RETURN n.name AS name",
-        p=project_id,
-        owned=owners,
-    )
+async def _assert_d6_d7(project: GraphProject, project_id: str) -> None:
+    owners = {label for label in ONTOLOGY.labels if ONTOLOGY.owner_pairs(label)}
+    nodes = await project.nodes(SPEC_NODE, project_id=project_id)
+    edges = await _spec_edges_from(project, project_id)
+    targets: dict[str, set[str]] = {}
+    for e in edges:
+        source = e.source.labels
+        if (
+            (owners.intersection(source) and e.type == "PART_OF")
+            or ("Interface" in source and e.type == "PROVIDED_BY")
+            or ("Module" in source and "Module" in e.target.labels and e.type == "PART_OF")
+        ):
+            targets.setdefault(e.source.id, set()).add(e.target.id)
+    rows = [{"name": n.get("name")} for n in nodes if len(targets.get(n.id, ())) > 1]
     assert rows == []
-    cycles = await project.run(
-        "MATCH path = (n:SpecNode)-[:DEPENDS_ON*1..10]->(n) WHERE n.group_id = $p RETURN count(path) AS n", p=project_id
-    )
-    assert cycles[0]["n"] == 0
+    assert not has_short_cycle([e for e in edges if e.type == "DEPENDS_ON"], {n.id for n in nodes}, 10)
 
 
 async def test_the_v13_project_has_v13_labels_and_relations(migration: Migration) -> None:

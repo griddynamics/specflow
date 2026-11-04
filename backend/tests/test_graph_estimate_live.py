@@ -29,9 +29,10 @@ from graph.build.prompts import (
     NODE_WARM_UP_PROMPT,
 )
 from graph.core.llm.gateway import EMBED_PROMPT, embed_batches, embed_inputs, estimate_tokens, request_tokens
+from graph_probes import requires_live_graph
 from graph_support import (
     SHOP_DIR,
-    Neo4jProject,
+    GraphProject,
     ScriptedGateway,
     live_llm_config,
     run_shop_build,
@@ -40,12 +41,11 @@ from graph_support import (
     shop_corpus,
     tree_hash,
 )
-from specflow_live import requires_live
 
-# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, neo4j_project) live in graph_support.
+# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, graph_project) live in graph_support.
 pytest_plugins = ["graph_support"]
 
-pytestmark = requires_live("NEO4J")
+pytestmark = requires_live_graph()
 
 OPTIONS = shop_answers(1).options
 
@@ -109,7 +109,7 @@ class Shop:
     """One project built from the shop snapshots, sharing file stores and the corpus index."""
 
     def __init__(
-        self, project: Neo4jProject, gateways: Callable[..., ScriptedGateway], root: Path, project_id: str
+        self, project: GraphProject, gateways: Callable[..., ScriptedGateway], root: Path, project_id: str
     ) -> None:
         self.project, self.gateways, self.root, self.project_id = project, gateways, root, project_id
         self.stores = open_file_stores(root)
@@ -118,14 +118,13 @@ class Shop:
         ctx = BuildContext(
             project_id=self.project_id,
             ontology=self.project.ontology,
-            driver=self.project.driver,
+            driver=self.project.store,
             gateway=gateway,
             registry=self.stores.registry,
             corpus=shop_corpus(snapshot, self.root),
             extraction=self.stores.extraction,
             builds=self.stores.builds,
             options=OPTIONS,
-            database=self.project.database,
             settings=BuildSettings(inference=False),
         )
         return dataclasses.replace(ctx, **overrides) if overrides else ctx
@@ -171,9 +170,9 @@ def assert_bounded(estimate: BuildEstimate, real: dict[str, tuple[int, int]], na
 
 
 async def test_the_shop_chain_is_estimated_before_every_build(
-    neo4j_project: Neo4jProject, scripted_gateway: Callable[..., ScriptedGateway], tmp_path: Path
+    graph_project: GraphProject, scripted_gateway: Callable[..., ScriptedGateway], tmp_path: Path
 ) -> None:
-    shop = Shop(neo4j_project, scripted_gateway, tmp_path / "stores", neo4j_project.project_id)
+    shop = Shop(graph_project, scripted_gateway, tmp_path / "stores", graph_project.project_id)
 
     # first: no hub catalog call, node window calls exact; every step the build uses is predicted
     estimate = await shop.estimate(1)
@@ -226,9 +225,9 @@ async def test_the_shop_chain_is_estimated_before_every_build(
 
 
 async def test_three_new_documents_in_a_built_project(
-    neo4j_project: Neo4jProject, scripted_gateway: Callable[..., ScriptedGateway], tmp_path: Path
+    graph_project: GraphProject, scripted_gateway: Callable[..., ScriptedGateway], tmp_path: Path
 ) -> None:
-    shop = Shop(neo4j_project, scripted_gateway, tmp_path / "stores", neo4j_project.project_id)
+    shop = Shop(graph_project, scripted_gateway, tmp_path / "stores", graph_project.project_id)
     await shop.build(1)
     folder = tmp_path / "corpus"
     shutil.copytree(SHOP_DIR / "1", folder)
@@ -250,13 +249,13 @@ async def test_three_new_documents_in_a_built_project(
 
 
 async def test_an_estimate_leaves_nothing_behind_for_the_next_build(
-    neo4j_project: Neo4jProject, scripted_gateway: Callable[..., ScriptedGateway], tmp_path: Path
+    graph_project: GraphProject, scripted_gateway: Callable[..., ScriptedGateway], tmp_path: Path
 ) -> None:
     """An estimate changes nothing a build reads: a build after an estimate makes the same requests
     (prompt and semantic key, in count) as one without, and the same node messages."""
 
-    plain = Shop(neo4j_project, scripted_gateway, tmp_path / "plain", neo4j_project.project_id)
-    estimated = Shop(neo4j_project, scripted_gateway, tmp_path / "estimated", neo4j_project.new_project())
+    plain = Shop(graph_project, scripted_gateway, tmp_path / "plain", graph_project.project_id)
+    estimated = Shop(graph_project, scripted_gateway, tmp_path / "estimated", graph_project.new_project())
     _, without = await plain.build(1)
     await estimated.estimate(1)
     _, after = await estimated.build(1)

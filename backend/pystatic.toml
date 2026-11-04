@@ -52,7 +52,7 @@ data-suffixes = [".json", ".md", ".yaml", ".yml", ".sql", ".cypher"]
 #   DatabaseSettings  settings.py, read from DATABASE_* only (`from_environment`)
 #   CallBudget        graph.core.config, one call class's timeout and attempts
 # The other bindings of settings.py are left out on purpose: their field defaults ARE the
-# documented environment defaults (API_PORT, NEO4J_DATABASE, ...), so they are the configuration
+# documented environment defaults (API_PORT, GRAPH_EMBEDDING_DIM, ...), so they are the configuration
 # itself, not classes built from it.
 config-classes = ["DatabaseSettings", "CallBudget"]
 # The numeric rule reads the configuration module alone (a `scan` entry may name one .py file):

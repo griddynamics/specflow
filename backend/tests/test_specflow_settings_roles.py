@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import SecretStr
 
-from graph.core import Neo4jConfig
+from graph.stores.config import StoreConfig
 from runtime_defaults_support import RUNTIME_DEFAULTS
 from settings import (
     AgentDatabaseSettings,
@@ -24,7 +24,7 @@ DATABASE = (
 )
 STORAGE = ("STORAGE_BUCKET", "STORAGE_PREFIX")
 TEMPORAL = ("TEMPORAL_ADDRESS", "TEMPORAL_NAMESPACE")
-NEO4J = ("NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD")
+NEO4J = ("GRAPH_STORE_URI", "GRAPH_STORE_USER", "GRAPH_STORE_PASSWORD")
 AUTH = ("OIDC_ISSUER", "AUTH_ALLOWED_EMAIL_DOMAINS")
 AGENT = ("AGENT_MODEL", "LLM_GATEWAY_URL", "LLM_GATEWAY_API_KEY")
 
@@ -71,12 +71,12 @@ def test_bindings_present_per_role(valid_env):
     worker = load_settings("worker", valid_env)
     migrate = load_settings("migrate", valid_env)
 
-    assert api.auth and api.storage and api.temporal and api.neo4j and api.agent_run
+    assert api.auth and api.storage and api.temporal and api.graph_store and api.agent_run
     assert api.agent is None and api.agent_database is None
-    assert worker.storage and worker.temporal and worker.neo4j and worker.agent
+    assert worker.storage and worker.temporal and worker.graph_store and worker.agent
     assert worker.agent_run and worker.agent_database and worker.auth is None
     assert migrate.agent_database is not None and migrate.agent_database.password is None
-    assert (migrate.auth, migrate.storage, migrate.temporal, migrate.neo4j) == (None,) * 4
+    assert (migrate.auth, migrate.storage, migrate.temporal, migrate.graph_store) == (None,) * 4
 
 
 @pytest.mark.parametrize(
@@ -114,13 +114,13 @@ def test_everything_wrong_is_reported_in_one_error(role):
 def test_invalid_values_and_missing_ones_share_one_error(valid_env):
     valid_env["API_PORT"] = "not-a-port"
     valid_env["APP_ENV"] = "staging"
-    del valid_env["NEO4J_URI"]
+    del valid_env["GRAPH_STORE_URI"]
     valid_env["WORKER_QUEUES"] = "parse,other"
 
     with pytest.raises(ConfigurationError) as raised:
         load_settings("api", valid_env)
 
-    assert set(raised.value.variables) == {"API_PORT", "APP_ENV", "NEO4J_URI", "WORKER_QUEUES"}
+    assert set(raised.value.variables) == {"API_PORT", "APP_ENV", "GRAPH_STORE_URI", "WORKER_QUEUES"}
 
 
 def test_the_message_names_variables_and_never_values(valid_env):
@@ -160,7 +160,7 @@ def test_secrets_are_secret_strings_and_never_render(valid_env):
     settings = load_settings("worker", valid_env)
 
     assert isinstance(settings.database.password, SecretStr)
-    assert isinstance(settings.neo4j.password, SecretStr)
+    assert isinstance(settings.graph_store.password, SecretStr)
     assert isinstance(settings.agent.llm_gateway_api_key, SecretStr)
     assert isinstance(settings.agent_database.password, SecretStr)
     rendered = repr(settings)
@@ -174,7 +174,7 @@ def test_defaults(valid_env):
     assert settings.temporal.queue_parse == "specflow-parse"
     assert settings.temporal.queue_agents == "specflow-agents"
     assert settings.temporal.worker_queues == ("parse", "agents")
-    assert settings.neo4j.database == "neo4j"
+    assert settings.graph_store.name == "neo4j"
     assert settings.agent_run.trace_sensitive_data is False
     api = load_settings("api", {k: v for k, v in valid_env.items() if k != "AUTH_JWKS_URL"})
     assert api.auth.api_audience == "specflow-api"
@@ -189,7 +189,7 @@ def test_blank_optional_variables_fall_back_to_their_defaults(valid_env):
         AUTH_JWKS_URL="",
         AUTH_API_AUDIENCE="",
         AUTH_API_CLIENT_IDS="",
-        NEO4J_DATABASE="",
+        GRAPH_STORE_NAME="",
         AGENT_TRACE_SENSITIVE_DATA="",
         TEMPORAL_API_KEY="",
         DATABASE_AGENT_USER="",
@@ -201,7 +201,7 @@ def test_blank_optional_variables_fall_back_to_their_defaults(valid_env):
     assert api.auth.jwks_url is None
     assert api.auth.api_audience == "specflow-api"
     assert api.auth.api_client_ids == ("specflow-web",)
-    assert api.neo4j.database == "neo4j"
+    assert api.graph_store.name == "neo4j"
     assert api.agent_run.trace_sensitive_data is False
     assert api.temporal.api_key is None
 
@@ -233,7 +233,7 @@ def test_the_worker_without_the_agents_queue_does_not_need_agent_bindings(valid_
 
     worker = load_settings("worker", valid_env)
 
-    assert (worker.neo4j, worker.agent, worker.agent_run) == (None, None, None)
+    assert (worker.graph_store, worker.agent, worker.agent_run) == (None, None, None)
     assert worker.agent_database.password is None
 
 
@@ -247,7 +247,7 @@ def test_queue_options_replace_worker_queues(valid_env):
     assert worker.temporal.worker_queues == ("parse",)
     with pytest.raises(ConfigurationError) as raised:
         load_settings("worker", valid_env, queues=["agents"])
-    assert "NEO4J_URI" in raised.value.variables
+    assert "GRAPH_STORE_URI" in raised.value.variables
     assert "DATABASE_AGENT_PASSWORD" in raised.value.variables
 
 
@@ -289,17 +289,17 @@ def test_as_database_settings_without_a_password_is_refused(valid_env):
     assert isinstance(migrate.agent_database, AgentDatabaseSettings)
 
 
-def test_neo4j_settings_map_onto_the_graph_library_config(valid_env):
+def test_graph_store_settings_map_onto_the_store_config(valid_env):
+    config = load_settings("api", valid_env).graph_store.to_store_config()
 
-    neo4j = load_settings("api", valid_env).neo4j
-    config = neo4j.to_graph_config()
-
-    assert isinstance(config, Neo4jConfig)
-    assert (config.uri, config.user, config.database) == (
+    assert isinstance(config, StoreConfig)
+    assert (config.backend, config.uri, config.user, config.name) == (
+        "neo4j",
         "bolt://localhost:7687",
         "neo4j",
         "neo4j",
     )
+    assert (config.admin_uri, config.pool_size) == (None, None)
     assert config.password.get_secret_value() == "neo-pass-4e8a"
     assert "neo-pass-4e8a" not in repr(config)
 

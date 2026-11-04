@@ -37,10 +37,10 @@ from graph_support import (
 from logger.logger import get_logger
 from logger_harness import LogHarness
 
-# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, neo4j_project) live in graph_support.
+# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, graph_project) live in graph_support.
 pytest_plugins = ["graph_support"]
 
-PROMPT = "judge_endpoints.3"
+PROMPT = "judge_endpoints"
 FRAGMENTS = {
     "doc.md~1": "The Checkout   service calls\nStripe to charge cards.",
     "doc.md~2": "Orders are stored.",
@@ -207,11 +207,11 @@ async def test_verdict_type_names_the_schema_and_hides_prompt_ref(make) -> None:
 
 async def test_each_verdict_gets_its_own_prompt_ref(make) -> None:
     runner, _, _ = make(lambda _request: ok(verdict()))
-    first = await runner.judge("judge_endpoints.3", PAYLOAD, Direction)
-    second = await runner.judge("judge_realization.2", PAYLOAD, Direction)
+    first = await runner.judge("judge_endpoints", PAYLOAD, Direction)
+    second = await runner.judge("judge_realization", PAYLOAD, Direction)
     assert (first.prompt_ref, second.prompt_ref) == (
-        "judge_endpoints.3",
-        "judge_realization.2",
+        "judge_endpoints",
+        "judge_realization",
     )
 
 
@@ -323,7 +323,7 @@ async def test_unknown_prompt_ref_is_a_conformance_error_without_a_request(
 ) -> None:
     runner, _, bodies = make(lambda _request: ok(verdict()))
     with pytest.raises(ConformanceError) as raised:
-        await runner.judge("judge_missing.1", PAYLOAD, Direction)
+        await runner.judge("judge_missing", PAYLOAD, Direction)
     assert raised.value.code == "ontology_unknown_judge_prompt"
     assert bodies == []
 

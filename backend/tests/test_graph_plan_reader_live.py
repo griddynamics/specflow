@@ -8,12 +8,13 @@ from graph.plan.lifecycle import TaskLifecycle
 from graph.plan.models import PlanDag
 from graph.plan.reader import PlanReader
 from graph_plan_support import plan_ontology, plan_rules, planned_live_shop
-from graph_support import Neo4jProject
-from specflow_live import requires_live
+from graph_probes import requires_live_graph
+from graph_probes.base import EdgeSpec, select
+from graph_support import GraphProject
 
 pytest_plugins = ["graph_support"]
 
-pytestmark = requires_live("NEO4J")
+pytestmark = requires_live_graph()
 
 WORKSPACE = "TASK::PROJECT::WORKSPACE"
 TOOLCHAIN = "TASK::PROJECT::TOOLCHAIN"
@@ -21,22 +22,22 @@ PLACE = "TASK::ORDERS_SERVICE::LOGIC_PLACE_ORDER"
 COMMIT = "cd" * 20
 
 
-def _reader(neo4j_project: Neo4jProject) -> PlanReader:
+def _reader(graph_project: GraphProject) -> PlanReader:
     ontology = plan_ontology()
-    return PlanReader(neo4j_project.driver, ontology, plan_rules(ontology), database=neo4j_project.database)
+    return PlanReader(graph_project.store, ontology, plan_rules(ontology))
 
 
-def _lifecycle(neo4j_project: Neo4jProject) -> TaskLifecycle:
+def _lifecycle(graph_project: GraphProject) -> TaskLifecycle:
     ontology = plan_ontology()
-    return TaskLifecycle(neo4j_project.driver, ontology, plan_rules(ontology), database=neo4j_project.database)
+    return TaskLifecycle(graph_project.store, ontology, plan_rules(ontology))
 
 
 async def test_plan_areas_and_stories_carry_members_counts_and_progress(
-    neo4j_project: Neo4jProject, tmp_path: Path
+    graph_project: GraphProject, tmp_path: Path
 ) -> None:
-    project_id, _ = await planned_live_shop(neo4j_project, tmp_path)
-    reader = _reader(neo4j_project)
-    life = _lifecycle(neo4j_project)
+    project_id, _ = await planned_live_shop(graph_project, tmp_path)
+    reader = _reader(graph_project)
+    life = _lifecycle(graph_project)
 
     plan = await reader.plan(project_id)
     assert plan is not None and plan.consumed_build_ids == ("build-1",)
@@ -55,11 +56,11 @@ async def test_plan_areas_and_stories_carry_members_counts_and_progress(
 
 
 async def test_a_story_lists_its_members_tasks_and_neighbour_stories(
-    neo4j_project: Neo4jProject, tmp_path: Path
+    graph_project: GraphProject, tmp_path: Path
 ) -> None:
-    project_id, _ = await planned_live_shop(neo4j_project, tmp_path)
+    project_id, _ = await planned_live_shop(graph_project, tmp_path)
 
-    detail = await _reader(neo4j_project).story(project_id, "STORY::WEB_SHOP::CHECKOUT")
+    detail = await _reader(graph_project).story(project_id, "STORY::WEB_SHOP::CHECKOUT")
 
     assert detail is not None
     assert detail.anchor is not None and detail.anchor["spec_id"] == "FEAT::CHECKOUT"
@@ -71,10 +72,10 @@ async def test_a_story_lists_its_members_tasks_and_neighbour_stories(
     assert "STORY::PROJECT::CLOSING" in detail.waited_by
 
 
-async def test_story_work_lists_unfinished_prerequisites_first(neo4j_project: Neo4jProject, tmp_path: Path) -> None:
-    project_id, _ = await planned_live_shop(neo4j_project, tmp_path)
+async def test_story_work_lists_unfinished_prerequisites_first(graph_project: GraphProject, tmp_path: Path) -> None:
+    project_id, _ = await planned_live_shop(graph_project, tmp_path)
 
-    work = await _reader(neo4j_project).story_work(project_id, "STORY::WEB_SHOP::CHECKOUT")
+    work = await _reader(graph_project).story_work(project_id, "STORY::WEB_SHOP::CHECKOUT")
 
     assert work is not None
     order = [entry.task_id for entry in work.entries]
@@ -84,10 +85,10 @@ async def test_story_work_lists_unfinished_prerequisites_first(neo4j_project: Ne
 
 
 async def test_the_plan_dag_is_acyclic_grouped_by_story_and_renders_as_mermaid(
-    neo4j_project: Neo4jProject, tmp_path: Path
+    graph_project: GraphProject, tmp_path: Path
 ) -> None:
-    project_id, _ = await planned_live_shop(neo4j_project, tmp_path)
-    reader = _reader(neo4j_project)
+    project_id, _ = await planned_live_shop(graph_project, tmp_path)
+    reader = _reader(graph_project)
 
     dag = await reader.plan_dag(project_id)
     mermaid = await reader.plan_dag(project_id, output="mermaid")
@@ -100,9 +101,9 @@ async def test_the_plan_dag_is_acyclic_grouped_by_story_and_renders_as_mermaid(
     assert mermaid.count("subgraph ") == len(dag.stories)
 
 
-async def test_tasks_and_tasks_for_spec_nodes(neo4j_project: Neo4jProject, tmp_path: Path) -> None:
-    project_id, _ = await planned_live_shop(neo4j_project, tmp_path)
-    reader = _reader(neo4j_project)
+async def test_tasks_and_tasks_for_spec_nodes(graph_project: GraphProject, tmp_path: Path) -> None:
+    project_id, _ = await planned_live_shop(graph_project, tmp_path)
+    reader = _reader(graph_project)
 
     found = await reader.tasks_for(project_id, ["REQ::FR::PLACE_ORDER"])
     task = await reader.task(project_id, TOOLCHAIN)
@@ -114,10 +115,10 @@ async def test_tasks_and_tasks_for_spec_nodes(neo4j_project: Neo4jProject, tmp_p
 
 
 async def test_a_task_brief_shows_finished_contracts_spec_evidence_and_placement(
-    neo4j_project: Neo4jProject, tmp_path: Path
+    graph_project: GraphProject, tmp_path: Path
 ) -> None:
-    project_id, _ = await planned_live_shop(neo4j_project, tmp_path)
-    life = _lifecycle(neo4j_project)
+    project_id, _ = await planned_live_shop(graph_project, tmp_path)
+    life = _lifecycle(graph_project)
     claim = await life.claim_task(project_id, WORKSPACE, claimed_by="agent")
     await life.complete_task(project_id, WORKSPACE, claim_token=claim.claim_token, commit=COMMIT)
 
@@ -139,33 +140,36 @@ async def test_a_task_brief_shows_finished_contracts_spec_evidence_and_placement
 
 
 async def test_a_brief_flags_a_node_written_by_a_build_the_plan_did_not_consume(
-    neo4j_project: Neo4jProject, tmp_path: Path
+    graph_project: GraphProject, tmp_path: Path
 ) -> None:
-    project_id, _ = await planned_live_shop(neo4j_project, tmp_path)
-    await neo4j_project.run(
-        "MATCH (n:SpecNode {group_id: $p, spec_id: 'REQ::FR::PLACE_ORDER'}) SET n.last_build_id = 'build-7'",
-        p=project_id,
+    project_id, _ = await planned_live_shop(graph_project, tmp_path)
+    await graph_project.update_nodes(
+        select("SpecNode", spec_id="REQ::FR::PLACE_ORDER"), {"last_build_id": "build-7"}, project_id=project_id
     )
 
-    brief = await _lifecycle(neo4j_project).task_brief(project_id, PLACE)
+    brief = await _lifecycle(graph_project).task_brief(project_id, PLACE)
 
     assert brief.spec_changed is True
 
 
-async def test_mutually_waiting_stories_collapse_into_one_group(neo4j_project: Neo4jProject, tmp_path: Path) -> None:
-    project_id, _ = await planned_live_shop(neo4j_project, tmp_path)
+async def test_mutually_waiting_stories_collapse_into_one_group(graph_project: GraphProject, tmp_path: Path) -> None:
+    project_id, _ = await planned_live_shop(graph_project, tmp_path)
     # Checkout's logic waits on the Stripe API contract; the Stripe integration task now waits on checkout's
     # quality task: the two stories wait on each other while the tasks stay acyclic.
-    await neo4j_project.run(
-        "MATCH (a:Task {group_id: $p, task_id: $a}), (b:Task {group_id: $p, task_id: $b}) "
-        "CREATE (a)-[:WAITS_FOR {group_id: $p, edge_key: $k, source: 'stitch'}]->(b)",
-        p=project_id,
-        a="TASK::PAYMENTS_SERVICE::INTEGRATION_STRIPE_API",
-        b="TASK::WEB_SHOP::QUALITY_CHECKOUT",
-        k="TASK::PAYMENTS_SERVICE::INTEGRATION_STRIPE_API|WAITS_FOR|TASK::WEB_SHOP::QUALITY_CHECKOUT",
+    source, target = ("TASK::PAYMENTS_SERVICE::INTEGRATION_STRIPE_API", "TASK::WEB_SHOP::QUALITY_CHECKOUT")
+    await graph_project.create_edges(
+        [
+            EdgeSpec(
+                "WAITS_FOR",
+                select("Task", task_id=source),
+                select("Task", task_id=target),
+                {"group_id": project_id, "edge_key": f"{source}|WAITS_FOR|{target}", "source": "stitch"},
+            )
+        ],
+        project_id=project_id,
     )
 
-    dag = await _reader(neo4j_project).plan_dag(project_id)
+    dag = await _reader(graph_project).plan_dag(project_id)
 
     assert isinstance(dag, PlanDag)
     grouped = [group for group in dag.story_groups if "STORY::WEB_SHOP::CHECKOUT" in group]
@@ -174,13 +178,12 @@ async def test_mutually_waiting_stories_collapse_into_one_group(neo4j_project: N
 
 
 async def test_a_story_lists_an_uncovered_member_and_stories_filter_by_area(
-    neo4j_project: Neo4jProject, tmp_path: Path
+    graph_project: GraphProject, tmp_path: Path
 ) -> None:
-    project_id, _ = await planned_live_shop(neo4j_project, tmp_path)
-    reader = _reader(neo4j_project)
-    await neo4j_project.run(
-        "MATCH (t:Task {group_id: $p, task_id: 'TASK::WEB_SHOP::QUALITY_CHECKOUT'}) SET t.status = 'retired'",
-        p=project_id,
+    project_id, _ = await planned_live_shop(graph_project, tmp_path)
+    reader = _reader(graph_project)
+    await graph_project.update_nodes(
+        select("Task", task_id="TASK::WEB_SHOP::QUALITY_CHECKOUT"), {"status": "retired"}, project_id=project_id
     )
 
     detail = await reader.story(project_id, "STORY::WEB_SHOP::CHECKOUT")
@@ -193,10 +196,10 @@ async def test_a_story_lists_an_uncovered_member_and_stories_filter_by_area(
 
 
 async def test_a_brief_carries_evidence_neighbours_releases_and_missing_nodes(
-    neo4j_project: Neo4jProject, tmp_path: Path
+    graph_project: GraphProject, tmp_path: Path
 ) -> None:
-    project_id, _ = await planned_live_shop(neo4j_project, tmp_path)
-    life = _lifecycle(neo4j_project)
+    project_id, _ = await planned_live_shop(graph_project, tmp_path)
+    life = _lifecycle(graph_project)
 
     place = await life.task_brief(project_id, PLACE)
     export = await life.task_brief(project_id, "TASK::ORDERS_SERVICE::LOGIC_ORDER_HISTORY_EXPORT")
@@ -209,8 +212,6 @@ async def test_a_brief_carries_evidence_neighbours_releases_and_missing_nodes(
     assert {item.source for item in place.done_when} == {"planner", "spec"}
     assert order.task.has_open_questions is True
 
-    await neo4j_project.run(
-        "MATCH (n:SpecNode {group_id: $p, spec_id: 'REQ::FR::PLACE_ORDER'}) DETACH DELETE n", p=project_id
-    )
+    await graph_project.delete_nodes(select("SpecNode", spec_id="REQ::FR::PLACE_ORDER"), project_id=project_id)
     gone = await life.task_brief(project_id, PLACE)
     assert gone.missing == ("REQ::FR::PLACE_ORDER",)

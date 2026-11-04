@@ -501,7 +501,7 @@ inference:
   rules:
     - id: INF-INT-01
       template: endpoints
-      prompt: judge_endpoints.2
+      prompt: judge_endpoints
       subject: integration_requirement
       via: [PART_OF, RELATES_TO]
       mentions: true
@@ -511,7 +511,7 @@ inference:
       writes: INTEGRATES_WITH
     - id: INF-CAP-01
       template: realization
-      prompt: judge_realization.1
+      prompt: judge_realization
       subject: capability
       member_relation: GROUPED_BY
       container_paths:
@@ -520,7 +520,7 @@ inference:
       writes: REALIZED_BY
     - id: INF-CONT-01
       template: attach_orphan
-      prompt: judge_attach_orphan.2
+      prompt: judge_attach_orphan
       subject: requirement
       targets: [feature, module]
       max_candidates: 3

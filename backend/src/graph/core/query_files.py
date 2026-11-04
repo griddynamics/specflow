@@ -10,6 +10,12 @@ from typing import Final
 
 from graph.core.errors import ConformanceError
 
+GRAPH_ROOT: Final = Path(__file__).resolve().parents[1]
+# The canonical query and DDL files; every store whose dialect is Cypher reads them from here.
+CORE_QUERY_DIRECTORY: Final = GRAPH_ROOT / "core" / "queries"
+BUILD_QUERY_DIRECTORY: Final = GRAPH_ROOT / "build" / "queries"
+PLAN_QUERY_DIRECTORY: Final = GRAPH_ROOT / "plan" / "queries"
+CORE_DDL_DIRECTORY: Final = GRAPH_ROOT / "core" / "ddl"
 COMMENT_PREFIX: Final = "//"
 STATEMENT_END: Final = ";"
 _UNFILLED_TOKEN: Final = re.compile(r"__[A-Z][A-Z_]*__")
@@ -35,6 +41,37 @@ def read_ddl_file(path: PathLike[str]) -> tuple[str, ...]:
 
     body = " ".join(_statement_lines(path))
     return tuple(part.strip() for part in body.split(STATEMENT_END) if part.strip())
+
+
+def load_core_query(name: str) -> str:
+    """The text of the core query file ``name`` (relative to ``core/queries/``)."""
+
+    return read_query_file(CORE_QUERY_DIRECTORY, name)
+
+
+def load_build_query(name: str) -> str:
+    """The text of the build query file ``name`` (relative to ``build/queries/``)."""
+
+    return read_query_file(BUILD_QUERY_DIRECTORY, name)
+
+
+def load_plan_query(name: str) -> str:
+    """The text of the plan query file ``name`` (relative to ``plan/queries/``)."""
+
+    return read_query_file(PLAN_QUERY_DIRECTORY, name)
+
+
+def fragment(template: str, name: str) -> str:
+    """The default text of the slot ``name`` of ``template``: a fragment file holds the pieces a renderer puts
+    together (an arrow, a separator, one hop of a path) as the defaults of its slots, so no query text is written
+    in code. Raises ``ConformanceError("query_fragment_missing")`` when the file has no such slot."""
+
+    marker = f"/*__{name.upper()}__*/"
+    start = template.find(marker)
+    end = template.find(marker, start + len(marker)) if start >= 0 else -1
+    if start < 0 or end < 0:
+        raise ConformanceError("query_fragment_missing", fragment=name)
+    return template[start + len(marker) : end]
 
 
 def render_query(template: str, **names: str) -> str:

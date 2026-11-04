@@ -21,7 +21,7 @@ Verification is by test unless the row says otherwise. Details live in the linke
 |---|---|---|
 | FR-CORE-01 | Every query the library runs shall bind and filter on `project_id`, except schema setup. | Given two projects with equal content, when project A is read or written, then no node or relationship of project B is returned or changed. |
 | FR-CORE-02 | `ensure_schema` shall create every constraint and index of the data model and be idempotent. | Given an empty database, when it runs twice, then the second run changes nothing. |
-| FR-CORE-03 | If Neo4j is older than 5.26, then `ensure_schema` shall raise `ConfigurationError`. | Given Neo4j 5.25, when it runs, then `ConfigurationError` is raised and nothing is created. |
+| FR-CORE-03 | If the graph store is older than its supported minimum (Neo4j 5.26, ArcadeDB 26.10, PostgreSQL 15 with pgvector 0.8), then `ensure_schema` shall raise `ConfigurationError`. | Given Neo4j 5.25, when it runs, then `ConfigurationError` (`store_version_unsupported`) is raised and nothing is created. The same check runs per store in its contract and live tests. |
 | FR-CORE-04 | When an `OwnedWriter` is asked to write a type its owner does not own, it shall raise `OwnershipError` and write nothing. | Given a `gap` writer, when it upserts a `Module`, then `OwnershipError` is raised. |
 | FR-CORE-05 | A write shall change only properties its owner owns. | Given a spec node with a foreign property, when build updates the node, then the foreign property is unchanged. |
 | FR-CORE-06 | A `spec_id` shall never change and never be given to a different node of the project. | Given a node deleted in build 2, when build 3 creates a node with another identity key and the same name, then it gets a different `spec_id`. |
@@ -157,4 +157,4 @@ Verification is by test unless the row says otherwise. Details live in the linke
 | NFR-SEC-01 | Logs, errors and reports shall never contain document text, prompt text or secrets. | Inspection and a log-capture test over a full build. |
 | NFR-SEC-02 | Labels and relation names shall reach Cypher only after ontology validation; all values as parameters. | Inspection: the structure test passes. |
 | NFR-PERF-01 | An `update` build after a one-section edit should make at most 10% of the LLM calls of the `first` build of the same corpus. | Analysis: measured on the test corpus and reported; not a release gate. |
-| NFR-PORT-01 | The library shall run against Neo4j 5.26 Community and any OpenAI-compatible endpoint. | Integration test on Neo4j 5.26 Community. |
+| NFR-PORT-01 | The library shall run against Neo4j Community 5.26 or later, ArcadeDB 26.10 or later, or PostgreSQL 15 or later with pgvector 0.8 or later, and any OpenAI-compatible endpoint. TigerGraph is planned. | The live graph suites pass on each supported store (`make test-graph-live STORE=...`). |

@@ -36,9 +36,17 @@ from graph.build.prompts import (
     window_fragments,
 )
 from graph.core.llm.usage import UsageCounts
+from graph_probes import requires_live_graph
+from graph_probes.views import (
+    domain_edges,
+    identity_counts,
+    spec_edges,
+    ungrounded_spec_ids,
+)
+from graph_probes.views import fragment_ids as fragment_ids_of
 from graph_support import (
     FRAGMENT_BLOCK_LABEL,
-    Neo4jProject,
+    GraphProject,
     ScriptedGateway,
     known_terms_of,
     live_llm_config,
@@ -50,12 +58,11 @@ from graph_support import (
     spine_unreachable_count,
     untrusted_blocks,
 )
-from specflow_live import requires_live
 
-# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, neo4j_project) live in graph_support.
+# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, graph_project) live in graph_support.
 pytest_plugins = ["graph_support"]
 
-pytestmark = requires_live("NEO4J")
+pytestmark = requires_live_graph()
 
 ANSWERS = shop_answers(1)
 
@@ -153,20 +160,19 @@ class ShopBuild:
 
 
 async def build_shop(
-    project: Neo4jProject, gateway: ScriptedGateway, root: Path, project_id: str, options: BuildOptions | None = None
+    project: GraphProject, gateway: ScriptedGateway, root: Path, project_id: str, options: BuildOptions | None = None
 ) -> ShopBuild:
     stores = open_file_stores(root)
     ctx = BuildContext(
         project_id=project_id,
         ontology=project.ontology,
-        driver=project.driver,
+        driver=project.store,
         gateway=gateway,
         registry=stores.registry,
         corpus=shop_corpus(1, root),
         extraction=stores.extraction,
         builds=stores.builds,
         options=options or ANSWERS.options,
-        database=project.database,
         settings=BuildSettings(inference=False),  # judge answers are scripted by the inference tests (4.T1)
     )
     trace: dict[str, StepCalls] = {}
@@ -204,41 +210,48 @@ def traced(
 
 
 @pytest.fixture
-async def shop(neo4j_project: Neo4jProject, scripted_gateway: Any, tmp_path: Path) -> ShopBuild:
+async def shop(graph_project: GraphProject, scripted_gateway: Any, tmp_path: Path) -> ShopBuild:
     gateway = ANSWERS.install(scripted_gateway(live_llm_config()))
-    return await build_shop(neo4j_project, gateway, tmp_path / "stores", neo4j_project.project_id)
+    return await build_shop(graph_project, gateway, tmp_path / "stores", graph_project.project_id)
 
 
-async def spec_node(project: Neo4jProject, name: str, project_id: str | None = None) -> dict[str, Any]:
-    rows = await project.run(
-        "MATCH (n:SpecNode) WHERE n.group_id = $p AND n.name = $name "
-        "RETURN n.spec_id AS spec_id, labels(n) AS labels, n.identity_key AS key, "
-        "n.identity_aliases AS aliases, n.quote AS quote, n.statements AS statements",
-        p=project_id or project.project_id,
-        name=name,
-    )
-    assert len(rows) == 1, f"{len(rows)} spec nodes named {name!r}"
-    return rows[0]
+async def spec_node(project: GraphProject, name: str, project_id: str | None = None) -> dict[str, Any]:
+    found = await project.nodes("SpecNode", project_id=project_id, name=name)
+    assert len(found) == 1, f"{len(found)} spec nodes named {name!r}"
+    n = found[0]
+    return {
+        "spec_id": n.get("spec_id"),
+        "labels": list(n.labels),
+        "key": n.get("identity_key"),
+        "aliases": n.get("identity_aliases"),
+        "quote": n.get("quote"),
+        "statements": n.get("statements"),
+    }
 
 
-async def evidence(project: Neo4jProject, name: str) -> dict[str, tuple[int, int]]:
-    rows = await project.run(
-        "MATCH (n:SpecNode)-[r:REFERENCED_BY]->(f:Fragment) WHERE n.group_id = $p AND n.name = $name "
-        "RETURN f.fragment_id AS fragment, r.line_start AS start, r.line_end AS end",
-        p=project.project_id,
-        name=name,
-    )
-    return {row["fragment"]: (row["start"], row["end"]) for row in rows}
+async def evidence(project: GraphProject, name: str) -> dict[str, tuple[int, int]]:
+    refs = [
+        e
+        for e in await project.edges("REFERENCED_BY")
+        if e.source.get("group_id") == project.project_id
+        and "SpecNode" in e.source.labels
+        and e.source.get("name") == name
+        and "Fragment" in e.target.labels
+    ]
+    return {e.target["fragment_id"]: (e.get("line_start"), e.get("line_end")) for e in refs}
 
 
-async def edges_between(project: Neo4jProject, source: str, target: str) -> list[dict[str, Any]]:
-    return await project.run(
-        "MATCH (s:SpecNode)-[r]->(t:SpecNode) WHERE s.group_id = $p AND s.name = $source AND t.name = $target "
-        "RETURN type(r) AS relation, r.basis AS basis, r.fact AS fact, r.source_fragment_ids AS fragments",
-        p=project.project_id,
-        source=source,
-        target=target,
-    )
+async def edges_between(project: GraphProject, source: str, target: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "relation": e.type,
+            "basis": e.get("basis"),
+            "fact": e.get("fact"),
+            "fragments": e.get("source_fragment_ids"),
+        }
+        for e in await spec_edges(project.probe, project.project_id)
+        if e.source.get("name") == source and e.target.get("name") == target
+    ]
 
 
 def squash(text: str) -> str:
@@ -267,7 +280,7 @@ def _assert_first_build_result(shop: ShopBuild) -> None:
 
 
 async def test_first_build_persists_every_fragment_and_ends_partially_succeeded(
-    shop: ShopBuild, neo4j_project: Neo4jProject
+    shop: ShopBuild, graph_project: GraphProject
 ) -> None:
     _assert_first_build_result(shop)
     result = shop.result
@@ -275,32 +288,45 @@ async def test_first_build_persists_every_fragment_and_ends_partially_succeeded(
     assert verification is not None
     metrics = result.metrics
 
-    spec_ids = await neo4j_project.run(
-        "MATCH (n:SpecNode) WHERE n.group_id = $p RETURN n.spec_id AS spec_id ORDER BY spec_id",
-        p=neo4j_project.project_id,
+    spec_ids = sorted(
+        ({"spec_id": n.get("spec_id")} for n in await graph_project.nodes("SpecNode")), key=lambda row: row["spec_id"]
     )
     assert sorted(result.spec_changes.added) == [row["spec_id"] for row in spec_ids]
     assert len(spec_ids) == sum(NODES_BY_LABEL.values())
     changes = result.spec_changes.model_dump()
     assert all(not changes[name] for name in changes if name != "added")
 
-    documents = await neo4j_project.run(
-        "MATCH (d:Document) WHERE d.group_id = $p "
-        "OPTIONAL MATCH (d)-[c:CONTAINS]->(f:Fragment) WHERE f.group_id = $p "
-        "RETURN d.document_id AS document, d.status AS status, d.spec_id AS spec_id, count(f) AS fragments "
-        "ORDER BY document",
-        p=neo4j_project.project_id,
+    contained = Counter(
+        e.source.get("document_id")
+        for e in await graph_project.edges("CONTAINS")
+        if "Document" in e.source.labels and e.target.get("group_id") == graph_project.project_id
+    )
+    documents = sorted(
+        (
+            {
+                "document": d.get("document_id"),
+                "status": d.get("status"),
+                "spec_id": d.get("spec_id"),
+                "fragments": contained[d.get("document_id")],
+            }
+            for d in await graph_project.nodes("Document")
+        ),
+        key=lambda row: row["document"],
     )
     assert [(row["document"], row["status"], row["spec_id"]) for row in documents] == [
         (document, "active", f"DOC::{document}") for document in DOCUMENTS
     ]
     assert sum(row["fragments"] for row in documents) == FRAGMENTS
-    fragments = await neo4j_project.run(
-        "MATCH (f:Fragment) WHERE f.group_id = $p "
-        "RETURN f.fragment_id AS fragment, f.status AS status, f.error_code AS code, "
-        "f.extracted_hash AS extracted, f.content_hash AS content",
-        p=neo4j_project.project_id,
-    )
+    fragments = [
+        {
+            "fragment": f.get("fragment_id"),
+            "status": f.get("status"),
+            "code": f.get("error_code"),
+            "extracted": f.get("extracted_hash"),
+            "content": f.get("content_hash"),
+        }
+        for f in await graph_project.nodes("Fragment")
+    ]
     by_id = {row["fragment"]: row for row in fragments}
     assert len(by_id) == FRAGMENTS
     assert Counter(row["status"] for row in fragments) == {"active": FRAGMENTS - 1, "skipped": 1}
@@ -312,13 +338,13 @@ async def test_first_build_persists_every_fragment_and_ends_partially_succeeded(
     calls = Counter(call.prompt for call in shop.gateway.calls if call.call_class != "embedding")
     assert calls == CALLS_BY_PROMPT
     # the rest of the result
-    record = await shop.stores.builds.get_build(neo4j_project.project_id, result.build_id)
+    record = await shop.stores.builds.get_build(graph_project.project_id, result.build_id)
     assert record is not None and record.finished and record.progress == dict.fromkeys(STEPS, "done")
-    assert (result.project_id, result.build_id) == (neo4j_project.project_id, record.build_id)
+    assert (result.project_id, result.build_id) == (graph_project.project_id, record.build_id)
     assert result.started_at == record.started_at <= result.finished_at == record.finished_at
     assert record.status == result.status
-    # Spine sources reaching no module, counted by Cypher (no inference: before and after agree).
-    unreached = await spine_unreachable_count(neo4j_project, neo4j_project.project_id)
+    # Spine sources reaching no module, counted from the stored nodes and edges (no inference: before and after agree).
+    unreached = await spine_unreachable_count(graph_project, graph_project.project_id)
     assert metrics.spine_unreachable == verification.metrics.spine_unreachable_before == unreached
     # LLM calls and tokens per step are what the gateway recorded while that step ran
     assert {step: dict(calls.prompts()) for step, calls in shop.steps.items() if calls.prompts()} == PROMPTS_BY_STEP
@@ -350,13 +376,13 @@ async def test_first_build_persists_every_fragment_and_ends_partially_succeeded(
 # invariants checked by query
 
 
-async def test_first_build_graph_holds_invariants_d1_to_d4(shop: ShopBuild, neo4j_project: Neo4jProject) -> None:
-    project_id = neo4j_project.project_id
-    ontology = neo4j_project.ontology
+async def test_first_build_graph_holds_invariants_d1_to_d4(shop: ShopBuild, graph_project: GraphProject) -> None:
+    project_id = graph_project.project_id
+    ontology = graph_project.ontology
     domain_labels = set(ontology.labels)
 
     # D1: SpecNode plus exactly one domain label; nothing else of the project but documents and fragments
-    nodes = await neo4j_project.run("MATCH (n) WHERE n.group_id = $p RETURN labels(n) AS labels", p=project_id)
+    nodes = [{"labels": list(n.labels)} for n in await graph_project.nodes()]
     shapes = Counter("spec" if "SpecNode" in row["labels"] else "/".join(sorted(row["labels"])) for row in nodes)
     assert shapes == {"spec": sum(NODES_BY_LABEL.values()), "Fragment": FRAGMENTS, "Document": len(DOCUMENTS)}
     for row in nodes:
@@ -366,13 +392,7 @@ async def test_first_build_graph_holds_invariants_d1_to_d4(shop: ShopBuild, neo4
 
     # D2: every domain edge has a declared type on a legal pair (as stored, symmetric ones included)
     legal = ontology.edge_type_map()
-    edges = await neo4j_project.run(
-        "MATCH (s:SpecNode)-[r]->(t:SpecNode) WHERE s.group_id = $p "
-        "RETURN type(r) AS relation, [l IN labels(s) WHERE l <> 'SpecNode'][0] AS source, "
-        "[l IN labels(t) WHERE l <> 'SpecNode'][0] AS target, r.group_id AS group_id, r.uuid AS uuid, "
-        "r.edge_key AS edge_key, r.basis AS basis, r.source_fragment_ids AS fragments",
-        p=project_id,
-    )
+    edges = await domain_edges(graph_project.probe, project_id)
     assert Counter(row["relation"] for row in edges) == EDGES_BY_RELATION
     for row in edges:
         assert row["relation"] in legal.get((row["source"], row["target"]), ()), row
@@ -381,53 +401,46 @@ async def test_first_build_graph_holds_invariants_d1_to_d4(shop: ShopBuild, neo4
     assert len({row["uuid"] for row in edges}) == len(edges)
 
     # D3: spec_id and uuid unique per project, one node per identity key (keys carry their scope)
-    keys = await neo4j_project.run(
-        "MATCH (n:SpecNode) WHERE n.group_id = $p "
-        "RETURN count(n) AS nodes, count(DISTINCT n.spec_id) AS spec_ids, count(DISTINCT n.uuid) AS uuids, "
-        "count(DISTINCT n.identity_key) AS identity_keys",
-        p=project_id,
-    )
+    keys = await identity_counts(graph_project.probe, project_id)
     nodes = sum(NODES_BY_LABEL.values())
-    assert keys == [{"nodes": nodes, "spec_ids": nodes, "uuids": nodes, "identity_keys": nodes}]
+    assert keys == {"nodes": nodes, "spec_ids": nodes, "uuids": nodes, "identity_keys": nodes}
 
     # D4: every spec node grounded in an active or skipped fragment; every stated or implied edge has
     # evidence fragments that exist in the project
-    ungrounded = await neo4j_project.run(
-        "MATCH (n:SpecNode) WHERE n.group_id = $p AND NOT EXISTS { "
-        "MATCH (n)-[:REFERENCED_BY]->(f:Fragment) WHERE f.group_id = $p AND f.status IN ['active', 'skipped'] } "
-        "RETURN n.spec_id AS spec_id",
-        p=project_id,
-    )
+    ungrounded = await ungrounded_spec_ids(graph_project.probe, project_id)
     assert ungrounded == []
-    fragment_ids = {
-        row["id"]
-        for row in await neo4j_project.run(
-            "MATCH (f:Fragment) WHERE f.group_id = $p RETURN f.fragment_id AS id", p=project_id
-        )
-    }
+    fragment_ids = await fragment_ids_of(graph_project.probe, project_id)
     for row in edges:
         assert row["basis"] in ("stated", "implied"), row
         assert row["fragments"] and set(row["fragments"]) <= fragment_ids, row
 
     # Provenance: every quote and fact is verbatim source text of its evidence
-    quotes = await neo4j_project.run(
-        "MATCH (n:SpecNode)-[r:REFERENCED_BY]->(f:Fragment) WHERE n.group_id = $p AND n.quote IS NOT NULL "
-        "RETURN n.name AS name, n.quote AS quote, "
-        "collect([f.text, f.line_start, r.line_start, r.line_end]) AS spans",
-        p=project_id,
-    )
+    spans: dict[Any, list[Any]] = {}
+    quoted = {n.id: n for n in await graph_project.nodes("SpecNode") if n.get("quote") is not None}
+    for e in await graph_project.edges("REFERENCED_BY"):
+        if e.source.id in quoted and "Fragment" in e.target.labels:
+            spans.setdefault(e.source.id, []).append(
+                [e.target.get("text"), e.target.get("line_start"), e.get("line_start"), e.get("line_end")]
+            )
+    quotes = [
+        {"name": n.get("name"), "quote": n.get("quote"), "spans": spans[n.id]} for n in quoted.values() if n.id in spans
+    ]
     assert len(quotes) == sum(NODES_BY_LABEL.values())  # every answer quote snapped
     for row in quotes:
         lines = [
             " ".join(text.split("\n")[start - first : end - first + 1]) for text, first, start, end in row["spans"]
         ]
         assert any(squash(row["quote"]) in squash(line) for line in lines), row["name"]
-    facts = await neo4j_project.run(
-        "MATCH (s:SpecNode)-[r]->(:SpecNode) WHERE s.group_id = $p AND r.fact IS NOT NULL "
-        "MATCH (f:Fragment) WHERE f.group_id = $p AND f.fragment_id IN r.source_fragment_ids "
-        "RETURN elementId(r) AS edge, r.fact AS fact, collect(f.text) AS texts",
-        p=project_id,
-    )
+    fragment_text = {f.get("fragment_id"): f.get("text") for f in await graph_project.nodes("Fragment")}
+    facts = [
+        {
+            "edge": e.id,
+            "fact": e["fact"],
+            "texts": [fragment_text[i] for i in e.get("source_fragment_ids") or [] if i in fragment_text],
+        }
+        for e in await spec_edges(graph_project.probe, project_id)
+        if e.get("fact") is not None and any(i in fragment_text for i in e.get("source_fragment_ids") or [])
+    ]
     assert len(facts) == sum(EDGES_BY_RELATION.values()) - 1  # the implied PART_OF of a `module` attribute has none
     for row in facts:
         assert any(squash(row["fact"]) in squash(text) for text in row["texts"]), row["fact"]
@@ -436,30 +449,32 @@ async def test_first_build_graph_holds_invariants_d1_to_d4(shop: ShopBuild, neo4
 # Specific nodes and edges of the answers
 
 
-async def test_explicit_ids_decide_label_and_identity(shop: ShopBuild, neo4j_project: Neo4jProject) -> None:
-    rows = await neo4j_project.run(
-        "MATCH (n:SpecNode) WHERE n.group_id = $p AND n.identity_key STARTS WITH 'requirement|id|' "
-        "RETURN n.identity_key AS key, [l IN labels(n) WHERE l <> 'SpecNode'][0] AS label, n.spec_id AS spec_id "
-        "ORDER BY key",
-        p=neo4j_project.project_id,
+async def test_explicit_ids_decide_label_and_identity(shop: ShopBuild, graph_project: GraphProject) -> None:
+    rows = sorted(
+        (
+            {"key": n.get("identity_key"), "label": n.kind, "spec_id": n.get("spec_id")}
+            for n in await graph_project.nodes("SpecNode")
+            if str(n.get("identity_key")).startswith("requirement|id|")
+        ),
+        key=lambda row: row["key"],
     )
     assert [row["key"] for row in rows] == [f"requirement|id|FR-CHK-00{number}" for number in range(1, 7)]
     # was extracted as a QualityRequirement and FR_CHK_006 written with underscores
     assert {row["label"] for row in rows} == {"FunctionalRequirement"}
     assert all(row["spec_id"].startswith(f"REQ::FR::FR_CHK_00{n}_") for n, row in enumerate(rows, start=1))
-    assert await evidence(neo4j_project, "System can show every basket line with quantity and unit price") == {
+    assert await evidence(graph_project, "System can show every basket line with quantity and unit price") == {
         CHK_FEATURES: (13, 13)
     }
 
 
 async def test_requirement_of_one_document_is_part_of_a_feature_of_another(
-    shop: ShopBuild, neo4j_project: Neo4jProject
+    shop: ShopBuild, graph_project: GraphProject
 ) -> None:
     """: admin.md never names the feature that orders.md defines; the edge catalog of the admin unit offers it and the
     requirement is PART_OF it.
     """
 
-    assert await edges_between(neo4j_project, DATE_DEFAULT, EXPORT_FEATURE) == [
+    assert await edges_between(graph_project, DATE_DEFAULT, EXPORT_FEATURE) == [
         {
             "relation": "PART_OF",
             "basis": "stated",
@@ -467,8 +482,8 @@ async def test_requirement_of_one_document_is_part_of_a_feature_of_another(
             "fragments": [ADM_FINANCE],
         }
     ]
-    assert set(await evidence(neo4j_project, DATE_DEFAULT)) == {ADM_FINANCE}
-    assert set(await evidence(neo4j_project, EXPORT_FEATURE)) == {ORD_EXPORT}
+    assert set(await evidence(graph_project, DATE_DEFAULT)) == {ADM_FINANCE}
+    assert set(await evidence(graph_project, EXPORT_FEATURE)) == {ORD_EXPORT}
     resolved = await shop.artifact("resolve", ResolveArtifact)
     edges = await shop.artifact("extract_edges", EdgesArtifact)
     feature = next(node.cid for node in resolved.canonical if node.name == EXPORT_FEATURE)
@@ -482,96 +497,97 @@ async def test_requirement_of_one_document_is_part_of_a_feature_of_another(
     assert foreign == {EXPORT_FEATURE, "Audit logging", "Authentication"}
 
 
-async def test_reversed_edges_flip_and_illegal_edge_is_dropped(shop: ShopBuild, neo4j_project: Neo4jProject) -> None:
+async def test_reversed_edges_flip_and_illegal_edge_is_dropped(shop: ShopBuild, graph_project: GraphProject) -> None:
     """on the way: a module REALIZED_BY a capability and a module PART_OF a requirement flip; RELATES_TO between two
     capabilities is dropped and counted.
     """
 
-    assert [row["relation"] for row in await edges_between(neo4j_project, "Audit logging", "Orders database")] == [
+    assert [row["relation"] for row in await edges_between(graph_project, "Audit logging", "Orders database")] == [
         "REALIZED_BY"
     ]
-    assert await edges_between(neo4j_project, "Orders database", "Audit logging") == []
+    assert await edges_between(graph_project, "Orders database", "Audit logging") == []
     pay_now = "Pay now responds within 800 ms at p95 under 200 concurrent checkouts"
-    assert [row["relation"] for row in await edges_between(neo4j_project, pay_now, "Checkout service")] == ["PART_OF"]
-    assert await edges_between(neo4j_project, "Checkout service", pay_now) == []
-    assert await edges_between(neo4j_project, "Authentication", "Audit logging") == []
-    assert await edges_between(neo4j_project, "Audit logging", "Authentication") == []
+    assert [row["relation"] for row in await edges_between(graph_project, pay_now, "Checkout service")] == ["PART_OF"]
+    assert await edges_between(graph_project, "Checkout service", pay_now) == []
+    assert await edges_between(graph_project, "Authentication", "Audit logging") == []
+    assert await edges_between(graph_project, "Audit logging", "Authentication") == []
     target = await shop.artifact("conform", TargetGraph)
     assert target.counters.flipped_edges == 2
     assert target.counters.dropped_edges == {"RELATES_TO": {"illegal_pair": 1}}
 
 
-async def test_dedup_merges_restatements_across_documents(shop: ShopBuild, neo4j_project: Neo4jProject) -> None:
+async def test_dedup_merges_restatements_across_documents(shop: ShopBuild, graph_project: GraphProject) -> None:
     """: the admin.md and orders.md CSV statements are one node (adjudicated the same); the lowest identity key survives
     and keeps the other as an alias, with evidence and statements of both.
     """
 
-    rows = await neo4j_project.run(
-        "MATCH (n:SpecNode) WHERE n.group_id = $p AND n.name IN [$a, $b] RETURN n.name AS name",
-        p=neo4j_project.project_id,
-        a=CSV_ADMIN,
-        b=CSV_ORDERS,
-    )
-    assert [row["name"] for row in rows] == [CSV_ADMIN]
-    node = await spec_node(neo4j_project, CSV_ADMIN)
+    named = [n.get("name") for n in await graph_project.nodes("SpecNode") if n.get("name") in (CSV_ADMIN, CSV_ORDERS)]
+    assert named == [CSV_ADMIN]
+    node = await spec_node(graph_project, CSV_ADMIN)
     assert node["key"] == (
         "requirement|span|staff users must be able to download the list of past orders as a csv file"
     )
     assert node["aliases"] == ["requirement|span|staff users must be able to download the order history as a csv file"]
-    assert await evidence(neo4j_project, CSV_ADMIN) == {ADM_FINANCE: (10, 10), ORD_OBLIGATIONS: (14, 14)}
+    assert await evidence(graph_project, CSV_ADMIN) == {ADM_FINANCE: (10, 10), ORD_OBLIGATIONS: (14, 14)}
     statements = json.loads(node["statements"])
     assert sorted(statement["document_id"] for statement in statements) == ["admin.md", "orders.md"]
-    (edge,) = await edges_between(neo4j_project, CSV_ADMIN, EXPORT_FEATURE)
+    (edge,) = await edges_between(graph_project, CSV_ADMIN, EXPORT_FEATURE)
     assert (edge["relation"], sorted(edge["fragments"])) == ("PART_OF", [ADM_FINANCE, ORD_OBLIGATIONS])
     dedup = [call.key for call in shop.gateway.calls_for(DEDUP_PROMPT)]
     assert dedup == [tuple(sorted((CSV_ADMIN, CSV_ORDERS)))]
 
 
-async def test_hub_consolidation_merges_alias(shop: ShopBuild, neo4j_project: Neo4jProject) -> None:
+async def test_hub_consolidation_merges_alias(shop: ShopBuild, graph_project: GraphProject) -> None:
     """: "Audit trail" (orders.md) and "Audit logging" (overview.md) are one capability."""
 
-    assert (
-        await neo4j_project.run(
-            "MATCH (n:SpecNode) WHERE n.group_id = $p AND n.name = 'Audit trail' RETURN n", p=neo4j_project.project_id
-        )
-        == []
-    )
-    node = await spec_node(neo4j_project, "Audit logging")
-    assert (node["labels"], node["key"], node["aliases"]) == (
-        ["SpecNode", "Capability"],
+    assert await graph_project.nodes("SpecNode", name="Audit trail") == []
+    node = await spec_node(graph_project, "Audit logging")
+    assert (sorted(node["labels"]), node["key"], node["aliases"]) == (
+        ["Capability", "SpecNode"],
         "Capability|surface|audit logging",
         ["Capability|surface|audit trail"],
     )
     # grounded where its quote snaps, and on the line naming the alias in the merged member's fragment
-    assert await evidence(neo4j_project, "Audit logging") == {OV_AUDIT: (55, 56), ORD_OBLIGATIONS: (17, 17)}
+    assert await evidence(graph_project, "Audit logging") == {OV_AUDIT: (55, 56), ORD_OBLIGATIONS: (17, 17)}
     resolved = await shop.artifact("resolve", ResolveArtifact)
     assert (resolved.counters.consolidation.calls, resolved.counters.consolidation.merges) == (1, 1)
 
 
 async def test_hubs_ground_in_every_fragment_and_only_hubs_are_mentioned(
-    shop: ShopBuild, neo4j_project: Neo4jProject
+    shop: ShopBuild, graph_project: GraphProject
 ) -> None:
-    assert await evidence(neo4j_project, "Checkout service") == {OV_CHECKOUT: (17, 17), CHK_INTRO: (3, 4)}
+    assert await evidence(graph_project, "Checkout service") == {OV_CHECKOUT: (17, 17), CHK_INTRO: (3, 4)}
     assert await evidence(
-        neo4j_project, "Purchase order holds po_number, order_id, total_amount, currency, created_at, approved_by"
+        graph_project, "Purchase order holds po_number, order_id, total_amount, currency, created_at, approved_by"
     ) == {ORD_PO: (23, 23)}
-    mentions = await neo4j_project.run(
-        "MATCH (n:SpecNode)-[m:MENTIONED_IN]->(f:Fragment) WHERE n.group_id = $p "
-        "RETURN [l IN labels(n) WHERE l <> 'SpecNode'][0] AS label, n.name AS name, f.fragment_id AS fragment, "
-        "m.count AS count, m.group_id AS group_id, EXISTS { (n)-[:REFERENCED_BY]->(f) } AS grounded",
-        p=neo4j_project.project_id,
-    )
+    grounded = {
+        (e.source.id, e.target.id) for e in await graph_project.edges("REFERENCED_BY") if "Fragment" in e.target.labels
+    }
+    mentions = [
+        {
+            "label": e.source.kind,
+            "name": e.source.get("name"),
+            "fragment": e.target.get("fragment_id"),
+            "count": e.get("count"),
+            "group_id": e.get("group_id"),
+            "grounded": (e.source.id, e.target.id) in grounded,
+        }
+        for e in await graph_project.edges("MENTIONED_IN")
+        if "SpecNode" in e.source.labels
+        and e.source.get("group_id") == graph_project.project_id
+        and "Fragment" in e.target.labels
+    ]
     assert mentions
-    hubs = neo4j_project.ontology.hub_labels
+    hubs = graph_project.ontology.hub_labels
     for row in mentions:
         assert row["label"] in hubs and row["count"] > 0 and not row["grounded"], row
-        assert row["group_id"] == neo4j_project.project_id
+        assert row["group_id"] == graph_project.project_id
     # "Orders service" is named in the line of checkout.md, which does not ground it
     assert {(row["name"], row["fragment"]) for row in mentions} >= {("Orders service", CHK_CONFIRM)}
 
 
 async def test_implied_edges_from_id_reference_and_module_attribute(
-    shop: ShopBuild, neo4j_project: Neo4jProject
+    shop: ShopBuild, graph_project: GraphProject
 ) -> None:
     """: the quote "see " relates the two requirements (the quote line is the fact); a `module` attribute without a
     stated edge gives an implied PART_OF without a fact.
@@ -579,7 +595,7 @@ async def test_implied_edges_from_id_reference_and_module_attribute(
 
     repeat = "System can repeat the recalculated order totals in the export"
     assert await edges_between(
-        neo4j_project, "System can recalculate basket total when a quantity changes", repeat
+        graph_project, "System can recalculate basket total when a quantity changes", repeat
     ) == [
         {
             "relation": "RELATES_TO",
@@ -590,13 +606,13 @@ async def test_implied_edges_from_id_reference_and_module_attribute(
         }
     ]
     reject = "System can reject a date range that starts after it ends"
-    assert await edges_between(neo4j_project, reject, "Orders service") == [
+    assert await edges_between(graph_project, reject, "Orders service") == [
         {"relation": "PART_OF", "basis": "implied", "fact": None, "fragments": [ORD_DETAILS]}
     ]
     # a `module` attribute that repeats a stated edge leaves one stated edge
     assert [
         (row["relation"], row["basis"])
-        for row in await edges_between(neo4j_project, "Basket review", "Checkout service")
+        for row in await edges_between(graph_project, "Basket review", "Checkout service")
     ] == [("PART_OF", "stated")]
 
 
@@ -640,11 +656,11 @@ async def test_the_hub_pass_runs_first_and_seeds_the_known_terms_of_the_statemen
 
 
 async def test_without_the_hub_catalog_option_the_statement_pass_sees_no_known_term(
-    neo4j_project: Neo4jProject, scripted_gateway: Any, tmp_path: Path
+    graph_project: GraphProject, scripted_gateway: Any, tmp_path: Path
 ) -> None:
     gateway = ANSWERS.install(scripted_gateway(live_llm_config()))
     options = ANSWERS.options.model_copy(update={"hub_catalog": False})
-    built = await build_shop(neo4j_project, gateway, tmp_path / "stores", neo4j_project.project_id, options)
+    built = await build_shop(graph_project, gateway, tmp_path / "stores", graph_project.project_id, options)
     assert built.result.status == "partially_succeeded"
     assert built.result.metrics.nodes_by_label == NODES_BY_LABEL
     nodes = await built.artifact("extract_nodes", NodesArtifact)
@@ -652,14 +668,14 @@ async def test_without_the_hub_catalog_option_the_statement_pass_sees_no_known_t
     assert {hub.name for hub in nodes.hub_catalog} == HUB_TERMS  # the hub pass still runs
     for call in gateway.calls_for(NODE_STATEMENTS_PROMPT):
         assert all(label != KNOWN_TERMS_LABEL for label, _ in untrusted_blocks(call.messages[-1]["content"]))
-    assert await neo4j_project.count() == sum(NODES_BY_LABEL.values()) + FRAGMENTS + len(DOCUMENTS)
+    assert await graph_project.count() == sum(NODES_BY_LABEL.values()) + FRAGMENTS + len(DOCUMENTS)
 
 
 # /: the prompt-injection line
 
 
 async def test_prompt_injection_line_reaches_prompts_only_inside_untrusted_blocks(
-    shop: ShopBuild, neo4j_project: Neo4jProject
+    shop: ShopBuild, graph_project: GraphProject
 ) -> None:
     carried_by: set[str] = set()
     for call in shop.gateway.calls:
@@ -673,21 +689,17 @@ async def test_prompt_injection_line_reaches_prompts_only_inside_untrusted_block
                 carried_by.add(call.prompt)
     # notes.md has no node, so its unit makes no edge call: only node extraction carries the line
     assert carried_by == {NODE_HUBS_PROMPT, NODE_STATEMENTS_PROMPT}
-    assert (
-        await neo4j_project.run(
-            "MATCH (n:SpecNode) WHERE n.group_id = $p AND (n.name = 'X' OR n.name STARTS WITH 'X ') RETURN n",
-            p=neo4j_project.project_id,
-        )
-        == []
-    )
-    assert (
-        await neo4j_project.run(
-            "MATCH (n:SpecNode)-[:REFERENCED_BY]->(f:Fragment) WHERE n.group_id = $p AND f.document_id = 'notes.md' "
-            "RETURN n.name AS name",
-            p=neo4j_project.project_id,
-        )
-        == []
-    )
+    assert [
+        n for n in await graph_project.nodes("SpecNode") if n.get("name") == "X" or str(n.get("name")).startswith("X ")
+    ] == []
+    assert [
+        e.source.get("name")
+        for e in await graph_project.edges("REFERENCED_BY")
+        if e.source.get("group_id") == graph_project.project_id
+        and "SpecNode" in e.source.labels
+        and "Fragment" in e.target.labels
+        and e.target.get("document_id") == "notes.md"
+    ] == []
 
 
 # Persist: idempotent batches, a done cursor writes nothing
@@ -697,22 +709,22 @@ PERSIST_TEST_BATCH: int = 40
 
 
 async def test_persist_rerun_writes_nothing_and_the_registry_holds_the_persisted_ids(
-    neo4j_project: Neo4jProject, scripted_gateway: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    graph_project: GraphProject, scripted_gateway: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     batches = writing.batches
     monkeypatch.setattr(writing, "batches", lambda operations, *_: batches(operations, PERSIST_TEST_BATCH))
     gateway = ANSWERS.install(scripted_gateway(live_llm_config()))
-    shop = await build_shop(neo4j_project, gateway, tmp_path / "stores", neo4j_project.project_id)
-    project_id = neo4j_project.project_id
-    before = await neo4j_project.snapshot()
+    shop = await build_shop(graph_project, gateway, tmp_path / "stores", graph_project.project_id)
+    project_id = graph_project.project_id
+    before = await graph_project.snapshot()
     cursor = await shop.artifact("persist", PersistCursor)
     assert cursor.done and cursor.batches >= 3 and cursor.batch_index == cursor.batches - 1
 
     # every spec_id the diff issued is in the registry, active, with the persisted node's key and uuid
-    nodes = await neo4j_project.run(
-        "MATCH (n:SpecNode) WHERE n.group_id = $p RETURN n.spec_id AS spec_id, n.uuid AS uuid, n.identity_key AS key",
-        p=project_id,
-    )
+    nodes = [
+        {"spec_id": n.get("spec_id"), "uuid": n.get("uuid"), "key": n.get("identity_key")}
+        for n in await graph_project.nodes("SpecNode")
+    ]
     taken = await shop.stores.registry.taken(project_id)
     assert set(taken) == {row["spec_id"] for row in nodes}
     for row in nodes:
@@ -723,7 +735,7 @@ async def test_persist_rerun_writes_nothing_and_the_registry_holds_the_persisted
     applied: list[int] = []
     await steps.persist(shop.ctx, on_batch=applied.append)
     assert applied == []
-    assert await neo4j_project.snapshot() == before
+    assert await graph_project.snapshot() == before
     assert await shop.artifact("persist", PersistCursor) == cursor
 
     # the last batch applied again (an interrupted persist resumes at the batch after its cursor)
@@ -735,7 +747,7 @@ async def test_persist_rerun_writes_nothing_and_the_registry_holds_the_persisted
     )
     await steps.persist(shop.ctx, on_batch=applied.append)
     assert applied == [cursor.batches - 1]
-    assert await neo4j_project.snapshot() == before
+    assert await graph_project.snapshot() == before
     assert (await shop.artifact("persist", PersistCursor)).done
     assert await shop.stores.registry.taken(project_id) == taken
 
@@ -746,46 +758,47 @@ async def test_persist_rerun_writes_nothing_and_the_registry_holds_the_persisted
 
 
 async def test_two_projects_built_from_one_corpus_stay_isolated(
-    shop: ShopBuild, neo4j_project: Neo4jProject, scripted_gateway: Any, tmp_path: Path
+    shop: ShopBuild, graph_project: GraphProject, scripted_gateway: Any, tmp_path: Path
 ) -> None:
-    first = neo4j_project.project_id
-    before = await neo4j_project.snapshot(first)
-    second = neo4j_project.new_project()
+    first = graph_project.project_id
+    before = await graph_project.snapshot(first)
+    second = graph_project.new_project()
     gateway = ANSWERS.install(scripted_gateway(live_llm_config()))
     # same file stores root: the shared extraction store must not carry project A's results over
-    other = await build_shop(neo4j_project, gateway, tmp_path / "stores", second)
+    other = await build_shop(graph_project, gateway, tmp_path / "stores", second)
 
     assert other.result.mode == "first"
     assert other.result.metrics.model_dump(exclude={"llm", "duration_s"}) == shop.result.metrics.model_dump(
         exclude={"llm", "duration_s"}
     )
     assert Counter(call.prompt for call in gateway.calls if call.call_class != "embedding") == CALLS_BY_PROMPT
-    assert await neo4j_project.snapshot(first) == before
+    assert await graph_project.snapshot(first) == before
 
-    counts = await neo4j_project.run(
-        "UNWIND [$a, $b] AS p "
-        "CALL (p) { MATCH (n) WHERE n.group_id = p RETURN count(n) AS nodes } "
-        "CALL (p) { MATCH (s)-[r]->(t) WHERE s.group_id = p RETURN count(r) AS relationships } "
-        "RETURN p, nodes, relationships ORDER BY p",
-        a=first,
-        b=second,
-    )
+    counts = [
+        {
+            "p": p,
+            "nodes": await graph_project.count(p),
+            "relationships": len([e for e in await graph_project.edges(project_id=p) if e.source.get("group_id") == p]),
+        }
+        for p in sorted((first, second))
+    ]
     assert counts[0]["nodes"] == counts[1]["nodes"] == sum(NODES_BY_LABEL.values()) + FRAGMENTS + len(DOCUMENTS)
     assert counts[0]["relationships"] == counts[1]["relationships"]
-    crossing = await neo4j_project.run(
-        "MATCH (s)-[r]->(t) WHERE (s.group_id IN [$a, $b] OR t.group_id IN [$a, $b]) "
-        "AND NOT (s.group_id = t.group_id AND r.group_id = s.group_id) RETURN count(r) AS n",
-        a=first,
-        b=second,
-    )
-    assert crossing == [{"n": 0}]
-    ids = await neo4j_project.run(
-        "MATCH (n:SpecNode) WHERE n.group_id IN [$a, $b] "
-        "RETURN n.group_id AS p, collect(n.spec_id) AS spec_ids, collect(n.uuid) AS uuids",
-        a=first,
-        b=second,
-    )
-    by_project = {row["p"]: row for row in ids}
+    touching = {e.id: e for p in (first, second) for e in await graph_project.edges(project_id=p)}
+    crossing = [
+        e
+        for e in touching.values()
+        if (e.source.get("group_id") in (first, second) or e.target.get("group_id") in (first, second))
+        and not (e.source.get("group_id") == e.target.get("group_id") and e.get("group_id") == e.source.get("group_id"))
+    ]
+    assert len(crossing) == 0
+    by_project = {
+        p: {
+            "spec_ids": [n.get("spec_id") for n in await graph_project.nodes("SpecNode", project_id=p)],
+            "uuids": [n.get("uuid") for n in await graph_project.nodes("SpecNode", project_id=p)],
+        }
+        for p in (first, second)
+    }
     # same corpus, same spec_ids; uuids are derived from the project id, so they never collide
     assert sorted(by_project[first]["spec_ids"]) == sorted(by_project[second]["spec_ids"])
     assert not set(by_project[first]["uuids"]) & set(by_project[second]["uuids"])

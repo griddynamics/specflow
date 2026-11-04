@@ -9,8 +9,8 @@ Rules for anyone, person or coding agent, who changes this repository.
 - `frontend/` - Next.js web app. Rules: `frontend/AGENTS.md`.
 - `validation/` - the static checks that CI runs (`make validate`).
 - `docs/` - configuration reference, graph design, file parsers, design system.
-- Repo root - `docker-compose.yml`, `.env.example`, `config/` and the `Makefile` that runs
-  everything.
+- Repo root - `docker-compose.yml`, `.env.example`, `config/`, the `Makefile` that runs
+  everything and `scripts/` (shell scripts the `Makefile` calls, such as `env-local.sh`).
 
 ## Area rules
 
@@ -30,6 +30,13 @@ Run these from the repo root before you open a pull request:
 | `make validate` | All static validation tracks (the same as CI) |
 | `make frontend-build` | The frontend builds |
 | `make e2e-production` | Offline browser tests against the built frontend |
+
+## Pull requests and commits
+
+- Do not mention internal tickets in a pull request title or description, or in a commit
+  message. This includes Jira keys (for example `ABC-123`) and links to the internal Jira.
+- Describe the change, its reason and how you checked it. A reader without access to the
+  internal tracker must understand the pull request.
 
 ## Frontend design system
 

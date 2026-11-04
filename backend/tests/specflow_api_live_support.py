@@ -16,7 +16,7 @@ from api.runtime import Runtime
 from db.session import build_engine, build_session_factory
 from health import Readiness
 from settings import load_settings
-from specflow_api_support import FakeDriver, FakeTemporal, Harness
+from specflow_api_support import FakeGraphStore, FakeTemporal, Harness
 from storage.memory import InMemoryObjectStore
 
 
@@ -24,7 +24,7 @@ async def open_harness(migrated_database, valid_env, temporal, id_prefix=""):
     engine = build_engine(migrated_database)
     factory = build_session_factory(engine)
     settings = replace(load_settings("api", valid_env), database=migrated_database)
-    store, driver = InMemoryObjectStore(app_env="local"), FakeDriver()
+    store, graph_store = InMemoryObjectStore(app_env="local"), FakeGraphStore()
 
     async def ok() -> None:
         return None
@@ -35,7 +35,7 @@ async def open_harness(migrated_database, valid_env, temporal, id_prefix=""):
             session_factory=factory,
             store=store,
             temporal=temporal,
-            driver=driver,
+            graph_store=graph_store,
             readiness=Readiness({"database": ok}, ttl=0),
             id_prefix=id_prefix,
         )
@@ -57,7 +57,7 @@ async def live(migrated_database, valid_env):
                 factory,
                 store,
                 temporal,
-                FakeDriver(),
+                FakeGraphStore(),
                 app.state.runtime,
                 {},
             )

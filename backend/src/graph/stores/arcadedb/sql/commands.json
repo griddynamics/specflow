@@ -1,0 +1,9 @@
+{
+ "_note": "ArcadeDB SQL (HTTP admin API), not PostgreSQL; __NAME__ tokens are filled with validated names.",
+ "create_index_fulltext": "CREATE INDEX IF NOT EXISTS ON __TYPE__ (__COLUMNS__) FULL_TEXT",
+ "create_index_unique": "CREATE INDEX IF NOT EXISTS ON __TYPE__ (__COLUMNS__) UNIQUE NULL_STRATEGY SKIP",
+ "create_index_vector": "CREATE INDEX IF NOT EXISTS ON __TYPE__ (__COLUMNS__) LSM_VECTOR METADATA {\"dimensions\": __DIMENSION__, \"similarity\": \"COSINE\"}",
+ "create_property": "CREATE PROPERTY __TYPE__.__PROPERTY__ IF NOT EXISTS __KIND__",
+ "create_vertex_type": "CREATE VERTEX TYPE __TYPE__ IF NOT EXISTS",
+ "schema_types": "SELECT FROM schema:types"
+}
