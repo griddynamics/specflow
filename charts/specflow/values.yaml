@@ -1,0 +1,162 @@
+nameOverride: ""
+fullnameOverride: ""
+
+# This chart deploys one component per Helm release. The defaults describe the
+# API so the chart can be linted and inspected without another values file.
+component: api
+
+replicaCount: 1
+
+image:
+  registry: ghcr.io
+  repository: griddynamics/specflow-api
+  tag: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+command: []
+args: []
+
+containerPorts:
+  - name: http
+    containerPort: 8000
+    protocol: TCP
+
+env:
+  - name: APP_ENV
+    value: prod
+  - name: API_PORT
+    value: "8000"
+  - name: GRAPH_STATE_DIR
+    value: /var/lib/specflow/graph
+
+envFrom: []
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+terminationGracePeriodSeconds: 30
+
+strategy:
+  type: Recreate
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 6
+
+startupProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  periodSeconds: 5
+  timeoutSeconds: 5
+  failureThreshold: 30
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: false
+
+service:
+  enabled: true
+  type: ClusterIP
+  annotations: {}
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+      protocol: TCP
+
+# When mountPath is non-empty, disabled persistence renders an emptyDir. Enable
+# persistence or set existingClaim to use a PVC at the same path.
+persistence:
+  enabled: false
+  existingClaim: ""
+  name: graph-state
+  mountPath: /var/lib/specflow/graph
+  size: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  storageClass: ""
+  retain: true
+  annotations: {}
+
+volumes:
+  - name: tmp
+    emptyDir: {}
+
+volumeMounts:
+  - name: tmp
+    mountPath: /tmp
+
+routing:
+  type: none
+  hostnames: []
+  paths:
+    - path: /
+      pathType: Prefix
+  ingress:
+    className: ""
+    annotations: {}
+    tls: []
+  httpRoute:
+    parentRefs: []
+    annotations: {}
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: null
+  behavior: {}
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: null
+  maxUnavailable: 1
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+priorityClassName: ""
+
+extraObjects: []
+

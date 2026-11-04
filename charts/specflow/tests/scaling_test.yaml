@@ -1,0 +1,62 @@
+suite: Scaling and disruption budgets
+templates:
+  - hpa.yaml
+  - pdb.yaml
+tests:
+  - it: renders neither resource by default
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: hpa.yaml
+      - hasDocuments:
+          count: 0
+        template: pdb.yaml
+
+  - it: renders a CPU and memory HPA for frontend
+    values:
+      - ../examples/components/frontend.yaml
+    set:
+      autoscaling.enabled: true
+      autoscaling.minReplicas: 2
+      autoscaling.maxReplicas: 6
+      autoscaling.targetCPUUtilizationPercentage: 75
+      autoscaling.targetMemoryUtilizationPercentage: 80
+    asserts:
+      - isKind:
+          of: HorizontalPodAutoscaler
+        template: hpa.yaml
+      - equal:
+          path: spec.minReplicas
+          value: 2
+        template: hpa.yaml
+      - equal:
+          path: spec.maxReplicas
+          value: 6
+        template: hpa.yaml
+      - lengthEqual:
+          path: spec.metrics
+          count: 2
+        template: hpa.yaml
+      - equal:
+          path: spec.metrics[1].resource.target.averageUtilization
+          value: 80
+        template: hpa.yaml
+
+  - it: renders a PDB with minAvailable
+    values:
+      - ../examples/components/frontend.yaml
+    set:
+      podDisruptionBudget.enabled: true
+      podDisruptionBudget.minAvailable: 1
+      podDisruptionBudget.maxUnavailable: null
+    asserts:
+      - isKind:
+          of: PodDisruptionBudget
+        template: pdb.yaml
+      - equal:
+          path: spec.minAvailable
+          value: 1
+        template: pdb.yaml
+      - isNull:
+          path: spec.maxUnavailable
+        template: pdb.yaml

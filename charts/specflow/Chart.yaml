@@ -1,0 +1,24 @@
+apiVersion: v2
+name: specflow
+description: A reusable Helm chart for deploying one Specflow component
+type: application
+version: 0.1.0
+appVersion: "2.0.0"
+kubeVersion: ">=1.25.0-0"
+home: https://github.com/griddynamics/specflow
+icon: https://raw.githubusercontent.com/griddynamics/specflow/main/frontend/app/icon.svg
+sources:
+  - https://github.com/griddynamics/specflow
+keywords:
+  - specflow
+  - knowledge-graph
+  - mcp
+  - temporal
+  - ai
+maintainers:
+  - name: Specflow Team
+    url: https://github.com/griddynamics/specflow
+annotations:
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/category: integration-delivery
+

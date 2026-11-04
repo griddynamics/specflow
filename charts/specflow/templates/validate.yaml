@@ -1,0 +1,109 @@
+{{- $component := .Values.component -}}
+{{- if eq $component "api" -}}
+  {{- if ne (int .Values.replicaCount) 1 -}}
+    {{- fail "api requires replicaCount=1 because its startup migration has no distributed lock" -}}
+  {{- end -}}
+  {{- if .Values.autoscaling.enabled -}}
+    {{- fail "api does not support autoscaling while its startup migration has no distributed lock" -}}
+  {{- end -}}
+  {{- if ne (get .Values.strategy "type") "Recreate" -}}
+    {{- fail "api requires strategy.type=Recreate because its startup migration has no distributed lock" -}}
+  {{- end -}}
+  {{- if ne .Values.persistence.mountPath "/var/lib/specflow/graph" -}}
+    {{- fail "api requires persistence.mountPath=/var/lib/specflow/graph" -}}
+  {{- end -}}
+{{- end -}}
+
+{{- if or (eq $component "worker-agent") (eq $component "worker-parse") -}}
+  {{- if .Values.service.enabled -}}
+    {{- fail (printf "%s must set service.enabled=false; the health port is internal to the Pod" $component) -}}
+  {{- end -}}
+  {{- if ne .Values.routing.type "none" -}}
+    {{- fail (printf "%s must set routing.type=none" $component) -}}
+  {{- end -}}
+  {{- if lt (int .Values.terminationGracePeriodSeconds) 150 -}}
+    {{- fail (printf "%s requires terminationGracePeriodSeconds of at least 150" $component) -}}
+  {{- end -}}
+{{- end -}}
+
+{{- if eq $component "mcp" -}}
+  {{- if not (deepEqual .Values.command (list "specflow" "mcp")) -}}
+    {{- fail "mcp requires command: [specflow, mcp] to bypass the API image startup migration" -}}
+  {{- end -}}
+{{- end -}}
+
+{{- if and (ne .Values.routing.type "none") (not .Values.service.enabled) -}}
+  {{- fail "routing requires service.enabled=true" -}}
+{{- end -}}
+{{- if and .Values.service.enabled (eq (len .Values.service.ports) 0) -}}
+  {{- fail "service.ports must contain at least one port when service.enabled=true" -}}
+{{- end -}}
+{{- if and (ne .Values.routing.type "none") (eq (len .Values.routing.hostnames) 0) -}}
+  {{- fail "routing.hostnames must contain at least one hostname when routing is enabled" -}}
+{{- end -}}
+{{- if and (ne .Values.routing.type "none") (eq (len .Values.routing.paths) 0) -}}
+  {{- fail "routing.paths must contain at least one path when routing is enabled" -}}
+{{- end -}}
+{{- if and (eq .Values.routing.type "httpRoute") (eq (len .Values.routing.httpRoute.parentRefs) 0) -}}
+  {{- fail "routing.httpRoute.parentRefs must contain at least one Gateway reference" -}}
+{{- end -}}
+
+{{- if and .Values.persistence.enabled .Values.persistence.existingClaim -}}
+  {{- fail "persistence.enabled and persistence.existingClaim are mutually exclusive" -}}
+{{- end -}}
+{{- if and (or .Values.persistence.enabled .Values.persistence.existingClaim) (eq .Values.persistence.mountPath "") -}}
+  {{- fail "persistence.mountPath is required when a PVC is configured" -}}
+{{- end -}}
+
+{{- if .Values.autoscaling.enabled -}}
+  {{- if gt (int .Values.autoscaling.minReplicas) (int .Values.autoscaling.maxReplicas) -}}
+    {{- fail "autoscaling.minReplicas must be less than or equal to maxReplicas" -}}
+  {{- end -}}
+  {{- if and (eq .Values.autoscaling.targetCPUUtilizationPercentage nil) (eq .Values.autoscaling.targetMemoryUtilizationPercentage nil) -}}
+    {{- fail "autoscaling requires a CPU or memory target" -}}
+  {{- end -}}
+{{- end -}}
+
+{{- if .Values.podDisruptionBudget.enabled -}}
+  {{- if and (ne .Values.podDisruptionBudget.minAvailable nil) (ne .Values.podDisruptionBudget.maxUnavailable nil) -}}
+    {{- fail "podDisruptionBudget must set only one of minAvailable or maxUnavailable" -}}
+  {{- end -}}
+  {{- if and (eq .Values.podDisruptionBudget.minAvailable nil) (eq .Values.podDisruptionBudget.maxUnavailable nil) -}}
+    {{- fail "podDisruptionBudget requires minAvailable or maxUnavailable" -}}
+  {{- end -}}
+{{- end -}}
+
+{{- $bannedEnv := list "AUTH_MODE" "AUTH_DEV_SIGNING_KEY" "NODE_ENV" "HOSTNAME" "PORT" "HF_HUB_OFFLINE" "DOCLING_ARTIFACTS_PATH" "MALLOC_ARENA_MAX" "ALEMBIC_CONFIG" "KUBERNETES_SERVICE_HOST" -}}
+{{- $envSeen := dict -}}
+{{- range $entry := .Values.env -}}
+  {{- if has $entry.name $bannedEnv -}}
+    {{- fail (printf "env contains application-, image-, or Kubernetes-owned variable %s" $entry.name) -}}
+  {{- end -}}
+  {{- if hasKey $envSeen $entry.name -}}
+    {{- fail (printf "env contains duplicate variable %s" $entry.name) -}}
+  {{- end -}}
+  {{- $_ := set $envSeen $entry.name true -}}
+{{- end -}}
+
+{{- $volumeNames := dict -}}
+{{- $mountPaths := dict -}}
+{{- if .Values.persistence.mountPath -}}
+  {{- $_ := set $volumeNames .Values.persistence.name true -}}
+  {{- $_ := set $mountPaths .Values.persistence.mountPath true -}}
+{{- end -}}
+{{- range $volume := .Values.volumes -}}
+  {{- if hasKey $volumeNames $volume.name -}}
+    {{- fail (printf "volumes contains duplicate or persistence-owned name %s" $volume.name) -}}
+  {{- end -}}
+  {{- $_ := set $volumeNames $volume.name true -}}
+{{- end -}}
+{{- range $mount := .Values.volumeMounts -}}
+  {{- if not (hasKey $volumeNames $mount.name) -}}
+    {{- fail (printf "volumeMounts references undefined volume %s" $mount.name) -}}
+  {{- end -}}
+  {{- if hasKey $mountPaths $mount.mountPath -}}
+    {{- fail (printf "volumeMounts contains duplicate or persistence-owned mountPath %s" $mount.mountPath) -}}
+  {{- end -}}
+  {{- $_ := set $mountPaths $mount.mountPath true -}}
+{{- end -}}
+

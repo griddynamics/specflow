@@ -1,0 +1,169 @@
+suite: Component contracts
+templates:
+  - deployment.yaml
+  - service.yaml
+  - pvc.yaml
+tests:
+  - it: renders the API contract
+    values:
+      - ../examples/components/api.yaml
+    asserts:
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+        template: deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 8000
+        template: deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRAPH_STORE_URI
+            valueFrom:
+              configMapKeyRef:
+                name: specflow-api
+                key: GRAPH_STORE_URI
+        template: deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GRAPH_STORE_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: specflow-api
+                key: GRAPH_STORE_PASSWORD
+        template: deployment.yaml
+      - isKind:
+          of: PersistentVolumeClaim
+        template: pvc.yaml
+
+  - it: renders the frontend contract
+    values:
+      - ../examples/components/frontend.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/griddynamics/specflow-frontend:2.0.0
+        template: deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 3000
+        template: deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /api/health
+        template: deployment.yaml
+      - equal:
+          path: spec.ports[0].port
+          value: 3000
+        template: service.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SESSION_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: specflow-frontend
+                key: SESSION_SECRET
+        template: deployment.yaml
+
+  - it: renders the MCP contract
+    values:
+      - ../examples/components/mcp.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/griddynamics/specflow-api:2.0.0
+        template: deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].command
+          value:
+            - specflow
+            - mcp
+        template: deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 8002
+        template: deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MCP_RESOURCE_URL
+            valueFrom:
+              configMapKeyRef:
+                name: specflow-mcp
+                key: MCP_RESOURCE_URL
+        template: deployment.yaml
+
+  - it: renders the agent worker contract without a Service
+    values:
+      - ../examples/components/worker-agent.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/griddynamics/specflow-worker-agents:2.0.0
+        template: deployment.yaml
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 150
+        template: deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 8001
+        template: deployment.yaml
+      - isNull:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet
+        template: deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.exec.command
+          value:
+            - specflow
+            - worker
+            - --check
+        template: deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DATABASE_AGENT_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: specflow-worker-agent
+                key: DATABASE_AGENT_PASSWORD
+        template: deployment.yaml
+      - hasDocuments:
+          count: 0
+        template: service.yaml
+
+  - it: renders the parse worker contract with its own image
+    values:
+      - ../examples/components/worker-parse.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/griddynamics/specflow-worker-parse:2.0.0
+        template: deployment.yaml
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 150
+        template: deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].containerPort
+          value: 8001
+        template: deployment.yaml
+      - equal:
+          path: spec.template.spec.volumes[0].emptyDir.sizeLimit
+          value: 1Gi
+        template: deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DRIVE_IDENTITY_EMAIL
+            valueFrom:
+              configMapKeyRef:
+                name: specflow-worker-parse
+                key: DRIVE_IDENTITY_EMAIL
+        template: deployment.yaml
+      - hasDocuments:
+          count: 0
+        template: service.yaml

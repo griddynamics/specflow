@@ -1,0 +1,37 @@
+{{- if eq .Values.routing.type "ingress" }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "specflow.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "specflow.labels" . | nindent 4 }}
+  {{- with .Values.routing.ingress.annotations }}
+  annotations:
+    {{- tpl (toYaml .) $ | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.routing.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.routing.ingress.tls }}
+  tls:
+    {{- tpl (toYaml .) $ | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range $host := .Values.routing.hostnames }}
+    - host: {{ tpl $host $ | quote }}
+      http:
+        paths:
+          {{- range $path := $.Values.routing.paths }}
+          - path: {{ $path.path | quote }}
+            pathType: {{ $path.pathType }}
+            backend:
+              service:
+                name: {{ include "specflow.fullname" $ }}
+                port:
+                  number: {{ include "specflow.primaryServicePort" $ }}
+          {{- end }}
+    {{- end }}
+{{- end }}
+

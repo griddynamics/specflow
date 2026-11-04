@@ -1,0 +1,49 @@
+suite: Extra objects
+templates:
+  - extra-objects.yaml
+tests:
+  - it: renders an object and evaluates trusted template values
+    release:
+      name: my-specflow
+      namespace: application
+    set:
+      extraObjects:
+        - apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: '{{ .Release.Name }}-extension'
+            namespace: '{{ .Release.Namespace }}'
+          data:
+            component: '{{ .Values.component }}'
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - equal:
+          path: metadata.name
+          value: my-specflow-extension
+      - equal:
+          path: metadata.namespace
+          value: application
+      - equal:
+          path: data.component
+          value: api
+
+  - it: renders trusted YAML strings
+    set:
+      extraObjects:
+        - |
+          apiVersion: policy/v1
+          kind: PodDisruptionBudget
+          metadata:
+            name: {{ include "specflow.fullname" . }}-extra
+          spec:
+            maxUnavailable: 1
+            selector:
+              matchLabels:
+                app.kubernetes.io/instance: {{ .Release.Name }}
+    asserts:
+      - isKind:
+          of: PodDisruptionBudget
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-specflow-extra
