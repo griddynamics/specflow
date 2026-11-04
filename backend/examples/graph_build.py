@@ -8,21 +8,19 @@ import os
 from pathlib import Path
 from typing import Any
 
-from pydantic import SecretStr, ValidationError
+from pydantic import ValidationError
 
-from example_lib import run_example
+from example_lib import build_result_summary, run_example
 from graph.build import BuildContext, BuildResult, FileStores, open_file_stores, plan, run_build
 from graph.build.models import PlanArtifact
-from graph.core import Gateway, LLMConfig, Neo4jConfig, connect, ensure_schema, load_ontology
+from graph.core import Gateway, LLMConfig, ensure_schema, load_ontology
+from graph.stores import StoreConfig, build_store
 from logger.logger import INFO, get_logger, log_event
-from settings import GraphBuildSettings
+from settings import ConfigurationError, GraphBuildSettings, load_graph_store_settings
 
 logger = get_logger("examples.graph_build")
 
 REQUIRED_ENVIRONMENT = (
-    "NEO4J_URI",
-    "NEO4J_USER",
-    "NEO4J_PASSWORD",
     "LLM_GATEWAY_URL",
     "LLM_GATEWAY_API_KEY",
     "GRAPH_LLM_MODEL",
@@ -65,13 +63,13 @@ def environment() -> dict[str, str]:
     return {name: os.environ[name].strip() for name in REQUIRED_ENVIRONMENT}
 
 
-def neo4j_config(env: dict[str, str]) -> Neo4jConfig:
-    return Neo4jConfig(
-        uri=env["NEO4J_URI"],
-        user=env["NEO4J_USER"],
-        password=SecretStr(env["NEO4J_PASSWORD"]),
-        database=os.environ.get("NEO4J_DATABASE", "").strip() or None,
-    )
+def store_config() -> StoreConfig:
+    """The graph store settings of the environment, through the host's own settings loader."""
+
+    try:
+        return load_graph_store_settings().to_store_config()
+    except ConfigurationError as error:
+        raise SystemExit(f"{error} (run with `uv run --env-file ../.env.local`)") from None
 
 
 def llm_config(env: dict[str, str]) -> LLMConfig:
@@ -86,29 +84,11 @@ def llm_config(env: dict[str, str]) -> LLMConfig:
 
 
 def result_summary(result: BuildResult) -> dict[str, Any]:
-    metrics = result.metrics
-    return {
-        "project_id": result.project_id,
-        "build_id": result.build_id,
-        "mode": result.mode,
-        "status": result.status,
-        "settled": result.settled,
-        "failed_step": result.failed_step,
-        "error_code": result.error_code,
-        "spec_changes": {name: len(values) for name, values in result.spec_changes.model_dump().items() if values},
-        "skipped_fragments": dict(sorted(result.skipped_fragments.items())),
-        "follow_up_lineages": list(result.verification.follow_up_lineages) if result.verification else [],
-        "fragments_by_status": metrics.fragments_by_status,
-        "units_extracted": metrics.units_extracted,
-        "units_reused": metrics.units_reused,
-        "nodes_by_label": metrics.nodes_by_label,
-        "edges_by_relation": metrics.edges_by_relation,
-        "dropped_edges": metrics.dropped_edges,
-        "exclusive_conflicts": metrics.exclusive_conflicts,
-        "attribution_fallbacks": metrics.attribution_fallbacks,
-        "llm": {step: usage.model_dump() for step, usage in metrics.llm.items()},
-        "duration_s": metrics.duration_s,
-    }
+    summary = build_result_summary(result)
+    duration_s = summary.pop("duration_s")
+    summary["llm"] = {step: usage.model_dump() for step, usage in result.metrics.llm.items()}
+    summary["duration_s"] = duration_s
+    return summary
 
 
 def plan_summary(project_id: str, build_id: str, artifact: PlanArtifact) -> dict[str, Any]:
@@ -142,23 +122,23 @@ async def retry_lineages(stores: FileStores, project_id: str, args: argparse.Nam
 async def main() -> None:
     args = parse_args()
     env = environment()
-    neo4j = neo4j_config(env)
+    store_settings = store_config()
     llm = llm_config(env)
     ontology = load_ontology()
     stores = open_file_stores(args.state, args.corpus)
     if stores.corpus is None:
         raise RuntimeError("file stores were opened without a corpus")
-    driver = connect(neo4j)
+    store = build_store(store_settings)
     gateway = Gateway(llm)
     try:
         retry = await retry_lineages(stores, args.project, args)
         log_event(logger, INFO, "example.graph_build.retry", lineages=len(retry))
-        created = await ensure_schema(driver, ontology, llm, neo4j.database)
+        created = await ensure_schema(store, ontology, llm)
         log_event(logger, INFO, "example.graph_build.schema", created=len(created))
         ctx = BuildContext(
             project_id=args.project,
             ontology=ontology,
-            driver=driver,
+            driver=store,
             gateway=gateway,
             registry=stores.registry,
             corpus=stores.corpus,
@@ -167,7 +147,6 @@ async def main() -> None:
             rebuild=args.rebuild,
             retry_lineages=retry,
             build_id=args.build_id,
-            database=neo4j.database,
         )
         if args.plan_only:
             build_id = await plan(ctx)
@@ -178,7 +157,7 @@ async def main() -> None:
         print(json.dumps(summary, indent=2, sort_keys=False))
     finally:
         await gateway.aclose()
-        await driver.close()
+        await store.close()
 
 
 if __name__ == "__main__":

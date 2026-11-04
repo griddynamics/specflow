@@ -31,6 +31,13 @@ Run these from the repo root before you open a pull request:
 | `make frontend-build` | The frontend builds |
 | `make e2e-production` | Offline browser tests against the built frontend |
 
+## Pull requests and commits
+
+- Do not mention internal tickets in a pull request title or description, or in a commit
+  message. This includes Jira keys (for example `ABC-123`) and links to the internal Jira.
+- Describe the change, its reason and how you checked it. A reader without access to the
+  internal tracker must understand the pull request.
+
 ## Frontend design system
 
 UI work follows the design system in `docs/design-system/`. Start with its `USAGE.md`.

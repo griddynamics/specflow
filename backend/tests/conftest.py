@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import os
+import sys
 from pathlib import Path
 
 # The Docling models come from the local Hugging Face cache or DOCLING_ARTIFACTS_PATH (the worker-parse
@@ -25,11 +27,14 @@ os.environ.update(
 from collections.abc import Iterator
 from typing import Any
 
+import httpx
 import pytest
 
 import llm.sandbox as sandbox_module
 import logger._stderr as stderr_module
 import logger.correlation as correlation_module
+from graph.core.errors import GraphError
+from graph_probes.arcadedb import drop_session_databases
 
 # Registers the `central_log` harness fixture and the tier-2 `temporal_live` fixture
 # for every test module (plain imports of a fixture into a test module are unused-import
@@ -113,6 +118,7 @@ _SPECFLOW_ENV_PREFIXES = (
     "TEMPORAL_",
     "WORKER_",
     "NEO4J_",
+    "GRAPH_STORE",
     "AGENT_",
     "LLM_GATEWAY_",
     "LANGFUSE_",
@@ -158,10 +164,20 @@ def valid_env(run_idp: Any) -> dict[str, str]:
         "GOOGLE_CLOUD_PROJECT": "test-project",
         "TEMPORAL_ADDRESS": "localhost:7233",
         "TEMPORAL_NAMESPACE": "specflow-local",
-        "NEO4J_URI": "bolt://localhost:7687",
-        "NEO4J_USER": "neo4j",
-        "NEO4J_PASSWORD": "neo-pass-4e8a",
+        "GRAPH_STORE_URI": "bolt://localhost:7687",
+        "GRAPH_STORE_USER": "neo4j",
+        "GRAPH_STORE_PASSWORD": "neo-pass-4e8a",
         "AGENT_MODEL": "test/model",
         "LLM_GATEWAY_URL": "https://gateway.example.test/openai",
         "LLM_GATEWAY_API_KEY": "gateway-key-3c6e",
     }
+
+
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """Drop the ArcadeDB databases the live graph tests created (none unless that store ran)."""
+
+    del session, exitstatus
+    try:
+        asyncio.run(drop_session_databases())
+    except (GraphError, httpx.HTTPError, OSError) as error:  # a failed cleanup must not fail a finished run
+        sys.stderr.write(f"graph test cleanup: could not drop a test database ({type(error).__name__})\n")

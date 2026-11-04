@@ -78,7 +78,7 @@ from graph_support import (
 )
 from logger_harness import events, fields
 
-# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, neo4j_project) live in graph_support.
+# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, graph_project) live in graph_support.
 pytest_plugins = ["graph_support"]
 
 PROJECT = "pytest-graph-run"

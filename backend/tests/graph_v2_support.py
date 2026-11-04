@@ -24,11 +24,12 @@ from graph.build import (
 from graph.build import resolve as resolution
 from graph.build.hubjudge import ConsolidationParams
 from graph.core import LLMConfig, Ontology
+from graph_probes.base import ProbeEdge
 from graph_support import (
     NO_ANSWER,
     NO_LINK_VERDICTS,
+    GraphProject,
     Handler,
-    Neo4jProject,
     ScriptedGateway,
     ScriptedRequest,
     ScriptError,
@@ -303,7 +304,7 @@ class ShopV2Builds:
     corpus index under ``root``; every model answer is hand-written (``ShopAnswers`` plus the judge
     scripts above)."""
 
-    project: Neo4jProject
+    project: GraphProject
     factory: Callable[..., ScriptedGateway]
     root: Path
     project_id: str = ""
@@ -333,14 +334,13 @@ class ShopV2Builds:
         return BuildContext(
             project_id=self.project_id,
             ontology=self.ontology,
-            driver=self.project.driver,
+            driver=self.project.store,
             gateway=gateway,
             registry=self.stores.registry,
             corpus=FileCorpusSource(corpus, self.root) if corpus else shop_v2_corpus(snapshot, self.root),
             extraction=self.stores.extraction,
             builds=self.stores.builds,
             options=shop_v2_answers(snapshot).options,
-            database=self.project.database,
             settings=BuildSettings(inference=True),
         )
 
@@ -363,3 +363,19 @@ def shop_v2_without(snapshot: int, documents: Collection[str], into: Path) -> Pa
     target = Path(into) / f"{snapshot}-without"
     shutil.copytree(SHOP_V2_DIR / str(snapshot), target, ignore=lambda _, names: [n for n in names if n in documents])
     return target
+
+
+def has_short_cycle(edges: list[ProbeEdge], starts: set[str], limit: int) -> bool:
+    """Whether a directed path of 1 to ``limit`` of ``edges`` leads from a node of ``starts`` back to it."""
+
+    outgoing: dict[str, set[str]] = {}
+    for e in edges:
+        outgoing.setdefault(e.source.id, set()).add(e.target.id)
+    for start in starts:
+        frontier, seen = {start}, set()
+        for _ in range(limit):
+            frontier = {t for current in frontier for t in outgoing.get(current, ())} - seen
+            if start in frontier:
+                return True
+            seen |= frontier
+    return False

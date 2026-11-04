@@ -4,7 +4,7 @@
 #   sh scripts/env-local.sh write ENV_FILE            (make env-local)
 #   sh scripts/env-local.sh check-keycloak ENV_FILE   (make check-keycloak-env, before make up)
 #
-# write: writes ENV_FILE with random local secrets (Postgres, Neo4j, session key, RustFS keys, the bundled
+# write: writes ENV_FILE with random local secrets (Postgres, the graph store, session key, RustFS keys, the bundled
 # Keycloak's admin, QA, web-client and personal-user passwords) and a fixed id for the personal user. It asks
 # for your email (LOCAL_TEST_USER_EMAIL; Enter = git user.email; without a terminal dev@example.com), derives
 # AUTH_ALLOWED_EMAIL_DOMAINS from it (your domain and example.com, written only when missing) and asks for the
@@ -21,7 +21,7 @@
 # commands still work).
 
 # Generated secrets.
-ENV_LOCAL_NAMES="POSTGRES_ADMIN_PASSWORD DATABASE_PASSWORD DATABASE_AGENT_PASSWORD NEO4J_PASSWORD \
+ENV_LOCAL_NAMES="POSTGRES_ADMIN_PASSWORD DATABASE_PASSWORD DATABASE_AGENT_PASSWORD GRAPH_STORE_PASSWORD \
 SESSION_SECRET RUSTFS_ACCESS_KEY RUSTFS_SECRET_KEY \
 KEYCLOAK_ADMIN_PASSWORD KEYCLOAK_QA_PASSWORD KEYCLOAK_WEB_CLIENT_SECRET \
 LOCAL_TEST_USER_PASSWORD LOCAL_TEST_USER_ID"
@@ -79,6 +79,9 @@ write_secrets() {
 	fi
 	for name in $ENV_LOCAL_NAMES; do
 		[ -n "$(val "$name")" ] && continue
+		# A file written before GRAPH_STORE_PASSWORD existed keeps its NEO4J_PASSWORD, the password its Neo4j volume
+		# was created with: compose and the settings fall back to it, so no new one is generated.
+		[ "$name" = GRAPH_STORE_PASSWORD ] && [ -n "$(val NEO4J_PASSWORD)" ] && continue
 		put "$name" "$(gen "$name")"; added="$added $name"
 	done
 }

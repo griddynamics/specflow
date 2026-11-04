@@ -71,12 +71,12 @@ def oidc_env(valid_env: dict[str, str], stub: StubIssuer, **over: str) -> dict[s
 
 def fake_runtime(
     *,
-    neo4j_ok: bool = True,
+    graph_ok: bool = True,
     reader: Any = None,
     session_factory: Any = None,
     ontology: Any = None,
 ) -> McpRuntime:
-    """A runtime with fake probes: no engine, no driver, no I/O; MCP-M5 passes its reader, sessions, ontology."""
+    """A runtime with fake probes: no engine, no store, no I/O; MCP-M5 passes its reader, sessions, ontology."""
 
     async def ok() -> None:
         return None
@@ -88,11 +88,11 @@ def fake_runtime(
         return None
 
     unused = cast(Any, None)
-    probes = {"database": ok, "neo4j": ok if neo4j_ok else down}
+    probes = {"database": ok, "graph": ok if graph_ok else down}
     return McpRuntime(
         engine=unused,
         session_factory=session_factory or unused,
-        driver=unused,
+        store=unused,
         ontology=ontology or unused,
         reader=reader or unused,
         readiness=Readiness(probes),

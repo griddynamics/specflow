@@ -44,7 +44,6 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import AuthorizationCodeResult, OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 from mcp.shared.exceptions import MCPError
 from mcp.types import LATEST_PROTOCOL_VERSION, GetPromptResult, TextContent
-from neo4j import AsyncDriver
 from pydantic import AnyUrl, SecretStr, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,15 +54,15 @@ from db.session import build_engine, build_session_factory
 from graph.core import (
     GraphReader,
     LLMConfig,
-    Neo4jConfig,
     Ontology,
     OwnedWriter,
-    connect,
     ensure_schema,
     load_ontology,
 )
+from graph.core.store import GraphStore
+from graph.stores import build_store
 from logger.logger import INFO, get_logger, log_event
-from settings import GRAPH_EMBEDDING_DIM, DatabaseSettings
+from settings import GRAPH_EMBEDDING_DIM, ConfigurationError, DatabaseSettings, load_graph_store_settings
 
 logger = get_logger("examples.mcp_qa")
 
@@ -473,39 +472,34 @@ def _placeholder_llm_config(environ: Mapping[str, str]) -> LLMConfig:
 
 
 @asynccontextmanager
-async def neo4j_driver(environ: Mapping[str, str]) -> AsyncIterator[AsyncDriver]:
-    names = ("NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD")
-    missing = [name for name in names if not environ.get(name, "").strip()]
-    if missing:
-        raise QaError(
-            "neo4j is not configured: set " + ", ".join(missing) + " (apply_local_defaults sets the first two)"
-        )
-    config = Neo4jConfig(
-        uri=environ["NEO4J_URI"].strip(),
-        user=environ["NEO4J_USER"].strip(),
-        password=SecretStr(environ["NEO4J_PASSWORD"].strip()),
-        database=environ.get("NEO4J_DATABASE", "").strip() or None,
-    )
-    driver = connect(config)
+async def graph_store(environ: Mapping[str, str]) -> AsyncIterator[GraphStore]:
+    """The graph store of ``environ`` (``GRAPH_STORE*``; for neo4j the ``NEO4J_*`` names still work)."""
+
     try:
-        yield driver
+        settings = load_graph_store_settings(environ)
+    except ConfigurationError as error:
+        raise QaError(
+            f"the graph store is not configured: {error} (apply_local_defaults sets the neo4j host)"
+        ) from None
+    store = build_store(settings.to_store_config())
+    try:
+        yield store
     finally:
-        await driver.close()
+        await store.close()
 
 
 async def _seed_graph(environ: Mapping[str, str], ids: FixtureIds) -> dict[str, dict[str, int]]:
     """Write the fixture through `OwnedWriter` as the build owner; return the node counts read back."""
 
     ontology = load_ontology()
-    database = environ.get("NEO4J_DATABASE", "").strip() or None
     counts: dict[str, dict[str, int]] = {}
-    async with neo4j_driver(environ) as driver:
-        await ensure_schema(driver, ontology, _placeholder_llm_config(environ), database)
-        reader = GraphReader(driver, ontology, database=database)
+    async with graph_store(environ) as store:
+        await ensure_schema(store, ontology, _placeholder_llm_config(environ))
+        reader = GraphReader(store, ontology)
         for name, project_id in ids.projects.items():
             nodes = fixture_nodes(name, str(project_id), ontology)
             if nodes:
-                writer = OwnedWriter(driver, ontology, "build", str(project_id), database=database)
+                writer = OwnedWriter(store, ontology, "build", str(project_id))
                 async with writer.transaction() as group:
                     for node in nodes:
                         await group.upsert_node(node.label, node.uuid, node.properties)
@@ -514,7 +508,7 @@ async def _seed_graph(environ: Mapping[str, str], ids: FixtureIds) -> dict[str, 
 
 
 async def seed(environ: Mapping[str, str] | None = None) -> SeedReport:
-    """Idempotent seed of the SpecFlow side (Postgres and Neo4j); a second run reports the same counts.
+    """Idempotent seed of the SpecFlow side (Postgres and the graph store); a second run reports the same counts.
 
     The Keycloak users come from the realm import (`config/keycloak/specflow-realm.json`), with the fixed ids of
     `QA_USER_IDS`: the seed creates only the rows and graph nodes that belong to them. Postgres is read from

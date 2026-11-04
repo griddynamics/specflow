@@ -1,73 +1,59 @@
-"""Build Cypher: every query text the build runs, as named ``Query`` constants."""
+"""Build queries: every query the build runs, as named ``Query`` objects (architecture.md I3, design D2).
+
+Like the core catalog (``graph.core.queries``) these are dialect-neutral: a name, a template id
+(``build.<file stem>``) and typed semantic arguments. The canonical statements live in ``.cypher`` files
+under ``queries/`` next to this module and are loaded through ``load_build_query`` by a Cypher store's
+dialect; a query whose relationship type, labels or hop count are only known at run time is a file with
+``__NAME__`` tokens that the dialect fills with the validated names its factory gives.
+
+Every query binds the project id; the executor injects it and the dialect refuses one that does not.
+"""
 
 from __future__ import annotations
 
 import hashlib
 from functools import cache
-from pathlib import Path
 from typing import Final
 
 from graph.core.errors import ConformanceError
-from graph.core.queries import Query, safe_name
-from graph.core.query_files import read_query_file, render_query
+from graph.core.queries import (
+    EndpointSubjects,
+    Query,
+    RealizationSubjects,
+    Relation,
+    SimilarTargets,
+    safe_name,
+)
 
-_QUERY_DIRECTORY: Final = Path(__file__).resolve().parent / "queries"
 _MAX_HOPS: Final = 16
-
-
-def load_build_query(name: str) -> str:
-    """The text of the build query file ``name`` (relative to ``queries/``)."""
-
-    return read_query_file(_QUERY_DIRECTORY, name)
 
 
 # Plan: the persisted documents the snapshot is compared with. Missing
 # properties are defaulted so a row always validates as a ``DocumentRec``.
-READ_PERSISTED_DOCUMENTS: Final = Query(
-    "build_read_persisted_documents",
-    load_build_query("build_read_persisted_documents.cypher"),
-)
+READ_PERSISTED_DOCUMENTS: Final = Query("build_read_persisted_documents", "build.build_read_persisted_documents")
 
 # Plan: the persisted fragments a revision's fragments are matched with; retired
 # fragments are history and never matched. Ordered by document, then ordinal.
-READ_PERSISTED_FRAGMENTS: Final = Query(
-    "build_read_persisted_fragments",
-    load_build_query("build_read_persisted_fragments.cypher"),
-)
+READ_PERSISTED_FRAGMENTS: Final = Query("build_read_persisted_fragments", "build.build_read_persisted_fragments")
 
 # Extract nodes: known terms of an ``update`` build are the names of the persisted
 # hub nodes. ``$labels`` are the ontology's hub labels.
-READ_PERSISTED_HUBS: Final = Query(
-    "build_read_persisted_hubs",
-    load_build_query("build_read_persisted_hubs.cypher"),
-)
+READ_PERSISTED_HUBS: Final = Query("build_read_persisted_hubs", "build.build_read_persisted_hubs")
 
 # Mode selection: whether anything of the project was persisted. An interrupted first
 # persist can leave spec nodes without any ``Document`` (documents are written in the last phase).
-READ_PERSISTED_PRESENCE: Final = Query(
-    "build_read_persisted_presence",
-    load_build_query("build_read_persisted_presence.cypher"),
-)
+READ_PERSISTED_PRESENCE: Final = Query("build_read_persisted_presence", "build.build_read_persisted_presence")
 
 
 # Diff: the current graph. Spec nodes are found through the ``(group_id, uuid)`` unique
 # index (``uuid IS NOT NULL`` lets the planner seek on its ``group_id`` prefix); the vectors are left out.
-READ_CURRENT_NODES: Final = Query(
-    "build_read_current_nodes",
-    load_build_query("build_read_current_nodes.cypher"),
-)
+READ_CURRENT_NODES: Final = Query("build_read_current_nodes", "build.build_read_current_nodes")
 
 # Each node's ``REFERENCED_BY`` (with the text of its evidence lines, cut from the fragment text whose
 # line ``i`` is source line ``line_start + i``) and ``MENTIONED_IN`` relationships.
-READ_CURRENT_LINKS: Final = Query(
-    "build_read_current_links",
-    load_build_query("build_read_current_links.cypher"),
-)
+READ_CURRENT_LINKS: Final = Query("build_read_current_links", "build.build_read_current_links")
 
-READ_CURRENT_FRAGMENTS: Final = Query(
-    "build_read_current_fragments",
-    load_build_query("build_read_current_fragments.cypher"),
-)
+READ_CURRENT_FRAGMENTS: Final = Query("build_read_current_fragments", "build.build_read_current_fragments")
 
 
 @cache
@@ -76,10 +62,7 @@ def read_current_edges(relation: str) -> Query:
     index, with the uuid, identity key and ``spec_id`` of both ends."""
 
     rel = safe_name(relation)
-    return Query(
-        f"build_read_current_edges_{rel}",
-        render_query(load_build_query("read_current_edges.cypher"), type=rel),
-    )
+    return Query(f"build_read_current_edges_{rel}", "build.read_current_edges", Relation(rel))
 
 
 # Persist. Each query takes ``$rows`` (one map per operation of a batch) and runs
@@ -88,15 +71,9 @@ def read_current_edges(relation: str) -> Query:
 # relationship types are rendered from validated names (``relationship_query``). Every query returns
 # ``written``, the number of rows that found what they write to.
 
-CREATE_SPEC_NODES: Final = Query(
-    "build_create_spec_nodes",
-    load_build_query("build_create_spec_nodes.cypher"),
-)
+CREATE_SPEC_NODES: Final = Query("build_create_spec_nodes", "build.build_create_spec_nodes")
 
-UPDATE_SPEC_NODES: Final = Query(
-    "build_update_spec_nodes",
-    load_build_query("build_update_spec_nodes.cypher"),
-)
+UPDATE_SPEC_NODES: Final = Query("build_update_spec_nodes", "build.build_update_spec_nodes")
 
 # Merge: per row, every relationship of each merged node whose type build does not own
 # (``$owned_types``) moves to the survivor (same pattern as the core ``MOVE_FOREIGN_RELATIONSHIPS``: same
@@ -105,42 +82,21 @@ UPDATE_SPEC_NODES: Final = Query(
 # then the merged node is deleted with its build-owned relationships. The survivor gets its final
 # ``spec_id_aliases`` (its other properties and stamps come with its update). A merged node already
 # gone (the batch applied again) is skipped.
-MERGE_SPEC_NODES: Final = Query(
-    "build_merge_spec_nodes",
-    load_build_query("build_merge_spec_nodes.cypher"),
-)
+MERGE_SPEC_NODES: Final = Query("build_merge_spec_nodes", "build.build_merge_spec_nodes")
 
-DELETE_SPEC_NODES: Final = Query(
-    "build_delete_spec_nodes",
-    load_build_query("build_delete_spec_nodes.cypher"),
-)
+DELETE_SPEC_NODES: Final = Query("build_delete_spec_nodes", "build.build_delete_spec_nodes")
 
 # A missing fragment is created as a key-only stub: fragments are written in the last phase
 # (documents and fragments), which then sets their properties.
-REPLACE_NODE_LINKS: Final = Query(
-    "build_replace_node_links",
-    load_build_query("build_replace_node_links.cypher"),
-)
+REPLACE_NODE_LINKS: Final = Query("build_replace_node_links", "build.build_replace_node_links")
 
-UPSERT_DOCUMENTS: Final = Query(
-    "build_upsert_documents",
-    load_build_query("build_upsert_documents.cypher"),
-)
+UPSERT_DOCUMENTS: Final = Query("build_upsert_documents", "build.build_upsert_documents")
 
-SET_DOCUMENT_STATUS: Final = Query(
-    "build_set_document_status",
-    load_build_query("build_set_document_status.cypher"),
-)
+SET_DOCUMENT_STATUS: Final = Query("build_set_document_status", "build.build_set_document_status")
 
-UPSERT_FRAGMENTS: Final = Query(
-    "build_upsert_fragments",
-    load_build_query("build_upsert_fragments.cypher"),
-)
+UPSERT_FRAGMENTS: Final = Query("build_upsert_fragments", "build.build_upsert_fragments")
 
-SET_FRAGMENT_STATUS: Final = Query(
-    "build_set_fragment_status",
-    load_build_query("build_set_fragment_status.cypher"),
-)
+SET_FRAGMENT_STATUS: Final = Query("build_set_fragment_status", "build.build_set_fragment_status")
 
 # Domain edges of one relation: the type is rendered (a dynamic type in MATCH/MERGE scans); the caller
 # checks ``Ontology.is_declared``, the factories check the safe-name pattern. Edges are found through
@@ -152,10 +108,7 @@ def upsert_edges(relation: str) -> Query:
     """MERGE edges by ``row.edge_key`` between the nodes with uuids ``row.source`` and ``row.target``."""
 
     rel = safe_name(relation)
-    return Query(
-        f"build_upsert_edges_{rel}",
-        render_query(load_build_query("upsert_edges.cypher"), type=rel),
-    )
+    return Query(f"build_upsert_edges_{rel}", "build.upsert_edges", Relation(rel))
 
 
 @cache
@@ -165,10 +118,7 @@ def update_edges(relation: str) -> Query:
     ``uuid`` is matched on its key alone."""
 
     rel = safe_name(relation)
-    return Query(
-        f"build_update_edges_{rel}",
-        render_query(load_build_query("update_edges.cypher"), type=rel),
-    )
+    return Query(f"build_update_edges_{rel}", "build.update_edges", Relation(rel))
 
 
 @cache
@@ -176,10 +126,7 @@ def delete_edges(relation: str) -> Query:
     """Delete the edge ``row.uuid`` stored under ``row.edge_key`` (an edge without a ``uuid``: by key)."""
 
     rel = safe_name(relation)
-    return Query(
-        f"build_delete_edges_{rel}",
-        render_query(load_build_query("delete_edges.cypher"), type=rel),
-    )
+    return Query(f"build_delete_edges_{rel}", "build.delete_edges", Relation(rel))
 
 
 # Verification ("Verification"; ``graph.build.verify``). The reads return only what build
@@ -189,57 +136,30 @@ def delete_edges(relation: str) -> Query:
 # (a fault may have removed a node's ``uuid`` or an edge's ``edge_key``) and re-check the project and
 # the owned type, so they never touch a foreign node or relationship.
 
-VERIFY_SPEC_NODES: Final = Query(
-    "build_verify_spec_nodes",
-    load_build_query("build_verify_spec_nodes.cypher"),
-)
+VERIFY_SPEC_NODES: Final = Query("build_verify_spec_nodes", "build.build_verify_spec_nodes")
 
 # Domain edges touching a spec node of the project (either end may be something else: a fault).
-VERIFY_DOMAIN_EDGES: Final = Query(
-    "build_verify_domain_edges",
-    load_build_query("build_verify_domain_edges.cypher"),
-)
+VERIFY_DOMAIN_EDGES: Final = Query("build_verify_domain_edges", "build.build_verify_domain_edges")
 
 # Fragments: status and hashes (never the text), and whether any spec node is grounded in them.
-VERIFY_FRAGMENTS: Final = Query(
-    "build_verify_fragments",
-    load_build_query("build_verify_fragments.cypher"),
-)
+VERIFY_FRAGMENTS: Final = Query("build_verify_fragments", "build.build_verify_fragments")
 
-REPAIR_DELETE_EDGES: Final = Query(
-    "build_repair_delete_edges",
-    load_build_query("build_repair_delete_edges.cypher"),
-)
+REPAIR_DELETE_EDGES: Final = Query("build_repair_delete_edges", "build.build_repair_delete_edges")
 
 # A spec node deleted by a repair goes with its relationships.
-REPAIR_DELETE_NODES: Final = Query(
-    "build_repair_delete_nodes",
-    load_build_query("build_repair_delete_nodes.cypher"),
-)
+REPAIR_DELETE_NODES: Final = Query("build_repair_delete_nodes", "build.build_repair_delete_nodes")
 
 # ``row.remove``: the node's other build-owned labels; ``row.label``: the label it keeps (both checked
 # against the ontology by the caller); ``row.label_disagreement``: its value with that label (null
 # removes it).
-REPAIR_SET_LABELS: Final = Query(
-    "build_repair_set_labels",
-    load_build_query("build_repair_set_labels.cypher"),
-)
+REPAIR_SET_LABELS: Final = Query("build_repair_set_labels", "build.build_repair_set_labels")
 
-REPAIR_SET_SPEC_IDS: Final = Query(
-    "build_repair_set_spec_ids",
-    load_build_query("build_repair_set_spec_ids.cypher"),
-)
+REPAIR_SET_SPEC_IDS: Final = Query("build_repair_set_spec_ids", "build.build_repair_set_spec_ids")
 
 # Restored evidence: one ``REFERENCED_BY`` per evidence line range, to fragments that exist.
-REPAIR_NODE_EVIDENCE: Final = Query(
-    "build_repair_node_evidence",
-    load_build_query("build_repair_node_evidence.cypher"),
-)
+REPAIR_NODE_EVIDENCE: Final = Query("build_repair_node_evidence", "build.build_repair_node_evidence")
 
-REPAIR_EDGE_EVIDENCE: Final = Query(
-    "build_repair_edge_evidence",
-    load_build_query("build_repair_edge_evidence.cypher"),
-)
+REPAIR_EDGE_EVIDENCE: Final = Query("build_repair_edge_evidence", "build.build_repair_edge_evidence")
 
 
 # Infer. Subjects and candidates are read through stated and implied
@@ -247,10 +167,6 @@ REPAIR_EDGE_EVIDENCE: Final = Query(
 # feed new candidates. Labels are
 # parameters (``$subject_labels``, ``$target_labels``); relation names and hop counts come from the
 # validated ontology and are rendered. A symmetric relation is matched in either direction.
-
-
-def _arrow(*, symmetric: bool) -> str:
-    return "-" if symmetric else "->"
 
 
 def _hops(count: object) -> int:
@@ -268,21 +184,13 @@ def infer_endpoint_subjects(via: tuple[str, ...], symmetric: tuple[str, ...], *,
 
     if not via:
         raise ConformanceError("inference_via_empty")
-    either = {safe_name(name) for name in symmetric}
-    branches = [
-        render_query(
-            load_build_query("infer_endpoint_via.cypher"),
-            type=safe_name(name),
-            arrow=_arrow(symmetric=name in either),
-        )
-        for name in via
-    ]
-    if mentions:
-        branches.append(load_build_query("infer_endpoint_mentions.cypher"))
+    either = tuple(safe_name(name) for name in symmetric)
+    checked = tuple(safe_name(name) for name in via)
     name = "_".join(via) + ("_mentions" if mentions else "")
     return Query(
         f"build_infer_endpoint_subjects_{name}",
-        render_query(load_build_query("infer_endpoint_subjects.cypher"), branches=" UNION ".join(branches)),
+        "build.infer_endpoint_subjects",
+        EndpointSubjects(checked, either, mentions),
     )
 
 
@@ -301,14 +209,17 @@ def container_path(relations: tuple[str, ...], *, sequence: bool, min_hops: int,
     return f"{'|'.join(relations)}{VIA_HOPS}{min_hops}..{max_hops}"
 
 
-def _container_pattern(path: str, symmetric: frozenset[str]) -> str:
-    """The Cypher pattern of one container path (``container_path`` form)."""
+def _container_args(path: str, symmetric: frozenset[str]) -> tuple[tuple[str, ...], tuple[bool, ...], bool, int, int]:
+    """The relations, their directions (symmetric: walked either way), the sequence flag and the hop range of
+    one container path (``container_path`` form), validated: safe names, ``1 <= min <= max <= 16`` and, for a
+    ``via`` path, one direction for all its relations."""
 
     if SEQUENCE_STEP in path:
-        steps = [safe_name(name) for name in path.split(SEQUENCE_STEP)]
-        return "(:SpecNode)".join(f"-[:{name}]{_arrow(symmetric=name in symmetric)}" for name in steps)
+        steps = tuple(safe_name(name) for name in path.split(SEQUENCE_STEP))
+        _hops(len(steps))
+        return steps, tuple(name in symmetric for name in steps), True, len(steps), len(steps)
     names_part, _, hops = path.partition(VIA_HOPS)
-    names = [safe_name(name) for name in names_part.split("|")]
+    names = tuple(safe_name(name) for name in names_part.split("|"))
     low_text, _, high_text = (hops or "1..1").partition("..")
     if not low_text.isdigit() or not high_text.isdigit():
         raise ConformanceError("cypher_hops_invalid")
@@ -318,7 +229,7 @@ def _container_pattern(path: str, symmetric: frozenset[str]) -> str:
     either = {name in symmetric for name in names}
     if len(either) != 1:
         raise ConformanceError("inference_container_path_mixed_direction")
-    return f"-[:{'|'.join(names)}*{low}..{high}]{_arrow(symmetric=either.pop())}"
+    return names, tuple(name in symmetric for name in names), False, low, high
 
 
 @cache
@@ -331,16 +242,12 @@ def infer_realization_subjects(
     """
 
     member = safe_name(member_relation)
-    pattern = _container_pattern(path, frozenset(safe_name(name) for name in symmetric))
+    relations, directions, sequence, low, high = _container_args(path, frozenset(safe_name(name) for name in symmetric))
     digest = hashlib.sha256(path.encode("utf-8")).hexdigest()[:12]
     return Query(
         f"build_infer_realization_subjects_{member}_{digest}",
-        render_query(
-            load_build_query("infer_realization_subjects.cypher"),
-            member=member,
-            member_arrow=_arrow(symmetric=member_symmetric),
-            pattern=pattern,
-        ),
+        "build.infer_realization_subjects",
+        RealizationSubjects(member, member_symmetric, relations, directions, sequence, low, high),
     )
 
 
@@ -349,15 +256,9 @@ def infer_realization_subjects(
 # attributes the ontology's conditions name (``$attributes``), and the edges of the spine and owner
 # relations (``$relations``) between spec nodes of the project, with their ``basis``; the paths are
 # walked in memory.
-READ_SPINE_NODES: Final = Query(
-    "build_read_spine_nodes",
-    load_build_query("build_read_spine_nodes.cypher"),
-)
+READ_SPINE_NODES: Final = Query("build_read_spine_nodes", "build.build_read_spine_nodes")
 
-READ_SPINE_EDGES: Final = Query(
-    "build_read_spine_edges",
-    load_build_query("build_read_spine_edges.cypher"),
-)
+READ_SPINE_EDGES: Final = Query("build_read_spine_edges", "build.build_read_spine_edges")
 
 
 @cache
@@ -368,10 +269,7 @@ def infer_similar_targets(writes: str, *, symmetric: bool) -> Query:
     """
 
     rel = safe_name(writes)
-    return Query(
-        f"build_infer_similar_targets_{rel}",
-        render_query(load_build_query("infer_similar_targets.cypher"), type=rel, arrow=_arrow(symmetric=symmetric)),
-    )
+    return Query(f"build_infer_similar_targets_{rel}", "build.infer_similar_targets", SimilarTargets(rel, symmetric))
 
 
 @cache
@@ -380,10 +278,7 @@ def infer_exclusive_holders(writes: str) -> Query:
     exclusive pairs ``$pairs`` (``[source label, target label]``)."""
 
     rel = safe_name(writes)
-    return Query(
-        f"build_infer_exclusive_holders_{rel}",
-        render_query(load_build_query("infer_exclusive_holders.cypher"), type=rel),
-    )
+    return Query(f"build_infer_exclusive_holders_{rel}", "build.infer_exclusive_holders", Relation(rel))
 
 
 # The nodes a judgement shows: name, domain label (``$labels``), identity key, statements and up to
@@ -391,33 +286,18 @@ def infer_exclusive_holders(writes: str) -> Query:
 # in document order, by id and content hash, each with its heading path and the heading and code fence
 # lines of its text up to the node's first evidence line in it (the node's section, ``terms.heading_section``)
 # their texts are read only for the judged subjects.
-READ_INFER_NODES: Final = Query(
-    "build_read_infer_nodes",
-    load_build_query("build_read_infer_nodes.cypher"),
-)
+READ_INFER_NODES: Final = Query("build_read_infer_nodes", "build.build_read_infer_nodes")
 
-READ_INFER_FRAGMENTS: Final = Query(
-    "build_read_infer_fragments",
-    load_build_query("build_read_infer_fragments.cypher"),
-)
+READ_INFER_FRAGMENTS: Final = Query("build_read_infer_fragments", "build.build_read_infer_fragments")
 
 # Template ``cross_document``: the hubs with their members and each
 # member's documents (relations ``$via`` and labels are parameters), the titles of documents and the
 # embeddings of members (their pair cosines are computed in Python, ``infer_xdoc.pair_cosines``).
-INFER_XDOC_MEMBERS: Final = Query(
-    "build_infer_xdoc_members",
-    load_build_query("infer_xdoc_members.cypher"),
-)
+INFER_XDOC_MEMBERS: Final = Query("build_infer_xdoc_members", "build.infer_xdoc_members")
 
-INFER_XDOC_DOCUMENTS: Final = Query(
-    "build_infer_xdoc_documents",
-    load_build_query("infer_xdoc_documents.cypher"),
-)
+INFER_XDOC_DOCUMENTS: Final = Query("build_infer_xdoc_documents", "build.infer_xdoc_documents")
 
-INFER_XDOC_EMBEDDINGS: Final = Query(
-    "build_infer_xdoc_embeddings",
-    load_build_query("infer_xdoc_embeddings.cypher"),
-)
+INFER_XDOC_EMBEDDINGS: Final = Query("build_infer_xdoc_embeddings", "build.infer_xdoc_embeddings")
 
 
 @cache
@@ -427,10 +307,7 @@ def infer_write_edges(relation: str) -> Query:
     """
 
     rel = safe_name(relation)
-    return Query(
-        f"build_infer_write_edges_{rel}",
-        render_query(load_build_query("infer_write_edges.cypher"), type=rel),
-    )
+    return Query(f"build_infer_write_edges_{rel}", "build.infer_write_edges", Relation(rel))
 
 
 @cache
@@ -439,7 +316,4 @@ def infer_delete_edges(relation: str) -> Query:
     ``refs`` are the ``row.ref`` of the rows deleted."""
 
     rel = safe_name(relation)
-    return Query(
-        f"build_infer_delete_edges_{rel}",
-        render_query(load_build_query("infer_delete_edges.cypher"), type=rel),
-    )
+    return Query(f"build_infer_delete_edges_{rel}", "build.infer_delete_edges", Relation(rel))

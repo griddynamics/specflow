@@ -1,9 +1,14 @@
-"""Shared core of the graph library: Neo4j access, ontology, identity, owned writes, reads, LLM gateway."""
+"""Shared core of the graph library: the store port, ontology, identity, owned writes, reads, LLM gateway.
+
+Public names are re-exported here as their modules land; submodules import from ``graph.core``.
+"""
 
 from __future__ import annotations
 
+import importlib
+from typing import Any
+
 from graph.core.config import CALL_CLASSES, CallBudget, CallClass, LLMConfig, Neo4jConfig
-from graph.core.db import Executor, ScopedTransaction, check, connect, require_version, server_version
 from graph.core.errors import (
     ConfigurationError,
     ConformanceError,
@@ -58,7 +63,21 @@ from graph.core.reader import (
     Statement,
 )
 from graph.core.schema import ensure_schema
+from graph.core.store import Executor, GraphStore, ScopedTransaction, StoreCapabilities, StoreInfo, check
 from graph.core.writer import NodeRef, OwnedWriter
+
+# The Neo4j access of earlier releases stays importable from here, but loads the Neo4j SDK, so it resolves on
+# first access (PEP 562): importing ``graph.core`` does not import ``neo4j``.
+_LAZY_SHIMS = frozenset({"connect", "require_version", "server_version"})
+
+
+def __getattr__(name: str) -> Any:
+    if name not in _LAZY_SHIMS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(importlib.import_module("graph.core.db"), name)
+    globals()[name] = value
+    return value
+
 
 __all__ = [
     "CALL_CLASSES",
@@ -80,6 +99,7 @@ __all__ = [
     "GraphFragment",
     "GraphNode",
     "GraphReader",
+    "GraphStore",
     "GraphWriteError",
     "ImpactResult",
     "InfrastructureUnavailableError",
@@ -102,6 +122,8 @@ __all__ = [
     "SpecIdRegistry",
     "SpecIdRow",
     "Statement",
+    "StoreCapabilities",
+    "StoreInfo",
     "UsageSnapshot",
     "Verdict",
     "allocate_spec_id",

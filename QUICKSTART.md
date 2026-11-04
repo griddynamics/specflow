@@ -7,7 +7,7 @@ together. For every setting, see [`docs/configuration.md`](docs/configuration.md
 
 | Need | Why | Notes |
 |---|---|---|
-| Docker with the Compose plugin | Runs the whole stack | Docker Desktop, OrbStack or Docker Engine. `worker-parse` alone is limited to 3 GiB of memory |
+| Docker with the Compose plugin (Compose 2.24 or later) | Runs the whole stack | Docker Desktop, OrbStack or Docker Engine. `worker-parse` alone is limited to 3 GiB of memory |
 | `make` and `openssl` | `make env-local` writes random local secrets and asks for your sign-in email and your LLM settings | Already on macOS and most Linux systems |
 | Chromium or Firefox | Sign in to the web app | Safari refuses the `Secure` cookies of the local Keycloak on `http://localhost` |
 | An OpenAI-compatible LLM gateway | Summaries and the knowledge-graph build | You need its URL, an API key and a model name |
@@ -74,6 +74,9 @@ Node.js 20.9 or newer.
    [`docs/configuration.md`](docs/configuration.md)). Formats, limits and error
    codes are in [`docs/file-parsers/`](docs/file-parsers/INDEX.md).
 
+The graph store defaults to Neo4j. To run the stack on another store, add it to `WITH`:
+`make up WITH=arcadedb` or `make up WITH=postgres` ([recipes](docs/configuration.md#graph-store-of-the-stack)).
+
 Stop the stack with `make down`. This keeps your data. `make down-volumes` deletes
 the local databases and files: use it only for a clean start.
 
@@ -104,7 +107,7 @@ exist any more, and nothing migrates its data. Once, on the upgrade:
 | `worker-parse` | - | Temporal worker: documents (PDF, Word, PowerPoint, Excel, HTML, Markdown, CSV) to Markdown; its own image, 3 GiB |
 | `worker-agents` | - | Temporal worker: AI summaries |
 | `postgres` | 5433 | Projects, documents, Markdown, summaries |
-| `neo4j` | 7474 (browser), 7687 | The knowledge graph |
+| `neo4j` (default graph store) | 7474 (browser), 7687 | The knowledge graph. `make up WITH=arcadedb` runs ArcadeDB instead (`arcadedb`: 2480, 7688); `make up WITH=postgres` keeps the graph in `postgres` |
 | `rustfs` | 19000 | Local S3-compatible object storage for uploaded files |
 | `temporal` (with `WITH=temporal`) | 7233, 8233 (UI) | Bundled Temporal dev server |
 | `langfuse-*` (with `WITH=langfuse`) | 3000 | Bundled Langfuse for traces |
@@ -150,7 +153,7 @@ flowchart LR
     wp --> pg
     wa --> pg
     wa --> llm[[LLM gateway<br/>OpenAI-compatible]]
-    api --> neo[(Neo4j<br/>knowledge graph)]
+    api --> neo[(Graph store<br/>Neo4j, ArcadeDB or Postgres)]
     api --> llm
     wa -.-> lf[[Langfuse<br/>traces]]
 ```
@@ -164,7 +167,7 @@ How a document flows through the system:
    `document_parse_failed` (or `pdf_parse_failed` for a PDF).
 3. `worker-agents` writes a summary of each document with the LLM gateway.
 4. When you build the project, the `api` reads all current documents and builds
-   a typed knowledge graph in Neo4j: modules, features, capabilities and requirements,
+   a typed knowledge graph in the graph store: modules, features, capabilities and requirements,
    how they relate, and which lines of which documents state them. A later build
    changes only what the changed documents affect.
 
@@ -175,7 +178,7 @@ The graph follows an ontology file (`docs/graph/spec-ontology.yaml`). The design
 
 The same images run on any cloud. You need:
 
-- Postgres, Neo4j and Temporal that the services can reach.
+- Postgres, a graph store (Neo4j 5.26+, ArcadeDB 26.10+, or PostgreSQL 15+ with pgvector 0.8+; `GRAPH_STORE` picks it) and Temporal that the services can reach.
 - An object-storage bucket. Choose the provider with a cloud profile file
   (`SPECFLOW_CONFIG_FILE`: `cloud: gcp`, `aws` or `local`) or with `STORAGE_BACKEND`.
 - An OpenID Connect provider for sign-in (`OIDC_ISSUER`, and a client for the web app).

@@ -1,7 +1,7 @@
 """Tier 1: ``POST``/``GET /api/v1/projects/{pid}/graph_build`` and ``GraphBuildSettings``.
 
 The runner is a fake on ``Runtime.graph_builds``; handlers never touch Neo4j, so
-the harness's ``FakeDriver`` must see no query.
+the harness's ``FakeGraphStore`` must see no query.
 """
 
 from __future__ import annotations
@@ -84,7 +84,7 @@ async def test_post_starts_one_build_and_answers_202_at_once(harness, processed)
     assert body["status"] == "running"
     assert body["started_at"] == "2026-10-26T09:00:00Z"
     assert runner.starts == [str(pid)]
-    assert harness.driver.queries == 0
+    assert harness.graph_store.queries == 0
 
 
 @pytest.mark.parametrize("payload", [None, {}, {"reasoning_level": None}])
@@ -249,7 +249,7 @@ async def test_get_maps_the_stored_states(harness, state, expected):
         "error_code",
     }
     assert {key: body[key] for key in expected} == expected
-    assert harness.driver.queries == 0
+    assert harness.graph_store.queries == 0
 
 
 async def test_get_reports_a_running_build(harness, processed):

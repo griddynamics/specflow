@@ -6,7 +6,7 @@ import pytest
 
 from mcp_support import MCP_URL, PRM_URL, mcp_env, oidc_env
 from runtime_defaults_support import RUNTIME_DEFAULTS
-from settings import ConfigurationError, load_settings
+from settings import ConfigurationError, GraphStoreSettings, load_settings
 
 
 def refused(env: dict[str, str]) -> tuple[str, ...]:
@@ -43,12 +43,13 @@ def test_the_defaults_of_the_mcp_settings(valid_env):
     assert mcp.prm_url == PRM_URL
 
 
-def test_the_mcp_role_builds_only_database_neo4j_auth_and_mcp(valid_env):
+def test_the_mcp_role_builds_only_database_graph_store_auth_and_mcp(valid_env):
     """FR-MCP-OPS-01: no Temporal, storage, Langfuse, LLM or agent-database binding."""
 
     settings = load_settings("mcp", mcp_env(valid_env))
 
-    assert (settings.database, settings.neo4j, settings.auth, settings.mcp) != (None,) * 4
+    assert (settings.database, settings.graph_store, settings.auth, settings.mcp) != (None,) * 4
+    assert isinstance(settings.graph_store, GraphStoreSettings)
     for absent in ("temporal", "storage", "langfuse", "agent", "agent_run", "graph_build", "agent_database"):
         assert getattr(settings, absent) is None, absent
 

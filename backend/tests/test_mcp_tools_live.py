@@ -1,8 +1,9 @@
-"""Live data tier of the MCP tools (docs/mcp-server/testing.md): real Postgres and real Neo4j behind the real registry.
+"""Live data tier of the MCP tools (docs/mcp-server/testing.md): real Postgres and a real graph store behind the real
+registry.
 
 Gates: ``SPECFLOW_TEST_POSTGRES=1`` for the membership and user-row tests (a fresh migrated scratch database per test,
-``specflow_db_live_support``), ``SPECFLOW_TEST_NEO4J=1`` for the graph tests (unique ``pytest-graph-`` project ids,
-deleted afterwards, nothing outside them touched; ``graph_support.neo4j_project``). Run with
+``specflow_db_live_support``), ``SPECFLOW_TEST_GRAPH_STORE`` for the graph tests (unique ``pytest-graph-`` project ids,
+deleted afterwards, nothing outside them touched; ``graph_support.graph_project``). Run with
 ``uv run --env-file ../.env.local``. The QA seed projects are never read or written: every id is made by the test.
 """
 
@@ -23,10 +24,12 @@ from db import repositories
 from db.models import ProjectMember, User
 from db.session import build_engine, build_session_factory
 from graph.core import GraphReader, Ontology
+from graph_probes import requires_live_graph
 from graph_support import (
     RENAMED_FEATURE_LABEL,
     RENAMED_FEATURE_PREFIX,
-    Neo4jProject,
+    GraphProject,
+    live_embedding_dim,
     load_feature_renamed_ontology,
     shipped_ontology,
 )
@@ -187,43 +190,49 @@ class SimplePrincipal:
         self.subject, self.email, self.name = subject, email, None
 
 
-# --- Neo4j: FR-MCP-TOOL-02, TOOL-03, TOOL-05, TOOL-06 ----------------------------------------------
+# --- Graph store: FR-MCP-TOOL-02, TOOL-03, TOOL-05, TOOL-06 -----------------------------------------
 
 
 async def seeded_app(
     monkeypatch: pytest.MonkeyPatch,
     valid_env: dict[str, str],
-    neo4j_project: Neo4jProject,
+    graph_project: GraphProject,
     ontology: Ontology | None = None,
 ) -> tuple[Any, str]:
-    """The registry app over the real reader; alice owns one project whose graph id the test hands to Neo4j cleanup."""
+    """The registry app over the real reader; alice owns one project whose graph id the test hands to graph cleanup."""
 
-    used = ontology or neo4j_project.ontology
-    app, repo = tool_app(monkeypatch, valid_env, None, ontology=used, reader=neo4j_project.reader(ontology=used))
+    used = ontology or graph_project.ontology
+    app, repo = tool_app(monkeypatch, valid_env, None, ontology=used, reader=graph_project.reader(ontology=used))
     project = await owned_project(repo, "alice@example.com", "Live")
-    neo4j_project.project_ids.append(str(project.id))
+    graph_project.project_ids.append(str(project.id))
     return app, str(project.id)
 
 
-@requires_live("NEO4J")
+@requires_live_graph()
 async def test_fr_mcp_tool_02_only_feature_nodes_are_listed_with_their_stored_attributes(
-    monkeypatch: pytest.MonkeyPatch, valid_env: dict[str, str], neo4j_project: Neo4jProject
+    monkeypatch: pytest.MonkeyPatch, valid_env: dict[str, str], graph_project: GraphProject
 ) -> None:
     """FR-MCP-TOOL-02 / TOOL-05: features, a module and requirements in one graph: only ``FEAT::`` ids come back, items
     hold ``spec_id``, ``name`` and the stored attributes (``stmt``, ``quote``), no embedding or other property."""
 
-    app, pid = await seeded_app(monkeypatch, valid_env, neo4j_project)
+    app, pid = await seeded_app(monkeypatch, valid_env, graph_project)
     await create(
-        neo4j_project,
+        graph_project,
         pid,
         FEATURE,
         [
-            {"key": "FEAT::B", "name": "Beta", "stmt": "Does B.", "quote": "B shall.", "name_embedding": [0.5, 0.5]},
+            {
+                "key": "FEAT::B",
+                "name": "Beta",
+                "stmt": "Does B.",
+                "quote": "B shall.",
+                "name_embedding": [0.5] * live_embedding_dim(),
+            },
             {"key": "FEAT::A", "name": "Alpha", "mystery": "UNKNOWN-PROP"},
         ],
     )
-    await create(neo4j_project, pid, "Module", [{"key": "MOD::M"}])
-    await create(neo4j_project, pid, "FunctionalRequirement", [{"key": "FR-001"}, {"key": "FR-002"}])
+    await create(graph_project, pid, "Module", [{"key": "MOD::M"}])
+    await create(graph_project, pid, "FunctionalRequirement", [{"key": "FR-001"}, {"key": "FR-002"}])
     async with sdk_session(app, ALICE) as client:
         result = await call(client, "list_features", project_id=pid)
     assert not result.is_error
@@ -235,16 +244,16 @@ async def test_fr_mcp_tool_02_only_feature_nodes_are_listed_with_their_stored_at
     assert "UNKNOWN-PROP" not in str(result.content) and "0.5" not in str(result.content)
 
 
-@requires_live("NEO4J")
+@requires_live_graph()
 async def test_fr_mcp_tool_03_real_counts_and_pages_in_spec_id_order(
-    monkeypatch: pytest.MonkeyPatch, valid_env: dict[str, str], neo4j_project: Neo4jProject
+    monkeypatch: pytest.MonkeyPatch, valid_env: dict[str, str], graph_project: GraphProject
 ) -> None:
     """FR-MCP-TOOL-03 / TOOL-04: seven features, ``limit=5``: five then two, ``total_count`` 7 on both, ``spec_id``
     order across them (``FEAT::F10`` sorts before ``FEAT::F9``), the last ``next_cursor`` null; limit 1 walks all."""
 
-    app, pid = await seeded_app(monkeypatch, valid_env, neo4j_project)
+    app, pid = await seeded_app(monkeypatch, valid_env, graph_project)
     keys = ["FEAT::F1", "FEAT::F2", "FEAT::F3", "FEAT::F9", "FEAT::F10", "FEAT::F11", "FEAT::F4"]
-    await create(neo4j_project, pid, FEATURE, [{"key": key} for key in keys])
+    await create(graph_project, pid, FEATURE, [{"key": key} for key in keys])
     async with sdk_session(app, ALICE) as client:
         first = await call(client, "list_features", project_id=pid, limit=5)
         second = await call(client, "list_features", project_id=pid, limit=5, cursor=structured(first)["next_cursor"])
@@ -263,15 +272,15 @@ async def test_fr_mcp_tool_03_real_counts_and_pages_in_spec_id_order(
     assert walked == sorted(keys)
 
 
-@requires_live("NEO4J")
+@requires_live_graph()
 async def test_fr_mcp_tool_03_a_project_without_a_graph_is_empty_and_another_projects_nodes_stay_out(
-    monkeypatch: pytest.MonkeyPatch, valid_env: dict[str, str], neo4j_project: Neo4jProject
+    monkeypatch: pytest.MonkeyPatch, valid_env: dict[str, str], graph_project: GraphProject
 ) -> None:
     """FR-MCP-TOOL-03 / ACC-02: nodes of a second project id are not listed for alice's project; hers has none."""
 
-    app, pid = await seeded_app(monkeypatch, valid_env, neo4j_project)
-    other = neo4j_project.new_project()
-    await create(neo4j_project, other, FEATURE, [{"key": "FEAT::OTHER"}])
+    app, pid = await seeded_app(monkeypatch, valid_env, graph_project)
+    other = graph_project.new_project()
+    await create(graph_project, other, FEATURE, [{"key": "FEAT::OTHER"}])
     async with sdk_session(app, ALICE) as client:
         result = await call(client, "list_features", project_id=pid)
     assert (structured(result)["total_count"], structured(result)["items"], structured(result)["next_cursor"]) == (
@@ -281,18 +290,18 @@ async def test_fr_mcp_tool_03_a_project_without_a_graph_is_empty_and_another_pro
     )
 
 
-@requires_live("NEO4J")
+@requires_live_graph()
 async def test_fr_mcp_tool_06_the_renamed_feature_ontology_lists_only_its_own_label(
-    monkeypatch: pytest.MonkeyPatch, valid_env: dict[str, str], neo4j_project: Neo4jProject, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch, valid_env: dict[str, str], graph_project: GraphProject, tmp_path: Path
 ) -> None:
     """FR-MCP-TOOL-06: under the derived ontology (``Funktion``, ``FUNK::``, type key ``feature``) the tool returns the
     ``Funktion`` nodes only; ``Feature`` nodes of the shipped label are not features here. (Startup refusal without a
     ``feature`` type: ``test_mcp_app.py::test_an_ontology_without_a_feature_type_refuses_the_start``.)"""
 
     renamed = load_feature_renamed_ontology(tmp_path)
-    app, pid = await seeded_app(monkeypatch, valid_env, neo4j_project, renamed)
-    await create(neo4j_project, pid, RENAMED_FEATURE_LABEL, [{"key": f"{RENAMED_FEATURE_PREFIX}{c}"} for c in "ABC"])
-    await create(neo4j_project, pid, FEATURE, [{"key": "FEAT::X"}, {"key": "FEAT::Y"}])
+    app, pid = await seeded_app(monkeypatch, valid_env, graph_project, renamed)
+    await create(graph_project, pid, RENAMED_FEATURE_LABEL, [{"key": f"{RENAMED_FEATURE_PREFIX}{c}"} for c in "ABC"])
+    await create(graph_project, pid, FEATURE, [{"key": "FEAT::X"}, {"key": "FEAT::Y"}])
     async with sdk_session(app, ALICE) as client:
         first = await call(client, "list_features", project_id=pid, limit=2)
         second = await call(client, "list_features", project_id=pid, limit=2, cursor=structured(first)["next_cursor"])

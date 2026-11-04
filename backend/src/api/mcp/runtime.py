@@ -1,4 +1,4 @@
-"""The slim runtime of the MCP role: Postgres engine, Neo4j driver, ontology, one ``GraphReader``."""
+"""The slim runtime of the MCP role: Postgres engine, graph store, ontology, one ``GraphReader``."""
 
 from __future__ import annotations
 
@@ -14,7 +14,8 @@ from api.mcp.http import required
 from db import session as db_session
 from graph import core as graph_core
 from graph.core import GraphReader, Ontology, OntologyError
-from health import Readiness, database_probe, neo4j_probe
+from graph.stores import build_store
+from health import Readiness, database_probe, graph_probe
 from settings import RoleSettings
 
 FEATURE_TYPE = "feature"  # the one node type version 1 tools list
@@ -22,11 +23,11 @@ FEATURE_TYPE = "feature"  # the one node type version 1 tools list
 
 @dataclass
 class McpRuntime:
-    """Everything a tool or probe needs; tests build it from fakes (no ORM or driver types here)."""
+    """Everything a tool or probe needs; tests build it from fakes (no ORM or store types here)."""
 
     engine: Any
     session_factory: Any
-    driver: Any
+    store: Any
     ontology: Ontology
     reader: GraphReader
     readiness: Readiness
@@ -47,24 +48,24 @@ def request_runtime(request: Request) -> McpRuntime:
 
 
 async def build_runtime(settings: RoleSettings) -> McpRuntime:
-    """Open the engine and driver (both lazy) and load the ontology; an ontology without
+    """Open the engine and the graph store (both lazy) and load the ontology; an ontology without
     a ``feature`` type refuses the start. Closes what it opened when it fails."""
 
-    neo4j = required(settings.neo4j, "the mcp role requires neo4j settings")
+    graph_settings = required(settings.graph_store, "the mcp role requires graph store settings")
     async with AsyncExitStack() as stack:
         engine = db_session.build_engine(settings.database)
         stack.push_async_callback(engine.dispose)
-        driver = graph_core.connect(neo4j.to_graph_config())
-        stack.push_async_callback(driver.close)
+        store = build_store(graph_settings.to_store_config())
+        stack.push_async_callback(store.close)
         ontology = await asyncio.to_thread(graph_core.load_ontology)
         if FEATURE_TYPE not in ontology.node_types:
             raise OntologyError(["the ontology has no feature type"])
         return McpRuntime(
             engine=engine,
             session_factory=db_session.build_session_factory(engine),
-            driver=driver,
+            store=store,
             ontology=ontology,
-            reader=GraphReader(driver, ontology, database=neo4j.database),
-            readiness=Readiness({"database": database_probe(engine), "neo4j": neo4j_probe(driver, neo4j.database)}),
+            reader=GraphReader(store, ontology),
+            readiness=Readiness({"database": database_probe(engine), "graph": graph_probe(store)}),
             close=stack.pop_all().aclose,  # last: everything above is open
         )

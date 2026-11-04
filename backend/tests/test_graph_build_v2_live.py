@@ -1,4 +1,4 @@
-"""Live Neo4j builds of the shop-v2 corpus on the shipped ontology."""
+"""Live builds of the shop-v2 corpus on the shipped ontology (any graph store)."""
 
 from __future__ import annotations
 
@@ -50,14 +50,15 @@ from graph.build.prompts import (
     NODE_HUBS_PROMPT,
     NODE_STATEMENTS_PROMPT,
 )
+from graph_probes import requires_live_graph
+from graph_probes.base import SPEC_NODE, GraphState, ProbeEdge
 from graph_support import (
-    GraphSnapshot,
-    Neo4jProject,
+    GraphProject,
     ScriptedGateway,
     ScriptedRequest,
     assert_all_scripted,
     judge_payload,
-    open_neo4j_project,
+    open_graph_project,
     shipped_ontology,
     untrusted_blocks,
 )
@@ -72,12 +73,12 @@ from graph_v2_support import (
     SAVED_CARD_RULE,
     XDOC_VERDICTS,
     ShopV2Builds,
+    has_short_cycle,
     shop_v2_answers,
     shop_v2_without,
 )
-from specflow_live import requires_live
 
-pytestmark = [requires_live("NEO4J"), pytest.mark.asyncio(loop_scope="module")]
+pytestmark = [requires_live_graph(), pytest.mark.asyncio(loop_scope="module")]
 
 ONTOLOGY: Final = shipped_ontology()
 CONFORM_PROMPT: Final = "judge_owner_conflict"
@@ -163,14 +164,14 @@ FIRST_CALLS: Final = {
 class Built:
     """The module's two builds of one project (the project stays open while the tests run)."""
 
-    project: Neo4jProject
+    project: GraphProject
     builds: ShopV2Builds
     first: BuildResult
     first_gateway: ScriptedGateway
-    first_graph: GraphSnapshot
+    first_graph: GraphState
     update: BuildResult
     update_gateway: ScriptedGateway
-    update_graph: GraphSnapshot
+    update_graph: GraphState
 
     @property
     def project_id(self) -> str:
@@ -198,7 +199,7 @@ async def built(tmp_path_factory: pytest.TempPathFactory) -> AsyncIterator[Built
     """A ``first`` build of shop-v2 snapshot 1, then an ``update`` without change, into one project."""
 
     gateways: list[ScriptedGateway] = []
-    async with open_neo4j_project() as project:
+    async with open_graph_project() as project:
         builds = ShopV2Builds(project, scripted_factory(gateways), Path(tmp_path_factory.mktemp("shop-v2")))
         first, first_gateway = await builds.build(1)
         first_graph = await project.snapshot()
@@ -233,7 +234,7 @@ class Shared:
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def shared(tmp_path_factory: pytest.TempPathFactory) -> AsyncIterator[Shared]:
     gateways: list[ScriptedGateway] = []
-    async with open_neo4j_project() as project:
+    async with open_graph_project() as project:
         builds = ShopV2Builds(project, scripted_factory(gateways), Path(tmp_path_factory.mktemp("shop-v2-shared")))
         first, _ = await builds.build(1)
         first_node = await shared_node(project, builds.project_id)
@@ -248,42 +249,57 @@ async def shared(tmp_path_factory: pytest.TempPathFactory) -> AsyncIterator[Shar
         )
 
 
-async def shared_node(project: Neo4jProject, project_id: str) -> dict[str, Any]:
+async def shared_node(project: GraphProject, project_id: str) -> dict[str, Any]:
     """The shared constraint's ``spec_id``, statements and evidence fragments (by document) as persisted."""
 
-    rows = await project.run(
-        "MATCH (n:SpecNode) WHERE n.group_id = $p AND n.name = $name "
-        "OPTIONAL MATCH (n)-[:REFERENCED_BY]->(f:Fragment) "
-        "RETURN n.spec_id AS spec_id, n.statements AS statements, n.quote AS quote, "
-        "collect(f.fragment_id) AS fragments",
-        p=project_id,
-        name=EU_RULE,
-    )
-    assert len(rows) == 1, rows
-    row = dict(rows[0])
-    row["statements"] = json.loads(row["statements"])
-    row["fragments"] = sorted(row["fragments"])
-    return row
+    nodes = await project.nodes(SPEC_NODE, project_id=project_id, name=EU_RULE)
+    assert len(nodes) == 1, nodes
+    (node,) = nodes
+    fragments = [
+        e.target.get("fragment_id")
+        for e in await project.edges("REFERENCED_BY", project_id=project_id)
+        if e.source.id == node.id and "Fragment" in e.target.labels and e.target.get("fragment_id") is not None
+    ]
+    return {
+        "spec_id": node.get("spec_id"),
+        "statements": json.loads(node["statements"]),
+        "quote": node.get("quote"),
+        "fragments": sorted(fragments),
+    }
+
+
+async def spec_edges(project: GraphProject, project_id: str) -> list[ProbeEdge]:
+    """The edges between two spec nodes of the project (any type)."""
+
+    return [
+        e
+        for e in await project.edges(project_id=project_id)
+        if SPEC_NODE in e.source.labels
+        and SPEC_NODE in e.target.labels
+        and e.source.get("group_id") == project_id
+        and e.target.get("group_id") == project_id
+    ]
 
 
 async def domain_edges(built: Built) -> list[dict[str, Any]]:
-    return await built.project.run(
-        "MATCH (s:SpecNode)-[r]->(t:SpecNode) WHERE s.group_id = $p AND t.group_id = $p AND type(r) IN $relations "
-        "RETURN s.name AS source, type(r) AS relation, t.name AS target, r.basis AS basis, "
-        "r.inference_rule AS rule, r.fact AS fact",
-        p=built.project_id,
-        relations=sorted(ONTOLOGY.relations),
-    )
+    return [
+        {
+            "source": e.source.get("name"),
+            "relation": e.type,
+            "target": e.target.get("name"),
+            "basis": e.get("basis"),
+            "rule": e.get("inference_rule"),
+            "fact": e.get("fact"),
+        }
+        for e in await spec_edges(built.project, built.project_id)
+        if e.type in ONTOLOGY.relations
+    ]
 
 
 async def node_props(built: Built, name: str) -> dict[str, Any]:
-    rows = await built.project.run(
-        "MATCH (n:SpecNode) WHERE n.group_id = $p AND n.name = $name RETURN properties(n) AS props",
-        p=built.project_id,
-        name=name,
-    )
-    assert len(rows) == 1, (name, rows)
-    return dict(rows[0]["props"])
+    nodes = await built.project.nodes(SPEC_NODE, project_id=built.project_id, name=name)
+    assert len(nodes) == 1, (name, nodes)
+    return dict(nodes[0].props)
 
 
 def prompts(gateway: ScriptedGateway) -> Counter[str]:
@@ -309,45 +325,40 @@ async def test_d6_and_d7_hold_in_the_persisted_graph(built: Built) -> None:
     # edges included), one provider per interface, one parent module per module.
     owners = {label for label in ONTOLOGY.labels if ONTOLOGY.owner_pairs(label)}
     assert {pair.relation for label in owners for pair in ONTOLOGY.owner_pairs(label)} == {"PART_OF"}
-    rows = await built.project.run(
-        "MATCH (n:SpecNode) WHERE n.group_id = $p "
-        "WITH n, [l IN labels(n) WHERE l IN $owned][0] AS owned "
-        "OPTIONAL MATCH (n)-[r]->(t:SpecNode) "
-        "WHERE (owned IS NOT NULL AND type(r) = 'PART_OF') OR (n:Interface AND type(r) = 'PROVIDED_BY') "
-        "OR (n:Module AND t:Module AND type(r) = 'PART_OF') "
-        "WITH n, count(DISTINCT t) AS targets WHERE targets > 1 RETURN n.name AS name, targets",
-        p=built.project_id,
-        owned=sorted(owners),
-    )
+    nodes = await built.project.nodes(SPEC_NODE)
+    # edges from a spec node of the project to any spec node
+    edges = [
+        e
+        for e in await built.project.edges()
+        if SPEC_NODE in e.source.labels
+        and SPEC_NODE in e.target.labels
+        and e.source.get("group_id") == built.project_id
+    ]
+    targets: dict[str, set[str]] = {}
+    for n in nodes:
+        owned = bool(owners.intersection(n.labels))
+        for e in edges:
+            if e.source.id == n.id and (
+                (owned and e.type == "PART_OF")
+                or ("Interface" in n.labels and e.type == "PROVIDED_BY")
+                or ("Module" in n.labels and "Module" in e.target.labels and e.type == "PART_OF")
+            ):
+                targets.setdefault(n.id, set()).add(e.target.id)
+    rows = [{"name": n.get("name"), "targets": len(targets[n.id])} for n in nodes if len(targets.get(n.id, ())) > 1]
     assert rows == []
-    owned = await built.project.run(
-        "MATCH (n:SpecNode)-[:PART_OF]->(:SpecNode) WHERE n.group_id = $p RETURN count(DISTINCT n) AS n",
-        p=built.project_id,
-    )
-    assert owned[0]["n"] == 12  # every requirement (7) and every feature but the out-of-scope Gift cards
+    owned = {e.source.id for e in edges if e.type == "PART_OF"}
+    assert len(owned) == 12  # every requirement (7) and every feature but the out-of-scope Gift cards
     # D7: DEPENDS_ON (the shipped ontology's acyclic relation) has no directed cycle.
     assert ONTOLOGY.acyclic_relations() == {"DEPENDS_ON"}
-    cycles = await built.project.run(
-        "MATCH path = (n:SpecNode)-[:DEPENDS_ON*1..10]->(n) WHERE n.group_id = $p RETURN count(path) AS n",
-        p=built.project_id,
-    )
-    assert cycles[0]["n"] == 0
+    depends_on = [e for e in edges if e.type == "DEPENDS_ON"]
+    assert not has_short_cycle(depends_on, {n.id for n in nodes}, 10)
 
 
 async def test_nodes_per_label_and_the_unsupported_entity_is_dropped(built: Built) -> None:
-    rows = await built.project.run(
-        "MATCH (n:SpecNode) WHERE n.group_id = $p UNWIND labels(n) AS label "
-        "WITH label WHERE label <> 'SpecNode' RETURN label, count(*) AS n",
-        p=built.project_id,
-    )
-    assert {row["label"]: row["n"] for row in rows} == NODES_BY_LABEL
+    labels = Counter(label for n in await built.project.nodes(SPEC_NODE) for label in n.labels if label != SPEC_NODE)
+    assert dict(labels) == NODES_BY_LABEL
     assert built.first.metrics.nodes_by_label == NODES_BY_LABEL
-    assert (
-        await built.project.run(
-            "MATCH (n:SpecNode) WHERE n.group_id = $p AND n.name = 'Invoice' RETURN n", p=built.project_id
-        )
-        == []
-    )
+    assert await built.project.nodes(SPEC_NODE, name="Invoice") == []
     counters = TargetGraph.model_validate(await built.artifact(built.first, "conform")).counters
     assert counters.unsupported_nodes == 1
     assert built.first.verification is not None
@@ -467,11 +478,9 @@ async def test_inf_cont_02_attaches_the_orphan_feature_only(built: Built) -> Non
     assert report.inferred_added == ("FEAT::PARTIAL_REFUNDS|PART_OF|MOD::ORDERS_SERVICE",)
     assert built.first.spec_changes.inferred_added == report.inferred_added
     assert [call.key for call in built.first_gateway.calls_for(ORPHAN_PROMPT)] == ["Partial refunds"]
-    gift = await built.project.run(
-        "MATCH (n:Feature)-[r]->() WHERE n.group_id = $p AND n.name = 'Gift cards' RETURN type(r) AS relation",
-        p=built.project_id,
-    )
-    assert [row["relation"] for row in gift if row["relation"] in ONTOLOGY.relations] == []
+    gift = {n.id for n in await built.project.nodes("Feature", name="Gift cards")}
+    relations = [e.type for e in await built.project.edges() if e.source.id in gift]
+    assert [relation for relation in relations if relation in ONTOLOGY.relations] == []
     # the update judged nothing again and kept the inferred edge
     again = InferenceReport.model_validate(await built.artifact(built.update, "infer"))
     assert again.inferred_added == () and again.inferred_removed == ()
@@ -675,10 +684,10 @@ class Identity:
     builds: ShopV2Builds
     first: BuildResult
     first_gateway: ScriptedGateway
-    first_graph: GraphSnapshot
+    first_graph: GraphState
     update: BuildResult
     update_gateway: ScriptedGateway
-    update_graph: GraphSnapshot
+    update_graph: GraphState
 
     async def resolved(self, result: BuildResult) -> ResolveArtifact:
         payload = await self.builds.stores.builds.get_artifact(self.builds.project_id, result.build_id, "resolve")
@@ -689,7 +698,7 @@ class Identity:
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def identity(tmp_path_factory: pytest.TempPathFactory) -> AsyncIterator[Identity]:
     gateways: list[ScriptedGateway] = []
-    async with open_neo4j_project() as project:
+    async with open_graph_project() as project:
         root = Path(tmp_path_factory.mktemp("shop-v2-identity"))
         builds = ShopV2Builds(project, scripted_factory(gateways), root, hub_params=IDENTITY_PARAMS)
         first, first_gateway = await builds.build(IDENTITY_SNAPSHOT)
@@ -745,10 +754,8 @@ async def test_an_unsure_pair_is_not_merged_nor_stored_and_the_no_change_update_
     assert _candidates(first)[UNSURE_PAIR].outcome == "unsure"
     assert first.counters.consolidation.unsure_groups == 1
     assert not {merge.member_key for merge in first.merges} & set(UNSURE_PAIR)
-    rows = await identity.builds.project.run(
-        "MATCH (n:Module) WHERE n.group_id = $p RETURN n.name AS name", p=identity.builds.project_id
-    )
-    assert {"Report generator", "Reporting service"} <= {row["name"] for row in rows}
+    modules = await identity.builds.project.nodes("Module", project_id=identity.builds.project_id)
+    assert {"Report generator", "Reporting service"} <= {n.get("name") for n in modules}
 
     update = identity.update
     assert (update.mode, update.status, update.failed_step) == ("update", "succeeded", None)
@@ -796,7 +803,7 @@ CROSSDOC_CALLS: Final = {
 class CrossDoc:
     """A ``first`` build of the cross-document corpus into a project of its own."""
 
-    project: Neo4jProject
+    project: GraphProject
     builds: ShopV2Builds
     result: BuildResult
     gateway: ScriptedGateway
@@ -814,7 +821,7 @@ class CrossDoc:
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def crossdoc(tmp_path_factory: pytest.TempPathFactory) -> AsyncIterator[CrossDoc]:
     gateways: list[ScriptedGateway] = []
-    async with open_neo4j_project() as project:
+    async with open_graph_project() as project:
         builds = ShopV2Builds(project, scripted_factory(gateways), Path(tmp_path_factory.mktemp("shop-v2-crossdoc")))
         result, gateway = await builds.build(CROSSDOC_SNAPSHOT)
         assert_all_scripted(*gateways)
@@ -836,13 +843,11 @@ def unit_of(edges: EdgesArtifact, prefix: str) -> str:
 
 
 async def crossdoc_edges(crossdoc: CrossDoc) -> set[tuple[str, str, str, str, str | None]]:
-    rows = await crossdoc.project.run(
-        "MATCH (s:SpecNode)-[r]->(t:SpecNode) WHERE s.group_id = $p AND t.group_id = $p AND type(r) IN $relations "
-        "RETURN s.name AS source, type(r) AS relation, t.name AS target, r.basis AS basis, r.inference_rule AS rule",
-        p=crossdoc.project_id,
-        relations=sorted(ONTOLOGY.relations),
-    )
-    return {(row["source"], row["relation"], row["target"], row["basis"], row["rule"]) for row in rows}
+    return {
+        (e.source.get("name"), e.type, e.target.get("name"), e.get("basis"), e.get("inference_rule"))
+        for e in await spec_edges(crossdoc.project, crossdoc.project_id)
+        if e.type in ONTOLOGY.relations
+    }
 
 
 async def test_crossdoc_build_succeeds_verifies_and_makes_the_scripted_calls(crossdoc: CrossDoc) -> None:
@@ -912,10 +917,8 @@ async def test_an_open_question_answered_in_another_document_is_dropped_and_list
     }
     assert shown == {REFUND_CURRENCY: [handles["ps.refunds"]], RETRY_QUESTION: [handles["ps.retries"]]}
     # the answered question is gone with its edge; the partly answered one stays with its own
-    rows = await crossdoc.project.run(
-        "MATCH (n:OpenQuestion) WHERE n.group_id = $p RETURN n.name AS name", p=crossdoc.project_id
-    )
-    assert [row["name"] for row in rows] == [RETRY_QUESTION]
+    questions = await crossdoc.project.nodes("OpenQuestion", project_id=crossdoc.project_id)
+    assert [n.get("name") for n in questions] == [RETRY_QUESTION]
     edges = await crossdoc_edges(crossdoc)
     assert (PAYMENT_SERVICE, "RELATES_TO", RETRY_QUESTION, "stated", None) in edges
     assert not [edge for edge in edges if REFUND_CURRENCY in edge]
@@ -963,11 +966,7 @@ async def test_inf_xdoc_01_accepts_one_link_and_downgrades_a_dependency_without_
     assert set(payload["relations"]) == {"RELATES_TO", "DEPENDS_ON"}
     # both written as RELATES_TO (the DEPENDS_ON had no dependency cue in its source-side quote)
     spec_ids = {
-        row["spec_id"]: row["name"]
-        for row in await crossdoc.project.run(
-            "MATCH (n:SpecNode) WHERE n.group_id = $p RETURN n.spec_id AS spec_id, n.name AS name",
-            p=crossdoc.project_id,
-        )
+        n.get("spec_id"): n.get("name") for n in await crossdoc.project.nodes(SPEC_NODE, project_id=crossdoc.project_id)
     }
     items = {
         (

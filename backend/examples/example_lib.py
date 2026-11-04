@@ -2,10 +2,38 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from typing import cast
+from typing import Any, cast
 
+from graph.build import BuildResult
 from logger.correlation import new_request_context
 from logger.logger import ERROR, close, get_logger, log_event
+
+
+def build_result_summary(result: BuildResult) -> dict[str, Any]:
+    """JSON-ready summary of a build result, shared by the graph examples."""
+
+    metrics = result.metrics
+    return {
+        "project_id": result.project_id,
+        "build_id": result.build_id,
+        "mode": result.mode,
+        "status": result.status,
+        "settled": result.settled,
+        "failed_step": result.failed_step,
+        "error_code": result.error_code,
+        "spec_changes": {name: len(values) for name, values in result.spec_changes.model_dump().items() if values},
+        "skipped_fragments": dict(sorted(result.skipped_fragments.items())),
+        "follow_up_lineages": list(result.verification.follow_up_lineages) if result.verification else [],
+        "fragments_by_status": metrics.fragments_by_status,
+        "units_extracted": metrics.units_extracted,
+        "units_reused": metrics.units_reused,
+        "nodes_by_label": metrics.nodes_by_label,
+        "edges_by_relation": metrics.edges_by_relation,
+        "dropped_edges": metrics.dropped_edges,
+        "exclusive_conflicts": metrics.exclusive_conflicts,
+        "attribution_fallbacks": metrics.attribution_fallbacks,
+        "duration_s": metrics.duration_s,
+    }
 
 
 async def _boxed[T](awaitable: Awaitable[T]) -> list[T]:

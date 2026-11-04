@@ -6,6 +6,9 @@ const kit = defineStylelintConfig();
 
 export default {
   ...kit,
+  // Generated output, git-ignored and out of the ESLint scan too (eslint.kit.config.mjs): the Next build, and the
+  // Playwright reports and traces of `make e2e-production`, whose bundled third-party CSS is not this app's code.
+  ignoreFiles: [".next/**", "playwright-report/**", "test-results/**", "logs/**"],
   overrides: [
     ...kit.overrides,
     {

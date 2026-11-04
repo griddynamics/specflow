@@ -21,7 +21,7 @@ GENERATED = (
     "POSTGRES_ADMIN_PASSWORD",
     "DATABASE_PASSWORD",
     "DATABASE_AGENT_PASSWORD",
-    "NEO4J_PASSWORD",
+    "GRAPH_STORE_PASSWORD",
     "SESSION_SECRET",
     "RUSTFS_ACCESS_KEY",
     "RUSTFS_SECRET_KEY",
@@ -123,6 +123,19 @@ def test_an_existing_file_keeps_its_lines_and_gets_only_the_missing_or_empty_sec
     assert {"KEYCLOAK_QA_PASSWORD", "SESSION_SECRET"} <= set(appended.group(1).split())
     assert "DATABASE_PASSWORD" not in appended.group(1).split()
     assert f"add LLM_GATEWAY_URL LLM_GATEWAY_API_KEY {' '.join(GRAPH_MODELS + EMBEDDING)} to" in result.stdout
+
+
+def test_an_older_file_with_neo4j_password_gets_no_graph_store_password(tmp_path):
+    """Its Neo4j volume was created with NEO4J_PASSWORD, which compose and the settings fall back to."""
+
+    env_file = tmp_path / "scratch.env"
+    env_file.write_text("NEO4J_PASSWORD=older-secret\n")
+    result = _run(env_file)
+    assert result.returncode == 0, result.stderr
+    values = _values(env_file)
+    assert values["NEO4J_PASSWORD"] == ["older-secret"]
+    assert "GRAPH_STORE_PASSWORD" not in values
+    assert set(GENERATED) - {"GRAPH_STORE_PASSWORD"} <= set(values)
 
 
 def test_a_complete_file_is_left_byte_for_byte_unchanged(tmp_path):

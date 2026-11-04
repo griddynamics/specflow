@@ -4,5 +4,5 @@
 UNWIND $requests AS request
 MATCH (n:SpecNode {group_id: $project_id, uuid: request.uuid})-[r]->(o:SpecNode)
 WHERE type(r) = request.relation AND r.group_id = $project_id AND o.group_id = $project_id AND o.spec_id IS NOT NULL
-RETURN request.uuid AS uuid, request.relation AS relation, labels(o) AS labels, o.spec_id AS spec_id, [name IN request.attributes | [name, o[name]]] AS values
+RETURN request.uuid AS uuid, request.relation AS relation, labels(o) AS labels, o.spec_id AS spec_id, [name IN request.attributes | [name, o[name]]] AS attribute_values
 ORDER BY uuid, relation, spec_id

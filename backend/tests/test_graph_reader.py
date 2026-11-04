@@ -33,6 +33,7 @@ from graph.core.reader import (
     _lucene_query,
     _query_terms,
 )
+from graph.stores._bolt.cypher import binds_project_id, render_cypher
 from graph_support import (
     RENAMED_FEATURE_LABEL,
     RENAMED_FEATURE_PREFIX,
@@ -45,7 +46,6 @@ from graph_support import (
 ONT = load_ontology()
 FR = "FunctionalRequirement"
 PROJECT = "offline-reader"
-PROCEDURE_FAILED = "Neo.ClientError.Procedure.ProcedureCallFailed"
 # Characters with a meaning in Lucene query syntax.
 LUCENE_SYNTAX = re.compile(r'[+\-!(){}\[\]^"~*?:\\/&|]')
 
@@ -62,7 +62,7 @@ class ScriptedExecutor(Executor):
         self.project_ids: list[str] = []
 
     async def read(self, query: Any, project_id: str, /, **params: Any) -> list[dict[str, Any]]:
-        assert query.binds_project_id()
+        assert binds_project_id(render_cypher(query))
         self.project_ids.append(project_id)
         self.calls.append((query.name, params))
         if query.name not in self.answers:
@@ -453,7 +453,7 @@ async def test_stop_words_only_leave_the_vector_list() -> None:
 @pytest.mark.parametrize("method", ["find_nodes", "find_fragments"])
 async def test_a_query_lucene_rejects_is_query_too_long(method: str) -> None:
     def rejected(params: Mapping[str, Any]) -> list[dict[str, Any]]:
-        raise ConformanceError("neo4j_query_rejected", neo4j_code=PROCEDURE_FAILED)
+        raise ConformanceError("query_too_complex", store="neo4j")
 
     executor = ScriptedExecutor({"search_nodes_fulltext": rejected, "search_fragments": rejected})
     with pytest.raises(ConfigurationError) as raised:
@@ -463,10 +463,21 @@ async def test_a_query_lucene_rejects_is_query_too_long(method: str) -> None:
 
 async def test_other_query_rejections_stay_conformance_errors() -> None:
     def rejected(params: Mapping[str, Any]) -> list[dict[str, Any]]:
-        raise ConformanceError("neo4j_query_rejected", neo4j_code="Neo.ClientError.Statement.SyntaxError")
+        raise ConformanceError("store_query_rejected", backend_code="Neo.ClientError.Statement.SyntaxError")
 
     with pytest.raises(ConformanceError):
         await reader(ScriptedExecutor({"search_fragments": rejected})).find_fragments(PROJECT, "x")
+
+
+async def test_the_reader_no_longer_matches_a_backend_procedure_code() -> None:
+    def rejected(params: Mapping[str, Any]) -> list[dict[str, Any]]:
+        raise ConformanceError(
+            "store_query_rejected", backend_code="Neo.ClientError.Procedure.ProcedureCallFailed", store="neo4j"
+        )
+
+    with pytest.raises(ConformanceError) as raised:
+        await reader(ScriptedExecutor({"search_fragments": rejected})).find_fragments(PROJECT, "x")
+    assert raised.value.code == "store_query_rejected"
 
 
 # --- H4 /: validation (before any query) ---------------------------------------------
@@ -590,8 +601,8 @@ def test_scope_queries_follow_the_shipped_spine_paths() -> None:
         "read_scope_via_PART_OF_1_3",
         "read_scope_via_RELATES_TO_1_1",
     ]
-    assert all(query.binds_project_id() for query in queries)
-    by_name = {query.name: query.text for query in queries}
+    assert all(binds_project_id(render_cypher(query)) for query in queries)
+    by_name = {query.name: render_cypher(query) for query in queries}
     assert "-[r:PART_OF WHERE r.group_id = $project_id]-()" in by_name["read_scope_via_PART_OF_1_3"]
     assert "{1,3}(root)" in by_name["read_scope_via_PART_OF_1_3"]
     assert "{1,1}(root)" in by_name["read_scope_via_RELATES_TO_1_1"]
@@ -604,13 +615,15 @@ def test_scope_queries_follow_the_shipped_spine_paths() -> None:
 
 def test_sequence_parts_are_every_contiguous_run_and_symmetric_steps_go_either_way() -> None:
     query = scope_sequence(("GROUPED_BY", "RELATES_TO", "REALIZED_BY"), ("RELATES_TO",))
-    assert "-[r0:GROUPED_BY]->(x0:SpecNode)-[r1:RELATES_TO]-(x1:SpecNode)-[r2:REALIZED_BY]->(root)" in query.text
+    assert "-[r0:GROUPED_BY]->(x0:SpecNode)-[r1:RELATES_TO]-(x1:SpecNode)-[r2:REALIZED_BY]->(root)" in render_cypher(
+        query
+    )
     for index in (0, 1):
-        assert f"none(label IN labels(x{index}) WHERE label IN $roots)" in query.text
+        assert f"none(label IN labels(x{index}) WHERE label IN $roots)" in render_cypher(query)
 
 
 def test_via_walks_each_edge_towards_the_root_unless_symmetric() -> None:
-    text = scope_via(("PART_OF",), 1, 3).text
+    text = render_cypher(scope_via(("PART_OF",), 1, 3))
     assert "length(p) <= $max_hops" in text
     assert "all(i IN range(0, size(r) - 1) WHERE type(r[i]) IN $symmetric OR startNode(r[i]) = nodes(p)[i])" in text
     assert "all(b IN nodes(p)[1..] WHERE b = root OR none(label IN labels(b) WHERE label IN $roots))" in text
@@ -740,7 +753,7 @@ def owner_row(uuid: str, spec_id: str, label: str, **values: Any) -> dict[str, A
         "relation": "PART_OF",
         "labels": ["SpecNode", label],
         "spec_id": spec_id,
-        "values": [[name, value] for name, value in values.items()],
+        "attribute_values": [[name, value] for name, value in values.items()],
     }
 
 

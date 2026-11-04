@@ -22,6 +22,7 @@ import multiprocessing
 import os
 import re
 import resource
+import shlex
 import shutil
 import subprocess
 import sys
@@ -63,7 +64,9 @@ BUILT = {
     "frontend": ("./frontend", "Dockerfile"),
 }
 # Database service -> public image.
-PUBLIC = {"postgres": "postgres:17.11", "neo4j": "neo4j:5.26.30-community"}
+PUBLIC = {"postgres": "pgvector/pgvector:0.8.7-pg17", "neo4j": "neo4j:5.26.30-community"}
+# The services of the graph store backends that have a compose profile (`make up WITH=<backend>`), by profile.
+GRAPH_STORE_PROFILES = {"neo4j": {"neo4j"}, "arcadedb": {"arcadedb", "arcadedb-init"}}
 # Local-only platform services this file runs itself (a deployment provides them in its own cluster).
 LOCAL_PLATFORM = {
     "temporal",
@@ -98,6 +101,12 @@ needs_docker = pytest.mark.skipif(
 )
 
 
+# `docker compose config` resolves a file without a daemon: the CLI is all the stack-selection tests need.
+needs_compose_cli = pytest.mark.skipif(
+    shutil.which("docker") is None,
+    reason="the docker CLI is needed (compose config needs no daemon)",
+)
+
 needs_rss = pytest.mark.skipif(
     os.environ.get("SPECFLOW_IMAGE_RSS") != "1",
     reason="SPECFLOW_IMAGE_RSS=1 (run by `make rss-test` in a Linux container)",
@@ -123,7 +132,8 @@ def env_of(service: dict) -> dict[str, str]:
 
 def test_the_stack_is_the_built_services_the_databases_mcp_and_the_local_platform_services():
     svcs = services()
-    assert set(svcs) == set(BUILT) | set(PUBLIC) | LOCAL_PLATFORM | {MCP_SERVICE}
+    extra = set().union(*GRAPH_STORE_PROFILES.values())
+    assert set(svcs) == set(BUILT) | set(PUBLIC) | LOCAL_PLATFORM | {MCP_SERVICE} | extra
     for name, svc in svcs.items():
         assert svc["container_name"] == f"specflow-{name}", name
     assert compose()["name"] == "specflow"
@@ -164,7 +174,6 @@ def test_the_file_uses_no_anchors_merge_keys_or_extension_fields():
 
 DEFAULT_SERVICES = {
     "postgres",
-    "neo4j",
     "keycloak",
     "rustfs",
     "rustfs-init",
@@ -178,14 +187,15 @@ LANGFUSE_SERVICES = {f"langfuse-{n}" for n in ("postgres", "clickhouse", "redis"
 
 
 def test_temporal_and_langfuse_are_optional_profiles_and_keycloak_is_always_started():
-    """D32: the default stack starts no Temporal or Langfuse (WITH=... turns them on); Keycloak has no profile."""
+    """D32: the default stack starts no Temporal or Langfuse (WITH=... turns them on); Keycloak has no profile. A
+    graph store with a server of its own is a profile too: the Makefile starts neo4j unless WITH names another store."""
 
     svcs = services()
     by_profile = {}
     for name, svc in svcs.items():
         for profile in svc.get("profiles", []):
             by_profile.setdefault(profile, set()).add(name)
-    assert by_profile == {"temporal": {"temporal"}, "langfuse": LANGFUSE_SERVICES}
+    assert by_profile == {"temporal": {"temporal"}, "langfuse": LANGFUSE_SERVICES, **GRAPH_STORE_PROFILES}
     assert {n for n, svc in svcs.items() if "profiles" not in svc} == DEFAULT_SERVICES
 
 
@@ -204,9 +214,15 @@ def test_the_app_reaches_an_external_temporal_and_langfuse_by_default():
 
 def test_make_up_with_selects_the_profiles_and_points_the_app_at_them():
     makefile = (ROOT / "Makefile").read_text()
-    assert "COMPOSE_PROFILES=temporal,langfuse $(COMPOSE_BASE)" in makefile  # down, ps, logs cover every profile
-    assert "keycloak" not in re.search(r"^BAD_WITH :=.*$", makefile, re.MULTILINE).group(0)  # WITH=keycloak is refused
-    assert "WITH accepts temporal and langfuse" in makefile
+    # down, ps and logs cover every profile (the dry run prints the profiles they pass to compose)
+    make = str(shutil.which("make"))
+    environment = {**os.environ, "WITH": ""}
+    dry_run = subprocess.run(
+        [make, "-n", "down"], cwd=ROOT, capture_output=True, text=True, check=True, env=environment
+    ).stdout
+    assert f"COMPOSE_PROFILES=temporal,langfuse,{','.join(GRAPH_STORE_PROFILES)} " in dry_run
+    keycloak = make_dry_run("up", WITH="keycloak")  # WITH=keycloak is refused: Keycloak is always started
+    assert keycloak.returncode != 0 and "WITH accepts temporal langfuse" in keycloak.stderr
     # Local sign-in is always Keycloak: no override block, no names make assigns for the services.
     assert not re.search(r"MCP_OIDC_ENV|KEYCLOAK_ISSUER|-u MCP_|MCP_AUTH_|AUTH_DEV_SIGNING_KEY|AUTH_MODE", makefile)
     assert not re.search(r"(?<![A-Z_])(OIDC_ISSUER|AUTH_JWKS_URL)=", makefile)
@@ -234,7 +250,18 @@ def test_every_published_port_is_loopback_and_never_3000_8080_or_5432():
             host_port = text.split(":")[1]
             if (name, text) != ("langfuse-web", "127.0.0.1:3000:3000"):
                 assert not re.fullmatch(r"(3000|8080|5432)", host_port), (name, text)
-    expected = {"postgres", "neo4j", "api", "frontend", "temporal", "langfuse-web", "rustfs", "keycloak", "mcp"}
+    expected = {
+        "postgres",
+        "neo4j",
+        "api",
+        "frontend",
+        "temporal",
+        "langfuse-web",
+        "rustfs",
+        "arcadedb",
+        "keycloak",
+        "mcp",
+    }
     assert {name for name, _ in seen} == expected
     assert services()["frontend"]["ports"] == ["127.0.0.1:${FRONTEND_PORT:-3001}:3000"]
     assert services()["rustfs"]["ports"] == ["127.0.0.1:${RUSTFS_HOST_PORT:-19000}:9000"]
@@ -254,8 +281,13 @@ def test_in_network_values_use_the_deployment_host_names():
         env = env_of(services()[name])
         assert env["DATABASE_HOST"] == "specflow-postgres", name
         assert env["DATABASE_NAME"] == env["DATABASE_USER"] == "specflow", name
-    for name in ("api", "worker-agents"):
-        assert env_of(services()[name])["NEO4J_URI"] == "bolt://specflow-neo4j:7687", name
+    for name in ("api", "mcp", "worker-agents"):
+        env = env_of(services()[name])
+        # The defaults are the neo4j of the stack; `make up WITH=<store>` passes the values of another store.
+        assert env["GRAPH_STORE"] == "${GRAPH_STORE:-neo4j}", name
+        assert env["GRAPH_STORE_URI"] == "${GRAPH_STORE_URI:-bolt://specflow-neo4j:7687}", name
+        assert env["GRAPH_STORE_USER"] == "${GRAPH_STORE_USER:-neo4j}", name
+        assert env["GRAPH_STORE_NAME"] == "${GRAPH_STORE_NAME:-neo4j}", name
     assert env_of(services()["frontend"])["API_INTERNAL_URL"] == "http://specflow-api:8000"
 
 
@@ -270,7 +302,7 @@ def test_secret_variables_reach_only_their_roles():
     assert holders("DATABASE_AGENT_PASSWORD") == {"postgres", "worker-agents"}
     # The api runs the graph build in-process (POST /projects/{pid}/graph_build).
     assert holders("LLM_GATEWAY_API_KEY") == {"api", "worker-agents"}
-    assert holders("NEO4J_PASSWORD") == {"api", "worker-agents", "mcp"}
+    assert holders("GRAPH_STORE_PASSWORD") == {"api", "worker-agents", "mcp"}
     assert holders("DATABASE_PASSWORD") == {"postgres", "api", "worker-parse", "worker-agents", "mcp"}
     assert holders("POSTGRES_PASSWORD") == {"postgres", "langfuse-postgres"}  # the latter is its own store
     assert holders("AUTH_DEV_SIGNING_KEY") == set()
@@ -368,13 +400,14 @@ def test_the_mcp_role_runs_the_api_image_against_the_bundled_keycloak():
     assert env["MCP_PORT"] == str(port)
     assert env["MCP_RESOURCE_URL"] == f"http://localhost:{port}/mcp"
     assert env["DATABASE_HOST"] == "specflow-postgres"
-    assert env["NEO4J_URI"] == "bolt://specflow-neo4j:7687"
+    assert env["GRAPH_STORE_URI"] == "${GRAPH_STORE_URI:-bolt://specflow-neo4j:7687}"
     assert env["OIDC_ISSUER"] == KEYCLOAK_ISSUER
     assert env["AUTH_JWKS_URL"] == KEYCLOAK_JWKS_URL
     assert env["AUTH_ALLOWED_EMAIL_DOMAINS"] == "${AUTH_ALLOWED_EMAIL_DOMAINS:-example.com}"
     assert not {"AUTH_MODE", "AUTH_DEV_SIGNING_KEY"} & set(env)
     prefixes = ("TEMPORAL_", "AWS_", "LLM_", "LANGFUSE_", "GRAPH_", "AGENT_", "DATABASE_AGENT_")
-    assert [key for key in env if key.startswith(prefixes) or key == "SPECFLOW_CONFIG_FILE"] == []
+    unused = [key for key in env if key.startswith(prefixes) and not key.startswith("GRAPH_STORE")]
+    assert [*unused, *(key for key in env if key == "SPECFLOW_CONFIG_FILE")] == []
     claims = {"AUTH_SUBJECT_CLAIM", "AUTH_CLIENT_ID_CLAIM", "AUTH_EMAIL_CLAIM", "AUTH_EMAIL_VERIFIED_CLAIM"}
     claims |= {
         "AUTH_TOKEN_TYPE",
@@ -383,7 +416,8 @@ def test_the_mcp_role_runs_the_api_image_against_the_bundled_keycloak():
         "AUTH_IGNORED_AUDIENCES",
     }  # an empty fallback would switch a check off
     assert [name for name, other in svcs.items() if claims & set(env_of(other))] == []
-    assert sorted(key for key, value in env.items() if ":?" in str(value)) == ["DATABASE_PASSWORD", "NEO4J_PASSWORD"]
+    # The graph password is checked by make up (check-graph-store-env), not required by compose.
+    assert sorted(key for key, value in env.items() if ":?" in str(value)) == ["DATABASE_PASSWORD"]
     for name in ("api", "frontend"):
         assert not {"AUTH_MODE", "AUTH_DEV_SIGNING_KEY"} & set(env_of(svcs[name])), name
 
@@ -459,9 +493,10 @@ def test_the_start_order_follows_the_blueprint():
     svcs = services()
     assert svcs["api"]["depends_on"] == {
         "postgres": {"condition": "service_healthy"},
-        "neo4j": {"condition": "service_healthy"},
         "keycloak": {"condition": "service_healthy"},
-        # Present only when the temporal / langfuse profile is on.
+        # Present only when the profile of the store (neo4j, arcadedb) or of temporal / langfuse is on.
+        "neo4j": {"condition": "service_healthy", "required": False},
+        "arcadedb-init": {"condition": "service_completed_successfully", "required": False},
         "temporal": {"condition": "service_healthy", "required": False},
         "langfuse-web": {"condition": "service_healthy", "required": False},
         "rustfs-init": {"condition": "service_completed_successfully"},
@@ -473,9 +508,8 @@ def test_the_start_order_follows_the_blueprint():
         }, name
     healthy = {"condition": "service_healthy"}  # api has migrated; keycloak holds the realm they check tokens against
     assert svcs["frontend"]["depends_on"] == {"api": healthy, "keycloak": healthy}
-    assert svcs[MCP_SERVICE]["depends_on"] == {
+    assert svcs[MCP_SERVICE]["depends_on"] == {  # the graph store of the stack: through api
         "postgres": healthy,
-        "neo4j": healthy,
         "api": healthy,
         "keycloak": healthy,
     }
@@ -494,7 +528,7 @@ def test_each_worker_polls_one_queue_and_drains_on_stop():
 
 
 def test_no_host_absolute_path_in_the_files_this_step_owns():
-    pattern = re.compile(r"/[U]sers/|/private/|/home/(?!specflow)|[A-Z]:\\\\")
+    pattern = re.compile(r"/[U]sers/|/private/|/home/(?!specflow|arcadedb)|[A-Z]:\\\\")
     for path in [*OWNED, Path(__file__)]:
         for number, line in enumerate(path.read_text().splitlines(), 1):
             if path == Path(__file__) and "pattern = re.compile" in line:
@@ -582,9 +616,9 @@ DEPLOYED_BACKEND_ENV = {
     "GOOGLE_CLOUD_PROJECT": "synthetic-project",
     "TEMPORAL_ADDRESS": "temporal.invalid:7233",
     "TEMPORAL_NAMESPACE": "synthetic",
-    "NEO4J_URI": "bolt://neo4j.invalid:7687",
-    "NEO4J_USER": "neo4j",
-    "NEO4J_PASSWORD": "synthetic-neo4j-password-1",
+    "GRAPH_STORE_URI": "bolt://neo4j.invalid:7687",
+    "GRAPH_STORE_USER": "neo4j",
+    "GRAPH_STORE_PASSWORD": "synthetic-neo4j-password-1",
     "AGENT_MODEL": "synthetic/model",
     "LLM_GATEWAY_URL": "https://gateway.invalid/openai",
     "LLM_GATEWAY_API_KEY": "synthetic-gateway-key-1",
@@ -890,105 +924,176 @@ async def test_ac_4_2_rss_for_100_mib_with_four_mib_chunks_against_a_fake_transp
     assert growth < 64, f"RSS grew {growth:.1f} MiB for 100 MiB (limit 64)"
 
 
-# --- `make up` refuses an env file without the Keycloak and personal-user names ---------------
+def test_the_graph_store_password_falls_back_to_the_older_env_file_name():
+    """An ``.env.local`` written before GRAPH_STORE_PASSWORD existed has only NEO4J_PASSWORD. The inner default is
+    never a required variable: Compose v2 evaluates one inside a default even when the outer variable is set, so
+    ``make up`` checks that one of them is set (``check-graph-store-env``)."""
 
-KEYCLOAK_NAMES = (
-    "KEYCLOAK_ADMIN_PASSWORD",
-    "KEYCLOAK_QA_PASSWORD",
-    "KEYCLOAK_WEB_CLIENT_SECRET",
-    "LOCAL_TEST_USER_EMAIL",
-    "LOCAL_TEST_USER_PASSWORD",
-    "LOCAL_TEST_USER_ID",
+    text = (ROOT / "docker-compose.yml").read_text()
+    fallback = "${GRAPH_STORE_PASSWORD:-${NEO4J_PASSWORD:-}}"
+
+    assert "${NEO4J_PASSWORD:?" not in text
+    assert text.count(fallback) == 4  # the neo4j login, api, mcp and worker-agents
+    for name in ("api", "mcp", "worker-agents"):
+        assert fallback in env_of(services()[name])["GRAPH_STORE_PASSWORD"]
+    assert fallback in env_of(services()["neo4j"])["NEO4J_AUTH"]
+
+
+@pytest.mark.parametrize(
+    ("lines", "selection", "ok"),
+    [
+        ("GRAPH_STORE_PASSWORD=a\n", "", True),
+        ("NEO4J_PASSWORD=a\n", "arcadedb", True),
+        ("GRAPH_STORE_PASSWORD=\nNEO4J_PASSWORD=\n", "", False),
+        ("DATABASE_PASSWORD=a\n", "arcadedb", False),
+        ("DATABASE_PASSWORD=a\n", "postgres", True),  # the graph lives in postgres, over the DATABASE_* login
+    ],
 )
-SYNTHETIC = "synthetic-not-a-secret"
+def test_make_up_refuses_a_stack_without_a_graph_password_and_never_prints_one(
+    lines: str, selection: str, *, ok: bool, tmp_path: Path
+) -> None:
+    env_file = tmp_path / "stack.env"
+    env_file.write_text(lines)
+    environment = {name: value for name, value in os.environ.items() if name not in ("GRAPH_STORE", "WITH")}
+    result = subprocess.run(
+        [str(shutil.which("make")), "check-graph-store-env", f"WITH={selection}", f"ENV_FILE={env_file}"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        env=environment,
+        check=False,
+    )
+    assert (result.returncode == 0) is ok, result.stderr
+    assert ("set GRAPH_STORE_PASSWORD" in result.stderr) is (not ok)
+    assert "=a" not in result.stdout + result.stderr
 
 
-def _make(tmp_path: Path, env_text: str, *args: str) -> subprocess.CompletedProcess[str]:
-    env_file = tmp_path / "scratch.env"
-    env_file.write_text(env_text)  # synthetic values only
+def test_the_arcadedb_profile_is_pinned_limited_loopback_only_and_keeps_its_password_in_a_secret() -> None:
+    """ArcadeDB runs the pinned image with 4g, publishes on loopback only and gets the root password as a file."""
+
+    svcs = services()
+    server, init = svcs["arcadedb"], svcs["arcadedb-init"]
+    assert server["image"] == init["image"] == "arcadedata/arcadedb:26.10.2"  # never latest
+    assert server["mem_limit"] == "4g" and init["mem_limit"]
+    assert server["profiles"] == init["profiles"] == ["arcadedb"]
+    assert all(str(port).startswith("127.0.0.1:") for port in server["ports"])
+    assert server["ports"] == [
+        "127.0.0.1:${ARCADEDB_BOLT_HOST_PORT:-7688}:7687",
+        "127.0.0.1:${ARCADEDB_HTTP_HOST_PORT:-2480}:2480",
+    ]
+    java = env_of(server)["JAVA_OPTS"]
+    assert "-Darcadedb.server.rootPasswordPath=/run/secrets/arcadedb_root_password" in java
+    assert "rootPassword=" not in java  # the password is never a Java option
+    assert "BoltProtocolPlugin" in java
+    for service in (server, init):
+        assert service["secrets"] == ["arcadedb_root_password"]
+        assert not any("PASSWORD" in key for key in env_of(service)), "no password in environment"
+        assert "GRAPH_STORE_PASSWORD" not in str(service.get("environment"))
+    assert compose()["secrets"]["arcadedb_root_password"] == {"environment": "GRAPH_STORE_PASSWORD"}
+    assert server["volumes"] == ["specflow-arcadedb-data:/home/arcadedb/databases"]
+
+
+POSTGRES_OVERRIDE = ROOT / "config" / "compose.graph-postgres.yaml"
+STORE_SELECTIONS = {
+    "": ("neo4j", "neo4j", "bolt://specflow-neo4j:7687"),
+    "neo4j": ("neo4j", "neo4j", "bolt://specflow-neo4j:7687"),
+    "arcadedb": ("arcadedb", "arcadedb", "bolt://specflow-arcadedb:7687"),
+    "postgres": ("postgres", None, None),
+}
+
+
+def make_dry_run(target: str, **variables: str) -> subprocess.CompletedProcess[str]:
+    environment = {name: value for name, value in os.environ.items() if name not in ("GRAPH_STORE", "WITH")}
     return subprocess.run(
-        [shutil.which("make") or "make", "--no-print-directory", *args, f"ENV_FILE={env_file}"],
+        [str(shutil.which("make")), "-n", target, *(f"{k}={v}" for k, v in variables.items())],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        env=environment,
+        check=False,
+    )
+
+
+def profiles_of(dry_run: str) -> list[str]:
+    found = re.search(r"COMPOSE_PROFILES=([\w,-]*)", dry_run)
+    return found.group(1).split(",") if found else []
+
+
+@pytest.mark.parametrize("selection", list(STORE_SELECTIONS))
+def test_make_up_with_a_store_starts_its_profile_and_hands_its_settings_to_the_containers(selection: str) -> None:
+    store, profile, uri = STORE_SELECTIONS[selection]
+    result = make_dry_run("up", WITH=selection)
+    assert result.returncode == 0, result.stderr
+    assert f"GRAPH_STORE={store} " in result.stdout + " "
+    assert (f"GRAPH_STORE_URI={uri} " in result.stdout) is (uri is not None)
+    assert [name for name in profiles_of(result.stdout) if name in GRAPH_STORE_PROFILES] == (
+        [profile] if profile else []
+    )
+    assert ("-f config/compose.graph-postgres.yaml" in result.stdout) is (store == "postgres")
+    if store == "arcadedb":
+        assert "GRAPH_STORE_USER=root GRAPH_STORE_NAME=" in result.stdout
+
+
+def test_make_up_refuses_two_stores_and_a_graph_store_that_disagrees_with_with() -> None:
+    both = make_dry_run("up", WITH="arcadedb,postgres")
+    assert both.returncode != 0 and "more than one graph store" in both.stderr
+    mismatch = make_dry_run("up", GRAPH_STORE="arcadedb")
+    assert mismatch.returncode != 0 and "use WITH=arcadedb" in mismatch.stderr
+    assert make_dry_run("up", WITH="arcadedb", GRAPH_STORE="arcadedb").returncode == 0
+    for host_target in ("api", "worker", "test-graph-live"):  # host targets take any store
+        assert make_dry_run(host_target, GRAPH_STORE="arcadedb").returncode == 0, host_target
+
+
+def test_the_postgres_override_leaves_the_graph_connection_to_the_database_settings() -> None:
+    text = POSTGRES_OVERRIDE.read_text()
+    override = yaml.safe_load(text.replace("!reset null", "null"))["services"]  # `!reset null` reads as null
+    assert set(override) == {"api", "mcp", "worker-agents"}
+    reset = ("GRAPH_STORE_URI", "GRAPH_STORE_USER", "GRAPH_STORE_PASSWORD", "GRAPH_STORE_NAME")
+    for name, svc in override.items():
+        env = svc["environment"]
+        assert env["GRAPH_STORE"] == "postgres", name
+        assert {key for key, value in env.items() if value is None} == set(reset), name
+    assert text.count("!reset null") == 3 * len(reset)
+
+
+@needs_compose_cli
+@pytest.mark.parametrize("selection", ["", "arcadedb", "postgres"])
+def test_compose_config_resolves_for_each_store_with_synthetic_values(selection: str, tmp_path: Path) -> None:
+    """The stack resolves on neo4j (default), ArcadeDB and PostgreSQL; the PostgreSQL one carries no graph login."""
+
+    env_file = tmp_path / "stack.env"
+    env_file.write_text(
+        "\n".join(
+            f"{name}=synthetic-{name.lower()}"
+            for name in (
+                "POSTGRES_ADMIN_PASSWORD",
+                "DATABASE_PASSWORD",
+                "DATABASE_AGENT_PASSWORD",
+                "GRAPH_STORE_PASSWORD",
+                "AUTH_DEV_SIGNING_KEY",
+                "SESSION_SECRET",
+                "RUSTFS_ACCESS_KEY",
+                "RUSTFS_SECRET_KEY",
+            )
+        )
+        + "\nGRAPH_STORE_URI=bolt://localhost:7687\n"  # a host address in the env file never reaches the containers
+    )
+    dry_run = make_dry_run("up", WITH=selection, ENV_FILE=str(env_file)).stdout
+    command = re.search(r"^(env .*docker compose .*) up", dry_run, re.MULTILINE)
+    assert command is not None, dry_run
+    shell = subprocess.run(
+        [*shlex.split(command.group(1)), "config", "--format", "json"],
         cwd=ROOT,
         capture_output=True,
         text=True,
         check=False,
     )
-
-
-def _keycloak_check(tmp_path: Path, env_text: str, *extra: str) -> subprocess.CompletedProcess[str]:
-    return _make(tmp_path, env_text, "check-keycloak-env", *extra)
-
-
-def _env_with(**overrides: str | None) -> str:
-    values = dict.fromkeys(KEYCLOAK_NAMES, SYNTHETIC) | {"LOCAL_TEST_USER_EMAIL": "me@corp.io"} | overrides
-    return "".join(f"{name}={value}\n" for name, value in values.items() if value is not None)
-
-
-@pytest.mark.parametrize("missing", KEYCLOAK_NAMES)
-@pytest.mark.parametrize("form", ["absent", "empty", "quoted-empty"])
-def test_up_fails_early_naming_the_missing_keycloak_name(tmp_path, missing, form):
-    value = {"absent": None, "empty": "", "quoted-empty": '""'}[form]
-    result = _keycloak_check(tmp_path, "OTHER=1\n" + _env_with(**{missing: value}))
-
-    assert result.returncode != 0
-    assert [line for line in result.stderr.splitlines() if line.startswith("up:")] == [result.stderr.splitlines()[0]]
-    assert f"lacks {missing};" in result.stderr and "make env-local" in result.stderr
-    assert SYNTHETIC not in result.stdout + result.stderr
-
-
-@pytest.mark.parametrize(
-    "email",
-    ["no-at-sign", "a@nodot", "two@@x.io", "me@x.io;rm", "alice@example.com", "Bob@Example.com", "carol@other.example"],
-)
-def test_up_refuses_an_unusable_personal_email_naming_the_variable_only(tmp_path, email):
-    result = _keycloak_check(tmp_path, _env_with(LOCAL_TEST_USER_EMAIL=email))
-
-    assert result.returncode != 0
-    first = result.stderr.splitlines()[0]
-    assert first.startswith("up: LOCAL_TEST_USER_EMAIL in ") and "make env-local" in first
-    assert email not in result.stderr
-
-
-@pytest.mark.parametrize("email", ["me@corp.io", "Jane.Doe+x@Sub.Corp.IO", "dev@example.com"])
-def test_up_accepts_a_usable_personal_email(tmp_path, email):
-    assert _keycloak_check(tmp_path, _env_with(LOCAL_TEST_USER_EMAIL=email)).returncode == 0
-
-
-def test_up_names_every_missing_name_in_one_line(tmp_path):
-    result = _keycloak_check(tmp_path, "OTHER=1\n")
-
-    assert result.returncode != 0 and result.stderr.splitlines()[0].startswith("up: ")
-    assert all(name in result.stderr for name in KEYCLOAK_NAMES)
-
-
-@pytest.mark.parametrize("with_", [[], ["WITH=temporal,langfuse"]])
-def test_up_passes_the_check_with_every_name_and_never_prints_a_value(tmp_path, with_):
-    result = _keycloak_check(tmp_path, _env_with(), *with_)
-
-    assert result.returncode == 0
-    assert SYNTHETIC not in result.stdout + result.stderr
-
-
-def test_up_without_with_still_needs_the_keycloak_names(tmp_path):
-    """The check is unconditional: no WITH value skips it."""
-
-    assert _keycloak_check(tmp_path, "OTHER=1\n", "WITH=").returncode != 0
-    assert _keycloak_check(tmp_path, "OTHER=1\n", "WITH=temporal").returncode != 0
-
-
-def test_with_keycloak_is_refused(tmp_path):
-    result = _make(tmp_path, _env_with(), "check-keycloak-env", "WITH=keycloak")
-
-    assert result.returncode != 0
-    assert "WITH accepts temporal and langfuse" in result.stderr and "keycloak" in result.stderr
-
-
-def test_up_depends_on_the_keycloak_check_and_compose_keeps_the_empty_defaults():
-    assert re.search(r"^up: .*check-keycloak-env", (ROOT / "Makefile").read_text(), re.MULTILINE)
-    assert "${KEYCLOAK_ADMIN_PASSWORD:-}" in COMPOSE.read_text()
-
-
-def test_the_e2e_recipe_passes_the_env_file_to_the_live_pack():
-    makefile = (ROOT / "Makefile").read_text()
-
-    assert re.search(r"^e2e:\n\tE2E_BASE_URL=\$\(E2E_BASE_URL\) E2E_ENV_FILE=\$\(ENV_FILE\) ", makefile, re.MULTILINE)
+    assert shell.returncode == 0, shell.stderr
+    resolved = json.loads(shell.stdout)["services"]
+    store, _, uri = STORE_SELECTIONS[selection]
+    assert ("neo4j" in resolved) is (store == "neo4j") and ("arcadedb" in resolved) is (store == "arcadedb")
+    for name in ("api", "worker-agents"):
+        env = resolved[name]["environment"]
+        assert env["GRAPH_STORE"] == store, name
+        assert env.get("GRAPH_STORE_URI") == uri, name
+        assert ("GRAPH_STORE_PASSWORD" in env) is (store != "postgres"), name

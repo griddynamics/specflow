@@ -1,7 +1,7 @@
 # Relative to backend/. The root Makefile passes an absolute path down.
 ENV_FILE ?= ../.env.local
 
-.PHONY: setup models lint unit-test check \
+.PHONY: setup models lint unit-test check test-graph-live graph-bench \
 	db-upgrade db-revision mcp-manifest api worker temporal-check image-test rss-test
 
 # CI (CI=true) skips the model download: its unit job fetches them once into a cached folder, and the other
@@ -22,6 +22,28 @@ unit-test:
 	uv run pytest
 
 check: lint unit-test
+
+# The live graph suites against one store: `make test-graph-live STORE=neo4j|arcadedb|postgres`. The connection is
+# read from the environment and the env file (GRAPH_STORE_URI, _USER, _PASSWORD, _NAME, _ADMIN_URI; for neo4j the
+# NEO4J_* names still work); the target never starts a server. Use a database or schema that holds nothing you need:
+# the suites create and delete their own test projects, and on ArcadeDB a database that did not exist is dropped
+# again at the end. A suite for another store skips with its reason (docs/configuration.md "Live tests").
+STORE ?= neo4j
+GRAPH_LIVE_TESTS := tests/test_graph_probes.py tests/test_graph_core_live.py tests/test_graph_reader_live.py \
+	tests/test_graph_build_live.py tests/test_graph_update_live.py tests/test_graph_verify_live.py \
+	tests/test_graph_infer_live.py tests/test_graph_renamed_ontology_live.py tests/test_graph_estimate_live.py \
+	tests/test_graph_golden_live.py tests/test_graph_neo4j_live.py tests/test_store_arcadedb_live.py \
+	tests/test_store_postgres_integration.py
+
+test-graph-live:
+	@case "$(STORE)" in neo4j|arcadedb|postgres) ;; *) echo "test-graph-live: STORE must be neo4j, arcadedb or postgres, got: $(STORE)" >&2; exit 2;; esac
+	SPECFLOW_TEST_GRAPH_STORE=$(STORE) uv run --env-file $(ENV_FILE) pytest $(GRAPH_LIVE_TESTS) -q -rs
+
+# The cross-store benchmark (examples/graph_bench.py): `make graph-bench ARGS="replay --project ..."`. The script reads
+# the graph through the store probes of tests/graph_probes, so tests/ is on its import path; its outputs go under
+# ../.graph-bench/ (git-ignored).
+graph-bench:
+	PYTHONPATH=tests uv run --env-file $(ENV_FILE) python examples/graph_bench.py $(ARGS)
 
 # Rewrites frontend/lib/guides/mcp-tools.json from the MCP registry (a test fails when it is stale).
 mcp-manifest:

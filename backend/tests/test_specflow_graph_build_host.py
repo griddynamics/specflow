@@ -282,9 +282,8 @@ def make_runner(tmp_path, build, *, ensured: list | None = None, stores=None) ->
 
     return GraphBuildRunner(
         SETTINGS,
-        driver=object(),
+        store=object(),
         session_factory=lambda: None,
-        database="neo4j",
         dependencies=RunnerDependencies(
             build=build,
             stores=stores or open_file_stores(tmp_path),

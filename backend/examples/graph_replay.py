@@ -49,14 +49,15 @@ from graph.build.ports import BuildRecord
 from graph.build.resolve import MIN_ITEMS, ConsolidationParams
 from graph.build.run import ontology_fingerprint
 from graph.build.vectors import VECTOR_KIND, VectorCache
-from graph.core import Gateway, connect, load_ontology
-from graph.core.db import Executor
+from graph.core import Gateway, load_ontology
 from graph.core.identity import validate_project_id
 from graph.core.llm.judge import JudgeFailure, JudgeRunner, Verdict
 from graph.core.llm.usage import UsageSnapshot
 from graph.core.ontology import InferenceRule, Ontology
 from graph.core.ontology.model import CROSS_DOCUMENT
-from graph_build import environment, llm_config, neo4j_config
+from graph.core.store import Executor
+from graph.stores import build_store
+from graph_build import environment, llm_config, store_config
 from logger.logger import INFO, get_logger, log_event
 
 logger = get_logger("examples.graph_replay")
@@ -928,18 +929,17 @@ async def main() -> None:
         llm = llm.model_copy(update={"concurrency": args.concurrency})
     ontology = load_ontology(args.ontology)
     gateway = Gateway(llm)
-    driver = None
+    store = None
     try:
-        executor = None
+        executor: Executor | None = None
         if args.step == "infer":
-            neo4j = neo4j_config(env)
-            driver = connect(neo4j)
-            executor = Executor(driver, neo4j.database)
+            store = build_store(store_config())
+            executor = store.executor()
         metrics = await replay(request_of(args), gateway, ontology, executor=executor)
     finally:
         await gateway.aclose()
-        if driver is not None:
-            await driver.close()
+        if store is not None:
+            await store.close()
     print(json.dumps(summary_of(metrics), indent=1))
 
 

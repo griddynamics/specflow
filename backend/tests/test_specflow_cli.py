@@ -192,7 +192,7 @@ def test_a_refusal_without_a_hint_logs_the_event_name_as_the_message(env, work, 
 
 
 def test_the_worker_check_config_honours_queue_options(env, work, spy):
-    for name in ("NEO4J_URI", "AGENT_MODEL", "LLM_GATEWAY_URL", "DATABASE_AGENT_PASSWORD"):
+    for name in ("GRAPH_STORE_URI", "AGENT_MODEL", "LLM_GATEWAY_URL", "DATABASE_AGENT_PASSWORD"):
         env.delenv(name)
 
     assert cli.main(["worker", "--queue", "parse", "--check-config"]) == 0
@@ -215,7 +215,7 @@ def test_a_role_runs_its_module_with_the_loaded_settings(argv, key, env, work, s
 
 
 def test_the_worker_passes_its_queue_options_to_the_settings(env, work, spy):
-    for name in ("NEO4J_URI", "AGENT_MODEL", "LLM_GATEWAY_URL", "DATABASE_AGENT_PASSWORD"):
+    for name in ("GRAPH_STORE_URI", "AGENT_MODEL", "LLM_GATEWAY_URL", "DATABASE_AGENT_PASSWORD"):
         env.delenv(name)
 
     assert cli.main(["worker", "--queue", "parse"]) == 0
@@ -264,7 +264,7 @@ def test_worker_check_runs_the_health_checks(env, work, spy):
 def test_worker_check_receives_the_parsed_settings_with_the_queue_flag(env, work, spy):
     """R-code LOW 7: --queue must reach the checks, not be lost by a reload from the env."""
 
-    for name in ("NEO4J_URI", "AGENT_MODEL", "LLM_GATEWAY_URL", "DATABASE_AGENT_PASSWORD"):
+    for name in ("GRAPH_STORE_URI", "AGENT_MODEL", "LLM_GATEWAY_URL", "DATABASE_AGENT_PASSWORD"):
         env.delenv(name)  # a parse-only environment: the reload would refuse it
     work.results["check"] = True
 

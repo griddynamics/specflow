@@ -105,18 +105,18 @@ async def test_healthz_and_a_ready_readyz(whoami_app):
     assert ready.status_code == 200
     body = ready.json()
     assert body["status"] == "ready"
-    assert {name: check["ok"] for name, check in body["checks"].items()} == {"database": True, "neo4j": True}
+    assert {name: check["ok"] for name, check in body["checks"].items()} == {"database": True, "graph": True}
 
 
-async def test_readyz_is_503_when_neo4j_is_down_and_healthz_stays_200(valid_env):
-    app = build_app(mcp_env(valid_env), runtime=fake_runtime(neo4j_ok=False))
+async def test_readyz_is_503_when_the_graph_store_is_down_and_healthz_stays_200(valid_env):
+    app = build_app(mcp_env(valid_env), runtime=fake_runtime(graph_ok=False))
     async with serving(app) as client:
         ready = await client.get("/readyz")
         health = await client.get("/healthz")
 
     body = ready.json()
     assert (ready.status_code, body["status"]) == (503, "not_ready")
-    assert (body["checks"]["neo4j"]["ok"], body["checks"]["database"]["ok"]) == (False, True)
+    assert (body["checks"]["graph"]["ok"], body["checks"]["database"]["ok"]) == (False, True)
     assert "down" not in ready.text  # a fixed detail code, never exception text
     assert health.status_code == 200
 

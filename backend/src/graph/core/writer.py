@@ -8,7 +8,6 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Final
 
-from graph.core.db import Executor, ScopedTransaction
 from graph.core.errors import ConfigurationError, ConformanceError, OwnershipError
 from graph.core.identity import validate_project_id
 from graph.core.ontology import BUILT_IN_RELATIONS, Ontology
@@ -29,6 +28,7 @@ from graph.core.queries import (
     upsert_foreign_node,
     upsert_relationship,
 )
+from graph.core.store import ScopedTransaction, as_executor, multi_statement_tx
 from logger.logger import DEBUG, get_logger, log_event
 
 logger = get_logger("graph.core.writer")
@@ -66,9 +66,8 @@ class OwnedWriter:
     ) -> None:
         if owner not in OWNERS:
             raise ConfigurationError("unknown_owner", owner=str(owner))
-        self._executor = (
-            driver_or_executor if isinstance(driver_or_executor, Executor) else Executor(driver_or_executor, database)
-        )
+        self._executor = as_executor(driver_or_executor, database)
+        self._multi_statement_tx = multi_statement_tx(driver_or_executor, self._executor)
         self._ontology = ontology
         self._owner = owner
         self._project_id = validate_project_id(project_id)
@@ -90,6 +89,8 @@ class OwnedWriter:
 
         if self.active_transaction is not None:
             raise ConformanceError("writer_transaction_nested")
+        if not self._multi_statement_tx:
+            raise ConfigurationError("store_transactions_unsupported")
         async with self._executor.tx(self._project_id) as tx:
             bound = copy.copy(self)
             bound.active_transaction = tx

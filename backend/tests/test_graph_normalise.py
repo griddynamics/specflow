@@ -49,7 +49,7 @@ from graph.core.ontology import ConformSpec, Ontology
 from graph_extraction_store_support import MemoryStore
 from graph_support import ScriptedGateway, ScriptedRequest, frozen_ontology, shipped_ontology
 
-# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, neo4j_project) live in graph_support.
+# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, graph_project) live in graph_support.
 pytest_plugins = ["graph_support"]
 
 ONT = shipped_ontology()

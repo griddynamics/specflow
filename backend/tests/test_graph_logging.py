@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
 import re
 from collections import Counter
 from collections.abc import AsyncIterator, Iterable, Iterator, Mapping
@@ -20,24 +19,25 @@ import graph.build.queries as build_queries
 import graph.core.queries as core_queries
 from graph.core.errors import InfrastructureUnavailableError
 from graph.core.queries import Query
+from graph.stores._bolt.cypher import render_cypher
+from graph_probes import requires_live_graph
 from graph_support import (
     SHOP_DIR,
     SHOP_ORPHAN_VERDICTS,
-    Neo4jProject,
+    GraphProject,
     ScriptedGateway,
     ShopBuilds,
     assert_all_scripted,
     live_embedding_dim,
     llm_config,
-    open_neo4j_project,
+    open_graph_project,
     shop_answers,
 )
 from logger.formatters import JsonFormatter
 from logger.logger import get_logger
 from logger_harness import fields
-from specflow_live import requires_live
 
-pytestmark = requires_live("NEO4J")
+pytestmark = requires_live_graph()
 
 API_KEY = "sk-graph-log-capture-7f3c9a0e51d24b86"
 SEARCHES = (
@@ -245,20 +245,19 @@ def cypher_texts() -> list[str]:
 
     texts = []
     for module in (core_queries, build_queries):
-        texts.extend(value.text for value in vars(module).values() if isinstance(value, Query))
+        texts.extend(render_cypher(value) for value in vars(module).values() if isinstance(value, Query))
     assert len(texts) > 20, "the library's queries were not found"
     return texts
 
 
-async def project_keys(project: Neo4jProject, project_id: str) -> set[str]:
-    rows = await project.run(
-        "MATCH (n:SpecNode) WHERE n.group_id = $p "
-        "RETURN [n.identity_key] + coalesce(n.identity_aliases, []) AS keys "
-        "UNION ALL MATCH (:SpecNode)-[r]->(:SpecNode) WHERE r.group_id = $p AND r.edge_key IS NOT NULL "
-        "RETURN [r.edge_key] AS keys",
-        p=project_id,
-    )
-    return {key for row in rows for key in row["keys"] if key}
+async def project_keys(project: GraphProject, project_id: str) -> set[str]:
+    keys: set[str] = set()
+    for n in await project.nodes("SpecNode", project_id=project_id):
+        keys.update(key for key in [n.get("identity_key"), *(n.get("identity_aliases") or [])] if key)
+    for e in await project.edges(project_id=project_id, group_id=project_id):
+        if "SpecNode" in e.source.labels and "SpecNode" in e.target.labels and e.get("edge_key") is not None:
+            keys.add(e["edge_key"])
+    return keys
 
 
 def secret_label(kind: str, value: str) -> str:
@@ -348,7 +347,7 @@ async def run(tmp_path_factory: pytest.TempPathFactory) -> AsyncIterator[Run]:
         gateways.append(gateway)
         return gateway
 
-    async with open_neo4j_project() as project:
+    async with open_graph_project() as project:
         builds = ShopBuilds(project, factory, tmp_path_factory.mktemp("logging") / "stores", llm=config)
         with Capturing() as capture:
             for snapshot in (1, 2, 3):
@@ -359,7 +358,7 @@ async def run(tmp_path_factory: pytest.TempPathFactory) -> AsyncIterator[Run]:
         assert_all_scripted(*gateways)
         keys = await project_keys(project, builds.project_id)
         secrets = {API_KEY}
-        password = os.environ.get("NEO4J_PASSWORD", "")
+        password = project.probe.config.password.get_secret_value()
         if len(password) >= 4:
             secrets.add(password)
         output, names = model_output()

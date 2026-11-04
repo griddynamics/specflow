@@ -29,7 +29,7 @@ from logger_harness import events, fields
 from settings import load_settings
 from specflow_api_support import (
     PDF,
-    FakeDriver,
+    FakeGraphStore,
     FakeRepo,
     FakeTemporal,
     bearer,
@@ -251,7 +251,7 @@ async def test_a_real_unreachable_database_is_503(configured_database, valid_env
             session_factory=build_session_factory(engine),
             store=None,
             temporal=FakeTemporal(),
-            driver=FakeDriver(),
+            graph_store=FakeGraphStore(),
             readiness=Readiness({}, ttl=0),
         )
 
@@ -327,7 +327,7 @@ async def start_with(store, valid_env, monkeypatch, prime_timeout=None):
             session_factory=FakeRepo(),
             store=store,
             temporal=FakeTemporal(),
-            driver=FakeDriver(),
+            graph_store=FakeGraphStore(),
             readiness=Readiness({}),
         )
 

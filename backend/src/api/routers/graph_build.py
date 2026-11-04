@@ -2,7 +2,7 @@
 
 The build runs in this process (``api.graph_build.runner``); the contract matches the other
 long-running endpoints (``202`` at once, then poll), so it can move to Temporal unchanged.
-Handlers never touch Neo4j: only the background task does.
+Handlers never touch the graph store: only the background task does.
 """
 
 from __future__ import annotations

@@ -26,10 +26,10 @@ its own image (`docker/api`, `docker/worker-agents`, `docker/worker-parse`, each
 | `auth/` | Token claims, OIDC verifier with a throttled JWKS cache (the only verifier, shared by the API and MCP) |
 | `db/` | Models, repositories, async engine, `agent_scope` (RLS session), `migrate` |
 | `storage/` | `ObjectStore` protocol, GCS adapter (create-only resumable writes), in-memory store (tests only) |
-| `graph/` | The graph library (in progress, `docs/graph/`); the host uses `graph.core` for the Neo4j driver and readiness |
+| `graph/` | The graph library (`docs/graph/`); the host builds the graph store (`graph.stores.build_store`: Neo4j, ArcadeDB or PostgreSQL, chosen by `GRAPH_STORE`) and uses it for readiness |
 | `temporal/` | Client, worker runner, queues, ids, registry; `documents/` (parse workflow) and `agents/` (summarize workflow, tools, activities) |
 | `agent_runtime/` | Summarizer agent, LLM gateway model provider, Temporal plugin, Langfuse tracing |
-| `health.py` | The checks behind `/readyz` and `worker --check` (database, temporal, storage, neo4j) |
+| `health.py` | The checks behind `/readyz` and `worker --check` (database, temporal, storage, graph) |
 
 The document entry point of the service, `file_parsers.convert`
 (`file_to_markdown`, `PdfParseError`, no LLM), lives in the `file_parsers`
@@ -55,8 +55,8 @@ variables, never their values.
 ### Settings and guards
 
 Each role requires only its own variables (`api`, `worker`, `migrate`, `mcp`); a worker
-that polls `agents` also needs Neo4j, the LLM gateway and the agent database password.
-`mcp` needs `MCP_RESOURCE_URL` (https outside local) plus the database, Neo4j and auth
+that polls `agents` also needs the graph store, the LLM gateway and the agent database password.
+`mcp` needs `MCP_RESOURCE_URL` (https outside local) plus the database, graph store and auth
 variables, never Temporal, storage or the LLM gateway.
 Outside `APP_ENV=local` startup is refused for: a non-https issuer, a JWKS URL on
 another host, a `STORAGE_PREFIX` that does not end in `/` or starts with `dev/local/`,
@@ -81,7 +81,7 @@ variable is `1`, and need the stack and `--env-file ../.env.local`:
 |---|---|
 | `SPECFLOW_TEST_POSTGRES=1` | Postgres up, agent role created (scratch databases, a per-run test role) |
 | `SPECFLOW_TEST_GCS=1` | bucket and ADC; objects only under `dev/local/pytest/<run-id>/`, deleted in teardown |
-| `SPECFLOW_TEST_NEO4J=1` | Neo4j up |
+| `SPECFLOW_TEST_GRAPH_STORE=neo4j\|arcadedb\|postgres` | that store up (`SPECFLOW_TEST_NEO4J=1` is an alias of `neo4j`); `make test-graph-live STORE=...` sets it and runs the live graph suites (`docs/configuration.md`, "Live graph suites per store") |
 | `SPECFLOW_TEST_TEMPORAL=1` | the external Temporal stack, namespace `specflow-local` |
 | `SPECFLOW_TEST_LLM_GATEWAY=1` | spends real model calls (a few per run) |
 | `SPECFLOW_TEST_IMAGES=1` | built images (`make images` from the root runs these) |
@@ -329,10 +329,12 @@ backfills: on a schema change, edit the models and `migrations/versions/0001_ini
 together, then recreate the database from scratch with `make down-volumes` and
 `make up` (details in `migrations/README`). A database stamped with an older revision
 (such as `0005`) fails `alembic upgrade` and is recreated the same way.
-The `postgres` service of the root `docker-compose.yml` runs `postgres:17.11`
-with `backend/postgres-init/` mounted as its init folder. On its first start
+The `postgres` service of the root `docker-compose.yml` runs `pgvector/pgvector:0.8.7-pg17`
+(PostgreSQL 17 with the pgvector extension, for the PostgreSQL graph store) with `backend/postgres-init/`
+mounted as its init folder. On its first start
 (empty volume) the script `10-specflow-roles.sh` creates the app role `specflow` (owner of the database, not a
-superuser), the database `specflow` and the agent role. The `api` container runs
+superuser), the database `specflow` and the agent role, and `20-pgvector.sh` creates the `vector` extension
+in that database (`make postgres-vector` does it on an existing volume). The `api` container runs
 `specflow migrate` every time it starts.
 
 **Set the passwords before the first `make up`.** Run `make env-local` (repository

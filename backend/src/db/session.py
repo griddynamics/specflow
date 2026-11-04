@@ -9,9 +9,9 @@ from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
-    create_async_engine,
 )
 
+from postgres import new_engine
 from settings import DatabaseSettings
 
 
@@ -27,7 +27,7 @@ def build_engine(
     The caller owns ``await engine.dispose()``.
     """
 
-    return create_async_engine(settings.url(), pool_pre_ping=True, echo=echo, hide_parameters=True)
+    return new_engine(settings.url(), echo=echo)
 
 
 def build_session_factory(

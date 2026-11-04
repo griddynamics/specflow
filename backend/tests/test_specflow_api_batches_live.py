@@ -32,7 +32,7 @@ from db import removal
 from db.models import Connection, ConnectionItem, Document, Project
 from drive.fake import FakeDriveGateway
 from specflow_api_live_support import open_harness
-from specflow_api_support import PDF, FakeDriver, Harness, bearer
+from specflow_api_support import PDF, FakeGraphStore, Harness, bearer
 from specflow_api_temporal_support import terminate_prefixed
 from specflow_live import (
     requires_live,
@@ -296,7 +296,7 @@ async def real_temporal_live(drive_stack, valid_env):
                     factory,
                     store,
                     drive_stack.client,
-                    FakeDriver(),
+                    FakeGraphStore(),
                     app.state.runtime,
                     {},
                 )

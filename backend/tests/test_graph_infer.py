@@ -39,6 +39,7 @@ from graph.core.llm import JudgeRunner, Verdict
 from graph.core.llm.judge import EVIDENCE_RULE
 from graph.core.ontology import InferenceRule, InferenceSpec, SpinePath, load_ontology
 from graph.core.ontology.model import CROSS_DOCUMENT, TEMPLATE_PARAMETERS
+from graph.stores._bolt.cypher import render_cypher
 from graph_support import (
     FROZEN_ONTOLOGY_FILE,
     ScriptedGateway,
@@ -476,6 +477,15 @@ async def test_judge_memory_with_the_ontology_is_fingerprinted_by_the_prompt_tex
     prompts = {**ONTOLOGY.judge_prompts, ORPH.prompt: f"{ONTOLOGY.judge_prompt(ORPH.prompt)}\nMore."}
     edited = dataclasses.replace(ONTOLOGY, judge_prompts=prompts)
     assert await inference.JudgeMemory(store, "p-1", MODEL, edited).recall(ORPH, [key]) == {}
+
+
+async def test_the_build_budget_is_kept_with_the_ontology_given(tmp_path: Path) -> None:
+    """The budget entry names no judge prompt: it reads and writes with or without an ontology."""
+
+    store = FileExtractionStore(tmp_path)
+    await inference.JudgeMemory(store, "p-1", MODEL, ONTOLOGY).record_spent("b-1", 120)
+    assert await inference.JudgeMemory(store, "p-1", MODEL, ONTOLOGY).spent("b-1") == 120
+    assert await inference.JudgeMemory(store, "p-1", MODEL).spent("b-1") == 120
 
 
 def test_a_stored_judgement_reads_back_or_is_judged_again() -> None:
@@ -1039,7 +1049,7 @@ async def test_endpoints_skip_subjects_owned_by_an_excluded_label() -> None:
 
 def test_realization_reads_one_query_per_container_path() -> None:
     assert len(CAP2.container_paths) == 4
-    texts = [query.text for query in inference._realization_queries(V2, CAP2)]
+    texts = [render_cypher(query) for query in inference._realization_queries(V2, CAP2)]
     patterns = (
         "(m)-[:PART_OF*1..3]->(c:SpecNode)",
         "(m)-[:RELATES_TO*1..1]-(c:SpecNode)",  # symmetric: either direction
@@ -1050,7 +1060,7 @@ def test_realization_reads_one_query_per_container_path() -> None:
         [index == position for index in range(4)] for position in range(4)
     ]
     (frozen,) = inference._realization_queries(ONTOLOGY, CAP)
-    assert "(m)-[:PART_OF*1..3]->(c:SpecNode)" in frozen.text
+    assert "(m)-[:PART_OF*1..3]->(c:SpecNode)" in render_cypher(frozen)
 
 
 def realization_graph() -> FakeGraph:

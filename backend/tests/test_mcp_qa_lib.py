@@ -108,11 +108,11 @@ from mcp_qa_lib import (
     fixture_nodes,
     flow_failure,
     flow_workspace,
+    graph_store,
     make_git_workspace,
     make_workspace,
     mcp_session,
     narrow_scope,
-    neo4j_driver,
     new_run_id,
     oauth_provider,
     parse_denials,
@@ -875,10 +875,10 @@ def test_apply_local_defaults_never_overrides_a_value() -> None:
     assert urlsplit(environ["NEO4J_URI"]).port == 7687
 
 
-async def test_neo4j_driver_unconfigured_raises_a_qa_error_naming_the_names() -> None:
-    with pytest.raises(QaError, match="NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD"):
-        async with neo4j_driver({}):
-            pytest.fail("no driver without configuration")
+async def test_graph_store_unconfigured_raises_a_qa_error_naming_the_names() -> None:
+    with pytest.raises(QaError, match="GRAPH_STORE_URI, GRAPH_STORE_USER, GRAPH_STORE_PASSWORD"):
+        async with graph_store({}):
+            pytest.fail("no store without configuration")
 
 
 # Review fixes: argv, claude_login, process groups, chunked links, fail-closed branches, E8 helpers ---------------

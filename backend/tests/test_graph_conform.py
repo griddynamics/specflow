@@ -62,7 +62,7 @@ from graph_support import (
     shipped_ontology,
 )
 
-# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, neo4j_project) live in graph_support.
+# The graph fixtures (scripted_gateway, make_gateway, gap_ontology, graph_project) live in graph_support.
 pytest_plugins = ["graph_support"]
 
 # Mechanics tests: pinned to the frozen v1.3 ontology (graph_support.FROZEN_ONTOLOGY_FILE), not the shipped one.
