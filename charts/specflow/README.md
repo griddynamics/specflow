@@ -23,10 +23,9 @@ Secrets Store CSI Driver are external dependencies.
 - Gateway API CRDs and a Gateway only when `routing.type=httpRoute`
 - Any optional secret or ingress controllers referenced by your values
 
-The component profiles under `examples/components` refer to existing
-component-specific ConfigMaps and Secrets. Create those objects, replace the
-references, or replace `envFrom` with explicit `env` entries before installing.
-The examples never contain secret values.
+The component profiles under `examples/components` refer to one existing
+Secret per component. Create those Secrets manually or through a secret
+controller before installing. The examples never contain secret values.
 
 ## Install all components
 
@@ -82,8 +81,8 @@ complete desired list.
 
 ## Application configuration
 
-Use the Kubernetes-native `env` and `envFrom` values. They have the same shape
-as their fields in a Pod specification:
+Use the Kubernetes-native `env` and `envFrom` values. The component profiles
+list every variable explicitly and read each value from the component Secret:
 
 ```yaml
 env:
@@ -91,18 +90,14 @@ env:
     valueFrom:
       secretKeyRef:
         name: specflow-api
-        key: database-password
-envFrom:
-  - configMapRef:
-      name: specflow-api
-  - secretRef:
-      name: specflow-api
+        key: DATABASE_PASSWORD
 ```
 
-Every explicit `env` value must be a quoted string and must contain exactly one
-of `value` or `valueFrom`. The chart rejects duplicate names and settings owned
-by the images or Kubernetes. Helm cannot inspect keys inside objects referenced
-through `envFrom`; Specflow validates its runtime configuration.
+A literal `env.value` must be a quoted string, and every entry must contain
+exactly one of `value` or `valueFrom`. The chart rejects duplicate names and
+settings owned by the images or Kubernetes. `envFrom` remains available for
+custom profiles, but the shipped component profiles use explicit
+`secretKeyRef` entries so their required keys remain visible.
 
 The primary settings for each component are:
 
@@ -121,8 +116,7 @@ Drive operations are enabled. Graph building also requires
 selected embedding model's real dimension.
 
 Common optional pass-through settings are grouped below. They are ordinary
-`env` entries or keys in an `envFrom` source; the chart does not reinterpret
-them:
+`env` entries; the chart does not reinterpret them:
 
 - Database and TLS: `DATABASE_PORT`, `DATABASE_AGENT_USER`,
   `DATABASE_AGENT_PASSWORD`, `PGSSLMODE`, `PGSSLROOTCERT`.
@@ -235,7 +229,8 @@ route overlay is enabled.
 
 The chart does not install ESO or a secret store. The
 `examples/integrations/external-secrets.yaml` overlay shows a component-owned
-`ExternalSecret` rendered through `extraObjects` and consumed with `envFrom`:
+`ExternalSecret` rendered through `extraObjects` and consumed by the profile's
+explicit `secretKeyRef` entries:
 
 ```shell
 helm template specflow-api ./charts/specflow \
@@ -250,13 +245,14 @@ ESO; only the external store configuration changes.
 ## Secrets Store CSI Driver and mounted files
 
 The `secrets-store-csi.yaml` overlay demonstrates a `SecretProviderClass`, a
-CSI volume and mount, and an optionally synced Kubernetes Secret consumed by
-`envFrom`. Install the driver and provider first. Its `parameters` block is
-provider-specific; replace the AWS example for another backend.
+CSI volume and mount, and a synced Kubernetes Secret consumed by explicit
+`secretKeyRef` entries. Install the driver and provider first. Its `parameters`
+block is provider-specific; replace the AWS example for another backend.
 
 The `mounted-ca.yaml` overlay shows the same generic volumes interface for a
-PostgreSQL CA stored in a Kubernetes Secret. It sets `PGSSLROOTCERT` to the
-mounted file. The interface also supports a mounted `SPECFLOW_CONFIG_FILE`.
+PostgreSQL CA stored in a Kubernetes Secret. Set `PGSSLROOTCERT` in the
+`specflow-api` Secret to the mounted path. The interface also supports a
+mounted `SPECFLOW_CONFIG_FILE`.
 
 The chart never installs a CSI driver or provider and never creates raw Secret
 values.
@@ -281,8 +277,8 @@ extraObjects:
 
 Treat `extraObjects` as trusted Helm input because it is evaluated with `tpl`.
 An object must have exactly one owner: do not repeat a shared object in several
-Specflow releases. Install cluster-wide controllers, stores, shared ConfigMaps,
-and shared policies separately.
+Specflow releases. Install cluster-wide controllers, stores, shared
+configuration objects, and shared policies separately.
 
 ## Scaling and availability
 

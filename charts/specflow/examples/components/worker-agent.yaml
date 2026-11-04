@@ -1,8 +1,8 @@
 component: worker-agent
 replicaCount: 1
 
-# Create a ConfigMap and Secret named specflow-worker-agent before installation.
-# Remove optional env entries that are not used by your deployment.
+# Create a Secret named specflow-worker-agent before installation. Remove
+# optional env entries that are not used by your deployment.
 
 image:
   registry: ghcr.io
@@ -20,84 +20,87 @@ containerPorts:
 
 env:
   - name: APP_ENV
-    value: prod
+    valueFrom:
+      secretKeyRef:
+        name: specflow-worker-agent
+        key: APP_ENV
   - name: WORKER_QUEUES
     value: agents
   - name: WORKER_HEALTH_PORT
     value: "8001"
   - name: STORAGE_BUCKET
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-worker-agent
         key: STORAGE_BUCKET
   - name: STORAGE_PREFIX
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-worker-agent
         key: STORAGE_PREFIX
   - name: GOOGLE_CLOUD_PROJECT
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-worker-agent
         key: GOOGLE_CLOUD_PROJECT
   - name: TEMPORAL_ADDRESS
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-worker-agent
         key: TEMPORAL_ADDRESS
   - name: TEMPORAL_NAMESPACE
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-worker-agent
         key: TEMPORAL_NAMESPACE
   - name: GRAPH_STORE_URI
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-worker-agent
         key: GRAPH_STORE_URI
   - name: GRAPH_STORE_USER
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-worker-agent
         key: GRAPH_STORE_USER
   - name: AGENT_MODEL
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-worker-agent
         key: AGENT_MODEL
   - name: AGENT_TRACE_SENSITIVE_DATA
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-worker-agent
         key: AGENT_TRACE_SENSITIVE_DATA
   - name: LANGFUSE_BASE_URL
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-worker-agent
         key: LANGFUSE_BASE_URL
   - name: LANGFUSE_PUBLIC_KEY
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-worker-agent
         key: LANGFUSE_PUBLIC_KEY
   - name: DATABASE_HOST
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-worker-agent
         key: DATABASE_HOST
   - name: DATABASE_NAME
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-worker-agent
         key: DATABASE_NAME
   - name: DATABASE_USER
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-worker-agent
         key: DATABASE_USER
   - name: LLM_GATEWAY_URL
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-worker-agent
         key: LLM_GATEWAY_URL
   - name: DATABASE_PASSWORD

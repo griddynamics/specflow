@@ -1,7 +1,7 @@
 component: mcp
 replicaCount: 1
 
-# Create a ConfigMap and Secret named specflow-mcp before installation.
+# Create a Secret named specflow-mcp before installation.
 
 image:
   registry: ghcr.io
@@ -21,69 +21,72 @@ containerPorts:
 
 env:
   - name: APP_ENV
-    value: prod
+    valueFrom:
+      secretKeyRef:
+        name: specflow-mcp
+        key: APP_ENV
   - name: MCP_PORT
     value: "8002"
   - name: AUTH_TOKEN_TYPE
     value: keycloak
   - name: MCP_RESOURCE_URL
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-mcp
         key: MCP_RESOURCE_URL
   - name: MCP_AUDIENCE
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-mcp
         key: MCP_AUDIENCE
   - name: MCP_CLIENT_IDS
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-mcp
         key: MCP_CLIENT_IDS
   - name: OIDC_ISSUER
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-mcp
         key: OIDC_ISSUER
   - name: AUTH_API_AUDIENCE
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-mcp
         key: AUTH_API_AUDIENCE
   - name: AUTH_API_CLIENT_IDS
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-mcp
         key: AUTH_API_CLIENT_IDS
   - name: AUTH_ALLOWED_EMAIL_DOMAINS
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-mcp
         key: AUTH_ALLOWED_EMAIL_DOMAINS
   - name: DATABASE_HOST
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-mcp
         key: DATABASE_HOST
   - name: DATABASE_NAME
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-mcp
         key: DATABASE_NAME
   - name: DATABASE_USER
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-mcp
         key: DATABASE_USER
   - name: GRAPH_STORE_URI
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-mcp
         key: GRAPH_STORE_URI
   - name: GRAPH_STORE_USER
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-mcp
         key: GRAPH_STORE_USER
   - name: DATABASE_PASSWORD

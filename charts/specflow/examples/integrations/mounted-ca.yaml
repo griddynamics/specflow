@@ -1,9 +1,6 @@
-# Layer this file after examples/components/api.yaml. The Secret must contain a
-# ca.crt key. The extra ConfigMap supplies the additional environment variable
-# without replacing the API profile's explicit env list.
-envFrom:
-  - configMapRef:
-      name: '{{ include "specflow.fullname" . }}-mounted-ca'
+# Layer this file after examples/components/api.yaml. The postgres-ca Secret
+# must contain ca.crt, and the specflow-api Secret must set PGSSLROOTCERT to
+# /etc/specflow/certs/ca.crt.
 
 volumes:
   - name: tmp
@@ -22,12 +19,3 @@ volumeMounts:
     mountPath: /etc/specflow/certs/ca.crt
     subPath: ca.crt
     readOnly: true
-
-extraObjects:
-  - apiVersion: v1
-    kind: ConfigMap
-    metadata:
-      name: '{{ include "specflow.fullname" . }}-mounted-ca'
-      namespace: '{{ .Release.Namespace }}'
-    data:
-      PGSSLROOTCERT: /etc/specflow/certs/ca.crt

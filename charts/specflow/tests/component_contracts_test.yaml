@@ -21,7 +21,7 @@ tests:
           content:
             name: GRAPH_STORE_URI
             valueFrom:
-              configMapKeyRef:
+              secretKeyRef:
                 name: specflow-api
                 key: GRAPH_STORE_URI
         template: deployment.yaml
@@ -91,7 +91,7 @@ tests:
           content:
             name: MCP_RESOURCE_URL
             valueFrom:
-              configMapKeyRef:
+              secretKeyRef:
                 name: specflow-mcp
                 key: MCP_RESOURCE_URL
         template: deployment.yaml
@@ -160,7 +160,7 @@ tests:
           content:
             name: DRIVE_IDENTITY_EMAIL
             valueFrom:
-              configMapKeyRef:
+              secretKeyRef:
                 name: specflow-worker-parse
                 key: DRIVE_IDENTITY_EMAIL
         template: deployment.yaml

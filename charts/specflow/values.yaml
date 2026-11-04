@@ -26,7 +26,10 @@ containerPorts:
 
 env:
   - name: APP_ENV
-    value: prod
+    valueFrom:
+      secretKeyRef:
+        name: specflow-api
+        key: APP_ENV
   - name: API_PORT
     value: "8000"
   - name: GRAPH_STATE_DIR

@@ -1,7 +1,7 @@
 component: frontend
 replicaCount: 1
 
-# Create a ConfigMap and Secret named specflow-frontend before installation.
+# Create a Secret named specflow-frontend before installation.
 
 image:
   registry: ghcr.io
@@ -19,32 +19,35 @@ containerPorts:
 
 env:
   - name: APP_ENV
-    value: prod
+    valueFrom:
+      secretKeyRef:
+        name: specflow-frontend
+        key: APP_ENV
   - name: API_INTERNAL_URL
     value: http://specflow-api:8000
   - name: PUBLIC_URL
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-frontend
         key: PUBLIC_URL
   - name: OIDC_ISSUER
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-frontend
         key: OIDC_ISSUER
   - name: OIDC_CLIENT_ID
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-frontend
         key: OIDC_CLIENT_ID
   - name: MCP_PUBLIC_URL
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-frontend
         key: MCP_PUBLIC_URL
   - name: MCP_CLIENT_ID
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-frontend
         key: MCP_CLIENT_ID
   - name: OIDC_CLIENT_SECRET

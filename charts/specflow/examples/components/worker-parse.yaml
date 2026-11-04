@@ -1,7 +1,7 @@
 component: worker-parse
 replicaCount: 1
 
-# Create a ConfigMap and Secret named specflow-worker-parse before installation.
+# Create a Secret named specflow-worker-parse before installation.
 
 image:
   registry: ghcr.io
@@ -19,54 +19,57 @@ containerPorts:
 
 env:
   - name: APP_ENV
-    value: prod
+    valueFrom:
+      secretKeyRef:
+        name: specflow-worker-parse
+        key: APP_ENV
   - name: WORKER_QUEUES
     value: parse
   - name: WORKER_HEALTH_PORT
     value: "8001"
   - name: DRIVE_IDENTITY_EMAIL
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-worker-parse
         key: DRIVE_IDENTITY_EMAIL
   - name: STORAGE_BUCKET
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-worker-parse
         key: STORAGE_BUCKET
   - name: STORAGE_PREFIX
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-worker-parse
         key: STORAGE_PREFIX
   - name: GOOGLE_CLOUD_PROJECT
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-worker-parse
         key: GOOGLE_CLOUD_PROJECT
   - name: TEMPORAL_ADDRESS
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-worker-parse
         key: TEMPORAL_ADDRESS
   - name: TEMPORAL_NAMESPACE
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-worker-parse
         key: TEMPORAL_NAMESPACE
   - name: DATABASE_HOST
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-worker-parse
         key: DATABASE_HOST
   - name: DATABASE_NAME
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-worker-parse
         key: DATABASE_NAME
   - name: DATABASE_USER
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-worker-parse
         key: DATABASE_USER
   - name: DATABASE_PASSWORD

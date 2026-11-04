@@ -1,8 +1,8 @@
 component: api
 replicaCount: 1
 
-# Create a ConfigMap and Secret named specflow-api before installation. Remove
-# optional env entries that are not used by your deployment.
+# Create a Secret named specflow-api before installation. Remove optional env
+# entries that are not used by your deployment.
 
 image:
   registry: ghcr.io
@@ -20,7 +20,10 @@ containerPorts:
 
 env:
   - name: APP_ENV
-    value: prod
+    valueFrom:
+      secretKeyRef:
+        name: specflow-api
+        key: APP_ENV
   - name: API_PORT
     value: "8000"
   - name: GRAPH_STATE_DIR
@@ -29,122 +32,122 @@ env:
     value: keycloak
   - name: DRIVE_IDENTITY_EMAIL
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-api
         key: DRIVE_IDENTITY_EMAIL
   - name: AUTH_API_AUDIENCE
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-api
         key: AUTH_API_AUDIENCE
   - name: AUTH_API_CLIENT_IDS
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-api
         key: AUTH_API_CLIENT_IDS
   - name: AUTH_ALLOWED_EMAIL_DOMAINS
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-api
         key: AUTH_ALLOWED_EMAIL_DOMAINS
   - name: STORAGE_BUCKET
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-api
         key: STORAGE_BUCKET
   - name: STORAGE_PREFIX
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-api
         key: STORAGE_PREFIX
   - name: GOOGLE_CLOUD_PROJECT
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-api
         key: GOOGLE_CLOUD_PROJECT
   - name: TEMPORAL_ADDRESS
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-api
         key: TEMPORAL_ADDRESS
   - name: TEMPORAL_NAMESPACE
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-api
         key: TEMPORAL_NAMESPACE
   - name: GRAPH_STORE_URI
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-api
         key: GRAPH_STORE_URI
   - name: GRAPH_STORE_USER
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-api
         key: GRAPH_STORE_USER
   - name: AGENT_MODEL
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-api
         key: AGENT_MODEL
   - name: AGENT_TRACE_SENSITIVE_DATA
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-api
         key: AGENT_TRACE_SENSITIVE_DATA
   - name: LANGFUSE_BASE_URL
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-api
         key: LANGFUSE_BASE_URL
   - name: LANGFUSE_PUBLIC_KEY
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-api
         key: LANGFUSE_PUBLIC_KEY
   - name: DATABASE_HOST
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-api
         key: DATABASE_HOST
   - name: DATABASE_NAME
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-api
         key: DATABASE_NAME
   - name: DATABASE_USER
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-api
         key: DATABASE_USER
   - name: OIDC_ISSUER
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-api
         key: OIDC_ISSUER
   - name: LLM_GATEWAY_URL
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-api
         key: LLM_GATEWAY_URL
   - name: GRAPH_LLM_MODEL
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-api
         key: GRAPH_LLM_MODEL
   - name: GRAPH_SMALL_MODEL
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-api
         key: GRAPH_SMALL_MODEL
   - name: GRAPH_EMBEDDING_MODEL
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-api
         key: GRAPH_EMBEDDING_MODEL
   - name: GRAPH_EMBEDDING_DIM
     valueFrom:
-      configMapKeyRef:
+      secretKeyRef:
         name: specflow-api
         key: GRAPH_EMBEDDING_DIM
   - name: DATABASE_PASSWORD
@@ -167,6 +170,12 @@ env:
       secretKeyRef:
         name: specflow-api
         key: LANGFUSE_SECRET_KEY
+  - name: PGSSLROOTCERT
+    valueFrom:
+      secretKeyRef:
+        name: specflow-api
+        key: PGSSLROOTCERT
+        optional: true
 envFrom: []
 
 resources:
