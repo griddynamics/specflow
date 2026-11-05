@@ -1269,7 +1269,7 @@
         "type": "object"
       },
       "PlanStatus": {
-        "description": "``/plan``: the latest plan run and whether the project has a plan; ids, step names and codes only.\n\n``step`` is the step that runs (or the last one that ran); ``steps_done`` of ``steps_total`` are done.",
+        "description": "``/plan``: the latest plan run and whether the project has a plan; ids, step names and codes only.\n\n``step`` is the step that runs (or the last one that ran); ``steps_done`` of ``steps_total`` are done.\nWhile a long step runs, ``step_items_done`` of ``step_items_total`` of its items are done (the Tasks step:\nplanning parts); null otherwise.",
         "properties": {
           "error_code": {
             "anyOf": [
@@ -1365,6 +1365,28 @@
               }
             ],
             "title": "Step"
+          },
+          "step_items_done": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Items Done"
+          },
+          "step_items_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Items Total"
           },
           "steps_done": {
             "default": 0,

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable, Collection, Mapping, Sequence
+from dataclasses import dataclass
 from typing import cast
 
 from graph.plan.answers import TasksAnswer
@@ -48,20 +49,13 @@ async def plan_tasks(
         parts.setdefault(part.area_id, []).append(part)
     contract_tasks = _contract_tasks(view)
     changed = _changed_tasks(view)
+    progress = _Progress(context, len(view.partition.parts))
+    progress.report()
+    shared = _Shared(
+        describe=describe, project=project, contract_tasks=contract_tasks, changed=changed, mode=mode, progress=progress
+    )
     results = await asyncio.gather(
-        *(
-            _plan_area(
-                context,
-                view,
-                area_parts,
-                describe=describe,
-                project=project,
-                contract_tasks=contract_tasks,
-                changed=changed,
-                mode=mode,
-            )
-            for _, area_parts in sorted(parts.items())
-        )
+        *(_plan_area(context, view, area_parts, shared) for _, area_parts in sorted(parts.items()))
     )
     tasks: list[PlannedTask] = []
     not_buildable: dict[str, tuple[NotBuildable, ...]] = {}
@@ -86,13 +80,9 @@ async def _plan_area(
     context: PlanContext,
     view: PlanView,
     parts: Sequence[PlanningPart],
-    *,
-    describe: DescribeArtifact,
-    project: ProjectArtifact,
-    contract_tasks: Mapping[str, Sequence[str]],
-    changed: frozenset[str],
-    mode: PlanMode,
+    shared: _Shared,
 ) -> tuple[list[PlannedTask], tuple[NotBuildable, ...], dict[str, PlannerOutcome]]:
+    describe, project, mode = shared.describe, shared.project, shared.mode
     area_tasks: list[PlannedTask] = []
     not_buildable: list[NotBuildable] = []
     outcomes: dict[str, PlannerOutcome] = {}
@@ -119,8 +109,8 @@ async def _plan_area(
                 describe=describe,
                 project=project,
                 earlier=area_tasks,
-                contract_tasks=contract_tasks,
-                changed=changed,
+                contract_tasks=shared.contract_tasks,
+                changed=shared.changed,
                 task_size=context.options.task_size,
             ),
             answer_type=TasksAnswer,
@@ -129,6 +119,7 @@ async def _plan_area(
         )
         answer, outcome = await run_planner(context, call, mode=mode)
         outcomes[part.part_id] = outcome
+        shared.progress.part_done()
         if answer is None:
             kept = _current_not_buildable(view, part)
             not_buildable.extend(kept)
@@ -158,6 +149,34 @@ async def _plan_area(
             for entry in answer.not_buildable
         )
     return area_tasks, tuple(sorted(not_buildable, key=lambda entry: entry.spec_id)), outcomes
+
+
+@dataclass(frozen=True)
+class _Shared:
+    """What every area's planning shares in one Tasks step."""
+
+    describe: DescribeArtifact
+    project: ProjectArtifact
+    contract_tasks: Mapping[str, Sequence[str]]
+    changed: frozenset[str]
+    mode: PlanMode
+    progress: _Progress
+
+
+class _Progress:
+    """Counts the parts whose answer (or fallback) is in, across the areas planned in parallel."""
+
+    def __init__(self, context: PlanContext, total: int) -> None:
+        self._context = context
+        self._total = total
+        self._done = 0
+
+    def report(self) -> None:
+        self._context.report_progress("tasks", self._done, self._total)
+
+    def part_done(self) -> None:
+        self._done += 1
+        self.report()
 
 
 def _validator(

@@ -149,6 +149,8 @@ class PlanStatus(BaseModel):
     """``/plan``: the latest plan run and whether the project has a plan; ids, step names and codes only.
 
     ``step`` is the step that runs (or the last one that ran); ``steps_done`` of ``steps_total`` are done.
+    While a long step runs, ``step_items_done`` of ``step_items_total`` of its items are done (the Tasks step:
+    planning parts); null otherwise.
     """
 
     status: Literal["idle", "running", "succeeded", "partially_succeeded", "failed"]
@@ -159,6 +161,8 @@ class PlanStatus(BaseModel):
     step: str | None = None
     steps_done: int = 0
     steps_total: int = 0
+    step_items_done: int | None = None
+    step_items_total: int | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
     unchanged: bool | None = None

@@ -3,11 +3,13 @@
 ``PlanOptions`` are per-run planning inputs; invalid values become ``ConfigurationError("invalid_options")``.
 ``PlanContext`` holds live objects and is never serialised. It mirrors ``BuildContext``: an invalid
 project is refused before a query; ``driver`` is the ``GraphStore`` of the plan (a Neo4j driver still works,
-deprecated) and ``query_executor`` None becomes the store's executor.
+deprecated) and ``query_executor`` None becomes the store's executor. ``on_progress`` (optional) is told how
+many items of a long step are done: the Tasks step reports its planning parts, ``(step, done, total)``.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -15,7 +17,7 @@ from graph.core.identity import validate_project_id
 from graph.core.llm import Gateway
 from graph.core.ontology import Ontology
 from graph.core.store import Executor, as_executor
-from graph.plan.models import BuildChangeReport, PlanOptions
+from graph.plan.models import BuildChangeReport, PlanOptions, PlanStepName
 from graph.plan.ports import PlanStore
 from graph.plan.rules import PlanRules
 
@@ -39,6 +41,13 @@ class PlanContext:
     run_id: str | None = None
     database: str | None = None
     query_executor: Executor | None = None
+    on_progress: Callable[[PlanStepName, int, int], None] | None = None
+
+    def report_progress(self, step: PlanStepName, done: int, total: int) -> None:
+        """Tell ``on_progress`` (when set) that ``done`` of ``total`` items of ``step`` are done."""
+
+        if self.on_progress is not None:
+            self.on_progress(step, done, total)
 
     def __post_init__(self) -> None:
         validate_project_id(self.project_id)

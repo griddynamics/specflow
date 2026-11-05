@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Iterable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
@@ -57,7 +57,7 @@ from graph.plan import (
     open_plan_store,
     run_plan,
 )
-from graph.plan.models import PlanRunRecord
+from graph.plan.models import PlanRunRecord, PlanStepName
 from logger.logger import ERROR, INFO, WARNING, get_logger, log_event
 from settings import GraphBuildSettings
 
@@ -114,6 +114,10 @@ class _Run:
     started_at: datetime
     replan: bool
     task: asyncio.Task[None] = field(init=False)
+    items: tuple[str, int, int] | None = None  # (step, done, total) of the long step that runs
+
+    def report(self, step: str, done: int, total: int) -> None:
+        self.items = (step, done, total)
 
 
 @dataclass
@@ -196,7 +200,7 @@ class GraphPlanRunner:
         if run is not None and not run.task.done():
             has_plan = await self._has_plan(project_id)
             if record is not None and not record.finished:  # this run's record, or the run it resumes
-                return _record_state(record, has_plan=has_plan, status="running")
+                return _with_items(_record_state(record, has_plan=has_plan, status="running"), run.items)
             return PlanState(
                 "running", has_plan=has_plan, replan=run.replan, steps_total=len(STEPS), started_at=run.started_at
             )
@@ -414,6 +418,7 @@ class GraphPlanRunner:
         *,
         replan: bool,
         run_id: str | None = None,
+        on_progress: Callable[[PlanStepName, int, int], None] | None = None,
     ) -> PlanContext:
         """A context for the latest build: ``first`` without a plan, else an update with no change reports,
         which is a ``replan`` when the plan was made from an earlier build."""
@@ -431,6 +436,7 @@ class GraphPlanRunner:
             build_id=build_id,
             replan=info is not None and (replan or stale),
             run_id=run_id,
+            on_progress=on_progress,
         )
 
     async def _run(self, project_id: str, run: _Run) -> None:
@@ -468,7 +474,14 @@ class GraphPlanRunner:
         gateway = self._gateway_factory(self._llm)
         try:
             context = await self._context(
-                project_id, latest_build.build_id, gateway, ontology, rules, replan=run.replan, run_id=resume
+                project_id,
+                latest_build.build_id,
+                gateway,
+                ontology,
+                rules,
+                replan=run.replan,
+                run_id=resume,
+                on_progress=run.report,
             )
             log_event(
                 logger,
@@ -497,6 +510,14 @@ class GraphPlanRunner:
             tasks_by_status=result.metrics.tasks_by_status,
             llm_calls=usage.calls,
         )
+
+
+def _with_items(state: PlanState, items: tuple[str, int, int] | None) -> PlanState:
+    """The state with the item counts of its running step, when the run reported them for that step."""
+
+    if items is None or items[0] != state.step:
+        return state
+    return replace(state, step_items_done=items[1], step_items_total=items[2])
 
 
 def _record_state(

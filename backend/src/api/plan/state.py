@@ -31,6 +31,8 @@ class PlanState:
     step: str | None = None
     steps_done: int = 0
     steps_total: int = 0
+    step_items_done: int | None = None
+    step_items_total: int | None = None
     started_at: datetime | None = None
     finished_at: datetime | None = None
     unchanged: bool | None = None

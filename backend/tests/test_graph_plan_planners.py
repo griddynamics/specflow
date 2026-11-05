@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -168,6 +169,23 @@ async def test_closing_tasks_lose_their_waits_instead_of_failing_the_project_ans
 
     assert projected.outcome.calls == 1 and not projected.outcome.fallback
     assert projected.closing[0].phase == "acceptance"
+
+
+async def test_the_tasks_step_reports_each_part_done(tmp_path: Path) -> None:
+    view = await shop_view()
+    gateway = script_plan(ScriptedGateway(), shop_answers(view))
+    reports: list[tuple[str, int, int]] = []
+    ctx = replace(
+        planning_context(view, _store(tmp_path), gateway),
+        on_progress=lambda step, done, total: reports.append((step, done, total)),
+    )
+    described = await describe(ctx, view, mode="first")
+    projected = await project(ctx, view, described, mode="first")
+
+    await plan_tasks(ctx, view, described, projected, mode="first")
+
+    parts = len(view.partition.parts)
+    assert reports == [("tasks", done, parts) for done in range(parts + 1)]
 
 
 async def test_an_answer_that_stays_invalid_falls_back_and_is_never_stored(tmp_path: Path) -> None:

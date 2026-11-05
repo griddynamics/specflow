@@ -132,6 +132,8 @@ class StubPlan:
             await context.store.create_run(_record(run_id, context.build_id, replan=context.replan))
         await context.store.put_progress(context.project_id, run_id, "snapshot", "done")
         await context.store.put_progress(context.project_id, run_id, "partition", "running")
+        context.report_progress("snapshot", 1, 1)  # a finished step's count is not shown
+        context.report_progress("partition", 3, 7)
         self.waiting.set()
         await self.release.wait()
         result = PlanResult(
@@ -269,8 +271,10 @@ async def test_the_first_plan_runs_once_on_the_latest_build_and_reports_its_step
     context = plan.contexts[0]
     assert (context.build_id, context.replan, context.run_id) == ("build-2", False, None)
     assert running.step == "partition" and running.steps_done == 1 and running.steps_total == len(STEPS)
+    assert (running.step_items_done, running.step_items_total) == (3, 7)  # the parts of the running step
     assert not running.has_plan
     assert done.status == "succeeded" and done.has_plan and done.finished_at is not None and done.unchanged is False
+    assert done.step_items_done is None and done.step_items_total is None
     assert len(ensured) == 1
     assert all(gateway.closed for gateway in StubGateway.instances)
 
