@@ -13,10 +13,12 @@ import {
   type PlanStatusWire,
 } from "@/lib/data/http/plan";
 import { taskMarkdown } from "@/lib/domain/logic/plan";
+import { progressValue, stepRows } from "@/components/plan/progress/creating-steps";
 import { isDataError } from "@/lib/domain/errors";
 import type { PlanEvent, PlanState } from "@/lib/domain/plan";
 
 const PID = "11111111-1111-4111-8111-111111111111";
+const READING = "Reading the knowledge graph";
 
 const status = (over: Record<string, unknown> = {}) => ({
   status: "idle",
@@ -74,8 +76,14 @@ test("toPlanStatus reads the run state and refuses another shape", () => {
     step: "tasks",
     stepsDone: 4,
     stepsTotal: 10,
+    stepItemsDone: null,
+    stepItemsTotal: null,
     errorCode: null,
   });
+  assert.deepEqual(
+    [toPlanStatus(status({ step_items_done: 84, step_items_total: 105 }))].map((w) => [w.stepItemsDone, w.stepItemsTotal]),
+    [[84, 105]],
+  );
   for (const bad of [null, [], status({ status: "done" }), status({ steps_done: -1 }), status({ has_plan: "yes" })]) {
     assert.throws(
       () => toPlanStatus(bad),
@@ -92,6 +100,8 @@ test("creatingOf: the step being run, 1-based and never past the total, with its
     step,
     stepsDone,
     stepsTotal: 10,
+    stepItemsDone: null,
+    stepItemsTotal: null,
     errorCode: null,
   });
   assert.deepEqual(creatingOf(wire("snapshot", 0)), {
@@ -99,20 +109,32 @@ test("creatingOf: the step being run, 1-based and never past the total, with its
     runId: "r",
     step: 1,
     total: 10,
-    label: "Reading the knowledge graph",
+    label: READING,
+    items: null,
   });
+  assert.deepEqual(creatingOf({ ...wire("tasks", 4), stepItemsDone: 120, stepItemsTotal: 105 }).items, { done: 105, total: 105 });
+  assert.equal(creatingOf({ ...wire("tasks", 4), stepItemsDone: 0, stepItemsTotal: 0 }).items, null);
   assert.equal(creatingOf(wire("check", 10)).step, 10);
-  assert.equal(creatingOf(wire(null, 0)).label, "Reading the knowledge graph");
+  assert.equal(creatingOf(wire(null, 0)).label, READING);
   assert.equal(creatingOf(wire("future_step", 3)).label, "future_step");
 });
 
 test("eventOf names the change a listener sees", () => {
-  const creating = (step: number): PlanState => ({ phase: "creating", runId: "r", step, total: 10, label: `s${String(step)}` });
+  const creating = (step: number, done: number | null = null): PlanState => ({
+    phase: "creating",
+    runId: "r",
+    step,
+    total: 10,
+    label: `s${String(step)}`,
+    items: done === null ? null : { done, total: 105 },
+  });
   const ready: PlanState = { phase: "ready", plan: { planId: "p", areas: [], stories: [], tasks: [], quality: null, review: [] } };
   assert.equal(eventOf(null, creating(1)), "plan.started");
   assert.equal(eventOf({ phase: "idle" }, creating(1)), "plan.started");
   assert.equal(eventOf(creating(1), creating(1)), null);
   assert.equal(eventOf(creating(1), creating(2)), "plan.step");
+  assert.equal(eventOf(creating(5, 3), creating(5, 4)), "plan.step"); // a part more of the tasks step
+  assert.equal(eventOf(creating(5, 4), creating(5, 4)), null);
   assert.equal(eventOf(creating(2), ready), "plan.ready");
   assert.equal(eventOf(creating(2), { phase: "idle", failure: "x" }), "plan.failed");
   assert.equal(eventOf({ phase: "idle" }, ready), null);
@@ -199,7 +221,14 @@ test("state: idle without a plan, idle with the code of a failed run, creating w
   answer = status({ status: "failed", error_code: "no_spec_graph" });
   assert.deepEqual(await port.state(PID), { phase: "idle", failure: "no_spec_graph" });
   answer = running("describe", 2);
-  assert.deepEqual(await port.state(PID), { phase: "creating", runId: "run-1", step: 3, total: 10, label: "Describing the work areas" });
+  assert.deepEqual(await port.state(PID), {
+    phase: "creating",
+    runId: "run-1",
+    step: 3,
+    total: 10,
+    label: "Describing the work areas",
+    items: null,
+  });
   answer = status({ status: "succeeded", has_plan: true });
   const ready = await port.state(PID);
   assert.ok(ready.phase === "ready");
@@ -272,4 +301,19 @@ test("create rejects with the API's refusal; preview reads the features; updateT
   await assert.rejects(port.create(PID), (e) => isDataError(e) && e.code === "conflict" && e.detail?.apiCode === "no_graph_build");
   assert.deepEqual((await port.preview(PID)).features, [{ specId: "F", name: "Pay" }]);
   await assert.rejects(port.updateTaskBody(PID, "t", { start: 0, end: 1 }, "x", 1), (e) => isDataError(e) && e.code === "not_available");
+});
+
+test("the running row of a long step shows its parts; the bar moves within the step and never reaches the next one", () => {
+  const known = { 1: READING, 2: "Writing the tasks" };
+  assert.deepEqual(stepRows(known, 2, { done: 84, total: 105 }), [
+    { label: READING, status: "done" },
+    { label: "Writing the tasks · 84 of 105 parts", status: "running" },
+  ]);
+  assert.deepEqual(stepRows(known, 2), [
+    { label: READING, status: "done" },
+    { label: "Writing the tasks", status: "running" },
+  ]);
+  assert.equal(progressValue(5, 10), 40);
+  assert.equal(progressValue(5, 10, { done: 50, total: 100 }), 45);
+  assert.ok(progressValue(5, 10, { done: 100, total: 100 }) < 50);
 });

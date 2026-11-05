@@ -97,8 +97,13 @@ export interface PlanSnapshot {
 }
 export type PlanState =
   | { phase: "idle"; failure?: string } // Stage 0; `failure` = the error code of a run that failed before a plan existed
-  | { phase: "creating"; runId: string; step: number; total: number; label: string } // Stage 1; step 1…total
+  | { phase: "creating"; runId: string; step: number; total: number; label: string; items: StepItems | null } // Stage 1; step 1…total
   | { phase: "ready"; plan: PlanSnapshot }; // Stage 2
+/** How far a long step is: `done` of its `total` items (the tasks step: planning parts). */
+export interface StepItems {
+  done: number;
+  total: number;
+}
 export interface PlanEvent {
   type: "plan.started" | "plan.step" | "plan.ready" | "plan.failed";
   runId: string;

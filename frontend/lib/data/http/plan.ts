@@ -71,6 +71,8 @@ export interface PlanStatusWire {
   step: string | null;
   stepsDone: number;
   stepsTotal: number;
+  stepItemsDone: number | null;
+  stepItemsTotal: number | null;
   errorCode: string | null;
 }
 
@@ -78,6 +80,10 @@ const isCount = (v: unknown): v is number => typeof v === "number" && Number.isI
 const textOrNull = (v: unknown): string | null => {
   expectShape(v === null || v === undefined || isString(v));
   return isString(v) ? v : null;
+};
+const countOrNull = (v: unknown): number | null => {
+  expectShape(v === null || v === undefined || isCount(v));
+  return isCount(v) ? v : null;
 };
 const oneOf = <T extends string>(values: readonly T[], v: unknown): T => {
   const found = values.find((x) => x === v);
@@ -103,6 +109,8 @@ export function toPlanStatus(body: unknown): PlanStatusWire {
       step: textOrNull(body.step),
       stepsDone: body.steps_done,
       stepsTotal: body.steps_total,
+      stepItemsDone: countOrNull(body.step_items_done),
+      stepItemsTotal: countOrNull(body.step_items_total),
       errorCode: textOrNull(body.error_code),
     };
   });
@@ -248,7 +256,11 @@ export function creatingOf(s: PlanStatusWire): Extract<PlanState, { phase: "crea
   const total = s.stepsTotal > 0 ? s.stepsTotal : Object.keys(STEP_LABELS).length;
   const step = Math.min(s.stepsDone + 1, total);
   const name = s.step ?? "snapshot";
-  return { phase: "creating", runId: s.runId ?? "", step, total, label: STEP_LABELS[name] ?? name };
+  const items =
+    s.stepItemsTotal !== null && s.stepItemsTotal > 0 && s.stepItemsDone !== null
+      ? { done: Math.min(s.stepItemsDone, s.stepItemsTotal), total: s.stepItemsTotal }
+      : null;
+  return { phase: "creating", runId: s.runId ?? "", step, total, label: STEP_LABELS[name] ?? name, items };
 }
 
 /** The event that moves a listener from `prev` to `next`; null when nothing it shows changed. */
@@ -256,7 +268,8 @@ export function eventOf(prev: PlanState | null, next: PlanState): PlanEvent["typ
   const wasCreating = prev?.phase === "creating";
   if (next.phase === "creating") {
     if (!wasCreating) return "plan.started";
-    return prev.step === next.step && prev.label === next.label ? null : "plan.step";
+    const sameItems = prev.items?.done === next.items?.done && prev.items?.total === next.items?.total;
+    return prev.step === next.step && prev.label === next.label && sameItems ? null : "plan.step";
   }
   if (!wasCreating) return null;
   return next.phase === "ready" ? "plan.ready" : "plan.failed";

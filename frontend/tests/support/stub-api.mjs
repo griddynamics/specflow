@@ -173,6 +173,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
   // Plan (`/plan`, `/plan/tasks`, `/plan/preview`): one run state per project. A run needs a succeeded graph build (else 409
   // no_graph_build); it is resolved when it is read, its ten steps spread over `planMs`, and then the project has the fixed plan below.
   const PLAN_STEPS = ["snapshot", "partition", "describe", "project", "tasks", "stitch", "review", "diff", "persist", "check"];
+  const STUB_PARTS = 8;
   const plans = new Map(); // pid -> {status, run_id, replan, startedMs, has_plan}
   let planSeq = 0;
   const planOf = (pid) => {
@@ -190,15 +191,22 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
         ? Math.min(PLAN_STEPS.length - 1, Math.floor(((Date.now() - p.startedMs) / state.planMs) * PLAN_STEPS.length))
         : PLAN_STEPS.length;
     const started = p.run_id === null ? null : new Date(p.startedMs).toISOString();
+    const step = p.run_id === null ? null : PLAN_STEPS[Math.min(done, PLAN_STEPS.length - 1)];
+    // The tasks step reports its planning parts, as the API does (8 parts here, spread over the step).
+    const elapsedSteps = p.run_id === null ? 0 : ((Date.now() - p.startedMs) / state.planMs) * PLAN_STEPS.length;
+    const partsDone = Math.min(STUB_PARTS, Math.max(0, Math.floor((elapsedSteps - done) * STUB_PARTS)));
+    const items = p.status === "running" && step === "tasks" ? { done: partsDone, total: STUB_PARTS } : null;
     return {
       status: p.status,
       has_plan: p.has_plan,
       run_id: p.run_id,
       mode: p.run_id === null ? null : p.replan ? "update" : "first",
       replan: p.replan,
-      step: p.run_id === null ? null : PLAN_STEPS[Math.min(done, PLAN_STEPS.length - 1)],
+      step,
       steps_done: p.run_id === null ? 0 : done,
       steps_total: p.run_id === null ? 0 : PLAN_STEPS.length,
+      step_items_done: items ? items.done : null,
+      step_items_total: items ? items.total : null,
       started_at: started,
       finished_at: p.status === "running" || p.run_id === null ? null : new Date(p.startedMs + state.planMs).toISOString(),
       unchanged: p.status === "running" || p.run_id === null ? null : false,
