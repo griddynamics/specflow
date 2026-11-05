@@ -9,7 +9,7 @@
 
 # build: the locked runtime dependencies, then the project itself NON-editable, so the
 # runtime stage needs only the virtualenv (no src/ tree).
-FROM python:3.12.13-slim-bookworm AS build
+FROM python:3.15.0-slim-bookworm AS build
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -25,7 +25,7 @@ RUN uv sync --frozen --no-dev --no-editable --extra gcp --extra aws
 
 # runtime: uid 10001, a HOME dir, the venv only. Logs go to stdout; read-only root filesystem
 # is fine. Writes temp files to /tmp only (a writable /tmp is enough).
-FROM python:3.12.13-slim-bookworm
+FROM python:3.15.0-slim-bookworm
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:${PATH}" \
