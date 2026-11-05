@@ -1,0 +1,102 @@
+name: Specflow DockerHub Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - backend/**
+      - frontend/**
+      - validation/**
+      - Makefile
+      - .github/workflows/specflow-dockerhub.yaml
+      - .github/workflows/validate.yaml
+
+# All runs publish to the same repositories. Queue them without cancelling uploads.
+concurrency:
+  group: specflow-dockerhub
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check-credentials:
+    if: github.repository == 'griddynamics/specflow'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check Docker Hub credentials
+        env:
+          DOCKERHUB_LOGIN: ${{ secrets.DOCKERHUB_LOGIN }}
+          DOCKERHUB_OAT: ${{ secrets.DOCKERHUB_OAT }}
+        run: |
+          if [[ -z "$DOCKERHUB_LOGIN" || -z "$DOCKERHUB_OAT" ]]; then
+            echo "::error::Configure DOCKERHUB_LOGIN and DOCKERHUB_OAT as Actions secrets with write access to the four public Specflow repositories."
+            exit 1
+          fi
+
+  validate:
+    needs: check-credentials
+    uses: ./.github/workflows/validate.yaml
+
+  build-and-push:
+    needs: [check-credentials, validate]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: specflow-api
+            context: backend
+            dockerfile: backend/docker/api/Dockerfile
+          - image: specflow-worker-parse
+            context: backend
+            dockerfile: backend/docker/worker-parse/Dockerfile
+          - image: specflow-worker-agents
+            context: backend
+            dockerfile: backend/docker/worker-agents/Dockerfile
+          - image: specflow-frontend
+            context: frontend
+            dockerfile: frontend/Dockerfile
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
+      - name: Log in to Docker Hub
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
+        with:
+          username: ${{ secrets.DOCKERHUB_LOGIN }}
+          password: ${{ secrets.DOCKERHUB_OAT }}
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
+        with:
+          images: ${{ secrets.DOCKERHUB_LOGIN }}/${{ matrix.image }}
+          flavor: latest=false
+          tags: type=raw,value=${{ github.sha }}
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+      - name: Publish image details
+        env:
+          IMAGE: ${{ secrets.DOCKERHUB_LOGIN }}/${{ matrix.image }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          {
+            echo "### $IMAGE"
+            echo
+            echo "- Image: \`$IMAGE:$GITHUB_SHA\`"
+            echo "- Platform: \`linux/amd64\`"
+            echo "- Digest: \`$DIGEST\`"
+          } >> "$GITHUB_STEP_SUMMARY"
