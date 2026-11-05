@@ -409,7 +409,8 @@ def _add_chapter_stories(
     chapter_refs: dict[str, ChapterRef] = {}
     for spec_id in sorted(areas[PROJECT_AREA_ID]):
         node = nodes[spec_id]
-        if spec_id in anchors or node.chapter is None:
+        # Only a member left without a feature, interface or entity story (its home is still the area).
+        if spec_id in anchors or node.chapter is None or home_story.get(spec_id) != PROJECT_AREA_ID:
             continue
         chapter = node.chapter
         chapter_key = chapter_slug(chapter.document, chapter.heading)

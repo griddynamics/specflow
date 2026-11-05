@@ -432,6 +432,7 @@ def _metrics(artifacts: Mapping[PlanStepName, BaseModel], functions: StepFunctio
     return PlanMetrics(
         areas=sum(1 for area in partition_artifact.areas if area.status == "active"),
         stories_by_kind=stories,
+        tasks_by_status=_tasks_by_status(artifacts),
         tasks_by_phase=phases,
         not_buildable=reasons,
         open_questions_on_tasks=sum(1 for task in planned if task.has_open_questions),
@@ -442,6 +443,25 @@ def _metrics(artifacts: Mapping[PlanStepName, BaseModel], functions: StepFunctio
         describe_truncated=len(describe_artifact.truncated),
         steps=dict(functions.usage),
     )
+
+
+def _tasks_by_status(artifacts: Mapping[PlanStepName, BaseModel]) -> dict[str, int]:
+    """Tasks of the plan after Persist by status: the current tasks with the diff's task writes applied,
+    except the writes Persist skipped as conflicts (those tasks keep their status)."""
+
+    snapshot_artifact = _artifact(artifacts, "snapshot", SnapshotArtifact)
+    diff_artifact = _artifact(artifacts, "diff", DiffArtifact)
+    persist_artifact = _artifact(artifacts, "persist", PersistArtifact)
+    current = getattr(snapshot_artifact, "current", None)
+    status = {task.task_id: task.status for task in current.tasks} if current is not None else {}
+    conflicts = set(persist_artifact.conflicts)
+    for op in diff_artifact.tasks:
+        if op.id not in conflicts:
+            status[op.id] = op.properties.get("status", status.get(op.id, "pending"))
+    counts: dict[str, int] = {}
+    for value in status.values():
+        counts[value] = counts.get(value, 0) + 1
+    return dict(sorted(counts.items()))
 
 
 def _counts(outcomes: Any) -> PlannerCounts:

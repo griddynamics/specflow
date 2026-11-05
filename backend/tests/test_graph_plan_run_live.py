@@ -84,6 +84,7 @@ async def test_a_first_run_persists_a_plan_that_passes_every_check(graph_project
     assert current.plan is not None and current.plan.last_build_id == "build-1" and not current.plan.applying
     assert {task.status for task in current.tasks} == {"pending"}
     assert len(current.tasks) == len(result.changes.tasks_added)
+    assert result.metrics.tasks_by_status == {"pending": len(current.tasks)}
     assert result.planning.review_failed is False
     assert [call.call_class for call in gateway.calls if call.prompt == gateway_prompt("review")] == ["judge"]
 

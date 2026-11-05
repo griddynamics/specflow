@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from graph.plan.models import ChapterRef, CurrentPlan, StoryInfo, StoryPlan
+from graph.plan.models import ChapterRef, CurrentPlan, SpecEdgeView, StoryInfo, StoryPlan
 from graph.plan.partition import partition, planning_parts
 from graph_plan_support import plan_ontology, plan_rules, shop_partition, shop_snapshot
 
@@ -134,6 +134,31 @@ async def test_chapter_story_ids_are_truncated_and_stable() -> None:
         for story in partition(snapshot, plan_rules(plan_ontology()), plan_ontology()).stories
         if story.kind == "chapter"
     )
+
+
+async def test_a_project_area_member_of_an_anchored_story_stays_out_of_its_chapter_story() -> None:
+    snapshot = await shop_snapshot()
+    chapter = ChapterRef(document="Shop requirements", heading="Checkout review")
+    nodes = [
+        node.model_copy(update={"chapter": chapter}) if node.spec_id == "REQ::FR::ORPHAN" else node
+        for node in snapshot.plannable
+    ]
+    part_of = SpecEdgeView(
+        relation="PART_OF",
+        source="REQ::FR::ORPHAN",
+        target="FEAT::CHECKOUT_REVIEW",
+        basis="stated",
+        edge_key="REQ_FR_ORPHAN|PART_OF|FEAT_CHECKOUT_REVIEW",
+    )
+    snapshot = snapshot.model_copy(update={"plannable": tuple(nodes), "edges": (*snapshot.edges, part_of)})
+
+    artifact = partition(snapshot, plan_rules(plan_ontology()), plan_ontology())
+
+    review = next(story for story in artifact.stories if story.anchor == "FEAT::CHECKOUT_REVIEW")
+    assert artifact.placements["REQ::FR::ORPHAN"].area_id == review.area_id == "AREA::PROJECT"
+    assert artifact.home_story["REQ::FR::ORPHAN"] == review.story_id
+    assert "REQ::FR::ORPHAN" in review.members
+    assert not any("REQ::FR::ORPHAN" in story.members for story in artifact.stories if story.kind == "chapter")
 
 
 async def test_core_and_chapter_stories_with_no_members_are_retired() -> None:
