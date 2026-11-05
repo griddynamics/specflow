@@ -15,7 +15,7 @@ graph/
   stores/  one folder per graph database behind the port (neo4j, arcadedb, postgres, tigergraph; _bolt is shared)
   build/   builds and updates the graph
   gap/     reserved, empty
-  plan/    reserved, empty
+  plan/    implementation plans for coding agents on the spec graph (plan/INDEX.md)
 ```
 
 Each submodule exports its public names from its package root. `build`, `gap` and `plan` import
@@ -62,7 +62,7 @@ Each node type and relation in the ontology has an `origin`, and the origin name
 |---|---|
 | `extracted` (spec nodes, domain edges) | `graph.build` |
 | `analysis`, `human` | `graph.gap` (declared when gap is designed) |
-| `planner` | `graph.plan` (declared when plan is designed) |
+| `planner` | `graph.plan` (declared in `graph/plan/ontology.yaml`, [plan/ontology.md](plan/ontology.md)) |
 
 `graph.build` also owns the built-in names, which no ontology declares: labels `SpecNode`, `Document`,
 `Fragment` and relationships `CONTAINS`, `REFERENCED_BY`, `MENTIONED_IN` ([data-model.md](data-model.md)).

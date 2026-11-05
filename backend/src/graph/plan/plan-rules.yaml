@@ -11,7 +11,7 @@ version: "2.0"
 types:                            # plannable spec types: ontology type keys or node groups
   module:
     role: area_anchor             # an internal module anchors a module area
-    exclude: {external: "yes"}    # external modules are context only (all listed values must match)
+    exclude: {external: "yes"}    # external modules are context only (any listed value excludes)
   capability:
     role: shared                  # placed by the single internal module that realises it, else project area
   interface:
