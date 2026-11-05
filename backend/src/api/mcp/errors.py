@@ -19,6 +19,7 @@ ErrorCode = Literal[
     "invalid_cursor",
     "no_plan",
     "task_not_found",
+    "feature_not_found",
     "graph_unavailable",
     "database_unavailable",
     "internal_error",
@@ -28,6 +29,7 @@ PROJECT_NOT_FOUND: Final = "project_not_found"
 INVALID_CURSOR: Final = "invalid_cursor"
 NO_PLAN: Final = "no_plan"
 TASK_NOT_FOUND: Final = "task_not_found"
+FEATURE_NOT_FOUND: Final = "feature_not_found"
 GRAPH_UNAVAILABLE: Final = "graph_unavailable"
 DATABASE_UNAVAILABLE: Final = "database_unavailable"
 INTERNAL_ERROR: Final = "internal_error"
@@ -37,6 +39,7 @@ MESSAGES: Final[Mapping[ErrorCode, str]] = {
     INVALID_CURSOR: "The cursor is invalid. Start again without a cursor.",
     NO_PLAN: "The project has no implementation plan yet. Create one on the Plan page of the web app.",
     TASK_NOT_FOUND: "The task is not in the current plan of the project. List the tasks to find it.",
+    FEATURE_NOT_FOUND: "The feature is not in the specification graph of the project. List the features to find it.",
     GRAPH_UNAVAILABLE: "The specification graph is unavailable. Try again later.",
     DATABASE_UNAVAILABLE: "The database is unavailable. Try again later.",
     INTERNAL_ERROR: "Something went wrong. Try again later.",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from graph.plan.checks import check_plan
+from graph.plan.dag import topological_order, transitive_prerequisites
 from graph.plan.errors import PlanRulesError, TaskStateError
 from graph.plan.estimate import estimate_plan
 from graph.plan.files import FilePlanStore, open_plan_store
@@ -109,4 +110,6 @@ __all__ = [
     "plan_vocabularies",
     "run_plan",
     "steps",
+    "topological_order",
+    "transitive_prerequisites",
 ]

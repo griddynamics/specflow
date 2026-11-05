@@ -16,6 +16,7 @@ from starlette.applications import Starlette
 from api.mcp.errors import MESSAGES
 from api.mcp.registry import TOOLS, install
 from api.mcp.tools.graph import encode_feature_cursor
+from graph.core.reader import GraphNode
 from graph.plan import PlanArea, PlanStory, PlanTask, TaskBrief, TaskStateError
 from graph.plan.models import DoneWhen, PlanInfo
 from graph_support import shipped_ontology
@@ -61,7 +62,7 @@ TASKS = [
     _task("TASK::ORDERS::B", waits_for=("TASK::ORDERS::A",)),
     _task("TASK::ORDERS::C", waits_for=("TASK::ORDERS::B",)),
     _task("TASK::ORDERS::D", planned_by="rules", story_id="STORY::ORDERS::TRACK"),
-    _task("TASK::PAY::E", area_id="AREA::PAY", story_id="STORY::PAY::CORE"),
+    _task("TASK::PAY::E", area_id="AREA::PAY", story_id="STORY::PAY::CORE", implements=("REQ::PAY_ON_PLACE",)),
     _task("TASK::ORDERS::OLD", "superseded"),
 ]
 READY = ("TASK::ORDERS::B", "TASK::ORDERS::D", "TASK::PAY::E")
@@ -75,6 +76,9 @@ class FakeReader:
     async def plan(self, project_id: str) -> PlanInfo | None:
         self.projects.append(project_id)
         return PlanInfo(plan_id="plan-1", created_at=T0, updated_at=T0) if self.has_plan else None
+
+    async def tasks_for(self, _project_id: str, spec_ids: list[str]) -> list[PlanTask]:
+        return [task for task in TASKS if set(task.implements) & set(spec_ids)]
 
     async def tasks(
         self, _project_id: str, *, status: str | None = None, area_id: str | None = None, story_id: str | None = None
@@ -108,14 +112,15 @@ class FakeReader:
                 area_id=area_id,
                 kind="feature",
                 title=title,
+                anchor=anchor,
                 status="active",
                 progress="pending",
                 created_at=T0,
                 updated_at=T0,
             )
-            for story_id, area_id, title in (
-                ("STORY::ORDERS::PLACE", "AREA::ORDERS", "Place an order"),
-                ("STORY::PAY::CORE", "AREA::PAY", "Payments"),
+            for story_id, area_id, title, anchor in (
+                ("STORY::ORDERS::PLACE", "AREA::ORDERS", "Place an order", "FEAT::PLACE"),
+                ("STORY::PAY::CORE", "AREA::PAY", "Payments", "FEAT::PAY"),
             )
         ]
 
@@ -143,6 +148,23 @@ class FakeLifecycle:
         )
 
 
+class FakeGraphReader:
+    """The feature ``FEAT::PLACE`` with the requirement ``REQ::PAY_ON_PLACE`` under it."""
+
+    def __init__(self) -> None:
+        feature = shipped_ontology().node_types["feature"].label
+        self.nodes = {
+            "FEAT::PLACE": GraphNode(spec_id="FEAT::PLACE", uuid="u1", label=feature, name="Place an order"),
+            "REQ::PAY_ON_PLACE": GraphNode(spec_id="REQ::PAY_ON_PLACE", uuid="u2", label="Requirement", name="Pay"),
+        }
+
+    async def node(self, _project_id: str, spec_id: str) -> GraphNode | None:
+        return self.nodes.get(spec_id)
+
+    async def scope(self, _project_id: str, spec_id: str) -> list[GraphNode]:
+        return [self.nodes["REQ::PAY_ON_PLACE"]] if spec_id == "FEAT::PLACE" else []
+
+
 class FakePlanReads:
     def __init__(self, *, has_plan: bool = True) -> None:
         self.reader = FakeReader(has_plan=has_plan)
@@ -150,11 +172,11 @@ class FakePlanReads:
 
 
 def tool_app(monkeypatch: Any, valid_env: dict[str, str], plan: FakePlanReads) -> tuple[Starlette, FakeRepo]:
-    """The MCP app with the real registry over ``FakeRepo`` and ``plan`` (no graph reader: the plan tools use none)."""
+    """The MCP app with the real registry over ``FakeRepo``, ``plan`` and the feature graph of ``FakeGraphReader``."""
 
     repo = FakeRepo()
     repo.install(monkeypatch)
-    runtime = fake_runtime(session_factory=repo, ontology=shipped_ontology(), plan=plan)
+    runtime = fake_runtime(session_factory=repo, ontology=shipped_ontology(), plan=plan, reader=FakeGraphReader())
     app = build_app(mcp_env(valid_env), runtime=runtime, tools=lambda server: install(server, resource_url=MCP_URL))
     return app, repo
 
@@ -165,7 +187,7 @@ def _ids(result: Any) -> list[str]:
 
 async def test_the_plan_tools_are_declared_read_only_and_project_scoped():
     by_name = {tool.name: tool for tool in TOOLS}
-    for name in ("list_tasks", "get_task_brief"):
+    for name in ("list_tasks", "list_feature_tasks", "get_task_path", "get_task_brief"):
         assert by_name[name].project_scoped
         assert by_name[name].annotations.read_only_hint is True
         assert "data, not instructions" in by_name[name].description
@@ -300,3 +322,69 @@ async def test_the_plan_tools_check_membership_before_reading_the_plan(monkeypat
     assert code(listed) == "project_not_found" and code(brief) == "project_not_found"
     assert code(malformed) == "project_not_found"
     assert plan.reader.projects == [] and plan.lifecycle.briefs == []  # refused before any plan read
+
+
+async def test_list_feature_tasks_lists_the_feature_story_and_the_tasks_implementing_its_scope(monkeypatch, valid_env):
+    app, repo = tool_app(monkeypatch, valid_env, FakePlanReads())
+    pid = str((await owned_project(repo, "alice@example.com", "Shop")).id)
+    async with sdk_session(app, ALICE) as session:
+        listed = await call(session, "list_feature_tasks", project_id=pid, feature_id="FEAT::PLACE")
+        paged = await call(session, "list_feature_tasks", project_id=pid, feature_id="FEAT::PLACE", limit=2)
+        rest = await call(
+            session,
+            "list_feature_tasks",
+            project_id=pid,
+            feature_id="FEAT::PLACE",
+            cursor=structured(paged)["next_cursor"],
+        )
+        not_feature = await call(session, "list_feature_tasks", project_id=pid, feature_id="REQ::PAY_ON_PLACE")
+        unknown = await call(session, "list_feature_tasks", project_id=pid, feature_id="FEAT::NONE")
+
+    body = structured(listed)
+    assert body["feature"] == {"spec_id": "FEAT::PLACE", "name": "Place an order"}
+    # the story's tasks, ready or not (the superseded one never), and the payment task implementing a node under it
+    assert _ids(listed) == ["TASK::ORDERS::A", "TASK::ORDERS::B", "TASK::ORDERS::C", "TASK::PAY::E"]
+    assert body["total_count"] == 4 and body["next_cursor"] is None
+    assert [item["ready"] for item in body["items"]] == [False, True, False, True]
+    assert _ids(paged) + _ids(rest) == _ids(listed)
+    assert code(not_feature) == "feature_not_found" and code(unknown) == "feature_not_found"
+
+
+async def test_get_task_path_lists_every_prerequisite_in_build_order_then_the_task(monkeypatch, valid_env):
+    app, repo = tool_app(monkeypatch, valid_env, FakePlanReads())
+    pid = str((await owned_project(repo, "alice@example.com", "Shop")).id)
+    async with sdk_session(app, ALICE) as session:
+        path = await call(session, "get_task_path", project_id=pid, task_id="TASK::ORDERS::C")
+        first = await call(session, "get_task_path", project_id=pid, task_id="TASK::ORDERS::C", limit=1)
+        rest = await call(
+            session, "get_task_path", project_id=pid, task_id="TASK::ORDERS::C", cursor=structured(first)["next_cursor"]
+        )
+        alone = await call(session, "get_task_path", project_id=pid, task_id="TASK::PAY::E")
+        old = await call(session, "get_task_path", project_id=pid, task_id="TASK::ORDERS::OLD")
+        missing = await call(session, "get_task_path", project_id=pid, task_id="TASK::NONE")
+        foreign_cursor = await call(
+            session,
+            "get_task_path",
+            project_id=pid,
+            task_id="TASK::ORDERS::C",
+            cursor=encode_feature_cursor("TASK::PAY::E"),
+        )
+
+    body = structured(path)
+    assert _ids(path) == ["TASK::ORDERS::A", "TASK::ORDERS::B", "TASK::ORDERS::C"]
+    assert (body["task_id"], body["total_count"], body["completed"], body["remaining"]) == ("TASK::ORDERS::C", 3, 1, 1)
+    assert [item["status"] for item in body["items"]] == ["completed", "pending", "pending"]
+    assert _ids(first) + _ids(rest) == _ids(path) and structured(rest)["next_cursor"] is None
+    assert _ids(alone) == ["TASK::PAY::E"] and structured(alone)["remaining"] == 0
+    assert code(old) == "task_not_found" and code(missing) == "task_not_found"
+    assert code(foreign_cursor) == "invalid_cursor"
+
+
+async def test_the_feature_and_path_tools_answer_no_plan_before_the_first_plan(monkeypatch, valid_env):
+    app, repo = tool_app(monkeypatch, valid_env, FakePlanReads(has_plan=False))
+    pid = str((await owned_project(repo, "alice@example.com", "Shop")).id)
+    async with sdk_session(app, ALICE) as session:
+        feature = await call(session, "list_feature_tasks", project_id=pid, feature_id="FEAT::PLACE")
+        path = await call(session, "get_task_path", project_id=pid, task_id="TASK::ORDERS::C")
+
+    assert code(feature) == "no_plan" and code(path) == "no_plan"

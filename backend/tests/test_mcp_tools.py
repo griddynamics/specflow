@@ -472,7 +472,14 @@ async def test_fr_mcp_ops_03_initialize_on_one_instance_and_tools_call_on_anothe
         result = await call(session, "list_projects")
         tools = await session.list_tools()
     assert [i["name"] for i in structured(result)["items"]] == ["Alpha"]
-    assert {t.name for t in tools.tools} == {"list_projects", "list_features", "list_tasks", "get_task_brief"}
+    assert {t.name for t in tools.tools} == {
+        "list_projects",
+        "list_features",
+        "list_tasks",
+        "list_feature_tasks",
+        "get_task_path",
+        "get_task_brief",
+    }
     assert ("initialize", "first") in router.routed
     assert ("tools/call", "second") in router.routed
     assert all(side == "second" for method, side in router.routed if method != "initialize")

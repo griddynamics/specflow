@@ -28,6 +28,16 @@
       "summary": "Lists the tasks of a project's implementation plan; by default the ones ready to start."
     },
     {
+      "name": "list_feature_tasks",
+      "read_only": true,
+      "summary": "Lists every plan task that works on one feature, ready or not."
+    },
+    {
+      "name": "get_task_path",
+      "read_only": true,
+      "summary": "Lists the tasks to complete before one plan task, in build order, then the task itself."
+    },
+    {
       "name": "get_task_brief",
       "read_only": true,
       "summary": "Reads what a coding agent needs to build one plan task: done-when, spec sources, prerequisites."
