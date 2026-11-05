@@ -19,7 +19,16 @@ from graph.build import BuildOptions, BuildRecord, open_file_stores
 from graph.core import ConfigurationError
 from graph.core.reader import GraphNode
 from graph.plan import STEPS, PlanEstimate, PlanResult, PlanStepEstimate, PlanTask, open_plan_store
-from graph.plan.models import DoneWhen, PlanInfo, PlanOptions, PlanRunRecord
+from graph.plan.models import (
+    DoneWhen,
+    PlanInfo,
+    PlanMetrics,
+    PlannerCounts,
+    PlanningSummary,
+    PlanOptions,
+    PlanRunRecord,
+    WorkAreaInfo,
+)
 from graph_plan_support import plan_ontology, plan_rules
 from settings import GraphBuildSettings
 
@@ -79,12 +88,13 @@ class StubPlanReader:
     def __init__(self) -> None:
         self.info: PlanInfo | None = None
         self.tasks_list: list[PlanTask] = []
+        self.areas_list: list[WorkAreaInfo] = []
 
     async def plan(self, _project_id: str) -> PlanInfo | None:
         return self.info
 
     async def areas(self, _project_id: str) -> list[Any]:
-        return []
+        return list(self.areas_list)
 
     async def stories(self, _project_id: str) -> list[Any]:
         return []
@@ -355,6 +365,76 @@ async def test_content_orders_tasks_by_phase_marks_ready_tasks_and_names_what_th
     assert by_id["TASK::3"].ready and not by_id["TASK::2"].ready and not by_id["TASK::1"].ready
     assert by_id["TASK::3"].implements[0].model_dump() == {"spec_id": "FEAT::OLD", "label": feature, "name": "Checkout"}
     assert by_id["TASK::4"].done_when[0].model_dump() == {"text": "It works.", "source": "spec"}
+
+
+async def test_content_reports_the_run_quality_review_findings_and_what_rules_planned(tmp_path):
+    reader = StubPlanReader()
+    reader.info = _info("build-1").model_copy(update={"last_run_id": "run-1"})
+    reader.tasks_list = [_task("TASK::1", "logic"), _task("TASK::2", "logic", planned_by="rules")]
+    reader.areas_list = [
+        WorkAreaInfo(
+            area_id="AREA::A",
+            kind="module",
+            title="Orders",
+            not_buildable=({"spec_id": "REQ::OLD", "reason": "process", "note": "A review step."},),
+            planned_by="model",
+            status="active",
+            created_at=T0,
+            updated_at=T0,
+        )
+    ]
+    store = open_plan_store(tmp_path)
+    await store.create_run(_record("run-1", "build-1"))
+    result = PlanResult(
+        project_id=PROJECT,
+        run_id="run-1",
+        status="partially_succeeded",
+        mode="first",
+        build_id="build-1",
+        started_at=T0,
+        finished_at=T0,
+        planning=PlanningSummary(
+            project=PlannerCounts(calls=2, fallbacks=1, invalid=2),
+            tasks=PlannerCounts(calls=7, fallbacks=2, invalid=3),
+            review_issues={"blocking": 1},
+        ),
+        metrics=PlanMetrics(unplaced=4, oversized_task=1),
+    )
+    await store.finish_run(result.model_dump(mode="json"))
+    issue = {"area_id": "AREA::A", "task_id": None, "problem": "No task builds the module.", "severity": "blocking"}
+    await store.put_artifact(PROJECT, "run-1", "review", {"issues": [issue]})
+    runner, _ = make_runner(tmp_path, reader=reader, nodes=[_node("REQ::NEW", "Requirement", "Review", ("REQ::OLD",))])
+
+    content = await runner.content(PROJECT)
+
+    assert content is not None and content.quality is not None
+    assert content.quality.model_dump(exclude={"finished_at"}) == {
+        "run_id": "run-1",
+        "status": "partially_succeeded",
+        "fallbacks": {"project": 1, "tasks": 2},
+        "tasks_planned": 2,
+        "review": {"blocking": 1},
+        "review_failed": False,
+        "unplaced": 4,
+        "oversized": 1,
+    }
+    assert [item.model_dump() for item in content.review] == [issue]
+    assert [task.planned_by for task in content.tasks] == ["model", "rules"]
+    area = content.areas[0]
+    assert area.planned_by == "model"
+    assert [entry.model_dump() for entry in area.not_buildable] == [
+        {"spec_id": "REQ::OLD", "name": "Review", "reason": "process", "note": "A review step."}
+    ]
+
+
+async def test_content_has_no_quality_when_the_run_result_is_gone(tmp_path):
+    reader = StubPlanReader()
+    reader.info = _info("build-1").model_copy(update={"last_run_id": "run-gone"})
+    runner, _ = make_runner(tmp_path, reader=reader)
+
+    content = await runner.content(PROJECT)
+
+    assert content is not None and content.quality is None and content.review == []
 
 
 async def test_preview_lists_the_features_and_sums_the_estimate(tmp_path):

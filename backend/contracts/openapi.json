@@ -854,6 +854,25 @@
             "title": "Kind",
             "type": "string"
           },
+          "not_buildable": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PlanNotBuildableOut"
+            },
+            "title": "Not Buildable",
+            "type": "array"
+          },
+          "planned_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planned By"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -879,7 +898,7 @@
         "type": "object"
       },
       "PlanContent": {
-        "description": "``/plan/tasks``: the persisted plan; tasks in phase order, then by area, story and id.",
+        "description": "``/plan/tasks``: the persisted plan; tasks in phase order, then by area, story and id. ``quality`` and\n``review`` come from the run that last wrote the plan (none when its result is gone).",
         "properties": {
           "areas": {
             "items": {
@@ -902,6 +921,24 @@
           "plan_id": {
             "title": "Plan Id",
             "type": "string"
+          },
+          "quality": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlanQualityOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "review": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PlanReviewIssueOut"
+            },
+            "title": "Review",
+            "type": "array"
           },
           "stories": {
             "items": {
@@ -967,6 +1004,47 @@
           "name"
         ],
         "title": "PlanFeatureOut",
+        "type": "object"
+      },
+      "PlanNotBuildableOut": {
+        "description": "A member of an area the planner returned as no code work: its id, name (none when the node is gone),\nreason code and note.",
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "spec_id": {
+            "title": "Spec Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spec_id",
+          "reason"
+        ],
+        "title": "PlanNotBuildableOut",
         "type": "object"
       },
       "PlanPreview": {
@@ -1037,6 +1115,108 @@
           }
         },
         "title": "PlanPreview",
+        "type": "object"
+      },
+      "PlanQualityOut": {
+        "description": "How the run that wrote the plan went.\n\n``fallbacks`` counts planner answers that stayed invalid (or failed) and were replaced by rules, per\nplanner (``describe``, ``project``, ``tasks``); ``review`` counts review findings by severity;\n``unplaced`` counts spec nodes no area anchor reached; ``oversized`` counts tasks over the task size.",
+        "properties": {
+          "fallbacks": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "default": {},
+            "title": "Fallbacks",
+            "type": "object"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "oversized": {
+            "default": 0,
+            "title": "Oversized",
+            "type": "integer"
+          },
+          "review": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "default": {},
+            "title": "Review",
+            "type": "object"
+          },
+          "review_failed": {
+            "default": false,
+            "title": "Review Failed",
+            "type": "boolean"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tasks_planned": {
+            "default": 0,
+            "title": "Tasks Planned",
+            "type": "integer"
+          },
+          "unplaced": {
+            "default": 0,
+            "title": "Unplaced",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "run_id",
+          "status"
+        ],
+        "title": "PlanQualityOut",
+        "type": "object"
+      },
+      "PlanReviewIssueOut": {
+        "description": "One finding of the run's review: advisory, it changed nothing.",
+        "properties": {
+          "area_id": {
+            "title": "Area Id",
+            "type": "string"
+          },
+          "problem": {
+            "title": "Problem",
+            "type": "string"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          }
+        },
+        "required": [
+          "area_id",
+          "problem",
+          "severity"
+        ],
+        "title": "PlanReviewIssueOut",
         "type": "object"
       },
       "PlanSpecRef": {
@@ -1329,6 +1509,11 @@
           },
           "phase": {
             "title": "Phase",
+            "type": "string"
+          },
+          "planned_by": {
+            "default": "model",
+            "title": "Planned By",
             "type": "string"
           },
           "ready": {

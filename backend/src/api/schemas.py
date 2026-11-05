@@ -165,12 +165,24 @@ class PlanStatus(BaseModel):
     error_code: str | None = None
 
 
+class PlanNotBuildableOut(BaseModel):
+    """A member of an area the planner returned as no code work: its id, name (none when the node is gone),
+    reason code and note."""
+
+    spec_id: str
+    name: str | None = None
+    reason: str
+    note: str | None = None
+
+
 class PlanAreaOut(BaseModel):
     area_id: str
     kind: str
     title: str | None = None
     description: str | None = None
     status: str
+    planned_by: str | None = None
+    not_buildable: list[PlanNotBuildableOut] = []
 
 
 class PlanStoryOut(BaseModel):
@@ -213,10 +225,40 @@ class PlanTaskOut(BaseModel):
     commit: str | None = None
     block_reason: str | None = None
     has_open_questions: bool = False
+    planned_by: str = "model"
+
+
+class PlanReviewIssueOut(BaseModel):
+    """One finding of the run's review: advisory, it changed nothing."""
+
+    area_id: str
+    task_id: str | None = None
+    problem: str
+    severity: str
+
+
+class PlanQualityOut(BaseModel):
+    """How the run that wrote the plan went.
+
+    ``fallbacks`` counts planner answers that stayed invalid (or failed) and were replaced by rules, per
+    planner (``describe``, ``project``, ``tasks``); ``review`` counts review findings by severity;
+    ``unplaced`` counts spec nodes no area anchor reached; ``oversized`` counts tasks over the task size.
+    """
+
+    run_id: str
+    status: str
+    finished_at: datetime | None = None
+    fallbacks: dict[str, int] = {}
+    tasks_planned: int = 0
+    review: dict[str, int] = {}
+    review_failed: bool = False
+    unplaced: int = 0
+    oversized: int = 0
 
 
 class PlanContent(BaseModel):
-    """``/plan/tasks``: the persisted plan; tasks in phase order, then by area, story and id."""
+    """``/plan/tasks``: the persisted plan; tasks in phase order, then by area, story and id. ``quality`` and
+    ``review`` come from the run that last wrote the plan (none when its result is gone)."""
 
     plan_id: str
     last_build_id: str | None = None
@@ -224,6 +266,8 @@ class PlanContent(BaseModel):
     areas: list[PlanAreaOut]
     stories: list[PlanStoryOut]
     tasks: list[PlanTaskOut]
+    quality: PlanQualityOut | None = None
+    review: list[PlanReviewIssueOut] = []
 
 
 class PlanFeatureOut(BaseModel):

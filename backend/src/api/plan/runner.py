@@ -30,7 +30,10 @@ from api.schemas import (
     PlanContent,
     PlanDoneWhenOut,
     PlanFeatureOut,
+    PlanNotBuildableOut,
     PlanPreview,
+    PlanQualityOut,
+    PlanReviewIssueOut,
     PlanSpecRef,
     PlanStoryOut,
     PlanTaskOut,
@@ -235,6 +238,8 @@ class GraphPlanRunner:
         tasks = await reads.plan_reader.tasks(project_id)
         nodes = await reads.graph_reader.nodes(project_id)
         rules = await self._rules()
+        names = _node_names(nodes)
+        quality, review = await self._run_quality(project_id, info.last_run_id, len(tasks))
         return PlanContent(
             plan_id=info.plan_id,
             last_build_id=info.last_build_id,
@@ -246,6 +251,8 @@ class GraphPlanRunner:
                     title=area.title,
                     description=area.description,
                     status=area.status,
+                    planned_by=area.planned_by,
+                    not_buildable=[_not_buildable(entry, names) for entry in area.not_buildable],
                 )
                 for area in areas
             ],
@@ -262,7 +269,46 @@ class GraphPlanRunner:
                 for story in stories
             ],
             tasks=_task_outs(tasks, nodes, [phase.name for phase in rules.phases]),
+            quality=quality,
+            review=review,
         )
+
+    async def _run_quality(
+        self, project_id: str, run_id: str | None, tasks_planned: int
+    ) -> tuple[PlanQualityOut | None, list[PlanReviewIssueOut]]:
+        """The result summary and review findings of the run that last wrote the plan."""
+
+        if run_id is None:
+            return None, []
+        store = self._plans()
+        stored = await store.get_result(project_id, run_id)
+        if stored is None:
+            return None, []
+        result = PlanResult.model_validate(stored)
+        planning = result.planning
+        quality = PlanQualityOut(
+            run_id=result.run_id,
+            status=result.status,
+            finished_at=result.finished_at,
+            fallbacks={
+                name: counts.fallbacks
+                for name, counts in (
+                    ("describe", planning.describe),
+                    ("project", planning.project),
+                    ("tasks", planning.tasks),
+                )
+                if counts.fallbacks
+            },
+            tasks_planned=tasks_planned,
+            review=dict(planning.review_issues),
+            review_failed=planning.review_failed,
+            unplaced=result.metrics.unplaced,
+            oversized=result.metrics.oversized_task,
+        )
+        artifact = await store.get_artifact(project_id, run_id, "review")
+        issues = artifact.get("issues", []) if artifact is not None else []
+        review = [PlanReviewIssueOut.model_validate(issue) for issue in issues if isinstance(issue, dict)]
+        return quality, review
 
     async def preview(self, project_id: str) -> PlanPreview:
         """The features a run would plan and the estimate of that run; no model call, nothing written."""
@@ -510,9 +556,30 @@ def _task_outs(tasks: Iterable[PlanTask], nodes: Iterable[GraphNode], phases: li
             commit=task.commit,
             block_reason=task.block_reason,
             has_open_questions=task.has_open_questions,
+            planned_by=task.planned_by,
         )
         for task in ordered
     ]
+
+
+def _node_names(nodes: Iterable[GraphNode]) -> dict[str, str]:
+    names: dict[str, str] = {}
+    for node in nodes:
+        names[node.spec_id] = node.name
+        for alias in node.spec_id_aliases:
+            names.setdefault(alias, node.name)
+    return names
+
+
+def _not_buildable(entry: dict[str, Any], names: dict[str, str]) -> PlanNotBuildableOut:
+    spec_id = str(entry.get("spec_id", ""))
+    note = entry.get("note")
+    return PlanNotBuildableOut(
+        spec_id=spec_id,
+        name=names.get(spec_id),
+        reason=str(entry.get("reason", "")),
+        note=str(note) if note else None,
+    )
 
 
 def _spec_ref(spec_id: str, node: GraphNode | None) -> PlanSpecRef:
