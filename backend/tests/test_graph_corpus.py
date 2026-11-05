@@ -158,6 +158,13 @@ def test_carriage_returns_do_not_change_line_numbers_or_masking() -> None:
     assert masked_lines("a\r\n<!-- c -->\r\nb\r\n") == {2}
 
 
+def test_italic_inline_code_split_over_lines_is_no_fence() -> None:
+    # docling writes italic inline code as "*```" / code / "```*"; "```*" must not open a code block
+    markdown = "*```\napply_answers\n```*\n\n# Next chapter\n<!-- hidden -->"
+    assert first_heading(markdown) == "Next chapter"
+    assert masked_lines(markdown) == {6}
+
+
 def test_first_heading_skips_comments_and_code() -> None:
     markdown = "<!-- # not this -->\n```\n# nor this\n```\n## Real title ##\n# Later"
     assert first_heading(markdown) == "Real title"

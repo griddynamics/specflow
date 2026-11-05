@@ -21,7 +21,8 @@ SLUG_PART_MAX_CHARS: Final = 48
 EMPTY_PATH_SLUG: Final = "_"
 EMPTY_PART_SLUG: Final = "section"
 
-_FENCE_OPEN: Final = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+# An info string of only emphasis markers is no fence: docling writes italic inline code as "*```" / code / "```*".
+_FENCE_OPEN: Final = re.compile(r"^ {0,3}(`{3,}|~{3,})(?![`~]*[ \t]*[*_]+[ \t]*$)(.*)$")
 _FENCE_CLOSE: Final = re.compile(r"^ {0,3}(`{3,}|~{3,})[ \t]*$")
 _HEADING: Final = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t]*$")
 _CLOSING_HASHES: Final = re.compile(r"(?:^|[ \t]+)#+$")

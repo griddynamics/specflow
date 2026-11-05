@@ -514,7 +514,7 @@ def fragment_words(fragment: FragmentRec) -> list[str]:
 
 
 _HEADING_LINE: Final = re.compile(r"^ {0,3}#{1,6}(?:[ \t]+(?P<title>.*?))?[ \t#]*$")
-_FENCE_LINE: Final = re.compile(r"^ {0,3}(?:```|~~~)")
+_FENCE_LINE: Final = re.compile(r"^ {0,3}(?:```|~~~)(?![`~]*[ \t]*[*_]+[ \t]*$)")  # "```*" closes italic inline code
 
 
 def body_lines(text: str) -> tuple[str, tuple[str, ...]]:

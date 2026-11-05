@@ -267,8 +267,11 @@ part of text, hashes, prompts or quotes.
 estimated tokens, target 2,000 (`fragment_tokens`); tokens are estimated as characters / 3.6. A
 section over the range is cut at the paragraph boundary with the lowest content hash in the allowed
 window, so the cut depends on the content around it and an edit elsewhere does not move it. Fenced
-code blocks are never split. The fragment id is `<document_id>#<heading path slug>#<8 hex chars
-from the first body line>`, so an unchanged section keeps its id across revisions. A fragment is
+code blocks are never split. A fence line whose info string is only `*` or `_` opens no block: docling
+writes italic inline code as a line of a star and three backticks, the code, then a line of three
+backticks and a star, and read as a fence that last line would hide every later heading of the
+document. The fragment id is `<document_id>#<heading path slug>#<8 hex chars from the first body
+line>`, so an unchanged section keeps its id across revisions. A fragment is
 the unit of evidence (`:Fragment` in the Neo4j model).
 
 **Change set.** Plan compares the snapshot with the persisted `Document`s: each document is new,
