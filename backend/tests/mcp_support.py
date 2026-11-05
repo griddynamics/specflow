@@ -75,8 +75,10 @@ def fake_runtime(
     reader: Any = None,
     session_factory: Any = None,
     ontology: Any = None,
+    plan: Any = None,
 ) -> McpRuntime:
-    """A runtime with fake probes: no engine, no store, no I/O; MCP-M5 passes its reader, sessions, ontology."""
+    """A runtime with fake probes: no engine, no store, no I/O; MCP-M5 passes its reader, sessions, ontology; the plan
+    tool tests their plan reads."""
 
     async def ok() -> None:
         return None
@@ -97,6 +99,7 @@ def fake_runtime(
         reader=reader or unused,
         readiness=Readiness(probes),
         close=close,
+        plan=plan,
     )
 
 

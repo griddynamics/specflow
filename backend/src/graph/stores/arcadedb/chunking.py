@@ -35,7 +35,7 @@ MAX_ROWS_PER_MESSAGE: Final = 500
 
 #: The result columns ``combine`` is written for: counts that add up and lists that concatenate. A template with
 #: ``rows`` that returns another column is a decision to take (``tests/test_store_arcadedb_dialect.py`` fails on it).
-AGGREGATE_COLUMNS: Final = frozenset({"written", "refs", "left"})
+AGGREGATE_COLUMNS: Final = frozenset({"written", "refs", "left", "deleted", "conflicts"})
 
 _SCALAR_BYTES: Final = 9  # a Bolt float64 (marker + 8 bytes); an int, bool or null is smaller
 _NUMBER_TYPES: Final = frozenset({int, float, bool})

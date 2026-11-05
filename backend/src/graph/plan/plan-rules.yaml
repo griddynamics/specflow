@@ -1,0 +1,83 @@
+# plan-rules.yaml: the plan rules graph.plan ships: which spec types are planned and how they are placed.
+# Says which spec types are plannable and how they are placed, grouped into stories and phased, for the
+# build ontology v2.0. Every name on the spec side (type keys, group names, relation names, attribute
+# names and values) refers to the merged ontology; loading fails when one does not resolve. Phases are
+# graph.plan's own vocabulary. Structure is fixed by the spec; phase_guidance text may be improved.
+
+format_version: 1
+name: plan-rules
+version: "2.0"
+
+types:                            # plannable spec types: ontology type keys or node groups
+  module:
+    role: area_anchor             # an internal module anchors a module area
+    exclude: {external: "yes"}    # external modules are context only (any listed value excludes)
+  capability:
+    role: shared                  # placed by the single internal module that realises it, else project area
+  interface:
+    role: member
+    phase: contract               # placed with its provider; consumers' work waits for its contract task
+    required: true
+    story: interface              # anchors a story of this kind (interface, entity or feature)
+  data_entity:
+    role: member
+    phase: data                   # placed with the single internal module that stores it
+    required: true
+    story: entity
+  feature:
+    role: member
+    phase: logic                  # a feature without requirements still gets a logic task
+    story: feature
+  functional_requirement: {role: member, phase: logic, required: true}
+  business_rule: {role: member, phase: logic, required: true}
+  data_requirement: {role: member, phase: data, required: true}
+  integration_requirement: {role: member, phase: integration, required: true}
+  quality_requirement: {role: member, phase: quality, required: true, project_input: true}
+  constraint: {role: member, phase: quality, required: true, project_input: true}
+  open_question:
+    role: context                 # never placed or planned; shown in briefs of the tasks it relates to
+
+exclude_all: {in_scope: "no"}     # not plannable: a node with these values, or a node whose owner (the target
+                                  # of its containment edge) has them; checked on every type that declares the attribute
+
+relations:                        # relation roles used by Partition, Stitch and briefs
+  containment: PART_OF            # the single owner of a node
+  grouping: GROUPED_BY            # capability tags
+  realisation: REALIZED_BY        # capability -> module
+  integration: INTEGRATES_WITH    # caller -> callee module
+  provision: PROVIDED_BY          # interface -> providing module
+  consumption: CONSUMED_BY        # interface -> consuming module
+  storage: STORED_IN              # data entity -> storing module
+  deploy: DEPLOYED_TO             # module -> the deployment module it runs on
+  dependency: DEPENDS_ON          # spec dependency (feature -> feature, requirement -> requirement)
+  reference: RELATES_TO           # symmetric reference: placement fallback, brief neighbours, open questions
+
+release: {attribute: release}     # carried on tasks and stories; a null or missing value is taken from the owner
+
+assumption: {attribute: is_assumption, value: "yes"}   # nodes flagged as assumptions in tasks and briefs
+
+acceptance_criteria: {attribute: acceptance_criteria}   # source of done_when items with source "spec"
+
+phases:                           # fallback dependencies inside an area and default complexity
+  setup: {after: [], complexity: low}
+  contract: {after: [], complexity: high}
+  data: {after: [contract], complexity: medium}
+  logic: {after: [data, contract], complexity: medium}
+  integration: {after: [logic, data, contract], complexity: high}
+  quality: {after: [logic, data, contract], complexity: medium}
+  acceptance: {after: [integration, quality, logic], after_mode: all, complexity: medium}
+# after_mode first (default): wait for the tasks of the first listed phase that has tasks in the area;
+# after_mode all: wait for the tasks of every listed phase that has tasks in the area.
+
+phase_guidance: |
+  Cut each part of an area into tasks one coding agent can finish in one run, each with checkable
+  done-when statements, and name the story each task belongs to (one of the part's stories). Order:
+  contracts first (the interfaces other work builds against), then data (data entities, structures and
+  stored or exchanged objects), then logic (behaviour and business rules), then integration (wiring to
+  other areas and external systems, after both sides exist) and quality (measurable targets and
+  constraints) in parallel, and acceptance last, only for acceptance criteria that span several tasks.
+  Unit tests belong inside every task. Prefer several small tasks over one large one; keep related
+  requirements together when they share code. Take done-when statements from the acceptance criteria
+  of the implemented nodes where they exist. Return a member as not buildable, with a reason, only when
+  it is a process, governance, release-gate or policy rule with nothing to build. Keep the action of
+  every existing task whose spec did not change.

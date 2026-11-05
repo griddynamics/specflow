@@ -67,7 +67,7 @@ function PlanStage({
       </div>
     );
   }
-  if (state.phase === "idle") return <BeforePlanView projectId={projectId} develop={develop} />;
+  if (state.phase === "idle") return <BeforePlanView projectId={projectId} develop={develop} failure={state.failure} />;
   if (state.phase === "creating") return <CreatingView projectId={projectId} run={state} />;
   return <PlanReadyView projectId={projectId} plan={state.plan} develop={develop} />;
 }

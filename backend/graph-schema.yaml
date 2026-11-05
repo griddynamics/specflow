@@ -1,7 +1,9 @@
 # Graph schema of the Neo4j spec graph, read by validation/cypher (cypher-checks).
 # Source of truth: docs/graph/data-model.md and src/graph/core/ontology/spec-ontology.yaml
-# (domain labels and relation names); constraints and indexes: the static DDL files under
-# src/graph/core/ddl/, applied by src/graph/core/schema.py (ensure_schema).
+# (domain labels and relation names) and src/graph/plan/ontology.yaml (plan labels and relation
+# names); constraints and indexes: the
+# static DDL files under src/graph/core/ddl/ and src/graph/plan/ddl/, applied by
+# src/graph/core/schema.py (ensure_schema).
 #
 # Every node and relationship also carries `group_id` (= project_id). Uniqueness and range
 # objects in Neo4j are composite `(group_id, <property>)`; the kit declares one property per
@@ -81,6 +83,86 @@ nodes:
       extracted_hash: {type: string}
       error_code: {type: string}
       last_build_id: {type: string}
+  # Plan nodes are foreign nodes of the shipped build ontology: they carry their own label only.
+  Plan:
+    properties:
+      uuid: {type: string}
+      plan_id: {type: string}
+      profile: {type: json}
+      last_build_id: {type: string}
+      consumed_build_ids: {type: "list<string>"}
+      graph_fingerprint: {type: string}
+      ontology_version: {type: string}
+      plan_ontology_version: {type: string}
+      rules_version: {type: string}
+      applying: {type: string}
+      created_at: {type: timestamp}
+      updated_at: {type: timestamp}
+      last_run_id: {type: string}
+  WorkArea:
+    properties:
+      uuid: {type: string}
+      area_id: {type: string}
+      kind: {type: string, enum: [module, project]}
+      anchor: {type: string}
+      title: {type: string}
+      description: {type: string}
+      interfaces: {type: json}
+      not_buildable: {type: json}
+      planned_by: {type: string, enum: [model, rules]}
+      prompt_ref: {type: string}
+      status: {type: string, enum: [active, retired]}
+      created_at: {type: timestamp}
+      updated_at: {type: timestamp}
+      last_run_id: {type: string}
+  Story:
+    properties:
+      uuid: {type: string}
+      story_id: {type: string}
+      area_id: {type: string}
+      kind: {type: string, enum: [feature, interface, entity, core, chapter, setup, closing]}
+      anchor: {type: string}
+      chapter: {type: json}
+      title: {type: string}
+      summary: {type: string}
+      prompt_ref: {type: string}
+      release: {type: string}
+      status: {type: string, enum: [active, retired]}
+      created_at: {type: timestamp}
+      updated_at: {type: timestamp}
+      last_run_id: {type: string}
+  Task:
+    properties:
+      uuid: {type: string}
+      task_id: {type: string}
+      area_id: {type: string}
+      action: {type: string}
+      revision: {type: integer}
+      story_id: {type: string}
+      phase: {type: string, enum: [setup, contract, data, logic, integration, quality, acceptance]}
+      title: {type: string}
+      description: {type: string}
+      done_when: {type: json}
+      complexity: {type: string, enum: [low, medium, high]}
+      implements: {type: "list<string>"}
+      release: {type: "list<string>"}
+      has_open_questions: {type: boolean}
+      planned_by: {type: string, enum: [model, rules]}
+      prompt_ref: {type: string}
+      spec_build_id: {type: string}
+      status: {type: string, enum: [pending, in_progress, completed, failed, blocked, superseded, retired]}
+      claim_token: {type: string}
+      claimed_by: {type: string}
+      claimed_at: {type: timestamp}
+      attempts: {type: integer}
+      commit: {type: string}
+      block_reason: {type: string}
+      note: {type: string}
+      created_at: {type: timestamp}
+      updated_at: {type: timestamp}
+      created_run_id: {type: string}
+      last_run_id: {type: string}
+      _lock: {type: boolean}
 
 relationships:
   # Domain edges (ontology edge_types) between spec nodes. The legal label pairs are the
@@ -100,6 +182,27 @@ relationships:
   CARRIES: *domain
   DEPENDS_ON: *domain
   RELATES_TO: *domain
+  # Plan relationships (owner: plan, src/graph/plan/ontology.yaml).
+  IN_AREA:
+    from: [SpecNode]
+    to: [WorkArea]
+    properties: [group_id, edge_key, rule, via, story]
+  IN_STORY:
+    from: [Task]
+    to: [Story]
+    properties: [group_id, edge_key]
+  IMPLEMENTS:
+    from: [Task, Story]
+    to: [SpecNode, Module, Feature, Capability, Interface, DataEntity, FunctionalRequirement, QualityRequirement, Constraint, BusinessRule, IntegrationRequirement, DataRequirement]
+    properties: [group_id, edge_key]
+  WAITS_FOR:
+    from: [Task]
+    to: [Task]
+    properties: [group_id, edge_key, source]
+  SUPERSEDES:
+    from: [Task]
+    to: [Task]
+    properties: [group_id, edge_key]
   # Structural relationships owned by build.
   # `__LABEL__` (the keyed-node placeholder above) also starts a CONTAINS: it stands for Document,
   # so keyed_node_relationship_types.cypher reads the relationships of a real keyed-node shape.
@@ -128,16 +231,21 @@ constraints:
   # every foreign label of the ontology ensure_schema runs with must have its `graph_foreign_uuid_<label>`
   # (group_id, uuid) constraint in the DDL, else setup fails with schema_ddl_incomplete (graph.core.schema).
   # Parity expands the entry to the concrete labels of policy.placeholder_labels.__FOREIGN_LABEL__.
-  unique: [SpecNode.spec_id, SpecNode.uuid, Document.document_id, Fragment.fragment_id, __FOREIGN_LABEL__.uuid]
-  # src/graph/core/ddl/node_indexes.cypher (range) and relationship_indexes.cypher: the
-  # (group_id, edge_key) index of every relation of the shipped ontology.
+  unique: [SpecNode.spec_id, SpecNode.uuid, Document.document_id, Fragment.fragment_id, __FOREIGN_LABEL__.uuid,
+           Plan.plan_id, Plan.uuid, WorkArea.area_id, WorkArea.uuid, Story.story_id, Story.uuid,
+           Task.task_id, Task.uuid]
+  # src/graph/core/ddl/node_indexes.cypher, relationship_indexes.cypher and
+  # src/graph/plan/ddl/plan_schema.cypher (range): the (group_id, edge_key) index of every relation
+  # of the shipped ontology plus the plan data-model lookup indexes.
   indexes: [SpecNode.identity_key, CARRIES.edge_key, CONSUMED_BY.edge_key, DEPENDS_ON.edge_key,
             DEPLOYED_TO.edge_key, GROUPED_BY.edge_key, INTEGRATES_WITH.edge_key, PART_OF.edge_key,
-            PROVIDED_BY.edge_key, REALIZED_BY.edge_key, RELATES_TO.edge_key, STORED_IN.edge_key]
+            PROVIDED_BY.edge_key, REALIZED_BY.edge_key, RELATES_TO.edge_key, STORED_IN.edge_key,
+            IN_AREA.edge_key, IN_STORY.edge_key, IMPLEMENTS.edge_key, WAITS_FOR.edge_key,
+            SUPERSEDES.edge_key, Task.status, Task.story_id, Story.area_id]
 
 policy:
   # Schema DDL: the static CREATE ... IF NOT EXISTS statements of the constraints and indexes.
-  ddl_globs: ["**/graph/core/ddl/*.cypher"]
+  ddl_globs: ["**/graph/core/ddl/*.cypher", "**/graph/plan/ddl/*.cypher"]
   # Files that CREATE edges: the re-point of a merged node's foreign relationships (move_foreign_relationships,
   # build_merge_spec_nodes) and the replacement of a node's evidence and mention links.
   create_allowed_globs: ["move_foreign_relationships.cypher", "build_merge_spec_nodes.cypher", "build_replace_node_links.cypher"]
@@ -148,9 +256,9 @@ policy:
   # Placeholder labels and the concrete labels they stand for, which parity expands a declared
   # `Placeholder.property` to (an empty list asks for no DDL; the template on the placeholder itself is
   # declared). __FOREIGN_LABEL__: the foreign labels of the shipped ontology, graph.core.schema.foreign_labels
-  # (none; tests/test_graph_schema.py holds the two equal), each needing its graph_foreign_uuid_<label> DDL.
+  # (the plan labels), each needing its graph_foreign_uuid_<label> DDL.
   placeholder_labels:
-    __FOREIGN_LABEL__: []
+    __FOREIGN_LABEL__: [Plan, Story, Task, WorkArea]
   # project: batch writes whose MERGE key is a row property bound by an UNWIND of $rows (or of a list
   # of such a row) that is not the statement's first clause: the fragment upsert first matches the
   # fragment's document (a row without one writes nothing), and the link replacement stubs each
@@ -176,6 +284,8 @@ policy:
     - delete_edges
     - update_edges
     - read_current_edges
+    - plan_read_links
+    - plan_delete_links
     - infer_delete_edges
     - delete_relationship
     - upsert_relationship

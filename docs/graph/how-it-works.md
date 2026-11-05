@@ -21,9 +21,10 @@ The reference files hold the exact contracts: [ontology.md](ontology.md) (format
 ontology is `backend/src/graph/core/ontology/spec-ontology.yaml`, version 2.0. All numbers below
 are the ones the code uses.
 
-> `graph.gap` (gaps, contradictions, findings) and `graph.plan` (implementation plans) are reserved
-> submodules that do not exist yet ([overview.md](overview.md), [later.md](later.md)). Every
-> statement in this document about what gap or plan will do is marked **intended use**.
+> `graph.gap` (gaps, contradictions, findings) is a reserved submodule that does not exist yet
+> ([overview.md](overview.md), [later.md](later.md)); every statement in this document about what gap
+> will do is marked **intended use**. `graph.plan` (implementation plans) has its own specification in
+> [plan/](plan/INDEX.md); the plan section below says what of the graph it relies on.
 
 ---
 
@@ -37,7 +38,8 @@ real-world thing (no duplicates, no false merges), one edge per stated relation,
 several documents is one node grounded in each of them, and unchanged nodes keep their `spec_id`
 when documents change.
 
-Two later consumers shape the design (**intended use**):
+Two consumers shape the design: gap detection (**intended use**) and implementation planning
+(`graph.plan`):
 
 - **Gap detection** needs a graph where something *missing* shows up as a structural fact you can
   query: a requirement with no owner, a module with no requirements, an integration with one side.
@@ -208,7 +210,7 @@ origins `analysis` and `human`. The ontology format already lets a gap relation 
 requirement, or at a `Fragment` or `Document` to cite evidence ([ontology.md](ontology.md)
 "Ontology files of submodules").
 
-### How the structure supports an implementation plan (intended use)
+### How the structure supports an implementation plan
 
 | Plan concept | Graph element | Why it fits |
 |---|---|---|
@@ -220,8 +222,9 @@ requirement, or at a `Fragment` or `Document` to cite evidence ([ontology.md](on
 | Traceability | `REFERENCED_BY` line ranges, `statements`, `fact` lines | Every task can cite the exact document lines it comes from |
 | Tracking across revisions | Stable `spec_id`s and aliases; each build's `spec_changes` (`added`, `removed`, `modified`, `rekeyed`, `carried_over`); `impact(spec_ids, depth)` | A plan keyed by `spec_id` survives document edits, and each build says which tasks a revision touched |
 
-Plan will declare its own types with origin `planner`, owned and written by `graph.plan` only
-([architecture.md](architecture.md) "Write ownership").
+Plan declares its own types with origin `planner`, owned and written by `graph.plan` only
+([architecture.md](architecture.md) "Write ownership"); how it uses the elements above is in
+[plan/how-it-works.md](plan/how-it-works.md).
 
 ### What the ontology leaves out, and why
 
@@ -264,8 +267,11 @@ part of text, hashes, prompts or quotes.
 estimated tokens, target 2,000 (`fragment_tokens`); tokens are estimated as characters / 3.6. A
 section over the range is cut at the paragraph boundary with the lowest content hash in the allowed
 window, so the cut depends on the content around it and an edit elsewhere does not move it. Fenced
-code blocks are never split. The fragment id is `<document_id>#<heading path slug>#<8 hex chars
-from the first body line>`, so an unchanged section keeps its id across revisions. A fragment is
+code blocks are never split. A fence line whose info string is only `*` or `_` opens no block: docling
+writes italic inline code as a line of a star and three backticks, the code, then a line of three
+backticks and a star, and read as a fence that last line would hide every later heading of the
+document. The fragment id is `<document_id>#<heading path slug>#<8 hex chars from the first body
+line>`, so an unchanged section keeps its id across revisions. A fragment is
 the unit of evidence (`:Fragment` in the Neo4j model).
 
 **Change set.** Plan compares the snapshot with the persisted `Document`s: each document is new,
@@ -875,7 +881,7 @@ finished build.
 
 Verification reads only what `graph.build` owns: `SpecNode`s with their build-owned labels and
 properties, build-owned relations, `REFERENCED_BY` and fragments. Nodes, labels, relationship types
-and properties of `gap` or `plan` are never read, so they are never reported or changed. The later
+and properties of `gap` or `plan` are never read, so they are never reported or changed. The other
 submodules can therefore attach their own structure to spec nodes without verification touching
 it.
 
@@ -891,5 +897,5 @@ the document), and reports, logs and errors never carry document text (NFR-SEC-0
 [data-model.md](data-model.md) (properties, identity, invariants), [build.md](build.md) (steps,
 modes, reuse, failures, options), [analysis.md](analysis.md) (inference, verification),
 [api.md](api.md) (`run_build`, `verify_project`, `scope`, `impact`),
-[requirements.md](requirements.md) (testable requirements), [later.md](later.md) (gap, plan and
-other deferred features).
+[requirements.md](requirements.md) (testable requirements), [later.md](later.md) (gap and other
+deferred features), [plan/INDEX.md](plan/INDEX.md) (the plan submodule).

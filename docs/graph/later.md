@@ -10,7 +10,6 @@ tags: [graph]
 | Feature | What it adds |
 |---|---|
 | `graph.gap` | Gaps, contradictions, ambiguities and findings; declares its own types with origins `analysis` and `human` |
-| `graph.plan` | Implementation plans; declares its own types with origin `planner` |
 | Clarifications | Answers to findings and pinned information that take precedence over older document statements |
 | Derivation | Judged one-level consequences of an applied answer |
 | Removal confirmation | Content dropped by a revision waits for a keep or remove decision instead of being retired at once |

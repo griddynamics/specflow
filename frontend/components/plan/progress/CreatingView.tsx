@@ -53,7 +53,7 @@ export function CreatingView({ projectId, run }: Readonly<{ projectId: string; r
     });
   }, [plan, projectId, routes]);
 
-  const steps = stepRows(next, run.step);
+  const steps = stepRows(next, run.step, run.items);
   return (
     <div className="plan-scene gdg-scene" data-testid="plan-creating" data-project={projectId} data-step={run.step}>
       <GlassSurface variant="strong" className="plan-card" aria-live="polite" aria-atomic="false" data-testid="plan-card">
@@ -69,7 +69,7 @@ export function CreatingView({ projectId, run }: Readonly<{ projectId: string; r
         </div>
         <div className="plan-card__visual" aria-hidden="true">
           <ToolSteps steps={steps} />
-          <ProgressBar value={progressValue(run.step, run.total)} label={`Step ${String(run.step)} of ${String(run.total)}`} />
+          <ProgressBar value={progressValue(run.step, run.total, run.items)} label={`Step ${String(run.step)} of ${String(run.total)}`} />
         </div>
       </GlassSurface>
     </div>

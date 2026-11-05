@@ -78,6 +78,16 @@ allow_indirect_imports = true
 source_modules = ["graph.core"]
 forbidden_modules = ["graph.build", "graph.gap", "graph.plan"]
 
+# graph.plan reads only graph.core. It never reaches the build pipeline or the gap detector, whose
+# results arrive through host-converted models. Build likewise never depends on the planner.
+[[tool.importlinter.contracts]]
+name = "Graph submodules are independent"
+id = "graph-submodules-independent"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["graph.plan", "graph.build"]
+forbidden_modules = ["graph.build", "graph.plan", "graph.gap"]
+
 # graph.stores imports graph.core, so graph.core reaches back into graph.stores only from the compatibility
 # shims (``db``, ``schema``, which resolve their names lazily) and from the one deprecated driver path of
 # ``store`` (imported late). Anything else would make importing the core load a store, and with it the SDK.
@@ -234,7 +244,7 @@ allow_indirect_imports = true
 source_modules = ["api.mcp"]
 forbidden_modules = [
     "fastapi", "auth.dependencies",
-    "api.app", "api.batch_files", "api.contained", "api.deps", "api.errors", "api.graph_build", "api.request_id",
+    "api.app", "api.batch_files", "api.contained", "api.deps", "api.errors", "api.graph_build", "api.plan", "api.request_id",
     "api.routers", "api.runtime", "api.schemas", "api.server", "api.source_views", "api.uploads", "api.workflows",
 ]
 
@@ -244,7 +254,7 @@ id = "rest-without-mcp"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = [
-    "api.app", "api.batch_files", "api.contained", "api.deps", "api.errors", "api.graph_build", "api.request_id",
+    "api.app", "api.batch_files", "api.contained", "api.deps", "api.errors", "api.graph_build", "api.plan", "api.request_id",
     "api.routers", "api.runtime", "api.schemas", "api.server", "api.source_views", "api.uploads", "api.workflows",
 ]
 forbidden_modules = ["api.mcp", "mcp", "mcp_types"]

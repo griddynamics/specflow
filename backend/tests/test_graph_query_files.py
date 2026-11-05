@@ -15,7 +15,7 @@ from graph.core.errors import ConformanceError
 from graph.core.query_files import read_query_file, render_query
 
 GRAPH: Final = Path(__file__).resolve().parents[1] / "src" / "graph"
-QUERY_DIRECTORIES: Final = (GRAPH / "core" / "queries", GRAPH / "build" / "queries")
+QUERY_DIRECTORIES: Final = (GRAPH / "core" / "queries", GRAPH / "build" / "queries", GRAPH / "plan" / "queries")
 SLOT_MARKER: Final = re.compile(r"/\*(__[A-Z][A-Z_]*__)\*/")
 # Cypher takes a token only where it takes a name; these parts are never names, so they are slots.
 NON_NAME_TOKENS: Final = (

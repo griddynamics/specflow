@@ -11,6 +11,9 @@ export interface SelectionToolbarAction {
   label: string;
   icon: IconName;
   accent?: boolean;
+  /** Shown but not usable: the button is disabled and `hint` (if any) is its tooltip. */
+  disabled?: boolean;
+  hint?: string;
 }
 
 export interface SelectionToolbarProps {
@@ -51,6 +54,8 @@ export function SelectionToolbar({ x, y, onAction, actions = DEFAULT_SELECTION_A
           key={a.id}
           type="button"
           className={cx("gdg-seltool__btn", truthy(a.accent) && "is-accent")}
+          disabled={a.disabled}
+          title={a.hint}
           onClick={() => onAction?.(a.id)}
         >
           <Icon name={a.icon} size={16} />

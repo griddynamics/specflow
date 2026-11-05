@@ -77,7 +77,8 @@ export interface Env {
 
 export async function startEnv(fePort: number, apiPort: number): Promise<Env> {
   const email = "p16.user@example.test";
-  // One stub issuer per environment, on the port 20 above the stub API's (3250-3259 -> 3270-3279).
+  // One stub issuer per environment, on the port 20 above the stub API's (3250-3259 -> 3270-3279, 3265 -> 3285); keep
+  // every stub API port off the 3270-3279 issuer range.
   const stack = await startOidcStack({ issuerPort: apiPort + 20, apiPort, api: { parseMs: 1500, summarizeMs: 1500 } });
   const api: Stub = defined(stack.api, "the stub API");
   const fe = await startFrontend({ port: fePort, env: frontendEnv(fePort, { APP_ENV: "local", ...stack.env }) });

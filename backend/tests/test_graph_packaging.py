@@ -1,5 +1,5 @@
-"""Package data of the graph library: the shipped ontology ``graph/core/ontology/spec-ontology.yaml`` and every judge
-prompt it references, ``graph/core/ontology/judge_prompts/<prompt>.md``.
+"""Package data of the graph library: the shipped core ontology ``graph/core/ontology/spec-ontology.yaml``, every judge
+prompt it references, the plan ontology ``graph/plan/ontology.yaml`` and the plan DDL ``graph/plan/ddl/*.cypher``.
 """
 
 from __future__ import annotations
@@ -23,6 +23,11 @@ PACKAGE = "graph"
 ONTOLOGY_DIR = ("core", "ontology")
 ONTOLOGY_FILE = "spec-ontology.yaml"
 JUDGE_PROMPT_DIR = "judge_prompts"
+PLAN_ONTOLOGY_DIR = ("plan",)
+PLAN_ONTOLOGY_FILE = "ontology.yaml"
+PLAN_RULES_FILE = "plan-rules.yaml"
+PLAN_DDL_DIR = ("plan", "ddl")
+PLAN_DDL_FILE = "plan_schema.cypher"
 BACKEND = Path(__file__).resolve().parents[1]
 
 
@@ -54,6 +59,17 @@ def package_data() -> dict[str, bytes]:
     found = {f"{base}/{ONTOLOGY_FILE}": (directory / ONTOLOGY_FILE).read_bytes()}
     for name in referenced_prompts():
         found[f"{base}/{JUDGE_PROMPT_DIR}/{name}.md"] = (directory / JUDGE_PROMPT_DIR / f"{name}.md").read_bytes()
+    plan_ontology = files(PACKAGE)
+    for part in PLAN_ONTOLOGY_DIR:
+        plan_ontology = plan_ontology / part
+    found[f"{PACKAGE}/{'/'.join(PLAN_ONTOLOGY_DIR)}/{PLAN_ONTOLOGY_FILE}"] = (
+        plan_ontology / PLAN_ONTOLOGY_FILE
+    ).read_bytes()
+    found[f"{PACKAGE}/{'/'.join(PLAN_ONTOLOGY_DIR)}/{PLAN_RULES_FILE}"] = (plan_ontology / PLAN_RULES_FILE).read_bytes()
+    plan_ddl = files(PACKAGE)
+    for part in PLAN_DDL_DIR:
+        plan_ddl = plan_ddl / part
+    found[f"{PACKAGE}/{'/'.join(PLAN_DDL_DIR)}/{PLAN_DDL_FILE}"] = (plan_ddl / PLAN_DDL_FILE).read_bytes()
     return found
 
 

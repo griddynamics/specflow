@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-import gzip
 import hashlib
 import json
 import os
 import tempfile
-import zlib
 from collections.abc import Collection, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
@@ -28,7 +26,12 @@ from graph.build.ports import (
     StepState,
 )
 from graph.core.errors import ConfigurationError, CorpusError, InfrastructureUnavailableError
-from graph.core.files import FileSpecIdRegistry, write_atomic
+from graph.core.files import (
+    FileSpecIdRegistry,
+    encode_gzip_json,
+    read_gzip_json,
+    write_store_file,
+)
 from graph.core.identity import SpecIdRegistry, validate_project_id
 from logger.logger import WARNING, get_logger, log_event
 
@@ -42,28 +45,6 @@ ARTIFACT_SUFFIX: Final = ".json.gz"
 CORPUS_INDEX_FILE: Final = "corpus-index.json"
 MARKDOWN_SUFFIX: Final = ".md"
 FIRST_VERSION: Final = 1
-
-
-def _encode(payload: Any) -> bytes:
-    return gzip.compress(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), mtime=0)
-
-
-def _read_gzip_json(path: Path) -> Any | None:
-    """The JSON value of a gzip file; None when the file does not exist."""
-
-    try:
-        return json.loads(gzip.decompress(path.read_bytes()).decode("utf-8"))
-    except FileNotFoundError:
-        return None
-    except (OSError, EOFError, ValueError, zlib.error) as error:
-        raise InfrastructureUnavailableError("file_store_unreadable", error_type=type(error).__name__) from None
-
-
-def _write(path: Path, data: bytes) -> None:
-    try:
-        write_atomic(path, data)
-    except OSError as error:
-        raise InfrastructureUnavailableError("file_store_unwritable", error_type=type(error).__name__) from None
 
 
 def _write_batch(items: list[tuple[Path, bytes]]) -> None:
@@ -92,7 +73,7 @@ def _read_batch(paths: list[tuple[str, Path]]) -> tuple[dict[str, Any], int]:
     unreadable = 0
     for key, path in paths:
         try:
-            value = _read_gzip_json(path)
+            value = read_gzip_json(path)
         except InfrastructureUnavailableError:
             unreadable += 1
             continue
@@ -114,7 +95,7 @@ class FileExtractionStore:
         """The stored payload; None when absent, stored with another fingerprint, or unreadable."""
 
         try:
-            stored = await asyncio.to_thread(_read_gzip_json, self._path(kind, key))
+            stored = await asyncio.to_thread(read_gzip_json, self._path(kind, key))
         except InfrastructureUnavailableError as error:
             log_event(
                 logger,
@@ -147,14 +128,14 @@ class FileExtractionStore:
         return result
 
     async def put(self, kind: ExtractionKind, key: str, fingerprint: str, payload: JsonObject) -> None:
-        data = _encode({"key": key, "fingerprint": fingerprint, "payload": payload})
-        await asyncio.to_thread(_write, self._path(kind, key), data)
+        data = encode_gzip_json({"key": key, "fingerprint": fingerprint, "payload": payload})
+        await asyncio.to_thread(write_store_file, self._path(kind, key), data)
 
     async def put_many(self, kind: ExtractionKind, fingerprint: str, entries: Mapping[str, JsonObject]) -> None:
         """``put`` of every entry (payload by key) in one write pass, without an fsync per file."""
 
         items = [
-            (self._path(kind, key), _encode({"key": key, "fingerprint": fingerprint, "payload": payload}))
+            (self._path(kind, key), encode_gzip_json({"key": key, "fingerprint": fingerprint, "payload": payload}))
             for key, payload in entries.items()
         ]
         await asyncio.to_thread(_write_batch, items)
@@ -176,12 +157,12 @@ class FileBuildStore:
         return self._builds(project_id) / build_id
 
     async def _load_record(self, project_id: str, build_id: str) -> BuildRecord | None:
-        stored = await asyncio.to_thread(_read_gzip_json, self._folder(project_id, build_id) / RECORD_FILE)
+        stored = await asyncio.to_thread(read_gzip_json, self._folder(project_id, build_id) / RECORD_FILE)
         return None if stored is None else BuildRecord.model_validate(stored)
 
     async def _store_record(self, record: BuildRecord) -> None:
         path = self._folder(record.project_id, record.build_id) / RECORD_FILE
-        await asyncio.to_thread(_write, path, _encode(record.model_dump(mode="json")))
+        await asyncio.to_thread(write_store_file, path, encode_gzip_json(record.model_dump(mode="json")))
 
     async def _require(self, project_id: str, build_id: str) -> BuildRecord:
         record = await self._load_record(project_id, build_id)
@@ -228,21 +209,23 @@ class FileBuildStore:
         async with self._lock:
             record = await self._require(result.project_id, result.build_id)
             folder = self._folder(result.project_id, result.build_id)
-            await asyncio.to_thread(_write, folder / RESULT_FILE, _encode(result.model_dump(mode="json")))
+            await asyncio.to_thread(
+                write_store_file, folder / RESULT_FILE, encode_gzip_json(result.model_dump(mode="json"))
+            )
             finished = record.model_copy(update={"status": result.status, "finished_at": result.finished_at})
             await self._store_record(finished)
 
     async def get_result(self, project_id: str, build_id: str) -> BuildResult | None:
-        stored = await asyncio.to_thread(_read_gzip_json, self._folder(project_id, build_id) / RESULT_FILE)
+        stored = await asyncio.to_thread(read_gzip_json, self._folder(project_id, build_id) / RESULT_FILE)
         return None if stored is None else BuildResult.model_validate(stored)
 
     async def put_artifact(self, project_id: str, build_id: str, step: StepName, payload: JsonObject) -> None:
         path = self._folder(project_id, build_id) / f"{step}{ARTIFACT_SUFFIX}"
-        await asyncio.to_thread(_write, path, _encode(payload))
+        await asyncio.to_thread(write_store_file, path, encode_gzip_json(payload))
 
     async def get_artifact(self, project_id: str, build_id: str, step: StepName) -> JsonObject | None:
         path = self._folder(project_id, build_id) / f"{step}{ARTIFACT_SUFFIX}"
-        return await asyncio.to_thread(_read_gzip_json, path)
+        return await asyncio.to_thread(read_gzip_json, path)
 
 
 def _list_folders(folder: Path) -> list[str]:
@@ -289,7 +272,7 @@ class FileCorpusSource:
                 )
             if changed and not dry_run:
                 payload = json.dumps(index, ensure_ascii=False, sort_keys=True, indent=1).encode("utf-8")
-                await asyncio.to_thread(_write, index_path, payload)
+                await asyncio.to_thread(write_store_file, index_path, payload)
             return revisions
 
     def _read_files(self) -> list[tuple[str, bytes]]:

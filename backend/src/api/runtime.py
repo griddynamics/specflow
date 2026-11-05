@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.errors import database_unavailable, required
 from api.graph_build.runner import GraphBuildRunner
+from api.plan.runner import GraphPlanRunner
 from db import session as db_session
 from db.session import is_database_unreachable
 from graph.stores import build_store
@@ -59,6 +60,8 @@ class Runtime:
     drive_slots: asyncio.Semaphore | None = None
     # api.graph_build.runner.GraphBuildRunner; None = graph build not configured (503)
     graph_builds: Any = None
+    # api.plan.runner.GraphPlanRunner; None = plan not configured (503); set with the graph build
+    plans: Any = None
     cleanups: list[Callable[[], Awaitable[None]]] = field(default_factory=list)
 
     @asynccontextmanager
@@ -185,6 +188,7 @@ async def build_runtime(settings: RoleSettings) -> Runtime:
         )
         session_factory = db_session.build_session_factory(engine)
         graph_builds = None
+        plans = None
         if settings.graph_build is None:
             # Build knowledge answers 503 graph_build_unavailable until one of these is set (all three are needed).
             log_event(logger, WARNING, "api.graph_build.disabled", missing=list(GRAPH_BUILD_SWITCHES))
@@ -194,8 +198,10 @@ async def build_runtime(settings: RoleSettings) -> Runtime:
                 store=graph_store,
                 session_factory=session_factory,
             )
-            # Pushed last, so it runs first: builds stop before the store and engine close.
+            plans = GraphPlanRunner(settings.graph_build, store=graph_store)
+            # Pushed last, so they run first: plan runs and builds stop before the store and engine close.
             stack.push_async_callback(graph_builds.aclose)
+            stack.push_async_callback(plans.aclose)
         runtime = Runtime(
             settings=settings,
             session_factory=session_factory,
@@ -204,6 +210,7 @@ async def build_runtime(settings: RoleSettings) -> Runtime:
             graph_store=graph_store,
             readiness=readiness,
             graph_builds=graph_builds,
+            plans=plans,
         )
         runtime.cleanups.append(stack.pop_all().aclose)
     return runtime
