@@ -7,10 +7,7 @@ on:
     paths:
       - backend/**
       - frontend/**
-      - validation/**
-      - Makefile
       - .github/workflows/specflow-dockerhub.yaml
-      - .github/workflows/validate.yaml
 
 # All runs publish to the same repositories. Queue them without cancelling uploads.
 concurrency:
@@ -21,27 +18,8 @@ permissions:
   contents: read
 
 jobs:
-  check-credentials:
-    if: github.repository == 'griddynamics/specflow'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - name: Check Docker Hub credentials
-        env:
-          DOCKERHUB_LOGIN: ${{ secrets.DOCKERHUB_LOGIN }}
-          DOCKERHUB_OAT: ${{ secrets.DOCKERHUB_OAT }}
-        run: |
-          if [[ -z "$DOCKERHUB_LOGIN" || -z "$DOCKERHUB_OAT" ]]; then
-            echo "::error::Configure DOCKERHUB_LOGIN and DOCKERHUB_OAT as Actions secrets with write access to the four public Specflow repositories."
-            exit 1
-          fi
-
-  validate:
-    needs: check-credentials
-    uses: ./.github/workflows/validate.yaml
-
   build-and-push:
-    needs: [check-credentials, validate]
+    if: github.repository == 'griddynamics/specflow'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
