@@ -31,7 +31,7 @@ from api.mcp.auth import request_principal
 from api.mcp.errors import INTERNAL_ERROR, McpToolError, error_body, to_tool_error
 from api.mcp.http import McpInvariantError
 from api.mcp.runtime import request_runtime
-from api.mcp.tools import Listing, ProjectArguments, graph, projects
+from api.mcp.tools import ProjectArguments, graph, plan, projects
 from logger.logger import INFO, get_logger, log_event
 
 logger = get_logger("api.mcp.registry")
@@ -54,7 +54,7 @@ class ToolDeclaration:
     description: str
     arguments: type[BaseModel]
     output: type[BaseModel]
-    handler: Callable[..., Awaitable[Listing]]
+    handler: Callable[..., Awaitable[BaseModel]]
     project_scoped: bool
     annotations: ToolAnnotations = field(default_factory=lambda: READ_ONLY)
 
@@ -76,6 +76,24 @@ TOOLS: Final[tuple[ToolDeclaration, ...]] = (
         arguments=graph.ListFeaturesArgs,
         output=graph.FeatureList,
         handler=graph.list_features,
+        project_scoped=True,
+    ),
+    ToolDeclaration(
+        name="list_tasks",
+        summary="Lists the tasks of a project's implementation plan; by default the ones ready to start.",
+        description=plan.LIST_DESCRIPTION,
+        arguments=plan.ListTasksArgs,
+        output=plan.TaskList,
+        handler=plan.list_tasks,
+        project_scoped=True,
+    ),
+    ToolDeclaration(
+        name="get_task_brief",
+        summary="Reads what a coding agent needs to build one plan task: done-when, spec sources, prerequisites.",
+        description=plan.BRIEF_DESCRIPTION,
+        arguments=plan.GetTaskBriefArgs,
+        output=plan.TaskBriefResult,
+        handler=plan.get_task_brief,
         project_scoped=True,
     ),
 )
@@ -237,7 +255,14 @@ class _ToolFunction:
             result = await declaration.handler(caller, runtime, args)
         if not isinstance(result, declaration.output):  # a wrong shape would reach the SDK's validation text
             raise McpInvariantError("a handler returns its declared output")
-        return _result(result), len(cast(Listing, result).items)  # shape checked above
+        return _result(result), _item_count(result)
+
+
+def _item_count(result: BaseModel) -> int:
+    """What the audit counts: the items of a listing, else 1 (one object, such as a task brief)."""
+
+    items = getattr(result, "items", None)
+    return len(items) if isinstance(items, list) else 1
 
 
 def _prompt_function(declaration: PromptDeclaration, resource_url: str) -> Callable[..., str]:

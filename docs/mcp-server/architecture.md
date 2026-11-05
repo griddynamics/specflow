@@ -19,7 +19,7 @@ before `specflow api`) and never starts Temporal, storage, Drive or LLM clients.
 flowchart TB
     subgraph role["role mcp (one process, N replicas)"]
         guard[Auth guard] --> sdk[MCP SDK: Streamable HTTP, stateless]
-        sdk --> tools[Tools: list_projects, list_features]
+        sdk --> tools[Tools: list_projects, list_features, list_tasks, get_task_brief]
         sdk --> prompts[Prompt: select_project]
         guidance[Guidance text] --> prompts
         guidance --> sdk
@@ -119,9 +119,9 @@ role distinguishes members. The structural test of access-control.md reads the d
 
 | # | Rule |
 |---|---|
-| M1 | `api.mcp` may import `auth` (not `auth.dependencies`), `db`, `graph` (public names of `graph.core` only), `health`, `logger`, `settings`, the `mcp` SDK, Starlette, uvicorn, pydantic and the standard library. |
+| M1 | `api.mcp` may import `auth` (not `auth.dependencies`), `db`, `graph` (public names of `graph.core`, and of `graph.plan` for the plan reads: `PlanReader`, `TaskLifecycle`, `load_plan_rules`, `TaskBrief`, `TaskStateError`), `health`, `logger`, `settings`, the `mcp` SDK, Starlette, uvicorn, pydantic and the standard library. |
 | M2 | `api.mcp` never imports `api.routers`, `api.deps`, `api.app`, `api.runtime`, `auth.dependencies` or FastAPI; the REST app never imports `api.mcp`, and never imports the `mcp` SDK directly (the agent SDKs it uses depend on it). |
-| M3 | No Cypher and no `neo4j` import in `api.mcp`; every graph read is a `GraphReader` method. |
+| M3 | No Cypher and no `neo4j` import in `api.mcp`; every graph read is a `GraphReader` method, or a read of the plan library: a `PlanReader` method, `TaskLifecycle.ready_tasks` or `TaskLifecycle.task_brief`. No other lifecycle method (claims, state changes) is called. |
 | M4 | No SQL and no ORM query in `api.mcp`; every Postgres read or write is a `db.repositories` function. |
 
 Import-linter contracts in `backend/importlinter.toml` (on direct imports) enforce M2, and one more forbids direct

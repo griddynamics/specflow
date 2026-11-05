@@ -2,8 +2,8 @@
 
 The MCP server lets a developer's coding agent (Claude Code first) read SpecFlow project knowledge over the Model Context
 Protocol. It runs as its own backend role (`specflow mcp`), accepts OAuth access tokens from the organization's OIDC
-provider, and shows a caller only the projects they are a member of. Version 1 has two read-only tools, `list_projects`
-and `list_features`, and one prompt, `select_project`, which binds a product repository to a project through
+provider, and shows a caller only the projects they are a member of. Version 1 has four read-only tools, `list_projects`,
+`list_features`, and the plan tools `list_tasks` and `get_task_brief`, and one prompt, `select_project`, which binds a product repository to a project through
 `.specflow/config.json`.
 
 # overview.md: purpose, scope, goals (including the workspace binding), non-goals, actors, boundaries, constraints, key terms
