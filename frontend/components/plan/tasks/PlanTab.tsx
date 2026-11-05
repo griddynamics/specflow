@@ -104,9 +104,6 @@ export function PlanTab({ projectId }: Readonly<{ projectId: string; plan: PlanS
   }
   return (
     <div className="plan-tab" data-testid="plan-tab" data-project={projectId}>
-      <p className="plan-tab__label body-sm" data-testid="plan-sample-label">
-        Sample progress from an earlier agent run
-      </p>
       <PlanOutline
         tasks={snapshot.tasks}
         openPhases={openPhases}

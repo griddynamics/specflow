@@ -1,12 +1,11 @@
-// SPL-DEMO-01, SPL-DEMO-02: the production adapter for the ports the backend does not serve yet (decisions, connectors, plan,
+// SPL-DEMO-01, SPL-DEMO-02: the production adapter for the ports the backend does not serve yet (decisions, connectors,
 // assistant, files, comments, diagrams) and for the people directory and mentions. Each method answers "empty" or "not found",
 // so a screen shows its existing empty state. No fixture, no fetch, no timer.
 import type { AssistantEvent, AssistantIntro } from "@/lib/domain/assistant";
 import { DataError } from "@/lib/domain/errors";
-import type { PlanTable } from "@/lib/domain/plan";
 import type { DataPorts } from "./ports";
 
-export type UnavailablePorts = Pick<DataPorts, "files" | "comments" | "diagrams" | "decisions" | "assistant" | "connectors" | "plan">;
+export type UnavailablePorts = Pick<DataPorts, "files" | "comments" | "diagrams" | "decisions" | "assistant" | "connectors">;
 
 const notFound = (): Promise<never> => Promise.reject(new DataError("not_found", false));
 const notAvailable = (): Promise<never> => Promise.reject(new DataError("not_available", false));
@@ -23,8 +22,6 @@ function fromEvents(events: AssistantEvent[]): AsyncIterable<AssistantEvent> {
     },
   };
 }
-
-const EMPTY_TABLE: PlanTable = { rows: [], distinct: { critical: 0, high: 0, medium: 0, low: 0 }, unlinked: 0 };
 
 /** SpecBot text while the assistant has no backend. The greeting is `Hi` here; the composition adds the signed-in first name. */
 export const ASSISTANT_UNAVAILABLE = "SpecBot is not available yet.";
@@ -48,14 +45,6 @@ export const unavailable: UnavailablePorts = {
   connectors: {
     list: () => Promise.resolve([]),
     categories: () => Promise.resolve(["All"]),
-  },
-  plan: {
-    table: () => Promise.resolve({ ...EMPTY_TABLE, distinct: { ...EMPTY_TABLE.distinct } }),
-    state: () => Promise.resolve({ phase: "idle" }),
-    subscribe: noop,
-    create: notAvailable,
-    leave: () => undefined,
-    updateTaskBody: notFound,
   },
   assistant: {
     intro: () => Promise.resolve(unavailableIntro("")),

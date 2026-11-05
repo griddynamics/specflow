@@ -2,34 +2,34 @@
 // order come from `lib/domain/logic/plan.ts` (`groupByPhase`); nothing here sorts.
 import type { PlanTask, TaskPhase, TaskStatus } from "@/lib/domain/plan";
 
-/** Plain phase names (MOCKS §15.8 / PLAN FE-PLAN-06.AC2). */
+/** Plain phase names (MOCKS §15.8 / PLAN FE-PLAN-06.AC2), one per plan phase. */
 export const PHASE_NAMES: Record<TaskPhase, string> = {
-  BOOTSTRAP: "Set up",
-  CONTRACT: "Contracts",
-  DATA_MODEL: "Data model",
-  LOGIC: "Logic",
-  INTEGRATION: "Integration",
-  QUALITY: "Quality",
-  TEST: "Tests",
+  setup: "Set up",
+  contract: "Contracts",
+  data: "Data model",
+  logic: "Logic",
+  integration: "Integration",
+  quality: "Quality",
+  acceptance: "Acceptance",
 };
 
 export type StatusTone = "success" | "info" | "neutral" | "warning" | "danger";
 
-/** G-PLAN-5: the status word and its Tag tone. `INVALIDATED` never reaches the UI (the port drops it): null. */
+/** G-PLAN-5: the status word and its Tag tone. `superseded` and `retired` tasks are history and never listed: null. */
 export const STATUS_TAGS: Partial<Record<TaskStatus, { label: string; tone: StatusTone }>> = {
-  COMPLETED: { label: "Completed", tone: "success" },
-  IN_PROGRESS: { label: "In progress", tone: "info" },
-  PENDING: { label: "Pending", tone: "neutral" },
-  BLOCKED: { label: "Blocked", tone: "warning" },
-  FAILED: { label: "Failed", tone: "danger" },
+  completed: { label: "Completed", tone: "success" },
+  in_progress: { label: "In progress", tone: "info" },
+  pending: { label: "Pending", tone: "neutral" },
+  blocked: { label: "Blocked", tone: "warning" },
+  failed: { label: "Failed", tone: "danger" },
 };
 
-/** The tasks the UI shows: `INVALIDATED` is filtered, the order is kept. */
+/** The tasks the UI shows: `superseded` and `retired` are filtered, the order is kept. */
 export const visibleTasks = (tasks: PlanTask[]): PlanTask[] => tasks.filter((t) => STATUS_TAGS[t.status] !== undefined);
 
-/** "n of m done": n = COMPLETED tasks of the phase. */
+/** "n of m done": n = completed tasks of the phase. */
 export function phaseProgress(tasks: Pick<PlanTask, "status">[]): { done: number; total: number; percent: number } {
-  const done = tasks.filter((t) => t.status === "COMPLETED").length;
+  const done = tasks.filter((t) => t.status === "completed").length;
   const total = tasks.length;
   return { done, total, percent: total === 0 ? 0 : (done / total) * 100 };
 }

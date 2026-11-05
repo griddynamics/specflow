@@ -8,10 +8,6 @@
   color: var(--ink);
   min-width: 0;
 }
-.plan-tab__label {
-  margin: 0;
-  color: var(--ink-2);
-}
 
 /* G-PLAN-2: one phase = a quiet glass section with a header button, a thin bar and the task list. */
 .plan-phase {
@@ -146,4 +142,10 @@
   .plan-phase .gdg-progress__fill {
     transition: none;
   }
+}
+
+/* Edit is shown but disabled in the task toolbar (no editable task text yet): it looks like the DS disabled button. */
+.plan-body .gdg-seltool__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }

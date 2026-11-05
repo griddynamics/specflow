@@ -2,8 +2,8 @@
 // FE-PLAN-07 (TECH-SPECS §2.15; DECISIONS AUTO-20 option B, P11-1, P24-1, P24-3, P27-3..5, P27-11, P27-12): the body of one task, built from the Files
 // parts, imported and unchanged (`DocContext`, `BLOCK_COMPONENTS`, `selectedBlock`, `blockSource`, `headingIndex`, `CommentPanel`, `threadHighlights`,
 // `useAskSpecBot`). The derived Markdown shows as formatted text. The selection toolbar offers Edit, Comment and Ask SpecBot as in Files (Q21).
-// Edit: "Implements" and "Depends on" come from graph edges and refuse it; Save goes through `plan.updateTaskBody` with the task's `version` as
-// `baseVersion`. Comment: the comments port with the path `plan:<taskId>` (never a Files path, so no Files view shows these threads); the thread
+// Edit is shown disabled: the plan has no editable task text yet (its text is built from the graph). The save path through
+// `plan.updateTaskBody` stays for when it has; "Implements" and "Depends on" come from graph edges and refuse it. Comment: the comments port with the path `plan:<taskId>` (never a Files path, so no Files view shows these threads); the thread
 // panel opens to the right of the text, `@specbot` gets the scripted reply, highlights are drawn from the threads (re-read on mount, so they
 // survive a tab switch). Ask SpecBot hands the exact selection to SpecBot. Comment and Ask SpecBot work on the graph lines too (P27-4).
 // Esc in the editor cancels only the edit (the block editor handles it; nothing else here listens for Esc except the selection clear).
@@ -24,7 +24,7 @@ import { CommentPanel } from "@/components/files/CommentPanel";
 import { selectedBlock } from "@/components/files/selection-dom";
 import "@/components/files/files-gaps.css"; // the editor frame (`.files-edit*`, G-P11-4/5); imported, not edited (P24-1)
 import { MarkdownProse } from "@/components/ui/MarkdownProse";
-import { SelectionToolbar } from "@/components/ui/SelectionToolbar";
+import { DEFAULT_SELECTION_ACTIONS, SelectionToolbar } from "@/components/ui/SelectionToolbar";
 import { useToast } from "@/components/ui/Toast";
 import { useTextSelection } from "@/components/ui/use-text-selection";
 import { usePlanPort, usePlanRoutes } from "../use-plan-ports";
@@ -48,6 +48,10 @@ const HEADINGS = Object.fromEntries(
   }),
 );
 const TASK_COMPONENTS = { ...BLOCK_COMPONENTS, ...HEADINGS };
+
+/** Task text editing is not available yet: Edit stays in the toolbar, disabled (Comment and Ask SpecBot work). */
+export const EDIT_UNAVAILABLE = "Editing tasks is not available yet";
+const TASK_ACTIONS = DEFAULT_SELECTION_ACTIONS.map((a) => (a.id === "edit" ? { ...a, disabled: true, hint: EDIT_UNAVAILABLE } : a));
 
 export function TaskBody({ projectId, task, onSaved }: Readonly<{ projectId: string; task: PlanTask; onSaved: (task: PlanTask) => void }>) {
   const plan = usePlanPort();
@@ -179,6 +183,10 @@ export function TaskBody({ projectId, task, onSaved }: Readonly<{ projectId: str
     }
     if (id !== "edit") return;
     clearSel();
+    if (TASK_ACTIONS.some((a) => a.id === "edit" && a.disabled === true)) {
+      setNote(EDIT_UNAVAILABLE);
+      return;
+    }
     if (!block?.edit) {
       setNote("Edit works on paragraphs, list items and headings");
       return;
@@ -233,9 +241,9 @@ export function TaskBody({ projectId, task, onSaved }: Readonly<{ projectId: str
             {...paneProps}
           >
             {element}
-            {showing && truthy(sel) ? <SelectionToolbar x={barX} y={sel.y} onAction={onAction} /> : null}
+            {showing && truthy(sel) ? <SelectionToolbar x={barX} y={sel.y} onAction={onAction} actions={TASK_ACTIONS} /> : null}
           </div>
-          <p className="plan-body__hint body-sm">Select text to edit, comment or ask SpecBot</p>
+          <p className="plan-body__hint body-sm">Select text to comment or ask SpecBot</p>
           {shownNote ? (
             <p className="plan-body__note body-sm" role="status" data-testid="plan-task-note">
               {shownNote}

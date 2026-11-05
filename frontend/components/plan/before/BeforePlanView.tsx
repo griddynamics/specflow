@@ -1,18 +1,20 @@
 "use client";
-// FE-PLAN-02, FE-PLAN-03 (TECH-SPECS §2.15): Stage 0 slot. P22 builds it: reads `plan.table(projectId)`, calls `plan.create`. P21 fixes the
-// props only; a later phase must not change them (P21-5). Q7: nothing here imports from `components/decisions/`. Q11: no readiness text.
+// FE-PLAN-02, FE-PLAN-03 (TECH-SPECS §2.15): Stage 0 slot. Reads `plan.preview(projectId)` (the features to plan and the run estimate),
+// calls `plan.create`. A run that failed before a plan existed shows its error code in a note above the table.
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ShellHeader } from "@/components/shell/ShellHeader";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Button } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { useToast } from "@/components/ui/Toast";
-import { usePlanPort } from "../use-plan-ports";
+import { usePlanPort, usePlanRoutes } from "../use-plan-ports";
 import { PlanViewSwitch, usePlanView } from "../PlanViewSwitch";
 import { DevelopTab, type DevelopInfo } from "../develop/DevelopTab";
-import type { PlanTable } from "@/lib/domain/plan";
+import type { PlanPreview } from "@/lib/domain/plan";
 import { PlanFeatureTable } from "./PlanFeatureTable";
 import { createFailToast, createPress, tableView } from "./create-press";
-import { CREATE_PLAN_LABEL } from "./plan-text";
+import { CREATE_PLAN_LABEL, NO_FEATURES_BODY, NO_FEATURES_TITLE, failureNote, previewSummary } from "./plan-text";
 import "./before.css";
 import { tabStop } from "@/components/ui/utils";
 
@@ -21,7 +23,13 @@ function TableSlot({
   view,
   table,
   onRetry,
-}: Readonly<{ view: ReturnType<typeof tableView>; table: PlanTable | "failed" | null; onRetry: () => void }>) {
+  onOpenMissionControl,
+}: Readonly<{
+  view: ReturnType<typeof tableView>;
+  table: PlanPreview | "failed" | null;
+  onRetry: () => void;
+  onOpenMissionControl: () => void;
+}>) {
   if (view === "loading") return <Skeleton variant="block" height={280} />;
   if (view === "failed" || table === "failed" || table === null) {
     return (
@@ -33,23 +41,37 @@ function TableSlot({
       </p>
     );
   }
+  if (table.features.length === 0) {
+    return (
+      <EmptyState title={NO_FEATURES_TITLE} icon="kanban" actions={<Button onClick={onOpenMissionControl}>Open Mission Control</Button>}>
+        {NO_FEATURES_BODY}
+      </EmptyState>
+    );
+  }
   return (
-    <div className="plan-table-wrap" role="region" aria-label="Open decisions by Feature" {...tabStop(true)}>
-      <PlanFeatureTable table={table} />
-    </div>
+    <>
+      <p className="plan-before__summary body-sm" data-testid="plan-summary">
+        {previewSummary(table.features.length, table.calls, table.inputTokens)}
+      </p>
+      <div className="plan-table-wrap" role="region" aria-label="Features to plan" {...tabStop(true)}>
+        <PlanFeatureTable preview={table} />
+      </div>
+    </>
   );
 }
 
-export function BeforePlanView({ projectId, develop }: Readonly<{ projectId: string; develop: DevelopInfo }>) {
+export function BeforePlanView({ projectId, develop, failure }: Readonly<{ projectId: string; develop: DevelopInfo; failure?: string }>) {
   const planView = usePlanView();
   const plan = usePlanPort();
-  const [table, setTable] = useState<PlanTable | "failed" | null>(null);
+  const routes = usePlanRoutes();
+  const router = useRouter();
+  const [table, setTable] = useState<PlanPreview | "failed" | null>(null);
   const [tries, setTries] = useState(0);
   const toast = useToast();
 
   useEffect(() => {
     let alive = true;
-    plan.table(projectId).then(
+    plan.preview(projectId).then(
       (t) => {
         if (alive) setTable(t);
       },
@@ -91,17 +113,27 @@ export function BeforePlanView({ projectId, develop }: Readonly<{ projectId: str
           </Button>
         }
       />
+      {failure !== undefined && planView !== "develop" ? (
+        <p className="plan-before__note body-sm" role="status" data-testid="plan-failure">
+          {failureNote(failure)}
+        </p>
+      ) : null}
       {planView === "develop" ? (
         <DevelopTab projectId={projectId} info={develop} />
       ) : (
-        <TableSlot
-          view={view}
-          table={table}
-          onRetry={() => {
-            setTable(null);
-            setTries((n) => n + 1);
-          }}
-        />
+        <div className="plan-before__preview" data-testid="plan-preview" data-loaded={view === "loading" ? undefined : ""}>
+          <TableSlot
+            view={view}
+            table={table}
+            onRetry={() => {
+              setTable(null);
+              setTries((n) => n + 1);
+            }}
+            onOpenMissionControl={() => {
+              router.push(routes.missionControl(projectId));
+            }}
+          />
+        </div>
       )}
     </div>
   );

@@ -67,6 +67,26 @@
       "path": "/projects/{pid}/graph_build"
     },
     {
+      "id": "plan_status_api_v1_projects__pid__plan_get",
+      "method": "GET",
+      "path": "/projects/{pid}/plan"
+    },
+    {
+      "id": "start_plan_api_v1_projects__pid__plan_post",
+      "method": "POST",
+      "path": "/projects/{pid}/plan"
+    },
+    {
+      "id": "plan_preview_api_v1_projects__pid__plan_preview_get",
+      "method": "GET",
+      "path": "/projects/{pid}/plan/preview"
+    },
+    {
+      "id": "plan_tasks_api_v1_projects__pid__plan_tasks_get",
+      "method": "GET",
+      "path": "/projects/{pid}/plan/tasks"
+    },
+    {
       "id": "sources_status_api_v1_projects__pid__sources_get",
       "method": "GET",
       "path": "/projects/{pid}/sources"

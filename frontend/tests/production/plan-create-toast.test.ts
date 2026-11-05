@@ -1,8 +1,7 @@
-// SPL-DEMO-02: "Create PLAN" on the unavailable plan port shows one neutral toast; any other failure keeps the danger toast.
+// FE-PLAN-03: "Create PLAN" failures: a not-available port and the API's refusals give a neutral toast; any other failure the danger toast.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createFailToast, createPress } from "@/components/plan/before/create-press";
-import { unavailable } from "@/lib/data/unavailable";
 import { DataError } from "@/lib/domain/errors";
 
 test("SPL-DEMO-02: a not-available create gives the neutral info toast", () => {
@@ -16,14 +15,29 @@ test("SPL-DEMO-02: another failure gives the danger toast", () => {
   assert.equal(createFailToast(new Error("x")).tone, "danger");
 });
 
-test("SPL-DEMO-02: the unavailable plan port, pressed twice in a row, calls onFail once per settled press", async () => {
+const refused = (apiCode: string) => new DataError("conflict", false, { status: 409, apiCode });
+
+test("FE-PLAN-03: the API's refusals give their own info toast", () => {
+  assert.deepEqual(createFailToast(refused("no_graph_build")), {
+    title: "Build the knowledge graph before creating the plan.",
+    tone: "info",
+  });
+  assert.equal(createFailToast(refused("graph_build_running")).tone, "info");
+});
+
+test("FE-PLAN-03: a press that fails calls onFail once per settled press; a plain conflict (a run already exists) is swallowed", async () => {
   const seen: unknown[] = [];
-  const press = createPress(
-    () => unavailable.plan.create("p1"),
+  const failing = createPress(
+    () => Promise.reject(refused("no_graph_build")),
     (e) => seen.push(e),
   );
-  await press();
-  await press();
+  await failing();
+  await failing();
   assert.equal(seen.length, 2);
-  assert.ok(seen.every((e) => e instanceof DataError && e.code === "not_available"));
+  const running = createPress(
+    () => Promise.reject(new DataError("conflict", false, { status: 409, apiCode: "conflict" })),
+    (e) => seen.push(e),
+  );
+  await running();
+  assert.equal(seen.length, 2);
 });
