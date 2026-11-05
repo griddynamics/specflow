@@ -53,7 +53,7 @@ services:
   # of the containers (docs/configuration.md "Local stack").
   # graph-store: neo4j
   neo4j:
-    image: neo4j:5.26.30-community
+    image: neo4j:5.26.31-community
     container_name: specflow-neo4j
     profiles: ["neo4j"]
     mem_limit: 1280m
@@ -139,7 +139,7 @@ services:
   # Local only: Temporal dev server with the namespace created on start. SQLite lives on
   # a volume, so workflow history survives `make down`.
   temporal:
-    image: temporalio/temporal:1.5.1
+    image: temporalio/temporal:1.9.1
     container_name: specflow-temporal
     profiles: ["temporal"]
     mem_limit: 512m
@@ -312,7 +312,7 @@ services:
   # RustFS falls back to a built-in default key. It does not create buckets: rustfs-init does.
   # Host port 19000, never 9000 (Langfuse's MinIO may hold it).
   rustfs:
-    image: rustfs/rustfs:1.0.1@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c
+    image: rustfs/rustfs:1.0.4@sha256:ed9210d6411d77ffceb70d94b964a3cb7d225983368bc25bebe01e995293dcc2
     container_name: specflow-rustfs
     mem_limit: 512m
     ports:
@@ -332,7 +332,7 @@ services:
   # Local only: one-shot. Creates the bucket of config/cloud.local.yaml, then exits 0 (also when
   # it exists: create-bucket may fail on a second run, then head-bucket must succeed). api and workers wait for it.
   rustfs-init:
-    image: amazon/aws-cli:2.38.0@sha256:ed3233c28ad56d6a66e9e7623a495ab2d7eb08d425f8eea0fdbdfacb12de2ba8
+    image: amazon/aws-cli:2.39.3@sha256:d557b3524475d70dd3104cf44d96568ee3188897b73a6ece2b37aa50e1af362f
     container_name: specflow-rustfs-init
     restart: "no"
     mem_limit: 256m
@@ -358,7 +358,7 @@ services:
   # and the Claude Code sign-in reset. No seed step. Variables fall back to empty, never ${...:?}: a required one would
   # fail every compose command on an older .env.local; `make up` checks them first (check-keycloak-env).
   keycloak:
-    image: quay.io/keycloak/keycloak:26.4.7@sha256:9409c59bdfb65dbffa20b11e6f18b8abb9281d480c7ca402f51ed3d5977e6007
+    image: quay.io/keycloak/keycloak:26.8.2@sha256:3879c623248408de29a5303178b5816c77e8dfef3890c361f8c0bbeaa979ba3b
     container_name: specflow-keycloak
     mem_limit: 1g
     command: ["start-dev", "--import-realm"]
