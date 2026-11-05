@@ -12,6 +12,7 @@ from graph.plan.answers import DescribeAnswer, ProjectAnswer, TasksAnswer
 from graph.plan.describe import describe
 from graph.plan.fallback import rules_tasks, tasks_fallback
 from graph.plan.files import FilePlanStore, open_plan_store
+from graph.plan.inputs import part_current_tasks
 from graph.plan.models import (
     CurrentPlan,
     CurrentTask,
@@ -281,6 +282,27 @@ async def test_the_tasks_fallback_keeps_current_work_and_adds_rules_tasks_for_un
     assert required <= covered
     assert all(task.planned_by == "rules" for task in tasks[1:])
     assert not {"REQ::FR::PLACE_ORDER"} & {spec_id for task in tasks[1:] for spec_id in task.implements}
+
+
+async def test_a_part_sees_only_its_own_current_tasks_and_none_an_earlier_part_kept() -> None:
+    view = await shop_view()
+    part = next(part for part in view.partition.parts if part.part_id == ORDERS_PART)
+    story = part.story_ids[0]
+    member = part.members[0]
+    elsewhere = ("REQ::FR::SOMEWHERE_ELSE",)
+    earlier = rules_tasks(view, part, members=part.members, taken=(), area_tasks=(), task_size=5)[:1]
+    tasks = (
+        _current_task("TASK::ORDERS_SERVICE::OWN_STORY", elsewhere, story),
+        _current_task("TASK::ORDERS_SERVICE::OWN_MEMBER", (member,), "STORY::ORDERS_SERVICE::OTHER"),
+        _current_task("TASK::ORDERS_SERVICE::OTHER_PART", elsewhere, "STORY::ORDERS_SERVICE::OTHER"),
+        _current_task(f"TASK::ORDERS_SERVICE::{earlier[0].action}", (member,), story),
+    )
+    current = CurrentPlan(plan=None, tasks=tasks)
+    view = PlanView(view.snapshot.model_copy(update={"current": current}), view.partition, view.rules)
+
+    kept = part_current_tasks(view, part, earlier)
+
+    assert [task.action for task in kept] == ["OWN_MEMBER", "OWN_STORY"]
 
 
 async def test_rules_tasks_have_phase_actions_ordinals_and_phase_waits() -> None:

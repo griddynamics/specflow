@@ -12,6 +12,7 @@ from typing import Any
 from graph.plan.fallback import closing_story_id, setup_story_id, spec_interfaces
 from graph.plan.identity import PROJECT_AREA_ID
 from graph.plan.models import (
+    CurrentTask,
     DescribeArtifact,
     PlannedTask,
     PlanningPart,
@@ -133,7 +134,9 @@ def tasks_messages(
     """The Tasks call of one planning part.
 
     ``contract_tasks`` maps an interface to the current or planned task keys that implement it;
-    ``changed`` are the current task ids whose spec changed.
+    ``changed`` are the current task ids whose spec changed. ``current`` holds only the part's own current
+    tasks (``part_current_tasks``): the part is told to keep their actions, so the tasks of other parts
+    would be copied into its answer.
     """
 
     blocks = TextBlocks()
@@ -183,8 +186,7 @@ def tasks_messages(
         "earlier": [_planned_row(task) for task in earlier],
         "current": [
             {**_current_row(task, blocks), "spec_changed": task.task_id in changed_ids}
-            for task in current_tasks(view.snapshot.current, area_id)
-            if area_id != PROJECT_AREA_ID or task.story_id not in (setup_story_id(), closing_story_id())
+            for task in part_current_tasks(view, part, earlier)
         ],
         "phase_guidance": view.rules.phase_guidance,
         "task_size": task_size,
@@ -321,6 +323,27 @@ def _profile(profile: Profile, blocks: TextBlocks) -> dict[str, Any]:
     }
 
 
+def part_current_tasks(view: PlanView, part: PlanningPart, earlier: Sequence[PlannedTask]) -> list[CurrentTask]:
+    """The current tasks a part plans again: those of its stories or implementing one of its members, without
+    setup and closing tasks and without a task whose action an earlier part of the area already holds."""
+
+    members = frozenset(part.members)
+    stories = frozenset(part.story_ids)
+    held = frozenset(task.action for task in earlier)
+    project_stories = (setup_story_id(), closing_story_id())
+    return [
+        task
+        for task in current_tasks(view.snapshot.current, part.area_id)
+        if (task.story_id in stories or members.intersection(task.implements))
+        and task.story_id not in project_stories
+        and _action(task.task_id) not in held
+    ]
+
+
+def _action(task_id: str) -> str:
+    return base_key(task_id).rsplit("::", 1)[-1]
+
+
 def _planned_row(task: PlannedTask) -> dict[str, Any]:
     return {
         "task_id": task.task_key,
@@ -334,7 +357,7 @@ def _planned_row(task: PlannedTask) -> dict[str, Any]:
 def _current_row(task: Any, blocks: TextBlocks) -> dict[str, Any]:
     return {
         "task_id": task.task_id,
-        "action": base_key(task.task_id).rsplit("::", 1)[-1],
+        "action": _action(task.task_id),
         "phase": task.phase,
         "status": task.status,
         "story": task.story_id,

@@ -235,8 +235,11 @@ tasks are shown as existing work and are not re-planned here). Input:
   areas of the interfaces it provides; the areas it integrates with, in both directions;
 - the project profile with its conventions, and the setup task ids;
 - tasks already planned for earlier parts of the area;
-- the area's current tasks (id, action, phase, status, story, `implements`), each marked whether its
-  spec changed, with the instruction to keep the action of work whose spec did not change;
+- the part's current tasks (id, action, phase, status, story, `implements`): those of its stories or
+  implementing one of its members, never a setup or closing task and never one whose action an earlier
+  part of the area already holds; each marked whether its spec changed, with the instruction to keep the
+  action of work whose spec did not change (given the whole area's tasks, a part copied the tasks of
+  other parts and waited on their actions);
 - the phase guidance and `task_size`.
 
 Output:
