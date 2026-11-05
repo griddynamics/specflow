@@ -833,6 +833,551 @@
         "title": "ParseStarted",
         "type": "object"
       },
+      "PlanAreaOut": {
+        "properties": {
+          "area_id": {
+            "title": "Area Id",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "area_id",
+          "kind",
+          "status"
+        ],
+        "title": "PlanAreaOut",
+        "type": "object"
+      },
+      "PlanContent": {
+        "description": "``/plan/tasks``: the persisted plan; tasks in phase order, then by area, story and id.",
+        "properties": {
+          "areas": {
+            "items": {
+              "$ref": "#/components/schemas/PlanAreaOut"
+            },
+            "title": "Areas",
+            "type": "array"
+          },
+          "last_build_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Build Id"
+          },
+          "plan_id": {
+            "title": "Plan Id",
+            "type": "string"
+          },
+          "stories": {
+            "items": {
+              "$ref": "#/components/schemas/PlanStoryOut"
+            },
+            "title": "Stories",
+            "type": "array"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/PlanTaskOut"
+            },
+            "title": "Tasks",
+            "type": "array"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan_id",
+          "updated_at",
+          "areas",
+          "stories",
+          "tasks"
+        ],
+        "title": "PlanContent",
+        "type": "object"
+      },
+      "PlanDoneWhenOut": {
+        "properties": {
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "source"
+        ],
+        "title": "PlanDoneWhenOut",
+        "type": "object"
+      },
+      "PlanFeatureOut": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "spec_id": {
+            "title": "Spec Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spec_id",
+          "name"
+        ],
+        "title": "PlanFeatureOut",
+        "type": "object"
+      },
+      "PlanPreview": {
+        "description": "``/plan/preview``: what a plan run would start from, before it runs.\n\n``features`` are the spec nodes that anchor feature stories; ``calls`` and ``input_tokens`` are the\nestimate of the run (none without a finished graph build or when the estimate failed).",
+        "properties": {
+          "build_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Build Id"
+          },
+          "calls": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calls"
+          },
+          "features": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PlanFeatureOut"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Tokens"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "unchanged": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unchanged"
+          }
+        },
+        "title": "PlanPreview",
+        "type": "object"
+      },
+      "PlanSpecRef": {
+        "description": "A spec node a task implements: its id, label and name (none when the node is gone).",
+        "properties": {
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "spec_id": {
+            "title": "Spec Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spec_id"
+        ],
+        "title": "PlanSpecRef",
+        "type": "object"
+      },
+      "PlanStartRequest": {
+        "additionalProperties": false,
+        "description": "Optional body of ``POST /plan``: ``replan`` re-plans every area from the current graph.",
+        "properties": {
+          "replan": {
+            "default": false,
+            "title": "Replan",
+            "type": "boolean"
+          }
+        },
+        "title": "PlanStartRequest",
+        "type": "object"
+      },
+      "PlanStatus": {
+        "description": "``/plan``: the latest plan run and whether the project has a plan; ids, step names and codes only.\n\n``step`` is the step that runs (or the last one that ran); ``steps_done`` of ``steps_total`` are done.",
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "has_plan": {
+            "default": false,
+            "title": "Has Plan",
+            "type": "boolean"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "replan": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replan"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "enum": [
+              "idle",
+              "running",
+              "succeeded",
+              "partially_succeeded",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "steps_done": {
+            "default": 0,
+            "title": "Steps Done",
+            "type": "integer"
+          },
+          "steps_total": {
+            "default": 0,
+            "title": "Steps Total",
+            "type": "integer"
+          },
+          "unchanged": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unchanged"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "PlanStatus",
+        "type": "object"
+      },
+      "PlanStoryOut": {
+        "properties": {
+          "area_id": {
+            "title": "Area Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "progress": {
+            "title": "Progress",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "story_id": {
+            "title": "Story Id",
+            "type": "string"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "story_id",
+          "area_id",
+          "kind",
+          "title",
+          "progress",
+          "status"
+        ],
+        "title": "PlanStoryOut",
+        "type": "object"
+      },
+      "PlanTaskOut": {
+        "properties": {
+          "area_id": {
+            "title": "Area Id",
+            "type": "string"
+          },
+          "block_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Block Reason"
+          },
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit"
+          },
+          "complexity": {
+            "title": "Complexity",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "done_when": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PlanDoneWhenOut"
+            },
+            "title": "Done When",
+            "type": "array"
+          },
+          "has_open_questions": {
+            "default": false,
+            "title": "Has Open Questions",
+            "type": "boolean"
+          },
+          "implements": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PlanSpecRef"
+            },
+            "title": "Implements",
+            "type": "array"
+          },
+          "phase": {
+            "title": "Phase",
+            "type": "string"
+          },
+          "ready": {
+            "default": false,
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "story_id": {
+            "title": "Story Id",
+            "type": "string"
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "waits_for": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Waits For",
+            "type": "array"
+          }
+        },
+        "required": [
+          "task_id",
+          "area_id",
+          "story_id",
+          "phase",
+          "title",
+          "complexity",
+          "status",
+          "revision"
+        ],
+        "title": "PlanTaskOut",
+        "type": "object"
+      },
       "ProgressOut": {
         "properties": {
           "finished": {
@@ -1905,6 +2450,193 @@
         "summary": "Start Graph Build",
         "tags": [
           "graph"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/plan": {
+      "get": {
+        "operationId": "plan_status_api_v1_projects__pid__plan_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Plan Status",
+        "tags": [
+          "plan"
+        ]
+      },
+      "post": {
+        "operationId": "start_plan_api_v1_projects__pid__plan_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PlanStartRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Plan",
+        "tags": [
+          "plan"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/plan/preview": {
+      "get": {
+        "operationId": "plan_preview_api_v1_projects__pid__plan_preview_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanPreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Plan Preview",
+        "tags": [
+          "plan"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/plan/tasks": {
+      "get": {
+        "operationId": "plan_tasks_api_v1_projects__pid__plan_tasks_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanContent"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Plan Tasks",
+        "tags": [
+          "plan"
         ]
       }
     },
