@@ -8,6 +8,7 @@ from graph.plan.identity import PROJECT_AREA_ID, task_key
 from graph.plan.inputs import project_edges, project_inputs, project_messages, setup_members
 from graph.plan.models import Convention, DescribeArtifact, PlannerOutcome, Profile, ProjectArtifact
 from graph.plan.names import PlanMode
+from graph.plan.normalise import normalise_project
 from graph.plan.options import PlanContext
 from graph.plan.planned import from_answer
 from graph.plan.planners import PlannerCall, run_planner
@@ -31,6 +32,7 @@ async def project(
         messages=project_messages(view, describe),
         answer_type=ProjectAnswer,
         validate=lambda answer: validate_project(answer, view=view, setup_members=setup_members(view)),
+        normalise=lambda answer: normalise_project(answer, view=view),
     )
     answer, outcome = await run_planner(context, call, mode=mode)
     if answer is None:

@@ -265,7 +265,17 @@ No release filters or orders tasks.
 
 ### Validation of planner answers
 
-The gateway checks the JSON schema; the plan checks:
+The gateway checks the JSON schema. Before the checks, code repairs what has one right reading
+(`graph.plan.normalise`), so neither a second call nor a fallback is spent on it:
+
+| Repair | Applies to |
+|---|---|
+| a `phase` or `complexity` that is a vocabulary value in another letter case becomes that value | tasks, setup and closing tasks |
+| a `spec` `done_when` item of a task none of whose implemented nodes has `acceptance_criteria` becomes `planner` | tasks, setup and closing tasks |
+| a wait for a setup task (by action or task key) is dropped: Stitch rule 1 adds it | tasks |
+| every wait of a closing task is dropped: Stitch rule 8 adds them | project |
+
+Then the plan checks:
 
 | Check | Applies to |
 |---|---|
@@ -284,7 +294,10 @@ The gateway checks the JSON schema; the plan checks:
 | exactly one setup root | project |
 | more than `task_size` entries in `implements` | warning `oversized_task`, not an error |
 
-A failed check sends the answer back once with the list of problems (`max_attempts` calls in all). When
+A failed check sends the answer back once with the list of problems, each as its code and ids followed by
+one sentence on what it means and how to fix it (`PROBLEM_HINTS` in `graph.plan.prompts`; `max_attempts`
+calls in all). The logs `graph.plan.planner_invalid` and `graph.plan.planner_fallback` count the problem
+codes (`codes`). When
 the answer still fails, or the call fails with a non-fatal `LLMError`, the planner falls back:
 
 | Planner | Area or project has current plan content | No current content (`first`, new area) |
@@ -293,11 +306,13 @@ the answer still fails, or the call fails with a non-fatal `LLMError`, the plann
 | Project | Keep the current profile, setup and closing tasks | One setup task `WORKSPACE` in `SETUP`, no closing task, empty profile |
 | Tasks | Keep the area's current tasks and `not_buildable` entries; add rules tasks only for required members no current task implements and no entry or convention covers | Rules tasks for the part |
 
-**Rules tasks.** For each story of the part, one task per phase present among the story's members
-(members grouped by the default phase of their type), implementing those members, in that story.
+**Rules tasks.** For each story of the part, the story's members grouped by the default phase of their
+type, and each group cut in spec id order into tasks of at most `task_size` members, in that story.
+Title: `<Phase>: <member names>` (cut to 120 characters); description: one line per member with its
+name and statement, an assumption marked "assumed, not committed" (cut to 3,000 characters).
 Action: `<PHASE>_<n>`, with `<PHASE>` the phase in upper case and `n` the story's fallback ordinal
-(Partition); when that action is already held in the area by a task of another story or another
-answer, `<PHASE>_<n>_<m>` with the lowest free `m` from 2. The action is unique in the area and the same
+(Partition); when that action is already held in the area by a task of another story, another answer
+or an earlier cut of the same group, `<PHASE>_<n>_<m>` with the lowest free `m` from 2. The action is unique in the area and the same
 for the same stories; an ordinal that shifts between runs only renames the task, which Diff matches by
 its `implements` set. Waits inside the area follow the `after` and `after_mode` of each phase over the
 area's rules tasks; complexity by phase; `done_when` one `planner` item per implemented node, restating

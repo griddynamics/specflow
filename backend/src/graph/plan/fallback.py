@@ -1,8 +1,9 @@
 """Fallbacks used when a planner answer stays invalid or its call fails with a non-fatal error.
 
 Where the area or project has current plan content, the fallback keeps it; else rules write the minimum:
-for Tasks, one rules task per story and phase. What a fallback writes is recorded ``planned_by: rules``
-and never stored for reuse.
+for Tasks, the members of each story grouped by phase and cut into tasks of at most ``task_size`` members,
+each titled after its members and described by their statements. What a fallback writes is recorded
+``planned_by: rules`` and never stored for reuse.
 """
 
 from __future__ import annotations
@@ -35,6 +36,9 @@ _PROJECT_TITLE: Final = "Project"
 _WORKSPACE_TITLE: Final = "Set up the workspace"
 _WORKSPACE_DONE: Final = "The workspace builds and its test command runs"
 _DEFAULT_INTERFACE_KIND: Final = "api"
+_TITLE_LIMIT: Final = 120
+_DESCRIPTION_LIMIT: Final = 3000
+_ELLIPSIS: Final = "…"
 
 
 def setup_story_id() -> str:
@@ -139,6 +143,7 @@ def tasks_fallback(
     area_tasks: Sequence[PlannedTask],
     not_buildable: Collection[str],
     convention_ids: Collection[str],
+    task_size: int,
 ) -> tuple[PlannedTask, ...]:
     """Keep the current tasks of the part's stories; add rules tasks for required members nothing covers.
 
@@ -154,7 +159,7 @@ def tasks_fallback(
     else:
         missing = list(part.members)
     taken = {task.action for task in (*area_tasks, *kept)}
-    added = rules_tasks(view, part, members=missing, taken=taken, area_tasks=[*area_tasks, *kept])
+    added = rules_tasks(view, part, members=missing, taken=taken, area_tasks=[*area_tasks, *kept], task_size=task_size)
     return (*kept, *added)
 
 
@@ -165,8 +170,11 @@ def rules_tasks(
     members: Iterable[str],
     taken: Collection[str],
     area_tasks: Sequence[PlannedTask],
+    task_size: int,
 ) -> tuple[PlannedTask, ...]:
-    """One task per story and phase present among ``members``, in phase order, with waits by phase rules."""
+    """Per story, the ``members`` of each phase in phase order, cut into tasks of at most ``task_size``
+    members (in spec id order), with waits by phase rules. The first task of a story and phase has the
+    action ``<PHASE>_<ordinal>``, the next ones the lowest free suffix from ``_2``."""
 
     wanted = frozenset(members)
     held = set(taken)
@@ -178,27 +186,56 @@ def rules_tasks(
         for spec_id in sorted(member for member in story.members if member in wanted and member in part.members):
             by_phase.setdefault(view.phase_of(spec_id), []).append(spec_id)
         for phase in sorted(by_phase, key=lambda item: order.get(item, len(order))):
-            action = _free_action(_SEPARATOR.join((phase.upper(), str(story.ordinal))), held)
-            held.add(action)
-            implemented = by_phase[phase]
-            created.append(
-                planned_task(
-                    view,
-                    area_id=part.area_id,
-                    story_id=story.story_id,
-                    action=action,
-                    phase=phase,
-                    title=f"{phase.capitalize()}: {story.title}",
-                    description=None,
-                    done_when=_done_when(view, implemented),
-                    complexity=_phase_complexity(view, phase),
-                    implements=implemented,
-                    waits=_phase_waits(phase, phases, [*area_tasks, *created]),
-                    planned_by="rules",
-                    prompt_ref=None,
+            waits = _phase_waits(phase, phases, [*area_tasks, *created])
+            for implemented in _chunks(by_phase[phase], task_size):
+                action = _free_action(_SEPARATOR.join((phase.upper(), str(story.ordinal))), held)
+                held.add(action)
+                created.append(
+                    planned_task(
+                        view,
+                        area_id=part.area_id,
+                        story_id=story.story_id,
+                        action=action,
+                        phase=phase,
+                        title=_rules_title(view, phase, implemented),
+                        description=_rules_description(view, implemented),
+                        done_when=_done_when(view, implemented),
+                        complexity=_phase_complexity(view, phase),
+                        implements=implemented,
+                        waits=waits,
+                        planned_by="rules",
+                        prompt_ref=None,
+                    )
                 )
-            )
     return tuple(created)
+
+
+def _chunks(spec_ids: Sequence[str], size: int) -> list[list[str]]:
+    step = max(size, 1)
+    return [list(spec_ids[start : start + step]) for start in range(0, len(spec_ids), step)]
+
+
+def _rules_title(view: PlanView, phase: str, implemented: Sequence[str]) -> str:
+    """``<Phase>: <member names>``, cut to the title limit."""
+
+    names = ", ".join(view.nodes[spec_id].name for spec_id in implemented)
+    return _cut(f"{phase.capitalize()}: {names}", _TITLE_LIMIT)
+
+
+def _rules_description(view: PlanView, implemented: Sequence[str]) -> str:
+    """One line per implemented member: its name and statement; an assumption is marked as such."""
+
+    lines = ["Implement what these specification items state:"]
+    for spec_id in implemented:
+        node = view.nodes[spec_id]
+        statement = view.statement(spec_id)
+        assumed = " (assumed, not committed)" if view.rules.is_assumption(node.attributes) else ""
+        lines.append(f"- {node.name}{assumed}: {statement}" if statement else f"- {node.name}{assumed}")
+    return _cut("\n".join(lines), _DESCRIPTION_LIMIT)
+
+
+def _cut(text: str, limit: int) -> str:
+    return text if len(text) <= limit else text[: limit - len(_ELLIPSIS)].rstrip() + _ELLIPSIS
 
 
 def _free_action(action: str, held: Collection[str]) -> str:

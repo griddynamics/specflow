@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from graph.core.errors import LLMError, LLMFatalError
-from graph.plan.answers import DescribeAnswer, TasksAnswer
+from graph.plan.answers import DescribeAnswer, ProjectAnswer, TasksAnswer
 from graph.plan.describe import describe
 from graph.plan.fallback import rules_tasks, tasks_fallback
 from graph.plan.files import FilePlanStore, open_plan_store
@@ -24,7 +24,7 @@ from graph.plan.models import (
 )
 from graph.plan.names import Phase, PlanMode
 from graph.plan.project import project
-from graph.plan.prompts import gateway_prompt
+from graph.plan.prompts import gateway_prompt, prompt_ref
 from graph.plan.tasks import plan_tasks
 from graph.plan.view import PlanView
 from graph_plan_support import planning_context, script_plan, shop_answers, shop_view
@@ -68,7 +68,7 @@ async def test_a_first_plan_calls_every_planner_once_and_stores_the_answers(tmp_
     assert [task.action for task in projected.setup] == ["WORKSPACE", "TOOLCHAIN"]
     assert projected.setup[1].waits == ("TASK::PROJECT::WORKSPACE",)
     assert projected.profile.conventions[0].spec_ids == ("CON::EU_REGION",)
-    assert all(task.planned_by == "model" and task.prompt_ref == "tasks.1" for task in tasks.tasks)
+    assert all(task.planned_by == "model" and task.prompt_ref == prompt_ref("tasks") for task in tasks.tasks)
     place_order = next(task for task in tasks.tasks if "REQ::FR::PLACE_ORDER" in task.implements)
     assert place_order.release == ("MVP",)
     stored = list((tmp_path / "plans" / "shop" / "plan-answers").glob("*/*.json.gz"))
@@ -120,8 +120,53 @@ async def test_an_invalid_answer_is_sent_back_once_with_its_problems(tmp_path: P
     ]
     assert len(calls) == 2
     assert "invalid_phase:" in calls[1].messages[-1]["content"]
+    assert "the phase is not allowed for this task; use one of setup, contract" in calls[1].messages[-1]["content"]
     assert tasks.outcomes[ORDERS_PART].calls == 2 and tasks.outcomes[ORDERS_PART].invalid == 1
     assert not tasks.outcomes[ORDERS_PART].fallback
+
+
+async def test_answers_with_one_right_reading_are_repaired_without_a_second_call(tmp_path: Path) -> None:
+    view = await shop_view()
+    answers = shop_answers(view)
+    valid = answers[("tasks", ORDERS_PART)]
+    assert isinstance(valid, TasksAnswer)
+    first = valid.tasks[0]
+    repairable = first.model_copy(
+        update={
+            "phase": first.phase.upper(),
+            "complexity": first.complexity.title(),
+            "waits_for": [*first.waits_for, "WORKSPACE", "TASK::PROJECT::TOOLCHAIN"],
+            "done_when": [item.model_copy(update={"source": "spec"}) for item in first.done_when],
+        }
+    )
+    sloppy = valid.model_copy(update={"tasks": [repairable, *valid.tasks[1:]]})
+    gateway = script_plan(ScriptedGateway(), {**answers, ("tasks", ORDERS_PART): sloppy})
+
+    _, _, tasks = await _plan_all(view, gateway, _store(tmp_path))
+
+    outcome = tasks.outcomes[ORDERS_PART]
+    assert outcome.calls == 1 and outcome.invalid == 0 and not outcome.fallback
+    orders = [task for task in tasks.tasks if task.area_id == "AREA::ORDERS_SERVICE"]
+    planned = next(task for task in orders if task.action == first.action)
+    assert planned.phase == first.phase and planned.complexity == first.complexity
+    assert not {"TASK::PROJECT::WORKSPACE", "TASK::PROJECT::TOOLCHAIN"} & set(planned.waits)
+    assert {item.source for item in planned.done_when} == {"planner"}  # no implemented node has criteria
+
+
+async def test_closing_tasks_lose_their_waits_instead_of_failing_the_project_answer(tmp_path: Path) -> None:
+    view = await shop_view()
+    answers = shop_answers(view)
+    valid = answers[("project", "project")]
+    assert isinstance(valid, ProjectAnswer)
+    closing = valid.closing_tasks[0].model_copy(update={"waits_for": ["WORKSPACE"], "phase": "ACCEPTANCE"})
+    gateway = script_plan(
+        ScriptedGateway(), {**answers, ("project", "project"): valid.model_copy(update={"closing_tasks": [closing]})}
+    )
+
+    _, projected, _ = await _plan_all(view, gateway, _store(tmp_path))
+
+    assert projected.outcome.calls == 1 and not projected.outcome.fallback
+    assert projected.closing[0].phase == "acceptance"
 
 
 async def test_an_answer_that_stays_invalid_falls_back_and_is_never_stored(tmp_path: Path) -> None:
@@ -228,7 +273,7 @@ async def test_the_tasks_fallback_keeps_current_work_and_adds_rules_tasks_for_un
     view = PlanView(view.snapshot.model_copy(update={"current": current}), view.partition, view.rules)
     part = next(part for part in view.partition.parts if part.part_id == ORDERS_PART)
 
-    tasks = tasks_fallback(view, part, area_tasks=(), not_buildable=(), convention_ids=())
+    tasks = tasks_fallback(view, part, area_tasks=(), not_buildable=(), convention_ids=(), task_size=5)
 
     assert tasks[0].task_key == "TASK::ORDERS_SERVICE::PLACE" and tasks[0].planned_by == "model"
     covered = {spec_id for task in tasks for spec_id in task.implements}
@@ -242,7 +287,7 @@ async def test_rules_tasks_have_phase_actions_ordinals_and_phase_waits() -> None
     view = await shop_view()
     part = next(part for part in view.partition.parts if part.part_id == "AREA::PAYMENTS_SERVICE#1")
 
-    tasks = rules_tasks(view, part, members=part.members, taken={"LOGIC_1"}, area_tasks=())
+    tasks = rules_tasks(view, part, members=part.members, taken={"LOGIC_1"}, area_tasks=(), task_size=5)
 
     by_action = {task.action: task for task in tasks}
     assert "LOGIC_1_2" in by_action  # LOGIC_1 is held, so the next free suffix is used
@@ -250,6 +295,23 @@ async def test_rules_tasks_have_phase_actions_ordinals_and_phase_waits() -> None
     integration = by_action["INTEGRATION_4"]
     assert integration.waits == tuple(sorted(by_action[action].task_key for action in ("LOGIC_1_2",)))
     assert all(task.done_when and task.planned_by == "rules" for task in tasks)
+
+
+async def test_rules_tasks_are_cut_to_the_task_size_and_named_and_described_by_their_members() -> None:
+    view = await shop_view()
+    part = max(view.partition.parts, key=lambda item: len(item.members))
+
+    tasks = rules_tasks(view, part, members=part.members, taken=(), area_tasks=(), task_size=1)
+
+    assert len(tasks) == len(part.members)
+    assert all(len(task.implements) == 1 for task in tasks)
+    assert len({task.action for task in tasks}) == len(tasks)
+    for task in tasks:
+        node = view.nodes[task.implements[0]]
+        assert task.title == f"{task.phase.capitalize()}: {node.name}"
+        assert task.description is not None and node.name in task.description
+        statement = view.statement(node.spec_id)
+        assert not statement or statement in task.description
 
 
 async def test_project_and_tasks_steps_use_the_options_and_record_oversized_tasks(tmp_path: Path) -> None:

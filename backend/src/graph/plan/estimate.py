@@ -110,7 +110,10 @@ async def estimate_with(context: PlanContext, reader: Any) -> PlanEstimate:
                     task_size=context.options.task_size,
                 )
             )
-        planned.extend(tasks_fallback(view, part, area_tasks=area_tasks, not_buildable=(), convention_ids=()))
+        size = context.options.task_size
+        planned.extend(
+            tasks_fallback(view, part, area_tasks=area_tasks, not_buildable=(), convention_ids=(), task_size=size)
+        )
 
     review_requests = []
     if context.options.review:

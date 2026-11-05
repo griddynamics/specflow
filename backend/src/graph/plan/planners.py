@@ -2,8 +2,10 @@
 
 A stored answer is reused when its reuse key matches: in every mode an answer the same run stored (a
 resume repeats no call), and in ``first`` and ``update`` any stored answer. Otherwise the planner is
-called on the ``extraction`` call class; an invalid answer is sent back once with its problem codes
-(``max_attempts`` calls in all). An answer that stays invalid, or a call that fails with a non-fatal
+called on the ``extraction`` call class. Each answer first gets the call's deterministic repairs
+(``normalise``, graph.plan.normalise), then its checks; an invalid answer is sent back once with its
+problems, each explained in words (``max_attempts`` calls in all). The invalid and fallback logs count
+the problem codes. An answer that stays invalid, or a call that fails with a non-fatal
 ``LLMError``, ends in ``None``: the caller applies its fallback, which is never stored.
 ``LLMFatalError`` and ``InfrastructureUnavailableError`` propagate.
 """
@@ -22,6 +24,7 @@ from graph.plan.names import PlanMode
 from graph.plan.options import PlanContext
 from graph.plan.ports import PlanAnswerKind
 from graph.plan.prompts import gateway_prompt, repair_messages
+from graph.plan.validate import problem_counts
 from logger.logger import INFO, WARNING, get_logger, log_event
 
 logger = get_logger("graph.plan")
@@ -37,6 +40,7 @@ class PlannerCall[AnswerT: BaseModel]:
     messages: Sequence[dict[str, Any]]
     answer_type: type[AnswerT]
     validate: Callable[[AnswerT], list[str]]
+    normalise: Callable[[AnswerT], AnswerT] | None = None
 
 
 async def run_planner[AnswerT: BaseModel](
@@ -63,6 +67,7 @@ async def run_planner[AnswerT: BaseModel](
         except LLMError as error:
             _log_fallback(call, "llm_error", calls=calls, invalid=invalid, code=error.code)
             return None, PlannerOutcome(calls=calls, fallback=True, invalid=invalid, problems=(error.code,))
+        answer = _normalised(call, answer)
         problems = call.validate(answer)
         if not problems:
             await context.store.put_answer(
@@ -75,9 +80,17 @@ async def run_planner[AnswerT: BaseModel](
             )
             return answer, PlannerOutcome(calls=calls, invalid=invalid)
         invalid += 1
-        log_event(logger, INFO, "graph.plan.planner_invalid", planner=call.kind, key=call.key, problems=len(problems))
+        log_event(
+            logger,
+            INFO,
+            "graph.plan.planner_invalid",
+            planner=call.kind,
+            key=call.key,
+            problems=len(problems),
+            codes=dict(problem_counts(problems)),
+        )
         messages = repair_messages(call.messages, answer.model_dump_json(), problems)
-    _log_fallback(call, "invalid_answer", calls=calls, invalid=invalid)
+    _log_fallback(call, "invalid_answer", calls=calls, invalid=invalid, problems=problems)
     return None, PlannerOutcome(calls=calls, fallback=True, invalid=invalid, problems=tuple(problems))
 
 
@@ -94,10 +107,23 @@ async def _reused[AnswerT: BaseModel](
         answer = call.answer_type.model_validate(payload)
     except ValidationError:
         return None
+    answer = _normalised(call, answer)
     return answer if not call.validate(answer) else None
 
 
-def _log_fallback(call: PlannerCall[Any], cause: str, *, calls: int, invalid: int, code: str | None = None) -> None:
+def _normalised[AnswerT: BaseModel](call: PlannerCall[AnswerT], answer: AnswerT) -> AnswerT:
+    return call.normalise(answer) if call.normalise is not None else answer
+
+
+def _log_fallback(
+    call: PlannerCall[Any],
+    cause: str,
+    *,
+    calls: int,
+    invalid: int,
+    code: str | None = None,
+    problems: Sequence[str] = (),
+) -> None:
     log_event(
         logger,
         WARNING,
@@ -108,4 +134,5 @@ def _log_fallback(call: PlannerCall[Any], cause: str, *, calls: int, invalid: in
         calls=calls,
         invalid=invalid,
         code=code,
+        codes=dict(problem_counts(problems)),
     )

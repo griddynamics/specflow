@@ -21,6 +21,7 @@ from graph.plan.models import (
     TasksArtifact,
 )
 from graph.plan.names import NotBuildableReason, PlanMode
+from graph.plan.normalise import normalise_tasks
 from graph.plan.options import PlanContext
 from graph.plan.planned import current_tasks, from_answer
 from graph.plan.planners import PlannerCall, run_planner
@@ -97,6 +98,7 @@ async def _plan_area(
     outcomes: dict[str, PlannerOutcome] = {}
     conventions = frozenset(spec_id for item in project.profile.conventions for spec_id in item.spec_ids)
     project_tasks = [*project.setup, *project.closing] if parts and parts[0].area_id == PROJECT_AREA_ID else []
+    setup_waits = frozenset(name for task in project.setup for name in (task.action, task.task_key))
     for part in parts:
         held = [task.action for task in (*project_tasks, *area_tasks)]
         call = PlannerCall(
@@ -123,6 +125,7 @@ async def _plan_area(
             ),
             answer_type=TasksAnswer,
             validate=_validator(view, part, held, conventions),
+            normalise=_normaliser(view, setup_waits),
         )
         answer, outcome = await run_planner(context, call, mode=mode)
         outcomes[part.part_id] = outcome
@@ -136,6 +139,7 @@ async def _plan_area(
                     area_tasks=area_tasks,
                     not_buildable=[entry.spec_id for entry in kept],
                     convention_ids=conventions,
+                    task_size=context.options.task_size,
                 )
             )
             continue
@@ -163,6 +167,13 @@ def _validator(
         return validate_tasks(answer, view=view, part=part, earlier_actions=held, convention_ids=conventions)
 
     return check
+
+
+def _normaliser(view: PlanView, setup_waits: Collection[str]) -> Callable[[TasksAnswer], TasksAnswer]:
+    def repair(answer: TasksAnswer) -> TasksAnswer:
+        return normalise_tasks(answer, view=view, setup_waits=setup_waits)
+
+    return repair
 
 
 def _contract_tasks(view: PlanView) -> dict[str, tuple[str, ...]]:

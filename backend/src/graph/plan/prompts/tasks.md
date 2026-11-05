@@ -19,12 +19,15 @@ Input:
 
 Answer:
 - `tasks`: per task `story` (one of the part's stories), `action` (upper case letters, digits and
-  underscores, 2 to 40 characters, starting with a letter, unique in the area, never ending in `_R` and
-  digits), `phase` (`contract`, `data`, `logic`, `integration`, `quality` or `acceptance`), `title`,
-  `description`, `implements` (member ids), `waits_for` (actions of tasks of this area, this part or
-  earlier ones), `done_when` (checkable statements, each with `source` `spec` when it restates an
-  acceptance criterion of an implemented member, else `planner`) and `complexity` (`low`, `medium`,
-  `high`).
+  underscores, 2 to 40 characters, starting with a letter, unique in the area: never an action of
+  `earlier` or of a setup task, never ending in `_R` and digits), `phase` (`contract`, `data`, `logic`,
+  `integration`, `quality` or `acceptance`, in lower case), `title` (the concrete result, not the area
+  or story name), `description` (what to build: the component, endpoint, table or screen, its inputs,
+  outputs and error cases as the members state them; no summary of the area), `implements` (member
+  ids), `waits_for` (actions of tasks of this area, in this part or in `earlier`; never setup tasks:
+  every task waits for the setup work without naming it), `done_when` (checkable statements; `source`
+  is `spec` only when the statement restates an acceptance criterion that an implemented member lists
+  in its `acceptance_criteria`, else `planner`) and `complexity` (`low`, `medium`, `high`).
 - `not_buildable`: members that are no code work (a process, governance or release-gate rule, a policy
   with nothing to build), each with `spec_id`, `reason` (`process`, `governance`, `release_gate`,
   `policy_only`) and a short `note`.
@@ -34,4 +37,5 @@ the profile. Every interface the area provides gets a `contract` task that imple
 entity gets a `data` task. Unit tests belong inside every task. Use an `acceptance` task only for
 acceptance criteria that span several tasks of the area. A member flagged as an assumption is still
 implemented, and the task description says the behaviour is assumed, not committed. Waits inside the
-area must not form a cycle. Prefer tasks that implement at most `task_size` members.
+area must not form a cycle. A task implements at most `task_size` members: split larger work into
+several tasks, each with its own done-when statements.

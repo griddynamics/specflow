@@ -21,12 +21,15 @@ Answer:
 - `setup_tasks`: workspace and layout, toolchain, configuration, shared libraries, test harness, CI.
   Every setup task has phase `setup`. Exactly one setup task has no wait (the setup root); every other
   setup task waits, directly or through other setup tasks, for it. `waits_for` names setup actions.
-- `closing_tasks`: end-to-end acceptance across areas, packaging, cross-cutting quality checks. Leave
-  their `waits_for` empty.
+- `closing_tasks`: end-to-end acceptance across areas, packaging, cross-cutting quality checks. Every
+  closing task has phase `acceptance`, `quality` or `integration`. Leave their `waits_for` empty: the
+  waits on the area work are added for you.
 - `setup_summary`, `closing_summary`: one sentence each.
 
 Task fields: `story` (leave empty), `action` (upper case letters, digits and underscores, 2 to 40
-characters, starting with a letter, unique, never ending in `_R` and digits), `phase`, `title`,
-`description`, `implements` (member ids), `waits_for`, `done_when` (checkable statements, each with
-`source` `planner`, or `spec` when it restates an acceptance criterion of an implemented member), and
+characters, starting with a letter, unique, never ending in `_R` and digits), `phase` (one of `setup`,
+`contract`, `data`, `logic`, `integration`, `quality`, `acceptance`, in lower case, as the rules above
+say for setup and closing tasks), `title`, `description` (what to build and where, specific to this
+project), `implements` (member ids), `waits_for`, `done_when` (checkable statements, each with `source`
+`spec` only when it restates an acceptance criterion an implemented member lists, else `planner`), and
 `complexity` (`low`, `medium`, `high`).

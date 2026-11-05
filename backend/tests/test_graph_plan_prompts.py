@@ -19,8 +19,8 @@ from graph_support import outside_untrusted, untrusted_blocks
 def test_every_prompt_file_is_package_data_with_its_revision() -> None:
     for name in PROMPT_REVISIONS:
         assert system_text(name)
-        assert prompt_ref(name) == f"{name}.1"
-        assert gateway_prompt(name) == f"plan.{name}.1"
+        assert prompt_ref(name) == f"{name}.{PROMPT_REVISIONS[name]}"
+        assert gateway_prompt(name) == f"plan.{name}.{PROMPT_REVISIONS[name]}"
 
 
 @pytest.mark.parametrize("answer_type", [DescribeAnswer, ProjectAnswer, TasksAnswer, ReviewAnswer])
