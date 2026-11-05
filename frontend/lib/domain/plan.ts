@@ -12,6 +12,9 @@ export type Complexity = "low" | "medium" | "high";
 export type StoryProgress = "pending" | "in_progress" | "blocked" | "completed";
 export type AreaKind = "module" | "project";
 export type StoryKind = "feature" | "interface" | "entity" | "core" | "chapter" | "setup" | "closing";
+/** Who wrote a task or area: a planner model, or the fallback rules when the model's answer stayed invalid. */
+export type PlannedBy = "model" | "rules";
+export type ReviewSeverity = "blocking" | "advisory";
 export const PHASE_ORDER: readonly TaskPhase[] = ["setup", "contract", "data", "logic", "integration", "quality", "acceptance"];
 
 /** A spec node that anchors a feature story: what a plan run plans, shown before the first plan. */
@@ -25,11 +28,20 @@ export interface PlanPreview {
   calls: number | null;
   inputTokens: number | null;
 }
+/** A member of an area the planner holds as no code work (a process, governance or policy rule). */
+export interface NotBuildable {
+  specId: string;
+  name: string | null;
+  reason: string; // the reason code (process, governance, release_gate, policy_only)
+  note: string | null;
+}
 export interface PlanArea {
   areaId: string;
   kind: AreaKind;
   title: string | null;
   description: string | null;
+  plannedBy: PlannedBy | null;
+  notBuildable: NotBuildable[];
 }
 export interface PlanStory {
   storyId: string;
@@ -54,14 +66,34 @@ export interface PlanTask {
   commit: string | null;
   blockReason: string | null;
   ready: boolean; // pending with every prerequisite completed (derived by the API)
+  plannedBy: PlannedBy;
   body: string; // DERIVED on read (taskMarkdown)
   version: number; // the task revision
+}
+/** One finding of the run's review (advisory: it changed nothing). */
+export interface PlanReviewIssue {
+  areaId: string;
+  taskId: string | null;
+  problem: string;
+  severity: ReviewSeverity;
+}
+/** How the run that wrote the plan went: fallbacks per planner, review counts, unplaced nodes, oversized tasks. */
+export interface PlanQuality {
+  runId: string;
+  status: "succeeded" | "partially_succeeded";
+  fallbacks: Partial<Record<"describe" | "project" | "tasks", number>>;
+  review: Partial<Record<ReviewSeverity, number>>;
+  reviewFailed: boolean;
+  unplaced: number;
+  oversized: number;
 }
 export interface PlanSnapshot {
   planId: string;
   areas: PlanArea[];
   stories: PlanStory[];
   tasks: PlanTask[]; // phase order, then area, story and id
+  quality: PlanQuality | null; // null when the run's result is gone
+  review: PlanReviewIssue[];
 }
 export type PlanState =
   | { phase: "idle"; failure?: string } // Stage 0; `failure` = the error code of a run that failed before a plan existed

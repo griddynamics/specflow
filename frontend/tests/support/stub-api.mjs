@@ -205,7 +205,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       error_code: null,
     };
   };
-  const stubTask = (id, phase, title, status, waits, implementsName) => ({
+  const stubTask = (id, phase, title, status, waits, implementsName, over = {}) => ({
     task_id: id,
     area_id: "AREA::CHECKOUT",
     story_id: "STORY::CHECKOUT",
@@ -222,28 +222,73 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     commit: null,
     block_reason: null,
     has_open_questions: false,
+    planned_by: "model",
+    ...over,
   });
+  const stubStory = (id, areaId, title, progress) => ({
+    story_id: id,
+    area_id: areaId,
+    kind: "feature",
+    title,
+    summary: null,
+    progress,
+    status: "active",
+  });
+  // A plan of a run that partly fell back: one rule-made task in the project-wide area, one blocking review finding.
   const PLAN_CONTENT = {
     plan_id: "plan-stub",
     last_build_id: "gb-1",
     updated_at: "2026-11-05T09:00:00Z",
-    areas: [{ area_id: "AREA::CHECKOUT", kind: "module", title: "Checkout", description: "Orders and payment.", status: "active" }],
-    stories: [
+    areas: [
       {
-        story_id: "STORY::CHECKOUT",
         area_id: "AREA::CHECKOUT",
-        kind: "feature",
+        kind: "module",
         title: "Checkout",
-        summary: null,
-        progress: "in_progress",
+        description: "Orders and payment.",
         status: "active",
+        planned_by: "model",
+        not_buildable: [{ spec_id: "REQ::RELEASE", name: "Release sign-off", reason: "release_gate", note: "Signed off by the owner." }],
       },
+      {
+        area_id: "AREA::PROJECT",
+        kind: "project",
+        title: null,
+        description: null,
+        status: "active",
+        planned_by: "rules",
+        not_buildable: [],
+      },
+    ],
+    stories: [
+      stubStory("STORY::CHECKOUT", "AREA::CHECKOUT", "Checkout", "in_progress"),
+      stubStory("STORY::CHECKOUT::TRACK", "AREA::CHECKOUT", "Track the order", "pending"),
+      stubStory("STORY::PROJECT::OPS", "AREA::PROJECT", "Operations", "pending"),
     ],
     tasks: [
       stubTask("TASK::SETUP", "setup", "Set up the checkout module", "completed", [], "Checkout"),
       stubTask("TASK::ORDER_API", "contract", "Define the order API", "in_progress", ["TASK::SETUP"], "Checkout"),
       stubTask("TASK::PAY", "logic", "Take the payment", "pending", ["TASK::ORDER_API"], "Checkout"),
+      stubTask("TASK::TRACK", "logic", "Show the order status", "pending", ["TASK::PAY"], "Checkout", {
+        story_id: "STORY::CHECKOUT::TRACK",
+      }),
+      stubTask("TASK::RETRY", "quality", "Quality: Retry model calls", "pending", [], "Checkout", {
+        area_id: "AREA::PROJECT",
+        story_id: "STORY::PROJECT::OPS",
+        planned_by: "rules",
+      }),
     ],
+    quality: {
+      run_id: "plan-run-stub",
+      status: "partially_succeeded",
+      finished_at: "2026-11-05T09:00:00Z",
+      fallbacks: { tasks: 1 },
+      tasks_planned: 5,
+      review: { blocking: 1 },
+      review_failed: false,
+      unplaced: 0,
+      oversized: 0,
+    },
+    review: [{ area_id: "AREA::CHECKOUT", task_id: null, problem: "No task covers refunds.", severity: "blocking" }],
   };
   const validPlanBody = (text) => {
     if (text.trim() === "") return true;

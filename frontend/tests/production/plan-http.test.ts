@@ -108,7 +108,7 @@ test("creatingOf: the step being run, 1-based and never past the total, with its
 
 test("eventOf names the change a listener sees", () => {
   const creating = (step: number): PlanState => ({ phase: "creating", runId: "r", step, total: 10, label: `s${String(step)}` });
-  const ready: PlanState = { phase: "ready", plan: { planId: "p", areas: [], stories: [], tasks: [] } };
+  const ready: PlanState = { phase: "ready", plan: { planId: "p", areas: [], stories: [], tasks: [], quality: null, review: [] } };
   assert.equal(eventOf(null, creating(1)), "plan.started");
   assert.equal(eventOf({ phase: "idle" }, creating(1)), "plan.started");
   assert.equal(eventOf(creating(1), creating(1)), null);
@@ -123,7 +123,9 @@ test("toPlanSnapshot maps the plan and gives each task its Markdown body", () =>
     content([wireTask(), wireTask({ task_id: "TASK::2", phase: "logic", title: "Pay", waits_for: ["TASK::1"] })]),
   );
   assert.equal(plan.planId, "plan-1");
-  assert.deepEqual(plan.areas, [{ areaId: "AREA::A", kind: "module", title: "Core", description: null }]);
+  assert.deepEqual(plan.areas, [
+    { areaId: "AREA::A", kind: "module", title: "Core", description: null, plannedBy: null, notBuildable: [] },
+  ]);
   assert.equal(plan.stories[0].progress, "pending");
   const [first, second] = plan.tasks;
   assert.equal(first.version, 2);

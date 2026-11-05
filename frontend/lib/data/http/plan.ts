@@ -14,11 +14,16 @@ import {
   PHASE_ORDER,
   type AreaKind,
   type Complexity,
+  type NotBuildable,
   type PlanArea,
   type PlanEvent,
+  type PlannedBy,
   type PlanPort,
   type PlanPreview,
+  type PlanQuality,
+  type PlanReviewIssue,
   type PlanSnapshot,
+  type ReviewSeverity,
   type PlanState,
   type PlanStory,
   type PlanTask,
@@ -53,6 +58,10 @@ const COMPLEXITIES: readonly Complexity[] = ["low", "medium", "high"];
 const PROGRESS: readonly StoryProgress[] = ["pending", "in_progress", "blocked", "completed"];
 const AREA_KINDS: readonly AreaKind[] = ["module", "project"];
 const STORY_KINDS: readonly StoryKind[] = ["feature", "interface", "entity", "core", "chapter", "setup", "closing"];
+const PLANNED_BY: readonly PlannedBy[] = ["model", "rules"];
+const SEVERITIES: readonly ReviewSeverity[] = ["blocking", "advisory"];
+const RESULT_STATUSES = ["succeeded", "partially_succeeded"] as const;
+const PLANNERS = ["describe", "project", "tasks"] as const;
 
 /** `GET /plan` after the shape check. */
 export interface PlanStatusWire {
@@ -123,8 +132,57 @@ function toTask(t: Record<string, unknown>): Omit<PlanTask, "body"> {
     commit: textOrNull(t.commit),
     blockReason: textOrNull(t.block_reason),
     ready: t.ready,
+    plannedBy: t.planned_by === undefined ? "model" : oneOf(PLANNED_BY, t.planned_by),
     version: t.revision,
   };
+}
+
+/** Counts by key: only the listed keys, each a whole number ≥ 0; others are ignored. */
+function counts<K extends string>(v: unknown, keys: readonly K[]): Partial<Record<K, number>> {
+  if (v === undefined || v === null) return {};
+  expectShape(isRecord(v));
+  const out: Partial<Record<K, number>> = {};
+  for (const key of keys) {
+    const n = v[key];
+    if (n === undefined) continue;
+    expectShape(isCount(n));
+    out[key] = n;
+  }
+  return out;
+}
+
+function toQuality(v: unknown): PlanQuality | null {
+  if (v === undefined || v === null) return null;
+  expectShape(isRecord(v) && isString(v.run_id));
+  const count = (n: unknown): number => {
+    expectShape(n === undefined || isCount(n));
+    return isCount(n) ? n : 0;
+  };
+  return {
+    runId: v.run_id,
+    status: oneOf(RESULT_STATUSES, v.status),
+    fallbacks: counts(v.fallbacks, PLANNERS),
+    review: counts(v.review, SEVERITIES),
+    reviewFailed: v.review_failed === true,
+    unplaced: count(v.unplaced),
+    oversized: count(v.oversized),
+  };
+}
+
+function toReview(v: unknown): PlanReviewIssue[] {
+  if (v === undefined) return [];
+  return records(v).map((r) => {
+    expectShape(isString(r.area_id) && isString(r.problem));
+    return { areaId: r.area_id, taskId: textOrNull(r.task_id), problem: r.problem, severity: oneOf(SEVERITIES, r.severity) };
+  });
+}
+
+function toNotBuildable(v: unknown): NotBuildable[] {
+  if (v === undefined) return [];
+  return records(v).map((r) => {
+    expectShape(isString(r.spec_id) && isString(r.reason));
+    return { specId: r.spec_id, name: textOrNull(r.name), reason: r.reason, note: textOrNull(r.note) };
+  });
 }
 
 /** `GET /plan/tasks` body -> `PlanSnapshot`; each task gets its read-only Markdown body. */
@@ -133,7 +191,14 @@ export function toPlanSnapshot(body: unknown): PlanSnapshot {
     expectShape(isRecord(body) && isString(body.plan_id));
     const areas: PlanArea[] = records(body.areas).map((a) => {
       expectShape(isString(a.area_id));
-      return { areaId: a.area_id, kind: oneOf(AREA_KINDS, a.kind), title: textOrNull(a.title), description: textOrNull(a.description) };
+      return {
+        areaId: a.area_id,
+        kind: oneOf(AREA_KINDS, a.kind),
+        title: textOrNull(a.title),
+        description: textOrNull(a.description),
+        plannedBy: a.planned_by === undefined || a.planned_by === null ? null : oneOf(PLANNED_BY, a.planned_by),
+        notBuildable: toNotBuildable(a.not_buildable),
+      };
     });
     const stories: PlanStory[] = records(body.stories).map((s) => {
       expectShape(isString(s.story_id) && isString(s.area_id) && isString(s.title));
@@ -148,7 +213,14 @@ export function toPlanSnapshot(body: unknown): PlanSnapshot {
     });
     const tasks = records(body.tasks).map(toTask);
     const titles = new Map(tasks.map((t) => [t.taskId, t.title]));
-    return { planId: body.plan_id, areas, stories, tasks: tasks.map((t) => ({ ...t, body: taskMarkdown(t, titles) })) };
+    return {
+      planId: body.plan_id,
+      areas,
+      stories,
+      tasks: tasks.map((t) => ({ ...t, body: taskMarkdown(t, titles) })),
+      quality: toQuality(body.quality),
+      review: toReview(body.review),
+    };
   });
 }
 

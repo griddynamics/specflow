@@ -140,7 +140,7 @@ test.describe("P26 Plan page on production routes", { tag: "@production" }, () =
   });
 
   // (d) The whole flow on a built graph: the features and the estimate, a run through its steps, the plan, a task, Recreate
-  test("FE-PLAN-02..07, FE-PLAN-13 (d): with a built graph Stage 0 lists the features; 'Create PLAN' runs to Stage 2; tasks show by phase; Edit is disabled; 'Recreate Plan' replans", async ({
+  test("FE-PLAN-02..07, FE-PLAN-13 (d): with a built graph Stage 0 lists the features; 'Create PLAN' runs to Stage 2; tasks show by area and story with the run quality; Edit is disabled; 'Recreate Plan' replans", async ({
     page,
     requests,
   }) => {
@@ -155,11 +155,23 @@ test.describe("P26 Plan page on production routes", { tag: "@production" }, () =
     await expect(page.getByTestId("plan-card")).toContainText("Reading the knowledge graph");
     await expect(screen(page)).toHaveAttribute(DATA_STAGE, "ready", { timeout: 15_000 });
 
-    await expect(page.getByTestId("plan-phase-name")).toHaveText(["Set up", "Contracts", "Logic"]);
-    await expect(page.getByTestId("plan-phase").first().getByTestId("plan-phase-count")).toHaveText("1 of 1 done");
-    await page.getByTestId("plan-phase-head").nth(2).click();
-    const pay = page.getByTestId("plan-task").filter({ hasText: "Take the payment" });
+    const quality = page.getByTestId("plan-quality");
+    await expect(quality).toContainText("1 task was written from the specification by rules");
+    await expect(quality).toContainText("1 blocking issue and 0 advisory issues");
+    await expect(page.getByTestId("plan-area-name")).toHaveText(["Checkout", "Project-wide work"]);
+    const checkout = page.getByTestId("plan-area").first();
+    await expect(checkout.getByTestId("plan-area-count")).toHaveText("1 of 4 done");
+    await expect(checkout.getByTestId("plan-area-review")).toContainText("No task covers refunds.");
+    await expect(checkout.getByTestId("plan-not-buildable")).toContainText("Not code work (1)");
+    await expect(checkout.getByTestId("plan-story-name")).toHaveText(["Checkout", "Track the order"]);
+    const pay = page.getByTestId("plan-task").filter({ hasText: "Take the payment" }); // the first story of the first area is open
     await expect(pay).toContainText("Pending");
+    await expect(pay.getByTestId("plan-task-phase")).toHaveText("Logic");
+    await expect(pay.getByTestId("plan-task-rules")).toHaveCount(0);
+    const project = page.getByTestId("plan-area").nth(1);
+    await project.getByTestId("plan-area-head").click();
+    await project.getByTestId("plan-story-head").click();
+    await expect(project.getByTestId("plan-task").getByTestId("plan-task-rules")).toHaveText("Rule-made");
     await pay.getByTestId("plan-task-head").click();
     const body = page.getByTestId("plan-task-body");
     await expect(body.getByRole("heading", { name: "Implements" })).toBeVisible();

@@ -9,8 +9,8 @@
   min-width: 0;
 }
 
-/* G-PLAN-2: one phase = a quiet glass section with a header button, a thin bar and the task list. */
-.plan-phase {
+/* G-PLAN-2: one work area = a quiet glass section with a header button, a thin bar and its stories. */
+.plan-area {
   display: grid;
   gap: var(--space-2xs);
   padding: var(--space-xs) var(--space-sm);
@@ -18,16 +18,19 @@
   background: var(--glass-fill-strong);
   border: 1px solid var(--glass-rim);
 } /* P26 audit FE-DOD-08.AC1 (G-P26-2): small and secondary text sits on strong glass, never on regular glass */
-.plan-phase__heading {
+.plan-area__heading,
+.plan-story__heading {
   margin: 0;
   font: inherit;
 }
-.plan-phase__head {
+.plan-area__head,
+.plan-story__head {
   all: unset;
   box-sizing: border-box;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-xs);
+  gap: var(--space-2xs) var(--space-xs);
   width: 100%;
   padding: var(--space-xs) var(--space-2xs);
   cursor: pointer;
@@ -35,30 +38,109 @@
   color: var(--ink);
   font-family: var(--font-sans);
 }
-.plan-phase__head:focus-visible,
+.plan-area__head:focus-visible,
+.plan-story__head:focus-visible,
 .plan-task__head:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
-.plan-phase__name {
+.plan-area__name {
   font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
-.plan-phase__count {
+.plan-area__count,
+.plan-story__count {
   margin-left: auto;
   color: var(--ink-2);
 }
-.plan-phase__bar {
+.plan-area__bar {
   padding: 0 var(--space-2xs);
 }
-.plan-phase__tasks {
+.plan-area__body {
+  display: grid;
+  gap: var(--space-xs);
+  padding: var(--space-2xs) var(--space-2xs) 0;
+}
+.plan-area__body[hidden] {
+  display: none;
+}
+.plan-area__desc,
+.plan-story__summary {
+  margin: 0;
+  color: var(--ink-2);
+}
+.plan-area__review,
+.plan-area__nb-list,
+.plan-story__tasks {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
   gap: 0;
 }
-.plan-phase__tasks[hidden] {
-  display: none;
+.plan-area__review {
+  gap: var(--space-2xs);
+}
+.plan-area__finding {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  color: var(--ink);
+}
+.plan-area__nb summary {
+  cursor: pointer;
+  color: var(--ink-2);
+}
+.plan-area__nb summary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.plan-area__nb-list {
+  gap: var(--space-2xs);
+  padding: var(--space-2xs) 0 0 var(--space-sm);
+  color: var(--ink-2);
+}
+.plan-area__nb-name {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+/* A story inside an area: a hairline above, its name and count, then its tasks. */
+.plan-story {
+  border-top: 1px solid var(--hairline);
+}
+.plan-story__name {
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.plan-story__summary {
+  padding: 0 var(--space-2xs) var(--space-2xs);
+}
+.plan-story__tasks {
+  padding-left: var(--space-sm);
+}
+
+/* The quality notice above the outline: strong glass with the warning border, so it reads as a status without colour alone. */
+.plan-quality {
+  display: grid;
+  gap: var(--space-2xs);
+  padding: var(--space-sm);
+  border-radius: var(--radius-lg);
+  background: var(--glass-fill-strong);
+  border: 1px solid var(--glass-rim);
+  color: var(--ink);
+}
+.plan-quality__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin: 0;
+  font-weight: 600;
+}
+.plan-quality__line {
+  margin: 0;
 }
 
 /* G-PLAN-5: a task row; the status Tag and the small Feature/Requirement Tags sit on the title line and wrap on narrow widths. */
@@ -139,7 +221,7 @@
 
 /* FE-DOD-05: the bars change without animation under reduced motion; the lists have no height animation at all (P24-2). */
 @media (prefers-reduced-motion: reduce) {
-  .plan-phase .gdg-progress__fill {
+  .plan-area .gdg-progress__fill {
     transition: none;
   }
 }
