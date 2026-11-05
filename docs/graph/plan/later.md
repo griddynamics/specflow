@@ -13,7 +13,7 @@ Q1, PT23). The cost estimate (`estimate_plan`) is in scope ([api.md](api.md), PT
 
 | Feature | What it adds |
 |---|---|
-| Host endpoint and runtime | `plan_run` endpoint and in-process runner like `graph_build`, the MCP tools over the plan API, and a host plan runner that reads build change reports and settlement; later a Temporal workflow with Postgres-backed `PlanStore` (Q15, PT23) |
+| Host runtime | The MCP tools over the plan API; change reports and settlement read from the build store (the runner replans without reports today, [api.md](api.md) "HTTP endpoints (host)"); a Temporal workflow with Postgres-backed `PlanStore` (Q15, PT23) |
 | Findings hold tasks back | With `graph.gap`: a task that implements a spec node with an open finding or open question is not ready; `block_task` can name a finding; a clarification unblocks or triggers a plan run (PT13) |
 | Release filter | A plan option `releases` that plans only the given releases; later releases stay unplanned until added (PT12 E) |
 | Release ordering | Tasks of a later release wait for the same area's earlier-release tasks; needs a release order the text does not give (PT12 F) |

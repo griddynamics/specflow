@@ -5,7 +5,7 @@ description: "Public API of graph.plan: setup, plan runs, reads, task lifecycle,
 status: stable
 tags: [graph, plan]
 ---
-# api.md: public API of graph.plan: setup, plan runs, reads, task lifecycle, errors, ports, MCP tool mapping
+# api.md: public API of graph.plan: setup, plan runs, reads, task lifecycle, errors, ports, host endpoints, MCP tool mapping
 
 All functions are `async` unless noted. Every function takes `project_id` explicitly (in a context or as
 an argument), and an invalid `project_id` raises `ConfigurationError` before any query. Core setup
@@ -141,6 +141,30 @@ Port methods are `async`.
 
 `open_plan_store(root)` stores per-project paths, gzip-compressed JSON, atomic writes (write then
 rename), like the build file stores. One contract test suite runs against every implementation.
+
+## HTTP endpoints (host)
+
+The API serves plan runs and plan reads to the web app (`backend/src/api/routers/plan.py`,
+`backend/src/api/plan/runner.py`). They mirror `/graph_build`: the run is an in-process background task, one
+per project, and the contract can move to a Temporal workflow unchanged. The routes exist when the graph build
+is configured (`GRAPH_LLM_MODEL`, `GRAPH_SMALL_MODEL`, `GRAPH_EMBEDDING_MODEL`); otherwise each answers 503
+`plan_unavailable`. A non-member gets 404 `project_not_found`. Bodies hold ids, step names, counts, codes and
+the plan's own text, never document text.
+
+| Endpoint | What it does |
+|---|---|
+| `POST /api/v1/projects/{pid}/plan` | Starts a plan run and answers 202 with the state at once; a second call while it runs answers the same run. Body (optional): `{"replan": bool}`. 409 `no_graph_build` without a finished build, 409 `graph_build_running` while the graph builds |
+| `GET /api/v1/projects/{pid}/plan` | The state: `status` (`idle`, `running`, `succeeded`, `partially_succeeded`, `failed`), `has_plan`, `run_id`, `mode`, `replan`, `step` (the step that runs or last ran), `steps_done`, `steps_total`, `started_at`, `finished_at`, `unchanged`, `error_code` (`interrupted` for a run a stopped process left) |
+| `GET /api/v1/projects/{pid}/plan/tasks` | The persisted plan: `plan_id`, `last_build_id`, `updated_at`, `areas`, `stories` (with `progress`), `tasks` in phase order, then by area, story and id. Each task has its phase, status, complexity, `done_when`, `waits_for`, `implements` (spec id, label and name) and `ready` (pending with every wait completed). 404 `no_plan` without a plan |
+| `GET /api/v1/projects/{pid}/plan/preview` | What a run would start from, without a model call: `features` (the anchors of feature stories in the rules), `mode`, `unchanged`, and the run estimate summed over the steps, `calls` and `input_tokens` (null without a finished build or when the estimate fails) |
+
+The runner plans from the project's latest finished build. Without a plan the run is `first`. With a plan whose
+`last_build_id` is that build, it is an `update` with no change reports (the result is `unchanged`). With a plan
+from an earlier build, or with `replan`, it is a `replan` without change reports: the build store keeps no build
+chain yet, so the host takes the documented path for missing reports ("Change reports"). An unfinished run is
+resumed by the next start. Plan state lives in the file `PlanStore` under `GRAPH_STATE_DIR`, next to the build
+stores. The web app's Plan page reads `GET /plan` and `/plan/preview`, polls `GET /plan` every 2 s while a run
+goes, and reads `/plan/tasks` once a plan exists; "Recreate Plan" posts `replan`.
 
 ## MCP tools (host)
 
