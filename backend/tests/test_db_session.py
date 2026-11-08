@@ -18,6 +18,8 @@ SETTINGS = DatabaseSettings(
     name="d",
     user="u",
     password=PLACEHOLDER_CRED,
+    PGSSLMODE="",
+    PGSSLROOTCERT="",
 )
 
 

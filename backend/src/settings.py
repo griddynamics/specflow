@@ -1,6 +1,6 @@
 """Process settings: one pydantic-settings model per binding, plus the guards.
 
-``DatabaseSettings`` reads ``DATABASE_*`` from the process environment. The
+``DatabaseSettings`` reads ``DATABASE_*`` and ``PGSSL*`` from the process environment. The
 other bindings and ``load_settings(role, env)`` follow the environment contract
 in docs/configuration.md. The new bindings never read the process
 environment on their own: ``load_settings`` hands them the variables, so a
@@ -17,13 +17,14 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from http.client import HTTP_PORT, HTTPS_PORT
 from typing import Annotated, Any, ClassVar, Final, Literal, override
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 
 from pydantic import (
     BeforeValidator,
     Field,
     SecretStr,
     ValidationError,
+    ValidationInfo,
     field_validator,
 )
 from pydantic_settings import (
@@ -37,6 +38,7 @@ from cloud_profile import CLOUD_PROVIDERS, CONFIG_FILE_VARIABLE, Cloud, load_pro
 from graph.core import LLMConfig
 from graph.stores.config import BACKENDS, DEFAULT_BACKEND, StoreConfig
 from logger.logger import WARNING, get_logger, log_event
+from postgres import SSL_MODES, VERIFY_MODES, ssl_argument
 
 DATABASE_ENVIRONMENT: Final = (
     "DATABASE_HOST",
@@ -45,6 +47,11 @@ DATABASE_ENVIRONMENT: Final = (
     "DATABASE_USER",
     "DATABASE_PASSWORD",
 )
+
+# The libpq TLS names (no DATABASE_ prefix); asyncpg reads the same ones.
+DATABASE_TLS_ENVIRONMENT: Final = ("PGSSLMODE", "PGSSLROOTCERT")
+# The default of PGSSLROOTCERT: where the deployment mounts the CA bundle (on Aurora, the AWS RDS one).
+SSL_ROOT_CERT: Final = "/etc/specflow/postgres/rds-ca-bundle.pem"
 
 _DRIVERNAME: Final = "postgresql+asyncpg"
 
@@ -60,11 +67,13 @@ class DatabaseConfigurationError(ValueError):
 
 
 class DatabaseSettings(BaseSettings):
-    """PostgreSQL connection settings, read from ``DATABASE_*``.
+    """PostgreSQL connection settings, read from ``DATABASE_*``, ``PGSSLMODE`` and ``PGSSLROOTCERT``.
 
     ``DATABASE_PORT`` is the port this process connects to (default 5432, applied by
     the loaders); code on the host sets the published host port. Nothing reads
     ``.env.local`` here; ``uv run --env-file ../.env.local`` loads it.
+    ``PGSSLMODE`` unset keeps asyncpg's default (``prefer``). With ``verify-ca`` or
+    ``verify-full`` the CA bundle ``PGSSLROOTCERT`` must be readable when the settings load.
     """
 
     model_config = SettingsConfigDict(env_prefix="DATABASE_", frozen=True)
@@ -74,6 +83,9 @@ class DatabaseSettings(BaseSettings):
     name: str
     user: str
     password: SecretStr
+    # Blank means unset; the loaders pass blank for an unset name.
+    sslmode: str | None = Field(validation_alias="PGSSLMODE")
+    sslrootcert: str = Field(validation_alias="PGSSLROOTCERT")
 
     @field_validator("host", "name", "user")
     @classmethod
@@ -90,6 +102,27 @@ class DatabaseSettings(BaseSettings):
             raise ValueError("must not be blank")
         return value
 
+    @field_validator("sslmode", mode="before")
+    @classmethod
+    def _known_sslmode(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            value = value.strip() or None
+        if value is not None and value not in SSL_MODES:
+            raise ValueError(f"must be one of {', '.join(sorted(SSL_MODES))}")
+        return value
+
+    @field_validator("sslrootcert")
+    @classmethod
+    def _readable_rootcert(cls, value: str, info: ValidationInfo) -> str:
+        value = value.strip() or SSL_ROOT_CERT
+        mode = info.data.get("sslmode")
+        if mode in VERIFY_MODES:
+            try:
+                ssl_argument(mode, value)
+            except OSError:
+                raise ValueError("must be a readable PEM CA bundle for verify-ca and verify-full") from None
+        return value
+
     @classmethod
     def from_environment(cls) -> DatabaseSettings:
         """Read the settings from the process environment.
@@ -97,12 +130,13 @@ class DatabaseSettings(BaseSettings):
         Raises DatabaseConfigurationError naming every unusable variable.
         """
 
-        # ``port`` has no field default (a config class): the default is applied here, and
-        # in ``_build_database``, when ``DATABASE_PORT`` is unset.
+        # No field has a default (a config class): an unset ``DATABASE_PORT`` takes 5432 and an
+        # unset TLS name counts as blank, here and in ``_build_database``.
+        defaults: dict[str, Any] = {name: "" for name in DATABASE_TLS_ENVIRONMENT if name not in os.environ}
+        if "DATABASE_PORT" not in os.environ:
+            defaults["port"] = DATABASE_PORT
         try:
-            if "DATABASE_PORT" in os.environ:
-                return cls()
-            return cls(port=DATABASE_PORT)
+            return cls(**defaults)
         except ValidationError as error:
             raise DatabaseConfigurationError(_describe(error)) from None
 
@@ -118,12 +152,24 @@ class DatabaseSettings(BaseSettings):
             database=self.name,
         )
 
+    def connect_args(self) -> dict[str, Any]:
+        """The asyncpg ``ssl`` argument of ``PGSSLMODE``; none when it is unset (asyncpg's default)."""
+
+        return {} if self.sslmode is None else {"ssl": ssl_argument(self.sslmode, self.sslrootcert)}
+
+
+def _database_variable(location: str | int) -> str:
+    """The variable of a ``DatabaseSettings`` error location: a TLS name as it is, else ``DATABASE_<FIELD>``."""
+
+    name = str(location)
+    return name if name in DATABASE_TLS_ENVIRONMENT else f"DATABASE_{name.upper()}"
+
 
 def _describe(error: ValidationError) -> str:
     missing: list[str] = []
     invalid: dict[str, str] = {}
     for item in error.errors(include_url=False, include_input=False):
-        variable = f"DATABASE_{str(item['loc'][0]).upper()}"
+        variable = _database_variable(item["loc"][0])
         if item["type"] == "missing":
             missing.append(variable)
         else:
@@ -132,7 +178,9 @@ def _describe(error: ValidationError) -> str:
     if missing:
         names = [name for name in DATABASE_ENVIRONMENT if name in missing]
         parts.append(f"Required PostgreSQL variables are not set: {', '.join(names)}.")
-    parts.extend(f"{name}: {invalid[name]}." for name in DATABASE_ENVIRONMENT if name in invalid)
+    parts.extend(
+        f"{name}: {invalid[name]}." for name in (*DATABASE_ENVIRONMENT, *DATABASE_TLS_ENVIRONMENT) if name in invalid
+    )
     parts.append("Copy `.env.example` to `.env`, fill them in, and run with `uv run --env-file ../.env.local`.")
     return " ".join(parts)
 
@@ -708,12 +756,14 @@ def _build_database(env: Mapping[str, str], bad: list[str]) -> DatabaseSettings 
         name.removeprefix("DATABASE_").lower(): env[name] for name in DATABASE_ENVIRONMENT if name in env
     }
     kwargs.setdefault("port", DATABASE_PORT)
+    # The TLS names have no prefix: always passed (blank = unset), so the process environment stays out.
+    kwargs.update({name: env.get(name, "") for name in DATABASE_TLS_ENVIRONMENT})
     try:
         # A prefix no variable carries keeps the process environment out.
         return DatabaseSettings(_env_prefix=_NO_PREFIX, **kwargs)
     except ValidationError as error:
         for item in error.errors(include_url=False, include_input=False):
-            _flag(bad, f"DATABASE_{str(item['loc'][0]).upper()}")
+            _flag(bad, _database_variable(item["loc"][0]))
         return None
 
 
@@ -794,8 +844,8 @@ def _build_graph_store(
 
     ``GRAPH_STORE`` (default neo4j) picks the backend. For neo4j each ``NEO4J_*`` name stands in for its
     ``GRAPH_STORE_*`` name when that one is unset (``graph.settings.alias_used`` lists the names, once).
-    For postgres an unset ``GRAPH_STORE_URI`` reuses the ``DATABASE_*`` connection (``GRAPH_STORE_NAME`` is
-    the schema, default ``graph``); user and password then default to the app role's.
+    For postgres an unset ``GRAPH_STORE_URI`` reuses the ``DATABASE_*`` connection and its TLS settings
+    (``GRAPH_STORE_NAME`` is the schema, default ``graph``); user and password then default to the app role's.
     """
 
     backend = env.get("GRAPH_STORE", "").strip() or DEFAULT_BACKEND
@@ -806,7 +856,10 @@ def _build_graph_store(
     if backend == "postgres" and "GRAPH_STORE_URI" not in resolved:
         if database is None:  # DATABASE_* are already flagged
             return None
-        resolved["GRAPH_STORE_URI"] = f"postgresql://{database.host}:{database.port}/{database.name}"
+        uri = f"postgresql://{database.host}:{database.port}/{database.name}"
+        if database.sslmode is not None:
+            uri += "?" + urlencode({"sslmode": database.sslmode, "sslrootcert": database.sslrootcert})
+        resolved["GRAPH_STORE_URI"] = uri
         resolved.setdefault("GRAPH_STORE_USER", database.user)
         resolved.setdefault("GRAPH_STORE_PASSWORD", database.password.get_secret_value())
     problems: list[str] = []

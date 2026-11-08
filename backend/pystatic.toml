@@ -49,7 +49,7 @@ data-suffixes = [".json", ".md", ".yaml", ".yml", ".sql", ".cypher"]
 # ---------------------------------------------------------------- config-literals
 [config-literals]
 # Classes built only from configuration: no field default, never constructed bare.
-#   DatabaseSettings  settings.py, read from DATABASE_* only (`from_environment`)
+#   DatabaseSettings  settings.py, read from DATABASE_* and PGSSL* only (`from_environment`)
 #   CallBudget        graph.core.config, one call class's timeout and attempts
 # The other bindings of settings.py are left out on purpose: their field defaults ARE the
 # documented environment defaults (API_PORT, GRAPH_EMBEDDING_DIM, ...), so they are the configuration

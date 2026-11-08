@@ -50,7 +50,7 @@ from graph.core.store import (
 from graph.stores.config import StoreConfig
 from graph.stores.postgres.dialect import BACKEND, POSTGRES_DIALECT, PostgresDialect
 from logger.logger import WARNING, get_logger, log_event
-from postgres import new_engine, transaction
+from postgres import SSL_MODES, new_engine, ssl_argument, transaction
 
 logger = get_logger("graph.stores.postgres")
 
@@ -79,8 +79,6 @@ APPLICATION_NAME: Final = "specflow-graph"
 STATEMENT_TIMEOUT_SECONDS: Final = 300.0
 LOCK_TIMEOUT_SECONDS: Final = 60.0
 MAX_TIMEOUT_SECONDS: Final = 86_400.0
-# asyncpg takes the libpq ``sslmode`` values as its ``ssl`` argument.
-_SSL_MODES: Final = frozenset({"disable", "allow", "prefer", "require", "verify-ca", "verify-full"})
 
 # SQLSTATE codes (appendix A of the PostgreSQL manual) the error map names.
 AUTH_FAILED: Final = frozenset({"28P01", "28000"})
@@ -212,8 +210,8 @@ def _milliseconds(value: Any) -> str:
 
 def connection_url(config: StoreConfig) -> tuple[URL, dict[str, Any]]:
     """The asyncpg URL of ``config`` (the host, port and database of ``uri``, the login of ``user`` and
-    ``password``) and the connect arguments its query string asked for (``sslmode``, ``statement_timeout`` and
-    ``lock_timeout`` in seconds)."""
+    ``password``) and the connect arguments its query string asked for (``sslmode`` with its CA bundle
+    ``sslrootcert``, ``statement_timeout`` and ``lock_timeout`` in seconds)."""
 
     try:
         url = make_url(config.uri)
@@ -228,10 +226,14 @@ def connection_url(config: StoreConfig) -> tuple[URL, dict[str, Any]]:
         if value is not None:
             connect_args.setdefault("server_settings", {})[option] = _milliseconds(value)
     mode = query.pop("sslmode", None)
+    rootcert = query.pop("sslrootcert", None)
     if mode is not None:
-        if not isinstance(mode, str) or mode not in _SSL_MODES:
+        if not isinstance(mode, str) or mode not in SSL_MODES or not isinstance(rootcert, str | None):
             raise ConfigurationError("store_uri_invalid", store=BACKEND)
-        connect_args["ssl"] = mode
+        try:
+            connect_args["ssl"] = ssl_argument(mode, rootcert)
+        except OSError:  # the CA bundle is missing, unreadable or holds no certificate
+            raise ConfigurationError("store_uri_invalid", store=BACKEND) from None
     url = url.set(
         drivername=DRIVER,
         username=config.user,

@@ -45,3 +45,10 @@ reason = "vendored read-only third-party design system (GD Liquid Glass componen
 paths = ["scripts/env-local.sh"]
 owner = "backend"
 reason = "the local env file script; backend/tests/test_specflow_env_local.py and test_specflow_images.py run it via make"
+
+# `make postgres-tls-certs` and `make up WITH=tls` run this script; backend/tests/test_postgres_tls.py runs it and
+# connects with verify-full to a server that presents the certificate it wrote.
+[[source-ownership.external]]
+paths = ["scripts/postgres-tls.sh"]
+owner = "backend"
+reason = "the local TLS certificate script; backend/tests/test_postgres_tls.py runs it"

@@ -21,8 +21,8 @@ from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 
+from db.session import build_engine
 from logger.logger import INFO, get_logger, log_event
-from postgres import new_engine
 from settings import DatabaseSettings, RoleSettings
 
 logger = get_logger("db.migrate")
@@ -48,10 +48,11 @@ def find_alembic_ini(environ: Mapping[str, str] | None = None) -> Path:
 
 
 def build_config(settings: RoleSettings, ini: Path | None = None) -> Config:
-    """An Alembic config bound to the role's database and agent role name."""
+    """An Alembic config bound to the role's database (with its TLS) and agent role name."""
 
     cfg = Config(str(ini or find_alembic_ini()))
     cfg.attributes["database_url"] = settings.database.url()
+    cfg.attributes["connect_args"] = settings.database.connect_args()
     if settings.agent_database is not None:
         cfg.attributes["agent_user"] = settings.agent_database.user
     return cfg
@@ -60,7 +61,7 @@ def build_config(settings: RoleSettings, ini: Path | None = None) -> Config:
 async def current_revision(database: DatabaseSettings) -> str | None:
     """The stamped revision of the database, or ``None`` when unstamped."""
 
-    engine = new_engine(database.url())
+    engine = build_engine(database)
     try:
         async with engine.connect() as connection:
             return await connection.run_sync(lambda sync: MigrationContext.configure(sync).get_current_revision())

@@ -24,10 +24,11 @@ def build_engine(
 
     ``hide_parameters`` keeps bound values (emails, filenames, hashes) out of
     SQLAlchemy error messages, which the API and the worker may log.
+    The TLS of ``PGSSLMODE`` applies (``DatabaseSettings.connect_args``).
     The caller owns ``await engine.dispose()``.
     """
 
-    return new_engine(settings.url(), echo=echo)
+    return new_engine(settings.url(), echo=echo, connect_args=settings.connect_args())
 
 
 def build_session_factory(

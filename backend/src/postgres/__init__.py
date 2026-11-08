@@ -6,19 +6,41 @@ only, never a project package, so the graph library and the host can both use it
 
 Every engine checks a pooled connection before use (``pool_pre_ping``) and keeps bound values (emails, file
 names, document text, vectors) out of SQLAlchemy's error messages (``hide_parameters``), which callers log.
+``ssl_argument`` turns a libpq ``sslmode`` and CA bundle into the TLS connect argument of asyncpg.
 """
 
 from __future__ import annotations
 
+import ssl
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, Final
 
 from sqlalchemy.engine import URL
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
-__all__ = ["new_engine", "transaction"]
+__all__ = ["SSL_MODES", "VERIFY_MODES", "new_engine", "ssl_argument", "transaction"]
+
+# asyncpg takes the libpq ``sslmode`` values as its ``ssl`` argument.
+SSL_MODES: Final = frozenset({"disable", "allow", "prefer", "require", "verify-ca", "verify-full"})
+VERIFY_MODES: Final = frozenset({"verify-ca", "verify-full"})
+
+
+def ssl_argument(mode: str, rootcert: str | None = None) -> str | ssl.SSLContext:
+    """The asyncpg ``ssl`` connect argument of the libpq ``sslmode`` ``mode``.
+
+    ``verify-ca`` and ``verify-full`` with a ``rootcert`` give a context that trusts that CA bundle only (not
+    the system store) and requires a server certificate it signed; ``verify-full`` also checks the host name.
+    Any other mode, or no ``rootcert``, is passed as is to asyncpg. Raises ``OSError`` (``ssl.SSLError``
+    too) when the bundle is missing, unreadable or holds no certificate.
+    """
+
+    if mode not in VERIFY_MODES or rootcert is None:
+        return mode
+    context = ssl.create_default_context(cafile=rootcert)
+    context.check_hostname = mode == "verify-full"
+    return context
 
 
 def new_engine(

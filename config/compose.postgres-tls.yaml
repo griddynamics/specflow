@@ -1,0 +1,49 @@
+# Added by `make up WITH=tls` (the Makefile passes it after docker-compose.yml): Postgres over verified TLS, as on
+# Aurora. The postgres service turns TLS on and refuses every plain TCP connection (rds.force_ssl=1 on Aurora).
+# api, mcp and both workers connect with PGSSLMODE=verify-full and trust the local CA, which is mounted where an
+# Aurora deployment mounts the AWS RDS bundle (PGSSLROOTCERT stays unset: that path is its default).
+# `make up WITH=tls` writes the CA and the server certificate into .postgres-tls/ first (scripts/postgres-tls.sh).
+# docs/configuration.md "PostgreSQL over TLS". Needs Docker Compose 2.24 or newer (`configs` with `content`).
+x-tls-client: &tls-client
+  environment:
+    PGSSLMODE: "verify-full"
+  volumes:
+    - type: bind
+      source: ./.postgres-tls/ca.pem
+      target: /etc/specflow/postgres/rds-ca-bundle.pem
+      read_only: true
+
+services:
+  postgres:
+    # Postgres reads the key only when the postgres user owns it with mode 0600, which a bind mount does not
+    # give: each start copies the pair out of the mount first.
+    entrypoint:
+      - sh
+      - -ec
+      - |
+        install -d -o postgres -g postgres -m 0700 /var/lib/postgresql/tls
+        install -o postgres -g postgres -m 0600 /run/postgres-tls/server.key /var/lib/postgresql/tls/server.key
+        install -o postgres -g postgres -m 0644 /run/postgres-tls/server.pem /var/lib/postgresql/tls/server.pem
+        exec docker-entrypoint.sh postgres -c ssl=on \
+          -c ssl_cert_file=/var/lib/postgresql/tls/server.pem -c ssl_key_file=/var/lib/postgresql/tls/server.key \
+          -c hba_file=/etc/postgresql/pg_hba.conf
+    volumes:
+      - type: bind
+        source: ./.postgres-tls
+        target: /run/postgres-tls
+        read_only: true
+    configs:
+      - source: postgres-tls-hba
+        target: /etc/postgresql/pg_hba.conf
+  api: *tls-client
+  mcp: *tls-client
+  worker-parse: *tls-client
+  worker-agents: *tls-client
+
+configs:
+  postgres-tls-hba:
+    content: |
+      # The Unix socket (init scripts, `make postgres-vector`) as in the image; TCP over TLS only.
+      local      all  all        trust
+      hostssl    all  all  all   scram-sha-256
+      hostnossl  all  all  all   reject

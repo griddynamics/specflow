@@ -163,7 +163,15 @@ def test_every_unusable_variable_is_listed_together(load: Load) -> None:
 @pytest.mark.parametrize("field", ["host", "name", "user", "password"])
 @pytest.mark.parametrize("blank", ["", "  "], ids=["empty", "spaces"])
 def test_direct_construction_rejects_a_blank_field(field: str, blank: str) -> None:
-    values = {"host": "h", "port": 5432, "name": "d", "user": "u", "password": "p"}
+    values = {
+        "host": "h",
+        "port": 5432,
+        "name": "d",
+        "user": "u",
+        "password": "p",
+        "PGSSLMODE": "",
+        "PGSSLROOTCERT": "",
+    }
     values[field] = blank
 
     with pytest.raises(ValidationError, match=field):
