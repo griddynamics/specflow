@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import re
+import ssl
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Final, cast
@@ -478,7 +479,8 @@ def test_every_connection_gets_a_statement_and_a_lock_timeout_that_the_uri_can_c
     server = seen[0]["server_settings"]
     assert server == {"application_name": "specflow-graph", "statement_timeout": "300000", "lock_timeout": "60000"}
     _, args = connection_url(config(uri="postgresql://h/d?statement_timeout=12.5&lock_timeout=0&sslmode=require"))
-    assert args["server_settings"] == {"statement_timeout": "12500", "lock_timeout": "0"} and args["ssl"] == "require"
+    assert args["server_settings"] == {"statement_timeout": "12500", "lock_timeout": "0"}
+    assert isinstance(args["ssl"], ssl.SSLContext) and args["ssl"].verify_mode is ssl.CERT_NONE
     for bad in ("statement_timeout=soon", "lock_timeout=-1", "statement_timeout=999999"):
         with pytest.raises(ConfigurationError) as raised:
             connection_url(config(uri=f"postgresql://h/d?{bad}"))
@@ -745,10 +747,10 @@ def test_the_connection_url_takes_host_database_login_and_ssl_mode() -> None:
     url, args = connection_url(config(uri="postgresql://db.example.org:6543/specflow?sslmode=require"))
     assert url.drivername == "postgresql+asyncpg" and url.host == "db.example.org" and url.port == 6543
     assert url.database == "specflow" and url.username == "u" and url.password == CANARY
-    assert args == {"ssl": "require"} and "sslmode" not in url.query
+    assert set(args) == {"ssl"} and args["ssl"].verify_mode is ssl.CERT_NONE and "sslmode" not in url.query
     plain, none = connection_url(config(uri="postgresql+asyncpg://h/d"))
     assert plain.drivername == "postgresql+asyncpg" and none == {}
-    for bad in ("bolt://h:7687", "not a url", "postgresql://h/d?sslmode=maybe"):
+    for bad in ("bolt://h:7687", "not a url", "postgresql://h/d?sslmode=maybe", "postgresql://::1:5432/d"):
         with pytest.raises(ConfigurationError) as raised:
             connection_url(config(uri=bad))
         assert raised.value.code == "store_uri_invalid" and CANARY not in str(raised.value)

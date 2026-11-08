@@ -19,14 +19,17 @@ import subprocess
 import threading
 from collections.abc import Iterator
 from dataclasses import dataclass, field
+from io import StringIO
 from pathlib import Path
 
 import pytest
 from alembic import command
+from alembic.config import Config
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
+from sqlalchemy import make_url
 from sqlalchemy.exc import DBAPIError
 
 import health
@@ -47,22 +50,19 @@ from settings import (
     RoleSettings,
     load_graph_store_settings,
     load_settings,
+    tls_settings,
 )
 
 # Written out literally: the mount path is the deployment contract.
 MOUNTED_CA = "/etc/specflow/postgres/rds-ca-bundle.pem"
-TLS_NAMES = ("PGSSLMODE", "PGSSLROOTCERT")
 SSL_REQUEST = struct.pack("!ii", 8, 80877103)
 REFUSED = "3D000"
 DB_CRED = "db-pass"
 ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.fixture(autouse=True)
-def _no_tls_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    # asyncpg reads the same names itself; a developer's shell must not decide a test.
-    for name in TLS_NAMES:
-        monkeypatch.delenv(name, raising=False)
+# A developer's shell must not decide a test: the shared scrub removes every PGSSL* name too.
+pytestmark = pytest.mark.usefixtures("clean_specflow_env")
 
 
 # Test PKI
@@ -149,6 +149,7 @@ def pki(tmp_path_factory: pytest.TempPathFactory) -> Pki:
 class FakePostgres:
     port: int
     seen: list[str] = field(default_factory=list)  # per connection: "tls", "rejected" or "plain"
+    alpn: list[str | None] = field(default_factory=list)  # per TLS connection: the protocol the client offered
 
 
 def _refusal() -> bytes:
@@ -164,10 +165,10 @@ def fake_postgres(pki: Pki) -> Iterator[FakePostgres]:
 
     context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
     context.load_cert_chain(pki.server_cert, pki.server_key)
+    context.set_alpn_protocols(["postgresql"])
     loop = asyncio.new_event_loop()
-    seen: list[str] = []
+    found = FakePostgres(port=0)
     ready = threading.Event()
-    port: list[int] = []
 
     async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
@@ -178,12 +179,13 @@ def fake_postgres(pki: Pki) -> Iterator[FakePostgres]:
                 try:
                     await writer.start_tls(context)
                 except (ssl.SSLError, OSError):  # the client refused the server certificate
-                    seen.append("rejected")
+                    found.seen.append("rejected")
                     return
-                seen.append("tls")
+                found.seen.append("tls")
+                found.alpn.append(writer.get_extra_info("ssl_object").selected_alpn_protocol())
                 first = await reader.readexactly(8)
             else:
-                seen.append("plain")
+                found.seen.append("plain")
             await reader.readexactly(struct.unpack("!i", first[:4])[0] - 8)  # the rest of the StartupMessage
             writer.write(_refusal())
             await writer.drain()
@@ -195,7 +197,7 @@ def fake_postgres(pki: Pki) -> Iterator[FakePostgres]:
     def run() -> None:
         asyncio.set_event_loop(loop)
         server = loop.run_until_complete(asyncio.start_server(handle, "127.0.0.1", 0))
-        port.append(server.sockets[0].getsockname()[1])
+        found.port = server.sockets[0].getsockname()[1]
         ready.set()
         loop.run_forever()
         server.close()
@@ -209,22 +211,15 @@ def fake_postgres(pki: Pki) -> Iterator[FakePostgres]:
     thread.start()
     assert ready.wait(5)
     try:
-        yield FakePostgres(port[0], seen)
+        yield found
     finally:
         loop.call_soon_threadsafe(loop.stop)
         thread.join(5)
 
 
-def database(port: int, host: str = "localhost", **tls: str) -> DatabaseSettings:
+def database(port: int, host: str = "localhost", *, mode: str = "", rootcert: str = "") -> DatabaseSettings:
     return DatabaseSettings(
-        _env_prefix="__TEST_NO_ENV__",
-        host=host,
-        port=port,
-        name="specflow",
-        user="specflow",
-        password=DB_CRED,
-        PGSSLMODE=tls.get("mode", ""),
-        PGSSLROOTCERT=tls.get("rootcert", ""),
+        host=host, port=port, name="specflow", user="specflow", password=DB_CRED, PGSSLMODE=mode, PGSSLROOTCERT=rootcert
     )
 
 
@@ -275,9 +270,27 @@ def test_verify_ca_checks_the_chain_but_not_the_host_name(pki: Pki) -> None:
     assert context.verify_mode is ssl.CERT_REQUIRED and context.check_hostname is False
 
 
-@pytest.mark.parametrize(("mode", "rootcert"), [("require", "ca"), ("disable", "ca"), ("verify-full", None)])
-def test_other_modes_pass_to_asyncpg_as_they_are(pki: Pki, mode: str, rootcert: str | None) -> None:
-    assert postgres.ssl_argument(mode, str(pki.ca) if rootcert else None) == mode
+def test_every_mode_gets_an_explicit_argument(pki: Pki) -> None:
+    require = postgres.ssl_argument("require")
+    pinned = postgres.ssl_argument("require", str(pki.ca))
+
+    assert postgres.ssl_argument(None) == "prefer" and postgres.ssl_argument("allow") == "allow"
+    assert postgres.ssl_argument("disable") is False
+    assert isinstance(require, ssl.SSLContext) and require.verify_mode is ssl.CERT_NONE and not require.check_hostname
+    # libpq: require with a CA bundle checks the chain (as verify-ca does), not the host name.
+    assert isinstance(pinned, ssl.SSLContext) and pinned.verify_mode is ssl.CERT_REQUIRED and not pinned.check_hostname
+
+
+@pytest.mark.parametrize(
+    ("mode", "rootcert"),
+    [("verify-full", None), ("verify-full", ""), ("verify-ca", None), ("prefer", "ca"), ("disable", "ca"), ("x", None)],
+)
+def test_a_mode_without_its_bundle_or_with_a_bundle_it_ignores_is_refused(
+    pki: Pki, mode: str, rootcert: str | None
+) -> None:
+    # An empty bundle never falls back to the system store.
+    with pytest.raises(ValueError, match="sslmode"):
+        postgres.ssl_argument(mode, str(pki.ca) if rootcert == "ca" else rootcert)
 
 
 @pytest.mark.parametrize(
@@ -293,15 +306,17 @@ def test_a_missing_or_non_pem_bundle_raises(tmp_path: Path, name: str, error: ty
 # Settings
 
 
-def test_without_pgsslmode_nothing_changes() -> None:
+def test_without_pgsslmode_the_connection_is_prefer() -> None:
     settings = database(5432)
 
-    assert settings.sslmode is None and settings.connect_args() == {}
-    assert settings.sslrootcert == MOUNTED_CA
+    assert (settings.sslmode, settings.sslrootcert) == (None, None)
+    assert settings.connect_args() == {"ssl": "prefer"}
 
 
-def test_the_ca_bundle_defaults_to_the_mounted_path() -> None:
-    assert database(5432, mode="require").sslrootcert == MOUNTED_CA
+def test_the_ca_bundle_defaults_to_the_mounted_path_for_the_verify_modes_only() -> None:
+    assert tls_settings("verify-full", None) == ("verify-full", MOUNTED_CA)
+    assert tls_settings("require", None) == ("require", None)
+    assert tls_settings("prefer", "/ca.pem") == ("prefer", None)
     # verify-full reads the mount at start; no test machine has it.
     with pytest.raises(ValueError, match="PGSSLROOTCERT"):
         database(5432, mode="verify-full")
@@ -318,6 +333,27 @@ def test_every_role_refuses_to_start_without_a_readable_ca_bundle(
         with pytest.raises(ConfigurationError) as raised:
             load_settings(role, {**env, "PGSSLROOTCERT": rootcert})
         assert raised.value.variables == ("PGSSLROOTCERT",)
+    # require checks a bundle it is given, and needs none.
+    with pytest.raises(ConfigurationError) as raised:
+        load_settings(role, {**env, "PGSSLMODE": "require", "PGSSLROOTCERT": str(tmp_path / "missing.pem")})
+    assert raised.value.variables == ("PGSSLROOTCERT",)
+    assert load_settings(role, {**env, "PGSSLMODE": "require"}).database.sslrootcert is None
+
+
+@pytest.mark.parametrize("name", ["PGSSLCERT", "PGSSLKEY", "PGSSLCRL", "PGSSLMINPROTOCOLVERSION"])
+def test_libpq_tls_names_the_app_does_not_support_are_refused(
+    name: str, valid_env: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with pytest.raises(ConfigurationError) as raised:
+        load_settings("migrate", {**valid_env, name: "x"})
+    assert raised.value.variables == (name,)
+
+    for variable in ("DATABASE_HOST", "DATABASE_NAME", "DATABASE_USER"):
+        monkeypatch.setenv(variable, "d")
+    monkeypatch.setenv("DATABASE_PASSWORD", DB_CRED)
+    monkeypatch.setenv(name, "x")
+    with pytest.raises(DatabaseConfigurationError, match=name):
+        DatabaseSettings.from_environment()
 
 
 def test_the_environment_loader_names_the_unreadable_bundle(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -329,8 +365,10 @@ def test_the_environment_loader_names_the_unreadable_bundle(monkeypatch: pytest.
 
     with pytest.raises(DatabaseConfigurationError, match=r"^PGSSLROOTCERT: must be a readable PEM CA bundle"):
         DatabaseSettings.from_environment()
+    # The URL alone needs no TLS settings (the offline migrations).
+    assert DatabaseSettings.from_environment(tls=False).sslmode is None
     monkeypatch.delenv("PGSSLMODE")
-    assert DatabaseSettings.from_environment().connect_args() == {}
+    assert DatabaseSettings.from_environment().connect_args() == {"ssl": "prefer"}
 
 
 def test_an_unknown_mode_is_refused_and_a_blank_one_is_unset(valid_env: dict[str, str]) -> None:
@@ -338,7 +376,7 @@ def test_an_unknown_mode_is_refused_and_a_blank_one_is_unset(valid_env: dict[str
         load_settings("migrate", {**valid_env, "PGSSLMODE": "verify"})
     assert raised.value.variables == ("PGSSLMODE",)
 
-    assert load_settings("migrate", {**valid_env, "PGSSLMODE": " "}).database.connect_args() == {}
+    assert load_settings("migrate", {**valid_env, "PGSSLMODE": " "}).database.connect_args() == {"ssl": "prefer"}
 
 
 def test_the_process_environment_never_reaches_an_explicit_mapping(
@@ -364,6 +402,34 @@ def test_the_agent_role_and_the_graph_store_reuse_the_tls_settings(valid_env: di
     assert isinstance(args["ssl"], ssl.SSLContext) and args["ssl"].check_hostname is True
 
 
+def test_a_graph_store_uri_of_its_own_takes_the_tls_it_leaves_out(valid_env: dict[str, str], pki: Pki) -> None:
+    env = {**valid_env, "GRAPH_STORE": "postgres", "PGSSLMODE": "verify-full", "PGSSLROOTCERT": str(pki.ca)}
+
+    def query(uri: str, **over: str) -> dict[str, object]:
+        return dict(make_url(load_graph_store_settings({**env, "GRAPH_STORE_URI": uri, **over}).uri).query)
+
+    assert query("postgresql://graph-db:5432/graph") == {"sslmode": "verify-full", "sslrootcert": str(pki.ca)}
+    assert query("postgresql://graph-db/graph?sslmode=disable") == {"sslmode": "disable"}
+    assert query("postgresql://graph-db/graph?sslmode=verify-ca", PGSSLMODE="", PGSSLROOTCERT="") == {
+        "sslmode": "verify-ca",
+        "sslrootcert": MOUNTED_CA,
+    }
+    assert query("postgresql://graph-db/graph", PGSSLMODE="") == {}
+
+
+def test_the_derived_graph_store_uri_is_quoted(valid_env: dict[str, str]) -> None:
+    env = {**valid_env, "GRAPH_STORE": "postgres", "PGSSLMODE": "require"}
+    env |= {"DATABASE_HOST": "::1", "DATABASE_NAME": "spec?flow"}
+    for name in ("GRAPH_STORE_URI", "GRAPH_STORE_USER", "GRAPH_STORE_PASSWORD"):
+        env.pop(name)
+
+    store = load_graph_store_settings(env)
+    url, args = connection_url(StoreConfig(backend="postgres", uri=store.uri, user="u", password=store.password))
+
+    assert (url.host, url.database) == ("::1", "spec?flow")
+    assert isinstance(args["ssl"], ssl.SSLContext) and args["ssl"].verify_mode is ssl.CERT_NONE
+
+
 def test_a_graph_store_uri_takes_its_own_ca_bundle(pki: Pki, tmp_path: Path) -> None:
     def args(query: str) -> dict[str, object]:
         return connection_url(
@@ -371,10 +437,14 @@ def test_a_graph_store_uri_takes_its_own_ca_bundle(pki: Pki, tmp_path: Path) -> 
         )[1]
 
     assert isinstance(args(f"sslmode=verify-full&sslrootcert={pki.ca}")["ssl"], ssl.SSLContext)
-    assert args(f"sslrootcert={pki.ca}") == {}  # without sslmode the bundle is not used
-    with pytest.raises(StoreConfigurationError) as raised:
-        args(f"sslmode=verify-full&sslrootcert={tmp_path / 'missing.pem'}")
-    assert raised.value.code == "store_uri_invalid"
+    pinned = args(f"sslmode=require&sslrootcert={pki.ca}")["ssl"]
+    assert isinstance(pinned, ssl.SSLContext) and pinned.verify_mode is ssl.CERT_REQUIRED
+    assert args("sslmode=prefer") == {"ssl": "prefer"}
+    unusable = (f"sslrootcert={pki.ca}", f"sslmode=prefer&sslrootcert={pki.ca}", "sslmode=verify-full")
+    for query in (*unusable, f"sslmode=verify-full&sslrootcert={tmp_path / 'missing.pem'}"):
+        with pytest.raises(StoreConfigurationError) as raised:
+            args(query)
+        assert raised.value.code == "store_uri_invalid"
 
 
 # Handshakes
@@ -384,7 +454,31 @@ async def test_verify_full_connects_with_the_right_ca_and_host_name(pki: Pki) ->
     with fake_postgres(pki) as server:
         error = await connect(database(server.port, mode="verify-full", rootcert=str(pki.ca)))
 
-    assert refused(error) and server.seen == ["tls"]
+    # The app's context offers the ALPN that direct TLS needs.
+    assert refused(error) and server.seen == ["tls"] and server.alpn == ["postgresql"]
+
+
+async def test_a_blank_or_stray_process_pgsslmode_never_reaches_the_driver(
+    pki: Pki, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with fake_postgres(pki) as server:
+        monkeypatch.setenv("PGSSLMODE", "")
+        blank = await connect(database(server.port))
+        monkeypatch.setenv("PGSSLMODE", "verify-full")  # the settings came from a mapping without it
+        stray = await connect(database(server.port))
+
+    assert refused(blank) and refused(stray) and server.seen == ["tls", "tls"]
+
+
+async def test_require_checks_the_chain_only_against_a_given_bundle(pki: Pki) -> None:
+    # 127.0.0.1 is not in the certificate: require never checks the host name.
+    with fake_postgres(pki) as server:
+        unchecked = await connect(database(server.port, "127.0.0.1", mode="require"))
+        pinned = await connect(database(server.port, "127.0.0.1", mode="require", rootcert=str(pki.ca)))
+        wrong_ca = await connect(database(server.port, mode="require", rootcert=str(pki.other_ca)))
+
+    assert refused(unchecked) and refused(pinned) and certificate_refused(wrong_ca)
+    assert server.seen.count("tls") == 2
 
 
 async def test_verify_full_fails_with_another_ca(pki: Pki) -> None:
@@ -461,6 +555,18 @@ def test_the_migrations_use_the_same_tls(pki: Pki) -> None:
     assert server.seen == ["tls", "tls"]
 
 
+def test_offline_migrations_read_no_tls_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name, value in (("DATABASE_HOST", "offline.invalid"), ("DATABASE_NAME", "d"), ("DATABASE_USER", "u")):
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("DATABASE_PASSWORD", DB_CRED)
+    monkeypatch.setenv("PGSSLMODE", "verify-full")  # no bundle at the mount path: an online run would refuse
+    buffer = StringIO()
+
+    command.upgrade(Config(str(migrate.find_alembic_ini()), output_buffer=buffer), "head", sql=True)
+
+    assert "INSERT INTO alembic_version (version_num) VALUES ('0001_initial')" in buffer.getvalue()
+
+
 @pytest.fixture
 def local_stack_script(tmp_path: Path) -> tuple[Path, list[str]]:
     """The folder that scripts/postgres-tls.sh (``make postgres-tls-certs``) wrote, and its command. Needs
@@ -491,4 +597,5 @@ async def test_the_local_stack_certificates_pass_verify_full(
     assert names.get_values_for_type(x509.DNSName) == ["specflow-postgres", "localhost"]
     assert [str(address) for address in names.get_values_for_type(x509.IPAddress)] == ["127.0.0.1"]
     assert server.seen == ["tls", "tls"]
+    assert not (folder / "ca.key").exists()  # deleted once the server certificate is signed
     assert "exist" in again.stdout  # a second run keeps the set

@@ -10,6 +10,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from db.models import Document
+from postgres import ssl_argument
 from settings import DatabaseSettings
 
 # this is the Alembic Config object, which provides
@@ -30,13 +31,14 @@ def database_url() -> str | URL:
 
     Programmatic callers (tests) set ``config.attributes["database_url"]`` to
     a ``str`` or a ``URL``; otherwise it comes from ``DATABASE_*`` through
-    ``DatabaseSettings``. alembic.ini never holds a URL or a password.
+    ``DatabaseSettings``. alembic.ini never holds a URL or a password. The URL
+    needs no TLS settings, so an offline run (which never connects) reads none.
     """
 
     url: str | URL | None = config.attributes.get("database_url")
     if url is not None:
         return url
-    return DatabaseSettings.from_environment().url()
+    return DatabaseSettings.from_environment(tls=False).url()
 
 
 def connect_args() -> dict[str, Any]:
@@ -44,11 +46,13 @@ def connect_args() -> dict[str, Any]:
 
     They go with the URL: ``config.attributes["connect_args"]`` (``specflow
     migrate``) when a caller set ``database_url``, otherwise those of
-    ``PGSSLMODE`` and ``PGSSLROOTCERT`` through ``DatabaseSettings``.
+    ``PGSSLMODE`` and ``PGSSLROOTCERT`` through ``DatabaseSettings``. ``ssl``
+    is always explicit (default ``prefer``), so asyncpg never reads the
+    environment itself.
     """
 
     if config.attributes.get("database_url") is not None:
-        return dict(config.attributes.get("connect_args") or {})
+        return {"ssl": ssl_argument(None), **(config.attributes.get("connect_args") or {})}
     return DatabaseSettings.from_environment().connect_args()
 
 

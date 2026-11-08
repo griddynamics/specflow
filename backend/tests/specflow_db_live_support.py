@@ -89,7 +89,9 @@ def run_admin(configured: DatabaseSettings, *statements: str, params: dict | Non
     """Run statements as the Postgres admin, in autocommit, on the maintenance database."""
 
     async def execute() -> None:
-        admin = create_async_engine(admin_url(configured), isolation_level="AUTOCOMMIT")
+        admin = create_async_engine(
+            admin_url(configured), isolation_level="AUTOCOMMIT", connect_args=configured.connect_args()
+        )
         try:
             async with admin.connect() as connection:
                 for statement in statements:
@@ -104,7 +106,7 @@ def query_column(settings: DatabaseSettings, statement: str) -> list:
     assert settings.name.startswith(SCRATCH_PREFIX), "not a scratch database"
 
     async def query() -> list:
-        engine = create_async_engine(settings.url())
+        engine = create_async_engine(settings.url(), connect_args=settings.connect_args())
         try:
             async with engine.connect() as connection:
                 return [row[0] for row in await connection.execute(text(statement))]
@@ -122,6 +124,7 @@ def _set_role(configured: DatabaseSettings, role: AgentRole) -> None:
             admin_url(configured),
             isolation_level="AUTOCOMMIT",
             hide_parameters=True,  # the role password is a bound parameter
+            connect_args=configured.connect_args(),
         )
         try:
             async with admin.connect() as connection:
@@ -192,6 +195,7 @@ def alembic_config(scratch: DatabaseSettings, agent_user: str = SESSION_AGENT_RO
     assert agent_user != FORBIDDEN_ROLE
     cfg = Config(str(ALEMBIC_INI))
     cfg.attributes["database_url"] = scratch.url()
+    cfg.attributes["connect_args"] = scratch.connect_args()
     cfg.attributes["agent_user"] = agent_user
     return cfg
 

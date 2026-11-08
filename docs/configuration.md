@@ -65,8 +65,8 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `API_PORT`, `WORKER_HEALTH_PORT` | `8000`, `8001` | api, workers | Listen ports. The worker port answers `GET /healthz`. |
 | `DATABASE_PORT` | `5432` | api, mcp, workers | PostgreSQL port. |
 | `DATABASE_AGENT_USER` | `specflow_agent` | api, workers | Role for agent tools. It must differ from `DATABASE_USER`. |
-| `PGSSLMODE` | unset | api, mcp, workers, migration job | TLS to PostgreSQL, with the libpq values: `disable`, `allow`, `prefer`, `require`, `verify-ca` or `verify-full`. Unset keeps the driver default (`prefer`: TLS when the server offers it, with no certificate check). `verify-full` checks the server certificate against `PGSSLROOTCERT` and its name against `DATABASE_HOST`. See [PostgreSQL over TLS](#postgresql-over-tls). |
-| `PGSSLROOTCERT` | `/etc/specflow/postgres/rds-ca-bundle.pem` | api, mcp, workers, migration job | The CA bundle that `verify-ca` and `verify-full` trust (and nothing else). With those modes a missing, unreadable or non-PEM file stops the process at start. The app reads it for these two modes only. |
+| `PGSSLMODE` | `prefer` | api, mcp, workers, migration job | TLS to PostgreSQL, with the libpq values: `disable`, `allow`, `prefer`, `require`, `verify-ca` or `verify-full`. Unset or blank means `prefer`: TLS when the server offers it, with no certificate check. `require` always uses TLS and checks the certificate chain only when `PGSSLROOTCERT` is set. `verify-full` checks the server certificate against `PGSSLROOTCERT` and its name against `DATABASE_HOST`. It applies to every PostgreSQL connection, also to a graph store `GRAPH_STORE_URI` that sets no `sslmode`. See [PostgreSQL over TLS](#postgresql-over-tls). |
+| `PGSSLROOTCERT` | `/etc/specflow/postgres/rds-ca-bundle.pem` with `verify-ca` and `verify-full`; none with `require` | api, mcp, workers, migration job | The CA bundle the server certificate must chain to; no other CA is trusted, `~/.postgresql/root.crt` included. When the mode uses it, a missing, unreadable or non-PEM file stops the process at start. `disable`, `allow` and `prefer` ignore it. Use an absolute path. |
 | `TEMPORAL_QUEUE_PARSE`, `TEMPORAL_QUEUE_AGENTS` | `specflow-parse`, `specflow-agents` | api, workers | Task queue names. |
 | `WORKER_QUEUES` | `parse,agents` | workers | The queues one worker polls. Set it per worker. |
 | `AUTH_JWKS_URL` | unset | api, mcp | JWKS override on the issuer host. The local stack sets it to the Keycloak address inside the compose network. |
@@ -104,24 +104,30 @@ Aurora refuses unencrypted connections (`rds.force_ssl`). Set `PGSSLMODE=verify-
 bundle at `/etc/specflow/postgres/rds-ca-bundle.pem`, the default of `PGSSLROOTCERT`, in the api, mcp,
 worker-parse, worker-agents and migration containers. Each process then:
 
-- refuses to start when the bundle is missing, unreadable or holds no PEM certificate. The `config.validation.failed`
-  log names `PGSSLROOTCERT`.
+- refuses to start when the bundle is missing, unreadable or holds no PEM certificate. `specflow <role>` logs
+  `config.validation.failed` naming `PGSSLROOTCERT`; a direct `alembic upgrade` exits with a
+  `DatabaseConfigurationError` that names it.
 - trusts that bundle only (not the system store), and checks that the server certificate names `DATABASE_HOST`. Use
   an endpoint that the certificate carries (the cluster or instance endpoint), not an IP address or your own DNS
   alias.
 - uses the same TLS for the app role, the agent role, the migrations (`specflow migrate`, `alembic upgrade`), the
-  readiness checks (`/readyz`, `specflow worker --check`) and a PostgreSQL graph store without `GRAPH_STORE_URI`.
+  readiness checks (`/readyz`, `specflow worker --check`) and a PostgreSQL graph store. A graph store with its own
+  `GRAPH_STORE_URI` keeps the `sslmode` and `sslrootcert` it sets and takes `PGSSLMODE` and `PGSSLROOTCERT` for
+  the ones it leaves out; `sslrootcert` with a mode that uses no bundle is refused.
+- loads the bundle once per database engine: restart the processes after you change it.
 
 The server proves who it is. The client still logs in with `DATABASE_USER` and `DATABASE_PASSWORD`: there is no
-client certificate. A graph store with its own `GRAPH_STORE_URI` takes `?sslmode=verify-full&sslrootcert=<bundle>`.
-Without `PGSSLMODE` nothing changes.
+client certificate. The app builds the TLS context itself, so the other libpq TLS variables (`PGSSLCERT`,
+`PGSSLKEY`, `PGSSLCRL`, `PGSSLMINPROTOCOLVERSION`, `PGSSLMAXPROTOCOLVERSION`) are not supported: one that is set
+stops the process at start. Without `PGSSLMODE` the connection is `prefer`, as before.
 
 ### Try it on the local stack
 
 `make up WITH=tls` runs the stack with the same settings against a local postgres that refuses plain TCP. The RDS
 bundle cannot be used locally, because it trusts only certificates that AWS signs. So `make up WITH=tls` first runs
 `make postgres-tls-certs`. This command writes a throwaway CA and a server certificate for `specflow-postgres`,
-`localhost` and `127.0.0.1` into `.postgres-tls/` (git-ignored; delete the folder to get new ones). The overlay
+`localhost` and `127.0.0.1` into `.postgres-tls/` (git-ignored; for new ones delete the folder and run `make down`
+first, so that every container starts with them). The overlay
 `config/compose.postgres-tls.yaml` turns TLS on in the postgres service and refuses plain TCP there, as
 `rds.force_ssl` does. It mounts the local CA at `/etc/specflow/postgres/rds-ca-bundle.pem` in api, mcp, worker-parse
 and worker-agents, and sets `PGSSLMODE=verify-full` in them.
@@ -132,8 +138,10 @@ make db-upgrade WITH=tls       # the host targets use verify-full and .postgres-
 ```
 
 With `WITH=tls` the host targets (`make api`, `make worker`, `make db-upgrade`) get `PGSSLMODE=verify-full` and
-`PGSSLROOTCERT=.postgres-tls/ca.pem`. For other host tools (live tests, examples), export both yourself. The data
-volume is the same with and without TLS: `make up` without `WITH=tls` switches back.
+`PGSSLROOTCERT` set to the absolute path of `.postgres-tls/ca.pem`. For other host tools (live tests, examples),
+export both yourself, with an absolute path (backend tools run from `backend/`), for example from the repo root:
+`export PGSSLMODE=verify-full PGSSLROOTCERT="$PWD/.postgres-tls/ca.pem"`. The data volume is the same with and
+without TLS: `make up` without `WITH=tls` switches back.
 
 ## Graph store
 
@@ -279,8 +287,8 @@ Known differences from Neo4j (the adapter handles them; they matter when you rea
 
 The graph lives in one schema (`GRAPH_STORE_NAME`, default `graph`) of a PostgreSQL 15 or newer database
 with the `vector` extension (pgvector 0.8 or newer): the main database, or another one named by
-`GRAPH_STORE_URI` (`postgresql://host:port/database`; for verified TLS add `?sslmode=verify-full&sslrootcert=<bundle>`,
-see [PostgreSQL over TLS](#postgresql-over-tls)). Managed flavours (RDS,
+`GRAPH_STORE_URI` (`postgresql://host:port/database`; TLS comes from `PGSSLMODE` and `PGSSLROOTCERT` unless the URI
+sets `sslmode` or `sslrootcert`, see [PostgreSQL over TLS](#postgresql-over-tls)). Managed flavours (RDS,
 Aurora, Cloud SQL) work when they offer pgvector. The store keeps its own small connection pool
 (`GRAPH_STORE_POOL_SIZE`, default 5) and uses the writer endpoint for reads and writes.
 

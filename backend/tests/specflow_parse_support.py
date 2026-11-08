@@ -206,7 +206,7 @@ async def _run_slow_worker(sleep_seconds: float) -> None:
         namespace=os.environ["TEMPORAL_NAMESPACE"],
         data_converter=pydantic_data_converter,
     )
-    engine = create_async_engine(database.url())
+    engine = create_async_engine(database.url(), connect_args=database.connect_args())
     activities = ParseActivities(
         build_session_factory(engine),
         GcsObjectStore(storage),

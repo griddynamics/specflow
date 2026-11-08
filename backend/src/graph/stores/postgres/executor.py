@@ -50,7 +50,7 @@ from graph.core.store import (
 from graph.stores.config import StoreConfig
 from graph.stores.postgres.dialect import BACKEND, POSTGRES_DIALECT, PostgresDialect
 from logger.logger import WARNING, get_logger, log_event
-from postgres import SSL_MODES, new_engine, ssl_argument, transaction
+from postgres import new_engine, ssl_argument, transaction
 
 logger = get_logger("graph.stores.postgres")
 
@@ -211,11 +211,12 @@ def _milliseconds(value: Any) -> str:
 def connection_url(config: StoreConfig) -> tuple[URL, dict[str, Any]]:
     """The asyncpg URL of ``config`` (the host, port and database of ``uri``, the login of ``user`` and
     ``password``) and the connect arguments its query string asked for (``sslmode`` with its CA bundle
-    ``sslrootcert``, ``statement_timeout`` and ``lock_timeout`` in seconds)."""
+    ``sslrootcert``, ``statement_timeout`` and ``lock_timeout`` in seconds). Without ``sslmode`` the engine
+    default (``prefer``) applies."""
 
     try:
         url = make_url(config.uri)
-    except ArgumentError:
+    except (ArgumentError, ValueError):  # ValueError: e.g. an unbracketed IPv6 host
         raise ConfigurationError("store_uri_invalid", store=BACKEND) from None
     if not url.drivername.startswith("postgres"):
         raise ConfigurationError("store_uri_invalid", store=BACKEND)
@@ -227,12 +228,12 @@ def connection_url(config: StoreConfig) -> tuple[URL, dict[str, Any]]:
             connect_args.setdefault("server_settings", {})[option] = _milliseconds(value)
     mode = query.pop("sslmode", None)
     rootcert = query.pop("sslrootcert", None)
-    if mode is not None:
-        if not isinstance(mode, str) or mode not in SSL_MODES or not isinstance(rootcert, str | None):
+    if mode is not None or rootcert is not None:
+        if not isinstance(mode, str | None) or not isinstance(rootcert, str | None):
             raise ConfigurationError("store_uri_invalid", store=BACKEND)
         try:
             connect_args["ssl"] = ssl_argument(mode, rootcert)
-        except OSError:  # the CA bundle is missing, unreadable or holds no certificate
+        except (OSError, ValueError):  # an unknown mode, or a CA bundle that is missing, unreadable or unused
             raise ConfigurationError("store_uri_invalid", store=BACKEND) from None
     url = url.set(
         drivername=DRIVER,

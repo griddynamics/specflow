@@ -8,13 +8,14 @@
 # /etc/specflow/postgres/rds-ca-bundle.pem, the path where an Aurora deployment mounts the AWS RDS bundle;
 # server.pem and server.key go to the postgres service. The server certificate names specflow-postgres (the
 # compose network), localhost and 127.0.0.1 (the host tools), so PGSSLMODE=verify-full checks the host name as
-# it does on Aurora. A complete set is kept: delete DIR to get new certificates. Local only: DIR is git-ignored.
+# it does on Aurora. A complete set is kept: delete DIR and run `make down` to get new certificates. The CA key
+# is deleted once the server certificate is signed. Local only: DIR is git-ignored.
 # Works with OpenSSL and with the LibreSSL of macOS.
 set -eu
 
 dir=${1:?usage: sh scripts/postgres-tls.sh DIR}
 if [ -f "$dir/ca.pem" ] && [ -f "$dir/server.pem" ] && [ -f "$dir/server.key" ]; then
-	echo "postgres-tls: certificates exist in $dir (delete it to get new ones)"
+	echo "postgres-tls: certificates exist in $dir (delete it and run make down to get new ones)"
 	exit 0
 fi
 
@@ -45,7 +46,7 @@ openssl req -x509 -new -newkey rsa:2048 -nodes -days 825 -config "$conf" -extens
 openssl req -new -newkey rsa:2048 -nodes -config "$conf" -keyout "$dir/server.key" -out "$dir/server.csr"
 openssl x509 -req -days 825 -in "$dir/server.csr" -CA "$dir/ca.pem" -CAkey "$dir/ca.key" -CAcreateserial \
 	-extfile "$conf" -extensions server -out "$dir/server.pem"
-rm -f "$conf" "$dir/server.csr" "$dir/ca.srl"
+rm -f "$conf" "$dir/server.csr" "$dir/ca.srl" "$dir/ca.key"
 # The app containers run as a non-root user and read the CA through a bind mount.
 chmod 644 "$dir/ca.pem" "$dir/server.pem"
 echo "postgres-tls: wrote ca.pem, server.pem and server.key to $dir"

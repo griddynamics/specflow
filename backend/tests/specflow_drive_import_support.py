@@ -229,7 +229,7 @@ async def drive_stack(migrated_database, temporal_live) -> AsyncIterator[DriveSt
         namespace=LOCAL_NAMESPACE,
         data_converter=pydantic_data_converter,
     )
-    engine = create_async_engine(migrated_database.url())
+    engine = create_async_engine(migrated_database.url(), connect_args=migrated_database.connect_args())
     sessions = build_session_factory(engine)
     async with sessions() as session, session.begin():
         user = User(
@@ -261,7 +261,7 @@ async def _run_killable_worker() -> None:
         namespace=os.environ["TEMPORAL_NAMESPACE"],
         data_converter=pydantic_data_converter,
     )
-    engine = create_async_engine(database.url())
+    engine = create_async_engine(database.url(), connect_args=database.connect_args())
     built = registration.build_registration(
         engine,
         DirObjectStore(Path(os.environ["DRIVE_TEST_STORE"])),

@@ -175,7 +175,7 @@ async def stack(migrated_database, gcs, temporal_live, valid_env, isolated_traci
         "TEMPORAL_NAMESPACE": "specflow-local",
     }
     client = await connect(load_settings("worker", env))
-    engine = create_async_engine(migrated_database.url())
+    engine = create_async_engine(migrated_database.url(), connect_args=migrated_database.connect_args())
     sessions = build_session_factory(engine)
     async with sessions() as session, session.begin():
         user = User(actor_id=f"human:t{uuid.uuid4().hex[:8]}", display_name="T", email="t@example.com")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 
 import pytest
@@ -53,7 +54,8 @@ Load = Callable[..., DatabaseSettings]
 
 @pytest.fixture(autouse=True)
 def _clean_database_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in (*DATABASE_KEYS, *LEGACY_KEYS):
+    # The libpq TLS names too: DatabaseSettings reads PGSSLMODE and PGSSLROOTCERT and refuses the other PGSSL* ones.
+    for name in (*DATABASE_KEYS, *LEGACY_KEYS, *(name for name in os.environ if name.startswith("PGSSL"))):
         monkeypatch.delenv(name, raising=False)
 
 

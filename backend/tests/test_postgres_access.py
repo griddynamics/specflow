@@ -21,9 +21,10 @@ def test_every_engine_pings_its_connections_and_hides_bound_values(monkeypatch: 
     plain, pooled = seen
     for kwargs in (plain, pooled):
         assert kwargs["pool_pre_ping"] is True and kwargs["hide_parameters"] is True
-    assert "pool_size" not in plain and plain["connect_args"] == {}
+    # An explicit ssl on every engine (prefer by default), so asyncpg never reads PGSSLMODE itself.
+    assert "pool_size" not in plain and plain["connect_args"] == {"ssl": "prefer"}
     assert (pooled["pool_size"], pooled["max_overflow"], pooled["pool_timeout"]) == (3, 1, 2.0)
-    assert pooled["connect_args"] == {"a": 1}
+    assert pooled["connect_args"] == {"ssl": "prefer", "a": 1}
 
 
 class FakeTransaction:
