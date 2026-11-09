@@ -54,8 +54,9 @@ SDK_RETRIES: Final = 0
 RETRYABLE_STATUS: Final = frozenset({408, 429})
 FATAL_STATUS: Final = frozenset({401, 403, 404})
 REPAIR_ERRORS_SHOWN: Final = 10
-WARM_UP_OUTPUT_TOKENS: Final = 16
-"""Output tokens a ``warm_up`` request allows at most: its answer is discarded."""
+WARM_UP_OUTPUT_TOKENS: Final = 400
+"""Output tokens a ``warm_up`` request allows at most: its answer is discarded, but a reasoning model
+spends part of the limit on reasoning before it writes the answer."""
 OVERFLOW_MARKERS: Final = (
     "context_length_exceeded",
     "context length",
@@ -69,6 +70,12 @@ OVERFLOW_MARKERS: Final = (
     "input length exceeds",
     "exceeds the maximum input",
     "max_tokens_per_request",
+)
+OUTPUT_LIMIT_MARKERS: Final = (
+    # OpenAI rejects a strict json_schema answer cut off by the output limit with a 400 worded this
+    # way, instead of returning it with ``finish_reason="length"``.
+    "max_tokens or model output limit",
+    "model output limit was reached",
 )
 CONTENT_FILTER_CODES: Final = frozenset({"content_filter", "content_policy_violation"})
 CACHED_USAGE_FIELDS: Final = ("cache_read_input_tokens", "prompt_cache_hit_tokens")
@@ -283,6 +290,11 @@ def _is_overflow(error: openai.APIStatusError) -> bool:
     )
 
 
+def _is_output_limit(error: openai.APIStatusError) -> bool:
+    text = _error_text(error)
+    return error.status_code == HTTPStatus.BAD_REQUEST and any(marker in text for marker in OUTPUT_LIMIT_MARKERS)
+
+
 def _is_content_filter(error: openai.APIStatusError) -> bool:
     return error.status_code == HTTPStatus.BAD_REQUEST and (error.code or "") in CONTENT_FILTER_CODES
 
@@ -295,6 +307,8 @@ def _raise_unless_retryable(error: openai.APIStatusError, fields: dict[str, str]
         raise LLMFatalError(**fields, status=status) from None
     if _is_overflow(error):
         raise LLMError("overflow", **fields, status=status) from None
+    if _is_output_limit(error):
+        raise LLMError("truncated", **fields, status=status) from None
     if _is_content_filter(error):
         raise LLMError("refused", **fields, status=status) from None
     if status not in RETRYABLE_STATUS and status < HTTPStatus.INTERNAL_SERVER_ERROR:
@@ -471,7 +485,8 @@ class Gateway:
     ) -> None:
         """One request that only fills the provider's prompt cache: ``messages`` sent as ``structured`` sends them, with
         the same ``output_type`` schema, so a later ``structured`` call whose messages start with them reads them from
-        the cache.
+        the cache. Best effort: a failed warm-up is logged and the calls run without it; only an
+        ``LLMFatalError`` (credentials, model or endpoint) raises.
         """
 
         model_name, fields, response_format = self._chat_request(call_class, model, output_type, prompt)
@@ -492,6 +507,18 @@ class Gateway:
             completion = await self._send(call_class, prompt, send, fields)
             self._record_tokens(completion, call_class, prompt)
             failed = False
+        except LLMFatalError:
+            raise
+        except LLMError as error:
+            log_event(
+                logger,
+                WARNING,
+                "graph.llm.warm_up_failed",
+                call_class=call_class,
+                prompt=prompt,
+                model=model_name,
+                reason=error.reason,
+            )
         finally:
             self._usage.call(call_class, prompt, duration_s=time.monotonic() - started, failed=failed)
 
