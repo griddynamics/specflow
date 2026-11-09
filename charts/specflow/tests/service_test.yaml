@@ -1,0 +1,51 @@
+suite: Service
+templates:
+  - service.yaml
+tests:
+  - it: exposes the default API port
+    asserts:
+      - isKind:
+          of: Service
+      - equal:
+          path: spec.type
+          value: ClusterIP
+      - equal:
+          path: spec.ports[0].port
+          value: 8000
+      - equal:
+          path: spec.ports[0].targetPort
+          value: http
+      - equal:
+          path: spec.selector["app.kubernetes.io/component"]
+          value: api
+
+  - it: supports a NodePort Service
+    set:
+      service.type: NodePort
+      service.ports:
+        - name: http
+          port: 8000
+          targetPort: http
+          protocol: TCP
+          nodePort: 30800
+    asserts:
+      - equal:
+          path: spec.type
+          value: NodePort
+      - equal:
+          path: spec.ports[0].nodePort
+          value: 30800
+
+  - it: renders no Service for worker-agent
+    values:
+      - ../examples/components/worker-agent.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders no Service for worker-parse
+    values:
+      - ../examples/components/worker-parse.yaml
+    asserts:
+      - hasDocuments:
+          count: 0

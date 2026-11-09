@@ -1,0 +1,19 @@
+# Layer this file after examples/components/frontend.yaml.
+routing:
+  type: ingress
+  hostnames:
+    - specflow.example.com
+  paths:
+    - path: /
+      pathType: Prefix
+  ingress:
+    className: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    tls:
+      - secretName: specflow-tls
+        hosts:
+          - specflow.example.com
+  httpRoute:
+    parentRefs: []
+    annotations: {}

@@ -1,0 +1,20 @@
+# Layer this file after examples/components/frontend.yaml.
+routing:
+  type: ingress
+  hostnames:
+    - specflow.example.com
+  paths:
+    - path: /
+      pathType: Prefix
+  ingress:
+    className: traefik
+    annotations:
+      traefik.ingress.kubernetes.io/router.entrypoints: websecure
+      traefik.ingress.kubernetes.io/router.tls: "true"
+    tls:
+      - secretName: specflow-tls
+        hosts:
+          - specflow.example.com
+  httpRoute:
+    parentRefs: []
+    annotations: {}

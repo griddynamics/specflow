@@ -1,0 +1,13 @@
+Specflow component {{ .Values.component | quote }} was rendered as release {{ .Release.Name | quote }}.
+
+{{- if .Values.service.enabled }}
+Internal Service: {{ include "specflow.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+{{- else }}
+This component has no Service. Its health port is Pod-internal.
+{{- end }}
+
+Routing mode: {{ .Values.routing.type }}
+
+This chart deploys one component per release. Install the API first with --wait,
+then install frontend, MCP, worker-agent, and worker-parse as separate releases.
+External databases, Temporal, storage, OIDC, ESO, and CSI drivers are not installed.

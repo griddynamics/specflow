@@ -1,0 +1,164 @@
+component: frontend
+replicaCount: 1
+
+# Create a Secret named specflow-frontend before installation.
+
+image:
+  registry: ghcr.io
+  repository: griddynamics/specflow-frontend
+  tag: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+command: []
+args: []
+containerPorts:
+  - name: http
+    containerPort: 3000
+    protocol: TCP
+
+env:
+  - name: APP_ENV
+    valueFrom:
+      secretKeyRef:
+        name: specflow-frontend
+        key: APP_ENV
+  - name: API_INTERNAL_URL
+    value: http://specflow-api:8000
+  - name: PUBLIC_URL
+    valueFrom:
+      secretKeyRef:
+        name: specflow-frontend
+        key: PUBLIC_URL
+  - name: OIDC_ISSUER
+    valueFrom:
+      secretKeyRef:
+        name: specflow-frontend
+        key: OIDC_ISSUER
+  - name: OIDC_CLIENT_ID
+    valueFrom:
+      secretKeyRef:
+        name: specflow-frontend
+        key: OIDC_CLIENT_ID
+  - name: MCP_PUBLIC_URL
+    valueFrom:
+      secretKeyRef:
+        name: specflow-frontend
+        key: MCP_PUBLIC_URL
+  - name: MCP_CLIENT_ID
+    valueFrom:
+      secretKeyRef:
+        name: specflow-frontend
+        key: MCP_CLIENT_ID
+  - name: OIDC_CLIENT_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: specflow-frontend
+        key: OIDC_CLIENT_SECRET
+  - name: SESSION_SECRET
+    valueFrom:
+      secretKeyRef:
+        name: specflow-frontend
+        key: SESSION_SECRET
+envFrom: []
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 200m
+    memory: 512Mi
+
+terminationGracePeriodSeconds: 30
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 0
+    maxSurge: 1
+
+livenessProbe:
+  httpGet:
+    path: /api/health
+    port: http
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+readinessProbe:
+  httpGet:
+    path: /api/health
+    port: http
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 6
+startupProbe:
+  httpGet:
+    path: /api/health
+    port: http
+  periodSeconds: 5
+  timeoutSeconds: 5
+  failureThreshold: 30
+
+service:
+  enabled: true
+  type: ClusterIP
+  annotations: {}
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP
+
+persistence:
+  enabled: false
+  existingClaim: ""
+  name: data
+  mountPath: ""
+  size: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  storageClass: ""
+  retain: true
+  annotations: {}
+
+volumes:
+  - name: tmp
+    emptyDir: {}
+volumeMounts:
+  - name: tmp
+    mountPath: /tmp
+
+routing:
+  type: none
+  hostnames: []
+  paths:
+    - path: /
+      pathType: Prefix
+  ingress:
+    className: ""
+    annotations: {}
+    tls: []
+  httpRoute:
+    parentRefs: []
+    annotations: {}
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: null
+  behavior: {}
+podDisruptionBudget:
+  enabled: false
+  minAvailable: null
+  maxUnavailable: 1
+

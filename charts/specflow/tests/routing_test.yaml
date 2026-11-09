@@ -1,0 +1,83 @@
+suite: Routing
+templates:
+  - ingress.yaml
+  - httproute.yaml
+tests:
+  - it: renders no route by default
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: ingress.yaml
+      - hasDocuments:
+          count: 0
+        template: httproute.yaml
+
+  - it: renders a standard ingress-nginx route
+    values:
+      - ../examples/components/frontend.yaml
+      - ../examples/integrations/ingress-nginx.yaml
+    asserts:
+      - isKind:
+          of: Ingress
+        template: ingress.yaml
+      - equal:
+          path: spec.ingressClassName
+          value: nginx
+        template: ingress.yaml
+      - equal:
+          path: spec.rules[0].host
+          value: specflow.example.com
+        template: ingress.yaml
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service.port.number
+          value: 3000
+        template: ingress.yaml
+      - equal:
+          path: spec.tls[0].secretName
+          value: specflow-tls
+        template: ingress.yaml
+      - hasDocuments:
+          count: 0
+        template: httproute.yaml
+
+  - it: renders a portable Gateway API HTTPRoute
+    values:
+      - ../examples/components/frontend.yaml
+      - ../examples/integrations/gateway-api.yaml
+    asserts:
+      - isKind:
+          of: HTTPRoute
+        template: httproute.yaml
+      - equal:
+          path: spec.parentRefs[0].name
+          value: public-gateway
+        template: httproute.yaml
+      - equal:
+          path: spec.hostnames[0]
+          value: specflow.example.com
+        template: httproute.yaml
+      - equal:
+          path: spec.rules[0].matches[0].path.type
+          value: PathPrefix
+        template: httproute.yaml
+      - equal:
+          path: spec.rules[0].backendRefs[0].port
+          value: 3000
+        template: httproute.yaml
+      - hasDocuments:
+          count: 0
+        template: ingress.yaml
+
+  - it: maps Exact paths to Gateway API Exact matches
+    values:
+      - ../examples/components/frontend.yaml
+      - ../examples/integrations/gateway-api.yaml
+    set:
+      routing.paths:
+        - path: /health
+          pathType: Exact
+    asserts:
+      - equal:
+          path: spec.rules[0].matches[0].path.type
+          value: Exact
+        template: httproute.yaml

@@ -1,0 +1,21 @@
+# Layer this file after examples/components/api.yaml. The postgres-ca Secret
+# must contain ca.crt, and the specflow-api Secret must set PGSSLROOTCERT to
+# /etc/specflow/certs/ca.crt.
+
+volumes:
+  - name: tmp
+    emptyDir: {}
+  - name: postgres-ca
+    secret:
+      secretName: postgres-ca
+      items:
+        - key: ca.crt
+          path: ca.crt
+
+volumeMounts:
+  - name: tmp
+    mountPath: /tmp
+  - name: postgres-ca
+    mountPath: /etc/specflow/certs/ca.crt
+    subPath: ca.crt
+    readOnly: true

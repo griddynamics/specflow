@@ -1,0 +1,70 @@
+suite: Persistence
+templates:
+  - pvc.yaml
+  - deployment.yaml
+tests:
+  - it: uses ephemeral graph state with default values
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: pvc.yaml
+      - equal:
+          path: spec.template.spec.volumes[0].name
+          value: graph-state
+        template: deployment.yaml
+      - isNotNull:
+          path: spec.template.spec.volumes[0].emptyDir
+        template: deployment.yaml
+
+  - it: creates and mounts retained API storage
+    values:
+      - ../examples/components/api.yaml
+    asserts:
+      - isKind:
+          of: PersistentVolumeClaim
+        template: pvc.yaml
+      - equal:
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+        template: pvc.yaml
+      - equal:
+          path: spec.resources.requests.storage
+          value: 5Gi
+        template: pvc.yaml
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts[0].mountPath
+          value: /var/lib/specflow/graph
+        template: deployment.yaml
+      - equal:
+          path: spec.template.spec.volumes[0].persistentVolumeClaim.claimName
+          value: RELEASE-NAME-specflow-graph-state
+        template: deployment.yaml
+
+  - it: mounts an existing claim without creating a PVC
+    set:
+      persistence.enabled: false
+      persistence.existingClaim: existing-graph-state
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: pvc.yaml
+      - equal:
+          path: spec.template.spec.volumes[0].persistentVolumeClaim.claimName
+          value: existing-graph-state
+        template: deployment.yaml
+
+  - it: applies storage class and custom annotations
+    set:
+      persistence.enabled: true
+      persistence.storageClass: fast
+      persistence.annotations:
+        example.com/owner: platform
+    asserts:
+      - equal:
+          path: spec.storageClassName
+          value: fast
+        template: pvc.yaml
+      - equal:
+          path: metadata.annotations["example.com/owner"]
+          value: platform
+        template: pvc.yaml

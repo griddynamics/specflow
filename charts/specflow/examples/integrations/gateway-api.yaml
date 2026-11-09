@@ -1,0 +1,19 @@
+# Layer this file after examples/components/frontend.yaml. The referenced
+# Gateway is intentionally managed outside this chart.
+routing:
+  type: httpRoute
+  hostnames:
+    - specflow.example.com
+  paths:
+    - path: /
+      pathType: Prefix
+  ingress:
+    className: ""
+    annotations: {}
+    tls: []
+  httpRoute:
+    parentRefs:
+      - name: public-gateway
+        namespace: gateway-system
+        sectionName: https
+    annotations: {}

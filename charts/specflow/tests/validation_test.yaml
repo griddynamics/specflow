@@ -1,0 +1,201 @@
+suite: Cross-field validation
+templates:
+  - validate.yaml
+tests:
+  - it: rejects multiple API replicas
+    set:
+      replicaCount: 2
+    asserts:
+      - failedTemplate:
+          errorMessage: api requires replicaCount=1 because its startup migration has no distributed lock
+
+  - it: rejects API autoscaling
+    set:
+      autoscaling.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: api does not support autoscaling while its startup migration has no distributed lock
+
+  - it: rejects a rolling API strategy
+    set:
+      strategy.type: RollingUpdate
+    asserts:
+      - failedTemplate:
+          errorMessage: api requires strategy.type=Recreate because its startup migration has no distributed lock
+
+  - it: rejects an API graph mount at another path
+    set:
+      persistence.mountPath: /data
+    asserts:
+      - failedTemplate:
+          errorMessage: api requires persistence.mountPath=/var/lib/specflow/graph
+
+  - it: rejects a worker Service
+    values:
+      - ../examples/components/worker-agent.yaml
+    set:
+      service.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: worker-agent must set service.enabled=false; the health port is internal to the Pod
+
+  - it: rejects a short worker termination grace period
+    values:
+      - ../examples/components/worker-parse.yaml
+    set:
+      terminationGracePeriodSeconds: 149
+    asserts:
+      - failedTemplate:
+          errorMessage: worker-parse requires terminationGracePeriodSeconds of at least 150
+
+  - it: rejects an MCP command that runs API startup
+    values:
+      - ../examples/components/mcp.yaml
+    set:
+      command:
+        - specflow
+        - api
+    asserts:
+      - failedTemplate:
+          errorMessage: "mcp requires command: [specflow, mcp] to bypass the API image startup migration"
+
+  - it: rejects routing without a Service
+    values:
+      - ../examples/components/frontend.yaml
+    set:
+      service.enabled: false
+      routing.type: ingress
+      routing.hostnames:
+        - specflow.example.com
+    asserts:
+      - failedTemplate:
+          errorMessage: routing requires service.enabled=true
+
+  - it: rejects routing without hostnames
+    values:
+      - ../examples/components/frontend.yaml
+    set:
+      routing.type: ingress
+      routing.hostnames: []
+    asserts:
+      - failedTemplate:
+          errorMessage: routing.hostnames must contain at least one hostname when routing is enabled
+
+  - it: rejects an HTTPRoute without a Gateway reference
+    values:
+      - ../examples/components/frontend.yaml
+    set:
+      routing.type: httpRoute
+      routing.hostnames:
+        - specflow.example.com
+    asserts:
+      - failedTemplate:
+          errorMessage: routing.httpRoute.parentRefs must contain at least one Gateway reference
+
+  - it: rejects two persistence claim sources
+    set:
+      persistence.enabled: true
+      persistence.existingClaim: existing
+    asserts:
+      - failedTemplate:
+          errorMessage: persistence.enabled and persistence.existingClaim are mutually exclusive
+
+  - it: rejects an invalid HPA range
+    values:
+      - ../examples/components/frontend.yaml
+    set:
+      autoscaling.enabled: true
+      autoscaling.minReplicas: 4
+      autoscaling.maxReplicas: 3
+    asserts:
+      - failedTemplate:
+          errorMessage: autoscaling.minReplicas must be less than or equal to maxReplicas
+
+  - it: rejects an HPA without metrics
+    values:
+      - ../examples/components/frontend.yaml
+    set:
+      autoscaling.enabled: true
+      autoscaling.targetCPUUtilizationPercentage: null
+      autoscaling.targetMemoryUtilizationPercentage: null
+    asserts:
+      - failedTemplate:
+          errorMessage: autoscaling requires a CPU or memory target
+
+  - it: rejects two PDB availability settings
+    values:
+      - ../examples/components/frontend.yaml
+    set:
+      podDisruptionBudget.enabled: true
+      podDisruptionBudget.minAvailable: 1
+      podDisruptionBudget.maxUnavailable: 1
+    asserts:
+      - failedTemplate:
+          errorMessage: podDisruptionBudget must set only one of minAvailable or maxUnavailable
+
+  - it: rejects a PDB without an availability setting
+    values:
+      - ../examples/components/frontend.yaml
+    set:
+      podDisruptionBudget.enabled: true
+      podDisruptionBudget.minAvailable: null
+      podDisruptionBudget.maxUnavailable: null
+    asserts:
+      - failedTemplate:
+          errorMessage: podDisruptionBudget requires minAvailable or maxUnavailable
+
+  - it: rejects image-owned environment settings
+    set:
+      env:
+        - name: NODE_ENV
+          value: production
+    asserts:
+      - failedTemplate:
+          errorMessage: env contains application-, image-, or Kubernetes-owned variable NODE_ENV
+
+  - it: rejects removed authentication settings
+    set:
+      env:
+        - name: AUTH_MODE
+          value: oidc
+    asserts:
+      - failedTemplate:
+          errorMessage: env contains application-, image-, or Kubernetes-owned variable AUTH_MODE
+
+  - it: rejects duplicate explicit environment settings
+    set:
+      env:
+        - name: APP_ENV
+          value: prod
+        - name: APP_ENV
+          value: local
+    asserts:
+      - failedTemplate:
+          errorMessage: env contains duplicate variable APP_ENV
+
+  - it: rejects a volume that collides with persistence
+    set:
+      volumes:
+        - name: graph-state
+          emptyDir: {}
+    asserts:
+      - failedTemplate:
+          errorMessage: volumes contains duplicate or persistence-owned name graph-state
+
+  - it: rejects a mount that references no volume
+    set:
+      volumeMounts:
+        - name: missing
+          mountPath: /missing
+    asserts:
+      - failedTemplate:
+          errorMessage: volumeMounts references undefined volume missing
+
+  - it: rejects a mount path that collides with persistence
+    set:
+      volumeMounts:
+        - name: tmp
+          mountPath: /var/lib/specflow/graph
+    asserts:
+      - failedTemplate:
+          errorMessage: volumeMounts contains duplicate or persistence-owned mountPath /var/lib/specflow/graph
