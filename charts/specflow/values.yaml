@@ -1,4 +1,4 @@
-nameOverride: ""
+nameOverride: specflow
 fullnameOverride: ""
 
 # This chart deploys one component per Helm release. The defaults describe the
