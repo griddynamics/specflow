@@ -8,8 +8,8 @@ component: api
 replicaCount: 1
 
 image:
-  registry: ghcr.io
-  repository: griddynamics/specflow-api
+  registry: docker.io
+  repository: griddynamics/specflow-frontend
   tag: ""
   digest: ""
   pullPolicy: IfNotPresent
