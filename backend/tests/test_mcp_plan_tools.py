@@ -1,14 +1,14 @@
-"""The plan tools over HTTP (docs/mcp-server/tools.md, list_tasks and get_task_brief): the SDK client session, tokens
-from the loopback OIDC IdP, the real tool registry over the REST ``FakeRepo`` and fake plan reads.
+"""The plan tools over HTTP (docs/mcp-server/tools.md, the plan tools): the SDK client session, tokens from the
+loopback OIDC IdP, the real tool registry over the REST ``FakeRepo`` and the plan library's ``PlanService``.
 
-Boundaries faked: Postgres (``FakeRepo``) and the plan library's reads (``FakePlanReads``: the reader's plan, tasks,
-areas and stories, and the lifecycle's ready tasks and task brief), so the tools are tested on their own contract.
+Boundaries faked: Postgres (``FakeRepo``), the plan store read (``shop_plan``, in memory) and the spec graph
+(``ShopGraph``); the brief, whose graph reads have their own tests, is a canned one. The composition itself is the
+service's (test_graph_plan_service.py); these tests hold the tools to their wire contract.
 """
 
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
 from typing import Any
 
 from starlette.applications import Starlette
@@ -16,10 +16,11 @@ from starlette.applications import Starlette
 from api.mcp.errors import MESSAGES
 from api.mcp.registry import TOOLS, install
 from api.mcp.tools.graph import encode_feature_cursor
-from graph.core.reader import GraphNode
-from graph.plan import PlanArea, PlanStory, PlanTask, TaskBrief, TaskStateError
-from graph.plan.models import DoneWhen, PlanInfo
-from graph_support import shipped_ontology
+from graph.plan import PlanReadError, PlanService, TaskBrief
+from graph.plan.models import DoneWhen
+from graph.plan.reader import LoadedPlan
+from graph_plan_support import plan_ontology, plan_rules
+from graph_support import OfflineExecutor, shipped_ontology
 from mcp_support import (
     MCP_URL,
     build_app,
@@ -33,114 +34,35 @@ from mcp_support import (
     structured,
     text,
 )
+from plan_reads_support import OPEN_TASK_IDS, READY, ShopGraph, shop_plan
 from test_specflow_api_fakes import FakeRepo
 
 ALICE = mcp_token("alice@example.com")
-T0 = datetime(2026, 1, 1, tzinfo=UTC)
 
 
-def _task(task_id: str, status: str = "pending", **values: Any) -> PlanTask:
-    defaults: dict[str, Any] = {
-        "task_id": task_id,
-        "area_id": "AREA::ORDERS",
-        "action": task_id.rsplit("::", 1)[-1],
-        "revision": 1,
-        "story_id": "STORY::ORDERS::PLACE",
-        "phase": "logic",
-        "title": f"Task {task_id}",
-        "complexity": "medium",
-        "planned_by": "model",
-        "status": status,
-        "created_at": T0,
-        "updated_at": T0,
-    }
-    return PlanTask(**(defaults | values))
+class FakePlanService(PlanService):
+    """The real service over ``shop_plan`` and ``ShopGraph``, recording the projects it loads and the briefs asked."""
 
-
-TASKS = [
-    _task("TASK::ORDERS::A", "completed", phase="setup"),
-    _task("TASK::ORDERS::B", waits_for=("TASK::ORDERS::A",)),
-    _task("TASK::ORDERS::C", waits_for=("TASK::ORDERS::B",)),
-    _task("TASK::ORDERS::D", planned_by="rules", story_id="STORY::ORDERS::TRACK"),
-    _task("TASK::PAY::E", area_id="AREA::PAY", story_id="STORY::PAY::CORE", implements=("REQ::PAY_ON_PLACE",)),
-    _task("TASK::ORDERS::OLD", "superseded"),
-]
-READY = ("TASK::ORDERS::B", "TASK::ORDERS::D", "TASK::PAY::E")
-
-
-class FakeReader:
-    def __init__(self, *, has_plan: bool) -> None:
-        self.has_plan = has_plan
+    def __init__(self, *, has_plan: bool = True) -> None:
         self.projects: list[str] = []
-
-    async def plan(self, project_id: str) -> PlanInfo | None:
-        self.projects.append(project_id)
-        return PlanInfo(plan_id="plan-1", created_at=T0, updated_at=T0) if self.has_plan else None
-
-    async def tasks_for(self, _project_id: str, spec_ids: list[str]) -> list[PlanTask]:
-        return [task for task in TASKS if set(task.implements) & set(spec_ids)]
-
-    async def tasks(
-        self, _project_id: str, *, status: str | None = None, area_id: str | None = None, story_id: str | None = None
-    ) -> list[PlanTask]:
-        return [
-            task
-            for task in TASKS
-            if (status is None or task.status == status)
-            and (area_id is None or task.area_id == area_id)
-            and (story_id is None or task.story_id == story_id)
-        ]
-
-    async def areas(self, _project_id: str) -> list[PlanArea]:
-        return [
-            PlanArea(
-                area_id=area_id,
-                kind="module",
-                title=title,
-                planned_by="model",
-                status="active",
-                created_at=T0,
-                updated_at=T0,
-            )
-            for area_id, title in (("AREA::ORDERS", "Orders"), ("AREA::PAY", "Payments"))
-        ]
-
-    async def stories(self, _project_id: str) -> list[PlanStory]:
-        return [
-            PlanStory(
-                story_id=story_id,
-                area_id=area_id,
-                kind="feature",
-                title=title,
-                anchor=anchor,
-                status="active",
-                progress="pending",
-                created_at=T0,
-                updated_at=T0,
-            )
-            for story_id, area_id, title, anchor in (
-                ("STORY::ORDERS::PLACE", "AREA::ORDERS", "Place an order", "FEAT::PLACE"),
-                ("STORY::PAY::CORE", "AREA::PAY", "Payments", "FEAT::PAY"),
-            )
-        ]
-
-
-class FakeLifecycle:
-    def __init__(self) -> None:
         self.briefs: list[tuple[str, str, int]] = []
+        self.loaded = shop_plan(has_plan=has_plan)
 
-    async def ready_tasks(self, _project_id: str) -> list[PlanTask]:
-        return [task for task in TASKS if task.task_id in READY]
+        async def load(project_id: str) -> LoadedPlan:
+            self.projects.append(project_id)
+            return self.loaded
+
+        ontology = plan_ontology()
+        super().__init__(OfflineExecutor(), ontology, plan_rules(ontology), graph=ShopGraph(), load=load)
 
     async def task_brief(self, project_id: str, task_id: str, *, neighbours: int = 30) -> TaskBrief:
+        await self._plan(project_id)
         self.briefs.append((project_id, task_id, neighbours))
-        task = next((item for item in TASKS if item.task_id == task_id), None)
-        if task is None:
-            raise TaskStateError("unknown_task")
-        if task.status == "superseded":
-            raise TaskStateError("wrong_state", status=task.status)
+        task = self.loaded.tasks.get(task_id)
+        if task is None or task.status == "superseded":
+            raise PlanReadError("task_not_found")
         return TaskBrief(
-            task=task,
+            task=self.loaded.plan_task(task),
             done_when=(DoneWhen(text="An order is stored.", source="spec"),),
             profile={"languages": ["python"]},
             spec_changed=True,
@@ -148,35 +70,12 @@ class FakeLifecycle:
         )
 
 
-class FakeGraphReader:
-    """The feature ``FEAT::PLACE`` with the requirement ``REQ::PAY_ON_PLACE`` under it."""
-
-    def __init__(self) -> None:
-        feature = shipped_ontology().node_types["feature"].label
-        self.nodes = {
-            "FEAT::PLACE": GraphNode(spec_id="FEAT::PLACE", uuid="u1", label=feature, name="Place an order"),
-            "REQ::PAY_ON_PLACE": GraphNode(spec_id="REQ::PAY_ON_PLACE", uuid="u2", label="Requirement", name="Pay"),
-        }
-
-    async def node(self, _project_id: str, spec_id: str) -> GraphNode | None:
-        return self.nodes.get(spec_id)
-
-    async def scope(self, _project_id: str, spec_id: str) -> list[GraphNode]:
-        return [self.nodes["REQ::PAY_ON_PLACE"]] if spec_id == "FEAT::PLACE" else []
-
-
-class FakePlanReads:
-    def __init__(self, *, has_plan: bool = True) -> None:
-        self.reader = FakeReader(has_plan=has_plan)
-        self.lifecycle = FakeLifecycle()
-
-
-def tool_app(monkeypatch: Any, valid_env: dict[str, str], plan: FakePlanReads) -> tuple[Starlette, FakeRepo]:
-    """The MCP app with the real registry over ``FakeRepo``, ``plan`` and the feature graph of ``FakeGraphReader``."""
+def tool_app(monkeypatch: Any, valid_env: dict[str, str], plan: FakePlanService) -> tuple[Starlette, FakeRepo]:
+    """The MCP app with the real registry over ``FakeRepo`` and ``plan``."""
 
     repo = FakeRepo()
     repo.install(monkeypatch)
-    runtime = fake_runtime(session_factory=repo, ontology=shipped_ontology(), plan=plan, reader=FakeGraphReader())
+    runtime = fake_runtime(session_factory=repo, ontology=shipped_ontology(), plan=plan)
     app = build_app(mcp_env(valid_env), runtime=runtime, tools=lambda server: install(server, resource_url=MCP_URL))
     return app, repo
 
@@ -194,7 +93,7 @@ async def test_the_plan_tools_are_declared_read_only_and_project_scoped():
 
 
 async def test_list_tasks_lists_ready_tasks_by_default_with_their_area_story_and_origin(monkeypatch, valid_env):
-    plan = FakePlanReads()
+    plan = FakePlanService()
     app, repo = tool_app(monkeypatch, valid_env, plan)
     project = await owned_project(repo, "alice@example.com", "Shop")
     async with sdk_session(app, ALICE) as session:
@@ -219,12 +118,15 @@ async def test_list_tasks_lists_ready_tasks_by_default_with_their_area_story_and
         "planned_by": "model",
     }
     rules = body["items"][1]
-    assert rules["planned_by"] == "rules" and rules["story"] == {"story_id": "STORY::ORDERS::TRACK", "title": None}
-    assert plan.reader.projects == [str(project.id)]
+    assert rules["planned_by"] == "rules" and rules["story"] == {
+        "story_id": "STORY::ORDERS::TRACK",
+        "title": "Track an order",
+    }
+    assert plan.projects == [str(project.id)]
 
 
 async def test_list_tasks_filters_by_readiness_status_area_and_story_and_never_lists_history(monkeypatch, valid_env):
-    app, repo = tool_app(monkeypatch, valid_env, FakePlanReads())
+    app, repo = tool_app(monkeypatch, valid_env, FakePlanService())
     pid = str((await owned_project(repo, "alice@example.com", "Shop")).id)
     async with sdk_session(app, ALICE) as session:
         everything = await call(session, "list_tasks", project_id=pid, ready_only=False)
@@ -234,7 +136,7 @@ async def test_list_tasks_filters_by_readiness_status_area_and_story_and_never_l
         ready_done = await call(session, "list_tasks", project_id=pid, status="completed")
         history = await call(session, "list_tasks", project_id=pid, ready_only=False, status="superseded")
 
-    assert _ids(everything) == [task.task_id for task in TASKS if task.status != "superseded"]
+    assert _ids(everything) == list(OPEN_TASK_IDS)
     assert [item["ready"] for item in structured(everything)["items"]] == [False, True, False, True, True]
     assert _ids(done) == ["TASK::ORDERS::A"]
     assert _ids(pay) == ["TASK::PAY::E"]
@@ -244,7 +146,7 @@ async def test_list_tasks_filters_by_readiness_status_area_and_story_and_never_l
 
 
 async def test_list_tasks_pages_by_task_id_and_refuses_a_bad_cursor(monkeypatch, valid_env):
-    app, repo = tool_app(monkeypatch, valid_env, FakePlanReads())
+    app, repo = tool_app(monkeypatch, valid_env, FakePlanService())
     pid = str((await owned_project(repo, "alice@example.com", "Shop")).id)
     async with sdk_session(app, ALICE) as session:
         first = await call(session, "list_tasks", project_id=pid, ready_only=False, limit=2)
@@ -265,7 +167,7 @@ async def test_list_tasks_pages_by_task_id_and_refuses_a_bad_cursor(monkeypatch,
 
 
 async def test_get_task_brief_returns_the_library_brief(monkeypatch, valid_env):
-    plan = FakePlanReads()
+    plan = FakePlanService()
     app, repo = tool_app(monkeypatch, valid_env, plan)
     pid = str((await owned_project(repo, "alice@example.com", "Shop")).id)
     async with sdk_session(app, ALICE) as session:
@@ -281,11 +183,11 @@ async def test_get_task_brief_returns_the_library_brief(monkeypatch, valid_env):
     assert brief["profile"] == {"languages": ["python"]}
     assert brief["spec_changed"] is True and brief["missing"] == ["REQ::GONE"]
     assert not default.is_error
-    assert plan.lifecycle.briefs == [(pid, "TASK::ORDERS::B", 5), (pid, "TASK::ORDERS::C", 30)]
+    assert plan.briefs == [(pid, "TASK::ORDERS::B", 5), (pid, "TASK::ORDERS::C", 30)]
 
 
 async def test_get_task_brief_does_not_find_an_unknown_or_superseded_task(monkeypatch, valid_env):
-    app, repo = tool_app(monkeypatch, valid_env, FakePlanReads())
+    app, repo = tool_app(monkeypatch, valid_env, FakePlanService())
     pid = str((await owned_project(repo, "alice@example.com", "Shop")).id)
     async with sdk_session(app, ALICE) as session:
         unknown = await call(session, "get_task_brief", project_id=pid, task_id="TASK::NOPE")
@@ -298,7 +200,7 @@ async def test_get_task_brief_does_not_find_an_unknown_or_superseded_task(monkey
 
 
 async def test_both_tools_answer_no_plan_before_the_first_plan(monkeypatch, valid_env):
-    plan = FakePlanReads(has_plan=False)
+    plan = FakePlanService(has_plan=False)
     app, repo = tool_app(monkeypatch, valid_env, plan)
     pid = str((await owned_project(repo, "alice@example.com", "Shop")).id)
     async with sdk_session(app, ALICE) as session:
@@ -307,11 +209,11 @@ async def test_both_tools_answer_no_plan_before_the_first_plan(monkeypatch, vali
 
     assert code(listed) == "no_plan" and code(brief) == "no_plan"
     assert structured(listed)["error"]["message"] == MESSAGES["no_plan"]
-    assert plan.lifecycle.briefs == []
+    assert plan.briefs == []
 
 
 async def test_the_plan_tools_check_membership_before_reading_the_plan(monkeypatch, valid_env):
-    plan = FakePlanReads()
+    plan = FakePlanService()
     app, repo = tool_app(monkeypatch, valid_env, plan)
     theirs = str((await owned_project(repo, "bob@example.com", "Beta")).id)
     async with sdk_session(app, ALICE) as session:
@@ -321,11 +223,11 @@ async def test_the_plan_tools_check_membership_before_reading_the_plan(monkeypat
 
     assert code(listed) == "project_not_found" and code(brief) == "project_not_found"
     assert code(malformed) == "project_not_found"
-    assert plan.reader.projects == [] and plan.lifecycle.briefs == []  # refused before any plan read
+    assert plan.projects == [] and plan.briefs == []  # refused before any plan read
 
 
 async def test_list_feature_tasks_lists_the_feature_story_and_the_tasks_implementing_its_scope(monkeypatch, valid_env):
-    app, repo = tool_app(monkeypatch, valid_env, FakePlanReads())
+    app, repo = tool_app(monkeypatch, valid_env, FakePlanService())
     pid = str((await owned_project(repo, "alice@example.com", "Shop")).id)
     async with sdk_session(app, ALICE) as session:
         listed = await call(session, "list_feature_tasks", project_id=pid, feature_id="FEAT::PLACE")
@@ -351,7 +253,7 @@ async def test_list_feature_tasks_lists_the_feature_story_and_the_tasks_implemen
 
 
 async def test_get_task_path_lists_every_prerequisite_in_build_order_then_the_task(monkeypatch, valid_env):
-    app, repo = tool_app(monkeypatch, valid_env, FakePlanReads())
+    app, repo = tool_app(monkeypatch, valid_env, FakePlanService())
     pid = str((await owned_project(repo, "alice@example.com", "Shop")).id)
     async with sdk_session(app, ALICE) as session:
         path = await call(session, "get_task_path", project_id=pid, task_id="TASK::ORDERS::C")
@@ -381,7 +283,7 @@ async def test_get_task_path_lists_every_prerequisite_in_build_order_then_the_ta
 
 
 async def test_the_feature_and_path_tools_answer_no_plan_before_the_first_plan(monkeypatch, valid_env):
-    app, repo = tool_app(monkeypatch, valid_env, FakePlanReads(has_plan=False))
+    app, repo = tool_app(monkeypatch, valid_env, FakePlanService(has_plan=False))
     pid = str((await owned_project(repo, "alice@example.com", "Shop")).id)
     async with sdk_session(app, ALICE) as session:
         feature = await call(session, "list_feature_tasks", project_id=pid, feature_id="FEAT::PLACE")

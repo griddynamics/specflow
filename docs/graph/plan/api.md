@@ -116,6 +116,23 @@ transaction ([lifecycle.md](lifecycle.md) "Transitions"); a call that does not a
 | `stale_claims(project_id, *, older_than) -> list[PlanTask]` | `in_progress` tasks claimed longer ago than `older_than` (a `timedelta`) |
 | `task_brief(project_id, task_id, *, neighbours=30) -> TaskBrief` | The brief of [lifecycle.md](lifecycle.md) "Task brief", for any open or completed task; reads the spec graph through a `GraphReader` without a gateway and makes no model call |
 
+## Plan service
+
+`PlanService(store_or_executor, ontology, rules)` answers the task questions of the plan's callers (the MCP plan
+tools; the REST app can use it too) from one read of the persisted plan per call, so a host checks access, pages and
+renders and composes nothing. Superseded and retired tasks are history: never listed, never on a path, never briefed.
+A project without a plan raises `PlanReadError("no_plan")`.
+
+| Method | Contract |
+|---|---|
+| `list_tasks(project_id, *, ready_only=True, status=None, area_id=None, story_id=None) -> tuple[TaskItem, ...]` | Open and completed tasks after the filters, ordered by `task_id`; `ready_only` keeps the ready ones |
+| `feature_tasks(project_id, feature_id) -> FeatureTasks` | The tasks of the active stories the feature anchors and the tasks that implement it or a node of its `GraphReader.scope`, ordered by `task_id`; a node that is not of the `feature` type: `PlanReadError("feature_not_found")` |
+| `task_path(project_id, task_id) -> TaskPath` | Every transitive prerequisite in build order (lowest `task_id` first among equals), then the task; `completed` counts finished prerequisites |
+| `task_brief(project_id, task_id, *, neighbours=30) -> TaskBrief` | `TaskLifecycle.task_brief` from the same read; an unknown, superseded or retired task: `PlanReadError("task_not_found")` |
+
+A `TaskItem` names its area and story (`AreaRef`, `StoryRef`; the story title only while the story is active), its
+readiness, `waits_for` and `planned_by`.
+
 ## Errors
 
 | Error | Codes | Raised by |
@@ -126,6 +143,7 @@ transaction ([lifecycle.md](lifecycle.md) "Transitions"); a call that does not a
 | `ConfigurationError` | `invalid_run_id`, `run_not_found`, `run_exists`, `invalid_plan_result` | the file `PlanStore` |
 | `ConfigurationError` | `invalid_commit`, `invalid_reason`, `invalid_note`, `invalid_claimant` | lifecycle calls, before any write |
 | `PlanRulesError` | `invalid_plan_rules` (with every problem) | `load_plan_rules` |
+| `PlanReadError` | `no_plan`, `feature_not_found`, `task_not_found` | `PlanService` |
 | `TaskStateError` | `not_ready`, `nothing_ready` (both with `blockers: tuple[str, ...]`), `plan_applying`, `wrong_state`, `unknown_task`, `unknown_story`, `claim_mismatch` | lifecycle calls ([lifecycle.md](lifecycle.md) "Transitions") |
 | `LLMFatalError`, `InfrastructureUnavailableError`, `GraphWriteError`, `ConformanceError` | - | plan runs ([plan.md](plan.md) "Failures") |
 

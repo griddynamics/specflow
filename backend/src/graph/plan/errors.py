@@ -16,6 +16,10 @@ class TaskStateError(GraphError):
         super().__init__(code, blockers=len(self.blockers), **fields)
 
 
+class PlanReadError(GraphError):
+    """A plan read finds nothing to answer: ``no_plan``, ``feature_not_found`` or ``task_not_found``."""
+
+
 class PlanRulesError(ConfigurationError):
     """Invalid plan rules; ``problems`` lists every problem found."""
 

@@ -384,19 +384,16 @@ rows to decide `next_after`; nothing reads every node and slices.
 
 ## Plan reads used by the plan tools
 
-The plan tools read through the plan library (contract owned by
-[../graph/plan/api.md](../graph/plan/api.md)); the `mcp` runtime builds a `PlanReader` and a `TaskLifecycle` over its
-graph store, with the shipped plan rules, at start.
+The plan tools read through the plan library's `PlanService` (contract owned by
+[../graph/plan/api.md](../graph/plan/api.md#plan-service)); the `mcp` runtime builds it over its graph store, with
+the shipped plan rules, at start. Each call reads the plan once; the tool only pages the answer.
 
 | Method | Used for |
 |---|---|
-| `PlanReader.plan(project_id)` | `no_plan` when it is `None` |
-| `PlanReader.tasks(project_id, status=, area_id=, story_id=)` | the tasks to list |
-| `PlanReader.areas(project_id)`, `PlanReader.stories(project_id)` | area and story titles |
-| `TaskLifecycle.ready_tasks(project_id)` | the ready rule |
-| `PlanReader.tasks_for(project_id, spec_ids)` | `list_feature_tasks`: the tasks that implement the feature or a node of its scope |
-| `transitive_prerequisites`, `topological_order` (pure functions of `graph.plan`) | `get_task_path`: the prerequisites and their build order |
-| `GraphReader.node`, `GraphReader.scope` | `list_feature_tasks`: the feature (`feature_not_found`) and the nodes under it |
-| `TaskLifecycle.task_brief(project_id, task_id, neighbours=)` | the brief; `TaskStateError` `unknown_task` or `wrong_state` becomes `task_not_found` |
+| `PlanService.list_tasks(project_id, ready_only=, status=, area_id=, story_id=)` | `list_tasks` |
+| `PlanService.feature_tasks(project_id, feature_id)` | `list_feature_tasks` |
+| `PlanService.task_path(project_id, task_id)` | `get_task_path` |
+| `PlanService.task_brief(project_id, task_id, neighbours=)` | `get_task_brief` |
 
-No other lifecycle method (claims, state changes) is called from `api.mcp`.
+`PlanReadError` `no_plan`, `feature_not_found` and `task_not_found` become the tool errors of the same codes.
+No lifecycle method (claims, state changes) is called from `api.mcp`.

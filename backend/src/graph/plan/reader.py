@@ -208,7 +208,7 @@ class PlanReader:
         if view is None:
             return None
         nodes = {node.spec_id: node for node in await self._graph.nodes(project_id)}
-        aliases = _aliases(nodes.values())
+        aliases = spec_aliases(nodes.values())
         member_ids = sorted(
             link.source
             for link in loaded.current.links
@@ -339,21 +339,28 @@ class PlanReader:
         """Tasks that implement any of the given spec nodes (merged ids resolved)."""
 
         loaded = await load_plan(self._executor, project_id)
-        nodes = await self._graph.nodes(project_id)
-        aliases = _aliases(nodes)
-        wanted = {resolve_spec_id(spec_id, aliases) for spec_id in spec_ids}
-        return [
-            loaded.plan_task(task)
-            for task in loaded.current.tasks
-            if (include_closed or task.status not in CLOSED)
-            and wanted & {resolve_spec_id(spec_id, aliases) for spec_id in task.implements}
-        ]
+        aliases = spec_aliases(await self._graph.nodes(project_id))
+        return tasks_implementing(loaded, spec_ids, aliases, include_closed=include_closed)
 
     async def spec_graph(self, project_id: str) -> tuple[list[GraphNode], list[GraphEdge], dict[str, str]]:
         """The spec nodes, domain edges and alias map of the project, read through ``GraphReader``."""
 
         nodes = await self._graph.nodes(project_id)
-        return nodes, await self._graph.edges(project_id), _aliases(nodes)
+        return nodes, await self._graph.edges(project_id), spec_aliases(nodes)
+
+
+def tasks_implementing(
+    loaded: LoadedPlan, spec_ids: Iterable[str], aliases: dict[str, str], *, include_closed: bool = False
+) -> list[PlanTask]:
+    """The tasks that implement any of ``spec_ids``, ids resolved through ``aliases`` (see ``spec_aliases``)."""
+
+    wanted = {resolve_spec_id(spec_id, aliases) for spec_id in spec_ids}
+    return [
+        loaded.plan_task(task)
+        for task in loaded.current.tasks
+        if (include_closed or task.status not in CLOSED)
+        and wanted & {resolve_spec_id(spec_id, aliases) for spec_id in task.implements}
+    ]
 
 
 def story_work(loaded: LoadedPlan, story_id: str) -> StoryWork:
@@ -412,7 +419,7 @@ def _counts(values: Iterable[str]) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
-def _aliases(nodes: Iterable[GraphNode]) -> dict[str, str]:
+def spec_aliases(nodes: Iterable[GraphNode]) -> dict[str, str]:
     return {alias: node.spec_id for node in nodes for alias in node.spec_id_aliases if alias != node.spec_id}
 
 

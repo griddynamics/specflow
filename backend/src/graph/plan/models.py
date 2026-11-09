@@ -734,6 +734,57 @@ class PlanTask(CurrentTask):
     successor: str | None = None
 
 
+class AreaRef(PlanModel):
+    """A work area as a task list names it."""
+
+    area_id: str
+    title: str | None
+
+
+class StoryRef(PlanModel):
+    """A story as a task list names it; the title is None for a story that is not active."""
+
+    story_id: str
+    title: str | None
+
+
+class TaskItem(PlanModel):
+    """One task of a task list: what an agent needs to pick it, with its area, story and readiness."""
+
+    task_id: str
+    title: str
+    phase: str
+    status: str
+    complexity: str
+    area: AreaRef
+    story: StoryRef
+    ready: bool
+    waits_for: tuple[str, ...]
+    planned_by: str
+
+
+class FeatureRef(PlanModel):
+    """A feature node by its id and name."""
+
+    spec_id: str
+    name: str
+
+
+class FeatureTasks(PlanModel):
+    """Every open or completed task that works on one feature, ordered by ``task_id``."""
+
+    feature: FeatureRef
+    items: tuple[TaskItem, ...]
+
+
+class TaskPath(PlanModel):
+    """The prerequisites of one task in build order, then the task; ``completed`` counts finished prerequisites."""
+
+    task_id: str
+    items: tuple[TaskItem, ...]
+    completed: int
+
+
 class Claim(PlanModel):
     """A claimed task and the token every later transition of the claim must carry."""
 

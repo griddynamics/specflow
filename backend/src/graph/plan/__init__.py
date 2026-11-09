@@ -4,15 +4,18 @@ from __future__ import annotations
 
 from graph.plan.checks import check_plan
 from graph.plan.dag import topological_order, transitive_prerequisites
-from graph.plan.errors import PlanRulesError, TaskStateError
+from graph.plan.errors import PlanReadError, PlanRulesError, TaskStateError
 from graph.plan.estimate import estimate_plan
 from graph.plan.files import FilePlanStore, open_plan_store
 from graph.plan.lifecycle import TaskLifecycle
 from graph.plan.models import (
+    AreaRef,
     BuildChangeReport,
     ChangedSpecEdge,
     ChangedSpecNode,
     Claim,
+    FeatureRef,
+    FeatureTasks,
     MeaningRevisions,
     PlanArea,
     PlanCheckMetrics,
@@ -25,8 +28,11 @@ from graph.plan.models import (
     PlanStory,
     PlanTask,
     StoryDetail,
+    StoryRef,
     StoryWork,
     TaskBrief,
+    TaskItem,
+    TaskPath,
 )
 from graph.plan.names import (
     AreaKind,
@@ -54,10 +60,12 @@ from graph.plan.reader import PlanReader
 from graph.plan.rules import PlanRules, load_plan_rules
 from graph.plan.run import STEPS, StepFunctions, run_plan, steps
 from graph.plan.schema import ensure_plan_schema
+from graph.plan.service import PlanService
 
 __all__ = [
     "STEPS",
     "AreaKind",
+    "AreaRef",
     "AreaStatus",
     "BlockReason",
     "BuildChangeReport",
@@ -66,6 +74,8 @@ __all__ = [
     "Claim",
     "Complexity",
     "DoneWhenSource",
+    "FeatureRef",
+    "FeatureTasks",
     "FilePlanStore",
     "InterfaceKind",
     "MeaningRevisions",
@@ -80,12 +90,14 @@ __all__ = [
     "PlanLabel",
     "PlanMode",
     "PlanOptions",
+    "PlanReadError",
     "PlanReader",
     "PlanRelation",
     "PlanResult",
     "PlanRules",
     "PlanRulesError",
     "PlanRunRecord",
+    "PlanService",
     "PlanStepEstimate",
     "PlanStore",
     "PlanStory",
@@ -95,10 +107,13 @@ __all__ = [
     "StoryDetail",
     "StoryKind",
     "StoryProgress",
+    "StoryRef",
     "StoryStatus",
     "StoryWork",
     "TaskBrief",
+    "TaskItem",
     "TaskLifecycle",
+    "TaskPath",
     "TaskStateError",
     "TaskStatus",
     "check_plan",

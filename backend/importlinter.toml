@@ -267,3 +267,29 @@ type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["api.mcp"]
 forbidden_modules = ["sqlalchemy", "asyncpg", "neo4j"]
+
+# Connections are opened in the composition roots only: the REST runtime, the MCP runtime and the Temporal worker
+# registrations build the engine (db.session) and the graph store (graph.stores) and hand them on. Everything else
+# reaches Postgres through db.repositories and the graph through the graph and plan libraries (GraphReader,
+# PlanReader, PlanService), never through a store or an engine of its own. The MCP role scopes its repository calls
+# in a session transaction (access) and recognises an unreachable database (errors); neither opens a connection.
+[[tool.importlinter.contracts]]
+name = "Only the composition roots open a database or a graph store"
+id = "connections-in-composition-roots"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = [
+    "agent_runtime", "api", "auth", "drive", "file_parsers", "graph.build", "graph.gap", "graph.plan", "llm", "storage",
+    "temporal",
+]
+forbidden_modules = ["db.session", "graph.stores", "postgres"]
+ignore_imports = [
+    "api.runtime -> db.session",
+    "api.runtime -> graph.stores",
+    "api.mcp.runtime -> db.session",
+    "api.mcp.runtime -> graph.stores",
+    "api.mcp.access -> db.session",
+    "api.mcp.errors -> db.session",
+    "temporal.agents.registration -> db.session",
+    "temporal.documents.registration -> db.session",
+]
