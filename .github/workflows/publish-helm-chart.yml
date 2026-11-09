@@ -1,0 +1,131 @@
+name: Publish Specflow Helm chart
+
+on:
+  push:
+    branches:
+      - main
+    paths: &chart_paths
+      - 'charts/specflow/**'
+      - '.github/workflows/publish-helm-chart.yml'
+  pull_request:
+    paths: *chart_paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CHART_PATH: ./charts/specflow
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    concurrency:
+      # Cancel superseded PR checks; main pushes must finish so every version can publish.
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Set up Helm
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2
+        with:
+          version: v3.20.2
+
+      - name: Install helm-unittest plugin
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest.git --version 0.6.3
+
+      - name: Lint, template, and unit test chart
+        run: |
+          set -euo pipefail
+          helm lint --strict "$CHART_PATH"
+          helm template helm-test "$CHART_PATH" >/dev/null
+          for component in api frontend mcp worker-agent worker-parse; do
+            helm template "specflow-${component}" "$CHART_PATH" \
+              --namespace specflow \
+              --values "${CHART_PATH}/examples/components/${component}.yaml" >/dev/null
+          done
+          helm unittest "$CHART_PATH"
+
+  publish:
+    needs: validate
+    if: github.event_name == 'push' && github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: publish-specflow-helm-chart-main
+      cancel-in-progress: false
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Set up Helm
+        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2
+        with:
+          version: v3.20.2
+
+      - name: Check if chart version exists
+        id: check_version
+        run: |
+          set -euo pipefail
+          VERSION="$(awk '/^version:/ {print $2}' "${CHART_PATH}/Chart.yaml" | tr -d '"')"
+          CHART_NAME="$(awk '/^name:/ {print $2}' "${CHART_PATH}/Chart.yaml" | tr -d '"')"
+          IMAGE="griddynamics/${CHART_NAME}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Chart version is ${VERSION} (${CHART_NAME})"
+
+          # Public Docker Hub manifest reads also require an anonymous bearer token.
+          TOKEN="$(curl -fsS "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${IMAGE}:pull" | jq -r '.token')"
+          if [ -z "${TOKEN}" ] || [ "${TOKEN}" = "null" ]; then
+            echo "::error::Could not obtain an anonymous pull token from Docker Hub for ${IMAGE}"
+            exit 1
+          fi
+
+          # Only 404 means a new version; authentication and registry errors must fail.
+          HTTP_CODE="$(curl -sS -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer ${TOKEN}" \
+            -H "Accept: application/vnd.oci.image.manifest.v1+json" \
+            "https://registry-1.docker.io/v2/${IMAGE}/manifests/${VERSION}")"
+
+          case "${HTTP_CODE}" in
+            200)
+              echo "exists=true" >> "$GITHUB_OUTPUT"
+              echo "::warning::Version ${VERSION} already exists at oci://registry-1.docker.io/${IMAGE}"
+              ;;
+            404)
+              echo "exists=false" >> "$GITHUB_OUTPUT"
+              echo "Version ${VERSION} is new, will publish"
+              ;;
+            *)
+              echo "::error::Unexpected HTTP ${HTTP_CODE} checking oci://registry-1.docker.io/${IMAGE}:${VERSION}"
+              exit 1
+              ;;
+          esac
+
+      - name: Fail if version exists
+        if: steps.check_version.outputs.exists == 'true'
+        env:
+          CHART_VERSION: ${{ steps.check_version.outputs.version }}
+        run: |
+          echo "::error::Version ${CHART_VERSION} is already published. Increase \`version\` in Chart.yaml."
+          exit 1
+
+      - name: Package and push Helm chart (OCI / Docker Hub)
+        if: steps.check_version.outputs.exists == 'false'
+        env:
+          DOCKERHUB_LOGIN: ${{ secrets.DOCKERHUB_LOGIN }}
+          DOCKERHUB_OAT: ${{ secrets.DOCKERHUB_OAT }}
+        run: |
+          set -euo pipefail
+          VERSION="$(awk '/^version:/ {print $2}' "${CHART_PATH}/Chart.yaml" | tr -d '"')"
+          CHART_NAME="$(awk '/^name:/ {print $2}' "${CHART_PATH}/Chart.yaml" | tr -d '"')"
+          REPOSITORY="registry-1.docker.io/griddynamics"
+          echo "Package version: ${VERSION}"
+          echo "Chart name: ${CHART_NAME}"
+          echo "OCI registry prefix: oci://${REPOSITORY}"
+          helm package "$CHART_PATH" --version "${VERSION}"
+          PKG="${CHART_NAME}-${VERSION}.tgz"
+          printf '%s' "$DOCKERHUB_OAT" | helm registry login registry-1.docker.io \
+            -u "$DOCKERHUB_LOGIN" \
+            --password-stdin
+          helm push "./${PKG}" "oci://${REPOSITORY}"
