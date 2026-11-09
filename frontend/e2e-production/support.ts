@@ -239,7 +239,7 @@ export async function stubLog(): Promise<StubEntry[]> {
   return (await control("GET", "/log")) as StubEntry[];
 }
 
-/** Stub knobs (parseMs, summarizeMs, parseOutcome, graphMs, graphOutcome, graphStartFail); a null time = never finishes. */
+/** Stub knobs (parseMs, summarizeMs, parseOutcome, graphMs, graphOutcome, graphStartFail, planMs); a null time = never finishes. */
 export async function stubTiming(t: Record<string, number | string | null>): Promise<void> {
   await control("POST", "/timing", t);
 }
@@ -251,6 +251,7 @@ export const STUB_TIMING = {
   graphMs: 1500,
   graphOutcome: "succeeded",
   graphStartFail: null,
+  planMs: 2000,
 };
 
 /** Seeds a source with chosen file states in the stub (the case control port; see tests/support/stub-sources.mjs `seed`). Returns its id. */

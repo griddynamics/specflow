@@ -129,7 +129,7 @@ def ensure(server: FakeServer, ontology: Any = None, dim: int = DIM, **kwargs: A
 
 
 def test_each_canonical_object_maps_to_what_arcadedb_supports() -> None:
-    objects = {item.name: item for item in schema_objects(shipped_ontology())}
+    objects = {item.name: item for item in schema_objects(shipped_ontology(), CORE_DDL)}
     assert len(objects) == len(CORE_DDL) + 1  # the spec_id uniqueness is two objects
     spec_id = objects[SPEC_ID_INDEX]
     assert (spec_id.kind, spec_id.properties) == ("range", ("group_id", "spec_id"))

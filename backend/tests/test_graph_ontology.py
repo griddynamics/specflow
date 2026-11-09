@@ -159,7 +159,7 @@ def test_shipped_ontology_loads_with_twelve_types_and_eleven_relations(shipped: 
 
 
 def test_load_ontology_without_arguments_has_exactly_the_shipped_extracted_surface() -> None:
-    """: no installed submodule ships an ontology file yet, so discovery adds nothing."""
+    """The plan ontology adds no extracted surface; discovery still loads it by default."""
 
     discovered = load_ontology()
     assert discovered.extracted_labels == tuple(EXTRACTED_LABELS)

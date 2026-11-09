@@ -11,7 +11,15 @@ import pytest
 import yaml
 from neo4j.exceptions import AuthError, ClientError, DatabaseError, ServiceUnavailable
 
-from graph.core import ConfigurationError, InfrastructureUnavailableError, LLMConfig, Ontology, ensure_schema
+from graph.core import (
+    ConfigurationError,
+    InfrastructureUnavailableError,
+    LLMConfig,
+    Ontology,
+    ensure_schema,
+    load_ontology,
+)
+from graph.core import queries as core_query_module
 from graph.core.errors import ConformanceError
 from graph.core.queries import (
     AWAIT_INDEXES,
@@ -23,6 +31,7 @@ from graph.core.queries import (
     SHOW_INDEXES,
     foreign_node_constraint,
     load_core_ddl,
+    submodule_ddl,
 )
 from graph.core.query_files import read_ddl_file
 from graph.core.schema import SchemaObject, foreign_labels, parse_ddl_statement, schema_objects
@@ -195,15 +204,18 @@ def test_the_shipped_ddl_defines_exactly_the_objects_of_the_shipped_ontology(ont
     """Drift guard: every relation of the shipped ontology has its edge-key index in the DDL files, and
     the DDL defines nothing else than the data model's objects."""
 
-    found = [(item.name, item.kind, item.entity, item.label, item.properties) for item in schema_objects(ontology)]
+    found = [
+        (item.name, item.kind, item.entity, item.label, item.properties) for item in schema_objects(ontology, CORE_DDL)
+    ]
     assert found == expected_shipped_objects(ontology)
     assert len(found) == 9 + len(ontology.relations)
 
 
 def test_every_ddl_statement_is_one_idempotent_create_with_its_text(ontology: Ontology) -> None:
     assert tuple(statement for name in CORE_DDL_FILES for statement in load_core_ddl(name)) == CORE_DDL
-    assert [item.statement for item in schema_objects(ontology)] == list(CORE_DDL)
-    for item in schema_objects(ontology):
+    core_objects = schema_objects(ontology, CORE_DDL)
+    assert [item.statement for item in core_objects] == list(CORE_DDL)
+    for item in core_objects:
         assert item.statement.startswith("CREATE ") and f" {item.name} IF NOT EXISTS FOR " in item.statement
         assert item.query().name == f"create_{item.name}" and not item.query().project_scoped
     by_name = objects_by_name(ontology)
@@ -366,14 +378,45 @@ def test_a_schema_object_without_ddl_has_no_query() -> None:
 # Creation and idempotence
 
 
+def test_default_schema_objects_include_discovered_submodule_ddl(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Submodule DDL is found as package data, without importing the submodule."""
+
+    for name in ("plan/ddl/first.cypher", "_private/ddl/ignored.cypher", "stores/ddl/ignored.cypher"):
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("CREATE INDEX graph_index IF NOT EXISTS FOR (n:A) ON (n.group_id, n.a);\n", encoding="utf-8")
+    (tmp_path / "plan" / "ddl" / "notes.txt").write_text("not DDL\n", encoding="utf-8")
+    monkeypatch.setattr(core_query_module, "GRAPH_ROOT", tmp_path)
+    assert schema_objects(shipped_ontology())[-1].statement == (
+        "CREATE INDEX graph_index IF NOT EXISTS FOR (n:A) ON (n.group_id, n.a)"
+    )
+
+
+def test_submodule_ddl_reads_statements_from_discovered_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    directory = tmp_path / "plan" / "ddl"
+    directory.mkdir(parents=True)
+    statement = (
+        "CREATE INDEX graph_edge_key_planned_by IF NOT EXISTS FOR ()-[r:PLANNED_BY]-() ON (r.group_id, r.edge_key)"
+    )
+    (directory / "second.cypher").write_text("// ignored\n" + statement + ";\n", encoding="utf-8")
+    (directory / "first.cypher").write_text(
+        "CREATE INDEX graph_first IF NOT EXISTS FOR (n:A) ON (n.group_id, n.a);\n", encoding="utf-8"
+    )
+    (directory / "notes.txt").write_text("not DDL\n", encoding="utf-8")
+    monkeypatch.setattr(core_query_module, "GRAPH_ROOT", tmp_path)
+    assert submodule_ddl() == ("CREATE INDEX graph_first IF NOT EXISTS FOR (n:A) ON (n.group_id, n.a)", statement)
+
+
 async def test_empty_database_gets_every_object_and_a_second_run_creates_none(
     ontology: Ontology, config: LLMConfig
 ) -> None:
-    driver = SchemaDriver(ontology)
-    wanted = [item.name for item in schema_objects(ontology)]
+    driver = SchemaDriver(ontology, ddl=CORE_DDL)
+    wanted = [item.name for item in schema_objects(ontology, CORE_DDL)]
     assert len(wanted) == 9 + len(ontology.relations)
 
-    created = await ensure_schema(driver, ontology, config)
+    created = await ensure_schema(driver, ontology, config, ddl=CORE_DDL)
 
     assert created == tuple(wanted)
     assert driver.created == wanted
@@ -391,7 +434,7 @@ async def test_empty_database_gets_every_object_and_a_second_run_creates_none(
     }
 
     driver.texts.clear()
-    assert await ensure_schema(driver, ontology, config) == ()
+    assert await ensure_schema(driver, ontology, config, ddl=CORE_DDL) == ()
     assert driver.created == wanted  # nothing new
     assert driver.texts == [
         render_cypher(SERVER_COMPONENTS),
@@ -407,7 +450,7 @@ async def test_empty_database_gets_every_object_and_a_second_run_creates_none(
 
 def test_the_shipped_ontology_has_no_foreign_label(ontology: Ontology) -> None:
     assert foreign_labels(ontology) == ()
-    assert not [item for item in schema_objects(ontology) if item.name.startswith("graph_foreign_uuid_")]
+    assert not [item for item in schema_objects(ontology, CORE_DDL) if item.name.startswith("graph_foreign_uuid_")]
 
 
 def test_the_cypher_schema_maps_the_foreign_placeholder_to_the_foreign_labels(ontology: Ontology) -> None:
@@ -419,7 +462,7 @@ def test_the_cypher_schema_maps_the_foreign_placeholder_to_the_foreign_labels(on
     data = yaml.safe_load(GRAPH_SCHEMA_FILE.read_text(encoding="utf-8"))
     assert f"{FOREIGN_PLACEHOLDER}.{FOREIGN_KEY}" in data["constraints"]["unique"]
     assert FOREIGN_PLACEHOLDER in data["nodes"]
-    assert tuple(data["policy"]["placeholder_labels"][FOREIGN_PLACEHOLDER]) == foreign_labels(ontology)
+    assert tuple(data["policy"]["placeholder_labels"][FOREIGN_PLACEHOLDER]) == foreign_labels(load_ontology())
     (template,) = load_core_ddl("foreign_node_constraint.cypher")
     assert f"FOR (n:{FOREIGN_PLACEHOLDER}) REQUIRE (n.group_id, n.{FOREIGN_KEY}) IS UNIQUE" in template
 

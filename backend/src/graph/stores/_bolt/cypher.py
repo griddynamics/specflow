@@ -1,11 +1,11 @@
 """The Cypher dialect: renders the canonical ``.cypher`` files of the query catalogs (design D2, D3).
 
-Every template of ``graph.core.queries`` and ``graph.build.queries`` is a canonical Cypher file under
-their ``queries/`` folders (a template id ``core.<stem>`` or ``build.<stem>``). A template whose label,
-relationship type, hop count or pattern is only known at run time is a file with ``__NAME__`` tokens and
-``/*__NAME__*/default/*__NAME__*/`` slots; the renderer of that template fills them from the query's
-semantic arguments. Every name rendered into text passes the safe-name check again here, so a query
-built by hand cannot smuggle Cypher in. The text is byte-identical to what the catalogs produced before
+Every template of ``graph.core.queries``, ``graph.build.queries`` and ``graph.plan.queries`` is a canonical
+Cypher file under their ``queries/`` folders (a template id ``core.<stem>``, ``build.<stem>`` or
+``plan.<stem>``). A template whose label, relationship type, hop count or pattern is only known at run time
+is a file with ``__NAME__`` tokens and ``/*__NAME__*/default/*__NAME__*/`` slots; the renderer of that template
+fills them from the query's semantic arguments. Every name rendered into text passes the safe-name check again
+here, so a query built by hand cannot smuggle Cypher in. The text is byte-identical to what the catalogs produced before
 the dialect existed (the golden test pins it).
 
 The dialect also holds the ``$project_id`` guard: a scoped query whose statement does not reference
@@ -37,7 +37,7 @@ from graph.core.queries import (
     SimilarTargets,
     safe_name,
 )
-from graph.core.query_files import fragment, load_build_query, load_core_query, render_query
+from graph.core.query_files import fragment, load_build_query, load_core_query, load_plan_query, render_query
 
 _PROJECT_ID_REFERENCE: Final = re.compile(r"\$project_id\b")
 _STATIC: Final[Mapping[str, Callable[[], str]]] = {
@@ -106,6 +106,24 @@ _STATIC: Final[Mapping[str, Callable[[], str]]] = {
     "build.infer_xdoc_documents": lambda: load_build_query("infer_xdoc_documents.cypher"),
     "build.infer_xdoc_embeddings": lambda: load_build_query("infer_xdoc_embeddings.cypher"),
     "build.infer_xdoc_members": lambda: load_build_query("infer_xdoc_members.cypher"),
+    "plan.plan_claim_task": lambda: load_plan_query("plan_claim_task.cypher"),
+    "plan.plan_create_tasks": lambda: load_plan_query("plan_create_tasks.cypher"),
+    "plan.plan_read_areas": lambda: load_plan_query("plan_read_areas.cypher"),
+    "plan.plan_read_plan": lambda: load_plan_query("plan_read_plan.cypher"),
+    "plan.plan_read_stories": lambda: load_plan_query("plan_read_stories.cypher"),
+    "plan.plan_read_tasks": lambda: load_plan_query("plan_read_tasks.cypher"),
+    "plan.plan_set_applying": lambda: load_plan_query("plan_set_applying.cypher"),
+    "plan.plan_transition_task": lambda: load_plan_query("plan_transition_task.cypher"),
+    "plan.plan_update_tasks": lambda: load_plan_query("plan_update_tasks.cypher"),
+    "plan.plan_upsert_areas": lambda: load_plan_query("plan_upsert_areas.cypher"),
+    "plan.plan_upsert_in_area": lambda: load_plan_query("plan_upsert_in_area.cypher"),
+    "plan.plan_upsert_in_story": lambda: load_plan_query("plan_upsert_in_story.cypher"),
+    "plan.plan_upsert_stories": lambda: load_plan_query("plan_upsert_stories.cypher"),
+    "plan.plan_upsert_story_implements": lambda: load_plan_query("plan_upsert_story_implements.cypher"),
+    "plan.plan_upsert_supersedes": lambda: load_plan_query("plan_upsert_supersedes.cypher"),
+    "plan.plan_upsert_task_implements": lambda: load_plan_query("plan_upsert_task_implements.cypher"),
+    "plan.plan_upsert_waits_for": lambda: load_plan_query("plan_upsert_waits_for.cypher"),
+    "plan.plan_write_plan": lambda: load_plan_query("plan_write_plan.cypher"),
 }
 
 
@@ -320,6 +338,14 @@ _RENDERERS: Final[Mapping[str, tuple[type, Callable[[Any], str]]]] = {
     "build.infer_endpoint_subjects": (EndpointSubjects, _endpoint_subjects),
     "build.infer_realization_subjects": (RealizationSubjects, _realization_subjects),
     "build.infer_similar_targets": (SimilarTargets, _similar_targets),
+    "plan.plan_read_links": (
+        Relation,
+        _typed(lambda: load_plan_query("plan_read_links.cypher")),
+    ),
+    "plan.plan_delete_links": (
+        Relation,
+        _typed(lambda: load_plan_query("plan_delete_links.cypher")),
+    ),
 }
 
 

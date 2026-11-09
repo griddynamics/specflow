@@ -38,6 +38,7 @@ from graph.core.queries import (
     DdlStatement,
     Query,
     ddl_query,
+    submodule_ddl,
 )
 from graph.core.store import (
     FRAGMENT_TEXT_INDEX,
@@ -165,15 +166,15 @@ def _ddl_objects(statements: tuple[str, ...]) -> tuple[SchemaObject, ...]:
 def schema_objects(ontology: Ontology, ddl: Sequence[str] | None = None) -> tuple[SchemaObject, ...]:
     """Every ``graph_*`` object of data-model.md "Constraints and indexes", in DDL order.
 
-    ``ddl`` None reads the shipped DDL files (``CORE_DDL``); a sequence of statements (tests, an
-    ontology with submodule files) replaces them. The DDL must define the core objects, a
-    ``(group_id, edge_key)`` range index for every declared relation (owned writes of any owner find a
-    relationship by its key with an index seek) and a ``(group_id, uuid)`` uniqueness constraint for
+    ``ddl`` None reads the shipped DDL files (``CORE_DDL``) and every installed submodule's
+    ``ddl/*.cypher`` (``submodule_ddl``); a sequence of statements (tests) replaces them. The DDL must define
+    the core objects, a ``(group_id, edge_key)`` range index for every declared relation (owned writes of any
+    owner find a relationship by its key with an index seek) and a ``(group_id, uuid)`` uniqueness constraint for
     every foreign label (a declared label of another owner than build, from a submodule ontology file;
     the key its owned upsert MERGEs on). A missing one raises ``ConfigurationError("schema_ddl_incomplete")``.
     """
 
-    objects = _ddl_objects(tuple(CORE_DDL if ddl is None else ddl))
+    objects = _ddl_objects(tuple((*CORE_DDL, *submodule_ddl()) if ddl is None else ddl))
     defined = {(item.kind, item.entity, item.label, item.properties) for item in objects}
     required = [
         *_CORE_OBJECTS,

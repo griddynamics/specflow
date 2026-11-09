@@ -4,7 +4,8 @@
 # The one rule with a word list. The graph library fixes the names of the rows its queries return
 # (src/graph/core/queries.py and the build queries: source, target, types, keys, document, conflict, stored,
 # name, label, lines, text, version, path, count) and the graph schema has a key column named uuid
-# (docs/graph/data-model.md); the query files spell them as the library expects. Every other keyword used
-# as an identifier is still reported.
+# (docs/graph/data-model.md); the query files spell them as the library expects. The plan queries return
+# the plan's property names (src/graph/plan/queries.py: type, task, action, release, commit, summary) the
+# same way. Every other keyword used as an identifier is still reported.
 [sqlfluff:rules:references.keywords]
-ignore_words = source,target,types,keys,document,conflict,stored,uuid,name,label,lines,text,version,path,count
+ignore_words = source,target,types,keys,document,conflict,stored,uuid,name,label,lines,text,version,path,count,type,task,action,release,commit,summary

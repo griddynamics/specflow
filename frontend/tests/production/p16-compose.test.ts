@@ -51,17 +51,19 @@ const http: HttpPorts = {
     saveDrive: never,
   },
   knowledge: { status: never, subscribe: never, build: never, leave: never },
+  plan: { preview: never, state: never, subscribe: never, create: never, leave: never, updateTaskBody: never },
 };
 const ports = composeProductionPorts(http);
 
 const rejectsWith = (p: Promise<unknown>, code: string) => assert.rejects(p, (e) => isDataError(e) && e.code === code, `rejects ${code}`);
 
-test("FE-DATA-01 (TECH-SPECS §3.1): http serves people.me, projects, createProject.create, missionControl, sources, knowledge", async () => {
+test("FE-DATA-01 (TECH-SPECS §3.1): http serves people.me, projects, createProject.create, missionControl, sources, knowledge, plan", async () => {
   assert.equal((await ports.people.me()).name, "Dana Example");
   assert.equal(ports.projects, http.projects);
   assert.equal(ports.missionControl, http.missionControl);
   assert.equal(ports.sources, http.sources);
   assert.equal(ports.knowledge, http.knowledge);
+  assert.equal(ports.plan, http.plan);
   assert.equal((await ports.createProject.create({ name: "X", contributorIds: [] })).id, UUID);
   assert.deepEqual(Object.keys(ports.createProject), ["create"]);
 });
@@ -78,28 +80,12 @@ test("SPL-DEMO-02: connectors list is empty and the only category is All", async
   assert.deepEqual(await ports.connectors.categories(), ["All"]);
 });
 
-test("SPL-DEMO-02: plan answers an empty table and idle; create is not_available; subscribe and leave do nothing", async () => {
-  assert.deepEqual(await ports.plan.table(UUID), { rows: [], distinct: { critical: 0, high: 0, medium: 0, low: 0 }, unlinked: 0 });
-  assert.deepEqual(await ports.plan.state(UUID), { phase: "idle" });
-  await rejectsWith(ports.plan.create(UUID), "not_available");
-  await rejectsWith(ports.plan.updateTaskBody(UUID, "t", { start: 0, end: 1 }, "x", 1), "not_found");
-  const off = ports.plan.subscribe(UUID, never);
-  off();
-  ports.plan.leave(UUID);
-});
-
 test("AC-D6: the composed knowledge port has no buildAvailable (the build is real: no not_available path)", () => {
   assert.equal("buildAvailable" in ports.knowledge, false);
   assert.deepEqual(
     Object.keys(ports.knowledge).toSorted((a, b) => a.localeCompare(b)),
     ["build", "leave", "status", "subscribe"],
   );
-});
-
-test("SPL-DEMO-02: the table answer is a fresh object each time (a caller cannot change the next answer)", async () => {
-  const a = await ports.plan.table(UUID);
-  a.distinct.critical = 9;
-  assert.equal((await ports.plan.table(UUID)).distinct.critical, 0);
 });
 
 test("SPL-DEMO-02: SpecBot greets the /me first name, offers no suggestions; ask gives one answer and done", async () => {
@@ -140,10 +126,10 @@ test("SPL-DEMO-02: diagrams are not_found; the people directory and mentions are
   assert.deepEqual(await ports.people.mentionables(UUID), []);
 });
 
-test("SPL-DEMO-01: the composition has exactly the DataPorts members, and the unavailable adapter covers the other seven", () => {
+test("SPL-DEMO-01: the composition has exactly the DataPorts members, and the unavailable adapter covers the other six", () => {
   assert.deepEqual(
     Object.keys(unavailable).toSorted((a, b) => a.localeCompare(b)),
-    ["assistant", "comments", "connectors", "decisions", "diagrams", "files", "plan"],
+    ["assistant", "comments", "connectors", "decisions", "diagrams", "files"],
   );
   assert.deepEqual(
     Object.keys(ports).toSorted((a, b) => a.localeCompare(b)),

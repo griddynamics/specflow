@@ -19,7 +19,7 @@ they relate, and which lines of which documents state them.
 | `graph.core` | What every submodule needs: graph store access, ontology, identity, read and search, owned writes, LLM gateway | specified |
 | `graph.build` | Builds and updates the graph from documents; light inference; verification and repair | specified |
 | `graph.gap` | Gaps, contradictions, findings | reserved, designed later |
-| `graph.plan` | Implementation plans | reserved, designed later |
+| `graph.plan` | Implementation plans for coding agents and their task progress | specified ([plan/INDEX.md](plan/INDEX.md)) |
 
 `graph.gap` and `graph.plan` reuse `graph.core`; no submodule copies core code.
 
@@ -40,7 +40,8 @@ Quality is shown by tests, verification checks and the metrics each build report
 ## Non-goals
 
 1. Relations from world knowledge: inference only links existing nodes when the texts support it.
-2. Contradiction or gap detection, findings (`graph.gap`); planning (`graph.plan`).
+2. Contradiction or gap detection, findings (`graph.gap`); planning (`graph.plan`, specified apart in
+   [plan/](plan/INDEX.md)).
 3. Ingestion: lineages, versions, file parsing.
 4. Scheduling, queues, HTTP endpoints, user interfaces, a "ready" flag for users.
 5. A command-line tool.
@@ -55,7 +56,7 @@ Quality is shown by tests, verification checks and the metrics each build report
 | Corpus provider | Implements the corpus port: one snapshot of the current revision of every active document, with lineage id, version and immutable markdown. |
 | LLM endpoint | One OpenAI-compatible endpoint for chat and embeddings. |
 | Graph store | One database (Neo4j, ArcadeDB) or schema (PostgreSQL) for all projects, partitioned by project. |
-| Reader | Code that reads the graph through the core read API, including later `gap` and `plan`, and the MCP server ([../mcp-server/overview.md](../mcp-server/overview.md)). |
+| Reader | Code that reads the graph through the core read API, including `plan` and later `gap`, and the MCP server ([../mcp-server/overview.md](../mcp-server/overview.md)). |
 
 ## Boundaries
 

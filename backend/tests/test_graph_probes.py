@@ -45,7 +45,7 @@ from graph_probes.golden import (
 )
 from graph_probes.memory import MemoryProbe
 from graph_probes.scenarios import SCENARIOS
-from graph_support import PROJECT_PREFIX, live_llm_config, new_project_id, shipped_ontology
+from graph_support import PROJECT_PREFIX, ensure_session_schema, live_llm_config, new_project_id, shipped_ontology
 
 # A search vector of the dimension the live store's vector indexes hold (ArcadeDB refuses another length).
 VECTOR = [0.25] * live_llm_config().embedding_dim
@@ -177,6 +177,8 @@ async def probe(request: pytest.FixtureRequest) -> AsyncIterator[GraphProbe]:
         return
     live = open_probe()
     try:
+        # The database of the store may not exist yet (ArcadeDB creates it in the session schema setup).
+        await ensure_session_schema(live)
         yield live
     finally:
         await live.close()

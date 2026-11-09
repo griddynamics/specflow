@@ -541,6 +541,114 @@
    "project_scoped": true,
    "text": "OPTIONAL MATCH (old:SpecNode {group_id: $project_id, uuid: $key}) WITH old IS NOT NULL AND NOT $label IN labels(old) AS label_mismatch, old IS NOT NULL AND old.spec_id IS NOT NULL AND 'spec_id' IN keys($props) AND coalesce($props.spec_id <> old.spec_id, true) AS spec_id_changed FOREACH (_ IN CASE WHEN label_mismatch OR spec_id_changed THEN [] ELSE [1] END | MERGE (n:SpecNode {group_id: $project_id, uuid: $key}) ON CREATE SET n:$($label) SET n += $props) RETURN label_mismatch, spec_id_changed"
   },
+  "const:graph.plan.queries.CLAIM_TASK": {
+   "binds_project_id": true,
+   "name": "plan_claim_task",
+   "project_scoped": true,
+   "text": "MATCH (t:Task {group_id: $project_id, task_id: $task_id}) SET t._lock = true REMOVE t._lock WITH t OPTIONAL MATCH (p:Plan {group_id: $project_id}) OPTIONAL MATCH (a:WorkArea {group_id: $project_id, area_id: t.area_id}) OPTIONAL MATCH (s:Story {group_id: $project_id, story_id: t.story_id}) OPTIONAL MATCH (t)-[:WAITS_FOR {group_id: $project_id}]->(w:Task) WITH t, p, a, s, collect(w.status) AS prerequisites WITH t, CASE WHEN p IS NOT NULL AND p.applying IS NOT NULL THEN 'plan_applying' WHEN t.status <> 'pending' THEN 'wrong_state' WHEN a IS NULL OR a.status <> 'active' OR s IS NULL OR s.status <> 'active' THEN 'not_ready' WHEN any(status IN prerequisites WHERE status <> 'completed') THEN 'not_ready' ELSE 'ok' END AS outcome FOREACH (_ IN CASE WHEN outcome = 'ok' THEN [1] ELSE [] END | SET t.status = 'in_progress', t.claim_token = $claim_token, t.claimed_by = $claimed_by, t.claimed_at = $now, t.attempts = coalesce(t.attempts, 0) + 1, t.updated_at = $now ) RETURN outcome, t.status AS status, properties(t) AS task"
+  },
+  "const:graph.plan.queries.CREATE_TASKS": {
+   "binds_project_id": true,
+   "name": "plan_create_tasks",
+   "project_scoped": true,
+   "text": "UNWIND $rows AS row MERGE (t:Task {group_id: $project_id, task_id: row.id}) ON CREATE SET t += row.properties, t.uuid = row.uuid, t.attempts = 0, t.created_at = $now, t.updated_at = $now, t.created_run_id = $run_id, t.last_run_id = $run_id RETURN count(t) AS written"
+  },
+  "const:graph.plan.queries.READ_AREAS": {
+   "binds_project_id": true,
+   "name": "plan_read_areas",
+   "project_scoped": true,
+   "text": "MATCH (a:WorkArea) WHERE a.group_id = $project_id RETURN a.area_id AS area_id, a.kind AS kind, a.anchor AS anchor, a.title AS title, a.description AS description, a.interfaces AS interfaces, a.not_buildable AS not_buildable, a.planned_by AS planned_by, a.prompt_ref AS prompt_ref, a.status AS status, a.created_at AS created_at, a.updated_at AS updated_at, a.last_run_id AS last_run_id ORDER BY area_id"
+  },
+  "const:graph.plan.queries.READ_PLAN": {
+   "binds_project_id": true,
+   "name": "plan_read_plan",
+   "project_scoped": true,
+   "text": "MATCH (p:Plan) WHERE p.group_id = $project_id RETURN p.plan_id AS plan_id, p.profile AS profile, p.last_build_id AS last_build_id, p.consumed_build_ids AS consumed_build_ids, p.graph_fingerprint AS graph_fingerprint, p.ontology_version AS ontology_version, p.plan_ontology_version AS plan_ontology_version, p.rules_version AS rules_version, p.applying AS applying, p.last_run_id AS last_run_id, p.created_at AS created_at, p.updated_at AS updated_at ORDER BY plan_id"
+  },
+  "const:graph.plan.queries.READ_STORIES": {
+   "binds_project_id": true,
+   "name": "plan_read_stories",
+   "project_scoped": true,
+   "text": "MATCH (s:Story) WHERE s.group_id = $project_id RETURN s.story_id AS story_id, s.area_id AS area_id, s.kind AS kind, s.anchor AS anchor, s.chapter AS chapter, s.title AS title, s.summary AS summary, s.prompt_ref AS prompt_ref, s.release AS release, s.status AS status, s.created_at AS created_at, s.updated_at AS updated_at, s.last_run_id AS last_run_id ORDER BY story_id"
+  },
+  "const:graph.plan.queries.READ_TASKS": {
+   "binds_project_id": true,
+   "name": "plan_read_tasks",
+   "project_scoped": true,
+   "text": "MATCH (t:Task) WHERE t.group_id = $project_id RETURN t.task_id AS task_id, t.area_id AS area_id, t.action AS action, t.revision AS revision, t.story_id AS story_id, t.phase AS phase, t.title AS title, t.description AS description, t.done_when AS done_when, t.complexity AS complexity, t.implements AS implements, t.release AS release, t.has_open_questions AS has_open_questions, t.planned_by AS planned_by, t.prompt_ref AS prompt_ref, t.spec_build_id AS spec_build_id, t.status AS status, t.claimed_by AS claimed_by, t.claimed_at AS claimed_at, t.attempts AS attempts, t.commit AS commit, t.block_reason AS block_reason, t.note AS note, t.created_at AS created_at, t.updated_at AS updated_at, t.created_run_id AS created_run_id, t.last_run_id AS last_run_id ORDER BY task_id"
+  },
+  "const:graph.plan.queries.SET_APPLYING": {
+   "binds_project_id": true,
+   "name": "plan_set_applying",
+   "project_scoped": true,
+   "text": "MERGE (p:Plan {group_id: $project_id, plan_id: $plan_id}) ON CREATE SET p.uuid = $uuid, p.created_at = $now SET p.applying = $run_id, p.updated_at = $now RETURN p.plan_id AS plan_id"
+  },
+  "const:graph.plan.queries.TRANSITION_TASK": {
+   "binds_project_id": true,
+   "name": "plan_transition_task",
+   "project_scoped": true,
+   "text": "MATCH (t:Task {group_id: $project_id, task_id: $task_id}) SET t._lock = true REMOVE t._lock WITH t, CASE WHEN NOT t.status IN $from_statuses THEN 'wrong_state' WHEN $check_token AND coalesce(t.claim_token, '') <> $claim_token THEN 'claim_mismatch' ELSE 'ok' END AS outcome FOREACH (_ IN CASE WHEN outcome = 'ok' THEN [1] ELSE [] END | SET t += $properties, t.updated_at = $now ) RETURN outcome, t.status AS status, properties(t) AS task"
+  },
+  "const:graph.plan.queries.UPDATE_TASKS": {
+   "binds_project_id": true,
+   "name": "plan_update_tasks",
+   "project_scoped": true,
+   "text": "UNWIND $rows AS row MATCH (t:Task {group_id: $project_id, task_id: row.id}) SET t._lock = true REMOVE t._lock WITH t, row, (t.status = row.expected_status OR t.last_run_id = $run_id) AS applies FOREACH (_ IN CASE WHEN applies THEN [1] ELSE [] END | SET t += row.properties, t.updated_at = $now, t.last_run_id = $run_id ) RETURN collect(CASE WHEN applies THEN null ELSE row.id END) AS conflicts"
+  },
+  "const:graph.plan.queries.UPSERT_AREAS": {
+   "binds_project_id": true,
+   "name": "plan_upsert_areas",
+   "project_scoped": true,
+   "text": "UNWIND $rows AS row MERGE (a:WorkArea {group_id: $project_id, area_id: row.id}) ON CREATE SET a.uuid = row.uuid, a.created_at = $now SET a += row.properties, a.updated_at = $now, a.last_run_id = $run_id RETURN count(a) AS written"
+  },
+  "const:graph.plan.queries.UPSERT_IN_AREA": {
+   "binds_project_id": true,
+   "name": "plan_upsert_in_area",
+   "project_scoped": true,
+   "text": "UNWIND $rows AS row MATCH (s:SpecNode {group_id: $project_id, uuid: row.source}) MATCH (a:WorkArea {group_id: $project_id, area_id: row.target}) MERGE (s)-[r:IN_AREA {group_id: $project_id, edge_key: row.key}]->(a) SET r += row.properties RETURN count(r) AS written"
+  },
+  "const:graph.plan.queries.UPSERT_IN_STORY": {
+   "binds_project_id": true,
+   "name": "plan_upsert_in_story",
+   "project_scoped": true,
+   "text": "UNWIND $rows AS row MATCH (t:Task {group_id: $project_id, task_id: row.source}) MATCH (s:Story {group_id: $project_id, story_id: row.target}) MERGE (t)-[r:IN_STORY {group_id: $project_id, edge_key: row.key}]->(s) RETURN count(r) AS written"
+  },
+  "const:graph.plan.queries.UPSERT_STORIES": {
+   "binds_project_id": true,
+   "name": "plan_upsert_stories",
+   "project_scoped": true,
+   "text": "UNWIND $rows AS row MERGE (s:Story {group_id: $project_id, story_id: row.id}) ON CREATE SET s.uuid = row.uuid, s.created_at = $now SET s += row.properties, s.updated_at = $now, s.last_run_id = $run_id RETURN count(s) AS written"
+  },
+  "const:graph.plan.queries.UPSERT_STORY_IMPLEMENTS": {
+   "binds_project_id": true,
+   "name": "plan_upsert_story_implements",
+   "project_scoped": true,
+   "text": "UNWIND $rows AS row MATCH (s:Story {group_id: $project_id, story_id: row.source}) MATCH (n:SpecNode {group_id: $project_id, uuid: row.target}) MERGE (s)-[r:IMPLEMENTS {group_id: $project_id, edge_key: row.key}]->(n) RETURN count(r) AS written"
+  },
+  "const:graph.plan.queries.UPSERT_SUPERSEDES": {
+   "binds_project_id": true,
+   "name": "plan_upsert_supersedes",
+   "project_scoped": true,
+   "text": "UNWIND $rows AS row MATCH (n:Task {group_id: $project_id, task_id: row.source}) MATCH (o:Task {group_id: $project_id, task_id: row.target}) MERGE (n)-[r:SUPERSEDES {group_id: $project_id, edge_key: row.key}]->(o) RETURN count(r) AS written"
+  },
+  "const:graph.plan.queries.UPSERT_TASK_IMPLEMENTS": {
+   "binds_project_id": true,
+   "name": "plan_upsert_task_implements",
+   "project_scoped": true,
+   "text": "UNWIND $rows AS row MATCH (t:Task {group_id: $project_id, task_id: row.source}) MATCH (n:SpecNode {group_id: $project_id, uuid: row.target}) MERGE (t)-[r:IMPLEMENTS {group_id: $project_id, edge_key: row.key}]->(n) RETURN count(r) AS written"
+  },
+  "const:graph.plan.queries.UPSERT_WAITS_FOR": {
+   "binds_project_id": true,
+   "name": "plan_upsert_waits_for",
+   "project_scoped": true,
+   "text": "UNWIND $rows AS row MATCH (w:Task {group_id: $project_id, task_id: row.source}) MATCH (p:Task {group_id: $project_id, task_id: row.target}) MERGE (w)-[r:WAITS_FOR {group_id: $project_id, edge_key: row.key}]->(p) SET r += row.properties RETURN count(r) AS written"
+  },
+  "const:graph.plan.queries.WRITE_PLAN": {
+   "binds_project_id": true,
+   "name": "plan_write_plan",
+   "project_scoped": true,
+   "text": "MATCH (p:Plan {group_id: $project_id, plan_id: $plan_id}) SET p += $properties, p.updated_at = $now, p.last_run_id = $run_id REMOVE p.applying RETURN p.plan_id AS plan_id"
+  },
   "gap:delete_edges(CARRIES)": {
    "binds_project_id": true,
    "name": "build_delete_edges_CARRIES",
@@ -2466,6 +2574,66 @@
    "name": "upsert_relationship_FLAGS",
    "project_scoped": true,
    "text": "MATCH (s:SpecNode {group_id: $project_id, uuid: $s_key}) WHERE $s_label IN labels(s) MATCH (t:SpecNode {group_id: $project_id, uuid: $t_key}) WHERE $t_label IN labels(t) OPTIONAL MATCH ()-[other:FLAGS {group_id: $project_id, edge_key: $key}]->() WHERE NOT (startNode(other) = s AND endNode(other) = t) WITH s, t, count(other) AS conflicts FOREACH (_ IN CASE WHEN conflicts = 0 THEN [1] ELSE [] END | MERGE (s)-[r:FLAGS {group_id: $project_id, edge_key: $key}]->(t) SET r += $props) RETURN conflicts > 0 AS conflict"
+  },
+  "plan:delete_links:IMPLEMENTS": {
+   "binds_project_id": true,
+   "name": "plan_delete_links_IMPLEMENTS",
+   "project_scoped": true,
+   "text": "UNWIND $rows AS row MATCH (s)-[r:IMPLEMENTS {group_id: $project_id, edge_key: row.key}]->(t) WHERE coalesce(s.task_id, s.story_id, s.area_id, s.spec_id) = row.source AND coalesce(t.task_id, t.story_id, t.area_id, t.spec_id) = row.target DELETE r RETURN count(*) AS deleted"
+  },
+  "plan:delete_links:IN_AREA": {
+   "binds_project_id": true,
+   "name": "plan_delete_links_IN_AREA",
+   "project_scoped": true,
+   "text": "UNWIND $rows AS row MATCH (s)-[r:IN_AREA {group_id: $project_id, edge_key: row.key}]->(t) WHERE coalesce(s.task_id, s.story_id, s.area_id, s.spec_id) = row.source AND coalesce(t.task_id, t.story_id, t.area_id, t.spec_id) = row.target DELETE r RETURN count(*) AS deleted"
+  },
+  "plan:delete_links:IN_STORY": {
+   "binds_project_id": true,
+   "name": "plan_delete_links_IN_STORY",
+   "project_scoped": true,
+   "text": "UNWIND $rows AS row MATCH (s)-[r:IN_STORY {group_id: $project_id, edge_key: row.key}]->(t) WHERE coalesce(s.task_id, s.story_id, s.area_id, s.spec_id) = row.source AND coalesce(t.task_id, t.story_id, t.area_id, t.spec_id) = row.target DELETE r RETURN count(*) AS deleted"
+  },
+  "plan:delete_links:SUPERSEDES": {
+   "binds_project_id": true,
+   "name": "plan_delete_links_SUPERSEDES",
+   "project_scoped": true,
+   "text": "UNWIND $rows AS row MATCH (s)-[r:SUPERSEDES {group_id: $project_id, edge_key: row.key}]->(t) WHERE coalesce(s.task_id, s.story_id, s.area_id, s.spec_id) = row.source AND coalesce(t.task_id, t.story_id, t.area_id, t.spec_id) = row.target DELETE r RETURN count(*) AS deleted"
+  },
+  "plan:delete_links:WAITS_FOR": {
+   "binds_project_id": true,
+   "name": "plan_delete_links_WAITS_FOR",
+   "project_scoped": true,
+   "text": "UNWIND $rows AS row MATCH (s)-[r:WAITS_FOR {group_id: $project_id, edge_key: row.key}]->(t) WHERE coalesce(s.task_id, s.story_id, s.area_id, s.spec_id) = row.source AND coalesce(t.task_id, t.story_id, t.area_id, t.spec_id) = row.target DELETE r RETURN count(*) AS deleted"
+  },
+  "plan:read_links:IMPLEMENTS": {
+   "binds_project_id": true,
+   "name": "plan_read_links_IMPLEMENTS",
+   "project_scoped": true,
+   "text": "MATCH ()-[r:IMPLEMENTS {group_id: $project_id}]->() WITH r, startNode(r) AS source, endNode(r) AS target WHERE source.group_id = $project_id AND target.group_id = $project_id RETURN type(r) AS type, CASE WHEN source:SpecNode THEN source.spec_id WHEN source:Task THEN source.task_id WHEN source:WorkArea THEN source.area_id WHEN source:Story THEN source.story_id END AS source, CASE WHEN target:SpecNode THEN target.spec_id WHEN target:Task THEN target.task_id WHEN target:WorkArea THEN target.area_id WHEN target:Story THEN target.story_id END AS target, r.edge_key AS edge_key, [key IN keys(r) WHERE key <> 'edge_key' AND key <> 'group_id' | [key, r[key]]] AS properties ORDER BY edge_key"
+  },
+  "plan:read_links:IN_AREA": {
+   "binds_project_id": true,
+   "name": "plan_read_links_IN_AREA",
+   "project_scoped": true,
+   "text": "MATCH ()-[r:IN_AREA {group_id: $project_id}]->() WITH r, startNode(r) AS source, endNode(r) AS target WHERE source.group_id = $project_id AND target.group_id = $project_id RETURN type(r) AS type, CASE WHEN source:SpecNode THEN source.spec_id WHEN source:Task THEN source.task_id WHEN source:WorkArea THEN source.area_id WHEN source:Story THEN source.story_id END AS source, CASE WHEN target:SpecNode THEN target.spec_id WHEN target:Task THEN target.task_id WHEN target:WorkArea THEN target.area_id WHEN target:Story THEN target.story_id END AS target, r.edge_key AS edge_key, [key IN keys(r) WHERE key <> 'edge_key' AND key <> 'group_id' | [key, r[key]]] AS properties ORDER BY edge_key"
+  },
+  "plan:read_links:IN_STORY": {
+   "binds_project_id": true,
+   "name": "plan_read_links_IN_STORY",
+   "project_scoped": true,
+   "text": "MATCH ()-[r:IN_STORY {group_id: $project_id}]->() WITH r, startNode(r) AS source, endNode(r) AS target WHERE source.group_id = $project_id AND target.group_id = $project_id RETURN type(r) AS type, CASE WHEN source:SpecNode THEN source.spec_id WHEN source:Task THEN source.task_id WHEN source:WorkArea THEN source.area_id WHEN source:Story THEN source.story_id END AS source, CASE WHEN target:SpecNode THEN target.spec_id WHEN target:Task THEN target.task_id WHEN target:WorkArea THEN target.area_id WHEN target:Story THEN target.story_id END AS target, r.edge_key AS edge_key, [key IN keys(r) WHERE key <> 'edge_key' AND key <> 'group_id' | [key, r[key]]] AS properties ORDER BY edge_key"
+  },
+  "plan:read_links:SUPERSEDES": {
+   "binds_project_id": true,
+   "name": "plan_read_links_SUPERSEDES",
+   "project_scoped": true,
+   "text": "MATCH ()-[r:SUPERSEDES {group_id: $project_id}]->() WITH r, startNode(r) AS source, endNode(r) AS target WHERE source.group_id = $project_id AND target.group_id = $project_id RETURN type(r) AS type, CASE WHEN source:SpecNode THEN source.spec_id WHEN source:Task THEN source.task_id WHEN source:WorkArea THEN source.area_id WHEN source:Story THEN source.story_id END AS source, CASE WHEN target:SpecNode THEN target.spec_id WHEN target:Task THEN target.task_id WHEN target:WorkArea THEN target.area_id WHEN target:Story THEN target.story_id END AS target, r.edge_key AS edge_key, [key IN keys(r) WHERE key <> 'edge_key' AND key <> 'group_id' | [key, r[key]]] AS properties ORDER BY edge_key"
+  },
+  "plan:read_links:WAITS_FOR": {
+   "binds_project_id": true,
+   "name": "plan_read_links_WAITS_FOR",
+   "project_scoped": true,
+   "text": "MATCH ()-[r:WAITS_FOR {group_id: $project_id}]->() WITH r, startNode(r) AS source, endNode(r) AS target WHERE source.group_id = $project_id AND target.group_id = $project_id RETURN type(r) AS type, CASE WHEN source:SpecNode THEN source.spec_id WHEN source:Task THEN source.task_id WHEN source:WorkArea THEN source.area_id WHEN source:Story THEN source.story_id END AS source, CASE WHEN target:SpecNode THEN target.spec_id WHEN target:Task THEN target.task_id WHEN target:WorkArea THEN target.area_id WHEN target:Story THEN target.story_id END AS target, r.edge_key AS edge_key, [key IN keys(r) WHERE key <> 'edge_key' AND key <> 'group_id' | [key, r[key]]] AS properties ORDER BY edge_key"
   },
   "renamed:delete_edges(BEREITGESTELLT_VON)": {
    "binds_project_id": true,

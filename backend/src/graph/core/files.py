@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import gzip
 import json
 import os
 import tempfile
+import zlib
 from collections.abc import Sequence
 from contextlib import suppress
 from dataclasses import asdict
@@ -69,3 +71,29 @@ class FileSpecIdRegistry:
                 await asyncio.to_thread(write_atomic, path, payload)
             except OSError as error:
                 raise InfrastructureUnavailableError("registry_unwritable", error_type=type(error).__name__) from None
+
+
+def encode_gzip_json(payload: Any) -> bytes:
+    """``payload`` as compact UTF-8 JSON, gzip-compressed with a fixed mtime (same input, same bytes)."""
+
+    return gzip.compress(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"), mtime=0)
+
+
+def read_gzip_json(path: Path) -> Any | None:
+    """The JSON value of a gzip file; None when the file does not exist."""
+
+    try:
+        return json.loads(gzip.decompress(path.read_bytes()).decode("utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, EOFError, ValueError, zlib.error) as error:
+        raise InfrastructureUnavailableError("file_store_unreadable", error_type=type(error).__name__) from None
+
+
+def write_store_file(path: Path, data: bytes) -> None:
+    """``write_atomic`` for a file store: an I/O failure becomes ``InfrastructureUnavailableError``."""
+
+    try:
+        write_atomic(path, data)
+    except OSError as error:
+        raise InfrastructureUnavailableError("file_store_unwritable", error_type=type(error).__name__) from None

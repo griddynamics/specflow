@@ -1,15 +1,17 @@
 "use client";
 // FE-PLAN-06, FE-PLAN-07 (TECH-SPECS §2.15; DECISIONS P24-*): the Plan tab. The `plan` prop is only the first paint: the tab re-reads
 // `plan.state(projectId)` on mount, because `updateTaskBody` fires no event and the prop can be stale after a tab switch
-// (Plan -> Develop -> Plan keeps an edit). Grouping and order come from the port and `groupByPhase`; nothing is sorted here.
+// (Plan -> Develop -> Plan keeps an edit). Grouping and order come from the port and `groupByArea`; nothing is sorted here. Above the
+// outline, the quality notice says when part of the plan was written by the fallback rules or the review found issues.
 // The signature is the one P21 pinned: `plan` is declared and not read, so the first paint is a
 // skeleton until the read settles (DECISIONS P24-6).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { usePlanPort } from "../use-plan-ports";
-import { groupByPhase } from "@/lib/domain/logic/plan";
-import type { PlanSnapshot, PlanTask, TaskPhase } from "@/lib/domain/plan";
+import { groupByArea } from "@/lib/domain/logic/plan";
+import type { PlanSnapshot, PlanTask } from "@/lib/domain/plan";
 import { PlanOutline } from "./PlanOutline";
+import { PlanQualityNotice } from "./PlanQualityNotice";
 import { TaskBody } from "./TaskBody";
 import { recallOpen, rememberOpen } from "./open-state";
 import { visibleTasks } from "./task-logic";
@@ -19,15 +21,16 @@ export function PlanTab({ projectId }: Readonly<{ projectId: string; plan: PlanS
   const planPort = usePlanPort();
   const [snapshot, setSnapshot] = useState<PlanSnapshot | null>(null);
   const [failed, setFailed] = useState(false);
-  // The first phase with tasks starts open (FE-PLAN-06.AC5), once, when the first read settles; the user's choices live here afterwards.
-  // P26 (m4): the open set comes back from module memory after a tab switch (`open-state.ts`).
-  const [openPhases, setOpenPhases] = useState<ReadonlySet<TaskPhase>>(() => recallOpen(projectId)?.phases ?? new Set());
+  // The first area with tasks and its first story start open (FE-PLAN-06.AC5), once, when the first read settles; the user's choices
+  // live here afterwards. P26 (m4): the open sets come back from module memory after a tab switch (`open-state.ts`).
+  const [openAreas, setOpenAreas] = useState<ReadonlySet<string>>(() => recallOpen(projectId)?.areas ?? new Set());
+  const [openStories, setOpenStories] = useState<ReadonlySet<string>>(() => recallOpen(projectId)?.stories ?? new Set());
   const [openTasks, setOpenTasks] = useState<ReadonlySet<string>>(() => recallOpen(projectId)?.tasks ?? new Set());
   // Memory is written only once the user (or the first-phase default) has set the open state, never from the empty first render.
   const settled = useRef(recallOpen(projectId) !== undefined);
   useEffect(() => {
-    if (settled.current) rememberOpen(projectId, { phases: openPhases, tasks: openTasks });
-  }, [projectId, openPhases, openTasks]);
+    if (settled.current) rememberOpen(projectId, { areas: openAreas, stories: openStories, tasks: openTasks });
+  }, [projectId, openAreas, openStories, openTasks]);
 
   const refresh = useCallback(
     () =>
@@ -51,13 +54,11 @@ export function PlanTab({ projectId }: Readonly<{ projectId: string; plan: PlanS
         setSnapshot(s.plan);
         if (!settled.current) {
           settled.current = true;
-          setOpenPhases(
-            new Set(
-              groupByPhase(visibleTasks(s.plan.tasks))
-                .slice(0, 1)
-                .map((g) => g.phase),
-            ),
-          );
+          const first = groupByArea(s.plan, visibleTasks(s.plan.tasks)).at(0);
+          if (first) {
+            setOpenAreas(new Set([first.area.areaId]));
+            setOpenStories(new Set(first.stories.slice(0, 1).map((g) => g.story.storyId)));
+          }
         }
       },
       () => {
@@ -104,16 +105,22 @@ export function PlanTab({ projectId }: Readonly<{ projectId: string; plan: PlanS
   }
   return (
     <div className="plan-tab" data-testid="plan-tab" data-project={projectId}>
-      <p className="plan-tab__label body-sm" data-testid="plan-sample-label">
-        Sample progress from an earlier agent run
-      </p>
+      <PlanQualityNotice
+        quality={snapshot.quality}
+        ruleTasks={visibleTasks(snapshot.tasks).filter((t) => t.plannedBy === "rules").length}
+      />
       <PlanOutline
-        tasks={snapshot.tasks}
-        openPhases={openPhases}
+        plan={snapshot}
+        openAreas={openAreas}
+        openStories={openStories}
         openTasks={openTasks}
-        onTogglePhase={(p) => {
+        onToggleArea={(id) => {
           settled.current = true;
-          setOpenPhases((s) => toggle(s, p));
+          setOpenAreas((s) => toggle(s, id));
+        }}
+        onToggleStory={(id) => {
+          settled.current = true;
+          setOpenStories((s) => toggle(s, id));
         }}
         onToggleTask={(id) => {
           settled.current = true;

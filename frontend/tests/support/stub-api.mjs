@@ -71,13 +71,14 @@ const PARSED = new Set(["parsed", "ingested", "partially_ingested"]);
  * parseMs/summarizeMs = Infinity keeps the work "in progress" forever (stuck tests).
  * Knowledge build knobs on `state` (see `graphRoute`): graphMs (a build resolves when it has run that long; Infinity = never),
  * graphOutcome ("succeeded" | "partially_succeeded" | "failed") and graphStartFail (null | an API code: the POST answers 503 with it).
+ * Plan knob: planMs (a plan run takes that long, its ten steps evenly spread; see `planRoute`).
  */
 export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs = 1500, parseOutcome = "parsed" }) {
   const keys = verify ? createLocalJWKSet(verify.jwks) : undefined;
   const projects = new Map();
   const docs = new Map(); // id -> doc
   const log = []; // {method, path, headers, authOk, contentType, bytes}
-  const state = { parseMs, summarizeMs, parseOutcome, graphMs: 1500, graphOutcome: "succeeded", graphStartFail: null };
+  const state = { parseMs, summarizeMs, parseOutcome, graphMs: 1500, graphOutcome: "succeeded", graphStartFail: null, planMs: 2000 };
   /** Drive: sources per project (SourceOut rows, mutable by tests), and the identity answer (a Reason string = 503 with that code). */
   const sources = new Map(); // pid -> SourceOut[]
   const drive = { identityReason: null, email: "specflow-sa@example.test" };
@@ -167,6 +168,191 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
       succeededBefore: g.succeededBefore === true,
     });
     return json(res, 202, graphWire(graphs.get(pid)));
+  }
+
+  // Plan (`/plan`, `/plan/tasks`, `/plan/preview`): one run state per project. A run needs a succeeded graph build (else 409
+  // no_graph_build); it is resolved when it is read, its ten steps spread over `planMs`, and then the project has the fixed plan below.
+  const PLAN_STEPS = ["snapshot", "partition", "describe", "project", "tasks", "stitch", "review", "diff", "persist", "check"];
+  const STUB_PARTS = 8;
+  const plans = new Map(); // pid -> {status, run_id, replan, startedMs, has_plan}
+  let planSeq = 0;
+  const planOf = (pid) => {
+    const p = plans.get(pid) ?? { status: "idle", run_id: null, replan: null, startedMs: 0, has_plan: false };
+    if (p.status === "running" && Date.now() - p.startedMs >= state.planMs) {
+      p.status = "succeeded";
+      p.has_plan = true;
+    }
+    plans.set(pid, p);
+    return p;
+  };
+  const planWire = (p) => {
+    const done =
+      p.status === "running"
+        ? Math.min(PLAN_STEPS.length - 1, Math.floor(((Date.now() - p.startedMs) / state.planMs) * PLAN_STEPS.length))
+        : PLAN_STEPS.length;
+    const started = p.run_id === null ? null : new Date(p.startedMs).toISOString();
+    const step = p.run_id === null ? null : PLAN_STEPS[Math.min(done, PLAN_STEPS.length - 1)];
+    // The tasks step reports its planning parts, as the API does (8 parts here, spread over the step).
+    const elapsedSteps = p.run_id === null ? 0 : ((Date.now() - p.startedMs) / state.planMs) * PLAN_STEPS.length;
+    const partsDone = Math.min(STUB_PARTS, Math.max(0, Math.floor((elapsedSteps - done) * STUB_PARTS)));
+    const items = p.status === "running" && step === "tasks" ? { done: partsDone, total: STUB_PARTS } : null;
+    return {
+      status: p.status,
+      has_plan: p.has_plan,
+      run_id: p.run_id,
+      mode: p.run_id === null ? null : p.replan ? "update" : "first",
+      replan: p.replan,
+      step,
+      steps_done: p.run_id === null ? 0 : done,
+      steps_total: p.run_id === null ? 0 : PLAN_STEPS.length,
+      step_items_done: items ? items.done : null,
+      step_items_total: items ? items.total : null,
+      started_at: started,
+      finished_at: p.status === "running" || p.run_id === null ? null : new Date(p.startedMs + state.planMs).toISOString(),
+      unchanged: p.status === "running" || p.run_id === null ? null : false,
+      error_code: null,
+    };
+  };
+  const stubTask = (id, phase, title, status, waits, implementsName, over = {}) => ({
+    task_id: id,
+    area_id: "AREA::CHECKOUT",
+    story_id: "STORY::CHECKOUT",
+    phase,
+    title,
+    description: `${title}.`,
+    done_when: [{ text: `${title} works.`, source: "spec" }],
+    complexity: "medium",
+    status,
+    implements: [{ spec_id: "FEAT::CHECKOUT", label: "Feature", name: implementsName }],
+    waits_for: waits,
+    ready: status === "pending" && waits.length === 0,
+    revision: 1,
+    commit: null,
+    block_reason: null,
+    has_open_questions: false,
+    planned_by: "model",
+    ...over,
+  });
+  const stubStory = (id, areaId, title, progress) => ({
+    story_id: id,
+    area_id: areaId,
+    kind: "feature",
+    title,
+    summary: null,
+    progress,
+    status: "active",
+  });
+  // A plan of a run that partly fell back: one rule-made task in the project-wide area, one blocking review finding.
+  const PLAN_CONTENT = {
+    plan_id: "plan-stub",
+    last_build_id: "gb-1",
+    updated_at: "2026-11-05T09:00:00Z",
+    areas: [
+      {
+        area_id: "AREA::CHECKOUT",
+        kind: "module",
+        title: "Checkout",
+        description: "Orders and payment.",
+        status: "active",
+        planned_by: "model",
+        not_buildable: [{ spec_id: "REQ::RELEASE", name: "Release sign-off", reason: "release_gate", note: "Signed off by the owner." }],
+      },
+      {
+        area_id: "AREA::PROJECT",
+        kind: "project",
+        title: null,
+        description: null,
+        status: "active",
+        planned_by: "rules",
+        not_buildable: [],
+      },
+    ],
+    stories: [
+      stubStory("STORY::CHECKOUT", "AREA::CHECKOUT", "Checkout", "in_progress"),
+      stubStory("STORY::CHECKOUT::TRACK", "AREA::CHECKOUT", "Track the order", "pending"),
+      stubStory("STORY::PROJECT::OPS", "AREA::PROJECT", "Operations", "pending"),
+    ],
+    tasks: [
+      stubTask("TASK::SETUP", "setup", "Set up the checkout module", "completed", [], "Checkout"),
+      stubTask("TASK::ORDER_API", "contract", "Define the order API", "in_progress", ["TASK::SETUP"], "Checkout"),
+      stubTask("TASK::PAY", "logic", "Take the payment", "pending", ["TASK::ORDER_API"], "Checkout"),
+      stubTask("TASK::TRACK", "logic", "Show the order status", "pending", ["TASK::PAY"], "Checkout", {
+        story_id: "STORY::CHECKOUT::TRACK",
+      }),
+      stubTask("TASK::RETRY", "quality", "Quality: Retry model calls", "pending", [], "Checkout", {
+        area_id: "AREA::PROJECT",
+        story_id: "STORY::PROJECT::OPS",
+        planned_by: "rules",
+      }),
+    ],
+    quality: {
+      run_id: "plan-run-stub",
+      status: "partially_succeeded",
+      finished_at: "2026-11-05T09:00:00Z",
+      fallbacks: { tasks: 1 },
+      tasks_planned: 5,
+      review: { blocking: 1 },
+      review_failed: false,
+      unplaced: 0,
+      oversized: 0,
+    },
+    review: [{ area_id: "AREA::CHECKOUT", task_id: null, problem: "No task covers refunds.", severity: "blocking" }],
+  };
+  const validPlanBody = (text) => {
+    if (text.trim() === "") return true;
+    try {
+      const b = JSON.parse(text);
+      return (
+        typeof b === "object" &&
+        b !== null &&
+        !Array.isArray(b) &&
+        Object.keys(b).every((k) => k === "replan") &&
+        (b.replan === undefined || typeof b.replan === "boolean")
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  async function planRoute({ req, res, pid, did, entry }) {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    const built = graphOf(pid).succeededBefore === true;
+    if (did === "preview" && req.method === "GET") {
+      const features = built
+        ? [
+            { spec_id: "FEAT::CHECKOUT", name: "Checkout" },
+            { spec_id: "FEAT::SEARCH", name: "Search" },
+          ]
+        : [];
+      return json(res, 200, {
+        build_id: built ? "gb-1" : null,
+        mode: built ? "first" : null,
+        unchanged: built ? false : null,
+        calls: built ? 12 : null,
+        input_tokens: built ? 48000 : null,
+        features,
+      });
+    }
+    if (did === "tasks" && req.method === "GET") return planOf(pid).has_plan ? json(res, 200, PLAN_CONTENT) : err(res, 404, "no_plan");
+    if (did) return err(res, 404, "not_found");
+    if (req.method === "GET") return json(res, 200, planWire(planOf(pid)));
+    if (req.method !== "POST") return err(res, 405, "method_not_allowed");
+    const text = Buffer.concat(chunks).toString();
+    if (!validPlanBody(text)) return err(res, 422, "validation_failed");
+    entry.bodyText = text;
+    if (graphOf(pid).status === "running") return err(res, 409, "graph_build_running");
+    if (!built) return err(res, 409, "no_graph_build");
+    const p = planOf(pid);
+    if (p.status === "running") return json(res, 202, planWire(p));
+    plans.set(pid, {
+      status: "running",
+      run_id: `run-${String(++planSeq)}`,
+      replan: text.includes("true"),
+      startedMs: Date.now(),
+      has_plan: p.has_plan,
+    });
+    return json(res, 202, planWire(plans.get(pid)));
   }
 
   async function sourcesRoute({ req, res, url, pid, did, action, entry }) {
@@ -416,6 +602,7 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     if (!b) return json(res, 200, project);
     if (b === "sources") return sourcesRoute({ req, res, url, pid, did, action, entry });
     if (b === "graph_build") return graphRoute({ req, res, pid, entry });
+    if (b === "plan") return planRoute({ req, res, pid, did, entry });
     if (b !== "documents") return err(res, 404, "not_found");
 
     if (!did) {

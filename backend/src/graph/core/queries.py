@@ -22,11 +22,13 @@ from functools import cache
 from typing import Any, Final
 
 from graph.core.errors import ConformanceError
-from graph.core.query_files import CORE_DDL_DIRECTORY, read_ddl_file, render_query
+from graph.core.query_files import CORE_DDL_DIRECTORY, GRAPH_ROOT, read_ddl_file, render_query
 
 PROJECT_ID_PARAMETER: Final = "project_id"
 LITERAL_TEMPLATE: Final = "core.literal"
 DDL_TEMPLATE: Final = "core.ddl"
+_SUBMODULE_DDL_DIRECTORY: Final = "ddl"
+_SUBMODULE_DDL_SUFFIX: Final = ".cypher"
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,6 +213,22 @@ def load_core_ddl(name: str) -> tuple[str, ...]:
 
 
 CORE_DDL: Final = tuple(statement for name in CORE_DDL_FILES for statement in load_core_ddl(name))
+
+
+def submodule_ddl() -> tuple[str, ...]:
+    """The statements of every ``graph/<sub>/ddl/*.cypher``, sorted, without importing a submodule."""
+
+    statements: list[str] = []
+    for child in sorted(GRAPH_ROOT.iterdir(), key=lambda item: item.name):
+        if child.name in {"core", "stores"} or child.name.startswith(("_", ".")) or not child.is_dir():
+            continue
+        directory = child / _SUBMODULE_DDL_DIRECTORY
+        if not directory.is_dir():
+            continue
+        for file in sorted(directory.iterdir(), key=lambda item: item.name):
+            if file.is_file() and file.name.endswith(_SUBMODULE_DDL_SUFFIX):
+                statements.extend(read_ddl_file(file))
+    return tuple(statements)
 
 
 _DDL_HEAD: Final = re.compile(

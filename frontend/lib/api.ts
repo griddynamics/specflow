@@ -147,6 +147,14 @@ export const saveDriveFolder = (pid: string, link: string) =>
 export const getGraphBuild = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/graph_build`).then((r) => r.body);
 export const startGraphBuild = (pid: string, reasoningLevel: number) =>
   httpPost(`/projects/${encodeURIComponent(pid)}/graph_build`, json({ reasoning_level: reasoningLevel })).then((r) => r.body);
+// Plan (`/plan`, `graph.plan`): the GET is the state of the latest run, the POST starts a run (`replan` re-plans every area), `/plan/tasks` is
+// the persisted plan and `/plan/preview` the features to plan with the run estimate. Bodies stay `unknown`; the plan port
+// (lib/data/http/plan.ts) checks their shape.
+export const getPlan = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/plan`).then((r) => r.body);
+export const startPlan = (pid: string, replan: boolean) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/plan`, json({ replan })).then((r) => r.body);
+export const getPlanTasks = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/plan/tasks`).then((r) => r.body);
+export const getPlanPreview = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/plan/preview`).then((r) => r.body);
 
 /** `created` = a new document (201). `duplicate` = the project already has this content and nothing new happened; `retried` =
  * it had it in status `failed`, and the server started its parse again (both 200, with the existing document). */

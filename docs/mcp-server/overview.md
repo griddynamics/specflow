@@ -22,8 +22,8 @@ specification, and later its implementation plan. Every deployment and every loc
 
 | Version | Tools | Status |
 |---|---|---|
-| 1 | `list_projects`, `list_features`, and the prompt `select_project` | specified here |
-| later | feature detail, search, impact, plan tasks, writes | [later.md](later.md) |
+| 1 | `list_projects`, `list_features`, the plan tools `list_tasks`, `list_feature_tasks`, `get_task_path` and `get_task_brief`, and the prompt `select_project` | specified here |
+| later | feature detail, search, impact, claiming and reporting plan tasks (writes) | [later.md](later.md) |
 
 ## Goals
 

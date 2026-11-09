@@ -87,7 +87,7 @@ files = ["contracts/schemas/*.schema.json"]
 
 [[json-schemas]]
 schema = "contracts/schemas/spec-ontology.schema.json"
-files = ["src/graph/core/ontology/*.yaml", "../docs/graph/spec-ontology.yaml"]
+files = ["src/graph/core/ontology/*.yaml", "src/graph/plan/ontology.yaml", "../docs/graph/spec-ontology.yaml"]
 
 [[json-schemas]]
 schema = "contracts/schemas/sources-contract.schema.json"

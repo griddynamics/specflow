@@ -1,0 +1,349 @@
+# The synthetic spec graph used by offline graph.plan tests.
+#
+# Names mirror the acceptance cases of the plan tests. Nodes, edges,
+# documents and fragments are deliberately small: the fixture is reader input, not a build corpus.
+
+build_id: build-1
+
+documents:
+  - document_id: shop
+    spec_id: DOC::SHOP
+    revision_id: REV::SHOP
+    version: 1
+    path: docs/shop.md
+    title: Shop requirements
+    status: active
+    last_build_id: build-1
+
+fragments:
+  - fragment_id: shop.intro
+    document_id: shop
+    spec_id: FRAG::SHOP_INTRO
+    text: The shop consists of services, a datastore, a deployment target and an external provider.
+    heading_path: [Shop requirements]
+    ordinal: 1
+    line_start: 1
+    line_end: 1
+    status: active
+    last_build_id: build-1
+  - fragment_id: shop.modules
+    document_id: shop
+    spec_id: FRAG::SHOP_MODULES
+    text: Orders service, Payments service and Web shop are modules. Orders database stores data.
+    heading_path: [Shop requirements, Modules]
+    ordinal: 2
+    line_start: 2
+    line_end: 2
+    status: active
+    last_build_id: build-1
+  - fragment_id: shop.interfaces
+    document_id: shop
+    spec_id: FRAG::SHOP_INTERFACES
+    text: Orders API is provided by Orders service and consumed by Web shop. Stripe API is external.
+    heading_path: [Shop requirements, Interfaces]
+    ordinal: 3
+    line_start: 3
+    line_end: 3
+    status: active
+    last_build_id: build-1
+  - fragment_id: shop.data
+    document_id: shop
+    spec_id: FRAG::SHOP_DATA
+    text: Order is stored in Orders database and holds the fields an order needs.
+    heading_path: [Shop requirements, Data]
+    ordinal: 4
+    line_start: 4
+    line_end: 4
+    status: active
+    last_build_id: build-1
+  - fragment_id: shop.features
+    document_id: shop
+    spec_id: FRAG::SHOP_FEATURES
+    text: The shop has Place order, Order history export, Card payment, Checkout and nested features.
+    heading_path: [Shop requirements, Features]
+    ordinal: 5
+    line_start: 5
+    line_end: 5
+    status: active
+    last_build_id: build-1
+  - fragment_id: shop.requirements
+    document_id: shop
+    spec_id: FRAG::SHOP_REQUIREMENTS
+    text: Requirements name behaviour, data, integration, business rules and cross-area dependencies.
+    heading_path: [Shop requirements, Requirements]
+    ordinal: 6
+    line_start: 6
+    line_end: 6
+    status: active
+    last_build_id: build-1
+  - fragment_id: shop.quality
+    document_id: shop
+    spec_id: FRAG::SHOP_QUALITY
+    text: Checkout responds quickly and all services run in the EU region.
+    heading_path: [Shop requirements, Quality]
+    ordinal: 7
+    line_start: 7
+    line_end: 7
+    status: active
+    last_build_id: build-1
+  - fragment_id: shop.constraints
+    document_id: shop
+    spec_id: FRAG::SHOP_CONSTRAINTS
+    text: Stripe limits retries. Gift cards are out of scope for this release.
+    heading_path: [Shop requirements, Constraints]
+    ordinal: 8
+    line_start: 8
+    line_end: 8
+    status: active
+    last_build_id: build-1
+  - fragment_id: shop.questions
+    document_id: shop
+    spec_id: FRAG::SHOP_QUESTIONS
+    text: Which payment providers must the first release support?
+    heading_path: [Shop requirements, Open questions]
+    ordinal: 9
+    line_start: 9
+    line_end: 9
+    status: active
+    last_build_id: build-1
+
+nodes:
+  - spec_id: MOD::ORDERS_SERVICE
+    uuid: node-0001
+    label: Module
+    name: Orders service
+    last_build_id: build-1
+    attributes: {type: backend}
+    statements: [{fragment_id: shop.modules, document_id: shop, revision_id: REV::SHOP, version: 1, text: Orders service is a module}]
+  - spec_id: MOD::PAYMENTS_SERVICE
+    uuid: node-0002
+    label: Module
+    name: Payments service
+    last_build_id: build-1
+    attributes: {type: backend}
+  - spec_id: MOD::WEB_SHOP
+    uuid: node-0003
+    label: Module
+    name: Web shop
+    last_build_id: build-1
+    attributes: {type: frontend}
+  - spec_id: MOD::ORDERS_DATABASE
+    uuid: node-0004
+    label: Module
+    name: Orders database
+    last_build_id: build-1
+    attributes: {type: datastore}
+  - spec_id: MOD::PRODUCTION_CLUSTER
+    uuid: node-0005
+    label: Module
+    name: Production cluster
+    last_build_id: build-1
+    attributes: {type: deployment}
+  - spec_id: MOD::STRIPE
+    uuid: node-0006
+    label: Module
+    name: Stripe
+    last_build_id: build-1
+    attributes: {external: "yes", type: other}
+  - spec_id: IFC::ORDERS_API
+    uuid: node-0007
+    label: Interface
+    name: Orders API
+    last_build_id: build-1
+  - spec_id: IFC::STRIPE_API
+    uuid: node-0008
+    label: Interface
+    name: Stripe API
+    last_build_id: build-1
+  - spec_id: IFC::UNSHARED
+    uuid: node-0034
+    label: Interface
+    name: Interface consumed by two modules
+    last_build_id: build-1
+  - spec_id: IFC::INTEGRATED
+    uuid: node-0037
+    label: Interface
+    name: Interface integrated by one module
+    last_build_id: build-1
+  - spec_id: ENT::DUAL_STORED
+    uuid: node-0035
+    label: DataEntity
+    name: Entity stored by two modules
+    last_build_id: build-1
+  - spec_id: CAP::UNREALISED
+    uuid: node-0036
+    label: Capability
+    name: Unrealised capability
+    last_build_id: build-1
+  - spec_id: ENT::ORDER
+    uuid: node-0009
+    label: DataEntity
+    name: Order
+    last_build_id: build-1
+  - spec_id: FEAT::PLACE_ORDER
+    uuid: node-0010
+    label: Feature
+    name: Place order
+    last_build_id: build-1
+    attributes: {release: MVP}
+  - spec_id: FEAT::ORDER_HISTORY_EXPORT
+    uuid: node-0011
+    label: Feature
+    name: Order history export
+    last_build_id: build-1
+  - spec_id: REQ::LOGIC_EXPORT
+    uuid: node-0012
+    label: FunctionalRequirement
+    name: Staff can export order history as a CSV file
+    last_build_id: build-1
+    attributes: {acceptance_criteria: [The export contains every completed order]}
+    provenance: [{document_id: shop, path: docs/shop.md, fragment_id: shop.requirements, line_start: 6, line_end: 6, quote: Staff can export order history}]
+  - spec_id: FEAT::CARD_PAYMENT
+    uuid: node-0013
+    label: Feature
+    name: Card payment
+    last_build_id: build-1
+  - spec_id: FEAT::CHECKOUT
+    uuid: node-0014
+    label: Feature
+    name: Checkout
+    last_build_id: build-1
+  - spec_id: FEAT::CHECKOUT_REVIEW
+    uuid: node-0015
+    label: Feature
+    name: Checkout review
+    last_build_id: build-1
+  - spec_id: REQ::FR::PLACE_ORDER
+    uuid: node-0016
+    label: FunctionalRequirement
+    name: Customer can place an order
+    last_build_id: build-1
+    attributes: {acceptance_criteria: [The order is created and queued]}
+  - spec_id: REQ::FR::ORDER_HISTORY_EXPORT
+    uuid: node-0017
+    label: FunctionalRequirement
+    name: Customer can download order history
+    last_build_id: build-1
+  - spec_id: REQ::FR::CARD_PAYMENT
+    uuid: node-0018
+    label: FunctionalRequirement
+    name: Customer can pay by card
+    last_build_id: build-1
+  - spec_id: REQ::FR::CHECKOUT
+    uuid: node-0019
+    label: FunctionalRequirement
+    name: Customer can complete checkout
+    last_build_id: build-1
+  - spec_id: REQ::FR::A
+    uuid: node-0020
+    label: FunctionalRequirement
+    name: Requirement A
+    last_build_id: build-1
+  - spec_id: REQ::FR::B
+    uuid: node-0021
+    label: FunctionalRequirement
+    name: Requirement B
+    last_build_id: build-1
+  - spec_id: REQ::FR::ORPHAN
+    uuid: node-0022
+    label: FunctionalRequirement
+    name: Orphan requirement
+    last_build_id: build-1
+  - spec_id: FEAT::GIFT_CARDS
+    uuid: node-0023
+    label: Feature
+    name: Gift cards
+    last_build_id: build-1
+    attributes: {in_scope: "no"}
+  - spec_id: REQ::FR::GIFT_CARDS
+    uuid: node-0024
+    label: FunctionalRequirement
+    name: Customer can redeem a gift card
+    last_build_id: build-1
+  - spec_id: CAP::AUTHENTICATION
+    uuid: node-0025
+    label: Capability
+    name: Authentication
+    last_build_id: build-1
+  - spec_id: CON::EU_REGION
+    uuid: node-0026
+    label: Constraint
+    name: All services run in the EU region
+    last_build_id: build-1
+    provenance: [{document_id: shop, path: docs/shop.md, fragment_id: shop.quality, revision_id: REV::SHOP, version: 1, line_start: 7, line_end: 7, quote: Checkout responds quickly and all services run in the EU region.}]
+  - spec_id: BR::RELEASE
+    uuid: node-0027
+    label: BusinessRule
+    name: Release - the first release is MVP
+    last_build_id: build-1
+    attributes: {release: MVP}
+  - spec_id: OQ::PAYMENT_PROVIDERS
+    uuid: node-0028
+    label: OpenQuestion
+    name: Which payment providers are supported?
+    last_build_id: build-1
+  - spec_id: REQ::INT::CALL_STRIPE
+    uuid: node-0029
+    label: IntegrationRequirement
+    name: Web shop calls Stripe API for card payment
+    last_build_id: build-1
+  - spec_id: REQ::DATA::ORDER_FIELDS
+    uuid: node-0030
+    label: DataRequirement
+    name: Order holds id, customer id, total and status
+    last_build_id: build-1
+  - spec_id: REQ::Q::CHECKOUT_SPEED
+    uuid: node-0031
+    label: QualityRequirement
+    name: Checkout responds within one second
+    last_build_id: build-1
+  - spec_id: REQ::BR::ORDER_LIMIT
+    uuid: node-0032
+    label: BusinessRule
+    name: Order over 1000 units needs approval
+    last_build_id: build-1
+  - spec_id: CON::STRIPE
+    uuid: node-0033
+    label: Constraint
+    name: Stripe rejects repeated payment attempts
+    last_build_id: build-1
+
+edges:
+  - {relation: PROVIDED_BY, source: IFC::ORDERS_API, target: MOD::ORDERS_SERVICE, edge_key: IFC_ORDERS_API|PROVIDED_BY|MOD_ORDERS_SERVICE, basis: stated, source_fragment_ids: [shop.interfaces]}
+  - {relation: CONSUMED_BY, source: IFC::ORDERS_API, target: MOD::WEB_SHOP, edge_key: IFC_ORDERS_API|CONSUMED_BY|MOD_WEB_SHOP, basis: stated, source_fragment_ids: [shop.interfaces]}
+  - {relation: PROVIDED_BY, source: IFC::STRIPE_API, target: MOD::STRIPE, edge_key: IFC_STRIPE_API|PROVIDED_BY|MOD_STRIPE, basis: stated, source_fragment_ids: [shop.interfaces]}
+  - {relation: CONSUMED_BY, source: IFC::STRIPE_API, target: MOD::PAYMENTS_SERVICE, edge_key: IFC_STRIPE_API|CONSUMED_BY|MOD_PAYMENTS_SERVICE, basis: stated, source_fragment_ids: [shop.interfaces]}
+  - {relation: CONSUMED_BY, source: IFC::UNSHARED, target: MOD::ORDERS_SERVICE, edge_key: IFC_UNSHARED|CONSUMED_BY|MOD_ORDERS_SERVICE, basis: stated, source_fragment_ids: [shop.interfaces]}
+  - {relation: CONSUMED_BY, source: IFC::UNSHARED, target: MOD::PAYMENTS_SERVICE, edge_key: IFC_UNSHARED|CONSUMED_BY|MOD_PAYMENTS_SERVICE, basis: stated, source_fragment_ids: [shop.interfaces]}
+  - {relation: PROVIDED_BY, source: IFC::INTEGRATED, target: MOD::STRIPE, edge_key: IFC_INTEGRATED|PROVIDED_BY|MOD_STRIPE, basis: stated, source_fragment_ids: [shop.interfaces]}
+  - {relation: INTEGRATES_WITH, source: MOD::STRIPE, target: MOD::PAYMENTS_SERVICE, edge_key: MOD_STRIPE|INTEGRATES_WITH|MOD_PAYMENTS_SERVICE, basis: stated, source_fragment_ids: [shop.interfaces]}
+  - {relation: STORED_IN, source: ENT::ORDER, target: MOD::ORDERS_DATABASE, edge_key: ENT_ORDER|STORED_IN|MOD_ORDERS_DATABASE, basis: stated, source_fragment_ids: [shop.data]}
+  - {relation: STORED_IN, source: ENT::DUAL_STORED, target: MOD::ORDERS_DATABASE, edge_key: ENT_DUAL_STORED|STORED_IN|MOD_ORDERS_DATABASE, basis: stated, source_fragment_ids: [shop.data]}
+  - {relation: STORED_IN, source: ENT::DUAL_STORED, target: MOD::PAYMENTS_SERVICE, edge_key: ENT_DUAL_STORED|STORED_IN|MOD_PAYMENTS_SERVICE, basis: stated, source_fragment_ids: [shop.data]}
+  - {relation: PART_OF, source: REQ::DATA::ORDER_FIELDS, target: ENT::ORDER, edge_key: REQ_DATA_ORDER_FIELDS|PART_OF|ENT_ORDER, basis: stated, source_fragment_ids: [shop.data]}
+  - {relation: PART_OF, source: CON::STRIPE, target: MOD::STRIPE, edge_key: CON_STRIPE|PART_OF|MOD_STRIPE, basis: stated, source_fragment_ids: [shop.constraints]}
+  - {relation: INTEGRATES_WITH, source: MOD::WEB_SHOP, target: MOD::PAYMENTS_SERVICE, edge_key: MOD_WEB_SHOP|INTEGRATES_WITH|MOD_PAYMENTS_SERVICE, basis: stated, source_fragment_ids: [shop.modules]}
+  - {relation: DEPENDS_ON, source: FEAT::CHECKOUT, target: FEAT::CARD_PAYMENT, edge_key: FEAT_CHECKOUT|DEPENDS_ON|FEAT_CARD_PAYMENT, basis: stated, source_fragment_ids: [shop.features]}
+  - {relation: DEPENDS_ON, source: REQ::FR::A, target: REQ::FR::B, edge_key: REQ_FR_A|DEPENDS_ON|REQ_FR_B, basis: stated, source_fragment_ids: [shop.requirements]}
+  - {relation: REALIZED_BY, source: CAP::AUTHENTICATION, target: MOD::ORDERS_SERVICE, edge_key: CAP_AUTHENTICATION|REALIZED_BY|MOD_ORDERS_SERVICE, basis: stated, source_fragment_ids: [shop.modules]}
+  - {relation: REALIZED_BY, source: CAP::AUTHENTICATION, target: MOD::WEB_SHOP, edge_key: CAP_AUTHENTICATION|REALIZED_BY|MOD_WEB_SHOP, basis: stated, source_fragment_ids: [shop.modules]}
+  - {relation: RELATES_TO, source: CON::EU_REGION, target: MOD::ORDERS_SERVICE, edge_key: CON_EU_REGION|RELATES_TO|MOD_ORDERS_SERVICE, basis: stated, source_fragment_ids: [shop.quality]}
+  - {relation: RELATES_TO, source: CON::EU_REGION, target: MOD::PAYMENTS_SERVICE, edge_key: CON_EU_REGION|RELATES_TO|MOD_PAYMENTS_SERVICE, basis: stated, source_fragment_ids: [shop.quality]}
+  - {relation: RELATES_TO, source: CON::EU_REGION, target: MOD::WEB_SHOP, edge_key: CON_EU_REGION|RELATES_TO|MOD_WEB_SHOP, basis: stated, source_fragment_ids: [shop.quality]}
+  - {relation: RELATES_TO, source: OQ::PAYMENT_PROVIDERS, target: ENT::ORDER, edge_key: OQ_PAYMENT_PROVIDERS|RELATES_TO|ENT_ORDER, basis: stated, source_fragment_ids: [shop.questions]}
+  - {relation: PART_OF, source: FEAT::PLACE_ORDER, target: MOD::ORDERS_SERVICE, edge_key: FEAT_PLACE_ORDER|PART_OF|MOD_ORDERS_SERVICE, basis: stated, source_fragment_ids: [shop.features]}
+  - {relation: PART_OF, source: FEAT::ORDER_HISTORY_EXPORT, target: MOD::ORDERS_SERVICE, edge_key: FEAT_ORDER_HISTORY_EXPORT|PART_OF|MOD_ORDERS_SERVICE, basis: stated, source_fragment_ids: [shop.features]}
+  - {relation: PART_OF, source: FEAT::CARD_PAYMENT, target: MOD::PAYMENTS_SERVICE, edge_key: FEAT_CARD_PAYMENT|PART_OF|MOD_PAYMENTS_SERVICE, basis: stated, source_fragment_ids: [shop.features]}
+  - {relation: PART_OF, source: FEAT::CHECKOUT, target: MOD::WEB_SHOP, edge_key: FEAT_CHECKOUT|PART_OF|MOD_WEB_SHOP, basis: stated, source_fragment_ids: [shop.features]}
+  - {relation: PART_OF, source: REQ::FR::PLACE_ORDER, target: FEAT::PLACE_ORDER, edge_key: REQ_FR_PLACE_ORDER|PART_OF|FEAT_PLACE_ORDER, basis: stated, source_fragment_ids: [shop.requirements]}
+  - {relation: PART_OF, source: REQ::LOGIC_EXPORT, target: FEAT::ORDER_HISTORY_EXPORT, edge_key: REQ_LOGIC_EXPORT|PART_OF|FEAT_ORDER_HISTORY_EXPORT, basis: stated, source_fragment_ids: [shop.requirements]}
+  - {relation: PART_OF, source: REQ::FR::ORDER_HISTORY_EXPORT, target: FEAT::ORDER_HISTORY_EXPORT, edge_key: REQ_FR_ORDER_HISTORY_EXPORT|PART_OF|FEAT_ORDER_HISTORY_EXPORT, basis: stated, source_fragment_ids: [shop.requirements]}
+  - {relation: PART_OF, source: REQ::FR::CARD_PAYMENT, target: FEAT::CARD_PAYMENT, edge_key: REQ_FR_CARD_PAYMENT|PART_OF|FEAT_CARD_PAYMENT, basis: stated, source_fragment_ids: [shop.requirements]}
+  - {relation: PART_OF, source: REQ::FR::CHECKOUT, target: FEAT::CHECKOUT, edge_key: REQ_FR_CHECKOUT|PART_OF|FEAT_CHECKOUT, basis: stated, source_fragment_ids: [shop.requirements]}
+  - {relation: PART_OF, source: REQ::INT::CALL_STRIPE, target: IFC::STRIPE_API, edge_key: REQ_INT_CALL_STRIPE|PART_OF|IFC_STRIPE_API, basis: stated, source_fragment_ids: [shop.requirements]}
+  - {relation: PART_OF, source: REQ::Q::CHECKOUT_SPEED, target: FEAT::CHECKOUT, edge_key: REQ_Q_CHECKOUT_SPEED|PART_OF|FEAT_CHECKOUT, basis: stated, source_fragment_ids: [shop.quality]}
+  - {relation: PART_OF, source: REQ::BR::ORDER_LIMIT, target: MOD::ORDERS_SERVICE, edge_key: REQ_BR_ORDER_LIMIT|PART_OF|MOD_ORDERS_SERVICE, basis: stated, source_fragment_ids: [shop.requirements]}
+  - {relation: PART_OF, source: BR::RELEASE, target: MOD::ORDERS_SERVICE, edge_key: BR_RELEASE|PART_OF|MOD_ORDERS_SERVICE, basis: stated, source_fragment_ids: [shop.requirements]}
+  - {relation: PART_OF, source: FEAT::GIFT_CARDS, target: MOD::WEB_SHOP, edge_key: FEAT_GIFT_CARDS|PART_OF|MOD_WEB_SHOP, basis: stated, source_fragment_ids: [shop.constraints]}
+  - {relation: PART_OF, source: REQ::FR::GIFT_CARDS, target: FEAT::GIFT_CARDS, edge_key: REQ_FR_GIFT_CARDS|PART_OF|FEAT_GIFT_CARDS, basis: stated, source_fragment_ids: [shop.constraints]}
+  - {relation: DEPLOYED_TO, source: MOD::ORDERS_SERVICE, target: MOD::PRODUCTION_CLUSTER, edge_key: MOD_ORDERS_SERVICE|DEPLOYED_TO|MOD_PRODUCTION_CLUSTER, basis: stated, source_fragment_ids: [shop.modules]}

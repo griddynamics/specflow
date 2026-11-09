@@ -1,7 +1,8 @@
 """The PostgreSQL dialect: one ``.sql`` file per template of the query catalog (design D2, D7).
 
-Every core template of ``graph.core.queries`` is a file under ``queries/core/`` (a template id
-``core.<file stem>``); a template whose relationship type, node shape, hop count or vector size is only
+Every template of ``graph.core.queries``, ``graph.build.queries`` and ``graph.plan.queries`` is a file under
+``queries/core/``, ``queries/build/`` or ``queries/plan/`` (a template id ``core.<file stem>``, ``build.<file stem>``
+or ``plan.<file stem>``); a template whose relationship type, node shape, hop count or vector size is only
 known at run time is a file with ``/*__NAME__*/default/*__NAME__*/`` slots that the renderer fills from the
 query's semantic arguments. Labels and relationship types are bind values (``:rel_type``, ``:foreign_label``,
 ``:types``), never part of the text; only integers (hop counts, the vector size) and the choice of a node
@@ -45,7 +46,7 @@ from graph.core.queries import (
     safe_name,
 )
 from graph.core.query_files import fragment, render_query
-from graph.stores.postgres.sqlfiles import load_build_sql, load_core_sql
+from graph.stores.postgres.sqlfiles import load_build_sql, load_core_sql, load_plan_sql
 
 DEFAULT_SCHEMA: Final = "graph"
 BACKEND: Final = "postgres"
@@ -103,6 +104,24 @@ _STATIC: Final[Mapping[str, Callable[[], str]]] = {
     "build.infer_xdoc_documents": lambda: load_build_sql("infer_xdoc_documents.sql"),
     "build.infer_xdoc_embeddings": lambda: load_build_sql("infer_xdoc_embeddings.sql"),
     "build.infer_xdoc_members": lambda: load_build_sql("infer_xdoc_members.sql"),
+    "plan.plan_claim_task": lambda: load_plan_sql("plan_claim_task.sql"),
+    "plan.plan_create_tasks": lambda: load_plan_sql("plan_create_tasks.sql"),
+    "plan.plan_read_areas": lambda: load_plan_sql("plan_read_areas.sql"),
+    "plan.plan_read_plan": lambda: load_plan_sql("plan_read_plan.sql"),
+    "plan.plan_read_stories": lambda: load_plan_sql("plan_read_stories.sql"),
+    "plan.plan_read_tasks": lambda: load_plan_sql("plan_read_tasks.sql"),
+    "plan.plan_set_applying": lambda: load_plan_sql("plan_set_applying.sql"),
+    "plan.plan_transition_task": lambda: load_plan_sql("plan_transition_task.sql"),
+    "plan.plan_update_tasks": lambda: load_plan_sql("plan_update_tasks.sql"),
+    "plan.plan_upsert_areas": lambda: load_plan_sql("plan_upsert_areas.sql"),
+    "plan.plan_upsert_in_area": lambda: load_plan_sql("plan_upsert_in_area.sql"),
+    "plan.plan_upsert_in_story": lambda: load_plan_sql("plan_upsert_in_story.sql"),
+    "plan.plan_upsert_stories": lambda: load_plan_sql("plan_upsert_stories.sql"),
+    "plan.plan_upsert_story_implements": lambda: load_plan_sql("plan_upsert_story_implements.sql"),
+    "plan.plan_upsert_supersedes": lambda: load_plan_sql("plan_upsert_supersedes.sql"),
+    "plan.plan_upsert_task_implements": lambda: load_plan_sql("plan_upsert_task_implements.sql"),
+    "plan.plan_upsert_waits_for": lambda: load_plan_sql("plan_upsert_waits_for.sql"),
+    "plan.plan_write_plan": lambda: load_plan_sql("plan_write_plan.sql"),
     "core.await_indexes": lambda: load_core_sql("await_indexes.sql"),
     "core.count_nodes": lambda: load_core_sql("count_nodes.sql"),
     "core.count_search_vectors": lambda: load_core_sql("count_search_vectors.sql"),
@@ -393,6 +412,8 @@ _RENDERERS: Final[Mapping[str, Callable[[Any], _Rendered]]] = {
     "build.infer_endpoint_subjects": _endpoint_subjects,
     "build.infer_realization_subjects": _realization_subjects,
     "build.infer_similar_targets": _similar_targets,
+    "plan.plan_read_links": _relation(lambda: load_plan_sql("plan_read_links.sql"), "plan.plan_read_links"),
+    "plan.plan_delete_links": _relation(lambda: load_plan_sql("plan_delete_links.sql"), "plan.plan_delete_links"),
 }
 
 

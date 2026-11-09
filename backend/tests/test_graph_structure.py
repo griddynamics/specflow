@@ -12,7 +12,7 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 import pytest
 
@@ -21,6 +21,8 @@ from graph.core import queries as core_queries
 from graph.core.errors import ConformanceError
 from graph.core.ontology import BUILT_IN_NAMES
 from graph.core.queries import CORE_DDL, DdlStatement, NodeShape, Query
+from graph.plan import queries as plan_queries
+from graph.plan.names import PLAN_LABELS, PLAN_RELATIONS, PlanRelation, plan_vocabularies
 from graph.stores._bolt.cypher import render_cypher
 from graph_support import shipped_ontology
 
@@ -60,11 +62,11 @@ ONLY_IN: Final = {
     "httpx": frozenset({"stores/arcadedb/"}),
     "pyTigerGraph": frozenset({"stores/tigergraph/"}),
 }
-QUERY_MODULES: Final = frozenset({"core/queries.py", "build/queries.py"})
+QUERY_MODULES: Final = frozenset({"core/queries.py", "build/queries.py", "plan/queries.py"})
 # The Cypher dialect renders the canonical files and builds the run-time parts of a statement; the ArcadeDB
 # dialect also reads statements for the clauses it refuses a dynamic name in (its statements are files).
 CYPHER_MODULES: Final = QUERY_MODULES | frozenset({"stores/_bolt/cypher.py", "stores/arcadedb/dialect.py"})
-FILE_MODULES: Final = frozenset({"core/files.py", "build/files.py"})
+FILE_MODULES: Final = frozenset({"core/files.py", "build/files.py", "plan/files.py"})
 
 # A string looks like Cypher when a clause keyword (any case) stands in a Cypher shape: followed by a
 # pattern, a property access, a procedure, a schema noun or another clause. A keyword alone in prose
@@ -369,11 +371,12 @@ SAMPLES: Final[dict[Any, tuple[Any, ...]]] = {
     tuple[str, ...]: (("group_id", "edge_key"), ("text",)),
     NodeShape: (NodeShape("SpecNode", "uuid", check_label=True), NodeShape("Document", "document_id")),
     DdlStatement: (DdlStatement("graph_spec_node_spec_id", CORE_DDL[0]),),
+    Literal[PlanRelation]: PLAN_RELATIONS,
 }
 
 
 def query_modules() -> list[Any]:
-    return [core_queries, build_queries]
+    return [core_queries, build_queries, plan_queries]
 
 
 def call_factory(factory: Any, parameters: Sequence[inspect.Parameter], arguments: Sequence[Any]) -> Any:
@@ -495,16 +498,74 @@ def ontology_literals() -> tuple[set[str], tuple[str, ...]]:
     return names - set(BUILT_IN_NAMES) - DATA_MODEL_VALUES, tuple(prefixes)
 
 
+def plan_literals() -> tuple[set[str], set[str]]:
+    """Ontology-owned names and the library-only values used beside them."""
+
+    names = set(PLAN_LABELS) | set(PLAN_RELATIONS)
+    for values in plan_vocabularies().values():
+        names.update(values)
+    library_only = {
+        "first",
+        "update",
+        "replan",
+        "spec_ambiguous",
+        "spec_contradiction",
+        "spec_missing",
+        "environment",
+        "other",
+    }
+    return names - DATA_MODEL_VALUES, library_only
+
+
 def test_i4_no_ontology_names_in_code() -> None:
     names, prefixes = ontology_literals()
+    plan_names, plan_library_values = plan_literals()
     assert {"Module", "PART_OF", "FR", "MOD::", "yes"} <= names | set(prefixes)
     violations = [
         f"{module.where(node)} {node.value!r}"
         for module in modules()
         for node in string_constants(module)
-        if node.value in names or node.value.startswith(prefixes)
+        if (
+            node.value in names
+            and not (module.rel.startswith("plan/") and (node.value in plan_names | plan_library_values))
+        )
+        or node.value.startswith(prefixes)
     ]
     assert violations == []
+
+
+def test_i4_plan_name_literals_are_declared_by_the_plan_ontology() -> None:
+    plan_names, plan_library_values = plan_literals()
+    assert {"Plan", "Task", "IN_AREA", "WAITS_FOR", "pending", "spec_ambiguous"} <= (plan_names | plan_library_values)
+    violations = [
+        f"{module.where(node)} {node.value!r}"
+        for module in modules()
+        if module.rel.startswith("plan/")
+        for node in string_constants(module)
+        if not (node.value in plan_names or node.value in plan_library_values)
+        and all(node.value not in values for values in plan_vocabularies().values())
+        and _is_name_literal(node.value)
+        and node.value.lower() not in _word_literals(module)
+    ]
+    assert violations == []
+
+
+def test_i4_flags_a_spec_name_literal_in_a_plan_module_sample(tmp_path: Path) -> None:
+    source = "X = 'PART_OF'\n"
+    module = Module(tmp_path / "sample.py", "plan/sample.py", ast.parse(source))
+    names, _ = ontology_literals()
+    plan_names, _ = plan_literals()
+    node = next(string_constants(module))
+    assert node.value in names and node.value not in plan_names
+
+
+def _word_literals(module: Module) -> set[str]:
+    text = module.path.read_text(encoding="utf-8")
+    return {word.lower() for word in re.findall(r'"([A-Za-z0-9_:-]+)"', text)}
+
+
+def _is_name_literal(value: str) -> bool:
+    return bool(re.fullmatch(r"[A-Za-z0-9_:-]+", value))
 
 
 # I5: no print, no environment, disk writes only in the file modules

@@ -8,8 +8,9 @@ scoping fails. The fixture is never regenerated to make a change pass.
 
 What is recorded:
 
-- every module-level ``Query`` constant of ``graph.core.queries`` and ``graph.build.queries``;
-- ``CORE_DDL``, the ``ddl_query`` of every object of the shipped schema and ``foreign_node_constraint``;
+- every module-level ``Query`` constant of ``graph.core.queries``, ``graph.build.queries`` and
+  ``graph.plan.queries``, and the plan's link queries of every plan relation;
+- ``CORE_DDL``, the ``ddl_query`` of every object of the shipped core schema and ``foreign_node_constraint``;
 - for the shipped ontology, the ``gap`` test ontology (foreign owner) and the renamed test ontology, every
   factory output called as its callers call it: the reader's scope queries, every ``OwnedWriter``
   operation, the persist, diff and infer relation loops and the infer rule selections.
@@ -50,6 +51,8 @@ from graph.core.ontology import Ontology, load_ontology
 from graph.core.queries import CORE_DDL, foreign_node_constraint
 from graph.core.schema import foreign_labels, schema_objects
 from graph.core.writer import OWNERS, NodeRef
+from graph.plan import queries as plan_queries
+from graph.plan.names import PLAN_RELATIONS
 from graph.stores._bolt.cypher import binds_project_id as binds_project_text
 from graph.stores._bolt.cypher import render_cypher
 from graph_support import load_gap_ontology, shipped_ontology
@@ -123,10 +126,13 @@ class _Recorder:
 
 def _constants() -> dict[str, dict[str, Any]]:
     found: dict[str, dict[str, Any]] = {}
-    for module in (core_queries, build_queries):
+    for module in (core_queries, build_queries, plan_queries):
         for name, value in vars(module).items():
             if isinstance(value, Query) and name.isupper():
                 found[f"const:{module.__name__}.{name}"] = entry(value)
+    for relation in PLAN_RELATIONS:
+        found[f"plan:read_links:{relation}"] = entry(plan_queries.read_links(relation))
+        found[f"plan:delete_links:{relation}"] = entry(plan_queries.delete_links(relation))
     return found
 
 
@@ -134,7 +140,7 @@ def _ddl() -> dict[str, Any]:
     shipped = shipped_ontology()
     return {
         "CORE_DDL": list(CORE_DDL),
-        "ddl_query": {item.name: entry(item.query()) for item in schema_objects(shipped)},
+        "ddl_query": {item.name: entry(item.query()) for item in schema_objects(shipped, CORE_DDL)},
         "foreign_node_constraint": {
             label: foreign_node_constraint(label) for label in ("Finding", "Note", "Zeta", *foreign_labels(shipped))
         },

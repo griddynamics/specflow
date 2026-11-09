@@ -1,5 +1,5 @@
-/* FE-PLAN-02, FE-PLAN-03 (GAPS.md "## P22", G-PLAN-1): the light Features table with its Total row. The design system has
-   Card, Button and SeverityBadge but no light data table. Additive, tokens only (R4); no glass, no scene (FE-PLAN-02.AC10). */
+/* FE-PLAN-02, FE-PLAN-03 (GAPS.md "## P22", G-PLAN-1): the light Features table with the estimate line above it. The design system has
+   Card and Button but no light data table. Additive, tokens only (R4); no glass, no scene (FE-PLAN-02.AC10). */
 .plan-before {
   display: grid;
   align-content: start;
@@ -27,31 +27,9 @@
   white-space: nowrap;
   vertical-align: bottom;
 }
-.plan-table .plan-table__num {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  width: 1%;
-}
-.plan-table thead .plan-table__num {
-  text-align: right;
-}
-.plan-table__cell {
-  display: grid;
-  gap: var(--space-2xs);
-}
 .plan-table__name {
   font-weight: 600;
 }
-.plan-table__zero {
-  color: var(--ink-3);
-}
-.plan-table tfoot th,
-.plan-table tfoot td {
-  font-weight: 600;
-  border-bottom: 0;
-  border-top: 1px solid var(--ink-3);
-} /* the Total row (FE-PLAN-02.AC5): a stronger rule above it */
 
 .plan-table-wrap {
   min-width: 0;
@@ -64,7 +42,13 @@
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
-.plan-before__note {
+.plan-before__preview {
+  display: grid;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+.plan-before__note,
+.plan-before__summary {
   margin: 0;
   color: var(--ink-2);
 }

@@ -70,7 +70,7 @@ TEXT_HEADING: Final = re.compile(
 )
 """A heading line inside a fragment's text: a markdown heading, or a numbered heading line (``4.2.1 Retries``:
 two levels at least, a capitalised title, no closing punctuation)."""
-_FENCE: Final = re.compile(r"^ {0,3}(?:```|~~~)")
+_FENCE: Final = re.compile(r"^ {0,3}(?:```|~~~)(?![`~]*[ \t]*[*_]+[ \t]*$)")  # "```*" closes italic inline code
 _DOCUMENT_NOUN: Final = r"(?i:specifications?|specs?|documents?|guides?|handbooks?|manuals?|standards?)"
 _FILE: Final = r"[\w./-]*\w\.(?i:pdf|docx?|md|markdown|txt|rtf|odt|pptx?|xlsx?|html?)"
 DOCUMENT_AFTER: Final = re.compile(

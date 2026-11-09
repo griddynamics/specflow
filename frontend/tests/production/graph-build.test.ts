@@ -2,7 +2,7 @@
 // Layer U (pure): toGraphBuild, deriveStatus merge rows, buildButtonView rows 1-7 and the import lock, estimateText, buildErrorReport.
 // Layer P (port vs the stub API through the real BFF): the parallel reads, poll cadence, build() body and epoch, start failures, the stub itself.
 // Titles name the acceptance criterion (SPECS §10). Faults are injected in the fetch layer (withHook); no sleeps, only waitFor / a fake clock.
-// Ports 3270-3271.
+// Ports 3264-3265 (the stub issuer on 3285, startEnv: API port + 20).
 import { test, before, after, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import { createHttpAdapter, type HttpPorts } from "@/lib/data/http";
@@ -22,7 +22,7 @@ import { GRAPH_DEFAULTS, EXISTING_ENDPOINTS, jsonResponse, pdfFile, startEnv, wa
 
 let env: Env;
 before(async () => {
-  env = await startEnv(3270, 3271);
+  env = await startEnv(3264, 3265);
   env.api.setTiming({ parseMs: 50, summarizeMs: 50, parseOutcome: "parsed" });
 });
 after(async () => {

@@ -19,7 +19,7 @@ before `specflow api`) and never starts Temporal, storage, Drive or LLM clients.
 flowchart TB
     subgraph role["role mcp (one process, N replicas)"]
         guard[Auth guard] --> sdk[MCP SDK: Streamable HTTP, stateless]
-        sdk --> tools[Tools: list_projects, list_features]
+        sdk --> tools[Tools: list_projects, list_features, list_tasks, list_feature_tasks, get_task_path, get_task_brief]
         sdk --> prompts[Prompt: select_project]
         guidance[Guidance text] --> prompts
         guidance --> sdk
@@ -119,13 +119,16 @@ role distinguishes members. The structural test of access-control.md reads the d
 
 | # | Rule |
 |---|---|
-| M1 | `api.mcp` may import `auth` (not `auth.dependencies`), `db`, `graph` (public names of `graph.core` only), `health`, `logger`, `settings`, the `mcp` SDK, Starlette, uvicorn, pydantic and the standard library. |
+| M1 | `api.mcp` may import `auth` (not `auth.dependencies`), `db`, `graph` (public names of `graph.core`, and of `graph.plan` for the plan reads: `PlanService`, `load_plan_rules`, `PlanReadError` and the models it returns), `health`, `logger`, `settings`, the `mcp` SDK, Starlette, uvicorn, pydantic and the standard library. |
 | M2 | `api.mcp` never imports `api.routers`, `api.deps`, `api.app`, `api.runtime`, `auth.dependencies` or FastAPI; the REST app never imports `api.mcp`, and never imports the `mcp` SDK directly (the agent SDKs it uses depend on it). |
-| M3 | No Cypher and no `neo4j` import in `api.mcp`; every graph read is a `GraphReader` method. |
+| M3 | No Cypher and no `neo4j` import in `api.mcp`; every graph read is a `GraphReader` method, and every plan read a `PlanService` method. A tool composes no plan logic of its own: it checks membership, calls one service method, pages the answer and maps `PlanReadError` to its tool error. No lifecycle method (claims, state changes) is called. |
 | M4 | No SQL and no ORM query in `api.mcp`; every Postgres read or write is a `db.repositories` function. |
 
 Import-linter contracts in `backend/importlinter.toml` (on direct imports) enforce M2, and one more forbids direct
-`sqlalchemy`, `asyncpg` and `neo4j` imports in `api.mcp` (M3, M4). The validation tracks catch query text in `api.mcp`:
+`sqlalchemy`, `asyncpg` and `neo4j` imports in `api.mcp` (M3, M4). A backend-wide contract
+(`connections-in-composition-roots`) lets only the composition roots open a connection: `api.mcp.runtime`, like the
+REST runtime and the Temporal worker registrations, is the one MCP module that imports `graph.stores` or builds an
+engine with `db.session`; tools get the store, the readers and the service from the runtime. The validation tracks catch query text in `api.mcp`:
 the SQL track flags SQL text anywhere under `backend/src`, and the Cypher track scans the API layer for inline Cypher.
 For that, the `[python] exclude` list of `backend/cypher-checks.toml` holds no pattern that matches `api/mcp/**`; in
 particular it does not hold `api/**`.

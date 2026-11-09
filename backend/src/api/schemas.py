@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, field_validator
 
 NAME_MAX = 200
 
@@ -132,6 +132,166 @@ class GraphBuildStatus(BaseModel):
     spec_changes: dict[str, int] | None = None
     verification_ok: bool | None = None
     error_code: str | None = None
+
+
+# Plan (graph.plan) ---------------------------------------------------------
+
+
+class PlanStartRequest(BaseModel):
+    """Optional body of ``POST /plan``: ``replan`` re-plans every area from the current graph."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    replan: StrictBool = False
+
+
+class PlanStatus(BaseModel):
+    """``/plan``: the latest plan run and whether the project has a plan; ids, step names and codes only.
+
+    ``step`` is the step that runs (or the last one that ran); ``steps_done`` of ``steps_total`` are done.
+    While a long step runs, ``step_items_done`` of ``step_items_total`` of its items are done (the Tasks step:
+    planning parts); null otherwise.
+    """
+
+    status: Literal["idle", "running", "succeeded", "partially_succeeded", "failed"]
+    has_plan: bool = False
+    run_id: str | None = None
+    mode: str | None = None
+    replan: bool | None = None
+    step: str | None = None
+    steps_done: int = 0
+    steps_total: int = 0
+    step_items_done: int | None = None
+    step_items_total: int | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    unchanged: bool | None = None
+    error_code: str | None = None
+
+
+class PlanNotBuildableOut(BaseModel):
+    """A member of an area the planner returned as no code work: its id, name (none when the node is gone),
+    reason code and note."""
+
+    spec_id: str
+    name: str | None = None
+    reason: str
+    note: str | None = None
+
+
+class PlanAreaOut(BaseModel):
+    area_id: str
+    kind: str
+    title: str | None = None
+    description: str | None = None
+    status: str
+    planned_by: str | None = None
+    not_buildable: list[PlanNotBuildableOut] = []
+
+
+class PlanStoryOut(BaseModel):
+    story_id: str
+    area_id: str
+    kind: str
+    title: str
+    summary: str | None = None
+    progress: str
+    status: str
+
+
+class PlanDoneWhenOut(BaseModel):
+    text: str
+    source: str
+
+
+class PlanSpecRef(BaseModel):
+    """A spec node a task implements: its id, label and name (none when the node is gone)."""
+
+    spec_id: str
+    label: str | None = None
+    name: str | None = None
+
+
+class PlanTaskOut(BaseModel):
+    task_id: str
+    area_id: str
+    story_id: str
+    phase: str
+    title: str
+    description: str | None = None
+    done_when: list[PlanDoneWhenOut] = []
+    complexity: str
+    status: str
+    implements: list[PlanSpecRef] = []
+    waits_for: list[str] = []
+    ready: bool = False
+    revision: int
+    commit: str | None = None
+    block_reason: str | None = None
+    has_open_questions: bool = False
+    planned_by: str = "model"
+
+
+class PlanReviewIssueOut(BaseModel):
+    """One finding of the run's review: advisory, it changed nothing."""
+
+    area_id: str
+    task_id: str | None = None
+    problem: str
+    severity: str
+
+
+class PlanQualityOut(BaseModel):
+    """How the run that wrote the plan went.
+
+    ``fallbacks`` counts planner answers that stayed invalid (or failed) and were replaced by rules, per
+    planner (``describe``, ``project``, ``tasks``); ``review`` counts review findings by severity;
+    ``unplaced`` counts spec nodes no area anchor reached; ``oversized`` counts tasks over the task size.
+    """
+
+    run_id: str
+    status: str
+    finished_at: datetime | None = None
+    fallbacks: dict[str, int] = {}
+    tasks_planned: int = 0
+    review: dict[str, int] = {}
+    review_failed: bool = False
+    unplaced: int = 0
+    oversized: int = 0
+
+
+class PlanContent(BaseModel):
+    """``/plan/tasks``: the persisted plan; tasks in phase order, then by area, story and id. ``quality`` and
+    ``review`` come from the run that last wrote the plan (none when its result is gone)."""
+
+    plan_id: str
+    last_build_id: str | None = None
+    updated_at: datetime
+    areas: list[PlanAreaOut]
+    stories: list[PlanStoryOut]
+    tasks: list[PlanTaskOut]
+    quality: PlanQualityOut | None = None
+    review: list[PlanReviewIssueOut] = []
+
+
+class PlanFeatureOut(BaseModel):
+    spec_id: str
+    name: str
+
+
+class PlanPreview(BaseModel):
+    """``/plan/preview``: what a plan run would start from, before it runs.
+
+    ``features`` are the spec nodes that anchor feature stories; ``calls`` and ``input_tokens`` are the
+    estimate of the run (none without a finished graph build or when the estimate failed).
+    """
+
+    build_id: str | None = None
+    mode: str | None = None
+    unchanged: bool | None = None
+    calls: int | None = None
+    input_tokens: int | None = None
+    features: list[PlanFeatureOut] = []
 
 
 # Sources: Google Drive (INT-GDUI-0001..0004) -------------------------------

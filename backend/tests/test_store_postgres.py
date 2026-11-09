@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 import graph.build.queries as build_queries
 import graph.core.queries as core_queries
+import graph.plan.queries as plan_queries
 from graph.core.errors import (
     ConfigurationError,
     ConformanceError,
@@ -48,12 +49,20 @@ from graph.stores.postgres.executor import (
     sqlstate,
 )
 from graph.stores.postgres.schema import parse_ddl_statement, schema_objects
-from graph.stores.postgres.sqlfiles import BUILD_SQL_DIRECTORY, CORE_SQL_DIRECTORY, load_ddl_sql, split_statements
+from graph.stores.postgres.sqlfiles import (
+    BUILD_SQL_DIRECTORY,
+    CORE_SQL_DIRECTORY,
+    PLAN_SQL_DIRECTORY,
+    load_ddl_sql,
+    split_statements,
+)
 from graph_support import load_gap_ontology, shipped_ontology
 
 CANARY: Final = "canary-password-value"
 CORE_FILES: Final = sorted(path.name for path in CORE_SQL_DIRECTORY.glob("*.sql"))
 BUILD_FILES: Final = sorted(path.name for path in BUILD_SQL_DIRECTORY.glob("*.sql"))
+PLAN_FILES: Final = sorted(path.name for path in PLAN_SQL_DIRECTORY.glob("*.sql"))
+FOLDERS: Final = {"core": CORE_SQL_DIRECTORY, "build": BUILD_SQL_DIRECTORY, "plan": PLAN_SQL_DIRECTORY}
 # What the Cypher dialect renders from a literal or DDL text: PostgreSQL has no Cypher.
 CYPHER_ONLY: Final = frozenset({"core.ddl", "core.literal"})
 
@@ -78,31 +87,32 @@ def cypher_templates(catalog: str) -> set[str]:
 
 
 def test_every_template_of_the_catalog_has_a_sql_file() -> None:
-    """The coverage test of design D2: no core or build template the catalog declares is missing for PostgreSQL."""
+    """The coverage test of design D2: no template the catalog declares is missing for PostgreSQL."""
 
-    declared = cypher_templates("core") | cypher_templates("build")
+    declared = cypher_templates("core") | cypher_templates("build") | cypher_templates("plan")
     assert declared, "the catalog declares no template?"
     assert declared - templates() == set()
     assert templates() - declared == set()
     for template in declared:
         catalog, _, stem = template.partition(".")
-        folder = CORE_SQL_DIRECTORY if catalog == "core" else BUILD_SQL_DIRECTORY
-        assert (folder / f"{stem}.sql").is_file(), template
+        assert (FOLDERS[catalog] / f"{stem}.sql").is_file(), template
 
 
 def test_the_sql_folders_hold_exactly_the_templates_fragments_and_settings() -> None:
     core = {f"core.{name.removesuffix('.sql')}" for name in CORE_FILES if name not in FRAGMENT_FILES}
     build = {f"build.{name.removesuffix('.sql')}" for name in BUILD_FILES if name not in BUILD_FRAGMENT_FILES}
-    assert core | build == templates()
+    plan = {f"plan.{name.removesuffix('.sql')}" for name in PLAN_FILES}
+    assert core | build | plan == templates()
     assert set(CORE_FILES) >= FRAGMENT_FILES and set(BUILD_FILES) >= BUILD_FRAGMENT_FILES
 
 
-def test_the_catalog_has_core_and_build_templates_of_which_postgres_runs_all_but_the_cypher_only_ones() -> None:
+def test_the_catalog_has_core_build_and_plan_templates_of_which_postgres_runs_all_but_the_cypher_only_ones() -> None:
     all_core = {name for name in (*cypher._STATIC, *cypher._RENDERERS) if name.startswith("core.")}
     all_build = {name for name in (*cypher._STATIC, *cypher._RENDERERS) if name.startswith("build.")}
-    assert (len(all_core), len(all_build)) == (42, 42)
-    assert len(templates()) == 40 + 42
-    assert (all_core | all_build) - templates() == CYPHER_ONLY
+    all_plan = {name for name in (*cypher._STATIC, *cypher._RENDERERS) if name.startswith("plan.")}
+    assert (len(all_core), len(all_build), len(all_plan)) == (42, 42, 20)
+    assert len(templates()) == 40 + 42 + 20
+    assert (all_core | all_build | all_plan) - templates() == CYPHER_ONLY
 
 
 def catalog_queries() -> list[Query]:
@@ -138,6 +148,9 @@ def catalog_queries() -> list[Query]:
         build_queries.infer_realization_subjects("GROUPED_BY", "PART_OF*1..2", ("PART_OF",), member_symmetric=False),
         build_queries.infer_realization_subjects("GROUPED_BY", "PART_OF>PROVIDED_BY", (), member_symmetric=True),
         build_queries.infer_similar_targets("REALIZED_BY", symmetric=True),
+        *(value for value in vars(plan_queries).values() if isinstance(value, Query)),
+        plan_queries.read_links("IN_AREA"),
+        plan_queries.delete_links("WAITS_FOR"),
     ]
     return [query for query in queries if query.template not in CYPHER_ONLY]
 

@@ -47,6 +47,59 @@ INPUT_SCHEMAS = {
         "required": ["project_id"],
         "title": "list_featuresArguments",
     },
+    "list_tasks": {
+        "type": "object",
+        "properties": {
+            "project_id": {"type": "string", "title": "Project Id"},
+            "ready_only": {"type": "boolean", "default": True, "title": "Ready Only"},
+            "status": {
+                "anyOf": [
+                    {"type": "string", "enum": ["pending", "in_progress", "completed", "blocked", "failed"]},
+                    {"type": "null"},
+                ],
+                "default": None,
+                "title": "Status",
+            },
+            "area_id": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None, "title": "Area Id"},
+            "story_id": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None, "title": "Story Id"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50, "title": "Limit"},
+            "cursor": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None, "title": "Cursor"},
+        },
+        "required": ["project_id"],
+        "title": "list_tasksArguments",
+    },
+    "get_task_brief": {
+        "type": "object",
+        "properties": {
+            "project_id": {"type": "string", "title": "Project Id"},
+            "task_id": {"type": "string", "title": "Task Id"},
+            "neighbours": {"type": "integer", "minimum": 0, "maximum": 100, "default": 30, "title": "Neighbours"},
+        },
+        "required": ["project_id", "task_id"],
+        "title": "get_task_briefArguments",
+    },
+    "list_feature_tasks": {
+        "type": "object",
+        "properties": {
+            "project_id": {"type": "string", "title": "Project Id"},
+            "feature_id": {"type": "string", "title": "Feature Id"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50, "title": "Limit"},
+            "cursor": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None, "title": "Cursor"},
+        },
+        "required": ["project_id", "feature_id"],
+        "title": "list_feature_tasksArguments",
+    },
+    "get_task_path": {
+        "type": "object",
+        "properties": {
+            "project_id": {"type": "string", "title": "Project Id"},
+            "task_id": {"type": "string", "title": "Task Id"},
+            "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50, "title": "Limit"},
+            "cursor": {"anyOf": [{"type": "string"}, {"type": "null"}], "default": None, "title": "Cursor"},
+        },
+        "required": ["project_id", "task_id"],
+        "title": "get_task_pathArguments",
+    },
 }
 
 
@@ -203,7 +256,15 @@ async def test_install_registers_the_tools_and_the_prompt() -> None:
     server = MCPServer("t")
     install(server, resource_url=URL)
     assert [p.name for p in await server.list_prompts()] == ["select_project"]
-    assert sorted(t.name for t in await server.list_tools()) == ["list_features", "list_projects"]
+    names = sorted(t.name for t in await server.list_tools())
+    assert names == [
+        "get_task_brief",
+        "get_task_path",
+        "list_feature_tasks",
+        "list_features",
+        "list_projects",
+        "list_tasks",
+    ]
     assert (PROMPTS[0],) == PROMPTS and isinstance(PROMPTS[0], PromptDeclaration)
     assert isinstance(TOOLS[0], ToolDeclaration)
 

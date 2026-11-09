@@ -133,8 +133,8 @@ immutable `Ontology`. Any problem raises one `OntologyError` that lists every pr
 ## Ontology files of submodules
 
 Each submodule ships its own ontology file as package data: `graph.core` ships the build file
-([spec-ontology.yaml](spec-ontology.yaml), `owner: build`), and `graph.gap` and `graph.plan` will each
-ship one with their own types and relations. `load_ontology` merges the shipped files of the installed
+([spec-ontology.yaml](spec-ontology.yaml), `owner: build`), `graph.plan` ships `graph/plan/ontology.yaml` (`owner: plan`,
+[plan/ontology.md](plan/ontology.md)), and `graph.gap` will ship one with its own types and relations. `load_ontology` merges the shipped files of the installed
 submodules into one `Ontology` and validates the union, so names stay unique across files and pairs may
 cross owners (for example a gap relation from a finding to a `FunctionalRequirement`). Vocabularies and
 node groups are shared by name across files; one declared in two files must be declared the same. The

@@ -886,6 +886,7 @@ def test_section_hints_name_the_heading_path_of_local_owner_targets() -> None:
         (["Spec", "6. Access"], ["### 6.5 Rules", "#### Table 6.3", "### 6.6 Roles"], "Spec > 6. Access > 6.6 Roles"),
         (["Spec", "6. Access"], ["### 6.5 Rules", "#### Table 6.3"], "Spec > 6. Access > 6.5 Rules > Table 6.3"),
         (["Spec", "6. Access"], ["## 6. Access", "```", "# shell comment", "```"], "Spec > 6. Access"),
+        (["Spec", "17. Views"], ["*```", "apply_answers", "```*", "## 18. Data"], "Spec > 17. Views > 18. Data"),
         ([" ", "Notes"], ["#", "## Call notes ##"], "Notes > Call notes"),
         ([], [], ""),
     ],

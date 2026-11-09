@@ -1,8 +1,8 @@
 # INDEX.md: table of contents of the graph library specification
 
 The graph library (`graph`) builds a typed knowledge graph of a software specification in a graph database (Neo4j, ArcadeDB or PostgreSQL) from a
-project's documents and keeps it current. Shared core `graph.core`, build submodule `graph.build`;
-`graph.gap` and `graph.plan` come later.
+project's documents and keeps it current. Shared core `graph.core`, build submodule `graph.build`,
+plan submodule `graph.plan` (its own specification in [plan/](plan/INDEX.md)); `graph.gap` comes later.
 
 # overview.md: purpose, scope, goals, non-goals, actors, boundaries, constraints, key terms
 - [overview.md](overview.md)
@@ -33,4 +33,7 @@ project's documents and keeps it current. Shared core `graph.core`, build submod
 
 # later.md, questions.md: deferred features, open questions
 - [later.md](later.md), [questions.md](questions.md)
+
+# plan/: graph.plan, implementation plans for coding agents on the spec graph
+- [plan/INDEX.md](plan/INDEX.md)
 

@@ -420,7 +420,7 @@ class HubContext:
 HeadingId = tuple[str, int]
 """A heading line of the plan: its document and its source line."""
 _HEADING: Final = re.compile(r"^(#{1,6})\s+(\S.*)$")
-_FENCE: Final = re.compile(r"^\s*(?:```|~~~)")
+_FENCE: Final = re.compile(r"^\s*(?:```|~~~)(?![`~]*[ \t]*[*_]+[ \t]*$)")  # "```*" closes italic inline code
 
 
 @dataclass(frozen=True)

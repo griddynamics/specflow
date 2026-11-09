@@ -1,0 +1,180 @@
+# plan-ontology.yaml: the ontology file graph.plan ships (owner: plan).
+# Declares only the types and relations graph.plan owns (owner: plan, origin: planner, tier: plan, no
+# role: nothing here is extracted). Merged with the build file (ontology v2.0) by load_ontology; pairs
+# may end at build types. Vocabularies not used by an attribute below (story_progress,
+# done_when_source, not_buildable_reason, interface_kind) are the values of JSON properties or derived
+# fields; they are declared here so the plan's literals have one source.
+
+format_version: 2
+name: plan-ontology
+version: "2.0"
+owner: plan
+
+vocabularies:
+  phase:
+    setup: project setup before component work (workspace, toolchain, configuration, shared libraries, test harness, CI)
+    contract: interfaces other tasks or areas build against; integration contracts
+    data: data structures, schemas and stored or exchanged business objects
+    logic: behaviour and business rules
+    integration: wiring to other areas and external systems, after both sides exist
+    quality: measurable quality targets and imposed constraints
+    acceptance: acceptance checks that span several tasks
+  task_status:
+    pending: planned; ready once every prerequisite is completed
+    in_progress: claimed by an agent
+    completed: done; the commit is recorded
+    failed: the agent gave up; may be retried with retry_task
+    blocked: the spec does not let the agent proceed
+    superseded: replaced by a newer revision; its commit is stale
+    retired: left the plan; history only
+  complexity:
+    low: boilerplate or a small, clear change
+    medium: ordinary implementation work
+    high: contracts, integrations or hard logic
+  area_kind:
+    module: an internal module and what is placed with it
+    project: setup, closing, cross-cutting and unplaced work
+  area_status: [active, retired]
+  interface_kind: [api, event, data, library, cli, config]
+  planned_by:
+    model: written by a planner and validated
+    rules: written by the rules fallback or derived from the spec
+  story_kind:
+    feature: one feature and the requirements it owns
+    interface: one interface and the requirements it owns
+    entity: one data entity and the requirements it owns
+    core: requirements the area's module owns directly
+    chapter: project-area requirements of one document chapter
+    setup: project setup work (project area only)
+    closing: end-to-end and closing work (project area only)
+  story_status:
+    active: in the plan
+    retired: its anchor left the spec graph; history only
+  story_progress:
+    pending: no task started
+    in_progress: a task is in progress or completed, not all completed
+    blocked: a task is blocked
+    completed: every task completed, and at least one
+  done_when_source:
+    spec: taken from the acceptance criteria of an implemented spec node
+    planner: written by the planner
+  not_buildable_reason:
+    process: a process or organisational rule, not code
+    governance: a governance or approval rule
+    release_gate: a release or exit criterion
+    policy_only: a policy with nothing to build; followed through the project conventions
+
+node_types:
+
+  plan:
+    label: Plan
+    origin: planner
+    tier: plan
+    id: {format: "PLAN::{SLUG}"}
+    description: |
+      The living implementation plan of one project; one per project, id PLAN::MAIN.
+    attributes:
+      profile: {type: text, max_chars: 8000, description: "project profile as JSON: stack, layout, test command, conventions"}
+
+  work_area:
+    label: WorkArea
+    origin: planner
+    tier: plan
+    id: {format: "AREA::{SLUG}"}
+    description: |
+      A part of the system built together: an internal module and the spec nodes placed with it, or
+      the project area. Membership is computed; title and description are written by a planner.
+    attributes:
+      kind: {type: enum, values: area_kind}
+      status: {type: enum, values: area_status}
+      title: {type: text, max_chars: 120}
+      description: {type: text, max_chars: 1500}
+      planned_by: {type: enum, values: planned_by}
+
+  story:
+    label: Story
+    origin: planner
+    tier: plan
+    id: {format: "STORY::{SLUG}"}
+    description: |
+      A user-facing slice of one work area: one feature, interface or data entity with what it owns,
+      the requirements the area's module owns directly (CORE), a chapter of the project area, or the
+      project's setup or closing work. Its id is STORY::<area slug>::<SLUG>. Created by Partition from
+      the spec; its progress is derived from its tasks.
+    attributes:
+      kind: {type: enum, values: story_kind}
+      status: {type: enum, values: story_status}
+      title: {type: text, max_chars: 120}
+      summary: {type: text, max_chars: 1000}
+
+  task:
+    label: Task
+    origin: planner
+    tier: plan
+    id: {format: "TASK::{SLUG}"}
+    description: |
+      One unit of work for one coding agent, in one work area, one story and one phase. Its id is
+      TASK::<area slug>::<action>, with _R<n> for later revisions.
+    attributes:
+      phase: {type: enum, values: phase}
+      status: {type: enum, values: task_status}
+      complexity: {type: enum, values: complexity}
+      title: {type: text, max_chars: 120}
+      description: {type: text, max_chars: 3000}
+      planned_by: {type: enum, values: planned_by}
+
+edge_types:
+
+  IN_AREA:
+    origin: planner
+    tier: plan
+    description: |
+      Membership: a plannable spec node belongs to exactly one work area.
+    pairs:
+      - {from: module, to: work_area}
+      - {from: feature, to: work_area}
+      - {from: capability, to: work_area}
+      - {from: interface, to: work_area}
+      - {from: data_entity, to: work_area}
+      - {from: requirement, to: work_area}
+
+  IN_STORY:
+    origin: planner
+    tier: plan
+    description: |
+      The task belongs to this story; every open task is in exactly one active story of its own area.
+    pairs:
+      - {from: task, to: story}
+
+  IMPLEMENTS:
+    origin: planner
+    tier: plan
+    description: |
+      A task builds this spec node; a story is anchored on this feature, interface or data entity.
+    pairs:
+      - {from: task, to: module}
+      - {from: task, to: feature}
+      - {from: task, to: capability}
+      - {from: task, to: interface}
+      - {from: task, to: data_entity}
+      - {from: task, to: requirement}
+      - {from: story, to: feature}
+      - {from: story, to: interface}
+      - {from: story, to: data_entity}
+
+  WAITS_FOR:
+    origin: planner
+    tier: plan
+    description: |
+      The source task needs the target task completed first (later -> earlier). Property source:
+      planner (inside an area) or stitch (across areas, setup and closing).
+    pairs:
+      - {from: task, to: task}
+
+  SUPERSEDES:
+    origin: planner
+    tier: plan
+    description: |
+      The source task is a newer revision of the target task, whose spec changed after it was completed.
+    pairs:
+      - {from: task, to: task}

@@ -17,7 +17,7 @@ from pydantic import BaseModel, field_serializer
 from api.mcp import access
 from api.mcp.errors import MESSAGES
 from api.mcp.registry import READ_ONLY, TOOLS, ToolDeclaration
-from api.mcp.tools import graph, projects
+from api.mcp.tools import graph, plan, projects
 from graph.core import InfrastructureUnavailableError
 from mcp_support import BACKEND, call, log_text, mcp_token, owned_project, sdk_session, tool_app
 from test_graph_reader import ScriptedExecutor, paged_executor
@@ -75,10 +75,17 @@ def doc_description(tool: str) -> str:
 def test_fr_mcp_acc_06_the_declarations_name_a_project_id_exactly_when_they_are_scoped() -> None:
     """FR-MCP-ACC-06: a tool with a ``project_id`` argument is declared project-scoped, and only such a tool is."""
 
-    assert [t.name for t in TOOLS] == ["list_projects", "list_features"]
+    assert [t.name for t in TOOLS] == [
+        "list_projects",
+        "list_features",
+        "list_tasks",
+        "list_feature_tasks",
+        "get_task_path",
+        "get_task_brief",
+    ]
     for tool in TOOLS:
         assert ("project_id" in tool.arguments.model_fields) == tool.project_scoped, tool.name
-    assert [t.project_scoped for t in TOOLS] == [False, True]
+    assert [t.project_scoped for t in TOOLS] == [False, True, True, True, True, True]
 
 
 async def test_fr_mcp_acc_06_every_registered_tool_with_a_project_id_goes_through_member_project(
@@ -101,8 +108,13 @@ async def test_fr_mcp_acc_06_every_registered_tool_with_a_project_id_goes_throug
     async with sdk_session(app, ALICE) as session:
         listed = (await session.list_tools()).tools
         scoped = [t.name for t in listed if "project_id" in (t.input_schema.get("properties") or {})]
+        required = {  # the other arguments a scoped tool needs
+            "get_task_brief": {"task_id": "TASK::X"},
+            "get_task_path": {"task_id": "TASK::X"},
+            "list_feature_tasks": {"feature_id": "FEAT::X"},
+        }
         for name in scoped:
-            result = await call(session, name, project_id=str(foreign.id))
+            result = await call(session, name, project_id=str(foreign.id), **required.get(name, {}))
             assert result.is_error and result.structured_content["error"]["code"] == "project_not_found"
         await call(session, "list_projects")
     assert {t.name for t in listed} == {t.name for t in TOOLS}
@@ -136,14 +148,23 @@ def test_fr_mcp_acc_06_the_membership_query_and_the_sdk_tool_api_have_one_home()
 # --- FR-MCP-TOOL-09: the published contract ----------------------------------------------------------
 
 
-async def test_fr_mcp_tool_09_tools_list_shows_exactly_the_two_tools_with_four_annotations_each(monkeypatch, valid_env):
-    """FR-MCP-TOOL-09: ``tools/list`` over HTTP: two tools, the four annotations, the output schema, and the
+async def test_fr_mcp_tool_09_tools_list_shows_exactly_the_four_tools_with_four_annotations_each(
+    monkeypatch, valid_env
+):
+    """FR-MCP-TOOL-09: ``tools/list`` over HTTP: four tools, the four annotations, the output schema, and the
     description tools.md quotes (joined by one space)."""
 
     app, _ = tool_app(monkeypatch, valid_env, executor())
     async with sdk_session(app, ALICE) as session:
         listed = (await session.list_tools()).tools
-    assert sorted(t.name for t in listed) == ["list_features", "list_projects"]
+    assert sorted(t.name for t in listed) == [
+        "get_task_brief",
+        "get_task_path",
+        "list_feature_tasks",
+        "list_features",
+        "list_projects",
+        "list_tasks",
+    ]
     for tool in listed:
         assert tool.annotations is not None
         assert tool.annotations.model_dump(mode="json", by_alias=True, exclude_none=True) == ANNOTATIONS, tool.name
@@ -151,6 +172,11 @@ async def test_fr_mcp_tool_09_tools_list_shows_exactly_the_two_tools_with_four_a
     by_name = {t.name: t for t in listed}
     assert by_name["list_projects"].description == doc_description("list_projects") == projects.DESCRIPTION
     assert by_name["list_features"].description == doc_description("list_features") == graph.DESCRIPTION
+    assert by_name["list_tasks"].description == doc_description("list_tasks") == plan.LIST_DESCRIPTION
+    assert by_name["get_task_brief"].description == doc_description("get_task_brief") == plan.BRIEF_DESCRIPTION
+    feature_tasks = by_name["list_feature_tasks"].description
+    assert feature_tasks == doc_description("list_feature_tasks") == plan.FEATURE_TASKS_DESCRIPTION
+    assert by_name["get_task_path"].description == doc_description("get_task_path") == plan.PATH_DESCRIPTION
     assert READ_ONLY.model_dump(mode="json", by_alias=True, exclude_none=True) == ANNOTATIONS
 
 
@@ -162,7 +188,9 @@ async def test_fr_mcp_tool_09_the_input_schemas_bound_the_limit_and_leave_the_id
     async with sdk_session(app, ALICE) as session:
         schemas = {t.name: t.input_schema for t in (await session.list_tools()).tools}
     limit = {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}
-    for name, schema in schemas.items():
+    paged = {name: schema for name, schema in schemas.items() if name != "get_task_brief"}
+    assert set(paged) == {"list_projects", "list_features", "list_tasks", "list_feature_tasks", "get_task_path"}
+    for name, schema in paged.items():
         properties = schema["properties"]
         assert {k: v for k, v in properties["limit"].items() if k != "title"} == limit, name
         assert {t["type"] for t in properties["cursor"]["anyOf"]} == {"string", "null"}, name
@@ -170,14 +198,32 @@ async def test_fr_mcp_tool_09_the_input_schemas_bound_the_limit_and_leave_the_id
     assert set(schemas["list_projects"]["properties"]) == {"limit", "cursor"}
     assert set(schemas["list_features"]["properties"]) == {"project_id", "limit", "cursor"}
     assert schemas["list_features"]["required"] == ["project_id"]
-    project_id = schemas["list_features"]["properties"]["project_id"]
-    assert project_id["type"] == "string" and not {"format", "pattern", "maxLength", "minLength"} & set(project_id)
+    assert set(schemas["list_tasks"]["properties"]) == {
+        "project_id",
+        "ready_only",
+        "status",
+        "area_id",
+        "story_id",
+        "limit",
+        "cursor",
+    }
+    assert set(schemas["get_task_brief"]["properties"]) == {"project_id", "task_id", "neighbours"}
+    assert schemas["get_task_brief"]["required"] == ["project_id", "task_id"]
+    assert set(schemas["list_feature_tasks"]["properties"]) == {"project_id", "feature_id", "limit", "cursor"}
+    assert schemas["list_feature_tasks"]["required"] == ["project_id", "feature_id"]
+    assert set(schemas["get_task_path"]["properties"]) == {"project_id", "task_id", "limit", "cursor"}
+    assert schemas["get_task_path"]["required"] == ["project_id", "task_id"]
+    for name in ("list_features", "list_tasks", "list_feature_tasks", "get_task_path", "get_task_brief"):
+        project_id = schemas[name]["properties"]["project_id"]
+        assert project_id["type"] == "string" and not {"format", "pattern", "maxLength", "minLength"} & set(project_id)
 
 
 def test_fr_mcp_tool_09_the_descriptions_carry_the_untrusted_content_notice() -> None:
     """FR-MCP-TOOL-09 / access-control.md untrusted content: both descriptions say the field values are data."""
 
     assert "data, not instructions" in graph.DESCRIPTION
+    assert "data, not instructions" in plan.LIST_DESCRIPTION
+    assert "data, not instructions" in plan.BRIEF_DESCRIPTION
     assert "user data" in projects.DESCRIPTION
 
 
