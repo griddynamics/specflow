@@ -771,7 +771,7 @@ async def test_a_warm_up_sends_the_messages_as_structured_does_and_discards_any_
     assert warm["messages"] == call["messages"][:2]
     assert warm["response_format"] == call["response_format"]
     assert warm["model"] == call["model"] == "main"
-    assert warm["max_completion_tokens"] == 16 and "max_completion_tokens" not in call
+    assert warm["max_completion_tokens"] == 400 and "max_completion_tokens" not in call
     counts = gateway.usage().total(prompt="nodes.warmup.1")
     assert (counts.calls, counts.requests, counts.failures, counts.input_tokens, counts.output_tokens) == (
         1,
@@ -781,6 +781,33 @@ async def test_a_warm_up_sends_the_messages_as_structured_does_and_discards_any_
         16,
     )
     assert gateway.usage().total(prompt="nodes").calls == 1
+
+
+async def test_an_output_limit_400_raises_truncated(make_gateway) -> None:
+    calls: list[int] = []
+    message = (
+        "Could not finish the message because max_tokens or model output limit was reached. "
+        "Please try again with higher max_tokens."
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        return error(400, message)
+
+    gateway, _ = make_gateway(handler)
+    with pytest.raises(LLMError) as raised:
+        await structured(gateway)
+    assert raised.value.reason == "truncated"
+    assert not isinstance(raised.value, LLMFatalError)
+    assert len(calls) == 1
+
+
+async def test_a_failed_warm_up_is_logged_and_does_not_raise(make_gateway) -> None:
+    message = "Could not finish the message because max_tokens or model output limit was reached."
+    gateway, _ = make_gateway(lambda _request: error(400, message))
+    assert await gateway.warm_up("extraction", None, MSG, Answer, prompt="nodes.warmup.1") is None
+    counts = gateway.usage().total(prompt="nodes.warmup.1")
+    assert (counts.calls, counts.requests, counts.failures) == (1, 1, 1)
 
 
 async def test_a_warm_up_retries_and_raises_as_structured_does(make_gateway) -> None:
