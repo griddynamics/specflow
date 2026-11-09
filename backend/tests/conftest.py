@@ -125,6 +125,7 @@ _SPECFLOW_ENV_PREFIXES = (
     "KUBERNETES_",
     "AWS_",
     "MCP_",
+    "PGSSL",
 )
 # Exact names outside those prefixes. The cloud profile file: the root Makefile points host
 # targets at config/cloud.local.yaml, and a profile in the environment changes every storage check.

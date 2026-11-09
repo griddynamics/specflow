@@ -34,7 +34,9 @@ DATABASE_KEYS = (
     "DATABASE_PASSWORD",
 )
 DB_CRED = "dummy-pw-9f3"
-DUMMY_URL = DatabaseSettings(host="offline.invalid", port=5432, name="dummy", user="dummy", password=DB_CRED).url()
+DUMMY_URL = DatabaseSettings(
+    host="offline.invalid", port=5432, name="dummy", user="dummy", password=DB_CRED, PGSSLMODE="", PGSSLROOTCERT=""
+).url()
 DUMMY_URL_STRING = DUMMY_URL.render_as_string(hide_password=False)
 
 

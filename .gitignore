@@ -48,3 +48,6 @@ junit.xml
 .reports/
 temp/
 docs/**/CHANGES.md
+
+# Local certificates of `make up WITH=tls` (scripts/postgres-tls.sh)
+.postgres-tls/

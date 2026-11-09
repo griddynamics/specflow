@@ -186,7 +186,9 @@ def test_the_summary_names_the_perf_source_by_ids_only(seed: ModuleType) -> None
 def test_the_script_refuses_anything_but_a_local_scratch_database(
     seed: ModuleType, name: str, host: str, problem: str
 ) -> None:
-    settings = DatabaseSettings(host=host, port=5432, name=name, user="u", password=PLACEHOLDER_CRED)
+    settings = DatabaseSettings(
+        host=host, port=5432, name=name, user="u", password=PLACEHOLDER_CRED, PGSSLMODE="", PGSSLROOTCERT=""
+    )
 
     assert problem in (seed.refusal(settings) or "")
 
@@ -197,9 +199,10 @@ def test_a_local_rehearsal_or_pytest_database_is_accepted(seed: ModuleType) -> N
         ("specflow_rehearsal_2", "127.0.0.1"),
         ("specflow_pytest_ab12", "::1"),
     ):
-        assert (
-            seed.refusal(DatabaseSettings(host=host, port=5432, name=name, user="u", password=PLACEHOLDER_CRED)) is None
+        settings = DatabaseSettings(
+            host=host, port=5432, name=name, user="u", password=PLACEHOLDER_CRED, PGSSLMODE="", PGSSLROOTCERT=""
         )
+        assert seed.refusal(settings) is None
 
 
 def test_main_refuses_before_it_connects(

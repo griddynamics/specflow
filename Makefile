@@ -47,8 +47,16 @@ postgres-vector:
 	$(COMPOSE) exec -T postgres sh -c 'psql -U postgres -d "$$DATABASE_NAME" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION IF NOT EXISTS vector"'
 # graph-store: tigergraph
 # end graph-store
+# Postgres over verified TLS, as on Aurora (docs/configuration.md "PostgreSQL over TLS"): `make up WITH=tls` adds
+# config/compose.postgres-tls.yaml and first writes a local CA and server certificate into .postgres-tls/
+# (`make postgres-tls-certs`, scripts/postgres-tls.sh). With WITH=tls the host targets use verify-full too.
+STACK_TLS := $(filter tls,$(WITH_LIST))
+POSTGRES_TLS_DIR := $(CURDIR)/.postgres-tls
+.PHONY: postgres-tls-certs
+postgres-tls-certs:
+	@sh "$(CURDIR)/scripts/postgres-tls.sh" "$(POSTGRES_TLS_DIR)"
 WITH_PROFILES := temporal langfuse $(GRAPH_STORE_PROFILES)
-WITH_NAMES := $(strip $(WITH_PROFILES) $(filter-out $(WITH_PROFILES),$(GRAPH_STORE_NAMES)))
+WITH_NAMES := $(strip $(WITH_PROFILES) $(filter-out $(WITH_PROFILES),$(GRAPH_STORE_NAMES)) tls)
 BAD_WITH := $(filter-out $(WITH_NAMES),$(WITH_LIST))
 ifneq ($(BAD_WITH),)
 $(error WITH accepts $(WITH_NAMES) (comma separated), got: $(BAD_WITH))
@@ -100,6 +108,10 @@ ifeq ($(HOST_STORE),neo4j)
 $(HOST_TARGETS): export GRAPH_STORE_URI ?= $(or $(NEO4J_URI),bolt://localhost:7687)
 $(HOST_TARGETS): export GRAPH_STORE_USER ?= $(or $(NEO4J_USER),neo4j)
 endif
+ifneq ($(STACK_TLS),)
+$(HOST_TARGETS): export PGSSLMODE ?= verify-full
+$(HOST_TARGETS): export PGSSLROOTCERT ?= $(POSTGRES_TLS_DIR)/ca.pem
+endif
 $(HOST_TARGETS): export TEMPORAL_ADDRESS ?= localhost:7233
 $(HOST_TARGETS): export TEMPORAL_NAMESPACE ?= specflow-local
 # What compose passes to the containers as TEMPORAL_ADDRESS (the host default above is not).
@@ -116,7 +128,8 @@ COMPOSE_ENV = env -u TEMPORAL_ADDRESS \
 	$(if $(filter langfuse,$(WITH_LIST)),LANGFUSE_BASE_URL=http://specflow-langfuse-web:3000 LANGFUSE_PUBLIC_KEY=$(LANGFUSE_PUBLIC_KEY_LOCAL) LANGFUSE_SECRET_KEY=$(LANGFUSE_SECRET_KEY_LOCAL)) \
 	$(if $(STACK_PROFILES),COMPOSE_PROFILES=$(subst $(space),$(comma),$(STACK_PROFILES))) \
 	$(STACK_ENV_$(STACK_STORE))
-COMPOSE_BASE := docker compose --env-file $(ENV_FILE) -f docker-compose.yml $(STACK_FILES_$(STACK_STORE))
+COMPOSE_BASE := docker compose --env-file $(ENV_FILE) -f docker-compose.yml $(STACK_FILES_$(STACK_STORE)) \
+	$(if $(STACK_TLS),-f config/compose.postgres-tls.yaml)
 COMPOSE := $(COMPOSE_ENV) $(COMPOSE_BASE)
 COMPOSE_ALL := env COMPOSE_PROFILES=$(subst $(space),$(comma),$(strip $(WITH_PROFILES))) $(COMPOSE_BASE)
 
@@ -166,8 +179,8 @@ check-graph-store-env:
 # Build and start the stack and wait until all services are healthy: postgres, the graph store (neo4j;
 # `WITH=arcadedb` starts arcadedb and arcadedb-init instead, `WITH=postgres` no server: the graph lives in
 # postgres), rustfs, rustfs-init, keycloak (the realm is imported from the env file), api, mcp, worker-parse,
-# worker-agents, frontend. `WITH=temporal,langfuse` adds the bundled Temporal and Langfuse. Logs are JSON on
-# stdout only (`make logs`).
+# worker-agents, frontend. `WITH=temporal,langfuse` adds the bundled Temporal and Langfuse; `WITH=tls` puts
+# postgres behind verified TLS. Logs are JSON on stdout only (`make logs`).
 # An env file written before GRAPH_STORE_PASSWORD existed has only NEO4J_PASSWORD. The services fall back to it in
 # docker-compose.yml; the ArcadeDB root password secret is read from the environment, so it gets the same fallback here
 # (exported to the recipe, never printed).
@@ -176,7 +189,7 @@ ifneq ($(call envval,NEO4J_PASSWORD),)
 up: export GRAPH_STORE_PASSWORD = $(call envval,NEO4J_PASSWORD)
 endif
 endif
-up: check-keycloak-env check-graph-store-env
+up: check-keycloak-env check-graph-store-env $(if $(STACK_TLS),postgres-tls-certs)
 	$(COMPOSE) up -d --build --wait --wait-timeout 600
 
 # Stops and removes the containers. The volumes (databases) stay; use `down-volumes` to drop them.

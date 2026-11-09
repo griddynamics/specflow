@@ -28,7 +28,7 @@ FLAGS = (
 
 def role(configured: DatabaseSettings, name: str) -> tuple:
     async def query() -> tuple:
-        engine = create_async_engine(configured.url())
+        engine = create_async_engine(configured.url(), connect_args=configured.connect_args())
         try:
             async with engine.connect() as connection:
                 row = (await connection.execute(text(FLAGS), {"n": name})).one()
@@ -41,7 +41,7 @@ def role(configured: DatabaseSettings, name: str) -> tuple:
 
 def database_owner(configured: DatabaseSettings) -> str:
     async def query() -> str:
-        engine = create_async_engine(configured.url())
+        engine = create_async_engine(configured.url(), connect_args=configured.connect_args())
         try:
             async with engine.connect() as connection:
                 return await connection.scalar(

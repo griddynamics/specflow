@@ -1,6 +1,6 @@
 """Process settings: one pydantic-settings model per binding, plus the guards.
 
-``DatabaseSettings`` reads ``DATABASE_*`` from the process environment. The
+``DatabaseSettings`` reads ``DATABASE_*`` and ``PGSSL*`` from the process environment. The
 other bindings and ``load_settings(role, env)`` follow the environment contract
 in docs/configuration.md. The new bindings never read the process
 environment on their own: ``load_settings`` hands them the variables, so a
@@ -24,6 +24,7 @@ from pydantic import (
     Field,
     SecretStr,
     ValidationError,
+    ValidationInfo,
     field_validator,
 )
 from pydantic_settings import (
@@ -31,12 +32,14 @@ from pydantic_settings import (
     PydanticBaseSettingsSource,
     SettingsConfigDict,
 )
-from sqlalchemy import URL
+from sqlalchemy import URL, make_url
+from sqlalchemy.exc import ArgumentError
 
 from cloud_profile import CLOUD_PROVIDERS, CONFIG_FILE_VARIABLE, Cloud, load_profile
 from graph.core import LLMConfig
 from graph.stores.config import BACKENDS, DEFAULT_BACKEND, StoreConfig
 from logger.logger import WARNING, get_logger, log_event
+from postgres import SSL_MODES, VERIFY_MODES, ssl_argument
 
 DATABASE_ENVIRONMENT: Final = (
     "DATABASE_HOST",
@@ -45,6 +48,34 @@ DATABASE_ENVIRONMENT: Final = (
     "DATABASE_USER",
     "DATABASE_PASSWORD",
 )
+
+# The libpq TLS names (no DATABASE_ prefix).
+DATABASE_TLS_ENVIRONMENT: Final = ("PGSSLMODE", "PGSSLROOTCERT")
+# libpq TLS names the app does not support: it builds the TLS context itself, so they are refused, not ignored.
+UNSUPPORTED_TLS_ENVIRONMENT: Final = (
+    "PGSSLCERT",
+    "PGSSLKEY",
+    "PGSSLCRL",
+    "PGSSLMINPROTOCOLVERSION",
+    "PGSSLMAXPROTOCOLVERSION",
+)
+# The default of PGSSLROOTCERT for verify-ca and verify-full: where the deployment mounts the CA bundle (on
+# Aurora, the AWS RDS one).
+SSL_ROOT_CERT: Final = "/etc/specflow/postgres/rds-ca-bundle.pem"
+
+
+def tls_settings(mode: str | None, rootcert: str | None) -> tuple[str | None, str | None]:
+    """The ``sslmode`` and the CA bundle it uses: the verify modes default to ``SSL_ROOT_CERT``, ``require``
+    uses a bundle only when one is given, the other modes none."""
+
+    if mode in VERIFY_MODES:
+        return mode, rootcert or SSL_ROOT_CERT
+    return mode, rootcert if mode == "require" else None
+
+
+def _unsupported_tls(env: Mapping[str, str]) -> list[str]:
+    return [name for name in UNSUPPORTED_TLS_ENVIRONMENT if env.get(name, "").strip()]
+
 
 _DRIVERNAME: Final = "postgresql+asyncpg"
 
@@ -60,11 +91,13 @@ class DatabaseConfigurationError(ValueError):
 
 
 class DatabaseSettings(BaseSettings):
-    """PostgreSQL connection settings, read from ``DATABASE_*``.
+    """PostgreSQL connection settings, read from ``DATABASE_*``, ``PGSSLMODE`` and ``PGSSLROOTCERT``.
 
     ``DATABASE_PORT`` is the port this process connects to (default 5432, applied by
     the loaders); code on the host sets the published host port. Nothing reads
     ``.env.local`` here; ``uv run --env-file ../.env.local`` loads it.
+    ``PGSSLMODE`` unset means ``prefer``. A CA bundle the mode uses (``tls_settings``) must be
+    readable when the settings load.
     """
 
     model_config = SettingsConfigDict(env_prefix="DATABASE_", frozen=True)
@@ -74,6 +107,9 @@ class DatabaseSettings(BaseSettings):
     name: str
     user: str
     password: SecretStr
+    # Blank means unset; the loaders pass blank for an unset name.
+    sslmode: str | None = Field(validation_alias="PGSSLMODE")
+    sslrootcert: str | None = Field(validation_alias="PGSSLROOTCERT")
 
     @field_validator("host", "name", "user")
     @classmethod
@@ -90,19 +126,45 @@ class DatabaseSettings(BaseSettings):
             raise ValueError("must not be blank")
         return value
 
+    @field_validator("sslmode", "sslrootcert", mode="before")
     @classmethod
-    def from_environment(cls) -> DatabaseSettings:
-        """Read the settings from the process environment.
+    def _blank_is_unset(cls, value: Any) -> Any:
+        return _strip_or_none(value)
+
+    @field_validator("sslmode")
+    @classmethod
+    def _known_sslmode(cls, value: str | None) -> str | None:
+        if value is not None and value not in SSL_MODES:
+            raise ValueError(f"must be one of {', '.join(sorted(SSL_MODES))}")
+        return value
+
+    @field_validator("sslrootcert")
+    @classmethod
+    def _readable_rootcert(cls, value: str | None, info: ValidationInfo) -> str | None:
+        if "sslmode" in info.data:  # else PGSSLMODE is already refused
+            try:
+                ssl_argument(*tls_settings(info.data["sslmode"], value))
+            except (OSError, ValueError):
+                raise ValueError("must be a readable PEM CA bundle") from None
+        return value
+
+    @classmethod
+    def from_environment(cls, *, tls: bool = True) -> DatabaseSettings:
+        """Read the settings from the process environment. ``tls=False`` leaves the TLS names unset, for a
+        caller that only needs the URL.
 
         Raises DatabaseConfigurationError naming every unusable variable.
         """
 
-        # ``port`` has no field default (a config class): the default is applied here, and
-        # in ``_build_database``, when ``DATABASE_PORT`` is unset.
+        if tls and (unsupported := _unsupported_tls(os.environ)):
+            raise DatabaseConfigurationError(f"Not supported, unset them: {', '.join(unsupported)}.")
+        # No field has a default (a config class): an unset ``DATABASE_PORT`` takes 5432 and an
+        # unset TLS name counts as blank, here and in ``_build_database``.
+        defaults: dict[str, Any] = {name: "" for name in DATABASE_TLS_ENVIRONMENT if not tls or name not in os.environ}
+        if "DATABASE_PORT" not in os.environ:
+            defaults["port"] = DATABASE_PORT
         try:
-            if "DATABASE_PORT" in os.environ:
-                return cls()
-            return cls(port=DATABASE_PORT)
+            return cls(**defaults)
         except ValidationError as error:
             raise DatabaseConfigurationError(_describe(error)) from None
 
@@ -118,12 +180,24 @@ class DatabaseSettings(BaseSettings):
             database=self.name,
         )
 
+    def connect_args(self) -> dict[str, Any]:
+        """The asyncpg ``ssl`` argument of ``PGSSLMODE`` and ``PGSSLROOTCERT``, explicit for every mode."""
+
+        return {"ssl": ssl_argument(*tls_settings(self.sslmode, self.sslrootcert))}
+
+
+def _database_variable(location: str | int) -> str:
+    """The variable of a ``DatabaseSettings`` error location: a TLS name as it is, else ``DATABASE_<FIELD>``."""
+
+    name = str(location)
+    return name if name in DATABASE_TLS_ENVIRONMENT else f"DATABASE_{name.upper()}"
+
 
 def _describe(error: ValidationError) -> str:
     missing: list[str] = []
     invalid: dict[str, str] = {}
     for item in error.errors(include_url=False, include_input=False):
-        variable = f"DATABASE_{str(item['loc'][0]).upper()}"
+        variable = _database_variable(item["loc"][0])
         if item["type"] == "missing":
             missing.append(variable)
         else:
@@ -132,7 +206,9 @@ def _describe(error: ValidationError) -> str:
     if missing:
         names = [name for name in DATABASE_ENVIRONMENT if name in missing]
         parts.append(f"Required PostgreSQL variables are not set: {', '.join(names)}.")
-    parts.extend(f"{name}: {invalid[name]}." for name in DATABASE_ENVIRONMENT if name in invalid)
+    parts.extend(
+        f"{name}: {invalid[name]}." for name in (*DATABASE_ENVIRONMENT, *DATABASE_TLS_ENVIRONMENT) if name in invalid
+    )
     parts.append("Copy `.env.example` to `.env`, fill them in, and run with `uv run --env-file ../.env.local`.")
     return " ".join(parts)
 
@@ -708,12 +784,16 @@ def _build_database(env: Mapping[str, str], bad: list[str]) -> DatabaseSettings 
         name.removeprefix("DATABASE_").lower(): env[name] for name in DATABASE_ENVIRONMENT if name in env
     }
     kwargs.setdefault("port", DATABASE_PORT)
+    # The TLS names have no prefix: always passed (blank = unset), so the process environment stays out.
+    kwargs.update({name: env.get(name, "") for name in DATABASE_TLS_ENVIRONMENT})
+    for name in _unsupported_tls(env):
+        _flag(bad, name)
     try:
         # A prefix no variable carries keeps the process environment out.
         return DatabaseSettings(_env_prefix=_NO_PREFIX, **kwargs)
     except ValidationError as error:
         for item in error.errors(include_url=False, include_input=False):
-            _flag(bad, f"DATABASE_{str(item['loc'][0]).upper()}")
+            _flag(bad, _database_variable(item["loc"][0]))
         return None
 
 
@@ -794,8 +874,9 @@ def _build_graph_store(
 
     ``GRAPH_STORE`` (default neo4j) picks the backend. For neo4j each ``NEO4J_*`` name stands in for its
     ``GRAPH_STORE_*`` name when that one is unset (``graph.settings.alias_used`` lists the names, once).
-    For postgres an unset ``GRAPH_STORE_URI`` reuses the ``DATABASE_*`` connection (``GRAPH_STORE_NAME`` is
-    the schema, default ``graph``); user and password then default to the app role's.
+    For postgres an unset ``GRAPH_STORE_URI`` reuses the ``DATABASE_*`` connection (``GRAPH_STORE_NAME`` is the
+    schema, default ``graph``); user and password then default to the app role's. Either URI takes the TLS
+    settings of ``PGSSLMODE`` and ``PGSSLROOTCERT`` that it does not set itself (``_with_tls``).
     """
 
     backend = env.get("GRAPH_STORE", "").strip() or DEFAULT_BACKEND
@@ -806,9 +887,12 @@ def _build_graph_store(
     if backend == "postgres" and "GRAPH_STORE_URI" not in resolved:
         if database is None:  # DATABASE_* are already flagged
             return None
-        resolved["GRAPH_STORE_URI"] = f"postgresql://{database.host}:{database.port}/{database.name}"
+        uri = URL.create("postgresql", host=database.host, port=database.port, database=database.name)
+        resolved["GRAPH_STORE_URI"] = uri.render_as_string()
         resolved.setdefault("GRAPH_STORE_USER", database.user)
         resolved.setdefault("GRAPH_STORE_PASSWORD", database.password.get_secret_value())
+    if backend == "postgres" and database is not None:
+        resolved["GRAPH_STORE_URI"] = _with_tls(resolved["GRAPH_STORE_URI"], database)
     problems: list[str] = []
     found = _build(GraphStoreSettings, resolved, problems)
     for name in problems:
@@ -817,6 +901,24 @@ def _build_graph_store(
     if used:
         log_event(_ALIAS_LOGGER, WARNING, "graph.settings.alias_used", aliases=sorted(used))
     return found
+
+
+def _with_tls(uri: str, database: DatabaseSettings) -> str:
+    """``uri`` with the ``sslmode`` and CA bundle of ``database`` where it sets none of its own, as libpq applies
+    ``PGSSLMODE`` and ``PGSSLROOTCERT`` to every connection. A malformed URI is left for the store to refuse."""
+
+    try:
+        url = make_url(uri)
+    except (ArgumentError, ValueError):
+        return uri
+    query: dict[str, str] = {}
+    if "sslmode" not in url.query and database.sslmode:
+        query["sslmode"] = database.sslmode
+    mode = url.query.get("sslmode", database.sslmode)
+    rootcert = tls_settings(mode, database.sslrootcert)[1] if isinstance(mode, str) else None
+    if "sslrootcert" not in url.query and rootcert:
+        query["sslrootcert"] = rootcert
+    return url.update_query_dict(query).render_as_string(hide_password=False) if query else uri
 
 
 def _graph_store_inputs(env: Mapping[str, str], backend: str) -> tuple[dict[str, str], list[str]]:

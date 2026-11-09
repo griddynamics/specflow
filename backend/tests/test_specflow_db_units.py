@@ -423,7 +423,15 @@ async def test_updates_return_the_row_without_the_large_columns(call: Any) -> No
 def test_every_engine_hides_bound_parameters_from_error_messages() -> None:
     """R-code LOW 6: ``api.request.failed`` logs ``str(exc)``; it must not carry values."""
 
-    database = DatabaseSettings(host="invalid.invalid", port=5432, name="d", user="u", password=PLACEHOLDER_CREDENTIAL)
+    database = DatabaseSettings(
+        host="invalid.invalid",
+        port=5432,
+        name="d",
+        user="u",
+        password=PLACEHOLDER_CREDENTIAL,
+        PGSSLMODE="",
+        PGSSLROOTCERT="",
+    )
     app_engine = build_engine(database)
     assert app_engine.sync_engine.hide_parameters is True
 
