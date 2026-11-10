@@ -11,9 +11,7 @@ WITH found AS (
         AND n.labels && cast(:labels AS text[])
         AND (
             n.spec_id = any(cast(:spec_ids AS text[]))
-            OR jsonb_exists_any(
-                n.props -> 'spec_id_aliases', cast(:spec_ids AS text[])
-            )
+            OR (n.props -> 'spec_id_aliases') ?| cast(:spec_ids AS text[])
         )
 )
 

@@ -61,7 +61,7 @@ _HEAD: Final = re.compile(
 )
 _INDEX: Final = re.compile(
     r"CREATE\s+(?P<unique>UNIQUE\s+)?INDEX\s+IF\s+NOT\s+EXISTS\s+\w+\s+ON\s+graph\.(?P<table>\w+)\s*"
-    r"\((?P<columns>.*?)\)(?:\s+WHERE\s+(?P<predicate>.*))?$",
+    r"(?:USING\s+(?P<method>\w+)\s*)?\((?P<columns>.*?)\)(?:\s+WHERE\s+(?P<predicate>.*))?$",
     re.IGNORECASE | re.DOTALL,
 )
 

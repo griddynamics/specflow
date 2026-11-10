@@ -157,6 +157,15 @@ CREATE INDEX IF NOT EXISTS node_group_kind_idx ON graph.node (group_id, kind);
 CREATE INDEX IF NOT EXISTS node_identity_key_idx
 ON graph.node (group_id, (props ->> 'identity_key')) WHERE kind = 'spec';
 
+-- Alias lookups (read_node_by_alias, read_node_uuids_by_spec_id,
+-- read_nodes_by_ids) test the alias arrays with ? and ?|, which these
+-- indexes serve; jsonb_exists() cannot use an index.
+CREATE INDEX IF NOT EXISTS node_spec_id_aliases_idx
+ON graph.node USING gin ((props -> 'spec_id_aliases')) WHERE kind = 'spec';
+
+CREATE INDEX IF NOT EXISTS node_identity_aliases_idx
+ON graph.node USING gin ((props -> 'identity_aliases')) WHERE kind = 'spec';
+
 CREATE TABLE IF NOT EXISTS graph.edge (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     group_id text NOT NULL,

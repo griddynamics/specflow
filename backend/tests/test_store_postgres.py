@@ -111,8 +111,8 @@ def test_the_catalog_has_core_build_and_plan_templates_of_which_postgres_runs_al
     all_core = {name for name in (*cypher._STATIC, *cypher._RENDERERS) if name.startswith("core.")}
     all_build = {name for name in (*cypher._STATIC, *cypher._RENDERERS) if name.startswith("build.")}
     all_plan = {name for name in (*cypher._STATIC, *cypher._RENDERERS) if name.startswith("plan.")}
-    assert (len(all_core), len(all_build), len(all_plan)) == (42, 42, 20)
-    assert len(templates()) == 40 + 42 + 20
+    assert (len(all_core), len(all_build), len(all_plan)) == (43, 42, 20)
+    assert len(templates()) == 41 + 42 + 20
     assert (all_core | all_build | all_plan) - templates() == CYPHER_ONLY
 
 
@@ -749,8 +749,22 @@ def test_statements_split_at_semicolons_outside_dollar_quotes() -> None:
 
 def test_the_schema_file_is_split_into_statements_that_each_create_one_object() -> None:
     statements = split_statements(load_ddl_sql("schema.sql"))
-    assert len(statements) == 21
+    assert len(statements) == 23
     assert {parse_ddl_statement(item).kind for item in statements} == {"schema", "function", "table", "index"}
+
+
+def test_the_alias_lookups_have_gin_indexes_on_the_alias_arrays() -> None:
+    indexes = {
+        item.name: item
+        for item in (parse_ddl_statement(statement) for statement in split_statements(load_ddl_sql("schema.sql")))
+        if item.kind == "index"
+    }
+    for name, array in (
+        ("node_spec_id_aliases_idx", "spec_id_aliases"),
+        ("node_identity_aliases_idx", "identity_aliases"),
+    ):
+        assert indexes[name].table == "node" and indexes[name].columns == f"(props -> '{array}')"
+        assert indexes[name].predicate == "kind = 'spec'" and not indexes[name].unique
 
 
 # Settings, URL, store

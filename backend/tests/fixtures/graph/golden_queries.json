@@ -419,7 +419,7 @@
    "binds_project_id": true,
    "name": "read_nodes",
    "project_scoped": true,
-   "text": "MATCH (n:SpecNode) WHERE n.group_id = $project_id AND n.spec_id IS NOT NULL AND any(label IN labels(n) WHERE label IN $labels) AND all(name IN keys($where) WHERE n[name] = $where[name] OR (n[name] IS NULL AND (any(label IN labels(n) WHERE label IN coalesce($defaulted[name], [])) XOR $where[name] IS NULL))) OPTIONAL MATCH (n)-[ref:REFERENCED_BY]->(f:Fragment) WHERE f.group_id = $project_id AND coalesce(f.status, '') <> $retired OPTIONAL MATCH (d:Document)-[:CONTAINS]->(f) WHERE d.group_id = $project_id WITH n, collect(CASE WHEN f IS NULL THEN NULL ELSE {fragment_id: f.fragment_id, document_id: f.document_id, path: d.path, line_start: ref.line_start, line_end: ref.line_end} END) AS provenance RETURN labels(n) AS labels, n {.*, embedding: null, name_embedding: null} AS props, provenance ORDER BY n.spec_id"
+   "text": "MATCH (n:SpecNode) WHERE n.group_id = $project_id AND n.spec_id IS NOT NULL AND any(label IN labels(n) WHERE label IN $labels) AND all(name IN keys($where) WHERE n[name] = $where[name] OR (n[name] IS NULL AND (any(label IN labels(n) WHERE label IN coalesce($defaulted[name], [])) XOR $where[name] IS NULL))) OPTIONAL MATCH (n)-[ref:REFERENCED_BY]->(f:Fragment) WHERE f.group_id = $project_id AND coalesce(f.status, '') <> $retired OPTIONAL MATCH (d:Document)-[:CONTAINS]->(f) WHERE d.group_id = $project_id WITH n, collect(CASE WHEN f IS NULL THEN NULL ELSE {fragment_id: f.fragment_id, document_id: f.document_id, path: d.path, line_start: ref.line_start, line_end: ref.line_end} END) AS provenance RETURN labels(n) AS labels, [key IN keys(n) WHERE key <> 'embedding' AND key <> 'name_embedding' | [key, n[key]]] AS props, provenance ORDER BY n.spec_id"
   },
   "const:graph.core.queries.READ_NODES_BY_IDS": {
    "binds_project_id": true,
@@ -431,31 +431,31 @@
    "binds_project_id": true,
    "name": "read_nodes_by_uuid",
    "project_scoped": true,
-   "text": "MATCH (n:SpecNode) WHERE n.group_id = $project_id AND n.uuid IN $uuids AND n.spec_id IS NOT NULL OPTIONAL MATCH (n)-[ref:REFERENCED_BY]->(f:Fragment) WHERE f.group_id = $project_id AND coalesce(f.status, '') <> $retired OPTIONAL MATCH (d:Document)-[:CONTAINS]->(f) WHERE d.group_id = $project_id WITH n, collect(CASE WHEN f IS NULL THEN NULL ELSE {fragment_id: f.fragment_id, document_id: f.document_id, path: d.path, line_start: ref.line_start, line_end: ref.line_end} END) AS provenance RETURN labels(n) AS labels, n {.*, embedding: null, name_embedding: null} AS props, provenance ORDER BY n.spec_id"
+   "text": "MATCH (n:SpecNode) WHERE n.group_id = $project_id AND n.uuid IN $uuids AND n.spec_id IS NOT NULL OPTIONAL MATCH (n)-[ref:REFERENCED_BY]->(f:Fragment) WHERE f.group_id = $project_id AND coalesce(f.status, '') <> $retired OPTIONAL MATCH (d:Document)-[:CONTAINS]->(f) WHERE d.group_id = $project_id WITH n, collect(CASE WHEN f IS NULL THEN NULL ELSE {fragment_id: f.fragment_id, document_id: f.document_id, path: d.path, line_start: ref.line_start, line_end: ref.line_end} END) AS provenance RETURN labels(n) AS labels, [key IN keys(n) WHERE key <> 'embedding' AND key <> 'name_embedding' | [key, n[key]]] AS props, provenance ORDER BY n.spec_id"
   },
   "const:graph.core.queries.READ_NODES_FOR_LINES": {
    "binds_project_id": true,
    "name": "read_nodes_for_lines",
    "project_scoped": true,
-   "text": "MATCH (:Document {group_id: $project_id, document_id: $document_id})-[:CONTAINS]->(f:Fragment) WHERE f.group_id = $project_id AND coalesce(f.status, '') <> $retired MATCH (n:SpecNode)-[ref:REFERENCED_BY]->(f) WHERE n.group_id = $project_id AND n.spec_id IS NOT NULL AND any(label IN labels(n) WHERE label IN $labels) AND coalesce(ref.line_start, f.line_start) <= $line_end AND coalesce(ref.line_end, f.line_end) >= $line_start WITH DISTINCT n OPTIONAL MATCH (n)-[ref:REFERENCED_BY]->(f:Fragment) WHERE f.group_id = $project_id AND coalesce(f.status, '') <> $retired OPTIONAL MATCH (d:Document)-[:CONTAINS]->(f) WHERE d.group_id = $project_id WITH n, collect(CASE WHEN f IS NULL THEN NULL ELSE {fragment_id: f.fragment_id, document_id: f.document_id, path: d.path, line_start: ref.line_start, line_end: ref.line_end} END) AS provenance RETURN labels(n) AS labels, n {.*, embedding: null, name_embedding: null} AS props, provenance ORDER BY n.spec_id"
+   "text": "MATCH (:Document {group_id: $project_id, document_id: $document_id})-[:CONTAINS]->(f:Fragment) WHERE f.group_id = $project_id AND coalesce(f.status, '') <> $retired MATCH (n:SpecNode)-[ref:REFERENCED_BY]->(f) WHERE n.group_id = $project_id AND n.spec_id IS NOT NULL AND any(label IN labels(n) WHERE label IN $labels) AND coalesce(ref.line_start, f.line_start) <= $line_end AND coalesce(ref.line_end, f.line_end) >= $line_start WITH DISTINCT n OPTIONAL MATCH (n)-[ref:REFERENCED_BY]->(f:Fragment) WHERE f.group_id = $project_id AND coalesce(f.status, '') <> $retired OPTIONAL MATCH (d:Document)-[:CONTAINS]->(f) WHERE d.group_id = $project_id WITH n, collect(CASE WHEN f IS NULL THEN NULL ELSE {fragment_id: f.fragment_id, document_id: f.document_id, path: d.path, line_start: ref.line_start, line_end: ref.line_end} END) AS provenance RETURN labels(n) AS labels, [key IN keys(n) WHERE key <> 'embedding' AND key <> 'name_embedding' | [key, n[key]]] AS props, provenance ORDER BY n.spec_id"
   },
   "const:graph.core.queries.READ_NODES_PAGE": {
    "binds_project_id": true,
    "name": "read_nodes_page",
    "project_scoped": true,
-   "text": "MATCH (n:SpecNode) WHERE n.group_id = $project_id AND n.spec_id IS NOT NULL AND any(label IN labels(n) WHERE label IN $labels) AND ($after IS NULL OR n.spec_id > $after) WITH n ORDER BY n.spec_id LIMIT $limit OPTIONAL MATCH (n)-[ref:REFERENCED_BY]->(f:Fragment) WHERE f.group_id = $project_id AND coalesce(f.status, '') <> $retired OPTIONAL MATCH (d:Document)-[:CONTAINS]->(f) WHERE d.group_id = $project_id WITH n, collect(CASE WHEN f IS NULL THEN NULL ELSE {fragment_id: f.fragment_id, document_id: f.document_id, path: d.path, line_start: ref.line_start, line_end: ref.line_end} END) AS provenance RETURN labels(n) AS labels, n {.*, embedding: null, name_embedding: null} AS props, provenance ORDER BY n.spec_id"
+   "text": "MATCH (n:SpecNode) WHERE n.group_id = $project_id AND n.spec_id IS NOT NULL AND any(label IN labels(n) WHERE label IN $labels) AND ($after IS NULL OR n.spec_id > $after) WITH n ORDER BY n.spec_id LIMIT $limit OPTIONAL MATCH (n)-[ref:REFERENCED_BY]->(f:Fragment) WHERE f.group_id = $project_id AND coalesce(f.status, '') <> $retired OPTIONAL MATCH (d:Document)-[:CONTAINS]->(f) WHERE d.group_id = $project_id WITH n, collect(CASE WHEN f IS NULL THEN NULL ELSE {fragment_id: f.fragment_id, document_id: f.document_id, path: d.path, line_start: ref.line_start, line_end: ref.line_end} END) AS provenance RETURN labels(n) AS labels, [key IN keys(n) WHERE key <> 'embedding' AND key <> 'name_embedding' | [key, n[key]]] AS props, provenance ORDER BY n.spec_id"
   },
   "const:graph.core.queries.READ_NODE_BY_ALIAS": {
    "binds_project_id": true,
    "name": "read_node_by_alias",
    "project_scoped": true,
-   "text": "MATCH (n:SpecNode) WHERE n.group_id = $project_id AND n.spec_id IS NOT NULL AND $spec_id IN coalesce(n.spec_id_aliases, []) OPTIONAL MATCH (n)-[ref:REFERENCED_BY]->(f:Fragment) WHERE f.group_id = $project_id AND coalesce(f.status, '') <> $retired OPTIONAL MATCH (d:Document)-[:CONTAINS]->(f) WHERE d.group_id = $project_id WITH n, collect(CASE WHEN f IS NULL THEN NULL ELSE {fragment_id: f.fragment_id, document_id: f.document_id, path: d.path, line_start: ref.line_start, line_end: ref.line_end} END) AS provenance RETURN labels(n) AS labels, n {.*, embedding: null, name_embedding: null} AS props, provenance ORDER BY n.spec_id"
+   "text": "MATCH (n:SpecNode) WHERE n.group_id = $project_id AND n.spec_id IS NOT NULL AND $spec_id IN coalesce(n.spec_id_aliases, []) OPTIONAL MATCH (n)-[ref:REFERENCED_BY]->(f:Fragment) WHERE f.group_id = $project_id AND coalesce(f.status, '') <> $retired OPTIONAL MATCH (d:Document)-[:CONTAINS]->(f) WHERE d.group_id = $project_id WITH n, collect(CASE WHEN f IS NULL THEN NULL ELSE {fragment_id: f.fragment_id, document_id: f.document_id, path: d.path, line_start: ref.line_start, line_end: ref.line_end} END) AS provenance RETURN labels(n) AS labels, [key IN keys(n) WHERE key <> 'embedding' AND key <> 'name_embedding' | [key, n[key]]] AS props, provenance ORDER BY n.spec_id"
   },
   "const:graph.core.queries.READ_NODE_BY_SPEC_ID": {
    "binds_project_id": true,
    "name": "read_node_by_spec_id",
    "project_scoped": true,
-   "text": "MATCH (n:SpecNode {group_id: $project_id, spec_id: $spec_id}) OPTIONAL MATCH (n)-[ref:REFERENCED_BY]->(f:Fragment) WHERE f.group_id = $project_id AND coalesce(f.status, '') <> $retired OPTIONAL MATCH (d:Document)-[:CONTAINS]->(f) WHERE d.group_id = $project_id WITH n, collect(CASE WHEN f IS NULL THEN NULL ELSE {fragment_id: f.fragment_id, document_id: f.document_id, path: d.path, line_start: ref.line_start, line_end: ref.line_end} END) AS provenance RETURN labels(n) AS labels, n {.*, embedding: null, name_embedding: null} AS props, provenance ORDER BY n.spec_id"
+   "text": "MATCH (n:SpecNode {group_id: $project_id, spec_id: $spec_id}) OPTIONAL MATCH (n)-[ref:REFERENCED_BY]->(f:Fragment) WHERE f.group_id = $project_id AND coalesce(f.status, '') <> $retired OPTIONAL MATCH (d:Document)-[:CONTAINS]->(f) WHERE d.group_id = $project_id WITH n, collect(CASE WHEN f IS NULL THEN NULL ELSE {fragment_id: f.fragment_id, document_id: f.document_id, path: d.path, line_start: ref.line_start, line_end: ref.line_end} END) AS provenance RETURN labels(n) AS labels, [key IN keys(n) WHERE key <> 'embedding' AND key <> 'name_embedding' | [key, n[key]]] AS props, provenance ORDER BY n.spec_id"
   },
   "const:graph.core.queries.READ_NODE_UUIDS_BY_SPEC_ID": {
    "binds_project_id": true,
@@ -468,6 +468,12 @@
    "name": "read_owner_values",
    "project_scoped": true,
    "text": "UNWIND $requests AS request MATCH (n:SpecNode {group_id: $project_id, uuid: request.uuid})-[r]->(o:SpecNode) WHERE type(r) = request.relation AND r.group_id = $project_id AND o.group_id = $project_id AND o.spec_id IS NOT NULL RETURN request.uuid AS uuid, request.relation AS relation, labels(o) AS labels, o.spec_id AS spec_id, [name IN request.attributes | [name, o[name]]] AS attribute_values ORDER BY uuid, relation, spec_id"
+  },
+  "const:graph.core.queries.READ_SPEC_ALIASES": {
+   "binds_project_id": true,
+   "name": "read_spec_aliases",
+   "project_scoped": true,
+   "text": "MATCH (n:SpecNode) WHERE n.group_id = $project_id AND n.spec_id IS NOT NULL AND size(coalesce(n.spec_id_aliases, [])) > 0 AND any(label IN labels(n) WHERE label IN $labels) RETURN n.spec_id AS spec_id, n.spec_id_aliases AS aliases ORDER BY spec_id"
   },
   "const:graph.core.queries.SEARCH_FRAGMENTS": {
    "binds_project_id": true,

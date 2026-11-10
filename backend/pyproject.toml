@@ -32,6 +32,7 @@ dependencies = [
     "temporalio>=1.34,<2",
     "temporalio-openai-agents[openinference]>=1.1,<2",
     "uvicorn>=0.54.0",
+    "neo4j-rust-ext>=6.4.1",
 ]
 
 [project.optional-dependencies]
@@ -128,9 +129,11 @@ openinference-instrumentation = ["openinference"]
 DEP001 = ["botocore", "httpx2"]
 # The tigergraph extra is used by the graph store adapter when it ships. opencv-python-headless is imported by
 # docling_ibm_models (TableFormer v1), not by our code; torch and torchvision are docling's runtime and pinned here
-# only to select the CPU wheels.
+# only to select the CPU wheels. neo4j-rust-ext replaces the neo4j driver's pure-Python Bolt decoding when it is
+# installed (the driver imports it), so it is never imported by name.
 DEP002 = [
     "asyncpg",
+    "neo4j-rust-ext",
     "pyTigerGraph",
     "temporalio-openai-agents",
     "opencv-python-headless",

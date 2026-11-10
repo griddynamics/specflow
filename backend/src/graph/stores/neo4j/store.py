@@ -11,7 +11,7 @@ from graph.stores._bolt.executor import BoltExecutor, check_connection, connect
 from graph.stores._bolt.schema import ensure_cypher_schema
 from graph.stores.neo4j.version import BACKEND, MINIMUM_VERSION, require_version
 
-CAPABILITIES: Final = StoreCapabilities(multi_statement_tx=True)
+CAPABILITIES: Final = StoreCapabilities(multi_statement_tx=True, shared_vector_index=True)
 
 
 async def _gate(driver: Any, database: str | None) -> tuple[int, ...]:

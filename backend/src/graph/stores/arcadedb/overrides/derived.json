@@ -1,6 +1,10 @@
 {
  "core.scope_via": [
   [
+   "MATCH (root:SpecNode {group_id: $project_id, spec_id: $spec_id})",
+   "MATCH (root:SpecNode {spec_key: $spec_key}) WHERE root.group_id = $project_id"
+  ],
+  [
    "all(b IN nodes(p)[1..] WHERE b = root OR none(",
    "all(b IN nodes(p) WHERE b = n OR b = root OR none("
   ]
@@ -65,6 +69,78 @@
   [
    "RETURN n.uuid AS uuid, candidates ORDER BY uuid",
    "RETURN n.uuid AS uuid, candidates"
+  ]
+ ],
+ "core.read_node_by_spec_id": [
+  [
+   "MATCH (n:SpecNode {group_id: $project_id, spec_id: $spec_id})",
+   "MATCH (n:SpecNode {spec_key: $spec_key}) WHERE n.group_id = $project_id"
+  ],
+  [
+   "[key IN keys(n) WHERE key <> 'embedding' AND key <> 'name_embedding' | [key, n[key]]] AS props",
+   "n {.*, embedding: null, name_embedding: null} AS props"
+  ]
+ ],
+ "core.read_node_by_alias": [
+  [
+   "[key IN keys(n) WHERE key <> 'embedding' AND key <> 'name_embedding' | [key, n[key]]] AS props",
+   "n {.*, embedding: null, name_embedding: null} AS props"
+  ]
+ ],
+ "core.read_nodes": [
+  [
+   "[key IN keys(n) WHERE key <> 'embedding' AND key <> 'name_embedding' | [key, n[key]]] AS props",
+   "n {.*, embedding: null, name_embedding: null} AS props"
+  ]
+ ],
+ "core.read_nodes_page": [
+  [
+   "[key IN keys(n) WHERE key <> 'embedding' AND key <> 'name_embedding' | [key, n[key]]] AS props",
+   "n {.*, embedding: null, name_embedding: null} AS props"
+  ]
+ ],
+ "core.read_nodes_for_lines": [
+  [
+   "[key IN keys(n) WHERE key <> 'embedding' AND key <> 'name_embedding' | [key, n[key]]] AS props",
+   "n {.*, embedding: null, name_embedding: null} AS props"
+  ]
+ ],
+ "core.read_nodes_by_uuid": [
+  [
+   "MATCH (n:SpecNode) WHERE n.group_id = $project_id AND n.uuid IN $uuids AND n.spec_id IS NOT NULL",
+   "UNWIND $uuids AS wanted MATCH (n:SpecNode {group_id: $project_id, uuid: wanted}) WHERE n.spec_id IS NOT NULL WITH DISTINCT n"
+  ],
+  [
+   "[key IN keys(n) WHERE key <> 'embedding' AND key <> 'name_embedding' | [key, n[key]]] AS props",
+   "n {.*, embedding: null, name_embedding: null} AS props"
+  ]
+ ],
+ "core.read_neighbours": [
+  [
+   "MATCH (n:SpecNode {group_id: $project_id, spec_id: $spec_id})",
+   "MATCH (n:SpecNode {spec_key: $spec_key}) WHERE n.group_id = $project_id"
+  ]
+ ],
+ "core.read_impact_hop": [
+  [
+   "MATCH (s:SpecNode) WHERE s.group_id = $project_id AND s.uuid IN $frontier",
+   "UNWIND $frontier AS wanted MATCH (s:SpecNode {group_id: $project_id, uuid: wanted})"
+  ]
+ ],
+ "core.scope_sequence": [
+  [
+   "MATCH (root:SpecNode {group_id: $project_id, spec_id: $spec_id})",
+   "MATCH (root:SpecNode {spec_key: $spec_key}) WHERE root.group_id = $project_id"
+  ]
+ ],
+ "plan.plan_read_links": [
+  [
+   "MATCH ()-[r:",
+   "MATCH (source)-[r:"
+  ],
+  [
+   " {group_id: $project_id}]->() WITH r, startNode(r) AS source, endNode(r) AS target WHERE source.group_id = $project_id",
+   "]->(target) WHERE r.group_id = $project_id AND source.group_id = $project_id"
   ]
  ]
 }

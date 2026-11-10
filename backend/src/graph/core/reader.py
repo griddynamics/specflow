@@ -41,6 +41,7 @@ from graph.core.queries import (
     READ_NODES_FOR_LINES,
     READ_NODES_PAGE,
     READ_OWNER_VALUES,
+    READ_SPEC_ALIASES,
     SEARCH_FRAGMENTS,
     SEARCH_NODES_FULLTEXT,
     SEARCH_NODES_VECTOR,
@@ -55,6 +56,7 @@ from graph.core.store import (
     SPEC_NODE_EMBEDDING_INDEX,
     SPEC_NODE_TEXT_INDEX,
     as_executor,
+    shared_vector_index,
 )
 from logger.logger import DEBUG, WARNING, get_logger, log_event
 
@@ -84,6 +86,10 @@ MAX_SEARCH_LIMIT: Final = 500
 EXACT_VECTOR_MAX: Final = 2000
 # The vector fetch doubles at most this many times while hits < limit, then exact cosine.
 VECTOR_DOUBLINGS: Final = 3
+# On a store whose vector index holds every project (``StoreCapabilities.shared_vector_index``) the first fetch
+# is this many times the depth: with several projects one call then usually finds enough of this project's
+# hits, where doubling from the depth took two to four calls (measured with five projects: 108 to 63 ms).
+SHARED_INDEX_OVERSAMPLE: Final = 8
 # Fulltext query terms are cut so Lucene's clause limit (1024) is never reached: at most this many
 # terms and characters (an analyzer token is at least one character).
 MAX_QUERY_TERMS: Final = 256
@@ -242,6 +248,9 @@ class GraphReader:
             raise ConfigurationError("invalid_vector_floor")
         self._vector_floor = float(vector_floor)
         self._executor = as_executor(driver_or_executor, database)
+        self._vector_oversample = (
+            SHARED_INDEX_OVERSAMPLE if shared_vector_index(driver_or_executor, self._executor) else 1
+        )
         self._ontology = ontology
         self._gateway = gateway
         self._spec_labels = tuple(label for label in ontology.labels if ontology.owner_of(label) == BUILD)
@@ -292,6 +301,28 @@ class GraphReader:
         filters = self._filters(self._labels(labels), where)
         rows = await self._executor.read(READ_NODES, project_id, retired=RETIRED, **filters)
         return await self._inherited(project_id, self._nodes(rows))
+
+    async def nodes_by_spec_ids(self, project_id: str, spec_ids: Sequence[str]) -> list[GraphNode]:
+        """The spec nodes holding any of ``spec_ids`` as their ``spec_id`` or as an alias, ordered by ``spec_id``: what
+        ``nodes`` gives for those nodes, without reading the others."""
+
+        project_id = validate_project_id(project_id)
+        wanted = list(dict.fromkeys(spec_ids))
+        if not wanted:
+            return []
+        rows = await self._executor.read(
+            READ_NODE_UUIDS_BY_SPEC_ID, project_id, spec_ids=wanted, labels=list(self._spec_labels)
+        )
+        return await self._nodes_by_uuid(project_id, [row["uuid"] for row in rows])
+
+    async def spec_aliases(self, project_id: str) -> dict[str, str]:
+        """Each ``spec_id`` alias of the project's spec nodes mapped to the ``spec_id`` of the node holding it (an
+        alias equal to the node's own ``spec_id`` left out): what the nodes of ``nodes`` give, without reading them.
+        """
+
+        project_id = validate_project_id(project_id)
+        rows = await self._executor.read(READ_SPEC_ALIASES, project_id, labels=list(self._spec_labels))
+        return {alias: row["spec_id"] for row in rows for alias in row["aliases"] or () if alias != row["spec_id"]}
 
     async def count_nodes(self, project_id: str, labels: Sequence[str] | None) -> int:
         """Number of spec nodes with any of ``labels``, as ``nodes`` filters (FR-MCP-TOOL-10)."""
@@ -683,7 +714,7 @@ class GraphReader:
             return None
         params = {"vector": vectors[0], "model": model, "limit": depth, **filters}
         if matching > EXACT_VECTOR_MAX:
-            k = depth
+            k = depth * self._vector_oversample
             fetched = 0
             hits: list[dict[str, Any]] = []
             for _ in range(VECTOR_DOUBLINGS + 1):

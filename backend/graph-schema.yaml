@@ -236,12 +236,14 @@ constraints:
            Task.task_id, Task.uuid]
   # src/graph/core/ddl/node_indexes.cypher, relationship_indexes.cypher and
   # src/graph/plan/ddl/plan_schema.cypher (range): the (group_id, edge_key) index of every relation
-  # of the shipped ontology plus the plan data-model lookup indexes.
+  # of the shipped ontology plus the plan data-model lookup indexes, and the group_id index of every plan
+  # relation (plan_read_links finds a project's links of one type by group_id alone).
   indexes: [SpecNode.identity_key, CARRIES.edge_key, CONSUMED_BY.edge_key, DEPENDS_ON.edge_key,
             DEPLOYED_TO.edge_key, GROUPED_BY.edge_key, INTEGRATES_WITH.edge_key, PART_OF.edge_key,
             PROVIDED_BY.edge_key, REALIZED_BY.edge_key, RELATES_TO.edge_key, STORED_IN.edge_key,
             IN_AREA.edge_key, IN_STORY.edge_key, IMPLEMENTS.edge_key, WAITS_FOR.edge_key,
-            SUPERSEDES.edge_key, Task.status, Task.story_id, Story.area_id]
+            SUPERSEDES.edge_key, Task.status, Task.story_id, Story.area_id,
+            IN_AREA.group_id, IN_STORY.group_id, IMPLEMENTS.group_id, WAITS_FOR.group_id, SUPERSEDES.group_id]
 
 policy:
   # Schema DDL: the static CREATE ... IF NOT EXISTS statements of the constraints and indexes.

@@ -207,13 +207,15 @@ class PlanReader:
         view = story_view(loaded, story_id)
         if view is None:
             return None
-        nodes = {node.spec_id: node for node in await self._graph.nodes(project_id)}
-        aliases = spec_aliases(nodes.values())
+        aliases = await self._graph.spec_aliases(project_id)
         member_ids = sorted(
             link.source
             for link in loaded.current.links
             if link.type == _IN_AREA and dict(link.properties).get("story") == story_id
         )
+        anchor_id = resolve_spec_id(view.anchor, aliases) if view.anchor else None
+        named = [*member_ids, anchor_id] if anchor_id else member_ids
+        nodes = {node.spec_id: node for node in await self._graph.nodes_by_spec_ids(project_id, named)}
         not_buildable = {
             str(entry.get("spec_id")): entry.get("reason")
             for area in loaded.current.areas
@@ -238,7 +240,7 @@ class PlanReader:
             )
         tasks = [task for task in loaded.story_tasks(story_id) if task.status not in CLOSED]
         order = topological_order([task.task_id for task in tasks], loaded.edges(task.task_id for task in tasks))
-        anchor = nodes.get(resolve_spec_id(view.anchor, aliases)) if view.anchor else None
+        anchor = nodes.get(anchor_id) if anchor_id else None
         waits_on, waited_by = _story_neighbours(loaded, story_id)
         return StoryDetail(
             story=view,
@@ -339,7 +341,7 @@ class PlanReader:
         """Tasks that implement any of the given spec nodes (merged ids resolved)."""
 
         loaded = await load_plan(self._executor, project_id)
-        aliases = spec_aliases(await self._graph.nodes(project_id))
+        aliases = await self._graph.spec_aliases(project_id)
         return tasks_implementing(loaded, spec_ids, aliases, include_closed=include_closed)
 
     async def spec_graph(self, project_id: str) -> tuple[list[GraphNode], list[GraphEdge], dict[str, str]]:

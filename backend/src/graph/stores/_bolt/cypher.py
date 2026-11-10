@@ -19,9 +19,11 @@ from collections.abc import Callable, Mapping, Sequence
 from functools import cache
 from typing import Any, Final
 
-from graph.core.dialect import ExecutionPlan
+from graph.core.dialect import ExecutionPlan, Record
 from graph.core.errors import ConformanceError
 from graph.core.queries import (
+    EMBEDDING,
+    NAME_EMBEDDING,
     DdlText,
     EndpointSubjects,
     ForeignLabel,
@@ -62,6 +64,7 @@ _STATIC: Final[Mapping[str, Callable[[], str]]] = {
     "core.read_nodes_for_lines": lambda: load_core_query("read_nodes_for_lines.cypher"),
     "core.read_nodes_page": lambda: load_core_query("read_nodes_page.cypher"),
     "core.read_owner_values": lambda: load_core_query("read_owner_values.cypher"),
+    "core.read_spec_aliases": lambda: load_core_query("read_spec_aliases.cypher"),
     "core.search_fragments": lambda: load_core_query("search_fragments.cypher"),
     "core.search_nodes_fulltext": lambda: load_core_query("search_nodes_fulltext.cypher"),
     "core.search_nodes_vector": lambda: load_core_query("search_nodes_vector.cypher"),
@@ -372,6 +375,33 @@ def render_cypher(query: Query) -> str:
     return _render(query.template, query.args)
 
 
+# Node reads whose ``props`` column is the node's properties as [key, value] pairs without the vectors: a map
+# projection (``n {.*}``) loads every property, the two vectors (about 49 KB a spec node) included. The plan maps
+# the pairs back to the props map every store returns, with the vectors null (``props_from_pairs``).
+PAIRED_PROPS: Final = frozenset(
+    {
+        "core.read_node_by_alias",
+        "core.read_node_by_spec_id",
+        "core.read_nodes",
+        "core.read_nodes_by_uuid",
+        "core.read_nodes_for_lines",
+        "core.read_nodes_page",
+    }
+)
+
+
+def props_from_pairs(results: Sequence[list[Record]]) -> list[Record]:
+    """The rows of the plan's statement with a ``props`` of [key, value] pairs turned into a map whose vectors are
+    null; a ``props`` that is already a map (a store that projects it) is kept."""
+
+    rows = results[0] if results else []
+    for row in rows:
+        props = row.get("props")
+        if isinstance(props, list):
+            row["props"] = {**dict(props), EMBEDDING: None, NAME_EMBEDDING: None}
+    return rows
+
+
 def binds_project_id(text: str) -> bool:
     """Whether a Cypher text references the ``$project_id`` parameter."""
 
@@ -390,6 +420,8 @@ class CypherDialect:
     def plan(self, query: Query, params: Mapping[str, Any]) -> ExecutionPlan:
         self.require_project_binding(query)
         text = render_cypher(query)
+        if query.template in PAIRED_PROPS:
+            return ExecutionPlan(ExecutionPlan.single(text, params).statements, props_from_pairs)
         return ExecutionPlan.single(text, params)
 
 

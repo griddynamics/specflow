@@ -57,6 +57,7 @@ from graph.plan.partition import partition
 from graph.plan.ports import PlanStore
 from graph.plan.project import project
 from graph.plan.prompts import PromptName, gateway_prompt
+from graph.plan.reader import spec_aliases
 from graph.plan.rules import PlanRules, load_plan_rules
 from graph.plan.run import StepFunctions, run_with
 from graph.plan.snapshot import snapshot
@@ -142,6 +143,14 @@ class ShopGraphReader:
 
     async def node(self, _project_id: str, spec_id: str) -> GraphNode | None:
         return next((node for node in self._fixture.nodes if node.spec_id == spec_id), None)
+
+    async def nodes_by_spec_ids(self, _project_id: str, spec_ids: Sequence[str]) -> list[GraphNode]:
+        wanted = set(spec_ids)
+        found = [node for node in self._fixture.nodes if wanted & {node.spec_id, *node.spec_id_aliases}]
+        return sorted(found, key=lambda node: node.spec_id)
+
+    async def spec_aliases(self, _project_id: str) -> dict[str, str]:
+        return spec_aliases(sorted(self._fixture.nodes, key=lambda node: node.spec_id))
 
     async def neighbours(
         self, _project_id: str, spec_id: str, relations: Sequence[str] | None = None

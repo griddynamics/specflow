@@ -222,9 +222,18 @@ def test_every_statement_that_writes_spec_id_of_a_spec_node_writes_spec_key(all_
 def test_spec_key_is_the_group_and_the_spec_id_and_follows_a_removed_spec_id() -> None:
     (text,) = texts(core_queries.UPSERT_SPEC_NODE)
     assert (
-        "n.spec_key = CASE WHEN 'spec_id' IN keys($props) THEN $project_id + ':' + $props.spec_id ELSE n.spec_key END"
-        in text
+        "n.spec_key = CASE WHEN 'spec_id' IN keys($props) THEN $project_id + ':' + $props.spec_id ELSE null END" in text
     )
+    assert (
+        "old.spec_key = CASE WHEN 'spec_id' IN keys($props) THEN $project_id + ':' + $props.spec_id"
+        " ELSE old.spec_key END" in text
+    )
+    (text,) = texts(
+        build_queries.CREATE_SPEC_NODES,
+        rows=[{"label": "Module", "uuid": "a", "props": {}}],
+    )
+    assert "n.spec_key = CASE WHEN 'spec_id' IN keys(row.props) THEN $project_id + ':' + row.props.spec_id" in text
+    assert "e.spec_key = CASE WHEN 'spec_id' IN keys(row.props) THEN $project_id + ':' + row.props.spec_id" in text
     (text,) = texts(build_queries.UPDATE_SPEC_NODES)
     assert "n.spec_key = CASE WHEN 'spec_id' IN keys(row.props) THEN $project_id + ':' + row.props.spec_id" in text
     (text,) = texts(build_queries.REPAIR_SET_SPEC_IDS)
@@ -234,10 +243,10 @@ def test_spec_key_is_the_group_and_the_spec_id_and_follows_a_removed_spec_id() -
 # Static label per statement
 
 
-def test_upsert_spec_node_has_the_label_in_the_merge() -> None:
+def test_upsert_spec_node_has_the_label_in_the_create() -> None:
     (text,) = texts(core_queries.UPSERT_SPEC_NODE, label="Capability")
-    assert "MERGE (n:SpecNode:Capability {group_id: $project_id, uuid: $key})" in text
-    assert "ON CREATE SET" not in text and "$($label)" not in text
+    assert "CREATE (n:SpecNode:Capability {group_id: $project_id, uuid: $key})" in text
+    assert "MERGE" not in text and "ON CREATE SET" not in text and "$($label)" not in text
     assert "NOT $label IN labels(old)" in text  # the label_mismatch pre-check stays
 
 
@@ -255,7 +264,7 @@ def test_create_spec_nodes_runs_one_statement_per_label_with_its_rows() -> None:
         {"label": "Module", "uuid": "c", "props": {}},
     ]
     planned = plan(build_queries.CREATE_SPEC_NODES, rows=rows, build_id="b1")
-    assert [s.text.split("MERGE ")[1].split(" ")[0] for s in planned.statements] == [
+    assert [s.text.split("CREATE ")[1].split(" ")[0] for s in planned.statements] == [
         "(n:SpecNode:Capability",
         "(n:SpecNode:Module",
     ]
@@ -592,3 +601,57 @@ def test_the_result_columns_of_every_template_with_rows_are_the_ones_chunking_co
             if not columns <= AGGREGATE_COLUMNS:
                 unknown[query.name] = sorted(columns - AGGREGATE_COLUMNS)
     assert unknown == {}
+
+
+# --- planner workarounds ---------------------------------------------------------------------------
+
+
+def test_a_lookup_by_spec_id_seeks_the_unique_spec_key_and_projects_props_as_a_map() -> None:
+    for query in (core_queries.READ_NODE_BY_SPEC_ID, core_queries.READ_NEIGHBOURS):
+        plan = arcade.ARCADEDB_DIALECT.plan(query, {"project_id": "p1", "spec_id": "FR::A", "relations": []})
+        statement = plan.statements[0]
+        assert "{spec_key: $spec_key}" in statement.text and "spec_id: $spec_id}" not in statement.text
+        assert statement.params["spec_key"] == "p1:FR::A"
+    text = arcade.ARCADEDB_DIALECT.plan(core_queries.READ_NODE_BY_SPEC_ID, {"project_id": "p1", "spec_id": "X"})
+    assert "n {.*, embedding: null, name_embedding: null} AS props" in text.statements[0].text
+    assert arcade.spec_key("p1", None) is None
+
+
+def test_relationship_types_and_a_single_label_are_rendered_into_the_pattern() -> None:
+    plan = arcade.ARCADEDB_DIALECT.plan
+    typed = plan(
+        core_queries.READ_EDGES,
+        {"project_id": "p", "relations": ["PART_OF", "DEPENDS_ON"]},
+    )
+    assert "(s:SpecNode)-[r:PART_OF|DEPENDS_ON]->(t:SpecNode)" in typed.statements[0].text
+    untyped = plan(core_queries.READ_EDGES, {"project_id": "p", "relations": []})
+    assert "(s:SpecNode)-[r]->(t:SpecNode)" in untyped.statements[0].text
+    one = plan(core_queries.COUNT_NODES, {"project_id": "p", "labels": ["Feature"]})
+    assert "MATCH (n:SpecNode:Feature) WHERE" in one.statements[0].text
+    two = plan(core_queries.COUNT_NODES, {"project_id": "p", "labels": ["Feature", "Module"]})
+    assert "MATCH (n:SpecNode) WHERE" in two.statements[0].text
+    with pytest.raises(ConformanceError) as raised:
+        plan(
+            core_queries.READ_EDGES,
+            {"project_id": "p", "relations": ["PART_OF]-() DETACH DELETE (x"]},
+        )
+    assert raised.value.code == "cypher_name_unsafe"
+
+
+def test_uuid_lists_are_unwound_into_key_lookups() -> None:
+    plan = arcade.ARCADEDB_DIALECT.plan(core_queries.READ_NODES_BY_UUID, {"project_id": "p", "uuids": ["u"]})
+    text = plan.statements[0].text
+    assert "UNWIND $uuids AS wanted MATCH (n:SpecNode {group_id: $project_id, uuid: wanted})" in text
+    assert "WITH DISTINCT n" in text
+
+
+def test_spec_node_writes_create_or_set_without_a_two_label_merge() -> None:
+    rows = [{"uuid": "u1", "label": "Feature", "props": {"spec_id": "F-1"}}]
+    create = arcade.ARCADEDB_DIALECT.plan(build_queries.CREATE_SPEC_NODES, {"project_id": "p", "rows": rows})
+    upsert = arcade.ARCADEDB_DIALECT.plan(
+        core_queries.UPSERT_SPEC_NODE,
+        {"project_id": "p", "label": "Feature", "key": "u1", "props": {}},
+    )
+    for plan in (create, upsert):
+        text = plan.statements[0].text
+        assert "MERGE" not in text and "CREATE (n:SpecNode:Feature {group_id: $project_id, uuid:" in text

@@ -143,6 +143,7 @@ _STATIC: Final[Mapping[str, Callable[[], str]]] = {
     "core.read_nodes_for_lines": lambda: load_core_sql("read_nodes_for_lines.sql"),
     "core.read_nodes_page": lambda: load_core_sql("read_nodes_page.sql"),
     "core.read_owner_values": lambda: load_core_sql("read_owner_values.sql"),
+    "core.read_spec_aliases": lambda: load_core_sql("read_spec_aliases.sql"),
     "core.search_fragments": lambda: load_core_sql("search_fragments.sql"),
     "core.search_nodes_fulltext": lambda: load_core_sql("search_nodes_fulltext.sql"),
     "core.search_nodes_vector": lambda: load_core_sql("search_nodes_vector.sql"),

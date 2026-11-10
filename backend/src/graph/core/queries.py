@@ -376,6 +376,8 @@ READ_NODES_BY_UUID: Final = Query("read_nodes_by_uuid", "core.read_nodes_by_uuid
 
 READ_NODE_UUIDS_BY_SPEC_ID: Final = Query("read_node_uuids_by_spec_id", "core.read_node_uuids_by_spec_id")
 
+READ_SPEC_ALIASES: Final = Query("read_spec_aliases", "core.read_spec_aliases")
+
 READ_NODES_BY_IDS: Final = Query("read_nodes_by_ids", "core.read_nodes_by_ids")
 
 SEARCH_NODES_FULLTEXT: Final = Query("search_nodes_fulltext", "core.search_nodes_fulltext")

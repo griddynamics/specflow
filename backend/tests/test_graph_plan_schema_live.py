@@ -53,7 +53,7 @@ async def test_plan_schema_entry_point_is_idempotent(graph_project: GraphProject
 async def test_neo4j_holds_every_plan_object_by_name(graph_project: GraphProject) -> None:
     await ensure_plan_schema(graph_project.store, plan_ontology(), live_llm_config())
     expected = _plan_objects()
-    assert len(expected) == 16, "plan_schema.cypher was not parsed"
+    assert len(expected) == 21, "plan_schema.cypher was not parsed"
     names = {item.name for item in await graph_project.probe.schema_objects()}
     assert set(expected) <= names, sorted(set(expected) - names)
 
@@ -64,7 +64,7 @@ async def test_arcadedb_holds_every_plan_object_by_shape(graph_project: GraphPro
 
     await ensure_plan_schema(graph_project.store, plan_ontology(), live_llm_config())
     expected = _plan_objects()
-    assert len(expected) == 16, "plan_schema.cypher was not parsed"
+    assert len(expected) == 21, "plan_schema.cypher was not parsed"
     shapes = {(item.entity, item.label, item.properties) for item in await graph_project.probe.schema_objects()}
     missing = {name for name, shape in expected.items() if shape not in shapes}
     assert not missing, sorted(missing)

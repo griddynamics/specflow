@@ -25,7 +25,7 @@ from graph.stores.arcadedb.admin import AdminClient, admin_url, check_database_n
 from graph.stores.arcadedb.names import index_names
 from graph.stores.arcadedb.schema import SPEC_KEY, SPEC_KEY_INDEX
 from graph.stores.config import StoreConfig
-from graph_probes.base import Match, ProbeEdge, ProbeNode, SchemaObject, identifier
+from graph_probes.base import SPEC_NODE, Match, NodeSpec, ProbeEdge, ProbeNode, SchemaObject, identifier
 from graph_probes.neo4j import Neo4jProbe
 
 _LIBRARY_EDGE_KEY_INDEX: Final = "graph_edge_key_{}"
@@ -76,6 +76,15 @@ def _visible(node: ProbeNode) -> ProbeNode:
     return ProbeNode(node.id, node.labels, {k: v for k, v in node.props.items() if k != SPEC_KEY})
 
 
+def _with_spec_key(project_id: str, spec: NodeSpec) -> NodeSpec:
+    """``spec`` with the adapter's derived ``spec_key`` when it is a spec node with a ``spec_id``."""
+
+    spec_id = spec.props.get("spec_id")
+    if SPEC_NODE not in spec.labels or spec_id is None or SPEC_KEY in spec.props:
+        return spec
+    return NodeSpec(spec.labels, {**spec.props, SPEC_KEY: f"{project_id}:{spec_id}"})
+
+
 class ArcadeDbProbe(Neo4jProbe):
     backend = "arcadedb"
 
@@ -98,6 +107,13 @@ class ArcadeDbProbe(Neo4jProbe):
             _CREATED[key] = self.config
 
     @override
+    async def create_nodes(self, project_id: str, specs: Sequence[NodeSpec]) -> int:
+        """As on Neo4j, with the derived ``spec_key`` every adapter write of a spec node's ``spec_id`` sets (lookups
+        by ``spec_id`` seek it)."""
+
+        return await super().create_nodes(project_id, [_with_spec_key(project_id, spec) for spec in specs])
+
+    @override
     async def update_nodes(
         self,
         project_id: str,
@@ -107,9 +123,14 @@ class ArcadeDbProbe(Neo4jProbe):
         add_labels: Sequence[str] = (),
         remove_labels: Sequence[str] = (),
     ) -> int:
-        """As on Neo4j, except that one label swapped for others (both lists given) goes through the library's
-        label repair: in place it would move each record twice, which ArcadeDB refuses in one transaction."""
+        """As on Neo4j (a new ``spec_id`` also sets ``spec_key``, unless labels change in the same call: ArcadeDB
+        refuses a key change and a record move in one statement, and the fault injections that do both expect the
+        old key), except that one label swapped for others (both lists given) goes through the library's label
+        repair: in place it would move each record twice, which ArcadeDB refuses in one transaction."""
 
+        if props and "spec_id" in props and not (add_labels or remove_labels):
+            spec_id = props["spec_id"]
+            props = {**props, SPEC_KEY: f"{project_id}:{spec_id}" if spec_id is not None else None}
         if not (add_labels and remove_labels):
             return await super().update_nodes(
                 project_id, match, props, add_labels=add_labels, remove_labels=remove_labels

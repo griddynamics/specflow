@@ -12,7 +12,7 @@ WITH picked AS (
         n.group_id = :project_id
         AND n.kind = 'spec'
         AND n.spec_id IS NOT NULL
-        AND jsonb_exists(n.props -> 'spec_id_aliases', :spec_id)
+        AND (n.props -> 'spec_id_aliases') ? :spec_id
 ),
 
 found AS (

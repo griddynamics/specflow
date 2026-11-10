@@ -12,7 +12,7 @@ from typing import Any
 
 from graph.core.reader import GraphNode
 from graph.plan.models import CurrentPlan, CurrentTask, PlanInfo, PlanLink, StoryInfo, WorkAreaInfo
-from graph.plan.reader import LoadedPlan
+from graph.plan.reader import LoadedPlan, spec_aliases
 from graph_support import shipped_ontology
 
 T0 = datetime(2026, 1, 1, tzinfo=UTC)
@@ -121,6 +121,9 @@ class ShopGraph:
 
     async def nodes(self, _project_id: str) -> list[GraphNode]:
         return list(self.by_id.values())
+
+    async def spec_aliases(self, _project_id: str) -> dict[str, str]:
+        return spec_aliases(self.by_id.values())
 
     async def scope(self, _project_id: str, spec_id: str) -> list[GraphNode]:
         return [self.by_id["REQ::PAY_ON_PLACE"]] if spec_id == "FEAT::PLACE" else []

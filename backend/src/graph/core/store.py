@@ -60,9 +60,12 @@ class StoreCapabilities:
 
     ``multi_statement_tx`` false: ``Executor.tx`` commits each statement on its own, so callers
     that need an all-or-nothing group must refuse the store (``OwnedWriter.transaction()`` does).
+    ``shared_vector_index`` true: one vector index holds the vectors of every project and a page of it is
+    filtered to the project afterwards, so ``GraphReader`` fetches a larger first page from it.
     """
 
     multi_statement_tx: bool = True
+    shared_vector_index: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,6 +227,16 @@ def multi_statement_tx(source: Any, executor: Any) -> bool:
         return bool(source.info.capabilities.multi_statement_tx)
     capabilities = getattr(executor, "capabilities", None)
     return True if capabilities is None else bool(capabilities.multi_statement_tx)
+
+
+def shared_vector_index(source: Any, executor: Any) -> bool:
+    """Whether the vector index of ``source`` is shared by every project: the store's ``info.capabilities``,
+    else the executor's ``capabilities`` attribute, else false."""
+
+    if is_store(source):
+        return bool(source.info.capabilities.shared_vector_index)
+    capabilities = getattr(executor, "capabilities", None)
+    return False if capabilities is None else bool(capabilities.shared_vector_index)
 
 
 def as_executor(source: Any, database: str | None = None) -> Executor:

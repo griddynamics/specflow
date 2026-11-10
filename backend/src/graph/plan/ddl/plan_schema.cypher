@@ -16,3 +16,11 @@ CREATE INDEX graph_edge_key_in_story IF NOT EXISTS FOR ()-[r:IN_STORY]-() ON (r.
 CREATE INDEX graph_edge_key_implements IF NOT EXISTS FOR ()-[r:IMPLEMENTS]-() ON (r.group_id, r.edge_key);
 CREATE INDEX graph_edge_key_waits_for IF NOT EXISTS FOR ()-[r:WAITS_FOR]-() ON (r.group_id, r.edge_key);
 CREATE INDEX graph_edge_key_supersedes IF NOT EXISTS FOR ()-[r:SUPERSEDES]-() ON (r.group_id, r.edge_key);
+
+// Plan link reads (plan_read_links) find one relationship type of a project by group_id alone; the
+// (group_id, edge_key) indexes above do not serve that, so without these a read scans every tenant's links.
+CREATE INDEX graph_edge_group_in_area IF NOT EXISTS FOR ()-[r:IN_AREA]-() ON (r.group_id);
+CREATE INDEX graph_edge_group_in_story IF NOT EXISTS FOR ()-[r:IN_STORY]-() ON (r.group_id);
+CREATE INDEX graph_edge_group_implements IF NOT EXISTS FOR ()-[r:IMPLEMENTS]-() ON (r.group_id);
+CREATE INDEX graph_edge_group_waits_for IF NOT EXISTS FOR ()-[r:WAITS_FOR]-() ON (r.group_id);
+CREATE INDEX graph_edge_group_supersedes IF NOT EXISTS FOR ()-[r:SUPERSEDES]-() ON (r.group_id);

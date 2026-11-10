@@ -152,7 +152,7 @@ def test_a_backend_without_an_adapter_is_not_available(backend: str) -> None:
 def test_neo4j_routes_to_the_neo4j_store_without_connecting() -> None:
     store = build_store(config(name="graph"))
     assert isinstance(store, Neo4jStore) and isinstance(store, GraphStore)
-    assert store.info == StoreInfo("neo4j", StoreCapabilities(multi_statement_tx=True), None)
+    assert store.info == StoreInfo("neo4j", StoreCapabilities(multi_statement_tx=True, shared_vector_index=True), None)
 
 
 def test_a_neo4j_config_is_still_accepted() -> None:
@@ -365,7 +365,7 @@ class Driver(SchemaDriver):
 
 def test_the_neo4j_store_reports_a_transactional_backend() -> None:
     store = Neo4jStore(Driver(), "graph")
-    assert store.info == StoreInfo("neo4j", StoreCapabilities(multi_statement_tx=True), None)
+    assert store.info == StoreInfo("neo4j", StoreCapabilities(multi_statement_tx=True, shared_vector_index=True), None)
     assert store.executor() is store.executor()
     assert isinstance(store.executor(), BoltExecutor)
     assert store.executor().capabilities.multi_statement_tx is True

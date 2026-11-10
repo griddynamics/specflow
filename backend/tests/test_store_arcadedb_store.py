@@ -97,7 +97,9 @@ def test_the_routing_row_resolves_to_the_arcadedb_store() -> None:
         StoreConfig(backend="arcadedb", uri="bolt://127.0.0.1:1", user="root", password=SecretStr(LEAK_PROBE))
     )
     assert isinstance(store, ArcadeDbStore) and isinstance(store, GraphStore)
-    assert store.info == StoreInfo("arcadedb", StoreCapabilities(multi_statement_tx=True), None)
+    assert store.info == StoreInfo(
+        "arcadedb", StoreCapabilities(multi_statement_tx=True, shared_vector_index=True), None
+    )
     assert store.executor() is store.executor() and isinstance(store.executor(), ArcadeDbExecutor)
     assert store.executor().capabilities.multi_statement_tx is True
 

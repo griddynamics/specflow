@@ -40,13 +40,9 @@ WITH found AS (
         )
         AND (
             n.props ->> 'identity_key' = any(cast(:keys AS text[]))
-            OR jsonb_exists_any(
-                n.props -> 'identity_aliases', cast(:keys AS text[])
-            )
+            OR (n.props -> 'identity_aliases') ?| cast(:keys AS text[])
             OR n.spec_id = any(cast(:spec_ids AS text[]))
-            OR jsonb_exists_any(
-                n.props -> 'spec_id_aliases', cast(:spec_ids AS text[])
-            )
+            OR (n.props -> 'spec_id_aliases') ?| cast(:spec_ids AS text[])
         )
 )
 

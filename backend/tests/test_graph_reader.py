@@ -28,11 +28,13 @@ from graph.core.reader import (
     MAX_QUERY_TERMS,
     MAX_SEARCH_LIMIT,
     RRF_K,
+    SHARED_INDEX_OVERSAMPLE,
     VECTOR_WEIGHT,
     _embedding_text,
     _lucene_query,
     _query_terms,
 )
+from graph.core.store import StoreCapabilities
 from graph.stores._bolt.cypher import binds_project_id, render_cypher
 from graph_support import (
     RENAMED_FEATURE_LABEL,
@@ -376,6 +378,22 @@ async def test_index_fetch_doubles_while_hits_are_below_the_limit() -> None:
     assert ks == [2, 4, 8]  # depth = limit
     assert "search_nodes_vector_exact" not in executor.names()
     assert [h.node.spec_id for h in hits] == ["A", "B"]
+
+
+async def test_a_shared_vector_index_is_first_asked_for_more_than_the_depth() -> None:
+    executor = vector_executor(2001, [(16, [hit("A", 0.9), hit("B", 0.8)])])
+    executor.capabilities = StoreCapabilities(shared_vector_index=True)
+    hits = await reader(executor, FakeGateway()).find_nodes(PROJECT, "x", limit=2)
+    ks = [params["k"] for name, params in executor.calls if name == "search_nodes_vector"]
+    assert ks == [2 * SHARED_INDEX_OVERSAMPLE]
+    assert [h.node.spec_id for h in hits] == ["A", "B"]
+
+
+async def test_a_store_without_a_shared_vector_index_starts_at_the_depth() -> None:
+    executor = vector_executor(2001, [(2, [hit("A", 0.9), hit("B", 0.8)])])
+    executor.capabilities = StoreCapabilities(shared_vector_index=False)
+    await reader(executor, FakeGateway()).find_nodes(PROJECT, "x", limit=2)
+    assert [params["k"] for name, params in executor.calls if name == "search_nodes_vector"] == [2]
 
 
 async def test_index_short_of_k_falls_back_to_exact_cosine() -> None:
@@ -1047,3 +1065,38 @@ async def test_fr_mcp_tool_10_the_renamed_feature_ontology_loads_and_pages_its_o
     with pytest.raises(ConfigurationError) as raised:
         await r.nodes_page(PROJECT, [shipped.node_types["feature"].label])
     assert raised.value.code == "unknown_label"
+
+
+# --- plan reads: aliases and named nodes without reading every node ---------------------------------
+
+
+async def test_spec_aliases_map_each_alias_to_the_node_that_holds_it() -> None:
+    rows = [
+        {"spec_id": "FR::B", "aliases": ["FR::A", "FR::B"]},
+        {"spec_id": "FR::D", "aliases": ["FR::C"]},
+        {"spec_id": "FR::E", "aliases": None},
+    ]
+    executor = ScriptedExecutor({"read_spec_aliases": lambda _params: rows})
+    graph = reader(executor)
+    assert await graph.spec_aliases(PROJECT) == {"FR::A": "FR::B", "FR::C": "FR::D"}
+    assert dict(executor.calls)["read_spec_aliases"]["labels"] == list(graph._spec_labels)
+
+
+async def test_nodes_by_spec_ids_reads_only_the_named_nodes() -> None:
+    executor = ScriptedExecutor(
+        {
+            "read_node_uuids_by_spec_id": lambda params: [
+                {"uuid": uuid_of(spec_id), "spec_id": spec_id} for spec_id in sorted(set(params["spec_ids"]))
+            ],
+            "read_nodes_by_uuid": hydrate,
+        }
+    )
+    graph = reader(executor)
+    found = await graph.nodes_by_spec_ids(PROJECT, ["FR::B", "FR::A", "FR::B"])
+    assert sorted(node.spec_id for node in found) == ["FR::A", "FR::B"]
+    assert dict(executor.calls)["read_node_uuids_by_spec_id"]["spec_ids"] == [
+        "FR::B",
+        "FR::A",
+    ]
+    assert "read_nodes" not in executor.names()
+    assert await graph.nodes_by_spec_ids(PROJECT, []) == []

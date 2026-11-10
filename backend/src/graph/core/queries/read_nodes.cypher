@@ -1,6 +1,8 @@
 // Spec nodes by label and attribute equality ($where). An absent property reads as its label's default:
 // for a value, $defaulted names the labels whose default it is (absent matches); for null, the labels
 // with any default (absent does not match), hence the XOR.
+// props: the node's properties as [key, value] pairs without the two vectors, so the store never loads them
+// (a map projection reads every property); the dialect maps the pairs back to a map with the vectors null.
 MATCH (n:SpecNode)
 WHERE n.group_id = $project_id AND n.spec_id IS NOT NULL AND any(label IN labels(n) WHERE label IN $labels) AND all(name IN keys($where) WHERE n[name] = $where[name] OR (n[name] IS NULL AND (any(label IN labels(n) WHERE label IN coalesce($defaulted[name], [])) XOR $where[name] IS NULL)))
 OPTIONAL MATCH (n)-[ref:REFERENCED_BY]->(f:Fragment)
@@ -8,5 +10,5 @@ WHERE f.group_id = $project_id AND coalesce(f.status, '') <> $retired
 OPTIONAL MATCH (d:Document)-[:CONTAINS]->(f)
 WHERE d.group_id = $project_id
 WITH n, collect(CASE WHEN f IS NULL THEN NULL ELSE {fragment_id: f.fragment_id, document_id: f.document_id, path: d.path, line_start: ref.line_start, line_end: ref.line_end} END) AS provenance
-RETURN labels(n) AS labels, n {.*, embedding: null, name_embedding: null} AS props, provenance
+RETURN labels(n) AS labels, [key IN keys(n) WHERE key <> 'embedding' AND key <> 'name_embedding' | [key, n[key]]] AS props, provenance
 ORDER BY n.spec_id

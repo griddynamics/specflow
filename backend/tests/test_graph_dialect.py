@@ -18,7 +18,12 @@ from graph.core.dialect import (
 from graph.core.errors import ConformanceError
 from graph.core.queries import NodeShape, Query, scope_sequence
 from graph.core.query_files import BUILD_QUERY_DIRECTORY, CORE_QUERY_DIRECTORY
-from graph.stores._bolt.cypher import CYPHER_DIALECT, binds_project_id, render_cypher
+from graph.stores._bolt.cypher import (
+    CYPHER_DIALECT,
+    PAIRED_PROPS,
+    binds_project_id,
+    render_cypher,
+)
 
 FRAGMENT_FILES: Final = frozenset(
     {
@@ -156,3 +161,32 @@ def test_every_canonical_template_file_is_rendered_by_some_query() -> None:
         if path.stem not in FRAGMENT_FILES
     }
     assert expected - reached == set()
+
+
+def test_node_reads_leave_the_vectors_in_the_store_and_map_the_pairs_back() -> None:
+    for name in (
+        "READ_NODE_BY_SPEC_ID",
+        "READ_NODE_BY_ALIAS",
+        "READ_NODES",
+        "READ_NODES_PAGE",
+        "READ_NODES_BY_UUID",
+    ):
+        query = getattr(core_queries, name)
+        assert query.template in PAIRED_PROPS
+        text = CYPHER_DIALECT.plan(query, {"project_id": "p"}).statements[0].text
+        assert "n {.*" not in text and "key <> 'embedding' AND key <> 'name_embedding'" in text
+    plan = CYPHER_DIALECT.plan(core_queries.READ_NODES_FOR_LINES, {"project_id": "p"})
+    rows = [
+        {
+            "labels": ["SpecNode"],
+            "props": [["spec_id", "A"], ["name", "x"]],
+            "provenance": [],
+        },
+        {"labels": ["SpecNode"], "props": {"spec_id": "B"}, "provenance": []},
+    ]
+    assert [row["props"] for row in plan.reduce([rows])] == [
+        {"spec_id": "A", "name": "x", "embedding": None, "name_embedding": None},
+        {"spec_id": "B"},
+    ]
+    assert plan.reduce([]) == []
+    assert CYPHER_DIALECT.plan(core_queries.READ_EDGES, {"project_id": "p"}).reduce is identity_reducer

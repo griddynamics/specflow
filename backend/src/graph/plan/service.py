@@ -28,7 +28,7 @@ from graph.plan.models import (
     TaskPath,
 )
 from graph.plan.names import TaskStatus
-from graph.plan.reader import LoadedPlan, PlanReader, executor_of, load_plan, spec_aliases, tasks_implementing
+from graph.plan.reader import LoadedPlan, PlanReader, executor_of, load_plan, tasks_implementing
 from graph.plan.rules import PlanRules
 
 FEATURE_TYPE: Final = "feature"  # the node type whose tasks ``feature_tasks`` lists
@@ -43,7 +43,7 @@ class SpecGraphReads(Protocol):
 
     async def node(self, project_id: str, spec_id: str) -> GraphNode | None: ...
 
-    async def nodes(self, project_id: str) -> list[GraphNode]: ...
+    async def spec_aliases(self, project_id: str) -> dict[str, str]: ...
 
     async def scope(self, project_id: str, spec_id: str) -> list[GraphNode]: ...
 
@@ -93,7 +93,7 @@ class PlanService:
         if node is None or node.label != self._feature_label:
             raise PlanReadError(FEATURE_NOT_FOUND)
         scope = await self._graph.scope(project_id, node.spec_id)
-        aliases = spec_aliases(await self._graph.nodes(project_id))
+        aliases = await self._graph.spec_aliases(project_id)
         return feature_tasks(loaded, node, [item.spec_id for item in scope], aliases, asked=feature_id)
 
     async def task_path(self, project_id: str, task_id: str) -> TaskPath:

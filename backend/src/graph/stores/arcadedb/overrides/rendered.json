@@ -1,0 +1,51 @@
+{
+ "_comment": "Replacements rendered from a call's parameters, applied after derived.json. 'relations': the relationship types of $relations (when not empty) as __TYPES__; 'one_label': the one label of $labels (when exactly one) as __LABEL__. Every name passes the safe-name check.",
+ "core.read_neighbours": {
+  "relations": [
+   [
+    "MATCH (n)-[r]-(m:SpecNode)",
+    "MATCH (n)-[r:__TYPES__]-(m:SpecNode)"
+   ]
+  ]
+ },
+ "core.read_edges": {
+  "relations": [
+   [
+    "MATCH (s:SpecNode)-[r]->(t:SpecNode)",
+    "MATCH (s:SpecNode)-[r:__TYPES__]->(t:SpecNode)"
+   ]
+  ]
+ },
+ "core.read_impact_hop": {
+  "relations": [
+   [
+    "MATCH (s)-[r]-(m:SpecNode)",
+    "MATCH (s)-[r:__TYPES__]-(m:SpecNode)"
+   ]
+  ]
+ },
+ "core.read_nodes": {
+  "one_label": [
+   [
+    "MATCH (n:SpecNode) WHERE",
+    "MATCH (n:SpecNode:__LABEL__) WHERE"
+   ]
+  ]
+ },
+ "core.read_nodes_page": {
+  "one_label": [
+   [
+    "MATCH (n:SpecNode) WHERE",
+    "MATCH (n:SpecNode:__LABEL__) WHERE"
+   ]
+  ]
+ },
+ "core.count_nodes": {
+  "one_label": [
+   [
+    "MATCH (n:SpecNode) WHERE",
+    "MATCH (n:SpecNode:__LABEL__) WHERE"
+   ]
+  ]
+ }
+}

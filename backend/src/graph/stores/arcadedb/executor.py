@@ -29,7 +29,7 @@ from graph.stores.arcadedb.dialect import (
 )
 
 BACKEND: Final = "arcadedb"
-CAPABILITIES: Final = StoreCapabilities(multi_statement_tx=True)
+CAPABILITIES: Final = StoreCapabilities(multi_statement_tx=True, shared_vector_index=True)
 # The templates that call a fulltext index procedure: a malformed search text fails these with SyntaxError.
 FULLTEXT_QUERIES: Final = frozenset({"search_nodes_fulltext", "search_fragments"})
 _SYNTAX_ERROR: Final = "Neo.ClientError.Statement.SyntaxError"

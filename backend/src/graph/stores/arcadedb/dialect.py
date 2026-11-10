@@ -324,14 +324,65 @@ def _derived_text(query: Query, template: str | None = None) -> str:
     return text
 
 
-def _derived(template: str | None = None, *, index: bool = False, per_field: bool = False) -> Override:
+@cache
+def _rendered_replacements() -> Mapping[str, Mapping[str, tuple[tuple[str, str], ...]]]:
+    """The replacements rendered from a call's parameters (``overrides/rendered.json``), by template and kind."""
+
+    table = json.loads((OVERRIDE_DIRECTORY / "rendered.json").read_text(encoding="utf-8"))
+    return {
+        template: {kind: tuple((old, new) for old, new in pairs) for kind, pairs in kinds.items()}
+        for template, kinds in table.items()
+        if not template.startswith("_")
+    }
+
+
+def _rendered_text(query: Query, text: str, params: Mapping[str, Any]) -> str:
+    """``text`` with the replacements of ``overrides/rendered.json`` for the query's template that its parameters
+    call for: ``relations`` when ``$relations`` is not empty (the types rendered into the pattern, so the planner
+    reads only those relationship types instead of filtering every one), ``one_label`` when ``$labels`` holds
+    exactly one label (the node type matched instead of every spec node of the project). The parameters still
+    filter as before; each replacement must match once (``arcadedb_override_stale``)."""
+
+    kinds = _rendered_replacements().get(query.template, {})
+    names: dict[str, dict[str, str]] = {}
+    relations = params.get("relations")
+    if "relations" in kinds and isinstance(relations, (list, tuple)) and relations:
+        names["relations"] = {"types": "|".join(safe_name(name) for name in relations)}
+    labels = params.get("labels")
+    if "one_label" in kinds and isinstance(labels, (list, tuple)) and len(labels) == 1:
+        names["one_label"] = {"label": safe_name(labels[0])}
+    for kind, values in names.items():
+        for old, new in kinds[kind]:
+            if text.count(old) != 1:
+                raise ConformanceError("arcadedb_override_stale", template=query.template)
+            text = text.replace(old, render_query(new, **values))
+    return text
+
+
+def spec_key(project_id: Any, spec_id: Any) -> str | None:
+    """The derived unique key of a spec node (``schema.SPEC_KEY``): ``group_id + ':' + spec_id``; None (matches
+    nothing, as a null ``spec_id`` does) without a string ``spec_id``."""
+
+    return f"{project_id}:{spec_id}" if isinstance(spec_id, str) else None
+
+
+def _derived(
+    template: str | None = None, *, index: bool = False, per_field: bool = False, by_spec_key: bool = False
+) -> Override:
     """Override: the canonical text with each replacement of ``overrides/derived.json`` for ``template``
-    applied once (no match, or several: ``arcadedb_override_stale``); ``index`` also maps the ``$index``
-    parameter (a library index name) to the server's name for it (``search_params``)."""
+    applied once (no match, or several: ``arcadedb_override_stale``), then those of ``overrides/rendered.json``
+    the parameters call for; ``index`` also maps the ``$index`` parameter (a library index name) to the server's
+    name for it (``search_params``). ``by_spec_key`` binds ``$spec_key`` from ``$project_id`` and ``$spec_id``:
+    ArcadeDB plans a ``(group_id, spec_id)`` lookup on the first index that starts with ``group_id`` and scans
+    the project, while the unique ``spec_key`` index is a seek (it must be a parameter, not a value computed in
+    the statement, for the planner to use it)."""
 
     def plan(query: Query, params: Mapping[str, Any], _types: Sequence[str] | None) -> ExecutionPlan:
-        text = _derived_text(query, template)
-        return ExecutionPlan.single(text, search_params(params, per_field=per_field) if index else params)
+        text = _rendered_text(query, _derived_text(query, template), params)
+        bound = search_params(params, per_field=per_field) if index else params
+        if by_spec_key:
+            bound = {**bound, "spec_key": spec_key(params.get("project_id"), params.get("spec_id"))}
+        return ExecutionPlan.single(text, bound)
 
     return plan
 
@@ -349,8 +400,8 @@ OVERRIDES: Final[Mapping[str, Override]] = {
     ),
     "build.build_merge_spec_nodes": _plan_merge_spec_nodes,
     "core.move_foreign_relationships": _plan_move_foreign,
-    # a quantified path with ``nodes(p)[1..]`` in a WHERE returns no rows on ArcadeDB
-    "core.scope_via": _derived(),
+    # a quantified path with ``nodes(p)[1..]`` in a WHERE returns no rows on ArcadeDB (and the root by spec_key)
+    "core.scope_via": _derived(by_spec_key=True),
     "build.infer_similar_targets": _plan_similar_targets,
     # ArcadeDB's Cypher has no CYPHER 5 prefix; its procedure scores are already on the (1 + cos) / 2 scale
     "core.search_nodes_vector": _derived(index=True),
@@ -368,6 +419,21 @@ OVERRIDES: Final[Mapping[str, Override]] = {
     "build.build_repair_delete_nodes": _derived(),
     "build.build_repair_set_labels": _plan_repair_set_labels,
     "build.build_repair_node_evidence": _derived(),
+    # Planner workarounds (measured on ArcadeDB 26.10, same rows): the root by its unique spec_key; a uuid list
+    # unwound into key lookups; relationship types and a single label rendered into the pattern; node props
+    # projected as a map (the [key, value] pairs the canonical text returns are slower here).
+    "core.read_node_by_spec_id": _derived(by_spec_key=True),
+    "core.read_neighbours": _derived(by_spec_key=True),
+    "core.scope_sequence": _derived(by_spec_key=True),
+    "core.read_node_by_alias": _derived(),
+    "core.read_nodes": _derived(),
+    "core.read_nodes_page": _derived(),
+    "core.read_nodes_for_lines": _derived(),
+    "core.read_nodes_by_uuid": _derived(),
+    "core.read_impact_hop": _derived(),
+    "core.read_edges": _derived(),
+    "core.count_nodes": _derived(),
+    "plan.plan_read_links": _derived(),
 }
 
 # Overrides without which the statement fails or writes wrong data on ArcadeDB. A store refuses to start
