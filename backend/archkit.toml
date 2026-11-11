@@ -43,6 +43,12 @@ codes = [
     { code = "validation_failed", http = 422 },
     { code = "removal_unavailable", http = 503 },
     { code = "database_unavailable", http = 503 },
+    { code = "agent_unavailable", http = 503 },
+    { code = "graph_unavailable", http = 503 },
+    { code = "invalid_cursor", http = 400 },
+    { code = "no_plan", http = 404 },
+    { code = "task_not_found", http = 404 },
+    { code = "feature_not_found", http = 404 },
     { code = "internal_error", http = 500 },
     { code = "http_error", http = 400 },
 ]
@@ -66,6 +72,12 @@ probes = [
     { name = "probe-13", class = "starlette.exceptions:HTTPException", kwargs = { status_code = 400, detail = "bad" } },
     { class = "fastapi.exceptions:RequestValidationError", kwargs = { errors = [] } },
     { name = "probe-14", class = "starlette.exceptions:HTTPException", kwargs = { status_code = 405, detail = "not allowed" } },
+    { name = "probe-15", class = "api.errors:ApiError", args = [503, "agent_unavailable", "The agent routes are not configured."] },
+    { name = "probe-16", class = "api.errors:ApiError", args = [503, "graph_unavailable", "The specification graph is unavailable. Try again later."] },
+    { name = "probe-17", class = "api.errors:ApiError", args = [400, "invalid_cursor", "The cursor is invalid."] },
+    { name = "probe-18", class = "api.errors:ApiError", args = [404, "no_plan", "The project has no implementation plan yet."] },
+    { name = "probe-19", class = "api.errors:ApiError", args = [404, "task_not_found", "The task is not in the current plan of the project."] },
+    { name = "probe-20", class = "api.errors:ApiError", args = [404, "feature_not_found", "The feature is not in the specification graph of the project."] },
     { class = "builtins:RuntimeError", args = ["unexpected"] },
 ]
 

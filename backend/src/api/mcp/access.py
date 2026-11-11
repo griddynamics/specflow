@@ -11,7 +11,8 @@ from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from typing import Any
 
-from api.mcp.errors import PROJECT_NOT_FOUND, McpToolError
+from agent_contracts import PROJECT_NOT_FOUND
+from api.mcp.errors import McpToolError
 from api.mcp.runtime import McpRuntime
 from auth.claims import Principal
 from db import repositories

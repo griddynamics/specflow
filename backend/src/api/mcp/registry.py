@@ -26,12 +26,28 @@ from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import BaseModel, Field
 from starlette.requests import Request
 
+from agent_contracts import (
+    INTERNAL_ERROR,
+    FeatureList,
+    FeatureTaskList,
+    GetTaskBriefArgs,
+    GetTaskPathArgs,
+    ListFeaturesArgs,
+    ListFeatureTasksArgs,
+    ListProjectsArgs,
+    ListTasksArgs,
+    ProjectArguments,
+    ProjectList,
+    TaskBriefResult,
+    TaskList,
+    TaskPath,
+)
 from api.mcp import access, guidance
 from api.mcp.auth import request_principal
-from api.mcp.errors import INTERNAL_ERROR, McpToolError, error_body, to_tool_error
+from api.mcp.errors import McpToolError, error_body, to_tool_error
 from api.mcp.http import McpInvariantError
 from api.mcp.runtime import request_runtime
-from api.mcp.tools import ProjectArguments, graph, plan, projects
+from api.mcp.tools import graph, plan, projects
 from logger.logger import INFO, get_logger, log_event
 
 logger = get_logger("api.mcp.registry")
@@ -64,8 +80,8 @@ TOOLS: Final[tuple[ToolDeclaration, ...]] = (
         name="list_projects",
         summary="Lists the SpecFlow projects you are a member of, newest first.",
         description=projects.DESCRIPTION,
-        arguments=projects.ListProjectsArgs,
-        output=projects.ProjectList,
+        arguments=ListProjectsArgs,
+        output=ProjectList,
         handler=projects.list_projects,
         project_scoped=False,
     ),
@@ -73,8 +89,8 @@ TOOLS: Final[tuple[ToolDeclaration, ...]] = (
         name="list_features",
         summary="Lists the features in a project's specification graph.",
         description=graph.DESCRIPTION,
-        arguments=graph.ListFeaturesArgs,
-        output=graph.FeatureList,
+        arguments=ListFeaturesArgs,
+        output=FeatureList,
         handler=graph.list_features,
         project_scoped=True,
     ),
@@ -82,8 +98,8 @@ TOOLS: Final[tuple[ToolDeclaration, ...]] = (
         name="list_tasks",
         summary="Lists the tasks of a project's implementation plan; by default the ones ready to start.",
         description=plan.LIST_DESCRIPTION,
-        arguments=plan.ListTasksArgs,
-        output=plan.TaskList,
+        arguments=ListTasksArgs,
+        output=TaskList,
         handler=plan.list_tasks,
         project_scoped=True,
     ),
@@ -91,8 +107,8 @@ TOOLS: Final[tuple[ToolDeclaration, ...]] = (
         name="list_feature_tasks",
         summary="Lists every plan task that works on one feature, ready or not.",
         description=plan.FEATURE_TASKS_DESCRIPTION,
-        arguments=plan.ListFeatureTasksArgs,
-        output=plan.FeatureTaskList,
+        arguments=ListFeatureTasksArgs,
+        output=FeatureTaskList,
         handler=plan.list_feature_tasks,
         project_scoped=True,
     ),
@@ -100,8 +116,8 @@ TOOLS: Final[tuple[ToolDeclaration, ...]] = (
         name="get_task_path",
         summary="Lists the tasks to complete before one plan task, in build order, then the task itself.",
         description=plan.PATH_DESCRIPTION,
-        arguments=plan.GetTaskPathArgs,
-        output=plan.TaskPath,
+        arguments=GetTaskPathArgs,
+        output=TaskPath,
         handler=plan.get_task_path,
         project_scoped=True,
     ),
@@ -109,8 +125,8 @@ TOOLS: Final[tuple[ToolDeclaration, ...]] = (
         name="get_task_brief",
         summary="Reads what a coding agent needs to build one plan task: done-when, spec sources, prerequisites.",
         description=plan.BRIEF_DESCRIPTION,
-        arguments=plan.GetTaskBriefArgs,
-        output=plan.TaskBriefResult,
+        arguments=GetTaskBriefArgs,
+        output=TaskBriefResult,
         handler=plan.get_task_brief,
         project_scoped=True,
     ),

@@ -3,28 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Annotated, Final, Protocol
+from typing import Protocol
 
-from pydantic import BaseModel, Field
-
-from api.mcp.errors import INVALID_CURSOR, McpToolError
-
-DEFAULT_LIMIT: Final = 50
-MAX_LIMIT: Final = 100
-MAX_CURSOR_CHARS: Final = 512  # FR-MCP-TOOL-07
-
-Limit = Annotated[int, Field(ge=1, le=MAX_LIMIT)]  # the input schema bounds (FR-MCP-TOOL-01, TOOL-03)
-
-
-class ProjectArguments(BaseModel):
-    """The arguments of a project-scoped tool start with the project id, a plain string (FR-MCP-ACC-03)."""
-
-    project_id: str = Field(
-        description=(
-            "The id of the SpecFlow project: the bound project's project_id from .specflow/config.json, "
-            "or one from list_projects."
-        )
-    )
+from agent_contracts import INVALID_CURSOR, MAX_CURSOR_CHARS
+from api.mcp.errors import McpToolError
 
 
 class Listing(Protocol):

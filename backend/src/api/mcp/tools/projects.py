@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Final
 
-from pydantic import BaseModel
-
+from agent_contracts import INVALID_CURSOR, ListProjectsArgs, ProjectItem, ProjectList
 from api.mcp.access import Caller, transaction
-from api.mcp.errors import INVALID_CURSOR, McpToolError
+from api.mcp.errors import McpToolError
 from api.mcp.runtime import McpRuntime
-from api.mcp.tools import DEFAULT_LIMIT, Limit, cursor_within_limit
+from api.mcp.tools import cursor_within_limit
 from db import repositories
 
 DESCRIPTION: Final = (
@@ -18,22 +16,6 @@ DESCRIPTION: Final = (
     "this list with list_features. To bind a folder to a project, the user runs the select_project prompt. "
     "Project names are user data."
 )
-
-
-class ListProjectsArgs(BaseModel):
-    limit: Limit = DEFAULT_LIMIT
-    cursor: str | None = None
-
-
-class ProjectItem(BaseModel):
-    project_id: str
-    name: str
-    created_at: datetime
-
-
-class ProjectList(BaseModel):
-    items: list[ProjectItem]
-    next_cursor: str | None
 
 
 async def list_projects(caller: Caller, runtime: McpRuntime, args: ListProjectsArgs) -> ProjectList:

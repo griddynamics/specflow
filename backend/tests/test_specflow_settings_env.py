@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 
 import pytest
+import yaml
 from temporalio.service import RPCError, RPCStatusCode
 
 import specflow_live
@@ -301,3 +302,12 @@ def test_the_temporal_live_gate_leaves_other_items_unmarked(monkeypatch):
     specflow_live.pytest_collection_modifyitems([item])
 
     assert item.markers == []
+
+
+def test_the_api_service_gets_the_mcp_resource_url_of_the_mcp_service_and_the_chart_lists_the_mcp_variables():
+    services = yaml.safe_load((ROOT / "docker-compose.yml").read_text())["services"]
+    chart = yaml.safe_load((ROOT / "charts/specflow/examples/components/api.yaml").read_text())
+
+    assert services["api"]["environment"]["MCP_RESOURCE_URL"] == services["mcp"]["environment"]["MCP_RESOURCE_URL"]
+    names = {entry["name"] for entry in chart["env"]}
+    assert {"MCP_RESOURCE_URL", "MCP_AUDIENCE", "MCP_CLIENT_IDS"} <= names

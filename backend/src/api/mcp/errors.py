@@ -7,32 +7,23 @@ wrapper, because driver and validation text can hold feature text or identifiers
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Final, Literal
+from typing import Final
 
 from pydantic import BaseModel
 
+from agent_contracts import (
+    DATABASE_UNAVAILABLE,
+    FEATURE_NOT_FOUND,
+    GRAPH_UNAVAILABLE,
+    INTERNAL_ERROR,
+    INVALID_CURSOR,
+    NO_PLAN,
+    PROJECT_NOT_FOUND,
+    TASK_NOT_FOUND,
+    ErrorCode,
+)
 from db.session import is_database_unreachable
 from graph.core import InfrastructureUnavailableError
-
-ErrorCode = Literal[
-    "project_not_found",
-    "invalid_cursor",
-    "no_plan",
-    "task_not_found",
-    "feature_not_found",
-    "graph_unavailable",
-    "database_unavailable",
-    "internal_error",
-]
-
-PROJECT_NOT_FOUND: Final = "project_not_found"
-INVALID_CURSOR: Final = "invalid_cursor"
-NO_PLAN: Final = "no_plan"
-TASK_NOT_FOUND: Final = "task_not_found"
-FEATURE_NOT_FOUND: Final = "feature_not_found"
-GRAPH_UNAVAILABLE: Final = "graph_unavailable"
-DATABASE_UNAVAILABLE: Final = "database_unavailable"
-INTERNAL_ERROR: Final = "internal_error"
 
 MESSAGES: Final[Mapping[ErrorCode, str]] = {
     PROJECT_NOT_FOUND: "The project does not exist or you are not a member of it.",

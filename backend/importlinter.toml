@@ -5,6 +5,7 @@
 # Facts behind the contracts: backend/src (checked with grimp when written).
 [tool.importlinter]
 root_packages = [
+    "agent_contracts",
     "agent_runtime",
     "api",
     "auth",
@@ -29,7 +30,8 @@ type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["logger"]
 forbidden_modules = [
-    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "postgres", "storage", "temporal",
+    "agent_contracts", "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "postgres", "storage",
+    "temporal",
 ]
 
 # The shared PostgreSQL access (engines and connection transactions of the application database and the
@@ -41,7 +43,8 @@ type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["postgres"]
 forbidden_modules = [
-    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
+    "agent_contracts", "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage",
+    "temporal",
 ]
 
 # api is the outermost layer (HTTP). Nothing below it reaches back into it.
@@ -51,10 +54,24 @@ id = "api-is-outermost"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = [
-    "agent_runtime", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "postgres", "storage",
-    "temporal",
+    "agent_contracts", "agent_runtime", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "postgres",
+    "storage", "temporal",
 ]
 forbidden_modules = ["api"]
+
+# The shared agent contracts (docs/mcp-server/architecture.md#package-layout) are pure pydantic over the public
+# models of graph.plan: no other project package, no web framework, ORM, driver or HTTP client.
+[[tool.importlinter.contracts]]
+name = "The agent contracts import only pydantic and the public graph.plan models"
+id = "agent-contracts-pure"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["agent_contracts"]
+forbidden_modules = [
+    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "llm", "logger", "postgres", "storage", "temporal",
+    "graph.build", "graph.core", "graph.gap", "graph.stores", "fastapi", "starlette", "sqlalchemy", "asyncpg", "neo4j",
+    "httpx",
+]
 
 # The graph package (Neo4j knowledge graph) depends on the logger and nothing else
 # of ours; the service wires it in from api and temporal.
@@ -65,7 +82,7 @@ type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["graph"]
 forbidden_modules = [
-    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "llm", "storage", "temporal",
+    "agent_contracts", "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "llm", "storage", "temporal",
 ]
 
 # graph.build sits on graph.core; the core never imports the build pipeline, the gap detector
@@ -113,7 +130,7 @@ id = "integrations-standalone"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["auth", "drive", "llm", "storage", "file_parsers"]
-forbidden_modules = ["api", "db", "temporal", "agent_runtime", "graph"]
+forbidden_modules = ["api", "db", "temporal", "agent_runtime", "agent_contracts", "graph"]
 
 # Vendor SDKs stay in the package that owns the integration.
 [[tool.importlinter.contracts]]
@@ -122,7 +139,8 @@ id = "graph-sdk-confined"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = [
-    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "llm", "logger", "storage", "temporal",
+    "agent_contracts", "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "llm", "logger", "storage",
+    "temporal",
 ]
 forbidden_modules = ["neo4j"]
 
@@ -132,7 +150,8 @@ id = "llm-sdk-confined"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = [
-    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "logger", "storage", "temporal",
+    "agent_contracts", "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "logger", "storage",
+    "temporal",
 ]
 forbidden_modules = ["claude_agent_sdk", "langfuse"]
 
@@ -142,7 +161,7 @@ id = "web-framework-confined"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = [
-    "agent_runtime", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
+    "agent_contracts", "agent_runtime", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
 ]
 forbidden_modules = ["fastapi", "starlette"]
 
@@ -151,7 +170,7 @@ name = "The ORM stays in api, db and temporal"
 id = "orm-confined"
 type = "forbidden"
 allow_indirect_imports = true
-source_modules = ["agent_runtime", "auth", "drive", "file_parsers", "llm", "logger", "storage"]
+source_modules = ["agent_contracts", "agent_runtime", "auth", "drive", "file_parsers", "llm", "logger", "storage"]
 forbidden_modules = ["sqlalchemy", "asyncpg", "alembic"]
 
 # Inside graph, each graph store SDK stays in the folders of the adapters that use it (design D3). The
@@ -199,7 +218,8 @@ type = "forbidden"
 allow_indirect_imports = true
 unmatched_ignore_imports_alerting = "none"
 source_modules = [
-    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
+    "agent_contracts", "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage",
+    "temporal",
 ]
 forbidden_modules = ["httpx"]
 ignore_imports = [
@@ -214,7 +234,8 @@ type = "forbidden"
 allow_indirect_imports = true
 unmatched_ignore_imports_alerting = "none"
 source_modules = [
-    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
+    "agent_contracts", "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage",
+    "temporal",
 ]
 forbidden_modules = ["pyTigerGraph"]
 ignore_imports = [
@@ -228,7 +249,8 @@ name = "No test code in production"
 id = "no-test-imports"
 type = "forbidden"
 source_modules = [
-    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
+    "agent_contracts", "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage",
+    "temporal",
 ]
 forbidden_modules = ["pytest", "_pytest"]
 
@@ -244,7 +266,7 @@ allow_indirect_imports = true
 source_modules = ["api.mcp"]
 forbidden_modules = [
     "fastapi", "auth.dependencies",
-    "api.app", "api.batch_files", "api.contained", "api.deps", "api.errors", "api.graph_build", "api.plan", "api.request_id",
+    "api.agent_reads", "api.app", "api.batch_files", "api.contained", "api.deps", "api.errors", "api.graph_build", "api.plan", "api.request_id",
     "api.routers", "api.runtime", "api.schemas", "api.server", "api.source_views", "api.uploads", "api.workflows",
 ]
 
@@ -254,7 +276,7 @@ id = "rest-without-mcp"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = [
-    "api.app", "api.batch_files", "api.contained", "api.deps", "api.errors", "api.graph_build", "api.plan", "api.request_id",
+    "api.agent_reads", "api.app", "api.batch_files", "api.contained", "api.deps", "api.errors", "api.graph_build", "api.plan", "api.request_id",
     "api.routers", "api.runtime", "api.schemas", "api.server", "api.source_views", "api.uploads", "api.workflows",
 ]
 forbidden_modules = ["api.mcp", "mcp", "mcp_types"]

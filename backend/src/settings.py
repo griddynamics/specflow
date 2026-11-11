@@ -742,7 +742,7 @@ class RoleSettings:
     agent: AgentSettings | None = None
     langfuse: LangfuseSettings | None = None
     graph_build: GraphBuildSettings | None = None  # api only; None = feature off
-    mcp: McpSettings | None = None  # mcp role only
+    mcp: McpSettings | None = None  # the mcp role; the api role when MCP_RESOURCE_URL is set (agent routes)
 
 
 def _flag(bad: list[str], name: str) -> None:
@@ -831,6 +831,8 @@ def _build_bindings(role: str, source: Mapping[str, str], bad: list[str]) -> _Bi
         found.auth = _build(AuthSettings, source, bad)
     if role == "mcp":
         found.graph_store = _build_graph_store(source, bad, found.database)
+        found.mcp = _build(McpSettings, source, bad)
+    if role == "api" and source.get("MCP_RESOURCE_URL", "").strip():  # unset: the agent routes answer 503
         found.mcp = _build(McpSettings, source, bad)
     if role == "api" and GraphBuildSettings.enabled_in(source):
         found.graph_build = _build(GraphBuildSettings, source, bad)
@@ -1171,7 +1173,8 @@ def _guard_mcp_audience(bad: list[str], auth: AuthSettings, mcp: McpSettings | N
     one of the REST client ids (a REST token would pass), or an ignored
     audience (the rule drops). A client audience also refuses any MCP client
     id that is a REST client id: each surface needs its own client.
-    Only the ``mcp`` role has the settings (``mcp`` is ``None`` for the others).
+    The ``mcp`` role always has the settings; the ``api`` role has them when ``MCP_RESOURCE_URL`` is set, and then
+    refuses the same mix-ups (its agent routes verify MCP tokens). ``mcp`` is ``None`` for the other roles.
     """
 
     if mcp is None:

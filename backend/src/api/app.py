@@ -14,6 +14,7 @@ from api.contained import Contained
 from api.errors import install_error_handlers, required
 from api.request_id import SpecflowApi
 from api.routers import (
+    agent,
     documents,
     graph_build,
     health,
@@ -25,7 +26,8 @@ from api.routers import (
     sources,
 )
 from api.runtime import DriveTimeoutError, Runtime, RuntimeFactory, build_runtime
-from auth.dependencies import VERIFIER_STATE_ATTR
+from auth.dependencies import AGENT_VERIFIER_STATE_ATTR, VERIFIER_STATE_ATTR
+from auth.jwks import JwksCache
 from auth.verifiers import build_verifier
 from drive.gateway import DriveError
 from drive.reasons import Reason
@@ -116,7 +118,14 @@ def create_app(settings: RoleSettings, *, runtime_factory: RuntimeFactory = buil
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         auth = required(settings.auth, "the api role requires auth settings")
         try:
-            setattr(app.state, VERIFIER_STATE_ATTR, build_verifier(auth))
+            # One key cache for both verifiers; without an issuer build_verifier refuses the start.
+            jwks = JwksCache(auth.jwks_url, issuer=auth.issuer) if auth.issuer else None
+            setattr(app.state, VERIFIER_STATE_ATTR, build_verifier(auth, jwks=jwks))
+            if settings.mcp is not None:  # the agent routes' own verifier, with the MCP policy, on the same keys
+                agent_verifier = build_verifier(
+                    auth, jwks=jwks, audience=settings.mcp.audience, client_ids=settings.mcp.client_ids
+                )
+                setattr(app.state, AGENT_VERIFIER_STATE_ATTR, agent_verifier)
             app.state.runtime = await runtime_factory(settings)
             try:
                 await select_drive(app.state.runtime, settings.app.app_env)
@@ -153,6 +162,7 @@ def create_app(settings: RoleSettings, *, runtime_factory: RuntimeFactory = buil
     app.include_router(health.router)
     for router in (
         me.router,
+        agent.router,
         projects.router,
         documents.router,
         graph_build.router,
