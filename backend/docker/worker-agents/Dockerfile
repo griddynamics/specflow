@@ -19,9 +19,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN pip install uv==0.11.21
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-dev --no-install-project --extra gcp --extra aws
+RUN uv sync --frozen --no-dev --no-install-project --extra worker --extra gcp --extra aws
 COPY src ./src
-RUN uv sync --frozen --no-dev --no-editable --extra gcp --extra aws
+RUN uv sync --frozen --no-dev --no-editable --extra worker --extra gcp --extra aws
 
 # runtime: uid 10001, a HOME dir, the venv only. Logs go to stdout; read-only root filesystem
 # is fine. Writes temp files to /tmp only (a writable /tmp is enough).

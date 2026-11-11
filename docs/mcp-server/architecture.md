@@ -146,9 +146,10 @@ only, and shared modules import only base libraries at module level.
 |---|---|---|
 | base `[project] dependencies` | what every role imports at startup (settings, logger, auth basics) | every image |
 | extra `api` | FastAPI, uvicorn, Alembic, SQLAlchemy and asyncpg, the graph store drivers, the Temporal client, Drive, the LLM SDKs (in-process graph build and plan), tracing | api image (which also runs `migrate`) |
-| extra `worker` | the Temporal worker, the agent SDKs, the LLM SDKs, SQLAlchemy and asyncpg, the graph store drivers, tracing | worker-agents, worker-parse |
+| extra `worker` | the Temporal worker, the agent SDK (`openai-agents`), SQLAlchemy and asyncpg, the graph store drivers, Drive, tracing | worker-agents, worker-parse |
 | extra `mcp` | the `mcp` SDK, Starlette, uvicorn, httpx, PyJWT | mcp image |
-| extras `parse`, `gcp`, `aws`, `tigergraph` | unchanged | worker-parse (`parse`); api and the workers (`gcp`, `aws`); opt-in (`tigergraph`) |
+| extra `parse` | Docling, torch, OpenCV, PDFium, and the `llm` libraries the parser uses (anthropic, claude-agent-sdk, langfuse, dotenv) | worker-parse |
+| extras `gcp`, `aws`, `tigergraph` | unchanged | api and the workers (`gcp`, `aws`; not the mcp image); opt-in (`tigergraph`) |
 | group `dev` | test and lint tools; the dev venv installs every extra | dev, CI |
 
 ## Tool registry

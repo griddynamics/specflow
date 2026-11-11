@@ -1,7 +1,7 @@
 """Compose and image checks (AC-13.x static, AC-14.x, AC-16.5).
 
 The local stack (``docker-compose.yml``) mirrors the deployment: the same services (``mcp`` runs
-from the api image), images and variables.
+from its own image), images and variables.
 Static checks read the repo files and need no docker. The image tests are gated by
 ``SPECFLOW_TEST_IMAGES=1`` (``make images`` builds the images and runs them): they start
 the built images with synthetic, otherwise valid NON-local settings and ``AUTH_MODE=dev``
@@ -49,11 +49,13 @@ OWNED = [
     ROOT / "backend" / "docker" / "api" / "Dockerfile",
     ROOT / "backend" / "docker" / "worker-agents" / "Dockerfile",
     ROOT / "backend" / "docker" / "worker-parse" / "Dockerfile",
+    ROOT / "backend" / "docker" / "mcp" / "Dockerfile",
     ROOT / "backend" / ".dockerignore",
 ]
 API_IMAGE = os.environ.get("SPECFLOW_API_IMAGE", "specflow-api:local")
 WORKER_IMAGE = os.environ.get("SPECFLOW_WORKER_AGENTS_IMAGE", "specflow-worker-agents:local")
 WORKER_PARSE_IMAGE = os.environ.get("SPECFLOW_WORKER_PARSE_IMAGE", "specflow-worker-parse:local")
+MCP_IMAGE = os.environ.get("SPECFLOW_MCP_IMAGE", "specflow-mcp:local")
 FRONTEND_IMAGE = os.environ.get("SPECFLOW_FRONTEND_IMAGE", "specflow-frontend:local")
 
 # App service -> (build context, Dockerfile), as in the deployment.
@@ -61,6 +63,7 @@ BUILT = {
     "api": ("./backend", "docker/api/Dockerfile"),
     "worker-parse": ("./backend", "docker/worker-parse/Dockerfile"),
     "worker-agents": ("./backend", "docker/worker-agents/Dockerfile"),
+    "mcp": ("./backend", "docker/mcp/Dockerfile"),
     "frontend": ("./frontend", "Dockerfile"),
 }
 # Database service -> public image.
@@ -83,8 +86,15 @@ LOCAL_PLATFORM = {
 BACKEND_SERVICES = ("api", "worker-parse", "worker-agents")
 KEYCLOAK_ISSUER = "http://localhost:8180/realms/specflow"
 KEYCLOAK_JWKS_URL = "http://specflow-keycloak:8080/realms/specflow/protocol/openid-connect/certs"
-MCP_SERVICE = "mcp"  # the api image with `specflow mcp`; no Temporal, storage or LLM variables
-DOCKERFILES = ("api", "worker-agents", "worker-parse")  # service = directory under backend/docker/
+MCP_SERVICE = "mcp"  # its own image with `specflow mcp`; no Temporal, storage or LLM variables
+DOCKERFILES = ("api", "worker-agents", "worker-parse", "mcp")  # service = directory under backend/docker/
+# The extras each Dockerfile syncs, in order (the licence gate roles in backend/licence-gate.toml are the same lists).
+ROLE_EXTRAS = {
+    "api": ["api", "gcp", "aws"],
+    "worker-agents": ["worker", "gcp", "aws"],
+    "worker-parse": ["worker", "parse", "gcp", "aws"],
+    "mcp": ["mcp"],
+}
 
 
 def dockerfile_of(service: str) -> Path:
@@ -130,10 +140,10 @@ def env_of(service: dict) -> dict[str, str]:
 # --- static: compose (no docker) -----------------------------------------------------
 
 
-def test_the_stack_is_the_built_services_the_databases_mcp_and_the_local_platform_services():
+def test_the_stack_is_the_built_services_the_databases_and_the_local_platform_services():
     svcs = services()
     extra = set().union(*GRAPH_STORE_PROFILES.values())
-    assert set(svcs) == set(BUILT) | set(PUBLIC) | LOCAL_PLATFORM | {MCP_SERVICE} | extra
+    assert set(svcs) == set(BUILT) | set(PUBLIC) | LOCAL_PLATFORM | extra
     for name, svc in svcs.items():
         assert svc["container_name"] == f"specflow-{name}", name
     assert compose()["name"] == "specflow"
@@ -385,16 +395,16 @@ def test_rustfs_is_pinned_needs_both_keys_and_has_a_one_shot_bucket_init():
     assert "aws s3api create-bucket" in script[2] and "|| aws s3api head-bucket" in script[2]
 
 
-def test_the_mcp_role_runs_the_api_image_against_the_bundled_keycloak():
-    """FR-MCP-OPS-08: the same image as the api, token checks against the local Keycloak by literals."""
+def test_the_mcp_role_runs_its_own_image_against_the_bundled_keycloak():
+    """FR-MCP-OPS-08: its own image (CMD `specflow mcp`), token checks against the local Keycloak by literals."""
 
     svcs = services()
     svc = svcs[MCP_SERVICE]
     env = env_of(svc)
     port = RUNTIME_DEFAULTS["MCP_PORT"]
-    assert svc["build"] == svcs["api"]["build"]
-    assert svc["image"] == svcs["api"]["image"]
-    assert svc["command"] == ["specflow", "mcp"]
+    assert svc["build"] == {"context": "./backend", "dockerfile": "docker/mcp/Dockerfile"}
+    assert svc["image"] == "specflow-mcp:local"
+    assert "command" not in svc  # the image's CMD is `specflow mcp`
     assert "volumes" not in svc and "extra_hosts" not in svc
     assert f"http://127.0.0.1:{port}/readyz" in " ".join(svc["healthcheck"]["test"])
     assert env["APP_ENV"] == "${APP_ENV:-local}"
@@ -549,7 +559,10 @@ def test_the_backend_dockerfiles_have_the_runtime_contract():
     for name in DOCKERFILES:
         text = dockerfile_of(name).read_text()
         runtime = text[text.rindex("\nFROM ") :]
-        assert "uv sync --frozen --no-dev" in text and "--extra gcp --extra aws" in text, name
+        syncs = [line for line in text.splitlines() if line.startswith("RUN uv sync")]
+        assert len(syncs) == 2 and "uv sync --frozen --no-dev" in text, name
+        for line in syncs:
+            assert re.findall(r"--extra (\S+)", line) == ROLE_EXTRAS[name], (name, line)
         assert "USER 10001:10001" in runtime, name
         assert "LOGS_" not in text and "/app/logs" not in text, name
         assert "COPY tests" not in text and ".env" not in runtime, name
@@ -559,17 +572,21 @@ def test_the_backend_dockerfiles_have_the_runtime_contract():
     for name in ("worker-agents", "worker-parse"):
         worker = dockerfile_of(name).read_text()
         assert 'CMD ["specflow", "worker"]' in worker and "EXPOSE 8001" in worker, name
+    mcp = dockerfile_of("mcp").read_text()
+    assert 'CMD ["specflow", "mcp"]' in mcp and "EXPOSE 8002" in mcp
+    code = "\n".join(line for line in mcp.splitlines() if not line.startswith("#"))
+    assert not [word for word in ("alembic", "migrations", "ALEMBIC_CONFIG", "/var/lib/specflow") if word in code]
 
 
 def test_only_the_worker_parse_image_installs_the_parse_extra():
     """Per-role images: Docling, torch and PyMuPDF reach no other image through any extra."""
 
-    for name in ("api", "worker-agents"):
+    for name in ("api", "worker-agents", "mcp"):
         text = dockerfile_of(name).read_text()
         assert "--extra parse" not in text and "--all-extras" not in text, name
     parse = dockerfile_of("worker-parse").read_text()
     assert parse.count("uv sync --frozen --no-dev") == 2
-    assert parse.count("--extra gcp --extra aws --extra parse") == 2
+    assert parse.count("--extra worker --extra parse --extra gcp --extra aws") == 2
 
 
 def test_the_worker_parse_image_bakes_the_pinned_models_and_runs_offline():
@@ -698,10 +715,10 @@ MCP_ONLY_ENV = {
 
 @needs_docker
 def test_the_mcp_role_control_run_passes_check_config_with_only_its_own_variables():
-    """FR-MCP-OPS-08: the api image runs `specflow mcp --check-config` without Temporal, storage or LLM variables."""
+    """FR-MCP-OPS-08: the mcp image runs `specflow mcp --check-config` without Temporal, storage or LLM variables."""
 
     assert not {"TEMPORAL_ADDRESS", "STORAGE_BACKEND", "AGENT_MODEL", "LLM_GATEWAY_URL"} & set(MCP_ONLY_ENV)
-    result = docker_run(API_IMAGE, MCP_ONLY_ENV, "specflow", "mcp", "--check-config")
+    result = docker_run(MCP_IMAGE, MCP_ONLY_ENV, "specflow", "mcp", "--check-config")
     assert result.returncode == 0, shown(result)[-400:]
 
 
@@ -721,7 +738,7 @@ def test_the_frontend_control_run_passes_check_env():
 
 
 @needs_docker
-@pytest.mark.parametrize("image", [API_IMAGE, WORKER_IMAGE, WORKER_PARSE_IMAGE])
+@pytest.mark.parametrize("image", [API_IMAGE, WORKER_IMAGE, WORKER_PARSE_IMAGE, MCP_IMAGE])
 def test_the_backend_image_layout_and_user(image):
     """AC-14: non-root 10001, no tests, no env files, no deploy/, no /app/logs, specflow importable."""
 
@@ -735,7 +752,7 @@ def test_the_backend_image_layout_and_user(image):
 
 
 @needs_docker
-@pytest.mark.parametrize("image", [API_IMAGE, WORKER_IMAGE, WORKER_PARSE_IMAGE])
+@pytest.mark.parametrize("image", [API_IMAGE, WORKER_IMAGE, WORKER_PARSE_IMAGE, MCP_IMAGE])
 def test_the_backend_image_logs_json_to_stdout_on_a_read_only_filesystem(image):
     """AC-14: --read-only, no network: bootstrap, log one event, rc 0, JSON line, no logger stderr."""
 
@@ -759,8 +776,8 @@ def test_the_api_image_carries_the_migrations_and_the_three_roles():
 
 
 @needs_docker
-@pytest.mark.parametrize("image", [API_IMAGE, WORKER_IMAGE])
-def test_the_api_and_worker_agents_images_carry_no_parser_packages(image):
+@pytest.mark.parametrize("image", [API_IMAGE, WORKER_IMAGE, MCP_IMAGE])
+def test_the_api_worker_agents_and_mcp_images_carry_no_parser_packages(image):
     """Per-role images: Docling, torch, PyMuPDF, OpenCV and pypdfium2 are not installed (and `pip list` agrees)."""
 
     code = (

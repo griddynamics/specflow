@@ -38,8 +38,8 @@ Langfuse is optional.
 
 | Service | Requirement | Used by |
 | --- | --- | --- |
-| PostgreSQL | Required | API, MCP, agent worker, and parse worker |
-| ArcadeDB | Required when `GRAPH_STORE=arcadedb` | API, MCP, and agent worker |
+| PostgreSQL | Required | API, agent worker, and parse worker (not MCP) |
+| ArcadeDB | Required when `GRAPH_STORE=arcadedb` | API and agent worker (not MCP) |
 | Temporal | Required | API, agent worker, and parse worker |
 | Langfuse | Optional | API and tracing-enabled workers |
 
@@ -74,7 +74,7 @@ Langfuse is optional.
   application guidance recommends at least 4 GB of memory.
 - Set `GRAPH_STORE=arcadedb` and supply `GRAPH_STORE_URI`,
   `GRAPH_STORE_USER`, `GRAPH_STORE_PASSWORD`, and `GRAPH_STORE_NAME` to the
-  API, MCP, and agent-worker releases. Set `GRAPH_STORE_ADMIN_URI` when the
+  API and agent-worker releases (MCP reads through the API and needs none of them). Set `GRAPH_STORE_ADMIN_URI` when the
   admin API cannot be derived from the Bolt host or uses a different port,
   proxy, or TLS endpoint.
 - Ensure the relevant Pods can reach both the Bolt endpoint and the HTTP admin
@@ -190,7 +190,7 @@ The primary settings for each component are:
 | --- | --- |
 | API | `APP_ENV`; `DATABASE_HOST`, `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD`; `OIDC_ISSUER`, `AUTH_ALLOWED_EMAIL_DOMAINS`; `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE`; storage settings; graph-store settings; `AGENT_MODEL`; `API_PORT=8000`; `GRAPH_STATE_DIR=/var/lib/specflow/graph` |
 | Frontend | `APP_ENV`, `PUBLIC_URL`, `API_INTERNAL_URL`, `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `SESSION_SECRET` |
-| MCP | `APP_ENV`; database and graph-store settings; `OIDC_ISSUER`, `AUTH_ALLOWED_EMAIL_DOMAINS`; `MCP_RESOURCE_URL`; `MCP_PORT=8002` |
+| MCP | `APP_ENV`; `API_INTERNAL_URL`; `OIDC_ISSUER`, `AUTH_ALLOWED_EMAIL_DOMAINS`; `MCP_RESOURCE_URL`; `MCP_PORT=8002` (no database, graph-store, Temporal or storage settings) |
 | Worker agent | `APP_ENV`; database, Temporal, storage, graph-store, agent-model, and LLM gateway settings; `WORKER_QUEUES=agents`; `WORKER_HEALTH_PORT=8001` |
 | Worker parse | `APP_ENV`; database, Temporal, and storage settings; `WORKER_QUEUES=parse`; `WORKER_HEALTH_PORT=8001` |
 
@@ -251,8 +251,9 @@ The chart enforces contracts that prevent known unsafe combinations:
   an unlocked database migration before serving traffic.
 - API always mounts `/var/lib/specflow/graph`. The default chart uses an
   ephemeral `emptyDir`; the API component profile creates a retained PVC.
-- MCP must run `command: [specflow, mcp]`, bypassing the API image startup
-  command and its migration.
+- MCP runs its own `specflow-mcp` image (the `mcp` extra only, no migration). Its
+  `command` must be empty or `[specflow, mcp]`; the API startup command that
+  runs the migration is refused.
 - Workers have no Service or route, expose health only inside the Pod, and use
   at least 150 seconds for graceful termination.
 - The two worker profiles use distinct images and health port 8001.

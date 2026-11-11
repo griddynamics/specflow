@@ -27,8 +27,11 @@
 {{- end -}}
 
 {{- if eq $component "mcp" -}}
-  {{- if not (deepEqual .Values.command (list "specflow" "mcp")) -}}
-    {{- fail "mcp requires command: [specflow, mcp] to bypass the API image startup migration" -}}
+  {{- if hasSuffix "specflow-api" (toString .Values.image.repository) -}}
+    {{- fail "mcp must not use the specflow-api image (it runs the API startup, with migration): set image.repository to the specflow-mcp image" -}}
+  {{- end -}}
+  {{- if and .Values.command (not (deepEqual .Values.command (list "specflow" "mcp"))) -}}
+    {{- fail "mcp must not run the API startup (migration): leave command empty (the image runs specflow mcp) or use [specflow, mcp]" -}}
   {{- end -}}
 {{- end -}}
 

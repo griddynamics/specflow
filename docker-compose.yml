@@ -1,10 +1,10 @@
-# Local stack: the deployed services (api, workers, frontend, Postgres, Neo4j) with the same
+# Local stack: the deployed services (api, mcp, workers, frontend, Postgres, Neo4j) with the same
 # images, start commands and host names (specflow-<name>), plus RustFS (S3 storage), which
 # this file runs itself. Temporal and Langfuse are OPTIONAL: most users already run their own.
 # Lines marked "local only" exist only here.
 #
 # Use it through the Makefile: `make up`, `make logs`, `make ps`, `make down`.
-# Default `make up`: postgres, neo4j, rustfs, rustfs-init, api, worker-parse, worker-agents, frontend.
+# Default `make up`: postgres, neo4j, rustfs, rustfs-init, keycloak, api, mcp, worker-parse, worker-agents, frontend.
 # The graph store is chosen with WITH: `make up WITH=arcadedb` starts ArcadeDB (and its database) instead of
 # neo4j; `make up WITH=postgres` keeps the graph in the postgres service (no other server).
 # The services use TEMPORAL_ADDRESS (default host.docker.internal:7233) and, when set,
@@ -19,7 +19,7 @@
 #               LANGFUSE_PUBLIC_KEY / LANGFUSE_SECRET_KEY (login: LANGFUSE_INIT_USER_*)
 #
 # Start order: postgres + the graph store (neo4j, or arcadedb + arcadedb-init) + rustfs (+ temporal, langfuse-web when on) healthy, rustfs-init done -> api (runs
-# `specflow migrate`, then serves) healthy -> worker-parse, worker-agents, frontend.
+# `specflow migrate`, then serves) healthy -> mcp, worker-parse, worker-agents, frontend.
 name: specflow
 
 services:
@@ -484,17 +484,16 @@ services:
       retries: 6
       start_period: 60s
 
-  # The MCP role (docs/mcp-server/deployment.md#role-and-process): the api image with `specflow mcp` instead of its
-  # migrate-then-api command; starts after api has migrated the schema. Tokens come from the bundled Keycloak.
+  # The MCP role (docs/mcp-server/deployment.md#role-and-process): its own slim image (backend/docker/mcp/Dockerfile,
+  # the `mcp` extra only, CMD `specflow mcp`); starts after api has migrated the schema. Tokens come from the bundled Keycloak.
   # No claim-profile variable is forwarded: Keycloak tokens match the defaults, and an empty
   # AUTH_EMAIL_VERIFIED_CLAIM would turn the verified-email check off.
   mcp:
     build:
       context: ./backend
-      dockerfile: docker/api/Dockerfile
-    image: specflow-api:local
+      dockerfile: docker/mcp/Dockerfile
+    image: specflow-mcp:local
     container_name: specflow-mcp
-    command: ["specflow", "mcp"]
     # Read-only root filesystem, as on Kubernetes: the role writes no files (logs go to stdout).
     read_only: true
     mem_limit: 512m

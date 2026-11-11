@@ -48,7 +48,7 @@ tests:
       - failedTemplate:
           errorMessage: worker-parse requires terminationGracePeriodSeconds of at least 150
 
-  - it: rejects an MCP command that runs API startup
+  - it: rejects an MCP command that runs API startup (its own image has no migration)
     values:
       - ../examples/components/mcp.yaml
     set:
@@ -57,7 +57,26 @@ tests:
         - api
     asserts:
       - failedTemplate:
-          errorMessage: "mcp requires command: [specflow, mcp] to bypass the API image startup migration"
+          errorMessage: "mcp must not run the API startup (migration): leave command empty (the image runs specflow mcp) or use [specflow, mcp]"
+
+  - it: rejects an MCP release that still points at the API image
+    values:
+      - ../examples/components/mcp.yaml
+    set:
+      image.repository: griddynamics/specflow-api
+    asserts:
+      - failedTemplate:
+          errorMessage: "mcp must not use the specflow-api image (it runs the API startup, with migration): set image.repository to the specflow-mcp image"
+
+  - it: accepts an explicit specflow mcp command on the MCP image
+    values:
+      - ../examples/components/mcp.yaml
+    set:
+      command:
+        - specflow
+        - mcp
+    asserts:
+      - notFailedTemplate: {}
 
   - it: rejects routing without a Service
     values:

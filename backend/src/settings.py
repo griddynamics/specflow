@@ -10,6 +10,7 @@ test passes an explicit mapping. Nothing here reads ``.env.local``;
 
 from __future__ import annotations
 
+import importlib
 import ipaddress
 import os
 import re
@@ -32,14 +33,23 @@ from pydantic_settings import (
     PydanticBaseSettingsSource,
     SettingsConfigDict,
 )
-from sqlalchemy import URL, make_url
-from sqlalchemy.exc import ArgumentError
 
 from cloud_profile import CLOUD_PROVIDERS, CONFIG_FILE_VARIABLE, Cloud, load_profile
 from graph.core import LLMConfig
 from graph.stores.config import BACKENDS, DEFAULT_BACKEND, StoreConfig
 from logger.logger import WARNING, get_logger, log_event
-from postgres import SSL_MODES, VERIFY_MODES, ssl_argument
+
+# Every role loads this module, and only the roles that open the database install SQLAlchemy: the helpers below
+# import it (and ``postgres``, which wraps it) on first use, inside a role that has a database binding.
+
+
+def _postgres() -> Any:
+    return importlib.import_module("postgres")
+
+
+def _sqlalchemy() -> Any:
+    return importlib.import_module("sqlalchemy")
+
 
 DATABASE_ENVIRONMENT: Final = (
     "DATABASE_HOST",
@@ -68,7 +78,7 @@ def tls_settings(mode: str | None, rootcert: str | None) -> tuple[str | None, st
     """The ``sslmode`` and the CA bundle it uses: the verify modes default to ``SSL_ROOT_CERT``, ``require``
     uses a bundle only when one is given, the other modes none."""
 
-    if mode in VERIFY_MODES:
+    if mode in _postgres().VERIFY_MODES:
         return mode, rootcert or SSL_ROOT_CERT
     return mode, rootcert if mode == "require" else None
 
@@ -134,8 +144,8 @@ class DatabaseSettings(BaseSettings):
     @field_validator("sslmode")
     @classmethod
     def _known_sslmode(cls, value: str | None) -> str | None:
-        if value is not None and value not in SSL_MODES:
-            raise ValueError(f"must be one of {', '.join(sorted(SSL_MODES))}")
+        if value is not None and value not in _postgres().SSL_MODES:
+            raise ValueError(f"must be one of {', '.join(sorted(_postgres().SSL_MODES))}")
         return value
 
     @field_validator("sslrootcert")
@@ -143,7 +153,7 @@ class DatabaseSettings(BaseSettings):
     def _readable_rootcert(cls, value: str | None, info: ValidationInfo) -> str | None:
         if "sslmode" in info.data:  # else PGSSLMODE is already refused
             try:
-                ssl_argument(*tls_settings(info.data["sslmode"], value))
+                _postgres().ssl_argument(*tls_settings(info.data["sslmode"], value))
             except (OSError, ValueError):
                 raise ValueError("must be a readable PEM CA bundle") from None
         return value
@@ -168,10 +178,10 @@ class DatabaseSettings(BaseSettings):
         except ValidationError as error:
             raise DatabaseConfigurationError(_describe(error)) from None
 
-    def url(self) -> URL:
-        """Build the SQLAlchemy URL; special characters are escaped on render."""
+    def url(self) -> Any:
+        """Build the SQLAlchemy URL (``sqlalchemy.URL``); special characters are escaped on render."""
 
-        return URL.create(
+        return _sqlalchemy().URL.create(
             _DRIVERNAME,
             username=self.user,
             password=self.password.get_secret_value(),
@@ -183,7 +193,7 @@ class DatabaseSettings(BaseSettings):
     def connect_args(self) -> dict[str, Any]:
         """The asyncpg ``ssl`` argument of ``PGSSLMODE`` and ``PGSSLROOTCERT``, explicit for every mode."""
 
-        return {"ssl": ssl_argument(*tls_settings(self.sslmode, self.sslrootcert))}
+        return {"ssl": _postgres().ssl_argument(*tls_settings(self.sslmode, self.sslrootcert))}
 
 
 def _database_variable(location: str | int) -> str:
@@ -943,7 +953,7 @@ def _build_graph_store(
     if backend == "postgres" and "GRAPH_STORE_URI" not in resolved:
         if database is None:  # DATABASE_* are already flagged
             return None
-        uri = URL.create("postgresql", host=database.host, port=database.port, database=database.name)
+        uri = _sqlalchemy().URL.create("postgresql", host=database.host, port=database.port, database=database.name)
         resolved["GRAPH_STORE_URI"] = uri.render_as_string()
         resolved.setdefault("GRAPH_STORE_USER", database.user)
         resolved.setdefault("GRAPH_STORE_PASSWORD", database.password.get_secret_value())
@@ -963,9 +973,10 @@ def _with_tls(uri: str, database: DatabaseSettings) -> str:
     """``uri`` with the ``sslmode`` and CA bundle of ``database`` where it sets none of its own, as libpq applies
     ``PGSSLMODE`` and ``PGSSLROOTCERT`` to every connection. A malformed URI is left for the store to refuse."""
 
+    sqlalchemy = _sqlalchemy()
     try:
-        url = make_url(uri)
-    except (ArgumentError, ValueError):
+        url = sqlalchemy.make_url(uri)
+    except (sqlalchemy.exc.ArgumentError, ValueError):
         return uri
     query: dict[str, str] = {}
     if "sslmode" not in url.query and database.sslmode:

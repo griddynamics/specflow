@@ -187,6 +187,17 @@ rules:
         - "**/src/graph/core/__init__.py"
         - "**/src/graph/core/db.py"
         - "**/src/graph/core/schema.py"
+        # project: `graph.core` and `graph.plan` also resolve their LLM names (`graph.core.Gateway`, `JudgeRunner`, ...)
+        # and the planner names of `graph.plan` on first access: the mcp image installs neither the OpenAI SDK nor
+        # SQLAlchemy, and importing the plan models (`agent_contracts`) runs the package `__init__` of `graph.plan`.
+        # The tables are explicit and first-party (the role import test of `make check` imports each role's entrypoint
+        # with only that role's extras installed). A top-level import cannot be lazy and an inline one is PLC0415.
+        - "**/src/graph/plan/__init__.py"
+        # project: src/settings.py is loaded by every role, and the database helpers (`DatabaseSettings.url`,
+        # `connect_args`, the TLS validators, the PostgreSQL graph-store URI) need SQLAlchemy and `postgres`, which only
+        # the api, worker and migrate images install. `_postgres()` / `_sqlalchemy()` import them on first use inside a
+        # role that has a database binding, so `specflow mcp` never loads them. Same premise as src/storage/factory.py.
+        - "**/src/settings.py"
     patterns:
       - pattern-either:
           - pattern: importlib.util.spec_from_file_location(...)

@@ -4,37 +4,63 @@ version = "2.0.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
+# What every role imports at startup (settings, cloud profile, logger). Everything else is an extra of the role that
+# imports it: the images install the base and their role's extras only (docs/mcp-server/architecture.md, Package layout).
 dependencies = [
+    "pydantic>=2.14.1",
+    "pydantic-settings>=2.16.1",
+    "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+# The api role (also runs `migrate`): web framework, database, graph drivers, Temporal client, Drive, and the LLM SDKs and
+# tracing of the in-process graph build and plan runs. httpx is the ArcadeDB admin client of the graph stores.
+api = [
     "alembic>=1.20.1",
-    "anthropic>=1.1.0",
     "asyncpg>=0.32.0",
-    "claude-agent-sdk==0.2.174",
-    "dotenv>=0.9.9",
     "fastapi>=0.162.0",
     "google-api-python-client>=2.201.0",
     "google-auth>=2.62.0",
     "httplib2>=0.22",
     "httpx>=0.28.1",
-    "langfuse>=4,<5",
-    "mcp>=2.3,<3",
     "neo4j>=6.4.1",
     "numpy>=2.5.4",
     "openinference-instrumentation>=0.1.72",
     "openai>=3.37.0,<4",
     "openai-agents>=0.22.3,<0.23",
     "opentelemetry-exporter-otlp-proto-http>=1.45.1",
-    "pydantic>=2.14.1",
-    "pydantic-settings>=2.16.1",
     "pyjwt[crypto]>=2.15.1",
-    "pyyaml>=6",
     "starlette>=1.10.0",
     "sqlalchemy[asyncio]>=2.1.6",
     "temporalio>=1.34,<2",
     "temporalio-openai-agents[openinference]>=1.1,<2",
     "uvicorn>=0.54.0",
 ]
-
-[project.optional-dependencies]
+# The worker role (agents and parse queues): Temporal worker, agent SDK, database, graph drivers, Drive, tracing.
+# anthropic, claude-agent-sdk, langfuse and dotenv serve `llm`, which only the parse queue's file_parsers use: see `parse`.
+worker = [
+    "asyncpg>=0.32.0",
+    "google-api-python-client>=2.201.0",
+    "google-auth>=2.62.0",
+    "httplib2>=0.22",
+    "httpx>=0.28.1",
+    "neo4j>=6.4.1",
+    "openinference-instrumentation>=0.1.72",
+    "openai>=3.37.0,<4",
+    "openai-agents>=0.22.3,<0.23",
+    "opentelemetry-exporter-otlp-proto-http>=1.45.1",
+    "sqlalchemy[asyncio]>=2.1.6",
+    "temporalio>=1.34,<2",
+    "temporalio-openai-agents[openinference]>=1.1,<2",
+]
+# The mcp role is an HTTP router over the API: no database, graph, storage or Temporal library.
+mcp = [
+    "httpx>=0.28.1",
+    "mcp>=2.3,<3",
+    "pyjwt[crypto]>=2.15.1",
+    "starlette>=1.10.0",
+    "uvicorn>=0.54.0",
+]
 # One object-storage SDK per cloud, imported lazily by storage/factory.py. The images install both.
 gcp = ["google-cloud-storage>=3.17.1"]
 aws = ["boto3>=1.43,<2"]
@@ -53,6 +79,11 @@ parse = [
     "pypdfium2",
     # scripts/fetch_docling_models.py and docker/worker-parse/Dockerfile download the models with it (docling-slim already needs it).
     "huggingface-hub",
+    # The `llm` package behind file_parsers (Anthropic client, Claude Agent SDK, Langfuse tracing, .env loading); the agents queue never imports it.
+    "anthropic>=1.1.0",
+    "claude-agent-sdk==0.2.174",
+    "dotenv>=0.9.9",
+    "langfuse>=4,<5",
     # CPU wheels only: the default PyPI Linux wheels of torch pull nvidia-* (CUDA) packages with proprietary terms.
     "torch==2.15.0",
     "torchvision",

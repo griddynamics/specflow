@@ -5,14 +5,13 @@ replicaCount: 1
 
 image:
   registry: ghcr.io
-  repository: griddynamics/specflow-api
+  repository: griddynamics/specflow-mcp
   tag: ""
   digest: ""
   pullPolicy: IfNotPresent
 
-command:
-  - specflow
-  - mcp
+# The specflow-mcp image starts `specflow mcp` itself.
+command: []
 args: []
 containerPorts:
   - name: http

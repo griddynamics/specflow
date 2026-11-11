@@ -38,7 +38,8 @@ def database_url() -> str | URL:
     url: str | URL | None = config.attributes.get("database_url")
     if url is not None:
         return url
-    return DatabaseSettings.from_environment(tls=False).url()
+    built: URL = DatabaseSettings.from_environment(tls=False).url()
+    return built
 
 
 def connect_args() -> dict[str, Any]:

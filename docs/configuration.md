@@ -184,7 +184,7 @@ Rules:
 - A blank `GRAPH_STORE_PASSWORD` is accepted only when `APP_ENV` is `local`.
 - The password is a secret value: it never appears in a message or a log line.
 - An adapter that is not shipped yet answers `store_not_available`; one whose SDK is not installed
-  answers `store_sdk_missing` and names the extra (`uv sync --extra tigergraph`).
+  answers `store_sdk_missing` and names the extra (`uv sync --extra api --extra mcp --extra worker --extra gcp --extra aws --extra parse --extra tigergraph`: `uv sync` is exact, so keep the `make setup` extras).
 
 Each backend has one section below for what an operator does before the first start (accounts,
 databases, privileges).
@@ -574,8 +574,10 @@ is no setting for the engine, the formats or the limits: they are fixed in the c
 ### The worker-parse image
 
 - `backend/docker/worker-parse/Dockerfile` builds the only image that holds Docling, PyTorch (CPU wheels),
-  OpenCV and the layout and table models. The api and worker-agents images do not contain them and
-  never contain PyMuPDF. `make images` builds the four images.
+  OpenCV and the layout and table models. The api, mcp and worker-agents images do not contain them and
+  never contain PyMuPDF. Each backend image installs only its role's extras (api: `api`; mcp: `mcp`; worker-agents: `worker`;
+  worker-parse: `worker` and `parse`; the api and the workers also `gcp` and `aws`). `make images` builds the api, mcp,
+  worker-parse, worker-agents and frontend images.
 - Size it at 2 vCPU and **3 GiB** (`mem_limit: 3g` in `docker-compose.yml`). A parse works through a PDF in ranges
   of 10 pages; the measured peak is gate G5 in
   [acceptance-gates.md](file-parsers/acceptance-gates.md#status). `/tmp` is a 1 GB tmpfs that counts against

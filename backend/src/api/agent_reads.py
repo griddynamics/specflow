@@ -13,7 +13,8 @@ from typing import Final
 from api.runtime import Runtime
 from graph import core as graph_core
 from graph.core import ConfigurationError, GraphReader, Ontology, OntologyError
-from graph.plan import PlanService, load_plan_rules
+from graph.plan.rules import load_plan_rules
+from graph.plan.service import PlanService
 
 FEATURE_TYPE: Final = "feature"  # the node type list_features lists
 

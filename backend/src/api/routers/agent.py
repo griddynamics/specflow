@@ -48,7 +48,7 @@ from api.errors import (
 from api.runtime import agent_error
 from auth.errors import AuthError
 from db import repositories as repo
-from graph.plan import PlanReadError
+from graph.plan.errors import PlanReadError
 from logger.logger import WARNING, get_logger, log_event
 
 logger = get_logger("api.routers.agent")
