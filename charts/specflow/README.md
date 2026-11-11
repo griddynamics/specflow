@@ -188,7 +188,7 @@ The primary settings for each component are:
 
 | Component | Required or conditional settings |
 | --- | --- |
-| API | `APP_ENV`; `DATABASE_HOST`, `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD`; `OIDC_ISSUER`, `AUTH_ALLOWED_EMAIL_DOMAINS`; `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE`; storage settings; graph-store settings; `AGENT_MODEL`; `API_PORT=8000`; `GRAPH_STATE_DIR=/var/lib/specflow/graph` |
+| API | `APP_ENV`; `DATABASE_HOST`, `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD`; `OIDC_ISSUER`, `AUTH_ALLOWED_EMAIL_DOMAINS`; `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE`; storage settings; graph-store settings; `AGENT_MODEL`; `API_PORT=8000`; `GRAPH_STATE_DIR=/var/lib/specflow/graph`; `MCP_RESOURCE_URL`, `MCP_AUDIENCE` and `MCP_CLIENT_IDS` (equal to MCP's) whenever MCP is deployed: unset, the agent routes MCP reads through answer `503 agent_unavailable` and every MCP tool fails with `internal_error` |
 | Frontend | `APP_ENV`, `PUBLIC_URL`, `API_INTERNAL_URL`, `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `SESSION_SECRET` |
 | MCP | `APP_ENV`; `API_INTERNAL_URL`; `OIDC_ISSUER`, `AUTH_ALLOWED_EMAIL_DOMAINS`; `MCP_RESOURCE_URL`; `MCP_PORT=8002` (no database, graph-store, Temporal or storage settings) |
 | Worker agent | `APP_ENV`; database, Temporal, storage, graph-store, agent-model, and LLM gateway settings; `WORKER_QUEUES=agents`; `WORKER_HEALTH_PORT=8001` |

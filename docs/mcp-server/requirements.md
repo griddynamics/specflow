@@ -7,9 +7,7 @@ tags: [mcp]
 ---
 # requirements.md: requirement units of the MCP server (compact form), functional and non-functional
 
-Each row is one testable requirement in EARS form with one acceptance criterion. Status of every unit: Implemented,
-except the units the MCP split adds or changes (FR-MCP-AUTH-13, FR-MCP-TOOL-06, FR-MCP-OPS-01, FR-MCP-OPS-02,
-FR-MCP-OPS-07, NFR-MCP-03): Approved until the split is accepted ([implementation.md](implementation.md)).
+Each row is one testable requirement in EARS form with one acceptance criterion. Status of every unit: Implemented ([implementation.md](implementation.md)).
 Verification is by test unless the row says otherwise.
 
 Each row states the behavior and links the section that defines it; values are defined only there. Acceptance criteria hold concrete test values.

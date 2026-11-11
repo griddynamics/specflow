@@ -116,6 +116,7 @@ boundaries are not.
 | `mcp_server/http.py` | The JSON error envelope, the probe bodies, the invariant check (`required`, `McpInvariantError`) and the per-request id middleware |
 | `mcp_server/auth.py` | Guard and PRM |
 | `mcp_server/registry.py` | Tool declarations (each names its `agent_contracts` models and its agent route) and their registration with the cross-cutting wrapper; the prompt declarations; the manifest renderer (`render_manifest`, plain data and stable JSON, no SDK types) |
+| `mcp_server/descriptions.py` | The tool descriptions agents read, with the untrusted-content notices; plain strings, imports no SDK |
 | `mcp_server/guidance.py` | The server instructions and the prompt text, as plain functions; imports no SDK |
 | `mcp_server/api_client.py` | The API client and its constants ([Settings](#settings)) |
 | `mcp_server/readiness.py` | The `/readyz` check over the API's `/readyz` |
@@ -211,7 +212,7 @@ out of schema; MCP never sends one).
 |---|---|---|
 | `Authorization` | MCP → API | the caller's single header, unchanged; only on tool calls |
 | `X-Request-ID` | MCP → API, echoed back | MCP's own request id (32 hex); the API adopts it (`api/request_id.py`) |
-| `X-SpecFlow-User-Id` | API → MCP | the provisioned user UUID on every response after provisioning, including `ApiError` responses raised by the route or the dependency chain; MCP never forwards a caller's copy |
+| `X-SpecFlow-User-Id` | API → MCP | the provisioned user UUID on every response after provisioning, including `ApiError` responses raised by the route or the dependency chain; MCP never forwards a caller's copy. Provisioning stores the id in the request state, and the `api.errors` handlers add the header to every error response from it |
 
 Parameters:
 
@@ -233,8 +234,14 @@ cursor is canonical base64url `{"v":1,"after":…}`; the task path pages by `_pa
 Error mapping on the API side, first match wins: `PlanReadError` → its own code; `InfrastructureUnavailableError` →
 `graph_unavailable`; `is_database_unreachable` → `database_unavailable`; anything else → `internal_error`. A bad
 ontology or bad plan rules give `internal_error` and one log event; the API start never fails on them, because the
-agent reads load lazily and do not depend on the LLM settings. No exception text reaches a body; logs follow the
-existing `api.errors` handlers. The same mapping covers the dependency chain.
+agent reads load lazily and do not depend on the LLM settings. No exception text reaches a body. The same mapping
+covers the dependency chain.
+
+Logging: an error the mapping handles (an outage or a failed read, in the chain or the handler) logs one `api.agent.failed`
+warning with `code` and `error_type` (the class name). A bug in an agent route reaches the generic handler, which logs
+`api.request.failed` at error level with the class name only and no traceback or message, because exception text can hold
+feature text. `agent_contracts.AGENT_ROUTES` holds the full paths (`/api/v1/agent/...`), so MCP and the API share one
+spelling of each route.
 
 ## Import rules
 
@@ -301,7 +308,7 @@ The agent routes make the `api` role read some MCP settings too. Settings by rol
 | `MCP_AUDIENCE`, `MCP_CLIENT_IDS` | optional; must equal mcp's | optional |
 | `API_INTERNAL_URL` | — | required |
 | `DATABASE_*`, `GRAPH_STORE_*` | required | not read |
-| `MCP_PORT`, `MCP_ALLOWED_HOSTS`, `MCP_ALLOWED_ORIGINS` | — | as above |
+| `MCP_PORT`, `MCP_ALLOWED_HOSTS`, `MCP_ALLOWED_ORIGINS` | parsed (not used) once `MCP_RESOURCE_URL` is set; a bad value refuses the api start | as above |
 
 A claim profile or MCP audience that differs between the two roles passes every MCP guard check and then fails every
 tool with `internal_error` ([Operations](#operations), [deployment.md](deployment.md#troubleshooting)).
