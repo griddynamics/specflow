@@ -1,18 +1,20 @@
 ---
 type: Design
 title: "MCP server authentication"
-description: "OAuth resource server design: discovery, client registration, token validation, the claim profile for any OIDC provider, provider recipes and revocation"
+description: "OAuth resource server design: discovery, client registration, token validation (also on the API agent routes), the claim profile for any OIDC provider, provider recipes, revocation and threats"
 status: stable
 tags: [mcp, auth]
 ---
-# auth.md: OAuth resource server, discovery, client registration, token validation, claim profile and revocation
+# auth.md: OAuth resource server, discovery, client registration, token validation, claim profile, revocation and threats
 
 ## Model
 
 The MCP service is an OAuth 2.1 resource server. The organization's OIDC provider (the IdP the web app already uses) is
 the authorization server. The MCP client signs the developer in at the IdP with the authorization code flow and PKCE,
-and calls `/mcp` with the access token. SpecFlow issues no tokens, stores no tokens
-and holds no client secret. Locally the IdP is the bundled Keycloak ([below](#local-mode)).
+and calls `/mcp` with the access token. The MCP service verifies it and forwards it unchanged to the API's agent routes
+([architecture.md](architecture.md#api-agent-routes)), which verify it again with the same MCP policy (decision AA9).
+SpecFlow issues no tokens, stores no tokens and holds no client secret. Locally the IdP is the bundled Keycloak
+([below](#local-mode)).
 
 A deployment has exactly one IdP: tokens must come from `OIDC_ISSUER`, the issuer the web app signs people in with.
 Users are keyed by the token subject alone, so the same person reaches the same user row from the web app and from MCP.
@@ -104,7 +106,25 @@ Checks 1 to 10 run in this order through the `auth` package (`bearer_token`, `Oi
 checked: the audience decides whether a token is for the MCP server, and project membership decides what its holder
 may read ([access-control.md](access-control.md)). `bearer_token` is in a framework-free module of `auth` (for example
 `auth.bearer`); `auth.dependencies`, which imports FastAPI, re-exports it for the REST API, and the role never imports
-`auth.dependencies`, so it never loads FastAPI. The result is a `Principal` the tools read from the request.
+`auth.dependencies`, so it never loads FastAPI. The result is a `Principal` on the request.
+
+The API runs the same checks 1 to 10 with the same MCP `ClaimPolicy` on its agent routes (`/api/v1/agent/*`), through
+its agent verifier (`current_agent_principal` in `auth.dependencies`, `AgentUserDep` in `api.deps`); every other
+`/api/v1` route keeps the API policy. The API builds the MCP policy only when `MCP_RESOURCE_URL` is set in the api role;
+then its startup also refuses the `mcp` rows of the table below. The two roles must hold the same issuer, claim
+profile, `MCP_AUDIENCE` and `MCP_CLIENT_IDS`: with any difference the guard accepts a token that the API refuses, and
+every tool answers `internal_error` ([deployment.md](deployment.md#troubleshooting)). The MCP role reads the user id
+for its audit from the API's `X-SpecFlow-User-Id` response header.
+
+Audience matrix, which holds in both audience modes (a resource-URL audience; a client-id audience with
+`AUTH_TOKEN_TYPE=claim`):
+
+| Token | REST route (`/api/v1`) | Agent route (`/api/v1/agent/*`) |
+|---|---|---|
+| web/API token (`specflow-web`, aud `specflow-api`) | 200 | 401/403 |
+| MCP token | 401/403 | 200 |
+| smoke-client token | per the existing REST rule | 401/403 |
+| ID token, tampered type claim, expired or missing token | 401 | 401 |
 
 The audience rule (check 5) is the REST API's rule with the MCP audience: a token is valid on exactly one surface. A
 provider that adds an audience of its own lists it in `AUTH_IGNORED_AUDIENCES`, as Keycloak's `account` is by default.
@@ -222,7 +242,8 @@ which `make env-local` fixes in `.env.local` (`LOCAL_TEST_USER_ID`). The role pu
 and its 401 carries `resource_metadata`, as in production. There are no dev tokens, no dev issuer and no
 `AUTH_MODE`: a stale `AUTH_MODE=dev` stops the role with a hint ([configuration.md](../configuration.md#removed-names)).
 
-A web token (audience `specflow-api`) fails on MCP, and an MCP token fails on the REST API, as rule S5 says. Claude Code
+A web token (audience `specflow-api`) fails on MCP and on the agent routes, and an MCP token fails on the other REST
+routes, as rule S5 says. Compose gives the `api` service the same MCP variables as `mcp`. Claude Code
 signs in through the browser with the same Keycloak account as the web app. An `http` issuer and resource URL are accepted
 only when `APP_ENV=local`. Keycloak keeps no data between container creations: sessions end, so sign in again in the
 browser and in Claude Code.
@@ -231,12 +252,23 @@ browser and in Claude Code.
 
 | # | Rule |
 |---|---|
-| S1 | No token passthrough: the MCP token is never sent anywhere; Postgres and Neo4j are reached with service credentials after the membership check. |
+| S1 (revised) | The MCP token goes to one place only: unchanged, as the single `Authorization` header of a tool call, to the API's agent routes at `API_INTERNAL_URL`, which verify it again with the MCP policy (AA9). It is never sent to any other host, never sent with probes, never followed through a redirect (`follow_redirects=False`) and never sent through an environment proxy (`trust_env=False`). The MCP role holds no data-store credentials; the API reaches Postgres and Neo4j with its service credentials after the membership check. Revised when MCP became a router over the API (AA9): the forwarded token is bound to the MCP audience, which only `/mcp` and the agent routes accept, so it is not a passthrough to another resource. The original rule follows as history: no token passthrough, the MCP token is never sent anywhere; Postgres and Neo4j are reached with service credentials after the membership check. |
 | S2 | Tokens, `Authorization` headers, emails and claims other than ids never reach logs or error bodies. |
 | S3 | JWKS only from the issuer's host (enforced outside local). |
 | S4 | Issuer, resource URL and audience are configuration, never derived from `Host` or `X-Forwarded-*`. |
-| S5 | One audience per token: a REST token fails on `/mcp`, an MCP token fails on `/api/v1`. |
+| S5 (revised) | One audience per token: a REST token fails on `/mcp` and on `/api/v1/agent/*`; an MCP token is valid only on `/mcp` and `/api/v1/agent/*` and fails on every other `/api/v1` route. Narrowed for the agent route group (AA9), which accepts MCP tokens only. The original rule follows as history: a REST token fails on `/mcp`, an MCP token fails on `/api/v1`. |
 | S6 | The MCP client is public: no MCP client secret exists anywhere (SpecFlow, IdP or developer machines). |
+
+## Threats (STRIDE)
+
+| Threat | Vector | Mitigation |
+|---|---|---|
+| Spoofing | forged or foreign tokens; an ID token used as an access token | the MCP guard and the API both verify the signature, `iss`, `aud`, the `azp`/client claim and the type claim (AA8); dual-policy config refused at startup (the audience mix-ups of [Token validation](#token-validation)) |
+| Tampering | query parameters, cursors, the user-id header | the API validates the parameters and canonical cursors; `X-SpecFlow-User-Id` goes only from the API to MCP on the internal network, and MCP never forwards a caller's copy |
+| Repudiation | untraceable calls | `mcp.tool.completed` with the user id and the request id; the API's log lines carry the same request id ([architecture.md](architecture.md#logging-and-audit)) |
+| Information disclosure | logs, proxies, error text, sniffing the internal hop | S2 (no token, claim or email text; a malformed `project_id` is never logged); `trust_env=False`; `follow_redirects=False`; API message text never reaches a tool result; plain HTTP inside the cluster as for the web app, with the token bound to the MCP audience (`/mcp` and the agent read routes); a NetworkPolicy limits who reaches the API |
+| Denial of service | heavy agent traffic on the one API replica | the edge rate limit (P6 of [deployment.md](deployment.md#public-endpoint)), the MCP body cap, the 25 s call timeout; the shared replica is an accepted cost ([architecture.md](architecture.md#operations)) |
+| Elevation of privilege | an MCP token on REST writes; a web token on the agent routes; other pods calling the API | one verifier per route group and the audience matrix of [Token validation](#token-validation); the API stays non-public (P7); a NetworkPolicy lets only the frontend and mcp pods reach the API ([deployment.md](deployment.md#role-and-process)) |
 
 ## Decisions
 
@@ -250,3 +282,4 @@ browser and in Claude Code.
 | AA6 | Claim profile as shared `AUTH_*` settings with provider-neutral defaults | MCP-only claim settings: the subject must be read the same way on both surfaces or users split. Keycloak-shaped defaults (a required `typ: Bearer` claim, `azp` only): the first non-Keycloak provider, likely the production one, would fail on them |
 | AA7 | No scopes: the audience and project membership decide, and every member of a project has the same access | Read and write scopes (`specflow:read`, `specflow:write`): every provider would need a custom scope, and they add nothing while all members have equal access; the Rosetta MCP server likewise checks no permission scope |
 | AA8 | Client-audience access tokens accepted under a token-type check: `MCP_AUDIENCE` may equal the client id when `AUTH_TOKEN_TYPE` is not `none`, and `claim` tells access tokens from ID tokens by a configured claim | A token exchange in an OAuth proxy ([later.md](later.md)): the proxy work of AA1 for one provider. A developer-side helper that exchanges tokens through `headersHelper`: a tool to ship and maintain on every laptop. Resource-server tokens only: Claude Code cannot get them from such a provider. Rule S5 then depends on each surface having its own client, which startup enforces for the values it is given |
+| AA9 | MCP forwards the caller's MCP token unchanged to the API's agent route group, and the API verifies it with the MCP policy on those routes only, in both audience modes; the API returns the provisioned user id in `X-SpecFlow-User-Id` | A token exchange (RFC 8693) to an API token: a confidential client and its secret in the public process, against S6, and production IdP support is unverified. A service token plus an asserted user header: a leaked MCP credential acts as any user. Accepting MCP tokens on every `/api/v1` route: an MCP token could call REST writes (least privilege, S5) |

@@ -9,10 +9,10 @@ provider, and shows a caller only the projects they are a member of. Version 1 h
 # overview.md: purpose, scope, goals (including the workspace binding), non-goals, actors, boundaries, constraints, key terms
 - [overview.md](overview.md)
 
-# architecture.md: process, components (including guidance), package layout, import rules, transport, settings, errors, operations, decisions
+# architecture.md: process, components (including guidance), package layout, API agent routes, import rules, transport, settings, errors, operations, decisions
 - [architecture.md](architecture.md)
 
-# auth.md: OAuth resource server, discovery, client registration, token validation, any-OIDC claim profile, revocation
+# auth.md: OAuth resource server, discovery, client registration, token validation (including the agent routes and the audience matrix), any-OIDC claim profile, revocation, STRIDE
 - [auth.md](auth.md)
 
 # access-control.md: project membership, tenant isolation, untrusted content (binding file and instructions), audit
@@ -21,10 +21,10 @@ provider, and shows a caller only the projects they are a member of. Version 1 h
 # tools.md: MCP tool contracts: list_projects, list_features, pagination, workspace binding (file, instructions, select_project prompt), errors
 - [tools.md](tools.md)
 
-# deployment.md: role and ingress, IdP setup, Claude Code setup and project binding, web app guides, local stack with Keycloak
+# deployment.md: role and ingress, IdP setup, Claude Code setup and project binding, web app guides, local stack with Keycloak, troubleshooting
 - [deployment.md](deployment.md)
 
-# testing.md: test tiers, fixtures and temp workspace, scenario matrix (E1 to E17), end-to-end QA with a real client
+# testing.md: test tiers, fixtures and temp workspace, scenario matrix (E1 to E17), stack gate, end-to-end QA with a real client
 - [testing.md](testing.md)
 
 # requirements.md: requirement units FR-MCP-AUTH, FR-MCP-ACC, FR-MCP-TOOL, FR-MCP-BIND, FR-MCP-UI, FR-MCP-OPS, NFR-MCP

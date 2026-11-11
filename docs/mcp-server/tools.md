@@ -12,10 +12,11 @@ tags: [mcp]
 | Topic | Rule |
 |---|---|
 | Declaration | every tool is declared in the tool registry with whether it is project-scoped ([architecture.md](architecture.md)) |
+| Route | every tool reads through one API agent route with the caller's token; the path, query parameters and HTTP codes of each are in the route table of [architecture.md](architecture.md#api-agent-routes) |
 | Names | `snake_case`; Claude Code shows them as `mcp__<server name>__<tool>` |
 | Annotations | every version 1 tool: `readOnlyHint: true`, `destructiveHint: false`, `idempotentHint: true`, `openWorldHint: false` |
 | Results | structured content (JSON object, with an output schema) plus one text block holding the same JSON |
-| Paging | `limit` 1 to 100, default 50, enforced by the input schema (`minimum`, `maximum`); `cursor` is opaque, a plain string in the input schema, from the previous page's `next_cursor`, and checked by the tool: over 512 characters or not decodable answers `invalid_cursor` (a cursor whose text is a JSON object or array is parsed by the SDK first and refused by the input schema); `next_cursor` is `null` on the last page |
+| Paging | `limit` 1 to 100, default 50, enforced by the input schema (`minimum`, `maximum`); `cursor` is opaque, a plain string in the input schema, from the previous page's `next_cursor`, and checked by the agent route: over 512 characters or not decodable answers `invalid_cursor` (a cursor whose text is a JSON object or array is parsed by the SDK first and refused by the input schema); `next_cursor` is `null` on the last page |
 | Errors | a tool error is a result with `isError: true`, structured content `{"error": {"code", "message"}}` and the same text; arguments that fail the input schema are refused by the SDK before the tool runs, and such calls are not audited |
 | Identity | no tool takes a user id; the caller is the token's `Principal` |
 | Summary | every tool and prompt also has a one-line `summary` for people, next to the `description` that agents read; the web app's Guides table shows it, and the manifest that carries it is generated from the registry ([architecture.md](architecture.md#tool-registry)) |
@@ -357,6 +358,9 @@ one-word name. For a name with spaces, run the prompt without an argument and ch
 
 ## Error codes
 
+The API's agent route decides the code (HTTP status per code: [architecture.md](architecture.md#api-agent-routes));
+the MCP role returns it with the fixed message below and never the API's own text.
+
 | Code | When | Message |
 |---|---|---|
 | `project_not_found` | malformed id, unknown project, or not a member | The project does not exist or you are not a member of it. |
@@ -365,12 +369,12 @@ one-word name. For a name with spaces, run the prompt without an argument and ch
 | `task_not_found` | `get_task_path` or `get_task_brief` with an unknown task id, or a `superseded` or `retired` task | The task is not in the current plan of the project. List the tasks to find it. |
 | `feature_not_found` | `list_feature_tasks` with an id that is no node of the feature type | The feature is not in the specification graph of the project. List the features to find it. |
 | `graph_unavailable` | `InfrastructureUnavailableError` from the graph library: Neo4j unreachable ([../graph/architecture.md](../graph/architecture.md#errors)) | The specification graph is unavailable. Try again later. |
-| `database_unavailable` | Postgres unreachable, as decided by the REST API's reachability test `is_database_unreachable`, which lives in `db.session` so that both `api.runtime` and `api.mcp` use it | The database is unavailable. Try again later. |
-| `internal_error` | anything else, including the graph library's `ConfigurationError` and `ConformanceError` | Something went wrong. Try again later. |
+| `database_unavailable` | Postgres unreachable, as decided by the REST API's reachability test `is_database_unreachable` in `db.session`, also while the API provisions the caller | The database is unavailable. Try again later. |
+| `internal_error` | anything else, including the graph library's `ConfigurationError` and `ConformanceError`, a bad ontology or plan rules, and any failed call between MCP and the API ([architecture.md](architecture.md#errors)) | Something went wrong. Try again later. |
 
 ## Graph read used by list_features
 
-`list_features` reads through two `GraphReader` methods (contract owned by
+The `list_features` agent route reads through two `GraphReader` methods (contract owned by
 [../graph/api.md](../graph/api.md#read-and-search)):
 
 | Method | Contract |
@@ -385,8 +389,8 @@ rows to decide `next_after`; nothing reads every node and slices.
 ## Plan reads used by the plan tools
 
 The plan tools read through the plan library's `PlanService` (contract owned by
-[../graph/plan/api.md](../graph/plan/api.md#plan-service)); the `mcp` runtime builds it over its graph store, with
-the shipped plan rules, at start. Each call reads the plan once; the tool only pages the answer.
+[../graph/plan/api.md](../graph/plan/api.md#plan-service)); the API's agent reads build it on first use over the API
+runtime's graph store, with the shipped plan rules. Each call reads the plan once; the agent route only pages the answer.
 
 | Method | Used for |
 |---|---|
@@ -396,4 +400,4 @@ the shipped plan rules, at start. Each call reads the plan once; the tool only p
 | `PlanService.task_brief(project_id, task_id, neighbours=)` | `get_task_brief` |
 
 `PlanReadError` `no_plan`, `feature_not_found` and `task_not_found` become the tool errors of the same codes.
-No lifecycle method (claims, state changes) is called from `api.mcp`.
+No lifecycle method (claims, state changes) is called from the agent routes.

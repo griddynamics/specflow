@@ -25,20 +25,20 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | Name | Read by | Meaning |
 |---|---|---|
 | `APP_ENV` | api, mcp, workers, frontend | `local`, `dev` or `prod`. A value other than `local` turns on the start-up guards. |
-| `DATABASE_HOST`, `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD` | api, mcp, workers | PostgreSQL connection. A blank value is refused. |
+| `DATABASE_HOST`, `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD` | api, workers | PostgreSQL connection. A blank value is refused. |
 | `DATABASE_AGENT_PASSWORD` | api, workers | Password of the role that agent tools use (row-level security). |
-| `GRAPH_STORE_URI`, `GRAPH_STORE_USER`, `GRAPH_STORE_PASSWORD` | api, mcp, workers | Graph store connection; what they mean per backend is in [Graph store](#graph-store). `NEO4J_URI`, `NEO4J_USER` and `NEO4J_PASSWORD` are accepted instead while `GRAPH_STORE` is `neo4j`. A blank password is refused when `APP_ENV` is not `local`. `GRAPH_STORE=postgres` without a URI needs none of the three (it reuses `DATABASE_*`). |
+| `GRAPH_STORE_URI`, `GRAPH_STORE_USER`, `GRAPH_STORE_PASSWORD` | api, workers | Graph store connection; what they mean per backend is in [Graph store](#graph-store). `NEO4J_URI`, `NEO4J_USER` and `NEO4J_PASSWORD` are accepted instead while `GRAPH_STORE` is `neo4j`. A blank password is refused when `APP_ENV` is not `local`. `GRAPH_STORE=postgres` without a URI needs none of the three (it reuses `DATABASE_*`). |
 | `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE` | api, workers | Workflow engine address and namespace. |
 | `LLM_GATEWAY_URL`, `LLM_GATEWAY_API_KEY` | api, workers | OpenAI-compatible gateway route (no `/v1` suffix) and its key. |
 | `AGENT_MODEL` | api, workers | Model id of the agents on the gateway route. |
 | `GRAPH_LLM_MODEL`, `GRAPH_SMALL_MODEL`, `GRAPH_EMBEDDING_MODEL` | api, tools | Models of the graph build behind **Build knowledge** in Mission Control, and of the plan runs behind **Create PLAN** on the Plan page. Set all three: one set without the others stops the api at start. With none set the api starts with the graph build and the plan off: it logs `api.graph_build.disabled` at start, each graph build request answers 503 `graph_build_unavailable` and logs `api.graph_build.unavailable`, and each plan request answers 503 `plan_unavailable` and logs `api.plan.unavailable`. Set `GRAPH_EMBEDDING_DIM` together with `GRAPH_EMBEDDING_MODEL`. |
 | `AUTH_ALLOWED_EMAIL_DOMAINS` | api, mcp | Comma-separated list of allowed e-mail domains. |
 | `PUBLIC_URL` | frontend | Public URL of the app, without a trailing slash. The sign-in redirect and the logout return address are built from it. Locally the Keycloak realm builds its redirect URIs from the same value. |
-| `API_INTERNAL_URL` | frontend | URL at which the frontend reaches the API. |
+| `API_INTERNAL_URL` | frontend, mcp | URL at which the frontend and the MCP server reach the API, often a bare in-cluster `host[:port]` (it becomes `http://host[:port]`; a trailing `/` is trimmed). The mcp role refuses userinfo, a query, a fragment or a scheme other than `http` and `https`. TLS is not required inside the cluster; `https` works with publicly trusted certificates only. See [architecture](mcp-server/architecture.md#settings). |
 | `OIDC_ISSUER` | api, mcp, frontend | OpenID Connect issuer. Must be `https` when `APP_ENV` is not `local`. Required in every environment: there is no other sign-in. |
 | `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | frontend | OpenID Connect client. Required in every environment. |
 | `SESSION_SECRET` | frontend | Signs the session cookie. At least 32 bytes. |
-| `MCP_RESOURCE_URL` | mcp | Public URL of the MCP endpoint, for example `https://mcp.example.com/mcp`. The path is exactly `/mcp`, with no query or fragment. `https` unless `APP_ENV` is `local`. Published as the `resource` of the protected resource metadata. See [architecture](mcp-server/architecture.md#settings). |
+| `MCP_RESOURCE_URL` | mcp; api (optional) | Public URL of the MCP endpoint, for example `https://mcp.example.com/mcp`. The path is exactly `/mcp`, with no query or fragment. `https` unless `APP_ENV` is `local`. Published as the `resource` of the protected resource metadata. In the api, set it to the mcp value to turn on the agent routes the MCP server reads through; unset, they answer 503 `agent_unavailable`. See [architecture](mcp-server/architecture.md#settings). |
 | `DRIVE_IDENTITY_EMAIL` | api, worker-parse | E-mail address of the service identity that must have access to the shared folders. See below. |
 
 ## Optional settings (K)
@@ -46,7 +46,7 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | Name | Read by | Meaning |
 |---|---|---|
 | `TEMPORAL_API_KEY`, `TEMPORAL_TLS_CERT`, `TEMPORAL_TLS_KEY` | api, workers, tools | Credentials for a managed workflow engine. Unset for a self-hosted one. |
-| `GRAPH_STORE_NAME`, `GRAPH_STORE_ADMIN_URI`, `GRAPH_STORE_POOL_SIZE` | api, mcp, workers, tools | Database, schema or graph name (default per backend, see below); a second admin endpoint for backends that have one; a cap on the store adapter's own connection pool. |
+| `GRAPH_STORE_NAME`, `GRAPH_STORE_ADMIN_URI`, `GRAPH_STORE_POOL_SIZE` | api, workers, tools | Database, schema or graph name (default per backend, see below); a second admin endpoint for backends that have one; a cap on the store adapter's own connection pool. |
 | `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | api, workers | Tracing. Unset = no tracing. `LANGFUSE_HOST` is read when `LANGFUSE_BASE_URL` is unset. |
 | `SPECFLOW_CONFIG_FILE` | api, workers, tools | Path of the cloud profile file. Unset = environment only. |
 
@@ -56,17 +56,17 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 |---|---|---|---|
 | `LOGS_LEVEL`, `LOGS_STDOUT_LEVEL` | `INFO` | all backend | Log levels. Logs are JSON on standard output. |
 | `LOGS_RAISE_EXCEPTIONS` | off | all backend | Debug: a logging error raises. |
-| `GRAPH_STORE` | `neo4j` | api, mcp, workers, tools | The graph store backend: `neo4j`, `arcadedb`, `postgres` or `tigergraph`. |
-| `NEO4J_DATABASE` | unset | api, mcp, workers, tools | Alias of `GRAPH_STORE_NAME` while `GRAPH_STORE` is `neo4j`. |
+| `GRAPH_STORE` | `neo4j` | api, workers, tools | The graph store backend: `neo4j`, `arcadedb`, `postgres` or `tigergraph`. |
+| `NEO4J_DATABASE` | unset | api, workers, tools | Alias of `GRAPH_STORE_NAME` while `GRAPH_STORE` is `neo4j`. |
 | `AGENT_TRACE_SENSITIVE_DATA` | `false` | api, workers | `true` puts document text into traces. Use it only for local debugging. |
 | `GRAPH_EMBEDDING_DIM` | `1536` | api, tools | Vector size of `GRAPH_EMBEDDING_MODEL`; set it together with the model, because the default fits only models with 1536 dimensions (1 to 4096). The first build of each api process checks it with one embedding call, before the schema and any extraction: a mismatch fails that build at once with `embedding_dim_mismatch`, and the `api.graph_build.failed` log gives `expected` and `actual`. To change it after a build, see [Local stack](#local-stack). |
 | `GRAPH_STATE_DIR` | `.graph-build/state` | api | Folder of the graph build file stores, relative to the working directory. |
 | `GRAPH_LLM_CONCURRENCY` | `8` | api, tools | How many graph-build model calls may run at once. |
 | `API_PORT`, `WORKER_HEALTH_PORT` | `8000`, `8001` | api, workers | Listen ports. The worker port answers `GET /healthz`. |
-| `DATABASE_PORT` | `5432` | api, mcp, workers | PostgreSQL port. |
+| `DATABASE_PORT` | `5432` | api, workers | PostgreSQL port. |
 | `DATABASE_AGENT_USER` | `specflow_agent` | api, workers | Role for agent tools. It must differ from `DATABASE_USER`. |
-| `PGSSLMODE` | `prefer` | api, mcp, workers, migration job | TLS to PostgreSQL, with the libpq values: `disable`, `allow`, `prefer`, `require`, `verify-ca` or `verify-full`. Unset or blank means `prefer`: TLS when the server offers it, with no certificate check. `require` always uses TLS and checks the certificate chain only when `PGSSLROOTCERT` is set. `verify-full` checks the server certificate against `PGSSLROOTCERT` and its name against `DATABASE_HOST`. It applies to every PostgreSQL connection, also to a graph store `GRAPH_STORE_URI` that sets no `sslmode`. See [PostgreSQL over TLS](#postgresql-over-tls). |
-| `PGSSLROOTCERT` | `/etc/specflow/postgres/rds-ca-bundle.pem` with `verify-ca` and `verify-full`; none with `require` | api, mcp, workers, migration job | The CA bundle the server certificate must chain to; no other CA is trusted, `~/.postgresql/root.crt` included. When the mode uses it, a missing, unreadable or non-PEM file stops the process at start. `disable`, `allow` and `prefer` ignore it. Use an absolute path. |
+| `PGSSLMODE` | `prefer` | api, workers, migration job | TLS to PostgreSQL, with the libpq values: `disable`, `allow`, `prefer`, `require`, `verify-ca` or `verify-full`. Unset or blank means `prefer`: TLS when the server offers it, with no certificate check. `require` always uses TLS and checks the certificate chain only when `PGSSLROOTCERT` is set. `verify-full` checks the server certificate against `PGSSLROOTCERT` and its name against `DATABASE_HOST`. It applies to every PostgreSQL connection, also to a graph store `GRAPH_STORE_URI` that sets no `sslmode`. See [PostgreSQL over TLS](#postgresql-over-tls). |
+| `PGSSLROOTCERT` | `/etc/specflow/postgres/rds-ca-bundle.pem` with `verify-ca` and `verify-full`; none with `require` | api, workers, migration job | The CA bundle the server certificate must chain to; no other CA is trusted, `~/.postgresql/root.crt` included. When the mode uses it, a missing, unreadable or non-PEM file stops the process at start. `disable`, `allow` and `prefer` ignore it. Use an absolute path. |
 | `TEMPORAL_QUEUE_PARSE`, `TEMPORAL_QUEUE_AGENTS` | `specflow-parse`, `specflow-agents` | api, workers | Task queue names. |
 | `WORKER_QUEUES` | `parse,agents` | workers | The queues one worker polls. Set it per worker. |
 | `AUTH_JWKS_URL` | unset | api, mcp | JWKS override on the issuer host. The local stack sets it to the Keycloak address inside the compose network. |
@@ -81,8 +81,8 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `AUTH_TOKEN_TYPE_CLAIM` | unset | api, mcp | Name of the access-token marker claim. Required with `AUTH_TOKEN_TYPE=claim`, refused with any other mode. Must not be a registered or identity claim (`iss`, `sub`, `aud`, `exp`, `nbf`, `iat`, `jti`, `azp`, `client_id`, `email`, `email_verified`, `acr`, `amr`, `sid`, `auth_time`, `nonce`, `at_hash`, `c_hash`, `s_hash`) or a configured `AUTH_SUBJECT_CLAIM`, `AUTH_CLIENT_ID_CLAIM`, `AUTH_EMAIL_CLAIM` or `AUTH_EMAIL_VERIFIED_CLAIM` name; `typ` is allowed. |
 | `AUTH_TOKEN_TYPE_VALUE` | unset | api, mcp | Exact, case-sensitive string the marker claim must hold. Required with `AUTH_TOKEN_TYPE=claim`, refused with any other mode. |
 | `AUTH_IGNORED_AUDIENCES` | `account` | api, mcp | Comma-separated audiences dropped before the audience check. Empty means the default. Must not hold `AUTH_API_AUDIENCE`. See [auth](mcp-server/auth.md#claim-profile-for-any-oidc-provider). |
-| `MCP_AUDIENCE` | the value of `MCP_RESOURCE_URL` | mcp | Expected token audience of the MCP endpoint. Must differ from every `MCP_CLIENT_IDS` value while `AUTH_TOKEN_TYPE=none`; must never equal `AUTH_API_AUDIENCE`, an `AUTH_API_CLIENT_IDS` value or an `AUTH_IGNORED_AUDIENCES` value. When audiences are client ids, each surface needs its own client; the `mcp` role checks this against the `AUTH_API_*` values it is given ([refusals](mcp-server/auth.md#token-validation)); see [architecture](mcp-server/architecture.md#settings). |
-| `MCP_CLIENT_IDS` | `specflow-mcp` | mcp | Comma-separated list of allowed MCP token client ids; at least one. See [architecture](mcp-server/architecture.md#settings). |
+| `MCP_AUDIENCE` | the value of `MCP_RESOURCE_URL` | mcp, api | Expected token audience of the MCP endpoint and of the API's agent routes; the api value must equal the mcp value. Must differ from every `MCP_CLIENT_IDS` value while `AUTH_TOKEN_TYPE=none`; must never equal `AUTH_API_AUDIENCE`, an `AUTH_API_CLIENT_IDS` value or an `AUTH_IGNORED_AUDIENCES` value. When audiences are client ids, each surface needs its own client; the `mcp` role checks this against the `AUTH_API_*` values it is given ([refusals](mcp-server/auth.md#token-validation)); see [architecture](mcp-server/architecture.md#settings). |
+| `MCP_CLIENT_IDS` | `specflow-mcp` | mcp, api | Comma-separated list of allowed MCP token client ids; at least one. The api value must equal the mcp value. See [architecture](mcp-server/architecture.md#settings). |
 | `MCP_ALLOWED_HOSTS` | empty | mcp | Comma-separated `Host` values accepted besides the host of `MCP_RESOURCE_URL`. Exact match, no wildcard. |
 | `MCP_ALLOWED_ORIGINS` | empty | mcp | Comma-separated browser `Origin` values accepted. Exact match, no wildcard. Empty refuses every request that carries an `Origin`. |
 | `MCP_PUBLIC_URL` | `PUBLIC_URL` + `/mcp` | frontend | Address of the MCP endpoint that the Guides page shows. Use the value of `MCP_RESOURCE_URL`. An `http` or `https` URL, `https` unless `APP_ENV` is `local`. Server-only. Locally, compose sets `http://localhost:8002/mcp`. See [deployment](mcp-server/deployment.md#web-app-settings-for-the-guides). |
@@ -98,10 +98,17 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `GOOGLE_APPLICATION_CREDENTIALS` | library chain | api, workers | Standard Google credential chain (key file, Workload Identity). |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | AWS credential chain | api, workers | Standard AWS credential chain. Prefer an IAM role. |
 
+The api and mcp roles must hold the same `OIDC_ISSUER` and `AUTH_*` claim profile (`AUTH_TOKEN_TYPE` with its claim
+and value, the claim names, `AUTH_ALLOWED_EMAIL_DOMAINS`), the same optional `AUTH_JWKS_URL` when it is set, and an
+api with `MCP_RESOURCE_URL` the same
+`MCP_AUDIENCE` and `MCP_CLIENT_IDS` as mcp. With a difference the MCP server accepts a token that the API refuses, and
+every MCP tool answers `internal_error` ([troubleshooting](mcp-server/deployment.md#troubleshooting)). The mcp role
+reads no `DATABASE_*`, `GRAPH_STORE_*` or `PGSSL*` setting: it reaches the data only through the API.
+
 ## PostgreSQL over TLS
 
 Aurora refuses unencrypted connections (`rds.force_ssl`). Set `PGSSLMODE=verify-full` and mount the AWS RDS CA
-bundle at `/etc/specflow/postgres/rds-ca-bundle.pem`, the default of `PGSSLROOTCERT`, in the api, mcp,
+bundle at `/etc/specflow/postgres/rds-ca-bundle.pem`, the default of `PGSSLROOTCERT`, in the api,
 worker-parse, worker-agents and migration containers. Each process then:
 
 - refuses to start when the bundle is missing, unreadable or holds no PEM certificate. `specflow <role>` logs
@@ -129,7 +136,7 @@ bundle cannot be used locally, because it trusts only certificates that AWS sign
 `localhost` and `127.0.0.1` into `.postgres-tls/` (git-ignored; for new ones delete the folder and run `make down`
 first, so that every container starts with them). The overlay
 `config/compose.postgres-tls.yaml` turns TLS on in the postgres service and refuses plain TCP there, as
-`rds.force_ssl` does. It mounts the local CA at `/etc/specflow/postgres/rds-ca-bundle.pem` in api, mcp, worker-parse
+`rds.force_ssl` does. It mounts the local CA at `/etc/specflow/postgres/rds-ca-bundle.pem` in api, worker-parse
 and worker-agents, and sets `PGSSLMODE=verify-full` in them.
 
 ```shell
@@ -505,7 +512,8 @@ temporal operator namespace create --address <host>:7233 --namespace specflow-lo
 | `LOCAL_TEST_USER_EMAIL` | L | Your sign-in email, asked by `make env-local` (default `git config user.email`, no terminal: `dev@example.com`). One `@`, a dotted domain, only `A-Za-z0-9._:/@+=-`, and not a QA user. `make up` refuses a value that fails this check. |
 | `OIDC_ISSUER`, `OIDC_INTERNAL_URL`, `OIDC_CLIENT_ID`, `AUTH_JWKS_URL` | L (compose only) | Fixed in `docker-compose.yml` for api, mcp and frontend: issuer `http://localhost:8180/realms/specflow` (the address in every token and in the browser), back channel and JWKS on `specflow-keycloak:8080`, client `specflow-web`. A value in `.env.local` does not reach the containers. |
 | `RUSTFS_HOST_PORT` | L | `19000`. |
-| `MCP_RESOURCE_URL`, `MCP_PORT` | L | The `mcp` service: `http://localhost:8002/mcp`, `8002`. Clients use `localhost`: on `/mcp` another `Host`, such as `127.0.0.1:8002`, is refused ([Host rule](mcp-server/architecture.md#transport)). |
+| `API_INTERNAL_URL` | L (compose only) | The `mcp` service: `http://specflow-api:8000`, like the frontend. |
+| `MCP_RESOURCE_URL`, `MCP_PORT` | L | The `mcp` service: `http://localhost:8002/mcp`, `8002`; the `api` service gets the same `MCP_RESOURCE_URL`, so its agent routes are on. Clients use `localhost`: on `/mcp` another `Host`, such as `127.0.0.1:8002`, is refused ([Host rule](mcp-server/architecture.md#transport)). |
 | `TEMPORAL_ADDRESS`, `TEMPORAL_NAMESPACE` | L | Containers: `host.docker.internal:7233` (own Temporal) or `specflow-temporal:7233` (`WITH=temporal`); namespace `specflow-local`. Host tools: `localhost:7233`. |
 | `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | L | Empty (no tracing); with `WITH=langfuse`: the bundled Langfuse and local keys. |
 | `DATABASE_PORT` | D + L | Host `5433`. |
