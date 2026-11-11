@@ -47,7 +47,8 @@ pytest_plugins = [
     "specflow_api_live_support",
     "specflow_db_live_support",
     "specflow_sources_support",
-    "mcp_support",  # last: it imports the support modules above, which must register first
+    "mcp_support",  # it imports the support modules above, which must register first
+    "mcp_golden_seam",  # last: it imports mcp_support
 ]
 
 

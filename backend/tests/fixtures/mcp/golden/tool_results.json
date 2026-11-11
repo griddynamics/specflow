@@ -1,0 +1,477 @@
+{
+  "get_task_brief": {
+    "page_1": {
+      "content": [
+        {
+          "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"brief\":{\"task\":{\"task_id\":\"TASK::ORDERS::B\",\"area_id\":\"AREA::ORDERS\",\"action\":\"B\",\"revision\":1,\"story_id\":\"STORY::ORDERS::PLACE\",\"phase\":\"logic\",\"title\":\"Task TASK::ORDERS::B\",\"description\":null,\"done_when\":[],\"complexity\":\"medium\",\"implements\":[],\"release\":[],\"has_open_questions\":false,\"planned_by\":\"model\",\"prompt_ref\":null,\"spec_build_id\":null,\"status\":\"pending\",\"claimed_by\":null,\"claimed_at\":null,\"attempts\":0,\"commit\":null,\"block_reason\":null,\"note\":null,\"created_at\":\"2026-01-01T00:00:00Z\",\"updated_at\":\"2026-01-01T00:00:00Z\",\"created_run_id\":null,\"last_run_id\":null,\"waits_for\":[\"TASK::ORDERS::A\"],\"waited_by\":[\"TASK::ORDERS::C\"],\"predecessor\":null,\"successor\":null},\"done_when\":[{\"text\":\"An order is stored.\",\"source\":\"spec\"}],\"story\":null,\"area\":null,\"profile\":{\"languages\":[\"python\"]},\"implements\":[],\"contracts\":[],\"open_questions\":[],\"neighbours\":[],\"placement\":[],\"spec_changed\":true,\"missing\":[\"REQ::GONE\"]}}",
+          "type": "text"
+        }
+      ],
+      "isError": false,
+      "structuredContent": {
+        "brief": {
+          "area": null,
+          "contracts": [],
+          "done_when": [
+            {
+              "source": "spec",
+              "text": "An order is stored."
+            }
+          ],
+          "implements": [],
+          "missing": [
+            "REQ::GONE"
+          ],
+          "neighbours": [],
+          "open_questions": [],
+          "placement": [],
+          "profile": {
+            "languages": [
+              "python"
+            ]
+          },
+          "spec_changed": true,
+          "story": null,
+          "task": {
+            "action": "B",
+            "area_id": "AREA::ORDERS",
+            "attempts": 0,
+            "block_reason": null,
+            "claimed_at": null,
+            "claimed_by": null,
+            "commit": null,
+            "complexity": "medium",
+            "created_at": "2026-01-01T00:00:00Z",
+            "created_run_id": null,
+            "description": null,
+            "done_when": [],
+            "has_open_questions": false,
+            "implements": [],
+            "last_run_id": null,
+            "note": null,
+            "phase": "logic",
+            "planned_by": "model",
+            "predecessor": null,
+            "prompt_ref": null,
+            "release": [],
+            "revision": 1,
+            "spec_build_id": null,
+            "status": "pending",
+            "story_id": "STORY::ORDERS::PLACE",
+            "successor": null,
+            "task_id": "TASK::ORDERS::B",
+            "title": "Task TASK::ORDERS::B",
+            "updated_at": "2026-01-01T00:00:00Z",
+            "waited_by": [
+              "TASK::ORDERS::C"
+            ],
+            "waits_for": [
+              "TASK::ORDERS::A"
+            ]
+          }
+        },
+        "project_id": "00000000-0000-4000-8000-000000000001"
+      }
+    }
+  },
+  "get_task_path": {
+    "page_1": {
+      "content": [
+        {
+          "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"task_id\":\"TASK::ORDERS::C\",\"total_count\":3,\"completed\":1,\"remaining\":1,\"items\":[{\"task_id\":\"TASK::ORDERS::A\",\"title\":\"Task TASK::ORDERS::A\",\"phase\":\"setup\",\"status\":\"completed\",\"complexity\":\"medium\",\"area\":{\"area_id\":\"AREA::ORDERS\",\"title\":\"Orders\"},\"story\":{\"story_id\":\"STORY::ORDERS::PLACE\",\"title\":\"Place an order\"},\"ready\":false,\"waits_for\":[],\"planned_by\":\"model\"},{\"task_id\":\"TASK::ORDERS::B\",\"title\":\"Task TASK::ORDERS::B\",\"phase\":\"logic\",\"status\":\"pending\",\"complexity\":\"medium\",\"area\":{\"area_id\":\"AREA::ORDERS\",\"title\":\"Orders\"},\"story\":{\"story_id\":\"STORY::ORDERS::PLACE\",\"title\":\"Place an order\"},\"ready\":true,\"waits_for\":[\"TASK::ORDERS::A\"],\"planned_by\":\"model\"}],\"next_cursor\":\"eyJ2IjoxLCJhZnRlciI6IlRBU0s6Ok9SREVSUzo6QiJ9\"}",
+          "type": "text"
+        }
+      ],
+      "isError": false,
+      "structuredContent": {
+        "completed": 1,
+        "items": [
+          {
+            "area": {
+              "area_id": "AREA::ORDERS",
+              "title": "Orders"
+            },
+            "complexity": "medium",
+            "phase": "setup",
+            "planned_by": "model",
+            "ready": false,
+            "status": "completed",
+            "story": {
+              "story_id": "STORY::ORDERS::PLACE",
+              "title": "Place an order"
+            },
+            "task_id": "TASK::ORDERS::A",
+            "title": "Task TASK::ORDERS::A",
+            "waits_for": []
+          },
+          {
+            "area": {
+              "area_id": "AREA::ORDERS",
+              "title": "Orders"
+            },
+            "complexity": "medium",
+            "phase": "logic",
+            "planned_by": "model",
+            "ready": true,
+            "status": "pending",
+            "story": {
+              "story_id": "STORY::ORDERS::PLACE",
+              "title": "Place an order"
+            },
+            "task_id": "TASK::ORDERS::B",
+            "title": "Task TASK::ORDERS::B",
+            "waits_for": [
+              "TASK::ORDERS::A"
+            ]
+          }
+        ],
+        "next_cursor": "eyJ2IjoxLCJhZnRlciI6IlRBU0s6Ok9SREVSUzo6QiJ9",
+        "project_id": "00000000-0000-4000-8000-000000000001",
+        "remaining": 1,
+        "task_id": "TASK::ORDERS::C",
+        "total_count": 3
+      }
+    },
+    "page_2_from_committed_cursor": {
+      "content": [
+        {
+          "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"task_id\":\"TASK::ORDERS::C\",\"total_count\":3,\"completed\":1,\"remaining\":1,\"items\":[{\"task_id\":\"TASK::ORDERS::C\",\"title\":\"Task TASK::ORDERS::C\",\"phase\":\"logic\",\"status\":\"pending\",\"complexity\":\"medium\",\"area\":{\"area_id\":\"AREA::ORDERS\",\"title\":\"Orders\"},\"story\":{\"story_id\":\"STORY::ORDERS::PLACE\",\"title\":\"Place an order\"},\"ready\":false,\"waits_for\":[\"TASK::ORDERS::B\"],\"planned_by\":\"model\"}],\"next_cursor\":null}",
+          "type": "text"
+        }
+      ],
+      "isError": false,
+      "structuredContent": {
+        "completed": 1,
+        "items": [
+          {
+            "area": {
+              "area_id": "AREA::ORDERS",
+              "title": "Orders"
+            },
+            "complexity": "medium",
+            "phase": "logic",
+            "planned_by": "model",
+            "ready": false,
+            "status": "pending",
+            "story": {
+              "story_id": "STORY::ORDERS::PLACE",
+              "title": "Place an order"
+            },
+            "task_id": "TASK::ORDERS::C",
+            "title": "Task TASK::ORDERS::C",
+            "waits_for": [
+              "TASK::ORDERS::B"
+            ]
+          }
+        ],
+        "next_cursor": null,
+        "project_id": "00000000-0000-4000-8000-000000000001",
+        "remaining": 1,
+        "task_id": "TASK::ORDERS::C",
+        "total_count": 3
+      }
+    }
+  },
+  "list_feature_tasks": {
+    "page_1": {
+      "content": [
+        {
+          "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"feature\":{\"spec_id\":\"FEAT::PLACE\",\"name\":\"Place an order\"},\"total_count\":4,\"items\":[{\"task_id\":\"TASK::ORDERS::A\",\"title\":\"Task TASK::ORDERS::A\",\"phase\":\"setup\",\"status\":\"completed\",\"complexity\":\"medium\",\"area\":{\"area_id\":\"AREA::ORDERS\",\"title\":\"Orders\"},\"story\":{\"story_id\":\"STORY::ORDERS::PLACE\",\"title\":\"Place an order\"},\"ready\":false,\"waits_for\":[],\"planned_by\":\"model\"},{\"task_id\":\"TASK::ORDERS::B\",\"title\":\"Task TASK::ORDERS::B\",\"phase\":\"logic\",\"status\":\"pending\",\"complexity\":\"medium\",\"area\":{\"area_id\":\"AREA::ORDERS\",\"title\":\"Orders\"},\"story\":{\"story_id\":\"STORY::ORDERS::PLACE\",\"title\":\"Place an order\"},\"ready\":true,\"waits_for\":[\"TASK::ORDERS::A\"],\"planned_by\":\"model\"}],\"next_cursor\":\"eyJ2IjoxLCJhZnRlciI6IlRBU0s6Ok9SREVSUzo6QiJ9\"}",
+          "type": "text"
+        }
+      ],
+      "isError": false,
+      "structuredContent": {
+        "feature": {
+          "name": "Place an order",
+          "spec_id": "FEAT::PLACE"
+        },
+        "items": [
+          {
+            "area": {
+              "area_id": "AREA::ORDERS",
+              "title": "Orders"
+            },
+            "complexity": "medium",
+            "phase": "setup",
+            "planned_by": "model",
+            "ready": false,
+            "status": "completed",
+            "story": {
+              "story_id": "STORY::ORDERS::PLACE",
+              "title": "Place an order"
+            },
+            "task_id": "TASK::ORDERS::A",
+            "title": "Task TASK::ORDERS::A",
+            "waits_for": []
+          },
+          {
+            "area": {
+              "area_id": "AREA::ORDERS",
+              "title": "Orders"
+            },
+            "complexity": "medium",
+            "phase": "logic",
+            "planned_by": "model",
+            "ready": true,
+            "status": "pending",
+            "story": {
+              "story_id": "STORY::ORDERS::PLACE",
+              "title": "Place an order"
+            },
+            "task_id": "TASK::ORDERS::B",
+            "title": "Task TASK::ORDERS::B",
+            "waits_for": [
+              "TASK::ORDERS::A"
+            ]
+          }
+        ],
+        "next_cursor": "eyJ2IjoxLCJhZnRlciI6IlRBU0s6Ok9SREVSUzo6QiJ9",
+        "project_id": "00000000-0000-4000-8000-000000000001",
+        "total_count": 4
+      }
+    },
+    "page_2_from_committed_cursor": {
+      "content": [
+        {
+          "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"feature\":{\"spec_id\":\"FEAT::PLACE\",\"name\":\"Place an order\"},\"total_count\":4,\"items\":[{\"task_id\":\"TASK::ORDERS::C\",\"title\":\"Task TASK::ORDERS::C\",\"phase\":\"logic\",\"status\":\"pending\",\"complexity\":\"medium\",\"area\":{\"area_id\":\"AREA::ORDERS\",\"title\":\"Orders\"},\"story\":{\"story_id\":\"STORY::ORDERS::PLACE\",\"title\":\"Place an order\"},\"ready\":false,\"waits_for\":[\"TASK::ORDERS::B\"],\"planned_by\":\"model\"},{\"task_id\":\"TASK::PAY::E\",\"title\":\"Task TASK::PAY::E\",\"phase\":\"logic\",\"status\":\"pending\",\"complexity\":\"medium\",\"area\":{\"area_id\":\"AREA::PAY\",\"title\":\"Payments\"},\"story\":{\"story_id\":\"STORY::PAY::CORE\",\"title\":\"Payments\"},\"ready\":true,\"waits_for\":[],\"planned_by\":\"model\"}],\"next_cursor\":null}",
+          "type": "text"
+        }
+      ],
+      "isError": false,
+      "structuredContent": {
+        "feature": {
+          "name": "Place an order",
+          "spec_id": "FEAT::PLACE"
+        },
+        "items": [
+          {
+            "area": {
+              "area_id": "AREA::ORDERS",
+              "title": "Orders"
+            },
+            "complexity": "medium",
+            "phase": "logic",
+            "planned_by": "model",
+            "ready": false,
+            "status": "pending",
+            "story": {
+              "story_id": "STORY::ORDERS::PLACE",
+              "title": "Place an order"
+            },
+            "task_id": "TASK::ORDERS::C",
+            "title": "Task TASK::ORDERS::C",
+            "waits_for": [
+              "TASK::ORDERS::B"
+            ]
+          },
+          {
+            "area": {
+              "area_id": "AREA::PAY",
+              "title": "Payments"
+            },
+            "complexity": "medium",
+            "phase": "logic",
+            "planned_by": "model",
+            "ready": true,
+            "status": "pending",
+            "story": {
+              "story_id": "STORY::PAY::CORE",
+              "title": "Payments"
+            },
+            "task_id": "TASK::PAY::E",
+            "title": "Task TASK::PAY::E",
+            "waits_for": []
+          }
+        ],
+        "next_cursor": null,
+        "project_id": "00000000-0000-4000-8000-000000000001",
+        "total_count": 4
+      }
+    }
+  },
+  "list_features": {
+    "page_1": {
+      "content": [
+        {
+          "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"total_count\":3,\"items\":[{\"spec_id\":\"FEAT::F1\",\"name\":\"FEAT::F1\",\"attributes\":{}},{\"spec_id\":\"FEAT::F2\",\"name\":\"FEAT::F2\",\"attributes\":{}}],\"next_cursor\":\"eyJ2IjoxLCJhZnRlciI6IkZFQVQ6OkYyIn0\"}",
+          "type": "text"
+        }
+      ],
+      "isError": false,
+      "structuredContent": {
+        "items": [
+          {
+            "attributes": {},
+            "name": "FEAT::F1",
+            "spec_id": "FEAT::F1"
+          },
+          {
+            "attributes": {},
+            "name": "FEAT::F2",
+            "spec_id": "FEAT::F2"
+          }
+        ],
+        "next_cursor": "eyJ2IjoxLCJhZnRlciI6IkZFQVQ6OkYyIn0",
+        "project_id": "00000000-0000-4000-8000-000000000001",
+        "total_count": 3
+      }
+    },
+    "page_2_from_committed_cursor": {
+      "content": [
+        {
+          "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"total_count\":3,\"items\":[{\"spec_id\":\"FEAT::F3\",\"name\":\"FEAT::F3\",\"attributes\":{}}],\"next_cursor\":null}",
+          "type": "text"
+        }
+      ],
+      "isError": false,
+      "structuredContent": {
+        "items": [
+          {
+            "attributes": {},
+            "name": "FEAT::F3",
+            "spec_id": "FEAT::F3"
+          }
+        ],
+        "next_cursor": null,
+        "project_id": "00000000-0000-4000-8000-000000000001",
+        "total_count": 3
+      }
+    }
+  },
+  "list_projects": {
+    "page_1": {
+      "content": [
+        {
+          "text": "{\"items\":[{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"name\":\"Alpha\",\"created_at\":\"2026-03-03T09:30:00Z\"},{\"project_id\":\"00000000-0000-4000-8000-000000000002\",\"name\":\"Beta\",\"created_at\":\"2026-03-02T09:30:00Z\"}],\"next_cursor\":\"MjAyNi0wMy0wMlQwOTozMDowMCswMDowMHwwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDI\"}",
+          "type": "text"
+        }
+      ],
+      "isError": false,
+      "structuredContent": {
+        "items": [
+          {
+            "created_at": "2026-03-03T09:30:00Z",
+            "name": "Alpha",
+            "project_id": "00000000-0000-4000-8000-000000000001"
+          },
+          {
+            "created_at": "2026-03-02T09:30:00Z",
+            "name": "Beta",
+            "project_id": "00000000-0000-4000-8000-000000000002"
+          }
+        ],
+        "next_cursor": "MjAyNi0wMy0wMlQwOTozMDowMCswMDowMHwwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDI"
+      }
+    },
+    "page_2_from_committed_cursor": {
+      "content": [
+        {
+          "text": "{\"items\":[{\"project_id\":\"00000000-0000-4000-8000-000000000003\",\"name\":\"Gamma\",\"created_at\":\"2026-03-01T09:30:00Z\"}],\"next_cursor\":null}",
+          "type": "text"
+        }
+      ],
+      "isError": false,
+      "structuredContent": {
+        "items": [
+          {
+            "created_at": "2026-03-01T09:30:00Z",
+            "name": "Gamma",
+            "project_id": "00000000-0000-4000-8000-000000000003"
+          }
+        ],
+        "next_cursor": null
+      }
+    }
+  },
+  "list_tasks": {
+    "page_1": {
+      "content": [
+        {
+          "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"total_count\":3,\"items\":[{\"task_id\":\"TASK::ORDERS::B\",\"title\":\"Task TASK::ORDERS::B\",\"phase\":\"logic\",\"status\":\"pending\",\"complexity\":\"medium\",\"area\":{\"area_id\":\"AREA::ORDERS\",\"title\":\"Orders\"},\"story\":{\"story_id\":\"STORY::ORDERS::PLACE\",\"title\":\"Place an order\"},\"ready\":true,\"waits_for\":[\"TASK::ORDERS::A\"],\"planned_by\":\"model\"},{\"task_id\":\"TASK::ORDERS::D\",\"title\":\"Task TASK::ORDERS::D\",\"phase\":\"logic\",\"status\":\"pending\",\"complexity\":\"medium\",\"area\":{\"area_id\":\"AREA::ORDERS\",\"title\":\"Orders\"},\"story\":{\"story_id\":\"STORY::ORDERS::TRACK\",\"title\":\"Track an order\"},\"ready\":true,\"waits_for\":[],\"planned_by\":\"rules\"}],\"next_cursor\":\"eyJ2IjoxLCJhZnRlciI6IlRBU0s6Ok9SREVSUzo6RCJ9\"}",
+          "type": "text"
+        }
+      ],
+      "isError": false,
+      "structuredContent": {
+        "items": [
+          {
+            "area": {
+              "area_id": "AREA::ORDERS",
+              "title": "Orders"
+            },
+            "complexity": "medium",
+            "phase": "logic",
+            "planned_by": "model",
+            "ready": true,
+            "status": "pending",
+            "story": {
+              "story_id": "STORY::ORDERS::PLACE",
+              "title": "Place an order"
+            },
+            "task_id": "TASK::ORDERS::B",
+            "title": "Task TASK::ORDERS::B",
+            "waits_for": [
+              "TASK::ORDERS::A"
+            ]
+          },
+          {
+            "area": {
+              "area_id": "AREA::ORDERS",
+              "title": "Orders"
+            },
+            "complexity": "medium",
+            "phase": "logic",
+            "planned_by": "rules",
+            "ready": true,
+            "status": "pending",
+            "story": {
+              "story_id": "STORY::ORDERS::TRACK",
+              "title": "Track an order"
+            },
+            "task_id": "TASK::ORDERS::D",
+            "title": "Task TASK::ORDERS::D",
+            "waits_for": []
+          }
+        ],
+        "next_cursor": "eyJ2IjoxLCJhZnRlciI6IlRBU0s6Ok9SREVSUzo6RCJ9",
+        "project_id": "00000000-0000-4000-8000-000000000001",
+        "total_count": 3
+      }
+    },
+    "page_2_from_committed_cursor": {
+      "content": [
+        {
+          "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"total_count\":3,\"items\":[{\"task_id\":\"TASK::PAY::E\",\"title\":\"Task TASK::PAY::E\",\"phase\":\"logic\",\"status\":\"pending\",\"complexity\":\"medium\",\"area\":{\"area_id\":\"AREA::PAY\",\"title\":\"Payments\"},\"story\":{\"story_id\":\"STORY::PAY::CORE\",\"title\":\"Payments\"},\"ready\":true,\"waits_for\":[],\"planned_by\":\"model\"}],\"next_cursor\":null}",
+          "type": "text"
+        }
+      ],
+      "isError": false,
+      "structuredContent": {
+        "items": [
+          {
+            "area": {
+              "area_id": "AREA::PAY",
+              "title": "Payments"
+            },
+            "complexity": "medium",
+            "phase": "logic",
+            "planned_by": "model",
+            "ready": true,
+            "status": "pending",
+            "story": {
+              "story_id": "STORY::PAY::CORE",
+              "title": "Payments"
+            },
+            "task_id": "TASK::PAY::E",
+            "title": "Task TASK::PAY::E",
+            "waits_for": []
+          }
+        ],
+        "next_cursor": null,
+        "project_id": "00000000-0000-4000-8000-000000000001",
+        "total_count": 3
+      }
+    }
+  }
+}
