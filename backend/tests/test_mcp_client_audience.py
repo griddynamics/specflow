@@ -10,14 +10,16 @@ signature against the loopback JWKS stub, then the claim marker; the tool runs f
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
+import httpx
 import pytest
 
+from mcp_server.registry import install
 from mcp_support import (
     MCP_CLIENT,
+    MCP_URL,
     TOOLS_LIST,
     OidcRig,
+    build_app,
     call,
     log_text,
     oidc_env,
@@ -26,7 +28,6 @@ from mcp_support import (
     serving,
     structured,
     text,
-    tool_app,
 )
 
 EMAIL = "alice@example.com"
@@ -74,30 +75,43 @@ def access_token(rig: OidcRig, **over: object) -> str:
     return rig.token(**{**shaped, **over})
 
 
-async def test_a_client_audience_access_token_lists_projects_and_leaks_nothing(
-    monkeypatch, valid_env, oidc_rig, mcp_log
-):
-    """FR-MCP-AUTH-07/-09/-10: accepted with the marker; no extra claim value or email in logs or the result."""
+def app_over(env: dict[str, str], transport: httpx.MockTransport | None = None):
+    return build_app(env, transport=transport, tools=lambda server: install(server, resource_url=MCP_URL))
+
+
+async def test_a_client_audience_access_token_lists_projects_and_leaks_nothing(valid_env, oidc_rig, mcp_log):
+    """FR-MCP-AUTH-07/-09/-10: accepted with the marker; no extra claim value or email in logs or the result; the
+    same token is what the API receives."""
+
+    mine = "00000000-0000-4000-8000-000000000001"
+    seen: list[httpx.Request] = []
+
+    def api(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        page = {
+            "items": [{"project_id": mine, "name": "Alpha", "created_at": "2026-03-03T09:30:00Z"}],
+            "next_cursor": None,
+        }
+        return httpx.Response(200, json=page, headers={"X-SpecFlow-User-Id": mine})
 
     env = oidc_env(valid_env, oidc_rig.stub, **settings_over(oidc_rig))
-    app, repo = tool_app(monkeypatch, valid_env, None, env=env)
-    user = await repo.upsert_user(None, SimpleNamespace(subject=EMAIL, email=EMAIL, name=None))  # subject = sub
-    mine = await repo.create_project(None, user.id, "Alpha")
-    async with sdk_session(app, access_token(oidc_rig)) as session:
+    token = access_token(oidc_rig)
+    async with sdk_session(app_over(env, httpx.MockTransport(api)), token) as session:
         result = await call(session, "list_projects")
 
-    assert [i["project_id"] for i in structured(result)["items"]] == [str(mine.id)]
+    assert [i["project_id"] for i in structured(result)["items"]] == [mine]
+    assert [r.headers["authorization"] for r in seen] == [f"Bearer {token}"]
     haystack = log_text(mcp_log, "mcp") + text(result)
     assert [leak for leak in LEAKS if leak in haystack and leak != EMAIL] == []
     assert EMAIL not in log_text(mcp_log, "mcp")
 
 
 @pytest.mark.parametrize("marker", [{"x_token_kind": None}, {"x_token_kind": "id"}, {"x_token_kind": ["access"]}])
-async def test_the_id_token_shape_is_refused_and_leaks_nothing(monkeypatch, valid_env, oidc_rig, mcp_log, marker):
+async def test_the_id_token_shape_is_refused_and_leaks_nothing(valid_env, oidc_rig, mcp_log, marker):
     """FR-MCP-AUTH-07/-09/-10: no marker, another value or a non-string value is a 401 without any claim echoed."""
 
     env = oidc_env(valid_env, oidc_rig.stub, **settings_over(oidc_rig))
-    app, _ = tool_app(monkeypatch, valid_env, None, env=env)
+    app = app_over(env)
     async with serving(app) as client:
         response = await rpc(client, access_token(oidc_rig, **marker), TOOLS_LIST)
 
@@ -109,11 +123,11 @@ async def test_the_id_token_shape_is_refused_and_leaks_nothing(monkeypatch, vali
     assert [getattr(r, "reason", None) for r in rejected] == ["typ"]
 
 
-async def test_a_web_client_token_with_the_marker_is_refused_on_mcp(monkeypatch, valid_env, oidc_rig, mcp_log):
+async def test_a_web_client_token_with_the_marker_is_refused_on_mcp(valid_env, oidc_rig, mcp_log):
     """FR-MCP-AUTH-09 (CA-1): the REST surface's client audience is not accepted on ``/mcp``, marker or not."""
 
     env = oidc_env(valid_env, oidc_rig.stub, **settings_over(oidc_rig))
-    app, _ = tool_app(monkeypatch, valid_env, None, env=env)
+    app = app_over(env)
     web = access_token(oidc_rig, aud=WEB_CLIENT, azp=WEB_CLIENT)
     async with serving(app) as client:
         response = await rpc(client, web, TOOLS_LIST)
@@ -123,11 +137,11 @@ async def test_a_web_client_token_with_the_marker_is_refused_on_mcp(monkeypatch,
     assert [getattr(r, "reason", None) for r in rejected] == ["audience"]
 
 
-async def test_the_rest_resource_audience_is_still_refused_under_claim(monkeypatch, valid_env, oidc_rig):
+async def test_the_rest_resource_audience_is_still_refused_under_claim(valid_env, oidc_rig):
     """FR-MCP-AUTH-09: the marker does not relax the audience rule itself."""
 
     env = oidc_env(valid_env, oidc_rig.stub, **settings_over(oidc_rig))
-    app, _ = tool_app(monkeypatch, valid_env, None, env=env)
+    app = app_over(env)
     async with serving(app) as client:
         response = await rpc(client, access_token(oidc_rig, aud="specflow-api"), TOOLS_LIST)
 

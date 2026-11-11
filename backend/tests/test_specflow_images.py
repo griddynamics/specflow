@@ -281,7 +281,8 @@ def test_in_network_values_use_the_deployment_host_names():
         env = env_of(services()[name])
         assert env["DATABASE_HOST"] == "specflow-postgres", name
         assert env["DATABASE_NAME"] == env["DATABASE_USER"] == "specflow", name
-    for name in ("api", "mcp", "worker-agents"):
+    assert not {"DATABASE_HOST", "DATABASE_PASSWORD"} & set(env_of(services()["mcp"]))  # the router holds no database
+    for name in ("api", "worker-agents"):
         env = env_of(services()[name])
         # The defaults are the neo4j of the stack; `make up WITH=<store>` passes the values of another store.
         assert env["GRAPH_STORE"] == "${GRAPH_STORE:-neo4j}", name
@@ -302,8 +303,8 @@ def test_secret_variables_reach_only_their_roles():
     assert holders("DATABASE_AGENT_PASSWORD") == {"postgres", "worker-agents"}
     # The api runs the graph build in-process (POST /projects/{pid}/graph_build).
     assert holders("LLM_GATEWAY_API_KEY") == {"api", "worker-agents"}
-    assert holders("GRAPH_STORE_PASSWORD") == {"api", "worker-agents", "mcp"}
-    assert holders("DATABASE_PASSWORD") == {"postgres", "api", "worker-parse", "worker-agents", "mcp"}
+    assert holders("GRAPH_STORE_PASSWORD") == {"api", "worker-agents"}
+    assert holders("DATABASE_PASSWORD") == {"postgres", "api", "worker-parse", "worker-agents"}
     assert holders("POSTGRES_PASSWORD") == {"postgres", "langfuse-postgres"}  # the latter is its own store
     assert holders("AUTH_DEV_SIGNING_KEY") == set()
     assert holders("AUTH_MODE") == set()
@@ -399,14 +400,13 @@ def test_the_mcp_role_runs_the_api_image_against_the_bundled_keycloak():
     assert env["APP_ENV"] == "${APP_ENV:-local}"
     assert env["MCP_PORT"] == str(port)
     assert env["MCP_RESOURCE_URL"] == f"http://localhost:{port}/mcp"
-    assert env["DATABASE_HOST"] == "specflow-postgres"
-    assert env["GRAPH_STORE_URI"] == "${GRAPH_STORE_URI:-bolt://specflow-neo4j:7687}"
+    assert env["API_INTERNAL_URL"] == "http://specflow-api:8000"
     assert env["OIDC_ISSUER"] == KEYCLOAK_ISSUER
     assert env["AUTH_JWKS_URL"] == KEYCLOAK_JWKS_URL
     assert env["AUTH_ALLOWED_EMAIL_DOMAINS"] == "${AUTH_ALLOWED_EMAIL_DOMAINS:-example.com}"
     assert not {"AUTH_MODE", "AUTH_DEV_SIGNING_KEY"} & set(env)
-    prefixes = ("TEMPORAL_", "AWS_", "LLM_", "LANGFUSE_", "GRAPH_", "AGENT_", "DATABASE_AGENT_")
-    unused = [key for key in env if key.startswith(prefixes) and not key.startswith("GRAPH_STORE")]
+    prefixes = ("TEMPORAL_", "AWS_", "LLM_", "LANGFUSE_", "GRAPH_", "AGENT_", "DATABASE_", "NEO4J_")
+    unused = [key for key in env if key.startswith(prefixes)]
     assert [*unused, *(key for key in env if key == "SPECFLOW_CONFIG_FILE")] == []
     claims = {"AUTH_SUBJECT_CLAIM", "AUTH_CLIENT_ID_CLAIM", "AUTH_EMAIL_CLAIM", "AUTH_EMAIL_VERIFIED_CLAIM"}
     claims |= {
@@ -416,8 +416,7 @@ def test_the_mcp_role_runs_the_api_image_against_the_bundled_keycloak():
         "AUTH_IGNORED_AUDIENCES",
     }  # an empty fallback would switch a check off
     assert [name for name, other in svcs.items() if claims & set(env_of(other))] == []
-    # The graph password is checked by make up (check-graph-store-env), not required by compose.
-    assert sorted(key for key, value in env.items() if ":?" in str(value)) == ["DATABASE_PASSWORD"]
+    assert [key for key, value in env.items() if ":?" in str(value)] == []  # no secret: it forwards the token
     for name in ("api", "frontend"):
         assert not {"AUTH_MODE", "AUTH_DEV_SIGNING_KEY"} & set(env_of(svcs[name])), name
 
@@ -508,8 +507,7 @@ def test_the_start_order_follows_the_blueprint():
         }, name
     healthy = {"condition": "service_healthy"}  # api has migrated; keycloak holds the realm they check tokens against
     assert svcs["frontend"]["depends_on"] == {"api": healthy, "keycloak": healthy}
-    assert svcs[MCP_SERVICE]["depends_on"] == {  # the graph store of the stack: through api
-        "postgres": healthy,
+    assert svcs[MCP_SERVICE]["depends_on"] == {  # no database or graph store: everything goes through the api
         "api": healthy,
         "keycloak": healthy,
     }
@@ -689,13 +687,7 @@ def test_the_backend_control_runs_pass_check_config():
 
 MCP_ONLY_ENV = {
     "APP_ENV": "dev",
-    "DATABASE_HOST": "db.invalid",
-    "DATABASE_NAME": "app",
-    "DATABASE_USER": "app_user",
-    "DATABASE_PASSWORD": "synthetic-db-password-1",
-    "NEO4J_URI": "bolt://neo4j.invalid:7687",
-    "NEO4J_USER": "neo4j",
-    "NEO4J_PASSWORD": "synthetic-neo4j-password-1",
+    "API_INTERNAL_URL": "http://specflow-api.invalid:8000",
     "OIDC_ISSUER": "https://sso.invalid/realms/app",
     "AUTH_JWKS_URL": "https://sso.invalid/realms/app/certs",
     "AUTH_ALLOWED_EMAIL_DOMAINS": "example.com",
@@ -933,8 +925,8 @@ def test_the_graph_store_password_falls_back_to_the_older_env_file_name():
     fallback = "${GRAPH_STORE_PASSWORD:-${NEO4J_PASSWORD:-}}"
 
     assert "${NEO4J_PASSWORD:?" not in text
-    assert text.count(fallback) == 4  # the neo4j login, api, mcp and worker-agents
-    for name in ("api", "mcp", "worker-agents"):
+    assert text.count(fallback) == 3  # the neo4j login, api and worker-agents
+    for name in ("api", "worker-agents"):
         assert fallback in env_of(services()[name])["GRAPH_STORE_PASSWORD"]
     assert fallback in env_of(services()["neo4j"])["NEO4J_AUTH"]
 
@@ -1047,13 +1039,13 @@ def test_make_up_refuses_two_stores_and_a_graph_store_that_disagrees_with_with()
 def test_the_postgres_override_leaves_the_graph_connection_to_the_database_settings() -> None:
     text = POSTGRES_OVERRIDE.read_text()
     override = yaml.safe_load(text.replace("!reset null", "null"))["services"]  # `!reset null` reads as null
-    assert set(override) == {"api", "mcp", "worker-agents"}
+    assert set(override) == {"api", "worker-agents"}
     reset = ("GRAPH_STORE_URI", "GRAPH_STORE_USER", "GRAPH_STORE_PASSWORD", "GRAPH_STORE_NAME")
     for name, svc in override.items():
         env = svc["environment"]
         assert env["GRAPH_STORE"] == "postgres", name
         assert {key for key, value in env.items() if value is None} == set(reset), name
-    assert text.count("!reset null") == 3 * len(reset)
+    assert text.count("!reset null") == 2 * len(reset)
 
 
 @needs_compose_cli

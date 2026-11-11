@@ -29,7 +29,7 @@ import time
 from contextlib import suppress
 from logging import CRITICAL, DEBUG, ERROR, INFO, WARNING
 from types import TracebackType
-from typing import Any
+from typing import Any, override
 
 from logger import _stderr
 from logger._stderr import warn_once
@@ -73,6 +73,29 @@ THIRD_PARTY_LEVELS: dict[str, int] = {
     "asyncio": ERROR,
     "claude_agent_sdk": WARNING,
 }
+
+
+class _RedactHttpxQuery(logging.Filter):
+    """Drop the query of the URL in the `HTTP Request:` records of httpx at any level: it can carry caller text."""
+
+    redacts_httpx_query = True
+
+    @override
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple):
+            record.args = tuple(a.copy_with(query=None) if hasattr(a, "copy_with") else a for a in record.args)
+        return True
+
+
+def _install_httpx_query_filter() -> None:
+    """Idempotent (also after `importlib.reload`): installed on import, so it holds before and after any bootstrap."""
+
+    httpx_logger = logging.getLogger("httpx")
+    if not any(getattr(f, "redacts_httpx_query", False) for f in httpx_logger.filters):
+        httpx_logger.addFilter(_RedactHttpxQuery())
+
+
+_install_httpx_query_filter()
 
 #: Top-level logger names `get_logger` treats as "ours" -- these get
 #: `cfg.level` applied once (manual overrides afterward survive); anything

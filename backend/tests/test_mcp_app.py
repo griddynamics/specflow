@@ -2,26 +2,24 @@
 
 from __future__ import annotations
 
-import dataclasses
 import subprocess
 import sys
 import tomllib
-import types
 
+import httpx
 import pytest
 from mcp.server.mcpserver import MCPServer
 
-from api.mcp.app import create_mcp_app
-from graph.core import OntologyError
 from mcp_support import (
     BACKEND,
     MCP_URL,
     ONE_MIB,
+    READY_BODY,
     build_app,
-    fake_runtime,
     mcp_env,
     mcp_token,
     oidc_env,
+    ready_api,
     rpc,
     sdk_session,
     serving,
@@ -30,7 +28,6 @@ from mcp_support import (
 from settings import load_settings
 from specflow_auth_support import session_idp
 
-NO_FEATURE_ONTOLOGY = types.SimpleNamespace(node_types={"module": 1})
 PRM_PATHS = ("/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-protected-resource")
 
 
@@ -108,17 +105,100 @@ async def test_healthz_and_a_ready_readyz(whoami_app):
     assert {name: check["ok"] for name, check in body["checks"].items()} == {"database": True, "graph": True}
 
 
-async def test_readyz_is_503_when_the_graph_store_is_down_and_healthz_stays_200(valid_env):
-    app = build_app(mcp_env(valid_env), runtime=fake_runtime(graph_ok=False))
+def api_ready(*, graph_ok: bool = True, database_ok: bool = True) -> httpx.MockTransport:
+    """A fake API whose ``/readyz`` answers the four checks of the real one (the MCP role passes two on)."""
+
+    def check(detail: str) -> dict[str, object]:
+        return {"ok": detail == "ok", "detail": detail, "duration_ms": 3}
+
+    body = {
+        "status": "ready" if graph_ok and database_ok else "not_ready",
+        "checks": {
+            "database": check("ok" if database_ok else "unreachable"),
+            "temporal": check("ok"),
+            "storage": check("ok"),
+            "graph": check("ok" if graph_ok else "neo4j_unreachable"),
+        },
+    }
+    return httpx.MockTransport(lambda _request: httpx.Response(200 if graph_ok and database_ok else 503, json=body))
+
+
+async def test_readyz_passes_the_database_and_graph_checks_of_the_api_and_no_others(valid_env):
+    async with serving(build_app(mcp_env(valid_env), transport=api_ready())) as client:
+        ready = await client.get("/readyz")
+
+    assert ready.status_code == 200
+    assert ready.json() == {
+        "status": "ready",
+        "checks": {
+            "database": {"ok": True, "detail": "ok", "duration_ms": 3},
+            "graph": {"ok": True, "detail": "ok", "duration_ms": 3},
+        },
+    }
+
+
+async def test_readyz_is_503_when_an_api_check_fails_and_healthz_stays_200(valid_env):
+    app = build_app(mcp_env(valid_env), transport=api_ready(graph_ok=False))
     async with serving(app) as client:
         ready = await client.get("/readyz")
         health = await client.get("/healthz")
 
     body = ready.json()
     assert (ready.status_code, body["status"]) == (503, "not_ready")
-    assert (body["checks"]["graph"]["ok"], body["checks"]["database"]["ok"]) == (False, True)
-    assert "down" not in ready.text  # a fixed detail code, never exception text
+    assert (body["checks"]["graph"], body["checks"]["database"]["ok"]) == (
+        {"ok": False, "detail": "neo4j_unreachable", "duration_ms": 3},
+        True,
+    )
     assert health.status_code == 200
+
+
+@pytest.mark.parametrize("failure", [httpx.ConnectError("refused"), httpx.ReadTimeout("slow")])
+async def test_readyz_is_503_with_both_checks_not_ok_when_the_api_is_unreachable(valid_env, failure):
+    def refuse(_request: httpx.Request) -> httpx.Response:
+        raise failure
+
+    async with serving(build_app(mcp_env(valid_env), transport=httpx.MockTransport(refuse))) as client:
+        ready = await client.get("/readyz")
+        health = await client.get("/healthz")
+
+    unreachable = {"ok": False, "detail": "api_unreachable", "duration_ms": 0}
+    assert (ready.status_code, ready.json()["checks"]) == (503, {"database": unreachable, "graph": unreachable})
+    assert health.status_code == 200
+
+
+DATABASE_CHECK = READY_BODY["checks"]["database"]
+NOT_A_PROBE_ANSWER = [
+    pytest.param(500, {"json": READY_BODY}, id="500-with-a-probe-shaped-body"),
+    pytest.param(200, {"json": {"status": "ready", "checks": {"database": DATABASE_CHECK}}}, id="no-graph-check"),
+    pytest.param(200, {"text": "<html>not json</html>"}, id="200-not-json"),
+]
+
+
+@pytest.mark.parametrize(("status", "content"), NOT_A_PROBE_ANSWER)
+async def test_readyz_is_503_with_both_checks_not_ok_when_the_api_answer_is_not_a_probe_answer(
+    valid_env, status, content
+):
+    def api(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, **content)
+
+    async with serving(build_app(mcp_env(valid_env), transport=httpx.MockTransport(api))) as client:
+        ready = await client.get("/readyz")
+
+    unreachable = {"ok": False, "detail": "api_unreachable", "duration_ms": 0}
+    assert (ready.status_code, ready.json()["checks"]) == (503, {"database": unreachable, "graph": unreachable})
+
+
+async def test_readyz_sends_no_token(valid_env):
+    seen: list[httpx.Request] = []
+
+    def api(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json=READY_BODY)
+
+    async with serving(build_app(mcp_env(valid_env), transport=httpx.MockTransport(api))) as client:
+        await client.get("/readyz", headers={"Authorization": f"Bearer {mcp_token()}"})
+
+    assert [(r.url.path, "authorization" in r.headers) for r in seen] == [("/readyz", False)]
 
 
 # --- the SDK over HTTP and the tool seam -----------------------------------------
@@ -192,18 +272,25 @@ async def test_the_server_is_built_with_explicit_rebinding_protection_and_no_sdk
 # --- lifespan events (architecture.md, Logging) -------------------------------------
 
 
-async def test_startup_and_shutdown_events_and_the_runtime_is_closed(valid_env, mcp_log):
-    closed = []
+class ClosingTransport(httpx.MockTransport):
+    """A fake API that notes when the client closes it (the lifespan owns the client)."""
 
-    async def close():
-        closed.append(True)
+    def __init__(self) -> None:
+        super().__init__(ready_api)
+        self.closed = False
 
-    runtime = dataclasses.replace(fake_runtime(), close=close)
-    async with serving(build_app(mcp_env(valid_env), runtime=runtime)):
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+async def test_startup_and_shutdown_events_and_the_api_client_is_closed(valid_env, mcp_log):
+    transport = ClosingTransport()
+
+    async with serving(build_app(mcp_env(valid_env), transport=transport)):
         assert event_names(mcp_log).count("mcp.startup.completed") == 1
-        assert closed == []
+        assert not transport.closed
 
-    assert closed == [True]
+    assert transport.closed
     names = event_names(mcp_log)
     assert names.index("mcp.startup.completed") < names.index("mcp.shutdown.completed")
     started = next(r for r in mcp_log.records if getattr(r, "event", "") == "mcp.startup.completed")
@@ -211,31 +298,18 @@ async def test_startup_and_shutdown_events_and_the_runtime_is_closed(valid_env, 
     assert not hasattr(started, "auth_mode")  # one auth path: nothing to name
 
 
-async def test_a_runtime_factory_that_raises_logs_startup_failed(valid_env, mcp_log):
-    async def broken(_):
-        raise ConnectionError("no database")
+async def test_a_client_that_cannot_be_built_logs_startup_failed(valid_env, mcp_log, monkeypatch):
+    def broken(*_args, **_kwargs):
+        raise ConnectionError("no api")
 
-    app = build_app(mcp_env(valid_env), factory=broken)
+    monkeypatch.setattr("mcp_server.app.build_api_client", broken)
     with pytest.raises(ConnectionError):
-        async with serving(app):
+        async with serving(build_app(mcp_env(valid_env))):
             pass
 
     failed = [r for r in mcp_log.records if getattr(r, "event", "") == "mcp.startup.failed"]
     assert [r.error_type for r in failed] == ["ConnectionError"]
     assert "mcp.startup.completed" not in event_names(mcp_log)
-
-
-async def test_an_ontology_without_a_feature_type_refuses_the_start(valid_env, mcp_log, monkeypatch):
-    """architecture.md Operations: the ontology must hold a feature type; the opened driver and engine are closed."""
-
-    monkeypatch.setattr("api.mcp.runtime.graph_core.load_ontology", lambda: NO_FEATURE_ONTOLOGY)
-    app = create_mcp_app(load_settings("mcp", mcp_env(valid_env)))  # the real build_runtime: lazy engine and driver
-    with pytest.raises(OntologyError):
-        async with serving(app):
-            pass
-
-    failed = [r for r in mcp_log.records if getattr(r, "event", "") == "mcp.startup.failed"]
-    assert [r.error_type for r in failed] == ["OntologyError"]
 
 
 # --- NFR-MCP-03 (runtime side): the REST app and the MCP role stay apart -----------------
@@ -250,11 +324,11 @@ def modules_loaded_by(statement: str) -> set[str]:
 
 
 def test_the_mcp_app_loads_no_fastapi_and_the_rest_app_loads_no_mcp_role():
-    mcp_role = modules_loaded_by("import api.mcp.app, api.mcp.server")
+    mcp_role = modules_loaded_by("import mcp_server.app, mcp_server.server")
     rest = modules_loaded_by("import api.app")
 
     assert not {m for m in mcp_role if m == "fastapi" or m.startswith(("fastapi.", "auth.dependencies", "api.app"))}
-    assert not {m for m in rest if m == "api.mcp" or m.startswith("api.mcp.")}
+    assert not {m for m in rest if m == "mcp_server" or m.startswith("mcp_server.")}
 
 
 def test_both_rest_lists_of_the_import_contracts_name_every_rest_module():
@@ -264,8 +338,7 @@ def test_both_rest_lists_of_the_import_contracts_name_every_rest_module():
     rest = {
         f"api.{entry.stem if entry.is_file() else entry.name}"
         for entry in api.iterdir()
-        if entry.name not in {"__init__.py", "__pycache__", "mcp", "fixtures"}
-        and (entry.is_dir() or entry.suffix == ".py")
+        if entry.name not in {"__init__.py", "__pycache__", "fixtures"} and (entry.is_dir() or entry.suffix == ".py")
     }
     contracts = {
         c["id"]: c

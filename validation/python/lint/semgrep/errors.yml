@@ -46,6 +46,7 @@ rules:
         # project: the typed-error/error-code policy covers the HTTP surface; the library
         # packages (llm, graph, db, temporal, ...) raise ValueError/RuntimeError for misuse.
         - "**/src/api/**"
+        - "**/src/mcp_server/**"  # project: the MCP role lived under src/api/
         - "**/src/auth/**"
       exclude:
         - "**/src/api/errors.py"  # project: was **/src/errors.py

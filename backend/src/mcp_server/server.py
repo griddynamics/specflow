@@ -12,9 +12,8 @@ from typing import override
 import uvicorn
 from uvicorn.server import HANDLED_SIGNALS
 
-from api.mcp.app import create_mcp_app
-from api.mcp.http import required
-from settings import RoleSettings
+from mcp_server.app import create_mcp_app
+from settings import McpRoleSettings
 
 HOST = str(IPv4Address(0))  # 0.0.0.0, every interface of the container
 STARTUP_FAILED = 3
@@ -42,14 +41,13 @@ class _GracefulServer(uvicorn.Server):
                 signal.signal(sig, handler)
 
 
-def run(settings: RoleSettings) -> int:
+def run(settings: McpRoleSettings) -> int:
     """Serve until SIGTERM/SIGINT; 0 after a normal stop, 3 when the startup failed."""
 
-    mcp = required(settings.mcp, "the mcp role requires mcp settings")
     config = uvicorn.Config(
         create_mcp_app(settings),
         host=HOST,
-        port=mcp.port,
+        port=settings.mcp.port,
         lifespan="on",
         log_config=None,
         access_log=False,

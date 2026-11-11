@@ -15,15 +15,15 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from api.mcp.http import error_response, required
 from auth.bearer import bearer_token
 from auth.claims import Principal
 from auth.errors import UNAUTHORIZED, AuthError, invalid_token
 from auth.verifiers import TokenVerifier
 from logger.logger import INFO, get_logger, log_event
+from mcp_server.http import error_response, required
 from settings import MCP_PATH
 
-logger = get_logger("api.mcp.auth")
+logger = get_logger("mcp_server.auth")
 
 PRINCIPAL_KEY: Final = "principal"
 RESOURCE_NAME: Final = "SpecFlow"

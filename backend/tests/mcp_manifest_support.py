@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from api.mcp.registry import render_manifest_json
+from mcp_server.registry import render_manifest_json
 
 MANIFEST_PATH = Path(__file__).resolve().parents[2] / "frontend" / "lib" / "guides" / "mcp-tools.json"
 

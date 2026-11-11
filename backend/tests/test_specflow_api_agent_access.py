@@ -30,7 +30,6 @@ from agent_contracts import (
     ListTasksArgs,
 )
 from api.deps import agent_principal, agent_project, current_agent_user, current_user
-from api.mcp.registry import TOOLS
 from api.routers import (
     agent,
     documents,
@@ -43,6 +42,7 @@ from api.routers import (
     sources,
 )
 from auth.dependencies import current_agent_principal, current_principal
+from mcp_server.registry import TOOLS
 from specflow_api_agent_support import FOREIGN, USER_HEADER, agent_env, serve_agent
 
 SRC = Path(__file__).resolve().parent.parent / "src"

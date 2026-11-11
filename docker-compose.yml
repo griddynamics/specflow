@@ -504,16 +504,7 @@ services:
       APP_ENV: "${APP_ENV:-local}"
       MCP_PORT: "8002"
       MCP_RESOURCE_URL: "http://localhost:8002/mcp"   # local only; clients use localhost (the Host allowlist)
-      DATABASE_HOST: "specflow-postgres"
-      DATABASE_PORT: "5432"
-      DATABASE_NAME: "specflow"
-      DATABASE_USER: "specflow"
-      DATABASE_PASSWORD: "${DATABASE_PASSWORD:?set DATABASE_PASSWORD in .env.local}"
-      GRAPH_STORE: "${GRAPH_STORE:-neo4j}"   # the store of the stack, as for the api
-      GRAPH_STORE_URI: "${GRAPH_STORE_URI:-bolt://specflow-neo4j:7687}"
-      GRAPH_STORE_USER: "${GRAPH_STORE_USER:-neo4j}"
-      GRAPH_STORE_PASSWORD: "${GRAPH_STORE_PASSWORD:-${NEO4J_PASSWORD:-}}"   # an older .env.local with only NEO4J_PASSWORD still works; make up checks that one is set
-      GRAPH_STORE_NAME: "${GRAPH_STORE_NAME:-neo4j}"
+      API_INTERNAL_URL: "http://specflow-api:8000"   # the router calls the api agent routes; it holds no database or graph access
       OIDC_ISSUER: "http://localhost:8180/realms/specflow"   # local only: the bundled Keycloak (public issuer)
       AUTH_JWKS_URL: "http://specflow-keycloak:8080/realms/specflow/protocol/openid-connect/certs"
       AUTH_ALLOWED_EMAIL_DOMAINS: "${AUTH_ALLOWED_EMAIL_DOMAINS:-example.com}"   # local only: QA users (example.com) + your domain (make env-local)
@@ -522,12 +513,10 @@ services:
     depends_on:
       keycloak:
         condition: service_healthy
-      postgres:
-        condition: service_healthy
-      api:   # api runs `specflow migrate` first and waits for the graph store of the stack
+      api:   # the router calls the api, which runs `specflow migrate` first
         condition: service_healthy
     healthcheck:
-      # /readyz probes the database and the graph store; the Host allowlist applies to /mcp only, so 127.0.0.1 is fine here.
+      # /readyz passes through the api's database and graph checks; the Host allowlist applies to /mcp only, so 127.0.0.1 is fine here.
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/readyz', timeout=4)"]
       interval: 10s
       timeout: 6s

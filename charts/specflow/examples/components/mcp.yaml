@@ -27,6 +27,8 @@ env:
         key: APP_ENV
   - name: MCP_PORT
     value: "8002"
+  - name: API_INTERNAL_URL
+    value: http://specflow-api:8000
   - name: AUTH_TOKEN_TYPE
     value: keycloak
   - name: MCP_RESOURCE_URL
@@ -64,41 +66,6 @@ env:
       secretKeyRef:
         name: specflow-mcp
         key: AUTH_ALLOWED_EMAIL_DOMAINS
-  - name: DATABASE_HOST
-    valueFrom:
-      secretKeyRef:
-        name: specflow-mcp
-        key: DATABASE_HOST
-  - name: DATABASE_NAME
-    valueFrom:
-      secretKeyRef:
-        name: specflow-mcp
-        key: DATABASE_NAME
-  - name: DATABASE_USER
-    valueFrom:
-      secretKeyRef:
-        name: specflow-mcp
-        key: DATABASE_USER
-  - name: GRAPH_STORE_URI
-    valueFrom:
-      secretKeyRef:
-        name: specflow-mcp
-        key: GRAPH_STORE_URI
-  - name: GRAPH_STORE_USER
-    valueFrom:
-      secretKeyRef:
-        name: specflow-mcp
-        key: GRAPH_STORE_USER
-  - name: DATABASE_PASSWORD
-    valueFrom:
-      secretKeyRef:
-        name: specflow-mcp
-        key: DATABASE_PASSWORD
-  - name: GRAPH_STORE_PASSWORD
-    valueFrom:
-      secretKeyRef:
-        name: specflow-mcp
-        key: GRAPH_STORE_PASSWORD
 envFrom: []
 
 resources:

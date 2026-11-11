@@ -216,7 +216,7 @@ def test_the_removed_dev_auth_mode_is_refused_with_a_fix_hint(role, value, app_e
 
     env = valid_env if app_env == "local" else deployed(valid_env, app_env)
     origin = "http://localhost:8002" if app_env == "local" else "https://mcp.example.test"
-    env.update(AUTH_MODE=value, MCP_RESOURCE_URL=f"{origin}/mcp")
+    env.update(AUTH_MODE=value, MCP_RESOURCE_URL=f"{origin}/mcp", API_INTERNAL_URL="http://api:8000")
 
     with pytest.raises(ConfigurationError) as raised:
         load_settings(role, env)
@@ -262,6 +262,7 @@ def test_oidc_auth_is_accepted_in_kubernetes(valid_env):
 def test_the_issuer_is_required_for_every_role_that_reads_auth(valid_env):
     del valid_env["OIDC_ISSUER"]
     valid_env["MCP_RESOURCE_URL"] = "http://localhost:8002/mcp"
+    valid_env["API_INTERNAL_URL"] = "http://api:8000"
 
     assert refused("api", valid_env) == ("OIDC_ISSUER",)
     assert refused("mcp", valid_env) == ("OIDC_ISSUER",)

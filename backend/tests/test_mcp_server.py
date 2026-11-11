@@ -1,4 +1,4 @@
-"""``api.mcp.server``: the startup-failure exit code and a SIGTERM that stops the process gracefully (FR-MCP-OPS-01)."""
+"""``mcp_server.server``: the startup-failure exit code and a SIGTERM that stops it gracefully (FR-MCP-OPS-01)."""
 
 from __future__ import annotations
 
@@ -12,23 +12,23 @@ import threading
 
 import pytest
 
-from api.mcp import server
-from api.mcp.http import McpInvariantError
+from mcp_server import server
 from mcp_support import BACKEND, build_app, mcp_env
 from settings import load_settings
 
-# The real command path (``cli.main(["mcp"])`` -> ``api.mcp.server.run`` -> ``_GracefulServer``); only the runtime
-# factory is replaced, through the app factory's seam, so no database or graph is needed.
+# The real command path (``cli.main(["mcp"])`` -> ``mcp_server.server.run`` -> ``_GracefulServer``); only the API
+# transport is replaced, through the app factory's seam, so no API is needed.
 SIGTERM_SCRIPT = textwrap.dedent(
     """
     import sys
     sys.path[:0] = ["src", "tests"]
-    from api.mcp import server
-    from mcp_support import runtime_factory
+    from mcp_server import server
+    import httpx
+    from mcp_support import ready_api
     import cli
 
     real = server.create_mcp_app
-    server.create_mcp_app = lambda settings: real(settings, runtime_factory=runtime_factory())
+    server.create_mcp_app = lambda settings: real(settings, transport=httpx.MockTransport(ready_api))
     sys.exit(cli.main(["mcp"]))
     """
 )
@@ -87,18 +87,14 @@ def free_port() -> int:
 
 
 def test_a_failed_startup_exits_the_process_with_3(valid_env, monkeypatch):
-    async def broken(_):
-        raise ConnectionError("no database")
+    def broken(*_args, **_kwargs):
+        raise ConnectionError("no api")
 
     env = mcp_env(valid_env, MCP_PORT=str(free_port()))
-    monkeypatch.setattr(server, "create_mcp_app", lambda _settings: build_app(env, factory=broken))
+    monkeypatch.setattr("mcp_server.app.build_api_client", broken)
+    monkeypatch.setattr(server, "create_mcp_app", lambda _settings: build_app(env))
 
     with pytest.raises(SystemExit) as raised:  # uvicorn itself exits with its startup-failure code
         server.run(load_settings("mcp", env))
 
     assert raised.value.code == server.STARTUP_FAILED
-
-
-def test_run_needs_the_mcp_settings(valid_env):
-    with pytest.raises(McpInvariantError):
-        server.run(load_settings("api", valid_env))

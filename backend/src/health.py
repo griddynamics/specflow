@@ -20,7 +20,7 @@ from db import session as db_session
 from graph.core.errors import ConfigurationError
 from graph.stores import build_store
 from logger.logger import INFO, WARNING, get_logger, log_event
-from settings import Role, RoleSettings, load_settings
+from settings import DatabaseRole, RoleSettings, load_settings
 from storage import factory as storage_factory
 from temporal import client as temporal_client
 
@@ -171,7 +171,7 @@ def _graph_unconfigured(code: str) -> Probe:
     return probe
 
 
-async def run_checks(role: Role, *, settings: RoleSettings | None = None) -> CheckReport:
+async def run_checks(role: DatabaseRole, *, settings: RoleSettings | None = None) -> CheckReport:
     """Check every dependency ``role`` needs, with throwaway connections.
 
     Loads the settings from the environment unless given. ``int(report)`` is the

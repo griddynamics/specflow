@@ -15,6 +15,7 @@ from settings import (
     AgentDatabaseSettings,
     AgentRunSettings,
     AgentSettings,
+    ApiInternalSettings,
     AppSettings,
     AuthSettings,
     GraphBuildSettings,
@@ -39,6 +40,7 @@ SETTINGS_CLASSES = (
     GraphBuildSettings,
     LangfuseSettings,
     McpSettings,
+    ApiInternalSettings,
 )
 ROOT = Path(__file__).resolve().parents[2]
 DOC = (ROOT / "docs" / "configuration.md").read_text()
@@ -311,3 +313,13 @@ def test_the_api_service_gets_the_mcp_resource_url_of_the_mcp_service_and_the_ch
     assert services["api"]["environment"]["MCP_RESOURCE_URL"] == services["mcp"]["environment"]["MCP_RESOURCE_URL"]
     names = {entry["name"] for entry in chart["env"]}
     assert {"MCP_RESOURCE_URL", "MCP_AUDIENCE", "MCP_CLIENT_IDS"} <= names
+
+
+def test_the_api_address_of_the_mcp_role_shares_its_name_with_the_web_app():
+    """``API_INTERNAL_URL`` is one env name for two readers: the frontend rules and ``ApiInternalSettings``."""
+
+    rules = (ROOT / "frontend" / "lib" / "env-rules.mjs").read_text()
+
+    assert ApiInternalSettings.model_fields["url"].validation_alias == "API_INTERNAL_URL"
+    assert '"API_INTERNAL_URL"' in rules
+    assert "API_INTERNAL_URL" in REQUIRED_KEYS

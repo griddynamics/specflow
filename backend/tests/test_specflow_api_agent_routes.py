@@ -18,7 +18,7 @@ import pytest
 import api.agent_reads as agent_reads_module
 import db.repositories as repo_module
 from agent_contracts import AGENT_ROUTES, DEFAULT_LIMIT, MAX_CURSOR_CHARS
-from api.routers.agent import encode_feature_cursor
+from api.routers.agent import decode_feature_cursor, encode_feature_cursor
 from specflow_api_agent_support import (
     ALICE_SUBJECT,
     ALPHA,
@@ -214,6 +214,57 @@ async def test_only_the_canonical_cursor_is_valid_everything_else_is_400_invalid
         "message": "The cursor is invalid.",
         "details": {},
     }
+    assert response.headers[USER_HEADER] == rig.alice_id
+
+
+DOC_CURSOR = "eyJ2IjoxLCJhZnRlciI6IkZFQVQ6OkNIRUNLT1VUIn0"  # docs/mcp-server/tools.md, the list_features example
+
+
+@pytest.mark.parametrize("tool", ["list_features", "list_tasks", "list_feature_tasks"])
+@pytest.mark.parametrize(
+    ("cursor", "after"),
+    [
+        pytest.param(DOC_CURSOR, "FEAT::CHECKOUT", id="doc-example-literal"),
+        pytest.param(encode_feature_cursor("FEAT::ŁÓDŹ-日本"), "FEAT::ŁÓDŹ-日本", id="non-ascii-round-trip"),
+    ],
+)
+async def test_the_documented_cursor_and_a_non_ascii_position_are_accepted_and_decode_to_their_position(
+    monkeypatch, env, tool, cursor, after
+):
+    """The doc literal decodes to ``FEAT::CHECKOUT``; a non-ASCII ``spec_id`` survives encode, the wire and decode.
+    (``get_task_path`` also needs the position to name an item of the path: its own refusal, tested above.)"""
+
+    assert decode_feature_cursor(cursor) == after
+    assert encode_feature_cursor(after) == cursor
+    async with serve_agent(monkeypatch, env) as rig:
+        response = await rig.call(tool, cursor=cursor)
+    assert response.status_code == 200, response.text
+    if tool == "list_features":
+        assert [params["after"] for name, params in rig.executor.calls if name == "read_nodes_page"] == [after]
+
+
+@pytest.mark.parametrize("tool", FEATURE_CURSOR_ROUTES)
+@pytest.mark.parametrize(
+    "bad",
+    [
+        pytest.param(cursor_of('{"v":1,"after":"\\ud800"}'), id="lone-surrogate-escaped"),
+        pytest.param(
+            base64.urlsafe_b64encode('{"v":1,"after":"\ud800"}'.encode("utf-8", "surrogatepass")).decode().rstrip("="),
+            id="lone-surrogate-raw-bytes",
+        ),
+        pytest.param(cursor_of('{"v":true,"after":"FEAT::F1"}'), id="version-true"),
+        pytest.param(cursor_of('{"v":1}'), id="no-after"),
+        pytest.param(cursor_of('["x"]'), id="json-array"),
+        pytest.param("Zm9yZ2Vk", id="not-json-forged"),
+    ],
+)
+async def test_the_malformed_cursor_forms_dropped_with_the_old_mcp_tests_are_400_invalid_cursor(
+    monkeypatch, env, tool, bad
+):
+    async with serve_agent(monkeypatch, env) as rig:
+        response = await rig.call(tool, cursor=bad)
+    assert response.status_code == 400, response.text
+    assert response.json()["error"]["code"] == "invalid_cursor"
     assert response.headers[USER_HEADER] == rig.alice_id
 
 
