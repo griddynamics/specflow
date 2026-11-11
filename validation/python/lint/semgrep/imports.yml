@@ -190,8 +190,9 @@ rules:
         # project: `graph.core` and `graph.plan` also resolve their LLM names (`graph.core.Gateway`, `JudgeRunner`, ...)
         # and the planner names of `graph.plan` on first access: the mcp image installs neither the OpenAI SDK nor
         # SQLAlchemy, and importing the plan models (`agent_contracts`) runs the package `__init__` of `graph.plan`.
-        # The tables are explicit and first-party (the role import test of `make check` imports each role's entrypoint
-        # with only that role's extras installed). A top-level import cannot be lazy and an inline one is PLC0415.
+        # The tables are explicit and first-party (backend/tests/test_specflow_role_imports.py, part of `make check`,
+        # imports each role's entrypoints with every library outside that role's extras blocked). A top-level import
+        # cannot be lazy and an inline one is PLC0415.
         - "**/src/graph/plan/__init__.py"
         # project: src/settings.py is loaded by every role, and the database helpers (`DatabaseSettings.url`,
         # `connect_args`, the TLS validators, the PostgreSQL graph-store URI) need SQLAlchemy and `postgres`, which only
