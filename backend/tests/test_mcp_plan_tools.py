@@ -16,11 +16,7 @@ from starlette.applications import Starlette
 from api.mcp.errors import MESSAGES
 from api.mcp.registry import TOOLS, install
 from api.mcp.tools.graph import encode_feature_cursor
-from graph.plan import PlanReadError, PlanService, TaskBrief
-from graph.plan.models import DoneWhen
-from graph.plan.reader import LoadedPlan
-from graph_plan_support import plan_ontology, plan_rules
-from graph_support import OfflineExecutor, shipped_ontology
+from graph_support import shipped_ontology
 from mcp_support import (
     MCP_URL,
     build_app,
@@ -34,40 +30,11 @@ from mcp_support import (
     structured,
     text,
 )
-from plan_reads_support import OPEN_TASK_IDS, READY, ShopGraph, shop_plan
+from plan_reads_support import OPEN_TASK_IDS, READY
+from plan_support import FakePlanService
 from test_specflow_api_fakes import FakeRepo
 
 ALICE = mcp_token("alice@example.com")
-
-
-class FakePlanService(PlanService):
-    """The real service over ``shop_plan`` and ``ShopGraph``, recording the projects it loads and the briefs asked."""
-
-    def __init__(self, *, has_plan: bool = True) -> None:
-        self.projects: list[str] = []
-        self.briefs: list[tuple[str, str, int]] = []
-        self.loaded = shop_plan(has_plan=has_plan)
-
-        async def load(project_id: str) -> LoadedPlan:
-            self.projects.append(project_id)
-            return self.loaded
-
-        ontology = plan_ontology()
-        super().__init__(OfflineExecutor(), ontology, plan_rules(ontology), graph=ShopGraph(), load=load)
-
-    async def task_brief(self, project_id: str, task_id: str, *, neighbours: int = 30) -> TaskBrief:
-        await self._plan(project_id)
-        self.briefs.append((project_id, task_id, neighbours))
-        task = self.loaded.tasks.get(task_id)
-        if task is None or task.status == "superseded":
-            raise PlanReadError("task_not_found")
-        return TaskBrief(
-            task=self.loaded.plan_task(task),
-            done_when=(DoneWhen(text="An order is stored.", source="spec"),),
-            profile={"languages": ["python"]},
-            spec_changed=True,
-            missing=("REQ::GONE",),
-        )
 
 
 def tool_app(monkeypatch: Any, valid_env: dict[str, str], plan: FakePlanService) -> tuple[Starlette, FakeRepo]:
