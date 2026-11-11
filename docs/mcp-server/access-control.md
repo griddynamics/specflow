@@ -1,11 +1,11 @@
 ---
 type: Design
 title: "MCP server access control"
-description: "Project membership as the single access decision, tenant isolation in Postgres and Neo4j, untrusted content and audit"
+description: "Project membership as the single access decision, tenant isolation in Postgres and Neo4j, the rules of the write tools, untrusted content and audit"
 status: stable
 tags: [mcp, auth]
 ---
-# access-control.md: project membership, tenant isolation, untrusted content and audit
+# access-control.md: project membership, tenant isolation, write tools, untrusted content and audit
 
 ## Rule
 
@@ -53,12 +53,40 @@ The `Principal` subject is looked up in `users.auth_subject`. The web app and th
 same issuer and the same subject claim ([auth.md](auth.md)); a developer who has only ever used MCP gets a user row and
 no projects until they create one in the web app (only a project's creator is its member today).
 
+## Write tools
+
+`claim_story`, `release_story`, `add_finding`, `report_task` and `complete_story` ([tools.md](tools.md#story-and-spec-tools))
+write as the caller. Membership stays the only access decision: every member may claim, report, complete and add
+findings in a member project, as every member may read it.
+
+| # | Rule |
+|---|---|
+| AC9 | The writer is the token's user. No write tool takes a user argument; `claimed_by`, `completed_by` and `created_by` hold that user's id, never an email or a name. |
+| AC10 | A claim is held by one user. Releasing, reporting progress, completing and a blocking finding need the claim token that `claim_story` returned to that user; another member's token, or a stale one, answers `claim_mismatch` and writes nothing, except the repeats of [Repeats](tools.md#repeats). |
+| AC11 | A blocking finding blocks only the caller's own claimed story, and only through a node a task of that story implements. |
+| AC12 | Only people resolve or dismiss findings and force a release, in the web app; no tool does either. |
+| AC13 | No write tool changes a spec node or edge, and nothing a finding says is read by a build or the planner. |
+| AC14 | A refused write changes nothing: the membership check, the token check and the argument checks run before the write, in one locked transaction per story. |
+
+| Threat | Example | Mitigation |
+|---|---|---|
+| Spoofing | an agent acts as another member | AC9: identity from the token only |
+| Tampering | a stale or copied token releases or completes another member's story | AC10; the story keeps its last token only to answer the holder's own repeat |
+| Tampering | a finding blocks other people's work | AC11 |
+| Repudiation | who claimed, completed or wrote what | user ids on the graph nodes, `api.agent.written` and `mcp.tool.completed` joined by one request id |
+| Information disclosure | names, emails, tokens reach other agents | holders carry a display name or null, never an id or email; the token goes to its holder only; finding text, notes, labels and names are never logged |
+| Information disclosure | a `refers_to` link points at a private host | references are stored as given and never fetched; URLs without user information |
+| Denial of service | an agent floods findings | at most 50 open findings per caller and story (`finding_limit`); the length limits of [tools.md](tools.md#add_finding) |
+| Elevation of privilege | an agent changes the spec through a finding | AC13 |
+
 ## Untrusted content
 
 Feature names, statements and quotes come from documents that project members uploaded. They reach the developer's
 agent as tool output and may contain text that reads like instructions. Mitigations:
 
-- Every tool is read-only; no tool output can make the server write anything.
+- The read tools are read-only. The write tools change plan state and findings only, never a spec node or edge
+  ([Write tools](#write-tools)); a write needs the agent's own tool call with the caller's token, so no tool output
+  can make the server write anything.
 - Content is returned in named JSON fields, never mixed into server-authored instructions or tool descriptions.
 - Tool descriptions tell the model that field values are project data, not instructions.
 - The binding file is data from the user's repository, and a committed file can come from another person. The file and
@@ -78,9 +106,13 @@ agent as tool output and may contain text that reads like instructions. Mitigati
 | Other members, emails, user ids | no | |
 | Feature `spec_id`, name, stored attributes (`stmt`, `quote`) | yes | `quote` is an excerpt of a project document ([../graph/data-model.md](../graph/data-model.md#spec-node)) |
 | Embeddings, statements history, provenance, document paths | no | not needed for listing; a later detail tool may add provenance ([../graph/data-model.md](../graph/data-model.md#spec-node)) |
+| Story and spec tools: plan state, spec nodes with statements and provenance, source lines, findings | yes | member projects only; never vectors |
+| Holder names | yes | the display name of a member who holds, completed or wrote something; null when it is the email or the user left the project |
+| Claim token | to its holder only | never shown in tables, error details or other users' answers |
 
 ## Audit
 
 `mcp.tool.completed` records every call and `mcp.auth.rejected` every refused request; the fields are those of
 [architecture.md](architecture.md#logging-and-audit); the user id comes from the API, and the API's log lines of the call
-carry the same request id. Together they answer who read which project, and when.
+carry the same request id. Together they answer who read which project, and when. Writes add `api.agent.written`
+in the API, and the graph keeps who claimed, completed or wrote what ([architecture.md](architecture.md#logging-and-audit)).

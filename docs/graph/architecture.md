@@ -14,7 +14,7 @@ graph/
   core/    shared by every submodule: the store port, queries, reader, writer, ontology, gateway
   stores/  one folder per graph database behind the port (neo4j, arcadedb, postgres, tigergraph; _bolt is shared)
   build/   builds and updates the graph
-  gap/     reserved, empty
+  gap/     findings beside the spec graph, first slice of gap detection (gap.md)
   plan/    implementation plans for coding agents on the spec graph (plan/INDEX.md)
 ```
 
@@ -61,7 +61,7 @@ Each node type and relation in the ontology has an `origin`, and the origin name
 | Origin | Owner |
 |---|---|
 | `extracted` (spec nodes, domain edges) | `graph.build` |
-| `analysis`, `human` | `graph.gap` (declared when gap is designed) |
+| `agent` (findings), later `analysis`, `human` | `graph.gap` (declared in `graph/gap/ontology.yaml`, [gap.md](gap.md)) |
 | `planner` | `graph.plan` (declared in `graph/plan/ontology.yaml`, [plan/ontology.md](plan/ontology.md)) |
 
 `graph.build` also owns the built-in names, which no ontology declares: labels `SpecNode`, `Document`,

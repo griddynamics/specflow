@@ -26,7 +26,7 @@ documents; `exclude`: things never to extract; both go into extraction prompts),
 | Field | Meaning |
 |---|---|
 | `label` | Node label (a type name in ArcadeDB, `kind` and `labels` in PostgreSQL: [data-model.md](data-model.md#per-store-mapping)) |
-| `origin` | Who writes it: `extracted` (build), `analysis` or `human` (gap), `planner` (plan) |
+| `origin` | Who writes it: `extracted` (build), `analysis`, `human` or `agent` (gap), `planner` (plan) |
 | `tier` | `context`, `spec`, `governance` or `plan`; readers use it to tell layers apart |
 | `role` | Required on extracted types, not allowed on others. `anchor` (a part of the system), `group` (groups other nodes), `atomic` (one commitment). Sets identity and merge defaults; `anchor` and `group` types are hub nodes, used for known terms and edge catalogs ([build.md](build.md)). |
 | `group` | Optional node group whose fields the type inherits (`origin`, `tier`, `role`, `identity`, `description`, `guidance`, `attributes`; the type's own value wins); never a label. `origin` and `tier` are required on the type or its group |
@@ -134,7 +134,8 @@ immutable `Ontology`. Any problem raises one `OntologyError` that lists every pr
 
 Each submodule ships its own ontology file as package data: `graph.core` ships the build file
 ([spec-ontology.yaml](spec-ontology.yaml), `owner: build`), `graph.plan` ships `graph/plan/ontology.yaml` (`owner: plan`,
-[plan/ontology.md](plan/ontology.md)), and `graph.gap` will ship one with its own types and relations. `load_ontology` merges the shipped files of the installed
+[plan/ontology.md](plan/ontology.md)), and `graph.gap` ships `graph/gap/ontology.yaml` (`owner: gap`, origin `agent` for its
+findings, [gap.md](gap.md) "Ontology file"). `load_ontology` merges the shipped files of the installed
 submodules into one `Ontology` and validates the union, so names stay unique across files and pairs may
 cross owners (for example a gap relation from a finding to a `FunctionalRequirement`). Vocabularies and
 node groups are shared by name across files; one declared in two files must be declared the same. The
@@ -147,8 +148,9 @@ owner, and when build retires a fragment such relations stay.
 
 The parts of the ontology that reach extraction prompts form its fingerprint (the `stated_only` flag
 too, since the edge prompt shows it); when the fingerprint changes, stored extraction results stop
-matching and are re-extracted ([build.md](build.md)). Adding or renaming labels or relations needs a
-migration ([build.md](build.md) Migration).
+matching and are re-extracted ([build.md](build.md)). Submodule files declare no extracted type or
+relation, so adding or changing one never changes the fingerprint. Adding or renaming build labels or
+relations needs a migration ([build.md](build.md) Migration).
 
 A renamed-ontology test builds one corpus with the shipped ontology and with a copy whose declared
 labels, relations, id prefixes and enum values are all renamed, including the names held by `where`,

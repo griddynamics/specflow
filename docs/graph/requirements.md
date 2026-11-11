@@ -12,7 +12,8 @@ Approved (akozak, 2026-10-22), except the units added or changed for ontology 2.
 FR-READ-10, FR-BLD-07, 09, 15, 20, 26-36, FR-INF-01, 06-08, FR-VER-05, 06) and for the build's own
 extraction calls and per-source grounding (FR-LLM-07, 08, FR-BLD-37-41) and for two-pass node
 extraction, the hub catalog, known terms and tables (FR-BLD-23, 37, 42-46) and for hub identity and
-merging (FR-BLD-15, 17, 25, 47-55): Draft until reviewed.
+merging (FR-BLD-15, 17, 25, 47-55) and for trace, the agent reads and findings (FR-ONT-07, 08,
+FR-READ-11-22, FR-GAP-01-12): Draft until reviewed.
 Verification is by test unless the row says otherwise. Details live in the linked file of each area.
 
 ## Core ([architecture.md](architecture.md), [data-model.md](data-model.md))
@@ -37,6 +38,8 @@ Verification is by test unless the row says otherwise. Details live in the linke
 | FR-ONT-04 | `load_ontology` shall merge the ontology files of the installed submodules into one validated ontology. | Given a test submodule file declaring a type owned by build, then `OntologyError` names it; given one with a relation from its type to `Fragment`, then it loads. |
 | FR-ONT-05 | If an ontology file's `format_version` is not 2, then loading shall raise `OntologyError`. | Given a file with `format_version: 1`, then the error names the format version. |
 | FR-ONT-06 | If a format 2 flag breaks its loader rule, then loading shall raise `OntologyError` naming it. | Given `owner` on a symmetric relation's pair, a `default` pair on a `stated_only` relation and an `otherwise` naming an undeclared relation, then the error lists all three. |
+| FR-ONT-07 | The ontology loader shall read `impact` on relations and pairs and apply the checks of [trace.md](trace.md) "Impact roles in the ontology". | Given a symmetric pair `uses` whose reverse pair is also `uses`, then loading raises `OntologyError`. |
+| FR-ONT-08 | Merging the gap ontology file shall leave every extraction fingerprint unchanged. | Given the shipped build file alone and with the plan and gap files, then the `nodes`, `edges` and `attributes` fingerprints are equal. |
 
 ## Read and search ([api.md](api.md))
 
@@ -52,6 +55,18 @@ Verification is by test unless the row says otherwise. Details live in the linke
 | FR-READ-08 | `nodes` and `find_nodes` shall filter by attribute values, and an unknown attribute name shall raise `ConfigurationError`. | Given `where={"is_assumption": "yes"}`, then only assumptions are returned. |
 | FR-READ-09 | `find_fragments` shall return `active` fragments whose text matches, from the fulltext index. | Given a retired fragment and an active one containing "SAML", then only the active one is returned. |
 | FR-READ-10 | When an attribute with `inherit` is null, readers shall return the owner's value one `via` hop away, without storing it. | Given a requirement without `release` `PART_OF` a feature with `release` "Phase 2", then `node` returns "Phase 2" and the stored property stays absent. |
+| FR-READ-11 | `trace` shall walk each edge only in the way its role allows for the direction ([trace.md](trace.md)). | Given `FEAT::CHECKOUT DEPENDS_ON FEAT::CARD_PAYMENT`, then `affects` from card payment has checkout at hop 1 and `based_on` from checkout has card payment at hop 1. |
+| FR-READ-12 | `trace` shall never walk a `contains` edge upward, and shall list the seeds' owners up to the first spine root as context. | Given `FEAT::CARD_PAYMENT PART_OF MOD::PAYMENTS_SERVICE`, then the module is in `context` and not in `nodes` unless another relation reaches it. |
+| FR-READ-13 | `trace` shall add the members of every reached node that is not a spine root, one hop further, with step `scope`. | Given checkout reached at hop 1, then `REQ::Q::CHECKOUT_SPEED` is at hop 2 with step `scope`. |
+| FR-READ-14 | From a spine root, `trace` shall follow only `uses` and `used_by` edges. | Given a `based_on` trace from `ENT::ORDER` that reaches `MOD::ORDERS_DATABASE` over `STORED_IN`, then `ENT::DUAL_STORED`, also stored there, is not reached. |
+| FR-READ-15 | With `include_owner`, `trace` shall also start from the seeds' spine-root owners and mark what it reaches first from them `via_owner`. | Given the card payment seeds, then `based_on` at depth 1 returns `IFC::STRIPE_API` with `via_owner` true; with `include_owner` false it returns nothing. |
+| FR-READ-16 | With `basis="trusted"`, `trace` shall walk only stated and implied edges. | Given an inferred `DEPENDS_ON` into a seed, then it is not walked by default and is walked with `basis="any"`, carrying its confidence. |
+| FR-READ-17 | `trace` shall order nodes by hop then `spec_id`, return at most `limit`, set `truncated`, and give the same answer for the same graph. | Given 30 reachable nodes and `limit` 10, then 10 nodes are returned and `truncated` is true, the same 10 every time. |
+| FR-READ-18 | `similar` shall return the spec nodes whose stored vector scores at least `min_score` against a source's, without an embedding call, leaving out nodes linked to a source when `exclude_linked` ([api.md](api.md) "Read and search"). | Given a source with a linked and an unlinked node, both scoring 0.9, and a third scoring 0.7, then with `min_score` 0.75 only the unlinked node is returned with `like` naming the source; with `exclude_linked` false both 0.9 nodes are; the gateway's `embed` is never called; `min_score` 1.5 raises `ConfigurationError` (`invalid_min_score`). |
+| FR-READ-19 | `evidence` shall return one item per evidence fragment of the built revision with up to `context_lines` lines before and after the quote and the other nodes on those lines. | Given a node grounded on lines 10-12 of a 13-line document and another node on line 12, then the item has lines 10-12 as `quote`, lines 8-9 as `before`, line 13 as `after` and the other node in `others`; a retired fragment gives no item; an unknown id returns `None`; `context_lines` 6 raises `invalid_context_lines`. |
+| FR-READ-20 | `paths` shall return at most 3 shortest chains of at most `max_hops` trusted edges, `based_on` first, else `affects`, with no spine root inside a chain. | Given `FEAT::CHECKOUT DEPENDS_ON FEAT::CARD_PAYMENT`, then `paths(checkout, card payment)` answers `based_on` with one 1-hop chain and `paths(card payment, checkout)` answers `affects`; two features joined only through their module answer no chain and `direction` `None`; `max_hops` 5 raises `invalid_max_hops`. |
+| FR-READ-21 | `hops` shall return the fewest trusted edges from the sources to each id within `max_hops`, with no spine root inside the chain. | Given card payment as source, then checkout maps to 1, the source to 0, and a node reached only through `MOD::PAYMENTS_SERVICE` is left out; an inferred edge is not walked. |
+| FR-READ-22 | `expand` shall rank nodes by personalised PageRank from the seeds, damped at spine roots and mixed with vector similarity, leave out the seeds and `exclude`, and take items in rank order within `budget_tokens` (characters / 4, rounded up). | Given the shop fixture seeded with card payment and `budget_tokens` 100, then no seed or excluded node is an item, the item tokens sum to `tokens` ≤ 100, `left_out` counts the ranked nodes not taken, and the same graph gives the same items; `budget_tokens` 50 raises `invalid_budget`. |
 
 ## LLM gateway and judges ([api.md](api.md))
 
@@ -149,6 +164,23 @@ Verification is by test unless the row says otherwise. Details live in the linke
 | FR-VER-04 | `verify_project` shall run the checks without changing the graph. | Given a graph with a problem, then the problem is reported and the graph is unchanged. |
 | FR-VER-05 | Verification shall check the ontology's hard rules with the shared validator (`v2_rule`), delete a violating inferred edge and report a violating stated or implied edge without repair. | Given an inferred edge that gives a requirement a second owner, then it is deleted; given such a stated edge, then it is reported and kept and the run is not `ok`. |
 | FR-VER-06 | Verification shall report the consolidated metrics, skipping spine sources the spine `exclude` matches themselves or through their owner. | Given a feature with `in_scope` "no" and a requirement of it that reaches no module, then `spine_unreachable` does not count the requirement; given a build result without quarantine data, then `quarantine_by_reason` is n/a. |
+
+## Findings ([gap.md](gap.md))
+
+| ID | Requirement | Acceptance |
+|---|---|---|
+| FR-GAP-01 | `Findings.add` shall write an open `Finding` with origin `agent`, an `ABOUT` edge per `about` node and a `REFERS_TO` edge per reference, one `ExternalRef` per (project, type, value). | Given two findings citing the same commit, then each is `ABOUT` its nodes and both refer to one `ExternalRef`. |
+| FR-GAP-02 | `Findings.add` shall store `about` ids resolved through aliases, and if an id resolves to no node, raise `FindingError("node_not_found")` naming it and write nothing. | Given A merged into B, then `about=[A]` stores `[B]`; given an unknown id, the error names it and no node is written. |
+| FR-GAP-03 | When an open finding has the same author, kind, `about` set and normalised text, `Findings.add` shall return it with `created` false and write nothing. | Given an open finding, when the author adds it again with `about` in another order and the text in other case and spacing, then the same `finding_id` returns; after it is resolved, the same add creates a new finding. |
+| FR-GAP-04 | `Findings.add` shall enforce the limits of text, `about`, `refers_to` and open findings per author and story, before any write. | Given 50 open findings of one author and story, then the 51st raises `finding_limit`; given 2001 characters of text, then `invalid_text`. |
+| FR-GAP-05 | `Findings.add` shall accept only `refers_to` values of the forms in [gap.md](gap.md) "Rules", and never fetch one. | Given a URL with user info, a file path with `..` and a 6 hex commit, then each raises `invalid_ref` before any query; with a recording HTTP client/socket guard, adding a `url` and a `pr` URL makes no network call. |
+| FR-GAP-06 | `resolve` and `dismiss` shall close only an `open` finding, recording who, when and the note. | Given a resolved finding, when it is dismissed, then `FindingError("wrong_state")` is raised and it is unchanged. |
+| FR-GAP-07 | `Findings.refresh` shall set `orphaned` on an open finding whose `about` id resolves to no node, keep the finding, and clear it when the node is back. | Given a finding about a requirement a build deletes, then after the refresh it is open and `orphaned` with the id kept; after a build restores the requirement, `orphaned` is false and `ABOUT` is restored. |
+| FR-GAP-08 | Findings shall never be read by a build or a plan run, and `graph.gap` shall never write a spec node, edge, document or fragment. | Given one project with findings and one without, then an `update` build and a plan run give equal results; an `OwnedWriter` for `gap` refuses a spec label. |
+| FR-GAP-09 | A blocking finding shall block the claimed story's tasks with the mapped reason and `blocked_by`, end the claim, and its resolution or dismissal shall unblock the tasks still blocked by it. | API test: given a held story and a blocking `question` about a node a claimed task implements, then the tasks are `blocked` with `spec_ambiguous` and the finding id; after the finding is resolved they are `pending`. |
+| FR-GAP-10 | When the plan refuses the block of a new blocking finding, the host shall withdraw that finding. | API test: given a story released between the guard and `block_story`, then the call answers `claim_mismatch`, no finding exists and no task changed. |
+| FR-GAP-11 | `open_counts` shall count open findings per asked id, and `findings` shall list blocking findings first, then newest first. | Given two open findings about X and a resolved one, then `open_counts([X])` is `{X: 2}`; given a blocking and a newer non-blocking finding, the blocking one is listed first. |
+| FR-GAP-12 | Logs and errors of `graph.gap` shall never contain finding text, notes or `refers_to` values. | Log-capture test over add, resolve, withdraw and refresh. |
 
 ## Non-functional
 

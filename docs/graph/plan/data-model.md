@@ -60,7 +60,13 @@ Partition creates stories from the spec; no model invents them.
 | `prompt_ref` | The describer prompt revision (`<name>.<revision>`) when written by a model |
 | `release` | The anchor's release (rules `release`, a null value taken from the anchor's owner); none for other kinds |
 | `status` | `active` or `retired` ("Story status") |
+| `claimed_by`, `claimed_at`, `agent_label` | The story claim ([lifecycle.md](lifecycle.md) "Story claims"): the holder's user id, when, and the label the agent gave (1-80 printable characters, display only). Set by `claim_story`, cleared when the claim ends. The story is held exactly while `claimed_by` is set |
+| `claim_token` | Token of the last story claim; kept after the claim ends (release, completion, blocking finding) until the next claim, so a repeated call is recognised. Never returned by reads |
+| `branch`, `note` | Last branch name (1-200 printable characters) and note (at most 500 characters) given by a claim or release; kept when the claim ends; `note` never logged |
+| `pr_url` | Pull request URL given by the last `complete_story` |
 | `created_at`, `updated_at`, `last_run_id` | Write stamps |
+
+Plan runs never write the claim fields (`claimed_by` to `pr_url` above).
 
 Every plannable node has one home story: the story of the feature, interface or data entity it is or
 belongs to (nested features are stories of their own), else the area's `CORE` story, else, in the
@@ -86,10 +92,13 @@ A task may implement nodes of several stories; it is `IN_STORY` the one the Task
 | `planned_by`, `prompt_ref` | `model` or `rules`; the planner prompt revision (`<name>.<revision>`) when planned by a model |
 | `spec_build_id` | The plan's consumed build (`Plan.last_build_id` of the run) when the task's spec was last planned ("Fingerprints") |
 | `status` | See "Task status" |
-| `claim_token`, `claimed_by`, `claimed_at` | Set by a claim, cleared when the task leaves `in_progress` |
+| `claim_token`, `claimed_by`, `claimed_at` | Set by a claim, cleared when the task leaves `in_progress`. A story claim sets the story's token and the holder's user id on every task it claims |
+| `progress` | `done`, `skipped` or `todo`: what the holder of a story claim reported (`report_progress`); only while `in_progress`, cleared when the task leaves it |
 | `attempts` | Number of claims so far |
 | `commit` | Full git commit hash that finished the task (40 or 64 hex, lower case) |
+| `completed_by`, `completed_at` | Who completed the task (the claimant, a user id for story claims) and when; kept after completion, also when the task is later superseded |
 | `block_reason` | Block reason code while `blocked` ([lifecycle.md](lifecycle.md)) |
+| `blocked_by` | `finding_id` of the blocking finding that blocked the task ([../gap.md](../gap.md) "Blocking link"); only while `blocked`, cleared with the block |
 | `note` | Last short note from the agent (at most 500 characters); never logged |
 | `created_at`, `updated_at`, `created_run_id`, `last_run_id` | Write stamps |
 | `_lock` | Technical CAS token used and cleared inside a single lifecycle or persist statement; never returned by reads |
@@ -250,9 +259,10 @@ templates on every store; property names, ids and the invariants below do not di
 | PD2 | Every open task has an `area_id` of an `active` area. |
 | PD3 | Every node of a type the rules mark `required` is covered: implemented by at least one open or `completed` task, or recorded in its area's `not_buildable`, or named in the `spec_ids` of a profile convention. |
 | PD4 | `WAITS_FOR` among open and `completed` tasks is acyclic; except from `in_progress` tasks, it never ends at a closed task. |
-| PD5 | A `completed` task has a `commit`; an `in_progress` task has a claim; no other task has a claim. |
+| PD5 | A `completed` task has a `commit`; an `in_progress` task has a claim; no other task has a claim. `progress` is set only on `in_progress` tasks, `blocked_by` only on `blocked` tasks, `completed_by` only on tasks with a `commit`. |
 | PD6 | No plan node carries `SpecNode`; no plan write sets a property of a spec node, document or fragment. |
 | PD7 | Every open task is `IN_STORY` exactly one `active` story of its own area, and its `story_id` names that story. Every `active` story of kind `feature`, `interface` or `entity` `IMPLEMENTS` exactly its anchor. |
+| PD8 | A held story has `claim_token` and `claimed_at`; every task carrying a held story's token is an `in_progress` task of a story held with that token, and a task of a held story that is `in_progress` carries its token. |
 
-Plan checks test PD1-PD5 and PD7 after every plan run and on request ([lifecycle.md](lifecycle.md)
+Plan checks test PD1-PD5, PD7 and PD8 after every plan run and on request ([lifecycle.md](lifecycle.md)
 "Plan checks").

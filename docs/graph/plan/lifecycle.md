@@ -1,11 +1,11 @@
 ---
 type: Design
 title: "Graph plan task lifecycle"
-description: "Task transitions, ready tasks, claims, story progress, task briefs, the agent contract and plan checks"
+description: "Task transitions, ready tasks, task and story claims, story progress, task and story briefs, the agent contract and plan checks"
 status: stable
 tags: [graph, plan]
 ---
-# lifecycle.md: task lifecycle, ready tasks, claims, story progress, task briefs, the agent contract and plan checks
+# lifecycle.md: task lifecycle, ready tasks, task and story claims, story progress, task and story briefs, the agent contract and plan checks
 
 The plan stores execution progress on its `Task` nodes. Coding agents move tasks through their states
 with the lifecycle calls below, through the host's MCP tools ([api.md](api.md) "MCP tools (host)");
@@ -20,7 +20,7 @@ on the task row. The rules hold for every client: the plan enforces them, not th
 | From | To | Call | Rule |
 |---|---|---|---|
 | `pending` | `in_progress` | `claim_task`, `claim_next` | The task is ready ("Ready tasks"); sets `claim_token`, `claimed_by`, `claimed_at`, `attempts + 1` |
-| `in_progress` | `completed` | `complete_task` | Claim token matches; commit is 40 or 64 hex; claim fields cleared |
+| `in_progress` | `completed` | `complete_task` | Claim token matches; commit is 40 or 64 hex; `completed_by` (the claimant) and `completed_at` set; claim fields cleared |
 | `in_progress` | `failed` | `fail_task` | Claim token matches; claim fields cleared |
 | `in_progress` | `blocked` | `block_task` | Claim token matches; `block_reason` set; claim fields cleared |
 | `in_progress` | `pending` | `release_task` | Claim token matches, or `force=True` for crash recovery (the host decided the claim is stale); claim fields cleared; `attempts` unchanged |
@@ -40,7 +40,9 @@ not apply raises `TaskStateError` with a code and changes nothing:
 | `unknown_task`, `unknown_story` | The id resolves to no task or story of the project | - |
 | `claim_mismatch` | The claim token does not match (the task was released and claimed again), or `release_task` without a token and without `force` | - |
 
-There are no forced claims: a claim never ignores prerequisites. A person who wants to proceed anyway
+There are no forced claims: a claim never ignores prerequisites outside what it claims. `claim_task`
+claims one task, so every prerequisite counts; a story claim takes the prerequisites inside its unit
+along ("Story claims"). A person who wants to proceed anyway
 completes or retires the blocking work explicitly. A plan run never touches an `in_progress` task, so a
 running agent always finds its claim intact.
 
@@ -57,7 +59,8 @@ A task is ready when:
 `ready_tasks(project_id, *, story_id=None, area_id=None, limit=None)` returns them ordered by `task_id`, optionally
 only those of one story or area. On a fresh plan only the setup root is ready: every area's root tasks
 wait for the setup sinks. The plan does not limit parallelism; any number of agents may claim ready
-tasks. Holding tasks back on open findings comes with `graph.gap` ([later.md](later.md)).
+tasks. A blocking finding blocks the tasks of a claimed story ([../gap.md](../gap.md) "Blocking link");
+holding tasks back on other open findings stays later ([later.md](later.md)).
 
 ## Claims
 
@@ -77,6 +80,80 @@ task tries the next ready one in the same order, within the same call.
 transitive prerequisites (of any story or area), in topological order. Each entry has the task id,
 story id, area id, status, whether it is ready, the ids it waits for, and `claimed_by` and `claimed_at`
 while it is `in_progress`. It is the small DAG an agent or a person works through to finish one story.
+
+`claim_task` and `claim_next` refuse a task of a held story with `story_claimed` ("Story claims").
+
+## Story claims
+
+Agents claim stories; task claims stay for people and hotfixes. A story claim is one token for every
+task it claims. It lasts until the holder releases or completes the story, a blocking finding ends it, or
+a person force-releases it: no lease, no heartbeat, no expiry. A story is held exactly while its
+`claimed_by` is set ([data-model.md](data-model.md) "Story"). The calls are `PlanService` methods
+([api.md](api.md) "Story calls"). Each is one transaction that locks the Story nodes of the claim, then
+their tasks in `task_id` order, then checks and writes, as the task calls do.
+
+**Claim unit.** The story and every story it is in a cycle with in the story order ("Story progress"),
+taken over open tasks; usually the story alone. Claiming any story of a cycle group claims the group:
+each of its Story nodes gets the same token and claim fields, and a release, completion or block through
+any of them acts on all.
+
+**Claimable.** The story is `active`, no plan persist is in progress, its unit is not held, no task of the
+unit is `in_progress` or `blocked`, at least one task of the unit is `pending` or `failed`, and every task
+those tasks wait for outside the unit is `completed`. Prerequisites inside the unit do not count.
+
+The claimed tasks of a claim are the tasks that carry its token while `in_progress`. A task a plan run
+adds to a held story stays `pending`, outside the claim.
+
+| Call | Rule | Effect |
+|---|---|---|
+| `claim_story(story_id, claimed_by, agent_label=None, branch=None)` | Claimable | Every `pending` and `failed` task of the unit → `in_progress` (task claim fields with the new token and `claimed_by`, `attempts + 1`); story claim fields set on the unit's stories. Answers the token, the claimed story ids and the claimed tasks in topological order |
+| `release_story(story_id, claim_token=None, note=None, branch=None, force=False)` | Token matches, or `force=True` (host only: a person frees a forgotten claim) | Claimed tasks → `pending`, `attempts` unchanged; the claim ends; `note` and `branch` stored when given, else kept |
+| `report_progress(task_id, claim_token, progress, note=None)` | The task is a claimed task of a held story and the token matches | `progress` set (`done`, `skipped`, `todo`), `note` stored when given; status unchanged |
+| `complete_story(story_id, claim_token, completed_by, merge_commit, pr_url=None, done=None)` | Token matches; `merge_commit` 40 or 64 hex; `done` only claimed task ids | Tasks in `done` (default: every claimed task) → `completed` in topological order with `commit` = `merge_commit` (lower case), `completed_by`, `completed_at`; the other claimed tasks → `pending`; `pr_url` stored; the claim ends |
+| `block_story(story_id, claim_token, reason, finding_id)` | Token matches; `reason` is `spec_ambiguous`, `spec_contradiction` or `spec_missing` | Every claimed task → `blocked` with `block_reason` and `blocked_by` = `finding_id`; the claim ends |
+| `unblock_finding(finding_id)` | Host only, after a person resolved or dismissed the finding | Tasks still `blocked` with that `blocked_by` → `pending`, block cleared; others untouched |
+
+The claim ends: `claimed_by`, `claimed_at` and `agent_label` are cleared on the unit's stories,
+`claim_token` stays until the next claim; every task leaving `in_progress` loses its claim fields and
+`progress`. A `skipped` task completes with its note. `complete_story` also answers `released` (task ids
+back to `pending`), `now_available` (stories this completion made claimable) and `spec_changed` (the
+completed tasks' implemented `spec_id`s that their brief marks `spec_changed`).
+
+**Repeats.** Calls are idempotent by state; there is no request id. A repeat with the same arguments
+changes nothing:
+
+| Call | Repeat when | Answer |
+|---|---|---|
+| `claim_story` | `claimed_by` already holds the unit | The same token and tasks; `repeat` true |
+| `release_story` | Not held and the token equals `claim_token` | `released` empty |
+| `report_progress` | The same `progress` is set | The same answer |
+| `complete_story` | Not held, the token equals `claim_token`, and the story's tasks with `commit` = `merge_commit` have `completed_by` = the caller | `completed` = those ids, `released` empty, `now_available` as now, `spec_changed` empty |
+
+Any other call with a token that does not match raises `claim_mismatch`.
+
+**Refusals** (`TaskStateError`, nothing changes):
+
+| Code | When | Carries |
+|---|---|---|
+| `story_claimed` | Another user holds the unit, or a task call targets a task of a held story | `claimed_by`, `claimed_at`, `alternatives`: up to 3 claimable stories of the same area, in list order |
+| `partly_claimed` | A task of the unit is `in_progress` under a task claim | `task_id`, `claimed_by` |
+| `not_available` | Not claimable for another reason | `blockers`: the unfinished prerequisites outside the unit, in topological order (empty when nothing is left to claim or a task is `blocked`) |
+| `plan_applying`, `unknown_story`, `unknown_task`, `wrong_state` (retired story), `claim_mismatch` | As for the task calls | - |
+
+**Story state.** The people's views derive one state per active story; the first matching row wins.
+
+| State | When |
+|---|---|
+| `completed` | Progress `completed` |
+| `in_progress` | Held, or any task `in_progress` |
+| `blocked` | Any task `blocked` |
+| `ready` | Claimable |
+| `waiting` | Otherwise: unfinished work outside the unit |
+
+**Plan runs.** A run never writes `in_progress` tasks, so claimed tasks keep their token and
+`progress`; it never writes story claim fields. A reset of a `blocked` task clears `blocked_by`; the
+finding stays open ([plan.md](plan.md) "Diff"). Claims refuse while a persist is in progress; the other
+story calls do not check it.
 
 ## Story progress
 
@@ -121,6 +198,17 @@ plan run decides from the build change reports whether the task is redone.
 
 A brief never contains other tasks' briefs, prompts or the whole graph.
 
+## Story brief
+
+`story_brief(project_id, story_id, *, neighbours=30)` merges the task briefs of the story's open and
+completed tasks, from one read, without a model call: the story with its anchor, the area and project
+parts once, every task with its `done_when` items and sources in topological order, the implemented
+nodes, open questions and neighbours (at most `neighbours` in all) merged by `spec_id`, contracts of the
+completed prerequisites outside the story with their commits, and `spec_changed` (any task's) and
+`missing` merged. A retired or unknown story raises `PlanReadError("story_not_found")`. Open findings
+are not part of it: `graph.plan` never imports `graph.gap`, so the host adds them
+([../gap.md](../gap.md)).
+
 ## Agent contract
 
 `graph.plan` runs no agents, git or tests, and there is no executor in its scope. Users connect their
@@ -147,10 +235,17 @@ instructions. The plan does not check how the work was done.
 Checking that a reported commit exists in the repository is host-side and optional; the plan cannot
 see git. A client may map `complexity` to models; the plan stores no model name.
 
+**Agents over MCP** work by story ([../../mcp-server/tools.md](../../mcp-server/tools.md)): claim a
+story, read its story brief, report each task's progress, add a finding when the spec does not allow a
+decision (a blocking one replaces `block_task` and ends the claim), and report `complete_story` with
+the merge commit only after the merge; release the story when stopping without a result. Points 2 to 4
+and 7 hold as written.
+
 **Recovery.** `stale_claims(project_id, *, older_than)` lists `in_progress` tasks claimed longer ago than
 the host's timeout. The host completes each one whose integrated commit exists (with the claim token,
 or after a forced release and a new claim) and releases the rest with `force=True`. Forced releases are
-a host operation, not an agent tool.
+a host operation, not an agent tool. The tasks of a forgotten story claim show there too; a person
+frees the story with `release_story(force=True)` from the web app's claims board.
 
 ## Plan checks
 
@@ -164,7 +259,7 @@ of other owners is never a problem.
 | `task_area` | An open task whose `area_id` is not an active area (PD2) |
 | `coverage` | A node of a `required` type that no open or completed task implements, that is not recorded `not_buildable`, and that no profile convention cites (PD3) |
 | `dependencies` | A `WAITS_FOR` cycle among open (other than `in_progress`, whose waits are frozen) and completed tasks, or a wait of a task other than `in_progress` on a closed task (PD4) |
-| `task_state` | Claim or commit fields that do not match the status (PD5) |
+| `task_state` | Claim, `progress`, `blocked_by` or commit fields that do not match the status (PD5), or story claim fields that do not match their tasks (PD8) |
 | `stories` | An open task not `IN_STORY` exactly one active story of its own area, or an active `feature`, `interface` or `entity` story that does not `IMPLEMENTS` exactly its anchor, except one kept for claimed work after its anchor was deleted (PD7) |
 | `lost_target` | An open task whose `implements` names a `spec_id` that no longer resolves (build deleted the node) |
 

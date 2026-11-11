@@ -23,7 +23,8 @@ specification, and later its implementation plan. Every deployment and every loc
 | Version | Tools | Status |
 |---|---|---|
 | 1 | `list_projects`, `list_features`, the plan tools `list_tasks`, `list_feature_tasks`, `get_task_path` and `get_task_brief`, and the prompt `select_project` | specified here |
-| later | feature detail, search, impact, claiming and reporting plan tasks (writes) | [later.md](later.md) |
+| story and spec tools | people: `list_areas`, `list_stories`, `preview_story`, `claim_story`, `release_story`; agent reads: `get_story_brief`, `trace`, `get_node`, `search_spec`, `similar`, `get_evidence`, `path`, `expand_brief`; agent writes: `add_finding`, `report_task`, `complete_story`; the prompt `start` | [tools.md](tools.md#story-and-spec-tools) |
+| later | leases, a merge reported by CI, an MCP Apps view and the rest of [later.md](later.md) | [later.md](later.md) |
 
 ## Goals
 
@@ -39,7 +40,7 @@ specification, and later its implementation plan. Every deployment and every loc
 
 ## Non-goals
 
-- Write tools, or any tool that changes SpecFlow data.
+- Tools that change the specification: the write tools change plan state and findings only ([access-control.md](access-control.md#write-tools)).
 - Acting as an OAuth authorization server: no dynamic client registration, consent screen or token issuance here.
 - More than one identity provider at a time.
 - Providers whose access tokens are opaque or not OIDC (Google sign-in, GitHub); see [later.md](later.md).

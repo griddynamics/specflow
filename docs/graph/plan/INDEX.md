@@ -24,13 +24,13 @@ Agents use it over MCP tools the host exposes. It reuses `graph.core`; the libra
 # plan.md: modes, change reports, plan run steps, partition and stories, planners, stitch, review, diff, reuse, failures, result, options
 - [plan.md](plan.md)
 
-# lifecycle.md: task transitions, ready tasks, claims for MCP agents, task briefs, agent contract, plan checks
+# lifecycle.md: task transitions, ready tasks, task and story claims, task and story briefs, agent contract, plan checks
 - [lifecycle.md](lifecycle.md)
 
-# api.md: public API: setup, plan runs and estimate, change reports, reads (stories, story work, plan DAG), task lifecycle, ports
+# api.md: public API: setup, plan runs and estimate, change reports, reads (stories, story work, plan DAG), task lifecycle, story reads and calls, ports
 - [api.md](api.md)
 
-# requirements.md: requirement units FR-PONT, FR-POWN, FR-PRUN, FR-PCHG, FR-PPRT, FR-PSTY, FR-PPLN, FR-PDAG, FR-PDIF, FR-PLCY, FR-PMCP, FR-PCHK, NFR
+# requirements.md: requirement units FR-PONT, FR-POWN, FR-PRUN, FR-PCHG, FR-PPRT, FR-PSTY, FR-PPLN, FR-PDAG, FR-PDIF, FR-PLCY, FR-PMCP, FR-PCLM, FR-PCHK, NFR
 - [requirements.md](requirements.md)
 
 # questions.md, later.md: decision record (Q1-Q21, PT1-PT23 after build ontology v2.0), deferred features

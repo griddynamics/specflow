@@ -1,11 +1,11 @@
 ---
 type: API
 title: "Graph plan API"
-description: "Public API of graph.plan: setup, plan runs, reads, task lifecycle, errors, ports, MCP tool mapping"
+description: "Public API of graph.plan: setup, plan runs, reads, task lifecycle, plan service and story calls, errors, ports, MCP tool mapping"
 status: stable
 tags: [graph, plan]
 ---
-# api.md: public API of graph.plan: setup, plan runs, reads, task lifecycle, errors, ports, host endpoints, MCP tool mapping
+# api.md: public API of graph.plan: setup, plan runs, reads, task lifecycle, plan service and story calls, errors, ports, host endpoints, MCP tool mapping
 
 All functions are `async` unless noted. Every function takes `project_id` explicitly (in a context or as
 an argument), and an invalid `project_id` raises `ConfigurationError` before any query. Core setup
@@ -129,9 +129,41 @@ A project without a plan raises `PlanReadError("no_plan")`.
 | `feature_tasks(project_id, feature_id) -> FeatureTasks` | The tasks of the active stories the feature anchors and the tasks that implement it or a node of its `GraphReader.scope`, ordered by `task_id`; a node that is not of the `feature` type: `PlanReadError("feature_not_found")` |
 | `task_path(project_id, task_id) -> TaskPath` | Every transitive prerequisite in build order (lowest `task_id` first among equals), then the task; `completed` counts finished prerequisites |
 | `task_brief(project_id, task_id, *, neighbours=30) -> TaskBrief` | `TaskLifecycle.task_brief` from the same read; an unknown, superseded or retired task: `PlanReadError("task_not_found")` |
+| `story_brief(project_id, story_id, *, neighbours=30) -> StoryBrief` | The story brief of [lifecycle.md](lifecycle.md) "Story brief"; a retired or unknown story: `PlanReadError("story_not_found")` |
+| `trace(project_id, *, story_id=None, spec_ids=None, direction, ...) -> PlanTrace` | The plan overlay of [../trace.md](../trace.md) "Plan overlay" |
 
 A `TaskItem` names its area and story (`AreaRef`, `StoryRef`; the story title only while the story is active), its
-readiness, `waits_for` and `planned_by`.
+readiness, `waits_for`, `planned_by` and, while `in_progress`, `progress`; a completed one also `commit`,
+`completed_by` and `completed_at`.
+
+### Story reads for people
+
+Rows name holders by user id; the host turns them into names. `state` is the story state of
+[lifecycle.md](lifecycle.md) "Story claims". A project without a plan raises `PlanReadError("no_plan")`.
+
+| Method | Contract |
+|---|---|
+| `area_summary(project_id) -> tuple[AreaSummary, ...]` | Per active area, project area last: `area_id`, `title`, `kind`, stories per state, the holders of its held stories, `open_tasks` |
+| `story_list(project_id, *, view="open", caller, area_id=None, finding_ids=()) -> tuple[StoryRow, ...]` | Active stories as rows: `rank`, `story_id`, `title`, `kind`, `state`, holder (`claimed_by`, `claimed_at`, `agent_label`), `waits_on` (up to 3 stories with unfinished work the unit waits for), `tasks` (open count), `unblocks` (stories that wait for it), `blocked_by` (finding ids). `open`: every state but `completed`, `ready` first (by `release`, then `unblocks` descending, then `story_id`), then `in_progress`, `waiting`, `blocked`. `mine`: held by `caller`, plus stories with a task blocked by one of `finding_ids` (the host passes the caller's open findings). `done`: `completed` stories newest first, with `pr_url`, `commit`, `completed_by` and `completed_at` of their last completed task. Unknown `area_id`: `PlanReadError("area_not_found")` |
+| `story_preview(project_id, story_id) -> StoryPreview` | The story, its state, claim (holder, `claimed_at`, `agent_label`, `branch`, `note`), the unit's story ids, its open tasks in topological order (`task_id`, `title`, `status`, `ready`, `complexity`, `progress`), the blockers outside the unit (story, state, holder) and `unblocks`. Never the claim token. Unknown or retired: `PlanReadError("story_not_found")` |
+
+### Story calls
+
+The transitions of [lifecycle.md](lifecycle.md) "Story claims", one transaction each. Argument checks
+run before any write and raise `ConfigurationError`: `claimed_by` and `completed_by` as for task claims
+(`invalid_claimant`), `note` (`invalid_note`), `merge_commit` (`invalid_commit`), `reason`
+(`invalid_reason`), `agent_label` (1-80 printable), `branch` (1-200 printable), `pr_url` (an `http` or
+`https` URL without user info, at most 2000 characters) and `progress` (`invalid_field`), `done` naming a
+task outside the claim (`invalid_done`). State refusals raise `TaskStateError`.
+
+| Method | Contract |
+|---|---|
+| `claim_story(project_id, story_id, *, claimed_by, agent_label=None, branch=None) -> StoryClaim` | `claim_token`, `story_ids` (the unit, the asked story first), `tasks` (topological order), `claimed_at`, `repeat` |
+| `release_story(project_id, story_id, *, claim_token=None, force=False, note=None, branch=None) -> StoryRelease` | `released` (task ids), `repeat`; `force=True` is a host operation |
+| `report_progress(project_id, task_id, *, claim_token, progress, note=None) -> TaskItem` | The task after the report |
+| `complete_story(project_id, story_id, *, claim_token, completed_by, merge_commit, pr_url=None, done=None) -> StoryCompletion` | `completed`, `released`, `now_available` (story ids), `spec_changed` (spec ids), `repeat` |
+| `block_story(project_id, story_id, *, claim_token, reason, finding_id) -> StoryRelease` | `released` holds the blocked task ids; called by the host for a blocking finding ([../gap.md](../gap.md) "Blocking link") |
+| `unblock_finding(project_id, finding_id) -> tuple[str, ...]` | The task ids moved back to `pending`; a host operation |
 
 ## Errors
 
@@ -141,10 +173,10 @@ readiness, `waits_for` and `planned_by`.
 | `ConfigurationError` | `unfinished_run`, `unknown_run`, `unbound_run`, `missing_artifact` | plan runs and step functions |
 | `ConfigurationError` | `invalid_options` | `PlanOptions` |
 | `ConfigurationError` | `invalid_run_id`, `run_not_found`, `run_exists`, `invalid_plan_result` | the file `PlanStore` |
-| `ConfigurationError` | `invalid_commit`, `invalid_reason`, `invalid_note`, `invalid_claimant` | lifecycle calls, before any write |
+| `ConfigurationError` | `invalid_commit`, `invalid_reason`, `invalid_note`, `invalid_claimant`, `invalid_field`, `invalid_done` | lifecycle and story calls, before any write |
 | `PlanRulesError` | `invalid_plan_rules` (with every problem) | `load_plan_rules` |
-| `PlanReadError` | `no_plan`, `feature_not_found`, `task_not_found` | `PlanService` |
-| `TaskStateError` | `not_ready`, `nothing_ready` (both with `blockers: tuple[str, ...]`), `plan_applying`, `wrong_state`, `unknown_task`, `unknown_story`, `claim_mismatch` | lifecycle calls ([lifecycle.md](lifecycle.md) "Transitions") |
+| `PlanReadError` | `no_plan`, `feature_not_found`, `task_not_found`, `story_not_found`, `area_not_found` | `PlanService` |
+| `TaskStateError` | `not_ready`, `nothing_ready`, `not_available` (each with `blockers: tuple[str, ...]`), `plan_applying`, `wrong_state`, `unknown_task`, `unknown_story`, `claim_mismatch`, `story_claimed` (with `claimed_by`, `claimed_at`, `alternatives`), `partly_claimed` (with `task_id`, `claimed_by`) | lifecycle and story calls ([lifecycle.md](lifecycle.md) "Transitions", "Story claims") |
 | `LLMFatalError`, `InfrastructureUnavailableError`, `GraphWriteError`, `ConformanceError` | - | plan runs ([plan.md](plan.md) "Failures") |
 
 A non-fatal `LLMError` never reaches the host from a plan run: the planner falls back.
@@ -186,27 +218,20 @@ goes, and reads `/plan/tasks` once a plan exists; "Recreate Plan" posts `replan`
 
 ## MCP tools (host)
 
-The host contract for the MCP tools; the host does not implement these tools yet. Users connect coding
-agents to the app over MCP. The MCP server is host code, not part of `graph.plan`:
-it resolves the project from the session, calls the API above, and gives agents the
-[lifecycle.md](lifecycle.md) "Agent contract". Every rule (ready tasks only, one claim per task, no
-claims while a plan persists) is enforced by the plan, so it holds for every client.
+Users connect coding agents to the app over MCP. The MCP server is host code, not part of `graph.plan`:
+it calls the API, which calls `PlanService`; tool contracts are in
+[../../mcp-server/tools.md](../../mcp-server/tools.md). Every rule (ready tasks only, one claim per task
+or story, no claims while a plan persists, the claim token) is enforced by the plan, so it holds for
+every client.
 
-| Group | Tool | Call |
-|---|---|---|
-| reading | `list_areas` | `PlanReader.areas` |
-| reading | `list_stories(area?, status?, release?)` | `PlanReader.stories` |
-| reading | `story` | `PlanReader.story` |
-| reading | `story_work` | `PlanReader.story_work` |
-| reading | `ready_tasks(story?, area?)` | `TaskLifecycle.ready_tasks` |
-| reading | `task_brief` | `TaskLifecycle.task_brief` |
-| reading | `plan_dag(output)` | `PlanReader.plan_dag` |
-| working | `claim_task` | `TaskLifecycle.claim_task` |
-| working | `claim_next(story)` | `TaskLifecycle.claim_next` |
-| working | `complete_task(commit)` | `TaskLifecycle.complete_task` |
-| working | `block_task(reason)` | `TaskLifecycle.block_task` |
-| working | `fail_task` | `TaskLifecycle.fail_task` |
-| working | `release_task` | `TaskLifecycle.release_task` (without `force`) |
+| Tool | Call |
+|---|---|
+| `list_tasks`, `list_feature_tasks`, `get_task_path`, `get_task_brief` | `PlanService.list_tasks`, `feature_tasks`, `task_path`, `task_brief` |
+| `list_areas`, `list_stories`, `preview_story` | `PlanService.area_summary`, `story_list`, `story_preview` |
+| `claim_story`, `release_story`, `report_task`, `complete_story` | `PlanService.claim_story`, `release_story` (without `force`), `report_progress`, `complete_story` |
+| `get_story_brief`, `trace` | `PlanService.story_brief`, `trace` |
+| `add_finding` with `blocking` | `PlanService.block_story` after the finding is written ([../gap.md](../gap.md) "Blocking link") |
 
-`retry_task`, `unblock_task`, `stale_claims`, a forced `release_task` and plan runs stay host
-operations. Checking that a reported commit exists in the repository is host-side and optional.
+Task claims (`claim_task`, `claim_next` and the other task calls), `retry_task`, `unblock_task`,
+`unblock_finding`, `stale_claims`, forced releases and plan runs stay host operations. Checking that a
+reported commit exists in the repository is host-side and optional.

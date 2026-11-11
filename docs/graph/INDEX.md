@@ -2,7 +2,8 @@
 
 The graph library (`graph`) builds a typed knowledge graph of a software specification in a graph database (Neo4j, ArcadeDB or PostgreSQL) from a
 project's documents and keeps it current. Shared core `graph.core`, build submodule `graph.build`,
-plan submodule `graph.plan` (its own specification in [plan/](plan/INDEX.md)); `graph.gap` comes later.
+plan submodule `graph.plan` (its own specification in [plan/](plan/INDEX.md)), gap submodule `graph.gap`
+(its first slice, agent findings, in [gap.md](gap.md); gap analysis comes later).
 
 # overview.md: purpose, scope, goals, non-goals, actors, boundaries, constraints, key terms
 - [overview.md](overview.md)
@@ -28,7 +29,13 @@ plan submodule `graph.plan` (its own specification in [plan/](plan/INDEX.md)); `
 # api.md: public API: setup, owned writes, read and search, LLM gateway, judges, build, ports
 - [api.md](api.md)
 
-# requirements.md: requirement units FR-CORE, FR-ONT, FR-READ, FR-LLM, FR-BLD, FR-INF, FR-VER, NFR
+# trace.md: directed trace over the spec graph: impact roles, the walk, the library call, the plan overlay, the MCP tool
+- [trace.md](trace.md)
+
+# gap.md: graph.gap, first slice: agent findings: ontology file, nodes, limits, dedupe, rebuild, blocking link, library API
+- [gap.md](gap.md)
+
+# requirements.md: requirement units FR-CORE, FR-ONT, FR-READ, FR-LLM, FR-BLD, FR-INF, FR-VER, FR-GAP, NFR
 - [requirements.md](requirements.md)
 
 # later.md, questions.md: deferred features, open questions
