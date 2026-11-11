@@ -331,21 +331,14 @@ def test_the_mcp_app_loads_no_fastapi_and_the_rest_app_loads_no_mcp_role():
     assert not {m for m in rest if m == "mcp_server" or m.startswith("mcp_server.")}
 
 
-def test_both_rest_lists_of_the_import_contracts_name_every_rest_module():
-    """R8: a new module or package under src/api must join mcp-role-isolated and rest-without-mcp."""
+def test_both_import_contracts_cover_the_whole_rest_package():
+    """R8: mcp-role-isolated and rest-without-mcp name the whole api package, so every REST module is in them."""
 
-    api = BACKEND / "src" / "api"
-    rest = {
-        f"api.{entry.stem if entry.is_file() else entry.name}"
-        for entry in api.iterdir()
-        if entry.name not in {"__init__.py", "__pycache__", "fixtures"} and (entry.is_dir() or entry.suffix == ".py")
-    }
     contracts = {
         c["id"]: c
         for c in tomllib.loads((BACKEND / "importlinter.toml").read_text())["tool"]["importlinter"]["contracts"]
     }
-    isolated = {m for m in contracts["mcp-role-isolated"]["forbidden_modules"] if m.startswith("api.")}
-    sources = set(contracts["rest-without-mcp"]["source_modules"])
 
-    assert rest <= isolated
-    assert rest == sources
+    assert contracts["rest-without-mcp"]["source_modules"] == ["api"]
+    assert "api" in contracts["mcp-role-isolated"]["forbidden_modules"]
+    assert not (BACKEND / "src" / "api" / "mcp").exists()
