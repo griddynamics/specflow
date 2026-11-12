@@ -8,7 +8,7 @@ or ``task_not_found``. Superseded and retired tasks are history: never listed, n
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Collection, Iterable, Sequence
+from collections.abc import Awaitable, Callable, Collection, Iterable, Mapping, Sequence
 from datetime import datetime
 from typing import Any, Final, Protocol, Required, TypedDict, Unpack
 
@@ -31,6 +31,7 @@ from graph.plan.models import (
     TaskPath,
 )
 from graph.plan.names import BlockReason, TaskProgress, TaskStatus
+from graph.plan.node_plan import NodePlan, node_plan, plan_states
 from graph.plan.reader import (
     LoadedPlan,
     PlanReader,
@@ -52,7 +53,7 @@ from graph.plan.story_models import (
 )
 from graph.plan.story_reads import area_summary, story_list, story_preview
 from graph.plan.task_items import task_items
-from graph.plan.trace_models import PlanTrace
+from graph.plan.trace_models import PlanState, PlanTrace
 from graph.plan.trace_overlay import (
     check_seeds,
     overlay,
@@ -239,6 +240,25 @@ class PlanService:
             traced_story=story_id,
             seeds_truncated=cut,
         )
+
+    async def story_nodes(self, project_id: str, story_id: str) -> tuple[str, ...]:
+        """The anchor and the nodes the story's open and completed tasks implement (current ids, at most 50): where a
+        search near the story starts. ``no_plan`` and ``story_not_found`` as for ``trace``."""
+
+        loaded = await self._load(project_id)
+        _, _, aliases = await self._reader.spec_graph(project_id)
+        return story_seeds(loaded, story_id, aliases)[0]
+
+    async def node_plan(self, project_id: str, spec_id: str, aliases: Sequence[str] = ()) -> NodePlan | None:
+        """The plan state and tasks of one node (``spec_id`` and its ``aliases``), or ``None`` for a project without a
+        plan."""
+
+        return node_plan(await self._load(project_id), {spec_id, *aliases})
+
+    async def plan_states(self, project_id: str, nodes: Mapping[str, Sequence[str]]) -> dict[str, PlanState] | None:
+        """The plan state of each node (``spec_id`` to its aliases) from one plan read, or ``None`` without a plan."""
+
+        return plan_states(await self._load(project_id), nodes)
 
     async def area_summary(self, project_id: str) -> tuple[AreaSummary, ...]:
         """Per active area, the project area last: stories per state, holders of held stories, open tasks."""

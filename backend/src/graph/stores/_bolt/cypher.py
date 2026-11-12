@@ -67,6 +67,7 @@ _STATIC: Final[Mapping[str, Callable[[], str]]] = {
     "core.read_nodes_by_ids": lambda: load_core_query("read_nodes_by_ids.cypher"),
     "core.read_nodes_by_uuid": lambda: load_core_query("read_nodes_by_uuid.cypher"),
     "core.read_nodes_for_lines": lambda: load_core_query("read_nodes_for_lines.cypher"),
+    "core.read_node_vectors": lambda: load_core_query("read_node_vectors.cypher"),
     "core.read_nodes_page": lambda: load_core_query("read_nodes_page.cypher"),
     "core.read_owner_values": lambda: load_core_query("read_owner_values.cypher"),
     "core.read_trace_hop": lambda: load_core_query("read_trace_hop.cypher"),

@@ -655,8 +655,9 @@ its limits and the plan overlay are defined in [../graph/trace.md](../graph/trac
 
 The answer is the plan trace of [../graph/trace.md](../graph/trace.md): `direction`, `sources`, `context`, `nodes`
 (each with `hops`, `parent`, `relation`, `step`, `role`, `basis`, `via_owner`, `plan_state`, `tasks`), `stories`,
-`summary`, `open_questions`, `unknown`, `truncated`; each node and context entry also carries `findings`, its open
-findings count. Unknown `spec_ids` are listed in `unknown`, not an error. A task's holder is a [holder](#holders),
+`summary`, `open_questions`, `unknown`, `truncated`, `seeds_truncated` (a story had more than 50 start nodes and only
+50 were traced); each node and context entry also carries `findings`, its open findings count. Unknown
+`spec_ids` are listed in `unknown`, not an error. A task's holder is a [holder](#holders),
 never a user id or token.
 
 Errors: `project_not_found`, `invalid_arguments` (both or neither of `story_id` and `spec_ids`), `unknown_relation`,

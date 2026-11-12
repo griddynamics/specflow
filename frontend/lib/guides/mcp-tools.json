@@ -41,6 +41,46 @@
       "name": "get_task_brief",
       "read_only": true,
       "summary": "Reads what a coding agent needs to build one plan task: done-when, spec sources, prerequisites."
+    },
+    {
+      "name": "get_story_brief",
+      "read_only": true,
+      "summary": "Reads what an agent needs to start a story: tasks, done-when, spec sources, prerequisites, findings."
+    },
+    {
+      "name": "trace",
+      "read_only": true,
+      "summary": "Traces what a story or spec nodes depend on, or what depends on them, with plan state."
+    },
+    {
+      "name": "get_node",
+      "read_only": true,
+      "summary": "Reads one spec node: edges, plan state, provenance and findings."
+    },
+    {
+      "name": "search_spec",
+      "read_only": true,
+      "summary": "Searches the spec graph by id, text and meaning, optionally near a story or node."
+    },
+    {
+      "name": "similar",
+      "read_only": true,
+      "summary": "Finds spec nodes whose text reads like a story's nodes but that have no edge to them."
+    },
+    {
+      "name": "get_evidence",
+      "read_only": true,
+      "summary": "Reads the exact source lines behind one spec node."
+    },
+    {
+      "name": "path",
+      "read_only": true,
+      "summary": "Shows how two spec nodes connect: up to three shortest directed chains."
+    },
+    {
+      "name": "expand_brief",
+      "read_only": true,
+      "summary": "Ranks what to read next beyond a story's brief, within a token budget."
     }
   ]
 }

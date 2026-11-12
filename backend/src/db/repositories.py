@@ -13,7 +13,7 @@ import base64
 import binascii
 import re
 import uuid
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, make_dataclass
 from datetime import UTC, datetime
 from typing import Any, Final, Protocol
@@ -230,6 +230,27 @@ async def get_member_project(session: AsyncSession, user_id: uuid.UUID, project_
     """The project when ``user_id`` is a member, else ``None`` (the API answers 404)."""
 
     return await session.scalar(_member_projects(user_id).where(Project.id == project_id))
+
+
+async def member_names(
+    session: AsyncSession, project_id: uuid.UUID, user_ids: Collection[uuid.UUID]
+) -> dict[uuid.UUID, str | None]:
+    """The display name of each of ``user_ids`` among the project's members, one query; ``None`` for a user who is
+    no member (any more) and for one whose display name is the email in any case (the fallback of ``upsert_user``)
+    or holds an ``@`` (an address, not a name). Names are personal data: fine in an API answer, never in a log."""
+
+    names: dict[uuid.UUID, str | None] = dict.fromkeys(user_ids)
+    if not names:
+        return names
+    rows = await session.execute(
+        select(User.id, User.display_name, User.email)
+        .join(ProjectMember, ProjectMember.user_id == User.id)
+        .where(ProjectMember.project_id == project_id, User.id.in_(list(names)))
+    )
+    for user_id, display_name, email in rows:
+        is_address = "@" in display_name or display_name.casefold() == (email or "").casefold()
+        names[user_id] = None if is_address else display_name
+    return names
 
 
 # Documents ----------------------------------------------------------------

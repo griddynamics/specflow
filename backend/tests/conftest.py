@@ -49,7 +49,8 @@ pytest_plugins = [
     "specflow_sources_support",
     "graph_support",  # before mcp_support, which imports it (a late registration cannot be assert-rewritten)
     "mcp_support",  # it imports the support modules above, which must register first
-    "mcp_golden_seam",  # last: it imports mcp_support
+    "mcp_golden_seam",  # it imports mcp_support
+    "mcp_golden_tooling_seam",  # last: it imports mcp_golden_seam and the shop rig
 ]
 # The `llm` package needs claude_agent_sdk (the `parse` extra); a light environment (rss-test) lacks it.
 if importlib.util.find_spec("claude_agent_sdk") is not None:

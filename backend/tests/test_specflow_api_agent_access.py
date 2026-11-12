@@ -22,16 +22,25 @@ from fastapi.routing import APIRoute
 from agent_contracts import (
     AGENT_PREFIX,
     AGENT_ROUTES,
+    ExpandBriefArgs,
+    GetEvidenceArgs,
+    GetNodeArgs,
+    GetStoryBriefArgs,
     GetTaskBriefArgs,
     GetTaskPathArgs,
     ListFeaturesArgs,
     ListFeatureTasksArgs,
     ListProjectsArgs,
     ListTasksArgs,
+    PathArgs,
+    SearchSpecArgs,
+    SimilarArgs,
+    TraceArgs,
 )
 from api.deps import agent_principal, agent_project, current_agent_user, current_user
 from api.routers import (
     agent,
+    agent_spec,
     documents,
     graph_build,
     me,
@@ -53,6 +62,14 @@ TOOL_ARGUMENTS: dict[str, Any] = {
     "list_feature_tasks": ListFeatureTasksArgs,
     "get_task_path": GetTaskPathArgs,
     "get_task_brief": GetTaskBriefArgs,
+    "get_story_brief": GetStoryBriefArgs,
+    "trace": TraceArgs,
+    "get_node": GetNodeArgs,
+    "search_spec": SearchSpecArgs,
+    "similar": SimilarArgs,
+    "get_evidence": GetEvidenceArgs,
+    "path": PathArgs,
+    "expand_brief": ExpandBriefArgs,
 }
 AGENT_ONLY = (
     agent_principal,
@@ -70,6 +87,7 @@ def scoped(tool: str) -> bool:
 ROUTER_MODULES = (
     me,
     agent,
+    agent_spec,
     projects,
     documents,
     graph_build,
@@ -140,8 +158,8 @@ def test_fr_mcp_acc_06_the_membership_query_has_one_home_on_the_api_side():
         }
 
     assert "get_member_project" in names("api/deps.py")
-    assert "get_member_project" not in names("api/routers/agent.py")
-    assert "get_member_project" not in names("api/agent_reads.py")
+    for module in ("api/routers/agent.py", "api/routers/agent_spec.py", "api/agent_reads.py", "api/agent_views.py"):
+        assert "get_member_project" not in names(module), module
 
 
 def test_the_agent_dependencies_are_never_used_by_a_rest_route_and_the_rest_ones_never_by_an_agent_route():

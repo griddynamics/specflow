@@ -82,7 +82,7 @@ class TraceResult(_Frozen):
 
 
 @dataclass(frozen=True, slots=True)
-class _Visit:
+class Visit:
     """A node on the walk: a start (hop 0) or a reached node, with what its path carries on."""
 
     uuid: str
@@ -127,7 +127,7 @@ class TraceWalk:
         context = await self._context(seeds)
         roots = self.ontology.spine.roots
         owner_starts = [
-            _Visit(owner.uuid, owner.spec_id, owner.label, via_owner=True)
+            Visit(owner.uuid, owner.spec_id, owner.label, via_owner=True)
             for owner, _ in context
             if self.include_owner and owner.label in roots
         ]
@@ -139,7 +139,7 @@ class TraceWalk:
                 break
             reached = await self._hop(frontier, hop, visited)
             found.extend(node for _, node in reached)
-            frontier = [_Visit(uuid, node.spec_id, node.label, node.via_owner, node.weak) for uuid, node in reached]
+            frontier = [Visit(uuid, node.spec_id, node.label, node.via_owner, node.weak) for uuid, node in reached]
         return TraceResult(
             direction=self.direction,
             sources=tuple(seed.spec_id for seed in seeds),
@@ -151,7 +151,7 @@ class TraceWalk:
 
     # Steps 1 to 3: seeds, context, starts
 
-    async def _seeds(self, spec_ids: Sequence[str]) -> tuple[list[_Visit], tuple[str, ...]]:
+    async def _seeds(self, spec_ids: Sequence[str]) -> tuple[list[Visit], tuple[str, ...]]:
         """The nodes ``spec_ids`` name (own id or alias), by ``spec_id``, and the ids naming none."""
 
         wanted = list(dict.fromkeys(spec_ids))
@@ -164,18 +164,18 @@ class TraceWalk:
             if uuids
             else []
         )
-        seeds: list[_Visit] = []
+        seeds: list[Visit] = []
         named: set[str] = set()
         for row in sorted(nodes, key=lambda item: str(item["props"]["spec_id"])):
             label = self._label(row["labels"])
             if label is None:
                 continue
             props = row["props"]
-            seeds.append(_Visit(props["uuid"], props["spec_id"], label, via_owner=False))
+            seeds.append(Visit(props["uuid"], props["spec_id"], label, via_owner=False))
             named |= {props["spec_id"], *(props.get("spec_id_aliases") or ())}
         return seeds, tuple(spec_id for spec_id in wanted if spec_id not in named)
 
-    async def _context(self, seeds: Sequence[_Visit]) -> list[tuple[_Visit, str]]:
+    async def _context(self, seeds: Sequence[Visit]) -> list[tuple[Visit, str]]:
         """The owners of the seeds up to the first spine root, one read of the owner pairs per level; each
         with its name, by level then ``spec_id``. Seeds are never context."""
 
@@ -186,12 +186,12 @@ class TraceWalk:
         levels = max((path.max_hops for path in self.ontology.spine.paths), default=1)
         seen = {seed.uuid for seed in seeds}
         frontier = {seed.uuid: seed for seed in seeds if seed.label not in roots}
-        context: list[tuple[_Visit, str]] = []
+        context: list[tuple[Visit, str]] = []
         for _ in range(levels):
             if not frontier or not relations:
                 break
             rows = await self._read_hop(list(frontier), relations)
-            found: dict[str, tuple[_Visit, str]] = {}
+            found: dict[str, tuple[Visit, str]] = {}
             for row in rows:
                 start = frontier[row["frontier"]]
                 label = self._label(row["labels"])
@@ -199,7 +199,7 @@ class TraceWalk:
                     continue
                 pair = self.ontology.pair_rule(row["relation"], start.label, label)
                 if pair is not None and pair.owner:
-                    found[row["uuid"]] = (_Visit(row["uuid"], row["spec_id"], label, via_owner=True), row["name"] or "")
+                    found[row["uuid"]] = (Visit(row["uuid"], row["spec_id"], label, via_owner=True), row["name"] or "")
             level = sorted(found.values(), key=lambda item: item[0].spec_id)
             context.extend(level)
             seen |= set(found)
@@ -208,17 +208,11 @@ class TraceWalk:
 
     # Steps 4 to 7: one hop
 
-    async def _hop(self, frontier: Sequence[_Visit], hop: int, visited: set[str]) -> list[tuple[str, TraceNode]]:
+    async def _hop(self, frontier: Sequence[Visit], hop: int, visited: set[str]) -> list[tuple[str, TraceNode]]:
         """The nodes first reached at ``hop`` from ``frontier``, by ``spec_id``; marks them visited."""
 
-        roots = self.ontology.spine.roots
-        hub_relations = [name for name in self.relations if self._has_hub_role(name)]
         by_uuid = {visit.uuid: visit for visit in frontier}
-        rows: list[Mapping[str, Any]] = []
-        for at_root, relations in ((True, hub_relations), (False, list(self.relations))):
-            uuids = [visit.uuid for visit in frontier if (visit.label in roots) == at_root]
-            if uuids and relations:
-                rows.extend(await self._read_hop(uuids, relations))
+        rows = await self._frontier_rows(frontier)
         best: dict[str, _Candidate] = {}
         for row in rows:
             candidate = self._candidate(by_uuid[row["frontier"]], row, hop, visited)
@@ -228,7 +222,19 @@ class TraceWalk:
         visited |= set(best)
         return reached
 
-    def _candidate(self, start: _Visit, row: Mapping[str, Any], hop: int, visited: set[str]) -> _Candidate | None:
+    async def _frontier_rows(self, frontier: Sequence[Visit]) -> list[Mapping[str, Any]]:
+        """The incident edges of ``frontier``: a spine root's of the hub relations only (rule 6)."""
+
+        roots = self.ontology.spine.roots
+        hub_relations = [name for name in self.relations if self._has_hub_role(name)]
+        rows: list[Mapping[str, Any]] = []
+        for at_root, relations in ((True, hub_relations), (False, list(self.relations))):
+            uuids = [visit.uuid for visit in frontier if (visit.label in roots) == at_root]
+            if uuids and relations:
+                rows.extend(await self._read_hop(uuids, relations))
+        return rows
+
+    def _candidate(self, start: Visit, row: Mapping[str, Any], hop: int, visited: set[str]) -> _Candidate | None:
         """The step over ``row``'s edge from ``start`` the direction allows, else None."""
 
         label = self._label(row["labels"])

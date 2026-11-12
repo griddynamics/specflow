@@ -77,7 +77,9 @@ class ApiClient:
     async def aclose(self) -> None:
         await self._client.aclose()
 
-    async def call(self, route: str, params: Mapping[str, str], authorization: str, request_id: str) -> ApiResult:
+    async def call(
+        self, route: str, params: Mapping[str, str | list[str]], authorization: str, request_id: str
+    ) -> ApiResult:
         """One ``GET`` on ``route`` with the caller's ``Authorization`` header unchanged and ``request_id``."""
 
         return await self._get(route, params, {"Authorization": authorization, REQUEST_ID_HEADER: request_id})
@@ -88,7 +90,11 @@ class ApiClient:
         return await self._get(READYZ_PATH, {}, {}, READYZ_TIMEOUT_SECONDS)
 
     async def _get(
-        self, path: str, params: Mapping[str, str], headers: Mapping[str, str], seconds: float = API_TIMEOUT_SECONDS
+        self,
+        path: str,
+        params: Mapping[str, str | list[str]],
+        headers: Mapping[str, str],
+        seconds: float = API_TIMEOUT_SECONDS,
     ) -> ApiResult:
         try:
             async with asyncio.timeout(seconds):  # the httpx timeout is per phase; this one is total

@@ -259,12 +259,20 @@ async def test_install_registers_the_tools_and_the_prompt() -> None:
     assert [p.name for p in await server.list_prompts()] == ["select_project"]
     names = sorted(t.name for t in await server.list_tools())
     assert names == [
+        "expand_brief",
+        "get_evidence",
+        "get_node",
+        "get_story_brief",
         "get_task_brief",
         "get_task_path",
         "list_feature_tasks",
         "list_features",
         "list_projects",
         "list_tasks",
+        "path",
+        "search_spec",
+        "similar",
+        "trace",
     ]
     assert (PROMPTS[0],) == PROMPTS and isinstance(PROMPTS[0], PromptDeclaration)
     assert isinstance(TOOLS[0], ToolDeclaration)
@@ -373,7 +381,7 @@ async def test_tools_list_input_schemas_are_unchanged_except_descriptions(valid_
     app = build_app(mcp_env(valid_env), tools=lambda server: install(server, resource_url=MCP_URL))
     async with sdk_session(app, ALICE) as session:
         listed = (await session.list_tools()).tools
-    assert {t.name: stripped(t.input_schema) for t in listed} == INPUT_SCHEMAS
+    assert {t.name: stripped(t.input_schema) for t in listed if t.name in INPUT_SCHEMAS} == INPUT_SCHEMAS
     by_name = {t.name: t.input_schema for t in listed}
     assert by_name["list_features"]["properties"]["project_id"]["description"].count(".specflow/config.json") == 1
 

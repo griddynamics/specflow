@@ -392,6 +392,9 @@ READ_FRAGMENT_HITS: Final = Query("read_fragment_hits", "core.read_fragment_hits
 
 READ_NODES_FOR_LINES: Final = Query("read_nodes_for_lines", "core.read_nodes_for_lines")
 
+# The stored search vectors of given nodes (``similar``, ``expand``): compared without an embedding call.
+READ_NODE_VECTORS: Final = Query("read_node_vectors", "core.read_node_vectors")
+
 # Scope: one query per declared spine path (or contiguous part of a ``sequence`` path). Every walk
 # follows each edge in its stored direction towards the root node unless the relation is in
 # ``$symmetric``, and never passes through a node with a spine-root label (``$roots``).

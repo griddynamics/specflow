@@ -153,20 +153,24 @@ class TraceExecutor:
         self, frontier: Sequence[str], relations: Sequence[str], labels: Sequence[str]
     ) -> list[dict[str, Any]]:
         rows = []
+        wanted = set(frontier)
         for edge in self.graph.edges:
             if edge["relation"] not in relations:
                 continue
-            ends = (self.graph.nodes[edge["source"]], self.graph.nodes[edge["target"]])
-            for start, other, outgoing in ((ends[0], ends[1], True), (ends[1], ends[0], False)):
-                if start["uuid"] in frontier and other["label"] in labels:
-                    rows.append(self._hop_row(start, other, edge, outgoing=outgoing))
+            ends = (
+                (edge["source"], self.graph.nodes[edge["source"]]),
+                (edge["target"], self.graph.nodes[edge["target"]]),
+            )
+            for (_, start), (spec_id, other), outgoing in ((ends[0], ends[1], True), (ends[1], ends[0], False)):
+                if start["uuid"] in wanted and other["label"] in labels:
+                    rows.append(self._hop_row(start, spec_id, other, edge, outgoing=outgoing))
         return sorted(rows, key=lambda row: (row["frontier"], row["spec_id"], row["relation"]))
 
+    @staticmethod
     def _hop_row(
-        self, start: Mapping[str, Any], other: Mapping[str, Any], edge: Mapping[str, Any], *, outgoing: bool
+        start: Mapping[str, Any], spec_id: str, other: Mapping[str, Any], edge: Mapping[str, Any], *, outgoing: bool
     ) -> dict[str, Any]:
         props = edge["props"]
-        spec_id = next(key for key, node in self.graph.nodes.items() if node is other)
         return {
             "frontier": start["uuid"],
             "uuid": other["uuid"],

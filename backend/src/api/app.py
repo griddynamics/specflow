@@ -15,6 +15,7 @@ from api.errors import install_error_handlers, required
 from api.request_id import SpecflowApi
 from api.routers import (
     agent,
+    agent_spec,
     documents,
     graph_build,
     health,
@@ -163,6 +164,7 @@ def create_app(settings: RoleSettings, *, runtime_factory: RuntimeFactory = buil
     for router in (
         me.router,
         agent.router,
+        agent_spec.router,
         projects.router,
         documents.router,
         graph_build.router,

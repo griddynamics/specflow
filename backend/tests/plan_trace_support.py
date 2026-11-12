@@ -133,7 +133,10 @@ def shop_plan(*, tasks: tuple[CurrentTask, ...] = TASKS, retired: tuple[str, ...
         )
         for story_id, title, anchor in STORIES
     )
-    links = tuple(PlanLink(type="WAITS_FOR", source=a, target=b, edge_key=f"{a}>{b}") for a, b in WAITS)
+    present = {item.task_id for item in tasks}
+    links = tuple(
+        PlanLink(type="WAITS_FOR", source=a, target=b, edge_key=f"{a}>{b}") for a, b in WAITS if {a, b} <= present
+    )
     plan = PlanInfo(plan_id="PLAN::MAIN", consumed_build_ids=("build-1",), created_at=T0, updated_at=T0)
     return LoadedPlan(CurrentPlan(plan=plan, areas=areas, stories=stories, tasks=tasks, links=links))
 

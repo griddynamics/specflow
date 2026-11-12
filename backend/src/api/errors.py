@@ -106,6 +106,22 @@ def feature_not_found() -> ApiError:
     return ApiError(404, "feature_not_found", "The feature is not in the specification graph of the project.")
 
 
+def story_not_found() -> ApiError:
+    return ApiError(404, "story_not_found", "The story is not in the current plan of the project.")
+
+
+def node_not_found() -> ApiError:
+    return ApiError(404, "node_not_found", "The node is not in the specification graph of the project.")
+
+
+def invalid_arguments() -> ApiError:
+    return ApiError(400, "invalid_arguments", "The arguments do not fit together.")
+
+
+def unknown_relation() -> ApiError:
+    return ApiError(400, "unknown_relation", "A relation is not in the ontology of the project.")
+
+
 def graph_unavailable() -> ApiError:
     return ApiError(503, "graph_unavailable", "The specification graph is unavailable. Try again later.")
 

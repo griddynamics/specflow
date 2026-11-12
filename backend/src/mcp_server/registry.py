@@ -31,19 +31,35 @@ from starlette.requests import Request
 from agent_contracts import (
     AGENT_ROUTES,
     INTERNAL_ERROR,
+    BriefExpansion,
+    Evidence,
+    ExpandBriefArgs,
     FeatureList,
     FeatureTaskList,
+    GetEvidenceArgs,
+    GetNodeArgs,
+    GetStoryBriefArgs,
     GetTaskBriefArgs,
     GetTaskPathArgs,
     ListFeaturesArgs,
     ListFeatureTasksArgs,
     ListProjectsArgs,
     ListTasksArgs,
+    NodeDetail,
+    NodePaths,
+    PathArgs,
     ProjectArguments,
     ProjectList,
+    SearchSpecArgs,
+    SimilarArgs,
+    SimilarNodes,
+    SpecSearch,
+    SpecTrace,
+    StoryBriefResult,
     TaskBriefResult,
     TaskList,
     TaskPath,
+    TraceArgs,
 )
 from logger.correlation import current_request_id
 from logger.logger import INFO, get_logger, log_event
@@ -131,6 +147,78 @@ TOOLS: Final[tuple[ToolDeclaration, ...]] = (
         arguments=GetTaskBriefArgs,
         output=TaskBriefResult,
         route=AGENT_ROUTES["get_task_brief"],
+        project_scoped=True,
+    ),
+    ToolDeclaration(
+        name="get_story_brief",
+        summary="Reads what an agent needs to start a story: tasks, done-when, spec sources, prerequisites, findings.",
+        description=descriptions.STORY_BRIEF_DESCRIPTION,
+        arguments=GetStoryBriefArgs,
+        output=StoryBriefResult,
+        route=AGENT_ROUTES["get_story_brief"],
+        project_scoped=True,
+    ),
+    ToolDeclaration(
+        name="trace",
+        summary="Traces what a story or spec nodes depend on, or what depends on them, with plan state.",
+        description=descriptions.TRACE_DESCRIPTION,
+        arguments=TraceArgs,
+        output=SpecTrace,
+        route=AGENT_ROUTES["trace"],
+        project_scoped=True,
+    ),
+    ToolDeclaration(
+        name="get_node",
+        summary="Reads one spec node: edges, plan state, provenance and findings.",
+        description=descriptions.NODE_DESCRIPTION,
+        arguments=GetNodeArgs,
+        output=NodeDetail,
+        route=AGENT_ROUTES["get_node"],
+        project_scoped=True,
+    ),
+    ToolDeclaration(
+        name="search_spec",
+        summary="Searches the spec graph by id, text and meaning, optionally near a story or node.",
+        description=descriptions.SEARCH_DESCRIPTION,
+        arguments=SearchSpecArgs,
+        output=SpecSearch,
+        route=AGENT_ROUTES["search_spec"],
+        project_scoped=True,
+    ),
+    ToolDeclaration(
+        name="similar",
+        summary="Finds spec nodes whose text reads like a story's nodes but that have no edge to them.",
+        description=descriptions.SIMILAR_DESCRIPTION,
+        arguments=SimilarArgs,
+        output=SimilarNodes,
+        route=AGENT_ROUTES["similar"],
+        project_scoped=True,
+    ),
+    ToolDeclaration(
+        name="get_evidence",
+        summary="Reads the exact source lines behind one spec node.",
+        description=descriptions.EVIDENCE_DESCRIPTION,
+        arguments=GetEvidenceArgs,
+        output=Evidence,
+        route=AGENT_ROUTES["get_evidence"],
+        project_scoped=True,
+    ),
+    ToolDeclaration(
+        name="path",
+        summary="Shows how two spec nodes connect: up to three shortest directed chains.",
+        description=descriptions.PATH_TOOL_DESCRIPTION,
+        arguments=PathArgs,
+        output=NodePaths,
+        route=AGENT_ROUTES["path"],
+        project_scoped=True,
+    ),
+    ToolDeclaration(
+        name="expand_brief",
+        summary="Ranks what to read next beyond a story's brief, within a token budget.",
+        description=descriptions.EXPAND_DESCRIPTION,
+        arguments=ExpandBriefArgs,
+        output=BriefExpansion,
+        route=AGENT_ROUTES["expand_brief"],
         project_scoped=True,
     ),
 )
@@ -224,7 +312,9 @@ class _ToolFunction:
         parameters = [inspect.Parameter("ctx", inspect.Parameter.KEYWORD_ONLY, annotation=Context)]
         annotations: dict[str, Any] = {"ctx": Context}
         for name, info in declaration.arguments.model_fields.items():
-            extras = [*info.metadata, *([Field(description=info.description)] if info.description else [])]
+            # ``alias``: a wire name that is no Python name (``from``)
+            described = info.description or info.alias
+            extras = [*info.metadata, *([Field(description=info.description, alias=info.alias)] if described else [])]
             annotation = Annotated[(info.annotation, *extras)] if extras else info.annotation
             default = inspect.Parameter.empty if info.is_required() else info.default
             parameters.append(
@@ -304,21 +394,28 @@ def _canonical_uuid(value: str) -> str | None:
         return None
 
 
-def _query(args: BaseModel) -> Mapping[str, str]:
-    """The validated arguments as query parameters: booleans ``true``/``false``, integers as decimal strings,
-    ``None`` omitted."""
+def _query_value(value: object) -> str:
+    return str(value).lower() if isinstance(value, bool) else str(value)
+
+
+def _query(args: BaseModel) -> Mapping[str, str | list[str]]:
+    """The validated arguments as query parameters: booleans ``true``/``false``, integers as decimal strings, a list
+    as a repeated parameter, ``None`` omitted."""
 
     return {
-        name: str(value).lower() if isinstance(value, bool) else str(value)
+        name: [_query_value(item) for item in value] if isinstance(value, list) else _query_value(value)
         for name, value in args.model_dump(exclude_none=True).items()
     }
 
 
 def _item_count(result: BaseModel) -> int:
-    """What the audit counts: the items of a listing, else 1 (one object, such as a task brief)."""
+    """What the audit counts: the items of a listing or the nodes of a trace, else 1 (one object, such as a brief)."""
 
-    items = getattr(result, "items", None)
-    return len(items) if isinstance(items, list) else 1
+    for name in ("items", "nodes"):
+        found = getattr(result, name, None)
+        if isinstance(found, list):
+            return len(found)
+    return 1
 
 
 def _prompt_function(declaration: PromptDeclaration, resource_url: str) -> Callable[..., str]:

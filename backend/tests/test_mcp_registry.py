@@ -77,10 +77,18 @@ def test_fr_mcp_acc_06_the_declarations_name_a_project_id_exactly_when_they_are_
         "list_feature_tasks",
         "get_task_path",
         "get_task_brief",
+        "get_story_brief",
+        "trace",
+        "get_node",
+        "search_spec",
+        "similar",
+        "get_evidence",
+        "path",
+        "expand_brief",
     ]
     for tool in TOOLS:
         assert ("project_id" in tool.arguments.model_fields) == tool.project_scoped, tool.name
-    assert [t.project_scoped for t in TOOLS] == [False, True, True, True, True, True]
+    assert [t.project_scoped for t in TOOLS] == [False, *([True] * 13)]
 
 
 async def test_fr_mcp_acc_06_every_scoped_tool_sends_its_project_id_to_the_api_which_owns_the_membership(valid_env):
@@ -104,6 +112,14 @@ async def test_fr_mcp_acc_06_every_scoped_tool_sends_its_project_id_to_the_api_w
         "get_task_brief": {"task_id": "TASK::X"},
         "get_task_path": {"task_id": "TASK::X"},
         "list_feature_tasks": {"feature_id": "FEAT::X"},
+        "get_story_brief": {"story_id": "STORY::X"},
+        "trace": {"story_id": "STORY::X", "direction": "affects"},
+        "get_node": {"spec_id": "FEAT::X"},
+        "search_spec": {"query": "x"},
+        "similar": {"story_id": "STORY::X"},
+        "get_evidence": {"spec_id": "FEAT::X"},
+        "path": {"from": "FEAT::X", "to": "FEAT::Y"},
+        "expand_brief": {"story_id": "STORY::X"},
     }
     async with sdk_session(app, ALICE) as session:
         listed = (await session.list_tools()).tools
@@ -141,20 +157,28 @@ def test_fr_mcp_acc_06_the_sdk_tool_api_has_one_home_and_no_module_reads_data() 
 # --- FR-MCP-TOOL-09: the published contract ----------------------------------------------------------
 
 
-async def test_fr_mcp_tool_09_tools_list_shows_exactly_the_six_tools_with_four_annotations_each(valid_env):
-    """FR-MCP-TOOL-09: ``tools/list`` over HTTP: six tools, the four annotations, the output schema, and the
+async def test_fr_mcp_tool_09_tools_list_shows_exactly_the_ten_tools_with_four_annotations_each(valid_env):
+    """FR-MCP-TOOL-09: ``tools/list`` over HTTP: every tool, the four annotations, the output schema, and the
     description tools.md quotes (joined by one space)."""
 
     app = tools_app(valid_env)
     async with sdk_session(app, ALICE) as session:
         listed = (await session.list_tools()).tools
     assert sorted(t.name for t in listed) == [
+        "expand_brief",
+        "get_evidence",
+        "get_node",
+        "get_story_brief",
         "get_task_brief",
         "get_task_path",
         "list_feature_tasks",
         "list_features",
         "list_projects",
         "list_tasks",
+        "path",
+        "search_spec",
+        "similar",
+        "trace",
     ]
     for tool in listed:
         assert tool.annotations is not None
@@ -168,6 +192,17 @@ async def test_fr_mcp_tool_09_tools_list_shows_exactly_the_six_tools_with_four_a
     feature_tasks = by_name["list_feature_tasks"].description
     assert feature_tasks == doc_description("list_feature_tasks") == descriptions.FEATURE_TASKS_DESCRIPTION
     assert by_name["get_task_path"].description == doc_description("get_task_path") == descriptions.PATH_DESCRIPTION
+    for tool, text in (
+        ("get_story_brief", descriptions.STORY_BRIEF_DESCRIPTION),
+        ("trace", descriptions.TRACE_DESCRIPTION),
+        ("get_node", descriptions.NODE_DESCRIPTION),
+        ("search_spec", descriptions.SEARCH_DESCRIPTION),
+        ("similar", descriptions.SIMILAR_DESCRIPTION),
+        ("get_evidence", descriptions.EVIDENCE_DESCRIPTION),
+        ("path", descriptions.PATH_TOOL_DESCRIPTION),
+        ("expand_brief", descriptions.EXPAND_DESCRIPTION),
+    ):
+        assert by_name[tool].description == doc_description(tool) == text, tool
     assert READ_ONLY.model_dump(mode="json", by_alias=True, exclude_none=True) == ANNOTATIONS
 
 
@@ -179,7 +214,18 @@ async def test_fr_mcp_tool_09_the_input_schemas_bound_the_limit_and_leave_the_id
     async with sdk_session(app, ALICE) as session:
         schemas = {t.name: t.input_schema for t in (await session.list_tools()).tools}
     limit = {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}
-    paged = {name: schema for name, schema in schemas.items() if name != "get_task_brief"}
+    spec_tools = {
+        "get_task_brief",
+        "get_story_brief",
+        "trace",
+        "get_node",
+        "search_spec",
+        "similar",
+        "get_evidence",
+        "path",
+        "expand_brief",
+    }
+    paged = {name: schema for name, schema in schemas.items() if name not in spec_tools}
     assert set(paged) == {"list_projects", "list_features", "list_tasks", "list_feature_tasks", "get_task_path"}
     for name, schema in paged.items():
         properties = schema["properties"]

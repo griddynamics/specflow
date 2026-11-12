@@ -1,0 +1,137 @@
+{
+  "database_unavailable": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"database_unavailable\",\"message\":\"The database is unavailable. Try again later.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "database_unavailable",
+        "message": "The database is unavailable. Try again later."
+      }
+    }
+  },
+  "graph_unavailable": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"graph_unavailable\",\"message\":\"The specification graph is unavailable. Try again later.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "graph_unavailable",
+        "message": "The specification graph is unavailable. Try again later."
+      }
+    }
+  },
+  "internal_error": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"internal_error\",\"message\":\"Something went wrong. Try again later.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "internal_error",
+        "message": "Something went wrong. Try again later."
+      }
+    }
+  },
+  "invalid_arguments": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"invalid_arguments\",\"message\":\"The arguments do not fit together. Check the tool description and try again.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "invalid_arguments",
+        "message": "The arguments do not fit together. Check the tool description and try again."
+      }
+    }
+  },
+  "no_plan": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"no_plan\",\"message\":\"The project has no implementation plan yet. Create one on the Plan page of the web app.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "no_plan",
+        "message": "The project has no implementation plan yet. Create one on the Plan page of the web app."
+      }
+    }
+  },
+  "node_not_found": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"node_not_found\",\"message\":\"The node is not in the specification graph of the project. Search the specification to find it.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "node_not_found",
+        "message": "The node is not in the specification graph of the project. Search the specification to find it."
+      }
+    }
+  },
+  "project_not_found": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"project_not_found\",\"message\":\"The project does not exist or you are not a member of it.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "project_not_found",
+        "message": "The project does not exist or you are not a member of it."
+      }
+    }
+  },
+  "story_not_found": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"story_not_found\",\"message\":\"The story is not in the current plan of the project. List the stories to find it.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "story_not_found",
+        "message": "The story is not in the current plan of the project. List the stories to find it."
+      }
+    }
+  },
+  "unknown_relation": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"unknown_relation\",\"message\":\"A relation is not in the ontology of the project. Leave relations out to use them all.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "unknown_relation",
+        "message": "A relation is not in the ontology of the project. Leave relations out to use them all."
+      }
+    }
+  }
+}

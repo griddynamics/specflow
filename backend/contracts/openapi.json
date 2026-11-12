@@ -166,6 +166,42 @@
         "title": "BriefContract",
         "type": "object"
       },
+      "BriefExpansion": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ExpansionHit"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "left_out": {
+            "title": "Left Out",
+            "type": "integer"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "story_id": {
+            "title": "Story Id",
+            "type": "string"
+          },
+          "tokens": {
+            "title": "Tokens",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "project_id",
+          "story_id",
+          "items",
+          "tokens",
+          "left_out"
+        ],
+        "title": "BriefExpansion",
+        "type": "object"
+      },
       "BriefNeighbour": {
         "additionalProperties": false,
         "properties": {
@@ -357,6 +393,176 @@
           "about"
         ],
         "title": "BriefQuestion",
+        "type": "object"
+      },
+      "BriefStory": {
+        "properties": {
+          "anchor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anchor"
+          },
+          "kind": {
+            "enum": [
+              "feature",
+              "interface",
+              "entity",
+              "core",
+              "chapter",
+              "setup",
+              "closing"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "release": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release"
+          },
+          "state": {
+            "enum": [
+              "completed",
+              "in_progress",
+              "blocked",
+              "ready",
+              "waiting"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "story_id": {
+            "title": "Story Id",
+            "type": "string"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "story_id",
+          "kind",
+          "title",
+          "summary",
+          "anchor",
+          "release",
+          "state"
+        ],
+        "title": "BriefStory",
+        "type": "object"
+      },
+      "BriefTask": {
+        "description": "A task of the story with its ``done_when`` items (source ``spec`` binding, ``planner`` the planner's reading).",
+        "properties": {
+          "complexity": {
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Complexity",
+            "type": "string"
+          },
+          "done_when": {
+            "items": {
+              "$ref": "#/components/schemas/DoneWhen"
+            },
+            "title": "Done When",
+            "type": "array"
+          },
+          "phase": {
+            "enum": [
+              "setup",
+              "contract",
+              "data",
+              "logic",
+              "integration",
+              "quality",
+              "acceptance"
+            ],
+            "title": "Phase",
+            "type": "string"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "enum": [
+                  "done",
+                  "skipped",
+                  "todo"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "in_progress",
+              "completed",
+              "failed",
+              "blocked",
+              "superseded",
+              "retired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "waits_for": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Waits For",
+            "type": "array"
+          }
+        },
+        "required": [
+          "task_id",
+          "title",
+          "phase",
+          "status",
+          "complexity",
+          "progress",
+          "waits_for",
+          "done_when"
+        ],
+        "title": "BriefTask",
         "type": "object"
       },
       "ChapterRef": {
@@ -768,6 +974,284 @@
         "title": "DriveTestOk",
         "type": "object"
       },
+      "EdgeItem": {
+        "description": "One domain edge of the node: ``direction`` ``out`` leaves it, ``in`` arrives; ``spec_id``, ``label`` and\n``name`` are the other end.",
+        "properties": {
+          "basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "direction": {
+            "enum": [
+              "out",
+              "in"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "relation": {
+            "title": "Relation",
+            "type": "string"
+          },
+          "rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule"
+          },
+          "spec_id": {
+            "title": "Spec Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "relation",
+          "direction",
+          "spec_id",
+          "label",
+          "name",
+          "basis",
+          "confidence",
+          "rule"
+        ],
+        "title": "EdgeItem",
+        "type": "object"
+      },
+      "Evidence": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceSource"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "spec_id": {
+            "title": "Spec Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "spec_id",
+          "items"
+        ],
+        "title": "Evidence",
+        "type": "object"
+      },
+      "EvidenceOther": {
+        "description": "Another node built from the same lines.",
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "spec_id": {
+            "title": "Spec Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spec_id",
+          "label",
+          "name"
+        ],
+        "title": "EvidenceOther",
+        "type": "object"
+      },
+      "EvidenceSource": {
+        "description": "One evidence fragment: its document and lines, the quote with its context lines, the other nodes there.",
+        "properties": {
+          "after": {
+            "items": {
+              "type": "string"
+            },
+            "title": "After",
+            "type": "array"
+          },
+          "before": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Before",
+            "type": "array"
+          },
+          "document_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id"
+          },
+          "fragment_id": {
+            "title": "Fragment Id",
+            "type": "string"
+          },
+          "line_end": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line End"
+          },
+          "line_start": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Start"
+          },
+          "others": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceOther"
+            },
+            "title": "Others",
+            "type": "array"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "quote": {
+            "title": "Quote",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id",
+          "path",
+          "fragment_id",
+          "line_start",
+          "line_end",
+          "quote",
+          "before",
+          "after",
+          "others"
+        ],
+        "title": "EvidenceSource",
+        "type": "object"
+      },
+      "ExpansionHit": {
+        "description": "A node to read next: its score, how it was found and its statement or quote with its estimated tokens.",
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          },
+          "spec_id": {
+            "title": "Spec Id",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "tokens": {
+            "title": "Tokens",
+            "type": "integer"
+          },
+          "via": {
+            "enum": [
+              "graph",
+              "similar",
+              "both"
+            ],
+            "title": "Via",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spec_id",
+          "label",
+          "name",
+          "score",
+          "via",
+          "text",
+          "tokens"
+        ],
+        "title": "ExpansionHit",
+        "type": "object"
+      },
       "FeatureItem": {
         "properties": {
           "attributes": {
@@ -987,6 +1471,47 @@
         "title": "FilePageOut",
         "type": "object"
       },
+      "FindingItem": {
+        "description": "An open finding about a node or a story.",
+        "properties": {
+          "about": {
+            "items": {
+              "type": "string"
+            },
+            "title": "About",
+            "type": "array"
+          },
+          "author": {
+            "$ref": "#/components/schemas/Holder"
+          },
+          "blocking": {
+            "title": "Blocking",
+            "type": "boolean"
+          },
+          "finding_id": {
+            "title": "Finding Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "finding_id",
+          "kind",
+          "text",
+          "blocking",
+          "about",
+          "author"
+        ],
+        "title": "FindingItem",
+        "type": "object"
+      },
       "GraphBuildRequest": {
         "additionalProperties": false,
         "description": "Optional body of ``POST /graph_build``; the level is only validated and logged.",
@@ -1135,6 +1660,43 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "Holder": {
+        "description": "The person behind a claim, a task or a finding: no user id, token or email (tools.md \"Holders\").",
+        "properties": {
+          "agent_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Label"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "you": {
+            "title": "You",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "you"
+        ],
+        "title": "Holder",
+        "type": "object"
+      },
       "HolderOut": {
         "properties": {
           "created_at": {
@@ -1201,6 +1763,323 @@
           "display_name"
         ],
         "title": "MeOut",
+        "type": "object"
+      },
+      "NodeBody": {
+        "properties": {
+          "attributes": {
+            "additionalProperties": true,
+            "title": "Attributes",
+            "type": "object"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "spec_id": {
+            "title": "Spec Id",
+            "type": "string"
+          },
+          "spec_id_aliases": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Spec Id Aliases",
+            "type": "array"
+          },
+          "statements": {
+            "items": {
+              "$ref": "#/components/schemas/NodeStatement"
+            },
+            "title": "Statements",
+            "type": "array"
+          }
+        },
+        "required": [
+          "spec_id",
+          "label",
+          "name",
+          "spec_id_aliases",
+          "attributes",
+          "statements"
+        ],
+        "title": "NodeBody",
+        "type": "object"
+      },
+      "NodeDetail": {
+        "properties": {
+          "edges": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NodeEdges"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "findings": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FindingItem"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Findings"
+          },
+          "node": {
+            "$ref": "#/components/schemas/NodeBody"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NodePlanPart"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provenance": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/NodeProvenance"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provenance"
+          }
+        },
+        "required": [
+          "node",
+          "edges",
+          "plan",
+          "provenance",
+          "findings"
+        ],
+        "title": "NodeDetail",
+        "type": "object"
+      },
+      "NodeEdges": {
+        "description": "At most ``edge_limit`` edges (stated first); ``by_relation`` counts all of them, so a hub is summarised.",
+        "properties": {
+          "by_relation": {
+            "items": {
+              "$ref": "#/components/schemas/RelationCount"
+            },
+            "title": "By Relation",
+            "type": "array"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EdgeItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "by_relation",
+          "total"
+        ],
+        "title": "NodeEdges",
+        "type": "object"
+      },
+      "NodePaths": {
+        "description": "At most 3 shortest chains; ``direction`` ``based_on`` (``from`` depends on ``to``), ``affects`` (the reverse)\nor null (no chain).",
+        "properties": {
+          "direction": {
+            "anyOf": [
+              {
+                "enum": [
+                  "based_on",
+                  "affects"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
+          "from": {
+            "title": "From",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PathChainItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "to": {
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "from",
+          "to",
+          "direction",
+          "items"
+        ],
+        "title": "NodePaths",
+        "type": "object"
+      },
+      "NodePlanPart": {
+        "properties": {
+          "plan_state": {
+            "enum": [
+              "completed",
+              "in_progress",
+              "open",
+              "unplanned"
+            ],
+            "title": "Plan State",
+            "type": "string"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/TaskRef"
+            },
+            "title": "Tasks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "plan_state",
+          "tasks"
+        ],
+        "title": "NodePlanPart",
+        "type": "object"
+      },
+      "NodeProvenance": {
+        "properties": {
+          "document_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id"
+          },
+          "fragment_id": {
+            "title": "Fragment Id",
+            "type": "string"
+          },
+          "line_end": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line End"
+          },
+          "line_start": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line Start"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "quote": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote"
+          }
+        },
+        "required": [
+          "document_id",
+          "path",
+          "fragment_id",
+          "line_start",
+          "line_end",
+          "quote"
+        ],
+        "title": "NodeProvenance",
+        "type": "object"
+      },
+      "NodeStatement": {
+        "properties": {
+          "document_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id"
+          },
+          "fragment_id": {
+            "title": "Fragment Id",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fragment_id",
+          "document_id",
+          "text"
+        ],
+        "title": "NodeStatement",
         "type": "object"
       },
       "Page_DocumentOut_": {
@@ -1273,6 +2152,76 @@
           "status"
         ],
         "title": "ParseStarted",
+        "type": "object"
+      },
+      "PathChainItem": {
+        "properties": {
+          "hops": {
+            "title": "Hops",
+            "type": "integer"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/PathStepItem"
+            },
+            "title": "Steps",
+            "type": "array"
+          }
+        },
+        "required": [
+          "hops",
+          "steps"
+        ],
+        "title": "PathChainItem",
+        "type": "object"
+      },
+      "PathStepItem": {
+        "description": "One step of a chain: the node it reaches and the edge it takes.",
+        "properties": {
+          "basis": {
+            "title": "Basis",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "relation": {
+            "title": "Relation",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "spec_id": {
+            "title": "Spec Id",
+            "type": "string"
+          },
+          "step": {
+            "enum": [
+              "forward",
+              "backward",
+              "scope"
+            ],
+            "title": "Step",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spec_id",
+          "label",
+          "name",
+          "relation",
+          "step",
+          "role",
+          "basis"
+        ],
+        "title": "PathStepItem",
         "type": "object"
       },
       "PlanAreaOut": {
@@ -2610,6 +3559,122 @@
         "title": "ReadyzOut",
         "type": "object"
       },
+      "RelationCount": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "direction": {
+            "enum": [
+              "out",
+              "in"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "relation": {
+            "title": "Relation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "relation",
+          "direction",
+          "count"
+        ],
+        "title": "RelationCount",
+        "type": "object"
+      },
+      "SimilarHit": {
+        "description": "A node that reads like the compared node ``like``, with its score and plan state.",
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "like": {
+            "title": "Like",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "plan_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "completed",
+                  "in_progress",
+                  "open",
+                  "unplanned"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan State"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          },
+          "spec_id": {
+            "title": "Spec Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spec_id",
+          "label",
+          "name",
+          "score",
+          "like",
+          "plan_state"
+        ],
+        "title": "SimilarHit",
+        "type": "object"
+      },
+      "SimilarNodes": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SimilarHit"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "unknown": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unknown",
+            "type": "array"
+          }
+        },
+        "required": [
+          "project_id",
+          "sources",
+          "unknown",
+          "items"
+        ],
+        "title": "SimilarNodes",
+        "type": "object"
+      },
       "SourceCreated": {
         "properties": {
           "source": {
@@ -2871,6 +3936,275 @@
           "sources"
         ],
         "title": "SourcesStatusV2Out",
+        "type": "object"
+      },
+      "SpecHit": {
+        "properties": {
+          "hops_from_near": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hops From Near"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "matched": {
+            "enum": [
+              "id",
+              "text",
+              "vector",
+              "both"
+            ],
+            "title": "Matched",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "score": {
+            "title": "Score",
+            "type": "number"
+          },
+          "spec_id": {
+            "title": "Spec Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spec_id",
+          "label",
+          "name",
+          "score",
+          "matched",
+          "hops_from_near"
+        ],
+        "title": "SpecHit",
+        "type": "object"
+      },
+      "SpecSearch": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SpecHit"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "items"
+        ],
+        "title": "SpecSearch",
+        "type": "object"
+      },
+      "SpecTrace": {
+        "properties": {
+          "context": {
+            "items": {
+              "$ref": "#/components/schemas/TraceOwnerItem"
+            },
+            "title": "Context",
+            "type": "array"
+          },
+          "direction": {
+            "enum": [
+              "based_on",
+              "affects"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/TraceNodeItem"
+            },
+            "title": "Nodes",
+            "type": "array"
+          },
+          "open_questions": {
+            "items": {
+              "$ref": "#/components/schemas/BriefQuestion"
+            },
+            "title": "Open Questions",
+            "type": "array"
+          },
+          "seeds_truncated": {
+            "title": "Seeds Truncated",
+            "type": "boolean"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "stories": {
+            "items": {
+              "$ref": "#/components/schemas/TraceStoryItem"
+            },
+            "title": "Stories",
+            "type": "array"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          },
+          "unknown": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unknown",
+            "type": "array"
+          }
+        },
+        "required": [
+          "direction",
+          "sources",
+          "context",
+          "nodes",
+          "stories",
+          "summary",
+          "open_questions",
+          "unknown",
+          "truncated",
+          "seeds_truncated"
+        ],
+        "title": "SpecTrace",
+        "type": "object"
+      },
+      "StoryBriefBody": {
+        "properties": {
+          "area": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorkAreaInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "contracts": {
+            "items": {
+              "$ref": "#/components/schemas/BriefContract"
+            },
+            "title": "Contracts",
+            "type": "array"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/FindingItem"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "implements": {
+            "items": {
+              "$ref": "#/components/schemas/BriefNode"
+            },
+            "title": "Implements",
+            "type": "array"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
+          "neighbours": {
+            "items": {
+              "$ref": "#/components/schemas/BriefNeighbour"
+            },
+            "title": "Neighbours",
+            "type": "array"
+          },
+          "open_questions": {
+            "items": {
+              "$ref": "#/components/schemas/BriefQuestion"
+            },
+            "title": "Open Questions",
+            "type": "array"
+          },
+          "profile": {
+            "additionalProperties": true,
+            "title": "Profile",
+            "type": "object"
+          },
+          "spec_changed": {
+            "title": "Spec Changed",
+            "type": "boolean"
+          },
+          "story": {
+            "$ref": "#/components/schemas/BriefStory"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/BriefTask"
+            },
+            "title": "Tasks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "story",
+          "area",
+          "profile",
+          "tasks",
+          "implements",
+          "contracts",
+          "open_questions",
+          "findings",
+          "neighbours",
+          "spec_changed",
+          "missing"
+        ],
+        "title": "StoryBriefBody",
+        "type": "object"
+      },
+      "StoryBriefResult": {
+        "properties": {
+          "brief": {
+            "$ref": "#/components/schemas/StoryBriefBody"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "brief"
+        ],
+        "title": "StoryBriefResult",
         "type": "object"
       },
       "StoryRef": {
@@ -3209,6 +4543,285 @@
         "title": "TaskPath",
         "type": "object"
       },
+      "TaskRef": {
+        "description": "A task of a node: its holder while it is in progress, its commit once it is completed.",
+        "properties": {
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit"
+          },
+          "holder": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Holder"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "story_id": {
+            "title": "Story Id",
+            "type": "string"
+          },
+          "task_id": {
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id",
+          "story_id",
+          "status"
+        ],
+        "title": "TaskRef",
+        "type": "object"
+      },
+      "TraceNodeItem": {
+        "description": "A node the trace reached, with the edge from its ``parent`` that reached it first and its plan state.",
+        "properties": {
+          "basis": {
+            "title": "Basis",
+            "type": "string"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence"
+          },
+          "findings": {
+            "title": "Findings",
+            "type": "integer"
+          },
+          "hops": {
+            "title": "Hops",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parent": {
+            "title": "Parent",
+            "type": "string"
+          },
+          "plan_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "completed",
+                  "in_progress",
+                  "open",
+                  "unplanned"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan State"
+          },
+          "relation": {
+            "title": "Relation",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule"
+          },
+          "spec_id": {
+            "title": "Spec Id",
+            "type": "string"
+          },
+          "spine_root": {
+            "title": "Spine Root",
+            "type": "boolean"
+          },
+          "step": {
+            "enum": [
+              "forward",
+              "backward",
+              "scope"
+            ],
+            "title": "Step",
+            "type": "string"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/TaskRef"
+            },
+            "title": "Tasks",
+            "type": "array"
+          },
+          "via_owner": {
+            "title": "Via Owner",
+            "type": "boolean"
+          },
+          "weak": {
+            "title": "Weak",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "spec_id",
+          "label",
+          "name",
+          "hops",
+          "parent",
+          "relation",
+          "step",
+          "role",
+          "basis",
+          "confidence",
+          "rule",
+          "weak",
+          "via_owner",
+          "spine_root",
+          "plan_state",
+          "tasks",
+          "findings"
+        ],
+        "title": "TraceNodeItem",
+        "type": "object"
+      },
+      "TraceOwnerItem": {
+        "description": "An owner of a start node, up to the first spine root: the trace's context.",
+        "properties": {
+          "findings": {
+            "title": "Findings",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "plan_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "completed",
+                  "in_progress",
+                  "open",
+                  "unplanned"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan State"
+          },
+          "spec_id": {
+            "title": "Spec Id",
+            "type": "string"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/TaskRef"
+            },
+            "title": "Tasks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "spec_id",
+          "label",
+          "name",
+          "plan_state",
+          "tasks",
+          "findings"
+        ],
+        "title": "TraceOwnerItem",
+        "type": "object"
+      },
+      "TraceStoryItem": {
+        "description": "A story that holds tasks of the traced nodes.",
+        "properties": {
+          "area_id": {
+            "title": "Area Id",
+            "type": "string"
+          },
+          "holders": {
+            "items": {
+              "$ref": "#/components/schemas/Holder"
+            },
+            "title": "Holders",
+            "type": "array"
+          },
+          "progress": {
+            "enum": [
+              "pending",
+              "in_progress",
+              "blocked",
+              "completed"
+            ],
+            "title": "Progress",
+            "type": "string"
+          },
+          "story_id": {
+            "title": "Story Id",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "story_id",
+          "title",
+          "area_id",
+          "progress",
+          "holders"
+        ],
+        "title": "TraceStoryItem",
+        "type": "object"
+      },
       "UploadOut": {
         "properties": {
           "document": {
@@ -3430,6 +5043,146 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/agent/brief-expansion": {
+      "get": {
+        "description": "What to read next beyond the story's brief: seeds its implemented nodes, its neighbours left out.",
+        "operationId": "expand_brief_api_v1_agent_brief_expansion_get",
+        "parameters": [
+          {
+            "description": "The story_id of a story from list_stories, or the one claim_story answered.",
+            "in": "query",
+            "name": "story_id",
+            "required": true,
+            "schema": {
+              "description": "The story_id of a story from list_stories, or the one claim_story answered.",
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Story Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The most estimated tokens of text to return, 500 to 8000.",
+            "in": "query",
+            "name": "budget_tokens",
+            "required": false,
+            "schema": {
+              "default": 3000,
+              "description": "The most estimated tokens of text to return, 500 to 8000.",
+              "maximum": 8000,
+              "minimum": 500,
+              "title": "Budget Tokens",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BriefExpansion"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Expand Brief",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/v1/agent/evidence": {
+      "get": {
+        "description": "The source lines behind one node, with context lines and the other nodes built from them.",
+        "operationId": "get_evidence_api_v1_agent_evidence_get",
+        "parameters": [
+          {
+            "description": "The spec_id of a node from a brief, a trace or a search; aliases resolve.",
+            "in": "query",
+            "name": "spec_id",
+            "required": true,
+            "schema": {
+              "description": "The spec_id of a node from a brief, a trace or a search; aliases resolve.",
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Spec Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Lines of context before and after each quote, 0 to 5.",
+            "in": "query",
+            "name": "context_lines",
+            "required": false,
+            "schema": {
+              "default": 2,
+              "description": "Lines of context before and after each quote, 0 to 5.",
+              "maximum": 5,
+              "minimum": 0,
+              "title": "Context Lines",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Evidence"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Evidence",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
     "/api/v1/agent/feature-tasks": {
       "get": {
         "description": "Every open or completed task of one feature, ordered by ``task_id``.",
@@ -3581,6 +5334,186 @@
         ]
       }
     },
+    "/api/v1/agent/node": {
+      "get": {
+        "description": "One node with the parts asked for: edges (a hub's summarised past ``edge_limit``), plan, provenance, findings.",
+        "operationId": "get_node_api_v1_agent_node_get",
+        "parameters": [
+          {
+            "description": "The spec_id of a node from a brief, a trace or a search; aliases resolve.",
+            "in": "query",
+            "name": "spec_id",
+            "required": true,
+            "schema": {
+              "description": "The spec_id of a node from a brief, a trace or a search; aliases resolve.",
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Spec Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The parts to return; a part left out is null.",
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "default": [
+                "edges",
+                "plan",
+                "provenance",
+                "findings"
+              ],
+              "description": "The parts to return; a part left out is null.",
+              "items": {
+                "enum": [
+                  "edges",
+                  "plan",
+                  "provenance",
+                  "findings"
+                ],
+                "type": "string"
+              },
+              "minItems": 1,
+              "title": "Include",
+              "type": "array"
+            }
+          },
+          {
+            "description": "The most edges to list; the rest are counted per relation.",
+            "in": "query",
+            "name": "edge_limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "description": "The most edges to list; the rest are counted per relation.",
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Edge Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Node",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/v1/agent/node-path": {
+      "get": {
+        "description": "At most three shortest directed chains between two nodes, modules never inside one.",
+        "operationId": "path_api_v1_agent_node_path_get",
+        "parameters": [
+          {
+            "description": "The spec_id the chains start from; aliases resolve.",
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "description": "The spec_id the chains start from; aliases resolve.",
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "From",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The spec_id the chains end at; aliases resolve.",
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "description": "The spec_id the chains end at; aliases resolve.",
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "To",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The most edges in a chain, 1 to 4.",
+            "in": "query",
+            "name": "max_hops",
+            "required": false,
+            "schema": {
+              "default": 4,
+              "description": "The most edges in a chain, 1 to 4.",
+              "maximum": 4,
+              "minimum": 1,
+              "title": "Max Hops",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodePaths"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Path",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
     "/api/v1/agent/projects": {
       "get": {
         "description": "One page through ``db.repositories.list_projects``; its cursor is passed through unchanged.",
@@ -3638,6 +5571,310 @@
           }
         },
         "summary": "List Projects",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/v1/agent/similar": {
+      "get": {
+        "description": "Nodes whose stored vectors read like the story's implemented nodes or the given ones, with plan state.",
+        "operationId": "similar_api_v1_agent_similar_get",
+        "parameters": [
+          {
+            "description": "A story_id: compare with the specification nodes its tasks implement.",
+            "in": "query",
+            "name": "story_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A story_id: compare with the specification nodes its tasks implement.",
+              "title": "Story Id"
+            }
+          },
+          {
+            "description": "1 to 20 spec_ids to compare with. Give this or story_id, not both.",
+            "in": "query",
+            "name": "spec_ids",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 20,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "1 to 20 spec_ids to compare with. Give this or story_id, not both.",
+              "title": "Spec Ids"
+            }
+          },
+          {
+            "description": "Leave out nodes that already have an edge to one of the compared nodes.",
+            "in": "query",
+            "name": "exclude_linked",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "Leave out nodes that already have an edge to one of the compared nodes.",
+              "title": "Exclude Linked",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "The most nodes to return, 1 to 20.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 5,
+              "description": "The most nodes to return, 1 to 20.",
+              "maximum": 20,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The lowest similarity score, 0 to 1 ((1 + cosine) / 2).",
+            "in": "query",
+            "name": "min_score",
+            "required": false,
+            "schema": {
+              "default": 0.75,
+              "description": "The lowest similarity score, 0 to 1 ((1 + cosine) / 2).",
+              "maximum": 1,
+              "minimum": 0,
+              "title": "Min Score",
+              "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimilarNodes"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Similar",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/v1/agent/spec-search": {
+      "get": {
+        "description": "Hybrid search by id, text and meaning; with ``near``, 3 x ``limit`` hits (at most 60) are re-ranked by hops.",
+        "operationId": "search_spec_api_v1_agent_spec_search_get",
+        "parameters": [
+          {
+            "description": "The term or phrase to search for.",
+            "in": "query",
+            "name": "query",
+            "required": true,
+            "schema": {
+              "description": "The term or phrase to search for.",
+              "maxLength": 500,
+              "minLength": 1,
+              "title": "Query",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A story_id or spec_id: hits within 3 hops of it (of the story's nodes) rank first.",
+            "in": "query",
+            "name": "near",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A story_id or spec_id: hits within 3 hops of it (of the story's nodes) rank first.",
+              "title": "Near"
+            }
+          },
+          {
+            "description": "Only nodes of these labels; leave out for all.",
+            "in": "query",
+            "name": "labels",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 50,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only nodes of these labels; leave out for all.",
+              "title": "Labels"
+            }
+          },
+          {
+            "description": "The most hits to return, 1 to 20.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "description": "The most hits to return, 1 to 20.",
+              "maximum": 20,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpecSearch"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search Spec",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/v1/agent/story-brief": {
+      "get": {
+        "description": "The plan library's brief of one story, with its open findings; authors are named from the project's members.",
+        "operationId": "get_story_brief_api_v1_agent_story_brief_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "story_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Story Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "neighbours",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 100,
+              "minimum": 0,
+              "title": "Neighbours",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoryBriefResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Story Brief",
         "tags": [
           "agent"
         ]
@@ -3918,6 +6155,185 @@
           }
         },
         "summary": "List Tasks",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/v1/agent/trace": {
+      "get": {
+        "description": "The directed walk from a story or from spec ids with the plan overlay; the arguments are checked first.",
+        "operationId": "trace_api_v1_agent_trace_get",
+        "parameters": [
+          {
+            "description": "A story_id: trace from the specification nodes its tasks implement.",
+            "in": "query",
+            "name": "story_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A story_id: trace from the specification nodes its tasks implement.",
+              "title": "Story Id"
+            }
+          },
+          {
+            "description": "1 to 20 spec_ids to trace from. Give this or story_id, not both.",
+            "in": "query",
+            "name": "spec_ids",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 20,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "1 to 20 spec_ids to trace from. Give this or story_id, not both.",
+              "title": "Spec Ids"
+            }
+          },
+          {
+            "description": "based_on: what the start nodes depend on. affects: what depends on them.",
+            "in": "query",
+            "name": "direction",
+            "required": true,
+            "schema": {
+              "description": "based_on: what the start nodes depend on. affects: what depends on them.",
+              "enum": [
+                "based_on",
+                "affects"
+              ],
+              "title": "Direction",
+              "type": "string"
+            }
+          },
+          {
+            "description": "How many edges to follow, 1 to 3.",
+            "in": "query",
+            "name": "depth",
+            "required": false,
+            "schema": {
+              "default": 2,
+              "description": "How many edges to follow, 1 to 3.",
+              "maximum": 3,
+              "minimum": 1,
+              "title": "Depth",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "trusted: stated and implied edges. any: also inferred edges.",
+            "in": "query",
+            "name": "basis",
+            "required": false,
+            "schema": {
+              "default": "trusted",
+              "description": "trusted: stated and implied edges. any: also inferred edges.",
+              "enum": [
+                "trusted",
+                "any"
+              ],
+              "title": "Basis",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Also start from the module that owns the start nodes.",
+            "in": "query",
+            "name": "include_owner",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "Also start from the module that owns the start nodes.",
+              "title": "Include Owner",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Only these relations of the project's ontology; leave out for all.",
+            "in": "query",
+            "name": "relations",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "maxItems": 50,
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only these relations of the project's ontology; leave out for all.",
+              "title": "Relations"
+            }
+          },
+          {
+            "description": "The most nodes to return, 1 to 200 (no paging).",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "description": "The most nodes to return, 1 to 200 (no paging).",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpecTrace"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Trace",
         "tags": [
           "agent"
         ]

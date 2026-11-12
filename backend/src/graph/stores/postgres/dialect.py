@@ -149,6 +149,7 @@ _STATIC: Final[Mapping[str, Callable[[], str]]] = {
     "core.read_nodes_by_ids": lambda: load_core_sql("read_nodes_by_ids.sql"),
     "core.read_nodes_by_uuid": lambda: load_core_sql("read_nodes_by_uuid.sql"),
     "core.read_nodes_for_lines": lambda: load_core_sql("read_nodes_for_lines.sql"),
+    "core.read_node_vectors": lambda: load_core_sql("read_node_vectors.sql"),
     "core.read_nodes_page": lambda: load_core_sql("read_nodes_page.sql"),
     "core.read_owner_values": lambda: load_core_sql("read_owner_values.sql"),
     "core.read_trace_hop": lambda: load_core_sql("read_trace_hop.sql"),

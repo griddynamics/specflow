@@ -121,8 +121,8 @@ def test_the_catalog_has_core_build_and_plan_templates_of_which_postgres_runs_al
     all_build = {name for name in (*cypher._STATIC, *cypher._RENDERERS) if name.startswith("build.")}
     all_plan = {name for name in (*cypher._STATIC, *cypher._RENDERERS) if name.startswith("plan.")}
     all_gap = {name for name in (*cypher._STATIC, *cypher._RENDERERS) if name.startswith("gap.")}
-    assert (len(all_core), len(all_build), len(all_plan), len(all_gap)) == (43, 42, 24, 4)
-    assert len(templates()) == 41 + 42 + 24 + 4
+    assert (len(all_core), len(all_build), len(all_plan), len(all_gap)) == (44, 42, 24, 4)
+    assert len(templates()) == 42 + 42 + 24 + 4
     assert (all_core | all_build | all_plan | all_gap) - templates() == CYPHER_ONLY
 
 

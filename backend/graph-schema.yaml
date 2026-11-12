@@ -344,5 +344,6 @@ policy:
     - infer_endpoint_mentions
   # project: the members' embeddings of the cross_document rule, read once for every hub; the pair
   # cosines of each hub are computed in Python (graph.build.infer_xdoc.pair_cosines), not one Cypher
-  # row per member pair.
-  vector_read_queries: [infer_xdoc_embeddings]
+  # row per member pair. read_node_vectors: the stored vectors of the sources of GraphReader.similar and
+  # the seeds of GraphReader.expand, compared without an embedding call.
+  vector_read_queries: [infer_xdoc_embeddings, read_node_vectors]

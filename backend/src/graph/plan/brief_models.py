@@ -19,13 +19,16 @@ from graph.plan.models import (
     PlanTask,
     WorkAreaInfo,
 )
+from graph.plan.names import StoryState, TaskProgress
 
 
 class StoryBriefTask(PlanModel):
-    """One open or completed task of the story with its ``done_when`` items and their sources."""
+    """One open or completed task of the story with its ``done_when`` items and their sources, and its ``progress``
+    while it is ``in_progress`` under a story claim."""
 
     task: PlanTask
     done_when: tuple[DoneWhen, ...] = ()
+    progress: TaskProgress | None = None
 
 
 class StoryBrief(PlanModel):
@@ -35,6 +38,7 @@ class StoryBrief(PlanModel):
     findings port, blocking first)."""
 
     story: PlanStory
+    state: StoryState
     anchor: dict[str, Any] | None = None
     area: WorkAreaInfo | None = None
     profile: dict[str, Any] = Field(default_factory=dict)

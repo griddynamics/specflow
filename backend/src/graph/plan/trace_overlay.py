@@ -72,7 +72,7 @@ def tasks_by_node(loaded: LoadedPlan, aliases: Mapping[str, str]) -> dict[str, l
     return found
 
 
-def _shown(task: CurrentTask) -> TraceTask:
+def shown_task(task: CurrentTask) -> TraceTask:
     return TraceTask(
         task_id=task.task_id,
         story_id=task.story_id,
@@ -103,7 +103,7 @@ def overlay(
         held.update(task.story_id for task in tasks)
         return {
             "plan_state": plan_state(tasks) if planned else None,
-            "tasks": tuple(_shown(task) for task in tasks),
+            "tasks": tuple(shown_task(task) for task in tasks),
             "findings": counts.get(spec_id, 0),
         }
 

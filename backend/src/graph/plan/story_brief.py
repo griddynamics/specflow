@@ -14,6 +14,7 @@ from graph.plan.invariants import CLOSED
 from graph.plan.models import BriefContract
 from graph.plan.reader import LoadedPlan, PlanReader, node_summary, story_view
 from graph.plan.rules import PlanRules
+from graph.plan.story_board import StoryBoard
 
 STORY_NOT_FOUND = "story_not_found"
 
@@ -44,11 +45,16 @@ async def story_brief(
     anchor = nodes.get(resolve_spec_id(story.anchor, aliases)) if story.anchor else None
     return StoryBrief(
         story=story,
+        state=StoryBoard(loaded).state(story_id),
         anchor=node_summary(anchor) if anchor is not None else None,
         area=next((item for item in loaded.current.areas if item.area_id == story.area_id), None),
         profile=json.loads(plan.profile) if plan is not None and plan.profile else {},
         tasks=tuple(
-            StoryBriefTask(task=loaded.plan_task(tasks[task_id]), done_when=tasks[task_id].done_when)
+            StoryBriefTask(
+                task=loaded.plan_task(tasks[task_id]),
+                done_when=tasks[task_id].done_when,
+                progress=tasks[task_id].progress,
+            )
             for task_id in order
         ),
         implements=tuple(brief_node(node, rules) for node in implemented),

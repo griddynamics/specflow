@@ -16,6 +16,36 @@ from graph.core.errors import (
     LLMError,
     LLMFatalError,
 )
+from graph.core.evidence import (
+    MAX_CONTEXT_LINES,
+    EvidenceItem,
+    EvidenceNode,
+    FragmentLines,
+    document_lines,
+    fragment_lines,
+    quote_lines,
+)
+from graph.core.expand import (
+    MAX_BUDGET,
+    MAX_SEED_IDS,
+    MAX_SIMILAR_SOURCES,
+    MIN_BUDGET,
+    VECTOR_CANDIDATES,
+    Expansion,
+    ExpansionItem,
+    SimilarItem,
+    SimilarResult,
+    Via,
+    best_scores,
+    estimate_tokens,
+    mean_vector,
+    personalised_pagerank,
+    ranked_scores,
+    subgraph,
+    top_scores,
+    within_budget,
+)
+from graph.core.hops import MAX_HOP_IDS, MAX_HOPS, MIN_HOPS, HopNode, HopRead, hop_distances
 from graph.core.identity import (
     explicit_id_pattern,
     identity_key,
@@ -23,6 +53,7 @@ from graph.core.identity import (
     validate_project_id,
 )
 from graph.core.ontology import AttributeSpec, Ontology
+from graph.core.paths import PathResult, PathWalk
 from graph.core.queries import (
     COUNT_NODES,
     COUNT_SEARCH_VECTORS,
@@ -35,12 +66,14 @@ from graph.core.queries import (
     READ_NODE_BY_ALIAS,
     READ_NODE_BY_SPEC_ID,
     READ_NODE_UUIDS_BY_SPEC_ID,
+    READ_NODE_VECTORS,
     READ_NODES,
     READ_NODES_BY_IDS,
     READ_NODES_BY_UUID,
     READ_NODES_FOR_LINES,
     READ_NODES_PAGE,
     READ_OWNER_VALUES,
+    READ_TRACE_HOP,
     SEARCH_FRAGMENTS,
     SEARCH_NODES_FULLTEXT,
     SEARCH_NODES_VECTOR,
@@ -66,6 +99,7 @@ from graph.core.trace import (
     Direction,
     TraceResult,
     TraceWalk,
+    Visit,
 )
 from logger.logger import DEBUG, WARNING, get_logger, log_event
 
@@ -288,6 +322,11 @@ class GraphReader:
                 break
         nodes = await self._inherited(project_id, nodes[:1])
         return nodes[0] if nodes else None
+
+    async def nodes_by_spec_ids(self, project_id: str, spec_ids: Sequence[str]) -> dict[str, GraphNode]:
+        """The spec nodes ``spec_ids`` name (own id or alias), keyed by their current ``spec_id``; one read."""
+
+        return await self._nodes_by_spec_id(validate_project_id(project_id), spec_ids)
 
     async def nodes(
         self,
@@ -514,6 +553,146 @@ class GraphReader:
         )
         return await walk.run(spec_ids)
 
+    async def hops(
+        self, project_id: str, sources: Sequence[str], spec_ids: Sequence[str], *, max_hops: int = 3
+    ) -> dict[str, int]:
+        """The fewest edges from any of ``sources`` to each of ``spec_ids`` (current ids) over ``stated`` and
+        ``implied`` domain edges either way, no spine root inside the chain; a source is 0 and an id not reached
+        within ``max_hops`` (1-4) is left out."""
+
+        project_id = validate_project_id(project_id)
+        for ids in (sources, spec_ids):
+            if isinstance(ids, str) or not _is_int_between(len(ids), 1, MAX_HOP_IDS):
+                raise ConfigurationError("invalid_spec_ids", maximum=MAX_HOP_IDS)
+        if not _is_int_between(max_hops, MIN_HOPS, MAX_HOPS):
+            raise ConfigurationError("invalid_max_hops", minimum=MIN_HOPS, maximum=MAX_HOPS)
+        rows = await self._executor.read(
+            READ_NODE_UUIDS_BY_SPEC_ID,
+            project_id,
+            spec_ids=list(dict.fromkeys(sources)),
+            labels=list(self._spec_labels),
+        )
+        starts = [HopNode(row["uuid"], row["spec_id"]) for row in rows]
+        return await hop_distances(self._trusted_hop(project_id), starts, spec_ids, max_hops)
+
+    async def similar(
+        self,
+        project_id: str,
+        spec_ids: Sequence[str],
+        *,
+        exclude_linked: bool = True,
+        min_score: float = 0.75,
+        limit: int = 5,
+    ) -> SimilarResult:
+        """Spec nodes whose stored vector reads like a source's (score ``(1+cos)/2`` at least ``min_score``), without
+        an embedding call: each node once with its best source (``like``), best first then by ``spec_id``, at most
+        ``limit``. Sources are never items; ``exclude_linked`` leaves out nodes with a domain edge to a source. A
+        source without a vector of the gateway's model, or a reader without a gateway, adds nothing."""
+
+        project_id = validate_project_id(project_id)
+        _check_ids(spec_ids, MAX_SIMILAR_SOURCES)
+        if not _is_fraction(min_score):
+            raise ConfigurationError("invalid_min_score")
+        _check_limit(limit)
+        sources, unknown = await self._resolve(project_id, spec_ids)
+        excluded = {node.spec_id for node in sources}
+        if exclude_linked:
+            excluded |= await self._linked(project_id, sources)
+        hits, uuids = await self._vector_scores(project_id, sources, limit + len(excluded))
+        best = best_scores(hits, excluded)
+        kept = top_scores({spec_id: score for spec_id, (score, _) in best.items() if score >= min_score}, limit)
+        nodes = {node.spec_id: node for node in await self._nodes_by_uuid(project_id, [uuids[i] for i in kept])}
+        items = tuple(
+            SimilarItem(
+                spec_id=spec_id,
+                label=nodes[spec_id].label,
+                name=nodes[spec_id].name,
+                score=score,
+                like=best[spec_id][1],
+                aliases=nodes[spec_id].spec_id_aliases,
+            )
+            for spec_id, score in kept.items()
+            if spec_id in nodes
+        )
+        return SimilarResult(sources=tuple(node.spec_id for node in sources), unknown=unknown, items=items)
+
+    async def evidence(self, project_id: str, spec_id: str, *, context_lines: int = 2) -> list[EvidenceItem] | None:
+        """One item per evidence fragment of the node (not retired), in document then line order: its lines, the
+        quote with up to ``context_lines`` (0-5) lines before and after from the document's active fragments, and the
+        other nodes whose evidence overlaps those lines. ``None`` when ``spec_id`` names no spec node."""
+
+        project_id = validate_project_id(project_id)
+        if not _is_int_between(context_lines, 0, MAX_CONTEXT_LINES):
+            raise ConfigurationError("invalid_context_lines", maximum=MAX_CONTEXT_LINES)
+        node = await self.node(project_id, spec_id)
+        if node is None:
+            return None
+        documents: dict[str, list[FragmentLines]] = {}
+        records = sorted(
+            node.provenance,
+            key=lambda item: (item.path or "", item.document_id or "", item.line_start or 0, item.fragment_id),
+        )
+        return [await self._evidence_item(project_id, node, record, context_lines, documents) for record in records]
+
+    async def paths(self, project_id: str, from_id: str, to_id: str, *, max_hops: int = 4) -> PathResult | None:
+        """At most 3 shortest chains of at most ``max_hops`` (1-4) trusted edges walked by the trace's roles: first
+        ``based_on`` (``from_id`` depends on ``to_id``), only without one ``affects``; a spine root never inside a
+        chain. ``None`` when an end names no spec node."""
+
+        project_id = validate_project_id(project_id)
+        if not _is_int_between(max_hops, MIN_HOPS, MAX_HOPS):
+            raise ConfigurationError("invalid_max_hops", minimum=MIN_HOPS, maximum=MAX_HOPS)
+        start = await self.node(project_id, from_id)
+        end = await self.node(project_id, to_id)
+        if start is None or end is None:
+            return None
+        if start.uuid == end.uuid:
+            return PathResult()
+        for direction in DIRECTIONS:
+            walk = PathWalk(
+                executor=self._executor,
+                ontology=self._ontology,
+                project_id=project_id,
+                labels=self._spec_labels,
+                domain_relations=self._domain_relations,
+                relations=self._domain_relations,
+                direction=direction,
+                depth=max_hops,
+                any_basis=False,
+                include_owner=False,
+                limit=MAX_TRACE_LIMIT,
+            )
+            chains = await walk.chains(Visit(start.uuid, start.spec_id, start.label, via_owner=False), end.uuid)
+            if chains:
+                return PathResult(direction=direction, chains=chains)
+        return PathResult()
+
+    async def expand(
+        self, project_id: str, spec_ids: Sequence[str], *, exclude: Sequence[str] = (), budget_tokens: int = 3000
+    ) -> Expansion:
+        """What to read next around the seeds ``spec_ids`` (1-500): personalised PageRank near them mixed with stored
+        vector scores, seeds and ``exclude`` left out, best first, taken until the next item would pass
+        ``budget_tokens`` (100-20000; tokens are characters / 4). No model call."""
+
+        project_id = validate_project_id(project_id)
+        _check_ids(spec_ids, MAX_SEED_IDS)
+        _check_ids(exclude, MAX_SEED_IDS, minimum=0, code="invalid_exclude")
+        if not _is_int_between(budget_tokens, MIN_BUDGET, MAX_BUDGET):
+            raise ConfigurationError("invalid_budget", minimum=MIN_BUDGET, maximum=MAX_BUDGET)
+        seeds, _ = await self._resolve(project_id, spec_ids)
+        if not seeds:
+            return Expansion()
+        seed_ids = [node.spec_id for node in seeds]
+        left_out = {*seed_ids, *exclude}
+        graph = await self._graph_ranks(project_id, seeds)
+        close = await self._centroid_scores(project_id, seeds, VECTOR_CANDIDATES + len(left_out))
+        kept = {k: v for k, v in close.items() if k not in left_out and v >= self._vector_floor}
+        vector = top_scores(kept, VECTOR_CANDIDATES)
+        ranked = ranked_scores({k: v for k, v in graph.items() if k not in left_out}, vector)
+        nodes = await self._nodes_by_spec_id(project_id, [spec_id for spec_id, _, _ in ranked])
+        items = [_expansion_item(nodes[spec_id], score, via) for spec_id, score, via in ranked if spec_id in nodes]
+        return within_budget(items, budget_tokens)
+
     async def nodes_for_fragment(
         self, project_id: str, document_id: str, line_start: int, line_end: int
     ) -> list[GraphNode]:
@@ -721,14 +900,8 @@ class GraphReader:
         gateway, no candidate has a vector of the gateway's embedding model, or embedding failed.
         """
 
-        if self._gateway is None:
-            return None
-        model = self._gateway.config.embedding_model
-        counts = await self._executor.read(COUNT_SEARCH_VECTORS, project_id, model=model, **filters)
-        matching, stored = counts[0]["matching"], counts[0]["stored"]
+        matching = await self._matching_vectors(project_id, filters)
         if not matching:
-            if stored:
-                log_event(logger, WARNING, "graph.read.embedding_model_mismatch", vectors=stored)
             return None
         try:
             vectors = await self._gateway.embed([_embedding_text(text)])
@@ -737,7 +910,35 @@ class GraphReader:
         except (LLMError, InfrastructureUnavailableError) as error:
             log_event(logger, WARNING, "graph.read.vector_unavailable", error_code=error.code)
             return None
-        params = {"vector": vectors[0], "model": model, "limit": depth, **filters}
+        return await self._nearest(project_id, vectors[0], matching, limit=limit, depth=depth, filters=filters)
+
+    async def _matching_vectors(self, project_id: str, filters: Mapping[str, Any]) -> int:
+        """How many candidates have a vector of the gateway's embedding model (0 without a gateway)."""
+
+        if self._gateway is None:
+            return 0
+        model = self._gateway.config.embedding_model
+        counts = await self._executor.read(COUNT_SEARCH_VECTORS, project_id, model=model, **filters)
+        matching, stored = counts[0]["matching"], counts[0]["stored"]
+        if not matching and stored:
+            log_event(logger, WARNING, "graph.read.embedding_model_mismatch", vectors=stored)
+        return int(matching)
+
+    async def _nearest(
+        self,
+        project_id: str,
+        vector: Sequence[float],
+        matching: int,
+        *,
+        limit: int,
+        depth: int,
+        filters: Mapping[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Up to ``depth`` candidates nearest ``vector`` (``uuid``, ``spec_id``, ``score``), best first: the shared
+        index above 2000 candidates while it yields ``limit`` project hits, else exact cosine."""
+
+        model = self._gateway.config.embedding_model if self._gateway is not None else None
+        params = {"vector": list(vector), "model": model, "limit": depth, **filters}
         if matching > EXACT_VECTOR_MAX:
             k = depth
             fetched = 0
@@ -754,6 +955,170 @@ class GraphReader:
                 k *= 2
             log_event(logger, DEBUG, "graph.read.vector_exact", fetched=fetched, project_hits=len(hits))
         return await self._executor.read(SEARCH_NODES_VECTOR_EXACT, project_id, **params)
+
+    # Helpers of similar, evidence and expand
+
+    def _trusted_hop(self, project_id: str) -> HopRead:
+        """Reads the other ends of the ``stated`` and ``implied`` domain edges at a frontier, either way."""
+
+        async def read(uuids: list[str]) -> list[tuple[str, HopNode]]:
+            rows = await self._executor.read(
+                READ_TRACE_HOP,
+                project_id,
+                frontier=uuids,
+                relations=list(self._domain_relations),
+                labels=list(self._spec_labels),
+            )
+            return [
+                (
+                    row["frontier"],
+                    HopNode(row["uuid"], row["spec_id"], self._spec_label(row["labels"]) in self._spine_roots),
+                )
+                for row in rows
+                if row["basis"] != INFERRED
+            ]
+
+        return read
+
+    async def _resolve(self, project_id: str, spec_ids: Sequence[str]) -> tuple[list[GraphNode], tuple[str, ...]]:
+        """The nodes ``spec_ids`` name (own id or alias), by ``spec_id``, and the ids naming none."""
+
+        wanted = list(dict.fromkeys(spec_ids))
+        rows = await self._executor.read(
+            READ_NODE_UUIDS_BY_SPEC_ID, project_id, spec_ids=wanted, labels=list(self._spec_labels)
+        )
+        nodes = (
+            self._nodes(
+                await self._executor.read(
+                    READ_NODES_BY_UUID, project_id, uuids=[row["uuid"] for row in rows], retired=RETIRED
+                )
+            )
+            if rows
+            else []
+        )
+        named = {name for node in nodes for name in (node.spec_id, *node.spec_id_aliases)}
+        return nodes, tuple(spec_id for spec_id in wanted if spec_id not in named)
+
+    async def _nodes_by_spec_id(self, project_id: str, spec_ids: Sequence[str]) -> dict[str, GraphNode]:
+        if not spec_ids:
+            return {}
+        rows = await self._executor.read(
+            READ_NODE_UUIDS_BY_SPEC_ID, project_id, spec_ids=list(spec_ids), labels=list(self._spec_labels)
+        )
+        nodes = await self._nodes_by_uuid(project_id, [row["uuid"] for row in rows])
+        return {node.spec_id: node for node in nodes}
+
+    async def _linked(self, project_id: str, sources: Sequence[GraphNode]) -> set[str]:
+        """The nodes with a domain edge of any basis, either way, to one of ``sources``; one read."""
+
+        rows = await self._executor.read(
+            READ_TRACE_HOP,
+            project_id,
+            frontier=[node.uuid for node in sources],
+            relations=list(self._domain_relations),
+            labels=list(self._spec_labels),
+        )
+        return {row["spec_id"] for row in rows}
+
+    async def _vector_scores(
+        self, project_id: str, sources: Sequence[GraphNode], depth: int
+    ) -> tuple[list[tuple[str, str, float]], dict[str, str]]:
+        """``(source, spec_id, score)`` for up to ``depth`` nearest candidates of each source's stored vector of the
+        gateway's model, and the uuid of each hit; nothing without a gateway or such vectors."""
+
+        filters = self._filters(self._spec_labels, None)
+        matching = await self._matching_vectors(project_id, filters) if sources else 0
+        if not matching or self._gateway is None:
+            return [], {}
+        rows = await self._executor.read(
+            READ_NODE_VECTORS,
+            project_id,
+            uuids=[node.uuid for node in sources],
+            model=self._gateway.config.embedding_model,
+        )
+        hits: list[tuple[str, str, float]] = []
+        uuids: dict[str, str] = {}
+        for row in rows:
+            for hit in await self._nearest(
+                project_id, row["embedding"], matching, limit=depth, depth=depth, filters=filters
+            ):
+                hits.append((row["spec_id"], hit["spec_id"], float(hit["score"])))
+                uuids[hit["spec_id"]] = hit["uuid"]
+        return hits, uuids
+
+    async def _centroid_scores(self, project_id: str, seeds: Sequence[GraphNode], depth: int) -> dict[str, float]:
+        """The vector score of up to ``depth`` nearest candidates of the seeds' centroid: the mean of their stored
+        vectors of the gateway's model; one nearest read. Nothing without a gateway or such vectors."""
+
+        filters = self._filters(self._spec_labels, None)
+        matching = await self._matching_vectors(project_id, filters)
+        if not matching or self._gateway is None:
+            return {}
+        rows = await self._executor.read(
+            READ_NODE_VECTORS,
+            project_id,
+            uuids=[node.uuid for node in seeds],
+            model=self._gateway.config.embedding_model,
+        )
+        centroid = mean_vector([row["embedding"] for row in rows])
+        if centroid is None:
+            return {}
+        hits = await self._nearest(project_id, centroid, matching, limit=depth, depth=depth, filters=filters)
+        return {hit["spec_id"]: float(hit["score"]) for hit in hits}
+
+    async def _graph_ranks(self, project_id: str, seeds: Sequence[GraphNode]) -> dict[str, float]:
+        """Personalised PageRank from ``seeds`` over the trusted domain edges within 3 hops of them."""
+
+        starts = [HopNode(node.uuid, node.spec_id, node.label in self._spine_roots) for node in seeds]
+        near = await subgraph(self._trusted_hop(project_id), starts)
+        return personalised_pagerank(near.nodes, near.neighbours, [node.spec_id for node in seeds], near.roots)
+
+    async def _evidence_item(
+        self,
+        project_id: str,
+        node: GraphNode,
+        record: Provenance,
+        context_lines: int,
+        documents: dict[str, list[FragmentLines]],
+    ) -> EvidenceItem:
+        document_id = record.document_id
+        fragments: list[FragmentLines] = []
+        if document_id is not None:
+            if document_id not in documents:
+                documents[document_id] = [
+                    FragmentLines.model_validate(fragment.model_dump())
+                    for fragment in await self.fragments(project_id, document_id)
+                ]
+            fragments = documents[document_id]
+        own = next((fragment for fragment in fragments if fragment.fragment_id == record.fragment_id), None)
+        start = record.line_start if record.line_start is not None else own.line_start if own else None
+        end = record.line_end if record.line_end is not None else own.line_end if own else None
+        item = EvidenceItem(
+            document_id=document_id,
+            path=record.path,
+            fragment_id=record.fragment_id,
+            line_start=start,
+            line_end=end,
+            quote=record.quote or (own.text if own else ""),
+        )
+        if document_id is None or start is None or end is None or not 1 <= start <= end:
+            return item
+        quote, before, after = quote_lines(
+            fragment_lines(own) if own else {}, document_lines(fragments), start, end, context_lines
+        )
+        others = await self.nodes_for_fragment(project_id, document_id, start, end)
+        return item.model_copy(
+            update={
+                "quote": quote if quote is not None else item.quote,
+                "before": before,
+                "after": after,
+                "others": tuple(
+                    EvidenceNode(spec_id=other.spec_id, label=other.label, name=other.name)
+                    for other in others
+                    if other.spec_id != node.spec_id
+                ),
+            }
+        )
 
     async def _nodes_by_uuid(self, project_id: str, uuids: Sequence[str]) -> list[GraphNode]:
         if not uuids:
@@ -997,6 +1362,34 @@ def _is_blank(text: object) -> bool:
     """Whether ``text`` is not a string or holds only whitespace."""
 
     return not isinstance(text, str) or not text.strip()
+
+
+def _check_ids(spec_ids: object, maximum: int, *, minimum: int = 1, code: str = "invalid_spec_ids") -> None:
+    """``minimum`` to ``maximum`` string ids, else ``code``."""
+
+    if (
+        isinstance(spec_ids, str)
+        or not isinstance(spec_ids, Sequence)
+        or not _is_int_between(len(spec_ids), minimum, maximum)
+        or not all(isinstance(item, str) for item in spec_ids)
+    ):
+        raise ConfigurationError(code, maximum=maximum)
+
+
+def _expansion_item(node: GraphNode, score: float, via: Via) -> ExpansionItem:
+    """A ranked node with its text (its ``stmt``, else the quote of its first provenance record) and tokens."""
+
+    stmt = node.attributes.get("stmt")
+    text = stmt if isinstance(stmt, str) and stmt else next((p.quote for p in node.provenance if p.quote), "")
+    return ExpansionItem(
+        spec_id=node.spec_id,
+        label=node.label,
+        name=node.name,
+        score=score,
+        via=via,
+        text=text,
+        tokens=estimate_tokens(node.name, text),
+    )
 
 
 def _check_limit(limit: object) -> None:
