@@ -1,25 +1,44 @@
 ---
 type: Design
 title: "MCP server testing"
-description: "Test tiers, QA fixtures including the temp workspace, the end-to-end scenario matrix, and scripted QA with Claude Code and the MCP Python SDK against a real OIDC provider"
+description: "Test tiers, QA fixtures including the temp workspace, the end-to-end scenario matrix, the stack gate, and scripted QA with Claude Code and the MCP Python SDK against a real OIDC provider"
 status: stable
 tags: [mcp, testing]
 ---
-# testing.md: test tiers, fixtures, scenario matrix and end-to-end QA with a real client
+# testing.md: test tiers, fixtures, scenario matrix, stack gate and end-to-end QA with a real client
 
 ## Tiers
 
 | Tier | Gate | Covers |
 |---|---|---|
 | Unit | always (`make check`) | settings and guards of both roles; claim profile branches; cursor codecs; PRM document; error mapping and sanitizing; result shaping; the membership structural test; the binding file schema, with its negative cases; the server instructions (resource URL, file name, under 2,048 characters, no project data) and the `select_project` text with and without the argument, the argument kept as quoted data |
-| HTTP boundary | always (`make check`) | the role's ASGI app over `httpx.ASGITransport` (the SDK client session over `httpx2.ASGITransport`) with the loopback JWKS stub of `specflow_auth_support` and a fake runtime: the full auth matrix, PRM, Host and Origin rules, body cap, 404 body, every tool through an MCP client session over HTTP, REST rejecting MCP tokens; `initialize` instructions; `prompts/list` and `prompts/get`, and 401 for both without a token; tool input schemas unchanged except descriptions |
+| Settings | always (`make check`) | role loading (the api role loads the MCP settings only with `MCP_RESOURCE_URL`), the `API_INTERNAL_URL` forms and refusals, env parity between `.env.example`, compose and the settings (`test_specflow_settings_env.py`) |
+| Golden gate | always (`make check`) | the agent-visible surface of the split's tools stays identical: `tools/list`, prompts, instructions, PRM, probes, error results, success payloads and fixture cursors issued before the split. The split's golden files (`test_mcp_golden.py`) are frozen; the story and spec tools keep their own golden files beside them (`tool_results_tooling.json`, `tool_errors_tooling.json`, `test_mcp_golden_tooling.py`) and change the split's files only in `protocol.json` (`tools/list`, instructions, prompts) |
+| Story and spec tools | always (`make check`, fakes); live tier with `SPECFLOW_TEST_POSTGRES=1` (member names) and `SPECFLOW_TEST_GRAPH_STORE=neo4j\|postgres` (the graph reads, `test_graph_agent_reads_live.py`) | per tool a golden success and one golden error per code, the Markdown text equal to the render of the structured content, the write annotations and `POST` routes, every [Repeat](tools.md#repeats) and guard (another member's claim, a stale or foreign token, the blocking rules, an invalid commit, a foreign project) with no write on a refusal, holders without ids or emails, the instructions under 2,048 characters with the longest valid URL, and the `start` text with and without `area` |
+| API agent routes | always (`make check`, fakes); live tier with `SPECFLOW_TEST_POSTGRES=1`, `SPECFLOW_TEST_NEO4J=1` | every route of [architecture.md](architecture.md#api-agent-routes), every route and common error, the dependency chain, `X-SpecFlow-User-Id` on success and on error, `X-Request-ID` adoption, and every behaviour ported from the former tool handlers |
+| Audience matrix | always (`make check`) | the matrix of [auth.md](auth.md#token-validation) in both audience modes (FR-MCP-AUTH-13) |
+| MCP router | always (`make check`) | the role over an `httpx.MockTransport` fake of the API: tool to route and query mapping, `Authorization` and `X-Request-ID` forwarding, the `from_api` table of [architecture.md](architecture.md#errors), the 25 s timeout, the audit fields, and S2 with `httpx` and `httpcore` logging at DEBUG |
+| HTTP boundary | always (`make check`) | the role's ASGI app over `httpx.ASGITransport` (the SDK client session over `httpx2.ASGITransport`) with the loopback JWKS stub of `specflow_auth_support` and a fake API: the full auth matrix, PRM, Host and Origin rules, body cap, 404 body, every tool through an MCP client session over HTTP, REST rejecting MCP tokens; `initialize` instructions; `prompts/list` and `prompts/get`, and 401 for both without a token; tool input schemas unchanged except descriptions |
 | Live data | `SPECFLOW_TEST_POSTGRES=1`, `SPECFLOW_TEST_NEO4J=1` | repository reuse against Postgres; `count_nodes` and `nodes_page` against Neo4j, including an ontology whose `feature` label and prefix are renamed (the graph library's renamed-ontology fixture also renames type keys, so it is not used unchanged: [../graph/ontology.md](../graph/ontology.md#ontology-files-of-submodules)) |
+| Role imports | always (`make check`, no Docker) | each role's entrypoint imports with only its own dependency extras installed ([architecture.md](architecture.md#import-rules), M2) |
+| Images and chart | Docker-gated image tests; `helm lint`, `helm template`, chart unit tests | per image (api, worker-agents, worker-parse, mcp): a smoke start and the absence of the other roles' packages; the chart renders the four images |
+| Stack gate | the local stack, at the end of every change to the split | [Stack gate](#stack-gate) |
 | End to end | `SPECFLOW_TEST_MCP_E2E=1`, local stack (`make up`; Keycloak is always part of it), then the QA seed | the real role, real Keycloak, the MCP Python SDK client running the OAuth flow; the scenario matrix below; every project-scoped scenario reads its project id from a binding file ([Temp workspace](#temp-workspace)) |
 | Agent QA | `SPECFLOW_TEST_MCP_CLAUDE=1` and a signed-in `claude` CLI | Claude Code signs in, binds a temp repository to a project and answers developer prompts with the tools; assertions on tool events and the binding file; gate: 3 runs, all passing |
 
 The end-to-end and agent tiers are not part of CI: they need the local stack and, for the agent tier, model calls.
-Import contracts and query placement are checked by `make validate` (python-lint, cypher and sql tracks), not by the
-test tiers.
+Import contracts, query placement, the dependency check, the archkit rules, the OpenAPI snapshot and the licence gate
+are checked by `make validate`, not by the test tiers.
+
+Test data of the agent-route and router tiers, beyond the scenarios below:
+
+| Kind | Cases |
+|---|---|
+| Happy | one call per tool for alice on `P-Alpha`; `list_tasks` with its defaults; `get_task_brief` with `neighbours` 30 |
+| Edge | `limit` 1 and 100; cursors of 512 and 513 characters; non-canonical cursors (padding, key order, an extra key, `v` 2); `P-Empty`; `neighbours` 0 and 100; a cursor naming a vanished task (the list answers, the path answers `invalid_cursor`) |
+| Error | `project_id` `x/../y` and `""`; a foreign project (bob on `P-Alpha`); no plan; an unknown task or feature; Neo4j down; Postgres down (also during provisioning: `database_unavailable`); the API down; a `2xx` without the user-id header |
+| Security | the audience matrix; two `Authorization` headers on `/mcp`; a caller's `X-Request-ID` not adopted by MCP; a caller's `X-SpecFlow-User-Id` not forwarded; no token, claim or malformed id in the logs with `httpx` and `httpcore` at DEBUG |
+| Performance | a 10 s run of E14 (`mcp_qa.py check --latency-seconds 10`) on `P-Large`: p95 at most 50 ms above the p95 measured before the split |
 
 The harness is Python only. The QA library and its manual entry live in `backend/examples` (`mcp_qa_lib.py`,
 `mcp_qa.py`, run with `uv run --env-file ../.env.local python examples/mcp_qa.py`); the end-to-end and agent tiers are
@@ -74,8 +93,37 @@ test.
 | E16 | alice; then no token | `prompts/list`, then `prompts/get` of `select_project` with and without `project` | the prompt is listed with an optional argument; the text holds the steps and the exact version 1 JSON; without a token, 401 for both |
 | E17 | alice | bind `P-Alpha` in a temp workspace and call `list_features` with the id from the file; replace the file with `P-Empty` and call again; then write a file bound to `P-Beta` and call again | first call: 7 features; second call: `total_count` 0, and the file holds only the `P-Empty` binding; third call: `project_not_found` |
 
-The reverse audience case (an MCP token on `/api/v1`) is an HTTP-boundary test of the API (tier table), not an
-end-to-end scenario.
+The reverse audience cases (an MCP token on the REST routes, a web token on the agent routes) are tests of the
+audience-matrix tier, and checks of the [Stack gate](#stack-gate), not end-to-end scenarios.
+
+## Stack gate
+
+Every change to the MCP split ends green on the local stack, run from the main checkout (a worktree's stack collides
+with the main one: ask first). Evidence holds commands, exit codes, counts and timings, never tokens, emails or
+secrets; token-carrying calls use `curl -s -o /dev/null -w '%{http_code}'` (`-D -` only to read response headers),
+never `-v`, and never echo the token.
+
+| # | Check | Pass |
+|---|---|---|
+| SG-1 | `make env-local` | exits 0; no value overwritten or printed |
+| SG-2 | `make up` | every service healthy within the wait timeout |
+| SG-3 | `cd backend && uv run --env-file ../.env.local python examples/mcp_qa.py seed` | exits 0 |
+| SG-4 | `mcp_qa.py check --user alice` and `--user bob` | exit 0; tools and counts as before the split |
+| SG-5 | a web token (`mcp_qa.py token alice --client web`) on `GET 127.0.0.1:8000/api/v1/projects` | 200 (REST unaffected) |
+| SG-6 | the checks of the change below | all pass |
+
+Checks that hold once the split is done:
+
+- An MCP token on `GET /api/v1/agent/projects` answers 200 with `X-SpecFlow-User-Id`; a web token on any agent route
+  and an MCP token on `/api/v1/projects` answer 401 or 403; bob on alice's project answers `404 project_not_found`.
+- The environment of the `specflow-mcp` container holds no `DATABASE_` or `GRAPH_STORE_` name.
+- With the `api` container stopped, `mcp_qa.py check` fails, the `mcp` log shows `mcp.tool.completed` with outcome
+  `internal_error`, error type `ApiUnreachable` and a `request_id`, and `127.0.0.1:8002/readyz` answers 503; after the
+  API starts again, SG-4 passes.
+- The `specflow-mcp` container runs image `specflow-mcp:local` with command `specflow mcp`, user 10001 and no
+  `/app/migrations`; every service is healthy on its own image; in each image a package of another role fails to
+  import (for example `temporalio` in `specflow-mcp:local`).
+- E14 against the run before the split, as the performance row above says.
 
 ## Agent QA with Claude Code
 

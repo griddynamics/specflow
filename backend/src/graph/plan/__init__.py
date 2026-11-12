@@ -1,77 +1,116 @@
-"""Turns the spec graph into implementation plans for coding agents."""
+"""Turns the spec graph into implementation plans for coding agents.
+
+The public names resolve on first access (PEP 562), so importing a light submodule such as ``graph.plan.models`` (the
+agent contracts do) does not load the planner, the LLM gateway or the stores behind the rest of the package.
+"""
 
 from __future__ import annotations
 
-from graph.plan.checks import check_plan
-from graph.plan.dag import topological_order, transitive_prerequisites
-from graph.plan.errors import PlanReadError, PlanRulesError, TaskStateError
-from graph.plan.estimate import estimate_plan
-from graph.plan.files import FilePlanStore, open_plan_store
-from graph.plan.lifecycle import TaskLifecycle
-from graph.plan.models import (
-    AreaRef,
-    BuildChangeReport,
-    ChangedSpecEdge,
-    ChangedSpecNode,
-    Claim,
-    FeatureRef,
-    FeatureTasks,
-    MeaningRevisions,
-    PlanArea,
-    PlanCheckMetrics,
-    PlanCheckReport,
-    PlanDag,
-    PlanEstimate,
-    PlanResult,
-    PlanRunRecord,
-    PlanStepEstimate,
-    PlanStory,
-    PlanTask,
-    StoryDetail,
-    StoryRef,
-    StoryWork,
-    TaskBrief,
-    TaskItem,
-    TaskPath,
-)
-from graph.plan.names import (
-    AreaKind,
-    AreaStatus,
-    BlockReason,
-    Complexity,
-    DoneWhenSource,
-    InterfaceKind,
-    NotBuildableReason,
-    Phase,
-    PlanLabel,
-    PlanMode,
-    PlannedBy,
-    PlanRelation,
-    StoryKind,
-    StoryProgress,
-    StoryStatus,
-    TaskStatus,
-    plan_ontology_version,
-    plan_vocabularies,
-)
-from graph.plan.options import PlanContext, PlanOptions
-from graph.plan.ports import PlanStore
-from graph.plan.reader import PlanReader
-from graph.plan.rules import PlanRules, load_plan_rules
-from graph.plan.run import STEPS, StepFunctions, run_plan, steps
-from graph.plan.schema import ensure_plan_schema
-from graph.plan.service import PlanService
+import importlib
+from typing import Any, Final
+
+_EXPORTS: Final[dict[str, str]] = {
+    "AreaKind": "graph.plan.names",
+    "AreaRef": "graph.plan.models",
+    "AreaStatus": "graph.plan.names",
+    "AreaSummary": "graph.plan.story_models",
+    "BlockReason": "graph.plan.names",
+    "BuildChangeReport": "graph.plan.models",
+    "ChangedSpecEdge": "graph.plan.models",
+    "ChangedSpecNode": "graph.plan.models",
+    "Claim": "graph.plan.models",
+    "Complexity": "graph.plan.names",
+    "DoneWhenSource": "graph.plan.names",
+    "FeatureRef": "graph.plan.models",
+    "FeatureTasks": "graph.plan.models",
+    "FilePlanStore": "graph.plan.files",
+    "InterfaceKind": "graph.plan.names",
+    "MeaningRevisions": "graph.plan.models",
+    "NotBuildableReason": "graph.plan.names",
+    "Phase": "graph.plan.names",
+    "PlanArea": "graph.plan.models",
+    "PlanCheckMetrics": "graph.plan.models",
+    "PlanCheckReport": "graph.plan.models",
+    "PlanContext": "graph.plan.options",
+    "PlanDag": "graph.plan.models",
+    "PlanEstimate": "graph.plan.models",
+    "PlanLabel": "graph.plan.names",
+    "PlanMode": "graph.plan.names",
+    "PlanOptions": "graph.plan.options",
+    "PlanReadError": "graph.plan.errors",
+    "PlanReader": "graph.plan.reader",
+    "PlanRelation": "graph.plan.names",
+    "PlanResult": "graph.plan.models",
+    "PlanRules": "graph.plan.rules",
+    "PlanRulesError": "graph.plan.errors",
+    "PlanRunRecord": "graph.plan.models",
+    "PlanService": "graph.plan.service",
+    "PlanStepEstimate": "graph.plan.models",
+    "PlanStore": "graph.plan.ports",
+    "PlanStory": "graph.plan.models",
+    "PlanTask": "graph.plan.models",
+    "PlannedBy": "graph.plan.names",
+    "ClaimRow": "graph.plan.story_models",
+    "PreviewTask": "graph.plan.story_models",
+    "STEPS": "graph.plan.run",
+    "StepFunctions": "graph.plan.run",
+    "StoryBlocker": "graph.plan.story_models",
+    "StoryClaim": "graph.plan.story_models",
+    "StoryCompletion": "graph.plan.story_models",
+    "StoryDetail": "graph.plan.models",
+    "StoryKind": "graph.plan.names",
+    "StoryPreview": "graph.plan.story_models",
+    "StoryProgress": "graph.plan.names",
+    "StoryRef": "graph.plan.models",
+    "StoryRelease": "graph.plan.story_models",
+    "StoryRow": "graph.plan.story_models",
+    "StoryState": "graph.plan.names",
+    "StoryStatus": "graph.plan.names",
+    "StoryTask": "graph.plan.story_models",
+    "StoryView": "graph.plan.names",
+    "StoryWork": "graph.plan.models",
+    "TaskBrief": "graph.plan.models",
+    "TaskItem": "graph.plan.models",
+    "TaskLifecycle": "graph.plan.lifecycle",
+    "TaskPath": "graph.plan.models",
+    "TaskProgress": "graph.plan.names",
+    "TaskStateError": "graph.plan.errors",
+    "TaskStatus": "graph.plan.names",
+    "check_plan": "graph.plan.checks",
+    "ensure_plan_schema": "graph.plan.schema",
+    "estimate_plan": "graph.plan.estimate",
+    "load_plan_rules": "graph.plan.rules",
+    "open_plan_store": "graph.plan.files",
+    "plan_ontology_version": "graph.plan.names",
+    "plan_vocabularies": "graph.plan.names",
+    "run_plan": "graph.plan.run",
+    "steps": "graph.plan.run",
+    "topological_order": "graph.plan.dag",
+    "transitive_prerequisites": "graph.plan.dag",
+}
+
+
+def __getattr__(name: str) -> Any:
+    module = _EXPORTS.get(name)
+    if module is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(importlib.import_module(module), name)
+    globals()[name] = value
+    return value
+
 
 __all__ = [
     "STEPS",
     "AreaKind",
     "AreaRef",
     "AreaStatus",
+    "AreaSummary",
     "BlockReason",
     "BuildChangeReport",
     "ChangedSpecEdge",
     "ChangedSpecNode",
     "Claim",
+    "ClaimRow",
     "Complexity",
     "DoneWhenSource",
     "FeatureRef",
@@ -103,17 +142,28 @@ __all__ = [
     "PlanStory",
     "PlanTask",
     "PlannedBy",
+    "PreviewTask",
     "StepFunctions",
+    "StoryBlocker",
+    "StoryClaim",
+    "StoryCompletion",
     "StoryDetail",
     "StoryKind",
+    "StoryPreview",
     "StoryProgress",
     "StoryRef",
+    "StoryRelease",
+    "StoryRow",
+    "StoryState",
     "StoryStatus",
+    "StoryTask",
+    "StoryView",
     "StoryWork",
     "TaskBrief",
     "TaskItem",
     "TaskLifecycle",
     "TaskPath",
+    "TaskProgress",
     "TaskStateError",
     "TaskStatus",
     "check_plan",

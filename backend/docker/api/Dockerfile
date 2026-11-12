@@ -17,9 +17,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN pip install uv==0.11.21
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-dev --no-install-project --extra gcp --extra aws
+RUN uv sync --frozen --no-dev --no-install-project --extra api --extra gcp --extra aws
 COPY src ./src
-RUN uv sync --frozen --no-dev --no-editable --extra gcp --extra aws
+RUN uv sync --frozen --no-dev --no-editable --extra api --extra gcp --extra aws
 
 # runtime: uid 10001, a HOME dir, the venv, alembic.ini and migrations/. Writes no files
 # (logs go to stdout), so it runs on a read-only root filesystem.

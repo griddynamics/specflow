@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
-from mcp_support import MCP_URL, PRM_URL, mcp_env, oidc_env
+from mcp_support import API_URL, MCP_URL, PRM_URL, mcp_env, oidc_env
 from runtime_defaults_support import RUNTIME_DEFAULTS
-from settings import ConfigurationError, GraphStoreSettings, load_settings
+from settings import ConfigurationError, McpRoleSettings, load_settings
 
 
 def refused(env: dict[str, str]) -> tuple[str, ...]:
@@ -43,15 +45,62 @@ def test_the_defaults_of_the_mcp_settings(valid_env):
     assert mcp.prm_url == PRM_URL
 
 
-def test_the_mcp_role_builds_only_database_graph_store_auth_and_mcp(valid_env):
-    """FR-MCP-OPS-01: no Temporal, storage, Langfuse, LLM or agent-database binding."""
+def test_the_mcp_role_builds_only_auth_mcp_and_the_api_address(valid_env):
+    """FR-MCP-OPS-01: no database, graph store, Temporal, storage, Langfuse or LLM binding."""
 
     settings = load_settings("mcp", mcp_env(valid_env))
 
-    assert (settings.database, settings.graph_store, settings.auth, settings.mcp) != (None,) * 4
-    assert isinstance(settings.graph_store, GraphStoreSettings)
-    for absent in ("temporal", "storage", "langfuse", "agent", "agent_run", "graph_build", "agent_database"):
-        assert getattr(settings, absent) is None, absent
+    assert isinstance(settings, McpRoleSettings)
+    assert settings.api_internal.url == API_URL
+    assert {f.name for f in dataclasses.fields(settings)} == {"app", "auth", "mcp", "api_internal", "role"}
+
+
+def test_the_mcp_role_reads_no_database_or_graph_store_variable(valid_env):
+    env = {k: v for k, v in mcp_env(valid_env).items() if not k.startswith(("DATABASE_", "GRAPH_STORE_"))}
+
+    assert load_settings("mcp", env).mcp.resource_url == MCP_URL
+
+
+@pytest.mark.parametrize(
+    ("given", "expected"),
+    [
+        ("api", "http://api"),
+        ("api:8000", "http://api:8000"),
+        ("http://api:8000/", "http://api:8000"),
+        ("https://api.example.test///", "https://api.example.test"),
+        ("  http://api:8000  ", "http://api:8000"),
+    ],
+)
+def test_api_internal_url_takes_the_forms_of_the_web_app(valid_env, given, expected):
+    assert load_settings("mcp", mcp_env(valid_env, API_INTERNAL_URL=given)).api_internal.url == expected
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "",
+        "  ",
+        "ftp://api",
+        "file:///x",
+        "http://user:pw@api:8000",
+        "http://api:8000?x=1",
+        "http://api:8000#f",
+        "http://:8000",
+        "http:/api",
+        "https:/api:8000",
+        "http://http",
+        "http://api%40evil",
+    ],
+)
+def test_api_internal_url_refuses_userinfo_query_fragment_and_other_schemes(valid_env, bad):
+    assert refused(mcp_env(valid_env, API_INTERNAL_URL=bad)) == ("API_INTERNAL_URL",)
+
+
+def test_api_internal_url_is_required(valid_env):
+    env = mcp_env(valid_env)
+    del env["API_INTERNAL_URL"]
+
+    assert refused(env) == ("API_INTERNAL_URL",)
 
 
 def test_the_other_roles_have_no_mcp_binding(valid_env):

@@ -25,8 +25,10 @@ from api.contained import Contained
 from api.graph_build.corpus import PostgresCorpusSource
 from api.graph_build.state import BuildState
 from graph.build import BuildContext, BuildResult, BuildStore, FileStores, open_file_stores, run_build
-from graph.core import Gateway, GraphError, LLMConfig, Ontology, ensure_schema, load_ontology
+from graph.core import GraphError, LLMConfig, Ontology, ensure_schema, load_ontology
+from graph.core.llm import Gateway
 from graph.core.store import GraphStore
+from graph.gap import Findings
 from logger.logger import ERROR, INFO, WARNING, get_logger, log_event
 from settings import GraphBuildSettings
 
@@ -44,6 +46,13 @@ class RunnerClosedError(RuntimeError):
 
 
 BuildFunction = Callable[[BuildContext], Awaitable[BuildResult]]
+RefreshFunction = Callable[[GraphStore, Ontology, str], Awaitable[Any]]
+
+
+async def refresh_findings(store: GraphStore, ontology: Ontology, project_id: str) -> None:
+    """After a build: the open findings of the project follow merged ids and lost nodes (``Findings.refresh``)."""
+
+    await Findings(store, ontology).refresh(project_id)
 
 
 @dataclass(frozen=True)
@@ -54,6 +63,7 @@ class RunnerDependencies:
     stores: FileStores | None = None  # opened lazily under ``GRAPH_STATE_DIR`` when ``None``
     ontology: Ontology | None = None  # ``load_ontology()`` on first use when ``None``
     ensure: Callable[..., Awaitable[Any]] = ensure_schema
+    refresh: RefreshFunction = refresh_findings
     gateway_factory: Callable[[LLMConfig], Any] = Gateway
 
 
@@ -108,6 +118,7 @@ class GraphBuildRunner:
         self._corpus = PostgresCorpusSource(session_factory)
         self._build = deps.build
         self._ensure = deps.ensure
+        self._refresh = deps.refresh
         self._gateway_factory = deps.gateway_factory
         self._lazy = _Lazy(ontology=deps.ontology, stores=deps.stores)
         self._slots = asyncio.Semaphore(MAX_CONCURRENT_BUILDS)
@@ -228,6 +239,21 @@ class GraphBuildRunner:
             exc_info=error if unexpected else None,  # the traceback of an unexpected error only
         )
 
+    async def _refresh_findings(self, project_id: str, ontology: Ontology) -> None:
+        """Findings follow the build (aliases, orphaning); a failure here never fails the build."""
+
+        with Contained() as step:
+            await self._refresh(self._store, ontology, project_id)
+        if step.failed:
+            log_event(
+                logger,
+                WARNING,
+                "api.graph_build.findings_refresh_failed",
+                project_id=project_id,
+                error_code=error_code(step.error) if step.error is not None else None,
+                error_type=step.error_type,
+            )
+
     async def _run_one(self, project_id: str, run: _Run) -> None:
         ontology, stores = await self._prepare()
         latest = await stores.builds.latest_build(project_id)
@@ -260,6 +286,7 @@ class GraphBuildRunner:
             result = await self._build(ctx)
         finally:
             await gateway.aclose()
+        await self._refresh_findings(project_id, ontology)
         usage = gateway.usage().total()
         log_event(
             logger,

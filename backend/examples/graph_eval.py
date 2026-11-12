@@ -41,7 +41,8 @@ from graph.build.prompts import (
     NODE_WARM_UP_PROMPT,
 )
 from graph.build.run import StepUsage
-from graph.core import Gateway, GraphReader, Query, ensure_schema, load_ontology
+from graph.core import GraphReader, Query, ensure_schema, load_ontology
+from graph.core.llm import Gateway
 from graph.core.ontology import Ontology
 from graph.core.ontology.model import CROSS_DOCUMENT
 from graph.core.store import Executor

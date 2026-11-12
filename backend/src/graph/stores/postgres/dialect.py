@@ -46,7 +46,7 @@ from graph.core.queries import (
     safe_name,
 )
 from graph.core.query_files import fragment, render_query
-from graph.stores.postgres.sqlfiles import load_build_sql, load_core_sql, load_plan_sql
+from graph.stores.postgres.sqlfiles import load_build_sql, load_core_sql, load_gap_sql, load_plan_sql
 
 DEFAULT_SCHEMA: Final = "graph"
 BACKEND: Final = "postgres"
@@ -104,13 +104,21 @@ _STATIC: Final[Mapping[str, Callable[[], str]]] = {
     "build.infer_xdoc_documents": lambda: load_build_sql("infer_xdoc_documents.sql"),
     "build.infer_xdoc_embeddings": lambda: load_build_sql("infer_xdoc_embeddings.sql"),
     "build.infer_xdoc_members": lambda: load_build_sql("infer_xdoc_members.sql"),
+    "gap.gap_delete_open_finding": lambda: load_gap_sql("gap_delete_open_finding.sql"),
+    "gap.gap_delete_unused_refs": lambda: load_gap_sql("gap_delete_unused_refs.sql"),
+    "gap.gap_read_findings": lambda: load_gap_sql("gap_read_findings.sql"),
+    "gap.gap_set_open_finding": lambda: load_gap_sql("gap_set_open_finding.sql"),
     "plan.plan_claim_task": lambda: load_plan_sql("plan_claim_task.sql"),
     "plan.plan_create_tasks": lambda: load_plan_sql("plan_create_tasks.sql"),
+    "plan.plan_lock_stories": lambda: load_plan_sql("plan_lock_stories.sql"),
+    "plan.plan_lock_tasks": lambda: load_plan_sql("plan_lock_tasks.sql"),
     "plan.plan_read_areas": lambda: load_plan_sql("plan_read_areas.sql"),
     "plan.plan_read_plan": lambda: load_plan_sql("plan_read_plan.sql"),
     "plan.plan_read_stories": lambda: load_plan_sql("plan_read_stories.sql"),
     "plan.plan_read_tasks": lambda: load_plan_sql("plan_read_tasks.sql"),
     "plan.plan_set_applying": lambda: load_plan_sql("plan_set_applying.sql"),
+    "plan.plan_set_stories": lambda: load_plan_sql("plan_set_stories.sql"),
+    "plan.plan_set_tasks": lambda: load_plan_sql("plan_set_tasks.sql"),
     "plan.plan_transition_task": lambda: load_plan_sql("plan_transition_task.sql"),
     "plan.plan_update_tasks": lambda: load_plan_sql("plan_update_tasks.sql"),
     "plan.plan_upsert_areas": lambda: load_plan_sql("plan_upsert_areas.sql"),
@@ -141,8 +149,10 @@ _STATIC: Final[Mapping[str, Callable[[], str]]] = {
     "core.read_nodes_by_ids": lambda: load_core_sql("read_nodes_by_ids.sql"),
     "core.read_nodes_by_uuid": lambda: load_core_sql("read_nodes_by_uuid.sql"),
     "core.read_nodes_for_lines": lambda: load_core_sql("read_nodes_for_lines.sql"),
+    "core.read_node_vectors": lambda: load_core_sql("read_node_vectors.sql"),
     "core.read_nodes_page": lambda: load_core_sql("read_nodes_page.sql"),
     "core.read_owner_values": lambda: load_core_sql("read_owner_values.sql"),
+    "core.read_trace_hop": lambda: load_core_sql("read_trace_hop.sql"),
     "core.search_fragments": lambda: load_core_sql("search_fragments.sql"),
     "core.search_nodes_fulltext": lambda: load_core_sql("search_nodes_fulltext.sql"),
     "core.search_nodes_vector": lambda: load_core_sql("search_nodes_vector.sql"),

@@ -52,18 +52,20 @@ const http: HttpPorts = {
   },
   knowledge: { status: never, subscribe: never, build: never, leave: never },
   plan: { preview: never, state: never, subscribe: never, create: never, leave: never, updateTaskBody: never },
+  work: { findings: never, close: never, claims: never, release: never },
 };
 const ports = composeProductionPorts(http);
 
 const rejectsWith = (p: Promise<unknown>, code: string) => assert.rejects(p, (e) => isDataError(e) && e.code === code, `rejects ${code}`);
 
-test("FE-DATA-01 (TECH-SPECS §3.1): http serves people.me, projects, createProject.create, missionControl, sources, knowledge, plan", async () => {
+test("FE-DATA-01 (TECH-SPECS §3.1): http serves people.me, projects, createProject.create, missionControl, sources, knowledge, plan, work", async () => {
   assert.equal((await ports.people.me()).name, "Dana Example");
   assert.equal(ports.projects, http.projects);
   assert.equal(ports.missionControl, http.missionControl);
   assert.equal(ports.sources, http.sources);
   assert.equal(ports.knowledge, http.knowledge);
   assert.equal(ports.plan, http.plan);
+  assert.equal(ports.work, http.work);
   assert.equal((await ports.createProject.create({ name: "X", contributorIds: [] })).id, UUID);
   assert.deepEqual(Object.keys(ports.createProject), ["create"]);
 });
@@ -147,6 +149,7 @@ test("SPL-DEMO-01: the composition has exactly the DataPorts members, and the un
       "plan",
       "projects",
       "sources",
+      "work",
     ],
   );
 });

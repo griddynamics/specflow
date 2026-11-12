@@ -39,25 +39,19 @@ from api.schemas import (
     PlanTaskOut,
 )
 from graph.build import BuildStore, open_file_stores
-from graph.core import Gateway, GraphError, LLMConfig, Ontology, load_ontology
+from graph.core import GraphError, LLMConfig, Ontology, load_ontology
+from graph.core.llm import Gateway
 from graph.core.reader import GraphNode, GraphReader
 from graph.core.store import GraphStore, as_executor
-from graph.plan import (
-    STEPS,
-    PlanContext,
-    PlanEstimate,
-    PlanReader,
-    PlanResult,
-    PlanRules,
-    PlanStore,
-    PlanTask,
-    ensure_plan_schema,
-    estimate_plan,
-    load_plan_rules,
-    open_plan_store,
-    run_plan,
-)
-from graph.plan.models import PlanRunRecord, PlanStepName
+from graph.plan.estimate import estimate_plan
+from graph.plan.files import open_plan_store
+from graph.plan.models import PlanEstimate, PlanResult, PlanRunRecord, PlanStepName, PlanTask
+from graph.plan.options import PlanContext
+from graph.plan.ports import PlanStore
+from graph.plan.reader import PlanReader
+from graph.plan.rules import PlanRules, load_plan_rules
+from graph.plan.run import STEPS, run_plan
+from graph.plan.schema import ensure_plan_schema
 from logger.logger import ERROR, INFO, WARNING, get_logger, log_event
 from settings import GraphBuildSettings
 

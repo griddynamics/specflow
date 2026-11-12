@@ -37,6 +37,10 @@ class TaskState:
     implements: tuple[str, ...] = ()
     commit: str | None = None
     claimed: bool = False
+    claim_token: str | None = None
+    progress: str | None = None
+    blocked_by: str | None = None
+    completed_by: str | None = None
 
 
 @dataclass(frozen=True)
@@ -45,6 +49,9 @@ class StoryState:
     status: str
     kind: str
     anchor: str | None = None
+    held: bool = False
+    claim_token: str | None = None
+    claim_stamped: bool = False
 
 
 @dataclass(frozen=True)
@@ -128,13 +135,43 @@ def _dependencies(state: PlanState) -> tuple[str, ...]:
 
 
 def _task_state(state: PlanState) -> tuple[str, ...]:
+    """PD5 (claim, ``progress``, ``blocked_by``, commit and ``completed_by`` fields against the status) and PD8 (story
+    claim fields against their tasks)."""
+
     wrong = set()
     for task_id, task in state.tasks.items():
         if task.status == "completed" and not task.commit:
             wrong.add(task_id)
         if (task.status == "in_progress") != task.claimed:
             wrong.add(task_id)
-    return tuple(sorted(wrong))
+        if (
+            (task.progress and task.status != "in_progress")
+            or (task.blocked_by and task.status != "blocked")
+            or (task.completed_by and not task.commit)
+        ):
+            wrong.add(task_id)
+    return tuple(sorted(wrong | _story_claims(state)))
+
+
+def _story_claims(state: PlanState) -> set[str]:
+    """PD8: a held story has its token and time and a task carrying the token; every task carrying a held story's token
+    is an ``in_progress`` task of a story held with it; an ``in_progress`` task of a held story carries its token."""
+
+    held = {story_id: story for story_id, story in state.stories.items() if story.held}
+    tokens = {story.claim_token for story in held.values() if story.claim_token}
+    carried: dict[str, int] = {}
+    wrong = {story_id for story_id, story in held.items() if not story.claim_token or not story.claim_stamped}
+    for task_id, task in state.tasks.items():
+        story = held.get(task.story_id)
+        stray = task.claim_token in tokens and (
+            task.status != "in_progress" or story is None or story.claim_token != task.claim_token
+        )
+        foreign = task.status == "in_progress" and story is not None and task.claim_token != story.claim_token
+        if stray or foreign:
+            wrong.add(task_id)
+        elif story is not None and task.status == "in_progress":
+            carried[task.story_id] = carried.get(task.story_id, 0) + 1
+    return wrong | {story_id for story_id in held if story_id not in carried}
 
 
 def _stories(state: PlanState) -> tuple[str, ...]:

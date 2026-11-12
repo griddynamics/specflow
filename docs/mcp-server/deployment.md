@@ -1,24 +1,47 @@
 ---
 type: Design
 title: "MCP server deployment"
-description: "Running the mcp role, the public endpoint, identity provider setup, developer setup in Claude Code, the Guides pages of the web app, and the local stack with Keycloak"
+description: "Running the mcp role, the public endpoint, identity provider setup, developer setup in Claude Code, the Guides pages of the web app, the local stack with Keycloak, and troubleshooting"
 status: stable
 tags: [mcp, deployment]
 ---
-# deployment.md: role and ingress, IdP setup, Claude Code setup, web app guides and the local stack with Keycloak
+# deployment.md: role and ingress, IdP setup, Claude Code setup, web app guides, the local stack with Keycloak and troubleshooting
 
 ## Role and process
 
 | Item | Value |
 |---|---|
-| Container | its own (compose service `mcp`, its own deployment), built from the same image as `api`; part of every SpecFlow deployment, like `api` and the workers |
-| Command | `specflow mcp` (overrides the image's default `migrate` then `api` command) |
+| Container | its own (compose service `mcp`, its own deployment) from its own image `specflow-mcp` (`backend/docker/mcp/Dockerfile`, only the `mcp` dependency extra; Docker Hub `griddynamics/specflow-mcp`); part of every SpecFlow deployment, like `api` and the workers |
+| Command | `specflow mcp` (the image's default command) |
 | Port | `MCP_PORT` ([architecture.md](architecture.md#settings)) |
 | Replicas | stateless; any number behind a load balancer, no affinity |
-| Depends on | Postgres, Neo4j, the IdP's JWKS endpoint, and a migrated schema (locally: `api` healthy, since the `api` container runs `specflow migrate` first) |
-| Probes | the liveness and readiness probes of [architecture.md](architecture.md#http-surface-of-the-role) |
-| Database migrations | never; the `api` container runs `specflow migrate` before `specflow api`, so `mcp` starts after `api` on a fresh schema |
-| Settings | [architecture.md](architecture.md), [auth.md](auth.md), and the shared database, Neo4j and auth variables |
+| Depends on | the API at `API_INTERNAL_URL` and the IdP's JWKS endpoint (locally: `api` healthy) |
+| Probes | the liveness and readiness probes of [architecture.md](architecture.md#http-surface-of-the-role); readiness follows the API's `database` and `graph` checks |
+| Database migrations | never; the role has no database access |
+| Settings | [architecture.md](architecture.md#settings), [auth.md](auth.md), the shared auth variables and `API_INTERNAL_URL`; no database or graph store variables |
+| Availability | the API's: with the API down every tool answers `internal_error` and `/readyz` is not ready; agent reads share the one API replica with the web app (accepted, [architecture.md](architecture.md#operations)) |
+| Network | plain HTTP from `mcp` to the API inside the cluster, as for the web app; a NetworkPolicy lets only the frontend and mcp pods reach the API. The cluster's CNI must enforce NetworkPolicy; encryption of the internal hop is decided later for both backends-for-frontends |
+
+The `api` role serves the [agent routes](architecture.md#api-agent-routes) only when it has the MCP settings:
+
+| `api` setting | Value |
+|---|---|
+| `MCP_RESOURCE_URL` | the `mcp` role's value; unset turns the agent routes off (`503 agent_unavailable`) |
+| `MCP_AUDIENCE`, `MCP_CLIENT_IDS` | the `mcp` role's values |
+| `OIDC_ISSUER`, the `AUTH_*` claim profile (`AUTH_TOKEN_TYPE`, the claim names, `AUTH_ALLOWED_EMAIL_DOMAINS`) | identical to the `mcp` role's |
+| `AUTH_JWKS_URL` | optional; identical to the `mcp` role's when set |
+
+A difference in any of these lets the MCP guard accept a token that the API refuses ([Troubleshooting](#troubleshooting)).
+
+### Upgrading from the shared image
+
+A deployment whose `mcp` still runs the shared image with database access moves in this order:
+
+1. Give the `api` the MCP keys of the table above (the same values as the `mcp`'s) and the same claim profile.
+2. Roll out the `api`. The old `mcp` keeps working: the agent routes are additive.
+3. Switch the `mcp` to the `specflow-mcp` image, set `API_INTERNAL_URL`, and remove `DATABASE_*` and `GRAPH_STORE_*`
+   from the `mcp`'s secret.
+4. Add the NetworkPolicy that lets only the frontend and `mcp` pods reach the `api`.
 
 ## Public endpoint
 
@@ -30,7 +53,7 @@ tags: [mcp, deployment]
 | P4 | Pass the `Host` header through unchanged; add any internal host names the role is reached by to `MCP_ALLOWED_HOSTS`. |
 | P5 | TLS at the edge; request body limit at least the body cap of [Transport](architecture.md#transport); request timeout at least 30 s; no response buffering requirement (JSON responses). |
 | P6 | Rate limit per client address at the edge (suggested: 20 requests per second, burst 40, raised where many developers share one office address); the role has no rate limiter of its own. |
-| P7 | The REST API (`api` service) never gets a public route; only the `mcp` service is published. The web app keeps reaching the API on the internal network. |
+| P7 | The REST API (`api` service) never gets a public route; only the `mcp` service is published. The web app and the `mcp` service reach the API on the internal network. |
 
 ## Identity provider setup
 
@@ -172,7 +195,7 @@ person everywhere. There is no dev login and no `AUTH_MODE`. `make up WITH=keycl
 
 | Service | Compose profile | Image | Host port | Role |
 |---|---|---|---|---|
-| `mcp` | none (always on) | the backend image, `specflow mcp` | `127.0.0.1:8002` | the MCP role |
+| `mcp` | none (always on) | `specflow-mcp:local`, `specflow mcp` | `127.0.0.1:8002` | the MCP role |
 | `keycloak` | none (always on) | `quay.io/keycloak/keycloak`, an exact 26.4 patch tag pinned like the other services, `start-dev` | `127.0.0.1:8180` | local IdP, realm `specflow` imported at container creation; api, mcp and frontend wait for it to be healthy |
 
 | Item | Local value |
@@ -183,7 +206,8 @@ person everywhere. There is no dev login and no `AUTH_MODE`. `make up WITH=keycl
 | QA users | `alice@example.com`, `bob@example.com` and `carol@other.example` (a domain that is not allowed), with password `KEYCLOAK_QA_PASSWORD`. Their ids are fixed in the realm file, the same constants as in `backend/examples/mcp_qa_lib.py`, so the QA seed needs no Keycloak call ([testing.md](testing.md#fixtures)) |
 | Issuer | `http://localhost:8180/realms/specflow` for every token: Keycloak runs with `KC_HOSTNAME=http://localhost:8180` |
 | Keys from containers | `AUTH_JWKS_URL` and the web app's `OIDC_INTERNAL_URL` on the compose network name `specflow-keycloak:8080` (accepted in local only) |
-| `mcp` | `APP_ENV=local`, `OIDC_ISSUER` and `AUTH_JWKS_URL` as above, `MCP_RESOURCE_URL=http://localhost:8002/mcp`, `AUTH_ALLOWED_EMAIL_DOMAINS` from `.env.local` (your domain and `example.com`) |
+| `mcp` | `APP_ENV=local`, `OIDC_ISSUER` and `AUTH_JWKS_URL` as above, `MCP_RESOURCE_URL=http://localhost:8002/mcp`, `API_INTERNAL_URL=http://specflow-api:8000`, `AUTH_ALLOWED_EMAIL_DOMAINS` from `.env.local` (your domain and `example.com`); no database or graph store variables |
+| `api` | the same issuer, JWKS URL, claim profile, email domains and `MCP_RESOURCE_URL` as `mcp`, so the agent routes are on |
 | Web app guide values | compose gives the web app `MCP_PUBLIC_URL=http://localhost:8002/mcp` (the web app's `PUBLIC_URL` is `http://localhost:3001`, so the default would be wrong here), `MCP_SERVER_NAME=specflow-local` and leaves `MCP_CLIENT_ID` at its default. Guides › MCP server at `http://localhost:3001/guides/mcp-server` shows the same steps as production with these values ([Guides in the web app](#guides-in-the-web-app)) |
 
 `make up` refuses to start (`check-keycloak-env`) when the env file lacks one of `KEYCLOAK_ADMIN_PASSWORD`,
@@ -204,3 +228,18 @@ Keycloak has no data volume, by design. Recreating the container imports the rea
 | `make down-volumes` | Deletes the application data (Postgres, Neo4j, RustFS, Temporal, Langfuse); Keycloak has none. Run it once after upgrading from the dev login, whose `dev:<email>` data is not migrated ([QUICKSTART.md](../../QUICKSTART.md#upgrading-from-the-dev-login)) |
 
 The web app signs out through the IdP (RP-initiated logout) when the IdP advertises an end-session endpoint, as Keycloak does.
+
+## Troubleshooting
+
+Tool failures between `mcp` and the API show as `internal_error` to the agent; the `error_type` of the
+`mcp.tool.completed` event in the `mcp` log names the cause ([architecture.md](architecture.md#errors)), and its
+`request_id` finds the matching API log lines.
+
+| Symptom | Likely cause |
+|---|---|
+| Sign-in works, every tool answers `internal_error`, `error_type` `ApiAuthRejected` | the MCP audience differs between api and mcp: `MCP_AUDIENCE` or `MCP_CLIENT_IDS` missing or different in the `api` role; set the `mcp` role's values |
+| The same, with the audience settings equal | the claim profile differs between api and mcp: `OIDC_ISSUER`, `AUTH_TOKEN_TYPE` (and its claim and value), the claim names or `AUTH_ALLOWED_EMAIL_DOMAINS`; make them identical. A single failed call after a long pause is a token that expired between the guard and the API; the next call refreshes it |
+| Every tool answers `internal_error`, `error_type` `ApiAgentUnavailable` | the `api` role has no `MCP_RESOURCE_URL` |
+| Every tool answers `internal_error`, `error_type` `ApiUnreachable`; `/readyz` answers `503` with detail `api_unreachable` | the API is down, `API_INTERNAL_URL` is wrong, or the NetworkPolicy does not admit the mcp pods |
+| Some calls answer `internal_error`, `error_type` `ApiTimeout` | the API took longer than 25 s |
+| Every tool answers `internal_error`, `error_type` `ApiProtocolError` | the API answered outside the agent contract, for example api and mcp images of different releases |

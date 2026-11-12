@@ -74,13 +74,10 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: ghcr.io/griddynamics/specflow-api:2.0.0
+          value: ghcr.io/griddynamics/specflow-mcp:2.0.0
         template: deployment.yaml
-      - equal:
+      - notExists:
           path: spec.template.spec.containers[0].command
-          value:
-            - specflow
-            - mcp
         template: deployment.yaml
       - equal:
           path: spec.template.spec.containers[0].ports[0].containerPort
@@ -94,6 +91,21 @@ tests:
               secretKeyRef:
                 name: specflow-mcp
                 key: MCP_RESOURCE_URL
+        template: deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: API_INTERNAL_URL
+            value: http://specflow-api:8000
+        template: deployment.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DATABASE_HOST
+            valueFrom:
+              secretKeyRef:
+                name: specflow-mcp
+                key: DATABASE_HOST
         template: deployment.yaml
 
   - it: renders the agent worker contract without a Service

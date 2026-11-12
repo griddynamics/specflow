@@ -23,6 +23,7 @@ from graph.plan.names import (
     StoryKind,
     StoryProgress,
     StoryStatus,
+    TaskProgress,
     TaskStatus,
     plan_ontology_version,
     plan_vocabularies,
@@ -51,6 +52,7 @@ def test_plan_names_come_from_the_shipped_ontology_vocabularies() -> None:
     assert {
         "phase": get_args(Phase),
         "task_status": get_args(TaskStatus),
+        "task_progress": get_args(TaskProgress),
         "complexity": get_args(Complexity),
         "area_kind": get_args(AreaKind),
         "area_status": get_args(AreaStatus),

@@ -8,7 +8,9 @@ tags: [graph, plan]
 # requirements.md: requirement units of graph.plan (compact form), functional and non-functional
 
 Each row is one testable requirement in EARS form with one acceptance criterion. Status of every unit:
-Draft (2026-11-01, decisions applied), pending implementation. Verification is by test unless the row
+Draft (2026-11-01, decisions applied), pending implementation; the units added or changed for story
+claims, task progress and findings (FR-PDIF-10, 11, FR-PLCY-11, FR-PMCP-05, 08, FR-PCLM-01-16,
+FR-PCHK-07) are Draft (2026-11-11). Verification is by test unless the row
 says otherwise. Details live in the linked file of each area; the reasons are in
 [questions.md](questions.md).
 
@@ -149,6 +151,8 @@ PT11). Plan update correctness follows the precision of the build's change-repor
 | FR-PDIF-07 | When the key of a retired task returns, the task shall be revived under its id when it has no commit, and get a new revision when it has one. | Given a requirement removed and restored, then its task without commit is `pending` again under the same id. |
 | FR-PDIF-08 | A task change shall be persisted only while the task's status equals the one the snapshot read, and skipped changes shall be counted in `conflicts`. | Given a task claimed during the run, then the run does not change it and `conflicts` lists it. |
 | FR-PDIF-09 | A node that moved area shall take its open task along, and a move alone shall never supersede a completed task. | Given an orphan requirement with a pending task in the project area that inference attaches to "Web shop", then the task is in a Web shop story after the run; a completed one keeps its commit. |
+| FR-PDIF-10 | A plan run shall never write the claim fields of a story, nor the `progress` of an `in_progress` task. | Given a held story whose claimed task reported `done` and whose requirement then changed meaning, then after the run the story claim, the task's token and its `progress` are unchanged. |
+| FR-PDIF-11 | When a plan run resets a `blocked` task, it shall clear `block_reason` and `blocked_by`. | Given a task blocked by finding `FND::A1` whose implemented requirement changed meaning, then after the run the task is `pending` without `blocked_by`. |
 
 ## Task lifecycle ([lifecycle.md](lifecycle.md))
 
@@ -164,6 +168,7 @@ PT11). Plan update correctness follows the precision of the build's change-repor
 | FR-PLCY-08 | `task_brief` shall report `spec_changed` when an implemented node's `last_build_id` is newer than `Plan.last_build_id`, and `missing` for implemented `spec_id`s that no longer resolve. | Given a requirement rewritten by a build after the plan's last consumed build, then the brief of its task has `spec_changed` true. |
 | FR-PLCY-09 | `task_brief` shall list the open questions that relate to an implemented node, and the task shall carry `has_open_questions`. | Given an OpenQuestion `RELATES_TO` "Order", then the brief of the "Order" data task lists it and the task has `has_open_questions` true. |
 | FR-PLCY-10 | `task_brief` shall show `done_when` items with their source and the task's releases. | Given a task with one `spec` and one `planner` item, then the brief shows both sources. |
+| FR-PLCY-11 | `complete_task` shall record the claimant as `completed_by` and the time as `completed_at`, and keep both when the task is later superseded. | Given a task claimed by "alice" and completed, then `completed_by` is "alice"; after a meaning change supersedes it, the old task still has both. |
 
 ## Agent-facing reads and claims ([api.md](api.md), [lifecycle.md](lifecycle.md))
 
@@ -173,9 +178,31 @@ PT11). Plan update correctness follows the precision of the build's change-repor
 | FR-PMCP-02 | `story_work(project_id, story_id)` shall return the story's open tasks plus their unfinished transitive prerequisites, in topological order, with their claim holders. | Given `STORY::WEB_SHOP::CHECKOUT` on a fresh plan, then the result holds the setup tasks, the Orders service contract task for "Orders API" and the checkout tasks, each prerequisite before its dependants. |
 | FR-PMCP-03 | `claim_next(project_id, story_id, *, claimed_by)` shall claim the story's first ready task in topological, then `task_id`, order. | Given a story with two ready tasks and one waiting, then `claim_next` claims the ready task first in topological order, and a second call the other. |
 | FR-PMCP-04 | If no task of the story is ready, then `claim_next` shall raise `TaskStateError("nothing_ready")` carrying the blocking tasks, and change nothing. | Given `STORY::WEB_SHOP::CHECKOUT` on a fresh plan, then the error names the unfinished prerequisites outside the story. |
-| FR-PMCP-05 | The library shall offer no claim that ignores prerequisites; only `release_task(force=True)` may bypass the claim token. | Inspection: no lifecycle call takes a parameter that skips the ready rule. |
+| FR-PMCP-05 | The library shall offer no claim that ignores prerequisites outside what it claims; only `release_task(force=True)` and `release_story(force=True)` may bypass the claim token. | Inspection: no lifecycle or story call takes a parameter that skips the ready or claimable rule. |
 | FR-PMCP-06 | `plan_dag(project_id, format)` shall return, for `json` and `mermaid`, the open and completed tasks in topological order grouped by story, with their waits, and the story order projection with cycles collapsed into groups. | Given two stories whose tasks wait for each other in different phases, then the task order is acyclic and the two stories appear as one group in the story order. |
 | FR-PMCP-07 | The story reads shall list stories filtered by area, status and release, and return one story with its anchor, all its members including uncovered ones, its tasks with status, and its derived progress. | Given `STORY::ORDERS_SERVICE::ORDERS_API` with one integration requirement no task implements yet, then the story read lists that requirement as uncovered. |
+| FR-PMCP-08 | The trace plan overlay shall attach to each node its open and completed tasks with status, holder and commit, never a claim token. | Given a node implemented by an `in_progress` task, then the task is listed with `claimed_by` and no token. |
+
+## Story claims ([lifecycle.md](lifecycle.md) "Story claims", [api.md](api.md) "Story calls")
+
+| ID | Requirement | Acceptance |
+|---|---|---|
+| FR-PCLM-01 | When a story is claimable, `claim_story` shall move every `pending` and `failed` task of its unit to `in_progress` under one new token and the caller's id, set the story claim fields, and answer the tasks in topological order. | Given `STORY::ORDERS_SERVICE::ORDERS_API` with its setup prerequisites completed, then its tasks are `in_progress` with one token, the story has `claimed_by` and `claimed_at`, and the answer lists the contract task first. |
+| FR-PCLM-02 | If a task of the unit waits for an unfinished task outside the unit, then `claim_story` shall raise `TaskStateError("not_available")` carrying those tasks, and change nothing. | Given `STORY::WEB_SHOP::CHECKOUT` on a fresh plan, then the error lists the setup sink and the Orders API contract task. |
+| FR-PCLM-03 | `claim_story` shall succeed for exactly one of concurrent claims of one story. | Given 10 concurrent claims by different users on a live store (each of Neo4j, ArcadeDB, PostgreSQL), then one returns a claim and 9 raise `story_claimed` carrying the holder and `claimed_at`. |
+| FR-PCLM-04 | When the holder claims its story again, `claim_story` shall return the same token and tasks and write nothing. | Given a story held by "u1", when "u1" claims it with another `agent_label`, then the token is the same, `repeat` is true and `agent_label` is unchanged. |
+| FR-PCLM-05 | Task claims and story claims shall exclude each other. | Given a task of a story claimed by `claim_task`, then `claim_story` raises `partly_claimed` naming the task; given a held story with a `pending` task a plan run added, then `claim_task` on it raises `story_claimed`. |
+| FR-PCLM-06 | `claim_story` shall claim the whole cycle group of the story under one token. | Given stories A and B where A's logic waits for B's contract and B's logic for A's contract, when A is claimed, then the open tasks of both are `in_progress` under one token and both stories are held. |
+| FR-PCLM-07 | `release_story` shall return the claimed tasks to `pending` without `progress`, end the claim and keep `claim_token`; a repeat answers `released` empty and another token raises `claim_mismatch`. | Given a held story with one task reported `done`, when released with its token and a note, then both tasks are `pending` without `progress`, `claimed_by` is cleared, the note is stored, and the same call again answers `released` empty. |
+| FR-PCLM-08 | `release_story(force=True)` shall end a claim without its token. | Given a story held by "u1", when a host releases it with `force=True`, then the story is not held and its tasks are `pending`. |
+| FR-PCLM-09 | `report_progress` shall set `progress` only on a claimed task of a held story with the matching token, and never change the status. | Given a claimed task, when `skipped` is reported with a note, then `progress` is `skipped`, the status `in_progress`; with another token it raises `claim_mismatch` and nothing changes. |
+| FR-PCLM-10 | `complete_story` shall complete the tasks in `done` in topological order with the merge commit, `completed_by` and `completed_at`, return the other claimed tasks to `pending`, and end the claim. | Given a held story with tasks T1 and T2 and `done=[T1]`, then T1 is `completed` with the commit and the caller, T2 is `pending`, and `now_available` lists a story that waited only for T1. |
+| FR-PCLM-11 | When `complete_story` is repeated by the same caller with the same token and commit after the claim ended, it shall answer the same completed tasks and change nothing; any other caller or token raises `claim_mismatch`. | Given a completed story, when its completion is repeated, then `completed` lists the same ids and `released` is empty; from another user it raises `claim_mismatch`. |
+| FR-PCLM-12 | `complete_story` shall accept only a 40 or 64 hex `merge_commit` and only claimed task ids in `done`, checked before any write. | Given a 39 hex commit, then `ConfigurationError("invalid_commit")` is raised; given a task id of another story in `done`, then `invalid_done`; the story stays held. |
+| FR-PCLM-13 | `block_story` shall block every claimed task with the reason and `blocked_by`, and end the claim; `unblock_finding` shall return to `pending` only the tasks still blocked by that finding. | Given a held story blocked with `spec_ambiguous` by `FND::A1`, then its tasks are `blocked` with `blocked_by` `FND::A1`; after a plan run reset one of them, `unblock_finding` returns only the other and leaves the reset one as it is. |
+| FR-PCLM-14 | `story_list` shall order the `open` view as ready (by release, then stories it unblocks, descending, then id), in progress, waiting, blocked, and list in `mine` the caller's held stories and the stories blocked by the given findings. | Given on the shop graph a held story of "u1" and a story blocked by a finding of "u1", then `mine` for "u1" lists both and `open` lists the ready stories first. |
+| FR-PCLM-15 | `area_summary` shall count stories per state for every active area, project area last. | Given a fresh shop plan, then `AREA::PROJECT` is last and its setup story counts as `ready`. |
+| FR-PCLM-16 | `story_brief` shall merge the briefs of the story's open and completed tasks without a model call, each implemented node once. | Given a story with two tasks implementing one shared requirement, then the brief lists both tasks' `done_when` and the requirement once, and no gateway is called. |
 
 ## Plan checks ([lifecycle.md](lifecycle.md) "Plan checks")
 
@@ -187,6 +214,7 @@ PT11). Plan update correctness follows the precision of the build's change-repor
 | FR-PCHK-04 | Coverage (PD3) shall accept a required node that an open or completed task implements, that is recorded `not_buildable`, or that a profile convention cites, and report any other. | Given a constraint cited by a profile convention and no task, then coverage reports nothing for it; given a required requirement with neither, then coverage names it. |
 | FR-PCHK-05 | Plan checks shall report every open task that is not `IN_STORY` exactly one active story of its own area (PD7). | Given a task whose story was retired by hand in a test fixture, then the check names the task. |
 | FR-PCHK-06 | Plan check metrics shall include `not_buildable` and `open_questions_on_tasks`. | Given one `not_buildable` member and two open tasks with `has_open_questions`, then the metrics are 1 and 2. |
+| FR-PCHK-07 | Plan checks shall report `progress` outside `in_progress`, `blocked_by` outside `blocked`, and story claim fields that do not match their tasks (PD5, PD8). | Given a fixture with a `pending` task that has `progress` and a held story without claimed tasks, then `task_state` names both. |
 
 ## Non-functional
 

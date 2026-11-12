@@ -7,7 +7,6 @@ nothing; invalid arguments raise ``ConfigurationError`` before any query. Notes 
 
 from __future__ import annotations
 
-import re
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
@@ -15,6 +14,14 @@ from typing import Any, Final, get_args
 
 from graph.core.errors import ConfigurationError
 from graph.core.ontology import Ontology
+from graph.plan.arguments import (
+    CLAIMANT_LIMIT,
+    COMMIT_PATTERN,
+    NOTE_LIMIT,
+    check_claimant,
+    commit_text,
+    note_text,
+)
 from graph.plan.brief import task_brief
 from graph.plan.dag import topological_order
 from graph.plan.errors import TaskStateError
@@ -23,14 +30,14 @@ from graph.plan.names import BlockReason
 from graph.plan.queries import CLAIM_TASK, TRANSITION_TASK
 from graph.plan.reader import LoadedPlan, PlanReader, executor_of, load_plan
 from graph.plan.rules import PlanRules
+from graph.plan.story_board import StoryBoard
 from logger.logger import INFO, get_logger, log_event
 
 logger = get_logger("graph.plan")
 
-COMMIT_PATTERN: Final = re.compile(r"^[0-9a-fA-F]{40}([0-9a-fA-F]{24})?$")
-NOTE_LIMIT: Final = 500
-CLAIMANT_LIMIT: Final = 200
-_CLAIM_FIELDS: Final = {"claim_token": None, "claimed_by": None, "claimed_at": None}
+__all__ = ["CLAIMANT_LIMIT", "COMMIT_PATTERN", "NOTE_LIMIT", "TaskLifecycle"]
+
+_CLAIM_FIELDS: Final = {"claim_token": None, "claimed_by": None, "claimed_at": None, "progress": None}
 _OK: Final = "ok"
 
 
@@ -76,7 +83,7 @@ class TaskLifecycle:
         """Claim a ready task. A pending task that is not ready raises ``not_ready`` with its unfinished
         transitive prerequisites, in topological order."""
 
-        _check_claimant(claimed_by)
+        check_claimant(claimed_by)
         token = uuid.uuid4().hex
         rows = await self._executor.write(
             CLAIM_TASK,
@@ -94,6 +101,8 @@ class TaskLifecycle:
             if outcome == "not_ready":
                 loaded = await load_plan(self._executor, project_id)
                 raise TaskStateError("not_ready", blockers=loaded.unfinished_prerequisites([task_id]))
+            if outcome == "story_claimed":
+                raise await self._story_claimed(project_id, rows[0])
             raise TaskStateError(outcome, status=rows[0]["status"])
         log_event(logger, INFO, "graph.plan.task_claimed", task_id=task_id)
         return Claim(task=await self._task(project_id, task_id), claim_token=token)
@@ -101,7 +110,7 @@ class TaskLifecycle:
     async def claim_next(self, project_id: str, story_id: str, *, claimed_by: str) -> Claim:
         """Claim the story's first ready task in topological order; a lost race tries the next one."""
 
-        _check_claimant(claimed_by)
+        check_claimant(claimed_by)
         loaded = await load_plan(self._executor, project_id)
         story = next((item for item in loaded.current.stories if item.story_id == story_id), None)
         if story is None:
@@ -110,6 +119,13 @@ class TaskLifecycle:
             raise TaskStateError("wrong_state", status=story.status)
         if loaded.applying:
             raise TaskStateError("plan_applying")
+        if story.claimed_by is not None:
+            raise TaskStateError(
+                "story_claimed",
+                alternatives=StoryBoard(loaded).alternatives(story_id),
+                claimed_by=story.claimed_by,
+                claimed_at=story.claimed_at.isoformat() if story.claimed_at else None,
+            )
         pending = [task.task_id for task in loaded.story_tasks(story_id) if task.status == "pending"]
         ready = loaded.ready()
         for task_id in topological_order(pending, loaded.edges(pending)):
@@ -118,20 +134,26 @@ class TaskLifecycle:
             try:
                 return await self.claim_task(project_id, task_id, claimed_by=claimed_by)
             except TaskStateError as error:
-                if error.code == "plan_applying":
+                if error.code in ("plan_applying", "story_claimed"):
                     raise
         raise TaskStateError("nothing_ready", blockers=_story_blockers(loaded, pending))
 
     async def complete_task(self, project_id: str, task_id: str, *, claim_token: str, commit: str) -> PlanTask:
         """``in_progress`` → ``completed`` with the commit that holds the integrated work."""
 
-        if not COMMIT_PATTERN.fullmatch(commit):
-            raise ConfigurationError("invalid_commit")
+        lower = commit_text(commit)
+        claimant = (await self._task(project_id, task_id)).claimed_by
         return await self._transition(
             project_id,
             task_id,
             ("in_progress",),
-            {**_CLAIM_FIELDS, "status": "completed", "commit": commit.lower()},
+            {
+                **_CLAIM_FIELDS,
+                "status": "completed",
+                "commit": lower,
+                "completed_by": claimant,
+                "completed_at": self._now(),
+            },
             claim_token=claim_token,
         )
 
@@ -142,7 +164,7 @@ class TaskLifecycle:
             project_id,
             task_id,
             ("in_progress",),
-            {**_CLAIM_FIELDS, "status": "failed", "note": _note(note)},
+            {**_CLAIM_FIELDS, "status": "failed", "note": note_text(note)},
             claim_token=claim_token,
         )
 
@@ -157,7 +179,7 @@ class TaskLifecycle:
             project_id,
             task_id,
             ("in_progress",),
-            {**_CLAIM_FIELDS, "status": "blocked", "block_reason": reason, "note": _note(note)},
+            {**_CLAIM_FIELDS, "status": "blocked", "block_reason": reason, "note": note_text(note)},
             claim_token=claim_token,
         )
 
@@ -178,7 +200,7 @@ class TaskLifecycle:
             project_id,
             task_id,
             ("in_progress",),
-            {**_CLAIM_FIELDS, "status": "pending", "note": _note(note)},
+            {**_CLAIM_FIELDS, "status": "pending", "note": note_text(note)},
             claim_token=None if force else claim_token,
         )
 
@@ -190,7 +212,12 @@ class TaskLifecycle:
     async def unblock_task(self, project_id: str, task_id: str) -> PlanTask:
         """``blocked`` → ``pending``; the block reason is cleared."""
 
-        return await self._transition(project_id, task_id, ("blocked",), {"status": "pending", "block_reason": None})
+        return await self._transition(
+            project_id,
+            task_id,
+            ("blocked",),
+            {"status": "pending", "block_reason": None, "blocked_by": None},
+        )
 
     async def stale_claims(self, project_id: str, *, older_than: timedelta) -> list[PlanTask]:
         """``in_progress`` tasks claimed longer ago than ``older_than``."""
@@ -231,10 +258,23 @@ class TaskLifecycle:
         if not rows:
             raise TaskStateError("unknown_task")
         outcome = rows[0]["outcome"]
+        if outcome == "story_claimed":
+            raise await self._story_claimed(project_id, rows[0])
         if outcome != _OK:
             raise TaskStateError(outcome, status=rows[0]["status"])
         log_event(logger, INFO, "graph.plan.task_transition", task_id=task_id, status=rows[0]["status"])
         return await self._task(project_id, task_id)
+
+    async def _story_claimed(self, project_id: str, row: Mapping[str, Any]) -> TaskStateError:
+        """The refusal of a task call whose story is held by a story claim."""
+
+        board = StoryBoard(await load_plan(self._executor, project_id))
+        return TaskStateError(
+            "story_claimed",
+            alternatives=board.alternatives(row["task"]["story_id"]),
+            claimed_by=row["holder"],
+            claimed_at=row["held_at"],
+        )
 
     async def _task(self, project_id: str, task_id: str) -> PlanTask:
         task = await self._reader.task(project_id, task_id)
@@ -249,14 +289,3 @@ class TaskLifecycle:
 def _story_blockers(loaded: LoadedPlan, pending: Sequence[str]) -> tuple[str, ...]:
     own = set(pending)
     return tuple(task_id for task_id in loaded.unfinished_prerequisites(pending) if task_id not in own)
-
-
-def _check_claimant(claimed_by: str) -> None:
-    if not claimed_by or len(claimed_by) > CLAIMANT_LIMIT or not claimed_by.isprintable():
-        raise ConfigurationError("invalid_claimant")
-
-
-def _note(note: str) -> str | None:
-    if len(note) > NOTE_LIMIT:
-        raise ConfigurationError("invalid_note")
-    return note or None

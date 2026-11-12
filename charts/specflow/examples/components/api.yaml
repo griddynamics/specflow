@@ -125,6 +125,26 @@ env:
       secretKeyRef:
         name: specflow-api
         key: OIDC_ISSUER
+  # The agent routes the MCP server reads through: the same three values as the specflow-mcp Secret. Without
+  # MCP_RESOURCE_URL they answer 503 agent_unavailable.
+  - name: MCP_RESOURCE_URL
+    valueFrom:
+      secretKeyRef:
+        name: specflow-api
+        key: MCP_RESOURCE_URL
+        optional: true
+  - name: MCP_AUDIENCE
+    valueFrom:
+      secretKeyRef:
+        name: specflow-api
+        key: MCP_AUDIENCE
+        optional: true
+  - name: MCP_CLIENT_IDS
+    valueFrom:
+      secretKeyRef:
+        name: specflow-api
+        key: MCP_CLIENT_IDS
+        optional: true
   - name: LLM_GATEWAY_URL
     valueFrom:
       secretKeyRef:

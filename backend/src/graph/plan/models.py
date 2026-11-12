@@ -31,6 +31,7 @@ from graph.plan.names import (
     StoryKind,
     StoryProgress,
     StoryStatus,
+    TaskProgress,
     TaskStatus,
 )
 
@@ -215,8 +216,8 @@ class WorkAreaInfo(PlanModel):
         return () if value is None else _json_text(value)
 
 
-class StoryInfo(PlanModel):
-    """A persisted story, without derived progress."""
+class StoryCore(PlanModel):
+    """The fields of a persisted story that reads show (``PlanStory`` adds the derived progress)."""
 
     story_id: str = Field(min_length=1)
     area_id: str = Field(min_length=1)
@@ -238,8 +239,28 @@ class StoryInfo(PlanModel):
         return _json_text(value)
 
 
-class CurrentTask(PlanModel):
-    """A persisted task as Snapshot and Diff see it."""
+class StoryInfo(StoryCore):
+    """A persisted story as the plan library reads it: the story and its claim (data-model.md "Story")."""
+
+    claimed_by: str | None = None
+    claimed_at: AwareDatetime | None = None
+    agent_label: str | None = None
+    branch: str | None = None
+    note: str | None = None
+    pr_url: str | None = None
+    # The token of the last story claim: read for the claim calls and the plan checks, never dumped or shown.
+    claim_token: str | None = Field(default=None, exclude=True, repr=False)
+    # The user the last story claim's token was issued to, so a repeat by another member is refused; never dumped.
+    token_holder: str | None = Field(default=None, exclude=True, repr=False)
+
+    def core(self) -> dict[str, Any]:
+        """The fields reads show, without the claim."""
+
+        return self.model_dump(include=set(StoryCore.model_fields))
+
+
+class TaskCore(PlanModel):
+    """The fields of a persisted task that reads show (``PlanTask`` adds its waits and revision neighbours)."""
 
     task_id: str = Field(min_length=1)
     area_id: str = Field(min_length=1)
@@ -278,6 +299,22 @@ class CurrentTask(PlanModel):
     @classmethod
     def _list(cls, value: object) -> object:
         return () if value is None else value
+
+
+class CurrentTask(TaskCore):
+    """A persisted task as Snapshot, Diff and the lifecycle see it: the task and its claim and completion record."""
+
+    blocked_by: str | None = None
+    progress: TaskProgress | None = None
+    completed_by: str | None = None
+    completed_at: AwareDatetime | None = None
+    # The claim token: read for the lifecycle calls and the plan checks, never dumped or shown.
+    claim_token: str | None = Field(default=None, exclude=True, repr=False)
+
+    def core(self) -> dict[str, Any]:
+        """The fields reads show, without the claim and completion record."""
+
+        return self.model_dump(include=set(TaskCore.model_fields))
 
 
 class PlanLink(PlanModel):
@@ -725,7 +762,7 @@ class PlanResult(PlanModel):
     metrics: PlanMetrics = PlanMetrics()
 
 
-class PlanTask(CurrentTask):
+class PlanTask(TaskCore):
     """A task as reads return it (never its claim token), with its waits and revision neighbours."""
 
     waits_for: tuple[str, ...] = ()
@@ -800,7 +837,7 @@ class PlanArea(WorkAreaInfo):
     story_counts: dict[str, int] = {}
 
 
-class PlanStory(StoryInfo):
+class PlanStory(StoryCore):
     """A story with its derived progress and task counts by status."""
 
     progress: StoryProgress

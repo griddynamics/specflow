@@ -9,7 +9,7 @@ scoping fails. The fixture is never regenerated to make a change pass.
 What is recorded:
 
 - every module-level ``Query`` constant of ``graph.core.queries``, ``graph.build.queries`` and
-  ``graph.plan.queries``, and the plan's link queries of every plan relation;
+  ``graph.plan.queries``, ``graph.gap.queries``, and the plan's link queries of every plan relation;
 - ``CORE_DDL``, the ``ddl_query`` of every object of the shipped core schema and ``foreign_node_constraint``;
 - for the shipped ontology, the ``gap`` test ontology (foreign owner) and the renamed test ontology, every
   factory output called as its callers call it: the reader's scope queries, every ``OwnedWriter``
@@ -51,6 +51,7 @@ from graph.core.ontology import Ontology, load_ontology
 from graph.core.queries import CORE_DDL, foreign_node_constraint
 from graph.core.schema import foreign_labels, schema_objects
 from graph.core.writer import OWNERS, NodeRef
+from graph.gap import queries as gap_queries
 from graph.plan import queries as plan_queries
 from graph.plan.names import PLAN_RELATIONS
 from graph.stores._bolt.cypher import binds_project_id as binds_project_text
@@ -126,7 +127,7 @@ class _Recorder:
 
 def _constants() -> dict[str, dict[str, Any]]:
     found: dict[str, dict[str, Any]] = {}
-    for module in (core_queries, build_queries, plan_queries):
+    for module in (core_queries, build_queries, plan_queries, gap_queries):
         for name, value in vars(module).items():
             if isinstance(value, Query) and name.isupper():
                 found[f"const:{module.__name__}.{name}"] = entry(value)

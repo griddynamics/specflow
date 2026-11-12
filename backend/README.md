@@ -14,8 +14,8 @@ make unit-test
 
 ## The service (`src/`)
 
-`src/` holds the deployable service (the top-level packages below): one code base, three roles, each with
-its own image (`docker/api`, `docker/worker-agents`, `docker/worker-parse`, each with a `Dockerfile`). It also holds the libraries the service reuses (`llm`, `file_parsers`,
+`src/` holds the deployable service (the top-level packages below): one code base, four roles, each with
+its own image (`docker/api`, `docker/mcp`, `docker/worker-agents`, `docker/worker-parse`, each with a `Dockerfile` that installs its role's extras). It also holds the libraries the service reuses (`llm`, `file_parsers`,
 `logger`; `file_parsers` for document parsing, `logger` for logging).
 
 | Module | What it holds |
@@ -23,6 +23,8 @@ its own image (`docker/api`, `docker/worker-agents`, `docker/worker-parse`, each
 | `settings.py` | Typed settings per role, `load_settings(role)`, all startup guards, `ConfigurationError` |
 | `cli.py` | The `specflow` entry point |
 | `api/` | FastAPI app (`/api/v1`, `/healthz`, `/readyz`), streaming upload, workflow starts, error envelope |
+| `agent_contracts/` | Tool models, error codes and route paths shared by the API's agent routes and the MCP server (pure pydantic) |
+| `mcp_server/` | The `mcp` role: MCP endpoint that turns each tool call into a `GET` on an API agent route; no database or graph access |
 | `auth/` | Token claims, OIDC verifier with a throttled JWKS cache (the only verifier, shared by the API and MCP) |
 | `db/` | Models, repositories, async engine, `agent_scope` (RLS session), `migrate` |
 | `storage/` | `ObjectStore` protocol, GCS adapter (create-only resumable writes), in-memory store (tests only) |
@@ -56,8 +58,8 @@ variables, never their values.
 
 Each role requires only its own variables (`api`, `worker`, `migrate`, `mcp`); a worker
 that polls `agents` also needs the graph store, the LLM gateway and the agent database password.
-`mcp` needs `MCP_RESOURCE_URL` (https outside local) plus the database, graph store and auth
-variables, never Temporal, storage or the LLM gateway.
+`mcp` needs `MCP_RESOURCE_URL` (https outside local), `API_INTERNAL_URL` and the auth
+variables, never a database, graph store, Temporal, storage or LLM gateway setting: it reads through the API.
 Outside `APP_ENV=local` startup is refused for: a non-https issuer, a JWKS URL on
 another host, a `STORAGE_PREFIX` that does not end in `/` or starts with `dev/local/`,
 an empty secret, or `specflow-smoke` in `AUTH_API_CLIENT_IDS`. Always: the worker

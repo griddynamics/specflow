@@ -78,7 +78,17 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
   const projects = new Map();
   const docs = new Map(); // id -> doc
   const log = []; // {method, path, headers, authOk, contentType, bytes}
-  const state = { parseMs, summarizeMs, parseOutcome, graphMs: 1500, graphOutcome: "succeeded", graphStartFail: null, planMs: 2000 };
+  const state = {
+    parseMs,
+    summarizeMs,
+    parseOutcome,
+    graphMs: 1500,
+    graphOutcome: "succeeded",
+    graphStartFail: null,
+    planMs: 2000,
+    workFail: null,
+    workReadFail: null,
+  };
   /** Drive: sources per project (SourceOut rows, mutable by tests), and the identity answer (a Reason string = 503 with that code). */
   const sources = new Map(); // pid -> SourceOut[]
   const drive = { identityReason: null, email: "specflow-sa@example.test" };
@@ -355,6 +365,56 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     return json(res, 202, planWire(plans.get(pid)));
   }
 
+  // Findings and claims (`/findings`, `/plan/claims`): per project, seeded through the control port (`seedWork`). A resolve or dismiss of a
+  // blocking finding answers `unblocked: 1`; a closed or unknown finding answers the API's 409 `finding_closed` / 404 `finding_not_found`;
+  // `state.workFail` (an API code) makes the next write fail with 503, `state.workReadFail` every read until it is cleared (the error states). A forced release frees the story claim, as the API's.
+  const works = new Map(); // pid -> {findings: [...], claims: [...]}
+  const workOf = (pid) => works.get(pid) ?? works.set(pid, { findings: [], claims: [] }).get(pid);
+  const person = (name, you = false, agentLabel = null) => ({ name, you, agent_label: agentLabel });
+  const closed = (f, by, note) => ({
+    ...f,
+    status: by.status,
+    resolved_by: person("Alice", true),
+    resolved_at: new Date().toISOString(),
+    resolution_note: note,
+  });
+  async function workRoute({ req, res, url, pid, b, did, action, rest }) {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    const work = workOf(pid);
+    const write = req.method === "POST";
+    if (!write && state.workReadFail) return err(res, 503, state.workReadFail);
+    if (write && state.workFail) {
+      const code = state.workFail;
+      state.workFail = null;
+      return err(res, 503, code);
+    }
+    if (b === "findings" && !did && req.method === "GET") {
+      const status = url.searchParams.get("status") ?? "open";
+      const node = url.searchParams.get("node");
+      const rows = work.findings.filter((f) => (status === "all" || f.status === status) && (!node || f.about.includes(node)));
+      rows.sort((x, y) => Number(y.blocking) - Number(x.blocking) || y.created_at.localeCompare(x.created_at));
+      return json(res, 200, { findings: rows, next: null });
+    }
+    if (b === "findings" && did && (action === "resolve" || action === "dismiss") && write) {
+      const f = work.findings.find((x) => x.finding_id === decodeURIComponent(did));
+      if (!f) return err(res, 404, "finding_not_found");
+      if (f.status !== "open") return err(res, 409, "finding_closed");
+      const note = JSON.parse(Buffer.concat(chunks).toString() || "{}").note ?? null;
+      Object.assign(f, closed(f, { status: action === "resolve" ? "resolved" : "dismissed" }, note));
+      return json(res, 200, { finding: f, unblocked: f.blocking ? 1 : 0 });
+    }
+    if (b === "plan" && did === "claims" && !action && req.method === "GET") {
+      return planOf(pid).has_plan ? json(res, 200, { claims: work.claims }) : err(res, 404, "no_plan");
+    }
+    if (b === "plan" && did === "claims" && rest === "release" && write) {
+      const before = work.claims.length;
+      work.claims = work.claims.filter((c) => c.story_id !== decodeURIComponent(action));
+      return json(res, 200, { released: before === work.claims.length ? 0 : 2 });
+    }
+    return err(res, 404, "not_found");
+  }
+
   async function sourcesRoute({ req, res, url, pid, did, action, entry }) {
     const drain = async () => {
       for await (const c of req) void c;
@@ -602,6 +662,8 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     if (!b) return json(res, 200, project);
     if (b === "sources") return sourcesRoute({ req, res, url, pid, did, action, entry });
     if (b === "graph_build") return graphRoute({ req, res, pid, entry });
+    if (b === "findings" || (b === "plan" && did === "claims"))
+      return workRoute({ req, res, url, pid, b, did, action, rest: url.pathname.split("/").filter(Boolean)[7] });
     if (b === "plan") return planRoute({ req, res, pid, did, entry });
     if (b !== "documents") return err(res, 404, "not_found");
 
@@ -671,6 +733,11 @@ export async function startStubApi({ port, verify, parseMs = 1500, summarizeMs =
     sources,
     model,
     drive,
+    seedWork: (pid, work) => {
+      const mine = workOf(pid);
+      if (work.findings) mine.findings = work.findings;
+      if (work.claims) mine.claims = work.claims;
+    },
     setTiming: (t) => Object.assign(state, t),
     close: () => close(server),
   };

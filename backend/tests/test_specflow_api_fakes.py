@@ -53,6 +53,7 @@ class FakeRepo:
             "create_project",
             "list_projects",
             "get_member_project",
+            "member_names",
             "insert_document",
             "find_by_hash",
             "list_documents",
@@ -89,6 +90,19 @@ class FakeRepo:
 
     async def get_member_project(self, _session, user_id, project_id):
         return self.projects.get(project_id) if (project_id, user_id) in self.members else None
+
+    async def member_names(self, _session, project_id, user_ids):
+        by_id = {user.id: user for user in self.users.values()}
+        return {
+            user_id: (
+                None
+                if (project_id, user_id) not in self.members or by_id[user_id].display_name == by_id[user_id].email
+                else by_id[user_id].display_name
+            )
+            if user_id in by_id
+            else None
+            for user_id in user_ids
+        }
 
     async def list_projects(self, _session, user_id, limit, cursor=None):
         rows = [p for p in self.projects.values() if (p.id, user_id) in self.members]

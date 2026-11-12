@@ -97,6 +97,13 @@ const control = http.createServer(async (req, res) => {
     issuer.endSession = enabled;
     return send(200, { endSession: issuer.endSession });
   }
+  if (req.method === "POST" && req.url === "/seed-work") {
+    const chunks = [];
+    for await (const c of req) chunks.push(c);
+    const { pid, work } = JSON.parse(Buffer.concat(chunks).toString() || "{}");
+    api.seedWork(pid, work);
+    return send(200, { ok: true });
+  }
   if (req.method === "POST" && (req.url === "/seed-source" || req.url === "/remove-source")) {
     const chunks = [];
     for await (const c of req) chunks.push(c);

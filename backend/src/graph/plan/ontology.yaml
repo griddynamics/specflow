@@ -1,7 +1,7 @@
 # plan-ontology.yaml: the ontology file graph.plan ships (owner: plan).
 # Declares only the types and relations graph.plan owns (owner: plan, origin: planner, tier: plan, no
 # role: nothing here is extracted). Merged with the build file (ontology v2.0) by load_ontology; pairs
-# may end at build types. Vocabularies not used by an attribute below (story_progress,
+# may end at build types. Vocabularies not used by an attribute below (task_progress, story_progress,
 # done_when_source, not_buildable_reason, interface_kind) are the values of JSON properties or derived
 # fields; they are declared here so the plan's literals have one source.
 
@@ -27,6 +27,10 @@ vocabularies:
     blocked: the spec does not let the agent proceed
     superseded: replaced by a newer revision; its commit is stale
     retired: left the plan; history only
+  task_progress:
+    done: the holder of a story claim finished this task
+    skipped: the holder decided not to build it; the note says why
+    todo: not started
   complexity:
     low: boilerplate or a small, clear change
     medium: ordinary implementation work

@@ -102,8 +102,8 @@ exist any more, and nothing migrates its data. Once, on the upgrade:
 | Service | Port on your machine | Role |
 |---|---|---|
 | `frontend` | 3001 | Next.js web app |
-| `api` | 8000 | FastAPI: projects, sources, uploads, workflow starts, the knowledge-graph build; runs the database migrations on start |
-| `mcp` | 8002 | MCP endpoint for coding agents such as Claude Code: read-only project tools; sign-in through the local Keycloak |
+| `api` | 8000 | FastAPI: projects, sources, uploads, workflow starts, the knowledge-graph build; serves the agent routes the `mcp` service reads through; runs the database migrations on start |
+| `mcp` | 8002 | MCP endpoint for coding agents such as Claude Code: read-only project tools; sign-in through the local Keycloak. Its own small image (`specflow-mcp`); it holds no database or graph credentials and reads everything through `api`, so it starts after `api` is healthy |
 | `worker-parse` | - | Temporal worker: documents (PDF, Word, PowerPoint, Excel, HTML, Markdown, CSV) to Markdown; its own image, 3 GiB |
 | `worker-agents` | - | Temporal worker: AI summaries |
 | `postgres` | 5433 | Projects, documents, Markdown, summaries |

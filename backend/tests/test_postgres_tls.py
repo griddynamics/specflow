@@ -322,8 +322,14 @@ def test_the_ca_bundle_defaults_to_the_mounted_path_for_the_verify_modes_only() 
         database(5432, mode="verify-full")
 
 
-@pytest.mark.parametrize("role", ["api", "worker", "migrate", "mcp"])
-def test_every_role_refuses_to_start_without_a_readable_ca_bundle(
+def test_the_mcp_role_reads_no_postgres_tls_setting(valid_env: dict[str, str]) -> None:
+    env = {k: v for k, v in mcp_env(valid_env).items() if not k.startswith("DATABASE_")}
+
+    assert load_settings("mcp", {**env, "PGSSLMODE": "verify-full", "PGSSLROOTCERT": "/missing.pem"}).mcp
+
+
+@pytest.mark.parametrize("role", ["api", "worker", "migrate"])
+def test_every_database_role_refuses_to_start_without_a_readable_ca_bundle(
     role: Role, valid_env: dict[str, str], tmp_path: Path
 ) -> None:
     (tmp_path / "empty.pem").write_text("")

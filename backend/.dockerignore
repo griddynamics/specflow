@@ -1,4 +1,4 @@
-# Not part of the api or worker image.
+# Not part of the api, mcp or worker images.
 .venv
 __pycache__
 *.pyc

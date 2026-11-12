@@ -12,3 +12,8 @@ export function usePlanPort() {
 export function usePlanRoutes() {
   return useRoutes();
 }
+
+/** The work port (the findings list and the claims board). */
+export function useWorkPort() {
+  return usePorts().work;
+}

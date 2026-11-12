@@ -54,6 +54,15 @@ _NOT_ASKED: Final[frozenset[str]] = frozenset({QUOTE_ATTRIBUTE})
 """Attributes the attributes pass never asks for: the node call returns them with the node itself
 (``attribute_output_model`` and the attributes prompt leave them out)."""
 
+USES: Final = "uses"
+USED_BY: Final = "used_by"
+COUPLED: Final = "coupled"
+RELATED: Final = "related"
+CONTAINS: Final = "contains"
+NO_IMPACT: Final = "none"
+IMPACT_INVERSE: Final[Mapping[str, str]] = MappingProxyType({USES: USED_BY, USED_BY: USES})
+"""The inverse of each impact role that is not its own inverse (trace.md "Impact roles")."""
+
 Condition = Mapping[str, frozenset[str]]
 """``{attribute: allowed values}``: a pair ``where``, the spine ``exclude`` or a rule's ``exclude_where``."""
 
@@ -159,6 +168,9 @@ class Pair:
     not_across: tuple[str, ...] = ()
     distinct_owner: bool = False
     redundant_via_owner: bool = False
+    impact: str = NO_IMPACT
+    """How the pair carries a change (``uses``, ``used_by``, ``coupled``, ``related``, ``contains``,
+    ``none``): its own ``impact``, else its relation's, else ``none``."""
 
 
 @dataclass(frozen=True)
@@ -199,6 +211,8 @@ class Relation:
     acyclic: bool = False
     stated_only: bool = False
     derive_via: DeriveViaRule | None = None
+    impact: str = NO_IMPACT
+    """The relation's ``impact``, the default of its pairs (``none`` when the file declares none)."""
 
     @property
     def extracted(self) -> bool:
@@ -590,6 +604,16 @@ class Ontology:
         """The declared pair of ``relation`` from ``source_label`` to ``target_label`` with its flags."""
 
         return self._legal.get((relation, source_label, target_label))
+
+    def impact_role(self, relation: str, source_label: str, target_label: str) -> str:
+        """The impact role of an edge of ``relation`` stored from ``source_label`` to ``target_label``: its
+        pair's, else (an undeclared pair) the relation's; ``none`` for an undeclared relation."""
+
+        pair = self._legal.get((relation, source_label, target_label))
+        if pair is not None:
+            return pair.impact
+        known = self.relations.get(relation)
+        return known.impact if known is not None else NO_IMPACT
 
     def owner_pairs(self, source_label: str) -> tuple[Pair, ...]:
         """The ``owner`` pairs of a source label over all relations, lowest ``owner_rank`` first."""

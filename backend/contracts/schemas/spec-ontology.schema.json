@@ -158,6 +158,7 @@
             "extracted",
             "analysis",
             "human",
+            "agent",
             "planner"
           ],
           "title": "Origin",
@@ -230,6 +231,26 @@
             }
           ],
           "default": null
+        },
+        "impact": {
+          "anyOf": [
+            {
+              "enum": [
+                "uses",
+                "used_by",
+                "coupled",
+                "related",
+                "contains",
+                "none"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Impact"
         }
       },
       "required": [
@@ -747,6 +768,7 @@
                 "extracted",
                 "analysis",
                 "human",
+                "agent",
                 "planner"
               ],
               "type": "string"
@@ -851,6 +873,7 @@
                 "extracted",
                 "analysis",
                 "human",
+                "agent",
                 "planner"
               ],
               "type": "string"
@@ -1074,6 +1097,26 @@
           "default": false,
           "title": "Redundant Via Owner",
           "type": "boolean"
+        },
+        "impact": {
+          "anyOf": [
+            {
+              "enum": [
+                "uses",
+                "used_by",
+                "coupled",
+                "related",
+                "contains",
+                "none"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Impact"
         }
       },
       "required": [

@@ -14,7 +14,7 @@ graph/
   core/    shared by every submodule: the store port, queries, reader, writer, ontology, gateway
   stores/  one folder per graph database behind the port (neo4j, arcadedb, postgres, tigergraph; _bolt is shared)
   build/   builds and updates the graph
-  gap/     reserved, empty
+  gap/     findings beside the spec graph, first slice of gap detection (gap.md)
   plan/    implementation plans for coding agents on the spec graph (plan/INDEX.md)
 ```
 
@@ -38,6 +38,7 @@ the host builds a store from `StoreConfig` with `graph.stores.build_store`.
 | build | Conform, diff, persist | Ground, legalise and normalise the result (conform judge, quarantine), match it to the current graph, write the difference | [build.md](build.md) |
 | build | Analysis | Shared validator of the ontology's hard rules; light inference; verification and repair; consolidated metrics | [analysis.md](analysis.md) |
 | build | Run | `run_build`, phase functions, build options, build result | [build.md](build.md), [api.md](api.md) |
+| gap | Findings | `Findings` (add, match, withdraw, resolve, dismiss, read, `open_counts`, `refresh`) and `FindingFlow` (the blocking link, composed with a structural `StoryBlocks` port the host fills with `PlanService`). Its own query files `gap/queries/*.cypher` (4), their SQL ports `stores/postgres/queries/gap/*.sql` (4) and its DDL `gap/ddl/gap_schema.cypher`, found by the core `ensure_schema`; the queries are registered as `gap.*` in the Cypher dialect (`stores/_bolt/cypher.py`, which ArcadeDB shares) and in the PostgreSQL dialect (`stores/postgres/dialect.py`) | [gap.md](gap.md) |
 
 ## Import rules
 
@@ -45,7 +46,7 @@ the host builds a store from `StoreConfig` with `graph.stores.build_store`.
 |---|---|
 | I1 | Allowed imports: the standard library, `graph` modules per the layout rule, the repository `logger` utility, `pydantic`, `pyyaml`, `numpy`, `openai` and the graph store SDKs where I2 places them. Nothing else. |
 | I2 | `openai` only in the core gateway (`core/llm/gateway.py`); each store SDK only in the folders of the adapters that use it: `neo4j` in `stores/_bolt`, `stores/neo4j` and `stores/arcadedb`, `sqlalchemy`, `asyncpg` and the shared PostgreSQL access `postgres` (the service's one engine factory and connection-transaction helper, also used by `db`) in `stores/postgres`, `httpx` in `stores/arcadedb`, `pyTigerGraph` in `stores/tigergraph`. The import-linter contracts of the backend repeat this per SDK. |
-| I3 | Query text only in query modules and adapter folders: Cypher in the core and build query modules (canonical `.cypher` files) and the Cypher dialect of `stores/_bolt`; a backend's own query language (SQL, GSQL) only in its adapter folder. Every scoped query runs through the store's executor and binds the project id (`$project_id` in Cypher), except schema setup. |
+| I3 | Query text only in query modules and adapter folders: Cypher in the core, build, plan and gap query modules (canonical `.cypher` files: `core/queries/`, `build/queries/`, `plan/queries/`, `gap/queries/`) and the Cypher dialect of `stores/_bolt`; a backend's own query language (SQL, GSQL) only in its adapter folder. Every scoped query runs through the store's executor and binds the project id (`$project_id` in Cypher), except schema setup. |
 | I4 | No ontology label, relation, id prefix or vocabulary value as a literal in code. Allowed built-in names: `SpecNode`, `Document`, `Fragment`, `CONTAINS`, `REFERENCED_BY`, `MENTIONED_IN`, and the edge `basis` values of the data model (`stated`, `implied`, `inferred`), even where they equal an ontology vocabulary value. |
 | I5 | No environment reads, no printing, no disk writes outside file port implementations. |
 
@@ -61,7 +62,7 @@ Each node type and relation in the ontology has an `origin`, and the origin name
 | Origin | Owner |
 |---|---|
 | `extracted` (spec nodes, domain edges) | `graph.build` |
-| `analysis`, `human` | `graph.gap` (declared when gap is designed) |
+| `agent` (findings), later `analysis`, `human` | `graph.gap` (declared in `graph/gap/ontology.yaml`, [gap.md](gap.md)) |
 | `planner` | `graph.plan` (declared in `graph/plan/ontology.yaml`, [plan/ontology.md](plan/ontology.md)) |
 
 `graph.build` also owns the built-in names, which no ontology declares: labels `SpecNode`, `Document`,

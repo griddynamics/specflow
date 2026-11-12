@@ -9,6 +9,16 @@
       ],
       "name": "select_project",
       "summary": "Binds the current repository to one of your SpecFlow projects."
+    },
+    {
+      "arguments": [
+        {
+          "name": "area",
+          "required": false
+        }
+      ],
+      "name": "start",
+      "summary": "Walks you from a project to a claimed story: areas, stories, preview, claim."
     }
   ],
   "tools": [
@@ -41,6 +51,86 @@
       "name": "get_task_brief",
       "read_only": true,
       "summary": "Reads what a coding agent needs to build one plan task: done-when, spec sources, prerequisites."
+    },
+    {
+      "name": "list_areas",
+      "read_only": true,
+      "summary": "Lists the work areas of a project's plan with their ready, in-progress, waiting, blocked and done stories."
+    },
+    {
+      "name": "list_stories",
+      "read_only": true,
+      "summary": "Lists the stories of a project's plan in recommended order, or the ones you hold, or the finished ones."
+    },
+    {
+      "name": "preview_story",
+      "read_only": true,
+      "summary": "Shows one story before you take it: state, holder, tasks in build order, what it waits for, findings."
+    },
+    {
+      "name": "claim_story",
+      "read_only": false,
+      "summary": "Takes one story for you and your agent; one claim wins."
+    },
+    {
+      "name": "release_story",
+      "read_only": false,
+      "summary": "Gives a story you hold back, with an optional note."
+    },
+    {
+      "name": "get_story_brief",
+      "read_only": true,
+      "summary": "Reads what an agent needs to start a story: tasks, done-when, spec sources, prerequisites, findings."
+    },
+    {
+      "name": "trace",
+      "read_only": true,
+      "summary": "Traces what a story or spec nodes depend on, or what depends on them, with plan state."
+    },
+    {
+      "name": "get_node",
+      "read_only": true,
+      "summary": "Reads one spec node: edges, plan state, provenance and findings."
+    },
+    {
+      "name": "search_spec",
+      "read_only": true,
+      "summary": "Searches the spec graph by id, text and meaning, optionally near a story or node."
+    },
+    {
+      "name": "similar",
+      "read_only": true,
+      "summary": "Finds spec nodes whose text reads like a story's nodes but that have no edge to them."
+    },
+    {
+      "name": "get_evidence",
+      "read_only": true,
+      "summary": "Reads the exact source lines behind one spec node."
+    },
+    {
+      "name": "path",
+      "read_only": true,
+      "summary": "Shows how two spec nodes connect: up to three shortest directed chains."
+    },
+    {
+      "name": "expand_brief",
+      "read_only": true,
+      "summary": "Ranks what to read next beyond a story's brief, within a token budget."
+    },
+    {
+      "name": "add_finding",
+      "read_only": false,
+      "summary": "Records a gap, conflict, question or note about the spec, linked to nodes and code; people answer it."
+    },
+    {
+      "name": "report_task",
+      "read_only": false,
+      "summary": "Reports progress on one task of your claimed story; its status stays until the story completes."
+    },
+    {
+      "name": "complete_story",
+      "read_only": false,
+      "summary": "Closes your claimed story with the merge commit and the pull request."
     }
   ]
 }

@@ -7,20 +7,22 @@ from typing import Annotated, Any, Final, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 Owner = Literal["build", "gap", "plan"]
-Origin = Literal["extracted", "analysis", "human", "planner"]
+Origin = Literal["extracted", "analysis", "human", "agent", "planner"]
 Tier = Literal["context", "spec", "governance", "plan"]
 Role = Literal["anchor", "group", "atomic"]
 AttributeKind = Literal["text", "enum", "ref"]
 IdentityKey = Literal["id", "surface"]
 IdentityScope = Literal["type", "group"]
 Direction = Literal["in", "out"]
+ImpactRole = Literal["uses", "used_by", "coupled", "related", "contains", "none"]
+"""How a relation pair carries a change, for ``GraphReader.trace`` (trace.md "Impact roles")."""
 
 FORMAT_VERSION: Final = 2
 """The ontology file format this library reads."""
 
 OWNER_ORIGINS: Final[dict[str, frozenset[str]]] = {
     "build": frozenset({"extracted"}),
-    "gap": frozenset({"analysis", "human"}),
+    "gap": frozenset({"analysis", "human", "agent"}),
     "plan": frozenset({"planner"}),
 }
 """The origins each owner may declare."""
@@ -158,6 +160,7 @@ class PairDef(FormatModel):
     not_across: list[str] = Field(default_factory=list)
     distinct_owner: bool = False
     redundant_via_owner: bool = False
+    impact: ImpactRole | None = None
 
 
 class DeriveViaDef(FormatModel):
@@ -179,6 +182,7 @@ class EdgeTypeDef(FormatModel):
     cues: list[str] = Field(default_factory=list)
     derive: list[str] = Field(default_factory=list)
     derive_via: DeriveViaDef | None = None
+    impact: ImpactRole | None = None
 
 
 class SpinePathDef(FormatModel):

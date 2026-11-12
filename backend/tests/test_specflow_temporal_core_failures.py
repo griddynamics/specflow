@@ -19,7 +19,6 @@ async def test_a_missing_registration_module_fails_before_connecting(valid_env, 
     def missing(name):
         raise ModuleNotFoundError(name=name)
 
-    monkeypatch.setattr(registry.importlib, "import_module", missing)
     monkeypatch.setattr(
         worker,
         "load_registration",

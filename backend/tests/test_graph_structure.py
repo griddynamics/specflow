@@ -19,8 +19,9 @@ import pytest
 from graph.build import queries as build_queries
 from graph.core import queries as core_queries
 from graph.core.errors import ConformanceError
-from graph.core.ontology import BUILT_IN_NAMES
+from graph.core.ontology import BUILT_IN_NAMES, load_ontology
 from graph.core.queries import CORE_DDL, DdlStatement, NodeShape, Query
+from graph.gap import queries as gap_queries
 from graph.plan import queries as plan_queries
 from graph.plan.names import PLAN_LABELS, PLAN_RELATIONS, PlanRelation, plan_vocabularies
 from graph.stores._bolt.cypher import render_cypher
@@ -62,7 +63,7 @@ ONLY_IN: Final = {
     "httpx": frozenset({"stores/arcadedb/"}),
     "pyTigerGraph": frozenset({"stores/tigergraph/"}),
 }
-QUERY_MODULES: Final = frozenset({"core/queries.py", "build/queries.py", "plan/queries.py"})
+QUERY_MODULES: Final = frozenset({"core/queries.py", "build/queries.py", "plan/queries.py", "gap/queries.py"})
 # The Cypher dialect renders the canonical files and builds the run-time parts of a statement; the ArcadeDB
 # dialect also reads statements for the clauses it refuses a dynamic name in (its statements are files).
 CYPHER_MODULES: Final = QUERY_MODULES | frozenset({"stores/_bolt/cypher.py", "stores/arcadedb/dialect.py"})
@@ -376,7 +377,7 @@ SAMPLES: Final[dict[Any, tuple[Any, ...]]] = {
 
 
 def query_modules() -> list[Any]:
-    return [core_queries, build_queries, plan_queries]
+    return [core_queries, build_queries, plan_queries, gap_queries]
 
 
 def call_factory(factory: Any, parameters: Sequence[inspect.Parameter], arguments: Sequence[Any]) -> Any:
@@ -517,9 +518,23 @@ def plan_literals() -> tuple[set[str], set[str]]:
     return names - DATA_MODEL_VALUES, library_only
 
 
+def gap_literals() -> set[str]:
+    """The names the gap ontology file declares: its labels, relations and vocabulary values, which ``graph.gap``
+    may write as literals (gap.md "Rules", like the plan's)."""
+
+    ontology = load_ontology()
+    owned = {name for name in (*ontology.labels, *ontology.relations) if ontology.owner_of(name) == "gap"}
+    for node_type in ontology.node_types.values():
+        if ontology.owner_of(node_type.label) == "gap":
+            for spec in node_type.attributes.values():
+                owned.update(spec.values)
+    return owned - DATA_MODEL_VALUES
+
+
 def test_i4_no_ontology_names_in_code() -> None:
     names, prefixes = ontology_literals()
     plan_names, plan_library_values = plan_literals()
+    own_gap = gap_literals()
     assert {"Module", "PART_OF", "FR", "MOD::", "yes"} <= names | set(prefixes)
     violations = [
         f"{module.where(node)} {node.value!r}"
@@ -528,8 +543,22 @@ def test_i4_no_ontology_names_in_code() -> None:
         if (
             node.value in names
             and not (module.rel.startswith("plan/") and (node.value in plan_names | plan_library_values))
+            and not (module.rel.startswith("gap/") and node.value in own_gap)
         )
         or node.value.startswith(prefixes)
+    ]
+    assert violations == []
+
+
+def test_i4_gap_name_literals_are_declared_by_the_gap_ontology() -> None:
+    own_gap = gap_literals()
+    assert {"Finding", "ExternalRef", "ABOUT", "REFERS_TO", "open", "question", "commit", "file", "agent"} <= own_gap
+    violations = [
+        f"{module.where(node)} {node.value!r}"
+        for module in modules()
+        if module.rel.startswith("gap/")
+        for node in string_constants(module)
+        if node.value in ontology_literals()[0] and node.value not in own_gap
     ]
     assert violations == []
 

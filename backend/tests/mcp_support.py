@@ -1,9 +1,9 @@
 """Shared fixtures of the MCP role tests (docs/mcp-server/testing.md): fake-runtime app, tokens, SDK session.
 
-Boundaries faked: the JWKS endpoint (``specflow_auth_support.StubIssuer``, loopback) and the runtime probes.
-Nothing here opens a socket to a real service. MCP-M5 extends it: ``build_app(..., tools=...)`` takes the tool
-installer, ``fake_runtime`` the reader and the session factory, ``tool_app`` builds the registry app over the REST
-tests' ``FakeRepo`` and a recording graph executor, ``MethodRouter`` splits one client over two apps (FR-MCP-OPS-03).
+Boundaries faked: the JWKS endpoint (``specflow_auth_support.StubIssuer``, loopback) and the API the MCP role calls
+(``build_app(..., transport=...)``: an ``httpx.MockTransport`` or the real API app in-process). Nothing here opens a
+socket to a real service. ``build_app(..., tools=...)`` takes the tool installer, ``MethodRouter`` splits one client
+over two apps (FR-MCP-OPS-03).
 """
 
 from __future__ import annotations
@@ -11,12 +11,12 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import time
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 
 import httpx
 import httpx2
@@ -27,24 +27,18 @@ from mcp.server.mcpserver import Context, MCPServer
 from mcp.types import CallToolResult, TextContent
 from starlette.applications import Starlette
 
-from api.mcp.app import create_mcp_app, install_no_tools
-from api.mcp.auth import request_principal
-from api.mcp.registry import TOOLS, ToolDeclaration, install
-from api.mcp.runtime import McpRuntime, RuntimeFactory
-from graph.core import GraphReader, Ontology
-from graph_support import shipped_ontology
-from health import Readiness
+from mcp_server.app import create_mcp_app, install_no_tools
+from mcp_server.auth import request_principal
 from settings import load_settings
 from specflow_api_support import token
 from specflow_auth_support import StubIssuer, claims, jwk, rsa_key, sign
-from test_graph_reader import ScriptedExecutor
-from test_specflow_api_fakes import FakeRepo
 from test_specflow_db_units import EXTREME_CURSOR
 
 BACKEND = Path(__file__).resolve().parent.parent
 MCP_HOST = "localhost:8002"
 MCP_URL = f"http://{MCP_HOST}/mcp"
 PRM_URL = f"http://{MCP_HOST}/.well-known/oauth-protected-resource/mcp"
+API_URL = "http://api.test:8000"  # API_INTERNAL_URL of the tests: a name no one resolves
 MCP_CLIENT = "specflow-mcp"
 JSON_HEADERS = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
 INITIALIZE = {
@@ -58,9 +52,9 @@ ONE_MIB = 1024 * 1024
 
 
 def mcp_env(valid_env: dict[str, str], **over: str) -> dict[str, str]:
-    """A valid local environment for role ``mcp``: the run's loopback IdP, ``MCP_RESOURCE_URL`` set."""
+    """A valid local environment for role ``mcp``: the loopback IdP, ``MCP_RESOURCE_URL``, ``API_INTERNAL_URL``."""
 
-    return {**valid_env, "MCP_RESOURCE_URL": MCP_URL, **over}
+    return {**valid_env, "MCP_RESOURCE_URL": MCP_URL, "API_INTERNAL_URL": API_URL, **over}
 
 
 def oidc_env(valid_env: dict[str, str], stub: StubIssuer, **over: str) -> dict[str, str]:
@@ -69,45 +63,21 @@ def oidc_env(valid_env: dict[str, str], stub: StubIssuer, **over: str) -> dict[s
     return mcp_env(valid_env, OIDC_ISSUER=stub.issuer, AUTH_JWKS_URL=stub.jwks_url, **over)
 
 
-def fake_runtime(
-    *,
-    graph_ok: bool = True,
-    reader: Any = None,
-    session_factory: Any = None,
-    ontology: Any = None,
-    plan: Any = None,
-) -> McpRuntime:
-    """A runtime with fake probes: no engine, no store, no I/O; MCP-M5 passes its reader, sessions, ontology; the plan
-    tool tests their plan reads."""
-
-    async def ok() -> None:
-        return None
-
-    async def down() -> None:
-        raise ConnectionError("down")
-
-    async def close() -> None:
-        return None
-
-    unused = cast(Any, None)
-    probes = {"database": ok, "graph": ok if graph_ok else down}
-    return McpRuntime(
-        engine=unused,
-        session_factory=session_factory or unused,
-        store=unused,
-        ontology=ontology or unused,
-        reader=reader or unused,
-        readiness=Readiness(probes),
-        close=close,
-        plan=plan,
-    )
+READY_BODY = {
+    "status": "ready",
+    "checks": {
+        "database": {"ok": True, "detail": "ok", "duration_ms": 1},
+        "graph": {"ok": True, "detail": "ok", "duration_ms": 1},
+    },
+}
 
 
-def runtime_factory(runtime: McpRuntime | None = None) -> RuntimeFactory:
-    async def build(_: Any) -> McpRuntime:
-        return runtime or fake_runtime()
+def ready_api(request: httpx.Request) -> httpx.Response:
+    """A fake API that is ready and serves no agent route (the transport and guard tests make no tool call)."""
 
-    return build
+    if request.url.path == "/readyz":
+        return httpx.Response(200, json=READY_BODY)
+    return httpx.Response(404, json={"error": {"code": "not_found", "message": "x", "details": {}}})
 
 
 def whoami_tools(server: MCPServer) -> None:
@@ -122,16 +92,17 @@ def whoami_tools(server: MCPServer) -> None:
 def build_app(
     env: dict[str, str],
     *,
-    runtime: McpRuntime | None = None,
-    factory: RuntimeFactory | None = None,
+    transport: httpx.AsyncBaseTransport | None = None,
     tools: Callable[[MCPServer], None] = install_no_tools,
 ) -> Starlette:
-    return create_mcp_app(load_settings("mcp", env), runtime_factory=factory or runtime_factory(runtime), tools=tools)
+    """The MCP app whose API client talks to ``transport`` (default: ``ready_api``, no agent route)."""
+
+    return create_mcp_app(load_settings("mcp", env), transport=transport or httpx.MockTransport(ready_api), tools=tools)
 
 
 @asynccontextmanager
 async def serving(app: Starlette) -> AsyncIterator[httpx.AsyncClient]:
-    """The app's lifespan (session manager, runtime) around an in-process client."""
+    """The app's lifespan (session manager, API client) around an in-process client."""
 
     async with (
         app.router.lifespan_context(app),
@@ -185,38 +156,6 @@ class MethodRouter(httpx2.AsyncBaseTransport):
         return await (self.first if initial else self.second).handle_async_request(request)
 
 
-async def owned_project(repo: FakeRepo, email: str, name: str) -> SimpleNamespace:
-    """A project ``email`` owns (member row included); the user is provisioned on the way, as the tools do."""
-
-    user = await repo.upsert_user(None, SimpleNamespace(subject=f"user:{email}", email=email, name=None))
-    return await repo.create_project(None, user.id, name)
-
-
-def tool_app(
-    monkeypatch: pytest.MonkeyPatch,
-    valid_env: dict[str, str],
-    executor: ScriptedExecutor | None,
-    *,
-    ontology: Ontology | None = None,
-    repo: FakeRepo | None = None,
-    reader: GraphReader | None = None,
-    declarations: Sequence[ToolDeclaration] = TOOLS,
-    env: dict[str, str] | None = None,
-) -> tuple[Starlette, FakeRepo]:
-    """The MCP app with the real tool registry over ``FakeRepo`` (the session factory; ``repo`` shares one between
-    apps) and ``executor`` (or a live ``reader`` when it is ``None``); ``declarations`` replaces the shipped tools
-    (wrapper tests); ``env`` replaces the default ``mcp_env`` (FR-MCP-AUTH-07)."""
-
-    repo = repo or FakeRepo()
-    repo.install(monkeypatch)
-    used = ontology or shipped_ontology()
-    runtime = fake_runtime(reader=reader or GraphReader(executor, used), session_factory=repo, ontology=used)
-    used_env = env or mcp_env(valid_env)
-    return build_app(
-        used_env, runtime=runtime, tools=lambda server: install(server, declarations, resource_url=MCP_URL)
-    ), repo
-
-
 async def call(session: ClientSession, tool: str, **arguments: Any) -> CallToolResult:
     return await session.call_tool(tool, arguments)
 
@@ -237,6 +176,24 @@ def mcp_token(email: str = "alice@example.com", **over: Any) -> str:
     """A token of the run's loopback IdP for the MCP surface: the API token with the MCP audience and client."""
 
     return token(email, **{"aud": MCP_URL, "azp": MCP_CLIENT, **over})
+
+
+def suite_token(email: str) -> str:
+    """An MCP token for a module-level constant: minted at import, so it must outlive the whole test run (a CI run
+    is longer than the 300 s of `mcp_token`)."""
+
+    return mcp_token(email, exp=int(time.time()) + SUITE_TOKEN_SECONDS)
+
+
+SUITE_TOKEN_SECONDS = 6 * 3600
+ALICE_EMAIL = "alice@example.com"
+ALICE = suite_token(ALICE_EMAIL)
+
+
+def completed(caplog: pytest.LogCaptureFixture) -> list[Any]:
+    """The ``mcp.tool.completed`` audit records of ``caplog``."""
+
+    return [r for r in caplog.records if getattr(r, "event", "") == "mcp.tool.completed"]
 
 
 @dataclass
@@ -275,6 +232,8 @@ def log_text(caplog: pytest.LogCaptureFixture, logger_prefix: str = "") -> str:
     (a leak shows up anywhere); the SDK client's own debug lines carry the caller's input, so tests narrow to ours."""
 
     records = [r for r in caplog.records if r.name.startswith(logger_prefix)]
+    if logger_prefix in {"mcp_server", "mcp"}:  # an "absent from the logs" check must not pass on empty logs
+        assert records, f"no log record under {logger_prefix!r}: the logger names no longer match the filter"
     return "\n".join(f"{r.getMessage()} {sorted(vars(r).items(), key=str)}" for r in records)
 
 

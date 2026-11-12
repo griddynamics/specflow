@@ -1,0 +1,207 @@
+/* MCP-TOOLING session 10: Plan › Work (the findings list and the claims board). Cards, tags, buttons, the segmented control and the modal come
+   from the design system; this is the page layout, the rows and the spec-node chips. Tokens only; no design-system rule is overridden. */
+.work {
+  display: grid;
+  gap: var(--space-lg);
+  min-width: 0;
+  font-family: var(--font-sans);
+  color: var(--ink);
+}
+.work-section {
+  display: grid;
+  gap: var(--space-sm);
+  min-width: 0;
+}
+.work-section__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs) var(--space-sm);
+}
+.work-section__title {
+  margin: 0;
+}
+.work-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+  margin: 0;
+  color: var(--ink-2);
+}
+.work-more {
+  margin: 0;
+  color: var(--ink-2);
+}
+.work-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-sm);
+}
+
+/* A finding: strong glass, so its small text meets contrast. */
+.work-finding {
+  display: grid;
+  gap: var(--space-xs);
+  min-width: 0;
+  padding: var(--space-sm);
+  border-radius: var(--radius-lg);
+  background: var(--glass-fill-strong);
+  border: 1px solid var(--glass-rim);
+}
+.work-finding[data-blocking] {
+  box-shadow: inset var(--space-2xs) 0 0 var(--danger);
+}
+.work-finding__tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2xs) var(--space-xs);
+}
+.work-finding__text {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.work-finding__meta {
+  margin: 0;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.work-finding__about,
+.work-finding__refs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2xs) var(--space-xs);
+}
+.work-finding__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+.work-node code {
+  font-size: inherit;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.work-ref__link:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.work-ref {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2xs);
+  color: var(--ink-2);
+}
+.work-ref__value {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.work-ref__link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  color: var(--ink);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  overflow-wrap: anywhere;
+}
+
+/* The claims board: a table in a scrolling panel (the data-table primitive), strong glass. An old claim is marked in the danger colour. */
+.work-table {
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  border-radius: var(--radius-lg);
+  background: var(--glass-fill-strong);
+  border: 1px solid var(--glass-rim);
+}
+.work-table:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.work-table table {
+  width: 100%;
+  min-width: calc(var(--space-2xl) * 8);
+  border-collapse: collapse;
+  text-align: left;
+}
+.work-table th {
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: 2px solid var(--ink);
+  color: var(--ink-2);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.work-table td {
+  padding: var(--space-xs) var(--space-sm);
+  border-bottom: 1px solid var(--hairline);
+  vertical-align: middle;
+}
+.work-claim:last-child td {
+  border-bottom: 0;
+}
+.work-claim[data-stale] .work-claim__since time {
+  color: var(--danger);
+  font-weight: 600;
+}
+.work-claim__who {
+  overflow-wrap: anywhere;
+}
+.work-claim__who .gdg-tag,
+.work-claim__since .gdg-tag {
+  margin-inline-start: var(--space-xs);
+}
+.work-claim__what {
+  display: grid;
+  gap: var(--space-2xs);
+}
+.work-claim__branch-line {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  white-space: nowrap;
+}
+.work-claim__branch-line code {
+  overflow-wrap: anywhere;
+}
+.work-claim__name,
+.work-claim__title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.work-claim__sub,
+.work-claim__since {
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+.work-dialog {
+  display: grid;
+  gap: var(--space-sm);
+}
+.work-dialog__text {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.work-dialog__danger {
+  margin: 0;
+  color: var(--danger);
+}
+.work-dialog__error {
+  margin: 0;
+  color: var(--danger);
+  font-weight: 600;
+}

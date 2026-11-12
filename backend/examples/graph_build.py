@@ -13,7 +13,8 @@ from pydantic import ValidationError
 from example_lib import build_result_summary, run_example
 from graph.build import BuildContext, BuildResult, FileStores, open_file_stores, plan, run_build
 from graph.build.models import PlanArtifact
-from graph.core import Gateway, LLMConfig, ensure_schema, load_ontology
+from graph.core import LLMConfig, ensure_schema, load_ontology
+from graph.core.llm import Gateway
 from graph.stores import StoreConfig, build_store
 from logger.logger import INFO, get_logger, log_event
 from settings import ConfigurationError, GraphBuildSettings, load_graph_store_settings

@@ -11,7 +11,7 @@ extra-calls = ["get_bucket", "list_blobs"]
 # ---------------------------------------------------------------- no-dict-schemas
 [no-dict-schemas]
 # Pydantic response models live in api/schemas.py and next to the routers.
-scan = ["src/api", "src/api/routers", "src/api/graph_build"]
+scan = ["src/api", "src/api/routers", "src/api/graph_build", "src/mcp_server"]
 # Open maps the API contract declares (error details are free-form by design).
 open-fields = ["details", "metadata"]
 
@@ -87,7 +87,7 @@ files = ["contracts/schemas/*.schema.json"]
 
 [[json-schemas]]
 schema = "contracts/schemas/spec-ontology.schema.json"
-files = ["src/graph/core/ontology/*.yaml", "src/graph/plan/ontology.yaml", "../docs/graph/spec-ontology.yaml"]
+files = ["src/graph/core/ontology/*.yaml", "src/graph/gap/ontology.yaml", "src/graph/plan/ontology.yaml", "../docs/graph/spec-ontology.yaml"]
 
 [[json-schemas]]
 schema = "contracts/schemas/sources-contract.schema.json"

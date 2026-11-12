@@ -72,10 +72,10 @@ from pydantic import BaseModel, SecretStr
 from example_lib import build_result_summary, run_example
 from graph.build import BuildContext, BuildOptions, BuildSettings, open_file_stores, run_build
 from graph.build.verify import verify_project
-from graph.core import Gateway, GraphReader, LLMConfig, ensure_schema, load_ontology
+from graph.core import GraphReader, LLMConfig, ensure_schema, load_ontology
 from graph.core.config import DEFAULT_BUDGETS, CallBudget, CallClass
 from graph.core.errors import LLMError, LLMFatalError
-from graph.core.llm import UsageSnapshot, strict_json_schema, untrusted
+from graph.core.llm import Gateway, UsageSnapshot, strict_json_schema, untrusted
 from graph.core.llm.usage import UsageRecorder
 from graph.core.ontology.compiled import BUILD_OWNER
 from graph.core.queries import SEARCH_NODES_VECTOR_EXACT, Query

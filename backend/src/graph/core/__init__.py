@@ -6,7 +6,7 @@ Public names are re-exported here as their modules land; submodules import from 
 from __future__ import annotations
 
 import importlib
-from typing import Any
+from typing import Any, Final
 
 from graph.core.config import CALL_CLASSES, CallBudget, CallClass, LLMConfig, Neo4jConfig
 from graph.core.errors import (
@@ -35,17 +35,6 @@ from graph.core.identity import (
     slug,
     validate_project_id,
 )
-from graph.core.llm import (
-    Evidence,
-    Gateway,
-    JudgeFailure,
-    JudgeRunner,
-    UsageSnapshot,
-    Verdict,
-    meets_floor,
-    quotes_valid,
-    untrusted,
-)
 from graph.core.ontology import Ontology, load_ontology
 from graph.core.queries import Query
 from graph.core.reader import (
@@ -64,17 +53,33 @@ from graph.core.reader import (
 )
 from graph.core.schema import ensure_schema
 from graph.core.store import Executor, GraphStore, ScopedTransaction, StoreCapabilities, StoreInfo, check
+from graph.core.trace import TraceNode, TraceOwner, TraceResult
 from graph.core.writer import NodeRef, OwnedWriter
 
-# The Neo4j access of earlier releases stays importable from here, but loads the Neo4j SDK, so it resolves on
-# first access (PEP 562): importing ``graph.core`` does not import ``neo4j``.
-_LAZY_SHIMS = frozenset({"connect", "require_version", "server_version"})
+# These names load an SDK (the Neo4j access of earlier releases: ``neo4j``; the LLM gateway and judge: ``openai``),
+# so they resolve on first access (PEP 562): importing ``graph.core`` imports neither, and a process that only
+# reads settings or the plan models (the mcp role) does not need them installed.
+_LAZY_SHIMS: Final = {
+    "connect": "graph.core.db",
+    "require_version": "graph.core.db",
+    "server_version": "graph.core.db",
+    "Evidence": "graph.core.llm",
+    "Gateway": "graph.core.llm",
+    "JudgeFailure": "graph.core.llm",
+    "JudgeRunner": "graph.core.llm",
+    "UsageSnapshot": "graph.core.llm",
+    "Verdict": "graph.core.llm",
+    "meets_floor": "graph.core.llm",
+    "quotes_valid": "graph.core.llm",
+    "untrusted": "graph.core.llm",
+}
 
 
 def __getattr__(name: str) -> Any:
-    if name not in _LAZY_SHIMS:
+    module = _LAZY_SHIMS.get(name)
+    if module is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    value = getattr(importlib.import_module("graph.core.db"), name)
+    value = getattr(importlib.import_module(module), name)
     globals()[name] = value
     return value
 
@@ -124,6 +129,9 @@ __all__ = [
     "Statement",
     "StoreCapabilities",
     "StoreInfo",
+    "TraceNode",
+    "TraceOwner",
+    "TraceResult",
     "UsageSnapshot",
     "Verdict",
     "allocate_spec_id",

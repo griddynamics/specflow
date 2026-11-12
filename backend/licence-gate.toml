@@ -63,12 +63,16 @@ text = ["docling-layout-heron", "docling-models", "CDLA Permissive 2.0"]
 # The images (roles): the extras their Dockerfiles install.
 [[roles]]
 name = "api"
-extras = ["gcp", "aws"]
+extras = ["api", "gcp", "aws"]
 
 [[roles]]
 name = "worker-agents"
-extras = ["gcp", "aws"]
+extras = ["worker", "gcp", "aws"]
 
 [[roles]]
 name = "worker-parse"
-extras = ["gcp", "aws", "parse"]
+extras = ["worker", "parse", "gcp", "aws"]
+
+[[roles]]
+name = "mcp"
+extras = ["mcp"]

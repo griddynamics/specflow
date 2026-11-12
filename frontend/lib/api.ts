@@ -172,3 +172,22 @@ export async function uploadDocument(pid: string, file: File): Promise<{ outcome
   else if (status === 200 || body.outcome === "duplicate") outcome = "duplicate";
   return { outcome, document: body.document };
 }
+
+// Findings and claims of the Plan page (`/findings`, `/plan/claims`): people resolve or dismiss findings and force-release a story
+// claim. Bodies stay `unknown`; the work port (lib/data/http/work.ts) checks their shape.
+export const getFindings = (pid: string, status: string, node: string | undefined) => {
+  const query = new URLSearchParams({ limit: "200", status });
+  if (node !== undefined) query.set("node", node);
+  return httpGet(`/projects/${encodeURIComponent(pid)}/findings?${query.toString()}`).then((r) => r.body);
+};
+export const resolveFinding = (pid: string, fid: string, note: string | undefined) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/findings/${encodeURIComponent(fid)}/resolve`, json({ note: note ?? null })).then(
+    (r) => r.body,
+  );
+export const dismissFinding = (pid: string, fid: string, note: string | undefined) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/findings/${encodeURIComponent(fid)}/dismiss`, json({ note: note ?? null })).then(
+    (r) => r.body,
+  );
+export const getClaims = (pid: string) => httpGet(`/projects/${encodeURIComponent(pid)}/plan/claims`).then((r) => r.body);
+export const releaseClaim = (pid: string, sid: string) =>
+  httpPost(`/projects/${encodeURIComponent(pid)}/plan/claims/${encodeURIComponent(sid)}/release`).then((r) => r.body);

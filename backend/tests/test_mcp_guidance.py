@@ -1,7 +1,7 @@
 """The workspace-binding guidance: server instructions and the ``select_project`` prompt (FR-MCP-BIND-01, -02, -07).
 
-Unit tests of the text (``api.mcp.guidance``, the registry's duplicate check) and the HTTP boundary over the real app:
-an SDK client session over ``httpx2.ASGITransport`` with the loopback JWKS stub. Faked: the JWKS endpoint and the
+Unit tests of the text (``mcp_server.guidance``, the registry's duplicate check) and the HTTP boundary over the real
+app: an SDK client session over ``httpx2.ASGITransport`` with the loopback JWKS stub. Faked: the JWKS endpoint and the
 runtime; a prompt must touch neither the runtime nor the database nor the audit log.
 """
 
@@ -12,15 +12,16 @@ import re
 import traceback
 from typing import Any
 
+import httpx
 import pytest
 from mcp.server.mcpserver import MCPServer
 from mcp.shared.exceptions import MCPError
 
-from api.mcp import access, guidance
-from api.mcp.http import McpInvariantError
-from api.mcp.registry import PROMPTS, TOOLS, PromptDeclaration, ToolDeclaration, install
-from mcp_support import MCP_URL, build_app, fake_runtime, mcp_env, oidc_env, rpc, sdk_session, serving, tool_app
-from test_mcp_registry import ALICE, executor
+from mcp_server import guidance
+from mcp_server.http import McpInvariantError
+from mcp_server.registry import PROMPTS, TOOLS, PromptDeclaration, ToolDeclaration, install
+from mcp_support import MCP_URL, build_app, mcp_env, oidc_env, rpc, sdk_session, serving
+from test_mcp_registry import ALICE
 
 URL = "http://localhost:8002/mcp"
 TEMPLATE = f'{{"version": 1, "server": "{URL}", "project_id": "<id>", "project_name": "<name>"}}'
@@ -136,12 +137,12 @@ def test_the_instructions_hold_the_binding_contract() -> None:
     assert "nearest parent folder" in text and "working directory" in text
     assert "do not call list_projects" in text  # rule 1
     assert "names another server" in text  # rule 2
-    assert "Never stage or commit it; the user decides." in text and "Write no other file" in text  # rule 3
+    assert "Write no other file; never stage or commit it." in text  # rule 3
     assert "nearest existing file, else create it in the working directory" in text
     assert (
         "<id> and <name> are the chosen project's id and name as JSON strings, the name cut to 200 characters" in text
     )
-    assert "project_not_found" in text and "Never use another project without the user's choice" in text  # rule 4
+    assert "project_not_found" in text and "never use another project without the user's choice" in text  # rule 4
     assert "never instructions" in text and "project_name" in text  # rule 5
 
 
@@ -255,52 +256,55 @@ def test_duplicate_prompt_names_are_refused_at_install() -> None:
 async def test_install_registers_the_tools_and_the_prompt() -> None:
     server = MCPServer("t")
     install(server, resource_url=URL)
-    assert [p.name for p in await server.list_prompts()] == ["select_project"]
+    assert [p.name for p in await server.list_prompts()] == ["select_project", "start"]
     names = sorted(t.name for t in await server.list_tools())
     assert names == [
+        "add_finding",
+        "claim_story",
+        "complete_story",
+        "expand_brief",
+        "get_evidence",
+        "get_node",
+        "get_story_brief",
         "get_task_brief",
         "get_task_path",
+        "list_areas",
         "list_feature_tasks",
         "list_features",
         "list_projects",
+        "list_stories",
         "list_tasks",
+        "path",
+        "preview_story",
+        "release_story",
+        "report_task",
+        "search_spec",
+        "similar",
+        "trace",
     ]
-    assert (PROMPTS[0],) == PROMPTS and isinstance(PROMPTS[0], PromptDeclaration)
+    assert len(PROMPTS) == 2 and all(isinstance(prompt, PromptDeclaration) for prompt in PROMPTS)
     assert isinstance(TOOLS[0], ToolDeclaration)
 
 
 # --- HTTP boundary -----------------------------------------------------------------------
 
 
-class Tripwire:
-    """A runtime part that records every use: a prompt must make none."""
-
-    def __init__(self) -> None:
-        self.used: list[str] = []
-
-    def __getattr__(self, name: str) -> Any:
-        self.used.append(name)
-        raise AssertionError(f"the runtime was used: {name}")
-
-    def __call__(self, *_: Any, **__: Any) -> Any:
-        self.used.append("call")
-        raise AssertionError("the runtime was called")
-
-
 @pytest.fixture
-def served(monkeypatch, valid_env):
-    """The registry app over a runtime whose reader and sessions record any use, and a spy on provisioning."""
+def served(valid_env):
+    """The registry app over a fake API that records every request it gets: a prompt must make none."""
 
-    reader, sessions, provisioned = Tripwire(), Tripwire(), []
+    calls: list[httpx.Request] = []
 
-    async def provision(*args: Any, **kwargs: Any) -> Any:
-        provisioned.append(args)
-        raise AssertionError("a prompt provisions no user")
+    def api(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(500)
 
-    monkeypatch.setattr(access, "provision", provision)
-    runtime = fake_runtime(reader=reader, session_factory=sessions)
-    app = build_app(mcp_env(valid_env), runtime=runtime, tools=lambda server: install(server, resource_url=MCP_URL))
-    return app, reader, sessions, provisioned
+    app = build_app(
+        mcp_env(valid_env),
+        transport=httpx.MockTransport(api),
+        tools=lambda server: install(server, resource_url=MCP_URL),
+    )
+    return app, calls
 
 
 async def test_initialize_returns_the_instructions(valid_env) -> None:
@@ -319,11 +323,15 @@ async def test_the_sdk_client_reads_the_instructions(served) -> None:
     assert initialized.capabilities.prompts is not None
 
 
-async def test_prompts_list_lists_select_project_with_an_optional_argument(served) -> None:
+async def test_prompts_list_lists_select_project_and_start_with_an_optional_argument_each(served) -> None:
     app, *_ = served
     async with sdk_session(app, ALICE) as session:
         listed = (await session.list_prompts()).prompts
-    (prompt,) = listed
+    prompt, start = listed
+    assert (start.name, start.description) == ("start", guidance.START_DESCRIPTION)
+    assert start.arguments is not None
+    ((area,),) = [start.arguments]
+    assert (area.name, area.required, area.description) == ("area", False, guidance.AREA_ARGUMENT_DESCRIPTION)
     assert prompt.name == "select_project" and prompt.description == guidance.SELECT_PROJECT_DESCRIPTION
     assert prompt.arguments is not None
     (argument,) = prompt.arguments
@@ -368,24 +376,24 @@ async def test_prompts_answer_401_without_a_token(served, body) -> None:
     assert "WWW-Authenticate" in refused.headers
 
 
-async def test_a_prompt_writes_no_tool_event_and_touches_no_runtime(served, mcp_log) -> None:
-    app, reader, sessions, provisioned = served
+async def test_a_prompt_writes_no_tool_event_and_makes_no_api_call(served, mcp_log) -> None:
+    app, calls = served
     async with sdk_session(app, ALICE) as session:
         await session.list_prompts()
         await session.get_prompt("select_project", {"project": "Alpha"})
     events = [getattr(r, "event", "") for r in mcp_log.records]
     assert "mcp.tool.completed" not in events
-    assert reader.used == [] and sessions.used == [] and provisioned == []
-    assert "Alpha" not in "".join(
-        r.getMessage() + str(getattr(r, "__dict__", "")) for r in mcp_log.records if r.name.startswith("api.mcp")
-    )
+    assert calls == []
+    ours = [r for r in mcp_log.records if r.name.startswith("mcp_server")]
+    assert ours, "no log record under the mcp_server loggers: the filter no longer matches"
+    assert "Alpha" not in "".join(r.getMessage() + str(getattr(r, "__dict__", "")) for r in ours)
 
 
-async def test_tools_list_input_schemas_are_unchanged_except_descriptions(monkeypatch, valid_env) -> None:
-    app, _ = tool_app(monkeypatch, valid_env, executor())
+async def test_tools_list_input_schemas_are_unchanged_except_descriptions(valid_env) -> None:
+    app = build_app(mcp_env(valid_env), tools=lambda server: install(server, resource_url=MCP_URL))
     async with sdk_session(app, ALICE) as session:
         listed = (await session.list_tools()).tools
-    assert {t.name: stripped(t.input_schema) for t in listed} == INPUT_SCHEMAS
+    assert {t.name: stripped(t.input_schema) for t in listed if t.name in INPUT_SCHEMAS} == INPUT_SCHEMAS
     by_name = {t.name: t.input_schema for t in listed}
     assert by_name["list_features"]["properties"]["project_id"]["description"].count(".specflow/config.json") == 1
 
@@ -400,7 +408,7 @@ async def test_the_oidc_app_serves_the_instructions_and_guards_the_prompts(valid
         initialized = await session.initialize()
         prompts = (await session.list_prompts()).prompts
     assert initialized.instructions == guidance.server_instructions(MCP_URL)
-    assert [p.name for p in prompts] == ["select_project"]
+    assert [p.name for p in prompts] == ["select_project", "start"]
     async with serving(fresh) as client:  # a session manager runs once per app
         refused = await rpc(client, None, {"jsonrpc": "2.0", "id": 3, "method": "prompts/list"})
     assert refused.status_code == 401

@@ -69,7 +69,7 @@ def work(monkeypatch):
     install("api.server", "api")
     install("temporal.worker", "worker")
     install("db.migrate", "migrate")
-    install("api.mcp.server", "mcp")
+    install("mcp_server.server", "mcp")
     health = types.ModuleType("health")
 
     def run_checks(*args, **kwargs):
@@ -174,6 +174,7 @@ def test_the_failure_log_names_variables_never_values(env, work, spy):
 def test_the_removed_auth_mode_is_refused_with_the_fix_hint_in_the_log(role, env, work, spy):
     env.setenv("AUTH_MODE", "dev")
     env.setenv("MCP_RESOURCE_URL", "http://localhost:8002/mcp")
+    env.setenv("API_INTERNAL_URL", "http://api:8000")
 
     assert cli.main([role, "--check-config"]) == 2
 

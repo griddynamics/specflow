@@ -15,6 +15,7 @@ GRAPH_ROOT: Final = Path(__file__).resolve().parents[1]
 CORE_QUERY_DIRECTORY: Final = GRAPH_ROOT / "core" / "queries"
 BUILD_QUERY_DIRECTORY: Final = GRAPH_ROOT / "build" / "queries"
 PLAN_QUERY_DIRECTORY: Final = GRAPH_ROOT / "plan" / "queries"
+GAP_QUERY_DIRECTORY: Final = GRAPH_ROOT / "gap" / "queries"
 CORE_DDL_DIRECTORY: Final = GRAPH_ROOT / "core" / "ddl"
 COMMENT_PREFIX: Final = "//"
 STATEMENT_END: Final = ";"
@@ -59,6 +60,12 @@ def load_plan_query(name: str) -> str:
     """The text of the plan query file ``name`` (relative to ``plan/queries/``)."""
 
     return read_query_file(PLAN_QUERY_DIRECTORY, name)
+
+
+def load_gap_query(name: str) -> str:
+    """The text of the gap query file ``name`` (relative to ``gap/queries/``)."""
+
+    return read_query_file(GAP_QUERY_DIRECTORY, name)
 
 
 def fragment(template: str, name: str) -> str:

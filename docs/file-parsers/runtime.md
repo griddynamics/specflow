@@ -49,11 +49,13 @@ Drive wait activity limit is larger than the Drive wait. A unit test checks the 
 ## Images
 
 Each service image carries only its own dependencies (decision D8): Docling, PyTorch, OpenCV and the models are
-in the worker-parse image only. The api and worker-agents images need no code change for that, because the
+in the worker-parse image only, and so are the `llm` libraries the parser uses (anthropic, claude-agent-sdk, langfuse,
+dotenv: the `parse` extra). The api, worker-agents and mcp images need no code change for that, because the
 queue registration is imported lazily (`temporal/registry.py`). What the image contains, its variables, its
 memory limit, its filesystem and its grace period are deployment settings:
 [configuration.md](../configuration.md#the-worker-parse-image). The Dockerfiles are
-`backend/docker/<service>/Dockerfile` for `api`, `worker-agents` and `worker-parse`; the image of each is
+`backend/docker/<service>/Dockerfile` for `api`, `mcp`, `worker-agents` and `worker-parse`; each installs its
+role's extras (`api`, `mcp`, `worker`, `worker` + `parse`; the three backend roles add `gcp` and `aws`, `mcp` does not). The image of each is
 `specflow-<service>:local` in compose.
 
 ## Sizing

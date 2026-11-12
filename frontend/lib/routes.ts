@@ -2,7 +2,7 @@
 // useRoutes() and never build a path string by hand. Pure: no React, no fetch.
 export type AppMode = "production";
 export type MissionControlView = "readme" | "business" | "architecture" | "files" | "sources"; // "sources": Phase 1 sources screen only
-export type PlanView = "plan" | "develop"; // P20 (Plan page, AUTO-17)
+export type PlanView = "plan" | "work" | "develop"; // P20 (Plan page, AUTO-17)
 export type RouteKey = "home" | "missionControl" | "decisions" | "plan" | "specbot" | "connections" | "guides";
 /** The Guides topics (MCP-M10): `/guides/{topic}`. Any other topic answers 404. */
 export const GUIDE_TOPICS = ["specflow-101", "best-practices", "mcp-server"] as const;
@@ -35,7 +35,7 @@ export interface RouteBuilder {
 }
 
 const VIEWS: readonly MissionControlView[] = ["readme", "business", "architecture", "files", "sources"];
-const PLAN_VIEWS: readonly PlanView[] = ["plan", "develop"];
+const PLAN_VIEWS: readonly PlanView[] = ["plan", "work", "develop"];
 
 function withQuery(path: string, params: Record<string, string | undefined>): string {
   const q = new URLSearchParams();
