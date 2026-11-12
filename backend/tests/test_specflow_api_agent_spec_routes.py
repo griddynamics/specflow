@@ -14,13 +14,15 @@ import pytest
 
 from agent_contracts import (
     AGENT_ROUTES,
+    SPEC_LABELS,
     NodeDetail,
     SpecSearch,
     SpecTrace,
     StoryBriefResult,
 )
 from api.agent_reads import agent_reads
-from graph.core import ConfigurationError, GraphReader, InfrastructureUnavailableError
+from graph.core import ConfigurationError, GraphReader, InfrastructureUnavailableError, load_ontology
+from graph.core.reader import BUILD
 from graph.plan import PlanService
 from graph_trace_support import shop_graph
 from plan_trace_support import TASKS, task
@@ -37,6 +39,8 @@ from specflow_api_agent_support import (
 from test_graph_trace import AFFECTS_DEPTH_2, BASED_ON_DEPTH_3, OWNER, SEEDS
 
 STORY, TRACE, NODE, SEARCH = (AGENT_ROUTES[name] for name in ("get_story_brief", "trace", "get_node", "search_spec"))
+CHECKOUT_NODES = {"FEAT::CHECKOUT", "REQ::FR::CHECKOUT", "REQ::Q::CHECKOUT_SPEED"}  # what the Checkout story implements
+FRAGMENT: dict[str, Any] = {"document_id": "shop", "status": "active", "line_start": 10, "line_end": 10}
 
 
 @pytest.fixture
@@ -433,14 +437,125 @@ async def test_a_search_fetches_limit_hits_or_three_times_that_up_to_sixty_near_
     assert pages[0] == fetched
 
 
-@pytest.mark.parametrize(
-    "params",
-    [{"near": "NOPE"}, {"labels": ["NoSuchLabel"]}, {"labels": ["Feature", "STORY"]}],
-)
-async def test_a_search_near_nothing_or_with_an_unknown_label_is_invalid_arguments(spec, params):
-    response = await spec.get(SEARCH, project_id=ALPHA, query="checkout", **params)
+async def test_a_search_near_nothing_is_invalid_arguments(spec):
+    response = await spec.get(SEARCH, project_id=ALPHA, query="checkout", near="NOPE")
 
     assert response.status_code == 400 and response.json()["error"]["code"] == "invalid_arguments"
+
+
+@pytest.mark.parametrize("labels", [["NoSuchLabel"], ["Feature", "STORY"], ["Feature", "Document"]])
+async def test_an_unknown_label_is_invalid_arguments_naming_the_labels_allowed_before_any_read(spec, labels):
+    response = await spec.get(SEARCH, project_id=ALPHA, query="checkout", labels=labels)
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_arguments"
+    assert response.json()["error"]["details"] == {"argument": "labels", "allowed": list(SPEC_LABELS)}
+    assert spec.executor.calls == []
+
+
+def test_the_labels_search_spec_takes_are_the_spec_labels_of_the_shipped_ontology():
+    ontology = load_ontology()
+
+    assert list(SPEC_LABELS) == sorted(label for label in ontology.labels if ontology.owner_of(label) == BUILD)
+
+
+# --- held stories (F31): an answer names the stories the caller holds and the nodes of it they implement --------
+
+
+async def test_a_search_names_the_story_the_caller_holds_with_the_hits_it_implements(monkeypatch, valid_env):
+    async with serve_spec(monkeypatch, agent_env(valid_env), writable="held") as spec:
+        about = (await spec.get(SEARCH, project_id=ALPHA, query="checkout")).json()
+        elsewhere = (await spec.get(SEARCH, project_id=ALPHA, query="stripe")).json()
+
+    assert about["held"] == [
+        {
+            "story_id": CHECKOUT,
+            "title": "Checkout",
+            "spec_ids": [item["spec_id"] for item in about["items"] if item["spec_id"] in CHECKOUT_NODES],
+            "next": "get_story_brief",
+        }
+    ]
+    assert about["held"][0]["spec_ids"]  # the search found nodes of the story
+    assert elsewhere["held"] == [{"story_id": CHECKOUT, "title": "Checkout", "spec_ids": [], "next": "get_story_brief"}]
+
+
+async def test_a_node_names_the_story_the_caller_holds_when_it_implements_the_node(monkeypatch, valid_env):
+    async with serve_spec(monkeypatch, agent_env(valid_env), writable="held") as spec:
+        inside = (await spec.get(NODE, project_id=ALPHA, spec_id="FEAT::CHECKOUT", include=["plan"])).json()
+        outside = (await spec.get(NODE, project_id=ALPHA, spec_id="MOD::STRIPE", include=["plan"])).json()
+
+    assert inside["held"] == [
+        {"story_id": CHECKOUT, "title": "Checkout", "spec_ids": ["FEAT::CHECKOUT"], "next": "get_story_brief"}
+    ]
+    assert outside["held"][0]["spec_ids"] == []
+
+
+@pytest.mark.parametrize("writable", [None, "claimed"])  # nothing held; Checkout held by Ben, not the caller
+async def test_a_caller_who_holds_no_story_gets_an_empty_held_list(monkeypatch, valid_env, writable):
+    async with serve_spec(monkeypatch, agent_env(valid_env), writable=writable) as spec:
+        search = (await spec.get(SEARCH, project_id=ALPHA, query="checkout")).json()
+        node = (await spec.get(NODE, project_id=ALPHA, spec_id="FEAT::CHECKOUT")).json()
+
+    assert search["held"] == [] and node["held"] == []
+
+
+# --- document ids (F34): a doc: id from statements, provenance or evidence answers its document -------------------
+
+
+async def test_a_document_id_answers_the_document_with_its_text_and_lines(spec):
+    whole = (await spec.get(NODE, project_id=ALPHA, spec_id="shop")).json()
+    no_lines = (await spec.get(NODE, project_id=ALPHA, spec_id="shop", include=["edges"])).json()
+
+    NodeDetail.model_validate(whole)
+    fragments = [item for item in spec.executor.fragments if item["document_id"] == "shop"]
+    assert whole["node"]["label"] == "Document" and whole["node"]["name"] == "Shop requirements"
+    assert whole["node"]["attributes"] == {
+        "path": "docs/shop.md",
+        "title": "Shop requirements",
+        "version": 1,
+        "status": "active",
+        "fragments": len(fragments),
+    }
+    assert [item["text"] for item in whole["node"]["statements"]] == [item["text"] for item in fragments]
+    assert [(p["fragment_id"], p["line_start"], p["path"]) for p in whole["provenance"]] == [
+        (item["fragment_id"], item["line_start"], "docs/shop.md") for item in fragments
+    ]
+    assert (whole["edges"], whole["plan"], whole["findings"], whole["held"]) == (None, None, None, [])
+    assert no_lines["provenance"] is None and no_lines["node"]["statements"] == whole["node"]["statements"]
+
+
+async def test_a_fragment_id_answers_its_document_with_that_fragment_only(spec):
+    spec.executor.fragments += [
+        {**FRAGMENT, "fragment_id": "shop#rev-2#00ff", "text": "This revision replaces Revision 1."},
+        {**FRAGMENT, "fragment_id": "shop#old#00aa", "status": "retired", "text": "Revision 1."},
+    ]
+
+    found = (await spec.get(NODE, project_id=ALPHA, spec_id="shop#rev-2#00ff")).json()
+    retired = await spec.get(NODE, project_id=ALPHA, spec_id="shop#old#00aa")
+
+    assert found["node"]["spec_id"] == "shop" and found["node"]["attributes"]["fragments"] == 10
+    assert found["node"]["statements"] == [
+        {"fragment_id": "shop#rev-2#00ff", "document_id": "shop", "text": "This revision replaces Revision 1."}
+    ]
+    assert retired.status_code == 404 and retired.json()["error"]["code"] == "node_not_found"
+
+
+async def test_a_document_answer_keeps_the_text_within_its_budget_and_lists_every_fragment(spec):
+    big = "x" * 5_000
+    for item in spec.executor.fragments:
+        item["text"] = big
+
+    body = (await spec.get(NODE, project_id=ALPHA, spec_id="shop")).json()
+
+    assert len(body["node"]["statements"]) == 2  # 10,000 characters; a third would pass 12,000
+    assert len(body["provenance"]) == 9
+
+
+@pytest.mark.parametrize("spec_id", ["doc:00000000-0000-0000-0000-000000000000", "doc:x#y#z", "FEAT::NOPE"])
+async def test_an_id_that_names_no_node_and_no_document_is_node_not_found(spec, spec_id):
+    response = await spec.get(NODE, project_id=ALPHA, spec_id=spec_id)
+
+    assert response.status_code == 404 and response.json()["error"]["code"] == "node_not_found"
 
 
 @pytest.mark.parametrize(

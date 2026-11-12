@@ -239,6 +239,25 @@
       }
     }
   },
+  "invalid_arguments:expand_brief_without_a_story": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"invalid_arguments\",\"message\":\"The arguments do not fit together. Check the tool description and try again.\",\"details\":{\"argument\":\"story_id\",\"next\":\"search_spec\"}}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "invalid_arguments",
+        "details": {
+          "argument": "story_id",
+          "next": "search_spec"
+        },
+        "message": "The arguments do not fit together. Check the tool description and try again."
+      }
+    }
+  },
   "invalid_arguments:report_task_skipped_without_a_note": {
     "content": [
       {
@@ -252,6 +271,38 @@
         "code": "invalid_arguments",
         "details": {
           "argument": "note"
+        },
+        "message": "The arguments do not fit together. Check the tool description and try again."
+      }
+    }
+  },
+  "invalid_arguments:search_spec_labels": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"invalid_arguments\",\"message\":\"The arguments do not fit together. Check the tool description and try again.\",\"details\":{\"argument\":\"labels\",\"allowed\":[\"BusinessRule\",\"Capability\",\"Constraint\",\"DataEntity\",\"DataRequirement\",\"Feature\",\"FunctionalRequirement\",\"IntegrationRequirement\",\"Interface\",\"Module\",\"OpenQuestion\",\"QualityRequirement\"]}}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "invalid_arguments",
+        "details": {
+          "allowed": [
+            "BusinessRule",
+            "Capability",
+            "Constraint",
+            "DataEntity",
+            "DataRequirement",
+            "Feature",
+            "FunctionalRequirement",
+            "IntegrationRequirement",
+            "Interface",
+            "Module",
+            "OpenQuestion",
+            "QualityRequirement"
+          ],
+          "argument": "labels"
         },
         "message": "The arguments do not fit together. Check the tool description and try again."
       }

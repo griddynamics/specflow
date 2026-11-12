@@ -6,7 +6,7 @@ project's members. The golden tests import only ``tooling_double`` and ``Backend
 
 Scenarios: ``ok``, ``no_plan``, ``graph_down``, ``database_down``, ``bug``; and, with the plan in the in-memory
 executor so the story calls can write: ``free`` (as it is), ``claimed`` (Checkout held by Ben), ``applying`` (a plan
-persist running), ``held_applying`` (Checkout held by Alice, token 1, and a plan persist running).
+persist running), ``held`` (Checkout held by Alice, token 1), ``held_applying`` (the same and a plan persist running).
 """
 
 from __future__ import annotations
@@ -28,13 +28,24 @@ from specflow_api_agent_support import agent_env, refuse_database
 
 __all__ = ["ALPHA", "CHECKOUT", "SCENARIOS", "UNKNOWN_PROJECT", "BackendDouble", "tooling_double"]
 
-SCENARIOS = ("ok", "no_plan", "graph_down", "database_down", "bug", "free", "claimed", "applying", "held_applying")
+SCENARIOS = (
+    "ok",
+    "no_plan",
+    "graph_down",
+    "database_down",
+    "bug",
+    "free",
+    "claimed",
+    "applying",
+    "held",
+    "held_applying",
+)
 FAILURES: dict[str, Exception] = {
     "graph_down": InfrastructureUnavailableError("neo4j_unreachable"),
     "bug": ConfigurationError("unknown_label", label="X"),
 }
 
-WRITABLE: dict[str, str] = {name: name for name in ("free", "claimed", "applying", "held_applying")}
+WRITABLE: dict[str, str] = {name: name for name in ("free", "claimed", "applying", "held", "held_applying")}
 
 Serve = Callable[..., AbstractAsyncContextManager[httpx.AsyncClient]]
 

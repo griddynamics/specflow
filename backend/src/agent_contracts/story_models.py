@@ -248,7 +248,8 @@ class FindingRef(BaseModel):
 class ErrorDetails(BaseModel):
     """What an error answer may carry beside its fixed message (tools.md "Error details"); a field is set only by the
     codes that name it. No claim token, user id or email, and no text from documents except titles; the text of an
-    open blocking finding of the project is the only other free text."""
+    open blocking finding of the project is the only other free text. ``allowed`` lists the values the ``argument``
+    takes; ``next`` names the tool to call instead."""
 
     holder: Holder | None = None
     since: AwareDatetime | None = None
@@ -258,4 +259,6 @@ class ErrorDetails(BaseModel):
     state: StoryState | None = None
     task_id: str | None = None
     argument: str | None = None
+    allowed: list[str] | None = None
+    next: str | None = None
     spec_ids: list[str] | None = None

@@ -38,6 +38,21 @@ SearchMatch = Literal["id", "text", "vector", "both"]
 ExpansionVia = Literal["graph", "similar", "both"]
 PathStepKind = Literal["forward", "backward", "scope"]
 PathReason = Literal["same_node", "no_directed_chain", "not_connected", "search_limit"]
+SPEC_LABELS: Final[tuple[str, ...]] = (
+    "BusinessRule",
+    "Capability",
+    "Constraint",
+    "DataEntity",
+    "DataRequirement",
+    "Feature",
+    "FunctionalRequirement",
+    "IntegrationRequirement",
+    "Interface",
+    "Module",
+    "OpenQuestion",
+    "QualityRequirement",
+)
+"""The spec node labels of the shipped ontology (a test keeps them equal): what ``search_spec`` ``labels`` takes."""
 
 
 class Holder(BaseModel):
@@ -57,6 +72,16 @@ class FindingItem(BaseModel):
     blocking: bool
     about: list[str]
     author: Holder
+
+
+class HeldStory(BaseModel):
+    """A story the caller holds, with the nodes of this answer its tasks implement (none when the question may still be
+    about it): read its brief first (``next``)."""
+
+    story_id: str
+    title: str
+    spec_ids: list[str]
+    next: Literal["get_story_brief"] = "get_story_brief"
 
 
 class TaskRef(BaseModel):
@@ -245,7 +270,10 @@ class NodeQuery(BaseModel):
     spec_id: str = Field(
         min_length=1,
         max_length=MAX_ID_CHARS,
-        description="The spec_id of a node from a brief, a trace or a search; aliases resolve.",
+        description=(
+            "The spec_id of a node from a brief, a trace or a search; aliases resolve. A document_id or fragment_id "
+            "(doc:...) answers its document."
+        ),
     )
     include: list[NodePart] = Field(
         default=list(NODE_PARTS), min_length=1, description="The parts to return; a part left out is null."
@@ -317,11 +345,14 @@ class NodeProvenance(BaseModel):
 
 
 class NodeDetail(BaseModel):
+    """One node, or a document (label ``Document``) when ``spec_id`` names a document or one of its fragments."""
+
     node: NodeBody
     edges: NodeEdges | None
     plan: NodePlanPart | None
     provenance: list[NodeProvenance] | None
     findings: list[FindingItem] | None
+    held: list[HeldStory] = []
 
 
 # --- search_spec ----------------------------------------------------------------------------------------------
@@ -338,7 +369,9 @@ class SearchQuery(BaseModel):
         description="A story_id or spec_id: hits within 3 hops of it (of the story's nodes) rank first.",
     )
     labels: list[str] | None = Field(
-        default=None, max_length=MAX_NAMES, description="Only nodes of these labels; leave out for all."
+        default=None,
+        max_length=MAX_NAMES,
+        description=f"Only nodes of these labels, from: {', '.join(SPEC_LABELS)}. Leave out for all.",
     )
     limit: int = Field(default=10, ge=1, le=MAX_SEARCH_LIMIT, description="The most hits to return, 1 to 20.")
 
@@ -359,6 +392,7 @@ class SpecHit(BaseModel):
 class SpecSearch(BaseModel):
     project_id: str
     items: list[SpecHit]
+    held: list[HeldStory] = []
 
 
 # --- similar --------------------------------------------------------------------------------------------------
@@ -520,12 +554,17 @@ class NodePaths(BaseModel):
 
 
 class ExpandQuery(BaseModel):
-    """The arguments of ``expand_brief`` besides the project: the query parameters of its route."""
+    """The arguments of ``expand_brief`` besides the project: the query parameters of its route. ``story_id`` is
+    required, checked by the API, so a call without it gets a typed error that points to ``search_spec``."""
 
-    story_id: str = Field(
+    story_id: str | None = Field(
+        default=None,
         min_length=1,
         max_length=MAX_ID_CHARS,
-        description="The story_id of a story from list_stories, or the one claim_story answered.",
+        description=(
+            "Required: the story_id of a story you hold or the user names, from list_stories or claim_story. "
+            "Without a story, use search_spec."
+        ),
     )
     budget_tokens: int = Field(
         default=DEFAULT_BUDGET_TOKENS,

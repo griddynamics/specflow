@@ -31,7 +31,7 @@ from graph.plan.models import (
     TaskPath,
 )
 from graph.plan.names import BlockReason, TaskProgress, TaskStatus
-from graph.plan.node_plan import NodePlan, node_plan, plan_states
+from graph.plan.node_plan import HeldStory, NodePlan, held_stories, node_plan, plan_states
 from graph.plan.reader import (
     LoadedPlan,
     PlanReader,
@@ -261,6 +261,14 @@ class PlanService:
         """The plan state of each node (``spec_id`` to its aliases) from one plan read, or ``None`` without a plan."""
 
         return plan_states(await self._load(project_id), nodes)
+
+    async def held_stories(
+        self, project_id: str, caller: str, nodes: Mapping[str, Sequence[str]]
+    ) -> tuple[HeldStory, ...]:
+        """The stories ``caller`` holds, each with the given nodes (``spec_id`` to its aliases) it implements, from
+        one plan read; empty without a plan."""
+
+        return held_stories(await self._load(project_id), caller, nodes)
 
     async def area_summary(self, project_id: str) -> tuple[AreaSummary, ...]:
         """Per active area, the project area last: stories per state, holders of held stories, open tasks."""

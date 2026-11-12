@@ -5,7 +5,8 @@ between the two services, the MCP SDK client in front.
 
 Covers the tool against its API route (same structured content, one text block holding the same JSON, query as the
 API reads it: lists repeated, booleans lower case), the audit (``item_count``, ids and codes only), the error paths
-end to end (fixed messages, no details), and the input schemas the SDK enforces before any call.
+end to end (fixed messages; typed details only where the code names them), and the input schemas the SDK enforces
+before any call.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from typing import Any
 import httpx
 import pytest
 
-from agent_contracts import AGENT_ROUTES
+from agent_contracts import AGENT_ROUTES, SPEC_LABELS
 from graph.core import ConfigurationError, InfrastructureUnavailableError
 from mcp_server.errors import MESSAGES
 from mcp_server.registry import install
@@ -166,9 +167,6 @@ ERROR_CASES = [
         "unknown_relation",
         id="relation",
     ),
-    pytest.param(
-        "search_spec", {"project_id": ALPHA, "query": "x", "labels": ["Nope"]}, "invalid_arguments", id="label"
-    ),
     pytest.param("search_spec", {"project_id": ALPHA, "query": "x", "near": "NOPE"}, "invalid_arguments", id="near"),
     pytest.param("similar", {"project_id": ALPHA}, "invalid_arguments", id="similar-neither"),
     pytest.param("similar", {"project_id": ALPHA, "story_id": "STORY::NOPE"}, "story_not_found", id="similar-story"),
@@ -193,6 +191,52 @@ async def test_an_api_error_is_the_fixed_mcp_message_for_its_code_and_none_of_th
     assert result.is_error
     assert structured(result) == {"error": {"code": code, "message": MESSAGES[code]}}  # no details key
     assert text(result) == json.dumps(structured(result), separators=(",", ":"))
+
+
+@pytest.mark.parametrize(
+    ("tool", "arguments", "details"),
+    [
+        pytest.param(
+            "search_spec",
+            {"project_id": ALPHA, "query": "x", "labels": ["Feature", "Document"]},
+            {"argument": "labels", "allowed": list(SPEC_LABELS)},
+            id="label",
+        ),
+        pytest.param(
+            "expand_brief",
+            {"project_id": ALPHA, "query": "Which revision is binding?"},
+            {"argument": "story_id", "next": "search_spec"},
+            id="expand-without-story",
+        ),
+    ],
+)
+async def test_an_argument_error_names_the_argument_and_what_to_use_instead(
+    monkeypatch, valid_env, tool, arguments, details
+):
+    """QA F33, F35: the agent reads the allowed labels, or the tool to call, in the error itself."""
+
+    async with over_spec(monkeypatch, valid_env) as stack, sdk_session(stack.app(), ALICE) as session:
+        result = await call(session, tool, **arguments)
+
+    assert result.is_error
+    assert structured(result) == {
+        "error": {"code": "invalid_arguments", "message": MESSAGES["invalid_arguments"], "details": details}
+    }
+
+
+async def test_path_takes_from_id_and_to_id_as_from_and_to(monkeypatch, valid_env):
+    """QA F32: agents guess the field names; the schema shows ``from`` and ``to`` and the API reads those."""
+
+    ends = {"from": "MOD::PAYMENTS_SERVICE", "to": "MOD::STRIPE"}
+    async with over_spec(monkeypatch, valid_env) as stack:
+        async with sdk_session(stack.app(), ALICE) as session:
+            named = await call(session, "path", project_id=ALPHA, from_id=ends["from"], to_id=ends["to"])
+            wired = await call(session, "path", project_id=ALPHA, **ends)
+        requests = [request for request, _ in stack.api.agent_calls()]
+
+    assert not named.is_error and structured(named) == structured(wired)
+    assert [(r.url.params["from"], r.url.params["to"]) for r in requests] == [(ends["from"], ends["to"])] * 2
+    assert all("from_id" not in r.url.params for r in requests)
 
 
 @pytest.mark.parametrize(
@@ -327,7 +371,8 @@ async def test_the_input_schemas_publish_the_bounds_the_routes_enforce(monkeypat
     hops = path["properties"]["max_hops"]
     assert (hops["minimum"], hops["maximum"], hops["default"]) == (1, 6, 4)
     budget = schemas["expand_brief"]["properties"]["budget_tokens"]
-    assert schemas["expand_brief"]["required"] == ["project_id", "story_id"]
+    assert schemas["expand_brief"]["required"] == ["project_id"]  # story_id: checked by the API (QA F35)
+    assert schemas["expand_brief"]["properties"]["story_id"]["description"].startswith("Required:")
     assert (budget["minimum"], budget["maximum"], budget["default"]) == (500, 8000, 3000)
     for name in CALLS:
         project_id = schemas[name]["properties"]["project_id"]

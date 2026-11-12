@@ -6,6 +6,7 @@ field location and the error type, never the submitted value.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, Final, cast
 
 from fastapi import FastAPI, Request
@@ -116,10 +117,14 @@ def node_not_found(details: dict[str, Any] | None = None) -> ApiError:
     )
 
 
-def invalid_arguments(argument: str | None = None) -> ApiError:
-    """``argument`` names the argument that broke the rule (``details.argument``, never its value)."""
+def invalid_arguments(
+    argument: str | None = None, *, allowed: Sequence[str] | None = None, next_tool: str | None = None
+) -> ApiError:
+    """``argument`` names the argument that broke the rule (``details.argument``, never its value), ``allowed`` the
+    values it takes and ``next_tool`` the tool to call instead (``details.next``)."""
 
-    details = None if argument is None else {"argument": argument}
+    found = {"argument": argument, "allowed": list(allowed) if allowed is not None else None, "next": next_tool}
+    details = {name: value for name, value in found.items() if value is not None} or None
     return ApiError(400, "invalid_arguments", "The arguments do not fit together.", details=details)
 
 
