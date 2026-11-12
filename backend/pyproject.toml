@@ -7,7 +7,7 @@ requires-python = ">=3.12"
 # What every role imports at startup (settings, cloud profile, logger). Everything else is an extra of the role that
 # imports it: the images install the base and their role's extras only (docs/mcp-server/architecture.md, Package layout).
 dependencies = [
-    "pydantic>=2.14.1",
+    "pydantic>=2.14.3",
     "pydantic-settings>=2.16.1",
     "pyyaml>=6",
 ]
@@ -18,21 +18,21 @@ dependencies = [
 api = [
     "alembic>=1.20.1",
     "asyncpg>=0.32.0",
-    "fastapi>=0.162.0",
+    "fastapi>=0.162.2",
     "google-api-python-client>=2.201.0",
-    "google-auth>=2.62.0",
-    "httplib2>=0.22",
+    "google-auth>=2.62.1",
+    "httplib2>=0.32.1",
     "httpx>=0.28.1",
     "neo4j>=6.4.1",
     "numpy>=2.5.4",
-    "openinference-instrumentation>=0.1.72",
-    "openai>=3.37.0,<4",
+    "openinference-instrumentation>=0.1.75",
+    "openai>=3.48.0,<4",
     "openai-agents>=0.22.3,<0.23",
-    "opentelemetry-exporter-otlp-proto-http>=1.45.1",
+    "opentelemetry-exporter-otlp-proto-http>=1.45.2",
     "pyjwt[crypto]>=2.15.1",
     "starlette>=1.10.0",
     "sqlalchemy[asyncio]>=2.1.6",
-    "temporalio>=1.34,<2",
+    "temporalio>=1.35.0,<2",
     "temporalio-openai-agents[openinference]>=1.1,<2",
     "uvicorn>=0.54.0",
 ]
@@ -41,16 +41,16 @@ api = [
 worker = [
     "asyncpg>=0.32.0",
     "google-api-python-client>=2.201.0",
-    "google-auth>=2.62.0",
-    "httplib2>=0.22",
+    "google-auth>=2.62.1",
+    "httplib2>=0.32.1",
     "httpx>=0.28.1",
     "neo4j>=6.4.1",
-    "openinference-instrumentation>=0.1.72",
-    "openai>=3.37.0,<4",
+    "openinference-instrumentation>=0.1.75",
+    "openai>=3.48.0,<4",
     "openai-agents>=0.22.3,<0.23",
-    "opentelemetry-exporter-otlp-proto-http>=1.45.1",
+    "opentelemetry-exporter-otlp-proto-http>=1.45.2",
     "sqlalchemy[asyncio]>=2.1.6",
-    "temporalio>=1.34,<2",
+    "temporalio>=1.35.0,<2",
     "temporalio-openai-agents[openinference]>=1.1,<2",
 ]
 # The mcp role is an HTTP router over the API: no database, graph, storage or Temporal library.
@@ -63,7 +63,7 @@ mcp = [
 ]
 # One object-storage SDK per cloud, imported lazily by storage/factory.py. The images install both.
 gcp = ["google-cloud-storage>=3.17.1"]
-aws = ["boto3>=1.43,<2"]
+aws = ["boto3>=1.43.126,<2"]
 # The TigerGraph graph store (GRAPH_STORE=tigergraph), imported lazily by graph/stores/tigergraph only.
 tigergraph = ["pyTigerGraph==2.0.5"]
 # The document parser (worker-parse image and dev/CI only; never the api or worker-agents image).
@@ -72,7 +72,7 @@ tigergraph = ["pyTigerGraph==2.0.5"]
 # docling-core, pypdfium2, defusedxml: imported directly by file_parsers (docling-core is also a dependency of docling-slim;
 # defusedxml streams the XLSX sheets in file_parsers.office.guard with DTDs forbidden).
 parse = [
-    "docling-slim[convert-core,format-pdf,models-local,format-docx,format-pptx,format-xlsx,format-html,format-markdown]==2.145.0",
+    "docling-slim[convert-core,format-pdf,models-local,format-docx,format-pptx,format-xlsx,format-html,format-markdown]==2.149.0",
     "docling-core>=2.105,<3",
     "defusedxml>=0.7.1,<1",
     "opencv-python-headless<5",
@@ -81,7 +81,7 @@ parse = [
     "huggingface-hub",
     # The `llm` package behind file_parsers (Anthropic client, Claude Agent SDK, Langfuse tracing, .env loading); the agents queue never imports it.
     "anthropic>=1.1.0",
-    "claude-agent-sdk==0.2.174",
+    "claude-agent-sdk==0.2.179",
     "dotenv>=0.9.9",
     "langfuse>=4,<5",
     # CPU wheels only: the default PyPI Linux wheels of torch pull nvidia-* (CUDA) packages with proprietary terms.
@@ -122,10 +122,10 @@ select = ["S110"]
 dev = [
     "google-api-python-client-stubs>=1.40.0",
     "jsonschema>=4.26.0",
-    "pytest>=9.1.1",
+    "pytest>=9.2.0",
     "pytest-asyncio>=1.4.1",
-    "ruff>=0.17.2",
-    "types-httplib2>=0.32.0.20260720",
+    "ruff>=0.17.4",
+    "types-httplib2>=0.32.1.20261029",
     "types-jsonschema>=4.26.0.20261006",
     "types-pyyaml>=6.0.12.20260906",
 ]
