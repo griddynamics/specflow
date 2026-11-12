@@ -4,7 +4,7 @@ replicaCount: 1
 # Create a Secret named specflow-mcp before installation.
 
 image:
-  registry: ghcr.io
+  registry: docker.io
   repository: griddynamics/specflow-mcp
   tag: ""
   digest: ""

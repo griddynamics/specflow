@@ -5,7 +5,7 @@ replicaCount: 1
 # entries that are not used by your deployment.
 
 image:
-  registry: ghcr.io
+  registry: docker.io
   repository: griddynamics/specflow-api
   tag: ""
   digest: ""
