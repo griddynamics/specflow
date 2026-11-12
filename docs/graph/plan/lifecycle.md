@@ -35,8 +35,9 @@ not apply raises `TaskStateError` with a code and changes nothing:
 |---|---|---|
 | `not_ready` | `claim_task` on a `pending` task that is not ready | `blockers` ("Claims") |
 | `nothing_ready` | `claim_next` finds no ready task in the story | `blockers` ("Claims") |
-| `plan_applying` | A claim while a plan persist is in progress | - |
+| `plan_applying` | A claim, or a story call that locks stories and tasks ("Story claims"), while a plan persist is in progress | - |
 | `wrong_state` | The task is not in the call's From state, or is closed | the current status |
+| `story_claimed` | A task call targets a task of a story held by a story claim; end the claim with `release_story` or `complete_story` | as in "Story claims" |
 | `unknown_task`, `unknown_story` | The id resolves to no task or story of the project | - |
 | `claim_mismatch` | The claim token does not match (the task was released and claimed again), or `release_task` without a token and without `force` | - |
 
@@ -91,6 +92,8 @@ a person force-releases it: no lease, no heartbeat, no expiry. A story is held e
 `claimed_by` is set ([data-model.md](data-model.md) "Story"). The calls are `PlanService` methods
 ([api.md](api.md) "Story calls"). Each is one transaction that locks the Story nodes of the claim, then
 their tasks in `task_id` order, then checks and writes, as the task calls do.
+A `claim_task` racing a `claim_story` on the same task waits on the task lock; when the story claim wins, the
+task claim answers `wrong_state` (on Postgres, READ COMMITTED re-reads the locked task, now `in_progress`).
 
 **Claim unit.** The story and every story it is in a cycle with in the story order ("Story progress"),
 taken over open tasks; usually the story alone. Claiming any story of a cycle group claims the group:
@@ -116,8 +119,9 @@ adds to a held story stays `pending`, outside the claim.
 The claim ends: `claimed_by`, `claimed_at` and `agent_label` are cleared on the unit's stories,
 `claim_token` stays until the next claim; every task leaving `in_progress` loses its claim fields and
 `progress`. A `skipped` task completes with its note. `complete_story` also answers `released` (task ids
-back to `pending`), `now_available` (stories this completion made claimable) and `spec_changed` (the
-completed tasks' implemented `spec_id`s that their brief marks `spec_changed`).
+back to `pending`), `now_available` (stories this completion made claimable) and `spec_changed` (spec ids,
+not a boolean: the `spec_id`s the completed tasks implement whose node a build wrote after the plan's
+consumed builds, by the rule of the brief's `spec_changed` in "Task brief"; empty on a repeat).
 
 **Repeats.** Calls are idempotent by state; there is no request id. A repeat with the same arguments
 changes nothing:
@@ -136,7 +140,7 @@ Any other call with a token that does not match raises `claim_mismatch`.
 | Code | When | Carries |
 |---|---|---|
 | `story_claimed` | Another user holds the unit, or a task call targets a task of a held story | `claimed_by`, `claimed_at`, `alternatives`: up to 3 claimable stories of the same area, in list order |
-| `partly_claimed` | A task of the unit is `in_progress` under a task claim | `task_id`, `claimed_by` |
+| `partly_claimed` | A task of the unit is `in_progress` under a task claim; also a repeated `claim_story` after a plan run grew the held unit with a story nobody holds (`claimed_by` is the caller, `task_id` may be none; release or complete first) | `task_id`, `claimed_by` |
 | `not_available` | Not claimable for another reason | `blockers`: the unfinished prerequisites outside the unit, in topological order (empty when nothing is left to claim or a task is `blocked`) |
 | `plan_applying`, `unknown_story`, `unknown_task`, `wrong_state` (retired story), `claim_mismatch` | As for the task calls | - |
 
@@ -152,8 +156,10 @@ Any other call with a token that does not match raises `claim_mismatch`.
 
 **Plan runs.** A run never writes `in_progress` tasks, so claimed tasks keep their token and
 `progress`; it never writes story claim fields. A reset of a `blocked` task clears `blocked_by`; the
-finding stays open ([plan.md](plan.md) "Diff"). Claims refuse while a persist is in progress; the other
-story calls do not check it.
+finding stays open ([plan.md](plan.md) "Diff"). Claims refuse while a persist is in progress, and so do
+the story calls that lock stories and tasks (`report_progress`, `complete_story`, `block_story`, `unblock_finding`,
+`release_story` with a token): a persist locks a task before its story, those calls the other way round. A forced
+`release_story` does not check it.
 
 ## Story progress
 
@@ -205,9 +211,13 @@ completed tasks, from one read, without a model call: the story with its anchor,
 parts once, every task with its `done_when` items and sources in topological order, the implemented
 nodes, open questions and neighbours (at most `neighbours` in all) merged by `spec_id`, contracts of the
 completed prerequisites outside the story with their commits, and `spec_changed` (any task's) and
-`missing` merged. A retired or unknown story raises `PlanReadError("story_not_found")`. Open findings
-are not part of it: `graph.plan` never imports `graph.gap`, so the host adds them
-([../gap.md](../gap.md)).
+`missing` merged (`spec_changed` here stays the brief's boolean, true when any implemented node changed).
+A retired or unknown story raises `PlanReadError("story_not_found")`. The brief also carries `findings`:
+the open findings about the anchor and the implemented nodes (`finding_id`, `kind`, `text`, `blocking`,
+`about_spec_ids`, `story_id`, `created_by`, `created_at`, `orphaned`), blocking first, then newest first, at
+most 200. `graph.plan` never imports `graph.gap`: `PlanService` reads them through a structural
+`FindingsReads` port that the host fills with `graph.gap.Findings` ([../gap.md](../gap.md)). A service built
+without the port has an empty `findings` list.
 
 ## Agent contract
 

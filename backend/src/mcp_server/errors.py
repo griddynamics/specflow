@@ -13,14 +13,26 @@ from typing import Final, cast, get_args
 from pydantic import BaseModel, ValidationError
 
 from agent_contracts import (
+    AREA_NOT_FOUND,
+    CLAIM_MISMATCH,
     DATABASE_UNAVAILABLE,
     FEATURE_NOT_FOUND,
+    FINDING_LIMIT,
     GRAPH_UNAVAILABLE,
     INTERNAL_ERROR,
+    INVALID_ARGUMENTS,
+    INVALID_COMMIT,
     INVALID_CURSOR,
     NO_PLAN,
+    NODE_NOT_FOUND,
+    NOT_AVAILABLE,
+    PARTLY_CLAIMED,
+    PLAN_APPLYING,
     PROJECT_NOT_FOUND,
+    STORY_CLAIMED,
+    STORY_NOT_FOUND,
     TASK_NOT_FOUND,
+    UNKNOWN_RELATION,
     ErrorCode,
 )
 from mcp_server.api_client import API_PROTOCOL_ERROR, ApiResult
@@ -34,6 +46,18 @@ MESSAGES: Final[Mapping[ErrorCode, str]] = {
     GRAPH_UNAVAILABLE: "The specification graph is unavailable. Try again later.",
     DATABASE_UNAVAILABLE: "The database is unavailable. Try again later.",
     INTERNAL_ERROR: "Something went wrong. Try again later.",
+    AREA_NOT_FOUND: "The area is not in the current plan of the project. List the areas to find it.",
+    STORY_NOT_FOUND: "The story is not in the current plan of the project. List the stories to find it.",
+    NODE_NOT_FOUND: "The node is not in the specification graph of the project. Search the specification to find it.",
+    STORY_CLAIMED: "Another member holds this story. Pick another story or talk to the holder.",
+    NOT_AVAILABLE: "The story cannot be claimed now. Preview it to see what it waits for.",
+    PARTLY_CLAIMED: "A task of this story is claimed on its own. Try again when it is released or completed.",
+    PLAN_APPLYING: "The plan is being updated. Try again in a minute.",
+    CLAIM_MISMATCH: "The claim token does not match your claim. Call claim_story for the story to get your token.",
+    INVALID_COMMIT: "The merge commit must be the full 40 or 64 character hexadecimal hash.",
+    INVALID_ARGUMENTS: "The arguments do not fit together. Check the tool description and try again.",
+    UNKNOWN_RELATION: "A relation is not in the ontology of the project. Leave relations out to use them all.",
+    FINDING_LIMIT: "You have too many open findings here. Ask a person to resolve some first.",
 }
 
 

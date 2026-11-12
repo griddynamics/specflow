@@ -2,8 +2,9 @@
 -- task is locked first (FOR UPDATE); then, in the same statement, a plan
 -- persist in progress, the task's status, its area and story status and every
 -- prerequisite's status are read, and the claim applies only when the task is
--- ready. No row when the task does not exist; status and task are those after
--- the claim.
+-- ready and its story is not held by a story claim. No row when the task does
+-- not exist; status and task are those after the claim; holder and held_at are
+-- the story claim's.
 WITH locked AS (
     SELECT
         n.id,
@@ -34,6 +35,16 @@ decided AS (
             WHEN
                 coalesce(locked.props ->> 'status', '') <> 'pending'
                 THEN 'wrong_state'
+            WHEN EXISTS (
+                SELECT 1
+                FROM graph.node AS s
+                WHERE
+                    s.group_id = :project_id
+                    AND s.kind = 'foreign'
+                    AND s.labels[1] = 'Story'
+                    AND s.props ->> 'story_id' = locked.props ->> 'story_id'
+                    AND s.props ->> 'claimed_by' IS NOT NULL
+            ) THEN 'story_claimed'
             WHEN NOT EXISTS (
                 SELECT 1
                 FROM graph.node AS a
@@ -96,6 +107,24 @@ updated AS (
 SELECT
     decided.outcome,
     coalesce(updated.props, decided.props) ->> 'status' AS status,
-    coalesce(updated.props, decided.props) AS task
+    coalesce(updated.props, decided.props) AS task,
+    (
+        SELECT s.props ->> 'claimed_by'
+        FROM graph.node AS s
+        WHERE
+            s.group_id = :project_id
+            AND s.kind = 'foreign'
+            AND s.labels[1] = 'Story'
+            AND s.props ->> 'story_id' = decided.props ->> 'story_id'
+    ) AS holder,
+    (
+        SELECT s.props ->> 'claimed_at'
+        FROM graph.node AS s
+        WHERE
+            s.group_id = :project_id
+            AND s.kind = 'foreign'
+            AND s.labels[1] = 'Story'
+            AND s.props ->> 'story_id' = decided.props ->> 'story_id'
+    ) AS held_at
 FROM decided
 LEFT JOIN updated ON decided.id = updated.id

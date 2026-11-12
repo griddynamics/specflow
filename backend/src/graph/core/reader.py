@@ -56,6 +56,17 @@ from graph.core.store import (
     SPEC_NODE_TEXT_INDEX,
     as_executor,
 )
+from graph.core.trace import (
+    BASES,
+    DIRECTIONS,
+    MAX_SPEC_IDS,
+    MAX_TRACE_LIMIT,
+    TRUSTED,
+    Basis,
+    Direction,
+    TraceResult,
+    TraceWalk,
+)
 from logger.logger import DEBUG, WARNING, get_logger, log_event
 
 logger = get_logger("graph.core.reader")
@@ -457,6 +468,51 @@ class GraphReader:
             distance={node.spec_id: hops[node.uuid] for node in nodes},
             truncated=truncated,
         )
+
+    async def trace(
+        self,
+        project_id: str,
+        spec_ids: Sequence[str],
+        *,
+        direction: Direction,
+        depth: int = 2,
+        basis: Basis = TRUSTED,
+        relations: Sequence[str] | None = None,
+        include_owner: bool = True,
+        limit: int = 200,
+    ) -> TraceResult:
+        """The directed walk by impact roles from ``spec_ids`` (trace.md "Walk"): what they are ``based_on`` or
+        what they ``affect``, within ``depth`` (1-3) hops, at most ``limit`` (1-500) nodes by hop then ``spec_id``.
+        """
+
+        project_id = validate_project_id(project_id)
+        if isinstance(spec_ids, str):
+            spec_ids = [spec_ids]
+        if not _is_int_between(len(spec_ids), 1, MAX_SPEC_IDS) or not all(isinstance(item, str) for item in spec_ids):
+            raise ConfigurationError("invalid_spec_ids", maximum=MAX_SPEC_IDS)
+        if direction not in DIRECTIONS:
+            raise ConfigurationError("invalid_direction")
+        if not _is_depth(depth):
+            raise ConfigurationError("invalid_depth", minimum=IMPACT_DEPTHS[0], maximum=IMPACT_DEPTHS[1])
+        if basis not in BASES:
+            raise ConfigurationError("invalid_basis")
+        selected = self._relations(relations)
+        if not _is_int_between(limit, 1, MAX_TRACE_LIMIT):
+            raise ConfigurationError("invalid_limit", maximum=MAX_TRACE_LIMIT)
+        walk = TraceWalk(
+            executor=self._executor,
+            ontology=self._ontology,
+            project_id=project_id,
+            labels=self._spec_labels,
+            domain_relations=self._domain_relations,
+            relations=selected,
+            direction=direction,
+            depth=depth,
+            any_basis=basis != TRUSTED,
+            include_owner=bool(include_owner),
+            limit=limit,
+        )
+        return await walk.run(spec_ids)
 
     async def nodes_for_fragment(
         self, project_id: str, document_id: str, line_start: int, line_end: int

@@ -18,7 +18,7 @@ This is an explainer for engineers and product people. It covers four things:
 The reference files hold the exact contracts: [ontology.md](ontology.md) (format),
 [data-model.md](data-model.md) (Neo4j model, per-store mapping, identity), [build.md](build.md) (steps, modes, reuse),
 [analysis.md](analysis.md) (inference, verification), [api.md](api.md) (public API). The shipped
-ontology is `backend/src/graph/core/ontology/spec-ontology.yaml`, version 2.0. All numbers below
+ontology is `backend/src/graph/core/ontology/spec-ontology.yaml`, version 2.1. All numbers below
 are the ones the code uses.
 
 > `graph.gap` (gaps, contradictions, findings) is a reserved submodule that does not exist yet

@@ -97,13 +97,14 @@ source_modules = ["graph.core"]
 forbidden_modules = ["graph.build", "graph.gap", "graph.plan"]
 
 # graph.plan reads only graph.core. It never reaches the build pipeline or the gap detector, whose
-# results arrive through host-converted models. Build likewise never depends on the planner.
+# results arrive through host-converted models or a structural port. Build likewise never depends on the planner,
+# and graph.gap (findings) never reaches the build pipeline or the planner: the host hands it a plan object.
 [[tool.importlinter.contracts]]
 name = "Graph submodules are independent"
 id = "graph-submodules-independent"
 type = "forbidden"
 allow_indirect_imports = true
-source_modules = ["graph.plan", "graph.build"]
+source_modules = ["graph.plan", "graph.build", "graph.gap"]
 forbidden_modules = ["graph.build", "graph.plan", "graph.gap"]
 
 # graph.stores imports graph.core, so graph.core reaches back into graph.stores only from the compatibility

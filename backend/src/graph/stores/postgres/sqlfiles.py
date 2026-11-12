@@ -17,6 +17,7 @@ ADAPTER_ROOT: Final = Path(__file__).resolve().parent
 CORE_SQL_DIRECTORY: Final = ADAPTER_ROOT / "queries" / "core"
 BUILD_SQL_DIRECTORY: Final = ADAPTER_ROOT / "queries" / "build"
 PLAN_SQL_DIRECTORY: Final = ADAPTER_ROOT / "queries" / "plan"
+GAP_SQL_DIRECTORY: Final = ADAPTER_ROOT / "queries" / "gap"
 DDL_DIRECTORY: Final = ADAPTER_ROOT / "ddl"
 COMMENT_PREFIX: Final = "--"
 STATEMENT_END: Final = ";"
@@ -51,6 +52,12 @@ def load_plan_sql(name: str) -> str:
     """The text of the plan query file ``name`` (relative to ``queries/plan/``)."""
 
     return read_sql_file(PLAN_SQL_DIRECTORY, name)
+
+
+def load_gap_sql(name: str) -> str:
+    """The text of the gap query file ``name`` (relative to ``queries/gap/``)."""
+
+    return read_sql_file(GAP_SQL_DIRECTORY, name)
 
 
 def load_ddl_sql(name: str) -> str:

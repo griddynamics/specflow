@@ -316,9 +316,9 @@ async def test_a_relation_without_its_ddl_statement_fails_loudly(ontology: Ontol
 def test_a_foreign_label_without_its_ddl_statement_fails_loudly(tmp_path: Path) -> None:
     gap = load_gap_ontology(tmp_path)
     with pytest.raises(ConfigurationError) as raised:
-        schema_objects(gap)  # the shipped DDL covers neither the gap relations nor its foreign label
+        schema_objects(gap)  # the shipped DDL covers the shipped finding label, not this ontology's relations
     assert raised.value.code == "schema_ddl_incomplete"
-    assert raised.value.fields["missing"] == 3
+    assert raised.value.fields["missing"] == 2
     ddl = tuple(statement for statement in load_gap_ddl(tmp_path) if "graph_foreign_uuid_finding " not in statement)
     with pytest.raises(ConfigurationError) as raised:
         schema_objects(gap, ddl)

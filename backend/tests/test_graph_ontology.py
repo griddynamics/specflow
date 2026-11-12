@@ -153,7 +153,7 @@ def test_shipped_ontology_loads_with_twelve_types_and_eleven_relations(shipped: 
     assert shipped.extracted_labels == tuple(EXTRACTED_LABELS)
     assert shipped.extracted_relations == tuple(RELATIONS)
     assert shipped.name == "spec-ontology"
-    assert shipped.version == "2.0"
+    assert shipped.version == "2.1"
     assert shipped.framing == "a software specification"
     assert "people" in shipped.exclude
 

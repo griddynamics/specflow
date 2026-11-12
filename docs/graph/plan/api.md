@@ -91,8 +91,11 @@ are named by `spec_id` (aliases resolve to the current node).
 | `task(project_id, task_id) -> PlanTask \| None` | One task with its prerequisites, dependants, predecessor and successor revision |
 | `tasks_for(project_id, spec_ids, *, include_closed=False) -> list[PlanTask]` | Tasks that implement any of the given spec nodes; with `GraphReader.impact` this answers "which tasks does a spec change touch" |
 
-`PlanTask`: the task properties of [data-model.md](data-model.md) except `claim_token`, `uuid` and
-`_lock`, plus `waits_for`, `waited_by`, `predecessor` and `successor` (the revision links).
+`PlanTask`: the task properties of [data-model.md](data-model.md) except `claim_token`, `uuid`, `_lock` and
+the story-claim fields `progress`, `completed_by`, `completed_at` and `blocked_by`, plus `waits_for`,
+`waited_by`, `predecessor` and `successor` (the revision links). Reads that show the story-claim fields
+return a `StoryTask` ("Plan service"), never a `PlanTask`; this keeps the shape of every task read that
+exists today.
 
 ## Task lifecycle
 
@@ -118,7 +121,7 @@ transaction ([lifecycle.md](lifecycle.md) "Transitions"); a call that does not a
 
 ## Plan service
 
-`PlanService(store_or_executor, ontology, rules)` answers the task questions of the plan's callers (the MCP plan
+`PlanService(store_or_executor, ontology, rules, *, graph=None, load=None, clock=None, findings=None)` answers the task questions of the plan's callers (the MCP plan
 tools; the REST app can use it too) from one read of the persisted plan per call, so a host checks access, pages and
 renders and composes nothing. Superseded and retired tasks are history: never listed, never on a path, never briefed.
 A project without a plan raises `PlanReadError("no_plan")`.
@@ -129,12 +132,19 @@ A project without a plan raises `PlanReadError("no_plan")`.
 | `feature_tasks(project_id, feature_id) -> FeatureTasks` | The tasks of the active stories the feature anchors and the tasks that implement it or a node of its `GraphReader.scope`, ordered by `task_id`; a node that is not of the `feature` type: `PlanReadError("feature_not_found")` |
 | `task_path(project_id, task_id) -> TaskPath` | Every transitive prerequisite in build order (lowest `task_id` first among equals), then the task; `completed` counts finished prerequisites |
 | `task_brief(project_id, task_id, *, neighbours=30) -> TaskBrief` | `TaskLifecycle.task_brief` from the same read; an unknown, superseded or retired task: `PlanReadError("task_not_found")` |
-| `story_brief(project_id, story_id, *, neighbours=30) -> StoryBrief` | The story brief of [lifecycle.md](lifecycle.md) "Story brief"; a retired or unknown story: `PlanReadError("story_not_found")` |
-| `trace(project_id, *, story_id=None, spec_ids=None, direction, ...) -> PlanTrace` | The plan overlay of [../trace.md](../trace.md) "Plan overlay" |
+| `story_brief(project_id, story_id, *, neighbours=30) -> StoryBrief` | The story brief of [lifecycle.md](lifecycle.md) "Story brief" from one graph read and one plan load, with `findings`: the open findings about the anchor and implemented nodes (`OpenFinding`, blocking first, at most 200; empty without the port). A retired or unknown story: `PlanReadError("story_not_found")` |
+| `trace(project_id, *, story_id=None, spec_ids=None, **options) -> PlanTrace` | The plan overlay of [../trace.md](../trace.md) "Plan overlay". `options` is a `TraceOptions`: `direction` (required), `depth` (2), `basis` (`trusted`), `relations` (none), `include_owner` (true), `limit` (100). Exactly one of `story_id` and `spec_ids`, else `ConfigurationError("invalid_arguments")`; the graph arguments are checked by `GraphReader.trace` ([../trace.md](../trace.md) "Library") |
+| `check_block(project_id, story_id, *, claimed_by, claim_token, spec_ids) -> None` | The guard of a blocking finding, a host call: `claimed_by` holds the story under `claim_token` and a node of `spec_ids` is implemented by an open or completed task of the story; else `TaskStateError("claim_mismatch")`, the same answer for an unknown story, a story nobody holds and a wrong token ([../gap.md](../gap.md) "Blocking link") |
+
+`PlanService` takes its graph reads (`graph`, default a `GraphReader` over the same executor), its plan loader
+(`load`) and its clock (`clock`) as arguments so tests can replace them. `findings` is the optional
+`FindingsReads` port ("Ports") that the host fills with `graph.gap.Findings`; without it every findings field
+below is empty and every count 0.
 
 A `TaskItem` names its area and story (`AreaRef`, `StoryRef`; the story title only while the story is active), its
-readiness, `waits_for`, `planned_by` and, while `in_progress`, `progress`; a completed one also `commit`,
-`completed_by` and `completed_at`.
+readiness, `waits_for` and `planned_by`. It carries no claim fields. `StoryTask(TaskItem)`, returned by the story
+calls (`claim_story`, `report_progress`), adds `progress` (while `in_progress` under the claim) and, once
+completed, `commit`, `completed_by` and `completed_at`; the claim token is never part of it.
 
 ### Story reads for people
 
@@ -145,7 +155,7 @@ Rows name holders by user id; the host turns them into names. `state` is the sto
 |---|---|
 | `area_summary(project_id) -> tuple[AreaSummary, ...]` | Per active area, project area last: `area_id`, `title`, `kind`, stories per state, the holders of its held stories, `open_tasks` |
 | `story_list(project_id, *, view="open", caller, area_id=None, finding_ids=()) -> tuple[StoryRow, ...]` | Active stories as rows: `rank`, `story_id`, `title`, `kind`, `state`, holder (`claimed_by`, `claimed_at`, `agent_label`), `waits_on` (up to 3 stories with unfinished work the unit waits for), `tasks` (open count), `unblocks` (stories that wait for it), `blocked_by` (finding ids). `open`: every state but `completed`, `ready` first (by `release`, then `unblocks` descending, then `story_id`), then `in_progress`, `waiting`, `blocked`. `mine`: held by `caller`, plus stories with a task blocked by one of `finding_ids` (the host passes the caller's open findings). `done`: `completed` stories newest first, with `pr_url`, `commit`, `completed_by` and `completed_at` of their last completed task. Unknown `area_id`: `PlanReadError("area_not_found")` |
-| `story_preview(project_id, story_id) -> StoryPreview` | The story, its state, claim (holder, `claimed_at`, `agent_label`, `branch`, `note`), the unit's story ids, its open tasks in topological order (`task_id`, `title`, `status`, `ready`, `complexity`, `progress`), the blockers outside the unit (story, state, holder) and `unblocks`. Never the claim token. Unknown or retired: `PlanReadError("story_not_found")` |
+| `story_preview(project_id, story_id) -> StoryPreview` | The story, its state, claim (holder, `claimed_at`, `agent_label`, `branch`, `note`), the unit's story ids, its open tasks in topological order (`task_id`, `title`, `status`, `ready`, `complexity`, `progress`), the blockers outside the unit (story, state, holder) and `unblocks`. `findings`: the open findings about the nodes its open tasks implement (as in the story brief). Never the claim token. Unknown or retired: `PlanReadError("story_not_found")` |
 
 ### Story calls
 
@@ -158,10 +168,10 @@ task outside the claim (`invalid_done`). State refusals raise `TaskStateError`.
 
 | Method | Contract |
 |---|---|
-| `claim_story(project_id, story_id, *, claimed_by, agent_label=None, branch=None) -> StoryClaim` | `claim_token`, `story_ids` (the unit, the asked story first), `tasks` (topological order), `claimed_at`, `repeat` |
+| `claim_story(project_id, story_id, *, claimed_by, agent_label=None, branch=None) -> StoryClaim` | `claim_token`, `story_ids` (the unit, the asked story first), `tasks` (`StoryTask`s in topological order), `claimed_at`, `repeat` |
 | `release_story(project_id, story_id, *, claim_token=None, force=False, note=None, branch=None) -> StoryRelease` | `released` (task ids), `repeat`; `force=True` is a host operation |
-| `report_progress(project_id, task_id, *, claim_token, progress, note=None) -> TaskItem` | The task after the report |
-| `complete_story(project_id, story_id, *, claim_token, completed_by, merge_commit, pr_url=None, done=None) -> StoryCompletion` | `completed`, `released`, `now_available` (story ids), `spec_changed` (spec ids), `repeat` |
+| `report_progress(project_id, task_id, *, claim_token, progress, note=None) -> StoryTask` | The task after the report. A task that is not `in_progress` or not under the held token: `claim_mismatch`; an unknown task: `unknown_task` |
+| `complete_story(project_id, story_id, *, claim_token, completed_by, merge_commit, pr_url=None, done=None) -> StoryCompletion` | `completed`, `released`, `now_available` (story ids), `spec_changed` (spec ids: the implemented nodes a build wrote after the plan's consumed builds), `repeat` |
 | `block_story(project_id, story_id, *, claim_token, reason, finding_id) -> StoryRelease` | `released` holds the blocked task ids; called by the host for a blocking finding ([../gap.md](../gap.md) "Blocking link") |
 | `unblock_finding(project_id, finding_id) -> tuple[str, ...]` | The task ids moved back to `pending`; a host operation |
 
@@ -188,6 +198,7 @@ Port methods are `async`.
 | Port | Methods |
 |---|---|
 | `PlanStore` | `create_run(record)`, `get_run(project_id, run_id)`, `latest_run(project_id, *, finished_only=False, modes=None)`, `put_progress(project_id, run_id, step, state)`, `finish_run(result)`, `get_result(project_id, run_id)`; `put_artifact(project_id, run_id, step, payload)`, `get_artifact(project_id, run_id, step)`; `get_answer(project_id, kind, key, reuse_key, *, run_id=None)`, `put_answer(project_id, kind, key, reuse_key, run_id, *, payload)` with kinds `describe`, `project`, `tasks`; `get_revisions(project_id)`, `put_revisions(project_id, revisions)` exchanging `MeaningRevisions` (`nodes`: `spec_id` → build id of its meaning revision; `consumed`: the consumed build chain) |
+| `FindingsReads` | `open_counts(project_id, spec_ids) -> Mapping[str, int]`, `findings(project_id, *, spec_ids=None, limit=50) -> page with .findings`: structural, satisfied by `graph.gap.Findings` as it is; `graph.plan` never imports `graph.gap`. Optional: `PlanService(..., findings=)` |
 
 `open_plan_store(root)` stores per-project paths, gzip-compressed JSON, atomic writes (write then
 rename), like the build file stores. One contract test suite runs against every implementation.
@@ -230,7 +241,11 @@ every client.
 | `list_areas`, `list_stories`, `preview_story` | `PlanService.area_summary`, `story_list`, `story_preview` |
 | `claim_story`, `release_story`, `report_task`, `complete_story` | `PlanService.claim_story`, `release_story` (without `force`), `report_progress`, `complete_story` |
 | `get_story_brief`, `trace` | `PlanService.story_brief`, `trace` |
-| `add_finding` with `blocking` | `PlanService.block_story` after the finding is written ([../gap.md](../gap.md) "Blocking link") |
+| `add_finding` with `blocking` | `PlanService.check_block` before the finding is written, `block_story` after it ([../gap.md](../gap.md) "Blocking link"): composed by `graph.gap.FindingFlow` with `PlanService` as its `StoryBlocks` port |
+
+The API maps library error codes to the tool's by one table, which also covers the renames (`TaskStateError`
+`unknown_task` becomes `task_not_found`, `unknown_story` and a retired story's `wrong_state` become
+`story_not_found`): [../../mcp-server/tools.md](../../mcp-server/tools.md#library-calls-used-by-the-story-and-spec-tools).
 
 Task claims (`claim_task`, `claim_next` and the other task calls), `retry_task`, `unblock_task`,
 `unblock_finding`, `stale_claims`, forced releases and plan runs stay host operations. Checking that a

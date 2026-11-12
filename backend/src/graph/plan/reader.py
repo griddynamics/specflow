@@ -80,7 +80,7 @@ class LoadedPlan:
 
     def plan_task(self, task: CurrentTask) -> PlanTask:
         return PlanTask(
-            **task.model_dump(),
+            **task.core(),
             waits_for=self.waits.get(task.task_id, ()),
             waited_by=self.waited_by.get(task.task_id, ()),
             predecessor=self.predecessors.get(task.task_id),
@@ -129,12 +129,18 @@ class PlanReader:
     """Project-scoped reads of the persisted plan."""
 
     def __init__(
-        self, driver_or_executor: Any, ontology: Ontology, rules: PlanRules, *, database: str | None = None
+        self,
+        driver_or_executor: Any,
+        ontology: Ontology,
+        rules: PlanRules,
+        *,
+        database: str | None = None,
+        graph: Any = None,
     ) -> None:
         self._executor = executor_of(driver_or_executor, database)
         self._ontology = ontology
         self._rules = rules
-        self._graph = GraphReader(self._executor, ontology, database=database)
+        self._graph = graph or GraphReader(self._executor, ontology, database=database)
 
     async def plan(self, project_id: str) -> PlanInfo | None:
         """The ``Plan`` node, or None before the first plan run."""
@@ -242,7 +248,7 @@ class PlanReader:
         waits_on, waited_by = _story_neighbours(loaded, story_id)
         return StoryDetail(
             story=view,
-            anchor=_node_summary(anchor) if anchor is not None else None,
+            anchor=node_summary(anchor) if anchor is not None else None,
             members=tuple(members),
             tasks=tuple(loaded.plan_task(loaded.tasks[task_id]) for task_id in order),
             waits_on=waits_on,
@@ -394,7 +400,7 @@ def story_view(loaded: LoadedPlan, story_id: str) -> PlanStory | None:
     if story is None:
         return None
     return PlanStory(
-        **story.model_dump(),
+        **story.core(),
         progress=loaded.progress(story_id),
         task_counts=_counts(task.status for task in loaded.story_tasks(story_id)),
     )
@@ -423,5 +429,5 @@ def spec_aliases(nodes: Iterable[GraphNode]) -> dict[str, str]:
     return {alias: node.spec_id for node in nodes for alias in node.spec_id_aliases if alias != node.spec_id}
 
 
-def _node_summary(node: GraphNode) -> dict[str, Any]:
+def node_summary(node: GraphNode) -> dict[str, Any]:
     return {"spec_id": node.spec_id, "label": node.label, "name": node.name, "attributes": dict(node.attributes)}

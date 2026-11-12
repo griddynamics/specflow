@@ -132,7 +132,7 @@ def test_the_v2_docs_template_loads_with_no_problem(tmp_path: Path) -> None:
         write(tmp_path, DOCS_TEMPLATE.read_text(encoding="utf-8"), extra_prompts=missing, prompts_from=SHIPPED_PROMPTS),
         submodule_files=[],
     )
-    assert template.version == "2.0"
+    assert template.version == "2.1"
     answered = AnsweredElsewhereSpec("OpenQuestion", "judge_answered_elsewhere", 4, 0.35, 0.8, 60)
     assert template.conform_spec() == ConformSpec("judge_owner_conflict", 200, 0.7, "RELATES_TO", answered)
     assert [rule.id for rule in template.inference.rules][-1] == "INF-XDOC-01"
@@ -214,10 +214,10 @@ def test_the_shipped_file_has_the_structure_of_the_docs_template() -> None:
 
 @pytest.mark.parametrize("path", [SHIPPED_FILE, DOCS_TEMPLATE], ids=["shipped", "docs-template"])
 def test_the_requirement_group_reads_a_table_as_the_sentences_it_stands_for(path: Path) -> None:
-    """at ontology level, in both copies; the version stays 2.0."""
+    """at ontology level, in both copies; the version is 2.1."""
 
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    assert data["version"] == "2.0"
+    assert data["version"] == "2.1"
     text = " ".join(data["node_groups"]["requirement"]["description"].split())
     for rule in (
         "A table stands for sentences: read it as them.",

@@ -1,8 +1,8 @@
 # Graph schema of the Neo4j spec graph, read by validation/cypher (cypher-checks).
 # Source of truth: docs/graph/data-model.md and src/graph/core/ontology/spec-ontology.yaml
-# (domain labels and relation names) and src/graph/plan/ontology.yaml (plan labels and relation
-# names); constraints and indexes: the
-# static DDL files under src/graph/core/ddl/ and src/graph/plan/ddl/, applied by
+# (domain labels and relation names), src/graph/plan/ontology.yaml (plan labels and relation
+# names) and src/graph/gap/ontology.yaml (finding labels and relation names); constraints and indexes: the
+# static DDL files under src/graph/core/ddl/, src/graph/plan/ddl/ and src/graph/gap/ddl/, applied by
 # src/graph/core/schema.py (ensure_schema).
 #
 # Every node and relationship also carries `group_id` (= project_id). Uniqueness and range
@@ -128,9 +128,17 @@ nodes:
       prompt_ref: {type: string}
       release: {type: string}
       status: {type: string, enum: [active, retired]}
+      claimed_by: {type: string}
+      claimed_at: {type: timestamp}
+      agent_label: {type: string}
+      claim_token: {type: string}
+      branch: {type: string}
+      note: {type: string}
+      pr_url: {type: string}
       created_at: {type: timestamp}
       updated_at: {type: timestamp}
       last_run_id: {type: string}
+      _lock: {type: boolean}
   Task:
     properties:
       uuid: {type: string}
@@ -157,12 +165,41 @@ nodes:
       attempts: {type: integer}
       commit: {type: string}
       block_reason: {type: string}
+      blocked_by: {type: string}
+      progress: {type: string, enum: [done, skipped, todo]}
+      completed_by: {type: string}
+      completed_at: {type: timestamp}
       note: {type: string}
       created_at: {type: timestamp}
       updated_at: {type: timestamp}
       created_run_id: {type: string}
       last_run_id: {type: string}
       _lock: {type: boolean}
+
+  Finding:
+    properties:
+      uuid: {type: string}
+      finding_id: {type: string}
+      kind: {type: string, enum: [gap, conflict, question, note]}
+      text: {type: string}
+      origin: {type: string, enum: [agent, analysis, human]}
+      status: {type: string, enum: [open, resolved, dismissed]}
+      blocking: {type: boolean}
+      about_spec_ids: {type: "list<string>"}
+      story_id: {type: string}
+      created_by: {type: string}
+      created_at: {type: timestamp}
+      resolved_by: {type: string}
+      resolved_at: {type: timestamp}
+      resolution_note: {type: string}
+      orphaned: {type: boolean}
+      dedupe_key: {type: string}
+      updated_at: {type: timestamp}
+  ExternalRef:
+    properties:
+      uuid: {type: string}
+      type: {type: string, enum: [pr, commit, file, url]}
+      value: {type: string}
 
 relationships:
   # Domain edges (ontology edge_types) between spec nodes. The legal label pairs are the
@@ -203,6 +240,15 @@ relationships:
     from: [Task]
     to: [Task]
     properties: [group_id, edge_key]
+  # Gap relationships (owner: gap, src/graph/gap/ontology.yaml).
+  ABOUT:
+    from: [Finding]
+    to: [SpecNode, Module, Feature, Capability, Interface, DataEntity, FunctionalRequirement, QualityRequirement, Constraint, BusinessRule, IntegrationRequirement, DataRequirement, OpenQuestion, Fragment]
+    properties: [group_id, edge_key]
+  REFERS_TO:
+    from: [Finding]
+    to: [ExternalRef]
+    properties: [group_id, edge_key]
   # Structural relationships owned by build.
   # `__LABEL__` (the keyed-node placeholder above) also starts a CONTAINS: it stands for Document,
   # so keyed_node_relationship_types.cypher reads the relationships of a real keyed-node shape.
@@ -233,7 +279,7 @@ constraints:
   # Parity expands the entry to the concrete labels of policy.placeholder_labels.__FOREIGN_LABEL__.
   unique: [SpecNode.spec_id, SpecNode.uuid, Document.document_id, Fragment.fragment_id, __FOREIGN_LABEL__.uuid,
            Plan.plan_id, Plan.uuid, WorkArea.area_id, WorkArea.uuid, Story.story_id, Story.uuid,
-           Task.task_id, Task.uuid]
+           Task.task_id, Task.uuid, Finding.finding_id, Finding.uuid, ExternalRef.uuid]
   # src/graph/core/ddl/node_indexes.cypher, relationship_indexes.cypher and
   # src/graph/plan/ddl/plan_schema.cypher (range): the (group_id, edge_key) index of every relation
   # of the shipped ontology plus the plan data-model lookup indexes.
@@ -241,11 +287,12 @@ constraints:
             DEPLOYED_TO.edge_key, GROUPED_BY.edge_key, INTEGRATES_WITH.edge_key, PART_OF.edge_key,
             PROVIDED_BY.edge_key, REALIZED_BY.edge_key, RELATES_TO.edge_key, STORED_IN.edge_key,
             IN_AREA.edge_key, IN_STORY.edge_key, IMPLEMENTS.edge_key, WAITS_FOR.edge_key,
-            SUPERSEDES.edge_key, Task.status, Task.story_id, Story.area_id]
+            SUPERSEDES.edge_key, Task.status, Task.story_id, Story.area_id, ABOUT.edge_key, REFERS_TO.edge_key,
+            Finding.status, Finding.dedupe_key]
 
 policy:
   # Schema DDL: the static CREATE ... IF NOT EXISTS statements of the constraints and indexes.
-  ddl_globs: ["**/graph/core/ddl/*.cypher", "**/graph/plan/ddl/*.cypher"]
+  ddl_globs: ["**/graph/core/ddl/*.cypher", "**/graph/plan/ddl/*.cypher", "**/graph/gap/ddl/*.cypher"]
   # Files that CREATE edges: the re-point of a merged node's foreign relationships (move_foreign_relationships,
   # build_merge_spec_nodes) and the replacement of a node's evidence and mention links.
   create_allowed_globs: ["move_foreign_relationships.cypher", "build_merge_spec_nodes.cypher", "build_replace_node_links.cypher"]
@@ -256,9 +303,9 @@ policy:
   # Placeholder labels and the concrete labels they stand for, which parity expands a declared
   # `Placeholder.property` to (an empty list asks for no DDL; the template on the placeholder itself is
   # declared). __FOREIGN_LABEL__: the foreign labels of the shipped ontology, graph.core.schema.foreign_labels
-  # (the plan labels), each needing its graph_foreign_uuid_<label> DDL.
+  # (the plan and finding labels), each needing its graph_foreign_uuid_<label> DDL.
   placeholder_labels:
-    __FOREIGN_LABEL__: [Plan, Story, Task, WorkArea]
+    __FOREIGN_LABEL__: [ExternalRef, Finding, Plan, Story, Task, WorkArea]
   # project: batch writes whose MERGE key is a row property bound by an UNWIND of $rows (or of a list
   # of such a row) that is not the statement's first clause: the fragment upsert first matches the
   # fragment's document (a row without one writes nothing), and the link replacement stubs each
@@ -272,6 +319,8 @@ policy:
     build_merge_spec_nodes: [SpecNode]
     build_repair_delete_nodes: [SpecNode]
     build_replace_node_links: [REFERENCED_BY, MENTIONED_IN]
+    gap_delete_open_finding: [Finding]
+    gap_delete_unused_refs: [ExternalRef]
   # Variable-length walks: the hard cap is the literal upper bound of the query file, the key the
   # parameter of its length(p) filter. scope_via: a spine `via` path, its file default `{1,3}` is
   # the shipped PART_OF path (spec-ontology.yaml spine.paths); $max_hops is the path's `max`.

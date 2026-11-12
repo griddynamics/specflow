@@ -53,6 +53,7 @@ from graph.core.reader import (
 )
 from graph.core.schema import ensure_schema
 from graph.core.store import Executor, GraphStore, ScopedTransaction, StoreCapabilities, StoreInfo, check
+from graph.core.trace import TraceNode, TraceOwner, TraceResult
 from graph.core.writer import NodeRef, OwnedWriter
 
 # These names load an SDK (the Neo4j access of earlier releases: ``neo4j``; the LLM gateway and judge: ``openai``),
@@ -128,6 +129,9 @@ __all__ = [
     "Statement",
     "StoreCapabilities",
     "StoreInfo",
+    "TraceNode",
+    "TraceOwner",
+    "TraceResult",
     "UsageSnapshot",
     "Verdict",
     "allocate_spec_id",

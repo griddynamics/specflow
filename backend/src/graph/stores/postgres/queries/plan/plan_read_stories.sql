@@ -22,6 +22,13 @@ SELECT
     props -> 'prompt_ref' AS prompt_ref,
     props -> 'release' AS release,
     props -> 'status' AS status,
+    props -> 'claimed_by' AS claimed_by,
+    props -> 'claimed_at' AS claimed_at,
+    props -> 'agent_label' AS agent_label,
+    props -> 'branch' AS branch,
+    props -> 'note' AS note,
+    props -> 'pr_url' AS pr_url,
+    props -> 'claim_token' AS claim_token,
     props -> 'created_at' AS created_at,
     props -> 'updated_at' AS updated_at,
     props -> 'last_run_id' AS last_run_id

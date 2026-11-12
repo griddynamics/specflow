@@ -51,6 +51,7 @@ documents; `exclude`: things never to extract; both go into extraction prompts),
 | `cues` | Regular expressions, matched ignoring case; used by `cue_required` pairs, and on a `stated_only` relation by `cross_document` rules: such an edge is written only when its source-side quote matches a cue. Legalisation of a `cue_required` pair searches each cue anywhere in an evidence line, as a substring (v2.0 behaviour, unchanged); the `cross_document` gate (`Ontology.cue_matches`) matches a cue only as whole words, ignoring case, so `requires` does not match `requirement` but matches `Requires`. A cue must also compile inside that whole-word pattern, so it takes no inline flag such as `(?i)` |
 | `derive` | `<type or group>.<ref attribute>` entries: each resolved reference yields an edge with `basis = implied` |
 | `derive_via` | `{consumer: <relation>, provider: <relation>}`: an implied edge from each module a hub is `consumer` of to the module it is `provider` of. It merges with a stated edge of the same key; stated wins |
+| `impact` | Optional role, one of `uses`, `used_by`, `coupled`, `related`, `contains`, `none`: how an edge of the relation carries a change. It is the default of the relation's pairs; a relation without it is `none`. Read-only: `GraphReader.trace` reads it, extraction, merging and fingerprints never do ([trace.md](trace.md) "Impact roles in the ontology") |
 
 A node's **owner** is its target on an `owner` pair. The owner pairs of a source are all its pairs
 flagged `owner`, of any relation; together they allow at most one target (invariant D6).
@@ -70,6 +71,7 @@ flagged `owner`, of any relation; together they allow at most one target (invari
 | `not_across` | Attributes the ends must share; an edge whose ends differ is quarantined with `where_reason` |
 | `distinct_owner` | The ends must have different owners; an edge between nodes of one owner is dropped as redundant (normalising, never a hard check) |
 | `redundant_via_owner` | Dropped as redundant when the source's owner has the same relation to the same target |
+| `impact` | Optional role overriding the relation's `impact` for this pair (same six values). A pair without it takes the relation's role. `Ontology.impact_role(relation, source, target)` answers the pair's role, else the relation's for a pair the file does not declare |
 
 ### Spine, conform and inference
 
@@ -129,13 +131,20 @@ immutable `Ontology`. Any problem raises one `OntologyError` that lists every pr
 14. Relations normalisation adds late are never checked again: a `derive_via` relation is not `acyclic` and has no `owner` or `exclusive` pair, and the `fallback_relation` has no `source_where` or `target_where` on a pair it can produce (the ends of an owner pair or of an `acyclic` relation's pair, either way round).
 15. `conform.answered_elsewhere` names a declared extracted atomic type and a shipped judge prompt; `candidates` and `cap` are positive integers; `min_cosine` and `floor` lie in 0..1.
 16. `reads` names each rule once, and only rules declared before it in the file (never itself or a later one), and appears only on a `realization` rule (a narrowing of the concept's `reads`): the other templates read only `stated` and `implied` edges, and a `cross_document` rule reads earlier rules' owner edges implicitly ([analysis.md](analysis.md)). `batch` and `batch_prompt` appear only on an `attach_orphan` rule; `batch` is an integer of at least 2 and needs a `batch_prompt`; a `batch_prompt` names a shipped judge prompt (in the file's `judge_prompts/`) and may be named without `batch` (batching off), so a replay can turn batching on (shipped: `INF-CONT-01` and `INF-CONT-02` name `judge_attach_orphan_batch`, no `batch`).
+17. `impact` on a relation or a pair is one of the six roles; any other value is rejected as a format error before the checks run. A relation or pair without `impact` is `none`, so an ontology written before the field loads unchanged.
+18. A `symmetric` relation has no `contains` role on any pair, and the roles of a pair and its reverse are inverses: `uses` with `used_by`, every other role with itself ([trace.md](trace.md) "Impact roles in the ontology").
+19. `contains` (on a relation or a pair) needs the relation to have at least one `owner` pair or to be named by a spine path.
 
 ## Ontology files of submodules
 
 Each submodule ships its own ontology file as package data: `graph.core` ships the build file
 ([spec-ontology.yaml](spec-ontology.yaml), `owner: build`), `graph.plan` ships `graph/plan/ontology.yaml` (`owner: plan`,
 [plan/ontology.md](plan/ontology.md)), and `graph.gap` ships `graph/gap/ontology.yaml` (`owner: gap`, origin `agent` for its
-findings, [gap.md](gap.md) "Ontology file"). `load_ontology` merges the shipped files of the installed
+findings, [gap.md](gap.md) "Ontology file"). Beside its ontology file a submodule ships its own queries and DDL, and
+every query is registered by name in each store's dialect: `graph.gap` ships `graph/gap/ddl/gap_schema.cypher` and
+`graph/gap/queries/*.cypher`, registered as `gap.<name>` in the Cypher dialect (`stores/_bolt/cypher.py`) with SQL ports in
+`stores/postgres/queries/gap/` (`stores/postgres/dialect.py`); `graph.plan` does the same under `graph/plan/ddl/` and
+`graph/plan/queries/`. `load_ontology` merges the shipped files of the installed
 submodules into one `Ontology` and validates the union, so names stay unique across files and pairs may
 cross owners (for example a gap relation from a finding to a `FunctionalRequirement`). Vocabularies and
 node groups are shared by name across files; one declared in two files must be declared the same. The
@@ -183,12 +192,16 @@ Rules for prompt-text changes:
    metrics (`spine_unreachable`, `dropped_edges`, `exclusive_conflicts`, `label_disagreement`,
    `fragments_without_nodes`, the quarantine counts and the metrics of Rules carried by prompt text)
    and on a reviewed sample of nodes and edges.
-4. Raise the minor `version` (2.0 to 2.1). Prompt text is part of the fingerprint, so the next
+4. Raise the minor `version` (2.1 to 2.2, say). Prompt text is part of the fingerprint, so the next
    `update` build re-extracts what it shaped.
 
-A structure change raises the major `version` (1.3 to 2.0 is one). It changes labels or relations, so
-`update` builds refuse the project (`ontology_changed`) and the project is migrated by dropping its
-graph and building it with `first` ([build.md](build.md) Migration).
+A structure change that alters what a build extracts raises the major `version` (1.3 to 2.0 is one). It
+changes labels or relations, so `update` builds refuse the project (`ontology_changed`) and the project
+is migrated by dropping its graph and building it with `first` ([build.md](build.md) Migration). A new
+optional field that only readers use, with no effect on extraction, merging or any fingerprint, raises
+the minor `version` and needs no migration: `impact` did so (2.0 to 2.1, A44). The plan fingerprint
+includes the ontology version, so every project's plan shows `outdated` once after the deploy; the
+next plan run clears it and reuses everything.
 
 | Label | Role | Group | `spec_id` prefix | Id families | Owner |
 |---|---|---|---|---|---|

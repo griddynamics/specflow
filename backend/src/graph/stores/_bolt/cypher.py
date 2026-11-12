@@ -37,7 +37,14 @@ from graph.core.queries import (
     SimilarTargets,
     safe_name,
 )
-from graph.core.query_files import fragment, load_build_query, load_core_query, load_plan_query, render_query
+from graph.core.query_files import (
+    fragment,
+    load_build_query,
+    load_core_query,
+    load_gap_query,
+    load_plan_query,
+    render_query,
+)
 
 _PROJECT_ID_REFERENCE: Final = re.compile(r"\$project_id\b")
 _STATIC: Final[Mapping[str, Callable[[], str]]] = {
@@ -62,6 +69,7 @@ _STATIC: Final[Mapping[str, Callable[[], str]]] = {
     "core.read_nodes_for_lines": lambda: load_core_query("read_nodes_for_lines.cypher"),
     "core.read_nodes_page": lambda: load_core_query("read_nodes_page.cypher"),
     "core.read_owner_values": lambda: load_core_query("read_owner_values.cypher"),
+    "core.read_trace_hop": lambda: load_core_query("read_trace_hop.cypher"),
     "core.search_fragments": lambda: load_core_query("search_fragments.cypher"),
     "core.search_nodes_fulltext": lambda: load_core_query("search_nodes_fulltext.cypher"),
     "core.search_nodes_vector": lambda: load_core_query("search_nodes_vector.cypher"),
@@ -106,13 +114,21 @@ _STATIC: Final[Mapping[str, Callable[[], str]]] = {
     "build.infer_xdoc_documents": lambda: load_build_query("infer_xdoc_documents.cypher"),
     "build.infer_xdoc_embeddings": lambda: load_build_query("infer_xdoc_embeddings.cypher"),
     "build.infer_xdoc_members": lambda: load_build_query("infer_xdoc_members.cypher"),
+    "gap.gap_delete_open_finding": lambda: load_gap_query("gap_delete_open_finding.cypher"),
+    "gap.gap_delete_unused_refs": lambda: load_gap_query("gap_delete_unused_refs.cypher"),
+    "gap.gap_read_findings": lambda: load_gap_query("gap_read_findings.cypher"),
+    "gap.gap_set_open_finding": lambda: load_gap_query("gap_set_open_finding.cypher"),
     "plan.plan_claim_task": lambda: load_plan_query("plan_claim_task.cypher"),
     "plan.plan_create_tasks": lambda: load_plan_query("plan_create_tasks.cypher"),
+    "plan.plan_lock_stories": lambda: load_plan_query("plan_lock_stories.cypher"),
+    "plan.plan_lock_tasks": lambda: load_plan_query("plan_lock_tasks.cypher"),
     "plan.plan_read_areas": lambda: load_plan_query("plan_read_areas.cypher"),
     "plan.plan_read_plan": lambda: load_plan_query("plan_read_plan.cypher"),
     "plan.plan_read_stories": lambda: load_plan_query("plan_read_stories.cypher"),
     "plan.plan_read_tasks": lambda: load_plan_query("plan_read_tasks.cypher"),
     "plan.plan_set_applying": lambda: load_plan_query("plan_set_applying.cypher"),
+    "plan.plan_set_stories": lambda: load_plan_query("plan_set_stories.cypher"),
+    "plan.plan_set_tasks": lambda: load_plan_query("plan_set_tasks.cypher"),
     "plan.plan_transition_task": lambda: load_plan_query("plan_transition_task.cypher"),
     "plan.plan_update_tasks": lambda: load_plan_query("plan_update_tasks.cypher"),
     "plan.plan_upsert_areas": lambda: load_plan_query("plan_upsert_areas.cypher"),

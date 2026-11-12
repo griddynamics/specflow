@@ -469,6 +469,12 @@
    "project_scoped": true,
    "text": "UNWIND $requests AS request MATCH (n:SpecNode {group_id: $project_id, uuid: request.uuid})-[r]->(o:SpecNode) WHERE type(r) = request.relation AND r.group_id = $project_id AND o.group_id = $project_id AND o.spec_id IS NOT NULL RETURN request.uuid AS uuid, request.relation AS relation, labels(o) AS labels, o.spec_id AS spec_id, [name IN request.attributes | [name, o[name]]] AS attribute_values ORDER BY uuid, relation, spec_id"
   },
+  "const:graph.core.queries.READ_TRACE_HOP": {
+   "binds_project_id": true,
+   "name": "read_trace_hop",
+   "project_scoped": true,
+   "text": "MATCH (n:SpecNode) WHERE n.group_id = $project_id AND n.uuid IN $frontier MATCH (n)-[r]-(m:SpecNode) WHERE type(r) IN $relations AND r.group_id = $project_id AND m.group_id = $project_id AND m.spec_id IS NOT NULL AND any(label IN labels(m) WHERE label IN $labels) WITH n, m, r, startNode(r) AS s RETURN n.uuid AS frontier, m.uuid AS uuid, m.spec_id AS spec_id, labels(m) AS labels, m.name AS name, type(r) AS relation, s.uuid = n.uuid AS outgoing, r.basis AS basis, r.confidence AS confidence, r.inference_rule AS inference_rule ORDER BY frontier, spec_id, relation"
+  },
   "const:graph.core.queries.SEARCH_FRAGMENTS": {
    "binds_project_id": true,
    "name": "search_fragments",
@@ -541,17 +547,53 @@
    "project_scoped": true,
    "text": "OPTIONAL MATCH (old:SpecNode {group_id: $project_id, uuid: $key}) WITH old IS NOT NULL AND NOT $label IN labels(old) AS label_mismatch, old IS NOT NULL AND old.spec_id IS NOT NULL AND 'spec_id' IN keys($props) AND coalesce($props.spec_id <> old.spec_id, true) AS spec_id_changed FOREACH (_ IN CASE WHEN label_mismatch OR spec_id_changed THEN [] ELSE [1] END | MERGE (n:SpecNode {group_id: $project_id, uuid: $key}) ON CREATE SET n:$($label) SET n += $props) RETURN label_mismatch, spec_id_changed"
   },
+  "const:graph.gap.queries.DELETE_OPEN_FINDING": {
+   "binds_project_id": true,
+   "name": "gap_delete_open_finding",
+   "project_scoped": true,
+   "text": "MATCH (f:Finding {group_id: $project_id, finding_id: $finding_id}) WHERE f.status = 'open' DETACH DELETE f RETURN count(*) AS deleted"
+  },
+  "const:graph.gap.queries.DELETE_UNUSED_REFS": {
+   "binds_project_id": true,
+   "name": "gap_delete_unused_refs",
+   "project_scoped": true,
+   "text": "MATCH (x:ExternalRef {group_id: $project_id}) WHERE x.uuid IN $uuids AND NOT (x)<-[:REFERS_TO]-() DETACH DELETE x RETURN count(*) AS deleted"
+  },
+  "const:graph.gap.queries.READ_FINDINGS": {
+   "binds_project_id": true,
+   "name": "gap_read_findings",
+   "project_scoped": true,
+   "text": "MATCH (f:Finding {group_id: $project_id}) WHERE f.status IN $statuses AND ($finding_id IS NULL OR f.finding_id = $finding_id) AND ($created_by IS NULL OR f.created_by = $created_by) AND ($dedupe_key IS NULL OR f.dedupe_key = $dedupe_key) AND (size($spec_ids) = 0 OR any(spec_id IN coalesce(f.about_spec_ids, []) WHERE spec_id IN $spec_ids)) OPTIONAL MATCH (f)-[:REFERS_TO {group_id: $project_id}]->(x:ExternalRef {group_id: $project_id}) WITH f, collect(CASE WHEN x IS NULL THEN NULL ELSE [x.type, x.value] END) AS refs RETURN properties(f) AS finding, refs ORDER BY f.finding_id"
+  },
+  "const:graph.gap.queries.SET_OPEN_FINDING": {
+   "binds_project_id": true,
+   "name": "gap_set_open_finding",
+   "project_scoped": true,
+   "text": "MATCH (f:Finding {group_id: $project_id, finding_id: $finding_id}) WHERE f.status = 'open' SET f += $props, f.updated_at = $now RETURN count(f) AS written"
+  },
   "const:graph.plan.queries.CLAIM_TASK": {
    "binds_project_id": true,
    "name": "plan_claim_task",
    "project_scoped": true,
-   "text": "MATCH (t:Task {group_id: $project_id, task_id: $task_id}) SET t._lock = true REMOVE t._lock WITH t OPTIONAL MATCH (p:Plan {group_id: $project_id}) OPTIONAL MATCH (a:WorkArea {group_id: $project_id, area_id: t.area_id}) OPTIONAL MATCH (s:Story {group_id: $project_id, story_id: t.story_id}) OPTIONAL MATCH (t)-[:WAITS_FOR {group_id: $project_id}]->(w:Task) WITH t, p, a, s, collect(w.status) AS prerequisites WITH t, CASE WHEN p IS NOT NULL AND p.applying IS NOT NULL THEN 'plan_applying' WHEN t.status <> 'pending' THEN 'wrong_state' WHEN a IS NULL OR a.status <> 'active' OR s IS NULL OR s.status <> 'active' THEN 'not_ready' WHEN any(status IN prerequisites WHERE status <> 'completed') THEN 'not_ready' ELSE 'ok' END AS outcome FOREACH (_ IN CASE WHEN outcome = 'ok' THEN [1] ELSE [] END | SET t.status = 'in_progress', t.claim_token = $claim_token, t.claimed_by = $claimed_by, t.claimed_at = $now, t.attempts = coalesce(t.attempts, 0) + 1, t.updated_at = $now ) RETURN outcome, t.status AS status, properties(t) AS task"
+   "text": "MATCH (t:Task {group_id: $project_id, task_id: $task_id}) SET t._lock = true REMOVE t._lock WITH t OPTIONAL MATCH (p:Plan {group_id: $project_id}) OPTIONAL MATCH (a:WorkArea {group_id: $project_id, area_id: t.area_id}) OPTIONAL MATCH (s:Story {group_id: $project_id, story_id: t.story_id}) OPTIONAL MATCH (t)-[:WAITS_FOR {group_id: $project_id}]->(w:Task) WITH t, p, a, s, collect(w.status) AS prerequisites WITH t, s, CASE WHEN p IS NOT NULL AND p.applying IS NOT NULL THEN 'plan_applying' WHEN t.status <> 'pending' THEN 'wrong_state' WHEN s IS NOT NULL AND s.claimed_by IS NOT NULL THEN 'story_claimed' WHEN a IS NULL OR a.status <> 'active' OR s IS NULL OR s.status <> 'active' THEN 'not_ready' WHEN any(status IN prerequisites WHERE status <> 'completed') THEN 'not_ready' ELSE 'ok' END AS outcome FOREACH (_ IN CASE WHEN outcome = 'ok' THEN [1] ELSE [] END | SET t.status = 'in_progress', t.claim_token = $claim_token, t.claimed_by = $claimed_by, t.claimed_at = $now, t.attempts = coalesce(t.attempts, 0) + 1, t.updated_at = $now ) RETURN outcome, t.status AS status, properties(t) AS task, s.claimed_by AS holder, s.claimed_at AS held_at"
   },
   "const:graph.plan.queries.CREATE_TASKS": {
    "binds_project_id": true,
    "name": "plan_create_tasks",
    "project_scoped": true,
    "text": "UNWIND $rows AS row MERGE (t:Task {group_id: $project_id, task_id: row.id}) ON CREATE SET t += row.properties, t.uuid = row.uuid, t.attempts = 0, t.created_at = $now, t.updated_at = $now, t.created_run_id = $run_id, t.last_run_id = $run_id RETURN count(t) AS written"
+  },
+  "const:graph.plan.queries.LOCK_STORIES": {
+   "binds_project_id": true,
+   "name": "plan_lock_stories",
+   "project_scoped": true,
+   "text": "UNWIND $story_ids AS story_id MATCH (s:Story {group_id: $project_id, story_id: story_id}) SET s._lock = true REMOVE s._lock RETURN s.story_id AS story_id, properties(s) AS story ORDER BY story_id"
+  },
+  "const:graph.plan.queries.LOCK_TASKS": {
+   "binds_project_id": true,
+   "name": "plan_lock_tasks",
+   "project_scoped": true,
+   "text": "MATCH (t:Task {group_id: $project_id}) WHERE t.story_id IN $story_ids WITH t ORDER BY t.task_id SET t._lock = true REMOVE t._lock RETURN t.task_id AS task_id, t.status AS status ORDER BY task_id"
   },
   "const:graph.plan.queries.READ_AREAS": {
    "binds_project_id": true,
@@ -569,13 +611,13 @@
    "binds_project_id": true,
    "name": "plan_read_stories",
    "project_scoped": true,
-   "text": "MATCH (s:Story) WHERE s.group_id = $project_id RETURN s.story_id AS story_id, s.area_id AS area_id, s.kind AS kind, s.anchor AS anchor, s.chapter AS chapter, s.title AS title, s.summary AS summary, s.prompt_ref AS prompt_ref, s.release AS release, s.status AS status, s.created_at AS created_at, s.updated_at AS updated_at, s.last_run_id AS last_run_id ORDER BY story_id"
+   "text": "MATCH (s:Story) WHERE s.group_id = $project_id RETURN s.story_id AS story_id, s.area_id AS area_id, s.kind AS kind, s.anchor AS anchor, s.chapter AS chapter, s.title AS title, s.summary AS summary, s.prompt_ref AS prompt_ref, s.release AS release, s.status AS status, s.claimed_by AS claimed_by, s.claimed_at AS claimed_at, s.agent_label AS agent_label, s.branch AS branch, s.note AS note, s.pr_url AS pr_url, s.claim_token AS claim_token, s.created_at AS created_at, s.updated_at AS updated_at, s.last_run_id AS last_run_id ORDER BY story_id"
   },
   "const:graph.plan.queries.READ_TASKS": {
    "binds_project_id": true,
    "name": "plan_read_tasks",
    "project_scoped": true,
-   "text": "MATCH (t:Task) WHERE t.group_id = $project_id RETURN t.task_id AS task_id, t.area_id AS area_id, t.action AS action, t.revision AS revision, t.story_id AS story_id, t.phase AS phase, t.title AS title, t.description AS description, t.done_when AS done_when, t.complexity AS complexity, t.implements AS implements, t.release AS release, t.has_open_questions AS has_open_questions, t.planned_by AS planned_by, t.prompt_ref AS prompt_ref, t.spec_build_id AS spec_build_id, t.status AS status, t.claimed_by AS claimed_by, t.claimed_at AS claimed_at, t.attempts AS attempts, t.commit AS commit, t.block_reason AS block_reason, t.note AS note, t.created_at AS created_at, t.updated_at AS updated_at, t.created_run_id AS created_run_id, t.last_run_id AS last_run_id ORDER BY task_id"
+   "text": "MATCH (t:Task) WHERE t.group_id = $project_id RETURN t.task_id AS task_id, t.area_id AS area_id, t.action AS action, t.revision AS revision, t.story_id AS story_id, t.phase AS phase, t.title AS title, t.description AS description, t.done_when AS done_when, t.complexity AS complexity, t.implements AS implements, t.release AS release, t.has_open_questions AS has_open_questions, t.planned_by AS planned_by, t.prompt_ref AS prompt_ref, t.spec_build_id AS spec_build_id, t.status AS status, t.claimed_by AS claimed_by, t.claimed_at AS claimed_at, t.attempts AS attempts, t.commit AS commit, t.block_reason AS block_reason, t.blocked_by AS blocked_by, t.progress AS progress, t.completed_by AS completed_by, t.completed_at AS completed_at, t.note AS note, t.claim_token AS claim_token, t.created_at AS created_at, t.updated_at AS updated_at, t.created_run_id AS created_run_id, t.last_run_id AS last_run_id ORDER BY task_id"
   },
   "const:graph.plan.queries.SET_APPLYING": {
    "binds_project_id": true,
@@ -583,11 +625,23 @@
    "project_scoped": true,
    "text": "MERGE (p:Plan {group_id: $project_id, plan_id: $plan_id}) ON CREATE SET p.uuid = $uuid, p.created_at = $now SET p.applying = $run_id, p.updated_at = $now RETURN p.plan_id AS plan_id"
   },
+  "const:graph.plan.queries.SET_STORIES": {
+   "binds_project_id": true,
+   "name": "plan_set_stories",
+   "project_scoped": true,
+   "text": "UNWIND $rows AS row MATCH (s:Story {group_id: $project_id, story_id: row.id}) SET s += row.properties, s.updated_at = $now RETURN count(s) AS written"
+  },
+  "const:graph.plan.queries.SET_TASKS": {
+   "binds_project_id": true,
+   "name": "plan_set_tasks",
+   "project_scoped": true,
+   "text": "UNWIND $rows AS row MATCH (t:Task {group_id: $project_id, task_id: row.id}) SET t += row.properties, t.updated_at = $now RETURN count(t) AS written"
+  },
   "const:graph.plan.queries.TRANSITION_TASK": {
    "binds_project_id": true,
    "name": "plan_transition_task",
    "project_scoped": true,
-   "text": "MATCH (t:Task {group_id: $project_id, task_id: $task_id}) SET t._lock = true REMOVE t._lock WITH t, CASE WHEN NOT t.status IN $from_statuses THEN 'wrong_state' WHEN $check_token AND coalesce(t.claim_token, '') <> $claim_token THEN 'claim_mismatch' ELSE 'ok' END AS outcome FOREACH (_ IN CASE WHEN outcome = 'ok' THEN [1] ELSE [] END | SET t += $properties, t.updated_at = $now ) RETURN outcome, t.status AS status, properties(t) AS task"
+   "text": "MATCH (t:Task {group_id: $project_id, task_id: $task_id}) SET t._lock = true REMOVE t._lock WITH t OPTIONAL MATCH (s:Story {group_id: $project_id, story_id: t.story_id}) WITH t, s, CASE WHEN NOT t.status IN $from_statuses THEN 'wrong_state' WHEN s IS NOT NULL AND s.claimed_by IS NOT NULL THEN 'story_claimed' WHEN $check_token AND coalesce(t.claim_token, '') <> $claim_token THEN 'claim_mismatch' ELSE 'ok' END AS outcome FOREACH (_ IN CASE WHEN outcome = 'ok' THEN [1] ELSE [] END | SET t += $properties, t.updated_at = $now ) RETURN outcome, t.status AS status, properties(t) AS task, s.claimed_by AS holder, s.claimed_at AS held_at"
   },
   "const:graph.plan.queries.UPDATE_TASKS": {
    "binds_project_id": true,

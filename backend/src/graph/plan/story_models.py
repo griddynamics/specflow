@@ -1,0 +1,131 @@
+"""Answers of the story calls and the story reads for people (api.md "Story reads for people", "Story calls").
+
+A holder is always a user id string; the host turns it into a name. No answer carries a claim token except
+``StoryClaim``, the answer to the claim itself.
+"""
+
+from __future__ import annotations
+
+from pydantic import AwareDatetime, Field
+
+from graph.plan.findings_port import OpenFinding
+from graph.plan.models import PlanModel, StoryRef, TaskItem
+from graph.plan.names import AreaKind, StoryKind, StoryState, TaskProgress, TaskStatus
+
+
+class StoryTask(TaskItem):
+    """A task item with what a story claim adds: ``progress`` while the task is ``in_progress`` under the claim, and
+    the completion record (``commit``, ``completed_by``, ``completed_at``) of a completed one."""
+
+    progress: TaskProgress | None = None
+    commit: str | None = None
+    completed_by: str | None = None
+    completed_at: AwareDatetime | None = None
+
+
+class StoryClaim(PlanModel):
+    """A story claim: the token, the unit's story ids (the asked story first), the claimed tasks in topological
+    order, when the claim began, and whether this call only repeated it."""
+
+    claim_token: str = Field(min_length=1)
+    story_ids: tuple[str, ...]
+    tasks: tuple[StoryTask, ...]
+    claimed_at: AwareDatetime
+    repeat: bool = False
+
+
+class StoryRelease(PlanModel):
+    """The task ids a release or block returned to ``pending`` or ``blocked``; ``repeat`` when nothing changed."""
+
+    released: tuple[str, ...]
+    repeat: bool = False
+
+
+class StoryCompletion(PlanModel):
+    """What ``complete_story`` did: the tasks completed and released, the stories now claimable and the spec ids that
+    changed since the plan consumed them."""
+
+    completed: tuple[str, ...]
+    released: tuple[str, ...]
+    now_available: tuple[str, ...]
+    spec_changed: tuple[str, ...]
+    repeat: bool = False
+
+
+class AreaSummary(PlanModel):
+    """One active area: its stories per state (every state listed), the holders of its held stories and its open
+    tasks."""
+
+    area_id: str
+    title: str | None
+    kind: AreaKind
+    stories: dict[str, int]
+    holders: tuple[str, ...]
+    open_tasks: int
+
+
+class StoryRow(PlanModel):
+    """One story of a list: its state, holder, what it waits on and unblocks; a completed one adds ``pr_url`` and its
+    last completed task's ``commit``, ``completed_by`` and ``completed_at``."""
+
+    rank: int
+    story_id: str
+    area_id: str
+    title: str
+    kind: StoryKind
+    release: str | None
+    state: StoryState
+    claimed_by: str | None
+    claimed_at: AwareDatetime | None
+    agent_label: str | None
+    waits_on: tuple[StoryRef, ...]
+    tasks: int
+    unblocks: int
+    blocked_by: tuple[str, ...]
+    pr_url: str | None = None
+    commit: str | None = None
+    completed_by: str | None = None
+    completed_at: AwareDatetime | None = None
+
+
+class PreviewTask(PlanModel):
+    """An open task of a previewed unit."""
+
+    task_id: str
+    title: str
+    status: TaskStatus
+    ready: bool
+    complexity: str
+    progress: TaskProgress | None
+
+
+class StoryBlocker(PlanModel):
+    """A story outside the unit with unfinished work the unit waits for."""
+
+    story_id: str
+    title: str | None
+    state: StoryState
+    claimed_by: str | None
+
+
+class StoryPreview(PlanModel):
+    """What a person sees before claiming: the story, its state and claim (never the token), the unit, its open
+    tasks in topological order, the stories it waits on and the stories it unblocks."""
+
+    story_id: str
+    area_id: str
+    title: str
+    kind: StoryKind
+    summary: str | None
+    release: str | None
+    state: StoryState
+    claimed_by: str | None
+    claimed_at: AwareDatetime | None
+    agent_label: str | None
+    branch: str | None
+    note: str | None
+    unit: tuple[str, ...]
+    tasks: tuple[PreviewTask, ...]
+    blockers: tuple[StoryBlocker, ...]
+    unblocks: tuple[StoryRef, ...]
+    findings: tuple[OpenFinding, ...] = ()

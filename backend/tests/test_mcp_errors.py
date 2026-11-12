@@ -96,14 +96,15 @@ def test_fr_mcp_tool_08_a_tool_error_keeps_its_own_class_name_as_audit_type() ->
 def test_fr_mcp_tool_08_the_messages_equal_the_tools_md_error_codes_table() -> None:
     """FR-MCP-TOOL-08: ``MESSAGES`` is word for word the doc's Error codes table (parsed from tools.md)."""
 
-    table = TOOLS_DOC.read_text(encoding="utf-8").split("## Error codes\n", 1)[1].split("\n## ", 1)[0]
+    text = TOOLS_DOC.read_text(encoding="utf-8")
+    table = text.split("## Error codes\n", 1)[1].split("\n### ", 1)[0].split("\n## ", 1)[0]
     rows = re.findall(r"^\| `(\w+)` \|.*\| (.+?) \|$", table, re.MULTILINE)
     assert dict(rows) == dict(MESSAGES)
-    assert len(rows) == 8
+    assert len(rows) == 20
 
 
 def test_fr_mcp_tool_08_no_message_carries_variable_text() -> None:
-    """FR-MCP-TOOL-08: the five messages are plain sentences: no placeholder, id or brace to fill."""
+    """FR-MCP-TOOL-08: the messages are plain sentences: no placeholder, id or brace to fill."""
 
     for message in MESSAGES.values():
-        assert re.fullmatch(r"[A-Z][A-Za-z ,.]+", message), message
+        assert re.fullmatch(r"[A-Z][A-Za-z0-9_ ,.]+", message), message

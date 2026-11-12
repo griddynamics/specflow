@@ -59,6 +59,14 @@ TRANSITION_TASK: Final = Query("plan_transition_task", "plan.plan_transition_tas
 
 CLAIM_TASK: Final = Query("plan_claim_task", "plan.plan_claim_task")
 
+LOCK_STORIES: Final = Query("plan_lock_stories", "plan.plan_lock_stories")
+
+LOCK_TASKS: Final = Query("plan_lock_tasks", "plan.plan_lock_tasks")
+
+SET_STORIES: Final = Query("plan_set_stories", "plan.plan_set_stories")
+
+SET_TASKS: Final = Query("plan_set_tasks", "plan.plan_set_tasks")
+
 _READ_LINKS_PREFIX: Final = "plan_read_links_"
 
 

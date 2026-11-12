@@ -32,7 +32,7 @@ Verification is by test unless the row says otherwise. Details live in the linke
 
 | ID | Requirement | Acceptance |
 |---|---|---|
-| FR-ONT-01 | `load_ontology()` shall load and validate the shipped ontology. | When called without a path, then it returns an ontology (`format_version` 2, version 2.0) with 12 extracted node types and 11 extracted relations. |
+| FR-ONT-01 | `load_ontology()` shall load and validate the shipped ontology. | When called without a path, then it returns an ontology (`format_version` 2, version 2.1) with 12 extracted node types and 11 extracted relations. |
 | FR-ONT-02 | If an ontology file has problems, then loading shall raise one `OntologyError` listing every problem. | Given a file with an unknown key and an unresolved pair, then the error lists both. |
 | FR-ONT-03 | The library shall build a graph from any valid ontology without code changes. | Given the shipped ontology and a fully renamed copy, when one corpus is built with each, then the graphs map onto each other. |
 | FR-ONT-04 | `load_ontology` shall merge the ontology files of the installed submodules into one validated ontology. | Given a test submodule file declaring a type owned by build, then `OntologyError` names it; given one with a relation from its type to `Fragment`, then it loads. |

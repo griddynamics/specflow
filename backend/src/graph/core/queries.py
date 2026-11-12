@@ -422,3 +422,6 @@ def scope_sequence(relations: tuple[str, ...], symmetric: tuple[str, ...]) -> Qu
 
 
 READ_IMPACT_HOP: Final = Query("read_impact_hop", "core.read_impact_hop")
+
+# Trace (trace.md "Library"): the incident domain edges of a frontier, roles applied by the reader.
+READ_TRACE_HOP: Final = Query("read_trace_hop", "core.read_trace_hop")

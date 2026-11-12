@@ -33,9 +33,9 @@ both directions, so its answer mixes dependencies and dependants. Nothing in the
 | Seeds | The nodes a trace starts from: the given `spec_id`s, or the nodes a story's tasks implement |
 | Direction | `based_on`: what the seeds depend on. `affects`: what depends on the seeds |
 | Role | How one relation pair carries a change; read from the ontology field `impact` ("Impact roles") |
-| Hop | One edge from the frontier. Seeds and owner starts are hop 0 |
+| Hop | One edge from the frontier. Seeds and owner starts are hop 0; a context node that is no owner start has a hop only when a step reaches it |
 | Spine root | A node of a type in the spine's `roots`, a module in the shipped ontology ([ontology.md](ontology.md) "Spine"). Spine roots are the hubs: almost every node reaches one |
-| Context | The owners of the seeds, up to the first spine root. Listed, never walked upward |
+| Context | The owners of the seeds, up to the first spine root (inclusive). Listed in `context`, never walked upward. A context node that is no start still appears in `nodes` when a step reaches it |
 | Scope step | Going from a reached node to its members (the sources of its owner pairs), one level |
 | Owner start | A spine root in the context, also used as a start; nodes first reached from it carry `via_owner` |
 
@@ -57,8 +57,8 @@ name, so invariant I4 holds ([architecture.md](architecture.md)): the walk below
 |---|---|
 | Where | `impact` on a relation is the default for its pairs; `impact` on a pair overrides it. A relation without `impact` is `none`, so an older ontology still loads and `trace` simply does not walk it |
 | Symmetric relations | The edge is stored in canonical order, so the role comes from the pair whose `from` and `to` match the edge's end labels as they are met. Both orientations of a symmetric pair are declared (check 10); their roles must be inverses: `uses` with `used_by`, every other role with itself. `contains` is not allowed on a symmetric relation |
-| Checks | New loading checks: the value is one of the six roles; the symmetric inverse rule; `contains` only on pairs whose relation has at least one `owner` pair or is named by a spine path. A failed check raises `OntologyError`, as the others do |
-| Version | A new optional field: `format_version` stays 2; the shipped ontology's `version` goes up. The field is part of the ontology structure, so the change is made here first ([ontology.md](ontology.md) "Shipped ontology") |
+| Checks | New loading checks ([ontology.md](ontology.md) "Loading and validation", checks 17 to 19): the value is one of the six roles (an unknown value fails the file's format check); the symmetric inverse rule; `contains` only on a relation that has at least one `owner` pair or is named by a spine path. A failed check raises `OntologyError`, as the others do |
+| Version | A new optional field: `format_version` stays 2; the shipped ontology's `version` goes from 2.0 to 2.1 (a minor bump: the field is read-only and changes no extraction, so no project is migrated, A44). The field is part of the ontology structure, so the change is made here first ([ontology.md](ontology.md) "Shipped ontology"). Every project's plan shows `outdated` once after the deploy, because the plan fingerprint includes the ontology version; the next plan run clears it and reuses everything |
 
 ### Shipped roles
 
@@ -78,12 +78,17 @@ name, so invariant I4 holds ([architecture.md](architecture.md)): the walk below
 ## Walk
 
 1. **Seeds.** Unknown ids are listed in `unknown` and skipped; aliases resolve, as in `node`.
-2. **Context.** For each seed, follow owner pairs upward to the first spine root. Owners that are not
-   seeds are the `context`, hop 0. Contains edges are never walked upward.
-3. **Starts.** The seeds, plus the spine roots of the context when `include_owner` is true.
+2. **Context.** For each seed, follow owner pairs upward to the first spine root, at most as many
+   levels as the longest spine path (3 in the shipped ontology), one read per level. Owners that are
+   not seeds are the `context`. Being context does not put a node into `nodes`, but a context node
+   that a step reaches does appear there (FR-READ-12). Contains edges are never walked upward. The
+   basis rule of step 7 applies to this step too.
+3. **Starts.** The seeds, plus the spine roots of the context when `include_owner` is true. Only
+   these are hop 0; a context node that is no spine root is never a start.
 4. **Steps.** Per hop, for each frontier node and each incident edge, take the edge's role and walk it
    only in the way the table above allows for the trace's direction. A node is visited once, at its
-   lowest hop.
+   lowest hop. An edge a role walks that is also an owner pair counts as a role step, not a scope
+   step; a pair the ontology does not declare takes its relation's role.
 5. **Scope step.** From a reached node that is not a spine root, its members (the sources of owner
    pairs that point at it) are reached one hop further, with `step: "scope"`. This applies to seeds
    too, so a trace from a feature alone still covers its requirements. A spine root's members are
@@ -93,10 +98,10 @@ name, so invariant I4 holds ([architecture.md](architecture.md)): the walk below
    it provides or everything related to it.
 7. **Trust.** `basis="trusted"` (the default) walks `stated` and `implied` edges only, the edges stitch
    trusts for waits ([plan/plan.md](plan/plan.md) "Stitch"); an edge without `basis` reads as `stated`.
-   `basis="any"` adds `inferred` edges, each result carrying the rule and confidence.
+   The filter covers the context step (2) as well as the role steps. `basis="any"` adds `inferred` edges, each result carrying the rule and confidence.
 8. **Order and limits.** Results are ordered by hop, then `spec_id`. `depth` is 1 to 3; at most `limit`
    nodes are returned and `truncated` says whether more were reachable. The parent of a node is the
-   frontier node with the lowest `spec_id` that reached it at its hop (then the relation name); a path
+   frontier node with the lowest `spec_id` that reached it at its hop (then the relation name, then the step); a path
    from a seed wins over one from an owner start at the same hop. The same graph gives the same answer.
 
 The `relations` argument restricts steps 4 and 5 to the listed relations; context (step 2) always uses
@@ -137,18 +142,22 @@ one for the frontier's spine roots and one for the other nodes.
 
 | Part | Content |
 |---|---|
-| Seeds | Exactly one of `story_id` and `spec_ids`. A story's seeds are the nodes its open and completed tasks implement, plus its anchor; a retired story raises `PlanReadError("story_not_found")` |
-| Per node | The node's tasks, open and completed (closed tasks are history): `task_id`, `story_id`, `status`, `claimed_by` while `in_progress`, `commit` when `completed`. Never a claim token. Context nodes get the same |
+| Seeds | Exactly one of `story_id` and `spec_ids` (else `ConfigurationError("invalid_arguments")`). A story's seeds are its anchor and the nodes its open and completed tasks implement, merged ids resolved, at most 50, the library's `spec_ids` limit (`seeds_truncated` says some were left out). A retired or unknown story raises `PlanReadError("story_not_found")` |
+| Per node | The node's tasks, open and completed (closed tasks are history): `task_id`, `story_id`, `status`, `claimed_by` while `in_progress`, `commit` when `completed`. Never a claim token. Context nodes get the same. Also `findings`: the node's open finding count, 0 without a findings port |
 | `plan_state` per node | `completed` (every task completed), `in_progress` (any task in progress), `open` (any task pending, failed or blocked), `unplanned` (no task: not plannable, excluded or external) |
-| `stories` | The stories of those tasks other than the traced one: `story_id`, title, area, derived progress, and the holders of its `in_progress` tasks |
-| `summary` | Nodes per `plan_state` |
+| `stories` | The stories of those tasks other than the traced one, in `story_id` order: `story_id`, title, area, derived progress, and the holders of its `in_progress` tasks |
+| `summary` | Reached nodes (`nodes`, not the context or the seeds) per `plan_state`; null without a plan |
 | `open_questions` | Open questions related to a seed or a reached node, chosen by the same rule as the brief's ([plan/lifecycle.md](plan/lifecycle.md) "Task brief") |
 
 A project without a plan still traces: the plan fields are null, `stories` is empty, and only a
 `story_id` argument raises `no_plan`.
 
-The overlay carries no findings: `graph.plan` never imports `graph.gap`. The host adds each node's open
-finding count from `Findings.open_counts` ([gap.md](gap.md) "Library: Findings").
+**Findings.** The overlay carries each node's open finding count (`findings`), also on the seeds' context.
+`graph.plan` never imports `graph.gap`: `PlanService` asks a structural `FindingsReads` port for
+`open_counts` over the sources, the context and the reached nodes in one call, and the host fills the port
+with `graph.gap.Findings` ([gap.md](gap.md) "Library: Findings"; [plan/api.md](plan/api.md) "Plan service"). A
+service built without a port counts 0. The plan reads one graph trace, one plan load and one count call
+for the whole answer.
 
 ## MCP tool: `trace`
 
