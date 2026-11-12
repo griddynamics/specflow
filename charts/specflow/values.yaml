@@ -9,7 +9,7 @@ replicaCount: 1
 
 image:
   registry: docker.io
-  repository: griddynamics/specflow-frontend
+  repository: griddynamics/specflow-api
   tag: ""
   digest: ""
   pullPolicy: IfNotPresent

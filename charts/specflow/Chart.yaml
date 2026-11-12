@@ -2,7 +2,7 @@ apiVersion: v2
 name: specflow-helm-charts
 description: A reusable Helm chart for deploying one Specflow component
 type: application
-version: 0.2.0
+version: 0.2.1
 appVersion: "2.0.0"
 kubeVersion: ">=1.25.0-0"
 home: https://github.com/griddynamics/specflow
