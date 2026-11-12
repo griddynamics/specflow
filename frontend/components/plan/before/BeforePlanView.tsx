@@ -11,6 +11,7 @@ import { useToast } from "@/components/ui/Toast";
 import { usePlanPort, usePlanRoutes } from "../use-plan-ports";
 import { PlanViewSwitch, usePlanView } from "../PlanViewSwitch";
 import { DevelopTab, type DevelopInfo } from "../develop/DevelopTab";
+import { WorkTab } from "../work/WorkTab";
 import type { PlanPreview } from "@/lib/domain/plan";
 import { PlanFeatureTable } from "./PlanFeatureTable";
 import { createFailToast, createPress, tableView } from "./create-press";
@@ -113,14 +114,14 @@ export function BeforePlanView({ projectId, develop, failure }: Readonly<{ proje
           </Button>
         }
       />
-      {failure !== undefined && planView !== "develop" ? (
+      {failure !== undefined && planView === "plan" ? (
         <p className="plan-before__note body-sm" role="status" data-testid="plan-failure">
           {failureNote(failure)}
         </p>
       ) : null}
-      {planView === "develop" ? (
-        <DevelopTab projectId={projectId} info={develop} />
-      ) : (
+      {planView === "develop" ? <DevelopTab projectId={projectId} info={develop} /> : null}
+      {planView === "work" ? <WorkTab projectId={projectId} /> : null}
+      {planView === "plan" ? (
         <div className="plan-before__preview" data-testid="plan-preview" data-loaded={view === "loading" ? undefined : ""}>
           <TableSlot
             view={view}
@@ -134,7 +135,7 @@ export function BeforePlanView({ projectId, develop, failure }: Readonly<{ proje
             }}
           />
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

@@ -45,6 +45,7 @@ from graph.plan.story_brief import story_brief
 from graph.plan.story_findings import StoryFindings, story_findings
 from graph.plan.story_models import (
     AreaSummary,
+    ClaimRow,
     StoryClaim,
     StoryCompletion,
     StoryPreview,
@@ -52,7 +53,7 @@ from graph.plan.story_models import (
     StoryRow,
     StoryTask,
 )
-from graph.plan.story_reads import area_summary, story_list, story_preview
+from graph.plan.story_reads import area_summary, claim_list, story_list, story_preview
 from graph.plan.task_items import task_items
 from graph.plan.trace_models import PlanState, PlanTrace
 from graph.plan.trace_overlay import (
@@ -280,6 +281,11 @@ class PlanService:
 
         loaded = await self._plan(project_id)
         return story_list(loaded, view=view, caller=caller, area_id=area_id, finding_ids=finding_ids)
+
+    async def claims(self, project_id: str) -> tuple[ClaimRow, ...]:
+        """The claims board: story claims and tasks claimed on their own, oldest first; holders are user ids."""
+
+        return claim_list(await self._plan(project_id))
 
     async def story_findings(self, project_id: str, story_ids: Sequence[str]) -> tuple[StoryFindings, ...]:
         """Per story: the open findings about it and the nodes its tasks implement (count, oldest blocking one); none

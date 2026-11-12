@@ -11,6 +11,7 @@ import type { PlanPort } from "@/lib/domain/plan";
 import type { MissionControlPort } from "@/lib/domain/pipeline";
 import type { ProjectsPort } from "@/lib/domain/projects";
 import type { KnowledgePort, SourcesPort } from "@/lib/domain/sources";
+import type { WorkPort } from "@/lib/domain/work";
 
 export interface DataPorts {
   people: PeoplePort;
@@ -27,6 +28,7 @@ export interface DataPorts {
   // Mission Control sources (plans/mission-control-sources/DESIGN.md D11): served by the production http adapter.
   sources: SourcesPort;
   knowledge: KnowledgePort;
+  work: WorkPort; // MCP-TOOLING session 10: findings list and claims board of the Plan page
 }
 
 /** In-memory hand-over between screens (§1.5);  */

@@ -239,7 +239,7 @@ export async function stubLog(): Promise<StubEntry[]> {
   return (await control("GET", "/log")) as StubEntry[];
 }
 
-/** Stub knobs (parseMs, summarizeMs, parseOutcome, graphMs, graphOutcome, graphStartFail, planMs); a null time = never finishes. */
+/** Stub knobs (parseMs, summarizeMs, parseOutcome, graphMs, graphOutcome, graphStartFail, planMs, workFail, workReadFail); a null time = never finishes. */
 export async function stubTiming(t: Record<string, number | string | null>): Promise<void> {
   await control("POST", "/timing", t);
 }
@@ -252,11 +252,21 @@ export const STUB_TIMING = {
   graphOutcome: "succeeded",
   graphStartFail: null,
   planMs: 2000,
+  workFail: null,
+  workReadFail: null,
 };
 
 /** Seeds a source with chosen file states in the stub (the case control port; see tests/support/stub-sources.mjs `seed`). Returns its id. */
 export async function seedSource(pid: string, source: Record<string, unknown>): Promise<string> {
   return ((await control("POST", "/seed-source", { pid, source })) as { id: string }).id;
+}
+
+/** Seeds the findings and claims of a project in the stub (rows as the API answers them; see tests/support/stub-api.mjs `workRoute`). */
+export async function seedWork(
+  pid: string,
+  work: { findings?: Record<string, unknown>[]; claims?: Record<string, unknown>[] },
+): Promise<void> {
+  await control("POST", "/seed-work", { pid, work });
 }
 
 /** Removes a source in the stub as if another tab had (the details modal then finds it gone). */

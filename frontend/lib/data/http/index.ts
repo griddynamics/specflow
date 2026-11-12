@@ -7,12 +7,14 @@ import type { PeoplePort } from "@/lib/domain/people";
 import type { MissionControlPort } from "@/lib/domain/pipeline";
 import type { PlanPort } from "@/lib/domain/plan";
 import type { ProjectsPort } from "@/lib/domain/projects";
+import type { WorkPort } from "@/lib/domain/work";
 import type { KnowledgePort, SourcesPort } from "@/lib/domain/sources";
 import { createHttpKnowledge } from "./knowledge";
 import { createHttpPeople } from "./me";
 import { createHttpPlan } from "./plan";
 import { createHttpProjects } from "./projects";
 import { createHttpSources } from "./sources";
+import { createHttpWork } from "./work";
 
 export interface HttpPorts {
   people: Pick<PeoplePort, "me">;
@@ -23,6 +25,7 @@ export interface HttpPorts {
   sources: SourcesPort;
   knowledge: KnowledgePort;
   plan: PlanPort;
+  work: WorkPort;
 }
 
 /** TECH-SPECS §3.1. `pollMs` and `idleMs` are constructor options for the stub-API tests; production uses the defaults. */
@@ -41,5 +44,6 @@ export function createHttpAdapter(opts?: { pollMs?: number; idleMs?: number; pla
     }),
     knowledge,
     plan: createHttpPlan({ pollMs: opts?.planPollMs }),
+    work: createHttpWork(),
   };
 }

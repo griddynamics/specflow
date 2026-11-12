@@ -154,6 +154,17 @@ unblock heals.
 | `add_finding(project_id, new: NewFinding, *, claim_token=None) -> FlowAdded` | `NewFinding` holds `created_by`, `kind`, `text`, `about`, `refers_to`, `story_id`, `blocking`. Not blocking: `Findings.add`. Blocking: steps 1 to 5. `FlowAdded`: `finding`, `created`, `blocked` (the task ids it blocked; none for a repeat). Errors: those of `Findings.add`, and the plan's `claim_mismatch` from the guard or the block |
 | `close_finding(project_id, finding_id, *, by, note=None, dismiss=False) -> FlowClosed` | `resolve` or `dismiss`, then `unblock_finding` for a blocking finding. `FlowClosed`: `finding`, `unblocked` (the task ids back to `pending`) |
 
+## Web routes
+
+People answer findings in the web app's Plan › Work tab through the API's web routes (not the agent routes); the caller is
+the signed-in member, and membership is the only access rule ([../mcp-server/access-control.md](../mcp-server/access-control.md)
+AC12). Holders and authors are display names, never ids or emails.
+
+| Endpoint | What it does |
+|---|---|
+| `GET /api/v1/projects/{pid}/findings?status=&node=&limit=&after=` | `Findings.findings`: `status` `open` (default), `resolved`, `dismissed` or `all`; `node` keeps the findings about one spec node (aliases resolve; an unknown node has none); blocking first, then newest first; `findings` with `finding_id`, `kind`, `text`, `status`, `blocking`, `about`, `refers_to`, `story_id`, `author`, `created_at`, `resolved_by`, `resolved_at`, `resolution_note`, `orphaned`, and `next` |
+| `POST /api/v1/projects/{pid}/findings/{finding_id}/resolve` and `/dismiss` | `FindingFlow.close_finding(..., dismiss=)` with an optional `note` (500 characters): `finding` and `unblocked` (the count of tasks back to `pending`; 0 when a plan run had already reset them). 404 `finding_not_found`, 409 `finding_closed`, 409 `plan_applying` (the finding is closed; a repeat heals the unblock). A refused call writes nothing |
+
 ## Library: Findings
 
 `Findings(store_or_executor, ontology, *, database=None, clock=None)`, exported from `graph.gap`; all methods

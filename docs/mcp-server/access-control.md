@@ -64,7 +64,7 @@ findings in a member project, as every member may read it.
 | AC9 | The writer is the token's user. No write tool takes a user argument; `claimed_by`, `completed_by` and `created_by` hold that user's id, never an email or a name. |
 | AC10 | A claim is held by one user. Releasing, reporting progress, completing and a blocking finding need the claim token that `claim_story` returned to that user; another member's token, or a stale one, answers `claim_mismatch` and writes nothing, except the repeats of [Repeats](tools.md#repeats). |
 | AC11 | A blocking finding blocks only the caller's own claimed story, and only through a node a task of that story implements. |
-| AC12 | Only people resolve or dismiss findings and force a release, in the web app; no tool does either. |
+| AC12 | Only people resolve or dismiss findings and force a release, in the web app; no tool does either. The web routes apply the membership every web route applies: any member of the project may, and there is no role ([../graph/gap.md](../graph/gap.md#web-routes)). |
 | AC13 | No write tool changes a spec node or edge, and nothing a finding says is read by a build or the planner. |
 | AC14 | A refused write changes nothing: the membership check, the token check and the argument checks run before the write, in one locked transaction per story. |
 

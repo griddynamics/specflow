@@ -16,7 +16,7 @@ from graph.plan.models import CurrentTask, StoryInfo, StoryRef
 from graph.plan.names import StoryView
 from graph.plan.reader import LoadedPlan
 from graph.plan.story_board import STATE_ORDER, StoryBoard
-from graph.plan.story_models import AreaSummary, PreviewTask, StoryBlocker, StoryPreview, StoryRow
+from graph.plan.story_models import AreaSummary, ClaimRow, PreviewTask, StoryBlocker, StoryPreview, StoryRow
 
 STORY_NOT_FOUND: Final = "story_not_found"
 AREA_NOT_FOUND: Final = "area_not_found"
@@ -130,6 +130,45 @@ def story_preview(loaded: LoadedPlan, story_id: str) -> StoryPreview:
         ),
         unblocks=tuple(StoryRef(story_id=other, title=_title(board, other)) for other in board.unblocks(story_id)),
     )
+
+
+def claim_list(loaded: LoadedPlan) -> tuple[ClaimRow, ...]:
+    """The claims of the active stories, oldest first: each story claim, and each task claimed on its own in a story
+    that has no story claim."""
+
+    rows: list[ClaimRow] = []
+    for story in StoryBoard(loaded).stories.values():
+        if story.status != "active":
+            continue
+        held = [task for task in loaded.story_tasks(story.story_id) if task.status == "in_progress" and task.claimed_by]
+        if story.claimed_by is not None and story.claimed_at is not None:
+            rows.append(
+                ClaimRow(
+                    kind="story",
+                    story_id=story.story_id,
+                    title=story.title,
+                    task_id=None,
+                    claimed_by=story.claimed_by,
+                    claimed_at=story.claimed_at,
+                    agent_label=story.agent_label,
+                    branch=story.branch,
+                    tasks=len(held),
+                )
+            )
+            continue
+        rows.extend(
+            ClaimRow(
+                kind="task",
+                story_id=story.story_id,
+                title=task.title,
+                task_id=task.task_id,
+                claimed_by=task.claimed_by,
+                claimed_at=task.claimed_at,
+            )
+            for task in held
+            if task.claimed_by and task.claimed_at is not None
+        )
+    return tuple(sorted(rows, key=lambda row: (row.claimed_at, row.story_id, row.task_id or "")))
 
 
 def _row(loaded: LoadedPlan, board: StoryBoard, story: StoryInfo, rank: int) -> StoryRow:

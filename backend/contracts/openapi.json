@@ -800,6 +800,72 @@
         "title": "CheckOut",
         "type": "object"
       },
+      "ClaimOut": {
+        "properties": {
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Branch"
+          },
+          "claimed_at": {
+            "format": "date-time",
+            "title": "Claimed At",
+            "type": "string"
+          },
+          "holder": {
+            "$ref": "#/components/schemas/Holder"
+          },
+          "kind": {
+            "enum": [
+              "story",
+              "task"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "story_id": {
+            "title": "Story Id",
+            "type": "string"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          },
+          "tasks": {
+            "title": "Tasks",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "story_id",
+          "title",
+          "task_id",
+          "holder",
+          "claimed_at",
+          "branch",
+          "tasks"
+        ],
+        "title": "ClaimOut",
+        "type": "object"
+      },
       "ClaimStoryBody": {
         "description": "The JSON body of ``POST /story-claim``: the arguments besides the project.",
         "properties": {
@@ -839,6 +905,61 @@
           "story_id"
         ],
         "title": "ClaimStoryBody",
+        "type": "object"
+      },
+      "ClaimsOut": {
+        "description": "The claims, oldest first.",
+        "properties": {
+          "claims": {
+            "items": {
+              "$ref": "#/components/schemas/ClaimOut"
+            },
+            "title": "Claims",
+            "type": "array"
+          }
+        },
+        "required": [
+          "claims"
+        ],
+        "title": "ClaimsOut",
+        "type": "object"
+      },
+      "CloseFindingBody": {
+        "additionalProperties": false,
+        "description": "Resolve or dismiss: an optional note of at most 500 characters.",
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "title": "CloseFindingBody",
+        "type": "object"
+      },
+      "ClosedFindingOut": {
+        "description": "The closed finding and the number of tasks that went back to ``pending`` (none: nothing was blocked, or a plan\nrun had already reset the tasks).",
+        "properties": {
+          "finding": {
+            "$ref": "#/components/schemas/FindingOut"
+          },
+          "unblocked": {
+            "title": "Unblocked",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "finding",
+          "unblocked"
+        ],
+        "title": "ClosedFindingOut",
         "type": "object"
       },
       "CompleteStoryBody": {
@@ -1890,6 +2011,137 @@
         "title": "FindingItem",
         "type": "object"
       },
+      "FindingOut": {
+        "properties": {
+          "about": {
+            "items": {
+              "type": "string"
+            },
+            "title": "About",
+            "type": "array"
+          },
+          "author": {
+            "$ref": "#/components/schemas/Holder"
+          },
+          "blocking": {
+            "title": "Blocking",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "finding_id": {
+            "title": "Finding Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "gap",
+              "conflict",
+              "question",
+              "note"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "orphaned": {
+            "default": false,
+            "title": "Orphaned",
+            "type": "boolean"
+          },
+          "refers_to": {
+            "items": {
+              "$ref": "#/components/schemas/RefersTo"
+            },
+            "title": "Refers To",
+            "type": "array"
+          },
+          "resolution_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution Note"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "resolved_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Holder"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "open",
+              "resolved",
+              "dismissed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "story_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Story Id"
+          },
+          "story_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Story Title"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "finding_id",
+          "kind",
+          "text",
+          "status",
+          "blocking",
+          "about",
+          "refers_to",
+          "story_id",
+          "author",
+          "created_at"
+        ],
+        "title": "FindingOut",
+        "type": "object"
+      },
       "FindingResult": {
         "properties": {
           "blocked": {
@@ -1918,6 +2170,34 @@
           "blocked"
         ],
         "title": "FindingResult",
+        "type": "object"
+      },
+      "FindingsOut": {
+        "description": "One page, blocking first, then newest first; ``next`` is the opaque ``after`` of the next page.",
+        "properties": {
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/FindingOut"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "next": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next"
+          }
+        },
+        "required": [
+          "findings"
+        ],
+        "title": "FindingsOut",
         "type": "object"
       },
       "GraphBuildRequest": {
@@ -4069,6 +4349,20 @@
           "claim_token"
         ],
         "title": "ReleaseStoryBody",
+        "type": "object"
+      },
+      "ReleasedClaimOut": {
+        "description": "The tasks a forced release returned to ``pending``; none when the claim was already gone.",
+        "properties": {
+          "released": {
+            "title": "Released",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "released"
+        ],
+        "title": "ReleasedClaimOut",
         "type": "object"
       },
       "ReportTaskBody": {
@@ -8526,6 +8820,242 @@
         ]
       }
     },
+    "/api/v1/projects/{pid}/findings": {
+      "get": {
+        "description": "The findings of the project, blocking first, then newest first; ``node`` keeps those about one spec node\n(aliases resolve).",
+        "operationId": "list_findings_api_v1_projects__pid__findings_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "default": "open",
+              "enum": [
+                "open",
+                "resolved",
+                "dismissed",
+                "all"
+              ],
+              "title": "Status",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "node",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Node"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 500,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindingsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Findings",
+        "tags": [
+          "findings"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/findings/{finding_id}/dismiss": {
+      "post": {
+        "description": "Dismiss an open finding with an optional note; a blocking one unblocks its tasks (A20).",
+        "operationId": "dismiss_finding_api_v1_projects__pid__findings__finding_id__dismiss_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "finding_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "title": "Finding Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloseFindingBody",
+                "default": {}
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClosedFindingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Dismiss Finding",
+        "tags": [
+          "findings"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/findings/{finding_id}/resolve": {
+      "post": {
+        "description": "Resolve an open finding with an optional note; a blocking one unblocks its tasks (A20).",
+        "operationId": "resolve_finding_api_v1_projects__pid__findings__finding_id__resolve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "finding_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "title": "Finding Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloseFindingBody",
+                "default": {}
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClosedFindingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resolve Finding",
+        "tags": [
+          "findings"
+        ]
+      }
+    },
     "/api/v1/projects/{pid}/graph_build": {
       "get": {
         "operationId": "graph_build_status_api_v1_projects__pid__graph_build_get",
@@ -8723,6 +9253,104 @@
           }
         },
         "summary": "Start Plan",
+        "tags": [
+          "plan"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/plan/claims": {
+      "get": {
+        "description": "The claims of the project, oldest first; ``404 no_plan`` without a plan.",
+        "operationId": "list_claims_api_v1_projects__pid__plan_claims_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClaimsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Claims",
+        "tags": [
+          "plan"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/plan/claims/{story_id}/release": {
+      "post": {
+        "description": "Free the story claim that holds ``story_id`` (its whole unit); a story with no claim answers ``released: 0``.",
+        "operationId": "release_claim_api_v1_projects__pid__plan_claims__story_id__release_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "story_id",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "title": "Story Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReleasedClaimOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Release Claim",
         "tags": [
           "plan"
         ]

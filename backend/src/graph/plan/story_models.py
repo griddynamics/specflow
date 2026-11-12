@@ -6,6 +6,8 @@ A holder is always a user id string; the host turns it into a name. No answer ca
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import AwareDatetime, Field
 
 from graph.plan.findings_port import OpenFinding
@@ -97,6 +99,21 @@ class PreviewTask(PlanModel):
     ready: bool
     complexity: str
     progress: TaskProgress | None
+
+
+class ClaimRow(PlanModel):
+    """One claim of the claims board: a story claim (``kind`` ``story``, with its label, branch and claimed tasks) or
+    a task claimed on its own (``kind`` ``task``, a story without a story claim). The holder is a user id; no token."""
+
+    kind: Literal["story", "task"]
+    story_id: str
+    title: str
+    task_id: str | None
+    claimed_by: str
+    claimed_at: AwareDatetime
+    agent_label: str | None = None
+    branch: str | None = None
+    tasks: int = 1
 
 
 class StoryBlocker(PlanModel):
