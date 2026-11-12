@@ -2,7 +2,7 @@
 the MCP router over the REAL API app, in process (the pattern of ``test_mcp_spec_tools_over_api.py``): the story plan of
 ``people_support`` behind the API, a recording transport between the two services, the MCP SDK client in front.
 
-Covers the Markdown text (equal to the render of the structured content), the write calls (``POST``, ``project_id`` in
+Covers the text block (the JSON of the structured content), the write calls (``POST``, ``project_id`` in
 the query, the other arguments as the JSON body), the typed error details end to end, the audit (ids and codes only,
 never a claim token, label, branch, note or name) and the input schemas the SDK enforces before any call.
 """
@@ -19,7 +19,6 @@ import httpx
 import pytest
 
 from agent_contracts import AGENT_ROUTES, AreaList, ErrorDetails, StoryList, StoryPreview
-from mcp_server import tables
 from mcp_server.errors import MESSAGES
 from mcp_server.registry import install
 from mcp_support import ALICE, MCP_URL, build_app, call, mcp_env, sdk_session, structured, text
@@ -28,9 +27,9 @@ from specflow_api_agent_support import ALPHA, FOREIGN, agent_env
 from test_mcp_spec_tools_over_api import Recorder
 
 READS = {
-    "list_areas": ({"project_id": ALPHA}, tables.render_areas, AreaList),
-    "list_stories": ({"project_id": ALPHA, "limit": 3}, tables.render_stories, StoryList),
-    "preview_story": ({"project_id": ALPHA, "story_id": API}, tables.render_preview, StoryPreview),
+    "list_areas": ({"project_id": ALPHA}, AreaList),
+    "list_stories": ({"project_id": ALPHA, "limit": 3}, StoryList),
+    "preview_story": ({"project_id": ALPHA, "story_id": API}, StoryPreview),
 }
 
 
@@ -52,10 +51,12 @@ async def over_people(monkeypatch: pytest.MonkeyPatch, valid_env: dict[str, str]
 
 
 @pytest.mark.parametrize("tool", READS)
-async def test_a_read_tool_returns_the_structured_content_of_its_route_and_the_table_as_its_only_text(
+async def test_a_read_tool_returns_the_structured_content_of_its_route_and_the_same_json_as_its_only_text(
     monkeypatch, valid_env, tool
 ):
-    arguments, render, model = READS[tool]
+    """QA F12: clients hand the model the structured content, so the text block is the plain JSON again (no table)."""
+
+    arguments, model = READS[tool]
     async with over_people(monkeypatch, valid_env) as stack:
         async with sdk_session(stack.app(), ALICE) as session:
             result = await call(session, tool, **arguments)
@@ -63,27 +64,8 @@ async def test_a_read_tool_returns_the_structured_content_of_its_route_and_the_t
 
     assert not result.is_error and answer.status_code == 200
     assert (request.method, request.url.path) == ("GET", AGENT_ROUTES[tool])
-    assert structured(result) == answer.json()
-    assert len(result.content) == 1 and text(result) == render(model.model_validate(structured(result)))
-    assert text(result).startswith("| ") and not text(result).startswith("{")  # a table, not JSON
-
-
-async def test_the_stories_text_ends_with_the_next_cursor_line_when_more_exist(monkeypatch, valid_env):
-    async with over_people(monkeypatch, valid_env) as stack, sdk_session(stack.app(), ALICE) as session:
-        first = await call(session, "list_stories", project_id=ALPHA, limit=3)
-        last = await call(session, "list_stories", project_id=ALPHA, limit=3, cursor=structured(first)["next_cursor"])
-    assert text(first).splitlines()[-1] == f"3 of 6 · next_cursor {structured(first)['next_cursor']}"
-    assert structured(last)["next_cursor"] is None and "next_cursor" not in text(last)
-
-
-async def test_a_title_with_a_pipe_and_a_line_break_is_one_escaped_cell(monkeypatch, valid_env):
-    async with over_people(monkeypatch, valid_env) as stack:
-        stack.people.memory.set_story(API, title="Pay | later\nnow")
-        async with sdk_session(stack.app(), ALICE) as session:
-            result = await call(session, "list_stories", project_id=ALPHA)
-    row = next(line for line in text(result).splitlines() if API in line)
-    assert "Pay \\| later now" in row and structured(result)["items"][0]["title"] == "Pay | later\nnow"
-    assert row.replace("\\|", "").count("|") == len(text(result).splitlines()[0].split("|")) - 1
+    assert structured(result) == answer.json() == model.model_validate(answer.json()).model_dump(mode="json")
+    assert len(result.content) == 1 and json.loads(text(result)) == structured(result)
 
 
 async def test_claim_posts_the_project_in_the_query_and_the_other_arguments_as_the_json_body(monkeypatch, valid_env):
@@ -148,7 +130,7 @@ async def test_not_available_and_invalid_arguments_carry_state_blockers_and_the_
         bad = await call(session, "claim_story", project_id=ALPHA, story_id=API, agent_label="a\nb")
     assert structured(waiting)["error"]["details"]["state"] == "waiting"
     assert [b["story_id"] for b in structured(waiting)["error"]["details"]["blockers"]] == [API, UI]
-    assert structured(done)["error"]["details"] == {"state": "completed", "blockers": []}
+    assert structured(done)["error"]["details"] == {"state": "completed"}
     assert structured(bad)["error"] == {
         "code": "invalid_arguments",
         "message": MESSAGES["invalid_arguments"],

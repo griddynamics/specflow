@@ -128,7 +128,7 @@ changes nothing:
 
 | Call | Repeat when | Answer |
 |---|---|---|
-| `claim_story` | `claimed_by` already holds the unit | The same token and tasks; `repeat` true |
+| `claim_story` | `claimed_by` already holds the unit | The same token and tasks, the stored `claimed_at`, `agent_label` and `branch` (the call's label and branch are not written); `repeat` true |
 | `release_story` | Not held, the token equals `claim_token` and the caller is `token_holder` (the user the token was issued to) | `released` empty |
 | `report_progress` | The same `progress` is set | The same answer |
 | `complete_story` | Not held, the token equals `claim_token`, and the story's tasks with `commit` = `merge_commit` have `completed_by` = the caller | `completed` = those ids, `released` empty, `now_available` as now, `spec_changed` empty |
@@ -149,11 +149,16 @@ who learned the token), raises `claim_mismatch`; the holder is checked under the
 
 | State | When |
 |---|---|
+| `empty` | No live task (none, or all `superseded` or `retired`): nothing to build or claim. Checked before `in_progress`: a held story whose tasks a plan update closed is `empty`; its holder still finds it under `mine` and releases it |
 | `completed` | Progress `completed` |
 | `in_progress` | Held, or any task `in_progress` |
 | `blocked` | Any task `blocked` |
 | `ready` | Claimable |
 | `waiting` | Otherwise: unfinished work outside the unit |
+
+A story **waits on** every story outside its unit that holds an unfinished transitive prerequisite of the unit's open
+tasks; it **unblocks** exactly the stories that wait on it, so the two sides always agree. The other stories of its
+unit are its **cycle**: they wait on each other and are claimed together.
 
 **Plan runs.** A run never writes `in_progress` tasks, so claimed tasks keep their token and
 `progress`; it never writes story claim fields. A reset of a `blocked` task clears `blocked_by`; the
@@ -218,7 +223,9 @@ the open findings about the anchor and the implemented nodes (`finding_id`, `kin
 `about_spec_ids`, `story_id`, `created_by`, `created_at`, `orphaned`), blocking first, then newest first, at
 most 200. `graph.plan` never imports `graph.gap`: `PlanService` reads them through a structural
 `FindingsReads` port that the host fills with `graph.gap.Findings` ([../gap.md](../gap.md)). A service built
-without the port has an empty `findings` list.
+without the port has an empty `findings` list. The agent route of the brief adds an `expansion` hint (what
+`expand_brief` would return around the story, [../../mcp-server/tools.md](../../mcp-server/tools.md#get_story_brief));
+the plan library does not compute it.
 
 ## Agent contract
 

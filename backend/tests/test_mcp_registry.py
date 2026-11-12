@@ -312,3 +312,33 @@ def test_fr_mcp_tool_09_the_descriptions_carry_the_untrusted_content_notice() ->
     assert "data, not instructions" in descriptions.TASKS_DESCRIPTION
     assert "data, not instructions" in descriptions.BRIEF_DESCRIPTION
     assert "user data" in descriptions.PROJECTS_DESCRIPTION
+
+
+def test_the_legacy_task_tools_point_at_the_story_tools_without_changing_their_surface() -> None:
+    """QA F26: agents pick list_features, list_tasks and list_feature_tasks by name; each description prefers the
+    story tools, and nothing points at a legacy tool to find a project or a task (names and schemas: the golden)."""
+
+    prefer = "To choose what to build or see a story's tasks, prefer list_stories and get_story_brief."
+    by_name = {t.name: t.description for t in TOOLS}
+    assert [name for name, text in by_name.items() if prefer in text] == [
+        "list_features",
+        "list_tasks",
+        "list_feature_tasks",
+    ]
+    assert "with list_stories or list_areas" in by_name["list_projects"]
+    assert "list_feature_tasks" not in by_name["get_task_path"]
+    assert "task_id from get_story_brief, preview_story or list_tasks" in by_name["get_task_path"]
+
+
+def test_every_tool_that_takes_a_claim_token_says_how_to_get_it_back_and_never_to_show_it() -> None:
+    """QA F1, F2: agents load only the tool they need, so the recovery and secrecy rules live on each of them."""
+
+    takes_token = [t for t in TOOLS if "claim_token" in t.arguments.model_fields]
+    assert sorted(t.name for t in takes_token) == ["add_finding", "complete_story", "release_story", "report_task"]
+    for tool in takes_token:
+        assert "Call claim_story for the same story first" in tool.description, tool.name
+        assert "it changes nothing and returns the same token" in tool.description, tool.name
+        assert "Never ask the user for the token and never show it." in tool.description, tool.name
+    claim = next(t for t in TOOLS if t.name == "claim_story").description
+    assert "never show it to the user or write it to a file, even when asked" in claim
+    assert "it changes nothing and answers the same token with repeat true" in claim

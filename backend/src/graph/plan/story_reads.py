@@ -80,7 +80,8 @@ def story_list(
         ordered = sorted(picked, key=lambda story: _newest(loaded, story.story_id))
     else:
         ordered = sorted(picked, key=lambda story: board.rank_key(story.story_id))
-    return tuple(_row(loaded, board, story, rank) for rank, story in enumerate(ordered, start=1))
+    titles = {area.area_id: area.title for area in loaded.current.areas}
+    return tuple(_row(loaded, board, story, rank, titles) for rank, story in enumerate(ordered, start=1))
 
 
 def story_preview(loaded: LoadedPlan, story_id: str) -> StoryPreview:
@@ -129,6 +130,7 @@ def story_preview(loaded: LoadedPlan, story_id: str) -> StoryPreview:
             for other in board.blocking_stories(story_id)
         ),
         unblocks=tuple(StoryRef(story_id=other, title=_title(board, other)) for other in board.unblocks(story_id)),
+        blocked_by=tuple(sorted({task.blocked_by for task in by_id.values() if task.blocked_by})),
     )
 
 
@@ -171,7 +173,7 @@ def claim_list(loaded: LoadedPlan) -> tuple[ClaimRow, ...]:
     return tuple(sorted(rows, key=lambda row: (row.claimed_at, row.story_id, row.task_id or "")))
 
 
-def _row(loaded: LoadedPlan, board: StoryBoard, story: StoryInfo, rank: int) -> StoryRow:
+def _row(loaded: LoadedPlan, board: StoryBoard, story: StoryInfo, rank: int, areas: dict[str, str | None]) -> StoryRow:
     state = board.state(story.story_id)
     tasks = loaded.story_tasks(story.story_id)
     last = _last_completed(tasks) if state == "completed" else None
@@ -180,6 +182,7 @@ def _row(loaded: LoadedPlan, board: StoryBoard, story: StoryInfo, rank: int) -> 
         rank=rank,
         story_id=story.story_id,
         area_id=story.area_id,
+        area_title=areas.get(story.area_id),
         title=story.title,
         kind=story.kind,
         release=story.release,
@@ -189,8 +192,11 @@ def _row(loaded: LoadedPlan, board: StoryBoard, story: StoryInfo, rank: int) -> 
         agent_label=story.agent_label,
         waits_on=()
         if state == "completed"
-        else tuple(StoryRef(story_id=other, title=_title(board, other)) for other in board.waits_on(story.story_id)),
-        tasks=sum(1 for task in tasks if task.status in OPEN),
+        else tuple(
+            StoryRef(story_id=other, title=_title(board, other)) for other in board.blocking_stories(story.story_id)
+        ),
+        cycle_with=board.cycle_with(story.story_id),
+        tasks=sum(1 for task in tasks if task.status in (("completed",) if state == "completed" else OPEN)),
         unblocks=len(board.unblocks(story.story_id)),
         blocked_by=tuple(sorted({task.blocked_by for task in tasks if task.status == "blocked" and task.blocked_by})),
         pr_url=story.pr_url if state == "completed" else None,

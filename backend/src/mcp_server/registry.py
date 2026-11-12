@@ -80,7 +80,7 @@ from agent_contracts import (
 )
 from logger.correlation import current_request_id
 from logger.logger import INFO, get_logger, log_event
-from mcp_server import descriptions, guidance, tables
+from mcp_server import descriptions, guidance
 from mcp_server.api_client import request_api_client
 from mcp_server.errors import McpToolError, error_body, from_api
 from mcp_server.http import McpInvariantError, required
@@ -104,8 +104,7 @@ class ToolDeclaration:
     """A tool: its name, whether it takes a ``project_id``, its schemas, description and agent route.
 
     ``summary`` is the one line for people (the web app's guide); ``description`` is what agents read; ``route``
-    is the path of the API's agent route that serves the tool (``AGENT_ROUTES``). ``render``, when set, turns the
-    result into the text block instead of the JSON (the Markdown tables of tools.md).
+    is the path of the API's agent route that serves the tool (``AGENT_ROUTES``).
     """
 
     name: str
@@ -116,7 +115,6 @@ class ToolDeclaration:
     route: str
     project_scoped: bool
     annotations: ToolAnnotations = field(default_factory=lambda: READ_ONLY)
-    render: Callable[[Any], str] | None = None
 
     @property
     def writes(self) -> bool:
@@ -190,7 +188,6 @@ TOOLS: Final[tuple[ToolDeclaration, ...]] = (
         output=AreaList,
         route=AGENT_ROUTES["list_areas"],
         project_scoped=True,
-        render=tables.render_areas,
     ),
     ToolDeclaration(
         name="list_stories",
@@ -202,7 +199,6 @@ TOOLS: Final[tuple[ToolDeclaration, ...]] = (
         output=StoryList,
         route=AGENT_ROUTES["list_stories"],
         project_scoped=True,
-        render=tables.render_stories,
     ),
     ToolDeclaration(
         name="preview_story",
@@ -212,7 +208,6 @@ TOOLS: Final[tuple[ToolDeclaration, ...]] = (
         output=StoryPreview,
         route=AGENT_ROUTES["preview_story"],
         project_scoped=True,
-        render=tables.render_preview,
     ),
     ToolDeclaration(
         name="claim_story",
@@ -403,12 +398,11 @@ def render_manifest_json(
     return json.dumps(render_manifest(tools, prompts), indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 
 
-def _result(model: BaseModel, render: Callable[[Any], str] | None = None) -> CallToolResult:
-    """Structured content plus one text block holding the same JSON (FR-MCP-TOOL-05), or the text ``render`` makes
-    of it (the Markdown tables)."""
+def _result(model: BaseModel) -> CallToolResult:
+    """Structured content plus one text block holding the same JSON (FR-MCP-TOOL-05)."""
 
     return CallToolResult(
-        content=[TextContent(type="text", text=model.model_dump_json() if render is None else render(model))],
+        content=[TextContent(type="text", text=model.model_dump_json())],
         structured_content=model.model_dump(mode="json"),
     )
 
@@ -510,7 +504,7 @@ class _ToolFunction:
         if reply.user_id is not None:  # the API names the provisioned user on every answer after provisioning
             fields["user_id"] = reply.user_id
         result = from_api(reply, declaration.output)
-        return _result(result, declaration.render), _item_count(result)
+        return _result(result), _item_count(result)
 
 
 def _canonical_uuid(value: str) -> str | None:

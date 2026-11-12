@@ -331,6 +331,8 @@ class StoryClaims:
             story_ids=tuple(order),
             tasks=story_task_items(fresh, [fresh.tasks[task_id] for task_id in verdict.tasks]),
             claimed_at=story.claimed_at,
+            agent_label=story.agent_label,
+            branch=story.branch,
             repeat=repeat,
         )
 

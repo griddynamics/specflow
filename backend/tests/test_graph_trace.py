@@ -148,12 +148,51 @@ async def test_from_a_spine_root_only_uses_and_used_by_edges_are_walked() -> Non
     ]
 
 
-async def test_a_seed_that_is_a_spine_root_has_no_context_and_no_members() -> None:
-    result = await trace(spec_ids=["MOD::WEB_SHOP"], direction="based_on", depth=1)
-    assert result.context == ()
-    assert [(n.spec_id, n.relation, n.via_owner) for n in result.nodes] == [
-        ("IFC::ORDERS_API", "CONSUMED_BY", False),
-        (OWNER, "INTEGRATES_WITH", False),
+async def test_a_seed_that_is_a_spine_root_has_no_context_and_lists_its_members_and_every_role() -> None:
+    """Rules 5 and 6: a module asked about is walked like any seed; only a reached module is a hub."""
+
+    based_on = await trace(spec_ids=["MOD::WEB_SHOP"], direction="based_on", depth=1)
+    affects = await trace(spec_ids=["MOD::WEB_SHOP"], direction="affects", depth=1)
+    assert based_on.context == affects.context == ()
+    assert [(n.spec_id, n.relation, n.step, n.weak, n.via_owner) for n in based_on.nodes] == [
+        ("CON::EU_REGION", "RELATES_TO", "backward", True, False),
+        ("FEAT::CHECKOUT", "PART_OF", "scope", False, False),
+        ("FEAT::GIFT_CARDS", "PART_OF", "scope", False, False),
+        ("IFC::ORDERS_API", "CONSUMED_BY", "backward", False, False),
+        (OWNER, "INTEGRATES_WITH", "forward", False, False),
+    ]
+    assert [(n.spec_id, n.step) for n in affects.nodes] == [
+        ("CON::EU_REGION", "backward"),
+        ("FEAT::CHECKOUT", "scope"),
+        ("FEAT::GIFT_CARDS", "scope"),
+    ]
+
+
+async def test_affects_of_a_module_lists_what_it_owns_and_provides_then_their_dependents() -> None:
+    """QA I08: a module's members, the contracts it provides and their consumers, besides the modules calling it."""
+
+    result = await trace(spec_ids=["MOD::STRIPE"], direction="affects", depth=2)
+    assert [(n.hops, n.spec_id, n.parent, n.relation, n.step) for n in result.nodes] == [
+        (1, "CON::STRIPE", "MOD::STRIPE", "PART_OF", "scope"),
+        (1, "IFC::INTEGRATED", "MOD::STRIPE", "PROVIDED_BY", "backward"),
+        (1, "IFC::STRIPE_API", "MOD::STRIPE", "PROVIDED_BY", "backward"),
+        (2, OWNER, "IFC::STRIPE_API", "CONSUMED_BY", "forward"),
+        (2, "REQ::INT::CALL_STRIPE", "IFC::STRIPE_API", "PART_OF", "scope"),
+    ]
+
+
+async def test_affects_stops_at_a_module_reached_over_a_coupled_edge() -> None:
+    """Rule 6: a change of a contract lands in its provider; the modules calling the provider for other
+    contracts are not reached through it (QA: refund reached the checkout module)."""
+
+    graph = shop_graph().edge("INTEGRATES_WITH", "MOD::WEB_SHOP", "MOD::STRIPE")
+    affects = await trace(graph, spec_ids=["IFC::INTEGRATED"], direction="affects", depth=3)
+    based_on = await trace(graph, spec_ids=["IFC::INTEGRATED"], direction="based_on", depth=2)
+    assert [(n.hops, n.spec_id, n.role) for n in affects.nodes] == [(1, "MOD::STRIPE", "coupled")]
+    assert [(n.hops, n.spec_id) for n in based_on.nodes] == [
+        (1, "MOD::STRIPE"),
+        (2, "CON::STRIPE"),
+        (2, OWNER),
     ]
 
 
@@ -305,12 +344,16 @@ async def test_a_hop_takes_at_most_two_queries() -> None:
     ]
 
 
-async def test_a_spine_root_is_read_with_the_hub_relations_only() -> None:
-    found, executor = reader()
-    await found.trace(PROJECT, ["MOD::WEB_SHOP"], direction="affects", depth=1)
-    (params,) = [params for name, params in executor.calls if name == "read_trace_hop"]
+async def test_a_reached_spine_root_is_read_with_the_hub_relations_only_and_a_seed_root_with_all() -> None:
+    graph = shop_graph()
+    uuid = {spec_id: node["uuid"] for spec_id, node in graph.nodes.items()}
+    found, executor = reader(graph)
+    await found.trace(PROJECT, ["MOD::WEB_SHOP"], direction="based_on", depth=2)
+    reads = [params for name, params in executor.calls if name == "read_trace_hop"]
     hub = {"CARRIES", "CONSUMED_BY", "DEPENDS_ON", "DEPLOYED_TO", "INTEGRATES_WITH", "PART_OF", "RELATES_TO"}
-    assert set(params["relations"]) == hub
+    assert reads[0]["frontier"] == [uuid["MOD::WEB_SHOP"]] and set(reads[0]["relations"]) > hub
+    (root,) = [params for params in reads[1:] if uuid[OWNER] in params["frontier"]]
+    assert set(root["relations"]) == hub
 
 
 # Seeds

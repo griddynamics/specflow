@@ -13,13 +13,17 @@ from typing import Final
 from agent_contracts import (
     MAX_ALTERNATIVES,
     MAX_BLOCKERS,
+    MAX_WAITS_ON,
     QUESTION_CHARS,
     AreaInProgress,
     AreaItem,
+    AreaLink,
     ErrorDetails,
+    FindingRef,
     StoryClaim,
     StoryHeader,
     StoryItem,
+    StoryLink,
     StoryPreview,
     StoryRefItem,
     StoryRelease,
@@ -27,6 +31,7 @@ from agent_contracts import (
 )
 from api.agent_views import Holders, finding_items
 from api.errors import invalid_cursor
+from graph.gap import Finding
 from graph.plan.names import StoryView
 from graph.plan.story_board import STATE_ORDER
 from graph.plan.story_findings import StoryFindings
@@ -79,6 +84,7 @@ def area_items(
                 in_progress=AreaInProgress(count=count["in_progress"], holders=shown),
                 waiting=count["waiting"],
                 blocked=count["blocked"],
+                empty=count["empty"],
                 done=count["completed"],
                 open_tasks=summary.open_tasks,
             )
@@ -122,10 +128,13 @@ def story_items(
                 rank=rank,
                 story_id=row.story_id,
                 title=row.title,
+                area=AreaLink(area_id=row.area_id, title=row.area_title),
                 kind=row.kind,
                 state=row.state,
                 holder=holders.of(row.claimed_by, row.agent_label),
-                waits_on=[item.title or item.story_id for item in row.waits_on],
+                waits_on=[StoryLink(story_id=item.story_id, title=item.title) for item in row.waits_on[:MAX_WAITS_ON]],
+                waits_on_total=len(row.waits_on),
+                cycle_with=list(row.cycle_with),
                 tasks=row.tasks,
                 unblocks=row.unblocks,
                 findings=found.count if found else 0,
@@ -226,6 +235,9 @@ def claim_view(project_id: str, story_id: str, claim: LibraryClaim) -> StoryClai
         claim_token=claim.claim_token,
         story_ids=list(claim.story_ids),
         claimed_at=claim.claimed_at,
+        agent_label=claim.agent_label,
+        branch=claim.branch,
+        repeat=claim.repeat,
         items=[
             StoryTaskItem(
                 task_id=task.task_id,
@@ -263,5 +275,18 @@ def capped_alternatives(rows: Sequence[StoryRow], holders: Holders) -> list[Stor
     return [story_ref(row, holders) for row in rows[:MAX_ALTERNATIVES]]
 
 
-def capped_blockers(blockers: Sequence[StoryBlocker], holders: Holders) -> list[StoryRefItem]:
-    return [blocker_item(blocker, holders) for blocker in blockers[:MAX_BLOCKERS]]
+def capped_blockers(blockers: Sequence[StoryBlocker], holders: Holders) -> list[StoryRefItem] | None:
+    """The first blockers, or ``None`` when there are none: an error leaves out what it has nothing to say about."""
+
+    return [blocker_item(blocker, holders) for blocker in blockers[:MAX_BLOCKERS]] or None
+
+
+def finding_refs(findings: Iterable[Finding | None]) -> list[FindingRef] | None:
+    """The open blocking findings an error names, with the text cut like a story row's ``question`` (any member of
+    the project reads it there and in preview_story); a resolved or dismissed one is left out. ``None`` for none."""
+
+    return [
+        FindingRef(finding_id=item.finding_id, kind=item.kind, text=_cut(item.text))
+        for item in findings
+        if item is not None and item.status == "open"
+    ][:MAX_BLOCKERS] or None

@@ -27,12 +27,15 @@ class StoryTask(TaskItem):
 
 class StoryClaim(PlanModel):
     """A story claim: the token, the unit's story ids (the asked story first), the claimed tasks in topological
-    order, when the claim began, and whether this call only repeated it."""
+    order, when the claim began, the stored ``agent_label`` and ``branch``, and whether this call only repeated it
+    (a repeat writes nothing: the label and branch are the stored ones)."""
 
     claim_token: str = Field(min_length=1)
     story_ids: tuple[str, ...]
     tasks: tuple[StoryTask, ...]
     claimed_at: AwareDatetime
+    agent_label: str | None = None
+    branch: str | None = None
     repeat: bool = False
 
 
@@ -67,12 +70,15 @@ class AreaSummary(PlanModel):
 
 
 class StoryRow(PlanModel):
-    """One story of a list: its state, holder, what it waits on and unblocks; a completed one adds ``pr_url`` and its
-    last completed task's ``commit``, ``completed_by`` and ``completed_at``."""
+    """One story of a list: its area's title, its state, holder, every story it waits on (directly or through other
+    stories), the stories it is in a wait cycle with, its tasks (open ones; for a completed story, its completed ones)
+    and how many stories wait on it; a completed one adds ``pr_url`` and its last completed task's ``commit``,
+    ``completed_by`` and ``completed_at``."""
 
     rank: int
     story_id: str
     area_id: str
+    area_title: str | None = None
     title: str
     kind: StoryKind
     release: str | None
@@ -81,6 +87,7 @@ class StoryRow(PlanModel):
     claimed_at: AwareDatetime | None
     agent_label: str | None
     waits_on: tuple[StoryRef, ...]
+    cycle_with: tuple[str, ...] = ()
     tasks: int
     unblocks: int
     blocked_by: tuple[str, ...]
@@ -127,7 +134,8 @@ class StoryBlocker(PlanModel):
 
 class StoryPreview(PlanModel):
     """What a person sees before claiming: the story, its state and claim (never the token), the unit, its open
-    tasks in topological order, the stories it waits on and the stories it unblocks."""
+    tasks in topological order, the stories it waits on, the stories it unblocks and the ids of the findings that
+    block its tasks."""
 
     story_id: str
     area_id: str
@@ -145,4 +153,5 @@ class StoryPreview(PlanModel):
     tasks: tuple[PreviewTask, ...]
     blockers: tuple[StoryBlocker, ...]
     unblocks: tuple[StoryRef, ...]
+    blocked_by: tuple[str, ...] = ()
     findings: tuple[OpenFinding, ...] = ()

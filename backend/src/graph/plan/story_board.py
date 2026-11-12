@@ -11,14 +11,13 @@ from functools import cached_property
 from typing import Final
 
 from graph.plan.dag import strongly_connected, topological_order
-from graph.plan.invariants import OPEN
+from graph.plan.invariants import CLOSED, OPEN
 from graph.plan.models import CurrentTask, StoryInfo
 from graph.plan.names import StoryState
 from graph.plan.reader import LoadedPlan
 
-STATE_ORDER: Final[tuple[StoryState, ...]] = ("ready", "in_progress", "waiting", "blocked", "completed")
+STATE_ORDER: Final[tuple[StoryState, ...]] = ("ready", "in_progress", "waiting", "blocked", "empty", "completed")
 ALTERNATIVES: Final = 3
-WAITS_ON: Final = 3
 
 
 @dataclass(frozen=True)
@@ -48,6 +47,7 @@ class StoryBoard:
             if task.status in OPEN:
                 self._open.setdefault(task.story_id, []).append(task)
         self._states: dict[str, StoryState] = {}
+        self._outside: dict[tuple[str, ...], tuple[str, ...]] = {}
 
     @cached_property
     def story_edges(self) -> tuple[tuple[str, str], ...]:
@@ -120,28 +120,41 @@ class StoryBoard:
         return not self.held(unit) and self._assess(unit).code == "ok"
 
     def state(self, story_id: str) -> StoryState:
-        """The story state; the first matching row wins: completed, in_progress, blocked, ready, waiting."""
+        """The story state; the first matching row wins: empty, completed, in_progress, blocked, ready, waiting."""
 
         found = self._states.get(story_id)
         if found is None:
             found = self._states[story_id] = self._state(story_id)
         return found
 
-    def waits_on(self, story_id: str) -> tuple[str, ...]:
-        """Up to three stories outside the unit with unfinished work the unit waits for, in task order."""
+    def cycle_with(self, story_id: str) -> tuple[str, ...]:
+        """The other stories of its claim unit: the stories it is in a wait cycle with (sorted; usually none)."""
 
-        return self._outside_stories(self.unit_of(story_id))[:WAITS_ON]
+        return tuple(other for other in self.unit_of(story_id) if other != story_id)
 
     def blocking_stories(self, story_id: str) -> tuple[str, ...]:
-        """Every story outside the unit with unfinished work the unit waits for, in task order."""
+        """Every story outside the unit with unfinished work the unit waits for, directly or through other tasks, in
+        task order: the story's ``waits_on``. Worked out once per unit: a list asks it for every story."""
 
-        return self._outside_stories(self.unit_of(story_id))
+        unit = self.unit_of(story_id)
+        found = self._outside.get(unit)
+        if found is None:
+            found = self._outside[unit] = self._outside_stories(unit)
+        return found
 
     def unblocks(self, story_id: str) -> tuple[str, ...]:
-        """The stories outside the unit that wait for it, sorted."""
+        """The stories that wait for it: every story whose ``blocking_stories`` names it, sorted. One definition for
+        both sides, so a story's ``unblocks`` count equals the number of stories listing it in ``waits_on``."""
 
-        unit = set(self.unit_of(story_id))
-        return tuple(sorted({waiter for waiter, prerequisite in self.story_edges if prerequisite in unit} - unit))
+        return self._waiters.get(story_id, ())
+
+    @cached_property
+    def _waiters(self) -> dict[str, tuple[str, ...]]:
+        found: dict[str, set[str]] = {}
+        for waiter in self._open:
+            for prerequisite in self.blocking_stories(waiter):
+                found.setdefault(prerequisite, set()).add(waiter)
+        return {story_id: tuple(sorted(waiters)) for story_id, waiters in found.items()}
 
     def alternatives(self, story_id: str) -> tuple[str, ...]:
         """Up to three claimable stories of the story's area, in the order of the ``open`` list."""
@@ -218,6 +231,8 @@ class StoryBoard:
     def _state(self, story_id: str) -> StoryState:
         tasks = self.loaded.story_tasks(story_id)
         story = self.stories[story_id]
+        if all(task.status in CLOSED for task in tasks):
+            return "empty"
         if self.loaded.progress(story_id) == "completed":
             return "completed"
         if story.claimed_by or any(task.status == "in_progress" for task in tasks):

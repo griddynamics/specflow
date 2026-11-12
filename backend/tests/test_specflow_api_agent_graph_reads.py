@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from agent_contracts import AGENT_ROUTES, BriefExpansion, Evidence, NodePaths, SimilarNodes
+from agent_contracts import AGENT_ROUTES, BriefExpansion, Evidence, NodePaths, SimilarNodes, StoryBriefResult
 from graph.core import ConfigurationError, InfrastructureUnavailableError
 from graph.core.expand import estimate_tokens
 from graph_trace_support import shop_graph
@@ -18,7 +18,9 @@ from plan_trace_support import TASKS, task
 from spec_reads_support import CHECKOUT, STRIPE_STORY, serve_spec, with_plan
 from specflow_api_agent_support import ALPHA, FOREIGN, UNKNOWN_PROJECT, agent_env, log_haystack, web_alice
 
-SIMILAR, EVIDENCE, PATH, EXPAND = (AGENT_ROUTES[name] for name in ("similar", "get_evidence", "path", "expand_brief"))
+SIMILAR, EVIDENCE, PATH, EXPAND, STORY = (
+    AGENT_ROUTES[name] for name in ("similar", "get_evidence", "path", "expand_brief", "get_story_brief")
+)
 
 
 @pytest.fixture
@@ -161,14 +163,19 @@ async def test_path_answers_the_chains_with_the_ends_as_given(spec):
     ]
 
 
-async def test_path_is_affects_for_the_reverse_and_null_without_a_chain(spec):
+async def test_path_is_affects_for_the_reverse_and_null_with_a_reason_and_a_link_without_a_chain(spec):
     reverse = await spec.get(PATH, project_id=ALPHA, **{"from": "FEAT::CARD_PAYMENT", "to": "FEAT::CHECKOUT"})
-    through_a_module = await spec.get(
-        PATH, project_id=ALPHA, **{"from": "MOD::PAYMENTS_SERVICE", "to": "CON::STRIPE", "max_hops": 4}
+    shared_provider = await spec.get(
+        PATH, project_id=ALPHA, **{"from": "IFC::STRIPE_API", "to": "IFC::INTEGRATED", "max_hops": 6}
     )
 
-    assert reverse.json()["direction"] == "affects"
-    assert (through_a_module.json()["direction"], through_a_module.json()["items"]) == (None, [])
+    assert (reverse.json()["direction"], reverse.json()["reason"], reverse.json()["link"]) == ("affects", None, None)
+    body = shared_provider.json()
+    assert (body["direction"], body["items"], body["reason"]) == (None, [], "no_directed_chain")
+    assert [(step["spec_id"], step["relation"], step["step"]) for step in body["link"]["steps"]] == [
+        ("MOD::STRIPE", "PROVIDED_BY", "forward"),
+        ("IFC::INTEGRATED", "PROVIDED_BY", "backward"),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -177,7 +184,7 @@ async def test_path_is_affects_for_the_reverse_and_null_without_a_chain(spec):
         ({"from": "FEAT::NOPE", "to": "FEAT::CHECKOUT"}, 404, "node_not_found"),
         ({"from": "FEAT::CHECKOUT", "to": "FEAT::NOPE"}, 404, "node_not_found"),
         ({"from": "FEAT::CHECKOUT"}, 422, "validation_failed"),
-        ({"from": "FEAT::CHECKOUT", "to": "FEAT::CARD_PAYMENT", "max_hops": 5}, 422, "validation_failed"),
+        ({"from": "FEAT::CHECKOUT", "to": "FEAT::CARD_PAYMENT", "max_hops": 7}, 422, "validation_failed"),
     ],
 )
 async def test_path_refuses_an_unknown_end_and_bad_arguments(spec, params, status, code):
@@ -241,6 +248,48 @@ async def test_expand_brief_without_implemented_nodes_is_empty_without_a_graph_r
 )
 async def test_expand_brief_refuses_an_unknown_story_and_a_budget_out_of_range(spec, params, status, code):
     assert code_of(await spec.get(EXPAND, project_id=ALPHA, **params)) == (status, code)
+
+
+async def test_expand_brief_takes_a_query_and_answers_the_story_alone_when_it_cannot_be_embedded(spec):
+    # the rig's gateway fails every embed call: the expansion falls back to the story's own vectors
+    aimed = await spec.get(EXPAND, project_id=ALPHA, story_id=CHECKOUT, query="How are card payments taken?")
+    plain = await spec.get(EXPAND, project_id=ALPHA, story_id=CHECKOUT)
+
+    assert aimed.status_code == plain.status_code == 200
+    assert aimed.json() == plain.json()
+    assert code_of(await spec.get(EXPAND, project_id=ALPHA, story_id=CHECKOUT, query="q" * 501)) == (
+        422,
+        "validation_failed",
+    )
+
+
+async def test_the_story_brief_hints_what_expand_brief_would_add(spec):
+    """QA F24: the brief result says how much more an expansion holds, its first three and the tool to call."""
+
+    brief = StoryBriefResult.model_validate((await spec.get(STORY, project_id=ALPHA, story_id=CHECKOUT)).json()).brief
+    expansion = BriefExpansion.model_validate((await spec.get(EXPAND, project_id=ALPHA, story_id=CHECKOUT)).json())
+
+    assert brief.expansion is not None and brief.expansion.next == "expand_brief"
+    assert brief.expansion.more == len(expansion.items) > 0
+    assert [(top.spec_id, top.title) for top in brief.expansion.top] == [
+        (item.spec_id, item.name) for item in expansion.items[:3]
+    ]
+
+
+async def test_the_brief_of_a_story_without_implemented_nodes_hints_nothing_more(spec, monkeypatch):
+    plan = spec.rig.runtime.agent_reads.plan
+    real = plan.story_brief
+
+    async def bare(*args: Any, **kwargs: Any) -> Any:
+        return (await real(*args, **kwargs)).model_copy(update={"implements": ()})
+
+    monkeypatch.setattr(plan, "story_brief", bare)
+    spec.executor.calls.clear()
+
+    response = await spec.get(STORY, project_id=ALPHA, story_id=CHECKOUT)
+
+    assert response.json()["brief"]["expansion"] == {"more": 0, "top": [], "next": "expand_brief"}
+    assert "read_trace_hop" not in read_names(spec)
 
 
 async def test_expand_brief_without_a_plan_is_no_plan(monkeypatch, valid_env):

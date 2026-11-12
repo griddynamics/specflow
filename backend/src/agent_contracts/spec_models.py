@@ -20,8 +20,10 @@ MAX_SEARCH_LIMIT: Final = 20
 MAX_QUERY_CHARS: Final = 500
 MAX_SIMILAR_LIMIT: Final = 20
 MAX_CONTEXT_LINES: Final = 5
-MAX_PATH_HOPS: Final = 4
+DEFAULT_PATH_HOPS: Final = 4
+MAX_PATH_HOPS: Final = 6
 MIN_BUDGET_TOKENS: Final = 500
+DEFAULT_BUDGET_TOKENS: Final = 3000
 MAX_BUDGET_TOKENS: Final = 8000
 MAX_ID_CHARS: Final = 200
 MAX_NAMES: Final = 50
@@ -35,6 +37,7 @@ EdgeDirection = Literal["out", "in"]
 SearchMatch = Literal["id", "text", "vector", "both"]
 ExpansionVia = Literal["graph", "similar", "both"]
 PathStepKind = Literal["forward", "backward", "scope"]
+PathReason = Literal["same_node", "no_directed_chain", "not_connected", "search_limit"]
 
 
 class Holder(BaseModel):
@@ -106,6 +109,20 @@ class BriefTask(BaseModel):
     done_when: list[DoneWhen]
 
 
+class ExpansionTop(BaseModel):
+    spec_id: str
+    title: str
+
+
+class ExpansionHint(BaseModel):
+    """What ``expand_brief`` would add to this brief at its default budget: how many nodes (``more``, 0 when
+    nothing), the first three and the tool to call."""
+
+    more: int
+    top: list[ExpansionTop]
+    next: Literal["expand_brief"] = "expand_brief"
+
+
 class StoryBriefBody(BaseModel):
     story: BriefStory
     area: WorkAreaInfo | None
@@ -118,6 +135,7 @@ class StoryBriefBody(BaseModel):
     neighbours: list[BriefNeighbour]
     spec_changed: bool
     missing: list[str]
+    expansion: ExpansionHint | None = None
 
 
 class StoryBriefResult(BaseModel):
@@ -456,7 +474,7 @@ class PathQuery(BaseModel):
         alias="to", min_length=1, max_length=MAX_ID_CHARS, description="The spec_id the chains end at; aliases resolve."
     )
     max_hops: int = Field(
-        default=MAX_PATH_HOPS, ge=1, le=MAX_PATH_HOPS, description="The most edges in a chain, 1 to 4."
+        default=DEFAULT_PATH_HOPS, ge=1, le=MAX_PATH_HOPS, description="The most edges in a chain, 1 to 6."
     )
 
 
@@ -483,7 +501,9 @@ class PathChainItem(BaseModel):
 
 class NodePaths(BaseModel):
     """At most 3 shortest chains; ``direction`` ``based_on`` (``from`` depends on ``to``), ``affects`` (the reverse)
-    or null (no chain)."""
+    or null (no chain). Without a chain, ``reason`` says why and ``link`` is the shortest connection of any kind (at
+    most 6 edges, either way, through modules): how the nodes relate when neither depends on the other.
+    ``search_limit``: the search for a connection stopped at 2000 nodes, so no connection is not proven."""
 
     model_config = ConfigDict(serialize_by_alias=True, validate_by_name=True, validate_by_alias=True)
 
@@ -492,6 +512,8 @@ class NodePaths(BaseModel):
     to_id: str = Field(alias="to")
     direction: TraceDirection | None
     items: list[PathChainItem]
+    reason: PathReason | None = None
+    link: PathChainItem | None = None
 
 
 # --- expand_brief ---------------------------------------------------------------------------------------------
@@ -506,10 +528,15 @@ class ExpandQuery(BaseModel):
         description="The story_id of a story from list_stories, or the one claim_story answered.",
     )
     budget_tokens: int = Field(
-        default=3000,
+        default=DEFAULT_BUDGET_TOKENS,
         ge=MIN_BUDGET_TOKENS,
         le=MAX_BUDGET_TOKENS,
         description="The most estimated tokens of text to return, 500 to 8000.",
+    )
+    query: str | None = Field(
+        default=None,
+        max_length=MAX_QUERY_CHARS,
+        description="Optional: the question you need answered around the story; ranks what reads like it first.",
     )
 
 
@@ -518,7 +545,8 @@ class ExpandBriefArgs(ExpandQuery, ProjectArguments):
 
 
 class ExpansionHit(BaseModel):
-    """A node to read next: its score, how it was found and its statement or quote with its estimated tokens."""
+    """A node to read next: its score, how it was found, its statement or quote with its estimated tokens and the
+    path of the document it comes from."""
 
     spec_id: str
     label: str
@@ -527,6 +555,7 @@ class ExpansionHit(BaseModel):
     via: ExpansionVia
     text: str
     tokens: int
+    document: str | None = None
 
 
 class BriefExpansion(BaseModel):

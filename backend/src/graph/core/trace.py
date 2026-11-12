@@ -34,7 +34,9 @@ TRUSTED_BASES: Final = frozenset({STATED, IMPLIED})
 MAX_SPEC_IDS: Final = 50
 MAX_TRACE_LIMIT: Final = 500
 HUB_ROLES: Final = frozenset({USES, USED_BY})
-"""The only roles walked from a spine root (rule 6)."""
+"""The only roles walked from a spine root that is no seed (rule 6)."""
+LANDING_ROLES: Final = frozenset({COUPLED, RELATED})
+"""In ``affects``, a spine root reached over an edge of these roles is not walked on (rule 6)."""
 _RETIRED: Final = "retired"
 
 
@@ -83,13 +85,15 @@ class TraceResult(_Frozen):
 
 @dataclass(frozen=True, slots=True)
 class Visit:
-    """A node on the walk: a start (hop 0) or a reached node, with what its path carries on."""
+    """A node on the walk: a start (hop 0) or a reached node, with what its path carries on; ``seed`` for a seed
+    (a spine root that is a seed is walked like any other node, rule 6)."""
 
     uuid: str
     spec_id: str
     label: str
     via_owner: bool
     weak: bool = False
+    seed: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,7 +105,13 @@ class _Candidate:
 
     @property
     def key(self) -> tuple[bool, str, str, str]:
-        return (self.node.via_owner, self.node.parent, self.node.relation, self.node.step)
+        return edge_key(self.node)
+
+
+def edge_key(node: TraceNode) -> tuple[bool, str, str, str]:
+    """The order a reached node's parent edge is chosen by, lowest first (``paths`` walks on the same way)."""
+
+    return (node.via_owner, node.parent, node.relation, node.step)
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,7 +149,11 @@ class TraceWalk:
                 break
             reached = await self._hop(frontier, hop, visited)
             found.extend(node for _, node in reached)
-            frontier = [Visit(uuid, node.spec_id, node.label, node.via_owner, node.weak) for uuid, node in reached]
+            frontier = [
+                Visit(uuid, node.spec_id, node.label, node.via_owner, node.weak)
+                for uuid, node in reached
+                if self.walks_on(node)
+            ]
         return TraceResult(
             direction=self.direction,
             sources=tuple(seed.spec_id for seed in seeds),
@@ -171,7 +185,7 @@ class TraceWalk:
             if label is None:
                 continue
             props = row["props"]
-            seeds.append(Visit(props["uuid"], props["spec_id"], label, via_owner=False))
+            seeds.append(Visit(props["uuid"], props["spec_id"], label, via_owner=False, seed=True))
             named |= {props["spec_id"], *(props.get("spec_id_aliases") or ())}
         return seeds, tuple(spec_id for spec_id in wanted if spec_id not in named)
 
@@ -223,13 +237,13 @@ class TraceWalk:
         return reached
 
     async def _frontier_rows(self, frontier: Sequence[Visit]) -> list[Mapping[str, Any]]:
-        """The incident edges of ``frontier``: a spine root's of the hub relations only (rule 6)."""
+        """The incident edges of ``frontier``: a hub's (a spine root that is no seed) of the hub relations only
+        (rule 6)."""
 
-        roots = self.ontology.spine.roots
         hub_relations = [name for name in self.relations if self._has_hub_role(name)]
         rows: list[Mapping[str, Any]] = []
-        for at_root, relations in ((True, hub_relations), (False, list(self.relations))):
-            uuids = [visit.uuid for visit in frontier if (visit.label in roots) == at_root]
+        for at_hub, relations in ((True, hub_relations), (False, list(self.relations))):
+            uuids = [visit.uuid for visit in frontier if self._is_hub(visit) == at_hub]
             if uuids and relations:
                 rows.extend(await self._read_hop(uuids, relations))
         return rows
@@ -243,11 +257,11 @@ class TraceWalk:
         outgoing = bool(row["outgoing"])
         source, target = (start.label, label) if outgoing else (label, start.label)
         role = self.ontology.impact_role(row["relation"], source, target)
-        at_root = start.label in self.ontology.spine.roots
+        at_hub = self._is_hub(start)
         step: Step
-        if self._walks(role, outgoing=outgoing) and (not at_root or role in HUB_ROLES):
+        if self._walks(role, outgoing=outgoing) and (not at_hub or role in HUB_ROLES):
             step = "forward" if outgoing else "backward"
-        elif not at_root and not outgoing and self._is_member(row["relation"], source, target):
+        elif not at_hub and not outgoing and self._is_member(row["relation"], source, target):
             step = "scope"
         else:
             return None
@@ -270,6 +284,18 @@ class TraceWalk:
             spine_root=label in self.ontology.spine.roots,
         )
         return _Candidate(node, row["uuid"])
+
+    def walks_on(self, node: TraceNode) -> bool:
+        """Whether the walk goes on from a reached ``node``: not from a spine root that ``affects`` reached over a
+        ``coupled`` or ``related`` edge (the change lands in its implementation; what depends on the module
+        through the contract is reached from the contract itself, rule 6)."""
+
+        return not (node.spine_root and self.direction == AFFECTS and node.role in LANDING_ROLES)
+
+    def _is_hub(self, visit: Visit) -> bool:
+        """A spine root that is no seed: walked by the hub roles only, its members never listed (rules 5, 6)."""
+
+        return visit.label in self.ontology.spine.roots and not visit.seed
 
     def _walks(self, role: str, *, outgoing: bool) -> bool:
         """Whether an edge of ``role``, met in its stored direction (``outgoing``) or against it, is walked."""

@@ -139,6 +139,10 @@
             "title": "Done",
             "type": "integer"
           },
+          "empty": {
+            "title": "Empty",
+            "type": "integer"
+          },
           "in_progress": {
             "$ref": "#/components/schemas/AreaInProgress"
           },
@@ -182,10 +186,37 @@
           "in_progress",
           "waiting",
           "blocked",
+          "empty",
           "done",
           "open_tasks"
         ],
         "title": "AreaItem",
+        "type": "object"
+      },
+      "AreaLink": {
+        "description": "An area named by id and title.",
+        "properties": {
+          "area_id": {
+            "title": "Area Id",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "area_id",
+          "title"
+        ],
+        "title": "AreaLink",
         "type": "object"
       },
       "AreaList": {
@@ -627,7 +658,8 @@
               "in_progress",
               "blocked",
               "ready",
-              "waiting"
+              "waiting",
+              "empty"
             ],
             "title": "State",
             "type": "string"
@@ -1614,9 +1646,48 @@
         "title": "EvidenceSource",
         "type": "object"
       },
-      "ExpansionHit": {
-        "description": "A node to read next: its score, how it was found and its statement or quote with its estimated tokens.",
+      "ExpansionHint": {
+        "description": "What ``expand_brief`` would add to this brief at its default budget: how many nodes (``more``, 0 when\nnothing), the first three and the tool to call.",
         "properties": {
+          "more": {
+            "title": "More",
+            "type": "integer"
+          },
+          "next": {
+            "const": "expand_brief",
+            "default": "expand_brief",
+            "title": "Next",
+            "type": "string"
+          },
+          "top": {
+            "items": {
+              "$ref": "#/components/schemas/ExpansionTop"
+            },
+            "title": "Top",
+            "type": "array"
+          }
+        },
+        "required": [
+          "more",
+          "top"
+        ],
+        "title": "ExpansionHint",
+        "type": "object"
+      },
+      "ExpansionHit": {
+        "description": "A node to read next: its score, how it was found, its statement or quote with its estimated tokens and the\npath of the document it comes from.",
+        "properties": {
+          "document": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document"
+          },
           "label": {
             "title": "Label",
             "type": "string"
@@ -1661,6 +1732,24 @@
           "tokens"
         ],
         "title": "ExpansionHit",
+        "type": "object"
+      },
+      "ExpansionTop": {
+        "properties": {
+          "spec_id": {
+            "title": "Spec Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "spec_id",
+          "title"
+        ],
+        "title": "ExpansionTop",
         "type": "object"
       },
       "FeatureItem": {
@@ -2593,7 +2682,7 @@
         "type": "object"
       },
       "NodePaths": {
-        "description": "At most 3 shortest chains; ``direction`` ``based_on`` (``from`` depends on ``to``), ``affects`` (the reverse)\nor null (no chain).",
+        "description": "At most 3 shortest chains; ``direction`` ``based_on`` (``from`` depends on ``to``), ``affects`` (the reverse)\nor null (no chain). Without a chain, ``reason`` says why and ``link`` is the shortest connection of any kind (at\nmost 6 edges, either way, through modules): how the nodes relate when neither depends on the other.\n``search_limit``: the search for a connection stopped at 2000 nodes, so no connection is not proven.",
         "properties": {
           "direction": {
             "anyOf": [
@@ -2621,9 +2710,36 @@
             "title": "Items",
             "type": "array"
           },
+          "link": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PathChainItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "project_id": {
             "title": "Project Id",
             "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "same_node",
+                  "no_directed_chain",
+                  "not_connected",
+                  "search_limit"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
           },
           "to": {
             "title": "To",
@@ -5024,6 +5140,16 @@
             "title": "Contracts",
             "type": "array"
           },
+          "expansion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExpansionHint"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "findings": {
             "items": {
               "$ref": "#/components/schemas/FindingItem"
@@ -5114,7 +5240,30 @@
       },
       "StoryClaim": {
         "properties": {
+          "agent_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Label"
+          },
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Branch"
+          },
           "claim_token": {
+            "description": "A secret for your tool calls: never show it to the user or write it down.",
             "title": "Claim Token",
             "type": "string"
           },
@@ -5134,6 +5283,11 @@
             "title": "Project Id",
             "type": "string"
           },
+          "repeat": {
+            "description": "true when you already held the story: nothing changed, label and branch are the stored ones.",
+            "title": "Repeat",
+            "type": "boolean"
+          },
           "story_id": {
             "title": "Story Id",
             "type": "string"
@@ -5152,6 +5306,9 @@
           "claim_token",
           "story_ids",
           "claimed_at",
+          "agent_label",
+          "branch",
+          "repeat",
           "items"
         ],
         "title": "StoryClaim",
@@ -5287,7 +5444,8 @@
               "in_progress",
               "blocked",
               "ready",
-              "waiting"
+              "waiting",
+              "empty"
             ],
             "title": "State",
             "type": "string"
@@ -5330,6 +5488,10 @@
       },
       "StoryItem": {
         "properties": {
+          "area": {
+            "$ref": "#/components/schemas/AreaLink",
+            "description": "The area the story sits in."
+          },
           "completed_at": {
             "anyOf": [
               {
@@ -5351,6 +5513,14 @@
                 "type": "null"
               }
             ]
+          },
+          "cycle_with": {
+            "description": "Stories in a wait cycle with this one: they are claimed and built together.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Cycle With",
+            "type": "array"
           },
           "findings": {
             "title": "Findings",
@@ -5422,7 +5592,8 @@
               "in_progress",
               "blocked",
               "ready",
-              "waiting"
+              "waiting",
+              "empty"
             ],
             "title": "State",
             "type": "string"
@@ -5432,6 +5603,7 @@
             "type": "string"
           },
           "tasks": {
+            "description": "Open tasks; for a completed story, its completed tasks.",
             "title": "Tasks",
             "type": "integer"
           },
@@ -5440,31 +5612,67 @@
             "type": "string"
           },
           "unblocks": {
+            "description": "How many stories list this one in waits_on.",
             "title": "Unblocks",
             "type": "integer"
           },
           "waits_on": {
+            "description": "Stories with unfinished work this story waits for, directly or through other stories; the first 3.",
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/StoryLink"
             },
             "title": "Waits On",
             "type": "array"
+          },
+          "waits_on_total": {
+            "description": "How many stories it waits for in all.",
+            "title": "Waits On Total",
+            "type": "integer"
           }
         },
         "required": [
           "rank",
           "story_id",
           "title",
+          "area",
           "kind",
           "state",
           "holder",
           "waits_on",
+          "waits_on_total",
+          "cycle_with",
           "tasks",
           "unblocks",
           "findings",
           "question"
         ],
         "title": "StoryItem",
+        "type": "object"
+      },
+      "StoryLink": {
+        "description": "A story named by id and title.",
+        "properties": {
+          "story_id": {
+            "title": "Story Id",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "story_id",
+          "title"
+        ],
+        "title": "StoryLink",
         "type": "object"
       },
       "StoryList": {
@@ -5630,7 +5838,8 @@
               "in_progress",
               "blocked",
               "ready",
-              "waiting"
+              "waiting",
+              "empty"
             ],
             "title": "State",
             "type": "string"
@@ -6608,7 +6817,7 @@
     },
     "/api/v1/agent/brief-expansion": {
       "get": {
-        "description": "What to read next beyond the story's brief: seeds its implemented nodes, its neighbours left out.",
+        "description": "What to read next beyond the story's brief: seeds its implemented nodes, its neighbours left out, aimed by\nthe optional ``query``.",
         "operationId": "expand_brief_api_v1_agent_brief_expansion_get",
         "parameters": [
           {
@@ -6636,6 +6845,25 @@
               "minimum": 500,
               "title": "Budget Tokens",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Optional: the question you need answered around the story; ranks what reads like it first.",
+            "in": "query",
+            "name": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 500,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional: the question you need answered around the story; ranks what reads like it first.",
+              "title": "Query"
             }
           },
           {
@@ -7079,14 +7307,14 @@
             }
           },
           {
-            "description": "The most edges in a chain, 1 to 4.",
+            "description": "The most edges in a chain, 1 to 6.",
             "in": "query",
             "name": "max_hops",
             "required": false,
             "schema": {
               "default": 4,
-              "description": "The most edges in a chain, 1 to 4.",
-              "maximum": 4,
+              "description": "The most edges in a chain, 1 to 6.",
+              "maximum": 6,
               "minimum": 1,
               "title": "Max Hops",
               "type": "integer"

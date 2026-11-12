@@ -101,12 +101,13 @@ async def test_a_claim_moves_the_units_open_tasks_to_in_progress_under_one_token
 async def test_the_holder_claiming_again_gets_the_same_token_and_nothing_is_written() -> None:
     # u1 claims with a label, then claims again with another one: same token, same tasks, no write statements.
     service, memory, _ = _service()
-    first = await service.claim_story("shop", API, claimed_by="u1", agent_label="one")
+    first = await service.claim_story("shop", API, claimed_by="u1", agent_label="one", branch="feat/api")
     writes = memory.statements.count("plan_set_stories") + memory.statements.count("plan_set_tasks")
 
-    again = await service.claim_story("shop", API, claimed_by="u1", agent_label="two")
+    again = await service.claim_story("shop", API, claimed_by="u1", agent_label="two", branch="other")
 
     assert again.claim_token == first.claim_token and again.repeat is True
+    assert (again.agent_label, again.branch, again.claimed_at) == ("one", "feat/api", first.claimed_at)  # stored
     assert [task.task_id for task in again.tasks] == [CONTRACT, LOGIC]
     assert memory.stories[API]["agent_label"] == "one"
     assert memory.statements.count("plan_set_stories") + memory.statements.count("plan_set_tasks") == writes

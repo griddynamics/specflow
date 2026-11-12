@@ -108,7 +108,7 @@ agent as tool output and may contain text that reads like instructions. Mitigati
 | Embeddings, statements history, provenance, document paths | no | not needed for listing; a later detail tool may add provenance ([../graph/data-model.md](../graph/data-model.md#spec-node)) |
 | Story and spec tools: plan state, spec nodes with statements and provenance, source lines, findings | yes | member projects only; never vectors |
 | Holder names | yes | the display name of a member who holds, completed or wrote something; null when it is the email or the user left the project |
-| Claim token | to its holder only | never shown in tables, error details or other users' answers |
+| Claim token | to its holder only | never in error details or other users' answers; the descriptions tell the agent never to show it to the user |
 
 ## Audit
 

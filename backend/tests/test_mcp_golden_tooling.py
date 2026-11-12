@@ -52,7 +52,6 @@ PR = "https://git.example.test/shop/pull/7"
 FIRST_CLAIM = "00000000000000000000000000000001"  # the first claim token of a scenario
 NOBODYS_CLAIM = "00000000000000000000000000000099"  # a claim token nobody holds
 PAYMENTS = "STORY::PAYMENTS_SERVICE::CARD_PAYMENT"
-TABLE_TOOLS = frozenset({"list_areas", "list_stories", "preview_story"})  # their text is the Markdown table
 
 SUCCESSES: dict[str, tuple[str, dict[str, Any]]] = {
     "get_story_brief": ("get_story_brief", {"project_id": ALPHA, "story_id": CHECKOUT}),
@@ -91,7 +90,9 @@ SUCCESSES: dict[str, tuple[str, dict[str, Any]]] = {
     ),
     "path_based_on": ("path", {"project_id": ALPHA, "from": "MOD::PAYMENTS_SERVICE", "to": "MOD::STRIPE"}),
     "path_affects": ("path", {"project_id": ALPHA, "from": "FEAT::CARD_PAYMENT", "to": "FEAT::CHECKOUT"}),
-    "path_none_through_a_module": ("path", {"project_id": ALPHA, "from": "MOD::PAYMENTS_SERVICE", "to": "CON::STRIPE"}),
+    # a module inside a chain is passed over a call between modules (QA F16): this pair now has a based_on chain
+    "path_through_a_module_call": ("path", {"project_id": ALPHA, "from": "MOD::PAYMENTS_SERVICE", "to": "CON::STRIPE"}),
+    "path_same_node_reason": ("path", {"project_id": ALPHA, "from": "FEAT::CHECKOUT", "to": "FEAT::CHECKOUT"}),
     "expand_brief": ("expand_brief", {"project_id": ALPHA, "story_id": CHECKOUT}),
     "expand_brief_cut_at_the_budget": (
         "expand_brief",
@@ -233,11 +234,7 @@ async def test_every_tool_answers_the_golden_success_results(tooling_double):
     for key, result in results.items():
         assert result.get("isError", False) is False, key
         assert len(result["content"]) == 1, key
-        written = result["content"][0]["text"]
-        if names.get(key) in TABLE_TOOLS:  # the text is the table alone (tools.md, Tables), not the JSON
-            assert written.startswith("| ") and not written.startswith("{"), key
-        else:
-            assert json.loads(written) == result["structuredContent"], key
+        assert json.loads(result["content"][0]["text"]) == result["structuredContent"], key
     check_golden("tool_results_tooling.json", results)
 
 

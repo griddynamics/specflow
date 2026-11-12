@@ -91,11 +91,15 @@ name, so invariant I4 holds ([architecture.md](architecture.md)): the walk below
    step; a pair the ontology does not declare takes its relation's role.
 5. **Scope step.** From a reached node that is not a spine root, its members (the sources of owner
    pairs that point at it) are reached one hop further, with `step: "scope"`. This applies to seeds
-   too, so a trace from a feature alone still covers its requirements. A spine root's members are
-   never listed.
-6. **Hubs.** From a spine root the walk follows only `uses` and `used_by` edges. A module reached
-   through a store or a provider therefore never fans out to every entity it stores, every interface
-   it provides or everything related to it.
+   too, so a trace from a feature alone still covers its requirements, and a spine root that is a
+   seed lists its members (T8). The members of a spine root that is no seed are never listed.
+6. **Hubs.** From a spine root that is no seed (an owner start or a reached module) the walk follows
+   only `uses` and `used_by` edges. A module reached through a store or a provider therefore never
+   fans out to every entity it stores, every interface it provides or everything related to it. In
+   `affects`, a spine root reached over a `coupled` or `related` edge is listed but not walked on: a
+   change of a contract or an entity lands in the module that provides or stores it, and what depends
+   on that module through other contracts does not depend on this one (T9). A spine root that is a
+   seed is walked like any other seed, every role and the scope step (T8).
 7. **Trust.** `basis="trusted"` (the default) walks `stated` and `implied` edges only, the edges stitch
    trusts for waits ([plan/plan.md](plan/plan.md) "Stitch"); an edge without `basis` reads as `stated`.
    The filter covers the context step (2) as well as the role steps. `basis="any"` adds `inferred` edges, each result carrying the rule and confidence.
@@ -130,9 +134,9 @@ brief carry provenance.
 **Queries.** One new store query, `core.read_trace_hop` (Cypher for Neo4j and ArcadeDB, SQL for
 PostgreSQL), returns the incident domain edges of a frontier: frontier `uuid`, the other end's `uuid`,
 `spec_id`, labels, `name`, the relation, whether the edge leaves the frontier node, `basis`,
-`confidence` and `inference_rule`. It takes the relations to read, so the reader asks for a spine
-root's edges with the relations that have a `uses` or `used_by` pair only (rule 6) and never reads a
-module's members. Roles are applied in Python from the compiled ontology. Owners (rule 2) take one read
+`confidence` and `inference_rule`. It takes the relations to read, so the reader asks for the edges of a spine
+root that is no seed with the relations that have a `uses` or `used_by` pair only (rule 6) and never
+reads such a module's members. Roles are applied in Python from the compiled ontology. Owners (rule 2) take one read
 of the owner pairs per level, at most three in the shipped ontology. A hop takes at most two queries:
 one for the frontier's spine roots and one for the other nodes.
 
@@ -257,7 +261,8 @@ FR-READ-17 (the walk) in [requirements.md](requirements.md), FR-PMCP-08 (the pla
 
 ## Decisions
 
-Decided 2026-11-11: each proposal below was taken.
+Decided 2026-11-11: each proposal below was taken. T8 and T9 were added on 2026-11-12 from the MCP
+tooling QA.
 
 | # | Decision | Taken | Alternative |
 |---|---|---|---|
@@ -268,6 +273,8 @@ Decided 2026-11-11: each proposal below was taken.
 | T5 | Owner start | On by default, results marked `via_owner` | Off by default; the fixture shows feature-level traces are often empty |
 | T6 | Hubs | Spine roots only | Also any node above a degree threshold; that makes answers depend on graph size |
 | T7 | `impact` | Keep unchanged; no host caller | Remove once `trace` lands |
+| T8 | A module given as a seed (QA I08: `affects` of a module listed only the modules calling it) | Walked like any seed: its members, the interfaces it provides, the entities it stores and its weak relations, then their dependents | Keep it a hub and tell agents to use `based_on`; the question "what does changing this module touch" stays unanswerable |
+| T9 | A module reached in `affects` over `coupled` or `related` (QA: `affects` of `IFC::PAYMENTS_REFUND` listed `MOD::CHECKOUT`, which never calls refund) | Listed, not walked on; the contract's consumers are reached from the contract | Walk it as a hub: every module calling the provider for any contract is listed |
 
 ## Out of scope here
 

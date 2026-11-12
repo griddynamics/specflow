@@ -14,8 +14,9 @@ from graph.core.expand import (
     HUB_PASS,
     ITERATIONS,
     MAX_RANKED,
+    SIMILAR_ONLY_BAND,
+    SIMILAR_ONLY_MAX,
     SUBGRAPH_MAX_NODES,
-    VECTOR_CANDIDATES,
     ExpansionItem,
     Subgraph,
     adjacency,
@@ -48,11 +49,11 @@ def test_tokens_are_characters_divided_by_four_rounded_up() -> None:
     assert estimate_tokens("", "") == 0
 
 
-def test_items_are_taken_in_rank_order_until_the_next_would_pass_the_budget() -> None:
-    found = within_budget([item("A", 40), item("B", 70), item("C", 10)], 100)
+def test_items_are_taken_in_rank_order_while_each_fits_in_what_is_left_of_the_budget() -> None:
+    found = within_budget([item("A", 40), item("B", 70), item("C", 10), item("D", 60)], 100)
 
-    assert [taken.spec_id for taken in found.items] == ["A"]  # C fits but comes after B: the cut is a prefix
-    assert (found.tokens, found.left_out) == (40, 2)
+    assert [taken.spec_id for taken in found.items] == ["A", "C"]  # B does not fit; C still does, D no longer
+    assert (found.tokens, found.left_out) == (50, 2)
     assert within_budget([item("A", 40), item("B", 60)], 100).left_out == 0
 
 
@@ -124,16 +125,30 @@ def test_pagerank_matches_the_closed_form_of_two_linked_nodes() -> None:
 
 
 def test_scores_mix_graph_and_vector_and_say_which_found_each_node() -> None:
-    ranked = ranked_scores({"A": 0.2, "B": 0.1, "Z": 0.0}, {"B": 0.9, "C": 0.8})
+    ranked = ranked_scores({"A": 0.2, "B": 0.1, "Z": 0.0}, {"B": 0.9, "C": 0.86})
 
     assert ranked == [
         ("A", pytest.approx(0.7), "graph"),
         ("B", pytest.approx(0.7 * 0.5 + 0.3 * 0.9), "both"),
-        ("C", pytest.approx(0.24), "similar"),
+        ("C", pytest.approx(0.3 * 0.86), "similar"),
     ]  # Z scores 0 and is left out
     ties = [f"N{i:03d}" for i in range(MAX_RANKED + 5)]
     kept = [spec_id for spec_id, _, _ in ranked_scores(dict.fromkeys(reversed(ties), 1.0), {})]
     assert kept == ties[:MAX_RANKED]  # N000..N199: equal scores by spec_id
+
+
+def test_a_node_found_by_its_vector_alone_is_kept_only_near_the_best_vector_score_and_at_most_ten() -> None:
+    """QA I07: the vector-only tail (0.62 to 0.73 under a best of 0.80) filled the budget with unrelated nodes."""
+
+    best = 0.8
+    tail = {f"T{index:02d}": best - SIMILAR_ONLY_BAND / 20 * index for index in range(30)}
+    vector = {"G": 0.62, "FAR": best - SIMILAR_ONLY_BAND - 0.01, **tail, "BEST": best}
+
+    ranked = {spec_id: via for spec_id, _, via in ranked_scores({"G": 1.0}, vector)}
+
+    # a graph node keeps its vector score however low it is; of the others the 10 best within the band
+    assert ranked == {"G": "both", "BEST": "similar", **{f"T{index:02d}": "similar" for index in range(9)}}
+    assert len(ranked) == 1 + SIMILAR_ONLY_MAX
 
 
 def test_equal_scores_rank_by_spec_id_whatever_the_order_they_come_in() -> None:
@@ -185,6 +200,7 @@ async def test_expand_ranks_nodes_near_the_seeds_in_graph_and_meaning_without_se
     )
     payments = next(entry for entry in found.items if entry.spec_id == "MOD::PAYMENTS_SERVICE")
     assert payments.text == "Payments service takes card payments."  # the quote of its first provenance record
+    assert (payments.document, card.document) == ("a.md", None)  # the path of its first source document
     assert found.tokens == sum(entry.tokens for entry in found.items) and found.left_out == 0
     assert "embed" not in [name for name, _ in executor.calls]
 
@@ -200,8 +216,8 @@ async def test_expand_cuts_at_the_budget_and_counts_what_it_left_out() -> None:
     cut = await reader.expand(PROJECT, SEEDS, budget_tokens=budget)
 
     assert every.left_out == 0 and len(every.items) > 3
-    assert cut.tokens <= budget < cut.tokens + every.items[len(cut.items)].tokens
-    assert cut.items == every.items[: len(cut.items)]
+    assert cut.items[:2] == every.items[:2] and every.items[2] not in cut.items
+    assert cut.tokens <= budget and cut.items == within_budget(every.items, budget).items
     assert cut.left_out == len(every.items) - len(cut.items) > 0
 
 
@@ -218,7 +234,8 @@ async def test_expand_is_graph_only_without_a_gateway_and_the_same_graph_gives_t
 async def test_expand_never_spreads_through_a_module_to_its_other_members() -> None:
     found = await shop_executor().reader().expand(PROJECT, ["FEAT::PLACE_ORDER"], budget_tokens=20000)
 
-    # the Orders service module is one hop away; the walk stops there, so its other members are not ranked
+    # the Orders service module is one hop away; the walk stops there, and without vectors its other members are
+    # not lent either (test_graph_expand_owners.py)
     assert [entry.spec_id for entry in found.items] == ["MOD::ORDERS_SERVICE", "REQ::FR::PLACE_ORDER"]
 
 
@@ -259,7 +276,7 @@ async def test_expand_checks_exclude_before_any_read(exclude: Any) -> None:
     assert error.value.code == "invalid_exclude" and executor.calls == []
 
 
-async def test_expand_compares_one_centroid_and_keeps_50_vector_candidates_past_the_left_out_nearest_ones() -> None:
+async def test_expand_compares_one_centroid_and_keeps_ten_vector_candidates_past_the_left_out_nearest_ones() -> None:
     graph = TraceGraph()
     seeds = ["FEAT::S0", "FEAT::S1"]
     excluded = [f"FEAT::E{index:02d}" for index in range(10)]
@@ -277,7 +294,7 @@ async def test_expand_compares_one_centroid_and_keeps_50_vector_candidates_past_
 
     found = await executor.reader(Gateway()).expand(PROJECT, seeds, exclude=excluded, budget_tokens=20000)
 
-    assert [entry.spec_id for entry in found.items] == others[:VECTOR_CANDIDATES]
+    assert [entry.spec_id for entry in found.items] == others[:SIMILAR_ONLY_MAX]
     assert {entry.via for entry in found.items} == {"similar"}
     names = [name for name, _ in executor.calls]
     assert names.count("search_nodes_vector_exact") == 1  # one nearest read for the centroid, not one per seed
@@ -313,6 +330,7 @@ async def test_expand_does_bounded_work_on_a_graph_of_four_thousand_nodes(record
     near_seeds, _ = await near([(e["source"], e["target"]) for e in executor.graph.edges], seeds, set())
     assert len(near_seeds.nodes) == SUBGRAPH_MAX_NODES and ITERATIONS == 30
     names = [name for name, _ in executor.calls]
-    assert names.count("read_trace_hop") <= 4 and names.count("search_nodes_vector_exact") == 1
+    # the walk's reads and one of the owners' members
+    assert names.count("read_trace_hop") <= 5 and names.count("search_nodes_vector_exact") == 1
     assert "read_edges" not in names and "read_nodes" not in names  # nothing read project-wide
-    assert len(names) <= 12
+    assert len(names) <= 13

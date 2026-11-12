@@ -343,7 +343,7 @@
   "not_available": {
     "content": [
       {
-        "text": "{\"error\":{\"code\":\"not_available\",\"message\":\"The story cannot be claimed now. Preview it to see what it waits for.\",\"details\":{\"blockers\":[],\"state\":\"blocked\"}}}",
+        "text": "{\"error\":{\"code\":\"not_available\",\"message\":\"The story cannot be claimed now. Its details name the state, the stories it waits on and findings.\",\"details\":{\"state\":\"blocked\"}}}",
         "type": "text"
       }
     ],
@@ -352,10 +352,9 @@
       "error": {
         "code": "not_available",
         "details": {
-          "blockers": [],
           "state": "blocked"
         },
-        "message": "The story cannot be claimed now. Preview it to see what it waits for."
+        "message": "The story cannot be claimed now. Its details name the state, the stories it waits on and findings."
       }
     }
   },

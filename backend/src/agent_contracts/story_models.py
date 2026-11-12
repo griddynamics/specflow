@@ -19,6 +19,7 @@ MAX_TOKEN_CHARS: Final = 200
 QUESTION_CHARS: Final = 80  # the question of a story row and the finding text of a preview row are cut to this
 MAX_ALTERNATIVES: Final = 3
 MAX_BLOCKERS: Final = 10
+MAX_WAITS_ON: Final = 3
 
 STORY_ID_DESCRIPTION: Final = "The story_id of a story from list_stories."
 AGENT_LABEL_DESCRIPTION: Final = (
@@ -48,6 +49,7 @@ class AreaItem(BaseModel):
     in_progress: AreaInProgress
     waiting: int
     blocked: int
+    empty: int
     done: int
     open_tasks: int
 
@@ -81,16 +83,37 @@ class ListStoriesArgs(ListStoriesQuery, ProjectArguments):
     pass
 
 
+class StoryLink(BaseModel):
+    """A story named by id and title."""
+
+    story_id: str
+    title: str | None
+
+
+class AreaLink(BaseModel):
+    """An area named by id and title."""
+
+    area_id: str
+    title: str | None
+
+
 class StoryItem(BaseModel):
     rank: int
     story_id: str
     title: str
+    area: AreaLink = Field(description="The area the story sits in.")
     kind: StoryKind
     state: StoryState
     holder: Holder | None
-    waits_on: list[str]
-    tasks: int
-    unblocks: int
+    waits_on: list[StoryLink] = Field(
+        description="Stories with unfinished work this story waits for, directly or through other stories; the first 3."
+    )
+    waits_on_total: int = Field(description="How many stories it waits for in all.")
+    cycle_with: list[str] = Field(
+        description="Stories in a wait cycle with this one: they are claimed and built together."
+    )
+    tasks: int = Field(description="Open tasks; for a completed story, its completed tasks.")
+    unblocks: int = Field(description="How many stories list this one in waits_on.")
     findings: int
     question: str | None
     # view ``done`` only
@@ -178,9 +201,14 @@ class ClaimStoryArgs(ClaimStoryBody, ProjectArguments):
 class StoryClaim(BaseModel):
     project_id: str
     story_id: str
-    claim_token: str
+    claim_token: str = Field(description="A secret for your tool calls: never show it to the user or write it down.")
     story_ids: list[str]
     claimed_at: AwareDatetime
+    agent_label: str | None
+    branch: str | None
+    repeat: bool = Field(
+        description="true when you already held the story: nothing changed, label and branch are the stored ones."
+    )
     items: list[StoryTaskItem]
 
 
@@ -208,14 +236,25 @@ class StoryRelease(BaseModel):
 # --- error details --------------------------------------------------------------------------------------------
 
 
+class FindingRef(BaseModel):
+    """An open blocking finding named by an error: its id, kind and text cut to 80 characters (preview_story shows it
+    whole)."""
+
+    finding_id: str
+    kind: str
+    text: str
+
+
 class ErrorDetails(BaseModel):
     """What an error answer may carry beside its fixed message (tools.md "Error details"); a field is set only by the
-    codes that name it. No claim token, user id or email, and no text from documents except titles."""
+    codes that name it. No claim token, user id or email, and no text from documents except titles; the text of an
+    open blocking finding of the project is the only other free text."""
 
     holder: Holder | None = None
     since: AwareDatetime | None = None
     alternatives: list[StoryRefItem] | None = Field(default=None, max_length=MAX_ALTERNATIVES)
     blockers: list[StoryRefItem] | None = Field(default=None, max_length=MAX_BLOCKERS)
+    findings: list[FindingRef] | None = Field(default=None, max_length=MAX_BLOCKERS)
     state: StoryState | None = None
     task_id: str | None = None
     argument: str | None = None

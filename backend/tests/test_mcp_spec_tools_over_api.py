@@ -259,7 +259,7 @@ async def test_a_graph_outage_and_an_api_bug_keep_their_codes_through_the_router
         ("similar", {"project_id": ALPHA, "spec_ids": []}),
         ("get_evidence", {"project_id": ALPHA, "spec_id": "X", "context_lines": 6}),
         ("path", {"project_id": ALPHA, "from": "X"}),  # to missing
-        ("path", {"project_id": ALPHA, "from": "X", "to": "Y", "max_hops": 5}),
+        ("path", {"project_id": ALPHA, "from": "X", "to": "Y", "max_hops": 7}),
         ("expand_brief", {"project_id": ALPHA, "story_id": CHECKOUT, "budget_tokens": 499}),
         ("expand_brief", {"project_id": ALPHA, "story_id": CHECKOUT, "budget_tokens": 8001}),
     ],
@@ -325,7 +325,7 @@ async def test_the_input_schemas_publish_the_bounds_the_routes_enforce(monkeypat
         "max_hops",
     ]
     hops = path["properties"]["max_hops"]
-    assert (hops["minimum"], hops["maximum"], hops["default"]) == (1, 4, 4)
+    assert (hops["minimum"], hops["maximum"], hops["default"]) == (1, 6, 4)
     budget = schemas["expand_brief"]["properties"]["budget_tokens"]
     assert schemas["expand_brief"]["required"] == ["project_id", "story_id"]
     assert (budget["minimum"], budget["maximum"], budget["default"]) == (500, 8000, 3000)

@@ -124,7 +124,6 @@ boundaries are not.
 | `mcp_server/api_client.py` | The API client and its constants ([Settings](#settings)) |
 | `mcp_server/readiness.py` | The `/readyz` check over the API's `/readyz` |
 | `mcp_server/errors.py` | `MESSAGES` (the fixed tool messages), `McpToolError`, `error_body` and `from_api` |
-| `mcp_server/tables.py` | The Markdown tables of `list_areas`, `list_stories` and `preview_story` ([tools.md](tools.md#tables)): pure functions of the result models, standard library only, like the guidance text |
 
 The MCP role keeps no tool handlers, no user provisioning, no membership function and no database or graph runtime:
 that logic lives in the API ([API agent routes](#api-agent-routes)). The package is named `mcp_server`, so `import mcp`
@@ -197,8 +196,8 @@ against the declared result model. The API route passes `str(project.id)` (the c
 parameter and the other arguments as the JSON body ([Write routes](#write-routes)). The method follows the
 annotations: a declaration whose `readOnlyHint` is false is a write tool; its annotations are the `WRITE` constant
 next to `READ_ONLY` (read-only false, destructive false, idempotent true, open-world false), and the declaration has
-no method field. A declaration may name a `render` function (result model to text); the result's text block is then
-that text instead of the JSON ([tools.md](tools.md#tables)). The registry is the only code that uses the
+no method field. Every result's text block is the JSON of the structured content; no tool renders a table
+([tools.md](tools.md#tables)). The registry is the only code that uses the
 SDK's tool and prompt API, so an SDK change, or a later move to another MCP framework, touches the registry and not the
 API. Every project member has the same access to every tool: no scope or role distinguishes members. The structural
 test of access-control.md reads the declarations and the agent routes.
@@ -469,7 +468,7 @@ of the p95 before the split ([testing.md](testing.md#stack-gate)).
 | AD9 | Write tools are `POST` agent routes on fixed noun paths, `project_id` in the query and the other arguments as a JSON body; the method follows the annotations, so a declaration gets no method field | REST resource paths (`/stories/{id}/claim`, `DELETE` for a release): new path parameters and dependency shapes for no gain. A `GET` with query parameters: a write on a safe method |
 | AD10 | Writes are idempotent by state: a repeat with the same arguments changes nothing and answers as the first call did; the story keeps its last claim token until the next claim; no request id argument and no request store | A Postgres store keyed by a request id: a table, retention, a row that is not atomic with the graph write, and a stale replay when an agent reuses an id such as `1`. A request id for audit only: an argument the agent must invent while MCP already joins both logs by `X-Request-ID` |
 | AD11 | Error results may carry typed `details` beside the fixed message, validated against `ErrorDetails` | No details: the agent needs one or two more calls per refusal. Refusals as success results: breaks `isError` |
-| AD12 | The MCP role renders the Markdown tables of the people tools from the structured content; the API stays JSON only | Two text blocks, JSON then Markdown: doubles the tokens and the agent may relay the JSON. The API renders: the API would carry presentation for one client |
+| AD12 | Every tool's text block is the plain JSON; the descriptions ask the agent to present the people tools' rows as a table. Revised after the QA lab: clients hand the model the structured content, so server-rendered Markdown tables never reached it (0 of 63 runs) | Markdown tables rendered by the MCP role (the first version): dead weight for Claude Code. Two text blocks, JSON then Markdown: doubles the tokens. The API renders: the API would carry presentation for one client |
 
 ## What would invalidate this design
 

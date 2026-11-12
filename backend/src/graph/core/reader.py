@@ -27,9 +27,11 @@ from graph.core.evidence import (
 )
 from graph.core.expand import (
     MAX_BUDGET,
+    MAX_RANKED,
     MAX_SEED_IDS,
     MAX_SIMILAR_SOURCES,
     MIN_BUDGET,
+    QUERY_SHARE,
     VECTOR_CANDIDATES,
     Expansion,
     ExpansionItem,
@@ -39,10 +41,12 @@ from graph.core.expand import (
     best_scores,
     estimate_tokens,
     mean_vector,
+    member_scores,
     personalised_pagerank,
     ranked_scores,
     subgraph,
     top_scores,
+    vector_owners,
     within_budget,
 )
 from graph.core.hops import MAX_HOP_IDS, MAX_HOPS, MIN_HOPS, HopNode, HopRead, hop_distances
@@ -53,7 +57,7 @@ from graph.core.identity import (
     validate_project_id,
 )
 from graph.core.ontology import AttributeSpec, Ontology
-from graph.core.paths import PathResult, PathWalk
+from graph.core.paths import MAX_PATH_HOPS, MIN_PATH_HOPS, PathReason, PathResult, PathWalk
 from graph.core.queries import (
     COUNT_NODES,
     COUNT_SEARCH_VECTORS,
@@ -635,60 +639,85 @@ class GraphReader:
         return [await self._evidence_item(project_id, node, record, context_lines, documents) for record in records]
 
     async def paths(self, project_id: str, from_id: str, to_id: str, *, max_hops: int = 4) -> PathResult | None:
-        """At most 3 shortest chains of at most ``max_hops`` (1-4) trusted edges walked by the trace's roles: first
-        ``based_on`` (``from_id`` depends on ``to_id``), only without one ``affects``; a spine root never inside a
-        chain. ``None`` when an end names no spec node."""
+        """At most 3 shortest chains of at most ``max_hops`` (1-6) trusted edges walked by the trace's roles: first
+        ``based_on`` (``from_id`` depends on ``to_id``), only without one ``affects``; a module inside a chain is
+        passed over calls between modules only. Without a chain, the ``reason`` and the shortest ``link`` of any
+        walked role (at most 6 edges); ``search_limit`` when that search reached 2000 nodes first. ``None`` when an end
+        names no spec node."""
 
         project_id = validate_project_id(project_id)
-        if not _is_int_between(max_hops, MIN_HOPS, MAX_HOPS):
-            raise ConfigurationError("invalid_max_hops", minimum=MIN_HOPS, maximum=MAX_HOPS)
+        if not _is_int_between(max_hops, MIN_PATH_HOPS, MAX_PATH_HOPS):
+            raise ConfigurationError("invalid_max_hops", minimum=MIN_PATH_HOPS, maximum=MAX_PATH_HOPS)
         start = await self.node(project_id, from_id)
         end = await self.node(project_id, to_id)
         if start is None or end is None:
             return None
         if start.uuid == end.uuid:
-            return PathResult()
+            return PathResult(reason="same_node")
+        origin = Visit(start.uuid, start.spec_id, start.label, via_owner=False, seed=True)
         for direction in DIRECTIONS:
-            walk = PathWalk(
-                executor=self._executor,
-                ontology=self._ontology,
-                project_id=project_id,
-                labels=self._spec_labels,
-                domain_relations=self._domain_relations,
-                relations=self._domain_relations,
-                direction=direction,
-                depth=max_hops,
-                any_basis=False,
-                include_owner=False,
-                limit=MAX_TRACE_LIMIT,
-            )
-            chains = await walk.chains(Visit(start.uuid, start.spec_id, start.label, via_owner=False), end.uuid)
+            chains = await self._path_walk(project_id, direction, max_hops).chains(origin, end.uuid)
             if chains:
                 return PathResult(direction=direction, chains=chains)
-        return PathResult()
+        link, cut = await self._path_walk(project_id, DIRECTIONS[0], max_hops).link(origin, end.uuid)
+        reason: PathReason = "no_directed_chain" if link is not None else "search_limit" if cut else "not_connected"
+        return PathResult(reason=reason, link=link)
+
+    def _path_walk(self, project_id: str, direction: Direction, max_hops: int) -> PathWalk:
+        return PathWalk(
+            executor=self._executor,
+            ontology=self._ontology,
+            project_id=project_id,
+            labels=self._spec_labels,
+            domain_relations=self._domain_relations,
+            relations=self._domain_relations,
+            direction=direction,
+            depth=max_hops,
+            any_basis=False,
+            include_owner=False,
+            limit=MAX_TRACE_LIMIT,
+        )
 
     async def expand(
-        self, project_id: str, spec_ids: Sequence[str], *, exclude: Sequence[str] = (), budget_tokens: int = 3000
+        self,
+        project_id: str,
+        spec_ids: Sequence[str],
+        *,
+        exclude: Sequence[str] = (),
+        budget_tokens: int = 3000,
+        query: str | None = None,
     ) -> Expansion:
         """What to read next around the seeds ``spec_ids`` (1-500): personalised PageRank near them mixed with stored
-        vector scores, seeds and ``exclude`` left out, best first, taken until the next item would pass
-        ``budget_tokens`` (100-20000; tokens are characters / 4). No model call."""
+        vector scores (a node found by its vector alone only near the best score, at most 10), plus at most 3 members
+        of the owners near the seeds (the spine roots the walk reached, and the nodes that read like the seeds outside
+        it) ranked by meaning; seeds and ``exclude`` left out, best first, each taken while it fits in
+        ``budget_tokens`` (100-20000; tokens are characters / 4). A ``query`` aims the vector part (the mean of the
+        seeds' centroid and twice the query's vector; one embedding call) and weighs it 0.6 against the graph's 0.4;
+        without one, no model call."""
 
         project_id = validate_project_id(project_id)
         _check_ids(spec_ids, MAX_SEED_IDS)
         _check_ids(exclude, MAX_SEED_IDS, minimum=0, code="invalid_exclude")
         if not _is_int_between(budget_tokens, MIN_BUDGET, MAX_BUDGET):
             raise ConfigurationError("invalid_budget", minimum=MIN_BUDGET, maximum=MAX_BUDGET)
+        if query is not None and not isinstance(query, str):
+            raise ConfigurationError("invalid_query")
         seeds, _ = await self._resolve(project_id, spec_ids)
         if not seeds:
             return Expansion()
         seed_ids = [node.spec_id for node in seeds]
         left_out = {*seed_ids, *exclude}
-        graph = await self._graph_ranks(project_id, seeds)
-        close = await self._centroid_scores(project_id, seeds, VECTOR_CANDIDATES + len(left_out))
-        kept = {k: v for k, v in close.items() if k not in left_out and v >= self._vector_floor}
+        starts = [HopNode(node.uuid, node.spec_id, node.label in self._spine_roots) for node in seeds]
+        near = await subgraph(self._trusted_hop(project_id), starts)
+        graph = personalised_pagerank(near.nodes, near.neighbours, seed_ids, near.roots)
+        hits, aimed = await self._target_hits(
+            project_id, seeds, None if _is_blank(query) else query, MAX_RANKED + len(left_out)
+        )
+        kept = {spec_id: score for _, spec_id, score in hits if spec_id not in left_out and score >= self._vector_floor}
+        owners = [*near.root_uuids, *vector_owners(hits, left_out)] if kept else []
+        members = member_scores(await self._members(project_id, owners), kept, {*near.nodes, *left_out})
         vector = top_scores(kept, VECTOR_CANDIDATES)
-        ranked = ranked_scores({k: v for k, v in graph.items() if k not in left_out}, vector)
+        ranked = ranked_scores({k: v for k, v in graph.items() if k not in left_out}, vector, members, aimed=aimed)
         nodes = await self._nodes_by_spec_id(project_id, [spec_id for spec_id, _, _ in ranked])
         items = [_expansion_item(nodes[spec_id], score, via) for spec_id, score, via in ranked if spec_id in nodes]
         return within_budget(items, budget_tokens)
@@ -1046,14 +1075,19 @@ class GraphReader:
                 uuids[hit["spec_id"]] = hit["uuid"]
         return hits, uuids
 
-    async def _centroid_scores(self, project_id: str, seeds: Sequence[GraphNode], depth: int) -> dict[str, float]:
-        """The vector score of up to ``depth`` nearest candidates of the seeds' centroid: the mean of their stored
-        vectors of the gateway's model; one nearest read. Nothing without a gateway or such vectors."""
+    async def _target_hits(
+        self, project_id: str, seeds: Sequence[GraphNode], query: str | None, depth: int
+    ) -> tuple[list[tuple[str, str, float]], bool]:
+        """``(uuid, spec_id, score)`` of up to ``depth`` nearest candidates of the seeds' centroid (the mean of their
+        stored vectors of the gateway's model), best first, and whether the query aimed them: with a ``query``, of
+        the mean of that centroid and two copies of the query's vector (the query alone when no seed has a vector;
+        the centroid alone, not aimed, when embedding fails). One nearest read; nothing without a gateway or such
+        vectors."""
 
         filters = self._filters(self._spec_labels, None)
         matching = await self._matching_vectors(project_id, filters)
         if not matching or self._gateway is None:
-            return {}
+            return [], False
         rows = await self._executor.read(
             READ_NODE_VECTORS,
             project_id,
@@ -1061,17 +1095,52 @@ class GraphReader:
             model=self._gateway.config.embedding_model,
         )
         centroid = mean_vector([row["embedding"] for row in rows])
-        if centroid is None:
-            return {}
-        hits = await self._nearest(project_id, centroid, matching, limit=depth, depth=depth, filters=filters)
-        return {hit["spec_id"]: float(hit["score"]) for hit in hits}
+        aim = await self._query_vector(query) if query is not None else None
+        target = centroid
+        if aim is not None:
+            target = aim if centroid is None else mean_vector([centroid, *[aim] * QUERY_SHARE]) or centroid
+        if target is None:
+            return [], False
+        hits = await self._nearest(project_id, target, matching, limit=depth, depth=depth, filters=filters)
+        return [(hit["uuid"], hit["spec_id"], float(hit["score"])) for hit in hits], aim is not None
 
-    async def _graph_ranks(self, project_id: str, seeds: Sequence[GraphNode]) -> dict[str, float]:
-        """Personalised PageRank from ``seeds`` over the trusted domain edges within 3 hops of them."""
+    async def _query_vector(self, query: str) -> list[float] | None:
+        """The vector of ``query`` (cut like a search text); None when embedding fails (logged)."""
 
-        starts = [HopNode(node.uuid, node.spec_id, node.label in self._spine_roots) for node in seeds]
-        near = await subgraph(self._trusted_hop(project_id), starts)
-        return personalised_pagerank(near.nodes, near.neighbours, [node.spec_id for node in seeds], near.roots)
+        if self._gateway is None:
+            return None
+        try:
+            vectors = await self._gateway.embed([_embedding_text(query)])
+        except LLMFatalError:
+            raise
+        except (LLMError, InfrastructureUnavailableError) as error:
+            log_event(logger, WARNING, "graph.read.vector_unavailable", error_code=error.code)
+            return None
+        return list(vectors[0])
+
+    async def _members(self, project_id: str, owners: Sequence[str]) -> set[str]:
+        """The ``spec_id``s of the members of the nodes of ``owners`` (uuids): the sources of their incoming
+        trusted edges of an owner pair (a requirement ``part of`` its feature or module); one read, none without
+        owners."""
+
+        relations = [name for name in self._domain_relations if any(p.owner for p in self._ontology.pairs(name))]
+        if not owners or not relations:
+            return set()
+        rows = await self._executor.read(
+            READ_TRACE_HOP,
+            project_id,
+            frontier=list(dict.fromkeys(owners)),
+            relations=relations,
+            labels=list(self._spec_labels),
+        )
+        found: set[str] = set()
+        for row in rows:
+            label = self._spec_label(row["labels"])
+            if row["outgoing"] or row["basis"] == INFERRED or label is None:
+                continue
+            if any(pair.owner and pair.source == label for pair in self._ontology.pairs(row["relation"])):
+                found.add(row["spec_id"])
+        return found
 
     async def _evidence_item(
         self,
@@ -1377,7 +1446,8 @@ def _check_ids(spec_ids: object, maximum: int, *, minimum: int = 1, code: str = 
 
 
 def _expansion_item(node: GraphNode, score: float, via: Via) -> ExpansionItem:
-    """A ranked node with its text (its ``stmt``, else the quote of its first provenance record) and tokens."""
+    """A ranked node with its text (its ``stmt``, else the quote of its first provenance record), tokens and its
+    source document (the first path of its provenance in path order)."""
 
     stmt = node.attributes.get("stmt")
     text = stmt if isinstance(stmt, str) and stmt else next((p.quote for p in node.provenance if p.quote), "")
@@ -1389,6 +1459,7 @@ def _expansion_item(node: GraphNode, score: float, via: Via) -> ExpansionItem:
         via=via,
         text=text,
         tokens=estimate_tokens(node.name, text),
+        document=min((p.path for p in node.provenance if p.path), default=None),
     )
 
 

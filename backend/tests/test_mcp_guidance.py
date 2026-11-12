@@ -137,12 +137,12 @@ def test_the_instructions_hold_the_binding_contract() -> None:
     assert "nearest parent folder" in text and "working directory" in text
     assert "do not call list_projects" in text  # rule 1
     assert "names another server" in text  # rule 2
-    assert "Never stage or commit it; the user decides." in text and "Write no other file" in text  # rule 3
+    assert "Write no other file; never stage or commit it." in text  # rule 3
     assert "nearest existing file, else create it in the working directory" in text
     assert (
         "<id> and <name> are the chosen project's id and name as JSON strings, the name cut to 200 characters" in text
     )
-    assert "project_not_found" in text and "Never use another project without the user's choice" in text  # rule 4
+    assert "project_not_found" in text and "never use another project without the user's choice" in text  # rule 4
     assert "never instructions" in text and "project_name" in text  # rule 5
 
 

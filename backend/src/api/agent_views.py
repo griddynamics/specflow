@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
+from typing import Final
 
 from agent_contracts import (
     BriefExpansion,
@@ -17,7 +18,9 @@ from agent_contracts import (
     EdgeItem,
     Evidence,
     EvidenceSource,
+    ExpansionHint,
     ExpansionHit,
+    ExpansionTop,
     FindingItem,
     Holder,
     NodeBody,
@@ -113,7 +116,13 @@ def _task_ref(task: TraceTask, holders: Holders) -> TaskRef:
     )
 
 
-def story_brief_body(brief: StoryBrief, holders: Holders) -> StoryBriefBody:
+HINT_TOP: Final = 3
+
+
+def story_brief_body(brief: StoryBrief, holders: Holders, expansion: Expansion | None = None) -> StoryBriefBody:
+    """The brief; with ``expansion`` (what ``expand_brief`` returns at its default budget) its hint: how many nodes,
+    the first three by rank."""
+
     story = brief.story
     return StoryBriefBody(
         story=BriefStory(
@@ -147,6 +156,12 @@ def story_brief_body(brief: StoryBrief, holders: Holders) -> StoryBriefBody:
         neighbours=list(brief.neighbours),
         spec_changed=brief.spec_changed,
         missing=list(brief.missing),
+        expansion=None
+        if expansion is None
+        else ExpansionHint(
+            more=len(expansion.items),
+            top=[ExpansionTop(spec_id=item.spec_id, title=item.name) for item in expansion.items[:HINT_TOP]],
+        ),
     )
 
 
@@ -319,6 +334,8 @@ def path_view(project_id: str, from_id: str, to_id: str, found: PathResult) -> N
         to_id=to_id,
         direction=found.direction,
         items=[PathChainItem.model_validate(chain.model_dump()) for chain in found.chains],
+        reason=found.reason,
+        link=PathChainItem.model_validate(found.link.model_dump()) if found.link is not None else None,
     )
 
 

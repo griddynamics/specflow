@@ -201,6 +201,11 @@ async def _claim_refusal(
     if error.code == "not_available":
         preview = await reads.plan.story_preview(graph_id, story_id)
         holders = await holders_of(runtime, project.id, user.id, [blocker.claimed_by for blocker in preview.blockers])
-        blockers = views.capped_blockers(preview.blockers, holders) if error.blockers else []
-        return not_available(views.details_dict(ErrorDetails(state=preview.state, blockers=blockers)))
+        found = [await reads.findings.finding(graph_id, item) for item in preview.blocked_by] if reads.findings else []
+        details = ErrorDetails(
+            state=preview.state,
+            blockers=views.capped_blockers(preview.blockers, holders),
+            findings=views.finding_refs(found),
+        )
+        return not_available(views.details_dict(details))
     return await write_refusal(reads, graph_id, story_id, error)

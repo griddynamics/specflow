@@ -15,6 +15,7 @@ from typing import Annotated, Final
 from fastapi import APIRouter, Query
 
 from agent_contracts import (
+    DEFAULT_BUDGET_TOKENS,
     BriefExpansion,
     Evidence,
     EvidenceQuery,
@@ -62,9 +63,10 @@ from api.errors import (
 )
 from api.routers.agent import AgentRoute
 from api.runtime import Runtime
-from graph.core.expand import MAX_SEED_IDS, MAX_SIMILAR_SOURCES
-from graph.core.reader import BUILD, GraphNode, NodeHit
+from graph.core.expand import MAX_SEED_IDS, MAX_SIMILAR_SOURCES, Expansion
+from graph.core.reader import BUILD, GraphNode, GraphReader, NodeHit
 from graph.gap import Finding
+from graph.plan.brief_models import StoryBrief
 from graph.plan.errors import PlanReadError
 from graph.plan.findings_port import open_finding
 
@@ -105,10 +107,11 @@ async def get_story_brief(
     """The plan library's brief of one story, with its open findings; authors are named from the project's members."""
 
     graph_id = str(project.id)
-    plan = (await agent_reads(runtime)).plan
-    brief = await _plan_read(lambda: plan.story_brief(graph_id, story_id, neighbours=neighbours))
+    reads = await agent_reads(runtime)
+    brief = await _plan_read(lambda: reads.plan.story_brief(graph_id, story_id, neighbours=neighbours))
     holders = await holders_of(runtime, project.id, user.id, [item.created_by for item in brief.findings])
-    return StoryBriefResult(project_id=graph_id, brief=story_brief_body(brief, holders))
+    expansion = await _expansion(reads.reader, graph_id, brief, DEFAULT_BUDGET_TOKENS)
+    return StoryBriefResult(project_id=graph_id, brief=story_brief_body(brief, holders, expansion))
 
 
 @router.get("/trace", response_model=SpecTrace)
@@ -276,21 +279,31 @@ async def path(project: AgentProjectDep, runtime: RuntimeDep, args: Annotated[Pa
 async def expand_brief(
     project: AgentProjectDep, runtime: RuntimeDep, args: Annotated[ExpandQuery, Query()]
 ) -> BriefExpansion:
-    """What to read next beyond the story's brief: seeds its implemented nodes, its neighbours left out."""
+    """What to read next beyond the story's brief: seeds its implemented nodes, its neighbours left out, aimed by
+    the optional ``query``."""
 
     graph_id = str(project.id)
     reads = await agent_reads(runtime)
     brief = await _plan_read(lambda: reads.plan.story_brief(graph_id, args.story_id))
+    found = await _expansion(reads.reader, graph_id, brief, args.budget_tokens, args.query)
+    return expansion_view(graph_id, args.story_id, found)
+
+
+async def _expansion(
+    reader: GraphReader, graph_id: str, brief: StoryBrief, budget_tokens: int, query: str | None = None
+) -> Expansion:
+    """The expansion of a brief: its implemented nodes as seeds, the neighbours it shows left out."""
+
     seeds = [node.spec_id for node in brief.implements][:MAX_SEED_IDS]
     if not seeds:
-        return BriefExpansion(project_id=graph_id, story_id=args.story_id, items=[], tokens=0, left_out=0)
-    found = await reads.reader.expand(
+        return Expansion()
+    return await reader.expand(
         graph_id,
         seeds,
         exclude=[item.spec_id for item in brief.neighbours],
-        budget_tokens=args.budget_tokens,
+        budget_tokens=budget_tokens,
+        query=query,
     )
-    return expansion_view(graph_id, args.story_id, found)
 
 
 async def _near_nodes(runtime: Runtime, graph_id: str, near: str) -> list[str]:

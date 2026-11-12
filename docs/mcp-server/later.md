@@ -16,7 +16,7 @@ tags: [mcp]
 | Change feed | Tell an agent when the spec or the plan changes under its claim, instead of `spec_changed` at completion |
 | Review state | A review step between the merge and `completed` |
 | Agent-added tasks | Agents propose tasks or edit `done_when`; today they record findings and people change the spec |
-| MCP Apps tables | The people tools' tables as an MCP Apps view instead of Markdown text |
+| MCP Apps tables | The people tools' rows as an MCP Apps view, for clients that render one (the text block is plain JSON) |
 | Advertised scopes | Providers that choose the token's audience from the requested scope (Entra ID's `api://<app>/.default`) need the PRM to advertise that scope; a setting added with such a provider, never checked on the token |
 | Long-running tools | MCP tasks (the `io.modelcontextprotocol/tasks` extension, built on the SDK's extension mechanism): the tool call answers with a task, each task is a Temporal workflow, and `tasks/get` reports the workflow's status. Claude Code polls tasks from version 2.1.304. Needs a decision on how the public `mcp` process reaches Temporal: its own Temporal credentials, or a call through the internal API |
 | Streamed responses | Progress updates and elicitation (questions to the user) during a tool call: the SDK's streamed responses instead of JSON, and ingress that does not buffer `text/event-stream`. Built when a tool needs it |

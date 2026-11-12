@@ -51,7 +51,7 @@ MESSAGES: Final[Mapping[ErrorCode, str]] = {
     STORY_NOT_FOUND: "The story is not in the current plan of the project. List the stories to find it.",
     NODE_NOT_FOUND: "The node is not in the specification graph of the project. Search the specification to find it.",
     STORY_CLAIMED: "Another member holds this story. Pick another story or talk to the holder.",
-    NOT_AVAILABLE: "The story cannot be claimed now. Preview it to see what it waits for.",
+    NOT_AVAILABLE: "The story cannot be claimed now. Its details name the state, the stories it waits on and findings.",
     PARTLY_CLAIMED: "A task of this story is claimed on its own. Try again when it is released or completed.",
     PLAN_APPLYING: "The plan is being updated. Try again in a minute.",
     CLAIM_MISMATCH: "The claim token does not match your claim. Call claim_story for the story to get your token.",

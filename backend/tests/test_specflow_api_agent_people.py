@@ -12,7 +12,8 @@ from types import SimpleNamespace
 import pytest
 
 from agent_contracts import AGENT_ROUTES
-from people_support import API, LATE, SETUP, STUCK, UI, PeopleRig, X, Y, serve_people
+from people_support import API, API_NODE, LATE, SETUP, STUCK, UI, PeopleRig, X, Y, serve_people
+from plan_claims_support import mini_plan, story_row, task_row
 from specflow_api_agent_support import ALPHA, USER_HEADER, agent_env, bearer_header, events, mcp_token
 
 AREAS, STORIES, PREVIEW = (AGENT_ROUTES[name] for name in ("list_areas", "list_stories", "preview_story"))
@@ -133,10 +134,33 @@ async def test_the_open_view_lists_ready_stories_first_then_the_other_states_by_
         (6, STUCK, "blocked"),
     ]
     api, held = body["items"][0], body["items"][1]
-    assert api["holder"] is None and api["waits_on"] == [] and (api["tasks"], api["unblocks"]) == (2, 1)
+    assert api["holder"] is None and api["waits_on"] == [] and (api["tasks"], api["unblocks"]) == (2, 2)
     assert held["holder"] == {"name": "Ben", "you": False, "agent_label": None}
-    assert body["items"][3]["waits_on"] == ["Title of STORY::A::API", "Title of STORY::A::UI"]
+    assert (held["cycle_with"], body["items"][2]["cycle_with"], api["cycle_with"]) == ([Y], [X], [])
+    assert body["items"][3]["waits_on"] == [
+        {"story_id": API, "title": "Title of STORY::A::API"},
+        {"story_id": UI, "title": "Title of STORY::A::UI"},
+    ]
+    assert body["items"][3]["waits_on_total"] == 2
     assert "pr_url" not in body["items"][0] or body["items"][0]["pr_url"] is None
+    assert api["area"] == {"area_id": "AREA::A", "title": "Area AREA::A"}  # QA F28
+
+
+async def test_waits_on_names_the_first_three_stories_and_counts_them_all(monkeypatch, env):
+    """QA F29: the cap lives in the view; a story waiting on 4 stories shows 3 and ``waits_on_total`` 4."""
+
+    memory = mini_plan(ALPHA)
+    wide = "STORY::A::WIDE"
+    memory.stories[wide] = story_row(wide)
+    memory.tasks["TASK::A::WIDE"] = task_row("TASK::A::WIDE", wide)
+    memory.add_waits(
+        *(("TASK::A::WIDE", other) for other in ("TASK::A::API_LOGIC", "TASK::A::LATE_ONE", "TASK::A::STUCK_OPEN"))
+    )
+    async with serve_people(monkeypatch, env, memory=memory) as people:
+        response = await people.get(STORIES, project_id=ALPHA, limit=100)
+    row = next(item for item in response.json()["items"] if item["story_id"] == wide)
+    assert [item["story_id"] for item in row["waits_on"]] == [API, STUCK, UI]  # build order; LATE is the 4th
+    assert row["waits_on_total"] == 4
 
 
 async def test_findings_count_the_open_ones_about_the_story_and_the_question_is_the_oldest_blocking_one(
@@ -192,7 +216,7 @@ async def test_the_done_view_carries_the_merge(monkeypatch, env):
     async with serve_people(monkeypatch, env) as people:
         response = await people.get(STORIES, project_id=ALPHA, view="done")
     (item,) = response.json()["items"]
-    assert item["story_id"] == SETUP and item["state"] == "completed" and item["tasks"] == 0
+    assert item["story_id"] == SETUP and item["state"] == "completed" and item["tasks"] == 2  # its completed tasks
     assert (item["pr_url"], item["merge_commit"]) == ("https://git.example.test/p/1", "c" * 40)
     assert item["completed_by"] == {"name": None, "you": False, "agent_label": None}  # "ann" is no member
     assert item["completed_at"].startswith("2026-01-01T12:00:00")
@@ -249,7 +273,7 @@ async def test_a_preview_shows_the_story_its_tasks_in_build_order_blockers_findi
         "TASK::A::API_LOGIC",
     ]
     assert held["story"]["holder"] == {"name": "Ben", "you": False, "agent_label": "Claude Code"}
-    assert held["story"]["since"] is not None and held["unblocks"] == [UI]
+    assert held["story"]["since"] is not None and held["unblocks"] == [LATE, UI]
     assert [(f["kind"], f["blocking"]) for f in held["findings"]] == [("question", True), ("note", False)]
     assert held["findings"][1]["author"] == {"name": "Ben", "you": False, "agent_label": None}
 
@@ -319,7 +343,8 @@ async def test_a_second_claim_by_the_holder_answers_the_same_token_and_logs_a_re
         assert again.json()["claim_token"] == first.json()["claim_token"]
         assert not any(s.startswith("plan_set") for s in people.memory.statements[statements:])  # changed nothing
         assert people.memory.stories[API]["agent_label"] is None  # a repeat does not relabel
-    assert again.status_code == 200 and again.json() == first.json()
+    assert again.status_code == 200 and again.json() == first.json() | {"repeat": True}
+    assert (first.json()["repeat"], again.json()["agent_label"], again.json()["branch"]) == (False, None, None)
     assert [e.repeat for e in events(caplog, "api.agent.written")] == [False, True]
 
 
@@ -361,8 +386,41 @@ async def test_a_story_that_waits_is_not_available_with_its_state_and_blockers_i
     assert details["state"] == "waiting"
     assert [(b["story_id"], b["state"]) for b in details["blockers"]] == [(API, "in_progress"), (UI, "waiting")]
     assert details["blockers"][0]["holder"] == {"name": "Ben", "you": False, "agent_label": None}
-    assert done.json()["error"]["details"] == {"state": "completed", "blockers": []}  # nothing left to claim
-    assert blocked.json()["error"]["details"] == {"state": "blocked", "blockers": []}  # a task is blocked
+    assert done.json()["error"]["details"] == {"state": "completed"}  # nothing left to claim, nothing it waits on
+    # a task is blocked: the details name the blocking finding with its question (QA F4, F27)
+    assert blocked.json()["error"]["details"] == {
+        "state": "blocked",
+        "findings": [{"finding_id": "FND::1", "kind": "question", "text": "Which currencies does the API accept?"}],
+    }
+
+
+async def test_the_blocking_question_of_a_refusal_is_the_one_the_stories_list_shows(monkeypatch, env, caplog):
+    """QA F27: the refusal adds no text a member cannot read already: the story row's ``question`` (cut to 80) is the
+    same text. The text never reaches a log."""
+
+    async with serve_people(monkeypatch, env) as people:
+        people.memory.set_task("TASK::A::STUCK_OPEN", implements=[API_NODE])  # the finding is about the story's node
+        for finding in people.gap.findings().values():
+            finding["text"] = "Which currencies? " + "x" * 100
+        rows = await people.get(STORIES, project_id=ALPHA, limit=100)
+        refused = await people.post(CLAIM, claim_body(STUCK), project_id=ALPHA)
+    question = next(item for item in rows.json()["items"] if item["story_id"] == STUCK)["question"]
+    (finding,) = refused.json()["error"]["details"]["findings"]
+    assert finding["text"] == question and len(question) == 80
+    (event,) = events(caplog, "api.agent.written")
+    assert event.outcome == "not_available"
+    assert not [r for r in caplog.records if "Which currencies" in f"{r.getMessage()} {vars(r)}"]
+
+
+async def test_a_resolved_finding_is_left_out_of_the_refusal(monkeypatch, env):
+    """QA F27, F29: a closed finding can leave its task blocked until the plan is free; only open ones are named."""
+
+    async with serve_people(monkeypatch, env) as people:
+        for finding in people.gap.findings().values():
+            finding["status"] = "resolved"
+        refused = await people.post(CLAIM, claim_body(STUCK), project_id=ALPHA)
+    assert refused.json()["error"]["code"] == "not_available"
+    assert refused.json()["error"]["details"] == {"state": "blocked"}
 
 
 async def test_a_task_claimed_on_its_own_is_partly_claimed_with_its_id_and_holder(monkeypatch, env):
