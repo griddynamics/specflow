@@ -72,7 +72,7 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `AUTH_JWKS_URL` | unset | api, mcp | JWKS override on the issuer host. The local stack sets it to the Keycloak address inside the compose network. |
 | `OIDC_INTERNAL_URL` | unset | frontend | URL at which the frontend reaches the issuer, when it differs from `OIDC_ISSUER`. The local stack sets it to the Keycloak address inside the compose network. |
 | `AUTH_API_AUDIENCE` | `specflow-api` | api, mcp | Expected token audience. Must differ from every `AUTH_API_CLIENT_IDS` value while `AUTH_TOKEN_TYPE=none`. When audiences are client ids, each surface needs its own client; the `mcp` role checks this against the `AUTH_API_*` values it is given ([refusals](mcp-server/auth.md#token-validation)). |
-| `AUTH_API_CLIENT_IDS` | `specflow-web` | api | Comma-separated list of allowed token client ids. |
+| `AUTH_API_CLIENT_IDS` | `specflow-web` | api, mcp | Comma-separated list of allowed token client ids. The api verifies against it; the `mcp` role reads it only for its audience guard ([refusals](mcp-server/auth.md#token-validation)). |
 | `AUTH_SUBJECT_CLAIM` | `sub` | api, mcp | Claim that holds the user id. Choose it before the first sign-in: changing it re-keys users. See [auth](mcp-server/auth.md#claim-profile-for-any-oidc-provider). |
 | `AUTH_CLIENT_ID_CLAIM` | `azp,client_id` | api, mcp | Comma-separated client id claims; the first one present in the token is used. See [auth](mcp-server/auth.md#claim-profile-for-any-oidc-provider). |
 | `AUTH_EMAIL_CLAIM` | `email` | api, mcp | Claim that holds the user email. See [auth](mcp-server/auth.md#claim-profile-for-any-oidc-provider). |
@@ -83,12 +83,12 @@ Services: **api** (HTTP API), **worker-parse** and **worker-agents** (Temporal w
 | `AUTH_IGNORED_AUDIENCES` | `account` | api, mcp | Comma-separated audiences dropped before the audience check. Empty means the default. Must not hold `AUTH_API_AUDIENCE`. See [auth](mcp-server/auth.md#claim-profile-for-any-oidc-provider). |
 | `MCP_AUDIENCE` | the value of `MCP_RESOURCE_URL` | mcp, api | Expected token audience of the MCP endpoint and of the API's agent routes; the api value must equal the mcp value. Must differ from every `MCP_CLIENT_IDS` value while `AUTH_TOKEN_TYPE=none`; must never equal `AUTH_API_AUDIENCE`, an `AUTH_API_CLIENT_IDS` value or an `AUTH_IGNORED_AUDIENCES` value. When audiences are client ids, each surface needs its own client; the `mcp` role checks this against the `AUTH_API_*` values it is given ([refusals](mcp-server/auth.md#token-validation)); see [architecture](mcp-server/architecture.md#settings). |
 | `MCP_CLIENT_IDS` | `specflow-mcp` | mcp, api | Comma-separated list of allowed MCP token client ids; at least one. The api value must equal the mcp value. See [architecture](mcp-server/architecture.md#settings). |
-| `MCP_ALLOWED_HOSTS` | empty | mcp | Comma-separated `Host` values accepted besides the host of `MCP_RESOURCE_URL`. Exact match, no wildcard. |
-| `MCP_ALLOWED_ORIGINS` | empty | mcp | Comma-separated browser `Origin` values accepted. Exact match, no wildcard. Empty refuses every request that carries an `Origin`. |
+| `MCP_ALLOWED_HOSTS` | empty | mcp; api (parsed only, see below) | Comma-separated `Host` values accepted besides the host of `MCP_RESOURCE_URL`. Exact match, no wildcard. |
+| `MCP_ALLOWED_ORIGINS` | empty | mcp; api (parsed only, see below) | Comma-separated browser `Origin` values accepted. Exact match, no wildcard. Empty refuses every request that carries an `Origin`. |
 | `MCP_PUBLIC_URL` | `PUBLIC_URL` + `/mcp` | frontend | Address of the MCP endpoint that the Guides page shows. Use the value of `MCP_RESOURCE_URL`. An `http` or `https` URL, `https` unless `APP_ENV` is `local`. Server-only. Locally, compose sets `http://localhost:8002/mcp`. See [deployment](mcp-server/deployment.md#web-app-settings-for-the-guides). |
 | `MCP_CLIENT_ID` | `specflow-mcp` | frontend | Client id that the Guides page shows. Use the first entry of `MCP_CLIENT_IDS`. Must not be blank. Server-only. |
 | `MCP_SERVER_NAME` | `specflow` | frontend | Name the Guides page registers the MCP server under in Claude Code (`claude mcp add ... <name> <url>`, `/mcp__<name>__select_project`). Letters, digits, `_` and `-`, 1 to 64 characters; empty means the default, and a value of only spaces is refused. Server-only. The local stack sets `specflow-local`. See [deployment](mcp-server/deployment.md#guides-in-the-web-app). |
-| `MCP_PORT` | `8002` | mcp | Listen port of the MCP role. See [architecture](mcp-server/architecture.md#settings). |
+| `MCP_PORT` | `8002` | mcp; api (parsed only, see below) | Listen port of the MCP role. See [architecture](mcp-server/architecture.md#settings). |
 | `ALEMBIC_CONFIG` | `/app/alembic.ini` | migration job | Path of the migration config. |
 | `WORKER_DIAG_STATE` | `<tmpdir>/specflow-worker-state.json` | workers | File for worker diagnostics. |
 | `OPENAI_AGENTS_DISABLE_TRACING` | agent SDK default | workers | Standard variable of the agent SDK. |
@@ -102,8 +102,10 @@ The api and mcp roles must hold the same `OIDC_ISSUER` and `AUTH_*` claim profil
 and value, the claim names, `AUTH_ALLOWED_EMAIL_DOMAINS`), the same optional `AUTH_JWKS_URL` when it is set, and an
 api with `MCP_RESOURCE_URL` the same
 `MCP_AUDIENCE` and `MCP_CLIENT_IDS` as mcp. With a difference the MCP server accepts a token that the API refuses, and
-every MCP tool answers `internal_error` ([troubleshooting](mcp-server/deployment.md#troubleshooting)). The mcp role
-reads no `DATABASE_*`, `GRAPH_STORE_*` or `PGSSL*` setting: it reaches the data only through the API.
+every MCP tool answers `internal_error` ([troubleshooting](mcp-server/deployment.md#troubleshooting)). An api with
+`MCP_RESOURCE_URL` also parses `MCP_PORT`, `MCP_ALLOWED_HOSTS` and `MCP_ALLOWED_ORIGINS` (it does not use them); a bad
+value there refuses the api start. The mcp role reads no `DATABASE_*`, `GRAPH_STORE_*` or `PGSSL*` setting: it reaches
+the data only through the API.
 
 ## PostgreSQL over TLS
 

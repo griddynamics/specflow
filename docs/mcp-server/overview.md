@@ -90,7 +90,7 @@ models of `agent_contracts`. The paged graph read that `list_features` uses belo
 |---|---|---|
 | C1 | Users are keyed by the token subject alone, without the issuer: MCP tokens must come from the web app's issuer and carry the same subject for the same person. | `users.auth_subject` |
 | C2 | The API is internal (the browser talks only to the web app's server); it is never exposed for MCP. | API design |
-| C3 | Neo4j access and Cypher stay in the graph library; the web framework stays in `api` and `auth`; the ORM stays in `api`, `db` and `temporal`. | `backend/importlinter.toml`, [../graph/architecture.md](../graph/architecture.md#import-rules) |
+| C3 | Neo4j access and Cypher stay in the graph library; FastAPI stays in `api` and `auth`, while `mcp_server` uses only Starlette and uvicorn (AD6, revised); the ORM stays in `api`, `db` and `temporal`, out of `mcp_server`. | `backend/importlinter.toml`, [../graph/architecture.md](../graph/architecture.md#import-rules) |
 | C4 | Settings are environment variables validated per role at startup; secrets are never logged. | [../configuration.md](../configuration.md) |
 | C5 | The MCP Python SDK is already a transitive dependency of the agent SDKs; the server declares it directly in the range that [architecture.md](architecture.md#transport) defines, and `uv.lock` fixes the exact version. | `backend/uv.lock` |
 | C6 | Only confirmed needs are built. A capability that only a possible future tool needs is listed in [later.md](later.md) with what it would take, not built ahead. | product direction |

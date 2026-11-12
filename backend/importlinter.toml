@@ -259,8 +259,7 @@ forbidden_modules = ["pytest", "_pytest"]
 
 # The MCP role (mcp_server, docs/mcp-server/architecture.md#import-rules) is a sibling of the REST
 # app, a top-level package of its own: it shares no REST module and loads no FastAPI (M2), and the REST
-# modules load neither it nor the MCP SDK. The REST modules are listed one by one; a new REST module
-# under api must be added to both lists.
+# modules load neither it nor the MCP SDK.
 [[tool.importlinter.contracts]]
 name = "The MCP role uses no REST module, no FastAPI and no data package"
 id = "mcp-role-isolated"
@@ -269,8 +268,6 @@ allow_indirect_imports = true
 source_modules = ["mcp_server"]
 forbidden_modules = [
     "fastapi", "auth.dependencies", "db", "graph", "temporal", "storage", "llm", "drive", "agent_runtime", "health", "api",
-    "api.agent_reads", "api.app", "api.batch_files", "api.contained", "api.deps", "api.errors", "api.graph_build", "api.plan", "api.request_id",
-    "api.routers", "api.runtime", "api.schemas", "api.server", "api.source_views", "api.uploads", "api.workflows",
 ]
 
 [[tool.importlinter.contracts]]
@@ -278,10 +275,7 @@ name = "The REST app imports neither the MCP role nor the MCP SDK"
 id = "rest-without-mcp"
 type = "forbidden"
 allow_indirect_imports = true
-source_modules = [
-    "api.agent_reads", "api.app", "api.batch_files", "api.contained", "api.deps", "api.errors", "api.graph_build", "api.plan", "api.request_id",
-    "api.routers", "api.runtime", "api.schemas", "api.server", "api.source_views", "api.uploads", "api.workflows",
-]
+source_modules = ["api"]
 forbidden_modules = ["mcp_server", "mcp", "mcp_types"]
 
 # M2: the MCP role imports no data driver (it reads through the API).

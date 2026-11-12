@@ -135,17 +135,18 @@ Startup refuses these audience mix-ups, each of which would let one token pass w
 
 | Refused | Role | Why |
 |---|---|---|
-| `MCP_AUDIENCE` equal to one of `MCP_CLIENT_IDS`, when `AUTH_TOKEN_TYPE=none` | `mcp` | an ID token's audience is its client id, and with no token-type check nothing else would keep ID tokens out |
+| `MCP_AUDIENCE` equal to one of `MCP_CLIENT_IDS`, when `AUTH_TOKEN_TYPE=none` | `mcp`; `api` with `MCP_RESOURCE_URL` | an ID token's audience is its client id, and with no token-type check nothing else would keep ID tokens out |
 | `AUTH_API_AUDIENCE` equal to one of `AUTH_API_CLIENT_IDS`, when `AUTH_TOKEN_TYPE=none` | `api` | the same ID-token rule for the REST surface |
-| `MCP_AUDIENCE` equal to one of `AUTH_API_CLIENT_IDS` | `mcp` | an API client's token would pass on `/mcp` |
-| a value of `MCP_CLIENT_IDS` that is also in `AUTH_API_CLIENT_IDS`, when `MCP_AUDIENCE` is one of `MCP_CLIENT_IDS` | `mcp` | one client's token would carry the audience of both surfaces |
-| `MCP_AUDIENCE` equal to `AUTH_API_AUDIENCE` | `mcp` | REST and MCP tokens would be interchangeable (rule S5) |
-| `AUTH_IGNORED_AUDIENCES` holding `MCP_AUDIENCE` or `AUTH_API_AUDIENCE` | `mcp` | a token for `[MCP URL, specflow-api]` would pass on both surfaces |
+| `MCP_AUDIENCE` equal to one of `AUTH_API_CLIENT_IDS` | `m`mcp`; `api` with `MCP_RESOURCE_URL` | an API client's token would pass on `/mcp` |
+| a value of `MCP_CLIENT_IDS` that is also in `AUTH_API_CLIENT_IDS`, when `MCP_AUDIENCE` is one of `MCP_CLIENT_IDS` | `m`mcp`; `api` with `MCP_RESOURCE_URL` | one client's token would carry the audience of both surfaces |
+| `MCP_AUDIENCE` equal to `AUTH_API_AUDIENCE` | `m`mcp`; `api` with `MCP_RESOURCE_URL` | REST and MCP tokens would be interchangeable (rule S5) |
+| `AUTH_IGNORED_AUDIENCES` holding `MCP_AUDIENCE` or `AUTH_API_AUDIENCE` | `m`mcp`; `api` with `MCP_RESOURCE_URL` | a token for `[MCP URL, specflow-api]` would pass on both surfaces |
 | `AUTH_IGNORED_AUDIENCES` holding `AUTH_API_AUDIENCE` | `api` | the REST audience rule would be emptied |
 
 The first two rows guard only the default `AUTH_TOKEN_TYPE=none`, where they are what keeps ID tokens off each surface.
 Under `claim`, `keycloak` or `rfc9068` an audience equal to the client id starts, because the token-type check refuses
-ID tokens. The other rows hold under every mode. The `mcp` role checks against the `AUTH_API_*` values it is given, so those must match
+ID tokens. The other rows hold under every mode. The MCP-audience rows bind the `mcp` role and also the `api` role when `MCP_RESOURCE_URL` is set, because its agent routes
+verify MCP tokens. The `mcp` role checks against the `AUTH_API_*` values it is given, so those must match
 the API role's.
 
 ## Claim profile for any OIDC provider

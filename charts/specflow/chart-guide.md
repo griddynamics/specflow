@@ -73,7 +73,10 @@ DATABASE_PASSWORD=<database-password>
 
 Include every key referenced by the corresponding component profile. The format above is the API's; `mcp.env`
 holds only the keys of `mcp.yaml` (`APP_ENV`, the OIDC and MCP settings; no `DATABASE_*`, `GRAPH_STORE_*`, Temporal or
-storage keys: MCP calls the API at `API_INTERNAL_URL`). Remove
+storage keys: MCP calls the API at `API_INTERNAL_URL`). When MCP is deployed, `api.env` also carries
+`MCP_RESOURCE_URL`, `MCP_AUDIENCE` and `MCP_CLIENT_IDS` with the same values as `mcp.env`, and the same
+`AUTH_*` claim profile: the API serves the agent routes MCP reads through only with them (unset, they answer
+`503 agent_unavailable` and every MCP tool fails with `internal_error`), and it verifies the MCP token itself. Remove
 unused optional entries from your copy of the profile. `PGSSLROOTCERT` is
 optional and only needed when mounting a PostgreSQL CA.
 
@@ -191,6 +194,9 @@ Copy the integration file and replace `specflow.example.com` and
 Traefik and Gateway API.
 
 ## 5. Deploy MCP
+
+Before MCP, check that the API's secret holds `MCP_RESOURCE_URL`, `MCP_AUDIENCE` and `MCP_CLIENT_IDS` (the same
+values as MCP's); without them the API's agent routes answer `503 agent_unavailable` and every MCP tool fails.
 
 ```shell
 helm upgrade --install specflow-mcp "$CHART" \

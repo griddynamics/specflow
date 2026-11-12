@@ -35,6 +35,7 @@ import yaml
 from google.auth.credentials import AnonymousCredentials
 from google.cloud import storage
 
+from role_content_support import ROLE_IMAGE_CONTENT
 from runtime_defaults_support import RUNTIME_DEFAULTS
 from settings import StorageSettings
 from storage.base import CHUNK_SIZE
@@ -791,6 +792,38 @@ def test_the_api_worker_agents_and_mcp_images_carry_no_parser_packages(image):
     listing = docker_run(image, {}, "-c", names_code, entrypoint="python")
     names = listing.stdout.split()
     assert not [n for n in names if n.startswith(("docling", "torch", "pymupdf", "nvidia", "opencv"))], names
+
+
+ROLE_IMAGES = {"api": API_IMAGE, "worker-agents": WORKER_IMAGE, "worker-parse": WORKER_PARSE_IMAGE, "mcp": MCP_IMAGE}
+ROLE_PROBE = """
+import importlib, importlib.metadata as md, json, sys
+modules, present, absent = (json.loads(arg) for arg in sys.argv[1:4])
+for module in modules:
+    importlib.import_module(module)
+
+
+def installed(name):
+    try:
+        md.distribution(name)
+    except md.PackageNotFoundError:
+        return False
+    return True
+
+
+print(json.dumps({"missing": [n for n in present if not installed(n)], "leaked": [n for n in absent if installed(n)]}))
+"""
+
+
+@needs_docker
+@pytest.mark.parametrize("role", list(ROLE_IMAGE_CONTENT))
+def test_each_backend_image_imports_its_entrypoints_and_carries_only_its_roles_distributions(role):
+    """Smoke + content per image: the role's modules import, its distributions are installed, other roles' are not."""
+
+    modules, present, absent = ROLE_IMAGE_CONTENT[role]
+    args = [json.dumps(modules), json.dumps(present), json.dumps(absent)]
+    result = docker_run(ROLE_IMAGES[role], {}, "-c", ROLE_PROBE, *args, entrypoint="python")
+    assert result.returncode == 0, shown(result)[-800:]
+    assert json.loads(result.stdout.strip().splitlines()[-1]) == {"missing": [], "leaked": []}, role
 
 
 @needs_docker

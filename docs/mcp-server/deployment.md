@@ -33,6 +33,16 @@ The `api` role serves the [agent routes](architecture.md#api-agent-routes) only 
 
 A difference in any of these lets the MCP guard accept a token that the API refuses ([Troubleshooting](#troubleshooting)).
 
+### Upgrading from the shared image
+
+A deployment whose `mcp` still runs the shared image with database access moves in this order:
+
+1. Give the `api` the MCP keys of the table above (the same values as the `mcp`'s) and the same claim profile.
+2. Roll out the `api`. The old `mcp` keeps working: the agent routes are additive.
+3. Switch the `mcp` to the `specflow-mcp` image, set `API_INTERNAL_URL`, and remove `DATABASE_*` and `GRAPH_STORE_*`
+   from the `mcp`'s secret.
+4. Add the NetworkPolicy that lets only the frontend and `mcp` pods reach the `api`.
+
 ## Public endpoint
 
 | # | Requirement |

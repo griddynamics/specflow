@@ -242,3 +242,33 @@ Template:
   [../configuration.md](../configuration.md#local-stack), the quickstart and the READMEs
 - Follow-ups: local data stored under `dev:<email>` is not migrated; run `make down-volumes` once
   ([QUICKSTART.md](../../QUICKSTART.md#upgrading-from-the-dev-login))
+
+### MCP split: the MCP server in its own image, reading through the API
+
+- Date and commits: 2026-11-11, 8fa7137, 26b247e, 827961d, 0291ab6, 8ced3cd, 2a5e7a9, b1b7e86
+- Summary: the `mcp` role no longer runs from the `api` image or reads Postgres and Neo4j. Milestones: (1) the design
+  documents describe the target and a golden contract test pins the MCP surface (protocol, HTTP answers, tool results
+  and errors, cursors); (2) the API serves the six tools from `/api/v1/agent/*` under the MCP token policy, with the
+  shared `agent_contracts` package; (3) the code moved to the top-level package `mcp_server`, which now turns each tool
+  call into one `GET` on an agent route with the caller's own token (`API_INTERNAL_URL`), and holds no database or graph
+  settings; (4) one `pyproject.toml` with a dependency extra per role, a slim image per role, and the new
+  `specflow-mcp` image (about 270 MB against 1.1 GB for the api image it used). The golden files did not change from
+  the first milestone to the last: tool results, error codes and cursors are the same.
+- How it was checked: the golden gate on every milestone, including a run of the real API app behind the MCP; API tests
+  for the route group, the token matrix in both directions and the error paths; MCP tests against a fake API and against
+  the real one (request id end to end, audit events, no secrets in logs with the HTTP client at DEBUG); role import tests
+  that block every library outside a role's extras; image tests; end-to-end QA on the local stack (18 of 18 scenarios,
+  p95 latency 17.6 ms against 28.9 ms before the split); `make check` (only the host-only reds), `make validate`
+  including the licence gate for each image.
+- Requirements proven: FR-MCP-AUTH-13, FR-MCP-TOOL-06, FR-MCP-OPS-01, FR-MCP-OPS-02, FR-MCP-OPS-07, NFR-MCP-03; the other
+  requirements still hold
+- Design sections updated in place: [architecture.md](architecture.md) (process, components, package layout, API agent
+  routes, import rules, settings, errors, logging, decisions AD1, AD5, AD6 and AD8), [auth.md](auth.md) (audience matrix,
+  S1, S5, threats, AA9), [deployment.md](deployment.md), [testing.md](testing.md), [requirements.md](requirements.md),
+  [overview.md](overview.md), [access-control.md](access-control.md), [tools.md](tools.md),
+  [../configuration.md](../configuration.md), [../file-parsers/runtime.md](../file-parsers/runtime.md), the quickstart
+  and the chart and backend READMEs
+- Follow-ups: the MCP tools depend on the API being up, and the API start needs Temporal; the API runs one replica
+  and runs graph builds and plan runs in process, so moving the migration to a job and the builds to workers would let
+  it scale; the internal hops (web app to API, MCP to API) are plain HTTP inside the cluster, to be encrypted once for
+  both at the platform level; a NetworkPolicy that lets only the frontend and mcp pods reach the API comes with the release values, not from the chart
