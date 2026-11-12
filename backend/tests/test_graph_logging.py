@@ -17,6 +17,7 @@ from pydantic import SecretStr
 
 import graph.build.queries as build_queries
 import graph.core.queries as core_queries
+import graph.gap.queries as gap_queries
 import graph.plan.queries as plan_queries
 from graph.core.errors import InfrastructureUnavailableError
 from graph.core.queries import Query
@@ -245,7 +246,7 @@ def cypher_texts() -> list[str]:
     """The Cypher text of every ``Query`` constant of the library's modules."""
 
     texts = []
-    for module in (core_queries, build_queries, plan_queries):
+    for module in (core_queries, build_queries, plan_queries, gap_queries):
         texts.extend(render_cypher(value) for value in vars(module).values() if isinstance(value, Query))
     assert len(texts) > 20, "the library's queries were not found"
     return texts

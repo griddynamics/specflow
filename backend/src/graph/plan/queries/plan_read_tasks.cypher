@@ -6,7 +6,9 @@ RETURN t.task_id AS task_id, t.area_id AS area_id, t.action AS action, t.revisio
        t.complexity AS complexity, t.implements AS implements, t.release AS release,
        t.has_open_questions AS has_open_questions, t.planned_by AS planned_by, t.prompt_ref AS prompt_ref,
        t.spec_build_id AS spec_build_id, t.status AS status, t.claimed_by AS claimed_by, t.claimed_at AS claimed_at,
-       t.attempts AS attempts, t.commit AS commit, t.block_reason AS block_reason, t.note AS note,
+       t.attempts AS attempts, t.commit AS commit, t.block_reason AS block_reason, t.blocked_by AS blocked_by,
+       t.progress AS progress, t.completed_by AS completed_by, t.completed_at AS completed_at, t.note AS note,
+       t.claim_token AS claim_token,
        t.created_at AS created_at, t.updated_at AS updated_at, t.created_run_id AS created_run_id,
        t.last_run_id AS last_run_id
 ORDER BY task_id

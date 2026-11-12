@@ -20,9 +20,12 @@ from graph.core.errors import OntologyError
 from graph.core.ontology.compiled import (
     BUILD_OWNER,
     BUILT_IN_NAMES,
+    CONTAINS,
     EVIDENCE_LABELS,
     EXTRACTED_ORIGIN,
     HUB_ROLES,
+    IMPACT_INVERSE,
+    NO_IMPACT,
     QUARANTINE_REASONS,
     AnsweredElsewhereSpec,
     AttributeSpec,
@@ -446,6 +449,7 @@ class _Compiler:
         self._compile_supports()
         self._check_inherit()
         spine = self._compile_spine(main)
+        self._check_contains(spine)
         prompts: dict[str, str] = {}
         conform = self._compile_conform(main, prompts)
         inference = self._compile_inference(main, prompts)
@@ -863,6 +867,7 @@ class _Compiler:
                 missing = [f"{p.target} -> {p.source}" for p in pairs if (p.target, p.source) not in seen]
                 if missing:
                     self._add(file, where, f"symmetric, but lacks reversed pairs {_listing(missing)}")
+                self._check_symmetric_impact(file, where, pairs)
             self.legal |= {(name, pair.source, pair.target) for pair in pairs}
             self.relations[name] = Relation(
                 name=name,
@@ -877,6 +882,7 @@ class _Compiler:
                 cue_words=tuple(cue_words),
                 acyclic=definition.acyclic,
                 stated_only=definition.stated_only,
+                impact=definition.impact or NO_IMPACT,
             )
 
     def _relation_pairs(
@@ -907,11 +913,42 @@ class _Compiler:
                         self._add(file, here, f"pair {source} -> {target} is declared more than once")
                         continue
                     seen.add((source, target))
-                    compiled = _pair(name, source, target, pair)
+                    compiled = _pair(name, source, target, pair, definition.impact)
                     pairs.append(compiled)
                     if pair.default:
                         self.defaults.setdefault((source, target), []).append((file, here, compiled))
         return pairs, seen
+
+    # Impact roles (trace.md "Impact roles in the ontology")
+
+    def _check_symmetric_impact(self, file: _File, where: str, pairs: Sequence[Pair]) -> None:
+        """A symmetric relation has no ``contains`` pair, and the roles of a pair and its reverse are inverses."""
+
+        roles = {(pair.source, pair.target): pair.impact for pair in pairs}
+        if CONTAINS in roles.values():
+            self._add(file, f"{where}.impact", f"a symmetric relation may not have the role '{CONTAINS}'")
+        mismatched = [
+            f"{source} -> {target}"
+            for (source, target), role in sorted(roles.items())
+            if (reverse := roles.get((target, source))) is not None and reverse != IMPACT_INVERSE.get(role, role)
+        ]
+        if mismatched:
+            self._add(file, f"{where}.impact", f"reversed pairs need inverse roles: {_listing(mismatched)}")
+
+    def _check_contains(self, spine: Spine) -> None:
+        """``contains`` only on a relation with an ``owner`` pair or named by a spine path."""
+
+        spine_relations = {name for path in spine.paths for name in path.relations}
+        for name, relation in sorted(self.relations.items()):
+            if name in spine_relations or any(pair.owner for pair in relation.pairs):
+                continue
+            if any(pair.impact == CONTAINS for pair in relation.pairs) or relation.impact == CONTAINS:
+                file = self.relation_defs[name][1]
+                self._add(
+                    file,
+                    f"edge_types.{name}.impact",
+                    f"'{CONTAINS}' needs an owner pair of the relation or a spine path naming it",
+                )
 
     def _check_pair_flags(
         self, file: _File, here: str, pair: PairDef, sources: tuple[str, ...], targets: tuple[str, ...]
@@ -1742,7 +1779,7 @@ class _Compiler:
             self._add(file, f"{where}.writes", f"{relation} is not legal for {_listing(illegal)}")
 
 
-def _pair(relation: str, source: str, target: str, pair: PairDef) -> Pair:
+def _pair(relation: str, source: str, target: str, pair: PairDef, relation_impact: str | None = None) -> Pair:
     return Pair(
         relation=relation,
         source=source,
@@ -1761,6 +1798,7 @@ def _pair(relation: str, source: str, target: str, pair: PairDef) -> Pair:
         not_across=tuple(pair.not_across),
         distinct_owner=pair.distinct_owner,
         redundant_via_owner=pair.redundant_via_owner,
+        impact=pair.impact or relation_impact or NO_IMPACT,
     )
 
 

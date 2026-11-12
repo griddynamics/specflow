@@ -117,7 +117,7 @@ Template:
 
 - Date and commits: 2026-10-31, 7c38002
 - Summary: `list_projects` and `list_features` are registered through one wrapper (audit, error mapping, user
-  provisioning, membership, handler) with read-only annotations and fixed error codes. Membership is read on every
+  provisioning, membership, handler) with the read tools' read-only annotations and fixed error codes. Membership is read on every
   call, and malformed, unknown and foreign project ids give the same `project_not_found` without a graph query. An
   independent access audit found no path to another member's project.
 - Requirements proven: FR-MCP-ACC-01 to -06, FR-MCP-TOOL-01 to -09, FR-MCP-OPS-03, FR-MCP-OPS-07

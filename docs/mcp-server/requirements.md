@@ -1,13 +1,15 @@
 ---
 type: Requirements
 title: "MCP server requirements"
-description: "Requirement units of the MCP server (compact form): authentication, access control, tools, workspace binding, web app guides, operations and non-functional"
+description: "Requirement units of the MCP server (compact form): authentication, access control, tools, story and spec tools, workspace binding, web app guides, operations and non-functional"
 status: stable
 tags: [mcp]
 ---
 # requirements.md: requirement units of the MCP server (compact form), functional and non-functional
 
-Each row is one testable requirement in EARS form with one acceptance criterion. Status of every unit: Implemented ([implementation.md](implementation.md)).
+Each row is one testable requirement in EARS form with one acceptance criterion. Status of every unit: Implemented
+([implementation.md](implementation.md)), except the units of the story and spec tools (FR-MCP-STORY, FR-MCP-READ,
+FR-MCP-WRITE, FR-MCP-START) with the changed FR-MCP-TOOL-09: Approved until those tools are accepted.
 Verification is by test unless the row says otherwise.
 
 Each row states the behavior and links the section that defines it; values are defined only there. Acceptance criteria hold concrete test values.
@@ -53,8 +55,61 @@ Each row states the behavior and links the section that defines it; values are d
 | FR-MCP-TOOL-06 | The feature label and id prefix shall come from the loaded ontology as [tools.md](tools.md#list_features) defines. | Given a copy of the shipped ontology whose `feature` type keeps its key but has another label and id prefix (for example `Funktion`, `FUNK::`), then `list_features` returns exactly that label's nodes; given an ontology without a `feature` type, then `list_features` answers `internal_error`, one log event names the failure and the API keeps running ([architecture.md](architecture.md#api-agent-routes)). |
 | FR-MCP-TOOL-07 | If a cursor is invalid, then the tool shall answer with the error that [tools.md](tools.md#error-codes) defines for it (cursor rules in [tools.md](tools.md#conventions)). | Given a forged cursor and a 513-character cursor, then `invalid_cursor` for both tools. |
 | FR-MCP-TOOL-08 | If Postgres or Neo4j fails, then the tool shall answer with the fixed error that [tools.md](tools.md#error-codes) defines. | Given Neo4j stopped, then `graph_unavailable` and no driver text. |
-| FR-MCP-TOOL-09 | Every version 1 tool shall declare the annotations that [tools.md](tools.md#conventions) defines. | Given `tools/list`, then `readOnlyHint` true, `destructiveHint` false, `idempotentHint` true and `openWorldHint` false on both tools. |
+| FR-MCP-TOOL-09 | Every read tool shall declare the annotations that [tools.md](tools.md#conventions) defines (write tools: FR-MCP-WRITE-01). | Given `tools/list`, then `readOnlyHint` true, `destructiveHint` false, `idempotentHint` true and `openWorldHint` false on every tool except the five write tools. |
 | FR-MCP-TOOL-10 | `GraphReader.count_nodes` and `nodes_page` shall count and page as [tools.md](tools.md#graph-read-used-by-list_features) defines (contract owner: [graph/api.md](../graph/api.md#read-and-search)). | Given 120 nodes, when paged by 50, then 50, 50, 20, `next_after` `None` at the end, count 120; `limit=0` raises `invalid_limit`. |
+
+## Story and spec tools: people ([tools.md](tools.md#story-and-spec-tools))
+
+Fixture: the shop plan of the graph library's test fixture, with alice and bob members of `P-Alpha`; bob's display
+name is `Bob`.
+
+| ID | Requirement | Acceptance |
+|---|---|---|
+| FR-MCP-STORY-01 | `list_areas` shall count each area's stories by [state](tools.md#story-states) and name the holders, as [tools.md](tools.md#list_areas) defines. | Given bob holds one Web shop story, when alice calls `list_areas`, then the Web shop row has `in_progress` `{"count": 1, "holders": [{"name": "Bob", "you": false, "agent_label": null}]}`, the counts add up to the area's active stories, and the project area is the last row. |
+| FR-MCP-STORY-02 | `list_stories` shall list and order each view as [tools.md](tools.md#list_stories) defines. | Given two ready stories with `unblocks` 2 and 1 and the same release, one held, one waiting and one blocked story, then view `open` returns them in that order with `rank` 1 to 5; given alice holds A and her blocking finding blocked B, view `mine` returns A then B; given a completed story, view `done` returns it with its `merge_commit` and `completed_by.you` true. |
+| FR-MCP-STORY-03 | `list_areas`, `list_stories` and `preview_story` shall put the JSON of the structured content in the text block, like every other tool, and their descriptions shall ask the agent to present the rows as a table ([tools.md](tools.md#tables)). | For each tool the text parses to the structured content; `tools/list` gives each of the three a description with "as a table". |
+| FR-MCP-STORY-04 | `preview_story` shall return the parts that [tools.md](tools.md#preview_story) defines and change nothing. | Given a story with four tasks and one blocker held by bob, then `items` are in topological order and the blocker's holder is Bob; after two calls the plan's nodes are unchanged. |
+| FR-MCP-STORY-05 | Of concurrent claims of one story exactly one shall win, as [tools.md](tools.md#claim_story) defines. | Given alice and bob claim the same ready story at once, then one answer has a `claim_token` and the other is `story_claimed` with `details.holder`, `details.since` and at most 3 `ready` `alternatives` of the same area. |
+| FR-MCP-STORY-06 | `claim_story` shall refuse a story it cannot claim with the code and details of [tools.md](tools.md#claim_story), and write nothing. | A waiting story gives `not_available` with `details.state` `waiting` and its blockers; a story with a task claimed alone gives `partly_claimed` with that `task_id`; a claim during a plan persist gives `plan_applying`; after each, the story and its tasks are unchanged. |
+| FR-MCP-STORY-07 | A claim by the user who holds the story shall return the same token ([Repeats](tools.md#repeats)). | Given alice holds the story, when she calls `claim_story` again from a new session, then the token and the tasks equal the first answer and `api.agent.written` has `repeat` true. |
+| FR-MCP-STORY-08 | `release_story` shall return the claim's tasks to `pending` and keep the note, as [tools.md](tools.md#release_story) defines. | Given alice's claim with one task reported `done`, when she releases with a note, then the tasks are `pending` without `progress` and the story keeps the note and branch; a second call answers `released: []`; bob's token answers `claim_mismatch`; a `branch` with a control character answers `invalid_arguments` and releases nothing. |
+| FR-MCP-STORY-09 | The stories of one dependency cycle shall be claimed as one claim unit, as [Story states](tools.md#story-states) defines. | Given stories A and B whose tasks wait on each other, then `preview_story` of A has `story_ids` `[A, B]`; `claim_story` on A answers `story_ids` `[A, B]` and holds both with one token; `release_story` on B with that token releases the tasks of both. |
+
+## Story and spec tools: agent reads ([tools.md](tools.md#story-and-spec-tools))
+
+| ID | Requirement | Acceptance |
+|---|---|---|
+| FR-MCP-READ-01 | `get_story_brief` shall merge the briefs of the story's tasks, as [tools.md](tools.md#get_story_brief) defines, without a model call. | Given a story of three tasks sharing one implemented node, then `tasks` are in build order with their `done_when` sources, `implements` holds that node once, and a recording LLM gateway records no call. |
+| FR-MCP-READ-02 | `trace` shall answer as [tools.md](tools.md#trace) and [../graph/trace.md](../graph/trace.md) define, and check its arguments before the library call. | Given the worked example of the trace design, then the nodes equal it and each carries `findings`; both or neither of `story_id` and `spec_ids` gives `invalid_arguments` and an unknown relation `unknown_relation`, with no library call. |
+| FR-MCP-READ-03 | `get_node` shall bound and summarise edges as [tools.md](tools.md#get_node) defines. | Given a module with 60 domain edges and `edge_limit` 25, then `edges.items` has 25 entries, `edges.by_relation` counts add up to 60 and `edges.total` is 60; `include` `["edges"]` gives null `plan`, `provenance` and `findings`. |
+| FR-MCP-READ-04 | `search_spec` shall rank hits near `near` first, as [tools.md](tools.md#search_spec) defines. | Given hits one and three hops from `near` and a higher-scored hit five hops away, then the first two hits have `hops_from_near` 1 and 3; without `near` the order equals the graph library's hybrid search; an unknown label gives `invalid_arguments`. |
+| FR-MCP-READ-05 | `similar` shall return unlinked look-alikes above `min_score`, as [tools.md](tools.md#similar) defines. | Given a source with one linked and one unlinked node of score 0.9, then only the unlinked node is returned, with `like` naming the source; with `exclude_linked` false both are; `story_id` with `spec_ids` gives `invalid_arguments`. |
+| FR-MCP-READ-06 | `get_evidence` shall return each evidence fragment with its context, as [tools.md](tools.md#get_evidence) defines. | Given a node built from lines 10 to 12 that a second node shares, with `context_lines` 2, then the item has the quote, lines 8 to 9 and 13 to 14 as context and the second node in `others`; an unknown id gives `node_not_found`. |
+| FR-MCP-READ-07 | `path` shall return at most three shortest directed chains without a spine root inside, as [tools.md](tools.md#path) defines. | Given two nodes linked only through their module, then `items` is empty and `direction` null; given a dependency chain of two hops, then it is returned with `direction` `based_on`. |
+| FR-MCP-READ-08 | `expand_brief` shall stay within the token budget, as [tools.md](tools.md#expand_brief) defines. | Given `budget_tokens` 500, then the items' `tokens` add up to `tokens` ≤ 500, no item is a node of the story or a brief neighbour, and two calls return the same answer. |
+
+## Story and spec tools: agent writes ([tools.md](tools.md#story-and-spec-tools))
+
+| ID | Requirement | Acceptance |
+|---|---|---|
+| FR-MCP-WRITE-01 | The five write tools shall declare the write annotations and call `POST` routes, as [tools.md](tools.md#conventions) and [architecture.md](architecture.md#write-routes) define. | `tools/list`: `readOnlyHint` false, `destructiveHint` false, `idempotentHint` true, `openWorldHint` false on exactly `claim_story`, `release_story`, `add_finding`, `report_task` and `complete_story`; the router sends `POST` with `project_id` in the query and the other arguments as the JSON body; the manifest has `read_only` false for exactly those five. |
+| FR-MCP-WRITE-02 | A repeated write shall change nothing more and answer as [Repeats](tools.md#repeats) defines. | For each write tool, calling twice with the same arguments gives `200` both times, the graph after the second call equals the graph after the first, and the second `api.agent.written` has `repeat` true. |
+| FR-MCP-WRITE-03 | A refused write shall write nothing (AC14 of [access-control.md](access-control.md#write-tools)). | For each write tool, given a foreign project, a stale token and invalid arguments, then the error code of [tools.md](tools.md#error-codes) and no change in the graph; the foreign project runs no graph query. |
+| FR-MCP-WRITE-04 | `add_finding` shall store a finding beside the spec, as [tools.md](tools.md#add_finding) defines, and never change a spec node or edge. | Given a `gap` about two nodes with a commit reference, then one finding with `origin` `agent`, two `ABOUT` edges and one `REFERS_TO` edge exists and the spec nodes and edges are unchanged; the same call with the text in other case and spacing returns it with `created: false`; a `url` with user information gives `invalid_arguments`; with a recording HTTP client/socket guard, adding a `url` and a `pr` URL makes no network call. |
+| FR-MCP-WRITE-05 | A blocking finding shall block only the caller's claimed story, as [tools.md](tools.md#add_finding) defines. | Kind `note` with `blocking` gives `invalid_arguments`; a node no task of the story implements gives `invalid_arguments`; bob's token gives `claim_mismatch`; a valid `question` sets the claim's tasks `blocked` with `spec_ambiguous` and `blocked_by`, ends the claim, and `list_stories` shows the story `blocked` with the question. |
+| FR-MCP-WRITE-06 | `add_finding` shall refuse more than 50 open findings per caller and story. | Given 50 open findings by alice on a story, then the 51st gives `finding_limit`; after one is resolved, the next is stored. |
+| FR-MCP-WRITE-07 | `report_task` shall record progress and never change the task status, as [tools.md](tools.md#report_task) defines. | Given a claimed task, `done` answers the task `in_progress` with `progress` `done`; `skipped` without a note gives `invalid_arguments`; a task of another member's claim gives `claim_mismatch`. |
+| FR-MCP-WRITE-08 | `complete_story` shall complete the done tasks with the merge commit and release the rest, as [tools.md](tools.md#complete_story) defines. | Given a claim of three tasks and `done` of two, then those two are `completed` with the commit, `completed_by` alice and `completed_at`, the third is `pending` and in `released`, a story waiting only on them is in `now_available`, and the spec is unchanged; `merge_commit` `abc` gives `invalid_commit` and changes nothing. |
+| FR-MCP-WRITE-09 | Error details shall be typed and leave today's errors unchanged, as [tools.md](tools.md#error-details) defines. | `story_claimed` carries details that validate against `ErrorDetails`; details that do not validate give `internal_error` with error type `ApiProtocolError`; the error goldens of the six earlier tools are byte-identical. |
+| FR-MCP-WRITE-10 | No answer, log or error shall carry another user's id or email, a claim token other than the caller's, or finding text in logs ([access-control.md](access-control.md#write-tools)). | Given a finding text and an agent label holding a marker string, then the captured logs of both services hold neither the marker nor the token; given bob's display name equal to his email, his holder `name` is null; no answer of any story or spec tool holds a user id or an email. |
+
+## Story and spec tools: guidance ([tools.md](tools.md#the-start-prompt))
+
+| ID | Requirement | Acceptance |
+|---|---|---|
+| FR-MCP-START-01 | The server instructions shall end with the workflow line of [tools.md](tools.md#server-instructions) and stay under 2,048 characters for every valid resource URL. | Given `http://localhost:8002/mcp`, then the text ends with the workflow line and has 1,552 characters; given the longest valid URL (267 characters), then it is under 2,048. |
+| FR-MCP-START-02 | The server shall offer the `start` prompt that [tools.md](tools.md#the-start-prompt) defines, behind the auth guard. | `prompts/list` lists `start` with an optional `area` argument; `prompts/get` with `area` `web` holds `"web"` as quoted data and the hand-off line; 201 characters are refused; without a token, 401. |
+| FR-MCP-START-03 | From a bound project, the `start` prompt shall lead a coding agent to a claimed story in at most six tool calls. | Stack gate and agent QA: a headless Claude Code run of `start` on the isolated stack claims the story the simulated user chose, with at most six tool calls and no tool call the steps do not name. |
 
 ## Workspace binding ([tools.md](tools.md#workspace-binding))
 

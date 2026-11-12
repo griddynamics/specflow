@@ -31,13 +31,13 @@ from typing import Any
 import httpx
 
 from mcp_golden_seam import ALPHA, BETA, UNKNOWN_PROJECT
-from mcp_support import PRM_URL, mcp_token, rpc
+from mcp_support import PRM_URL, rpc, suite_token
 from specflow_api_support import token as web_token
 
 GOLDEN = Path(__file__).resolve().parent / "fixtures" / "mcp" / "golden"
 UPDATE_ENV = "MCP_GOLDEN_UPDATE"
-ALICE = mcp_token("alice@example.com")
-OUTSIDER = mcp_token("carol@other.example")  # a verified token of a domain the policy refuses (403)
+ALICE = suite_token("alice@example.com")
+OUTSIDER = suite_token("carol@other.example")  # a verified token of a domain the policy refuses (403)
 HEADERS_KEPT = ("www-authenticate", "allow", "content-type")
 
 # The ErrorCodes of docs/mcp-server/tools.md, kept literal so nothing here imports the product; a new code must be

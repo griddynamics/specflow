@@ -1,0 +1,2961 @@
+{
+  "add_finding": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"finding\":{\"finding_id\":\"FND::000000000004\",\"kind\":\"gap\",\"text\":\"The spec does not say how long a cart is kept.\",\"status\":\"open\",\"blocking\":false,\"about\":[\"FEAT::CHECKOUT\"],\"refers_to\":[{\"type\":\"commit\",\"value\":\"e44f0c1\"},{\"type\":\"pr\",\"value\":\"https://git.example.test/shop/pull/7\"}],\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"created_at\":\"2026-01-01T10:00:04Z\",\"orphaned\":false},\"created\":true,\"blocked\":[]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "blocked": [],
+      "created": true,
+      "finding": {
+        "about": [
+          "FEAT::CHECKOUT"
+        ],
+        "author": {
+          "agent_label": null,
+          "name": "Alice",
+          "you": true
+        },
+        "blocking": false,
+        "created_at": "2026-01-01T10:00:04Z",
+        "finding_id": "FND::000000000004",
+        "kind": "gap",
+        "orphaned": false,
+        "refers_to": [
+          {
+            "type": "commit",
+            "value": "e44f0c1"
+          },
+          {
+            "type": "pr",
+            "value": "https://git.example.test/shop/pull/7"
+          }
+        ],
+        "status": "open",
+        "story_id": "STORY::WEB_SHOP::CHECKOUT",
+        "text": "The spec does not say how long a cart is kept."
+      },
+      "project_id": "00000000-0000-4000-8000-000000000001"
+    }
+  },
+  "add_finding_blocking": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"finding\":{\"finding_id\":\"FND::000000000004\",\"kind\":\"question\",\"text\":\"Is a cart kept for one day or for a week?\",\"status\":\"open\",\"blocking\":true,\"about\":[\"FEAT::CHECKOUT\"],\"refers_to\":[],\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"created_at\":\"2026-01-01T10:00:04Z\",\"orphaned\":false},\"created\":true,\"blocked\":[\"TASK::WEB_SHOP::LOGIC_CHECKOUT\"]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "blocked": [
+        "TASK::WEB_SHOP::LOGIC_CHECKOUT"
+      ],
+      "created": true,
+      "finding": {
+        "about": [
+          "FEAT::CHECKOUT"
+        ],
+        "author": {
+          "agent_label": null,
+          "name": "Alice",
+          "you": true
+        },
+        "blocking": true,
+        "created_at": "2026-01-01T10:00:04Z",
+        "finding_id": "FND::000000000004",
+        "kind": "question",
+        "orphaned": false,
+        "refers_to": [],
+        "status": "open",
+        "story_id": "STORY::WEB_SHOP::CHECKOUT",
+        "text": "Is a cart kept for one day or for a week?"
+      },
+      "project_id": "00000000-0000-4000-8000-000000000001"
+    }
+  },
+  "add_finding_blocking_repeat_without_a_claim": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"finding\":{\"finding_id\":\"FND::000000000004\",\"kind\":\"gap\",\"text\":\"The spec does not say how long a cart is kept.\",\"status\":\"open\",\"blocking\":false,\"about\":[\"FEAT::CHECKOUT\"],\"refers_to\":[{\"type\":\"commit\",\"value\":\"e44f0c1\"},{\"type\":\"pr\",\"value\":\"https://git.example.test/shop/pull/7\"}],\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"created_at\":\"2026-01-01T10:00:04Z\",\"orphaned\":false},\"created\":false,\"blocked\":[]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "blocked": [],
+      "created": false,
+      "finding": {
+        "about": [
+          "FEAT::CHECKOUT"
+        ],
+        "author": {
+          "agent_label": null,
+          "name": "Alice",
+          "you": true
+        },
+        "blocking": false,
+        "created_at": "2026-01-01T10:00:04Z",
+        "finding_id": "FND::000000000004",
+        "kind": "gap",
+        "orphaned": false,
+        "refers_to": [
+          {
+            "type": "commit",
+            "value": "e44f0c1"
+          },
+          {
+            "type": "pr",
+            "value": "https://git.example.test/shop/pull/7"
+          }
+        ],
+        "status": "open",
+        "story_id": "STORY::WEB_SHOP::CHECKOUT",
+        "text": "The spec does not say how long a cart is kept."
+      },
+      "project_id": "00000000-0000-4000-8000-000000000001"
+    }
+  },
+  "add_finding_repeat": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"finding\":{\"finding_id\":\"FND::000000000004\",\"kind\":\"gap\",\"text\":\"The spec does not say how long a cart is kept.\",\"status\":\"open\",\"blocking\":false,\"about\":[\"FEAT::CHECKOUT\"],\"refers_to\":[{\"type\":\"commit\",\"value\":\"e44f0c1\"},{\"type\":\"pr\",\"value\":\"https://git.example.test/shop/pull/7\"}],\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"created_at\":\"2026-01-01T10:00:04Z\",\"orphaned\":false},\"created\":false,\"blocked\":[]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "blocked": [],
+      "created": false,
+      "finding": {
+        "about": [
+          "FEAT::CHECKOUT"
+        ],
+        "author": {
+          "agent_label": null,
+          "name": "Alice",
+          "you": true
+        },
+        "blocking": false,
+        "created_at": "2026-01-01T10:00:04Z",
+        "finding_id": "FND::000000000004",
+        "kind": "gap",
+        "orphaned": false,
+        "refers_to": [
+          {
+            "type": "commit",
+            "value": "e44f0c1"
+          },
+          {
+            "type": "pr",
+            "value": "https://git.example.test/shop/pull/7"
+          }
+        ],
+        "status": "open",
+        "story_id": "STORY::WEB_SHOP::CHECKOUT",
+        "text": "The spec does not say how long a cart is kept."
+      },
+      "project_id": "00000000-0000-4000-8000-000000000001"
+    }
+  },
+  "claim_story": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"claim_token\":\"00000000000000000000000000000001\",\"story_ids\":[\"STORY::WEB_SHOP::CHECKOUT\"],\"claimed_at\":\"2026-01-01T10:00:01Z\",\"agent_label\":\"Claude Code · laptop\",\"branch\":\"feat/checkout\",\"repeat\":false,\"items\":[{\"task_id\":\"TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"status\":\"in_progress\",\"ready\":false,\"complexity\":\"medium\",\"progress\":null}]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "agent_label": "Claude Code · laptop",
+      "branch": "feat/checkout",
+      "claim_token": "00000000000000000000000000000001",
+      "claimed_at": "2026-01-01T10:00:01Z",
+      "items": [
+        {
+          "complexity": "medium",
+          "progress": null,
+          "ready": false,
+          "status": "in_progress",
+          "task_id": "TASK::WEB_SHOP::LOGIC_CHECKOUT",
+          "title": "Task TASK::WEB_SHOP::LOGIC_CHECKOUT"
+        }
+      ],
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "repeat": false,
+      "story_id": "STORY::WEB_SHOP::CHECKOUT",
+      "story_ids": [
+        "STORY::WEB_SHOP::CHECKOUT"
+      ]
+    }
+  },
+  "claim_story_repeat": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"claim_token\":\"00000000000000000000000000000001\",\"story_ids\":[\"STORY::WEB_SHOP::CHECKOUT\"],\"claimed_at\":\"2026-01-01T10:00:01Z\",\"agent_label\":\"Claude Code · laptop\",\"branch\":\"feat/checkout\",\"repeat\":true,\"items\":[{\"task_id\":\"TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"status\":\"in_progress\",\"ready\":false,\"complexity\":\"medium\",\"progress\":null}]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "agent_label": "Claude Code · laptop",
+      "branch": "feat/checkout",
+      "claim_token": "00000000000000000000000000000001",
+      "claimed_at": "2026-01-01T10:00:01Z",
+      "items": [
+        {
+          "complexity": "medium",
+          "progress": null,
+          "ready": false,
+          "status": "in_progress",
+          "task_id": "TASK::WEB_SHOP::LOGIC_CHECKOUT",
+          "title": "Task TASK::WEB_SHOP::LOGIC_CHECKOUT"
+        }
+      ],
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "repeat": true,
+      "story_id": "STORY::WEB_SHOP::CHECKOUT",
+      "story_ids": [
+        "STORY::WEB_SHOP::CHECKOUT"
+      ]
+    }
+  },
+  "complete_story": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"completed\":[\"TASK::WEB_SHOP::LOGIC_CHECKOUT\"],\"released\":[],\"now_available\":[],\"spec_changed\":[]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "completed": [
+        "TASK::WEB_SHOP::LOGIC_CHECKOUT"
+      ],
+      "now_available": [],
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "released": [],
+      "spec_changed": [],
+      "story_id": "STORY::WEB_SHOP::CHECKOUT"
+    }
+  },
+  "complete_story_repeat": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"completed\":[\"TASK::WEB_SHOP::LOGIC_CHECKOUT\"],\"released\":[],\"now_available\":[],\"spec_changed\":[]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "completed": [
+        "TASK::WEB_SHOP::LOGIC_CHECKOUT"
+      ],
+      "now_available": [],
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "released": [],
+      "spec_changed": [],
+      "story_id": "STORY::WEB_SHOP::CHECKOUT"
+    }
+  },
+  "expand_brief": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"items\":[{\"spec_id\":\"REQ::FR::CARD_PAYMENT\",\"label\":\"FunctionalRequirement\",\"name\":\"Customer can pay by card\",\"score\":0.8163300583011559,\"via\":\"both\",\"text\":\"\",\"tokens\":6,\"document\":null},{\"spec_id\":\"MOD::PAYMENTS_SERVICE\",\"label\":\"Module\",\"name\":\"Payments service\",\"score\":0.7,\"via\":\"graph\",\"text\":\"Takes card payments through Stripe.\",\"tokens\":13,\"document\":null},{\"spec_id\":\"FEAT::CHECKOUT_REVIEW\",\"label\":\"Feature\",\"name\":\"Checkout review\",\"score\":0.29521376466912025,\"via\":\"similar\",\"text\":\"Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay.\",\"tokens\":499,\"document\":null}],\"tokens\":518,\"left_out\":0}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "items": [
+        {
+          "document": null,
+          "label": "FunctionalRequirement",
+          "name": "Customer can pay by card",
+          "score": 0.8163300583011559,
+          "spec_id": "REQ::FR::CARD_PAYMENT",
+          "text": "",
+          "tokens": 6,
+          "via": "both"
+        },
+        {
+          "document": null,
+          "label": "Module",
+          "name": "Payments service",
+          "score": 0.7,
+          "spec_id": "MOD::PAYMENTS_SERVICE",
+          "text": "Takes card payments through Stripe.",
+          "tokens": 13,
+          "via": "graph"
+        },
+        {
+          "document": null,
+          "label": "Feature",
+          "name": "Checkout review",
+          "score": 0.29521376466912025,
+          "spec_id": "FEAT::CHECKOUT_REVIEW",
+          "text": "Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay. Customers review the order before they pay.",
+          "tokens": 499,
+          "via": "similar"
+        }
+      ],
+      "left_out": 0,
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "story_id": "STORY::WEB_SHOP::CHECKOUT",
+      "tokens": 518
+    }
+  },
+  "expand_brief_cut_at_the_budget": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"items\":[{\"spec_id\":\"REQ::FR::CARD_PAYMENT\",\"label\":\"FunctionalRequirement\",\"name\":\"Customer can pay by card\",\"score\":0.8163300583011559,\"via\":\"both\",\"text\":\"\",\"tokens\":6,\"document\":null},{\"spec_id\":\"MOD::PAYMENTS_SERVICE\",\"label\":\"Module\",\"name\":\"Payments service\",\"score\":0.7,\"via\":\"graph\",\"text\":\"Takes card payments through Stripe.\",\"tokens\":13,\"document\":null}],\"tokens\":19,\"left_out\":1}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "items": [
+        {
+          "document": null,
+          "label": "FunctionalRequirement",
+          "name": "Customer can pay by card",
+          "score": 0.8163300583011559,
+          "spec_id": "REQ::FR::CARD_PAYMENT",
+          "text": "",
+          "tokens": 6,
+          "via": "both"
+        },
+        {
+          "document": null,
+          "label": "Module",
+          "name": "Payments service",
+          "score": 0.7,
+          "spec_id": "MOD::PAYMENTS_SERVICE",
+          "text": "Takes card payments through Stripe.",
+          "tokens": 13,
+          "via": "graph"
+        }
+      ],
+      "left_out": 1,
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "story_id": "STORY::WEB_SHOP::CHECKOUT",
+      "tokens": 19
+    }
+  },
+  "get_evidence": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"spec_id\":\"CON::EU_REGION\",\"items\":[{\"document_id\":\"shop\",\"path\":\"docs/shop.md\",\"fragment_id\":\"shop.quality\",\"line_start\":7,\"line_end\":7,\"quote\":\"Checkout responds quickly and all services run in the EU region.\",\"before\":[\"The shop has Place order, Order history export, Card payment, Checkout and nested features.\",\"Requirements name behaviour, data, integration, business rules and cross-area dependencies.\"],\"after\":[\"Stripe limits retries. Gift cards are out of scope for this release.\",\"Which payment providers must the first release support?\"],\"others\":[{\"spec_id\":\"REQ::Q::CHECKOUT_SPEED\",\"label\":\"QualityRequirement\",\"name\":\"Checkout responds within one second\"}]}]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "items": [
+        {
+          "after": [
+            "Stripe limits retries. Gift cards are out of scope for this release.",
+            "Which payment providers must the first release support?"
+          ],
+          "before": [
+            "The shop has Place order, Order history export, Card payment, Checkout and nested features.",
+            "Requirements name behaviour, data, integration, business rules and cross-area dependencies."
+          ],
+          "document_id": "shop",
+          "fragment_id": "shop.quality",
+          "line_end": 7,
+          "line_start": 7,
+          "others": [
+            {
+              "label": "QualityRequirement",
+              "name": "Checkout responds within one second",
+              "spec_id": "REQ::Q::CHECKOUT_SPEED"
+            }
+          ],
+          "path": "docs/shop.md",
+          "quote": "Checkout responds quickly and all services run in the EU region."
+        }
+      ],
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "spec_id": "CON::EU_REGION"
+    }
+  },
+  "get_evidence_without_context": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"spec_id\":\"REQ::LOGIC_EXPORT\",\"items\":[{\"document_id\":\"shop\",\"path\":\"docs/shop.md\",\"fragment_id\":\"shop.requirements\",\"line_start\":6,\"line_end\":6,\"quote\":\"Requirements name behaviour, data, integration, business rules and cross-area dependencies.\",\"before\":[],\"after\":[],\"others\":[]}]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "items": [
+        {
+          "after": [],
+          "before": [],
+          "document_id": "shop",
+          "fragment_id": "shop.requirements",
+          "line_end": 6,
+          "line_start": 6,
+          "others": [],
+          "path": "docs/shop.md",
+          "quote": "Requirements name behaviour, data, integration, business rules and cross-area dependencies."
+        }
+      ],
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "spec_id": "REQ::LOGIC_EXPORT"
+    }
+  },
+  "get_node": {
+    "content": [
+      {
+        "text": "{\"node\":{\"spec_id\":\"MOD::STRIPE\",\"label\":\"Module\",\"name\":\"Stripe\",\"spec_id_aliases\":[],\"attributes\":{\"external\":\"yes\",\"type\":\"other\"},\"statements\":[]},\"edges\":{\"items\":[{\"relation\":\"INTEGRATES_WITH\",\"direction\":\"out\",\"spec_id\":\"MOD::PAYMENTS_SERVICE\",\"label\":\"Module\",\"name\":\"Payments service\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null},{\"relation\":\"PART_OF\",\"direction\":\"in\",\"spec_id\":\"CON::STRIPE\",\"label\":\"Constraint\",\"name\":\"Stripe rejects repeated payment attempts\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null},{\"relation\":\"PROVIDED_BY\",\"direction\":\"in\",\"spec_id\":\"IFC::INTEGRATED\",\"label\":\"Interface\",\"name\":\"Interface integrated by one module\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null},{\"relation\":\"PROVIDED_BY\",\"direction\":\"in\",\"spec_id\":\"IFC::STRIPE_API\",\"label\":\"Interface\",\"name\":\"Stripe API\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null}],\"by_relation\":[{\"relation\":\"INTEGRATES_WITH\",\"direction\":\"out\",\"count\":1},{\"relation\":\"PART_OF\",\"direction\":\"in\",\"count\":1},{\"relation\":\"PROVIDED_BY\",\"direction\":\"in\",\"count\":2}],\"total\":4},\"plan\":{\"plan_state\":\"in_progress\",\"tasks\":[{\"task_id\":\"TASK::STRIPE::SETUP\",\"story_id\":\"STORY::STRIPE::CORE\",\"status\":\"in_progress\",\"holder\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"commit\":null},{\"task_id\":\"TASK::STRIPE::WIRE\",\"story_id\":\"STORY::STRIPE::CORE\",\"status\":\"in_progress\",\"holder\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null},\"commit\":null}]},\"provenance\":[],\"findings\":[{\"finding_id\":\"FND::000000000002\",\"kind\":\"conflict\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null}},{\"finding_id\":\"FND::000000000003\",\"kind\":\"note\",\"text\":\"Stripe retries are limited.\",\"blocking\":false,\"about\":[\"MOD::STRIPE\"],\"author\":{\"name\":null,\"you\":false,\"agent_label\":null}}]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "edges": {
+        "by_relation": [
+          {
+            "count": 1,
+            "direction": "out",
+            "relation": "INTEGRATES_WITH"
+          },
+          {
+            "count": 1,
+            "direction": "in",
+            "relation": "PART_OF"
+          },
+          {
+            "count": 2,
+            "direction": "in",
+            "relation": "PROVIDED_BY"
+          }
+        ],
+        "items": [
+          {
+            "basis": "stated",
+            "confidence": null,
+            "direction": "out",
+            "label": "Module",
+            "name": "Payments service",
+            "relation": "INTEGRATES_WITH",
+            "rule": null,
+            "spec_id": "MOD::PAYMENTS_SERVICE"
+          },
+          {
+            "basis": "stated",
+            "confidence": null,
+            "direction": "in",
+            "label": "Constraint",
+            "name": "Stripe rejects repeated payment attempts",
+            "relation": "PART_OF",
+            "rule": null,
+            "spec_id": "CON::STRIPE"
+          },
+          {
+            "basis": "stated",
+            "confidence": null,
+            "direction": "in",
+            "label": "Interface",
+            "name": "Interface integrated by one module",
+            "relation": "PROVIDED_BY",
+            "rule": null,
+            "spec_id": "IFC::INTEGRATED"
+          },
+          {
+            "basis": "stated",
+            "confidence": null,
+            "direction": "in",
+            "label": "Interface",
+            "name": "Stripe API",
+            "relation": "PROVIDED_BY",
+            "rule": null,
+            "spec_id": "IFC::STRIPE_API"
+          }
+        ],
+        "total": 4
+      },
+      "findings": [
+        {
+          "about": [
+            "FEAT::CARD_PAYMENT",
+            "FEAT::CHECKOUT",
+            "MOD::STRIPE"
+          ],
+          "author": {
+            "agent_label": null,
+            "name": "Ben",
+            "you": false
+          },
+          "blocking": true,
+          "finding_id": "FND::000000000002",
+          "kind": "conflict",
+          "text": "The spec says card payment is optional and required."
+        },
+        {
+          "about": [
+            "MOD::STRIPE"
+          ],
+          "author": {
+            "agent_label": null,
+            "name": null,
+            "you": false
+          },
+          "blocking": false,
+          "finding_id": "FND::000000000003",
+          "kind": "note",
+          "text": "Stripe retries are limited."
+        }
+      ],
+      "node": {
+        "attributes": {
+          "external": "yes",
+          "type": "other"
+        },
+        "label": "Module",
+        "name": "Stripe",
+        "spec_id": "MOD::STRIPE",
+        "spec_id_aliases": [],
+        "statements": []
+      },
+      "plan": {
+        "plan_state": "in_progress",
+        "tasks": [
+          {
+            "commit": null,
+            "holder": {
+              "agent_label": null,
+              "name": "Alice",
+              "you": true
+            },
+            "status": "in_progress",
+            "story_id": "STORY::STRIPE::CORE",
+            "task_id": "TASK::STRIPE::SETUP"
+          },
+          {
+            "commit": null,
+            "holder": {
+              "agent_label": null,
+              "name": "Ben",
+              "you": false
+            },
+            "status": "in_progress",
+            "story_id": "STORY::STRIPE::CORE",
+            "task_id": "TASK::STRIPE::WIRE"
+          }
+        ]
+      },
+      "provenance": []
+    }
+  },
+  "get_node_hub_summarised": {
+    "content": [
+      {
+        "text": "{\"node\":{\"spec_id\":\"MOD::ORDERS_SERVICE\",\"label\":\"Module\",\"name\":\"Orders service\",\"spec_id_aliases\":[],\"attributes\":{\"type\":\"backend\"},\"statements\":[{\"fragment_id\":\"shop.modules\",\"document_id\":\"shop\",\"text\":\"Orders service is a module\"}]},\"edges\":{\"items\":[{\"relation\":\"CONSUMED_BY\",\"direction\":\"in\",\"spec_id\":\"IFC::UNSHARED\",\"label\":\"Interface\",\"name\":\"Interface consumed by two modules\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null},{\"relation\":\"DEPLOYED_TO\",\"direction\":\"out\",\"spec_id\":\"MOD::PRODUCTION_CLUSTER\",\"label\":\"Module\",\"name\":\"Production cluster\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null},{\"relation\":\"PART_OF\",\"direction\":\"in\",\"spec_id\":\"BR::RELEASE\",\"label\":\"BusinessRule\",\"name\":\"Release - the first release is MVP\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null}],\"by_relation\":[{\"relation\":\"CONSUMED_BY\",\"direction\":\"in\",\"count\":1},{\"relation\":\"DEPLOYED_TO\",\"direction\":\"out\",\"count\":1},{\"relation\":\"PART_OF\",\"direction\":\"in\",\"count\":4},{\"relation\":\"PROVIDED_BY\",\"direction\":\"in\",\"count\":1},{\"relation\":\"REALIZED_BY\",\"direction\":\"in\",\"count\":1},{\"relation\":\"RELATES_TO\",\"direction\":\"in\",\"count\":1}],\"total\":9},\"plan\":{\"plan_state\":\"unplanned\",\"tasks\":[]},\"provenance\":[],\"findings\":[]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "edges": {
+        "by_relation": [
+          {
+            "count": 1,
+            "direction": "in",
+            "relation": "CONSUMED_BY"
+          },
+          {
+            "count": 1,
+            "direction": "out",
+            "relation": "DEPLOYED_TO"
+          },
+          {
+            "count": 4,
+            "direction": "in",
+            "relation": "PART_OF"
+          },
+          {
+            "count": 1,
+            "direction": "in",
+            "relation": "PROVIDED_BY"
+          },
+          {
+            "count": 1,
+            "direction": "in",
+            "relation": "REALIZED_BY"
+          },
+          {
+            "count": 1,
+            "direction": "in",
+            "relation": "RELATES_TO"
+          }
+        ],
+        "items": [
+          {
+            "basis": "stated",
+            "confidence": null,
+            "direction": "in",
+            "label": "Interface",
+            "name": "Interface consumed by two modules",
+            "relation": "CONSUMED_BY",
+            "rule": null,
+            "spec_id": "IFC::UNSHARED"
+          },
+          {
+            "basis": "stated",
+            "confidence": null,
+            "direction": "out",
+            "label": "Module",
+            "name": "Production cluster",
+            "relation": "DEPLOYED_TO",
+            "rule": null,
+            "spec_id": "MOD::PRODUCTION_CLUSTER"
+          },
+          {
+            "basis": "stated",
+            "confidence": null,
+            "direction": "in",
+            "label": "BusinessRule",
+            "name": "Release - the first release is MVP",
+            "relation": "PART_OF",
+            "rule": null,
+            "spec_id": "BR::RELEASE"
+          }
+        ],
+        "total": 9
+      },
+      "findings": [],
+      "node": {
+        "attributes": {
+          "type": "backend"
+        },
+        "label": "Module",
+        "name": "Orders service",
+        "spec_id": "MOD::ORDERS_SERVICE",
+        "spec_id_aliases": [],
+        "statements": [
+          {
+            "document_id": "shop",
+            "fragment_id": "shop.modules",
+            "text": "Orders service is a module"
+          }
+        ]
+      },
+      "plan": {
+        "plan_state": "unplanned",
+        "tasks": []
+      },
+      "provenance": []
+    }
+  },
+  "get_node_provenance_only": {
+    "content": [
+      {
+        "text": "{\"node\":{\"spec_id\":\"REQ::LOGIC_EXPORT\",\"label\":\"FunctionalRequirement\",\"name\":\"Staff can export order history as a CSV file\",\"spec_id_aliases\":[],\"attributes\":{\"acceptance_criteria\":[\"The export contains every completed order\"]},\"statements\":[]},\"edges\":null,\"plan\":null,\"provenance\":[{\"document_id\":\"shop\",\"path\":\"docs/shop.md\",\"fragment_id\":\"shop.requirements\",\"line_start\":6,\"line_end\":6,\"quote\":null}],\"findings\":null}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "edges": null,
+      "findings": null,
+      "node": {
+        "attributes": {
+          "acceptance_criteria": [
+            "The export contains every completed order"
+          ]
+        },
+        "label": "FunctionalRequirement",
+        "name": "Staff can export order history as a CSV file",
+        "spec_id": "REQ::LOGIC_EXPORT",
+        "spec_id_aliases": [],
+        "statements": []
+      },
+      "plan": null,
+      "provenance": [
+        {
+          "document_id": "shop",
+          "fragment_id": "shop.requirements",
+          "line_end": 6,
+          "line_start": 6,
+          "path": "docs/shop.md",
+          "quote": null
+        }
+      ]
+    }
+  },
+  "get_node_without_a_plan": {
+    "content": [
+      {
+        "text": "{\"node\":{\"spec_id\":\"MOD::STRIPE\",\"label\":\"Module\",\"name\":\"Stripe\",\"spec_id_aliases\":[],\"attributes\":{\"external\":\"yes\",\"type\":\"other\"},\"statements\":[]},\"edges\":{\"items\":[{\"relation\":\"INTEGRATES_WITH\",\"direction\":\"out\",\"spec_id\":\"MOD::PAYMENTS_SERVICE\",\"label\":\"Module\",\"name\":\"Payments service\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null},{\"relation\":\"PART_OF\",\"direction\":\"in\",\"spec_id\":\"CON::STRIPE\",\"label\":\"Constraint\",\"name\":\"Stripe rejects repeated payment attempts\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null},{\"relation\":\"PROVIDED_BY\",\"direction\":\"in\",\"spec_id\":\"IFC::INTEGRATED\",\"label\":\"Interface\",\"name\":\"Interface integrated by one module\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null},{\"relation\":\"PROVIDED_BY\",\"direction\":\"in\",\"spec_id\":\"IFC::STRIPE_API\",\"label\":\"Interface\",\"name\":\"Stripe API\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null}],\"by_relation\":[{\"relation\":\"INTEGRATES_WITH\",\"direction\":\"out\",\"count\":1},{\"relation\":\"PART_OF\",\"direction\":\"in\",\"count\":1},{\"relation\":\"PROVIDED_BY\",\"direction\":\"in\",\"count\":2}],\"total\":4},\"plan\":null,\"provenance\":[],\"findings\":[{\"finding_id\":\"FND::000000000002\",\"kind\":\"conflict\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null}},{\"finding_id\":\"FND::000000000003\",\"kind\":\"note\",\"text\":\"Stripe retries are limited.\",\"blocking\":false,\"about\":[\"MOD::STRIPE\"],\"author\":{\"name\":null,\"you\":false,\"agent_label\":null}}]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "edges": {
+        "by_relation": [
+          {
+            "count": 1,
+            "direction": "out",
+            "relation": "INTEGRATES_WITH"
+          },
+          {
+            "count": 1,
+            "direction": "in",
+            "relation": "PART_OF"
+          },
+          {
+            "count": 2,
+            "direction": "in",
+            "relation": "PROVIDED_BY"
+          }
+        ],
+        "items": [
+          {
+            "basis": "stated",
+            "confidence": null,
+            "direction": "out",
+            "label": "Module",
+            "name": "Payments service",
+            "relation": "INTEGRATES_WITH",
+            "rule": null,
+            "spec_id": "MOD::PAYMENTS_SERVICE"
+          },
+          {
+            "basis": "stated",
+            "confidence": null,
+            "direction": "in",
+            "label": "Constraint",
+            "name": "Stripe rejects repeated payment attempts",
+            "relation": "PART_OF",
+            "rule": null,
+            "spec_id": "CON::STRIPE"
+          },
+          {
+            "basis": "stated",
+            "confidence": null,
+            "direction": "in",
+            "label": "Interface",
+            "name": "Interface integrated by one module",
+            "relation": "PROVIDED_BY",
+            "rule": null,
+            "spec_id": "IFC::INTEGRATED"
+          },
+          {
+            "basis": "stated",
+            "confidence": null,
+            "direction": "in",
+            "label": "Interface",
+            "name": "Stripe API",
+            "relation": "PROVIDED_BY",
+            "rule": null,
+            "spec_id": "IFC::STRIPE_API"
+          }
+        ],
+        "total": 4
+      },
+      "findings": [
+        {
+          "about": [
+            "FEAT::CARD_PAYMENT",
+            "FEAT::CHECKOUT",
+            "MOD::STRIPE"
+          ],
+          "author": {
+            "agent_label": null,
+            "name": "Ben",
+            "you": false
+          },
+          "blocking": true,
+          "finding_id": "FND::000000000002",
+          "kind": "conflict",
+          "text": "The spec says card payment is optional and required."
+        },
+        {
+          "about": [
+            "MOD::STRIPE"
+          ],
+          "author": {
+            "agent_label": null,
+            "name": null,
+            "you": false
+          },
+          "blocking": false,
+          "finding_id": "FND::000000000003",
+          "kind": "note",
+          "text": "Stripe retries are limited."
+        }
+      ],
+      "node": {
+        "attributes": {
+          "external": "yes",
+          "type": "other"
+        },
+        "label": "Module",
+        "name": "Stripe",
+        "spec_id": "MOD::STRIPE",
+        "spec_id_aliases": [],
+        "statements": []
+      },
+      "plan": null,
+      "provenance": []
+    }
+  },
+  "get_story_brief": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"brief\":{\"story\":{\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"kind\":\"feature\",\"title\":\"Checkout\",\"summary\":null,\"anchor\":\"FEAT::CHECKOUT\",\"release\":null,\"state\":\"ready\"},\"area\":{\"area_id\":\"AREA::WEB_SHOP\",\"kind\":\"module\",\"anchor\":null,\"title\":\"WEB_SHOP\",\"description\":null,\"interfaces\":[],\"not_buildable\":[],\"planned_by\":\"model\",\"prompt_ref\":null,\"status\":\"active\",\"created_at\":\"2026-01-01T00:00:00Z\",\"updated_at\":\"2026-01-01T00:00:00Z\",\"last_run_id\":null},\"profile\":{},\"tasks\":[{\"task_id\":\"TASK::WEB_SHOP::DATA_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::DATA_CHECKOUT\",\"phase\":\"logic\",\"status\":\"completed\",\"complexity\":\"medium\",\"progress\":null,\"waits_for\":[],\"done_when\":[]},{\"task_id\":\"TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"phase\":\"logic\",\"status\":\"pending\",\"complexity\":\"medium\",\"progress\":null,\"waits_for\":[\"TASK::PAYMENTS::CONTRACT\",\"TASK::WEB_SHOP::DATA_CHECKOUT\"],\"done_when\":[]}],\"implements\":[{\"spec_id\":\"FEAT::CHECKOUT\",\"label\":\"Feature\",\"name\":\"Checkout\",\"attributes\":{},\"statements\":[{\"fragment_id\":\"f1\",\"document_id\":null,\"revision_id\":null,\"version\":null,\"text\":\"Checkout\",\"at\":null}],\"provenance\":[],\"assumption\":false},{\"spec_id\":\"REQ::FR::CHECKOUT\",\"label\":\"FunctionalRequirement\",\"name\":\"Customer can complete checkout\",\"attributes\":{},\"statements\":[{\"fragment_id\":\"f1\",\"document_id\":null,\"revision_id\":null,\"version\":null,\"text\":\"Customer can complete checkout\",\"at\":null}],\"provenance\":[],\"assumption\":false},{\"spec_id\":\"REQ::Q::CHECKOUT_SPEED\",\"label\":\"QualityRequirement\",\"name\":\"Checkout responds within one second\",\"attributes\":{},\"statements\":[{\"fragment_id\":\"f1\",\"document_id\":null,\"revision_id\":null,\"version\":null,\"text\":\"Checkout responds within one second\",\"at\":null}],\"provenance\":[],\"assumption\":false}],\"contracts\":[{\"task_id\":\"TASK::PAYMENTS::CONTRACT\",\"title\":\"Task TASK::PAYMENTS::CONTRACT\",\"commit\":\"abababababababababababababababababababab\",\"implements\":[\"IFC::STRIPE_API\",\"MOD::PAYMENTS_SERVICE\"],\"interfaces\":[]}],\"open_questions\":[],\"findings\":[{\"finding_id\":\"FND::000000000002\",\"kind\":\"conflict\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null}},{\"finding_id\":\"FND::000000000001\",\"kind\":\"question\",\"text\":\"Which currencies does checkout accept?\",\"blocking\":false,\"about\":[\"FEAT::CHECKOUT\"],\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null}}],\"neighbours\":[{\"spec_id\":\"FEAT::CARD_PAYMENT\",\"label\":\"Feature\",\"name\":\"Card payment\",\"relation\":\"DEPENDS_ON\",\"direction\":\"out\",\"of\":\"FEAT::CHECKOUT\",\"basis\":\"stated\",\"confidence\":null},{\"spec_id\":\"MOD::WEB_SHOP\",\"label\":\"Module\",\"name\":\"Web shop\",\"relation\":\"PART_OF\",\"direction\":\"out\",\"of\":\"FEAT::CHECKOUT\",\"basis\":\"stated\",\"confidence\":null}],\"spec_changed\":false,\"missing\":[],\"expansion\":{\"more\":3,\"top\":[{\"spec_id\":\"REQ::FR::CARD_PAYMENT\",\"title\":\"Customer can pay by card\"},{\"spec_id\":\"MOD::PAYMENTS_SERVICE\",\"title\":\"Payments service\"},{\"spec_id\":\"FEAT::CHECKOUT_REVIEW\",\"title\":\"Checkout review\"}],\"next\":\"expand_brief\"}}}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "brief": {
+        "area": {
+          "anchor": null,
+          "area_id": "AREA::WEB_SHOP",
+          "created_at": "2026-01-01T00:00:00Z",
+          "description": null,
+          "interfaces": [],
+          "kind": "module",
+          "last_run_id": null,
+          "not_buildable": [],
+          "planned_by": "model",
+          "prompt_ref": null,
+          "status": "active",
+          "title": "WEB_SHOP",
+          "updated_at": "2026-01-01T00:00:00Z"
+        },
+        "contracts": [
+          {
+            "commit": "abababababababababababababababababababab",
+            "implements": [
+              "IFC::STRIPE_API",
+              "MOD::PAYMENTS_SERVICE"
+            ],
+            "interfaces": [],
+            "task_id": "TASK::PAYMENTS::CONTRACT",
+            "title": "Task TASK::PAYMENTS::CONTRACT"
+          }
+        ],
+        "expansion": {
+          "more": 3,
+          "next": "expand_brief",
+          "top": [
+            {
+              "spec_id": "REQ::FR::CARD_PAYMENT",
+              "title": "Customer can pay by card"
+            },
+            {
+              "spec_id": "MOD::PAYMENTS_SERVICE",
+              "title": "Payments service"
+            },
+            {
+              "spec_id": "FEAT::CHECKOUT_REVIEW",
+              "title": "Checkout review"
+            }
+          ]
+        },
+        "findings": [
+          {
+            "about": [
+              "FEAT::CARD_PAYMENT",
+              "FEAT::CHECKOUT",
+              "MOD::STRIPE"
+            ],
+            "author": {
+              "agent_label": null,
+              "name": "Ben",
+              "you": false
+            },
+            "blocking": true,
+            "finding_id": "FND::000000000002",
+            "kind": "conflict",
+            "text": "The spec says card payment is optional and required."
+          },
+          {
+            "about": [
+              "FEAT::CHECKOUT"
+            ],
+            "author": {
+              "agent_label": null,
+              "name": "Alice",
+              "you": true
+            },
+            "blocking": false,
+            "finding_id": "FND::000000000001",
+            "kind": "question",
+            "text": "Which currencies does checkout accept?"
+          }
+        ],
+        "implements": [
+          {
+            "assumption": false,
+            "attributes": {},
+            "label": "Feature",
+            "name": "Checkout",
+            "provenance": [],
+            "spec_id": "FEAT::CHECKOUT",
+            "statements": [
+              {
+                "at": null,
+                "document_id": null,
+                "fragment_id": "f1",
+                "revision_id": null,
+                "text": "Checkout",
+                "version": null
+              }
+            ]
+          },
+          {
+            "assumption": false,
+            "attributes": {},
+            "label": "FunctionalRequirement",
+            "name": "Customer can complete checkout",
+            "provenance": [],
+            "spec_id": "REQ::FR::CHECKOUT",
+            "statements": [
+              {
+                "at": null,
+                "document_id": null,
+                "fragment_id": "f1",
+                "revision_id": null,
+                "text": "Customer can complete checkout",
+                "version": null
+              }
+            ]
+          },
+          {
+            "assumption": false,
+            "attributes": {},
+            "label": "QualityRequirement",
+            "name": "Checkout responds within one second",
+            "provenance": [],
+            "spec_id": "REQ::Q::CHECKOUT_SPEED",
+            "statements": [
+              {
+                "at": null,
+                "document_id": null,
+                "fragment_id": "f1",
+                "revision_id": null,
+                "text": "Checkout responds within one second",
+                "version": null
+              }
+            ]
+          }
+        ],
+        "missing": [],
+        "neighbours": [
+          {
+            "basis": "stated",
+            "confidence": null,
+            "direction": "out",
+            "label": "Feature",
+            "name": "Card payment",
+            "of": "FEAT::CHECKOUT",
+            "relation": "DEPENDS_ON",
+            "spec_id": "FEAT::CARD_PAYMENT"
+          },
+          {
+            "basis": "stated",
+            "confidence": null,
+            "direction": "out",
+            "label": "Module",
+            "name": "Web shop",
+            "of": "FEAT::CHECKOUT",
+            "relation": "PART_OF",
+            "spec_id": "MOD::WEB_SHOP"
+          }
+        ],
+        "open_questions": [],
+        "profile": {},
+        "spec_changed": false,
+        "story": {
+          "anchor": "FEAT::CHECKOUT",
+          "kind": "feature",
+          "release": null,
+          "state": "ready",
+          "story_id": "STORY::WEB_SHOP::CHECKOUT",
+          "summary": null,
+          "title": "Checkout"
+        },
+        "tasks": [
+          {
+            "complexity": "medium",
+            "done_when": [],
+            "phase": "logic",
+            "progress": null,
+            "status": "completed",
+            "task_id": "TASK::WEB_SHOP::DATA_CHECKOUT",
+            "title": "Task TASK::WEB_SHOP::DATA_CHECKOUT",
+            "waits_for": []
+          },
+          {
+            "complexity": "medium",
+            "done_when": [],
+            "phase": "logic",
+            "progress": null,
+            "status": "pending",
+            "task_id": "TASK::WEB_SHOP::LOGIC_CHECKOUT",
+            "title": "Task TASK::WEB_SHOP::LOGIC_CHECKOUT",
+            "waits_for": [
+              "TASK::PAYMENTS::CONTRACT",
+              "TASK::WEB_SHOP::DATA_CHECKOUT"
+            ]
+          }
+        ]
+      },
+      "project_id": "00000000-0000-4000-8000-000000000001"
+    }
+  },
+  "get_story_brief_no_neighbours": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"brief\":{\"story\":{\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"kind\":\"feature\",\"title\":\"Checkout\",\"summary\":null,\"anchor\":\"FEAT::CHECKOUT\",\"release\":null,\"state\":\"ready\"},\"area\":{\"area_id\":\"AREA::WEB_SHOP\",\"kind\":\"module\",\"anchor\":null,\"title\":\"WEB_SHOP\",\"description\":null,\"interfaces\":[],\"not_buildable\":[],\"planned_by\":\"model\",\"prompt_ref\":null,\"status\":\"active\",\"created_at\":\"2026-01-01T00:00:00Z\",\"updated_at\":\"2026-01-01T00:00:00Z\",\"last_run_id\":null},\"profile\":{},\"tasks\":[{\"task_id\":\"TASK::WEB_SHOP::DATA_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::DATA_CHECKOUT\",\"phase\":\"logic\",\"status\":\"completed\",\"complexity\":\"medium\",\"progress\":null,\"waits_for\":[],\"done_when\":[]},{\"task_id\":\"TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"phase\":\"logic\",\"status\":\"pending\",\"complexity\":\"medium\",\"progress\":null,\"waits_for\":[\"TASK::PAYMENTS::CONTRACT\",\"TASK::WEB_SHOP::DATA_CHECKOUT\"],\"done_when\":[]}],\"implements\":[{\"spec_id\":\"FEAT::CHECKOUT\",\"label\":\"Feature\",\"name\":\"Checkout\",\"attributes\":{},\"statements\":[{\"fragment_id\":\"f1\",\"document_id\":null,\"revision_id\":null,\"version\":null,\"text\":\"Checkout\",\"at\":null}],\"provenance\":[],\"assumption\":false},{\"spec_id\":\"REQ::FR::CHECKOUT\",\"label\":\"FunctionalRequirement\",\"name\":\"Customer can complete checkout\",\"attributes\":{},\"statements\":[{\"fragment_id\":\"f1\",\"document_id\":null,\"revision_id\":null,\"version\":null,\"text\":\"Customer can complete checkout\",\"at\":null}],\"provenance\":[],\"assumption\":false},{\"spec_id\":\"REQ::Q::CHECKOUT_SPEED\",\"label\":\"QualityRequirement\",\"name\":\"Checkout responds within one second\",\"attributes\":{},\"statements\":[{\"fragment_id\":\"f1\",\"document_id\":null,\"revision_id\":null,\"version\":null,\"text\":\"Checkout responds within one second\",\"at\":null}],\"provenance\":[],\"assumption\":false}],\"contracts\":[{\"task_id\":\"TASK::PAYMENTS::CONTRACT\",\"title\":\"Task TASK::PAYMENTS::CONTRACT\",\"commit\":\"abababababababababababababababababababab\",\"implements\":[\"IFC::STRIPE_API\",\"MOD::PAYMENTS_SERVICE\"],\"interfaces\":[]}],\"open_questions\":[],\"findings\":[{\"finding_id\":\"FND::000000000002\",\"kind\":\"conflict\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null}},{\"finding_id\":\"FND::000000000001\",\"kind\":\"question\",\"text\":\"Which currencies does checkout accept?\",\"blocking\":false,\"about\":[\"FEAT::CHECKOUT\"],\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null}}],\"neighbours\":[],\"spec_changed\":false,\"missing\":[],\"expansion\":{\"more\":5,\"top\":[{\"spec_id\":\"FEAT::CARD_PAYMENT\",\"title\":\"Card payment\"},{\"spec_id\":\"MOD::WEB_SHOP\",\"title\":\"Web shop\"},{\"spec_id\":\"REQ::FR::CARD_PAYMENT\",\"title\":\"Customer can pay by card\"}],\"next\":\"expand_brief\"}}}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "brief": {
+        "area": {
+          "anchor": null,
+          "area_id": "AREA::WEB_SHOP",
+          "created_at": "2026-01-01T00:00:00Z",
+          "description": null,
+          "interfaces": [],
+          "kind": "module",
+          "last_run_id": null,
+          "not_buildable": [],
+          "planned_by": "model",
+          "prompt_ref": null,
+          "status": "active",
+          "title": "WEB_SHOP",
+          "updated_at": "2026-01-01T00:00:00Z"
+        },
+        "contracts": [
+          {
+            "commit": "abababababababababababababababababababab",
+            "implements": [
+              "IFC::STRIPE_API",
+              "MOD::PAYMENTS_SERVICE"
+            ],
+            "interfaces": [],
+            "task_id": "TASK::PAYMENTS::CONTRACT",
+            "title": "Task TASK::PAYMENTS::CONTRACT"
+          }
+        ],
+        "expansion": {
+          "more": 5,
+          "next": "expand_brief",
+          "top": [
+            {
+              "spec_id": "FEAT::CARD_PAYMENT",
+              "title": "Card payment"
+            },
+            {
+              "spec_id": "MOD::WEB_SHOP",
+              "title": "Web shop"
+            },
+            {
+              "spec_id": "REQ::FR::CARD_PAYMENT",
+              "title": "Customer can pay by card"
+            }
+          ]
+        },
+        "findings": [
+          {
+            "about": [
+              "FEAT::CARD_PAYMENT",
+              "FEAT::CHECKOUT",
+              "MOD::STRIPE"
+            ],
+            "author": {
+              "agent_label": null,
+              "name": "Ben",
+              "you": false
+            },
+            "blocking": true,
+            "finding_id": "FND::000000000002",
+            "kind": "conflict",
+            "text": "The spec says card payment is optional and required."
+          },
+          {
+            "about": [
+              "FEAT::CHECKOUT"
+            ],
+            "author": {
+              "agent_label": null,
+              "name": "Alice",
+              "you": true
+            },
+            "blocking": false,
+            "finding_id": "FND::000000000001",
+            "kind": "question",
+            "text": "Which currencies does checkout accept?"
+          }
+        ],
+        "implements": [
+          {
+            "assumption": false,
+            "attributes": {},
+            "label": "Feature",
+            "name": "Checkout",
+            "provenance": [],
+            "spec_id": "FEAT::CHECKOUT",
+            "statements": [
+              {
+                "at": null,
+                "document_id": null,
+                "fragment_id": "f1",
+                "revision_id": null,
+                "text": "Checkout",
+                "version": null
+              }
+            ]
+          },
+          {
+            "assumption": false,
+            "attributes": {},
+            "label": "FunctionalRequirement",
+            "name": "Customer can complete checkout",
+            "provenance": [],
+            "spec_id": "REQ::FR::CHECKOUT",
+            "statements": [
+              {
+                "at": null,
+                "document_id": null,
+                "fragment_id": "f1",
+                "revision_id": null,
+                "text": "Customer can complete checkout",
+                "version": null
+              }
+            ]
+          },
+          {
+            "assumption": false,
+            "attributes": {},
+            "label": "QualityRequirement",
+            "name": "Checkout responds within one second",
+            "provenance": [],
+            "spec_id": "REQ::Q::CHECKOUT_SPEED",
+            "statements": [
+              {
+                "at": null,
+                "document_id": null,
+                "fragment_id": "f1",
+                "revision_id": null,
+                "text": "Checkout responds within one second",
+                "version": null
+              }
+            ]
+          }
+        ],
+        "missing": [],
+        "neighbours": [],
+        "open_questions": [],
+        "profile": {},
+        "spec_changed": false,
+        "story": {
+          "anchor": "FEAT::CHECKOUT",
+          "kind": "feature",
+          "release": null,
+          "state": "ready",
+          "story_id": "STORY::WEB_SHOP::CHECKOUT",
+          "summary": null,
+          "title": "Checkout"
+        },
+        "tasks": [
+          {
+            "complexity": "medium",
+            "done_when": [],
+            "phase": "logic",
+            "progress": null,
+            "status": "completed",
+            "task_id": "TASK::WEB_SHOP::DATA_CHECKOUT",
+            "title": "Task TASK::WEB_SHOP::DATA_CHECKOUT",
+            "waits_for": []
+          },
+          {
+            "complexity": "medium",
+            "done_when": [],
+            "phase": "logic",
+            "progress": null,
+            "status": "pending",
+            "task_id": "TASK::WEB_SHOP::LOGIC_CHECKOUT",
+            "title": "Task TASK::WEB_SHOP::LOGIC_CHECKOUT",
+            "waits_for": [
+              "TASK::PAYMENTS::CONTRACT",
+              "TASK::WEB_SHOP::DATA_CHECKOUT"
+            ]
+          }
+        ]
+      },
+      "project_id": "00000000-0000-4000-8000-000000000001"
+    }
+  },
+  "list_areas": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"items\":[{\"area_id\":\"AREA::PAYMENTS_SERVICE\",\"title\":\"PAYMENTS_SERVICE\",\"kind\":\"module\",\"ready\":0,\"in_progress\":{\"count\":0,\"holders\":[]},\"waiting\":0,\"blocked\":1,\"empty\":0,\"done\":0,\"open_tasks\":2},{\"area_id\":\"AREA::STRIPE\",\"title\":\"STRIPE\",\"kind\":\"module\",\"ready\":0,\"in_progress\":{\"count\":1,\"holders\":[]},\"waiting\":0,\"blocked\":0,\"empty\":0,\"done\":0,\"open_tasks\":2},{\"area_id\":\"AREA::WEB_SHOP\",\"title\":\"WEB_SHOP\",\"kind\":\"module\",\"ready\":1,\"in_progress\":{\"count\":0,\"holders\":[]},\"waiting\":0,\"blocked\":0,\"empty\":0,\"done\":0,\"open_tasks\":1}]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "items": [
+        {
+          "area_id": "AREA::PAYMENTS_SERVICE",
+          "blocked": 1,
+          "done": 0,
+          "empty": 0,
+          "in_progress": {
+            "count": 0,
+            "holders": []
+          },
+          "kind": "module",
+          "open_tasks": 2,
+          "ready": 0,
+          "title": "PAYMENTS_SERVICE",
+          "waiting": 0
+        },
+        {
+          "area_id": "AREA::STRIPE",
+          "blocked": 0,
+          "done": 0,
+          "empty": 0,
+          "in_progress": {
+            "count": 1,
+            "holders": []
+          },
+          "kind": "module",
+          "open_tasks": 2,
+          "ready": 0,
+          "title": "STRIPE",
+          "waiting": 0
+        },
+        {
+          "area_id": "AREA::WEB_SHOP",
+          "blocked": 0,
+          "done": 0,
+          "empty": 0,
+          "in_progress": {
+            "count": 0,
+            "holders": []
+          },
+          "kind": "module",
+          "open_tasks": 1,
+          "ready": 1,
+          "title": "WEB_SHOP",
+          "waiting": 0
+        }
+      ],
+      "project_id": "00000000-0000-4000-8000-000000000001"
+    }
+  },
+  "list_areas_with_a_holder": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"items\":[{\"area_id\":\"AREA::PAYMENTS_SERVICE\",\"title\":\"PAYMENTS_SERVICE\",\"kind\":\"module\",\"ready\":0,\"in_progress\":{\"count\":0,\"holders\":[]},\"waiting\":0,\"blocked\":1,\"empty\":0,\"done\":0,\"open_tasks\":2},{\"area_id\":\"AREA::STRIPE\",\"title\":\"STRIPE\",\"kind\":\"module\",\"ready\":0,\"in_progress\":{\"count\":1,\"holders\":[]},\"waiting\":0,\"blocked\":0,\"empty\":0,\"done\":0,\"open_tasks\":2},{\"area_id\":\"AREA::WEB_SHOP\",\"title\":\"WEB_SHOP\",\"kind\":\"module\",\"ready\":0,\"in_progress\":{\"count\":1,\"holders\":[{\"name\":\"Ben\",\"you\":false,\"agent_label\":null}]},\"waiting\":0,\"blocked\":0,\"empty\":0,\"done\":0,\"open_tasks\":1}]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "items": [
+        {
+          "area_id": "AREA::PAYMENTS_SERVICE",
+          "blocked": 1,
+          "done": 0,
+          "empty": 0,
+          "in_progress": {
+            "count": 0,
+            "holders": []
+          },
+          "kind": "module",
+          "open_tasks": 2,
+          "ready": 0,
+          "title": "PAYMENTS_SERVICE",
+          "waiting": 0
+        },
+        {
+          "area_id": "AREA::STRIPE",
+          "blocked": 0,
+          "done": 0,
+          "empty": 0,
+          "in_progress": {
+            "count": 1,
+            "holders": []
+          },
+          "kind": "module",
+          "open_tasks": 2,
+          "ready": 0,
+          "title": "STRIPE",
+          "waiting": 0
+        },
+        {
+          "area_id": "AREA::WEB_SHOP",
+          "blocked": 0,
+          "done": 0,
+          "empty": 0,
+          "in_progress": {
+            "count": 1,
+            "holders": [
+              {
+                "agent_label": null,
+                "name": "Ben",
+                "you": false
+              }
+            ]
+          },
+          "kind": "module",
+          "open_tasks": 1,
+          "ready": 0,
+          "title": "WEB_SHOP",
+          "waiting": 0
+        }
+      ],
+      "project_id": "00000000-0000-4000-8000-000000000001"
+    }
+  },
+  "list_stories_done_completed": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"area_id\":null,\"view\":\"done\",\"total_count\":1,\"items\":[{\"rank\":1,\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"title\":\"Checkout\",\"area\":{\"area_id\":\"AREA::WEB_SHOP\",\"title\":\"WEB_SHOP\"},\"kind\":\"feature\",\"state\":\"completed\",\"holder\":null,\"waits_on\":[],\"waits_on_total\":0,\"cycle_with\":[],\"tasks\":2,\"unblocks\":0,\"findings\":3,\"question\":\"The spec says card payment is optional and required.\",\"pr_url\":\"https://git.example.test/shop/pull/7\",\"merge_commit\":\"e44f0c1a7b9d3c5e8f2a4b6d8e0f1a2b3c4d5e6f\",\"completed_by\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"completed_at\":\"2026-01-01T10:00:05Z\"}],\"next_cursor\":null}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "area_id": null,
+      "items": [
+        {
+          "area": {
+            "area_id": "AREA::WEB_SHOP",
+            "title": "WEB_SHOP"
+          },
+          "completed_at": "2026-01-01T10:00:05Z",
+          "completed_by": {
+            "agent_label": null,
+            "name": "Alice",
+            "you": true
+          },
+          "cycle_with": [],
+          "findings": 3,
+          "holder": null,
+          "kind": "feature",
+          "merge_commit": "e44f0c1a7b9d3c5e8f2a4b6d8e0f1a2b3c4d5e6f",
+          "pr_url": "https://git.example.test/shop/pull/7",
+          "question": "The spec says card payment is optional and required.",
+          "rank": 1,
+          "state": "completed",
+          "story_id": "STORY::WEB_SHOP::CHECKOUT",
+          "tasks": 2,
+          "title": "Checkout",
+          "unblocks": 0,
+          "waits_on": [],
+          "waits_on_total": 0
+        }
+      ],
+      "next_cursor": null,
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "total_count": 1,
+      "view": "done"
+    }
+  },
+  "list_stories_done_none": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"area_id\":null,\"view\":\"done\",\"total_count\":0,\"items\":[],\"next_cursor\":null}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "area_id": null,
+      "items": [],
+      "next_cursor": null,
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "total_count": 0,
+      "view": "done"
+    }
+  },
+  "list_stories_mine_blocked": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"area_id\":null,\"view\":\"mine\",\"total_count\":1,\"items\":[{\"rank\":1,\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"title\":\"Checkout\",\"area\":{\"area_id\":\"AREA::WEB_SHOP\",\"title\":\"WEB_SHOP\"},\"kind\":\"feature\",\"state\":\"blocked\",\"holder\":null,\"waits_on\":[],\"waits_on_total\":0,\"cycle_with\":[],\"tasks\":1,\"unblocks\":0,\"findings\":3,\"question\":\"The spec says card payment is optional and required.\",\"pr_url\":null,\"merge_commit\":null,\"completed_by\":null,\"completed_at\":null}],\"next_cursor\":null}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "area_id": null,
+      "items": [
+        {
+          "area": {
+            "area_id": "AREA::WEB_SHOP",
+            "title": "WEB_SHOP"
+          },
+          "completed_at": null,
+          "completed_by": null,
+          "cycle_with": [],
+          "findings": 3,
+          "holder": null,
+          "kind": "feature",
+          "merge_commit": null,
+          "pr_url": null,
+          "question": "The spec says card payment is optional and required.",
+          "rank": 1,
+          "state": "blocked",
+          "story_id": "STORY::WEB_SHOP::CHECKOUT",
+          "tasks": 1,
+          "title": "Checkout",
+          "unblocks": 0,
+          "waits_on": [],
+          "waits_on_total": 0
+        }
+      ],
+      "next_cursor": null,
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "total_count": 1,
+      "view": "mine"
+    }
+  },
+  "list_stories_mine_held": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"area_id\":null,\"view\":\"mine\",\"total_count\":1,\"items\":[{\"rank\":1,\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"title\":\"Checkout\",\"area\":{\"area_id\":\"AREA::WEB_SHOP\",\"title\":\"WEB_SHOP\"},\"kind\":\"feature\",\"state\":\"in_progress\",\"holder\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":\"Claude Code · laptop\"},\"waits_on\":[],\"waits_on_total\":0,\"cycle_with\":[],\"tasks\":1,\"unblocks\":0,\"findings\":2,\"question\":\"The spec says card payment is optional and required.\",\"pr_url\":null,\"merge_commit\":null,\"completed_by\":null,\"completed_at\":null}],\"next_cursor\":null}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "area_id": null,
+      "items": [
+        {
+          "area": {
+            "area_id": "AREA::WEB_SHOP",
+            "title": "WEB_SHOP"
+          },
+          "completed_at": null,
+          "completed_by": null,
+          "cycle_with": [],
+          "findings": 2,
+          "holder": {
+            "agent_label": "Claude Code · laptop",
+            "name": "Alice",
+            "you": true
+          },
+          "kind": "feature",
+          "merge_commit": null,
+          "pr_url": null,
+          "question": "The spec says card payment is optional and required.",
+          "rank": 1,
+          "state": "in_progress",
+          "story_id": "STORY::WEB_SHOP::CHECKOUT",
+          "tasks": 1,
+          "title": "Checkout",
+          "unblocks": 0,
+          "waits_on": [],
+          "waits_on_total": 0
+        }
+      ],
+      "next_cursor": null,
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "total_count": 1,
+      "view": "mine"
+    }
+  },
+  "list_stories_mine_none": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"area_id\":null,\"view\":\"mine\",\"total_count\":0,\"items\":[],\"next_cursor\":null}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "area_id": null,
+      "items": [],
+      "next_cursor": null,
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "total_count": 0,
+      "view": "mine"
+    }
+  },
+  "list_stories_one_area": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"area_id\":\"AREA::STRIPE\",\"view\":\"open\",\"total_count\":1,\"items\":[{\"rank\":1,\"story_id\":\"STORY::STRIPE::CORE\",\"title\":\"Stripe integration\",\"area\":{\"area_id\":\"AREA::STRIPE\",\"title\":\"STRIPE\"},\"kind\":\"feature\",\"state\":\"in_progress\",\"holder\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"waits_on\":[],\"waits_on_total\":0,\"cycle_with\":[],\"tasks\":2,\"unblocks\":0,\"findings\":2,\"question\":null,\"pr_url\":null,\"merge_commit\":null,\"completed_by\":null,\"completed_at\":null}],\"next_cursor\":null}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "area_id": "AREA::STRIPE",
+      "items": [
+        {
+          "area": {
+            "area_id": "AREA::STRIPE",
+            "title": "STRIPE"
+          },
+          "completed_at": null,
+          "completed_by": null,
+          "cycle_with": [],
+          "findings": 2,
+          "holder": {
+            "agent_label": null,
+            "name": "Alice",
+            "you": true
+          },
+          "kind": "feature",
+          "merge_commit": null,
+          "pr_url": null,
+          "question": null,
+          "rank": 1,
+          "state": "in_progress",
+          "story_id": "STORY::STRIPE::CORE",
+          "tasks": 2,
+          "title": "Stripe integration",
+          "unblocks": 0,
+          "waits_on": [],
+          "waits_on_total": 0
+        }
+      ],
+      "next_cursor": null,
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "total_count": 1,
+      "view": "open"
+    }
+  },
+  "list_stories_open": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"area_id\":null,\"view\":\"open\",\"total_count\":3,\"items\":[{\"rank\":1,\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"title\":\"Checkout\",\"area\":{\"area_id\":\"AREA::WEB_SHOP\",\"title\":\"WEB_SHOP\"},\"kind\":\"feature\",\"state\":\"ready\",\"holder\":null,\"waits_on\":[],\"waits_on_total\":0,\"cycle_with\":[],\"tasks\":1,\"unblocks\":0,\"findings\":2,\"question\":\"The spec says card payment is optional and required.\",\"pr_url\":null,\"merge_commit\":null,\"completed_by\":null,\"completed_at\":null},{\"rank\":2,\"story_id\":\"STORY::STRIPE::CORE\",\"title\":\"Stripe integration\",\"area\":{\"area_id\":\"AREA::STRIPE\",\"title\":\"STRIPE\"},\"kind\":\"feature\",\"state\":\"in_progress\",\"holder\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"waits_on\":[],\"waits_on_total\":0,\"cycle_with\":[],\"tasks\":2,\"unblocks\":0,\"findings\":2,\"question\":null,\"pr_url\":null,\"merge_commit\":null,\"completed_by\":null,\"completed_at\":null},{\"rank\":3,\"story_id\":\"STORY::PAYMENTS_SERVICE::CARD_PAYMENT\",\"title\":\"Card payment\",\"area\":{\"area_id\":\"AREA::PAYMENTS_SERVICE\",\"title\":\"PAYMENTS_SERVICE\"},\"kind\":\"feature\",\"state\":\"blocked\",\"holder\":null,\"waits_on\":[],\"waits_on_total\":0,\"cycle_with\":[],\"tasks\":2,\"unblocks\":0,\"findings\":1,\"question\":null,\"pr_url\":null,\"merge_commit\":null,\"completed_by\":null,\"completed_at\":null}],\"next_cursor\":null}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "area_id": null,
+      "items": [
+        {
+          "area": {
+            "area_id": "AREA::WEB_SHOP",
+            "title": "WEB_SHOP"
+          },
+          "completed_at": null,
+          "completed_by": null,
+          "cycle_with": [],
+          "findings": 2,
+          "holder": null,
+          "kind": "feature",
+          "merge_commit": null,
+          "pr_url": null,
+          "question": "The spec says card payment is optional and required.",
+          "rank": 1,
+          "state": "ready",
+          "story_id": "STORY::WEB_SHOP::CHECKOUT",
+          "tasks": 1,
+          "title": "Checkout",
+          "unblocks": 0,
+          "waits_on": [],
+          "waits_on_total": 0
+        },
+        {
+          "area": {
+            "area_id": "AREA::STRIPE",
+            "title": "STRIPE"
+          },
+          "completed_at": null,
+          "completed_by": null,
+          "cycle_with": [],
+          "findings": 2,
+          "holder": {
+            "agent_label": null,
+            "name": "Alice",
+            "you": true
+          },
+          "kind": "feature",
+          "merge_commit": null,
+          "pr_url": null,
+          "question": null,
+          "rank": 2,
+          "state": "in_progress",
+          "story_id": "STORY::STRIPE::CORE",
+          "tasks": 2,
+          "title": "Stripe integration",
+          "unblocks": 0,
+          "waits_on": [],
+          "waits_on_total": 0
+        },
+        {
+          "area": {
+            "area_id": "AREA::PAYMENTS_SERVICE",
+            "title": "PAYMENTS_SERVICE"
+          },
+          "completed_at": null,
+          "completed_by": null,
+          "cycle_with": [],
+          "findings": 1,
+          "holder": null,
+          "kind": "feature",
+          "merge_commit": null,
+          "pr_url": null,
+          "question": null,
+          "rank": 3,
+          "state": "blocked",
+          "story_id": "STORY::PAYMENTS_SERVICE::CARD_PAYMENT",
+          "tasks": 2,
+          "title": "Card payment",
+          "unblocks": 0,
+          "waits_on": [],
+          "waits_on_total": 0
+        }
+      ],
+      "next_cursor": null,
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "total_count": 3,
+      "view": "open"
+    }
+  },
+  "list_stories_open_first_page": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"area_id\":null,\"view\":\"open\",\"total_count\":3,\"items\":[{\"rank\":1,\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"title\":\"Checkout\",\"area\":{\"area_id\":\"AREA::WEB_SHOP\",\"title\":\"WEB_SHOP\"},\"kind\":\"feature\",\"state\":\"ready\",\"holder\":null,\"waits_on\":[],\"waits_on_total\":0,\"cycle_with\":[],\"tasks\":1,\"unblocks\":0,\"findings\":2,\"question\":\"The spec says card payment is optional and required.\",\"pr_url\":null,\"merge_commit\":null,\"completed_by\":null,\"completed_at\":null}],\"next_cursor\":\"eyJ2IjoxLCJwcm9qZWN0IjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwiYXJlYSI6bnVsbCwidmlldyI6Im9wZW4iLCJhZnRlciI6MX0\"}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "area_id": null,
+      "items": [
+        {
+          "area": {
+            "area_id": "AREA::WEB_SHOP",
+            "title": "WEB_SHOP"
+          },
+          "completed_at": null,
+          "completed_by": null,
+          "cycle_with": [],
+          "findings": 2,
+          "holder": null,
+          "kind": "feature",
+          "merge_commit": null,
+          "pr_url": null,
+          "question": "The spec says card payment is optional and required.",
+          "rank": 1,
+          "state": "ready",
+          "story_id": "STORY::WEB_SHOP::CHECKOUT",
+          "tasks": 1,
+          "title": "Checkout",
+          "unblocks": 0,
+          "waits_on": [],
+          "waits_on_total": 0
+        }
+      ],
+      "next_cursor": "eyJ2IjoxLCJwcm9qZWN0IjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwiYXJlYSI6bnVsbCwidmlldyI6Im9wZW4iLCJhZnRlciI6MX0",
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "total_count": 3,
+      "view": "open"
+    }
+  },
+  "list_stories_open_with_a_holder": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"area_id\":null,\"view\":\"open\",\"total_count\":3,\"items\":[{\"rank\":1,\"story_id\":\"STORY::STRIPE::CORE\",\"title\":\"Stripe integration\",\"area\":{\"area_id\":\"AREA::STRIPE\",\"title\":\"STRIPE\"},\"kind\":\"feature\",\"state\":\"in_progress\",\"holder\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"waits_on\":[],\"waits_on_total\":0,\"cycle_with\":[],\"tasks\":2,\"unblocks\":0,\"findings\":2,\"question\":null,\"pr_url\":null,\"merge_commit\":null,\"completed_by\":null,\"completed_at\":null},{\"rank\":2,\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"title\":\"Checkout\",\"area\":{\"area_id\":\"AREA::WEB_SHOP\",\"title\":\"WEB_SHOP\"},\"kind\":\"feature\",\"state\":\"in_progress\",\"holder\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":\"Claude Code · laptop\"},\"waits_on\":[],\"waits_on_total\":0,\"cycle_with\":[],\"tasks\":1,\"unblocks\":0,\"findings\":2,\"question\":\"The spec says card payment is optional and required.\",\"pr_url\":null,\"merge_commit\":null,\"completed_by\":null,\"completed_at\":null},{\"rank\":3,\"story_id\":\"STORY::PAYMENTS_SERVICE::CARD_PAYMENT\",\"title\":\"Card payment\",\"area\":{\"area_id\":\"AREA::PAYMENTS_SERVICE\",\"title\":\"PAYMENTS_SERVICE\"},\"kind\":\"feature\",\"state\":\"blocked\",\"holder\":null,\"waits_on\":[],\"waits_on_total\":0,\"cycle_with\":[],\"tasks\":2,\"unblocks\":0,\"findings\":1,\"question\":null,\"pr_url\":null,\"merge_commit\":null,\"completed_by\":null,\"completed_at\":null}],\"next_cursor\":null}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "area_id": null,
+      "items": [
+        {
+          "area": {
+            "area_id": "AREA::STRIPE",
+            "title": "STRIPE"
+          },
+          "completed_at": null,
+          "completed_by": null,
+          "cycle_with": [],
+          "findings": 2,
+          "holder": {
+            "agent_label": null,
+            "name": "Alice",
+            "you": true
+          },
+          "kind": "feature",
+          "merge_commit": null,
+          "pr_url": null,
+          "question": null,
+          "rank": 1,
+          "state": "in_progress",
+          "story_id": "STORY::STRIPE::CORE",
+          "tasks": 2,
+          "title": "Stripe integration",
+          "unblocks": 0,
+          "waits_on": [],
+          "waits_on_total": 0
+        },
+        {
+          "area": {
+            "area_id": "AREA::WEB_SHOP",
+            "title": "WEB_SHOP"
+          },
+          "completed_at": null,
+          "completed_by": null,
+          "cycle_with": [],
+          "findings": 2,
+          "holder": {
+            "agent_label": "Claude Code · laptop",
+            "name": "Ben",
+            "you": false
+          },
+          "kind": "feature",
+          "merge_commit": null,
+          "pr_url": null,
+          "question": "The spec says card payment is optional and required.",
+          "rank": 2,
+          "state": "in_progress",
+          "story_id": "STORY::WEB_SHOP::CHECKOUT",
+          "tasks": 1,
+          "title": "Checkout",
+          "unblocks": 0,
+          "waits_on": [],
+          "waits_on_total": 0
+        },
+        {
+          "area": {
+            "area_id": "AREA::PAYMENTS_SERVICE",
+            "title": "PAYMENTS_SERVICE"
+          },
+          "completed_at": null,
+          "completed_by": null,
+          "cycle_with": [],
+          "findings": 1,
+          "holder": null,
+          "kind": "feature",
+          "merge_commit": null,
+          "pr_url": null,
+          "question": null,
+          "rank": 3,
+          "state": "blocked",
+          "story_id": "STORY::PAYMENTS_SERVICE::CARD_PAYMENT",
+          "tasks": 2,
+          "title": "Card payment",
+          "unblocks": 0,
+          "waits_on": [],
+          "waits_on_total": 0
+        }
+      ],
+      "next_cursor": null,
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "total_count": 3,
+      "view": "open"
+    }
+  },
+  "path_affects": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"from\":\"FEAT::CARD_PAYMENT\",\"to\":\"FEAT::CHECKOUT\",\"direction\":\"affects\",\"items\":[{\"hops\":1,\"steps\":[{\"spec_id\":\"FEAT::CHECKOUT\",\"label\":\"Feature\",\"name\":\"Checkout\",\"relation\":\"DEPENDS_ON\",\"step\":\"backward\",\"role\":\"uses\",\"basis\":\"stated\"}]}],\"reason\":null,\"link\":null}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "direction": "affects",
+      "from": "FEAT::CARD_PAYMENT",
+      "items": [
+        {
+          "hops": 1,
+          "steps": [
+            {
+              "basis": "stated",
+              "label": "Feature",
+              "name": "Checkout",
+              "relation": "DEPENDS_ON",
+              "role": "uses",
+              "spec_id": "FEAT::CHECKOUT",
+              "step": "backward"
+            }
+          ]
+        }
+      ],
+      "link": null,
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "reason": null,
+      "to": "FEAT::CHECKOUT"
+    }
+  },
+  "path_based_on": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"from\":\"MOD::PAYMENTS_SERVICE\",\"to\":\"MOD::STRIPE\",\"direction\":\"based_on\",\"items\":[{\"hops\":2,\"steps\":[{\"spec_id\":\"IFC::STRIPE_API\",\"label\":\"Interface\",\"name\":\"Stripe API\",\"relation\":\"CONSUMED_BY\",\"step\":\"backward\",\"role\":\"used_by\",\"basis\":\"stated\"},{\"spec_id\":\"MOD::STRIPE\",\"label\":\"Module\",\"name\":\"Stripe\",\"relation\":\"PROVIDED_BY\",\"step\":\"forward\",\"role\":\"coupled\",\"basis\":\"stated\"}]}],\"reason\":null,\"link\":null}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "direction": "based_on",
+      "from": "MOD::PAYMENTS_SERVICE",
+      "items": [
+        {
+          "hops": 2,
+          "steps": [
+            {
+              "basis": "stated",
+              "label": "Interface",
+              "name": "Stripe API",
+              "relation": "CONSUMED_BY",
+              "role": "used_by",
+              "spec_id": "IFC::STRIPE_API",
+              "step": "backward"
+            },
+            {
+              "basis": "stated",
+              "label": "Module",
+              "name": "Stripe",
+              "relation": "PROVIDED_BY",
+              "role": "coupled",
+              "spec_id": "MOD::STRIPE",
+              "step": "forward"
+            }
+          ]
+        }
+      ],
+      "link": null,
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "reason": null,
+      "to": "MOD::STRIPE"
+    }
+  },
+  "path_same_node_reason": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"from\":\"FEAT::CHECKOUT\",\"to\":\"FEAT::CHECKOUT\",\"direction\":null,\"items\":[],\"reason\":\"same_node\",\"link\":null}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "direction": null,
+      "from": "FEAT::CHECKOUT",
+      "items": [],
+      "link": null,
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "reason": "same_node",
+      "to": "FEAT::CHECKOUT"
+    }
+  },
+  "path_through_a_module_call": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"from\":\"MOD::PAYMENTS_SERVICE\",\"to\":\"CON::STRIPE\",\"direction\":\"based_on\",\"items\":[{\"hops\":3,\"steps\":[{\"spec_id\":\"IFC::STRIPE_API\",\"label\":\"Interface\",\"name\":\"Stripe API\",\"relation\":\"CONSUMED_BY\",\"step\":\"backward\",\"role\":\"used_by\",\"basis\":\"stated\"},{\"spec_id\":\"MOD::STRIPE\",\"label\":\"Module\",\"name\":\"Stripe\",\"relation\":\"PROVIDED_BY\",\"step\":\"forward\",\"role\":\"coupled\",\"basis\":\"stated\"},{\"spec_id\":\"CON::STRIPE\",\"label\":\"Constraint\",\"name\":\"Stripe rejects repeated payment attempts\",\"relation\":\"PART_OF\",\"step\":\"backward\",\"role\":\"used_by\",\"basis\":\"stated\"}]}],\"reason\":null,\"link\":null}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "direction": "based_on",
+      "from": "MOD::PAYMENTS_SERVICE",
+      "items": [
+        {
+          "hops": 3,
+          "steps": [
+            {
+              "basis": "stated",
+              "label": "Interface",
+              "name": "Stripe API",
+              "relation": "CONSUMED_BY",
+              "role": "used_by",
+              "spec_id": "IFC::STRIPE_API",
+              "step": "backward"
+            },
+            {
+              "basis": "stated",
+              "label": "Module",
+              "name": "Stripe",
+              "relation": "PROVIDED_BY",
+              "role": "coupled",
+              "spec_id": "MOD::STRIPE",
+              "step": "forward"
+            },
+            {
+              "basis": "stated",
+              "label": "Constraint",
+              "name": "Stripe rejects repeated payment attempts",
+              "relation": "PART_OF",
+              "role": "used_by",
+              "spec_id": "CON::STRIPE",
+              "step": "backward"
+            }
+          ]
+        }
+      ],
+      "link": null,
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "reason": null,
+      "to": "CON::STRIPE"
+    }
+  },
+  "preview_story_blocked": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"story\":{\"story_id\":\"STORY::PAYMENTS_SERVICE::CARD_PAYMENT\",\"title\":\"Card payment\",\"kind\":\"feature\",\"area_id\":\"AREA::PAYMENTS_SERVICE\",\"summary\":null,\"release\":null,\"state\":\"blocked\",\"holder\":null,\"since\":null,\"branch\":null,\"note\":null},\"story_ids\":[\"STORY::PAYMENTS_SERVICE::CARD_PAYMENT\"],\"items\":[{\"task_id\":\"TASK::PAYMENTS::LOGIC\",\"title\":\"Task TASK::PAYMENTS::LOGIC\",\"status\":\"pending\",\"ready\":true,\"complexity\":\"medium\",\"progress\":null},{\"task_id\":\"TASK::PAYMENTS::UNSHARED\",\"title\":\"Task TASK::PAYMENTS::UNSHARED\",\"status\":\"blocked\",\"ready\":false,\"complexity\":\"medium\",\"progress\":null}],\"blockers\":[],\"findings\":[{\"finding_id\":\"FND::000000000002\",\"kind\":\"conflict\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null}}],\"unblocks\":[]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "blockers": [],
+      "findings": [
+        {
+          "about": [
+            "FEAT::CARD_PAYMENT",
+            "FEAT::CHECKOUT",
+            "MOD::STRIPE"
+          ],
+          "author": {
+            "agent_label": null,
+            "name": "Ben",
+            "you": false
+          },
+          "blocking": true,
+          "finding_id": "FND::000000000002",
+          "kind": "conflict",
+          "text": "The spec says card payment is optional and required."
+        }
+      ],
+      "items": [
+        {
+          "complexity": "medium",
+          "progress": null,
+          "ready": true,
+          "status": "pending",
+          "task_id": "TASK::PAYMENTS::LOGIC",
+          "title": "Task TASK::PAYMENTS::LOGIC"
+        },
+        {
+          "complexity": "medium",
+          "progress": null,
+          "ready": false,
+          "status": "blocked",
+          "task_id": "TASK::PAYMENTS::UNSHARED",
+          "title": "Task TASK::PAYMENTS::UNSHARED"
+        }
+      ],
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "story": {
+        "area_id": "AREA::PAYMENTS_SERVICE",
+        "branch": null,
+        "holder": null,
+        "kind": "feature",
+        "note": null,
+        "release": null,
+        "since": null,
+        "state": "blocked",
+        "story_id": "STORY::PAYMENTS_SERVICE::CARD_PAYMENT",
+        "summary": null,
+        "title": "Card payment"
+      },
+      "story_ids": [
+        "STORY::PAYMENTS_SERVICE::CARD_PAYMENT"
+      ],
+      "unblocks": []
+    }
+  },
+  "preview_story_held": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"story\":{\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"title\":\"Checkout\",\"kind\":\"feature\",\"area_id\":\"AREA::WEB_SHOP\",\"summary\":null,\"release\":null,\"state\":\"in_progress\",\"holder\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":\"Claude Code · laptop\"},\"since\":\"2026-01-01T10:00:01Z\",\"branch\":null,\"note\":null},\"story_ids\":[\"STORY::WEB_SHOP::CHECKOUT\"],\"items\":[{\"task_id\":\"TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"status\":\"in_progress\",\"ready\":false,\"complexity\":\"medium\",\"progress\":null}],\"blockers\":[],\"findings\":[{\"finding_id\":\"FND::000000000002\",\"kind\":\"conflict\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null}},{\"finding_id\":\"FND::000000000001\",\"kind\":\"question\",\"text\":\"Which currencies does checkout accept?\",\"blocking\":false,\"about\":[\"FEAT::CHECKOUT\"],\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null}}],\"unblocks\":[]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "blockers": [],
+      "findings": [
+        {
+          "about": [
+            "FEAT::CARD_PAYMENT",
+            "FEAT::CHECKOUT",
+            "MOD::STRIPE"
+          ],
+          "author": {
+            "agent_label": null,
+            "name": "Ben",
+            "you": false
+          },
+          "blocking": true,
+          "finding_id": "FND::000000000002",
+          "kind": "conflict",
+          "text": "The spec says card payment is optional and required."
+        },
+        {
+          "about": [
+            "FEAT::CHECKOUT"
+          ],
+          "author": {
+            "agent_label": null,
+            "name": "Alice",
+            "you": true
+          },
+          "blocking": false,
+          "finding_id": "FND::000000000001",
+          "kind": "question",
+          "text": "Which currencies does checkout accept?"
+        }
+      ],
+      "items": [
+        {
+          "complexity": "medium",
+          "progress": null,
+          "ready": false,
+          "status": "in_progress",
+          "task_id": "TASK::WEB_SHOP::LOGIC_CHECKOUT",
+          "title": "Task TASK::WEB_SHOP::LOGIC_CHECKOUT"
+        }
+      ],
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "story": {
+        "area_id": "AREA::WEB_SHOP",
+        "branch": null,
+        "holder": {
+          "agent_label": "Claude Code · laptop",
+          "name": "Ben",
+          "you": false
+        },
+        "kind": "feature",
+        "note": null,
+        "release": null,
+        "since": "2026-01-01T10:00:01Z",
+        "state": "in_progress",
+        "story_id": "STORY::WEB_SHOP::CHECKOUT",
+        "summary": null,
+        "title": "Checkout"
+      },
+      "story_ids": [
+        "STORY::WEB_SHOP::CHECKOUT"
+      ],
+      "unblocks": []
+    }
+  },
+  "preview_story_in_progress": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"story\":{\"story_id\":\"STORY::STRIPE::CORE\",\"title\":\"Stripe integration\",\"kind\":\"feature\",\"area_id\":\"AREA::STRIPE\",\"summary\":null,\"release\":null,\"state\":\"in_progress\",\"holder\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"since\":null,\"branch\":null,\"note\":null},\"story_ids\":[\"STORY::STRIPE::CORE\"],\"items\":[{\"task_id\":\"TASK::STRIPE::SETUP\",\"title\":\"Task TASK::STRIPE::SETUP\",\"status\":\"in_progress\",\"ready\":false,\"complexity\":\"medium\",\"progress\":null},{\"task_id\":\"TASK::STRIPE::WIRE\",\"title\":\"Task TASK::STRIPE::WIRE\",\"status\":\"in_progress\",\"ready\":false,\"complexity\":\"medium\",\"progress\":null}],\"blockers\":[],\"findings\":[{\"finding_id\":\"FND::000000000002\",\"kind\":\"conflict\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null}},{\"finding_id\":\"FND::000000000003\",\"kind\":\"note\",\"text\":\"Stripe retries are limited.\",\"blocking\":false,\"about\":[\"MOD::STRIPE\"],\"author\":{\"name\":null,\"you\":false,\"agent_label\":null}}],\"unblocks\":[]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "blockers": [],
+      "findings": [
+        {
+          "about": [
+            "FEAT::CARD_PAYMENT",
+            "FEAT::CHECKOUT",
+            "MOD::STRIPE"
+          ],
+          "author": {
+            "agent_label": null,
+            "name": "Ben",
+            "you": false
+          },
+          "blocking": true,
+          "finding_id": "FND::000000000002",
+          "kind": "conflict",
+          "text": "The spec says card payment is optional and required."
+        },
+        {
+          "about": [
+            "MOD::STRIPE"
+          ],
+          "author": {
+            "agent_label": null,
+            "name": null,
+            "you": false
+          },
+          "blocking": false,
+          "finding_id": "FND::000000000003",
+          "kind": "note",
+          "text": "Stripe retries are limited."
+        }
+      ],
+      "items": [
+        {
+          "complexity": "medium",
+          "progress": null,
+          "ready": false,
+          "status": "in_progress",
+          "task_id": "TASK::STRIPE::SETUP",
+          "title": "Task TASK::STRIPE::SETUP"
+        },
+        {
+          "complexity": "medium",
+          "progress": null,
+          "ready": false,
+          "status": "in_progress",
+          "task_id": "TASK::STRIPE::WIRE",
+          "title": "Task TASK::STRIPE::WIRE"
+        }
+      ],
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "story": {
+        "area_id": "AREA::STRIPE",
+        "branch": null,
+        "holder": {
+          "agent_label": null,
+          "name": "Alice",
+          "you": true
+        },
+        "kind": "feature",
+        "note": null,
+        "release": null,
+        "since": null,
+        "state": "in_progress",
+        "story_id": "STORY::STRIPE::CORE",
+        "summary": null,
+        "title": "Stripe integration"
+      },
+      "story_ids": [
+        "STORY::STRIPE::CORE"
+      ],
+      "unblocks": []
+    }
+  },
+  "preview_story_ready": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"story\":{\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"title\":\"Checkout\",\"kind\":\"feature\",\"area_id\":\"AREA::WEB_SHOP\",\"summary\":null,\"release\":null,\"state\":\"ready\",\"holder\":null,\"since\":null,\"branch\":null,\"note\":null},\"story_ids\":[\"STORY::WEB_SHOP::CHECKOUT\"],\"items\":[{\"task_id\":\"TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"status\":\"pending\",\"ready\":true,\"complexity\":\"medium\",\"progress\":null}],\"blockers\":[],\"findings\":[{\"finding_id\":\"FND::000000000002\",\"kind\":\"conflict\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null}},{\"finding_id\":\"FND::000000000001\",\"kind\":\"question\",\"text\":\"Which currencies does checkout accept?\",\"blocking\":false,\"about\":[\"FEAT::CHECKOUT\"],\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null}}],\"unblocks\":[]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "blockers": [],
+      "findings": [
+        {
+          "about": [
+            "FEAT::CARD_PAYMENT",
+            "FEAT::CHECKOUT",
+            "MOD::STRIPE"
+          ],
+          "author": {
+            "agent_label": null,
+            "name": "Ben",
+            "you": false
+          },
+          "blocking": true,
+          "finding_id": "FND::000000000002",
+          "kind": "conflict",
+          "text": "The spec says card payment is optional and required."
+        },
+        {
+          "about": [
+            "FEAT::CHECKOUT"
+          ],
+          "author": {
+            "agent_label": null,
+            "name": "Alice",
+            "you": true
+          },
+          "blocking": false,
+          "finding_id": "FND::000000000001",
+          "kind": "question",
+          "text": "Which currencies does checkout accept?"
+        }
+      ],
+      "items": [
+        {
+          "complexity": "medium",
+          "progress": null,
+          "ready": true,
+          "status": "pending",
+          "task_id": "TASK::WEB_SHOP::LOGIC_CHECKOUT",
+          "title": "Task TASK::WEB_SHOP::LOGIC_CHECKOUT"
+        }
+      ],
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "story": {
+        "area_id": "AREA::WEB_SHOP",
+        "branch": null,
+        "holder": null,
+        "kind": "feature",
+        "note": null,
+        "release": null,
+        "since": null,
+        "state": "ready",
+        "story_id": "STORY::WEB_SHOP::CHECKOUT",
+        "summary": null,
+        "title": "Checkout"
+      },
+      "story_ids": [
+        "STORY::WEB_SHOP::CHECKOUT"
+      ],
+      "unblocks": []
+    }
+  },
+  "preview_story_released": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"story\":{\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"title\":\"Checkout\",\"kind\":\"feature\",\"area_id\":\"AREA::WEB_SHOP\",\"summary\":null,\"release\":null,\"state\":\"ready\",\"holder\":null,\"since\":null,\"branch\":\"feat/checkout\",\"note\":\"Stopped for the day\"},\"story_ids\":[\"STORY::WEB_SHOP::CHECKOUT\"],\"items\":[{\"task_id\":\"TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"status\":\"pending\",\"ready\":true,\"complexity\":\"medium\",\"progress\":null}],\"blockers\":[],\"findings\":[{\"finding_id\":\"FND::000000000002\",\"kind\":\"conflict\",\"text\":\"The spec says card payment is optional and required.\",\"blocking\":true,\"about\":[\"FEAT::CARD_PAYMENT\",\"FEAT::CHECKOUT\",\"MOD::STRIPE\"],\"author\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null}},{\"finding_id\":\"FND::000000000001\",\"kind\":\"question\",\"text\":\"Which currencies does checkout accept?\",\"blocking\":false,\"about\":[\"FEAT::CHECKOUT\"],\"author\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null}}],\"unblocks\":[]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "blockers": [],
+      "findings": [
+        {
+          "about": [
+            "FEAT::CARD_PAYMENT",
+            "FEAT::CHECKOUT",
+            "MOD::STRIPE"
+          ],
+          "author": {
+            "agent_label": null,
+            "name": "Ben",
+            "you": false
+          },
+          "blocking": true,
+          "finding_id": "FND::000000000002",
+          "kind": "conflict",
+          "text": "The spec says card payment is optional and required."
+        },
+        {
+          "about": [
+            "FEAT::CHECKOUT"
+          ],
+          "author": {
+            "agent_label": null,
+            "name": "Alice",
+            "you": true
+          },
+          "blocking": false,
+          "finding_id": "FND::000000000001",
+          "kind": "question",
+          "text": "Which currencies does checkout accept?"
+        }
+      ],
+      "items": [
+        {
+          "complexity": "medium",
+          "progress": null,
+          "ready": true,
+          "status": "pending",
+          "task_id": "TASK::WEB_SHOP::LOGIC_CHECKOUT",
+          "title": "Task TASK::WEB_SHOP::LOGIC_CHECKOUT"
+        }
+      ],
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "story": {
+        "area_id": "AREA::WEB_SHOP",
+        "branch": "feat/checkout",
+        "holder": null,
+        "kind": "feature",
+        "note": "Stopped for the day",
+        "release": null,
+        "since": null,
+        "state": "ready",
+        "story_id": "STORY::WEB_SHOP::CHECKOUT",
+        "summary": null,
+        "title": "Checkout"
+      },
+      "story_ids": [
+        "STORY::WEB_SHOP::CHECKOUT"
+      ],
+      "unblocks": []
+    }
+  },
+  "release_story": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"released\":[\"TASK::WEB_SHOP::LOGIC_CHECKOUT\"]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "released": [
+        "TASK::WEB_SHOP::LOGIC_CHECKOUT"
+      ],
+      "story_id": "STORY::WEB_SHOP::CHECKOUT"
+    }
+  },
+  "release_story_repeat": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"released\":[]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "released": [],
+      "story_id": "STORY::WEB_SHOP::CHECKOUT"
+    }
+  },
+  "report_task": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"task\":{\"task_id\":\"TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"phase\":\"logic\",\"status\":\"in_progress\",\"complexity\":\"medium\",\"area\":{\"area_id\":\"AREA::WEB_SHOP\",\"title\":\"WEB_SHOP\"},\"story\":{\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"title\":\"Checkout\"},\"ready\":false,\"waits_for\":[\"TASK::PAYMENTS::CONTRACT\",\"TASK::WEB_SHOP::DATA_CHECKOUT\"],\"planned_by\":\"model\",\"progress\":\"done\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "task": {
+        "area": {
+          "area_id": "AREA::WEB_SHOP",
+          "title": "WEB_SHOP"
+        },
+        "complexity": "medium",
+        "phase": "logic",
+        "planned_by": "model",
+        "progress": "done",
+        "ready": false,
+        "status": "in_progress",
+        "story": {
+          "story_id": "STORY::WEB_SHOP::CHECKOUT",
+          "title": "Checkout"
+        },
+        "task_id": "TASK::WEB_SHOP::LOGIC_CHECKOUT",
+        "title": "Task TASK::WEB_SHOP::LOGIC_CHECKOUT",
+        "waits_for": [
+          "TASK::PAYMENTS::CONTRACT",
+          "TASK::WEB_SHOP::DATA_CHECKOUT"
+        ]
+      }
+    }
+  },
+  "report_task_repeat": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"task\":{\"task_id\":\"TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"phase\":\"logic\",\"status\":\"in_progress\",\"complexity\":\"medium\",\"area\":{\"area_id\":\"AREA::WEB_SHOP\",\"title\":\"WEB_SHOP\"},\"story\":{\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"title\":\"Checkout\"},\"ready\":false,\"waits_for\":[\"TASK::PAYMENTS::CONTRACT\",\"TASK::WEB_SHOP::DATA_CHECKOUT\"],\"planned_by\":\"model\",\"progress\":\"done\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "task": {
+        "area": {
+          "area_id": "AREA::WEB_SHOP",
+          "title": "WEB_SHOP"
+        },
+        "complexity": "medium",
+        "phase": "logic",
+        "planned_by": "model",
+        "progress": "done",
+        "ready": false,
+        "status": "in_progress",
+        "story": {
+          "story_id": "STORY::WEB_SHOP::CHECKOUT",
+          "title": "Checkout"
+        },
+        "task_id": "TASK::WEB_SHOP::LOGIC_CHECKOUT",
+        "title": "Task TASK::WEB_SHOP::LOGIC_CHECKOUT",
+        "waits_for": [
+          "TASK::PAYMENTS::CONTRACT",
+          "TASK::WEB_SHOP::DATA_CHECKOUT"
+        ]
+      }
+    }
+  },
+  "report_task_skipped": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"task\":{\"task_id\":\"TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"title\":\"Task TASK::WEB_SHOP::LOGIC_CHECKOUT\",\"phase\":\"logic\",\"status\":\"in_progress\",\"complexity\":\"medium\",\"area\":{\"area_id\":\"AREA::WEB_SHOP\",\"title\":\"WEB_SHOP\"},\"story\":{\"story_id\":\"STORY::WEB_SHOP::CHECKOUT\",\"title\":\"Checkout\"},\"ready\":false,\"waits_for\":[\"TASK::PAYMENTS::CONTRACT\",\"TASK::WEB_SHOP::DATA_CHECKOUT\"],\"planned_by\":\"model\",\"progress\":\"skipped\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "task": {
+        "area": {
+          "area_id": "AREA::WEB_SHOP",
+          "title": "WEB_SHOP"
+        },
+        "complexity": "medium",
+        "phase": "logic",
+        "planned_by": "model",
+        "progress": "skipped",
+        "ready": false,
+        "status": "in_progress",
+        "story": {
+          "story_id": "STORY::WEB_SHOP::CHECKOUT",
+          "title": "Checkout"
+        },
+        "task_id": "TASK::WEB_SHOP::LOGIC_CHECKOUT",
+        "title": "Task TASK::WEB_SHOP::LOGIC_CHECKOUT",
+        "waits_for": [
+          "TASK::PAYMENTS::CONTRACT",
+          "TASK::WEB_SHOP::DATA_CHECKOUT"
+        ]
+      }
+    }
+  },
+  "search_spec": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"items\":[{\"spec_id\":\"FEAT::CHECKOUT\",\"label\":\"Feature\",\"name\":\"Checkout\",\"score\":0.09090909090909091,\"matched\":\"text\",\"hops_from_near\":null},{\"spec_id\":\"FEAT::CHECKOUT_REVIEW\",\"label\":\"Feature\",\"name\":\"Checkout review\",\"score\":0.08333333333333333,\"matched\":\"text\",\"hops_from_near\":null},{\"spec_id\":\"REQ::FR::CHECKOUT\",\"label\":\"FunctionalRequirement\",\"name\":\"Customer can complete checkout\",\"score\":0.07692307692307693,\"matched\":\"text\",\"hops_from_near\":null},{\"spec_id\":\"REQ::Q::CHECKOUT_SPEED\",\"label\":\"QualityRequirement\",\"name\":\"Checkout responds within one second\",\"score\":0.07142857142857142,\"matched\":\"text\",\"hops_from_near\":null}]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "items": [
+        {
+          "hops_from_near": null,
+          "label": "Feature",
+          "matched": "text",
+          "name": "Checkout",
+          "score": 0.09090909090909091,
+          "spec_id": "FEAT::CHECKOUT"
+        },
+        {
+          "hops_from_near": null,
+          "label": "Feature",
+          "matched": "text",
+          "name": "Checkout review",
+          "score": 0.08333333333333333,
+          "spec_id": "FEAT::CHECKOUT_REVIEW"
+        },
+        {
+          "hops_from_near": null,
+          "label": "FunctionalRequirement",
+          "matched": "text",
+          "name": "Customer can complete checkout",
+          "score": 0.07692307692307693,
+          "spec_id": "REQ::FR::CHECKOUT"
+        },
+        {
+          "hops_from_near": null,
+          "label": "QualityRequirement",
+          "matched": "text",
+          "name": "Checkout responds within one second",
+          "score": 0.07142857142857142,
+          "spec_id": "REQ::Q::CHECKOUT_SPEED"
+        }
+      ],
+      "project_id": "00000000-0000-4000-8000-000000000001"
+    }
+  },
+  "search_spec_id_hit": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"items\":[{\"spec_id\":\"FEAT::CARD_PAYMENT\",\"label\":\"Feature\",\"name\":\"Card payment\",\"score\":1.0,\"matched\":\"id\",\"hops_from_near\":null}]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "items": [
+        {
+          "hops_from_near": null,
+          "label": "Feature",
+          "matched": "id",
+          "name": "Card payment",
+          "score": 1.0,
+          "spec_id": "FEAT::CARD_PAYMENT"
+        }
+      ],
+      "project_id": "00000000-0000-4000-8000-000000000001"
+    }
+  },
+  "search_spec_near_story": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"items\":[{\"spec_id\":\"FEAT::CHECKOUT\",\"label\":\"Feature\",\"name\":\"Checkout\",\"score\":0.09090909090909091,\"matched\":\"text\",\"hops_from_near\":0},{\"spec_id\":\"REQ::FR::CHECKOUT\",\"label\":\"FunctionalRequirement\",\"name\":\"Customer can complete checkout\",\"score\":0.07692307692307693,\"matched\":\"text\",\"hops_from_near\":0},{\"spec_id\":\"REQ::Q::CHECKOUT_SPEED\",\"label\":\"QualityRequirement\",\"name\":\"Checkout responds within one second\",\"score\":0.07142857142857142,\"matched\":\"text\",\"hops_from_near\":0}]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "items": [
+        {
+          "hops_from_near": 0,
+          "label": "Feature",
+          "matched": "text",
+          "name": "Checkout",
+          "score": 0.09090909090909091,
+          "spec_id": "FEAT::CHECKOUT"
+        },
+        {
+          "hops_from_near": 0,
+          "label": "FunctionalRequirement",
+          "matched": "text",
+          "name": "Customer can complete checkout",
+          "score": 0.07692307692307693,
+          "spec_id": "REQ::FR::CHECKOUT"
+        },
+        {
+          "hops_from_near": 0,
+          "label": "QualityRequirement",
+          "matched": "text",
+          "name": "Checkout responds within one second",
+          "score": 0.07142857142857142,
+          "spec_id": "REQ::Q::CHECKOUT_SPEED"
+        }
+      ],
+      "project_id": "00000000-0000-4000-8000-000000000001"
+    }
+  },
+  "similar_spec_ids_linked_kept": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"sources\":[\"FEAT::CHECKOUT\"],\"unknown\":[\"FEAT::NOPE\"],\"items\":[{\"spec_id\":\"REQ::FR::CHECKOUT\",\"label\":\"FunctionalRequirement\",\"name\":\"Customer can complete checkout\",\"score\":0.9969418673368095,\"like\":\"FEAT::CHECKOUT\",\"plan_state\":\"open\"},{\"spec_id\":\"FEAT::CHECKOUT_REVIEW\",\"label\":\"Feature\",\"name\":\"Checkout review\",\"score\":0.9767913325670708,\"like\":\"FEAT::CHECKOUT\",\"plan_state\":\"unplanned\"},{\"spec_id\":\"FEAT::CARD_PAYMENT\",\"label\":\"Feature\",\"name\":\"Card payment\",\"score\":0.9,\"like\":\"FEAT::CHECKOUT\",\"plan_state\":\"open\"}]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "items": [
+        {
+          "label": "FunctionalRequirement",
+          "like": "FEAT::CHECKOUT",
+          "name": "Customer can complete checkout",
+          "plan_state": "open",
+          "score": 0.9969418673368095,
+          "spec_id": "REQ::FR::CHECKOUT"
+        },
+        {
+          "label": "Feature",
+          "like": "FEAT::CHECKOUT",
+          "name": "Checkout review",
+          "plan_state": "unplanned",
+          "score": 0.9767913325670708,
+          "spec_id": "FEAT::CHECKOUT_REVIEW"
+        },
+        {
+          "label": "Feature",
+          "like": "FEAT::CHECKOUT",
+          "name": "Card payment",
+          "plan_state": "open",
+          "score": 0.9,
+          "spec_id": "FEAT::CARD_PAYMENT"
+        }
+      ],
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "sources": [
+        "FEAT::CHECKOUT"
+      ],
+      "unknown": [
+        "FEAT::NOPE"
+      ]
+    }
+  },
+  "similar_story": {
+    "content": [
+      {
+        "text": "{\"project_id\":\"00000000-0000-4000-8000-000000000001\",\"sources\":[\"FEAT::CHECKOUT\",\"REQ::FR::CHECKOUT\",\"REQ::Q::CHECKOUT_SPEED\"],\"unknown\":[],\"items\":[{\"spec_id\":\"FEAT::CHECKOUT_REVIEW\",\"label\":\"Feature\",\"name\":\"Checkout review\",\"score\":0.9905023485269216,\"like\":\"REQ::FR::CHECKOUT\",\"plan_state\":\"unplanned\"},{\"spec_id\":\"REQ::FR::CARD_PAYMENT\",\"label\":\"FunctionalRequirement\",\"name\":\"Customer can pay by card\",\"score\":0.8423377308320243,\"like\":\"REQ::FR::CHECKOUT\",\"plan_state\":\"open\"}]}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "items": [
+        {
+          "label": "Feature",
+          "like": "REQ::FR::CHECKOUT",
+          "name": "Checkout review",
+          "plan_state": "unplanned",
+          "score": 0.9905023485269216,
+          "spec_id": "FEAT::CHECKOUT_REVIEW"
+        },
+        {
+          "label": "FunctionalRequirement",
+          "like": "REQ::FR::CHECKOUT",
+          "name": "Customer can pay by card",
+          "plan_state": "open",
+          "score": 0.8423377308320243,
+          "spec_id": "REQ::FR::CARD_PAYMENT"
+        }
+      ],
+      "project_id": "00000000-0000-4000-8000-000000000001",
+      "sources": [
+        "FEAT::CHECKOUT",
+        "REQ::FR::CHECKOUT",
+        "REQ::Q::CHECKOUT_SPEED"
+      ],
+      "unknown": []
+    }
+  },
+  "trace_spec_ids_affects_with_holders": {
+    "content": [
+      {
+        "text": "{\"direction\":\"affects\",\"sources\":[\"IFC::STRIPE_API\"],\"context\":[],\"nodes\":[{\"spec_id\":\"MOD::PAYMENTS_SERVICE\",\"label\":\"Module\",\"name\":\"Payments service\",\"hops\":1,\"parent\":\"IFC::STRIPE_API\",\"relation\":\"CONSUMED_BY\",\"step\":\"forward\",\"role\":\"used_by\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null,\"weak\":false,\"via_owner\":false,\"spine_root\":true,\"plan_state\":\"completed\",\"tasks\":[{\"task_id\":\"TASK::PAYMENTS::CONTRACT\",\"story_id\":\"STORY::PAYMENTS_SERVICE::CARD_PAYMENT\",\"status\":\"completed\",\"holder\":null,\"commit\":\"abababababababababababababababababababab\"}],\"findings\":0},{\"spec_id\":\"MOD::STRIPE\",\"label\":\"Module\",\"name\":\"Stripe\",\"hops\":1,\"parent\":\"IFC::STRIPE_API\",\"relation\":\"PROVIDED_BY\",\"step\":\"forward\",\"role\":\"coupled\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null,\"weak\":false,\"via_owner\":false,\"spine_root\":true,\"plan_state\":\"in_progress\",\"tasks\":[{\"task_id\":\"TASK::STRIPE::SETUP\",\"story_id\":\"STORY::STRIPE::CORE\",\"status\":\"in_progress\",\"holder\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"commit\":null},{\"task_id\":\"TASK::STRIPE::WIRE\",\"story_id\":\"STORY::STRIPE::CORE\",\"status\":\"in_progress\",\"holder\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":null},\"commit\":null}],\"findings\":2},{\"spec_id\":\"REQ::INT::CALL_STRIPE\",\"label\":\"IntegrationRequirement\",\"name\":\"Web shop calls Stripe API for card payment\",\"hops\":1,\"parent\":\"IFC::STRIPE_API\",\"relation\":\"PART_OF\",\"step\":\"scope\",\"role\":\"contains\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null,\"weak\":false,\"via_owner\":false,\"spine_root\":false,\"plan_state\":\"unplanned\",\"tasks\":[],\"findings\":0}],\"stories\":[{\"story_id\":\"STORY::PAYMENTS_SERVICE::CARD_PAYMENT\",\"title\":\"Card payment\",\"area_id\":\"AREA::PAYMENTS_SERVICE\",\"progress\":\"blocked\",\"holders\":[]},{\"story_id\":\"STORY::STRIPE::CORE\",\"title\":\"Stripe integration\",\"area_id\":\"AREA::STRIPE\",\"progress\":\"in_progress\",\"holders\":[{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},{\"name\":\"Ben\",\"you\":false,\"agent_label\":null}]}],\"summary\":{\"completed\":1,\"in_progress\":1,\"open\":0,\"unplanned\":1},\"open_questions\":[],\"unknown\":[\"NOPE::X\"],\"truncated\":false,\"seeds_truncated\":false}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "context": [],
+      "direction": "affects",
+      "nodes": [
+        {
+          "basis": "stated",
+          "confidence": null,
+          "findings": 0,
+          "hops": 1,
+          "label": "Module",
+          "name": "Payments service",
+          "parent": "IFC::STRIPE_API",
+          "plan_state": "completed",
+          "relation": "CONSUMED_BY",
+          "role": "used_by",
+          "rule": null,
+          "spec_id": "MOD::PAYMENTS_SERVICE",
+          "spine_root": true,
+          "step": "forward",
+          "tasks": [
+            {
+              "commit": "abababababababababababababababababababab",
+              "holder": null,
+              "status": "completed",
+              "story_id": "STORY::PAYMENTS_SERVICE::CARD_PAYMENT",
+              "task_id": "TASK::PAYMENTS::CONTRACT"
+            }
+          ],
+          "via_owner": false,
+          "weak": false
+        },
+        {
+          "basis": "stated",
+          "confidence": null,
+          "findings": 2,
+          "hops": 1,
+          "label": "Module",
+          "name": "Stripe",
+          "parent": "IFC::STRIPE_API",
+          "plan_state": "in_progress",
+          "relation": "PROVIDED_BY",
+          "role": "coupled",
+          "rule": null,
+          "spec_id": "MOD::STRIPE",
+          "spine_root": true,
+          "step": "forward",
+          "tasks": [
+            {
+              "commit": null,
+              "holder": {
+                "agent_label": null,
+                "name": "Alice",
+                "you": true
+              },
+              "status": "in_progress",
+              "story_id": "STORY::STRIPE::CORE",
+              "task_id": "TASK::STRIPE::SETUP"
+            },
+            {
+              "commit": null,
+              "holder": {
+                "agent_label": null,
+                "name": "Ben",
+                "you": false
+              },
+              "status": "in_progress",
+              "story_id": "STORY::STRIPE::CORE",
+              "task_id": "TASK::STRIPE::WIRE"
+            }
+          ],
+          "via_owner": false,
+          "weak": false
+        },
+        {
+          "basis": "stated",
+          "confidence": null,
+          "findings": 0,
+          "hops": 1,
+          "label": "IntegrationRequirement",
+          "name": "Web shop calls Stripe API for card payment",
+          "parent": "IFC::STRIPE_API",
+          "plan_state": "unplanned",
+          "relation": "PART_OF",
+          "role": "contains",
+          "rule": null,
+          "spec_id": "REQ::INT::CALL_STRIPE",
+          "spine_root": false,
+          "step": "scope",
+          "tasks": [],
+          "via_owner": false,
+          "weak": false
+        }
+      ],
+      "open_questions": [],
+      "seeds_truncated": false,
+      "sources": [
+        "IFC::STRIPE_API"
+      ],
+      "stories": [
+        {
+          "area_id": "AREA::PAYMENTS_SERVICE",
+          "holders": [],
+          "progress": "blocked",
+          "story_id": "STORY::PAYMENTS_SERVICE::CARD_PAYMENT",
+          "title": "Card payment"
+        },
+        {
+          "area_id": "AREA::STRIPE",
+          "holders": [
+            {
+              "agent_label": null,
+              "name": "Alice",
+              "you": true
+            },
+            {
+              "agent_label": null,
+              "name": "Ben",
+              "you": false
+            }
+          ],
+          "progress": "in_progress",
+          "story_id": "STORY::STRIPE::CORE",
+          "title": "Stripe integration"
+        }
+      ],
+      "summary": {
+        "completed": 1,
+        "in_progress": 1,
+        "open": 0,
+        "unplanned": 1
+      },
+      "truncated": false,
+      "unknown": [
+        "NOPE::X"
+      ]
+    }
+  },
+  "trace_story_based_on": {
+    "content": [
+      {
+        "text": "{\"direction\":\"based_on\",\"sources\":[\"FEAT::CHECKOUT\",\"REQ::FR::CHECKOUT\",\"REQ::Q::CHECKOUT_SPEED\"],\"context\":[{\"spec_id\":\"MOD::WEB_SHOP\",\"label\":\"Module\",\"name\":\"Web shop\",\"plan_state\":\"unplanned\",\"tasks\":[],\"findings\":0}],\"nodes\":[{\"spec_id\":\"FEAT::CARD_PAYMENT\",\"label\":\"Feature\",\"name\":\"Card payment\",\"hops\":1,\"parent\":\"FEAT::CHECKOUT\",\"relation\":\"DEPENDS_ON\",\"step\":\"forward\",\"role\":\"uses\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null,\"weak\":false,\"via_owner\":false,\"spine_root\":false,\"plan_state\":\"open\",\"tasks\":[{\"task_id\":\"TASK::PAYMENTS::LOGIC\",\"story_id\":\"STORY::PAYMENTS_SERVICE::CARD_PAYMENT\",\"status\":\"pending\",\"holder\":null,\"commit\":null}],\"findings\":1},{\"spec_id\":\"IFC::ORDERS_API\",\"label\":\"Interface\",\"name\":\"Orders API\",\"hops\":1,\"parent\":\"MOD::WEB_SHOP\",\"relation\":\"CONSUMED_BY\",\"step\":\"backward\",\"role\":\"used_by\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null,\"weak\":false,\"via_owner\":true,\"spine_root\":false,\"plan_state\":\"unplanned\",\"tasks\":[],\"findings\":0},{\"spec_id\":\"MOD::PAYMENTS_SERVICE\",\"label\":\"Module\",\"name\":\"Payments service\",\"hops\":1,\"parent\":\"MOD::WEB_SHOP\",\"relation\":\"INTEGRATES_WITH\",\"step\":\"forward\",\"role\":\"uses\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null,\"weak\":false,\"via_owner\":true,\"spine_root\":true,\"plan_state\":\"completed\",\"tasks\":[{\"task_id\":\"TASK::PAYMENTS::CONTRACT\",\"story_id\":\"STORY::PAYMENTS_SERVICE::CARD_PAYMENT\",\"status\":\"completed\",\"holder\":null,\"commit\":\"abababababababababababababababababababab\"}],\"findings\":0},{\"spec_id\":\"IFC::STRIPE_API\",\"label\":\"Interface\",\"name\":\"Stripe API\",\"hops\":2,\"parent\":\"MOD::PAYMENTS_SERVICE\",\"relation\":\"CONSUMED_BY\",\"step\":\"backward\",\"role\":\"used_by\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null,\"weak\":false,\"via_owner\":true,\"spine_root\":false,\"plan_state\":\"completed\",\"tasks\":[{\"task_id\":\"TASK::PAYMENTS::CONTRACT\",\"story_id\":\"STORY::PAYMENTS_SERVICE::CARD_PAYMENT\",\"status\":\"completed\",\"holder\":null,\"commit\":\"abababababababababababababababababababab\"}],\"findings\":0},{\"spec_id\":\"IFC::UNSHARED\",\"label\":\"Interface\",\"name\":\"Interface consumed by two modules\",\"hops\":2,\"parent\":\"MOD::PAYMENTS_SERVICE\",\"relation\":\"CONSUMED_BY\",\"step\":\"backward\",\"role\":\"used_by\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null,\"weak\":false,\"via_owner\":true,\"spine_root\":false,\"plan_state\":\"open\",\"tasks\":[{\"task_id\":\"TASK::PAYMENTS::UNSHARED\",\"story_id\":\"STORY::PAYMENTS_SERVICE::CARD_PAYMENT\",\"status\":\"blocked\",\"holder\":null,\"commit\":null}],\"findings\":0},{\"spec_id\":\"MOD::ORDERS_SERVICE\",\"label\":\"Module\",\"name\":\"Orders service\",\"hops\":2,\"parent\":\"IFC::ORDERS_API\",\"relation\":\"PROVIDED_BY\",\"step\":\"forward\",\"role\":\"coupled\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null,\"weak\":false,\"via_owner\":true,\"spine_root\":true,\"plan_state\":\"unplanned\",\"tasks\":[],\"findings\":0},{\"spec_id\":\"REQ::FR::CARD_PAYMENT\",\"label\":\"FunctionalRequirement\",\"name\":\"Customer can pay by card\",\"hops\":2,\"parent\":\"FEAT::CARD_PAYMENT\",\"relation\":\"PART_OF\",\"step\":\"scope\",\"role\":\"contains\",\"basis\":\"stated\",\"confidence\":null,\"rule\":null,\"weak\":false,\"via_owner\":false,\"spine_root\":false,\"plan_state\":\"open\",\"tasks\":[{\"task_id\":\"TASK::PAYMENTS::LOGIC\",\"story_id\":\"STORY::PAYMENTS_SERVICE::CARD_PAYMENT\",\"status\":\"pending\",\"holder\":null,\"commit\":null}],\"findings\":0}],\"stories\":[{\"story_id\":\"STORY::PAYMENTS_SERVICE::CARD_PAYMENT\",\"title\":\"Card payment\",\"area_id\":\"AREA::PAYMENTS_SERVICE\",\"progress\":\"blocked\",\"holders\":[]}],\"summary\":{\"completed\":2,\"in_progress\":0,\"open\":3,\"unplanned\":2},\"open_questions\":[],\"unknown\":[],\"truncated\":false,\"seeds_truncated\":false}",
+        "type": "text"
+      }
+    ],
+    "isError": false,
+    "structuredContent": {
+      "context": [
+        {
+          "findings": 0,
+          "label": "Module",
+          "name": "Web shop",
+          "plan_state": "unplanned",
+          "spec_id": "MOD::WEB_SHOP",
+          "tasks": []
+        }
+      ],
+      "direction": "based_on",
+      "nodes": [
+        {
+          "basis": "stated",
+          "confidence": null,
+          "findings": 1,
+          "hops": 1,
+          "label": "Feature",
+          "name": "Card payment",
+          "parent": "FEAT::CHECKOUT",
+          "plan_state": "open",
+          "relation": "DEPENDS_ON",
+          "role": "uses",
+          "rule": null,
+          "spec_id": "FEAT::CARD_PAYMENT",
+          "spine_root": false,
+          "step": "forward",
+          "tasks": [
+            {
+              "commit": null,
+              "holder": null,
+              "status": "pending",
+              "story_id": "STORY::PAYMENTS_SERVICE::CARD_PAYMENT",
+              "task_id": "TASK::PAYMENTS::LOGIC"
+            }
+          ],
+          "via_owner": false,
+          "weak": false
+        },
+        {
+          "basis": "stated",
+          "confidence": null,
+          "findings": 0,
+          "hops": 1,
+          "label": "Interface",
+          "name": "Orders API",
+          "parent": "MOD::WEB_SHOP",
+          "plan_state": "unplanned",
+          "relation": "CONSUMED_BY",
+          "role": "used_by",
+          "rule": null,
+          "spec_id": "IFC::ORDERS_API",
+          "spine_root": false,
+          "step": "backward",
+          "tasks": [],
+          "via_owner": true,
+          "weak": false
+        },
+        {
+          "basis": "stated",
+          "confidence": null,
+          "findings": 0,
+          "hops": 1,
+          "label": "Module",
+          "name": "Payments service",
+          "parent": "MOD::WEB_SHOP",
+          "plan_state": "completed",
+          "relation": "INTEGRATES_WITH",
+          "role": "uses",
+          "rule": null,
+          "spec_id": "MOD::PAYMENTS_SERVICE",
+          "spine_root": true,
+          "step": "forward",
+          "tasks": [
+            {
+              "commit": "abababababababababababababababababababab",
+              "holder": null,
+              "status": "completed",
+              "story_id": "STORY::PAYMENTS_SERVICE::CARD_PAYMENT",
+              "task_id": "TASK::PAYMENTS::CONTRACT"
+            }
+          ],
+          "via_owner": true,
+          "weak": false
+        },
+        {
+          "basis": "stated",
+          "confidence": null,
+          "findings": 0,
+          "hops": 2,
+          "label": "Interface",
+          "name": "Stripe API",
+          "parent": "MOD::PAYMENTS_SERVICE",
+          "plan_state": "completed",
+          "relation": "CONSUMED_BY",
+          "role": "used_by",
+          "rule": null,
+          "spec_id": "IFC::STRIPE_API",
+          "spine_root": false,
+          "step": "backward",
+          "tasks": [
+            {
+              "commit": "abababababababababababababababababababab",
+              "holder": null,
+              "status": "completed",
+              "story_id": "STORY::PAYMENTS_SERVICE::CARD_PAYMENT",
+              "task_id": "TASK::PAYMENTS::CONTRACT"
+            }
+          ],
+          "via_owner": true,
+          "weak": false
+        },
+        {
+          "basis": "stated",
+          "confidence": null,
+          "findings": 0,
+          "hops": 2,
+          "label": "Interface",
+          "name": "Interface consumed by two modules",
+          "parent": "MOD::PAYMENTS_SERVICE",
+          "plan_state": "open",
+          "relation": "CONSUMED_BY",
+          "role": "used_by",
+          "rule": null,
+          "spec_id": "IFC::UNSHARED",
+          "spine_root": false,
+          "step": "backward",
+          "tasks": [
+            {
+              "commit": null,
+              "holder": null,
+              "status": "blocked",
+              "story_id": "STORY::PAYMENTS_SERVICE::CARD_PAYMENT",
+              "task_id": "TASK::PAYMENTS::UNSHARED"
+            }
+          ],
+          "via_owner": true,
+          "weak": false
+        },
+        {
+          "basis": "stated",
+          "confidence": null,
+          "findings": 0,
+          "hops": 2,
+          "label": "Module",
+          "name": "Orders service",
+          "parent": "IFC::ORDERS_API",
+          "plan_state": "unplanned",
+          "relation": "PROVIDED_BY",
+          "role": "coupled",
+          "rule": null,
+          "spec_id": "MOD::ORDERS_SERVICE",
+          "spine_root": true,
+          "step": "forward",
+          "tasks": [],
+          "via_owner": true,
+          "weak": false
+        },
+        {
+          "basis": "stated",
+          "confidence": null,
+          "findings": 0,
+          "hops": 2,
+          "label": "FunctionalRequirement",
+          "name": "Customer can pay by card",
+          "parent": "FEAT::CARD_PAYMENT",
+          "plan_state": "open",
+          "relation": "PART_OF",
+          "role": "contains",
+          "rule": null,
+          "spec_id": "REQ::FR::CARD_PAYMENT",
+          "spine_root": false,
+          "step": "scope",
+          "tasks": [
+            {
+              "commit": null,
+              "holder": null,
+              "status": "pending",
+              "story_id": "STORY::PAYMENTS_SERVICE::CARD_PAYMENT",
+              "task_id": "TASK::PAYMENTS::LOGIC"
+            }
+          ],
+          "via_owner": false,
+          "weak": false
+        }
+      ],
+      "open_questions": [],
+      "seeds_truncated": false,
+      "sources": [
+        "FEAT::CHECKOUT",
+        "REQ::FR::CHECKOUT",
+        "REQ::Q::CHECKOUT_SPEED"
+      ],
+      "stories": [
+        {
+          "area_id": "AREA::PAYMENTS_SERVICE",
+          "holders": [],
+          "progress": "blocked",
+          "story_id": "STORY::PAYMENTS_SERVICE::CARD_PAYMENT",
+          "title": "Card payment"
+        }
+      ],
+      "summary": {
+        "completed": 2,
+        "in_progress": 0,
+        "open": 3,
+        "unplanned": 2
+      },
+      "truncated": false,
+      "unknown": []
+    }
+  }
+}

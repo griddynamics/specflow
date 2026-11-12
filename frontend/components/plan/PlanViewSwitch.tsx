@@ -1,5 +1,5 @@
 "use client";
-// FE-PLAN-05, MCP-M10 U5: the Plan | Develop switch, shared by the idle screen (BeforePlanView) and the ready screen (PlanReadyView). The tab comes from
+// FE-PLAN-05, MCP-M10 U5: the Plan | Work | Develop switch, shared by the idle screen (BeforePlanView) and the ready screen (PlanReadyView). The tab comes from
 // the URL (`?view=plan|develop`; missing or unknown shows Plan); picking a segment pushes the URL with the native history API, which Next.js syncs with
 // `useSearchParams`, so `/projects/{id}/plan` with the Develop selection works in both stages.
 import { useSearchParams } from "next/navigation";
@@ -10,6 +10,7 @@ import { usePlanRoutes } from "./use-plan-ports";
 
 const VIEW_OPTIONS: { value: PlanView; label: string }[] = [
   { value: "plan", label: "Plan" },
+  { value: "work", label: "Work" },
   { value: "develop", label: "Develop" },
 ];
 

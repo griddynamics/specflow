@@ -21,6 +21,7 @@ export function composeProductionPorts(http: HttpPorts): DataPorts {
     sources: http.sources, // Drive folders, Local files; no GitHub
     knowledge: http.knowledge,
     plan: http.plan, // the plan API (/projects/{pid}/plan*)
+    work: http.work, // findings and claims (/projects/{pid}/findings*, /plan/claims*)
     assistant: {
       ...unavailable.assistant,
       // The SpecBot greeting names the signed-in user (GET /me). If /me fails, the greeting has no name.

@@ -106,6 +106,64 @@ def feature_not_found() -> ApiError:
     return ApiError(404, "feature_not_found", "The feature is not in the specification graph of the project.")
 
 
+def story_not_found() -> ApiError:
+    return ApiError(404, "story_not_found", "The story is not in the current plan of the project.")
+
+
+def node_not_found(details: dict[str, Any] | None = None) -> ApiError:
+    return ApiError(
+        404, "node_not_found", "The node is not in the specification graph of the project.", details=details
+    )
+
+
+def invalid_arguments(argument: str | None = None) -> ApiError:
+    """``argument`` names the argument that broke the rule (``details.argument``, never its value)."""
+
+    details = None if argument is None else {"argument": argument}
+    return ApiError(400, "invalid_arguments", "The arguments do not fit together.", details=details)
+
+
+def invalid_commit() -> ApiError:
+    return ApiError(
+        400,
+        "invalid_commit",
+        "The merge commit must be 40 or 64 hexadecimal characters.",
+        details={"argument": "merge_commit"},
+    )
+
+
+def finding_limit() -> ApiError:
+    return ApiError(409, "finding_limit", "The caller has too many open findings on the story.")
+
+
+def area_not_found() -> ApiError:
+    return ApiError(404, "area_not_found", "The area is not in the current plan of the project.")
+
+
+def story_claimed(details: dict[str, Any] | None = None) -> ApiError:
+    return ApiError(409, "story_claimed", "Another member holds this story.", details=details)
+
+
+def not_available(details: dict[str, Any] | None = None) -> ApiError:
+    return ApiError(409, "not_available", "The story cannot be claimed now.", details=details)
+
+
+def partly_claimed(details: dict[str, Any] | None = None) -> ApiError:
+    return ApiError(409, "partly_claimed", "A task of this story is claimed on its own.", details=details)
+
+
+def plan_applying() -> ApiError:
+    return ApiError(409, "plan_applying", "The plan is being updated.")
+
+
+def claim_mismatch() -> ApiError:
+    return ApiError(409, "claim_mismatch", "The claim token does not match the claim.")
+
+
+def unknown_relation() -> ApiError:
+    return ApiError(400, "unknown_relation", "A relation is not in the ontology of the project.")
+
+
 def graph_unavailable() -> ApiError:
     return ApiError(503, "graph_unavailable", "The specification graph is unavailable. Try again later.")
 

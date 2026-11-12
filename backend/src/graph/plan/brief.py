@@ -56,11 +56,11 @@ async def task_brief(
         story=story_view(loaded, task.story_id),
         area=area,
         profile=json.loads(plan.profile) if plan is not None and plan.profile else {},
-        implements=tuple(_node(node, rules) for node in implemented),
-        contracts=_contracts(loaded, task_id, aliases),
-        open_questions=_questions(implemented, nodes, edges, rules),
-        neighbours=_neighbours(implemented, nodes, edges, neighbours),
-        placement=_placement(loaded, implemented, edges),
+        implements=tuple(brief_node(node, rules) for node in implemented),
+        contracts=brief_contracts(loaded, task_id, aliases),
+        open_questions=open_questions(implemented, nodes, edges, rules),
+        neighbours=brief_neighbours(implemented, nodes, edges, neighbours),
+        placement=brief_placement(loaded, implemented, edges),
         spec_changed=any(node.last_build_id is not None and node.last_build_id not in consumed for node in implemented),
         missing=tuple(
             spec_id for spec_id, survivor in zip(task.implements, resolved, strict=True) if survivor not in nodes
@@ -68,7 +68,7 @@ async def task_brief(
     )
 
 
-def _node(node: GraphNode, rules: PlanRules) -> BriefNode:
+def brief_node(node: GraphNode, rules: PlanRules) -> BriefNode:
     return BriefNode(
         spec_id=node.spec_id,
         label=node.label,
@@ -80,7 +80,7 @@ def _node(node: GraphNode, rules: PlanRules) -> BriefNode:
     )
 
 
-def _contracts(loaded: LoadedPlan, task_id: str, aliases: Mapping[str, str]) -> tuple[BriefContract, ...]:
+def brief_contracts(loaded: LoadedPlan, task_id: str, aliases: Mapping[str, str]) -> tuple[BriefContract, ...]:
     """Completed direct prerequisites, each with the interfaces of its own area that cite its nodes."""
 
     interfaces = {area.area_id: area.interfaces for area in loaded.current.areas}
@@ -106,7 +106,7 @@ def _contracts(loaded: LoadedPlan, task_id: str, aliases: Mapping[str, str]) -> 
     return tuple(found)
 
 
-def _questions(
+def open_questions(
     implemented: Sequence[GraphNode], nodes: Mapping[str, GraphNode], edges: Sequence[GraphEdge], rules: PlanRules
 ) -> tuple[BriefQuestion, ...]:
     reference = rules.relation("reference")
@@ -127,7 +127,7 @@ def _questions(
     return tuple(found[key] for key in sorted(found))
 
 
-def _neighbours(
+def brief_neighbours(
     implemented: Sequence[GraphNode], nodes: Mapping[str, GraphNode], edges: Sequence[GraphEdge], limit: int
 ) -> tuple[BriefNeighbour, ...]:
     ids = {node.spec_id for node in implemented}
@@ -156,7 +156,7 @@ def _neighbours(
     return tuple(found[: max(limit, 0)])
 
 
-def _placement(
+def brief_placement(
     loaded: LoadedPlan, implemented: Sequence[GraphNode], edges: Sequence[GraphEdge]
 ) -> tuple[BriefPlacement, ...]:
     by_key = {edge.edge_key: edge for edge in edges if edge.edge_key}

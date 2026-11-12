@@ -9,7 +9,7 @@ tags: [graph]
 
 | Feature | What it adds |
 |---|---|
-| `graph.gap` | Gaps, contradictions, ambiguities and findings; declares its own types with origins `analysis` and `human` |
+| `graph.gap` | SpecGap analysis: gaps, contradictions and ambiguities found in the spec graph (origin `analysis`) and findings people enter (origin `human`), on the `Finding` types of the first slice, agent findings ([gap.md](gap.md)) |
 | Clarifications | Answers to findings and pinned information that take precedence over older document statements |
 | Derivation | Judged one-level consequences of an applied answer |
 | Removal confirmation | Content dropped by a revision waits for a keep or remove decision instead of being retired at once |

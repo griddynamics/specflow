@@ -1,0 +1,558 @@
+{
+  "area_not_found": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"area_not_found\",\"message\":\"The area is not in the current plan of the project. List the areas to find it.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "area_not_found",
+        "message": "The area is not in the current plan of the project. List the areas to find it."
+      }
+    }
+  },
+  "claim_mismatch": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"claim_mismatch\",\"message\":\"The claim token does not match your claim. Call claim_story for the story to get your token.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "claim_mismatch",
+        "message": "The claim token does not match your claim. Call claim_story for the story to get your token."
+      }
+    }
+  },
+  "claim_mismatch:add_finding": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"claim_mismatch\",\"message\":\"The claim token does not match your claim. Call claim_story for the story to get your token.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "claim_mismatch",
+        "message": "The claim token does not match your claim. Call claim_story for the story to get your token."
+      }
+    }
+  },
+  "claim_mismatch:complete_story": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"claim_mismatch\",\"message\":\"The claim token does not match your claim. Call claim_story for the story to get your token.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "claim_mismatch",
+        "message": "The claim token does not match your claim. Call claim_story for the story to get your token."
+      }
+    }
+  },
+  "claim_mismatch:report_task": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"claim_mismatch\",\"message\":\"The claim token does not match your claim. Call claim_story for the story to get your token.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "claim_mismatch",
+        "message": "The claim token does not match your claim. Call claim_story for the story to get your token."
+      }
+    }
+  },
+  "database_unavailable": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"database_unavailable\",\"message\":\"The database is unavailable. Try again later.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "database_unavailable",
+        "message": "The database is unavailable. Try again later."
+      }
+    }
+  },
+  "finding_limit": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"finding_limit\",\"message\":\"You have too many open findings here. Ask a person to resolve some first.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "finding_limit",
+        "message": "You have too many open findings here. Ask a person to resolve some first."
+      }
+    }
+  },
+  "graph_unavailable": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"graph_unavailable\",\"message\":\"The specification graph is unavailable. Try again later.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "graph_unavailable",
+        "message": "The specification graph is unavailable. Try again later."
+      }
+    }
+  },
+  "internal_error": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"internal_error\",\"message\":\"Something went wrong. Try again later.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "internal_error",
+        "message": "Something went wrong. Try again later."
+      }
+    }
+  },
+  "invalid_arguments": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"invalid_arguments\",\"message\":\"The arguments do not fit together. Check the tool description and try again.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "invalid_arguments",
+        "message": "The arguments do not fit together. Check the tool description and try again."
+      }
+    }
+  },
+  "invalid_arguments:add_finding_blocking_note": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"invalid_arguments\",\"message\":\"The arguments do not fit together. Check the tool description and try again.\",\"details\":{\"argument\":\"kind\"}}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "invalid_arguments",
+        "details": {
+          "argument": "kind"
+        },
+        "message": "The arguments do not fit together. Check the tool description and try again."
+      }
+    }
+  },
+  "invalid_arguments:add_finding_refers_to": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"invalid_arguments\",\"message\":\"The arguments do not fit together. Check the tool description and try again.\",\"details\":{\"argument\":\"refers_to\"}}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "invalid_arguments",
+        "details": {
+          "argument": "refers_to"
+        },
+        "message": "The arguments do not fit together. Check the tool description and try again."
+      }
+    }
+  },
+  "invalid_arguments:agent_label": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"invalid_arguments\",\"message\":\"The arguments do not fit together. Check the tool description and try again.\",\"details\":{\"argument\":\"agent_label\"}}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "invalid_arguments",
+        "details": {
+          "argument": "agent_label"
+        },
+        "message": "The arguments do not fit together. Check the tool description and try again."
+      }
+    }
+  },
+  "invalid_arguments:branch": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"invalid_arguments\",\"message\":\"The arguments do not fit together. Check the tool description and try again.\",\"details\":{\"argument\":\"branch\"}}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "invalid_arguments",
+        "details": {
+          "argument": "branch"
+        },
+        "message": "The arguments do not fit together. Check the tool description and try again."
+      }
+    }
+  },
+  "invalid_arguments:complete_story_pr_url": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"invalid_arguments\",\"message\":\"The arguments do not fit together. Check the tool description and try again.\",\"details\":{\"argument\":\"pr_url\"}}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "invalid_arguments",
+        "details": {
+          "argument": "pr_url"
+        },
+        "message": "The arguments do not fit together. Check the tool description and try again."
+      }
+    }
+  },
+  "invalid_arguments:report_task_skipped_without_a_note": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"invalid_arguments\",\"message\":\"The arguments do not fit together. Check the tool description and try again.\",\"details\":{\"argument\":\"note\"}}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "invalid_arguments",
+        "details": {
+          "argument": "note"
+        },
+        "message": "The arguments do not fit together. Check the tool description and try again."
+      }
+    }
+  },
+  "invalid_commit": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"invalid_commit\",\"message\":\"The merge commit must be the full 40 or 64 character hexadecimal hash.\",\"details\":{\"argument\":\"merge_commit\"}}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "invalid_commit",
+        "details": {
+          "argument": "merge_commit"
+        },
+        "message": "The merge commit must be the full 40 or 64 character hexadecimal hash."
+      }
+    }
+  },
+  "invalid_cursor": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"invalid_cursor\",\"message\":\"The cursor is invalid. Start again without a cursor.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "invalid_cursor",
+        "message": "The cursor is invalid. Start again without a cursor."
+      }
+    }
+  },
+  "no_plan": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"no_plan\",\"message\":\"The project has no implementation plan yet. Create one on the Plan page of the web app.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "no_plan",
+        "message": "The project has no implementation plan yet. Create one on the Plan page of the web app."
+      }
+    }
+  },
+  "node_not_found": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"node_not_found\",\"message\":\"The node is not in the specification graph of the project. Search the specification to find it.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "node_not_found",
+        "message": "The node is not in the specification graph of the project. Search the specification to find it."
+      }
+    }
+  },
+  "node_not_found:add_finding": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"node_not_found\",\"message\":\"The node is not in the specification graph of the project. Search the specification to find it.\",\"details\":{\"spec_ids\":[\"REQ::NOPE\"]}}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "node_not_found",
+        "details": {
+          "spec_ids": [
+            "REQ::NOPE"
+          ]
+        },
+        "message": "The node is not in the specification graph of the project. Search the specification to find it."
+      }
+    }
+  },
+  "not_available": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"not_available\",\"message\":\"The story cannot be claimed now. Its details name the state, the stories it waits on and findings.\",\"details\":{\"state\":\"blocked\"}}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "not_available",
+        "details": {
+          "state": "blocked"
+        },
+        "message": "The story cannot be claimed now. Its details name the state, the stories it waits on and findings."
+      }
+    }
+  },
+  "partly_claimed": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"partly_claimed\",\"message\":\"A task of this story is claimed on its own. Try again when it is released or completed.\",\"details\":{\"holder\":{\"name\":\"Alice\",\"you\":true,\"agent_label\":null},\"task_id\":\"TASK::STRIPE::SETUP\"}}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "partly_claimed",
+        "details": {
+          "holder": {
+            "agent_label": null,
+            "name": "Alice",
+            "you": true
+          },
+          "task_id": "TASK::STRIPE::SETUP"
+        },
+        "message": "A task of this story is claimed on its own. Try again when it is released or completed."
+      }
+    }
+  },
+  "plan_applying": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"plan_applying\",\"message\":\"The plan is being updated. Try again in a minute.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "plan_applying",
+        "message": "The plan is being updated. Try again in a minute."
+      }
+    }
+  },
+  "plan_applying:add_finding": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"plan_applying\",\"message\":\"The plan is being updated. Try again in a minute.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "plan_applying",
+        "message": "The plan is being updated. Try again in a minute."
+      }
+    }
+  },
+  "plan_applying:complete_story": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"plan_applying\",\"message\":\"The plan is being updated. Try again in a minute.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "plan_applying",
+        "message": "The plan is being updated. Try again in a minute."
+      }
+    }
+  },
+  "plan_applying:release_story": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"plan_applying\",\"message\":\"The plan is being updated. Try again in a minute.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "plan_applying",
+        "message": "The plan is being updated. Try again in a minute."
+      }
+    }
+  },
+  "plan_applying:report_task": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"plan_applying\",\"message\":\"The plan is being updated. Try again in a minute.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "plan_applying",
+        "message": "The plan is being updated. Try again in a minute."
+      }
+    }
+  },
+  "project_not_found": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"project_not_found\",\"message\":\"The project does not exist or you are not a member of it.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "project_not_found",
+        "message": "The project does not exist or you are not a member of it."
+      }
+    }
+  },
+  "story_claimed": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"story_claimed\",\"message\":\"Another member holds this story. Pick another story or talk to the holder.\",\"details\":{\"holder\":{\"name\":\"Ben\",\"you\":false,\"agent_label\":\"Claude Code · laptop\"},\"since\":\"2026-01-01T10:00:01Z\",\"alternatives\":[]}}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "story_claimed",
+        "details": {
+          "alternatives": [],
+          "holder": {
+            "agent_label": "Claude Code · laptop",
+            "name": "Ben",
+            "you": false
+          },
+          "since": "2026-01-01T10:00:01Z"
+        },
+        "message": "Another member holds this story. Pick another story or talk to the holder."
+      }
+    }
+  },
+  "story_not_found": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"story_not_found\",\"message\":\"The story is not in the current plan of the project. List the stories to find it.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "story_not_found",
+        "message": "The story is not in the current plan of the project. List the stories to find it."
+      }
+    }
+  },
+  "story_not_found:add_finding": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"story_not_found\",\"message\":\"The story is not in the current plan of the project. List the stories to find it.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "story_not_found",
+        "message": "The story is not in the current plan of the project. List the stories to find it."
+      }
+    }
+  },
+  "task_not_found": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"task_not_found\",\"message\":\"The task is not in the current plan of the project. List the tasks to find it.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "task_not_found",
+        "message": "The task is not in the current plan of the project. List the tasks to find it."
+      }
+    }
+  },
+  "unknown_relation": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"unknown_relation\",\"message\":\"A relation is not in the ontology of the project. Leave relations out to use them all.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "unknown_relation",
+        "message": "A relation is not in the ontology of the project. Leave relations out to use them all."
+      }
+    }
+  }
+}

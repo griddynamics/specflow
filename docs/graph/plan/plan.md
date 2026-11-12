@@ -388,7 +388,7 @@ Target tasks are matched to current tasks in two passes:
 |---|---|---|
 | `completed` | Spec not changed, no cascade | Kept: id, status, commit unchanged; title, description, `done_when`, story and `release` updated |
 | `completed` | Spec changed, or cascade | Becomes `superseded`; a new revision `<key>_R<n>` is created `pending` and `SUPERSEDES` it; the commit is listed as stale; the cause is reported |
-| `pending`, `failed`, `blocked` | Spec changed | Updated in place and set to `pending`; a block is cleared |
+| `pending`, `failed`, `blocked` | Spec changed | Updated in place and set to `pending`; a block (`block_reason`, `blocked_by`) is cleared; the blocking finding stays open |
 | `pending`, `failed`, `blocked` | Spec not changed | Content updated; status unchanged |
 | `in_progress` | Any | Not touched, relationships included; listed in `in_progress_changed` when its spec changed or a prerequisite is superseded or retired |
 | `retired` without commit | Key returns | Updated in place and set to `pending` |
@@ -409,10 +409,10 @@ completed task whose cross-area (`stitch`) prerequisite was superseded is kept a
 
 **Stories** are matched by id. A target story without a current one is created `active`; a current
 active story with no target becomes `retired`; a retired story that is a target again becomes `active`
-under its id. Title, summary, kind and `release` are updated. A story that still holds an `in_progress`
-task stays `active` until that task leaves `in_progress`. Story progress is never stored: it is derived
-at read time from the story's tasks ([lifecycle.md](lifecycle.md)), so a superseded task reopens its
-story by itself.
+under its id. Title, summary, kind and `release` are updated; story claim fields are never written. A
+story that still holds an `in_progress` task stays `active` until that task leaves `in_progress`. Story
+progress is never stored: it is derived at read time from the story's tasks ([lifecycle.md](lifecycle.md)),
+so a superseded task reopens its story by itself.
 
 **Relationships.**
 - `WAITS_FOR` is rewritten for every `pending`, `failed` and `blocked` task and for new tasks; a wait on

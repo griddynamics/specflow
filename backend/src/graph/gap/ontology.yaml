@@ -1,0 +1,76 @@
+# ontology.yaml: the ontology file graph.gap ships (owner: gap), docs/graph/gap.md "Ontology file".
+# Declares only the finding types and relations (origin: agent, no role: nothing here is extracted). Merged with
+# the build file by load_ontology; pairs end at build types and at Fragment. A file of this kind never changes the
+# extraction fingerprint (docs/graph/ontology.md).
+
+format_version: 2
+name: gap-ontology
+version: "1.0"
+owner: gap
+
+vocabularies:
+  finding_kind:
+    gap: the spec is silent where code needs a decision
+    conflict: statements of the spec disagree
+    question: the spec is ambiguous
+    note: a fact learned, nothing to decide
+  finding_status:
+    open: waiting for a person
+    resolved: closed by a person
+    dismissed: closed by a person without a change
+  external_ref_type: [pr, commit, file, url]
+  finding_origin:
+    agent: written by a coding agent
+    analysis: written by spec gap analysis
+    human: written by a person
+
+node_types:
+
+  finding:
+    label: Finding
+    origin: agent
+    tier: governance
+    id: {format: "FND::{SLUG}"}
+    description: |
+      Something a coding agent learned that the spec does not say, linked to the spec nodes it is about.
+      A finding never changes the spec; a person resolves or dismisses it.
+    attributes:
+      kind: {type: enum, values: finding_kind}
+      status: {type: enum, values: finding_status}
+      origin: {type: enum, values: finding_origin}
+      text: {type: text, max_chars: 2000}
+
+  external_ref:
+    label: ExternalRef
+    origin: agent
+    tier: context
+    description: |
+      A pull request, commit, file or URL a finding comes from; one node per project, type and value.
+    attributes:
+      type: {type: enum, values: external_ref_type}
+      value: {type: text, max_chars: 2000}
+
+edge_types:
+
+  ABOUT:
+    origin: agent
+    tier: governance
+    description: |
+      What the finding is about: a spec node, or a fragment of a document.
+    pairs:
+      - {from: finding, to: module}
+      - {from: finding, to: feature}
+      - {from: finding, to: capability}
+      - {from: finding, to: interface}
+      - {from: finding, to: data_entity}
+      - {from: finding, to: requirement}
+      - {from: finding, to: open_question}
+      - {from: finding, to: Fragment}
+
+  REFERS_TO:
+    origin: agent
+    tier: governance
+    description: |
+      Where the finding comes from.
+    pairs:
+      - {from: finding, to: external_ref}

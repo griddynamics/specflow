@@ -15,7 +15,7 @@ ontology format; the rules file says how the spec graph (build ontology v2.0) is
 | Names | Source | In code |
 |---|---|---|
 | Spec side: build types and groups, relations, attributes and their values | The merged ontology, reached only through the plan rules | Never literals (I4) |
-| Plan side: labels `Plan`, `WorkArea`, `Story`, `Task`; relations `IN_AREA`, `IN_STORY`, `IMPLEMENTS`, `WAITS_FOR`, `SUPERSEDES`; the vocabularies of the plan ontology file (phases, task statuses, complexity, area kinds and statuses, interface kinds, `planned_by`, story kinds, statuses and progress, `done_when` sources, `not_buildable` reasons) | Fixed by this spec, declared in the plan ontology file | Allowed as literals in `graph.plan` only, like the built-in names of the build ([../architecture.md](../architecture.md) I4); a test checks that each literal is declared in the shipped plan ontology file |
+| Plan side: labels `Plan`, `WorkArea`, `Story`, `Task`; relations `IN_AREA`, `IN_STORY`, `IMPLEMENTS`, `WAITS_FOR`, `SUPERSEDES`; the vocabularies of the plan ontology file (phases, task statuses and progress, complexity, area kinds and statuses, interface kinds, `planned_by`, story kinds, statuses and progress, `done_when` sources, `not_buildable` reasons) | Fixed by this spec, declared in the plan ontology file | Allowed as literals in `graph.plan` only, like the built-in names of the build ([../architecture.md](../architecture.md) I4); a test checks that each literal is declared in the shipped plan ontology file |
 
 So `graph.plan` plans any spec ontology without code changes, while its own model is fixed
 ([questions.md](questions.md) Q18).
@@ -35,7 +35,7 @@ loads and validates with the current core loader together with the build ontolog
 |---|---|
 | Node types | `Plan`, `WorkArea`, `Story`, `Task`; origin `planner`, tier `plan`, no role (not extracted) |
 | Relations | `IN_AREA` (module, feature, capability, interface, data entity, requirement → `WorkArea`); `IN_STORY` (`Task` → `Story`); `IMPLEMENTS` (`Task` → module, feature, capability, interface, data entity, requirement; `Story` → feature, interface, data entity); `WAITS_FOR` (`Task` → `Task`); `SUPERSEDES` (`Task` → `Task`). All origin `planner`, tier `plan` |
-| Vocabularies | `phase`, `task_status`, `complexity`, `area_kind`, `area_status`, `interface_kind`, `planned_by`, `story_kind`, `story_status`, `story_progress`, `done_when_source`, `not_buildable_reason` |
+| Vocabularies | `phase`, `task_status`, `task_progress`, `complexity`, `area_kind`, `area_status`, `interface_kind`, `planned_by`, `story_kind`, `story_status`, `story_progress`, `done_when_source`, `not_buildable_reason` |
 
 Vocabularies:
 
@@ -43,6 +43,7 @@ Vocabularies:
 |---|---|
 | `phase` | setup, contract, data, logic, integration, quality, acceptance |
 | `task_status` | pending, in_progress, completed, failed, blocked, superseded, retired |
+| `task_progress` | done, skipped, todo (reported by a story claim's holder; [lifecycle.md](lifecycle.md) "Story claims") |
 | `complexity` | low, medium, high |
 | `area_kind`, `area_status` | module, project; active, retired |
 | `interface_kind` | api, event, data, library, cli, config |
@@ -53,9 +54,9 @@ Vocabularies:
 | `done_when_source` | spec, planner |
 | `not_buildable_reason` | process, governance, release_gate, policy_only |
 
-Properties that are not prompt material (claims, commit, revisions, write stamps, `done_when`,
-`implements`, `release`, `interfaces`, `not_buildable`) are not attributes; [data-model.md](data-model.md)
-lists them. Because the plan types and relations are declared, the core `ensure_schema` creates their
+Properties that are not prompt material (task and story claims, `progress`, commit, `completed_by`,
+`blocked_by`, revisions, write stamps, `done_when`, `implements`, `release`, `interfaces`,
+`not_buildable`) are not attributes; [data-model.md](data-model.md) lists them. Because the plan types and relations are declared, the core `ensure_schema` creates their
 `(group_id, edge_key)` indexes and `OwnedWriter` accepts them for owner `plan` only. Nothing in this
 file reaches an extraction prompt, so it does not change build extraction fingerprints.
 

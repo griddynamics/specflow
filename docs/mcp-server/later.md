@@ -9,12 +9,14 @@ tags: [mcp]
 
 | Feature | What it adds |
 |---|---|
-| `get_feature` | The first tool to add when an agent needs more than the feature list: one feature with its module, the requirements in its scope (`GraphReader.scope`, [../graph/api.md](../graph/api.md#read-and-search)) and provenance (document, lines, quote) |
-| Search | `GraphReader.find_nodes` hybrid search; the role then needs the LLM gateway for query embeddings ([../graph/api.md](../graph/api.md#llm-gateway)) |
-| Impact | `GraphReader.impact` for "what else does this change touch" ([../graph/api.md](../graph/api.md#read-and-search)) |
-| Other node types | Modules, capabilities, requirements through the same paged read |
-| Plan tasks | Read tools done: `list_tasks`, `list_feature_tasks`, `get_task_path` and `get_task_brief` ([tools.md](tools.md#list_tasks)). Left: a `claim_next` style next-task tool, which needs the write tools below, and the web app's Develop tab flow |
-| Write tools | Claiming a task, reporting status; open to every project member like the read tools, with audit records and client confirmation |
+| Develop tab flow | The web app's Plan › Develop tab built on the story tools; the story and spec tools ([tools.md](tools.md#story-and-spec-tools)) closed the earlier rows `get_feature` (now `get_node`), Search (`search_spec`, embedded by the API), Impact (`trace`), Other node types (`get_node`, `search_spec`), the next-task tool (`claim_story`) and Write tools |
+| Claim leases | A claim lasts until it is completed or released. Leases, heartbeats and expiry come only if forgotten claims become a burden; today a lead frees them in the web app (stale claims, forced release) |
+| Merge from CI | A CI step reports the merge of a story's pull request instead of the agent's `complete_story` |
+| Story size | Measure story size against pull request size on a real plan before the planner changes how it cuts stories |
+| Change feed | Tell an agent when the spec or the plan changes under its claim, instead of `spec_changed` at completion |
+| Review state | A review step between the merge and `completed` |
+| Agent-added tasks | Agents propose tasks or edit `done_when`; today they record findings and people change the spec |
+| MCP Apps tables | The people tools' rows as an MCP Apps view, for clients that render one (the text block is plain JSON) |
 | Advertised scopes | Providers that choose the token's audience from the requested scope (Entra ID's `api://<app>/.default`) need the PRM to advertise that scope; a setting added with such a provider, never checked on the token |
 | Long-running tools | MCP tasks (the `io.modelcontextprotocol/tasks` extension, built on the SDK's extension mechanism): the tool call answers with a task, each task is a Temporal workflow, and `tasks/get` reports the workflow's status. Claude Code polls tasks from version 2.1.304. Needs a decision on how the public `mcp` process reaches Temporal: its own Temporal credentials, or a call through the internal API |
 | Streamed responses | Progress updates and elicitation (questions to the user) during a tool call: the SDK's streamed responses instead of JSON, and ingress that does not buffer `text/event-stream`. Built when a tool needs it |

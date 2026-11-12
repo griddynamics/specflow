@@ -348,7 +348,7 @@ def _task_ops(view: PlanView, state: _State) -> list[NodeOp]:
                     label="Task",
                     id=final_id,
                     expected_status=found.status,
-                    properties={**properties, "status": "pending", "block_reason": None},
+                    properties={**properties, "status": "pending", "block_reason": None, "blocked_by": None},
                 )
             )
         elif found is not None and (decision.cause is not None or _changed(found, properties)):

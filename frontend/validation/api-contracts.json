@@ -87,6 +87,31 @@
       "path": "/projects/{pid}/plan/tasks"
     },
     {
+      "id": "list_findings_api_v1_projects__pid__findings_get",
+      "method": "GET",
+      "path": "/projects/{pid}/findings"
+    },
+    {
+      "id": "dismiss_finding_api_v1_projects__pid__findings__finding_id__dismiss_post",
+      "method": "POST",
+      "path": "/projects/{pid}/findings/{finding_id}/dismiss"
+    },
+    {
+      "id": "resolve_finding_api_v1_projects__pid__findings__finding_id__resolve_post",
+      "method": "POST",
+      "path": "/projects/{pid}/findings/{finding_id}/resolve"
+    },
+    {
+      "id": "list_claims_api_v1_projects__pid__plan_claims_get",
+      "method": "GET",
+      "path": "/projects/{pid}/plan/claims"
+    },
+    {
+      "id": "release_claim_api_v1_projects__pid__plan_claims__story_id__release_post",
+      "method": "POST",
+      "path": "/projects/{pid}/plan/claims/{story_id}/release"
+    },
+    {
       "id": "sources_status_api_v1_projects__pid__sources_get",
       "method": "GET",
       "path": "/projects/{pid}/sources"

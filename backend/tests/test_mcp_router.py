@@ -211,9 +211,9 @@ async def test_a_hanging_api_ends_the_call_at_the_total_timeout_as_internal_erro
         await asyncio.Event().wait()  # never answers
         return httpx.Response(200)
 
-    # the total timeout is the default of ``_get``, bound when the function was defined: patching the module
+    # the total timeout is the default of ``_send``, bound when the function was defined: patching the module
     # constant would not reach it, so the default itself is replaced (no product change)
-    monkeypatch.setattr(ApiClient._get, "__defaults__", (0.2,))
+    monkeypatch.setattr(ApiClient._send, "__defaults__", (0.2,))
     async with sdk_session(router(valid_env, hang), ALICE) as session:
         started = time.monotonic()
         result = await call(session, "list_projects")

@@ -84,7 +84,15 @@ def plan_state(current: CurrentPlan, *, plannable: frozenset[str], required: fro
         required=required,
         areas={area.area_id: area.status for area in current.areas},
         stories={
-            story.story_id: StoryState(area_id=story.area_id, status=story.status, kind=story.kind, anchor=story.anchor)
+            story.story_id: StoryState(
+                area_id=story.area_id,
+                status=story.status,
+                kind=story.kind,
+                anchor=story.anchor,
+                held=story.claimed_by is not None,
+                claim_token=story.claim_token,
+                claim_stamped=story.claimed_at is not None,
+            )
             for story in current.stories
         },
         tasks={
@@ -95,6 +103,10 @@ def plan_state(current: CurrentPlan, *, plannable: frozenset[str], required: fro
                 implements=task.implements,
                 commit=task.commit,
                 claimed=task.claimed_by is not None,
+                claim_token=task.claim_token,
+                progress=task.progress,
+                blocked_by=task.blocked_by,
+                completed_by=task.completed_by,
             )
             for task in current.tasks
         },
