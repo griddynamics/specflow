@@ -179,7 +179,9 @@ def test_main_fails_when_a_role_holds_pymupdf(monkeypatch: pytest.MonkeyPatch, c
     names = {*notice["packages"], *licence_gate.requirement_names(pyproject["project"]["optional-dependencies"]["parse"])}
     parse_tree = [row(n, "MIT") for n in names if licence_gate.normalise(n) not in config.policy.override_versions]
     parse_tree += pinned_rows(config)
-    listings = {"gcp-aws": clean, "gcp-aws-parse": [*parse_tree, row("pymupdf4llm", "AGPL-3.0-or-later"), row("somelib", "AGPL-3.0-only")]}
+    envs = {role["name"]: "-".join(role["extras"]) for role in config.data["roles"]}
+    listings = {env: clean for env in envs.values()}
+    listings[envs["worker-parse"]] = [*parse_tree, row("pymupdf4llm", "AGPL-3.0-or-later"), row("somelib", "AGPL-3.0-only")]
     monkeypatch.setattr(licence_gate, "sync_env", lambda _project, extras, target: Path("-".join(extras)))
     monkeypatch.setattr(licence_gate, "list_licences", lambda _pip, python: listings[python.name])
 
