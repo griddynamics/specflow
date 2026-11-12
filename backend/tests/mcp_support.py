@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import time
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
@@ -177,8 +178,16 @@ def mcp_token(email: str = "alice@example.com", **over: Any) -> str:
     return token(email, **{"aud": MCP_URL, "azp": MCP_CLIENT, **over})
 
 
+def suite_token(email: str) -> str:
+    """An MCP token for a module-level constant: minted at import, so it must outlive the whole test run (a CI run
+    is longer than the 300 s of `mcp_token`)."""
+
+    return mcp_token(email, exp=int(time.time()) + SUITE_TOKEN_SECONDS)
+
+
+SUITE_TOKEN_SECONDS = 6 * 3600
 ALICE_EMAIL = "alice@example.com"
-ALICE = mcp_token(ALICE_EMAIL)
+ALICE = suite_token(ALICE_EMAIL)
 
 
 def completed(caplog: pytest.LogCaptureFixture) -> list[Any]:
