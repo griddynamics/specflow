@@ -10,7 +10,7 @@
 # the models are in the image and HF_HUB_OFFLINE=1.
 
 # deps: the locked runtime dependencies including the `parse` extra (torch from the CPU index).
-FROM python:3.12.13-slim-bookworm AS deps
+FROM python:3.15.0-slim-bookworm AS deps
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -49,7 +49,7 @@ RUN uv sync --frozen --no-dev --no-editable --extra worker --extra parse --extra
 
 # runtime: uid 10001, a HOME dir, the venv and the models only. Logs go to stdout; read-only root
 # filesystem is fine. worker-parse needs a writable /tmp (the parse writes temp files there).
-FROM python:3.12.13-slim-bookworm
+FROM python:3.15.0-slim-bookworm
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:${PATH}" \

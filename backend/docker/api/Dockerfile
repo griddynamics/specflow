@@ -7,7 +7,7 @@
 
 # build: the locked runtime dependencies, then the project itself NON-editable, so the
 # runtime stage needs only the virtualenv (no src/ tree).
-FROM python:3.12.13-slim-bookworm AS build
+FROM python:3.15.0-slim-bookworm AS build
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
@@ -23,7 +23,7 @@ RUN uv sync --frozen --no-dev --no-editable --extra api --extra gcp --extra aws
 
 # runtime: uid 10001, a HOME dir, the venv, alembic.ini and migrations/. Writes no files
 # (logs go to stdout), so it runs on a read-only root filesystem.
-FROM python:3.12.13-slim-bookworm
+FROM python:3.15.0-slim-bookworm
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:${PATH}" \
