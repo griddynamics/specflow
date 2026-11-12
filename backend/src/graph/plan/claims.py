@@ -38,6 +38,7 @@ from graph.plan.claim_support import (
     claimable,
     claimed_tasks,
     completion_repeat,
+    held_by,
     held_group,
     persisting,
     refusal,
@@ -98,6 +99,7 @@ class StoryClaims:
                         "claimed_at": run.now,
                         "agent_label": agent_label,
                         "claim_token": token,
+                        "token_holder": claimed_by,
                         **({} if branch is None else {"branch": branch}),
                     }
                     for unit_id in verdict.unit
@@ -126,27 +128,31 @@ class StoryClaims:
         project_id: str,
         story_id: str,
         *,
+        claimed_by: str | None = None,
         claim_token: str | None = None,
         force: bool = False,
         note: str | None = None,
         branch: str | None = None,
     ) -> StoryRelease:
-        """End the claim: the claimed tasks → ``pending``; ``note`` and ``branch`` are stored when given."""
+        """End the claim: the claimed tasks → ``pending``; ``note`` and ``branch`` are stored when given. Without
+        ``force`` the caller ``claimed_by`` must hold the story (on a repeat: have held it) under ``claim_token``."""
 
         check_note(note)
         check_branch(branch)
-        if claim_token is None and not force:
-            raise TaskStateError("claim_mismatch")
+        if not force:
+            if claim_token is None:
+                raise TaskStateError("claim_mismatch")
+            check_claimant(claimed_by or "")
 
         async def work(run: Work) -> StoryRelease:
             if not force:
                 persisting(run.board)
             story = stored_story(run.board, story_id)
             if story.claimed_by is None:
-                if force or same_token(story.claim_token, claim_token):
+                if force or (same_token(story.claim_token, claim_token) and story.token_holder == claimed_by):
                     return StoryRelease(released=(), repeat=True)
                 raise TaskStateError("claim_mismatch")
-            if not force and not same_token(story.claim_token, claim_token):
+            if not force and not held_by(story, claimed_by, claim_token):
                 raise TaskStateError("claim_mismatch")
             group = held_group(run.board, story_id)
             claimed = claimed_tasks(run.board, group, story.claim_token)
@@ -161,10 +167,19 @@ class StoryClaims:
         return await self._transact(project_id, lambda board: held_group(board, story_id), work)
 
     async def report_progress(
-        self, project_id: str, task_id: str, *, claim_token: str, progress: TaskProgress, note: str | None = None
+        self,
+        project_id: str,
+        task_id: str,
+        *,
+        claimed_by: str,
+        claim_token: str,
+        progress: TaskProgress,
+        note: str | None = None,
     ) -> StoryTask:
-        """Set ``progress`` (and a note) on a claimed task of a held story; the status stays ``in_progress``."""
+        """Set ``progress`` (and a note) on a claimed task of a story ``claimed_by`` holds; the status stays
+        ``in_progress``."""
 
+        check_claimant(claimed_by)
         check_progress(progress)
         check_note(note)
         story_id = await self._story_of(project_id, task_id)
@@ -177,9 +192,8 @@ class StoryClaims:
                 raise TaskStateError("unknown_task")
             if (
                 task.status != "in_progress"
-                or story.claimed_by is None
+                or not held_by(story, claimed_by, claim_token)
                 or not same_token(task.claim_token, claim_token)
-                or not same_token(story.claim_token, claim_token)
             ):
                 raise TaskStateError("claim_mismatch")
             if task.progress != progress or (note is not None and task.note != note):
@@ -212,7 +226,7 @@ class StoryClaims:
             story = stored_story(run.board, story_id)
             if story.claimed_by is None:
                 return completion_repeat(run.board, story, claim_token, completed_by, commit)
-            if not same_token(story.claim_token, claim_token):
+            if not held_by(story, completed_by, claim_token):
                 raise TaskStateError("claim_mismatch")
             group = held_group(run.board, story_id)
             claimed = claimed_tasks(run.board, group, claim_token)

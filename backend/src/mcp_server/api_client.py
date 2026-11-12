@@ -12,7 +12,7 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from http.cookiejar import DefaultCookiePolicy
-from typing import Final
+from typing import Any, Final
 
 import httpx
 from starlette.requests import Request
@@ -78,28 +78,41 @@ class ApiClient:
         await self._client.aclose()
 
     async def call(
-        self, route: str, params: Mapping[str, str | list[str]], authorization: str, request_id: str
+        self,
+        route: str,
+        params: Mapping[str, str | list[str]],
+        authorization: str,
+        request_id: str,
+        *,
+        body: Mapping[str, Any] | None = None,
     ) -> ApiResult:
-        """One ``GET`` on ``route`` with the caller's ``Authorization`` header unchanged and ``request_id``."""
+        """One ``GET`` on ``route``, or one ``POST`` with ``body`` as JSON when a body is given (a write tool), with the
+        caller's ``Authorization`` header unchanged and ``request_id``."""
 
-        return await self._get(route, params, {"Authorization": authorization, REQUEST_ID_HEADER: request_id})
+        headers = {"Authorization": authorization, REQUEST_ID_HEADER: request_id}
+        return await self._send(route, params, headers, body=body)
 
     async def readyz(self) -> ApiResult:
         """``GET /readyz``: no token, no query."""
 
-        return await self._get(READYZ_PATH, {}, {}, READYZ_TIMEOUT_SECONDS)
+        return await self._send(READYZ_PATH, {}, {}, READYZ_TIMEOUT_SECONDS)
 
-    async def _get(
+    async def _send(
         self,
         path: str,
         params: Mapping[str, str | list[str]],
         headers: Mapping[str, str],
         seconds: float = API_TIMEOUT_SECONDS,
+        *,
+        body: Mapping[str, Any] | None = None,
     ) -> ApiResult:
         try:
             async with asyncio.timeout(seconds):  # the httpx timeout is per phase; this one is total
                 sent = {**headers, "Accept": "application/json"}
-                response = await self._client.get(path, params=params, headers=sent)
+                if body is None:
+                    response = await self._client.get(path, params=params, headers=sent)
+                else:
+                    response = await self._client.post(path, params=params, headers=sent, json=body)
         except (httpx.TimeoutException, TimeoutError):
             return ApiResult(failure=API_TIMEOUT)
         except httpx.NetworkError:  # connect, read, write or close failed: nobody answered

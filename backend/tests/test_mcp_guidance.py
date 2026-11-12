@@ -256,25 +256,33 @@ def test_duplicate_prompt_names_are_refused_at_install() -> None:
 async def test_install_registers_the_tools_and_the_prompt() -> None:
     server = MCPServer("t")
     install(server, resource_url=URL)
-    assert [p.name for p in await server.list_prompts()] == ["select_project"]
+    assert [p.name for p in await server.list_prompts()] == ["select_project", "start"]
     names = sorted(t.name for t in await server.list_tools())
     assert names == [
+        "add_finding",
+        "claim_story",
+        "complete_story",
         "expand_brief",
         "get_evidence",
         "get_node",
         "get_story_brief",
         "get_task_brief",
         "get_task_path",
+        "list_areas",
         "list_feature_tasks",
         "list_features",
         "list_projects",
+        "list_stories",
         "list_tasks",
         "path",
+        "preview_story",
+        "release_story",
+        "report_task",
         "search_spec",
         "similar",
         "trace",
     ]
-    assert (PROMPTS[0],) == PROMPTS and isinstance(PROMPTS[0], PromptDeclaration)
+    assert len(PROMPTS) == 2 and all(isinstance(prompt, PromptDeclaration) for prompt in PROMPTS)
     assert isinstance(TOOLS[0], ToolDeclaration)
 
 
@@ -315,11 +323,15 @@ async def test_the_sdk_client_reads_the_instructions(served) -> None:
     assert initialized.capabilities.prompts is not None
 
 
-async def test_prompts_list_lists_select_project_with_an_optional_argument(served) -> None:
+async def test_prompts_list_lists_select_project_and_start_with_an_optional_argument_each(served) -> None:
     app, *_ = served
     async with sdk_session(app, ALICE) as session:
         listed = (await session.list_prompts()).prompts
-    (prompt,) = listed
+    prompt, start = listed
+    assert (start.name, start.description) == ("start", guidance.START_DESCRIPTION)
+    assert start.arguments is not None
+    ((area,),) = [start.arguments]
+    assert (area.name, area.required, area.description) == ("area", False, guidance.AREA_ARGUMENT_DESCRIPTION)
     assert prompt.name == "select_project" and prompt.description == guidance.SELECT_PROJECT_DESCRIPTION
     assert prompt.arguments is not None
     (argument,) = prompt.arguments
@@ -396,7 +408,7 @@ async def test_the_oidc_app_serves_the_instructions_and_guards_the_prompts(valid
         initialized = await session.initialize()
         prompts = (await session.list_prompts()).prompts
     assert initialized.instructions == guidance.server_instructions(MCP_URL)
-    assert [p.name for p in prompts] == ["select_project"]
+    assert [p.name for p in prompts] == ["select_project", "start"]
     async with serving(fresh) as client:  # a session manager runs once per app
         refused = await rpc(client, None, {"jsonrpc": "2.0", "id": 3, "method": "prompts/list"})
     assert refused.status_code == 401

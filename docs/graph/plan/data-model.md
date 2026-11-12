@@ -62,6 +62,7 @@ Partition creates stories from the spec; no model invents them.
 | `status` | `active` or `retired` ("Story status") |
 | `claimed_by`, `claimed_at`, `agent_label` | The story claim ([lifecycle.md](lifecycle.md) "Story claims"): the holder's user id, when, and the label the agent gave (1-80 printable characters, display only). Set by `claim_story`, cleared when the claim ends. The story is held exactly while `claimed_by` is set |
 | `claim_token` | Token of the last story claim; kept after the claim ends (release, completion, blocking finding) until the next claim, so a repeated call is recognised. Never returned by reads |
+| `token_holder` | User id the last story claim's token was issued to; set by `claim_story`, kept like `claim_token`, so a repeated `release_story` by another member is refused. Never returned by reads |
 | `branch`, `note` | Last branch name (1-200 printable characters) and note (at most 500 characters) given by a claim or release; kept when the claim ends; `note` never logged |
 | `pr_url` | Pull request URL given by the last `complete_story` |
 | `created_at`, `updated_at`, `last_run_id` | Write stamps |

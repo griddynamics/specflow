@@ -157,11 +157,13 @@ async def test_a_preview_shows_the_unit_the_open_tasks_the_blockers_and_what_it_
 async def test_a_preview_of_a_held_story_shows_the_claim_but_never_the_token() -> None:
     service, _ = _service()
     claim = await service.claim_story("shop", API, claimed_by="u1", agent_label="builder", branch="feat/api")
-    await service.report_progress("shop", "TASK::A::API_CONTRACT", claim_token=claim.claim_token, progress="done")
-    await service.release_story("shop", API, claim_token=claim.claim_token, note="paused")
+    await service.report_progress(
+        "shop", "TASK::A::API_CONTRACT", claimed_by="u1", claim_token=claim.claim_token, progress="done"
+    )
+    await service.release_story("shop", API, claimed_by="u1", claim_token=claim.claim_token, note="paused")
     claim = await service.claim_story("shop", API, claimed_by="u2", agent_label="other")
     await service.report_progress(
-        "shop", "TASK::A::API_LOGIC", claim_token=claim.claim_token, progress="skipped", note="n"
+        "shop", "TASK::A::API_LOGIC", claimed_by="u2", claim_token=claim.claim_token, progress="skipped", note="n"
     )
 
     preview = await service.story_preview("shop", API)
@@ -235,3 +237,25 @@ async def test_a_story_that_does_not_exist_cannot_be_claimed_or_ready() -> None:
     assert board.verdict("STORY::A::NOPE", "u1").code == "unknown_story"
     assert board.claimable("STORY::A::NOPE") is False and board.alternatives("STORY::A::NOPE") == ()
     assert board.unit_of("STORY::A::NOPE") == ("STORY::A::NOPE",)
+
+
+async def test_a_story_in_progress_only_through_task_claims_shows_the_oldest_task_holder() -> None:
+    # No story claim on API: hotfix-b claimed LOGIC at 10:05, hotfix-a CONTRACT at 10:01; the rows show hotfix-a.
+    service, memory = _service()
+    memory.set_task(
+        "TASK::A::API_LOGIC", status="in_progress", claimed_by="hotfix-b", claimed_at="2026-01-02T10:05:00+00:00"
+    )
+    memory.set_task(
+        "TASK::A::API_CONTRACT", status="in_progress", claimed_by="hotfix-a", claimed_at="2026-01-02T10:01:00+00:00"
+    )
+
+    rows = {row.story_id: row for row in await service.story_list("shop", view="open", caller="u1")}
+    preview = await service.story_preview("shop", API)
+    (area,) = [item for item in await service.area_summary("shop") if item.area_id == "AREA::A"]
+
+    since = datetime(2026, 1, 2, 10, 1, tzinfo=UTC)
+    assert (rows[API].state, rows[API].claimed_by, rows[API].claimed_at) == ("in_progress", "hotfix-a", since)
+    assert (preview.claimed_by, preview.claimed_at, preview.agent_label) == ("hotfix-a", since, None)
+    assert area.holders == ("hotfix-a",)
+    assert (rows[UI].claimed_by, rows[UI].claimed_at) == (None, None)
+    assert [blocker.claimed_by for blocker in (await service.story_preview("shop", UI)).blockers] == ["hotfix-a"]

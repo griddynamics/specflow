@@ -151,7 +151,8 @@ completed, `commit`, `completed_by` and `completed_at`; the claim token is never
 
 ### Story reads for people
 
-Rows name holders by user id; the host turns them into names. `state` is the story state of
+Rows name holders by user id; the host turns them into names. A story without a story claim whose task is
+`in_progress` under a task claim names that task's holder and `claimed_at` (the oldest such claim). `state` is the story state of
 [lifecycle.md](lifecycle.md) "Story claims". A project without a plan raises `PlanReadError("no_plan")`.
 
 | Method | Contract |
@@ -159,6 +160,7 @@ Rows name holders by user id; the host turns them into names. `state` is the sto
 | `area_summary(project_id) -> tuple[AreaSummary, ...]` | Per active area, project area last: `area_id`, `title`, `kind`, stories per state, the holders of its held stories, `open_tasks` |
 | `story_list(project_id, *, view="open", caller, area_id=None, finding_ids=()) -> tuple[StoryRow, ...]` | Active stories as rows: `rank`, `story_id`, `title`, `kind`, `state`, holder (`claimed_by`, `claimed_at`, `agent_label`), `waits_on` (up to 3 stories with unfinished work the unit waits for), `tasks` (open count), `unblocks` (stories that wait for it), `blocked_by` (finding ids). `open`: every state but `completed`, `ready` first (by `release`, then `unblocks` descending, then `story_id`), then `in_progress`, `waiting`, `blocked`. `mine`: held by `caller`, plus stories with a task blocked by one of `finding_ids` (the host passes the caller's open findings). `done`: `completed` stories newest first, with `pr_url`, `commit`, `completed_by` and `completed_at` of their last completed task. Unknown `area_id`: `PlanReadError("area_not_found")` |
 | `story_preview(project_id, story_id) -> StoryPreview` | The story, its state, claim (holder, `claimed_at`, `agent_label`, `branch`, `note`), the unit's story ids, its open tasks in topological order (`task_id`, `title`, `status`, `ready`, `complexity`, `progress`), the blockers outside the unit (story, state, holder) and `unblocks`. `findings`: the open findings about the nodes its open tasks implement (as in the story brief). Never the claim token. Unknown or retired: `PlanReadError("story_not_found")` |
+| `story_findings(project_id, story_ids) -> tuple[StoryFindings, ...]` | Per story in the order asked (duplicates once; an unknown or retired story counts 0): `count`, the open findings about the story's anchor and the nodes its tasks implement (`FindingsReads` port, one read per story, at most 200; 0 without a port), and `question`, the oldest open blocking one raised on a story of the story's claim unit (`OpenFinding`, or none; a blocking finding about a shared node raised on another story is counted only). The list tools show these beside a page of `story_list` rows. One plan load |
 
 ### Story calls
 
@@ -172,9 +174,9 @@ task outside the claim (`invalid_done`). State refusals raise `TaskStateError`.
 | Method | Contract |
 |---|---|
 | `claim_story(project_id, story_id, *, claimed_by, agent_label=None, branch=None) -> StoryClaim` | `claim_token`, `story_ids` (the unit, the asked story first), `tasks` (`StoryTask`s in topological order), `claimed_at`, `repeat` |
-| `release_story(project_id, story_id, *, claim_token=None, force=False, note=None, branch=None) -> StoryRelease` | `released` (task ids), `repeat`; `force=True` is a host operation |
-| `report_progress(project_id, task_id, *, claim_token, progress, note=None) -> StoryTask` | The task after the report. A task that is not `in_progress` or not under the held token: `claim_mismatch`; an unknown task: `unknown_task` |
-| `complete_story(project_id, story_id, *, claim_token, completed_by, merge_commit, pr_url=None, done=None) -> StoryCompletion` | `completed`, `released`, `now_available` (story ids), `spec_changed` (spec ids: the implemented nodes a build wrote after the plan's consumed builds), `repeat` |
+| `release_story(project_id, story_id, *, claimed_by=None, claim_token=None, force=False, note=None, branch=None) -> StoryRelease` | `released` (task ids), `repeat`; `claimed_by` (the caller) and `claim_token` are required unless `force=True`, a host operation |
+| `report_progress(project_id, task_id, *, claimed_by, claim_token, progress, note=None) -> StoryTask` | The task after the report. A task that is not `in_progress`, not under the held token or of a story `claimed_by` does not hold: `claim_mismatch`; an unknown task: `unknown_task` |
+| `complete_story(project_id, story_id, *, claim_token, completed_by, merge_commit, pr_url=None, done=None) -> StoryCompletion` | `completed`, `released`, `now_available` (story ids), `spec_changed` (spec ids: the implemented nodes a build wrote after the plan's consumed builds), `repeat`; `completed_by` must hold the story |
 | `block_story(project_id, story_id, *, claim_token, reason, finding_id) -> StoryRelease` | `released` holds the blocked task ids; called by the host for a blocking finding ([../gap.md](../gap.md) "Blocking link") |
 | `unblock_finding(project_id, finding_id) -> tuple[str, ...]` | The task ids moved back to `pending`; a host operation |
 

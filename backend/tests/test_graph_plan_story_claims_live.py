@@ -81,7 +81,9 @@ async def test_a_story_is_claimed_reported_and_completed_and_the_stories_it_unbl
 
     claim = await service.claim_story(project_id, UNSHARED, claimed_by="u1", agent_label="builder", branch="feat/u")
     assert claim.story_ids == (UNSHARED,) and [task.task_id for task in claim.tasks] == [UNSHARED_TASK]
-    item = await service.report_progress(project_id, UNSHARED_TASK, claim_token=claim.claim_token, progress="done")
+    item = await service.report_progress(
+        project_id, UNSHARED_TASK, claimed_by="u1", claim_token=claim.claim_token, progress="done"
+    )
     assert (item.status, item.progress) == ("in_progress", "done")
     preview = await service.story_preview(project_id, UNSHARED)
     assert (preview.state, preview.claimed_by, preview.agent_label, preview.branch) == (
@@ -142,12 +144,21 @@ async def test_the_holder_claims_again_for_the_same_token_and_another_user_is_re
     assert refused.value.code == "story_claimed" and refused.value.claimed_by == "u1"
     assert refused.value.claimed_at is not None and len(refused.value.alternatives) <= 3
     assert UNSHARED not in refused.value.alternatives
-    released = await service.release_story(project_id, UNSHARED, claim_token=first.claim_token, note="later")
+    with pytest.raises(TaskStateError) as not_holder:  # u2 presents u1's valid token
+        await service.release_story(project_id, UNSHARED, claimed_by="u2", claim_token=first.claim_token)
+    assert not_holder.value.code == "claim_mismatch"
+    assert (await service.story_preview(project_id, UNSHARED)).claimed_by == "u1"
+    released = await service.release_story(
+        project_id, UNSHARED, claimed_by="u1", claim_token=first.claim_token, note="later"
+    )
     assert released.released == (UNSHARED_TASK,)
-    repeat = await service.release_story(project_id, UNSHARED, claim_token=first.claim_token)
+    repeat = await service.release_story(project_id, UNSHARED, claimed_by="u1", claim_token=first.claim_token)
     assert repeat.released == () and repeat.repeat is True
+    with pytest.raises(TaskStateError) as other_repeat:  # the stored token holder makes a repeat the holder's only
+        await service.release_story(project_id, UNSHARED, claimed_by="u2", claim_token=first.claim_token)
+    assert other_repeat.value.code == "claim_mismatch"
     with pytest.raises(TaskStateError) as stale:
-        await service.release_story(project_id, UNSHARED, claim_token="0" * 32)
+        await service.release_story(project_id, UNSHARED, claimed_by="u1", claim_token="0" * 32)
     assert stale.value.code == "claim_mismatch"
 
 
@@ -360,7 +371,7 @@ async def test_a_cycle_of_stories_is_claimed_released_and_blocked_as_one_unit(
     report = await check_plan(_context(graph_project, project_id, tmp_path))
     assert report.ok, report.problems
 
-    released = await service.release_story(project_id, STRIPE, claim_token=claim.claim_token)
+    released = await service.release_story(project_id, STRIPE, claimed_by="u1", claim_token=claim.claim_token)
 
     assert set(released.released) == set(order)
     assert (await service.story_preview(project_id, CHECKOUT)).claimed_by is None
@@ -400,7 +411,9 @@ async def test_a_plan_run_after_claim_progress_and_block_keeps_the_claim_and_res
     await _complete(life, project_id, WORKSPACE, TOOLCHAIN, UNSHARED_TASK)
     service = _service(graph_project)
     held = await service.claim_story(project_id, PLACE, claimed_by="u1", agent_label="builder")
-    await service.report_progress(project_id, PLACE_TASK, claim_token=held.claim_token, progress="done", note="built")
+    await service.report_progress(
+        project_id, PLACE_TASK, claimed_by="u1", claim_token=held.claim_token, progress="done", note="built"
+    )
     other = await service.claim_story(project_id, EXPORT, claimed_by="u2")
     await service.block_story(
         project_id, EXPORT, claim_token=other.claim_token, reason="spec_missing", finding_id="FND::H"
@@ -439,7 +452,7 @@ async def test_a_plan_run_after_claim_progress_and_block_keeps_the_claim_and_res
     reset = await _stored(graph_project, project_id, EXPORT_TASK)
     assert (reset.status, reset.blocked_by, reset.block_reason) == ("pending", None, None)
     assert await service.unblock_finding(project_id, "FND::H") == ()
-    released = await service.release_story(project_id, PLACE, claim_token=held.claim_token)
+    released = await service.release_story(project_id, PLACE, claimed_by="u1", claim_token=held.claim_token)
     assert released.released == (PLACE_TASK,)
 
 
@@ -453,11 +466,11 @@ async def test_the_story_calls_are_refused_while_a_plan_persists_except_a_forced
     token = claim.claim_token
     await graph_project.update_nodes(select("Plan"), {"applying": "run-a71"}, project_id=project_id)
     calls = (
-        service.report_progress(project_id, UNSHARED_TASK, claim_token=token, progress="done"),
+        service.report_progress(project_id, UNSHARED_TASK, claimed_by="u1", claim_token=token, progress="done"),
         service.complete_story(project_id, UNSHARED, claim_token=token, completed_by="u1", merge_commit=COMMIT),
         service.block_story(project_id, UNSHARED, claim_token=token, reason="spec_missing", finding_id="FND::A71"),
         service.unblock_finding(project_id, "FND::A71"),
-        service.release_story(project_id, UNSHARED, claim_token=token),
+        service.release_story(project_id, UNSHARED, claimed_by="u1", claim_token=token),
     )
 
     for call in calls:
@@ -497,7 +510,9 @@ async def test_progress_reported_while_a_plan_persists_succeeds_or_answers_plan_
     run, progress = await asyncio.wait_for(
         asyncio.gather(
             run_with(replan, StepFunctions()),
-            service.report_progress(project_id, PLACE_TASK, claim_token=held.claim_token, progress="done"),
+            service.report_progress(
+                project_id, PLACE_TASK, claimed_by="u1", claim_token=held.claim_token, progress="done"
+            ),
             return_exceptions=True,
         ),
         30,

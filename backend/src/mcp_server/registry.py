@@ -2,7 +2,8 @@
 registry).
 
 The wrapper runs, from the outside in: the ``mcp.tool.completed`` audit event (FR-MCP-OPS-07), error mapping
-(FR-MCP-TOOL-08, ``from_api``), the API call: one ``GET`` on the tool's agent route with the caller's token.
+(FR-MCP-TOOL-08, ``from_api``), the API call: one ``GET`` on the tool's agent route with the caller's token, or one
+``POST`` with the JSON body for a write tool (its annotations are ``WRITE``).
 Provisioning and the membership check run in the API (FR-MCP-ACC-02, ACC-05). This is the only module that uses the
 SDK's tool and prompt API (FR-MCP-ACC-06). A tool error is RETURNED as a result with ``isError``: an exception that
 left the wrapper would reach the client as SDK text.
@@ -31,48 +32,70 @@ from starlette.requests import Request
 from agent_contracts import (
     AGENT_ROUTES,
     INTERNAL_ERROR,
+    AddFindingArgs,
+    AreaList,
     BriefExpansion,
+    ClaimStoryArgs,
+    CompleteStoryArgs,
     Evidence,
     ExpandBriefArgs,
     FeatureList,
     FeatureTaskList,
+    FindingResult,
     GetEvidenceArgs,
     GetNodeArgs,
     GetStoryBriefArgs,
     GetTaskBriefArgs,
     GetTaskPathArgs,
+    ListAreasArgs,
     ListFeaturesArgs,
     ListFeatureTasksArgs,
     ListProjectsArgs,
+    ListStoriesArgs,
     ListTasksArgs,
     NodeDetail,
     NodePaths,
     PathArgs,
+    PreviewStoryArgs,
     ProjectArguments,
     ProjectList,
+    ReleaseStoryArgs,
+    ReportTaskArgs,
     SearchSpecArgs,
     SimilarArgs,
     SimilarNodes,
     SpecSearch,
     SpecTrace,
     StoryBriefResult,
+    StoryClaim,
+    StoryCompletion,
+    StoryList,
+    StoryPreview,
+    StoryRelease,
     TaskBriefResult,
     TaskList,
     TaskPath,
+    TaskReport,
     TraceArgs,
 )
 from logger.correlation import current_request_id
 from logger.logger import INFO, get_logger, log_event
-from mcp_server import descriptions, guidance
+from mcp_server import descriptions, guidance, tables
 from mcp_server.api_client import request_api_client
 from mcp_server.errors import McpToolError, error_body, from_api
 from mcp_server.http import McpInvariantError, required
 
 logger = get_logger("mcp_server.registry")
 
-# FR-MCP-TOOL-09: every version 1 tool is read-only, idempotent and closed-world.
+# FR-MCP-TOOL-09: a read tool is read-only, idempotent and closed-world.
 READ_ONLY: Final = ToolAnnotations(
     read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False
+)
+# A write tool changes plan state or findings, never a spec node: not read-only, not destructive, idempotent (a
+# repeat has no further effect, tools.md Repeats), closed-world. Its declaration has no method field: these
+# annotations make its API call a ``POST``.
+WRITE: Final = ToolAnnotations(
+    read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=False
 )
 
 
@@ -81,7 +104,8 @@ class ToolDeclaration:
     """A tool: its name, whether it takes a ``project_id``, its schemas, description and agent route.
 
     ``summary`` is the one line for people (the web app's guide); ``description`` is what agents read; ``route``
-    is the path of the API's agent route that serves the tool (``AGENT_ROUTES``).
+    is the path of the API's agent route that serves the tool (``AGENT_ROUTES``). ``render``, when set, turns the
+    result into the text block instead of the JSON (the Markdown tables of tools.md).
     """
 
     name: str
@@ -92,6 +116,13 @@ class ToolDeclaration:
     route: str
     project_scoped: bool
     annotations: ToolAnnotations = field(default_factory=lambda: READ_ONLY)
+    render: Callable[[Any], str] | None = None
+
+    @property
+    def writes(self) -> bool:
+        """Whether the tool changes data: its API call is a ``POST`` with a JSON body."""
+
+        return self.annotations.read_only_hint is False
 
 
 TOOLS: Final[tuple[ToolDeclaration, ...]] = (
@@ -148,6 +179,60 @@ TOOLS: Final[tuple[ToolDeclaration, ...]] = (
         output=TaskBriefResult,
         route=AGENT_ROUTES["get_task_brief"],
         project_scoped=True,
+    ),
+    ToolDeclaration(
+        name="list_areas",
+        summary=(
+            "Lists the work areas of a project's plan with their ready, in-progress, waiting, blocked and done stories."
+        ),
+        description=descriptions.AREAS_DESCRIPTION,
+        arguments=ListAreasArgs,
+        output=AreaList,
+        route=AGENT_ROUTES["list_areas"],
+        project_scoped=True,
+        render=tables.render_areas,
+    ),
+    ToolDeclaration(
+        name="list_stories",
+        summary=(
+            "Lists the stories of a project's plan in recommended order, or the ones you hold, or the finished ones."
+        ),
+        description=descriptions.STORIES_DESCRIPTION,
+        arguments=ListStoriesArgs,
+        output=StoryList,
+        route=AGENT_ROUTES["list_stories"],
+        project_scoped=True,
+        render=tables.render_stories,
+    ),
+    ToolDeclaration(
+        name="preview_story",
+        summary="Shows one story before you take it: state, holder, tasks in build order, what it waits for, findings.",
+        description=descriptions.PREVIEW_DESCRIPTION,
+        arguments=PreviewStoryArgs,
+        output=StoryPreview,
+        route=AGENT_ROUTES["preview_story"],
+        project_scoped=True,
+        render=tables.render_preview,
+    ),
+    ToolDeclaration(
+        name="claim_story",
+        summary="Takes one story for you and your agent; one claim wins.",
+        description=descriptions.CLAIM_DESCRIPTION,
+        arguments=ClaimStoryArgs,
+        output=StoryClaim,
+        route=AGENT_ROUTES["claim_story"],
+        project_scoped=True,
+        annotations=WRITE,
+    ),
+    ToolDeclaration(
+        name="release_story",
+        summary="Gives a story you hold back, with an optional note.",
+        description=descriptions.RELEASE_DESCRIPTION,
+        arguments=ReleaseStoryArgs,
+        output=StoryRelease,
+        route=AGENT_ROUTES["release_story"],
+        project_scoped=True,
+        annotations=WRITE,
     ),
     ToolDeclaration(
         name="get_story_brief",
@@ -221,6 +306,36 @@ TOOLS: Final[tuple[ToolDeclaration, ...]] = (
         route=AGENT_ROUTES["expand_brief"],
         project_scoped=True,
     ),
+    ToolDeclaration(
+        name="add_finding",
+        summary="Records a gap, conflict, question or note about the spec, linked to nodes and code; people answer it.",
+        description=descriptions.ADD_FINDING_DESCRIPTION,
+        arguments=AddFindingArgs,
+        output=FindingResult,
+        route=AGENT_ROUTES["add_finding"],
+        project_scoped=True,
+        annotations=WRITE,
+    ),
+    ToolDeclaration(
+        name="report_task",
+        summary="Reports progress on one task of your claimed story; its status stays until the story completes.",
+        description=descriptions.REPORT_TASK_DESCRIPTION,
+        arguments=ReportTaskArgs,
+        output=TaskReport,
+        route=AGENT_ROUTES["report_task"],
+        project_scoped=True,
+        annotations=WRITE,
+    ),
+    ToolDeclaration(
+        name="complete_story",
+        summary="Closes your claimed story with the merge commit and the pull request.",
+        description=descriptions.COMPLETE_STORY_DESCRIPTION,
+        arguments=CompleteStoryArgs,
+        output=StoryCompletion,
+        route=AGENT_ROUTES["complete_story"],
+        project_scoped=True,
+        annotations=WRITE,
+    ),
 )
 
 
@@ -249,6 +364,14 @@ PROMPTS: Final[tuple[PromptDeclaration, ...]] = (
         argument=guidance.PROJECT_ARGUMENT,
         argument_description=guidance.PROJECT_ARGUMENT_DESCRIPTION,
         render=guidance.render_select_project,
+    ),
+    PromptDeclaration(
+        name=guidance.START_NAME,
+        summary="Walks you from a project to a claimed story: areas, stories, preview, claim.",
+        description=guidance.START_DESCRIPTION,
+        argument=guidance.AREA_ARGUMENT,
+        argument_description=guidance.AREA_ARGUMENT_DESCRIPTION,
+        render=guidance.render_start,
     ),
 )
 
@@ -280,11 +403,12 @@ def render_manifest_json(
     return json.dumps(render_manifest(tools, prompts), indent=2, sort_keys=True, ensure_ascii=False) + "\n"
 
 
-def _result(model: BaseModel) -> CallToolResult:
-    """Structured content plus one text block holding the same JSON (FR-MCP-TOOL-05)."""
+def _result(model: BaseModel, render: Callable[[Any], str] | None = None) -> CallToolResult:
+    """Structured content plus one text block holding the same JSON (FR-MCP-TOOL-05), or the text ``render`` makes
+    of it (the Markdown tables)."""
 
     return CallToolResult(
-        content=[TextContent(type="text", text=model.model_dump_json())],
+        content=[TextContent(type="text", text=model.model_dump_json() if render is None else render(model))],
         structured_content=model.model_dump(mode="json"),
     )
 
@@ -292,7 +416,7 @@ def _result(model: BaseModel) -> CallToolResult:
 def _error_result(error: McpToolError) -> CallToolResult:
     """``isError`` with ``{"error": {"code", "message"}}``: fixed text, never an argument or exception text."""
 
-    body = error_body(error.code)
+    body = error_body(error.code, error.details)
     return CallToolResult(
         content=[TextContent(type="text", text=body.model_dump_json())],
         structured_content=body.model_dump(mode="json"),
@@ -316,7 +440,7 @@ class _ToolFunction:
             described = info.description or info.alias
             extras = [*info.metadata, *([Field(description=info.description, alias=info.alias)] if described else [])]
             annotation = Annotated[(info.annotation, *extras)] if extras else info.annotation
-            default = inspect.Parameter.empty if info.is_required() else info.default
+            default = inspect.Parameter.empty if info.is_required() else info.get_default(call_default_factory=True)
             parameters.append(
                 inspect.Parameter(name, inspect.Parameter.KEYWORD_ONLY, default=default, annotation=annotation)
             )
@@ -373,16 +497,20 @@ class _ToolFunction:
             project_id = _canonical_uuid(scoped.project_id)
             if project_id is not None:  # a malformed id is raw caller text: never logged
                 fields["project_id"] = project_id
+        # a write sends the project in the query, the other arguments as the JSON body (architecture.md, Write routes)
+        params = {"project_id": scoped.project_id} if declaration.writes and scoped is not None else _query(args)
+        body = _body(args) if declaration.writes else None
         reply = await request_api_client(request).call(
             declaration.route,
-            _query(args),
+            params,
             authorization,
             required(current_request_id(), "the request has an id"),
+            body=body,
         )
         if reply.user_id is not None:  # the API names the provisioned user on every answer after provisioning
             fields["user_id"] = reply.user_id
         result = from_api(reply, declaration.output)
-        return _result(result), _item_count(result)
+        return _result(result, declaration.render), _item_count(result)
 
 
 def _canonical_uuid(value: str) -> str | None:
@@ -406,6 +534,12 @@ def _query(args: BaseModel) -> Mapping[str, str | list[str]]:
         name: [_query_value(item) for item in value] if isinstance(value, list) else _query_value(value)
         for name, value in args.model_dump(exclude_none=True).items()
     }
+
+
+def _body(args: BaseModel) -> dict[str, Any]:
+    """The JSON body of a write: the arguments besides the project, ``None`` left out."""
+
+    return args.model_dump(mode="json", exclude={"project_id"}, exclude_none=True)
 
 
 def _item_count(result: BaseModel) -> int:

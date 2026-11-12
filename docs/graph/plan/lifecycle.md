@@ -110,14 +110,14 @@ adds to a held story stays `pending`, outside the claim.
 | Call | Rule | Effect |
 |---|---|---|
 | `claim_story(story_id, claimed_by, agent_label=None, branch=None)` | Claimable | Every `pending` and `failed` task of the unit → `in_progress` (task claim fields with the new token and `claimed_by`, `attempts + 1`); story claim fields set on the unit's stories. Answers the token, the claimed story ids and the claimed tasks in topological order |
-| `release_story(story_id, claim_token=None, note=None, branch=None, force=False)` | Token matches, or `force=True` (host only: a person frees a forgotten claim) | Claimed tasks → `pending`, `attempts` unchanged; the claim ends; `note` and `branch` stored when given, else kept |
-| `report_progress(task_id, claim_token, progress, note=None)` | The task is a claimed task of a held story and the token matches | `progress` set (`done`, `skipped`, `todo`), `note` stored when given; status unchanged |
-| `complete_story(story_id, claim_token, completed_by, merge_commit, pr_url=None, done=None)` | Token matches; `merge_commit` 40 or 64 hex; `done` only claimed task ids | Tasks in `done` (default: every claimed task) → `completed` in topological order with `commit` = `merge_commit` (lower case), `completed_by`, `completed_at`; the other claimed tasks → `pending`; `pr_url` stored; the claim ends |
+| `release_story(story_id, claimed_by=None, claim_token=None, note=None, branch=None, force=False)` | `claimed_by` holds the story and the token matches, or `force=True` (host only: a person frees a forgotten claim; no caller or token) | Claimed tasks → `pending`, `attempts` unchanged; the claim ends; `note` and `branch` stored when given, else kept |
+| `report_progress(task_id, claimed_by, claim_token, progress, note=None)` | The task is a claimed task of a story `claimed_by` holds and the token matches | `progress` set (`done`, `skipped`, `todo`), `note` stored when given; status unchanged |
+| `complete_story(story_id, claim_token, completed_by, merge_commit, pr_url=None, done=None)` | `completed_by` holds the story and the token matches; `merge_commit` 40 or 64 hex; `done` only claimed task ids | Tasks in `done` (default: every claimed task) → `completed` in topological order with `commit` = `merge_commit` (lower case), `completed_by`, `completed_at`; the other claimed tasks → `pending`; `pr_url` stored; the claim ends |
 | `block_story(story_id, claim_token, reason, finding_id)` | Token matches; `reason` is `spec_ambiguous`, `spec_contradiction` or `spec_missing` | Every claimed task → `blocked` with `block_reason` and `blocked_by` = `finding_id`; the claim ends |
 | `unblock_finding(finding_id)` | Host only, after a person resolved or dismissed the finding | Tasks still `blocked` with that `blocked_by` → `pending`, block cleared; others untouched |
 
 The claim ends: `claimed_by`, `claimed_at` and `agent_label` are cleared on the unit's stories,
-`claim_token` stays until the next claim; every task leaving `in_progress` loses its claim fields and
+`claim_token` and `token_holder` stay until the next claim; every task leaving `in_progress` loses its claim fields and
 `progress`. A `skipped` task completes with its note. `complete_story` also answers `released` (task ids
 back to `pending`), `now_available` (stories this completion made claimable) and `spec_changed` (spec ids,
 not a boolean: the `spec_id`s the completed tasks implement whose node a build wrote after the plan's
@@ -129,11 +129,12 @@ changes nothing:
 | Call | Repeat when | Answer |
 |---|---|---|
 | `claim_story` | `claimed_by` already holds the unit | The same token and tasks; `repeat` true |
-| `release_story` | Not held and the token equals `claim_token` | `released` empty |
+| `release_story` | Not held, the token equals `claim_token` and the caller is `token_holder` (the user the token was issued to) | `released` empty |
 | `report_progress` | The same `progress` is set | The same answer |
 | `complete_story` | Not held, the token equals `claim_token`, and the story's tasks with `commit` = `merge_commit` have `completed_by` = the caller | `completed` = those ids, `released` empty, `now_available` as now, `spec_changed` empty |
 
-Any other call with a token that does not match raises `claim_mismatch`.
+Any other call with a token that does not match, or by a caller who does not hold the story (another member
+who learned the token), raises `claim_mismatch`; the holder is checked under the story lock with the token.
 
 **Refusals** (`TaskStateError`, nothing changes):
 

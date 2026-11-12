@@ -70,8 +70,12 @@ def check_pr_url(url: str | None) -> None:
     if url is None:
         return
     check_printable(url, URL_LIMIT)
-    parts = urlsplit(url)
-    if parts.scheme not in _URL_SCHEMES or not parts.hostname or "@" in parts.netloc or " " in url:
+    try:
+        parts = urlsplit(url)
+        host = parts.hostname
+    except ValueError as error:
+        raise ConfigurationError("invalid_field") from error
+    if parts.scheme not in _URL_SCHEMES or not host or "@" in parts.netloc or " " in url:
         raise ConfigurationError("invalid_field")
 
 

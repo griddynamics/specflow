@@ -169,7 +169,7 @@ async def test_a_release_through_any_story_of_a_cycle_frees_the_group() -> None:
     service, memory, _ = _service()
     claim = await service.claim_story("shop", X, claimed_by="u1")
 
-    released = await service.release_story("shop", Y, claim_token=claim.claim_token)
+    released = await service.release_story("shop", Y, claimed_by="u1", claim_token=claim.claim_token)
 
     assert len(released.released) == 4 and released.repeat is False
     assert all(memory.stories[story]["claimed_by"] is None for story in (X, Y))
@@ -313,10 +313,12 @@ async def test_a_task_claim_racing_a_story_claim_waits_for_the_story_locks_and_e
 async def test_a_release_returns_the_claimed_tasks_without_progress_and_keeps_the_token_for_repeats() -> None:
     service, memory, _ = _service()
     claim = await service.claim_story("shop", API, claimed_by="u1")
-    await service.report_progress("shop", CONTRACT, claim_token=claim.claim_token, progress="done", note="built")
+    await service.report_progress(
+        "shop", CONTRACT, claimed_by="u1", claim_token=claim.claim_token, progress="done", note="built"
+    )
 
     released = await service.release_story(
-        "shop", API, claim_token=claim.claim_token, note="stopping", branch="feat/api-2"
+        "shop", API, claimed_by="u1", claim_token=claim.claim_token, note="stopping", branch="feat/api-2"
     )
 
     assert released.released == (CONTRACT, LOGIC) and released.repeat is False
@@ -333,19 +335,19 @@ async def test_a_release_returns_the_claimed_tasks_without_progress_and_keeps_th
     story = memory.stories[API]
     assert (story["claimed_by"], story["claimed_at"], story["agent_label"]) == (None, None, None)
     assert (story["note"], story["branch"], story["claim_token"]) == ("stopping", "feat/api-2", claim.claim_token)
-    again = await service.release_story("shop", API, claim_token=claim.claim_token)
+    again = await service.release_story("shop", API, claimed_by="u1", claim_token=claim.claim_token)
     assert again.released == () and again.repeat is True
-    other = await _refused(service.release_story("shop", API, claim_token="0" * 32))
+    other = await _refused(service.release_story("shop", API, claimed_by="u1", claim_token="0" * 32))
     assert other.code == "claim_mismatch"
 
 
 async def test_a_release_keeps_the_story_note_and_branch_when_none_are_given() -> None:
     service, memory, _ = _service()
     claim = await service.claim_story("shop", API, claimed_by="u1", branch="feat/api")
-    await service.release_story("shop", API, claim_token=claim.claim_token, note="first")
+    await service.release_story("shop", API, claimed_by="u1", claim_token=claim.claim_token, note="first")
     claim = await service.claim_story("shop", API, claimed_by="u2")
 
-    await service.release_story("shop", API, claim_token=claim.claim_token)
+    await service.release_story("shop", API, claimed_by="u2", claim_token=claim.claim_token)
 
     assert (memory.stories[API]["note"], memory.stories[API]["branch"]) == ("first", "feat/api")
 
@@ -355,7 +357,7 @@ async def test_a_release_needs_the_current_token_or_force() -> None:
     claim = await service.claim_story("shop", API, claimed_by="u1")
 
     none = await _refused(service.release_story("shop", API))
-    wrong = await _refused(service.release_story("shop", API, claim_token="f" * 32))
+    wrong = await _refused(service.release_story("shop", API, claimed_by="u1", claim_token="f" * 32))
     assert (none.code, wrong.code) == ("claim_mismatch", "claim_mismatch")
     assert memory.stories[API]["claimed_by"] == "u1"
 
@@ -372,13 +374,13 @@ async def test_an_old_token_after_a_new_claim_is_a_mismatch_for_every_call() -> 
     # u1 claims and releases API; u2 claims it; u1's old token no longer matches on progress, release or completion.
     service, memory, _ = _service()
     old = await service.claim_story("shop", API, claimed_by="u1")
-    await service.release_story("shop", API, claim_token=old.claim_token)
+    await service.release_story("shop", API, claimed_by="u1", claim_token=old.claim_token)
     new = await service.claim_story("shop", API, claimed_by="u2")
     token = old.claim_token
 
     calls = (
-        service.report_progress("shop", CONTRACT, claim_token=token, progress="done"),
-        service.release_story("shop", API, claim_token=token),
+        service.report_progress("shop", CONTRACT, claimed_by="u1", claim_token=token, progress="done"),
+        service.release_story("shop", API, claimed_by="u1", claim_token=token),
         service.complete_story("shop", API, claim_token=token, completed_by="u1", merge_commit=COMMIT),
     )
 
@@ -409,15 +411,17 @@ async def test_progress_is_set_on_a_claimed_task_and_the_status_stays() -> None:
     claim = await service.claim_story("shop", API, claimed_by="u1")
 
     item = await service.report_progress(
-        "shop", CONTRACT, claim_token=claim.claim_token, progress="skipped", note="not needed"
+        "shop", CONTRACT, claimed_by="u1", claim_token=claim.claim_token, progress="skipped", note="not needed"
     )
     again = await service.report_progress(
-        "shop", CONTRACT, claim_token=claim.claim_token, progress="skipped", note="not needed"
+        "shop", CONTRACT, claimed_by="u1", claim_token=claim.claim_token, progress="skipped", note="not needed"
     )
 
     assert (item.status, item.progress) == ("in_progress", "skipped") and again == item
     assert memory.tasks[CONTRACT]["note"] == "not needed"
-    wrong = await _refused(service.report_progress("shop", LOGIC, claim_token="1" * 32, progress="done"))
+    wrong = await _refused(
+        service.report_progress("shop", LOGIC, claimed_by="u1", claim_token="1" * 32, progress="done")
+    )
     assert wrong.code == "claim_mismatch" and memory.tasks[LOGIC]["progress"] is None
 
 
@@ -428,12 +432,16 @@ async def test_progress_needs_a_claimed_task_of_a_held_story() -> None:
     alone = memory.tasks["TASK::A::X_CONTRACT"]["claim_token"]
 
     pending = await _refused(
-        service.report_progress("shop", "TASK::A::UI_SCREEN", claim_token=claim.claim_token, progress="done")
+        service.report_progress(
+            "shop", "TASK::A::UI_SCREEN", claimed_by="u1", claim_token=claim.claim_token, progress="done"
+        )
     )
     task_claim = await _refused(
-        service.report_progress("shop", "TASK::A::X_CONTRACT", claim_token=alone, progress="done")
+        service.report_progress("shop", "TASK::A::X_CONTRACT", claimed_by="u1", claim_token=alone, progress="done")
     )
-    unknown = await _refused(service.report_progress("shop", "TASK::A::NOPE", claim_token=alone, progress="done"))
+    unknown = await _refused(
+        service.report_progress("shop", "TASK::A::NOPE", claimed_by="u1", claim_token=alone, progress="done")
+    )
 
     assert (pending.code, task_claim.code, unknown.code) == ("claim_mismatch", "claim_mismatch", "unknown_task")
 
@@ -445,7 +453,9 @@ async def test_progress_arguments_are_checked(progress: str, note: str | None, c
     service, memory, _ = _service()
 
     with pytest.raises(ConfigurationError) as raised:
-        await service.report_progress("shop", CONTRACT, claim_token="t" * 32, progress=cast(Any, progress), note=note)
+        await service.report_progress(
+            "shop", CONTRACT, claimed_by="u1", claim_token="t" * 32, progress=cast(Any, progress), note=note
+        )
 
     assert raised.value.code == code and memory.statements == []
 
@@ -456,7 +466,7 @@ async def test_a_completion_completes_the_done_tasks_returns_the_rest_and_names_
     service, memory, _ = _service()
     memory.set_task(CONTRACT, implements=["REQ::A", "REQ::OLD"])
     claim = await service.claim_story("shop", API, claimed_by="u1")
-    await service.report_progress("shop", CONTRACT, claim_token=claim.claim_token, progress="done")
+    await service.report_progress("shop", CONTRACT, claimed_by="u1", claim_token=claim.claim_token, progress="done")
 
     result = await service.complete_story(
         "shop",
@@ -721,11 +731,11 @@ async def test_the_story_calls_are_refused_while_a_plan_persists_except_a_forced
     before = {task_id: dict(row) for task_id, row in memory.tasks.items()}
     memory.plan = {**(memory.plan or {}), "applying": "run-1"}
     calls = (
-        service.report_progress("shop", CONTRACT, claim_token=token, progress="done"),
+        service.report_progress("shop", CONTRACT, claimed_by="u1", claim_token=token, progress="done"),
         service.complete_story("shop", API, claim_token=token, completed_by="u1", merge_commit=COMMIT),
         service.block_story("shop", API, claim_token=token, reason="spec_missing", finding_id="FND::1"),
         service.unblock_finding("shop", "FND::1"),
-        service.release_story("shop", API, claim_token=token),
+        service.release_story("shop", API, claimed_by="u1", claim_token=token),
     )
 
     for call in calls:
@@ -734,3 +744,99 @@ async def test_the_story_calls_are_refused_while_a_plan_persists_except_a_forced
     assert memory.tasks == before
     released = await service.release_story("shop", API, force=True)
     assert set(released.released) == {CONTRACT, LOGIC}
+
+
+# --- the holder, not only the token (another member who learned the token) -------------------------------------
+
+
+def _writes(memory: MemoryPlanExecutor) -> int:
+    return memory.statements.count("plan_set_tasks") + memory.statements.count("plan_set_stories")
+
+
+async def test_another_member_with_the_holders_valid_token_can_neither_release_report_nor_complete() -> None:
+    # u1 holds API; u2 presents u1's current token on every claim call: each is claim_mismatch and nothing is written.
+    service, memory, _ = _service()
+    claim = await service.claim_story("shop", API, claimed_by="u1")
+    token, writes = claim.claim_token, _writes(memory)
+
+    calls = (
+        service.release_story("shop", API, claimed_by="u2", claim_token=token),
+        service.report_progress("shop", CONTRACT, claimed_by="u2", claim_token=token, progress="done"),
+        service.complete_story("shop", API, claim_token=token, completed_by="u2", merge_commit=COMMIT),
+    )
+
+    for call in calls:
+        assert (await _refused(call)).code == "claim_mismatch"
+    assert _writes(memory) == writes
+    assert (memory.stories[API]["claimed_by"], memory.stories[API]["claim_token"]) == ("u1", token)
+    assert {memory.tasks[task_id]["status"] for task_id in (CONTRACT, LOGIC)} == {"in_progress"}
+    assert memory.tasks[CONTRACT]["progress"] is None
+
+
+async def test_a_release_needs_a_caller_unless_forced() -> None:
+    service, memory, _ = _service()
+    claim = await service.claim_story("shop", API, claimed_by="u1")
+
+    with pytest.raises(ConfigurationError) as caught:
+        await service.release_story("shop", API, claim_token=claim.claim_token)
+
+    assert caught.value.code == "invalid_claimant" and memory.stories[API]["claimed_by"] == "u1"
+    assert (await service.release_story("shop", API, force=True)).released == (CONTRACT, LOGIC)
+
+
+async def test_a_release_repeated_by_another_member_with_the_last_token_is_a_mismatch() -> None:
+    service, memory, _ = _service()
+    claim = await service.claim_story("shop", API, claimed_by="u1")
+    await service.release_story("shop", API, claimed_by="u1", claim_token=claim.claim_token)
+    writes = _writes(memory)
+
+    other = await _refused(service.release_story("shop", API, claimed_by="u2", claim_token=claim.claim_token))
+    again = await service.release_story("shop", API, claimed_by="u1", claim_token=claim.claim_token)
+
+    assert other.code == "claim_mismatch" and (again.released, again.repeat) == ((), True)
+    assert _writes(memory) == writes
+
+
+async def test_a_release_after_a_completion_is_a_repeat_for_the_holder_only() -> None:
+    service, _, _ = _service()
+    claim = await service.claim_story("shop", API, claimed_by="u1")
+    await service.complete_story("shop", API, claim_token=claim.claim_token, completed_by="u1", merge_commit=COMMIT)
+
+    other = await _refused(service.release_story("shop", API, claimed_by="u2", claim_token=claim.claim_token))
+    again = await service.release_story("shop", API, claimed_by="u1", claim_token=claim.claim_token)
+
+    assert other.code == "claim_mismatch" and again.repeat is True
+
+
+@pytest.mark.parametrize("holder", ["u1", "u2"])
+async def test_a_stale_token_after_a_release_and_a_new_claim_is_a_mismatch_even_for_the_old_holder(holder: str) -> None:
+    # u1 claims and releases API; ``holder`` (u2, or u1 again) claims it anew; u1's old token matches no call.
+    service, memory, _ = _service()
+    old = await service.claim_story("shop", API, claimed_by="u1")
+    await service.release_story("shop", API, claimed_by="u1", claim_token=old.claim_token)
+    new = await service.claim_story("shop", API, claimed_by=holder)
+    token, writes = old.claim_token, _writes(memory)
+
+    calls = (
+        service.release_story("shop", API, claimed_by="u1", claim_token=token),
+        service.report_progress("shop", CONTRACT, claimed_by="u1", claim_token=token, progress="done"),
+        service.complete_story("shop", API, claim_token=token, completed_by="u1", merge_commit=COMMIT),
+    )
+
+    for call in calls:
+        assert (await _refused(call)).code == "claim_mismatch"
+    assert _writes(memory) == writes and new.claim_token != token
+    assert (memory.stories[API]["claimed_by"], memory.stories[API]["claim_token"]) == (holder, new.claim_token)
+
+
+async def test_a_completion_repeated_with_another_done_answers_the_first_completion() -> None:
+    service, memory, _ = _service()
+    claim = await service.claim_story("shop", API, claimed_by="u1")
+    arguments = {"claim_token": claim.claim_token, "completed_by": "u1", "merge_commit": COMMIT}
+    first = await service.complete_story("shop", API, **arguments, done=[CONTRACT])
+    writes = _writes(memory)
+
+    again = await service.complete_story("shop", API, **arguments, done=[CONTRACT, LOGIC])
+
+    assert (again.completed, again.repeat) == (first.completed, True) and _writes(memory) == writes
+    assert memory.tasks[LOGIC]["status"] == "pending"

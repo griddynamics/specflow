@@ -357,7 +357,7 @@ The token is never shown in a table, never returned to anyone but its holder, an
 Markdown table, rendered by the MCP role from the structured content:
 
 - one header row with the fixed columns of the tool's section, in that order, then one row per item;
-- a `|` in a cell is written `\|`, and line breaks become spaces; empty values give empty cells;
+- a `\` in a cell is written `\\` and a `|` `\|`; line breaks and other control characters become spaces, so a cell stays on one line; backticks stay as they are; empty values give empty cells;
 - when more items exist (`next_cursor` not null), one line after the table: `<rows shown> of <total_count> · next_cursor <next_cursor>`;
 - no other prose. The descriptions tell the agent to show the table as returned.
 
@@ -586,7 +586,7 @@ The answer is `{"project_id", "story_id", "released"}`; `released` lists the tas
 back to `pending`. Their `progress` is cleared; `note` and `branch` stay on the story for the next person. A story no
 longer held whose last token matches answers `released: []` ([Repeats](#repeats)).
 
-Errors: `project_not_found`, `no_plan`, `story_not_found`, `claim_mismatch`, `invalid_arguments`,
+Errors: `project_not_found`, `no_plan`, `story_not_found`, `plan_applying`, `claim_mismatch`, `invalid_arguments`,
 `graph_unavailable`, `database_unavailable`, `internal_error`.
 
 Description given to the model: "Give back a story you claimed in a SpecFlow project when you stop without merging:
@@ -858,13 +858,14 @@ finding never changes the spec; people resolve or dismiss it in the web app.
 
 Rules, in this order:
 
-1. Every `about` id resolves to an active spec node, else `node_not_found` (`details.spec_ids` names the ids); `story_id`, when given, names a story of the
-   plan, else `story_not_found`; the `refers_to` forms hold, else `invalid_arguments`.
+1. The `refers_to` forms hold, else `invalid_arguments`; then `story_id`, when given, names a story of the plan, else
+   `story_not_found`; then every `about` id resolves to an active spec node, else `node_not_found` (`details.spec_ids`
+   names the ids).
 2. Dedupe: an open finding with the same caller, `kind`, sorted resolved `about` and normalised text (NFKC,
    case-folded, runs of white space as one space, trimmed) is returned with `created: false` and nothing is written
    ([Repeats](#repeats)).
-3. `blocking`: `kind` is not `note`, `story_id` and `claim_token` are given, and an `about` node is implemented by a
-   task of the story, else `invalid_arguments`; the caller holds the story with that token, else `claim_mismatch`.
+3. `blocking`: `kind` is not `note`, `story_id` and `claim_token` are given, else `invalid_arguments`; the caller
+   holds the story with that token and an `about` node is implemented by a task of the story, else `claim_mismatch`.
 4. The caller has fewer than 50 open findings on the story (on findings without a story when `story_id` is null),
    else `finding_limit`.
 5. Write the finding (`origin` `agent`, `status` `open`, `created_by` the caller) with an `ABOUT` edge per node and a
@@ -877,7 +878,7 @@ them first ([../graph/gap.md](../graph/gap.md#blocking-link)). When blocking the
 written is withdrawn and the call answers the blocking error.
 
 Errors: `project_not_found`, `node_not_found`, `story_not_found`, `invalid_arguments`, `claim_mismatch`,
-`finding_limit`, `graph_unavailable`, `database_unavailable`, `internal_error`.
+`finding_limit`, `plan_applying` (a blocking finding only), `graph_unavailable`, `database_unavailable`, `internal_error`.
 
 Description given to the model: "Record a finding about the specification of a SpecFlow project: a gap (the spec
 does not say), a conflict (two parts disagree), a question for the spec owner, or a note of what you learned, linked
@@ -905,7 +906,7 @@ with its `progress` (`status` stays `in_progress`). The task must be a claimed t
 with that token, else `claim_mismatch`. A repeat answers the
 same ([Repeats](#repeats)).
 
-Errors: `project_not_found`, `no_plan`, `task_not_found`, `claim_mismatch`, `invalid_arguments`,
+Errors: `project_not_found`, `no_plan`, `task_not_found`, `claim_mismatch`, `plan_applying`, `invalid_arguments`,
 `graph_unavailable`, `database_unavailable`, `internal_error`.
 
 Description given to the model: "Report progress on one task of the story you claimed in a SpecFlow project: done
@@ -945,8 +946,8 @@ and are listed in `released`; `pr_url` is stored on the story and the claim ends
 of the completed tasks that their brief marks changed (a build wrote them after the plan's last consumed build). Only the plan changes, never the spec. A repeat
 answers as [Repeats](#repeats) defines.
 
-Errors: `project_not_found`, `no_plan`, `story_not_found`, `claim_mismatch`, `invalid_commit`, `invalid_arguments`,
-`graph_unavailable`, `database_unavailable`, `internal_error`.
+Errors: `project_not_found`, `no_plan`, `story_not_found`, `claim_mismatch`, `plan_applying`, `invalid_commit`,
+`invalid_arguments`, `graph_unavailable`, `database_unavailable`, `internal_error`.
 
 Description given to the model: "Close the story you claimed in a SpecFlow project after its pull request is merged:
 pass the merge commit (the full 40 or 64 character hash) and the pull request URL. Every task of the claim completes
@@ -1117,7 +1118,7 @@ the MCP role returns it with the fixed message below and never the API's own tex
 | `project_not_found` | malformed id, unknown project, or not a member | The project does not exist or you are not a member of it. |
 | `invalid_cursor` | a cursor that fails the checks of [Paging](#conventions); for `list_features` also a wrong format version or shape | The cursor is invalid. Start again without a cursor. |
 | `no_plan` | a plan tool (`list_tasks`, `list_feature_tasks`, `get_task_path`, `get_task_brief`) on a project without a plan | The project has no implementation plan yet. Create one on the Plan page of the web app. |
-| `task_not_found` | `get_task_path` or `get_task_brief` with an unknown task id, or a `superseded` or `retired` task | The task is not in the current plan of the project. List the tasks to find it. |
+| `task_not_found` | `get_task_path`, `get_task_brief` or `report_task` with an unknown task id, or a `superseded` or `retired` task | The task is not in the current plan of the project. List the tasks to find it. |
 | `feature_not_found` | `list_feature_tasks` with an id that is no node of the feature type | The feature is not in the specification graph of the project. List the features to find it. |
 | `graph_unavailable` | `InfrastructureUnavailableError` from the graph library: Neo4j unreachable ([../graph/architecture.md](../graph/architecture.md#errors)) | The specification graph is unavailable. Try again later. |
 | `database_unavailable` | Postgres unreachable, as decided by the REST API's reachability test `is_database_unreachable` in `db.session`, also while the API provisions the caller | The database is unavailable. Try again later. |
@@ -1128,7 +1129,7 @@ the MCP role returns it with the fixed message below and never the API's own tex
 | `story_claimed` | `claim_story` on a story another member holds | Another member holds this story. Pick another story or talk to the holder. |
 | `not_available` | `claim_story` on a story that waits for other work, is blocked or is done | The story cannot be claimed now. Preview it to see what it waits for. |
 | `partly_claimed` | `claim_story` on a story with a task claimed on its own | A task of this story is claimed on its own. Try again when it is released or completed. |
-| `plan_applying` | `claim_story` while a plan run writes the plan | The plan is being updated. Try again in a minute. |
+| `plan_applying` | `claim_story`, `release_story`, `report_task`, `complete_story` or a blocking `add_finding` while a plan run writes the plan | The plan is being updated. Try again in a minute. |
 | `claim_mismatch` | a write whose claim token does not match the caller's claim of that story or task, and is no [repeat](#repeats) | The claim token does not match your claim. Call claim_story for the story to get your token. |
 | `invalid_commit` | `complete_story` with a `merge_commit` that is not 40 or 64 hex characters | The merge commit must be the full 40 or 64 character hexadecimal hash. |
 | `invalid_arguments` | arguments that break a rule across arguments or a format the API checks (each tool lists its rules) | The arguments do not fit together. Check the tool description and try again. |

@@ -4,7 +4,9 @@ Like ``mcp_golden_seam`` (the gate of the MCP split, whose goldens stay frozen) 
 the shop graph of ``spec_reads_support``: the real readers and libraries over a fixture graph, a plan, findings and the
 project's members. The golden tests import only ``tooling_double`` and ``BackendDouble.serve(scenario)``.
 
-Scenarios: ``ok``, ``no_plan``, ``graph_down``, ``database_down``, ``bug``.
+Scenarios: ``ok``, ``no_plan``, ``graph_down``, ``database_down``, ``bug``; and, with the plan in the in-memory
+executor so the story calls can write: ``free`` (as it is), ``claimed`` (Checkout held by Ben), ``applying`` (a plan
+persist running), ``held_applying`` (Checkout held by Alice, token 1, and a plan persist running).
 """
 
 from __future__ import annotations
@@ -26,11 +28,13 @@ from specflow_api_agent_support import agent_env, refuse_database
 
 __all__ = ["ALPHA", "CHECKOUT", "SCENARIOS", "UNKNOWN_PROJECT", "BackendDouble", "tooling_double"]
 
-SCENARIOS = ("ok", "no_plan", "graph_down", "database_down", "bug")
+SCENARIOS = ("ok", "no_plan", "graph_down", "database_down", "bug", "free", "claimed", "applying", "held_applying")
 FAILURES: dict[str, Exception] = {
     "graph_down": InfrastructureUnavailableError("neo4j_unreachable"),
     "bug": ConfigurationError("unknown_label", label="X"),
 }
+
+WRITABLE: dict[str, str] = {name: name for name in ("free", "claimed", "applying", "held_applying")}
 
 Serve = Callable[..., AbstractAsyncContextManager[httpx.AsyncClient]]
 
@@ -48,7 +52,11 @@ def tooling_double(monkeypatch: pytest.MonkeyPatch, valid_env: dict[str, str]) -
     async def serve(scenario: str = "ok") -> AsyncIterator[httpx.AsyncClient]:
         assert scenario in SCENARIOS, scenario
         async with serve_spec(
-            monkeypatch, agent_env(valid_env), has_plan=scenario != "no_plan", fail=FAILURES.get(scenario)
+            monkeypatch,
+            agent_env(valid_env),
+            has_plan=scenario != "no_plan",
+            fail=FAILURES.get(scenario),
+            writable=WRITABLE.get(scenario),
         ) as spec:
             if scenario == "database_down":  # after the rig installed its FakeRepo, which it would replace
                 refuse_database(monkeypatch)

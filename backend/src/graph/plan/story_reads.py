@@ -1,5 +1,6 @@
 """The story reads for people, each from one loaded plan: the area summary, the story lists and the story preview
-(api.md "Story reads for people"). Holders are user ids; no row carries a claim token.
+(api.md "Story reads for people"). Holders are user ids; no row carries a claim token. A story without a story claim
+whose task is ``in_progress`` under a task claim shows that task's holder (the oldest task claim).
 """
 
 from __future__ import annotations
@@ -44,7 +45,7 @@ def area_summary(loaded: LoadedPlan) -> tuple[AreaSummary, ...]:
                 title=area.title,
                 kind=area.kind,
                 stories=counts,
-                holders=tuple(sorted({story.claimed_by for story in stories if story.claimed_by})),
+                holders=tuple(sorted({who for story in stories if (who := holder(loaded, story)[0])})),
                 open_tasks=sum(
                     1 for task in loaded.current.tasks if task.area_id == area.area_id and task.status in OPEN
                 ),
@@ -91,6 +92,7 @@ def story_preview(loaded: LoadedPlan, story_id: str) -> StoryPreview:
         raise PlanReadError(STORY_NOT_FOUND)
     unit = board.unit_of(story_id)
     ready = loaded.ready()
+    claimed_by, claimed_at = holder(loaded, story)
     by_id = {task.task_id: task for task in board.open_tasks(unit)}
     return StoryPreview(
         story_id=story_id,
@@ -100,8 +102,8 @@ def story_preview(loaded: LoadedPlan, story_id: str) -> StoryPreview:
         summary=story.summary,
         release=story.release,
         state=board.state(story_id),
-        claimed_by=story.claimed_by,
-        claimed_at=story.claimed_at,
+        claimed_by=claimed_by,
+        claimed_at=claimed_at,
         agent_label=story.agent_label,
         branch=story.branch,
         note=story.note,
@@ -122,7 +124,7 @@ def story_preview(loaded: LoadedPlan, story_id: str) -> StoryPreview:
                 story_id=other,
                 title=_title(board, other),
                 state=board.state(other),
-                claimed_by=board.stories[other].claimed_by,
+                claimed_by=holder(loaded, board.stories[other])[0],
             )
             for other in board.blocking_stories(story_id)
         ),
@@ -134,6 +136,7 @@ def _row(loaded: LoadedPlan, board: StoryBoard, story: StoryInfo, rank: int) -> 
     state = board.state(story.story_id)
     tasks = loaded.story_tasks(story.story_id)
     last = _last_completed(tasks) if state == "completed" else None
+    claimed_by, claimed_at = holder(loaded, story)
     return StoryRow(
         rank=rank,
         story_id=story.story_id,
@@ -142,8 +145,8 @@ def _row(loaded: LoadedPlan, board: StoryBoard, story: StoryInfo, rank: int) -> 
         kind=story.kind,
         release=story.release,
         state=state,
-        claimed_by=story.claimed_by,
-        claimed_at=story.claimed_at,
+        claimed_by=claimed_by,
+        claimed_at=claimed_at,
         agent_label=story.agent_label,
         waits_on=()
         if state == "completed"
@@ -156,6 +159,16 @@ def _row(loaded: LoadedPlan, board: StoryBoard, story: StoryInfo, rank: int) -> 
         completed_by=last.completed_by if last else None,
         completed_at=last.completed_at if last else None,
     )
+
+
+def holder(loaded: LoadedPlan, story: StoryInfo) -> tuple[str | None, datetime | None]:
+    """Who holds the story and since when: its story claim, else the oldest task claim of its ``in_progress`` tasks."""
+
+    if story.claimed_by is not None:
+        return story.claimed_by, story.claimed_at
+    claimed = [task for task in loaded.story_tasks(story.story_id) if task.status == "in_progress" and task.claimed_by]
+    first = min(claimed, key=lambda task: (task.claimed_at or _OLDEST, task.task_id), default=None)
+    return (first.claimed_by, first.claimed_at) if first is not None else (None, None)
 
 
 def _blocked_by(loaded: LoadedPlan, story: StoryInfo, findings: frozenset[str]) -> bool:

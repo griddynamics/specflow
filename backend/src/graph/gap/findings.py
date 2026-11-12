@@ -172,14 +172,15 @@ class Findings:
         about: Iterable[str],
         text: str,
     ) -> Finding | None:
-        """The open finding with the same dedupe tuple, if any."""
+        """The open finding with the same dedupe tuple, if any; an ``about`` id that resolves to no node raises
+        ``FindingError("node_not_found")`` as ``add`` does, so the node rule comes before the dedupe on every path."""
 
         project_id = validate_project_id(project_id)
         check.check_author(created_by)
         check.check_kind(kind)
         check.check_text(text)
         asked = check.about_ids(about)
-        _, key, _ = await self._tuple(project_id, created_by, kind, asked, text, strict=False)
+        _, key, _ = await self._tuple(project_id, created_by, kind, asked, text, strict=True)
         found = await self._read(project_id, statuses=("open",), dedupe_key=key)
         return found[0] if found else None
 

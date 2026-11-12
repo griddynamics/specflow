@@ -250,6 +250,8 @@ class StoryInfo(StoryCore):
     pr_url: str | None = None
     # The token of the last story claim: read for the claim calls and the plan checks, never dumped or shown.
     claim_token: str | None = Field(default=None, exclude=True, repr=False)
+    # The user the last story claim's token was issued to, so a repeat by another member is refused; never dumped.
+    token_holder: str | None = Field(default=None, exclude=True, repr=False)
 
     def core(self) -> dict[str, Any]:
         """The fields reads show, without the claim."""

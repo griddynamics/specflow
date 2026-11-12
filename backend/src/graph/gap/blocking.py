@@ -77,7 +77,8 @@ class FindingFlow:
 
     async def add_finding(self, project_id: str, new: NewFinding, *, claim_token: str | None = None) -> FlowAdded:
         """Add a finding; with ``new.blocking`` also block the caller's claimed story (``claim_token``). Errors: those
-        of ``Findings.add``, and the plan's ``claim_mismatch`` from the guard or the block."""
+        of ``Findings.add`` (an unknown ``about`` id is ``node_not_found`` before the dedupe and the guard), and the
+        plan's ``claim_mismatch`` from the guard or the block."""
 
         if not new.blocking:
             added = await self._add(project_id, new)

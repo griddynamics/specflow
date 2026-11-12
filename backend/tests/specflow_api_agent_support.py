@@ -81,6 +81,48 @@ CALLS: Mapping[str, tuple[str, dict[str, Any]]] = {
     ),
 }
 PROJECT_ROUTES = tuple(name for name in CALLS if name != "list_projects")
+# The people tools' routes (session 08), kept apart from ``CALLS``, which the tests of the split's routes compare with
+# their goldens: (method, path, query, JSON body of a write). Story ids: ``plan_claims_support.mini_plan``.
+PEOPLE_CALLS: Mapping[str, tuple[str, str, dict[str, Any], dict[str, Any] | None]] = {
+    "list_areas": ("GET", AGENT_ROUTES["list_areas"], {"project_id": ALPHA}, None),
+    "list_stories": ("GET", AGENT_ROUTES["list_stories"], {"project_id": ALPHA, "limit": 2}, None),
+    "preview_story": (
+        "GET",
+        AGENT_ROUTES["preview_story"],
+        {"project_id": ALPHA, "story_id": "STORY::A::API"},
+        None,
+    ),
+    "claim_story": (
+        "POST",
+        AGENT_ROUTES["claim_story"],
+        {"project_id": ALPHA},
+        {"story_id": "STORY::A::API", "agent_label": "Claude Code", "branch": "fix/x"},
+    ),
+    "release_story": (
+        "POST",
+        AGENT_ROUTES["release_story"],
+        {"project_id": ALPHA},
+        {"story_id": "STORY::A::API", "claim_token": "t"},
+    ),
+    "add_finding": (
+        "POST",
+        AGENT_ROUTES["add_finding"],
+        {"project_id": ALPHA},
+        {"kind": "gap", "text": "x", "about": ["FEAT::API"]},
+    ),
+    "report_task": (
+        "POST",
+        AGENT_ROUTES["report_task"],
+        {"project_id": ALPHA},
+        {"task_id": "TASK::A::API_LOGIC", "claim_token": "t", "progress": "done"},
+    ),
+    "complete_story": (
+        "POST",
+        AGENT_ROUTES["complete_story"],
+        {"project_id": ALPHA},
+        {"story_id": "STORY::A::API", "claim_token": "t", "merge_commit": "a" * 40},
+    ),
+}
 
 
 def mcp_token(email: str = ALICE_EMAIL, **over: Any) -> str:
@@ -272,6 +314,14 @@ class AgentRig:
 
         raw = alice() if raw == ALICE_NOW else raw
         return await self.client.get(path, params=params, headers=bearer_header(raw))
+
+    async def post(
+        self, path: str, body: Mapping[str, Any], raw: str | None = ALICE_NOW, **params: Any
+    ) -> httpx.Response:
+        """``POST path`` with a JSON ``body`` as ``raw`` (a fresh MCP token of alice by default)."""
+
+        raw = alice() if raw == ALICE_NOW else raw
+        return await self.client.post(path, params=params, json=body, headers=bearer_header(raw))
 
     async def call(self, name: str, raw: str | None = ALICE_NOW, **over: Any) -> httpx.Response:
         """The route of tool ``name`` with the gate's page-one arguments, ``over`` replacing or adding some."""

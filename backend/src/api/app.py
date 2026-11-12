@@ -16,6 +16,8 @@ from api.request_id import SpecflowApi
 from api.routers import (
     agent,
     agent_spec,
+    agent_stories,
+    agent_writes,
     documents,
     graph_build,
     health,
@@ -165,6 +167,8 @@ def create_app(settings: RoleSettings, *, runtime_factory: RuntimeFactory = buil
         me.router,
         agent.router,
         agent_spec.router,
+        agent_stories.router,
+        agent_writes.router,
         projects.router,
         documents.router,
         graph_build.router,

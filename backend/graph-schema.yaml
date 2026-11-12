@@ -132,6 +132,7 @@ nodes:
       claimed_at: {type: timestamp}
       agent_label: {type: string}
       claim_token: {type: string}
+      token_holder: {type: string}
       branch: {type: string}
       note: {type: string}
       pr_url: {type: string}

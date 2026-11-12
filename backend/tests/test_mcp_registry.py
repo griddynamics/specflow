@@ -13,12 +13,14 @@ import httpx
 
 from agent_contracts import AGENT_ROUTES
 from mcp_server import descriptions
-from mcp_server.registry import READ_ONLY, TOOLS, install
+from mcp_server.registry import READ_ONLY, TOOLS, WRITE, install
 from mcp_support import ALICE, BACKEND, build_app, call, mcp_env, ready_api, sdk_session
 
 SOURCE = BACKEND / "src" / "mcp_server"
 TOOLS_DOC = BACKEND.parent / "docs" / "mcp-server" / "tools.md"
 ANNOTATIONS = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": False}
+WRITE_ANNOTATIONS = {**ANNOTATIONS, "readOnlyHint": False}
+WRITE_TOOLS = {"claim_story", "release_story", "add_finding", "report_task", "complete_story"}
 
 
 def tools_app(valid_env):
@@ -77,6 +79,11 @@ def test_fr_mcp_acc_06_the_declarations_name_a_project_id_exactly_when_they_are_
         "list_feature_tasks",
         "get_task_path",
         "get_task_brief",
+        "list_areas",
+        "list_stories",
+        "preview_story",
+        "claim_story",
+        "release_story",
         "get_story_brief",
         "trace",
         "get_node",
@@ -85,10 +92,13 @@ def test_fr_mcp_acc_06_the_declarations_name_a_project_id_exactly_when_they_are_
         "get_evidence",
         "path",
         "expand_brief",
+        "add_finding",
+        "report_task",
+        "complete_story",
     ]
     for tool in TOOLS:
         assert ("project_id" in tool.arguments.model_fields) == tool.project_scoped, tool.name
-    assert [t.project_scoped for t in TOOLS] == [False, *([True] * 13)]
+    assert [t.project_scoped for t in TOOLS] == [False, *([True] * 21)]
 
 
 async def test_fr_mcp_acc_06_every_scoped_tool_sends_its_project_id_to_the_api_which_owns_the_membership(valid_env):
@@ -120,13 +130,21 @@ async def test_fr_mcp_acc_06_every_scoped_tool_sends_its_project_id_to_the_api_w
         "get_evidence": {"spec_id": "FEAT::X"},
         "path": {"from": "FEAT::X", "to": "FEAT::Y"},
         "expand_brief": {"story_id": "STORY::X"},
+        "preview_story": {"story_id": "STORY::X"},
+        "claim_story": {"story_id": "STORY::X"},
+        "release_story": {"story_id": "STORY::X", "claim_token": "t"},
+        "add_finding": {"kind": "gap", "text": "x", "about": ["FEAT::X"]},
+        "report_task": {"task_id": "TASK::X", "claim_token": "t", "progress": "done"},
+        "complete_story": {"story_id": "STORY::X", "claim_token": "t", "merge_commit": "a" * 40},
     }
     async with sdk_session(app, ALICE) as session:
         listed = (await session.list_tools()).tools
         scoped = [t.name for t in listed if "project_id" in (t.input_schema.get("properties") or {})]
         for name in scoped:
             result = await call(session, name, project_id=foreign, **required.get(name, {}))
-            assert result.is_error and result.structured_content["error"]["code"] == "project_not_found"
+            assert result.is_error, (name, result.content)
+            assert result.structured_content, (name, result.content)
+            assert result.structured_content["error"]["code"] == "project_not_found", name
     assert scoped == [t.name for t in TOOLS if t.project_scoped]
     assert [r.url.path for r in seen] == [AGENT_ROUTES[name] for name in scoped]
     assert {r.url.params["project_id"] for r in seen} == {foreign}
@@ -157,7 +175,7 @@ def test_fr_mcp_acc_06_the_sdk_tool_api_has_one_home_and_no_module_reads_data() 
 # --- FR-MCP-TOOL-09: the published contract ----------------------------------------------------------
 
 
-async def test_fr_mcp_tool_09_tools_list_shows_exactly_the_ten_tools_with_four_annotations_each(valid_env):
+async def test_fr_mcp_tool_09_tools_list_shows_every_tool_with_four_annotations_each(valid_env):
     """FR-MCP-TOOL-09: ``tools/list`` over HTTP: every tool, the four annotations, the output schema, and the
     description tools.md quotes (joined by one space)."""
 
@@ -165,24 +183,33 @@ async def test_fr_mcp_tool_09_tools_list_shows_exactly_the_ten_tools_with_four_a
     async with sdk_session(app, ALICE) as session:
         listed = (await session.list_tools()).tools
     assert sorted(t.name for t in listed) == [
+        "add_finding",
+        "claim_story",
+        "complete_story",
         "expand_brief",
         "get_evidence",
         "get_node",
         "get_story_brief",
         "get_task_brief",
         "get_task_path",
+        "list_areas",
         "list_feature_tasks",
         "list_features",
         "list_projects",
+        "list_stories",
         "list_tasks",
         "path",
+        "preview_story",
+        "release_story",
+        "report_task",
         "search_spec",
         "similar",
         "trace",
     ]
     for tool in listed:
         assert tool.annotations is not None
-        assert tool.annotations.model_dump(mode="json", by_alias=True, exclude_none=True) == ANNOTATIONS, tool.name
+        wanted = WRITE_ANNOTATIONS if tool.name in WRITE_TOOLS else ANNOTATIONS
+        assert tool.annotations.model_dump(mode="json", by_alias=True, exclude_none=True) == wanted, tool.name
         assert tool.output_schema is not None, tool.name
     by_name = {t.name: t for t in listed}
     assert by_name["list_projects"].description == doc_description("list_projects") == descriptions.PROJECTS_DESCRIPTION
@@ -201,9 +228,18 @@ async def test_fr_mcp_tool_09_tools_list_shows_exactly_the_ten_tools_with_four_a
         ("get_evidence", descriptions.EVIDENCE_DESCRIPTION),
         ("path", descriptions.PATH_TOOL_DESCRIPTION),
         ("expand_brief", descriptions.EXPAND_DESCRIPTION),
+        ("list_areas", descriptions.AREAS_DESCRIPTION),
+        ("list_stories", descriptions.STORIES_DESCRIPTION),
+        ("preview_story", descriptions.PREVIEW_DESCRIPTION),
+        ("claim_story", descriptions.CLAIM_DESCRIPTION),
+        ("release_story", descriptions.RELEASE_DESCRIPTION),
+        ("add_finding", descriptions.ADD_FINDING_DESCRIPTION),
+        ("report_task", descriptions.REPORT_TASK_DESCRIPTION),
+        ("complete_story", descriptions.COMPLETE_STORY_DESCRIPTION),
     ):
         assert by_name[tool].description == doc_description(tool) == text, tool
     assert READ_ONLY.model_dump(mode="json", by_alias=True, exclude_none=True) == ANNOTATIONS
+    assert WRITE.model_dump(mode="json", by_alias=True, exclude_none=True) == WRITE_ANNOTATIONS
 
 
 async def test_fr_mcp_tool_09_the_input_schemas_bound_the_limit_and_leave_the_ids_plain(valid_env):
@@ -224,9 +260,23 @@ async def test_fr_mcp_tool_09_the_input_schemas_bound_the_limit_and_leave_the_id
         "get_evidence",
         "path",
         "expand_brief",
+        "list_areas",
+        "preview_story",
+        "claim_story",
+        "release_story",
+        "add_finding",
+        "report_task",
+        "complete_story",
     }
     paged = {name: schema for name, schema in schemas.items() if name not in spec_tools}
-    assert set(paged) == {"list_projects", "list_features", "list_tasks", "list_feature_tasks", "get_task_path"}
+    assert set(paged) == {
+        "list_projects",
+        "list_features",
+        "list_tasks",
+        "list_feature_tasks",
+        "get_task_path",
+        "list_stories",
+    }
     for name, schema in paged.items():
         properties = schema["properties"]
         assert {k: v for k, v in properties["limit"].items() if k != "title"} == limit, name

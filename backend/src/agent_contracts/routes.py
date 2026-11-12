@@ -21,5 +21,13 @@ AGENT_ROUTES: Final[Mapping[str, str]] = {
     "get_evidence": f"{AGENT_PREFIX}/evidence",
     "path": f"{AGENT_PREFIX}/node-path",
     "expand_brief": f"{AGENT_PREFIX}/brief-expansion",
+    "list_areas": f"{AGENT_PREFIX}/areas",
+    "list_stories": f"{AGENT_PREFIX}/stories",
+    "preview_story": f"{AGENT_PREFIX}/story-preview",
+    "claim_story": f"{AGENT_PREFIX}/story-claim",
+    "release_story": f"{AGENT_PREFIX}/story-release",
+    "add_finding": f"{AGENT_PREFIX}/findings",
+    "report_task": f"{AGENT_PREFIX}/task-progress",
+    "complete_story": f"{AGENT_PREFIX}/story-completion",
 }
 USER_ID_HEADER: Final = "X-SpecFlow-User-Id"

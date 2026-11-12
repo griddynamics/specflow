@@ -44,7 +44,8 @@ from graph.stores.postgres.dialect import PostgresDialect
 from graph_plan_support import plan_ontology, plan_rules
 from graph_support import OfflineExecutor
 from graph_trace_support import TraceExecutor, TraceGraph, shop_graph
-from plan_trace_support import TASKS, ShopSpecGraph, shop_plan
+from plan_claims_support import MemoryPlanExecutor
+from plan_trace_support import TASKS, WAITS, ShopSpecGraph, shop_plan
 from specflow_api_agent_support import ALPHA, AgentRig, serve_agent
 
 SHOP: Final = Path(__file__).resolve().parent / "fixtures" / "graph" / "plan" / "shop.yaml"
@@ -281,6 +282,31 @@ def spec_plan(holder: uuid.UUID, other: uuid.UUID) -> LoadedPlan:
     return shop_plan(tasks=tasks)
 
 
+def memory_plan(loaded: LoadedPlan, project_id: str, *, applying: bool = False) -> MemoryPlanExecutor:
+    """The persisted plan of ``loaded`` in the in-memory executor of the story claim tests, so the story calls
+    (claim, release) run on it with their locks; ``applying`` marks a plan persist as running."""
+
+    current = loaded.current
+    memory = MemoryPlanExecutor(project_id)
+    stamp = current.plan.created_at.isoformat() if current.plan is not None else None
+    memory.plan = (
+        None
+        if current.plan is None
+        else {
+            "plan_id": current.plan.plan_id,
+            "consumed_build_ids": list(current.plan.consumed_build_ids),
+            "applying": "run-1" if applying else None,
+            "created_at": stamp,
+            "updated_at": stamp,
+        }
+    )
+    memory.areas = {item.area_id: item.model_dump(mode="json") for item in current.areas}
+    memory.stories = {item.story_id: item.model_dump(mode="json") for item in current.stories}
+    memory.tasks = {item.task_id: item.model_dump(mode="json") for item in current.tasks}
+    memory.add_waits(*WAITS)
+    return memory
+
+
 @dataclass
 class SpecRig:
     rig: AgentRig
@@ -326,8 +352,14 @@ async def serve_spec(
     scenario: str = "ok",
     has_plan: bool = True,
     fail: Exception | None = None,
+    writable: str | None = None,
 ) -> AsyncIterator[SpecRig]:
-    """The API over the shop graph. ``scenario`` is ``serve_agent``'s; ``fail`` makes the graph reads raise."""
+    """The API over the shop graph. ``scenario`` is ``serve_agent``'s; ``fail`` makes the graph reads raise.
+
+    ``writable`` puts the plan in the in-memory executor, so the story calls can write: ``"free"`` as it is,
+    ``"claimed"`` with the Checkout story held by Ben (label ``Claude Code · laptop``), ``"applying"`` with a plan
+    persist running, ``"held_applying"`` with Checkout held by alice (token 1) and a plan persist running. A story
+    call's clock advances one second a call and its claim tokens are 1, 2, ... in hex."""
 
     async with serve_agent(monkeypatch, env, scenario=scenario, has_plan=has_plan) as rig:
         repo = rig.repo
@@ -354,14 +386,34 @@ async def serve_spec(
         async def load(_project_id: str) -> LoadedPlan:
             return loaded
 
-        plan = PlanService(
-            OfflineExecutor(),
-            ontology,
-            plan_rules(ontology),
-            graph=ShopSpecGraph(),
-            load=load,
-            findings=findings,
-        )
+        if writable is not None and has_plan:
+            tokens = itertools.count(1)
+            monkeypatch.setattr(
+                "graph.plan.claims.uuid", SimpleNamespace(uuid4=lambda: uuid.UUID(int=next(tokens)))
+            )  # the claim tokens of the goldens
+            stored = memory_plan(loaded, ALPHA, applying=writable == "applying")
+            plan = PlanService(
+                stored,
+                ontology,
+                plan_rules(ontology),
+                graph=ShopSpecGraph(),
+                findings=findings,
+                clock=Clock(),
+            )
+            if writable == "claimed":
+                await plan.claim_story(ALPHA, CHECKOUT, claimed_by=str(ben.id), agent_label="Claude Code · laptop")
+            if writable == "held_applying":  # alice holds Checkout (token 1), then a plan persist starts
+                await plan.claim_story(ALPHA, CHECKOUT, claimed_by=str(alice))
+                stored.plan = {**(stored.plan or {}), "applying": "run-1"}
+        else:
+            plan = PlanService(
+                OfflineExecutor(),
+                ontology,
+                plan_rules(ontology),
+                graph=ShopSpecGraph(),
+                load=load,
+                findings=findings,
+            )
         rig.runtime.agent_reads = AgentReads(
             ontology=ontology, reader=reader_of(executor), plan=plan, findings=findings
         )

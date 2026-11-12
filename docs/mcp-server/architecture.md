@@ -299,10 +299,10 @@ The five write tools are the first agent routes that change data. Each is one `P
 | Tool | Path | Body fields | 200 body | Route errors (code → status) |
 |---|---|---|---|---|
 | `claim_story` | `/story-claim` | `story_id`, `agent_label`?, `branch`? | `StoryClaim` (`claim_token`, `story_ids`: the claim unit, `claimed_at`, `items`) | `project_not_found`, `no_plan`, `story_not_found` → 404; `invalid_arguments` → 400; `story_claimed`, `partly_claimed`, `not_available`, `plan_applying` → 409 |
-| `release_story` | `/story-release` | `story_id`, `claim_token`, `note`?, `branch`? | `StoryRelease` | `project_not_found`, `no_plan`, `story_not_found` → 404; `invalid_arguments` (`branch` format) → 400; `claim_mismatch` → 409 |
-| `add_finding` | `/findings` | `kind`, `text`, `about`, `refers_to` ([]), `story_id`?, `claim_token`?, `blocking` (false) | `FindingResult` | `project_not_found`, `node_not_found`, `story_not_found` → 404; `invalid_arguments` → 400; `claim_mismatch`, `finding_limit` → 409 |
-| `report_task` | `/task-progress` | `task_id`, `claim_token`, `progress`, `note`? | `TaskProgress` (`task`) | `project_not_found`, `no_plan`, `task_not_found` → 404; `invalid_arguments` → 400; `claim_mismatch` → 409 |
-| `complete_story` | `/story-completion` | `story_id`, `claim_token`, `merge_commit`, `pr_url`?, `done`? | `StoryCompletion` | `project_not_found`, `no_plan`, `story_not_found` → 404; `invalid_commit`, `invalid_arguments` → 400; `claim_mismatch` → 409 |
+| `release_story` | `/story-release` | `story_id`, `claim_token`, `note`?, `branch`? | `StoryRelease` | `project_not_found`, `no_plan`, `story_not_found` → 404; `invalid_arguments` (`branch` format) → 400; `claim_mismatch`, `plan_applying` → 409 |
+| `add_finding` | `/findings` | `kind`, `text`, `about`, `refers_to` ([]), `story_id`?, `claim_token`?, `blocking` (false) | `FindingResult` | `project_not_found`, `node_not_found`, `story_not_found` → 404; `invalid_arguments` → 400; `claim_mismatch`, `finding_limit`, `plan_applying` (blocking) → 409 |
+| `report_task` | `/task-progress` | `task_id`, `claim_token`, `progress`, `note`? | `TaskReport` (`task`) | `project_not_found`, `no_plan`, `task_not_found` → 404; `invalid_arguments` → 400; `claim_mismatch`, `plan_applying` → 409 |
+| `complete_story` | `/story-completion` | `story_id`, `claim_token`, `merge_commit`, `pr_url`?, `done`? | `StoryCompletion` | `project_not_found`, `no_plan`, `story_not_found` → 404; `invalid_commit`, `invalid_arguments` → 400; `claim_mismatch`, `plan_applying` → 409 |
 
 Every new code is listed with its status in the API's error-code registry (`backend/archkit.toml`, `[error_codes]`):
 `*_not_found` 404; `invalid_arguments`, `invalid_commit`, `unknown_relation` 400; `story_claimed`, `not_available`,

@@ -24,6 +24,12 @@ def same_token(stored: str | None, given: str | None) -> bool:
     return stored is not None and given is not None and hmac.compare_digest(stored.encode(), given.encode())
 
 
+def held_by(story: StoryInfo, caller: str | None, token: str | None) -> bool:
+    """Whether ``caller`` holds ``story`` under ``token``: the token alone is not enough."""
+
+    return story.claimed_by is not None and story.claimed_by == caller and same_token(story.claim_token, token)
+
+
 def persisting(board: StoryBoard) -> None:
     """Refuse (``plan_applying``) while a plan persist is in progress: a persist locks a task before its story, the
     story calls lock stories before tasks, so the two never run at once. A forced release is the host's way out."""

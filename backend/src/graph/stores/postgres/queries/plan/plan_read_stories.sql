@@ -29,6 +29,7 @@ SELECT
     props -> 'note' AS note,
     props -> 'pr_url' AS pr_url,
     props -> 'claim_token' AS claim_token,
+    props -> 'token_holder' AS token_holder,
     props -> 'created_at' AS created_at,
     props -> 'updated_at' AS updated_at,
     props -> 'last_run_id' AS last_run_id

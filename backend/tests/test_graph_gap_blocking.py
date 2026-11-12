@@ -197,8 +197,8 @@ async def test_the_dedupe_is_checked_before_the_guard_so_a_repeat_never_needs_a_
         ({"story_id": "STORY::A::NONE"}, TaskStateError),
         ({"kind": "note"}, ConfigurationError),
         ({"story_id": None}, ConfigurationError),
-        ({"about": ["REQ::FR::NOPE"]}, TaskStateError),  # the guard comes first: no node of the story is named
-        ({"about": [CARD, "REQ::FR::NOPE"]}, FindingError),  # the guard passes, then the add names the unknown id
+        ({"about": ["REQ::FR::NOPE"]}, FindingError),  # node_not_found before the dedupe and the guard
+        ({"about": [CARD, "REQ::FR::NOPE"]}, FindingError),  # one unknown id among known ones: the same
     ],
 )
 async def test_the_guard_refuses_before_anything_is_written(
@@ -227,7 +227,7 @@ async def test_when_the_block_fails_after_the_guard_the_finding_is_withdrawn(
 
     async def release_after_the_guard(*args: Any, **kwargs: Any) -> None:
         await real(*args, **kwargs)
-        await world.plan.release_story(PROJECT, API, claim_token=token)
+        await world.plan.release_story(PROJECT, API, claimed_by="u1", claim_token=token)
 
     monkeypatch.setattr(world.plan, "check_block", release_after_the_guard)
 
@@ -243,7 +243,7 @@ async def test_the_block_error_wins_when_the_withdraw_fails_too(
     world: World, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     token = await world.claim()
-    await world.plan.release_story(PROJECT, API, claim_token=token)
+    await world.plan.release_story(PROJECT, API, claimed_by="u1", claim_token=token)
     monkeypatch.setattr(world.plan, "check_block", _passes)
     world.gap_store.fail_on = "gap_delete_open_finding"
 

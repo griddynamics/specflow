@@ -151,7 +151,9 @@ async def test_match_finds_the_open_finding_of_a_tuple_and_none_for_another(
         )
         is None
     )
-    assert await findings.match(PROJECT, created_by="u1", kind="question", about=["REQ::GONE"], text="x") is None
+    with pytest.raises(FindingError) as unknown:
+        await findings.match(PROJECT, created_by="u1", kind="question", about=[CARD, "REQ::GONE"], text="x")
+    assert (unknown.value.code, unknown.value.spec_ids) == ("node_not_found", ("REQ::GONE",))
 
 
 async def test_the_limit_of_open_findings_counts_per_author_and_story(

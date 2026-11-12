@@ -59,13 +59,15 @@ class Holders:
         self._caller = caller
         self._names = names or {}
 
-    def of(self, user_id: str | None) -> Holder | None:
+    def of(self, user_id: str | None, agent_label: str | None = None) -> Holder | None:
+        """The holder behind ``user_id``; ``agent_label`` is the label of a story claim (claims only)."""
+
         if not user_id:
             return None
         parsed = _parse(user_id)
         if parsed is None:
-            return Holder(name=None, you=False)
-        return Holder(name=self._names.get(parsed), you=parsed == self._caller)
+            return Holder(name=None, you=False, agent_label=agent_label)
+        return Holder(name=self._names.get(parsed), you=parsed == self._caller, agent_label=agent_label)
 
 
 def _parse(user_id: str) -> uuid.UUID | None:

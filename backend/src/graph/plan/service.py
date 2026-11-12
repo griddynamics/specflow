@@ -42,6 +42,7 @@ from graph.plan.reader import (
 )
 from graph.plan.rules import PlanRules
 from graph.plan.story_brief import story_brief
+from graph.plan.story_findings import StoryFindings, story_findings
 from graph.plan.story_models import (
     AreaSummary,
     StoryClaim,
@@ -280,6 +281,12 @@ class PlanService:
         loaded = await self._plan(project_id)
         return story_list(loaded, view=view, caller=caller, area_id=area_id, finding_ids=finding_ids)
 
+    async def story_findings(self, project_id: str, story_ids: Sequence[str]) -> tuple[StoryFindings, ...]:
+        """Per story: the open findings about it and the nodes its tasks implement (count, oldest blocking one); none
+        without a findings port."""
+
+        return await story_findings(await self._plan(project_id), self._findings, project_id, story_ids)
+
     async def story_preview(self, project_id: str, story_id: str) -> StoryPreview:
         """The story before a claim: state, holder, unit, open tasks, blockers and what it unblocks, and the open
         findings about the nodes of those tasks when the service has a findings port."""
@@ -315,16 +322,19 @@ class PlanService:
         project_id: str,
         story_id: str,
         *,
+        claimed_by: str | None = None,
         claim_token: str | None = None,
         force: bool = False,
         note: str | None = None,
         branch: str | None = None,
     ) -> StoryRelease:
-        """End a story claim; ``force=True`` is a host operation that frees a forgotten claim."""
+        """End the claim ``claimed_by`` holds under ``claim_token``; ``force=True`` is a host operation that frees a
+        forgotten claim (no caller or token)."""
 
         return await self._claims.release(
             project_id,
             story_id,
+            claimed_by=claimed_by,
             claim_token=claim_token,
             force=force,
             note=note,
@@ -336,14 +346,15 @@ class PlanService:
         project_id: str,
         task_id: str,
         *,
+        claimed_by: str,
         claim_token: str,
         progress: TaskProgress,
         note: str | None = None,
     ) -> StoryTask:
-        """Report ``progress`` of a claimed task of a held story; the status stays ``in_progress``."""
+        """Report ``progress`` of a claimed task of a story ``claimed_by`` holds; the status stays ``in_progress``."""
 
         return await self._claims.report_progress(
-            project_id, task_id, claim_token=claim_token, progress=progress, note=note
+            project_id, task_id, claimed_by=claimed_by, claim_token=claim_token, progress=progress, note=note
         )
 
     async def complete_story(
@@ -357,7 +368,8 @@ class PlanService:
         pr_url: str | None = None,
         done: Collection[str] | None = None,
     ) -> StoryCompletion:
-        """Complete the claimed tasks in ``done`` (default all) with the merge commit; end the claim."""
+        """Complete the claimed tasks in ``done`` (default all) with the merge commit; end the claim ``completed_by``
+        holds."""
 
         result = await self._claims.complete(
             project_id,
