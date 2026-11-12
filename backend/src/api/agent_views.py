@@ -22,8 +22,10 @@ from agent_contracts import (
     ExpansionHit,
     ExpansionTop,
     FindingItem,
+    HeldStory,
     Holder,
     NodeBody,
+    NodeDetail,
     NodeEdges,
     NodePaths,
     NodePlanPart,
@@ -46,7 +48,8 @@ from db import repositories as repo
 from graph.core.evidence import EvidenceItem
 from graph.core.expand import Expansion, SimilarResult
 from graph.core.paths import PathResult
-from graph.core.reader import GraphEdge, GraphNode
+from graph.core.reader import GraphDocument, GraphEdge, GraphFragment, GraphNode
+from graph.plan import node_plan as plan_nodes
 from graph.plan.brief_models import StoryBrief
 from graph.plan.findings_port import OpenFinding
 from graph.plan.node_plan import NodePlan
@@ -117,6 +120,8 @@ def _task_ref(task: TraceTask, holders: Holders) -> TaskRef:
 
 
 HINT_TOP: Final = 3
+DOCUMENT_LABEL: Final = "Document"
+DOCUMENT_TEXT_CHARS: Final = 12_000  # about 3000 tokens (characters / 4), the expand_brief default budget
 
 
 def story_brief_body(brief: StoryBrief, holders: Holders, expansion: Expansion | None = None) -> StoryBriefBody:
@@ -233,6 +238,61 @@ def node_body(node: GraphNode) -> NodeBody:
             NodeStatement(fragment_id=item.fragment_id, document_id=item.document_id, text=item.text)
             for item in node.statements
         ],
+    )
+
+
+def held_view(stories: Iterable[plan_nodes.HeldStory]) -> list[HeldStory]:
+    return [HeldStory(story_id=story.story_id, title=story.title, spec_ids=list(story.spec_ids)) for story in stories]
+
+
+def document_view(
+    document: GraphDocument, fragments: Sequence[GraphFragment], total: int, *, provenance: bool
+) -> NodeDetail:
+    """A document answered as a node (label ``Document``): its path, title, version and status, the text of
+    ``fragments`` in order while it stays within ``DOCUMENT_TEXT_CHARS`` (the first one always), and, when asked,
+    their lines as provenance. ``total`` counts the document's active fragments."""
+
+    statements: list[NodeStatement] = []
+    used = 0
+    for fragment in fragments:
+        if statements and used + len(fragment.text) > DOCUMENT_TEXT_CHARS:
+            break
+        used += len(fragment.text)
+        statements.append(
+            NodeStatement(fragment_id=fragment.fragment_id, document_id=document.document_id, text=fragment.text)
+        )
+    attributes = {
+        "path": document.path,
+        "title": document.title,
+        "version": document.version,
+        "status": document.status,
+        "fragments": total,
+    }
+    return NodeDetail(
+        node=NodeBody(
+            spec_id=document.document_id,
+            label=DOCUMENT_LABEL,
+            name=document.title or document.path or document.document_id,
+            spec_id_aliases=[],
+            attributes={name: value for name, value in attributes.items() if value is not None},
+            statements=statements,
+        ),
+        edges=None,
+        plan=None,
+        provenance=[
+            NodeProvenance(
+                document_id=document.document_id,
+                path=document.path,
+                fragment_id=fragment.fragment_id,
+                line_start=fragment.line_start,
+                line_end=fragment.line_end,
+                quote=None,
+            )
+            for fragment in fragments
+        ]
+        if provenance
+        else None,
+        findings=None,
     )
 
 

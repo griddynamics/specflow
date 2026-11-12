@@ -4,7 +4,8 @@
 Same ``AgentRoute``, auth, membership-first dependency chain and infrastructure errors as ``api.routers.agent``. Each
 route calls the libraries and maps their answers to ``agent_contracts`` models (``api.agent_views``); argument rules
 that span arguments or need the ontology are checked here before any library call (``invalid_arguments``,
-``unknown_relation``). Nothing here writes SQL or Cypher.
+``unknown_relation``). ``get_node`` and ``search_spec`` also name the stories the caller holds (``held``), so an agent
+that searches about its own story is pointed to the brief. Nothing here writes SQL or Cypher.
 """
 
 from __future__ import annotations
@@ -37,9 +38,11 @@ from agent_contracts import (
 )
 from api.agent_reads import agent_reads
 from api.agent_views import (
+    document_view,
     evidence_view,
     expansion_view,
     finding_items,
+    held_view,
     holders_of,
     node_body,
     node_edges,
@@ -63,12 +66,16 @@ from api.errors import (
 )
 from api.routers.agent import AgentRoute
 from api.runtime import Runtime
+from graph.core.errors import GraphError
 from graph.core.expand import MAX_SEED_IDS, MAX_SIMILAR_SOURCES, Expansion
-from graph.core.reader import BUILD, GraphNode, GraphReader, NodeHit
+from graph.core.reader import ACTIVE, BUILD, GraphNode, GraphReader, NodeHit
 from graph.gap import Finding
 from graph.plan.brief_models import StoryBrief
 from graph.plan.errors import PlanReadError
 from graph.plan.findings_port import open_finding
+from logger.logger import WARNING, get_logger, log_event
+
+logger = get_logger("api.routers.agent_spec")
 
 router = APIRouter(prefix="/agent", tags=["agent"], route_class=AgentRoute)
 
@@ -81,6 +88,7 @@ NODE_FINDINGS: Final = 50  # the most open findings one node shows
 NEAR_HOPS: Final = 3
 NEAR_FETCH_FACTOR: Final = 3
 NEAR_FETCH_MAX: Final = 60
+DOCUMENT_FRAGMENTS: Final = 100  # the most fragments a document answer lists
 _MATCH: Final[dict[str, SearchMatch]] = {"fulltext": "text", "id": "id", "vector": "vector", "both": "both"}
 
 
@@ -110,7 +118,7 @@ async def get_story_brief(
     reads = await agent_reads(runtime)
     brief = await _plan_read(lambda: reads.plan.story_brief(graph_id, story_id, neighbours=neighbours))
     holders = await holders_of(runtime, project.id, user.id, [item.created_by for item in brief.findings])
-    expansion = await _expansion(reads.reader, graph_id, brief, DEFAULT_BUDGET_TOKENS)
+    expansion = await _expansion_hint(reads.reader, graph_id, brief)
     return StoryBriefResult(project_id=graph_id, brief=story_brief_body(brief, holders, expansion))
 
 
@@ -149,13 +157,17 @@ async def trace(
 async def get_node(
     project: AgentProjectDep, runtime: RuntimeDep, user: AgentUserDep, args: Annotated[NodeQuery, Query()]
 ) -> NodeDetail:
-    """One node with the parts asked for: edges (a hub's summarised past ``edge_limit``), plan, provenance, findings."""
+    """One node with the parts asked for: edges (a hub's summarised past ``edge_limit``), plan, provenance, findings,
+    and the stories the caller holds; a document or fragment id answers its document."""
 
     graph_id = str(project.id)
     reads = await agent_reads(runtime)
     node = await reads.reader.node(graph_id, args.spec_id)
     if node is None:
-        raise node_not_found()
+        document = await _document(reads.reader, graph_id, args.spec_id, provenance="provenance" in args.include)
+        if document is None:
+            raise node_not_found()
+        return document
     parts = set(args.include)
     edges = None
     edge_list = []
@@ -176,6 +188,7 @@ async def get_node(
     holders = await holders_of(runtime, project.id, user.id, [*named, *(item.created_by for item in open_findings)])
     if "edges" in parts:
         edges = node_edges(edge_list, node.spec_id, args.edge_limit, ends)
+    held = await reads.plan.held_stories(graph_id, str(user.id), {node.spec_id: node.spec_id_aliases})
     return NodeDetail(
         node=node_body(node),
         edges=edges,
@@ -184,20 +197,22 @@ async def get_node(
         findings=finding_items([open_finding(item) for item in open_findings], holders)
         if "findings" in parts
         else None,
+        held=held_view(held),
     )
 
 
 @router.get("/spec-search", response_model=SpecSearch)
 async def search_spec(
-    project: AgentProjectDep, runtime: RuntimeDep, args: Annotated[SearchQuery, Query()]
+    project: AgentProjectDep, runtime: RuntimeDep, user: AgentUserDep, args: Annotated[SearchQuery, Query()]
 ) -> SpecSearch:
-    """Hybrid search by id, text and meaning; with ``near``, 3 x ``limit`` hits (at most 60) are re-ranked by hops."""
+    """Hybrid search by id, text and meaning; with ``near``, 3 x ``limit`` hits (at most 60) are re-ranked by hops.
+    An unknown label answers the labels allowed."""
 
     reads = await agent_reads(runtime)
     if args.labels is not None:
         spec_labels = {label for label in reads.ontology.labels if reads.ontology.owner_of(label) == BUILD}
         if not set(args.labels) <= spec_labels:
-            raise invalid_arguments()
+            raise invalid_arguments("labels", allowed=sorted(spec_labels))
     graph_id = str(project.id)
     sources = await _near_nodes(runtime, graph_id, args.near) if args.near is not None else []
     fetch = args.limit if args.near is None else min(NEAR_FETCH_FACTOR * args.limit, NEAR_FETCH_MAX)
@@ -206,6 +221,10 @@ async def search_spec(
     if sources and hits:
         distance = await reads.reader.hops(graph_id, sources, [hit.node.spec_id for hit in hits], max_hops=NEAR_HOPS)
         hits = _near_first(hits, distance)
+    hits = hits[: args.limit]
+    held = await reads.plan.held_stories(
+        graph_id, str(user.id), {hit.node.spec_id: hit.node.spec_id_aliases for hit in hits}
+    )
     return SpecSearch(
         project_id=graph_id,
         items=[
@@ -217,8 +236,9 @@ async def search_spec(
                 matched=_MATCH[hit.matched],
                 hops_from_near=distance.get(hit.node.spec_id),
             )
-            for hit in hits[: args.limit]
+            for hit in hits
         ],
+        held=held_view(held),
     )
 
 
@@ -282,11 +302,25 @@ async def expand_brief(
     """What to read next beyond the story's brief: seeds its implemented nodes, its neighbours left out, aimed by
     the optional ``query``."""
 
+    story_id = args.story_id
+    if story_id is None:
+        raise invalid_arguments("story_id", next_tool="search_spec")
     graph_id = str(project.id)
     reads = await agent_reads(runtime)
-    brief = await _plan_read(lambda: reads.plan.story_brief(graph_id, args.story_id))
+    brief = await _plan_read(lambda: reads.plan.story_brief(graph_id, story_id))
     found = await _expansion(reads.reader, graph_id, brief, args.budget_tokens, args.query)
-    return expansion_view(graph_id, args.story_id, found)
+    return expansion_view(graph_id, story_id, found)
+
+
+async def _expansion_hint(reader: GraphReader, graph_id: str, brief: StoryBrief) -> Expansion | None:
+    """The brief's ``expansion`` hint at the default budget; ``None`` when the graph read fails (an outage too), so the
+    brief still answers; the failure is logged by type only."""
+
+    try:
+        return await _expansion(reader, graph_id, brief, DEFAULT_BUDGET_TOKENS)
+    except GraphError as error:
+        log_event(logger, WARNING, "api.agent.expansion_failed", error_type=type(error).__name__)
+        return None
 
 
 async def _expansion(
@@ -304,6 +338,21 @@ async def _expansion(
         budget_tokens=budget_tokens,
         query=query,
     )
+
+
+async def _document(reader: GraphReader, graph_id: str, spec_id: str, *, provenance: bool) -> NodeDetail | None:
+    """A document id answers the document; a fragment id (``<document_id>#...``) its document with only that
+    fragment. Only active fragments, at most ``DOCUMENT_FRAGMENTS``; ``None`` when neither names one."""
+
+    document_id = spec_id.split("#", 1)[0]
+    document = next((item for item in await reader.documents(graph_id) if item.document_id == document_id), None)
+    if document is None:
+        return None
+    fragments = [item for item in await reader.fragments(graph_id, document_id) if item.status == ACTIVE]
+    shown = fragments if spec_id == document_id else [item for item in fragments if item.fragment_id == spec_id]
+    if not shown and spec_id != document_id:
+        return None
+    return document_view(document, shown[:DOCUMENT_FRAGMENTS], len(fragments), provenance=provenance)
 
 
 async def _near_nodes(runtime: Runtime, graph_id: str, near: str) -> list[str]:

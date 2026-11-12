@@ -70,6 +70,7 @@ SUCCESSES: dict[str, tuple[str, dict[str, Any]]] = {
         "get_node",
         {"project_id": ALPHA, "spec_id": "REQ::LOGIC_EXPORT", "include": ["provenance"]},
     ),
+    "get_node_document": ("get_node", {"project_id": ALPHA, "spec_id": "shop", "include": ["provenance"]}),
     "search_spec": ("search_spec", {"project_id": ALPHA, "query": "checkout"}),
     "search_spec_near_story": ("search_spec", {"project_id": ALPHA, "query": "checkout", "near": CHECKOUT, "limit": 3}),
     "search_spec_id_hit": ("search_spec", {"project_id": ALPHA, "query": "what is FEAT::CARD_PAYMENT", "limit": 3}),
@@ -93,6 +94,7 @@ SUCCESSES: dict[str, tuple[str, dict[str, Any]]] = {
     # a module inside a chain is passed over a call between modules (QA F16): this pair now has a based_on chain
     "path_through_a_module_call": ("path", {"project_id": ALPHA, "from": "MOD::PAYMENTS_SERVICE", "to": "CON::STRIPE"}),
     "path_same_node_reason": ("path", {"project_id": ALPHA, "from": "FEAT::CHECKOUT", "to": "FEAT::CHECKOUT"}),
+    "path_from_id_to_id": ("path", {"project_id": ALPHA, "from_id": "MOD::PAYMENTS_SERVICE", "to_id": "MOD::STRIPE"}),
     "expand_brief": ("expand_brief", {"project_id": ALPHA, "story_id": CHECKOUT}),
     "expand_brief_cut_at_the_budget": (
         "expand_brief",
@@ -113,6 +115,11 @@ CLAIMED_SUCCESSES: dict[str, tuple[str, dict[str, Any]]] = {
     "list_areas_with_a_holder": ("list_areas", {"project_id": ALPHA}),
     "list_stories_open_with_a_holder": ("list_stories", {"project_id": ALPHA}),
     "preview_story_held": ("preview_story", {"project_id": ALPHA, "story_id": CHECKOUT}),
+}
+# Alice holds Checkout (``held``): a search and a node name the story and the nodes of it they found.
+HELD_SUCCESSES: dict[str, tuple[str, dict[str, Any]]] = {
+    "search_spec_in_a_held_story": ("search_spec", {"project_id": ALPHA, "query": "checkout", "limit": 3}),
+    "get_node_of_a_held_story": ("get_node", {"project_id": ALPHA, "spec_id": "FEAT::CHECKOUT", "include": ["plan"]}),
 }
 NO_PLAN_SUCCESSES: dict[str, tuple[str, dict[str, Any]]] = {
     "get_node_without_a_plan": ("get_node", {"project_id": ALPHA, "spec_id": "MOD::STRIPE"}),
@@ -178,7 +185,12 @@ async def test_every_tool_answers_the_golden_success_results(tooling_double):
 
     results: dict[str, Any] = {}
     names: dict[str, str] = {}
-    for scenario, successes in (("ok", SUCCESSES), ("no_plan", NO_PLAN_SUCCESSES), ("claimed", CLAIMED_SUCCESSES)):
+    for scenario, successes in (
+        ("ok", SUCCESSES),
+        ("no_plan", NO_PLAN_SUCCESSES),
+        ("claimed", CLAIMED_SUCCESSES),
+        ("held", HELD_SUCCESSES),
+    ):
         async with tooling_double.serve(scenario) as client:
             for key, (name, arguments) in successes.items():
                 results[key], names[key] = await tool(client, name, **arguments), name
@@ -283,6 +295,16 @@ async def test_every_error_code_the_tools_return_has_a_golden_error_result(tooli
     }
     # More than one way to an error code: the case is named ``<code>:<what>``, its golden next to the plain one.
     extra: dict[str, tuple[str, str, dict[str, Any]]] = {
+        "invalid_arguments:search_spec_labels": (
+            "ok",
+            "search_spec",
+            {"project_id": ALPHA, "query": "checkout", "labels": ["Feature", "Document"]},
+        ),
+        "invalid_arguments:expand_brief_without_a_story": (
+            "ok",
+            "expand_brief",
+            {"project_id": ALPHA, "query": "Which revision is binding?"},
+        ),
         "invalid_arguments:agent_label": (
             "free",
             "claim_story",
@@ -412,6 +434,8 @@ async def test_every_error_code_the_tools_return_has_a_golden_error_result(tooli
         "not_available",
         "partly_claimed",
         "invalid_arguments:agent_label",
+        "invalid_arguments:search_spec_labels",
+        "invalid_arguments:expand_brief_without_a_story",
         "node_not_found:add_finding",
         "invalid_commit",
     ):

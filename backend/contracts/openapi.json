@@ -2437,6 +2437,39 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "HeldStory": {
+        "description": "A story the caller holds, with the nodes of this answer its tasks implement (none when the question may still be\nabout it): read its brief first (``next``).",
+        "properties": {
+          "next": {
+            "const": "get_story_brief",
+            "default": "get_story_brief",
+            "title": "Next",
+            "type": "string"
+          },
+          "spec_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Spec Ids",
+            "type": "array"
+          },
+          "story_id": {
+            "title": "Story Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "story_id",
+          "title",
+          "spec_ids"
+        ],
+        "title": "HeldStory",
+        "type": "object"
+      },
       "Holder": {
         "description": "The person behind a claim, a task or a finding: no user id, token or email (tools.md \"Holders\").",
         "properties": {
@@ -2588,6 +2621,7 @@
         "type": "object"
       },
       "NodeDetail": {
+        "description": "One node, or a document (label ``Document``) when ``spec_id`` names a document or one of its fragments.",
         "properties": {
           "edges": {
             "anyOf": [
@@ -2612,6 +2646,14 @@
               }
             ],
             "title": "Findings"
+          },
+          "held": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/HeldStory"
+            },
+            "title": "Held",
+            "type": "array"
           },
           "node": {
             "$ref": "#/components/schemas/NodeBody"
@@ -5012,6 +5054,14 @@
       },
       "SpecSearch": {
         "properties": {
+          "held": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/HeldStory"
+            },
+            "title": "Held",
+            "type": "array"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/SpecHit"
@@ -6821,16 +6871,23 @@
         "operationId": "expand_brief_api_v1_agent_brief_expansion_get",
         "parameters": [
           {
-            "description": "The story_id of a story from list_stories, or the one claim_story answered.",
+            "description": "Required: the story_id of a story you hold or the user names, from list_stories or claim_story. Without a story, use search_spec.",
             "in": "query",
             "name": "story_id",
-            "required": true,
+            "required": false,
             "schema": {
-              "description": "The story_id of a story from list_stories, or the one claim_story answered.",
-              "maxLength": 200,
-              "minLength": 1,
-              "title": "Story Id",
-              "type": "string"
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Required: the story_id of a story you hold or the user names, from list_stories or claim_story. Without a story, use search_spec.",
+              "title": "Story Id"
             }
           },
           {
@@ -7180,16 +7237,16 @@
     },
     "/api/v1/agent/node": {
       "get": {
-        "description": "One node with the parts asked for: edges (a hub's summarised past ``edge_limit``), plan, provenance, findings.",
+        "description": "One node with the parts asked for: edges (a hub's summarised past ``edge_limit``), plan, provenance, findings,\nand the stories the caller holds; a document or fragment id answers its document.",
         "operationId": "get_node_api_v1_agent_node_get",
         "parameters": [
           {
-            "description": "The spec_id of a node from a brief, a trace or a search; aliases resolve.",
+            "description": "The spec_id of a node from a brief, a trace or a search; aliases resolve. A document_id or fragment_id (doc:...) answers its document.",
             "in": "query",
             "name": "spec_id",
             "required": true,
             "schema": {
-              "description": "The spec_id of a node from a brief, a trace or a search; aliases resolve.",
+              "description": "The spec_id of a node from a brief, a trace or a search; aliases resolve. A document_id or fragment_id (doc:...) answers its document.",
               "maxLength": 200,
               "minLength": 1,
               "title": "Spec Id",
@@ -7548,7 +7605,7 @@
     },
     "/api/v1/agent/spec-search": {
       "get": {
-        "description": "Hybrid search by id, text and meaning; with ``near``, 3 x ``limit`` hits (at most 60) are re-ranked by hops.",
+        "description": "Hybrid search by id, text and meaning; with ``near``, 3 x ``limit`` hits (at most 60) are re-ranked by hops.\nAn unknown label answers the labels allowed.",
         "operationId": "search_spec_api_v1_agent_spec_search_get",
         "parameters": [
           {
@@ -7585,7 +7642,7 @@
             }
           },
           {
-            "description": "Only nodes of these labels; leave out for all.",
+            "description": "Only nodes of these labels, from: BusinessRule, Capability, Constraint, DataEntity, DataRequirement, Feature, FunctionalRequirement, IntegrationRequirement, Interface, Module, OpenQuestion, QualityRequirement. Leave out for all.",
             "in": "query",
             "name": "labels",
             "required": false,
@@ -7602,7 +7659,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Only nodes of these labels; leave out for all.",
+              "description": "Only nodes of these labels, from: BusinessRule, Capability, Constraint, DataEntity, DataRequirement, Feature, FunctionalRequirement, IntegrationRequirement, Interface, Module, OpenQuestion, QualityRequirement. Leave out for all.",
               "title": "Labels"
             }
           },

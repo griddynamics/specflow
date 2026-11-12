@@ -1,5 +1,5 @@
-"""``PlanService.node_plan``, ``plan_states`` and ``story_nodes`` (the plan's side of ``get_node``, ``similar`` and
-``search_spec near``), and the ``state`` and ``progress`` of the story brief."""
+"""``PlanService.node_plan``, ``plan_states``, ``story_nodes`` and ``held_stories`` (the plan's side of ``get_node``,
+``similar``, ``search_spec`` and its ``near``), and the ``state`` and ``progress`` of the story brief."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from graph.plan import PlanReadError, PlanService
 from graph.plan.reader import LoadedPlan
 from graph_plan_support import plan_ontology, plan_rules
 from graph_trace_support import shop_graph
-from plan_trace_support import CHECKOUT, COMMIT, PROJECT, ShopSpecGraph, offline, shop_plan, task
+from plan_trace_support import CHECKOUT, COMMIT, PAYMENTS, PROJECT, STRIPE, ShopSpecGraph, offline, shop_plan, task
 
 LOGIC, DATA = "TASK::WEB_SHOP::LOGIC_CHECKOUT", "TASK::WEB_SHOP::DATA_CHECKOUT"
 
@@ -109,3 +109,38 @@ async def test_plan_states_give_each_node_its_state_from_one_plan_and_none_witho
         "FEAT::GIFT_CARDS": "unplanned",
     }
     assert await service(empty).plan_states(PROJECT, {"FEAT::CHECKOUT": ()}) is None
+
+
+def held_plan(holders: dict[str, str], *, retired: tuple[str, ...] = ()) -> LoadedPlan:
+    """The shop plan with story claims: story id to its holder."""
+
+    loaded = shop_plan(retired=retired)
+    stories = tuple(
+        story.model_copy(update={"claimed_by": holders.get(story.story_id)}) for story in loaded.current.stories
+    )
+    return LoadedPlan(loaded.current.model_copy(update={"stories": stories}))
+
+
+async def test_held_stories_name_the_callers_stories_with_the_given_nodes_they_implement_first() -> None:
+    plan = held_plan({CHECKOUT: "u1", STRIPE: "u1", PAYMENTS: "u2"})
+    nodes = {"REQ::FR::CHECKOUT": (), "FEAT::CHECKOUT_NEW": ("FEAT::CHECKOUT",), "MOD::NOPE": ()}
+
+    held = await service(plan).held_stories(PROJECT, "u1", nodes)
+
+    assert [(story.story_id, story.title, story.spec_ids) for story in held] == [
+        (CHECKOUT, "Checkout", ("REQ::FR::CHECKOUT", "FEAT::CHECKOUT_NEW")),  # an alias counts as the node
+        (STRIPE, "Stripe integration", ()),  # held, but none of the nodes: still named, after the matches
+    ]
+
+
+async def test_held_stories_leave_out_other_holders_retired_stories_and_closed_tasks() -> None:
+    other = await service(held_plan({CHECKOUT: "u2"})).held_stories(PROJECT, "u1", {"FEAT::CHECKOUT": ()})
+    retired = await service(held_plan({CHECKOUT: "u1"}, retired=(CHECKOUT,))).held_stories(
+        PROJECT, "u1", {"FEAT::CHECKOUT": ()}
+    )
+    closed = await service(held_plan({CHECKOUT: "u1"})).held_stories(PROJECT, "u1", {"MOD::WEB_SHOP": ()})
+    empty = LoadedPlan(held_plan({CHECKOUT: "u1"}).current.model_copy(update={"plan": None}))
+
+    assert other == () and retired == ()
+    assert [story.spec_ids for story in closed] == [()]  # only a superseded task implements MOD::WEB_SHOP
+    assert await service(empty).held_stories(PROJECT, "u1", {"FEAT::CHECKOUT": ()}) == ()

@@ -17,6 +17,7 @@ from typing import Annotated, Final
 from fastapi import APIRouter, Query
 
 from agent_contracts import (
+    MAX_BLOCKERS,
     AreaList,
     ClaimStoryBody,
     ErrorDetails,
@@ -201,7 +202,8 @@ async def _claim_refusal(
     if error.code == "not_available":
         preview = await reads.plan.story_preview(graph_id, story_id)
         holders = await holders_of(runtime, project.id, user.id, [blocker.claimed_by for blocker in preview.blockers])
-        found = [await reads.findings.finding(graph_id, item) for item in preview.blocked_by] if reads.findings else []
+        blocked_by = preview.blocked_by[:MAX_BLOCKERS]  # the most findings the details name: no read past them
+        found = [await reads.findings.finding(graph_id, item) for item in blocked_by] if reads.findings else []
         details = ErrorDetails(
             state=preview.state,
             blockers=views.capped_blockers(preview.blockers, holders),

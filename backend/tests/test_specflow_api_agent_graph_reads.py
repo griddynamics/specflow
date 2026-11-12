@@ -250,6 +250,17 @@ async def test_expand_brief_refuses_an_unknown_story_and_a_budget_out_of_range(s
     assert code_of(await spec.get(EXPAND, project_id=ALPHA, **params)) == (status, code)
 
 
+async def test_expand_brief_without_a_story_points_to_search_spec_before_any_read(spec):
+    """QA F35: an agent without a story gets a typed error naming the argument and the tool to use instead."""
+
+    response = await spec.get(EXPAND, project_id=ALPHA, query="Which revision is binding?")
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_arguments"
+    assert response.json()["error"]["details"] == {"argument": "story_id", "next": "search_spec"}
+    assert spec.executor.calls == []
+
+
 async def test_expand_brief_takes_a_query_and_answers_the_story_alone_when_it_cannot_be_embedded(spec):
     # the rig's gateway fails every embed call: the expansion falls back to the story's own vectors
     aimed = await spec.get(EXPAND, project_id=ALPHA, story_id=CHECKOUT, query="How are card payments taken?")
@@ -290,6 +301,23 @@ async def test_the_brief_of_a_story_without_implemented_nodes_hints_nothing_more
 
     assert response.json()["brief"]["expansion"] == {"more": 0, "top": [], "next": "expand_brief"}
     assert "read_trace_hop" not in read_names(spec)
+
+
+@pytest.mark.parametrize("error", [InfrastructureUnavailableError("neo4j_unreachable"), ConfigurationError("x")])
+async def test_the_brief_answers_with_a_null_hint_when_the_expansion_read_fails(spec, monkeypatch, caplog, error):
+    """QA F36: the hint is an extra; its failure is logged by type and the brief still answers."""
+
+    async def failing(*_: Any, **__: Any) -> Any:
+        raise error
+
+    monkeypatch.setattr(spec.rig.runtime.agent_reads.reader, "expand", failing)
+
+    response = await spec.get(STORY, project_id=ALPHA, story_id=CHECKOUT)
+
+    assert response.status_code == 200 and response.json()["brief"]["expansion"] is None
+    assert response.json()["brief"]["implements"]
+    failed = [record for record in caplog.records if getattr(record, "event", None) == "api.agent.expansion_failed"]
+    assert [record.error_type for record in failed] == [type(error).__name__]
 
 
 async def test_expand_brief_without_a_plan_is_no_plan(monkeypatch, valid_env):

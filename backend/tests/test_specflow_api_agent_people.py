@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from agent_contracts import AGENT_ROUTES
+from agent_contracts import AGENT_ROUTES, MAX_BLOCKERS
 from people_support import API, API_NODE, LATE, SETUP, STUCK, UI, PeopleRig, X, Y, serve_people
 from plan_claims_support import mini_plan, story_row, task_row
 from specflow_api_agent_support import ALPHA, USER_HEADER, agent_env, bearer_header, events, mcp_token
@@ -421,6 +421,28 @@ async def test_a_resolved_finding_is_left_out_of_the_refusal(monkeypatch, env):
         refused = await people.post(CLAIM, claim_body(STUCK), project_id=ALPHA)
     assert refused.json()["error"]["code"] == "not_available"
     assert refused.json()["error"]["details"] == {"state": "blocked"}
+
+
+async def test_a_refusal_reads_no_more_blocking_findings_than_its_details_name(monkeypatch, env):
+    """QA F36: a story blocked by many findings costs at most ``MAX_BLOCKERS`` finding reads."""
+
+    async with serve_people(monkeypatch, env) as people:
+        real_preview, real_finding = people.plan.story_preview, people.findings.finding
+        many = tuple(f"FND::{n}" for n in range(MAX_BLOCKERS + 5))
+        asked: list[str] = []
+
+        async def preview(*args: object, **kwargs: object) -> object:
+            return (await real_preview(*args, **kwargs)).model_copy(update={"blocked_by": many})
+
+        async def finding(project_id: str, finding_id: str) -> object:
+            asked.append(finding_id)
+            return await real_finding(project_id, finding_id)
+
+        monkeypatch.setattr(people.plan, "story_preview", preview)
+        monkeypatch.setattr(people.findings, "finding", finding)
+        refused = await people.post(CLAIM, claim_body(STUCK), project_id=ALPHA)
+    assert refused.json()["error"]["code"] == "not_available"
+    assert asked == list(many[:MAX_BLOCKERS])
 
 
 async def test_a_task_claimed_on_its_own_is_partly_claimed_with_its_id_and_holder(monkeypatch, env):

@@ -270,16 +270,20 @@ argument is a repeated parameter (`spec_ids=A&spec_ids=B`).
 | `preview_story` | `/story-preview` | `project_id`, `story_id` | `StoryPreview` | + `story_not_found` → 404 |
 | `get_story_brief` | `/story-brief` | `project_id`, `story_id`, `neighbours` 0–100 (30) | `StoryBriefResult` | + `story_not_found` → 404 |
 | `trace` | `/trace` | `project_id`, `story_id`?, `spec_ids`* 1–20, `direction`, `depth` 1–3 (2), `basis` (`trusted`), `include_owner` (true), `relations`*, `limit` 1–200 (100) | `SpecTrace` | `project_not_found`, `story_not_found`, `no_plan` → 404; `invalid_arguments`, `unknown_relation` → 400 |
-| `get_node` | `/node` | `project_id`, `spec_id`, `include`* (all), `edge_limit` 1–50 (25) | `NodeDetail` | `project_not_found`, `node_not_found` → 404 |
+| `get_node` | `/node` | `project_id`, `spec_id` (or a document or fragment id), `include`* (all), `edge_limit` 1–50 (25) | `NodeDetail` | `project_not_found`, `node_not_found` → 404 |
 | `search_spec` | `/spec-search` | `project_id`, `query` 1–500 chars, `near`?, `labels`*, `limit` 1–20 (10) | `SpecSearch` | `project_not_found` → 404; `invalid_arguments` → 400 |
 | `similar` | `/similar` | `project_id`, `story_id`?, `spec_ids`* 1–20, `exclude_linked` (true), `limit` 1–20 (5), `min_score` 0–1 (0.75) | `SimilarNodes` | `project_not_found`, `story_not_found`, `no_plan` → 404; `invalid_arguments` → 400 |
 | `get_evidence` | `/evidence` | `project_id`, `spec_id`, `context_lines` 0–5 (2) | `Evidence` | `project_not_found`, `node_not_found` → 404 |
-| `path` | `/node-path` | `project_id`, `from`, `to`, `max_hops` 1–4 (4) | `NodePaths` | `project_not_found`, `node_not_found` → 404 |
-| `expand_brief` | `/brief-expansion` | `project_id`, `story_id`, `budget_tokens` 500–8000 (3000) | `BriefExpansion` | `project_not_found`, `no_plan`, `story_not_found` → 404 |
+| `path` | `/node-path` | `project_id`, `from`, `to`, `max_hops` 1–6 (4) | `NodePaths` | `project_not_found`, `node_not_found` → 404 |
+| `expand_brief` | `/brief-expansion` | `project_id`, `story_id`?, `budget_tokens` 500–8000 (3000), `query`? | `BriefExpansion` | `project_not_found`, `no_plan`, `story_not_found` → 404; `invalid_arguments` → 400 |
 
 `*` a list parameter. Schema-bound as for the earlier routes (`422` if violated; MCP's input schema makes it
 unreachable): every range, length and enum above. Checked in the handler: `story_id` xor `spec_ids`, `relations`
-against the ontology, `labels` against the spec labels, `near`.
+against the ontology, `labels` against the spec labels (details `argument`, `allowed`), `near`, `expand_brief`'s
+`story_id` (details `argument`, `next`). `get_node` and `search_spec` also read the caller's held stories
+(`PlanService.held_stories`, one plan load); a `get_node` id that names no node is looked up as a document
+(`GraphReader.documents`, `GraphReader.fragments`). The MCP role accepts a field name as well as its wire alias when
+the argument model validates by name (`path`: `from_id`, `to_id`); the input schema shows the alias.
 
 ### Write routes
 

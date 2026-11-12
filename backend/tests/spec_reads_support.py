@@ -109,6 +109,7 @@ class ShopExecutor:
             self.nodes[spec_id]["attributes"] = {**(self.nodes[spec_id].get("attributes") or {}), "stmt": stmt}
         self.nodes["REQ::Q::CHECKOUT_SPEED"]["provenance"] = [{**CHECKOUT_SPEED_LINE, "line_start": 7, "line_end": 7}]
         self.vectors = dict(VECTORS)
+        self.documents: list[dict[str, Any]] = data["documents"]
         self.fragments: list[dict[str, Any]] = data["fragments"]
         self.edges: list[dict[str, Any]] = data["edges"]
         self.trace_graph: TraceGraph = shop_graph()
@@ -235,6 +236,9 @@ class ShopExecutor:
             if node["uuid"] in uuids
         ]
 
+    def _read_documents(self) -> list[dict[str, Any]]:
+        return [{"props": item} for item in self.documents]
+
     def _read_fragments(self, document_id: str | None) -> list[dict[str, Any]]:
         return [{"props": item} for item in self.fragments if document_id in (None, item["document_id"])]
 
@@ -358,7 +362,8 @@ async def serve_spec(
 
     ``writable`` puts the plan in the in-memory executor, so the story calls can write: ``"free"`` as it is,
     ``"claimed"`` with the Checkout story held by Ben (label ``Claude Code · laptop``), ``"applying"`` with a plan
-    persist running, ``"held_applying"`` with Checkout held by alice (token 1) and a plan persist running. A story
+    persist running, ``"held"`` with Checkout held by alice (token 1), ``"held_applying"`` the same with a plan persist
+    running. A story
     call's clock advances one second a call and its claim tokens are 1, 2, ... in hex."""
 
     async with serve_agent(monkeypatch, env, scenario=scenario, has_plan=has_plan) as rig:
@@ -402,8 +407,9 @@ async def serve_spec(
             )
             if writable == "claimed":
                 await plan.claim_story(ALPHA, CHECKOUT, claimed_by=str(ben.id), agent_label="Claude Code · laptop")
-            if writable == "held_applying":  # alice holds Checkout (token 1), then a plan persist starts
+            if writable in ("held", "held_applying"):  # alice holds Checkout (token 1)
                 await plan.claim_story(ALPHA, CHECKOUT, claimed_by=str(alice))
+            if writable == "held_applying":  # then a plan persist starts
                 stored.plan = {**(stored.plan or {}), "applying": "run-1"}
         else:
             plan = PlanService(

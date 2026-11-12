@@ -26,7 +26,7 @@ from typing import Annotated, Any, Final, cast
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.prompts.base import Prompt
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 from starlette.requests import Request
 
 from agent_contracts import (
@@ -429,10 +429,16 @@ class _ToolFunction:
         self.declaration = declaration
         parameters = [inspect.Parameter("ctx", inspect.Parameter.KEYWORD_ONLY, annotation=Context)]
         annotations: dict[str, Any] = {"ctx": Context}
+        by_name = declaration.arguments.model_config.get("validate_by_name", False)
         for name, info in declaration.arguments.model_fields.items():
-            # ``alias``: a wire name that is no Python name (``from``)
+            # ``alias``: a wire name that is no Python name (``from``); a model that validates by name also takes the
+            # field name (``from_id``), which agents guess; the schema shows the alias only (the first choice)
             described = info.description or info.alias
-            extras = [*info.metadata, *([Field(description=info.description, alias=info.alias)] if described else [])]
+            names = AliasChoices(info.alias, name) if info.alias and by_name else None
+            extras = [
+                *info.metadata,
+                *([Field(description=info.description, alias=info.alias, validation_alias=names)] if described else []),
+            ]
             annotation = Annotated[(info.annotation, *extras)] if extras else info.annotation
             default = inspect.Parameter.empty if info.is_required() else info.get_default(call_default_factory=True)
             parameters.append(
