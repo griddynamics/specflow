@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.requests import ClientDisconnect
 
+from agent_contracts import AGENT_PREFIX, USER_ID_HEADER
 from auth.errors import AuthError
 from logger.logger import ERROR, INFO, get_logger, log_event
 
@@ -85,8 +86,35 @@ def model_not_allowed() -> ApiError:
     return ApiError(422, "model_not_allowed", "The requested model is not allowed.")
 
 
+def agent_unavailable() -> ApiError:
+    return ApiError(503, "agent_unavailable", "The agent routes are not configured.")
+
+
+def invalid_cursor() -> ApiError:
+    return ApiError(400, "invalid_cursor", "The cursor is invalid.")
+
+
+def no_plan() -> ApiError:
+    return ApiError(404, "no_plan", "The project has no implementation plan yet.")
+
+
+def task_not_found() -> ApiError:
+    return ApiError(404, "task_not_found", "The task is not in the current plan of the project.")
+
+
+def feature_not_found() -> ApiError:
+    return ApiError(404, "feature_not_found", "The feature is not in the specification graph of the project.")
+
+
+def graph_unavailable() -> ApiError:
+    return ApiError(503, "graph_unavailable", "The specification graph is unavailable. Try again later.")
+
+
 def envelope(code: str, message: str, details: dict[str, Any] | None = None) -> dict[str, Any]:
     return {"error": {"code": code, "message": message, "details": details or {}}}
+
+
+AGENT_USER_STATE_KEY: Final = "agent_user_id"
 
 
 def _respond(
@@ -95,31 +123,38 @@ def _respond(
     message: str,
     details: dict[str, Any] | None,
     headers: dict[str, str],
+    *,
+    request: Request,
 ) -> JSONResponse:
+    """The envelope; an agent route that has provisioned its user (``AGENT_USER_STATE_KEY``) names it on errors too."""
+
+    user_id = request.scope.get("state", {}).get(AGENT_USER_STATE_KEY)
+    if user_id is not None:
+        headers = {**headers, USER_ID_HEADER: user_id}
     return JSONResponse(envelope(code, message, details), status_code=status, headers=headers)
 
 
-async def _api_error(_: Request, exc: Exception) -> JSONResponse:
+async def _api_error(request: Request, exc: Exception) -> JSONResponse:
     error = cast(ApiError, exc)
-    return _respond(error.status, error.code, error.message, error.details, error.headers)
+    return _respond(error.status, error.code, error.message, error.details, error.headers, request=request)
 
 
-async def _auth_error(_: Request, exc: Exception) -> JSONResponse:
+async def _auth_error(request: Request, exc: Exception) -> JSONResponse:
     error = cast(AuthError, exc)
-    return _respond(error.status, error.code, error.message, None, error.headers)
+    return _respond(error.status, error.code, error.message, None, error.headers, request=request)
 
 
-async def _validation_error(_: Request, exc: Exception) -> JSONResponse:
+async def _validation_error(request: Request, exc: Exception) -> JSONResponse:
     error = cast(RequestValidationError, exc)
     fields = [{"loc": [str(part) for part in item["loc"]], "type": item["type"]} for item in error.errors()]
-    return _respond(422, "validation_failed", "The request is invalid.", {"errors": fields}, {})
+    return _respond(422, "validation_failed", "The request is invalid.", {"errors": fields}, {}, request=request)
 
 
-async def _http_error(_: Request, exc: Exception) -> JSONResponse:
+async def _http_error(request: Request, exc: Exception) -> JSONResponse:
     error = cast(StarletteHTTPException, exc)
     code = _HTTP_CODES.get(error.status_code, "http_error")
     headers = {str(k): str(v) for k, v in (error.headers or {}).items()}
-    return _respond(error.status_code, code, "The request cannot be served.", None, headers)
+    return _respond(error.status_code, code, "The request cannot be served.", None, headers, request=request)
 
 
 async def _disconnect(request: Request, _: Exception) -> Response:
@@ -128,6 +163,7 @@ async def _disconnect(request: Request, _: Exception) -> Response:
 
 
 async def _unhandled(request: Request, error: Exception) -> JSONResponse:
+    # An agent route logs the class only, as the MCP tools did: exception text can hold feature text.
     log_event(
         logger,
         ERROR,
@@ -135,9 +171,9 @@ async def _unhandled(request: Request, error: Exception) -> JSONResponse:
         method=request.method,
         path=request.url.path,
         error_type=type(error).__name__,
-        exc_info=True,
+        exc_info=not request.url.path.startswith(f"{AGENT_PREFIX}/"),
     )
-    return _respond(500, "internal_error", "An internal error occurred.", None, {})
+    return _respond(500, "internal_error", "An internal error occurred.", None, {}, request=request)
 
 
 def install_error_handlers(app: FastAPI) -> None:

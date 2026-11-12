@@ -96,7 +96,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # Licence gate G6: the locked dependency set of each image (api, worker-agents, worker-parse) is installed into a
+  # Licence gate G6: the locked dependency set of each image (api, worker-agents, worker-parse, mcp) is installed into a
   # scratch environment (no Docker image is built) and checked against the allowlist in backend/licence-gate.toml;
   # pymupdf, pymupdf4llm and pymupdf-layout must be absent and NOTICE must name the parse components.
   static-licences:

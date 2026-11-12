@@ -20,7 +20,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN pip install uv==0.11.21
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-dev --no-install-project --extra gcp --extra aws --extra parse
+RUN uv sync --frozen --no-dev --no-install-project --extra worker --extra parse --extra gcp --extra aws
 
 # models: the Docling models, fetched at build time from Hugging Face at pinned commits
 # (docs/file-parsers/engines/docling.md, 'Models'). Layout: the artifacts_path
@@ -45,7 +45,7 @@ PY
 # build: the project itself NON-editable, so the runtime stage needs only the virtualenv (no src/ tree).
 FROM deps AS build
 COPY src ./src
-RUN uv sync --frozen --no-dev --no-editable --extra gcp --extra aws --extra parse
+RUN uv sync --frozen --no-dev --no-editable --extra worker --extra parse --extra gcp --extra aws
 
 # runtime: uid 10001, a HOME dir, the venv and the models only. Logs go to stdout; read-only root
 # filesystem is fine. worker-parse needs a writable /tmp (the parse writes temp files there).

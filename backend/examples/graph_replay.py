@@ -49,8 +49,9 @@ from graph.build.ports import BuildRecord
 from graph.build.resolve import MIN_ITEMS, ConsolidationParams
 from graph.build.run import ontology_fingerprint
 from graph.build.vectors import VECTOR_KIND, VectorCache
-from graph.core import Gateway, load_ontology
+from graph.core import load_ontology
 from graph.core.identity import validate_project_id
+from graph.core.llm import Gateway
 from graph.core.llm.judge import JudgeFailure, JudgeRunner, Verdict
 from graph.core.llm.usage import UsageSnapshot
 from graph.core.ontology import InferenceRule, Ontology

@@ -32,7 +32,7 @@ jobs:
           DOCKERHUB_OAT: ${{ secrets.DOCKERHUB_OAT }}
         run: |
           if [[ -z "$DOCKERHUB_LOGIN" || -z "$DOCKERHUB_OAT" ]]; then
-            echo "::error::Configure DOCKERHUB_LOGIN and DOCKERHUB_OAT as Actions secrets with write access to the four public Specflow repositories."
+            echo "::error::Configure DOCKERHUB_LOGIN and DOCKERHUB_OAT as Actions secrets with write access to the five public Specflow repositories."
             exit 1
           fi
 
@@ -51,6 +51,9 @@ jobs:
           - image: specflow-api
             context: backend
             dockerfile: backend/docker/api/Dockerfile
+          - image: specflow-mcp
+            context: backend
+            dockerfile: backend/docker/mcp/Dockerfile
           - image: specflow-worker-parse
             context: backend
             dockerfile: backend/docker/worker-parse/Dockerfile

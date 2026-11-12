@@ -1,7 +1,7 @@
 """The workspace-binding guidance: server instructions and the ``select_project`` prompt (FR-MCP-BIND-01, -02, -07).
 
-Unit tests of the text (``api.mcp.guidance``, the registry's duplicate check) and the HTTP boundary over the real app:
-an SDK client session over ``httpx2.ASGITransport`` with the loopback JWKS stub. Faked: the JWKS endpoint and the
+Unit tests of the text (``mcp_server.guidance``, the registry's duplicate check) and the HTTP boundary over the real
+app: an SDK client session over ``httpx2.ASGITransport`` with the loopback JWKS stub. Faked: the JWKS endpoint and the
 runtime; a prompt must touch neither the runtime nor the database nor the audit log.
 """
 
@@ -12,15 +12,16 @@ import re
 import traceback
 from typing import Any
 
+import httpx
 import pytest
 from mcp.server.mcpserver import MCPServer
 from mcp.shared.exceptions import MCPError
 
-from api.mcp import access, guidance
-from api.mcp.http import McpInvariantError
-from api.mcp.registry import PROMPTS, TOOLS, PromptDeclaration, ToolDeclaration, install
-from mcp_support import MCP_URL, build_app, fake_runtime, mcp_env, oidc_env, rpc, sdk_session, serving, tool_app
-from test_mcp_registry import ALICE, executor
+from mcp_server import guidance
+from mcp_server.http import McpInvariantError
+from mcp_server.registry import PROMPTS, TOOLS, PromptDeclaration, ToolDeclaration, install
+from mcp_support import MCP_URL, build_app, mcp_env, oidc_env, rpc, sdk_session, serving
+from test_mcp_registry import ALICE
 
 URL = "http://localhost:8002/mcp"
 TEMPLATE = f'{{"version": 1, "server": "{URL}", "project_id": "<id>", "project_name": "<name>"}}'
@@ -272,35 +273,22 @@ async def test_install_registers_the_tools_and_the_prompt() -> None:
 # --- HTTP boundary -----------------------------------------------------------------------
 
 
-class Tripwire:
-    """A runtime part that records every use: a prompt must make none."""
-
-    def __init__(self) -> None:
-        self.used: list[str] = []
-
-    def __getattr__(self, name: str) -> Any:
-        self.used.append(name)
-        raise AssertionError(f"the runtime was used: {name}")
-
-    def __call__(self, *_: Any, **__: Any) -> Any:
-        self.used.append("call")
-        raise AssertionError("the runtime was called")
-
-
 @pytest.fixture
-def served(monkeypatch, valid_env):
-    """The registry app over a runtime whose reader and sessions record any use, and a spy on provisioning."""
+def served(valid_env):
+    """The registry app over a fake API that records every request it gets: a prompt must make none."""
 
-    reader, sessions, provisioned = Tripwire(), Tripwire(), []
+    calls: list[httpx.Request] = []
 
-    async def provision(*args: Any, **kwargs: Any) -> Any:
-        provisioned.append(args)
-        raise AssertionError("a prompt provisions no user")
+    def api(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(500)
 
-    monkeypatch.setattr(access, "provision", provision)
-    runtime = fake_runtime(reader=reader, session_factory=sessions)
-    app = build_app(mcp_env(valid_env), runtime=runtime, tools=lambda server: install(server, resource_url=MCP_URL))
-    return app, reader, sessions, provisioned
+    app = build_app(
+        mcp_env(valid_env),
+        transport=httpx.MockTransport(api),
+        tools=lambda server: install(server, resource_url=MCP_URL),
+    )
+    return app, calls
 
 
 async def test_initialize_returns_the_instructions(valid_env) -> None:
@@ -368,21 +356,21 @@ async def test_prompts_answer_401_without_a_token(served, body) -> None:
     assert "WWW-Authenticate" in refused.headers
 
 
-async def test_a_prompt_writes_no_tool_event_and_touches_no_runtime(served, mcp_log) -> None:
-    app, reader, sessions, provisioned = served
+async def test_a_prompt_writes_no_tool_event_and_makes_no_api_call(served, mcp_log) -> None:
+    app, calls = served
     async with sdk_session(app, ALICE) as session:
         await session.list_prompts()
         await session.get_prompt("select_project", {"project": "Alpha"})
     events = [getattr(r, "event", "") for r in mcp_log.records]
     assert "mcp.tool.completed" not in events
-    assert reader.used == [] and sessions.used == [] and provisioned == []
-    assert "Alpha" not in "".join(
-        r.getMessage() + str(getattr(r, "__dict__", "")) for r in mcp_log.records if r.name.startswith("api.mcp")
-    )
+    assert calls == []
+    ours = [r for r in mcp_log.records if r.name.startswith("mcp_server")]
+    assert ours, "no log record under the mcp_server loggers: the filter no longer matches"
+    assert "Alpha" not in "".join(r.getMessage() + str(getattr(r, "__dict__", "")) for r in ours)
 
 
-async def test_tools_list_input_schemas_are_unchanged_except_descriptions(monkeypatch, valid_env) -> None:
-    app, _ = tool_app(monkeypatch, valid_env, executor())
+async def test_tools_list_input_schemas_are_unchanged_except_descriptions(valid_env) -> None:
+    app = build_app(mcp_env(valid_env), tools=lambda server: install(server, resource_url=MCP_URL))
     async with sdk_session(app, ALICE) as session:
         listed = (await session.list_tools()).tools
     assert {t.name: stripped(t.input_schema) for t in listed} == INPUT_SCHEMAS

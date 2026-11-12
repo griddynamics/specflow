@@ -23,6 +23,7 @@ from logger.logger import close as close_logger
 from settings import (
     WORKER_QUEUE_NAMES,
     ConfigurationError,
+    McpRoleSettings,
     Role,
     RoleSettings,
     load_settings,
@@ -36,7 +37,7 @@ EXIT_CONFIGURATION: Final = 2
 
 _API_MODULE: Final = "api.server"
 _WORKER_MODULE: Final = "temporal.worker"
-_MCP_MODULE: Final = "api.mcp.server"
+_MCP_MODULE: Final = "mcp_server.server"
 _MIGRATE_MODULE: Final = "db.migrate"
 _HEALTH_MODULE: Final = "health"
 
@@ -61,11 +62,11 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _load(role: Role, queues: Sequence[str] | None = None) -> RoleSettings | None:
+def _load(role: Role, queues: Sequence[str] | None = None) -> RoleSettings | McpRoleSettings | None:
     """Load the role's settings; log and return ``None`` when they are refused."""
 
     try:
-        return load_settings(role, queues=queues)
+        return load_settings("mcp") if role == "mcp" else load_settings(role, queues=queues)
     except ConfigurationError as error:
         log_event(
             logger,

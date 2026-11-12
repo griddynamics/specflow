@@ -5,6 +5,7 @@
 # Facts behind the contracts: backend/src (checked with grimp when written).
 [tool.importlinter]
 root_packages = [
+    "agent_contracts",
     "agent_runtime",
     "api",
     "auth",
@@ -14,6 +15,7 @@ root_packages = [
     "graph",
     "llm",
     "logger",
+    "mcp_server",
     "postgres",
     "storage",
     "temporal",
@@ -29,7 +31,8 @@ type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["logger"]
 forbidden_modules = [
-    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "postgres", "storage", "temporal",
+    "agent_contracts", "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "mcp_server", "postgres", "storage",
+    "temporal",
 ]
 
 # The shared PostgreSQL access (engines and connection transactions of the application database and the
@@ -41,7 +44,8 @@ type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["postgres"]
 forbidden_modules = [
-    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
+    "agent_contracts", "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "mcp_server", "storage",
+    "temporal",
 ]
 
 # api is the outermost layer (HTTP). Nothing below it reaches back into it.
@@ -51,10 +55,24 @@ id = "api-is-outermost"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = [
-    "agent_runtime", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "postgres", "storage",
-    "temporal",
+    "agent_contracts", "agent_runtime", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "postgres",
+    "storage", "temporal",
 ]
 forbidden_modules = ["api"]
+
+# The shared agent contracts (docs/mcp-server/architecture.md#package-layout) are pure pydantic over the public
+# models of graph.plan: no other project package, no web framework, ORM, driver or HTTP client.
+[[tool.importlinter.contracts]]
+name = "The agent contracts import only pydantic and the public graph.plan models"
+id = "agent-contracts-pure"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["agent_contracts"]
+forbidden_modules = [
+    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "llm", "logger", "mcp_server", "postgres", "storage",
+    "temporal", "graph.build", "graph.core", "graph.gap", "graph.stores", "fastapi", "starlette", "sqlalchemy", "asyncpg", "neo4j",
+    "httpx",
+]
 
 # The graph package (Neo4j knowledge graph) depends on the logger and nothing else
 # of ours; the service wires it in from api and temporal.
@@ -65,7 +83,7 @@ type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["graph"]
 forbidden_modules = [
-    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "llm", "storage", "temporal",
+    "agent_contracts", "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "llm", "mcp_server", "storage", "temporal",
 ]
 
 # graph.build sits on graph.core; the core never imports the build pipeline, the gap detector
@@ -113,7 +131,7 @@ id = "integrations-standalone"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["auth", "drive", "llm", "storage", "file_parsers"]
-forbidden_modules = ["api", "db", "temporal", "agent_runtime", "graph"]
+forbidden_modules = ["api", "db", "temporal", "agent_runtime", "agent_contracts", "graph", "mcp_server"]
 
 # Vendor SDKs stay in the package that owns the integration.
 [[tool.importlinter.contracts]]
@@ -122,7 +140,8 @@ id = "graph-sdk-confined"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = [
-    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "llm", "logger", "storage", "temporal",
+    "agent_contracts", "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "llm", "logger", "mcp_server", "storage",
+    "temporal",
 ]
 forbidden_modules = ["neo4j"]
 
@@ -132,17 +151,18 @@ id = "llm-sdk-confined"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = [
-    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "logger", "storage", "temporal",
+    "agent_contracts", "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "logger", "mcp_server", "storage",
+    "temporal",
 ]
 forbidden_modules = ["claude_agent_sdk", "langfuse"]
 
 [[tool.importlinter.contracts]]
-name = "The web framework belongs to api and auth"
+name = "The web framework belongs to api, auth and mcp_server"
 id = "web-framework-confined"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = [
-    "agent_runtime", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
+    "agent_contracts", "agent_runtime", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
 ]
 forbidden_modules = ["fastapi", "starlette"]
 
@@ -151,7 +171,7 @@ name = "The ORM stays in api, db and temporal"
 id = "orm-confined"
 type = "forbidden"
 allow_indirect_imports = true
-source_modules = ["agent_runtime", "auth", "drive", "file_parsers", "llm", "logger", "storage"]
+source_modules = ["agent_contracts", "agent_runtime", "auth", "drive", "file_parsers", "llm", "logger", "storage"]
 forbidden_modules = ["sqlalchemy", "asyncpg", "alembic"]
 
 # Inside graph, each graph store SDK stays in the folders of the adapters that use it (design D3). The
@@ -193,18 +213,20 @@ ignore_imports = [
 
 # httpx (the ArcadeDB admin API) and pyTigerGraph (the `tigergraph` extra) belong to one adapter each.
 [[tool.importlinter.contracts]]
-name = "httpx is used by the ArcadeDB graph store only"
+name = "httpx is used by the ArcadeDB graph store and the MCP API client only"
 id = "httpx-confined"
 type = "forbidden"
 allow_indirect_imports = true
 unmatched_ignore_imports_alerting = "none"
 source_modules = [
-    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
+    "agent_contracts", "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "mcp_server", "storage",
+    "temporal",
 ]
 forbidden_modules = ["httpx"]
 ignore_imports = [
     "graph.stores.arcadedb -> httpx",
     "graph.stores.arcadedb.** -> httpx",
+    "mcp_server.api_client -> httpx",
 ]
 
 [[tool.importlinter.contracts]]
@@ -214,7 +236,8 @@ type = "forbidden"
 allow_indirect_imports = true
 unmatched_ignore_imports_alerting = "none"
 source_modules = [
-    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
+    "agent_contracts", "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "mcp_server", "storage",
+    "temporal",
 ]
 forbidden_modules = ["pyTigerGraph"]
 ignore_imports = [
@@ -228,24 +251,22 @@ name = "No test code in production"
 id = "no-test-imports"
 type = "forbidden"
 source_modules = [
-    "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "storage", "temporal",
+    "agent_contracts", "agent_runtime", "api", "auth", "db", "drive", "file_parsers", "graph", "llm", "logger", "mcp_server", "storage",
+    "temporal",
 ]
 forbidden_modules = ["pytest", "_pytest"]
 
-# The MCP role (api.mcp, docs/mcp-server/architecture.md#import-rules) is a sibling of the REST
-# app inside the api package: it shares no REST module and loads no FastAPI (M2), and the REST
-# modules load neither it nor the MCP SDK. `api` as a whole cannot be a source (it holds api.mcp),
-# so the REST modules are listed. A new REST module under api must be added to both lists.
+# The MCP role (mcp_server, docs/mcp-server/architecture.md#import-rules) is a sibling of the REST
+# app, a top-level package of its own: it shares no REST module and loads no FastAPI (M2), and the REST
+# modules load neither it nor the MCP SDK.
 [[tool.importlinter.contracts]]
-name = "The MCP role uses no REST module and no FastAPI"
+name = "The MCP role uses no REST module, no FastAPI and no data package"
 id = "mcp-role-isolated"
 type = "forbidden"
 allow_indirect_imports = true
-source_modules = ["api.mcp"]
+source_modules = ["mcp_server"]
 forbidden_modules = [
-    "fastapi", "auth.dependencies",
-    "api.app", "api.batch_files", "api.contained", "api.deps", "api.errors", "api.graph_build", "api.plan", "api.request_id",
-    "api.routers", "api.runtime", "api.schemas", "api.server", "api.source_views", "api.uploads", "api.workflows",
+    "fastapi", "auth.dependencies", "db", "graph", "temporal", "storage", "llm", "drive", "agent_runtime", "health", "api",
 ]
 
 [[tool.importlinter.contracts]]
@@ -253,43 +274,35 @@ name = "The REST app imports neither the MCP role nor the MCP SDK"
 id = "rest-without-mcp"
 type = "forbidden"
 allow_indirect_imports = true
-source_modules = [
-    "api.app", "api.batch_files", "api.contained", "api.deps", "api.errors", "api.graph_build", "api.plan", "api.request_id",
-    "api.routers", "api.runtime", "api.schemas", "api.server", "api.source_views", "api.uploads", "api.workflows",
-]
-forbidden_modules = ["api.mcp", "mcp", "mcp_types"]
+source_modules = ["api"]
+forbidden_modules = ["mcp_server", "mcp", "mcp_types"]
 
-# M3 and M4: every graph read is a GraphReader method and every Postgres access a db.repositories function.
+# M2: the MCP role imports no data driver (it reads through the API).
 [[tool.importlinter.contracts]]
 name = "The MCP role imports no data driver"
 id = "mcp-no-data-drivers"
 type = "forbidden"
 allow_indirect_imports = true
-source_modules = ["api.mcp"]
+source_modules = ["mcp_server"]
 forbidden_modules = ["sqlalchemy", "asyncpg", "neo4j"]
 
-# Connections are opened in the composition roots only: the REST runtime, the MCP runtime and the Temporal worker
-# registrations build the engine (db.session) and the graph store (graph.stores) and hand them on. Everything else
-# reaches Postgres through db.repositories and the graph through the graph and plan libraries (GraphReader,
-# PlanReader, PlanService), never through a store or an engine of its own. The MCP role scopes its repository calls
-# in a session transaction (access) and recognises an unreachable database (errors); neither opens a connection.
+# Connections are opened in the composition roots only: the REST runtime and the Temporal worker registrations build
+# the engine (db.session) and the graph store (graph.stores) and hand them on. Everything else reaches Postgres
+# through db.repositories and the graph through the graph and plan libraries (GraphReader, PlanReader,
+# PlanService), never through a store or an engine of its own. The MCP role has no connection: it calls the API.
 [[tool.importlinter.contracts]]
 name = "Only the composition roots open a database or a graph store"
 id = "connections-in-composition-roots"
 type = "forbidden"
 allow_indirect_imports = true
 source_modules = [
-    "agent_runtime", "api", "auth", "drive", "file_parsers", "graph.build", "graph.gap", "graph.plan", "llm", "storage",
-    "temporal",
+    "agent_runtime", "api", "auth", "drive", "file_parsers", "graph.build", "graph.gap", "graph.plan", "llm", "mcp_server",
+    "storage", "temporal",
 ]
 forbidden_modules = ["db.session", "graph.stores", "postgres"]
 ignore_imports = [
     "api.runtime -> db.session",
     "api.runtime -> graph.stores",
-    "api.mcp.runtime -> db.session",
-    "api.mcp.runtime -> graph.stores",
-    "api.mcp.access -> db.session",
-    "api.mcp.errors -> db.session",
     "temporal.agents.registration -> db.session",
     "temporal.documents.registration -> db.session",
 ]

@@ -2,9 +2,10 @@
 registry).
 
 The wrapper runs, from the outside in: the ``mcp.tool.completed`` audit event (FR-MCP-OPS-07), error mapping
-(FR-MCP-TOOL-08), user provisioning (FR-MCP-ACC-05), the membership check of project-scoped tools (FR-MCP-ACC-02),
-the handler. This is the only module that uses the SDK's tool and prompt API (FR-MCP-ACC-06). A tool error is
-RETURNED as a result with ``isError``: an exception that left the wrapper would reach the client as SDK text.
+(FR-MCP-TOOL-08, ``from_api``), the API call: one ``GET`` on the tool's agent route with the caller's token.
+Provisioning and the membership check run in the API (FR-MCP-ACC-02, ACC-05). This is the only module that uses the
+SDK's tool and prompt API (FR-MCP-ACC-06). A tool error is RETURNED as a result with ``isError``: an exception that
+left the wrapper would reach the client as SDK text.
 
 A prompt (FR-MCP-BIND-02) is rendered from ``guidance`` text only: it runs no provisioning, no membership check and no
 audit event, and reads no data; the guard in front of ``/mcp`` is its only access control. The SDK keeps the first of
@@ -16,7 +17,8 @@ from __future__ import annotations
 import inspect
 import json
 import time
-from collections.abc import Awaitable, Callable, Sequence
+import uuid
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Final, cast
 
@@ -26,15 +28,31 @@ from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import BaseModel, Field
 from starlette.requests import Request
 
-from api.mcp import access, guidance
-from api.mcp.auth import request_principal
-from api.mcp.errors import INTERNAL_ERROR, McpToolError, error_body, to_tool_error
-from api.mcp.http import McpInvariantError
-from api.mcp.runtime import request_runtime
-from api.mcp.tools import ProjectArguments, graph, plan, projects
+from agent_contracts import (
+    AGENT_ROUTES,
+    INTERNAL_ERROR,
+    FeatureList,
+    FeatureTaskList,
+    GetTaskBriefArgs,
+    GetTaskPathArgs,
+    ListFeaturesArgs,
+    ListFeatureTasksArgs,
+    ListProjectsArgs,
+    ListTasksArgs,
+    ProjectArguments,
+    ProjectList,
+    TaskBriefResult,
+    TaskList,
+    TaskPath,
+)
+from logger.correlation import current_request_id
 from logger.logger import INFO, get_logger, log_event
+from mcp_server import descriptions, guidance
+from mcp_server.api_client import request_api_client
+from mcp_server.errors import McpToolError, error_body, from_api
+from mcp_server.http import McpInvariantError, required
 
-logger = get_logger("api.mcp.registry")
+logger = get_logger("mcp_server.registry")
 
 # FR-MCP-TOOL-09: every version 1 tool is read-only, idempotent and closed-world.
 READ_ONLY: Final = ToolAnnotations(
@@ -44,9 +62,10 @@ READ_ONLY: Final = ToolAnnotations(
 
 @dataclass(frozen=True)
 class ToolDeclaration:
-    """A tool: its name, whether it takes a ``project_id``, its schemas, description and handler.
+    """A tool: its name, whether it takes a ``project_id``, its schemas, description and agent route.
 
-    ``summary`` is the one line for people (the web app's guide); ``description`` is what agents read.
+    ``summary`` is the one line for people (the web app's guide); ``description`` is what agents read; ``route``
+    is the path of the API's agent route that serves the tool (``AGENT_ROUTES``).
     """
 
     name: str
@@ -54,7 +73,7 @@ class ToolDeclaration:
     description: str
     arguments: type[BaseModel]
     output: type[BaseModel]
-    handler: Callable[..., Awaitable[BaseModel]]
+    route: str
     project_scoped: bool
     annotations: ToolAnnotations = field(default_factory=lambda: READ_ONLY)
 
@@ -63,55 +82,55 @@ TOOLS: Final[tuple[ToolDeclaration, ...]] = (
     ToolDeclaration(
         name="list_projects",
         summary="Lists the SpecFlow projects you are a member of, newest first.",
-        description=projects.DESCRIPTION,
-        arguments=projects.ListProjectsArgs,
-        output=projects.ProjectList,
-        handler=projects.list_projects,
+        description=descriptions.PROJECTS_DESCRIPTION,
+        arguments=ListProjectsArgs,
+        output=ProjectList,
+        route=AGENT_ROUTES["list_projects"],
         project_scoped=False,
     ),
     ToolDeclaration(
         name="list_features",
         summary="Lists the features in a project's specification graph.",
-        description=graph.DESCRIPTION,
-        arguments=graph.ListFeaturesArgs,
-        output=graph.FeatureList,
-        handler=graph.list_features,
+        description=descriptions.FEATURES_DESCRIPTION,
+        arguments=ListFeaturesArgs,
+        output=FeatureList,
+        route=AGENT_ROUTES["list_features"],
         project_scoped=True,
     ),
     ToolDeclaration(
         name="list_tasks",
         summary="Lists the tasks of a project's implementation plan; by default the ones ready to start.",
-        description=plan.LIST_DESCRIPTION,
-        arguments=plan.ListTasksArgs,
-        output=plan.TaskList,
-        handler=plan.list_tasks,
+        description=descriptions.TASKS_DESCRIPTION,
+        arguments=ListTasksArgs,
+        output=TaskList,
+        route=AGENT_ROUTES["list_tasks"],
         project_scoped=True,
     ),
     ToolDeclaration(
         name="list_feature_tasks",
         summary="Lists every plan task that works on one feature, ready or not.",
-        description=plan.FEATURE_TASKS_DESCRIPTION,
-        arguments=plan.ListFeatureTasksArgs,
-        output=plan.FeatureTaskList,
-        handler=plan.list_feature_tasks,
+        description=descriptions.FEATURE_TASKS_DESCRIPTION,
+        arguments=ListFeatureTasksArgs,
+        output=FeatureTaskList,
+        route=AGENT_ROUTES["list_feature_tasks"],
         project_scoped=True,
     ),
     ToolDeclaration(
         name="get_task_path",
         summary="Lists the tasks to complete before one plan task, in build order, then the task itself.",
-        description=plan.PATH_DESCRIPTION,
-        arguments=plan.GetTaskPathArgs,
-        output=plan.TaskPath,
-        handler=plan.get_task_path,
+        description=descriptions.PATH_DESCRIPTION,
+        arguments=GetTaskPathArgs,
+        output=TaskPath,
+        route=AGENT_ROUTES["get_task_path"],
         project_scoped=True,
     ),
     ToolDeclaration(
         name="get_task_brief",
         summary="Reads what a coding agent needs to build one plan task: done-when, spec sources, prerequisites.",
-        description=plan.BRIEF_DESCRIPTION,
-        arguments=plan.GetTaskBriefArgs,
-        output=plan.TaskBriefResult,
-        handler=plan.get_task_brief,
+        description=descriptions.BRIEF_DESCRIPTION,
+        arguments=GetTaskBriefArgs,
+        output=TaskBriefResult,
+        route=AGENT_ROUTES["get_task_brief"],
         project_scoped=True,
     ),
 )
@@ -228,8 +247,10 @@ class _ToolFunction:
         try:
             try:
                 result, count = await self._run(ctx, raw, fields)  # builds the result: a failure is mapped too
+            except McpToolError:
+                raise
             except Exception as error:  # the one boundary: nothing but a code leaves
-                raise to_tool_error(error) from error
+                raise McpToolError(INTERNAL_ERROR, type(error).__name__) from error
         except McpToolError as error:
             outcome = error.code
             fields["error_type"] = error.error_type
@@ -253,27 +274,44 @@ class _ToolFunction:
         request = ctx.request_context.request
         if not isinstance(request, Request):
             raise McpInvariantError("tools run over HTTP, behind the guard")
-        principal = request_principal(request)
-        runtime = request_runtime(request)
+        authorization = required(request.headers.get("authorization"), "the request passed the MCP guard")
         args = declaration.arguments.model_validate(raw)
         scoped = args if isinstance(args, ProjectArguments) else None
         if declaration.project_scoped and scoped is None:
             raise McpInvariantError("a project-scoped tool takes a project_id")
         if scoped is not None:
-            parsed = access.parse_project_id(scoped.project_id)
-            if parsed is not None:  # a malformed id is raw caller text: never logged
-                fields["project_id"] = str(parsed)
-        user_id = await access.provision(runtime, principal)
-        fields["user_id"] = str(user_id)
-        caller = access.Caller(principal, user_id)
-        if scoped is not None:
-            project = await access.member_project(runtime, user_id, scoped.project_id)
-            result = await declaration.handler(caller, runtime, args, project)
-        else:
-            result = await declaration.handler(caller, runtime, args)
-        if not isinstance(result, declaration.output):  # a wrong shape would reach the SDK's validation text
-            raise McpInvariantError("a handler returns its declared output")
+            project_id = _canonical_uuid(scoped.project_id)
+            if project_id is not None:  # a malformed id is raw caller text: never logged
+                fields["project_id"] = project_id
+        reply = await request_api_client(request).call(
+            declaration.route,
+            _query(args),
+            authorization,
+            required(current_request_id(), "the request has an id"),
+        )
+        if reply.user_id is not None:  # the API names the provisioned user on every answer after provisioning
+            fields["user_id"] = reply.user_id
+        result = from_api(reply, declaration.output)
         return _result(result), _item_count(result)
+
+
+def _canonical_uuid(value: str) -> str | None:
+    """The canonical form of ``value`` when it spells a UUID, else ``None``."""
+
+    try:
+        return str(uuid.UUID(value))
+    except ValueError:
+        return None
+
+
+def _query(args: BaseModel) -> Mapping[str, str]:
+    """The validated arguments as query parameters: booleans ``true``/``false``, integers as decimal strings,
+    ``None`` omitted."""
+
+    return {
+        name: str(value).lower() if isinstance(value, bool) else str(value)
+        for name, value in args.model_dump(exclude_none=True).items()
+    }
 
 
 def _item_count(result: BaseModel) -> int:

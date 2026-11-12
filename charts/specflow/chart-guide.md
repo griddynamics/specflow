@@ -71,7 +71,12 @@ DATABASE_USER=specflow
 DATABASE_PASSWORD=<database-password>
 ```
 
-Include every key referenced by the corresponding component profile. Remove
+Include every key referenced by the corresponding component profile. The format above is the API's; `mcp.env`
+holds only the keys of `mcp.yaml` (`APP_ENV`, the OIDC and MCP settings; no `DATABASE_*`, `GRAPH_STORE_*`, Temporal or
+storage keys: MCP calls the API at `API_INTERNAL_URL`). When MCP is deployed, `api.env` also carries
+`MCP_RESOURCE_URL`, `MCP_AUDIENCE` and `MCP_CLIENT_IDS` with the same values as `mcp.env`, and the same
+`AUTH_*` claim profile: the API serves the agent routes MCP reads through only with them (unset, they answer
+`503 agent_unavailable` and every MCP tool fails with `internal_error`), and it verifies the MCP token itself. Remove
 unused optional entries from your copy of the profile. `PGSSLROOTCERT` is
 optional and only needed when mounting a PostgreSQL CA.
 
@@ -190,6 +195,9 @@ Traefik and Gateway API.
 
 ## 5. Deploy MCP
 
+Before MCP, check that the API's secret holds `MCP_RESOURCE_URL`, `MCP_AUDIENCE` and `MCP_CLIENT_IDS` (the same
+values as MCP's); without them the API's agent routes answer `503 agent_unavailable` and every MCP tool fails.
+
 ```shell
 helm upgrade --install specflow-mcp "$CHART" \
   --namespace "$NAMESPACE" \
@@ -198,15 +206,9 @@ helm upgrade --install specflow-mcp "$CHART" \
   --timeout 10m
 ```
 
-MCP uses the API image but overrides its command with:
-
-```yaml
-command:
-  - specflow
-  - mcp
-```
-
-It exposes an internal Service on port `8002`.
+MCP has its own image (`griddynamics/specflow-mcp`, the `mcp` extra only, no migration) whose
+startup command is `specflow mcp`, so the profile sets `command: []`. The chart refuses the API startup
+command for this component. It exposes an internal Service on port `8002`.
 
 For public MCP routing, use an environment overlay that exposes only:
 

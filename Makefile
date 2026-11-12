@@ -212,9 +212,9 @@ logs:
 ps:
 	$(COMPOSE_ALL) ps
 
-# Build the api, worker-parse, worker-agents and frontend images, then run the image tests against them.
+# Build the api, mcp, worker-parse, worker-agents and frontend images, then run the image tests against them.
 images:
-	$(COMPOSE) build api worker-parse worker-agents frontend
+	$(COMPOSE) build api mcp worker-parse worker-agents frontend
 	$(MAKE) --no-print-directory -C backend ENV_FILE=$(ENV_FILE) image-test
 
 # Frontend on the host with live reload (stop the `frontend` container first: same port).
@@ -325,7 +325,7 @@ validate-sql:
 	$(KIT_ENV) sh $(VALIDATION)/run-all.sh --project backend --tracks sql
 
 # Licence gate G6 (validation/ci/licence_gate.py, input backend/licence-gate.toml): the locked dependency set of
-# each image (api, worker-agents, worker-parse) is synced into a scratch environment, no Docker, and checked
+# each image (api, worker-agents, worker-parse, mcp) is synced into a scratch environment, no Docker, and checked
 # against the licence allowlist; pymupdf, pymupdf4llm and pymupdf-layout must be absent; NOTICE must name the
 # parse components. It needs uv, network access to the package indexes (or a warm uv cache); uv provides the Python 3.12 it runs on.
 validate-licences:

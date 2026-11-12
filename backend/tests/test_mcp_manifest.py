@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 
-from api.mcp.registry import PROMPTS, TOOLS, render_manifest, render_manifest_json
 from mcp_manifest_support import MANIFEST_PATH
+from mcp_server.registry import PROMPTS, TOOLS, render_manifest, render_manifest_json
 
 
 def test_the_committed_manifest_matches_the_registry() -> None:

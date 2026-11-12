@@ -1,0 +1,189 @@
+{
+  "get_on_mcp_405": {
+    "body": {
+      "error": {
+        "code": "method_not_allowed",
+        "details": {},
+        "message": "The request cannot be served."
+      }
+    },
+    "headers": {
+      "allow": "POST",
+      "content-type": "application/json"
+    },
+    "status": 405
+  },
+  "healthz": {
+    "body": {
+      "status": "ok"
+    },
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "healthz_while_not_ready": {
+    "body": {
+      "status": "ok"
+    },
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "no_token_401": {
+    "body": {
+      "error": {
+        "code": "invalid_token",
+        "details": {},
+        "message": "The access token is invalid."
+      }
+    },
+    "headers": {
+      "content-type": "application/json",
+      "www-authenticate": "Bearer resource_metadata=\"http://localhost:8002/.well-known/oauth-protected-resource/mcp\""
+    },
+    "status": 401
+  },
+  "post_on_healthz_405": {
+    "body": {
+      "error": {
+        "code": "method_not_allowed",
+        "details": {},
+        "message": "The request cannot be served."
+      }
+    },
+    "headers": {
+      "allow": "GET, HEAD",
+      "content-type": "application/json"
+    },
+    "status": 405
+  },
+  "prm_mcp_path": {
+    "body": {
+      "authorization_servers": [
+        "<issuer>"
+      ],
+      "bearer_methods_supported": [
+        "header"
+      ],
+      "resource": "http://localhost:8002/mcp",
+      "resource_name": "SpecFlow"
+    },
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "prm_root_path": {
+    "body": {
+      "authorization_servers": [
+        "<issuer>"
+      ],
+      "bearer_methods_supported": [
+        "header"
+      ],
+      "resource": "http://localhost:8002/mcp",
+      "resource_name": "SpecFlow"
+    },
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "readyz_not_ready": {
+    "body": {
+      "checks": {
+        "database": {
+          "detail": "ok",
+          "duration_ms": "<duration_ms>",
+          "ok": true
+        },
+        "graph": {
+          "detail": "unavailable",
+          "duration_ms": "<duration_ms>",
+          "ok": false
+        }
+      },
+      "status": "not_ready"
+    },
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 503
+  },
+  "readyz_ready": {
+    "body": {
+      "checks": {
+        "database": {
+          "detail": "ok",
+          "duration_ms": "<duration_ms>",
+          "ok": true
+        },
+        "graph": {
+          "detail": "ok",
+          "duration_ms": "<duration_ms>",
+          "ok": true
+        }
+      },
+      "status": "ready"
+    },
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 200
+  },
+  "refused_domain_403": {
+    "body": {
+      "error": {
+        "code": "domain_not_allowed",
+        "details": {},
+        "message": "The account email domain is not allowed."
+      }
+    },
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 403
+  },
+  "trailing_slash_404": {
+    "body": {
+      "error": {
+        "code": "not_found",
+        "details": {},
+        "message": "The request cannot be served."
+      }
+    },
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 404
+  },
+  "unknown_path_404": {
+    "body": {
+      "error": {
+        "code": "not_found",
+        "details": {},
+        "message": "The request cannot be served."
+      }
+    },
+    "headers": {
+      "content-type": "application/json"
+    },
+    "status": 404
+  },
+  "wrong_audience_token_401": {
+    "body": {
+      "error": {
+        "code": "invalid_token",
+        "details": {},
+        "message": "The access token is invalid."
+      }
+    },
+    "headers": {
+      "content-type": "application/json",
+      "www-authenticate": "Bearer error=\"invalid_token\", resource_metadata=\"http://localhost:8002/.well-known/oauth-protected-resource/mcp\""
+    },
+    "status": 401
+  }
+}

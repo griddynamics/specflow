@@ -11,14 +11,15 @@ tags: [mcp, auth]
 
 A caller may read a project when, and only when, a `project_members` row links the caller's user row to that project.
 Every member has the same access to every tool: no role or scope distinguishes members (`owner` is the only role).
-The rule is the one the REST API applies; the MCP server applies it through the same repository functions.
+The rule is the one the REST API applies; the API applies it on the agent routes that serve the tools
+([architecture.md](architecture.md#api-agent-routes)), through the same repository functions.
 
 ## Decision point
 
 | # | Rule |
 |---|---|
-| AC1 | Every tool resolves the caller first: `upsert_user(principal)` provisions or refreshes the user row (same function as REST). |
-| AC2 | Every tool that takes a `project_id` calls one membership function before any other read. The function wraps `db.repositories.get_member_project`; there is no second membership query. |
+| AC1 | Every agent route resolves the caller first: `upsert_user(principal)` provisions or refreshes the user row (same function as REST). |
+| AC2 | Every agent route that takes a `project_id` calls one membership function before any other read. The function wraps `db.repositories.get_member_project`; there is no second membership query. |
 | AC3 | A project that does not exist, a malformed id and a project the caller is not a member of give the same `project_not_found` result, with the same message and no timing-relevant extra work. This includes an existing project whose valid id the caller obtained some other way: the id alone grants nothing. |
 | AC4 | When membership is denied, no Neo4j query runs. |
 | AC5 | `list_projects` lists only member projects (`db.repositories.list_projects`). |
@@ -26,9 +27,10 @@ The rule is the one the REST API applies; the MCP server applies it through the 
 | AC7 | A tool never accepts Cypher, labels, attribute filters, sort keys or another user's id from the caller. The node type of `list_features` is fixed by the tool. |
 | AC8 | The workspace binding grants nothing. The `project_id` that an agent reads from a binding file is an ordinary argument: membership is checked on every call (AC2, AC6). |
 
-The tool registry applies the membership function to every tool declared as project-scoped
-([architecture.md](architecture.md)). A structural test reads the declarations and checks that every tool with a
-`project_id` argument is declared project-scoped, so none reaches the graph reader without the check.
+The agent routes apply the membership function, in their dependency chain, to every tool declared as project-scoped
+([architecture.md](architecture.md#api-agent-routes)). A structural test reads the declarations and the agent routes and
+checks that every tool with a `project_id` argument is declared project-scoped and maps to a route that runs the check,
+so none reaches the graph reader without it.
 
 ## Tenant isolation
 
@@ -80,4 +82,5 @@ agent as tool output and may contain text that reads like instructions. Mitigati
 ## Audit
 
 `mcp.tool.completed` records every call and `mcp.auth.rejected` every refused request; the fields are those of
-[architecture.md](architecture.md#logging-and-audit). Together they answer who read which project, and when.
+[architecture.md](architecture.md#logging-and-audit); the user id comes from the API, and the API's log lines of the call
+carry the same request id. Together they answer who read which project, and when.

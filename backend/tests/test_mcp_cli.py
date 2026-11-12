@@ -11,20 +11,14 @@ import pytest
 
 import cli
 from logger.logger import ERROR
-from mcp_support import BACKEND, MCP_URL
+from mcp_support import API_URL, BACKEND, MCP_URL
 
 MINIMAL = {
     "APP_ENV": "local",
-    "DATABASE_HOST": "localhost",
-    "DATABASE_NAME": "specflow",
-    "DATABASE_USER": "specflow",
-    "DATABASE_PASSWORD": "pw-for-tests",
-    "NEO4J_URI": "bolt://localhost:7687",
-    "NEO4J_USER": "neo4j",
-    "NEO4J_PASSWORD": "pw-for-tests",
     "OIDC_ISSUER": "http://localhost:8180/realms/specflow",
     "AUTH_ALLOWED_EMAIL_DOMAINS": "example.com",
     "MCP_RESOURCE_URL": MCP_URL,
+    "API_INTERNAL_URL": API_URL,
 }
 CHECK = "import sys; sys.path.insert(0, 'src'); import cli; sys.exit(cli.main(['mcp', '--check-config']))"
 
@@ -39,9 +33,21 @@ def check_config(**over: str) -> subprocess.CompletedProcess[str]:
 
 
 def test_check_config_exits_0_with_only_the_minimal_variables():
-    """FR-MCP-OPS-01: no Temporal, storage, LLM or agent variable is needed."""
+    """FR-MCP-OPS-01: auth, MCP and API_INTERNAL_URL only: no DATABASE_*, GRAPH_STORE_*, Temporal, storage or LLM."""
 
     assert check_config().returncode == 0
+
+
+def test_check_config_fails_without_the_api_address():
+    env = {"PATH": os.environ["PATH"], "HOME": os.environ.get("HOME", "/"), **MINIMAL}
+    del env["API_INTERNAL_URL"]
+
+    done = subprocess.run(
+        [sys.executable, "-c", CHECK], cwd=BACKEND, env=env, capture_output=True, text=True, timeout=120, check=False
+    )
+
+    assert done.returncode == 2
+    assert "API_INTERNAL_URL" in done.stdout + done.stderr
 
 
 def test_check_config_names_the_bad_resource_url():
@@ -55,7 +61,7 @@ def test_check_config_names_the_bad_resource_url():
 
 @pytest.fixture
 def mcp_cli(clean_specflow_env, valid_env, monkeypatch):
-    for name, value in {**valid_env, "MCP_RESOURCE_URL": MCP_URL}.items():
+    for name, value in {**valid_env, "MCP_RESOURCE_URL": MCP_URL, "API_INTERNAL_URL": API_URL}.items():
         clean_specflow_env.setenv(name, value)
     events: list[tuple[int, str, dict]] = []
     monkeypatch.setattr(cli, "close_logger", lambda: None)
@@ -70,12 +76,12 @@ def test_the_mcp_command_parses_check_config():
 
 
 def test_check_config_loads_no_server_module(mcp_cli, monkeypatch):
-    monkeypatch.delitem(sys.modules, "api.mcp.server", raising=False)
-    monkeypatch.setitem(sys.modules, "api.mcp", types.ModuleType("api.mcp"))  # a real import would find no server
+    monkeypatch.delitem(sys.modules, "mcp_server.server", raising=False)
+    monkeypatch.setitem(sys.modules, "mcp_server", types.ModuleType("mcp_server"))  # a real import would find no server
 
     assert cli.main(["mcp", "--check-config"]) == 0
     assert mcp_cli == []
-    assert "api.mcp.server" not in sys.modules
+    assert "mcp_server.server" not in sys.modules
 
 
 def test_a_bad_environment_exits_2_and_logs_the_variable(mcp_cli, monkeypatch):
@@ -89,9 +95,9 @@ def test_a_bad_environment_exits_2_and_logs_the_variable(mcp_cli, monkeypatch):
 
 def test_the_mcp_command_runs_the_server_with_the_settings(mcp_cli, monkeypatch):
     calls: list[object] = []
-    server = types.ModuleType("api.mcp.server")
+    server = types.ModuleType("mcp_server.server")
     vars(server)["run"] = lambda settings: calls.append(settings) or 0
-    monkeypatch.setitem(sys.modules, "api.mcp.server", server)
+    monkeypatch.setitem(sys.modules, "mcp_server.server", server)
 
     assert cli.main(["mcp"]) == 0
     assert calls[0].mcp.resource_url == MCP_URL

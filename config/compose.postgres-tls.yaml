@@ -1,6 +1,6 @@
 # Added by `make up WITH=tls` (the Makefile passes it after docker-compose.yml): Postgres over verified TLS, as on
 # Aurora. The postgres service turns TLS on and refuses every plain TCP connection (rds.force_ssl=1 on Aurora).
-# api, mcp and both workers connect with PGSSLMODE=verify-full and trust the local CA, which is mounted where an
+# api and both workers connect with PGSSLMODE=verify-full and trust the local CA, which is mounted where an
 # Aurora deployment mounts the AWS RDS bundle (PGSSLROOTCERT stays unset: that path is its default).
 # `make up WITH=tls` writes the CA and the server certificate into .postgres-tls/ first (scripts/postgres-tls.sh).
 # docs/configuration.md "PostgreSQL over TLS". Needs Docker Compose 2.24 or newer (`configs` with `content`).
@@ -36,7 +36,6 @@ services:
       - source: postgres-tls-hba
         target: /etc/postgresql/pg_hba.conf
   api: *tls-client
-  mcp: *tls-client
   worker-parse: *tls-client
   worker-agents: *tls-client
 

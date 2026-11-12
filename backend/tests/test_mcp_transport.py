@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
-from typing import Any, cast
-
 import httpx
 import pytest
 from mcp.server.mcpserver import MCPServer
@@ -15,7 +12,6 @@ from mcp_support import (
     MCP_HOST,
     ONE_MIB,
     build_app,
-    fake_runtime,
     mcp_env,
     mcp_token,
     rpc,
@@ -172,16 +168,14 @@ async def test_other_routes_do_not_take_a_token(transport_app):
     assert posted.json()["error"]["code"] == "method_not_allowed"
 
 
-class BrokenReadiness:
-    """A readiness double whose snapshot fails unexpectedly: a bug behind the runtime boundary."""
+def broken_api(_request: httpx.Request) -> httpx.Response:
+    """A fake API whose transport fails unexpectedly: a bug behind the client boundary."""
 
-    async def snapshot(self) -> None:
-        raise ZeroDivisionError("secret detail")
+    raise ZeroDivisionError("secret detail")
 
 
 async def test_an_unexpected_failure_is_500_json_logged_with_its_class_and_never_echoed(valid_env, mcp_log):
-    runtime = dataclasses.replace(fake_runtime(), readiness=cast(Any, BrokenReadiness()))
-    app = build_app(mcp_env(valid_env), runtime=runtime)
+    app = build_app(mcp_env(valid_env), transport=httpx.MockTransport(broken_api))
     # Starlette re-raises after answering; the quiet transport returns the answer instead.
     quiet = httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app, raise_app_exceptions=False), base_url=f"http://{MCP_HOST}"

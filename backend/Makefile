@@ -4,10 +4,11 @@ ENV_FILE ?= ../.env.local
 .PHONY: setup models lint unit-test check test-graph-live graph-bench \
 	db-upgrade db-revision mcp-manifest api worker temporal-check image-test rss-test
 
-# CI (CI=true) skips the model download: its unit job fetches them once into a cached folder, and the other
-# jobs never read them.
+# The dev venv installs every extra (api, mcp, worker, gcp, aws, parse): the tests import every role's code. The images
+# install only their role's extras. CI (CI=true) skips the model download: its unit job fetches them once into a cached
+# folder, and the other jobs never read them.
 setup:
-	uv sync --extra gcp --extra aws --extra parse
+	uv sync --extra api --extra mcp --extra worker --extra gcp --extra aws --extra parse
 	@if [ -z "$$CI" ]; then $(MAKE) --no-print-directory models; fi
 
 # The Docling models the parser tests read: pinned revisions (scripts/fetch_docling_models.py) into
@@ -99,4 +100,4 @@ rss-test:
 		-e UV_PROJECT_ENVIRONMENT=/tmp/venv -e UV_CACHE_DIR=/tmp/uv-cache \
 		-e PYTHONDONTWRITEBYTECODE=1 -e SPECFLOW_IMAGE_RSS=1 \
 		python:3.12.13-slim-bookworm sh -c \
-		"pip install -q uv==0.11.21 && uv sync -q --frozen --no-editable --extra gcp --extra aws && uv run --no-sync pytest -p no:cacheprovider -q -rs tests/test_specflow_images.py -k rss"
+		"pip install -q uv==0.11.21 && uv sync -q --frozen --no-editable --extra api --extra worker --extra gcp --extra aws && uv run --no-sync pytest -p no:cacheprovider -q -rs tests/test_specflow_images.py -k rss"

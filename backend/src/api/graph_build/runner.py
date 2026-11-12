@@ -25,7 +25,8 @@ from api.contained import Contained
 from api.graph_build.corpus import PostgresCorpusSource
 from api.graph_build.state import BuildState
 from graph.build import BuildContext, BuildResult, BuildStore, FileStores, open_file_stores, run_build
-from graph.core import Gateway, GraphError, LLMConfig, Ontology, ensure_schema, load_ontology
+from graph.core import GraphError, LLMConfig, Ontology, ensure_schema, load_ontology
+from graph.core.llm import Gateway
 from graph.core.store import GraphStore
 from logger.logger import ERROR, INFO, WARNING, get_logger, log_event
 from settings import GraphBuildSettings

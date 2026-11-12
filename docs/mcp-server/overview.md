@@ -33,7 +33,7 @@ specification, and later its implementation plan. Every deployment and every loc
 | G2 | One identity: the MCP caller is the same user row the web app creates for that person. |
 | G3 | A caller sees only projects they are a member of, and only those projects' graph data. |
 | G4 | Works with any OIDC provider that issues signed JWT access tokens with a configurable audience that it puts into the token without a requested scope. |
-| G5 | The public endpoint is its own process: it holds only Postgres and Neo4j credentials, and the internal API stays off the public network. |
+| G5 | The public endpoint is its own process with its own image: it holds no data-store credentials and reads through the internal API, which stays off the public network. |
 | G6 | Proven end to end with a real client (Claude Code and the MCP Python SDK) against a real OIDC provider. |
 | G7 | A product repository is bound to one SpecFlow project by a file the agent reads, so a new session needs no project list and no question; the server stays stateless and every call keeps an explicit `project_id`. |
 
@@ -53,7 +53,8 @@ specification, and later its implementation plan. Every deployment and every loc
 | Developer | A SpecFlow user who is a member of zero or more projects |
 | MCP client | Claude Code, or another MCP client that supports a pre-registered public OAuth client |
 | Identity provider (IdP) | The OIDC provider the web app already uses; the OAuth authorization server for MCP tokens. Keycloak is the reference |
-| MCP service | The backend role `mcp`: resource server, MCP tools, membership checks, graph reads |
+| MCP service | The backend role `mcp`: resource server and MCP tools; forwards each tool call to the API's agent routes |
+| API | The backend role `api`: membership checks, Postgres and graph reads for the agent routes, as for the web app |
 | Postgres | Users, projects, project members |
 | Neo4j | The project graphs (`group_id` = project id, [../graph/data-model.md](../graph/data-model.md#partition)) |
 | Operator | Deploys the role, registers the client at the IdP, routes the public endpoint |
@@ -66,15 +67,21 @@ flowchart LR
     cc -- "authorization code + PKCE" --> idp[OIDC provider]
     cc -- "Bearer token, MCP over HTTPS" --> mcp[MCP service: role mcp]
     mcp -- "JWKS" --> idp
-    mcp -- "users, members" --> pg[(Postgres)]
-    mcp -- "project graph reads" --> neo[(Neo4j)]
-    web[Web app] --> api[API: role api, internal]
-    api --> pg
-    api --> neo
+    mcp -- "agent routes, same token" --> api[API: role api, internal]
+    web[Web app] --> api
+    api -- "users, members" --> pg[(Postgres)]
+    api -- "project graph reads" --> neo[(Neo4j)]
+    classDef svc fill:#dbeafe,stroke:#1e3a8a,color:#0f172a
+    classDef store fill:#fef3c7,stroke:#92400e,color:#0f172a
+    classDef ext fill:#e5e7eb,stroke:#374151,color:#0f172a
+    class mcp,api,web svc
+    class pg,neo store
+    class dev,cc,idp ext
+    linkStyle default stroke:#64748b
 ```
 
-The API and the MCP service share the `auth` package, including the claim profile of [auth.md](auth.md). The paged
-graph read that `list_features` uses belongs to the graph library ([../graph/api.md](../graph/api.md#read-and-search)).
+The API and the MCP service share the `auth` package, including the claim profile of [auth.md](auth.md), and the tool
+models of `agent_contracts`. The paged graph read that `list_features` uses belongs to the graph library ([../graph/api.md](../graph/api.md#read-and-search)).
 
 ## Constraints
 
@@ -82,7 +89,7 @@ graph read that `list_features` uses belongs to the graph library ([../graph/api
 |---|---|---|
 | C1 | Users are keyed by the token subject alone, without the issuer: MCP tokens must come from the web app's issuer and carry the same subject for the same person. | `users.auth_subject` |
 | C2 | The API is internal (the browser talks only to the web app's server); it is never exposed for MCP. | API design |
-| C3 | Neo4j access and Cypher stay in the graph library; the web framework stays in `api` and `auth`; the ORM stays in `api`, `db` and `temporal`. | `backend/importlinter.toml`, [../graph/architecture.md](../graph/architecture.md#import-rules) |
+| C3 | Neo4j access and Cypher stay in the graph library; FastAPI stays in `api` and `auth`, while `mcp_server` uses only Starlette and uvicorn (AD6, revised); the ORM stays in `api`, `db` and `temporal`, out of `mcp_server`. | `backend/importlinter.toml`, [../graph/architecture.md](../graph/architecture.md#import-rules) |
 | C4 | Settings are environment variables validated per role at startup; secrets are never logged. | [../configuration.md](../configuration.md) |
 | C5 | The MCP Python SDK is already a transitive dependency of the agent SDKs; the server declares it directly in the range that [architecture.md](architecture.md#transport) defines, and `uv.lock` fixes the exact version. | `backend/uv.lock` |
 | C6 | Only confirmed needs are built. A capability that only a possible future tool needs is listed in [later.md](later.md) with what it would take, not built ahead. | product direction |
@@ -96,7 +103,7 @@ graph read that `list_features` uses belongs to the graph library ([../graph/api
 | Projects per developer | under 100 | one page in the common case |
 | Features per project | tens to a few hundred | pages of the default size in [tools.md](tools.md#conventions), two Neo4j queries per page |
 | Access token lifetime | set at the IdP ([auth.md](auth.md#token-lifetimes-and-revocation)) | bounds revocation latency for disabled users |
-| Tool call latency | the target of NFR-MCP-01 ([requirements.md](requirements.md#non-functional)) | one Postgres transaction and two indexed Neo4j reads |
+| Tool call latency | the target of NFR-MCP-01 ([requirements.md](requirements.md#non-functional)) | one internal HTTP call to the API, which runs one Postgres transaction and two indexed Neo4j reads |
 
 ## Key terms
 

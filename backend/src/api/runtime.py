@@ -13,11 +13,12 @@ from typing import Any, Final
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.errors import database_unavailable, required
+from api.errors import ApiError, database_unavailable, graph_unavailable, required
 from api.graph_build.runner import GraphBuildRunner
 from api.plan.runner import GraphPlanRunner
 from db import session as db_session
 from db.session import is_database_unreachable
+from graph.core import InfrastructureUnavailableError
 from graph.stores import build_store
 from health import (
     Readiness,
@@ -39,6 +40,19 @@ DRIVE_IDENTITY_POOL_SIZE: Final = 2  # identity reads never queue behind folder 
 DRIVE_TEST_CONCURRENCY: Final = 4  # Drive calls in flight per process (B4)
 
 
+def agent_error(error: Exception) -> ApiError | None:
+    """The API error of an infrastructure failure, else ``None`` (the generic 500 handler answers a bug).
+
+    A graph outage is checked before ``is_database_unreachable``, which counts any ``OSError`` as a database outage.
+    """
+
+    if isinstance(error, InfrastructureUnavailableError):
+        return graph_unavailable()
+    if is_database_unreachable(error):
+        return database_unavailable()
+    return None
+
+
 class DriveTimeoutError(Exception):
     """The time budget of a Drive call ran out (waiting for a slot counts)."""
 
@@ -51,7 +65,7 @@ class Runtime:
     session_factory: Any
     store: Any
     temporal: Any
-    graph_store: Any  # graph.core.store.GraphStore; only /readyz and the graph build runner use it
+    graph_store: Any  # graph.core.store.GraphStore; /readyz, the graph build runner and the agent reads use it
     readiness: Readiness
     id_prefix: str = ""  # tier-2 tests prefix workflow ids and task queues
     drive: Any = None  # drive.gateway.DriveGateway; None = Drive unavailable
@@ -62,6 +76,8 @@ class Runtime:
     graph_builds: Any = None
     # api.plan.runner.GraphPlanRunner; None = plan not configured (503); set with the graph build
     plans: Any = None
+    # api.agent_reads.AgentReads, loaded on the first agent read; independent of the graph build switches
+    agent_reads: Any = None
     cleanups: list[Callable[[], Awaitable[None]]] = field(default_factory=list)
 
     @asynccontextmanager

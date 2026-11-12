@@ -3483,47 +3483,55 @@ name = "specflow"
 version = "2.0.0"
 source = { editable = "." }
 dependencies = [
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+    { name = "pyyaml" },
+]
+
+[package.optional-dependencies]
+api = [
     { name = "alembic" },
-    { name = "anthropic" },
     { name = "asyncpg" },
-    { name = "claude-agent-sdk" },
-    { name = "dotenv" },
     { name = "fastapi" },
     { name = "google-api-python-client" },
     { name = "google-auth" },
     { name = "httplib2" },
     { name = "httpx" },
-    { name = "langfuse" },
-    { name = "mcp" },
     { name = "neo4j" },
     { name = "numpy" },
     { name = "openai" },
     { name = "openai-agents" },
     { name = "openinference-instrumentation" },
     { name = "opentelemetry-exporter-otlp-proto-http" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
     { name = "pyjwt", extra = ["crypto"] },
-    { name = "pyyaml" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "starlette" },
     { name = "temporalio" },
     { name = "temporalio-openai-agents", extra = ["openinference"] },
     { name = "uvicorn" },
 ]
-
-[package.optional-dependencies]
 aws = [
     { name = "boto3" },
 ]
 gcp = [
     { name = "google-cloud-storage" },
 ]
+mcp = [
+    { name = "httpx" },
+    { name = "mcp" },
+    { name = "pyjwt", extra = ["crypto"] },
+    { name = "starlette" },
+    { name = "uvicorn" },
+]
 parse = [
+    { name = "anthropic" },
+    { name = "claude-agent-sdk" },
     { name = "defusedxml" },
     { name = "docling-core" },
     { name = "docling-slim", extra = ["convert-core", "format-docx", "format-html", "format-markdown", "format-pdf", "format-pptx", "format-xlsx", "models-local"] },
+    { name = "dotenv" },
     { name = "huggingface-hub" },
+    { name = "langfuse" },
     { name = "opencv-python-headless" },
     { name = "pypdfium2" },
     { name = "torch", version = "2.15.0", source = { registry = "https://pypi.org/simple" }, marker = "sys_platform != 'linux'" },
@@ -3533,6 +3541,21 @@ parse = [
 ]
 tigergraph = [
     { name = "pytigergraph" },
+]
+worker = [
+    { name = "asyncpg" },
+    { name = "google-api-python-client" },
+    { name = "google-auth" },
+    { name = "httplib2" },
+    { name = "httpx" },
+    { name = "neo4j" },
+    { name = "openai" },
+    { name = "openai-agents" },
+    { name = "openinference-instrumentation" },
+    { name = "opentelemetry-exporter-otlp-proto-http" },
+    { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "temporalio" },
+    { name = "temporalio-openai-agents", extra = ["openinference"] },
 ]
 
 [package.dev-dependencies]
@@ -3549,48 +3572,65 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "alembic", specifier = ">=1.20.1" },
-    { name = "anthropic", specifier = ">=1.1.0" },
-    { name = "asyncpg", specifier = ">=0.32.0" },
+    { name = "alembic", marker = "extra == 'api'", specifier = ">=1.20.1" },
+    { name = "anthropic", marker = "extra == 'parse'", specifier = ">=1.1.0" },
+    { name = "asyncpg", marker = "extra == 'api'", specifier = ">=0.32.0" },
+    { name = "asyncpg", marker = "extra == 'worker'", specifier = ">=0.32.0" },
     { name = "boto3", marker = "extra == 'aws'", specifier = ">=1.43,<2" },
-    { name = "claude-agent-sdk", specifier = "==0.2.174" },
+    { name = "claude-agent-sdk", marker = "extra == 'parse'", specifier = "==0.2.174" },
     { name = "defusedxml", marker = "extra == 'parse'", specifier = ">=0.7.1,<1" },
     { name = "docling-core", marker = "extra == 'parse'", specifier = ">=2.105,<3" },
     { name = "docling-slim", extras = ["convert-core", "format-pdf", "models-local", "format-docx", "format-pptx", "format-xlsx", "format-html", "format-markdown"], marker = "extra == 'parse'", specifier = "==2.145.0" },
-    { name = "dotenv", specifier = ">=0.9.9" },
-    { name = "fastapi", specifier = ">=0.162.0" },
-    { name = "google-api-python-client", specifier = ">=2.201.0" },
-    { name = "google-auth", specifier = ">=2.62.0" },
+    { name = "dotenv", marker = "extra == 'parse'", specifier = ">=0.9.9" },
+    { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.162.0" },
+    { name = "google-api-python-client", marker = "extra == 'api'", specifier = ">=2.201.0" },
+    { name = "google-api-python-client", marker = "extra == 'worker'", specifier = ">=2.201.0" },
+    { name = "google-auth", marker = "extra == 'api'", specifier = ">=2.62.0" },
+    { name = "google-auth", marker = "extra == 'worker'", specifier = ">=2.62.0" },
     { name = "google-cloud-storage", marker = "extra == 'gcp'", specifier = ">=3.17.1" },
-    { name = "httplib2", specifier = ">=0.22" },
-    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "httplib2", marker = "extra == 'api'", specifier = ">=0.22" },
+    { name = "httplib2", marker = "extra == 'worker'", specifier = ">=0.22" },
+    { name = "httpx", marker = "extra == 'api'", specifier = ">=0.28.1" },
+    { name = "httpx", marker = "extra == 'mcp'", specifier = ">=0.28.1" },
+    { name = "httpx", marker = "extra == 'worker'", specifier = ">=0.28.1" },
     { name = "huggingface-hub", marker = "extra == 'parse'" },
-    { name = "langfuse", specifier = ">=4,<5" },
-    { name = "mcp", specifier = ">=2.3,<3" },
-    { name = "neo4j", specifier = ">=6.4.1" },
-    { name = "numpy", specifier = ">=2.5.4" },
-    { name = "openai", specifier = ">=3.37.0,<4" },
-    { name = "openai-agents", specifier = ">=0.22.3,<0.23" },
+    { name = "langfuse", marker = "extra == 'parse'", specifier = ">=4,<5" },
+    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2.3,<3" },
+    { name = "neo4j", marker = "extra == 'api'", specifier = ">=6.4.1" },
+    { name = "neo4j", marker = "extra == 'worker'", specifier = ">=6.4.1" },
+    { name = "numpy", marker = "extra == 'api'", specifier = ">=2.5.4" },
+    { name = "openai", marker = "extra == 'api'", specifier = ">=3.37.0,<4" },
+    { name = "openai", marker = "extra == 'worker'", specifier = ">=3.37.0,<4" },
+    { name = "openai-agents", marker = "extra == 'api'", specifier = ">=0.22.3,<0.23" },
+    { name = "openai-agents", marker = "extra == 'worker'", specifier = ">=0.22.3,<0.23" },
     { name = "opencv-python-headless", marker = "extra == 'parse'", specifier = "<5" },
-    { name = "openinference-instrumentation", specifier = ">=0.1.72" },
-    { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.45.1" },
+    { name = "openinference-instrumentation", marker = "extra == 'api'", specifier = ">=0.1.72" },
+    { name = "openinference-instrumentation", marker = "extra == 'worker'", specifier = ">=0.1.72" },
+    { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'api'", specifier = ">=1.45.1" },
+    { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'worker'", specifier = ">=1.45.1" },
     { name = "pydantic", specifier = ">=2.14.1" },
     { name = "pydantic-settings", specifier = ">=2.16.1" },
-    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.15.1" },
+    { name = "pyjwt", extras = ["crypto"], marker = "extra == 'api'", specifier = ">=2.15.1" },
+    { name = "pyjwt", extras = ["crypto"], marker = "extra == 'mcp'", specifier = ">=2.15.1" },
     { name = "pypdfium2", marker = "extra == 'parse'" },
     { name = "pytigergraph", marker = "extra == 'tigergraph'", specifier = "==2.0.5" },
     { name = "pyyaml", specifier = ">=6" },
-    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.1.6" },
-    { name = "starlette", specifier = ">=1.10.0" },
-    { name = "temporalio", specifier = ">=1.34,<2" },
-    { name = "temporalio-openai-agents", extras = ["openinference"], specifier = ">=1.1,<2" },
+    { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'api'", specifier = ">=2.1.6" },
+    { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'worker'", specifier = ">=2.1.6" },
+    { name = "starlette", marker = "extra == 'api'", specifier = ">=1.10.0" },
+    { name = "starlette", marker = "extra == 'mcp'", specifier = ">=1.10.0" },
+    { name = "temporalio", marker = "extra == 'api'", specifier = ">=1.34,<2" },
+    { name = "temporalio", marker = "extra == 'worker'", specifier = ">=1.34,<2" },
+    { name = "temporalio-openai-agents", extras = ["openinference"], marker = "extra == 'api'", specifier = ">=1.1,<2" },
+    { name = "temporalio-openai-agents", extras = ["openinference"], marker = "extra == 'worker'", specifier = ">=1.1,<2" },
     { name = "torch", marker = "sys_platform == 'linux' and extra == 'parse'", specifier = "==2.15.0", index = "https://download.pytorch.org/whl/cpu" },
     { name = "torch", marker = "sys_platform != 'linux' and extra == 'parse'", specifier = "==2.15.0" },
     { name = "torchvision", marker = "sys_platform == 'linux' and extra == 'parse'", index = "https://download.pytorch.org/whl/cpu" },
     { name = "torchvision", marker = "sys_platform != 'linux' and extra == 'parse'" },
-    { name = "uvicorn", specifier = ">=0.54.0" },
+    { name = "uvicorn", marker = "extra == 'api'", specifier = ">=0.54.0" },
+    { name = "uvicorn", marker = "extra == 'mcp'", specifier = ">=0.54.0" },
 ]
-provides-extras = ["gcp", "aws", "tigergraph", "parse"]
+provides-extras = ["api", "worker", "mcp", "gcp", "aws", "tigergraph", "parse"]
 
 [package.metadata.requires-dev]
 dev = [

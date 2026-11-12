@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import os
 import sys
 from pathlib import Path
@@ -30,7 +31,6 @@ from typing import Any
 import httpx
 import pytest
 
-import llm.sandbox as sandbox_module
 import logger._stderr as stderr_module
 import logger.correlation as correlation_module
 from graph.core.errors import GraphError
@@ -47,8 +47,13 @@ pytest_plugins = [
     "specflow_api_live_support",
     "specflow_db_live_support",
     "specflow_sources_support",
-    "mcp_support",  # last: it imports the support modules above, which must register first
+    "graph_support",  # before mcp_support, which imports it (a late registration cannot be assert-rewritten)
+    "mcp_support",  # it imports the support modules above, which must register first
+    "mcp_golden_seam",  # last: it imports mcp_support
 ]
+# The `llm` package needs claude_agent_sdk (the `parse` extra); a light environment (rss-test) lacks it.
+if importlib.util.find_spec("claude_agent_sdk") is not None:
+    pytest_plugins.append("llm_sandbox_support")
 
 
 def pytest_configure() -> None:
@@ -58,17 +63,6 @@ def pytest_configure() -> None:
     models = Path(__file__).resolve().parent.parent / ".docling-models"
     if models.is_dir():
         os.environ.setdefault("DOCLING_ARTIFACTS_PATH", str(models))
-
-
-@pytest.fixture(autouse=True)
-def available_native_sandbox(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep offline tests independent from optional host sandbox tooling."""
-
-    monkeypatch.setattr(
-        sandbox_module,
-        "check_native_sandbox_available",
-        lambda: None,
-    )
 
 
 @pytest.fixture(autouse=True)

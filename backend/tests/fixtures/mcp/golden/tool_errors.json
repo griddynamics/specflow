@@ -1,0 +1,122 @@
+{
+  "database_unavailable": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"database_unavailable\",\"message\":\"The database is unavailable. Try again later.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "database_unavailable",
+        "message": "The database is unavailable. Try again later."
+      }
+    }
+  },
+  "feature_not_found": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"feature_not_found\",\"message\":\"The feature is not in the specification graph of the project. List the features to find it.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "feature_not_found",
+        "message": "The feature is not in the specification graph of the project. List the features to find it."
+      }
+    }
+  },
+  "graph_unavailable": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"graph_unavailable\",\"message\":\"The specification graph is unavailable. Try again later.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "graph_unavailable",
+        "message": "The specification graph is unavailable. Try again later."
+      }
+    }
+  },
+  "internal_error": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"internal_error\",\"message\":\"Something went wrong. Try again later.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "internal_error",
+        "message": "Something went wrong. Try again later."
+      }
+    }
+  },
+  "invalid_cursor": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"invalid_cursor\",\"message\":\"The cursor is invalid. Start again without a cursor.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "invalid_cursor",
+        "message": "The cursor is invalid. Start again without a cursor."
+      }
+    }
+  },
+  "no_plan": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"no_plan\",\"message\":\"The project has no implementation plan yet. Create one on the Plan page of the web app.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "no_plan",
+        "message": "The project has no implementation plan yet. Create one on the Plan page of the web app."
+      }
+    }
+  },
+  "project_not_found": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"project_not_found\",\"message\":\"The project does not exist or you are not a member of it.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "project_not_found",
+        "message": "The project does not exist or you are not a member of it."
+      }
+    }
+  },
+  "task_not_found": {
+    "content": [
+      {
+        "text": "{\"error\":{\"code\":\"task_not_found\",\"message\":\"The task is not in the current plan of the project. List the tasks to find it.\"}}",
+        "type": "text"
+      }
+    ],
+    "isError": true,
+    "structuredContent": {
+      "error": {
+        "code": "task_not_found",
+        "message": "The task is not in the current plan of the project. List the tasks to find it."
+      }
+    }
+  }
+}

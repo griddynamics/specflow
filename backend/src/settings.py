@@ -10,13 +10,14 @@ test passes an explicit mapping. Nothing here reads ``.env.local``;
 
 from __future__ import annotations
 
+import importlib
 import ipaddress
 import os
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from http.client import HTTP_PORT, HTTPS_PORT
-from typing import Annotated, Any, ClassVar, Final, Literal, override
+from typing import Annotated, Any, ClassVar, Final, Literal, overload, override
 from urllib.parse import urlsplit
 
 from pydantic import (
@@ -32,14 +33,23 @@ from pydantic_settings import (
     PydanticBaseSettingsSource,
     SettingsConfigDict,
 )
-from sqlalchemy import URL, make_url
-from sqlalchemy.exc import ArgumentError
 
 from cloud_profile import CLOUD_PROVIDERS, CONFIG_FILE_VARIABLE, Cloud, load_profile
 from graph.core import LLMConfig
 from graph.stores.config import BACKENDS, DEFAULT_BACKEND, StoreConfig
 from logger.logger import WARNING, get_logger, log_event
-from postgres import SSL_MODES, VERIFY_MODES, ssl_argument
+
+# Every role loads this module, and only the roles that open the database install SQLAlchemy: the helpers below
+# import it (and ``postgres``, which wraps it) on first use, inside a role that has a database binding.
+
+
+def _postgres() -> Any:
+    return importlib.import_module("postgres")
+
+
+def _sqlalchemy() -> Any:
+    return importlib.import_module("sqlalchemy")
+
 
 DATABASE_ENVIRONMENT: Final = (
     "DATABASE_HOST",
@@ -68,7 +78,7 @@ def tls_settings(mode: str | None, rootcert: str | None) -> tuple[str | None, st
     """The ``sslmode`` and the CA bundle it uses: the verify modes default to ``SSL_ROOT_CERT``, ``require``
     uses a bundle only when one is given, the other modes none."""
 
-    if mode in VERIFY_MODES:
+    if mode in _postgres().VERIFY_MODES:
         return mode, rootcert or SSL_ROOT_CERT
     return mode, rootcert if mode == "require" else None
 
@@ -134,8 +144,8 @@ class DatabaseSettings(BaseSettings):
     @field_validator("sslmode")
     @classmethod
     def _known_sslmode(cls, value: str | None) -> str | None:
-        if value is not None and value not in SSL_MODES:
-            raise ValueError(f"must be one of {', '.join(sorted(SSL_MODES))}")
+        if value is not None and value not in _postgres().SSL_MODES:
+            raise ValueError(f"must be one of {', '.join(sorted(_postgres().SSL_MODES))}")
         return value
 
     @field_validator("sslrootcert")
@@ -143,7 +153,7 @@ class DatabaseSettings(BaseSettings):
     def _readable_rootcert(cls, value: str | None, info: ValidationInfo) -> str | None:
         if "sslmode" in info.data:  # else PGSSLMODE is already refused
             try:
-                ssl_argument(*tls_settings(info.data["sslmode"], value))
+                _postgres().ssl_argument(*tls_settings(info.data["sslmode"], value))
             except (OSError, ValueError):
                 raise ValueError("must be a readable PEM CA bundle") from None
         return value
@@ -168,10 +178,10 @@ class DatabaseSettings(BaseSettings):
         except ValidationError as error:
             raise DatabaseConfigurationError(_describe(error)) from None
 
-    def url(self) -> URL:
-        """Build the SQLAlchemy URL; special characters are escaped on render."""
+    def url(self) -> Any:
+        """Build the SQLAlchemy URL (``sqlalchemy.URL``); special characters are escaped on render."""
 
-        return URL.create(
+        return _sqlalchemy().URL.create(
             _DRIVERNAME,
             username=self.user,
             password=self.password.get_secret_value(),
@@ -183,7 +193,7 @@ class DatabaseSettings(BaseSettings):
     def connect_args(self) -> dict[str, Any]:
         """The asyncpg ``ssl`` argument of ``PGSSLMODE`` and ``PGSSLROOTCERT``, explicit for every mode."""
 
-        return {"ssl": ssl_argument(*tls_settings(self.sslmode, self.sslrootcert))}
+        return {"ssl": _postgres().ssl_argument(*tls_settings(self.sslmode, self.sslrootcert))}
 
 
 def _database_variable(location: str | int) -> str:
@@ -216,6 +226,7 @@ def _describe(error: ValidationError) -> str:
 # --- Role bindings ---------------------------------------------------------
 
 Role = Literal["api", "worker", "migrate", "mcp"]
+DatabaseRole = Literal["api", "worker", "migrate"]  # the roles that load ``RoleSettings`` (all but mcp)
 ROLES: Final[tuple[str, ...]] = ("api", "worker", "migrate", "mcp")
 APP_ENVIRONMENTS: Final = ("local", "dev", "prod")
 WORKER_QUEUE_NAMES: Final = ("parse", "agents")
@@ -644,6 +655,48 @@ class McpSettings(_MappedSettings):
         return tuple(dict.fromkeys((resource, *self.allowed_hosts)))
 
 
+_SCHEME: Final = re.compile(r"[a-z][a-z0-9+.-]*://", re.IGNORECASE)
+
+
+def _internal_url(value: Any) -> Any:
+    """``API_INTERNAL_URL`` as the web app reads it (``normalizeInternalUrl``): a bare ``host[:port]`` becomes
+    ``http://host[:port]`` and trailing slashes go. Refused (the API client forwards the caller's token to this
+    address): userinfo, a query, a fragment, a scheme other than http(s), a host named like a scheme and a ``%``
+    in the host."""
+
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text:
+        raise ValueError("must not be blank")
+    if not _SCHEME.match(text):
+        text = f"http://{text}"
+    text = text.rstrip("/")
+    if not text.isascii() or not text.isprintable() or any(c in text for c in ' "\\'):
+        raise ValueError("must be a plain http(s) URL")
+    try:
+        parts = urlsplit(text)
+        _ = parts.port
+    except ValueError as error:
+        raise ValueError("must be a valid URL") from error
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise ValueError("must be an http(s) URL with a host")
+    if parts.hostname in ("http", "https") or "%" in parts.netloc:  # typos such as ``http:/api`` or ``api%40evil``
+        raise ValueError("must name a real host")
+    if "@" in parts.netloc or parts.query or parts.fragment or "?" in text or "#" in text:
+        raise ValueError("must have no user information, query or fragment")
+    return text
+
+
+InternalUrl = Annotated[str, BeforeValidator(_internal_url)]
+
+
+class ApiInternalSettings(_MappedSettings):
+    """The MCP role's one address (FR-MCP-OPS-01): where the API answers the agent routes."""
+
+    url: InternalUrl = Field(validation_alias="API_INTERNAL_URL")
+
+
 class AgentRunSettings(_MappedSettings):
     """What a summarize run needs; the one reader of ``AGENT_MODEL``."""
 
@@ -742,7 +795,18 @@ class RoleSettings:
     agent: AgentSettings | None = None
     langfuse: LangfuseSettings | None = None
     graph_build: GraphBuildSettings | None = None  # api only; None = feature off
-    mcp: McpSettings | None = None  # mcp role only
+    mcp: McpSettings | None = None  # the mcp role; the api role when MCP_RESOURCE_URL is set (agent routes)
+
+
+@dataclass(frozen=True)
+class McpRoleSettings:
+    """The bindings of the mcp role (FR-MCP-OPS-01): auth, MCP and the API address; no database, no graph store."""
+
+    app: AppSettings
+    auth: AuthSettings
+    mcp: McpSettings
+    api_internal: ApiInternalSettings
+    role: str = "mcp"
 
 
 def _flag(bad: list[str], name: str) -> None:
@@ -813,16 +877,16 @@ class _Bindings:
     langfuse: LangfuseSettings | None = None
     graph_build: GraphBuildSettings | None = None
     mcp: McpSettings | None = None
+    api_internal: ApiInternalSettings | None = None
 
 
 def _build_bindings(role: str, source: Mapping[str, str], bad: list[str]) -> _Bindings:
     """Build every binding ``role`` needs, flagging each refused variable in ``bad``."""
 
-    found = _Bindings(
-        app=_build(AppSettings, source, bad),
-        database=_build_database(source, bad),
-        agent_database=_build(AgentDatabaseSettings, source, bad),
-    )
+    found = _Bindings(app=_build(AppSettings, source, bad))
+    if role != "mcp":  # the mcp role reads no DATABASE_* and no GRAPH_STORE_*: it calls the API
+        found.database = _build_database(source, bad)
+        found.agent_database = _build(AgentDatabaseSettings, source, bad)
     if role not in ("migrate", "mcp"):  # the mcp role builds no Temporal, storage or Langfuse binding
         found.temporal = _build(TemporalSettings, source, bad)
         found.langfuse = _build(LangfuseSettings, source, bad)
@@ -830,7 +894,9 @@ def _build_bindings(role: str, source: Mapping[str, str], bad: list[str]) -> _Bi
     if role in ("api", "mcp"):
         found.auth = _build(AuthSettings, source, bad)
     if role == "mcp":
-        found.graph_store = _build_graph_store(source, bad, found.database)
+        found.mcp = _build(McpSettings, source, bad)
+        found.api_internal = _build(ApiInternalSettings, source, bad)
+    if role == "api" and source.get("MCP_RESOURCE_URL", "").strip():  # unset: the agent routes answer 503
         found.mcp = _build(McpSettings, source, bad)
     if role == "api" and GraphBuildSettings.enabled_in(source):
         found.graph_build = _build(GraphBuildSettings, source, bad)
@@ -887,7 +953,7 @@ def _build_graph_store(
     if backend == "postgres" and "GRAPH_STORE_URI" not in resolved:
         if database is None:  # DATABASE_* are already flagged
             return None
-        uri = URL.create("postgresql", host=database.host, port=database.port, database=database.name)
+        uri = _sqlalchemy().URL.create("postgresql", host=database.host, port=database.port, database=database.name)
         resolved["GRAPH_STORE_URI"] = uri.render_as_string()
         resolved.setdefault("GRAPH_STORE_USER", database.user)
         resolved.setdefault("GRAPH_STORE_PASSWORD", database.password.get_secret_value())
@@ -907,9 +973,10 @@ def _with_tls(uri: str, database: DatabaseSettings) -> str:
     """``uri`` with the ``sslmode`` and CA bundle of ``database`` where it sets none of its own, as libpq applies
     ``PGSSLMODE`` and ``PGSSLROOTCERT`` to every connection. A malformed URI is left for the store to refuse."""
 
+    sqlalchemy = _sqlalchemy()
     try:
-        url = make_url(uri)
-    except (ArgumentError, ValueError):
+        url = sqlalchemy.make_url(uri)
+    except (sqlalchemy.exc.ArgumentError, ValueError):
         return uri
     query: dict[str, str] = {}
     if "sslmode" not in url.query and database.sslmode:
@@ -966,18 +1033,31 @@ def load_graph_store_settings(env: Mapping[str, str] | None = None) -> GraphStor
     return found
 
 
+@overload
+def load_settings(role: Literal["mcp"], env: Mapping[str, str] | None = None) -> McpRoleSettings: ...
+
+
+@overload
+def load_settings(
+    role: DatabaseRole,
+    env: Mapping[str, str] | None = None,
+    *,
+    queues: Sequence[str] | None = None,
+) -> RoleSettings: ...
+
+
 def load_settings(
     role: Role,
     env: Mapping[str, str] | None = None,
     *,
     queues: Sequence[str] | None = None,
-) -> RoleSettings:
+) -> RoleSettings | McpRoleSettings:
     """Build and guard the settings one role needs.
 
     ``env`` defaults to the process environment. ``queues`` (the worker's
     ``--queue`` options) replaces ``WORKER_QUEUES``. Raises
     ``ConfigurationError`` naming every missing, invalid or refused variable
-    at once.
+    at once. The mcp role answers ``McpRoleSettings`` (no database, no graph store).
     """
 
     if role not in ROLES:
@@ -989,11 +1069,15 @@ def load_settings(
     found = _build_bindings(role, source, bad)
     _apply_guards(role, source, bad, found)
     app, database, agent_database = found.app, found.database, found.agent_database
+    if role == "mcp":
+        if bad or app is None or found.auth is None or found.mcp is None or found.api_internal is None:
+            raise ConfigurationError(bad, AUTH_MODE_REMOVED_HINT if "AUTH_MODE" in bad else "")
+        return McpRoleSettings(app=app, auth=found.auth, mcp=found.mcp, api_internal=found.api_internal)
     if bad or app is None or database is None or agent_database is None:
         raise ConfigurationError(bad, AUTH_MODE_REMOVED_HINT if "AUTH_MODE" in bad else "")
     if role == "migrate":
         agent_database = agent_database.model_copy(update={"password": None})
-    elif role in ("api", "mcp"):
+    elif role == "api":
         agent_database = None
     return RoleSettings(
         role=role,
@@ -1171,7 +1255,8 @@ def _guard_mcp_audience(bad: list[str], auth: AuthSettings, mcp: McpSettings | N
     one of the REST client ids (a REST token would pass), or an ignored
     audience (the rule drops). A client audience also refuses any MCP client
     id that is a REST client id: each surface needs its own client.
-    Only the ``mcp`` role has the settings (``mcp`` is ``None`` for the others).
+    The ``mcp`` role always has the settings; the ``api`` role has them when ``MCP_RESOURCE_URL`` is set, and then
+    refuses the same mix-ups (its agent routes verify MCP tokens). ``mcp`` is ``None`` for the other roles.
     """
 
     if mcp is None:

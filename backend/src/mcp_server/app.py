@@ -1,4 +1,4 @@
-"""``create_mcp_app(settings)``: the guard, ``/mcp``, the PRM, the probes and the lifespan."""
+"""``create_mcp_app(settings)``: the guard, ``/mcp``, the PRM, the probes and the lifespan (one ``ApiClient``)."""
 
 from __future__ import annotations
 
@@ -17,18 +17,19 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
-from api.mcp import guidance
-from api.mcp.auth import McpGuard, ProtectedResourceMetadata, metadata_endpoint
-from api.mcp.http import CheckBody, McpStarlette, ReadyzBody, error_response, required
-from api.mcp.registry import install
-from api.mcp.runtime import RuntimeFactory, build_runtime, request_runtime
 from auth.verifiers import build_verifier
 from logger.logger import ERROR, INFO, get_logger, log_event
-from settings import MCP_PATH, PRM_PATH, RoleSettings
+from mcp_server import guidance
+from mcp_server.api_client import ApiTransport, build_api_client, request_api_client
+from mcp_server.auth import McpGuard, ProtectedResourceMetadata, metadata_endpoint
+from mcp_server.http import McpStarlette, error_response, required
+from mcp_server.readiness import readiness_response
+from mcp_server.registry import install
+from settings import MCP_PATH, PRM_PATH, McpRoleSettings
 
 # Module-level logger first: the central logger owns the root handler before MCPServer
 # configures stdlib logging (a no-op then).
-logger = get_logger("api.mcp.app")
+logger = get_logger("mcp_server.app")
 
 MAX_REQUEST_BODY_BYTES: Final = 1024 * 1024  # tool arguments are tiny (FR-MCP-OPS-05)
 _CODES: Final = {404: "not_found", 405: "method_not_allowed"}
@@ -43,12 +44,7 @@ async def _healthz(_: Request) -> JSONResponse:
 
 
 async def _readyz(request: Request) -> JSONResponse:
-    report = await request_runtime(request).readiness.snapshot()
-    body = ReadyzBody(
-        status="ready" if report.all_ok else "not_ready",
-        checks={name: CheckBody(ok=r.ok, detail=r.detail, duration_ms=r.duration_ms) for name, r in report.items()},
-    )
-    return JSONResponse(body.model_dump(), status_code=200 if report.all_ok else 503)
+    return await readiness_response(request_api_client(request))
 
 
 async def _http_error(_: Request, exc: Exception) -> Response:
@@ -71,19 +67,21 @@ async def _unhandled(request: Request, exc: Exception) -> Response:
 
 
 def create_mcp_app(
-    settings: RoleSettings,
+    settings: McpRoleSettings,
     *,
-    runtime_factory: RuntimeFactory = build_runtime,
+    transport: ApiTransport | None = None,
     tools: Callable[[MCPServer], None] | None = None,
 ) -> Starlette:
-    """Build the app; no connection opens until the lifespan starts.
+    """Build the app; no connection opens until the first API call or probe.
+
+    ``transport`` is the seam of the tests: the API client sends its requests through it (an in-process API app, a
+    mock) instead of the network.
 
     ``tools`` registers tools on the server before the app is built; the default is the registry (tools and
     prompts) with the deployment's resource URL, which a hook of the tests cannot know before the settings load.
     """
 
-    auth = required(settings.auth, "the mcp role requires auth settings")
-    mcp = required(settings.mcp, "the mcp role requires mcp settings")
+    auth, mcp = settings.auth, settings.mcp
     resource_url = mcp.resource_url  # the one value of the PRM, the instructions and the prompt
     # never auth= or token_verifier=: the guard owns 401 and 403
     server = MCPServer("SpecFlow", instructions=guidance.server_instructions(resource_url))
@@ -105,13 +103,13 @@ def create_mcp_app(
     async def lifespan(app: Starlette) -> AsyncIterator[None]:
         async with AsyncExitStack() as stack:
             try:
-                runtime = await runtime_factory(settings)
-                stack.push_async_callback(runtime.aclose)
+                api_client = build_api_client(settings, transport=transport)
+                stack.push_async_callback(api_client.aclose)
                 await stack.enter_async_context(transports.run())  # not `session`: the Cypher semgrep rule
             except Exception as error:
                 log_event(logger, ERROR, "mcp.startup.failed", error_type=type(error).__name__, exc_info=True)
                 raise
-            app.state.runtime = runtime
+            app.state.api_client = api_client
             log_event(logger, INFO, "mcp.startup.completed", port=mcp.port)
             yield
         log_event(logger, INFO, "mcp.shutdown.completed", port=mcp.port)
