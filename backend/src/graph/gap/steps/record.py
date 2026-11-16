@@ -194,6 +194,19 @@ class Recorder:
         self.snapshot = snapshot
         self.by_id: dict[str, StoredGap] = {gap.gap_id: gap for gap in existing}
         self.by_signature: dict[str, StoredGap] = {gap.signature: gap for gap in existing if gap.signature}
+        for gap in existing:  # a resolved gap's topic continues in its open follow-up (lifecycle.md "Follow-ups")
+            follow = next(
+                (
+                    self.by_id[item.gap_id]
+                    for item in gap.follow_ups
+                    if item.direction == "continued_by"
+                    and item.gap_id in self.by_id
+                    and self.by_id[item.gap_id].status == OPEN
+                ),
+                None,
+            )
+            if follow is not None and gap.signature:
+                self.by_signature[gap.signature] = follow
         self.taken: dict[str, str] = {gap.gap_id: gap.signature for gap in existing}
         self.labels = tuple(label for label in run.ontology.labels if run.ontology.owner_of(label) == BUILD_OWNER)
         self.outcome = RecordOutcome()
@@ -386,6 +399,7 @@ class Recorder:
             "why": report.why,
             "detector": primary_seed(decision.site.seeds).detector,
             "signature": signature,
+            "seed_signatures": seed_signatures(decision.site, primary_seed(decision.site.seeds).detector),
             "blocking": NOT_BLOCKING,
             "run_id": run.run_id,
             "created_by": RUN_ACTOR,
@@ -513,6 +527,9 @@ class Recorder:
                 if added or changed:
                     now = run.now().isoformat(timespec="milliseconds")
                     await tx.upsert_node(GAP, owner.key, {**changed, "updated_at": now})
+                seeds = more_seed_signatures(known, decision.site)
+                if seeds:  # what a dismissal suppresses; not a change a reader sees (no new ``updated_at``)
+                    await tx.upsert_node(GAP, owner.key, {"seed_signatures": seeds})
         if known.status == OPEN and report.options and decision.mode != POINTER:
             self.options[known.gap_id] = self._option_rows(known.gap_id, report)
         kind = str(known.props.get("kind") or report.kind)
@@ -561,6 +578,24 @@ class Recorder:
 
     def _writer(self) -> OwnedWriter:
         return OwnedWriter(self.run.source, self.run.ontology, OWNER, self.run.project_id, database=self.run.database)
+
+
+def seed_signatures(site: Site, detector: str) -> list[str]:
+    """The signatures of the site's seeds of ``detector``: what a dismissal of the gap suppresses beside the gap's own
+    signature, so the same detector hit on the same nodes and witness stays quiet (data-model.md "Identity",
+    detection.md "Suppression"; FR-GDET-07, FR-GANS-11). Seeds of other detectors the site merged in are left out:
+    their problem may still be one."""
+
+    return sorted({seed.signature for seed in site.seeds if seed.detector == detector})
+
+
+def more_seed_signatures(known: StoredGap, site: Site) -> list[str]:
+    """The gap's seed signatures with those of a re-checking site added, or empty when the site adds none."""
+
+    stored = [str(item) for item in known.props.get("seed_signatures") or ()]
+    found = seed_signatures(site, str(known.props.get("detector") or ""))
+    merged = sorted({*stored, *found})
+    return merged if len(merged) > len(set(stored)) else []
 
 
 def _raised_changes(known: StoredGap, decision: SiteDecision, report: GapReport) -> dict[str, Any]:

@@ -12,7 +12,9 @@ corroboration", "Sites"; FR-GDET-06 to FR-GDET-09).
    splits by section (FR-GDET-08, FR-GDET-09).
 4. **Ranking**: strength weight (strong 2, weak 1) x the kind's severity prior x reach; reach is 1 + the nodes trace
    reaches from the candidates (``affects``, depth 2) + 2 x the plan tasks implementing them (``PlanView``).
-5. **Known sites**: a site whose input hash has a cached verdict is ``skipped``; the others are investigated in
+5. **Follow-ups**: a follow-up gap the run's close step opened is seeded like a raised gap (its question as a fact,
+   its quoted lines, its ``ABOUT`` nodes) and joins the site its nodes form, so it is investigated in the same run.
+6. **Known sites**: a site whose input hash has a cached verdict is ``skipped``; the others are investigated in
    rank order (sites deferred by the last run first) up to the mode's limit; the rest are ``deferred``.
 
 The step writes every seed (with its site) and the ``skipped`` and ``deferred`` site rows, plus the info notes of
@@ -75,6 +77,9 @@ class ExistingGap:
     kind: str = ""
     question: str = ""
     witness: tuple[Witness, ...] = ()
+    seeds: tuple[str, ...] = ()
+    """The signatures of the detector seeds that formed or re-checked the gap (``seed_signatures``): while the gap is
+    not resolved, a site those seeds form joins it, as a seed with the gap's own signature does."""
 
     @property
     def hashed(self) -> bool:
@@ -205,7 +210,8 @@ def group_seeds(
 
     union = _Union(len(seeds))
     first_of: dict[Any, int] = {}
-    by_signature = {gap.signature: gap.gap_id for gap in existing}
+    by_signature = {seed: gap.gap_id for gap in existing if gap.status != "resolved" for seed in gap.seeds}
+    by_signature |= {gap.signature: gap.gap_id for gap in existing if gap.signature}
     questions: list[tuple[int, str]] = []
     for index, seed in enumerate(seeds):
         for key in _keys(snapshot, seed, by_signature):
@@ -293,6 +299,8 @@ class SiteRun:
     existing: Sequence[ExistingGap] = ()
     deferred_first: Collection[str] = ()
     site_ids: Collection[str] = ()
+    follow_ups: Mapping[str, str] = field(default_factory=dict)
+    """Follow-up gaps the run's close step opened, to the gap each continues: each joins (or forms) a site here."""
     prompt_versions: Mapping[str, str] = field(default_factory=dict)
     use_cache: bool = True
     persist: bool = True
@@ -308,6 +316,10 @@ async def form_sites(snapshot: GraphSnapshot, detection: DetectOutcome, run: Sit
     kept = [seed for seed in seeds if seed.signature not in suppressed]
     corroborated = await _corroborated(snapshot, kept, run)
     corroborated_ids = {seed.signature for seed in corroborated}
+    follow_ups = [gap for gap in run.existing if gap.gap_id in set(run.follow_ups) and gap.status == "open"]
+    if follow_ups and run.mode != "site":
+        run = dataclasses.replace(run, existing=_follow_up_existing(run.existing, follow_ups, run.follow_ups))
+        corroborated = [*corroborated, *(raised_seed(gap) for gap in follow_ups)]
     sites = await _sites(snapshot, corroborated, run)
     if run.mode == "site" or run.site_ids:
         named = set(run.site_ids)
@@ -358,6 +370,21 @@ def raised_seed(gap: ExistingGap) -> Seed:
         about=gap.about,
         witness=(Witness(fact=RAISED_FACT.format(question=gap.question)), *gap.witness),
     )
+
+
+def _follow_up_existing(
+    existing: Sequence[ExistingGap], follow_ups: Sequence[ExistingGap], continued: Mapping[str, str]
+) -> list[ExistingGap]:
+    """``existing`` with each follow-up known by the signature of its seed (``raised_seed``), so the site its seed
+    forms, with every detector seed that shares a node, joins the follow-up; the resolved gaps they continue join no
+    site any more (lifecycle.md "Follow-ups and history")."""
+
+    seeded = {gap.gap_id: dataclasses.replace(gap, signature=raised_seed(gap).signature) for gap in follow_ups}
+    closed = {continued[gap.gap_id] for gap in follow_ups if gap.gap_id in continued}
+    return [
+        seeded.get(gap.gap_id) or (dataclasses.replace(gap, signature="", seeds=()) if gap.gap_id in closed else gap)
+        for gap in existing
+    ]
 
 
 async def _raised_sites(snapshot: GraphSnapshot, run: SiteRun, named: Collection[str]) -> list[Site]:

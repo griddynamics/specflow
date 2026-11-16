@@ -708,30 +708,41 @@ class GapService:
         if gap.status != "open":
             raise GapStateError(status=gap.status, allowed=("open",), gap_id=gap_id)
         now = self._clock()
+        signatures = suppressed_signatures(gap)
         row = SuppressionRow(
-            signature=gap.signature or gap.gap_id,
+            signature=signatures[0],
             gap_id=gap.gap_id,
             question=str(gap.props.get("question") or ""),
             reason=reason.strip(),
             dismissed_by=by,
             dismissed_at=now,
         )
-        known = bool(await self._records.suppressed(project_id, [row.signature]))  # kept when the delete fails
-        await self._records.suppress(project_id, row)
+        known = await self._records.suppressed(project_id, signatures)  # kept when the delete fails
+        for signature in signatures:
+            await self._records.suppress(project_id, row.model_copy(update={"signature": signature}))
         try:
             async with self._writer(project_id).transaction() as tx:
                 for props in gap.clarifications:
                     await tx.delete_node(CLARIFICATION, clarification_uuid(project_id, str(props["clr_id"])))
                 await tx.delete_node(GAP, gap_uuid(project_id, gap.gap_id))
         except BaseException:
-            if not known:
-                await self._records.unsuppress(project_id, row.signature)
+            for signature in signatures:
+                if signature not in known:
+                    await self._records.unsuppress(project_id, signature)
             raise
         released = await self.holds.release_gap(project_id, gap.gap_id) if self.holds is not None else ()
         await self._records.put_options(project_id, gap.gap_id, ())
         await self._records.log(
             project_id,
-            [EventRow(gap_id=gap.gap_id, at=now, actor=by, event="dismissed", detail={"reason": row.reason})],
+            [
+                EventRow(
+                    gap_id=gap.gap_id,
+                    at=now,
+                    actor=by,
+                    event="dismissed",
+                    detail={"reason": row.reason, "signatures": len(signatures)},
+                )
+            ],
         )
         log_event(logger, INFO, "graph.gap.dismissed", project_id=project_id, gap_id=gap.gap_id, released=len(released))
 
@@ -948,6 +959,15 @@ class GapService:
         stories = await self._plan.stories_for(project_id, ids) if ids else {}
         nodes = {spec_id for spec_id, found in stories.items() if story_id in found}
         return [gap for gap in gaps if nodes & set(gap.about_ids)]
+
+
+def suppressed_signatures(gap: StoredGap) -> list[str]:
+    """What a dismissal suppresses (lifecycle.md "Dismissals and suppression"): the gap's signature first, then the
+    signatures of the detector seeds its sites held (``seed_signatures``), so a later run on unchanged nodes and witness
+    drops those seeds before they form a site (FR-GDET-07, FR-GANS-11)."""
+
+    seeds = [str(item) for item in gap.props.get("seed_signatures") or () if item]
+    return list(dict.fromkeys([gap.signature or gap.gap_id, *seeds]))
 
 
 def _own_text(text: str | None, gap_id: str) -> str:

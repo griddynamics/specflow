@@ -23,8 +23,9 @@ Investigation (investigation.md): ``investigate`` builds each site's context pac
 ``ctx.investigator`` (the structured loop ``LoopInvestigator`` by default); ``check`` validates every report, finds
 duplicates and runs the second check of pointers; ``route`` decides severity and route and holds back new questions
 beyond the run's limit; ``record`` writes gaps, options and pointer clarifications. A ``not_spec`` report turns the
-sections of its nodes ``mixed`` and lists the nodes in the run's noise report (FR-GREL-07). ``close`` is a no-op until
-session 09; the AI route (gates, valve) comes with session 11.
+sections of its nodes ``mixed`` and lists the nodes in the run's noise report (FR-GREL-07). ``close`` is the close
+check of applied answers, obsolete gaps and stale witnesses (``steps.close``, lifecycle.md "Close check"); the follow-up
+gaps it opens get a site in the same run. The AI route (gates, valve) comes with session 11.
 """
 
 from __future__ import annotations
@@ -58,6 +59,7 @@ from graph.gap.prompts import INVESTIGATE_PROMPT, JUDGE_PROMPT, RELEVANCE_PROMPT
 from graph.gap.run_store import GapRunRecord, GapRunStore
 from graph.gap.settings import GapLimits
 from graph.gap.steps.check import Checked, Checker, CheckRun
+from graph.gap.steps.close import CloseRun, close_gaps
 from graph.gap.steps.detect import DetectOutcome, Seed, detect
 from graph.gap.steps.investigate import Investigated, InvestigateRun, investigate_sites
 from graph.gap.steps.record import RecordRun, SiteDecision, counted, outcome_counts, record_sites, report_signature
@@ -353,8 +355,32 @@ class _Run:
         return {"skipped": False, **outcome.payload()}
 
     async def _close(self) -> Payload:
-        # Session 09 implements the close check (lifecycle.md "Close check"); the step exists so runs resume the same.
-        return {"skipped": self.mode == "site", "implemented": False}
+        if self.mode == "site":
+            return {"skipped": True}
+        outcome = await close_gaps(
+            CloseRun(
+                source=self.ctx.executor,
+                executor=self.executor,
+                ontology=self.ctx.ontology,
+                rules=self.ctx.rules,
+                records=self.ctx.records,
+                amendments=self.ctx.amendments,
+                project_id=self.project_id,
+                run_id=self.run_id,
+                now=_now,
+                build_id=self.record.build_id,
+                build=self.ctx.build,
+            ),
+            await self.snapshot(),
+            await self.gaps(),
+        )
+        return outcome.payload()
+
+    async def follow_ups(self) -> dict[str, str]:
+        """The follow-up gaps this run's close step opened, to the gaps they continue (each gets a site here)."""
+
+        closed = await self.artifact("close")
+        return dict(closed.get("follow_ups", {}))
 
     async def _relevance(self) -> Payload:
         outcome = await classify_sections(
@@ -396,6 +422,7 @@ class _Run:
                 existing=existing,
                 deferred_first=() if last is None else last.deferred_sites,
                 site_ids=self.record.site_ids,
+                follow_ups=await self.follow_ups(),
                 prompt_versions=self.versions,
                 use_cache=not self.ctx.settings.ignore_cache,
             ),
@@ -569,6 +596,7 @@ class _Run:
         site_counts = dict(sites["counts"].get("sites", {}))
         counts: Payload = {
             "scope": _scope_counts(scoped),
+            "close": _close_counts(await self.artifact("close")),
             "sections_by_relevance": _sections_by_relevance(relevance),
             "seeds_by_detector": sites["counts"].get("seeds_by_detector", {}),
             "detector_failures": sites["counts"].get("detector_failures", {}),
@@ -617,6 +645,20 @@ def _scope_counts(payload: Mapping[str, Any]) -> dict[str, int]:
         "aliases": len(payload["aliases"]),
         "touched": len(payload["touched"]),
         "moved": int(payload["moved"]),
+    }
+
+
+def _close_counts(payload: Mapping[str, Any]) -> dict[str, int]:
+    """Gaps the close step resolved, followed up, left waiting and took out, and stale witnesses removed."""
+
+    if payload.get("skipped") or "resolved" not in payload:
+        return {}
+    return {
+        "resolved": len(payload["resolved"]),
+        "follow_ups": len(payload["follow_ups"]),
+        "waiting": len(payload["waiting"]),
+        "obsolete": len(payload["obsolete"]),
+        "cites_removed": int(payload["cites_removed"]),
     }
 
 
@@ -877,4 +919,5 @@ def existing_gap(gap: StoredGap) -> ExistingGap:
             Witness(fragment_id=cite.fragment_id, quote=cite.quote, line_start=cite.line_start, line_end=cite.line_end)
             for cite in gap.cites
         ),
+        seeds=tuple(str(item) for item in gap.props.get("seed_signatures") or ()),
     )
