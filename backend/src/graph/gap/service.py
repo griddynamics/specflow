@@ -614,6 +614,8 @@ class GapService:
                 changed: dict[str, Any] = {"updated_at": _iso(now)}
                 if gap.status != "resolved":
                     changed["status"] = "answered"
+                if gap.props.get("route") == "ai":  # a person's answer takes the place of AI's
+                    changed["route"] = "ask"
                 await tx.upsert_node(GAP, gap_uuid(project_id, gap.gap_id), changed)
         except BaseException:
             await self.amendments.delete(project_id, [row.amendment_id for row in rows])
@@ -885,7 +887,7 @@ class GapService:
                     {"status": REVERTED, "reverted_at": _iso(now), "reverted_by": by},
                 )
                 if resolved:
-                    follow_up = await self._revert_follow_up(tx, project_id, gap, gaps, now)
+                    follow_up = await self._revert_follow_up(tx, project_id, gap, gaps, now=now, clr=clr)
                 else:
                     await tx.upsert_node(
                         GAP,
@@ -899,6 +901,12 @@ class GapService:
             for value, keys in by_status.items():
                 await self.amendments.set_status(project_id, keys, value)
             raise
+        # The build first: once the graph says reverted, a retry is refused, so the text must leave the corpus now.
+        build = (
+            await self.builds.request_update_build(project_id, REVERT_REASON, immediate=False)
+            if needs_build and self.builds is not None
+            else None
+        )
         if follow_up is not None:
             options = await self._records.options(project_id, gap.gap_id)
             await self._records.put_options(
@@ -931,11 +939,6 @@ class GapService:
                 )
             )
         await self._records.log(project_id, events)
-        build = (
-            await self.builds.request_update_build(project_id, REVERT_REASON, immediate=False)
-            if needs_build and self.builds is not None
-            else None
-        )
         log_event(
             logger,
             INFO,
@@ -956,13 +959,14 @@ class GapService:
         )
 
     async def _revert_follow_up(
-        self, tx: OwnedWriter, project_id: str, gap: StoredGap, gaps: Sequence[StoredGap], now: datetime
+        self, tx: OwnedWriter, project_id: str, gap: StoredGap, gaps: Sequence[StoredGap], *, now: datetime, clr: str
     ) -> str:
         """The follow-up of a reverted answer: a new ``open`` gap, route ``ask``, ``FOLLOWS_UP`` the old one with
         reason ``reverted``, with the old gap's properties, ``ABOUT``, ``IMPACTS`` and ``CITES`` (lifecycle.md
-        "Follow-ups and history"). Its signature is new (``follow_up_signature``), so no run maps it to AI again."""
+        "Follow-ups and history"). Its signature is new (``follow_up_signature`` of the old gap and the reverted
+        clarification, so a second revert of the same gap opens a second follow-up), so no run maps it to AI again."""
 
-        signature = follow_up_signature(gap, REVERTED)
+        signature = follow_up_signature(gap, f"{REVERTED}|{clr}")
         new = gap_id(signature, {item.gap_id: item.signature for item in gaps})
         names = ("kind", "severity", "origin", "title", "question", "why", "detector", "seed_signatures")
         props: dict[str, Any] = {name: gap.props[name] for name in names if gap.props.get(name) is not None}

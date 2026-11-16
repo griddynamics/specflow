@@ -404,7 +404,13 @@ class Recorder:
         instant = run.now()
         pointer = decision.mode == POINTER and report.pointer is not None
         option = recommended(report)
-        ai = decision.mode == AI_MODE and option is not None and bool(option.edits) and run.amendments is not None
+        ai = (  # only a run's new gap (never a raised gap or a follow-up a site joined) is answered by AI
+            decision.mode == AI_MODE
+            and decision.site.gap_id is None
+            and option is not None
+            and bool(option.edits)
+            and run.amendments is not None
+        )
         props = self._props(decision, report, signature, new_id, instant, pointer=pointer, ai=ai)
         answer = self._ai_answer(StoredGap(gap_id=new_id, props=props), report, decision, instant) if ai else None
         owner = NodeRef(GAP, gap_uuid(run.project_id, new_id))

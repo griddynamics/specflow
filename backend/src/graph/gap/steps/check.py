@@ -624,8 +624,9 @@ class Checker:
             if similar is not None:
                 return Checked("duplicate", report, warnings, gap_id=similar)
         new = site.gap_id is None and signature not in self.by_signature
-        if report.pointer is None or report.kind == "contradiction":
-            return await self._ai_answer(Checked("gap", report, warnings, new=new))
+        seed_kinds = tuple(seed.kind for seed in site.seeds)
+        if report.pointer is None or "contradiction" in {report.kind, *seed_kinds}:
+            return await self._ai_answer(Checked("gap", report, warnings, new=new), seed_kinds)
         try:
             judge = await self._judge(report)
         except (LLMError, ValidationError) as error:
@@ -639,9 +640,9 @@ class Checker:
             pointer=confirmed,
             new=new,
         )
-        return checked if confirmed else await self._ai_answer(checked)
+        return checked if confirmed else await self._ai_answer(checked, seed_kinds)
 
-    async def _ai_answer(self, checked: Checked) -> Checked:
+    async def _ai_answer(self, checked: Checked, seed_kinds: Sequence[str]) -> Checked:
         """The second check of an AI answer when the gap is an AI candidate (module docstring); else ``checked``."""
 
         run, report = self.run, checked.report
@@ -655,6 +656,7 @@ class Checker:
                 ai_kinds=run.ai_kinds,
                 ai_answers=run.ai_answers,
                 new=checked.new,
+                seed_kinds=seed_kinds,
             )
         ):
             return checked

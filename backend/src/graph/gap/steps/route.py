@@ -119,20 +119,30 @@ def ai_candidate(
     ai_kinds: Collection[str],
     ai_answers: bool,
     new: bool,
+    seed_kinds: Collection[str] = (),
 ) -> bool:
-    """Whether the second check of an AI answer is worth a call: a new ``minor`` gap of an AI kind, AI answers on, a
-    recommended option with a basis quote, and the local gate holding. Code routes it afterwards (``route_report``)."""
+    """Whether the second check of an AI answer is worth a call: a new ``minor`` gap whose kind and whose seeds' kinds
+    are all AI kinds (a report cannot relabel a stated question, an assumption or a contradiction), AI answers on, a
+    recommended option with edits and a basis quote, and the local gate holding. Code routes it afterwards
+    (``route_report``)."""
 
     option = recommended(report)
     return (
         ai_answers
         and new
         and report.severity == "minor"
-        and report.kind in ai_kinds
+        and ai_kind(report, ai_kinds, seed_kinds)
         and option is not None
         and bool(option.basis)
+        and bool(option.edits)
         and local(report, snapshot, gates)
     )
+
+
+def ai_kind(report: GapReport, ai_kinds: Collection[str], seed_kinds: Collection[str] = ()) -> bool:
+    """The report's kind and every seed kind of its site are AI kinds."""
+
+    return report.kind in ai_kinds and all(kind in ai_kinds for kind in seed_kinds)
 
 
 def gate_results(
@@ -144,7 +154,7 @@ def gate_results(
     found = judge or {}
     confidence = found.get("confidence")
     return {
-        "entailed": option is not None and bool(option.basis) and found.get("entailed") is True,
+        "entailed": option is not None and bool(option.basis) and bool(option.edits) and found.get("entailed") is True,
         "local": local(report, snapshot, gates),
         "consistent": found.get("consistent") is True,
         "confident": isinstance(confidence, int | float) and float(confidence) >= gates.min_confidence,
@@ -165,6 +175,8 @@ class RouteInputs:
     judge_failed: bool = False
     origin: str = ANALYSIS
     new: bool = True
+    seed_kinds: Collection[str] = ()
+    """The kinds of the site's seeds: a report that relabels a seed of another kind is not answered by AI."""
 
 
 def route_report(
@@ -179,7 +191,8 @@ def route_report(
     severity = severity_of(report, snapshot, planned=given.planned)
     if severity == INFO:
         return Routed(severity, None, reasons=("info",))
-    if given.pointer and report.kind != "contradiction" and given.ai_answers:
+    contradiction = report.kind == "contradiction" or "contradiction" in given.seed_kinds
+    if given.pointer and not contradiction and given.ai_answers:
         return Routed(severity, AI, POINTER, ("pointer_confirmed",))
     reasons = _ask_reasons(report, severity, given)
     if given.gates is None:
@@ -188,7 +201,7 @@ def route_report(
     confidence = (given.judge or {}).get("confidence")
     score = float(confidence) if isinstance(confidence, int | float) else None
     if given.judge_failed:
-        reasons.append("judge_failed")
+        reasons.append("ai_judge_failed")
     reasons += [f"gate_{name}" for name in GATES if not gates[name]]
     if reasons:
         return Routed(severity, ASK, reasons=tuple(reasons), gates=gates, confidence=score)
@@ -200,7 +213,7 @@ def _ask_reasons(report: GapReport, severity: ReportSeverity, given: RouteInputs
 
     checks = (
         (severity in ("blocker", "major"), "severity"),
-        (report.kind not in given.ai_kinds, "kind"),
+        (not ai_kind(report, given.ai_kinds, given.seed_kinds), "kind"),
         (given.origin != ANALYSIS, "origin"),
         (not given.new, "existing"),
         (not given.ai_answers, "ai_answers_off"),

@@ -87,7 +87,7 @@ from graph.gap.steps.route import (
     touched,
 )
 from graph.gap.steps.scope import scope
-from graph.gap.steps.sites import ExistingGap, Site, SiteRun, SitesOutcome, form_sites
+from graph.gap.steps.sites import RAISED_ORIGINS, ExistingGap, Site, SiteRun, SitesOutcome, form_sites
 from graph.gap.steps.snapshot import GraphSnapshot, read_snapshot
 from logger.logger import INFO, WARNING, get_logger, log_event
 
@@ -522,6 +522,8 @@ class _Run:
                 judge=item.ai_judge,
                 judge_failed=item.ai_judge_failed,
                 new=new[site_id] and item.new,
+                origin=_origin(site),
+                seed_kinds=tuple(seed.kind for seed in site.seeds),
             )
         decided = apply_valve(
             decided,
@@ -551,7 +553,7 @@ class _Run:
         decisions: list[SiteDecision] = []
         for site in await self.investigated():
             item = Checked.from_payload(checked[site.site_id])
-            decided = routed.get(site.site_id, {})
+            decided = self._still_ai(dict(routed.get(site.site_id, {})), item)
             decisions.append(
                 SiteDecision(
                     site=site,
@@ -590,6 +592,16 @@ class _Run:
         payload = outcome.payload()
         payload["noise"] = await self._not_spec(outcome.not_spec)
         return payload
+
+    def _still_ai(self, decided: Payload, item: Checked) -> Payload:
+        """A stored AI route, demoted to ``ask`` when the run resumes with AI answers off or a kind no AI kind."""
+
+        kinds = self.ctx.rules.routing.ai_kinds
+        if decided.get("mode") != "ai" or (
+            self.ctx.settings.ai_answers and item.report is not None and item.report.kind in kinds
+        ):
+            return decided
+        return decided | {"route": "ask", "mode": None, "reasons": ["ai_answers_off"]}
 
     async def _not_spec(self, sites: Mapping[str, Sequence[str]]) -> list[Payload]:
         """FR-GREL-07: the sections of a ``not_spec`` site's nodes become ``mixed`` (``mark_not_spec``); the nodes are
@@ -944,6 +956,13 @@ async def estimate_gap(ctx: GapContext, *, mode: Literal["update", "full"] = "up
         cached=len(sites.skipped),
     )
     return GapEstimate(sites=investigate, cached=len(sites.skipped), calls=calls, tokens=tokens)
+
+
+def _origin(site: Site) -> str:
+    """The origin of a site's gap: ``person`` or ``development`` for a raised gap's own seed, else ``analysis``."""
+
+    detector = min((seed.detector for seed in site.seeds), default="")
+    return detector if detector in RAISED_ORIGINS else "analysis"
 
 
 def existing_gap(gap: StoredGap) -> ExistingGap:

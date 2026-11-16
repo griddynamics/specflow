@@ -579,7 +579,8 @@ class Closer:
     # Open gaps
 
     async def _obsolete(self, gap: StoredGap) -> bool:
-        if continues(gap, WAITING_REASONS) is not None:  # a reconcile or revert follow-up waits for a person
+        reverted = any(props.get("status") == "reverted" for props in gap.clarifications)
+        if reverted or continues(gap, WAITING_REASONS) is not None:  # waits for a person, whatever the graph says
             return False
         about = [spec_id for spec_id in gap.about_ids if spec_id in self.snapshot.nodes]
         cited = [cite for cite in gap.cites if holds(self.snapshot, cite.fragment_id, cite.quote)]

@@ -92,8 +92,8 @@ as its source said it (the amendment's text taken out, its anchor line back in).
 3. **Is the section there but saying something else?** The section exists. The `gap_judge` call compares the
    answer (and the line it replaced) with the section's text: first the answer's `decisions` (each rule, limit,
    number, actor, time, scope and consequence, marked `stated`, `missing` or `contradicted` in the section), then
-   `same`, `different` or `unrelated`, with a confidence. Code holds the verdict to the list: `same` with any
-   decision not `stated` is `different`, so a section that copies part of the answer (a partial adoption) is a
+   `same`, `different` or `unrelated`, with a confidence. Code holds the verdict to the list: `same` with no decision
+   listed, or with any decision not `stated`, is `different`, so a section that copies part of the answer (a partial adoption) is a
    conflict. Same meaning with at least `judge_min_confidence`: adopted by meaning (below it: different).
    Different meaning: conflict. Unrelated: go to question 4. The call fails: undecided.
 4. **Is the section gone?** No section matches. The answer has lost its place: orphaned.

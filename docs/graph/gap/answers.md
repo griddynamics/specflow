@@ -85,8 +85,10 @@ How the shipped route step decides (`steps/route.py`):
 
 | Rule | Detail |
 |---|---|
-| Who gets a second check | The check step asks the second check of an AI answer (prompt `gap.judge.1.ai_answer.1`) only for a new gap (no gap in the graph has its signature, and the site joined none) of severity `minor` and a kind of `routing.ai_kinds`, while `GapSettings.ai_answers` is on, whose recommended option has a basis quote and whose local gate holds; every other gap is routed without a model call |
-| Entailed | The recommended option kept at least one basis quote through the checks (a quote not found in its shown, active fragment is dropped) and the second check answered `entailed` |
+| Who gets a second check | The check step asks the second check of an AI answer (prompt `gap.judge.1.ai_answer.1`) only for a new gap (no gap in the graph has its signature, and the site joined none) of severity `minor` whose kind and whose seeds' kinds are all in `routing.ai_kinds` (a report cannot relabel a stated question, an assumption or a contradiction seed into an AI kind; reason `kind`), while `GapSettings.ai_answers` is on, whose recommended option has edits and a basis quote and whose local gate holds; every other gap is routed without a model call. A site with a contradiction seed gets no pointer either |
+| Origin | The origin of a site's primary seed: `person` or `development` for a raised gap's own seed (reason `origin`); such sites always join their gap, and the record step writes an AI answer only for a site that joined no gap |
+| A resumed run | The record step re-reads the route artifact and demotes an AI route to `ask` when `GapSettings.ai_answers` is now off or the kind is no AI kind |
+| Entailed | The recommended option has edits and kept at least one basis quote through the checks (a quote not found in its shown, active fragment is dropped) and the second check answered `entailed` |
 | Local | `ABOUT` and `IMPACTS` together at most `local_max_nodes`; their spine owners (the roots of the ontology's spine paths) at most `local_max_areas`; a node with no owner adds no area |
 | Order under the valve | By the site's rank score, then site id; pointers are not counted |
 | Share | Checked before each AI answer: the nodes the run's earlier AI answers touch, over the project's spec nodes (the snapshot's), must be below `ai_answers_max_node_share`. The answer that crosses the share is the last; a run's first AI answer is never stopped by the share |
@@ -354,13 +356,14 @@ amendments reverted, the build request's answer):
 | Amendments | Status `reverted` (all of its rows); the clarifications document drops its section at the next rebuild |
 | Build | An update build is requested at once (reason `gap_revert`, never `immediate`: a running build makes it wait) when text the build reads leaves the corpus: an `active` or `undecided` amendment, or a document section of an applied (or sent) answer. A pending answer's text never reached the corpus: no build |
 | Gap | If `resolved`: a follow-up gap opens (`FOLLOWS_UP` reason `reverted`) with the old gap's kind, severity, origin, title, question, why, detector, seed signatures, `ABOUT`, `IMPACTS`, `CITES` and option rows, route `ask`; the old gap stays `resolved` as history. If still `answered` or `applying`: the gap returns to `open` with route `ask` and keeps its options |
-| Order of writes | Amendment statuses first, then the graph in one transaction (set back when it fails), then the follow-up's option rows, the events and the build request |
+| Order of writes | Amendment statuses first, then the graph in one transaction (set back when it fails), then the build request (a revert cannot be repeated, so the text must leave the corpus before anything else can fail), then the follow-up's option rows and the events |
 
 A reverted AI answer always goes to a person: its follow-up gap has route `ask`, and the same signature
 never routes `ai` again unless the person sends it back. A follow-up's signature is new (`follow_up_signature` of the
-old gap and `reverted`), and a later run's report with the old signature re-checks the existing gap instead of making
-one; only a run's new gap is ever routed `ai`. A revert follow-up waits for a person: it never becomes obsolete
-(the text the revert removes may still be in the graph until its build).
+old gap and `reverted|<clr_id>`), and a later run's report with the old signature re-checks the existing gap instead
+of making one; only a run's new gap is ever routed `ai`. A revert follow-up, and a gap reopened by a revert (it holds
+a `reverted` clarification), wait for a person: they never become obsolete (the text the revert removes may still
+be in the graph until its build). A person's answer to a gap AI answered sets its route to `ask`.
 
 ## Pointer answers
 

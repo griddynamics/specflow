@@ -322,8 +322,8 @@ class AnswerDecision(BaseModel):
 
 class SameMeaningAnswer(BaseModel):
     """The ``gap_judge`` answer of reconcile's question 3: the answer's decisions, each looked up in the section, then
-    the verdict. ``decided`` holds code to the list: a ``same`` verdict with a decision the section does not state is
-    ``different`` (a partial adoption is a conflict, reconcile.md "The four questions")."""
+    the verdict. ``decided`` holds code to the list: a ``same`` verdict with no decision listed, or with a decision the
+    section does not state, is ``different`` (a partial adoption is a conflict, reconcile.md "The four questions")."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -335,7 +335,9 @@ class SameMeaningAnswer(BaseModel):
     def decided(self) -> Literal["same", "different", "unrelated"]:
         """The verdict, ``different`` when it says ``same`` while a listed decision is missing or contradicted."""
 
-        if self.verdict == "same" and any(item.in_section != "stated" for item in self.decisions):
+        if self.verdict == "same" and (
+            not self.decisions or any(item.in_section != "stated" for item in self.decisions)
+        ):
             return "different"
         return self.verdict
 
