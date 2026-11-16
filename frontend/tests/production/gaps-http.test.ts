@@ -193,6 +193,8 @@ test("FR-GWEB-04: the words of counts, quotes, answers and noise sections", () =
   assert.equal(quoteSource({ fragmentId: "F", quote: "q", lineStart: 12, lineEnd: 14 }), "F · lines 12–14");
   assert.equal(quoteSource({ fragmentId: "F", quote: "q", lineStart: 3, lineEnd: 3 }), "F · line 3");
   assert.equal(quoteSource({ fragmentId: "F", quote: "q", lineStart: null, lineEnd: null }), "F");
+  const titled = { fragmentId: "F", quote: "q", lineStart: 9, lineEnd: 9, documentTitle: "Orders", documentPath: "o.md" };
+  assert.equal(quoteSource({ ...titled, headingPath: ["Orders", "Place order"] }), "Orders › Place order · line 9");
   const c = { mode: "option" as const, status: "pending" as const, optionLabel: "Refund", text: null, answeredBy: "dana", answeredAt: "" };
   assert.equal(clarificationText(c), "Refund");
   assert.equal(clarificationText({ ...c, mode: "own", optionLabel: null, text: "Own words" }), "Own words");

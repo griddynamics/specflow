@@ -142,7 +142,9 @@ export function countText(shown: number, more: boolean): string {
  */
 export function quoteSource(q: GapQuote): string {
   const doc = nonEmptyText(q.documentTitle) ?? nonEmptyText(q.documentPath);
-  const where = doc === undefined ? q.fragmentId : [doc, ...(q.headingPath ?? [])].join(" › ");
+  // A heading path starts with the document's own title heading when it has one: name the document once.
+  const sections = (q.headingPath ?? []).filter((h, i) => !(i === 0 && h === doc));
+  const where = doc === undefined ? q.fragmentId : [doc, ...sections].join(" › ");
   if (q.lineStart === null) return where;
   const lines =
     q.lineEnd === null || q.lineEnd === q.lineStart ? `line ${String(q.lineStart)}` : `lines ${String(q.lineStart)}–${String(q.lineEnd)}`;
