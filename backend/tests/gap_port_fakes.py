@@ -1,17 +1,20 @@
 """In-memory fakes of the ``graph.gap`` ports for offline tests (test support, not shipped code).
 
 ``MemoryGapRecords`` and ``MemoryAmendments`` keep rows per project id, so a test can show that one project never
-sees another's rows (FR-GOWN-02). ``ScriptedInvestigator`` returns prepared results per site, ``MemoryStoryHolds``,
-``MemoryBuildRequests`` and ``MemoryPlanView`` record what the run asked of the plan and the build runner.
+sees another's rows (FR-GOWN-02). They follow the port semantics of the PostgreSQL adapters (``api.gap.records``);
+``tests/gap_records_contract.py`` runs the same contract on both. ``ScriptedInvestigator`` returns prepared results
+per site, ``MemoryStoryHolds``, ``MemoryBuildRequests`` and ``MemoryPlanView`` record what the run asked of the plan
+and the build runner.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from typing import Any
+from datetime import UTC, datetime
+from typing import Any, get_args
 
-from graph.core.errors import GraphError
+from graph.core.errors import ConformanceError, GraphError
 from graph.gap.models import (
     AmendmentRow,
     EventRow,
@@ -31,7 +34,17 @@ from graph.gap.models import (
     TaskRef,
     VerdictRow,
 )
+from graph.gap.names import AmendmentStatus
 from graph.gap.ports import SiteReads
+
+
+def _same_run(run_id: str, rows: Sequence[SeedRow] | Sequence[SiteRow]) -> None:
+    if any(row.run_id != run_id for row in rows):
+        raise ConformanceError("gap_rows_of_another_run", run_id=run_id)
+
+
+def _ordered(rows: Any) -> tuple[AmendmentRow, ...]:
+    return tuple(sorted(rows, key=lambda row: (row.created_at, row.amendment_id)))
 
 
 class MemoryGapRecords:
@@ -53,6 +66,11 @@ class MemoryGapRecords:
         return self.option_rows[project_id].get(gap_id, ())
 
     async def put_options(self, project_id: str, gap_id: str, rows: Sequence[OptionRow]) -> None:
+        ranks = [row.rank for row in rows]
+        if len(set(ranks)) != len(ranks) or sum(row.recommended for row in rows) > 1:
+            raise ConformanceError("gap_options_invalid", gap_id=gap_id)
+        if any(row.gap_id != gap_id for row in rows):
+            raise ConformanceError("gap_options_invalid", gap_id=gap_id)
         self.option_rows[project_id][gap_id] = tuple(sorted(rows, key=lambda row: row.rank))
 
     async def start_run(self, project_id: str, run: RunRow) -> None:
@@ -65,14 +83,22 @@ class MemoryGapRecords:
         counts: Mapping[str, Any],
         cost: Mapping[str, Any],
     ) -> None:
-        run = self.runs[project_id][run_id]
-        self.runs[project_id][run_id] = run.model_copy(update={"status": "completed", "counts": counts, "cost": cost})
+        run = self.runs[project_id].get(run_id)
+        if run is None:
+            raise ConformanceError("gap_run_unknown", run_id=run_id)
+        self.runs[project_id][run_id] = run.model_copy(
+            update={"status": "completed", "finished_at": datetime.now(UTC), "counts": counts, "cost": cost}
+        )
 
     async def put_seeds(self, project_id: str, run_id: str, seeds: Sequence[SeedRow]) -> None:
-        self.seeds[project_id].extend(seed for seed in seeds if seed.run_id == run_id)
+        _same_run(run_id, seeds)
+        self.seeds[project_id].extend(seeds)
 
     async def put_sites(self, project_id: str, run_id: str, sites: Sequence[SiteRow]) -> None:
-        self.sites[project_id].extend(site for site in sites if site.run_id == run_id)
+        _same_run(run_id, sites)
+        for site in sites:
+            kept = [row for row in self.sites[project_id] if (row.run_id, row.site_id) != (run_id, site.site_id)]
+            self.sites[project_id] = [*kept, site]
 
     async def verdict(self, project_id: str, input_hash: str) -> VerdictRow | None:
         return self.verdicts[project_id].get(input_hash)
@@ -89,7 +115,7 @@ class MemoryGapRecords:
             self.relevance_rows[project_id][row.key] = row
 
     async def noise_rules(self, project_id: str) -> Sequence[NoiseRuleRow]:
-        return tuple(self.noise[project_id])
+        return tuple(sorted(self.noise[project_id], key=lambda row: (row.created_at, row.rule_id)))
 
     async def suppressed(self, project_id: str, signatures: Sequence[str]) -> frozenset[str]:
         return frozenset(signature for signature in signatures if signature in self.suppressions[project_id])
@@ -113,10 +139,12 @@ class MemoryAmendments:
     async def for_lineage(
         self, project_id: str, lineage: str, *, statuses: Sequence[str] = ("active",)
     ) -> Sequence[AmendmentRow]:
-        return tuple(row for row in self.rows[project_id].values() if row.lineage == lineage and row.status in statuses)
+        return _ordered(
+            row for row in self.rows[project_id].values() if row.lineage == lineage and row.status in statuses
+        )
 
     async def for_clarification(self, project_id: str, clr_id: str) -> Sequence[AmendmentRow]:
-        return tuple(row for row in self.rows[project_id].values() if row.clr_id == clr_id)
+        return _ordered(row for row in self.rows[project_id].values() if row.clr_id == clr_id)
 
     async def put(self, project_id: str, rows: Sequence[AmendmentRow]) -> None:
         for row in rows:
@@ -130,9 +158,13 @@ class MemoryAmendments:
         *,
         revision_id: str | None = None,
     ) -> None:
+        if status not in get_args(AmendmentStatus):
+            raise ConformanceError("gap_amendment_status_unknown", status=status)
         for amendment_id in amendment_ids:
-            row = self.rows[project_id][amendment_id]
-            update: dict[str, Any] = {"status": status}
+            row = self.rows[project_id].get(amendment_id)
+            if row is None:
+                continue  # only the project's own amendments change
+            update: dict[str, Any] = {"status": status, "updated_at": datetime.now(UTC)}
             if revision_id is not None:
                 update["last_revision_id"] = revision_id
             self.rows[project_id][amendment_id] = row.model_copy(update=update)

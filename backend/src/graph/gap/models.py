@@ -44,10 +44,13 @@ from graph.gap.names import (
     SiteOutcome,
     Verdict,
 )
+from graph.gap.settings import OPTIONS_CEILING
 
 
 class GapModel(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    # validate_default: an empty mapping default (a read-only proxy) is validated into a plain mapping, so every model
+    # serialises in JSON mode (the relational adapters write JSON columns from it).
+    model_config = ConfigDict(frozen=True, extra="forbid", validate_default=True)
 
 
 def _empty() -> Mapping[str, Any]:
@@ -133,7 +136,7 @@ class OptionRow(GapModel):
     """``gap_option``: one offered answer; exactly one recommended per gap, 2 to 4 rows."""
 
     gap_id: str
-    rank: int = Field(ge=1)
+    rank: int = Field(ge=1, le=OPTIONS_CEILING)
     label: str
     detail: str = ""
     recommended: bool

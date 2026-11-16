@@ -164,6 +164,21 @@ class PlanView(Protocol):
     async def stories_for(self, project_id: str, spec_ids: Sequence[str]) -> Mapping[str, Sequence[str]]: ...
 ```
 
+`GapRecords` and `Amendments` behave the same on every implementation (host: `api.gap.records` on PostgreSQL;
+tests: the in-memory fakes; one contract suite runs on both). `put_options` replaces the gap's options and
+`options` returns them by rank; a set with a repeated rank, more than one recommended row or a row of another gap
+raises `ConformanceError` (`gap_options_invalid`) before anything is written (the 2-to-4 count and the one
+recommended row of an `ask` gap are the `check` step's rule, GI5). `start_run` stores the run (a second call replaces it); `finish_run` sets
+`completed`, `finished_at`, counts and cost, and raises `ConformanceError` (`gap_run_unknown`) for a run the
+project does not have. `put_seeds` and `put_sites` raise `ConformanceError` (`gap_rows_of_another_run`) for a row
+of another run; a site put again for its run takes the new values. `put_notes` files every note under the given
+run. Verdicts, relevance rows, suppressions and amendments are upserts on their keys ([data-model.md](data-model.md)
+"Relational store"). `set_status` changes only the project's amendments among the ids, ignores the others and
+moves `updated_at`, and raises `ConformanceError` (`gap_amendment_status_unknown`) for a status outside the
+vocabulary; `for_lineage` and `for_clarification` return rows by `created_at`, then id (code-point order), and a
+put of an existing amendment replaces it, `created_at` included. A batch that names one key twice keeps its last
+row. On PostgreSQL the project id is the project's uuid (`gap_project_id_invalid` otherwise).
+
 `check_block`, `block_story` and `release_gap` map onto the plan service's existing guard, block and unblock
 calls; `hold_tasks` is the blocker hold of decision GD2. A host without a plan passes `holds=None` and
 `plan=None`: nothing is held, and reach shows only spec nodes.
