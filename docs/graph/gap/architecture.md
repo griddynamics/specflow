@@ -22,7 +22,7 @@ graph/gap/
   gaps.py              the gap read (READ_GAPS) as StoredGap, and the keys of gap nodes and relations
   steps/
     scope.py           change reports: aliases, touched nodes, the investigation scope
-    close.py           close check of applying and reconciled gaps, rekeys, obsolete gaps
+    close.py           close check of applying gaps, obsolete gaps, stale witnesses, follow-ups
     relevance.py       relevance filter: rules, cache, batched model call
     detect.py          detectors from the rules file -> seeds
     sites.py           corroboration, grouping, ranking, known-site skip, limits
@@ -34,6 +34,7 @@ graph/gap/
     route.py           severity, gates, ask or ai
     record.py          Gap and Clarification nodes and relations, relational rows, holds
   answers.py           answers, edits, placement, apply, revert, AI answers
+  corpus.py            amendments applied to a revision, effective revision id, the clarifications document
   reconcile.py         reconcile_document: amendments against a new source revision
   service.py           GapService: inbox reads, answers, dismissals, raise, the plan's findings port
   prompts.py           prompt revisions and gateway prompt names (gap.<name>.<revision>)

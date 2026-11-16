@@ -245,6 +245,7 @@ After reconcile, the corpus reader applies every `active` amendment of the linea
 | `insert_after` | Inserts the text after the anchor line, or after the text of an earlier amendment on the same line |
 | Two `replace` amendments on the same anchor | The newer clarification wins only if it `REPLACES` the older; otherwise this cannot happen, because an edit check refuses a second `replace` of a line that an active amendment already replaces ([answers.md](answers.md) "Edits") |
 | Line endings and headings | Untouched; the amended text never holds a heading |
+| Finding the anchor | A line equal to the amendment's anchor text (normalised like a quote), under the last heading of its `heading_path` when that heading holds one, else the first equal line of the document. An amendment whose anchor is not found is not applied for this read and is logged (`api.graph_build.amendment_unanchored`); reconcile decides its outcome when it runs |
 
 ### Effective revision id
 

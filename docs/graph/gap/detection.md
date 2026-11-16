@@ -216,7 +216,8 @@ are counted, kept in `gap_seed` with `corroborated` false, and not investigated.
 
 **Suppression.** Before grouping, every seed's signature (data-model.md "Identity", computed from the seed's
 detector, `ABOUT` candidates and witness) is looked up in `gap_suppression`. A suppressed seed is dropped and
-counted. A seed whose signature matches an existing gap in the graph is attached to that gap's site, so the
+counted. A dismissal suppresses the dismissed gap's signature and its `seed_signatures`, so the seeds that formed it
+are dropped here when their nodes and witness did not change (FR-GDET-07). A seed whose signature matches an existing gap in the graph is attached to that gap's site, so the
 gap is re-checked, never duplicated.
 
 **Info notes.** A seed whose detector and nodes can only ever be info (for example a stated question about an
@@ -283,6 +284,7 @@ Every run records in `gap_run.counts` and returns in `GapRunResult.counts`:
 | `notes` | Info notes written |
 | `model_calls`, `tokens` | Per gateway role |
 | `noise_nodes` | Nodes listed in the noise report |
+| `close` | Gaps the close check resolved, followed up, left waiting and took out as obsolete, and stale `CITES` removed (`update` and `full` runs) |
 
 `estimate_gap(ctx, *, mode)` runs the steps up to `sites` without writing and returns the expected number of
 investigations and model calls.

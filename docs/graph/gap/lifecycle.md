@@ -25,7 +25,7 @@ answer does not hold, a follow-up gap opens and points back to it, so the histor
 | `answered` | `open` | Person, withdraws the answer before it is applied | The clarification becomes `superseded` without a successor; its amendments are deleted |
 | `answered` | `answered` | Person, answers again before it is applied | The new pending clarification replaces the old one, which is deleted with its amendments (answers.md "Changing an answer") |
 | `resolved` | `resolved` | Person, answers again after it is applied | A new pending clarification `REPLACES` the applied one, which becomes `superseded` when the answers are applied |
-| `answered` | `applying` | Apply (quiet period ends, `apply_now`, or an immediate development answer) | Amendments become active, the clarifications document is regenerated, `BuildRequests.request_update_build` is called |
+| `answered` | `applying` | Apply (quiet period ends, `apply_now`, or an immediate development answer) | Amendments become active, the clarifications document holds the answer from the next corpus read, `BuildRequests.request_update_build` is called |
 | `applying` | `resolved` | Close check, fixed | Clarification `applied`, `GROUNDED_IN` set; resolution `answered` or `ai_answered`; held tasks released |
 | `applying` | `resolved` | Close check, not fixed | Resolution `follow_up`; a new open gap `FOLLOWS_UP` it with reason `not_fixed` |
 | `resolved` | `resolved` | Reconcile, conflict or orphaned | The clarification becomes `conflict` or `orphaned`; a follow-up gap opens ([reconcile.md](reconcile.md)) |
@@ -80,6 +80,19 @@ reconcile changed since the last run.
 The close check never calls a model except the contradiction judge of step 2, and that call is cached by the
 input hash like every verdict.
 
+How the shipped close step (`steps/close.py`) decides:
+
+| Question | Rule |
+|---|---|
+| Which clarification | The gap's clarification that is `pending` with `apply_requested_at` (the latest one) |
+| Grounded (`amend`) | Every `active` amendment's text, the marker line left out, whitespace and case normalised, is in an active fragment of the amendment's lineage; `GROUNDED_IN` goes to each such fragment with the build id |
+| Grounded (`document`) | A fragment of the clarifications document holds the text (its own section, headed by the gap id, first); `PLACED_IN` the clarifications document is written too (GI4) |
+| Detector re-check | The detectors run over the graph with every section read as `spec` (the gap was relevant when found); the gap's detector still fires when a seed has one of the gap's `seed_signatures`, is about a node of the detector's types the gap is `ABOUT`, or quotes a line the gap cites (with none of these to compare, the step cannot tell and leaves the gap as it is). Detectors that read the build's facts (`refused_merge`, `cycle`) still fire while two of the gap's nodes of their types are left, because an update build lists only the refusals and cuts it made itself. The contradiction judge is not called yet |
+| Not grounded twice | The first close check writes the event `not_grounded`; the next one resolves with resolution `follow_up` and opens a follow-up; the clarification stays `pending` |
+| Obsolete | An `open` gap whose `ABOUT` nodes all left and whose quotes no longer hold (`nodes_gone`), or whose detector no longer fires on it (`detector_silent`); its option rows go with it; event `obsolete` |
+| Follow-up | Kind, severity, origin, title, question, why and detector of the old gap; its `ABOUT` and `IMPACTS` nodes that are left and its quotes that still hold; route `ask`. The run's `sites` step seeds it like a raised gap, so detector seeds on its nodes join its site and it is investigated in the same run; the resolved gap it continues joins no site any more |
+| Held tasks | Released by the blocker-hold wiring of development gaps (not part of the close step yet) |
+
 ## Rekeys and merges
 
 Builds rekey and merge spec nodes. The build change report (classes `rekeyed`, `merged`, `removed`) reaches
@@ -103,9 +116,12 @@ follow-up is allowed; the inbox shows the chain as one thread.
 ## Dismissals and suppression
 
 `dismiss_gap` needs a reason (free text, at most 500 characters) and is allowed only on `open` gaps. It
-deletes the `Gap` node and its relations and writes a `gap_suppression` row: the signature, the gap id, the
-question, the reason and who dismissed it. A later run that produces the same signature records the seed
-with outcome `skipped` and asks nothing. A changed signature (other nodes, another witness line) is a new gap.
+deletes the `Gap` node and its relations and writes `gap_suppression` rows: for the gap's signature and for each of
+its `seed_signatures` (the seeds of its detector that formed or re-checked it, [data-model.md](data-model.md)
+"Identity"), each with the gap id, the question, the reason and who dismissed it. A later run drops a seed with a
+suppressed signature before it forms a site (counted `suppressed`) and asks nothing; a report whose signature is
+suppressed is dropped by the check step. A changed signature (other nodes, another witness line) is a new gap. Seeds
+of other detectors that shared the gap's site are not suppressed: their problem may still be one.
 
 A dismissal with reason category "not spec" also offers to add a noise rule for the section
 ([detection.md](detection.md) "Relevance filter"); the rule is a separate, explicit action.

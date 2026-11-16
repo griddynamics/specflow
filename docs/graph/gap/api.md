@@ -91,7 +91,10 @@ the reads showed (the check step's "No new ids"). `check` validates every report
 options failed, finds duplicates and runs the second check of a pointer; `route` applies [answers.md](answers.md)
 "Severity" and "Routing" (AI route: pointers only until the gates and the valve are built) and holds back the new
 `ask` gaps beyond `limits.new_questions_per_run`; `record` writes the gaps, their option rows and pointer
-clarifications. The step `close` is a no-op until the close check is built. An `info` report is a `gap_note` (site
+clarifications. The step `close` is the close check ([lifecycle.md](lifecycle.md) "Close check"; `steps/close.py`):
+it settles `applying` gaps, takes out obsolete open gaps and deletes stale `CITES`, and the follow-up gaps it opens
+get a site in the same run (`SiteRun.follow_ups`). Its counts are the run metric `close` (`resolved`, `follow_ups`,
+`waiting`, `obsolete`, `cites_removed`). An `info` report is a `gap_note` (site
 outcome `not_a_gap`). Every checked site's report is cached in `gap_verdict` under its input hash by the `record`
 step (a rejected report as its outcome and failed checks), so the next run with the same inputs skips it.
 
@@ -323,12 +326,16 @@ How the host does it (`api/gap/runner.py`, `GapRunner` on `Runtime.gaps`, built 
 
 The host also:
 - adds the relational tables of [data-model.md](data-model.md) "Relational store" in one migration;
-- changes the corpus reader (`PostgresCorpusSource`) to apply active amendments to each document it
-  reads, to add the clarifications document (origin `todo_answer`, one section per applied clarification
-  placed `document`, its heading naming the parts it is about), to call `reconcile_document` when a
-  lineage's newest revision differs from the amendments' `last_revision_id`, and to report as revision id
-  the hash of the source revision id and the applied amendment ids, so a build sees a change only when the
-  text it reads changes;
+- changes the corpus reader (`PostgresCorpusSource(session_factory, answers=...)`, `api/graph_build/corpus.py`) to
+  apply answers when the gap module is on. `answers` is the gap runner (`CorpusAnswers.corpus_answers(project_id)` ->
+  `CorpusAnswersRead`: the `active` amendments by lineage through `Amendments`, and the clarifications of the
+  clarifications document read from the graph by `graph.gap.corpus.document_clarifications`); the build runner wires
+  it when its gap hooks implement `CorpusAnswers`. `with_answers` applies each lineage's active amendments
+  (`graph.gap.corpus.apply_amendments`), sets the effective revision id (`effective_revision_id`) and adds the
+  generated clarifications document ([answers.md](answers.md) "Clarifications document"); an amendment whose anchor
+  line is missing is left out and logged as `api.graph_build.amendment_unanchored` (ids only). Calling
+  `reconcile_document` when a lineage's newest revision differs from the amendments' `last_revision_id` comes with
+  reconcile;
 - stores each build's change report with the build (the plan prerequisite, [lifecycle.md](lifecycle.md)).
 
 ## Web routes
@@ -337,7 +344,7 @@ Under `/projects/{pid}`, in the style of the existing project routers. Project m
 
 | Method and path | Call |
 |---|---|
-| `GET /projects/{pid}/gaps` | `list_gaps` (query: status, kind, severity, origin, route, about, story_id, document, held_back, cursor, limit; a list filter repeats its parameter; `document` takes the graph's document id, a lineage, or an uploaded document's id as the documents routes name it, which the route turns into its lineage `doc:<id>`) |
+| `GET /projects/{pid}/gaps` | `list_gaps` (query: status, kind, severity, origin, route, about, story_id, document, held_back, cursor, limit; a list filter repeats its parameter; `document` takes the graph's document id, a lineage, or a document's id as the documents routes name it, which the route turns into its corpus lineage: `drive:<connection>:<file>` for a Drive document, else `doc:<id>`) |
 | `GET /projects/{pid}/gaps/{gap_id}` | `get_gap` |
 | `POST /projects/{pid}/gaps` | `raise_gap` (origin `person`) |
 | `POST /projects/{pid}/gaps/{gap_id}/edits_preview` | `preview_edits` |

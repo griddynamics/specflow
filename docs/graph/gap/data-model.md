@@ -35,7 +35,7 @@ other node.
 
 | Label | Key | Properties |
 |---|---|---|
-| `Gap` | `gap_id` (`GAP::<12 hex>`) | `kind`, `severity`, `status`, `origin`, `route`, `resolution` (when resolved), `title`, `question`, `why`, `detector` (code, or `development`, `person`), `signature`, `blocking` (`yes` when a development gap holds the reporting agent's claimed story), `held_back` (`yes` while a new question its run held back beyond `new_questions_per_run` waits for the next run), `run_id`, `created_by`, `created_at`, `updated_at`, `resolved_at` |
+| `Gap` | `gap_id` (`GAP::<12 hex>`) | `kind`, `severity`, `status`, `origin`, `route`, `resolution` (when resolved), `title`, `question`, `why`, `detector` (code, or `development`, `person`), `signature`, `seed_signatures` (the signatures of the detector seeds of the gap's detector whose sites recorded or re-checked it; what a dismissal suppresses besides `signature`), `blocking` (`yes` when a development gap holds the reporting agent's claimed story), `held_back` (`yes` while a new question its run held back beyond `new_questions_per_run` waits for the next run), `run_id`, `created_by`, `created_at`, `updated_at`, `resolved_at` |
 | `Clarification` | `clr_id` (`CLR::<12 hex>`) | `mode`, `placement`, `status`, `option_label`, `text`, `answered_by` (a user id, or `ai`), `answered_at`, `apply_requested_at` (when its answers were sent to an update build), `applied_build_id`, `basis` (JSON: quoted lines behind an AI or pointer answer), `confidence` (AI answers) |
 
 Vocabularies are those of [gap-ontology.yaml](gap-ontology.yaml). `severity` `info` is not a graph value:
@@ -98,6 +98,12 @@ gap event log.
 When a build rekeys or merges a spec node, the next gap run moves `ABOUT` and `IMPACTS` to the new key and
 recomputes nothing else; the signature keeps the old ids, and the alias table of the build maps them.
 
+A gap's signature is computed from its checked report (the investigator may name more or fewer `ABOUT` nodes than
+the detector did), while the sites step compares seed signatures (computed from each seed's detector, `ABOUT`
+candidates and witness). So that a dismissed gap stays quiet, the gap keeps the signatures of the seeds of its
+detector that formed or re-checked it (`seed_signatures`) and a dismissal suppresses them too. A follow-up gap's
+signature is SHA-256 of the canonical JSON of the old gap's id, its signature and the follow-up reason.
+
 ## Statuses
 
 ### Gap
@@ -140,7 +146,7 @@ The tables belong to the host; `graph.gap` reaches them through the ports `GapRe
 | `gap_verdict` | `input_hash`, `report` (JSON), `model`, `prompt_version`, `created_at` | Reused when a site's inputs did not change |
 | `gap_section_relevance` | `lineage`, `heading_path`, `text_hash`, `relevance` (`spec`, `tracking`, `mixed`), `signals` (JSON), `by` (`rules`, `model`, `person`) | Cache of the relevance filter |
 | `gap_noise_rule` | `rule_id`, `scope` (`document`, `section`, `pattern`), `value`, `reason`, `created_by`, `created_at` | Sections or patterns a person marked "not spec" |
-| `gap_suppression` | `signature`, `gap_id`, `question`, `reason`, `dismissed_by`, `dismissed_at` | A dismissed signature stays quiet until it changes |
+| `gap_suppression` | `signature`, `gap_id`, `question`, `reason`, `dismissed_by`, `dismissed_at` | A dismissed signature stays quiet until it changes; one dismissal writes one row for the gap's signature and one for each of its `seed_signatures` |
 | `gap_note` | `run_id`, `detector`, `spec_ids` (JSON), `text` | Info findings: nothing to decide |
 | `gap_event` | `gap_id`, `clr_id`, `at`, `actor`, `event`, `detail` (JSON) | Every transition, quote and reconcile outcome |
 
