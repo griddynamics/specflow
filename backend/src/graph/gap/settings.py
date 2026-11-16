@@ -115,8 +115,8 @@ class GapSettings(BaseModel):
             raise ConfigurationError(INVALID_GAP_SETTINGS, problems=error.error_count()) from error
 
 
-def gap_settings_from_env(environ: Mapping[str, str]) -> GapSettings:
-    """``GapSettings`` from the ``GAP_*`` variables of ``environ`` (architecture.md "Settings"); an unset or empty
+def gap_settings_from_env(variables: Mapping[str, str]) -> GapSettings:
+    """``GapSettings`` from the ``GAP_*`` variables of ``variables`` (architecture.md "Settings"); an unset or empty
     variable keeps the default. Raises ``ConfigurationError("invalid_gap_settings")`` naming the variable."""
 
     values: dict[str, object] = {}
@@ -125,16 +125,16 @@ def gap_settings_from_env(environ: Mapping[str, str]) -> GapSettings:
         (ENV_AUTO_RUN_AFTER_BUILD, "auto_run_after_build"),
         (ENV_AI_ANSWERS, "ai_answers"),
     ):
-        raw = _raw(environ, name)
+        raw = _raw(variables, name)
         if raw is not None:
             values[key] = _boolean(name, raw)
-    investigator = _raw(environ, ENV_INVESTIGATOR)
+    investigator = _raw(variables, ENV_INVESTIGATOR)
     if investigator is not None:
         values["investigator"] = investigator
-    rules_path = _raw(environ, ENV_RULES_PATH)
+    rules_path = _raw(variables, ENV_RULES_PATH)
     if rules_path is not None:
         values["rules_path"] = Path(rules_path)
-    quiet = _raw(environ, ENV_APPLY_QUIET_SECONDS)
+    quiet = _raw(variables, ENV_APPLY_QUIET_SECONDS)
     if quiet is not None:
         try:
             values["apply_quiet_seconds"] = int(quiet)
@@ -148,8 +148,8 @@ def gap_settings_from_env(environ: Mapping[str, str]) -> GapSettings:
         raise ConfigurationError(INVALID_GAP_SETTINGS, variable=variable) from error
 
 
-def _raw(environ: Mapping[str, str], name: str) -> str | None:
-    value = environ.get(name, "").strip()
+def _raw(variables: Mapping[str, str], name: str) -> str | None:
+    value = variables.get(name, "").strip()
     return value or None
 
 
