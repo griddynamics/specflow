@@ -111,19 +111,16 @@ A dismissal with reason category "not spec" also offers to add a noise rule for 
 
 ## Plan prerequisite
 
-Only the affected part of the plan may change when an answer is applied. `graph.plan` already re-plans
-only what the build change reports mark as changed, but the API host does not pass them today: the plan
-runner of the API (`api/plan/runner.py`) builds a `PlanContext` with no change reports, and a plan made from
-an earlier build is re-planned whole (`replan`). The build store keeps no chain of builds, so the host has
-nothing to pass.
+Only the affected part of the plan may change when an answer is applied. `graph.plan` re-plans only what the
+build change reports mark as changed; the API host passes them (shipped before the gap module, independent of it):
 
-The prerequisite, shipped first as its own pull request and independent of the gap module:
-
-1. The build runner stores each build's change report with the build (file store, under the build id).
+1. Each build's change report is stored with the build (its `BuildResult` in the file build store, under the build
+   id); `BuildStore.list_builds` gives the project's builds in build order.
 2. The plan runner passes, as `PlanContext.changes`, the change reports of every build after the plan's
-   `last_build_id` up to the latest finished build, converted to the plan-side `BuildChangeReport`.
+   `last_build_id` up to the latest finished build, converted to the plan-side `BuildChangeReport`
+   (`api/graph_build/reports.py`, `api/plan/changes.py`).
 3. A full re-plan happens only when a report is missing (a gap in the chain) or on an explicit `replan`
-   request.
+   request; the run logs `api.plan.change_reports_missing` with the reason.
 
 It helps every document edit, not only gap answers. The gap runner reads the same stored reports for its own
 `scope` step.

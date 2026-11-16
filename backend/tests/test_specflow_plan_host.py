@@ -15,7 +15,8 @@ import pytest
 
 from api.plan.runner import GraphPlanRunner, PlanReads, RunnerDependencies
 from api.plan.state import NoGraphBuildError
-from graph.build import BuildOptions, BuildRecord, open_file_stores
+from graph.build import BuildOptions, BuildRecord, BuildResult, open_file_stores
+from graph.build.models import ChangedEdge, ChangedNode, ChangeReport
 from graph.core import ConfigurationError
 from graph.core.reader import GraphNode
 from graph.plan import STEPS, PlanEstimate, PlanResult, PlanStepEstimate, PlanTask, open_plan_store
@@ -30,6 +31,7 @@ from graph.plan.models import (
     WorkAreaInfo,
 )
 from graph_plan_support import plan_ontology, plan_rules
+from logger_harness import events, fields
 from settings import GraphBuildSettings
 
 T0 = datetime(2026, 11, 1, tzinfo=UTC)
@@ -208,6 +210,51 @@ async def _finished_build(root, build_id: str = "build-1", *, minutes: int = 0) 
     await builds.create_build(record)
 
 
+async def _reported_build(
+    root,
+    build_id: str,
+    *,
+    minutes: int,
+    report: ChangeReport | None = None,
+    status: str = "succeeded",
+    persist: str | None = "done",
+) -> None:
+    """A build that ran and stored its result, with ``report`` as its change report."""
+
+    builds = open_file_stores(root).builds
+    record = BuildRecord(
+        build_id=build_id,
+        project_id=PROJECT,
+        mode="update",
+        options=BuildOptions(),
+        ontology_fingerprint="fp",
+        label_set=(),
+        embedding_model="embed/model",
+        started_at=T0 + timedelta(minutes=minutes),
+    )
+    await builds.create_build(record)
+    if persist is not None:
+        await builds.put_progress(PROJECT, build_id, "persist", persist)
+    await builds.finish_build(
+        BuildResult(
+            project_id=PROJECT,
+            build_id=build_id,
+            mode="update",
+            status=status,
+            started_at=record.started_at,
+            finished_at=record.started_at + timedelta(minutes=1),
+            change_report=report,
+        )
+    )
+
+
+def _report(spec_id: str, *classes: str, edge: str | None = None) -> ChangeReport:
+    return ChangeReport(
+        nodes=(ChangedNode(spec_id=spec_id, label=OTHER_LABEL, classes=classes),),
+        edges=(ChangedEdge(ref=edge, change="added", basis="stated"),) if edge else (),
+    )
+
+
 def make_runner(tmp_path, plan=None, *, reader: StubPlanReader | None = None, nodes=(), estimate=None):
     StubGateway.instances.clear()
     reads = PlanReads(reader or StubPlanReader(), StubGraphReader(list(nodes)))
@@ -297,6 +344,182 @@ async def test_an_existing_plan_is_updated_and_replanned_from_an_older_build_or_
 
     assert plan.contexts[0].replan is expected
     assert plan.contexts[0].changes == ()
+
+
+async def test_fr_gpln_01_one_build_after_the_plan_passes_its_report_and_updates(tmp_path):
+    await _finished_build(tmp_path, "build-1")
+    await _reported_build(
+        tmp_path, "build-2", minutes=5, report=_report("REQ::A", "changed_meaning", edge="REQ::A|PART_OF|MOD::M")
+    )
+    reader = StubPlanReader()
+    reader.info = _info("build-1")
+    plan = StubPlan()
+    runner, _ = make_runner(tmp_path, plan, reader=reader)
+
+    await runner.start(PROJECT)
+    await _settle(runner)
+
+    context = plan.contexts[0]
+    assert (context.build_id, context.replan) == ("build-2", False)
+    [report] = context.changes
+    assert (report.build_id, report.previous_build_id) == ("build-2", "build-1")
+    assert [(node.spec_id, node.classes) for node in report.nodes] == [("REQ::A", ("changed_meaning",))]
+    assert [(edge.source, edge.relation, edge.target, edge.change) for edge in report.edges] == [
+        ("REQ::A", "PART_OF", "MOD::M", "added")
+    ]
+
+
+async def test_fr_gpln_01_several_builds_after_the_plan_pass_every_report_in_build_order(tmp_path, caplog):
+    caplog.set_level("INFO")
+    await _finished_build(tmp_path, "build-1")
+    await _reported_build(tmp_path, "build-3", minutes=5, report=_report("REQ::A", "changed_evidence"))
+    # A failed build that never reached persist changed nothing: the chain skips it.
+    await _reported_build(tmp_path, "build-2", minutes=7, status="failed", persist=None)
+    await _reported_build(tmp_path, "build-4", minutes=9, report=_report("REQ::B", "changed_meaning"))
+    reader = StubPlanReader()
+    reader.info = _info("build-1")
+    plan = StubPlan()
+    runner, _ = make_runner(tmp_path, plan, reader=reader)
+
+    await runner.start(PROJECT)
+    await _settle(runner)
+
+    context = plan.contexts[0]
+    assert (context.build_id, context.replan) == ("build-4", False)
+    assert [(report.previous_build_id, report.build_id) for report in context.changes] == [
+        ("build-1", "build-3"),
+        ("build-3", "build-4"),
+    ]
+    assert events(caplog, "api.plan.change_reports_missing") == []
+    [started] = events(caplog, "api.plan.started")
+    assert fields(started)["change_reports"] == 2
+
+
+@pytest.mark.parametrize(
+    ("damage", "reason", "missing"),
+    [
+        ("no_report", "report_missing", "build-2"),
+        ("unknown_plan_build", "since_build_unknown", "build-0"),
+        ("failed_after_persist", "unfinished_build_in_chain", "build-2"),
+        ("failed_during_persist", "unfinished_build_in_chain", "build-2"),
+        ("bad_edge_ref", "invalid_report", None),
+    ],
+)
+async def test_fr_gpln_01_a_missing_report_replans_and_logs_the_reason_once(tmp_path, caplog, damage, reason, missing):
+    caplog.set_level("INFO")
+    await _finished_build(tmp_path, "build-1")
+    if damage.startswith("failed_"):
+        persist = "done" if damage == "failed_after_persist" else "failed"
+        await _reported_build(tmp_path, "build-2", minutes=5, status="failed", persist=persist)
+    else:
+        report = None if damage == "no_report" else _report("REQ::A", "changed_meaning")
+        if damage == "bad_edge_ref":
+            report = _report("REQ::A", "changed_meaning", edge="REQ::A|PART_OF")
+        await _reported_build(tmp_path, "build-2", minutes=5, report=report)
+    await _reported_build(tmp_path, "build-3", minutes=9, report=_report("REQ::B", "changed_meaning"))
+    reader = StubPlanReader()
+    reader.info = _info("build-0" if damage == "unknown_plan_build" else "build-1")
+    plan = StubPlan()
+    runner, _ = make_runner(tmp_path, plan, reader=reader)
+
+    await runner.start(PROJECT)
+    await _settle(runner)
+
+    context = plan.contexts[0]
+    assert (context.build_id, context.replan, context.changes) == ("build-3", True, ())
+    [event] = events(caplog, "api.plan.change_reports_missing")
+    logged = fields(event)
+    assert (logged["reason"], logged["missing_build_id"], logged["build_id"]) == (reason, missing, "build-3")
+    assert set(logged) >= {"project_id", "last_build_id"}
+
+
+async def test_fr_gpln_01_no_plan_yet_is_a_first_run_without_reports(tmp_path, caplog):
+    caplog.set_level("INFO")
+    await _finished_build(tmp_path, "build-1")
+    await _reported_build(tmp_path, "build-2", minutes=5, report=_report("REQ::A", "changed_meaning"))
+    plan = StubPlan()
+    runner, _ = make_runner(tmp_path, plan)
+
+    await runner.start(PROJECT)
+    await _settle(runner)
+
+    assert (plan.contexts[0].replan, plan.contexts[0].changes) == (False, ())
+    assert events(caplog, "api.plan.change_reports_missing") == []
+
+
+async def test_fr_gpln_01_a_replan_request_passes_no_reports(tmp_path, caplog):
+    caplog.set_level("INFO")
+    await _finished_build(tmp_path, "build-1")
+    await _reported_build(tmp_path, "build-2", minutes=5, report=_report("REQ::A", "changed_meaning"))
+    reader = StubPlanReader()
+    reader.info = _info("build-1")
+    plan = StubPlan()
+    runner, _ = make_runner(tmp_path, plan, reader=reader)
+
+    await runner.start(PROJECT, replan=True)
+    await _settle(runner)
+
+    assert (plan.contexts[0].replan, plan.contexts[0].changes) == (True, ())
+    assert events(caplog, "api.plan.change_reports_missing") == []
+
+
+async def test_fr_gpln_01_the_preview_estimates_an_update_with_the_reports(tmp_path):
+    await _finished_build(tmp_path, "build-1")
+    await _reported_build(tmp_path, "build-2", minutes=5, report=_report("REQ::A", "changed_meaning"))
+    reader = StubPlanReader()
+    reader.info = _info("build-1")
+    contexts: list[Any] = []
+
+    async def estimate(context) -> PlanEstimate:
+        contexts.append(context)
+        return PlanEstimate(mode="update")
+
+    runner, _ = make_runner(tmp_path, reader=reader, estimate=estimate)
+
+    preview = await runner.preview(PROJECT)
+
+    assert preview.mode == "update" and contexts[0].replan is False
+    assert [report.build_id for report in contexts[0].changes] == ["build-2"]
+
+
+async def test_fr_gpln_01_the_preview_estimates_a_replan_without_a_report_and_logs_nothing(tmp_path, caplog):
+    caplog.set_level("INFO")
+    await _finished_build(tmp_path, "build-1")
+    await _reported_build(tmp_path, "build-2", minutes=5)  # no report: the preview estimates a replan
+    reader = StubPlanReader()
+    reader.info = _info("build-1")
+    contexts: list[Any] = []
+
+    async def estimate(context) -> PlanEstimate:
+        contexts.append(context)
+        return PlanEstimate(mode="replan")
+
+    runner, _ = make_runner(tmp_path, reader=reader, estimate=estimate)
+
+    preview = await runner.preview(PROJECT)
+
+    assert preview.mode == "replan" and contexts[0].replan is True
+    assert events(caplog, "api.plan.change_reports_missing") == []
+
+
+@pytest.mark.parametrize("replan", [True, False])
+async def test_fr_gpln_01_a_resumed_run_keeps_the_build_and_replan_choice_of_its_record(tmp_path, replan):
+    await _finished_build(tmp_path, "build-1")
+    await _reported_build(tmp_path, "build-2", minutes=5, report=_report("REQ::A", "changed_meaning"))
+    await _reported_build(tmp_path, "build-3", minutes=9, report=_report("REQ::B", "changed_meaning"))
+    store = open_plan_store(tmp_path)
+    await store.create_run(_record("run-old", "build-2", replan=replan, started_at=T0))
+    reader = StubPlanReader()
+    reader.info = _info("build-1")
+    plan = StubPlan()
+    runner, _ = make_runner(tmp_path, plan, reader=reader)
+
+    await runner.start(PROJECT)  # a plain start resumes the interrupted run
+    await _settle(runner)
+
+    context = plan.contexts[0]
+    assert (context.run_id, context.build_id, context.replan) == ("run-old", "build-2", replan)
+    assert [report.build_id for report in context.changes] == ([] if replan else ["build-2"])
 
 
 async def test_a_failed_run_reports_its_error_code(tmp_path):

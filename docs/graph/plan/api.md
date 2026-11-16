@@ -56,8 +56,8 @@ plan-side model.
 
 - In `first` mode `changes` must be empty; the plan records `build_id`.
 - In `update` mode a chain that does not start at `Plan.last_build_id` or does not end at `build_id`
-  raises `ConfigurationError("change_reports_missing")` naming the gap. The host passes the missing
-  reports from its build store, or runs a `replan`.
+  raises `ConfigurationError("change_reports_missing")` naming the gap; with `Plan.last_build_id` equal to
+  `build_id` the chain is empty. The host passes the missing reports from its build store, or runs a `replan`.
 - A `replan` may pass no reports. It then re-plans every area and lists completed tasks it could not
   verify in `unverified_completed` ([plan.md](plan.md)).
 
@@ -65,8 +65,8 @@ Plan update correctness follows the build's change-report classification: a node
 `changed_meaning` supersedes finished work, a real change classed `changed_evidence` leaves it in
 place.
 
-Host conversion derives `previous_build_id` from the project's build order, skips failed builds, and
-runs a `replan` when a needed report is missing.
+Host conversion derives `previous_build_id` from the project's build order, skips failed builds that never
+started `persist`, and runs a `replan` when a needed report is missing ("HTTP endpoints (host)").
 
 ### Gateway
 
@@ -227,12 +227,16 @@ the plan's own text, never document text.
 | `POST /api/v1/projects/{pid}/plan/claims/{story_id}/release` | Frees the story claim by force (`release_story(force=True)`): the claimed tasks return to `pending`, the holder's token then answers `claim_mismatch`. `{"released": n}`; 0 for a story nobody holds; 404 `story_not_found`. Any member of the project may do it ([../../mcp-server/access-control.md](../../mcp-server/access-control.md) AC12) |
 | `GET /api/v1/projects/{pid}/plan/preview` | What a run would start from, without a model call: `features` (the anchors of feature stories in the rules), `mode`, `unchanged`, and the run estimate summed over the steps, `calls` and `input_tokens` (null without a finished build or when the estimate fails) |
 
-The runner plans from the project's latest finished build. Without a plan the run is `first`. With a plan whose
-`last_build_id` is that build, it is an `update` with no change reports (the result is `unchanged`). With a plan
-from an earlier build, or with `replan`, it is a `replan` without change reports: the build store keeps no build
-chain yet, so the host takes the documented path for missing reports ("Change reports"). An unfinished run is
-resumed by the next start. Plan state lives in the file `PlanStore` under `GRAPH_STATE_DIR`, next to the build
-stores. The web app's Plan page reads `GET /plan` and `/plan/preview`, polls `GET /plan` every 2 s while a run
+The runner plans from the project's latest finished build. Without a plan the run is `first`. With a plan, it is
+an `update` that passes the change reports of every build after the plan's `last_build_id` up to that build
+("Change reports"): the build store keeps each build's change report in its result, and the chain is the project's
+builds in build order (`BuildStore.list_builds`: start time, then id), skipping failed builds whose `persist` step
+never started. With a plan whose `last_build_id` is that build, the chain is empty and the result is `unchanged`.
+With `replan`, or when the chain cannot be completed (the plan's build or a build's result is gone, a report is
+missing, a failed build started `persist`, an edge ref does not parse), it is a `replan` without change reports,
+and the run logs `api.plan.change_reports_missing` with the reason and the build id. An unfinished run is resumed
+by the next start, with the build and the `replan` choice of its run record. Plan state lives in the file
+`PlanStore` under `GRAPH_STATE_DIR`, next to the build stores. The web app's Plan page reads `GET /plan` and `/plan/preview`, polls `GET /plan` every 2 s while a run
 goes, and reads `/plan/tasks` once a plan exists; "Recreate Plan" posts `replan`.
 
 ## MCP tools (host)

@@ -4,12 +4,16 @@ Wired like the graph build runner: file stores under ``GRAPH_STATE_DIR`` (the pl
 the build store), the runtime's graph store, ``load_ontology()`` (the plan ontology is merged in), the shipped
 plan rules, one ``Gateway`` per run and ``ensure_plan_schema`` once per process, then ``run_plan``.
 
-A run plans from the project's latest finished build. The first plan of a project is a ``first`` run; a plan whose
-``last_build_id`` is that build is an ``update`` run with no change reports (the plan reports it unchanged);
-a newer build, or a ``replan`` request, re-plans every area from the current graph (the build store keeps no
-build chain, so the host passes no change reports: ``docs/graph/plan/api.md`` "Change reports"). A project's
-unfinished run (interrupted by a shutdown) is resumed by the next start. ``status`` combines the running task
-with the plan store, so it survives a restart.
+A run plans from the project's latest finished build. The first plan of a project is a ``first`` run. A plan is
+otherwise an ``update`` run: the host passes, as ``PlanContext.changes``, the change report of every build after the
+plan's ``last_build_id`` up to that build, in build order, converted to the plan-side ``BuildChangeReport``
+(``api.graph_build.reports``, ``api.plan.changes``; FR-GPLN-01, ``docs/graph/plan/api.md`` "Change reports"), so only
+what they mark as changed is re-planned; with ``last_build_id`` already that build the chain is empty and the plan
+reports it unchanged. A ``replan`` request, or a chain the build store cannot complete (a deleted build or result, a
+report missing, a failed build that started persist), re-plans every area from the current graph without reports;
+the run logs ``api.plan.change_reports_missing`` with the reason. A project's unfinished run (interrupted by a
+shutdown) is resumed by the next start, with the build and the replan choice of its run record. ``status``
+combines the running task with the plan store, so it survives a restart.
 
 Logs carry ids, counts, step names and error codes only (``api.plan.*``).
 """
@@ -24,6 +28,8 @@ from pathlib import Path
 from typing import Any, Final
 
 from api.contained import Contained
+from api.graph_build.reports import reports_since
+from api.plan.changes import plan_change_reports
 from api.plan.state import NoGraphBuildError, PlanState
 from api.schemas import (
     PlanAreaOut,
@@ -45,7 +51,7 @@ from graph.core.reader import GraphNode, GraphReader
 from graph.core.store import GraphStore, as_executor
 from graph.plan.estimate import estimate_plan
 from graph.plan.files import open_plan_store
-from graph.plan.models import PlanEstimate, PlanResult, PlanRunRecord, PlanStepName, PlanTask
+from graph.plan.models import BuildChangeReport, PlanEstimate, PlanResult, PlanRunRecord, PlanTask
 from graph.plan.options import PlanContext
 from graph.plan.ports import PlanStore
 from graph.plan.reader import PlanReader
@@ -412,14 +418,19 @@ class GraphPlanRunner:
         *,
         replan: bool,
         run_id: str | None = None,
-        on_progress: Callable[[PlanStepName, int, int], None] | None = None,
+        run: _Run | None = None,
     ) -> PlanContext:
-        """A context for the latest build: ``first`` without a plan, else an update with no change reports,
-        which is a ``replan`` when the plan was made from an earlier build."""
+        """A context for the latest build: ``first`` without a plan; else an ``update`` with the change reports
+        since the plan's last consumed build, or a ``replan`` (on request, or when a report is missing). With ``run``
+        (a plan run, not a preview) the context reports its progress to it and a missing report is logged."""
 
         reads = await self._reads()
         info = await reads.plan_reader.plan(project_id)
-        stale = info is not None and info.last_build_id != build_id
+        changes: tuple[BuildChangeReport, ...] = ()
+        if info is not None and not replan:
+            found = await self._changes(project_id, info.last_build_id, build_id, log_missing=run is not None)
+            replan = found is None
+            changes = found or ()
         return PlanContext(
             project_id=project_id,
             ontology=ontology,
@@ -428,10 +439,41 @@ class GraphPlanRunner:
             gateway=gateway,
             store=self._plans(),
             build_id=build_id,
-            replan=info is not None and (replan or stale),
+            changes=changes,
+            replan=info is not None and replan,
             run_id=run_id,
-            on_progress=on_progress,
+            on_progress=run.report if run is not None else None,
         )
+
+    async def _changes(
+        self, project_id: str, last_build_id: str | None, build_id: str, *, log_missing: bool
+    ) -> tuple[BuildChangeReport, ...] | None:
+        """The plan-side change reports after ``last_build_id`` up to ``build_id`` (FR-GPLN-01); None when the
+        build store cannot give the whole chain, logged with its reason when ``log_missing``."""
+
+        reason: str | None
+        missing_build_id: str | None = None
+        reports: tuple[BuildChangeReport, ...] | None = None
+        if last_build_id is None:
+            reason = "no_last_build"
+        else:
+            chain = await reports_since(self._builds(), project_id, last_build_id, build_id)
+            reason, missing_build_id = chain.reason, chain.missing_build_id
+            if chain.complete:
+                reports = plan_change_reports(chain.links)
+                reason = None if reports is not None else "invalid_report"
+        if reports is None and log_missing:
+            log_event(
+                logger,
+                WARNING,
+                "api.plan.change_reports_missing",
+                project_id=project_id,
+                build_id=build_id,
+                last_build_id=last_build_id,
+                reason=reason,
+                missing_build_id=missing_build_id,
+            )
+        return reports
 
     async def _run(self, project_id: str, run: _Run) -> None:
         with Contained() as planned:  # a failed run is recorded and logged, never raised
@@ -464,28 +506,33 @@ class GraphPlanRunner:
         if latest_build is None:
             raise NoGraphBuildError(project_id)
         latest_run = await plans.latest_run(project_id)
-        resume = latest_run.run_id if latest_run is not None and not latest_run.finished else None
+        unfinished = latest_run if latest_run is not None and not latest_run.finished else None
+        resume = unfinished.run_id if unfinished is not None else None
+        # A resumed run keeps the build and the replan choice it started with (its record), so its later steps
+        # see the same change reports as its snapshot did.
+        build_id = unfinished.build_id if unfinished is not None else latest_build.build_id
         gateway = self._gateway_factory(self._llm)
         try:
             context = await self._context(
                 project_id,
-                latest_build.build_id,
+                build_id,
                 gateway,
                 ontology,
                 rules,
-                replan=run.replan,
+                replan=unfinished.replan if unfinished is not None else run.replan,
                 run_id=resume,
-                on_progress=run.report,
+                run=run,
             )
             log_event(
                 logger,
                 INFO,
                 "api.plan.started",
                 project_id=project_id,
-                build_id=latest_build.build_id,
+                build_id=build_id,
                 run_id=resume,
                 resumed=resume is not None,
                 replan=context.replan,
+                change_reports=len(context.changes),
             )
             result = await self._plan(context)
         finally:
