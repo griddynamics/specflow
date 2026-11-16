@@ -23,6 +23,11 @@ Per investigated site:
   which sees only the question, the witness quotes and the pointer line; the pointer is confirmed when the judge
   finds it entailed and consistent with confidence at least ``routing.gates.min_confidence`` (FR-GINV-07). A
   contradiction never gets a pointer.
+- A new gap that could be answered by AI (``route.ai_candidate``: ``minor``, a kind of ``routing.ai_kinds``, AI answers
+  on, a recommended option with a basis quote, the local gate holding) goes to the second check of an AI answer
+  (prompt ``AI_ANSWER_PROMPT``), which sees only the witness quotes, the recommended option's basis quotes and its
+  edits (answers.md "Gates"); the route step decides with its answer. A failed call is no answer: the gap is routed
+  ``ask`` (``ai_judge_failed``), never deferred.
 
 A rejected report gives the outcome ``not_a_gap`` with the failed checks (``rejected``); the record step logs them
 and caches the verdict, so the same inputs are not investigated again. A model failure in a repair or a judge call
@@ -33,8 +38,8 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Collection, Mapping, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Callable, Collection, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from typing import Any, Final
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -46,11 +51,13 @@ from graph.gap.identity import normalise_quote
 from graph.gap.models import Edit, GapReport, Quote, ReadResult, ReportOption, WitnessRef
 from graph.gap.names import SiteOutcome
 from graph.gap.ports import GapRecords
-from graph.gap.prompts import JUDGE_PROMPT, REPAIR_PROMPT, prompt_text
+from graph.gap.prompts import AI_ANSWER_PROMPT, JUDGE_PROMPT, REPAIR_PROMPT, prompt_text
+from graph.gap.rules import Gates
 from graph.gap.services.vector_similarity import cosine
 from graph.gap.settings import GapLimits
 from graph.gap.steps.investigate import FinalTurn, Investigated, report_of
 from graph.gap.steps.reads import GraphSiteReads, cut_items
+from graph.gap.steps.route import ai_candidate, recommended
 from graph.gap.steps.sites import Site
 from graph.gap.steps.snapshot import GraphSnapshot
 from logger.logger import WARNING, get_logger, log_event
@@ -433,24 +440,54 @@ def repair_messages(
     return [{"role": "system", "content": prompt_text("investigate")}, {"role": "user", "content": user}]
 
 
-def judge_messages(report: GapReport, found: ReadResult | None = None) -> list[dict[str, Any]]:
-    """The second check of a pointer: the question, the witness quotes and the pointer line, nothing else."""
-
-    blocks = [untrusted("question", report.question)]
-    blocks += [
+def _witness_blocks(report: GapReport) -> list[str]:
+    return [
         untrusted(f"witness {number} {ref.fragment_id}", str(ref.quote))
         for number, ref in enumerate((ref for ref in report.witness if ref.quote), start=1)
     ]
+
+
+def _judge_user(mode: str, blocks: list[str], found: ReadResult | None) -> str:
+    if found is not None:
+        items, _ = cut_items(found.items)
+        blocks.append(untrusted("retrieved lines", json.dumps(list(items), ensure_ascii=False, default=str)))
+    head = json.dumps({"mode": mode, "retrieved": found is not None}, sort_keys=True)
+    return "\n\n".join(["Check this answer (JSON, then data blocks).", head, *blocks])
+
+
+def judge_messages(report: GapReport, found: ReadResult | None = None) -> list[dict[str, Any]]:
+    """The second check of a pointer: the question, the witness quotes and the pointer line, nothing else."""
+
+    blocks = [untrusted("question", report.question), *_witness_blocks(report)]
     pointer = report.pointer
     if pointer is not None:
         blocks.append(untrusted(f"basis 1 {pointer.fragment_id}", pointer.quote))
         blocks.append(untrusted("answer", pointer.quote))
-    if found is not None:
-        items, _ = cut_items(found.items)
-        blocks.append(untrusted("retrieved lines", json.dumps(list(items), ensure_ascii=False, default=str)))
-    head = json.dumps({"mode": "pointer", "retrieved": found is not None}, sort_keys=True)
-    user = "\n\n".join(["Check this answer (JSON, then data blocks).", head, *blocks])
+    user = _judge_user("pointer", blocks, found)
     return [{"role": "system", "content": prompt_text("judge")}, {"role": "user", "content": user}]
+
+
+def ai_answer_messages(report: GapReport, found: ReadResult | None = None) -> list[dict[str, Any]]:
+    """The second check of an AI answer (investigation.md "Second check"): the question, the witness quotes, the
+    recommended option's basis quotes and its edits (placement, operation, text), nothing of the investigator's
+    reasoning, labels or details."""
+
+    option = recommended(report)
+    blocks = [untrusted("question", report.question), *_witness_blocks(report)]
+    if option is not None:
+        blocks += [
+            untrusted(f"basis {number} {item.fragment_id}", item.quote)
+            for number, item in enumerate(option.basis, start=1)
+        ]
+        blocks += [
+            untrusted(f"edit {number} {edit.placement} {edit.operation}", edit.text)
+            for number, edit in enumerate(option.edits, start=1)
+        ]
+    user = _judge_user("ai", blocks, found)
+    return [{"role": "system", "content": prompt_text("ai_answer")}, {"role": "user", "content": user}]
+
+
+JudgeMessages = Callable[[GapReport, ReadResult | None], list[dict[str, Any]]]
 
 
 @dataclass(frozen=True)
@@ -468,13 +505,18 @@ class CheckRun:
     min_confidence: float = 0.85
     signature: Any = None
     """``(site, report) -> str``: the report's gap signature (the record step's)."""
+    gates: Gates | None = None
+    """The routing gates; None asks no second check of an AI answer."""
+    ai_kinds: Collection[str] = ()
+    ai_answers: bool = False
 
 
 @dataclass(frozen=True)
 class Checked:
     """A site's outcome after the check, the checked report, warnings and the failed checks of a rejected report;
     ``gap_id`` names the gap a duplicate repeats; ``judge`` holds the second check of a pointer, ``pointer`` whether it
-    was confirmed."""
+    was confirmed; ``ai_judge`` holds the second check of an AI answer (``ai_judge_failed`` when its call failed);
+    ``new`` is false for a report that re-checks a gap in the graph."""
 
     outcome: SiteOutcome
     report: GapReport | None = None
@@ -483,6 +525,9 @@ class Checked:
     gap_id: str | None = None
     judge: Mapping[str, Any] | None = None
     pointer: bool = False
+    ai_judge: Mapping[str, Any] | None = None
+    ai_judge_failed: bool = False
+    new: bool = True
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -493,6 +538,9 @@ class Checked:
             "gap_id": self.gap_id,
             "judge": None if self.judge is None else dict(self.judge),
             "pointer": self.pointer,
+            "ai_judge": None if self.ai_judge is None else dict(self.ai_judge),
+            "ai_judge_failed": self.ai_judge_failed,
+            "new": self.new,
         }
 
     @classmethod
@@ -506,6 +554,9 @@ class Checked:
             gap_id=payload.get("gap_id"),
             judge=payload.get("judge"),
             pointer=bool(payload.get("pointer", False)),
+            ai_judge=payload.get("ai_judge"),
+            ai_judge_failed=bool(payload.get("ai_judge_failed", False)),
+            new=bool(payload.get("new", True)),
         )
 
 
@@ -572,20 +623,46 @@ class Checker:
             similar = await self._similar(site, report)
             if similar is not None:
                 return Checked("duplicate", report, warnings, gap_id=similar)
+        new = site.gap_id is None and signature not in self.by_signature
         if report.pointer is None or report.kind == "contradiction":
-            return Checked("gap", report, warnings)
+            return await self._ai_answer(Checked("gap", report, warnings, new=new))
         try:
             judge = await self._judge(report)
         except (LLMError, ValidationError) as error:
             return Checked("deferred", warnings=(*warnings, _code(error)))
         confirmed = judge.entailed and judge.consistent and judge.confidence >= self.run.min_confidence
-        return Checked(
+        checked = Checked(
             "gap",
             report,
             warnings if confirmed else (*warnings, "pointer_not_confirmed"),
             judge=judge.model_dump(mode="json"),
             pointer=confirmed,
+            new=new,
         )
+        return checked if confirmed else await self._ai_answer(checked)
+
+    async def _ai_answer(self, checked: Checked) -> Checked:
+        """The second check of an AI answer when the gap is an AI candidate (module docstring); else ``checked``."""
+
+        run, report = self.run, checked.report
+        if (
+            run.gates is None
+            or report is None
+            or not ai_candidate(
+                report,
+                run.snapshot,
+                gates=run.gates,
+                ai_kinds=run.ai_kinds,
+                ai_answers=run.ai_answers,
+                new=checked.new,
+            )
+        ):
+            return checked
+        try:
+            answer = await self._ask_judge(report, ai_answer_messages, AI_ANSWER_PROMPT)
+        except (LLMError, ValidationError) as error:
+            return replace(checked, warnings=(*checked.warnings, _code(error)), ai_judge_failed=True)
+        return replace(checked, ai_judge=answer.model_dump(mode="json"))
 
     async def _similar(self, site: Site, report: GapReport) -> str | None:
         """The open gap whose ``ABOUT`` overlaps and whose question reads the same (cosine at least
@@ -613,19 +690,24 @@ class Checker:
         return best[1] if best[0] >= DUPLICATE_COSINE else None
 
     async def _judge(self, report: GapReport) -> JudgeAnswer:
-        messages = judge_messages(report)
+        return await self._ask_judge(report, judge_messages, JUDGE_PROMPT)
+
+    async def _ask_judge(self, report: GapReport, build: JudgeMessages, prompt: str) -> JudgeAnswer:
+        """One second check, and once more with the lines of its one ``find_fragments`` read when it asks for one."""
+
+        messages = build(report, None)
         self.usage.add(JUDGE_ROLE, messages)
         answer: JudgeAnswer = await self.run.gateway.structured(
-            JUDGE_CALL_CLASS, None, messages, JudgeAnswer, prompt=JUDGE_PROMPT
+            JUDGE_CALL_CLASS, None, messages, JudgeAnswer, prompt=prompt
         )
         words = (answer.find_words or "").strip()
         if not words or self.run.reader is None:
             return answer
         found = await GraphSiteReads(self.run.reader, self.run.project_id, run_id=self.run.run_id).find_fragments(words)
-        messages = judge_messages(report, found)
+        messages = build(report, found)
         self.usage.add(JUDGE_ROLE, messages)
         final: JudgeAnswer = await self.run.gateway.structured(
-            JUDGE_CALL_CLASS, None, messages, JudgeAnswer, prompt=JUDGE_PROMPT
+            JUDGE_CALL_CLASS, None, messages, JudgeAnswer, prompt=prompt
         )
         return final.model_copy(update={"find_words": words})
 

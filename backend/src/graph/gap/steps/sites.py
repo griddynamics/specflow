@@ -65,9 +65,10 @@ RAISED_FACT: Final = "Raised question: {question}"
 @dataclass(frozen=True)
 class ExistingGap:
     """A gap already in the graph, as the run engine reads it: its signature, status, origin and ``ABOUT`` nodes. The
-    gaps on a site's nodes are part of its input hash, except open gaps of origin ``analysis``: those are what earlier
-    runs recorded from the same seeds, which the hash already holds (so a second run on an unchanged graph finds every
-    verdict cached, FR-GRUN-03). A seed with the gap's signature joins its site."""
+    gaps on a site's nodes are part of its input hash, except gaps of origin ``analysis`` in the state their run left
+    them: ``open``, or ``answered`` by the run's AI route. Those are what earlier runs recorded from the same seeds,
+    which the hash already holds (so a second run on an unchanged graph finds every verdict cached, FR-GRUN-03). A seed
+    with the gap's signature joins its site."""
 
     gap_id: str
     signature: str
@@ -80,12 +81,14 @@ class ExistingGap:
     seeds: tuple[str, ...] = ()
     """The signatures of the detector seeds that formed or re-checked the gap (``seed_signatures``): while the gap is
     not resolved, a site those seeds form joins it, as a seed with the gap's own signature does."""
+    route: str = "ask"
 
     @property
     def hashed(self) -> bool:
         """Whether the gap is an input of the input hash of the sites on its nodes."""
 
-        return not (self.status == "open" and self.origin == "analysis")
+        as_recorded = self.status == "open" or (self.status == "answered" and self.route == "ai")
+        return not (as_recorded and self.origin == "analysis")
 
 
 @dataclass(frozen=True)

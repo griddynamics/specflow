@@ -69,6 +69,7 @@ from graph.gap.steps.detect import Seed, detect
 from graph.gap.steps.reconciled import (
     ABSORBED,
     CONFLICT,
+    RECONCILE_REASONS,
     RECONCILE_STATE,
     FollowUpSpec,
     ReconciledOutcome,
@@ -98,6 +99,9 @@ BUILD_FACT_RULES: Final = frozenset({"refused_merge", "cycle"})
 """Detector rules that read the build's facts (dedup refusals, cycle cuts); only the build that made them lists them."""
 PAIR: Final = 2
 NO: Final = "no"
+WAITING_REASONS: Final = RECONCILE_REASONS | {"reverted"}
+"""Follow-ups that wait for a person and never become obsolete: reconcile's, and those of a reverted answer (the text
+a revert removes may still be in the graph until its build)."""
 
 
 @dataclass(frozen=True)
@@ -575,7 +579,7 @@ class Closer:
     # Open gaps
 
     async def _obsolete(self, gap: StoredGap) -> bool:
-        if continues(gap) is not None:  # a reconcile follow-up waits for a person, whatever the graph says
+        if continues(gap, WAITING_REASONS) is not None:  # a reconcile or revert follow-up waits for a person
             return False
         about = [spec_id for spec_id in gap.about_ids if spec_id in self.snapshot.nodes]
         cited = [cite for cite in gap.cites if holds(self.snapshot, cite.fragment_id, cite.quote)]

@@ -20,6 +20,13 @@ For each investigated site, by its checked outcome:
   with a ``Clarification`` (mode ``pointer``, placement ``none``, status ``applied``, answered by ``ai``, the pointer
   line as basis, the second check's confidence), ``ANSWERS`` to the gap and ``GROUNDED_IN`` the answering fragment,
   in the gap's transaction; no option, no amendment (FR-GINV-07, answers.md "Pointer answers").
+- An AI answer (route ``ai``, mode ``ai``; answers.md "AI answers", lifecycle.md "Gap transitions"): the gap is
+  written ``answered`` together with a ``Clarification`` (mode ``ai``, ``answered_by`` ``ai``, the recommended option's
+  label, basis quotes and edits' text, the second check's confidence, status ``pending``, placement by the edits),
+  ``ANSWERS`` and ``PLACED_IN`` each source document it amends, in the gap's transaction; its amendment rows
+  (``pending``) are written first through ``Amendments`` and deleted again when the graph write fails. The gap's options
+  are stored as for any gap (a revert gives them to a person). The host applies the answer with the next batch of the
+  quiet period, like a person's answer; it never applies at once.
 - ``duplicate``: the site row with the gap it repeats, and a ``duplicate`` event on that gap; nothing else is written
   (FR-GINV-06). A rejected report (outcome ``not_a_gap`` with failed checks): the site row and a ``report_rejected``
   event naming the checks. ``not_a_gap``, ``not_spec``: the site row only (the run lists a ``not_spec`` site's nodes in
@@ -44,9 +51,11 @@ from graph.core.errors import ConformanceError
 from graph.core.ontology import Ontology
 from graph.core.ontology.compiled import BUILD_OWNER
 from graph.core.writer import FRAGMENT, NodeRef, OwnedWriter
+from graph.gap.answers import AnswerGraph, ClarificationWrite, amendment_rows, clarification_props, place
+from graph.gap.answers import write_clarification as write_answer
 from graph.gap.gaps import StoredGap, answer_key, cite_key, clarification_uuid, gap_uuid, link_key, quote_hash
 from graph.gap.identity import clr_id, gap_id, gap_signature, normalise_quote, witness_entry
-from graph.gap.models import EventRow, GapReport, NoteRow, OptionRow, SiteRow, VerdictRow, Witness
+from graph.gap.models import AmendmentRow, EventRow, GapReport, NoteRow, OptionRow, SiteRow, VerdictRow, Witness
 from graph.gap.names import (
     ABOUT,
     AI_ACTOR,
@@ -62,9 +71,10 @@ from graph.gap.names import (
     ReportSeverity,
     SiteOutcome,
 )
-from graph.gap.ports import GapRecords
+from graph.gap.ports import Amendments, GapRecords
 from graph.gap.resolve import SpecRef, resolve_spec_ids
 from graph.gap.steps.investigate import primary_seed
+from graph.gap.steps.route import AI_MODE, recommended
 from graph.gap.steps.sites import RAISED_ORIGINS, Site
 from graph.gap.steps.snapshot import GraphSnapshot
 from logger.logger import INFO, get_logger, log_event
@@ -74,6 +84,7 @@ logger = get_logger(__name__)
 ORIGIN: Final = "analysis"
 OPEN: Final = "open"
 RESOLVED: Final = "resolved"
+ANSWERED: Final = "answered"
 POINTER: Final = "pointer"
 NOT_BLOCKING: Final = "no"
 YES: Final = "yes"
@@ -95,6 +106,9 @@ class SiteDecision:
     gap_id: str | None = None
     rejected: tuple[str, ...] = ()
     judge: Mapping[str, Any] | None = None
+    gates: Mapping[str, bool] = field(default_factory=dict)
+    confidence: float | None = None
+    """The second check's confidence of an AI answer (route step)."""
 
 
 @dataclass(frozen=True)
@@ -112,6 +126,8 @@ class RecordRun:
     prompt_version: str = ""
     database: str | None = None
     build_id: str | None = None
+    amendments: Amendments | None = None
+    """Where an AI answer's amendment rows go; without it a gap routed ``ai`` is recorded as a question (``ask``)."""
 
 
 @dataclass
@@ -125,6 +141,7 @@ class RecordOutcome:
     notes: int = 0
     skipped_nodes: int = 0
     pointers: int = 0
+    ai_answered: int = 0
     held_back: int = 0
     rejected: int = 0
     not_spec: dict[str, tuple[str, ...]] = field(default_factory=dict)
@@ -138,6 +155,7 @@ class RecordOutcome:
             "notes": self.notes,
             "skipped_nodes": self.skipped_nodes,
             "pointers": self.pointers,
+            "ai_answered": self.ai_answered,
             "held_back": self.held_back,
             "rejected": self.rejected,
             "not_spec": {site_id: list(ids) for site_id, ids in sorted(self.not_spec.items())},
@@ -384,24 +402,70 @@ class Recorder:
             return "deferred", None
         new_id = gap_id(signature, self.taken)
         instant = run.now()
-        now = instant.isoformat(timespec="milliseconds")
-        severity = decision.severity or "major"
         pointer = decision.mode == POINTER and report.pointer is not None
+        option = recommended(report)
+        ai = decision.mode == AI_MODE and option is not None and bool(option.edits) and run.amendments is not None
+        props = self._props(decision, report, signature, new_id, instant, pointer=pointer, ai=ai)
+        answer = self._ai_answer(StoredGap(gap_id=new_id, props=props), report, decision, instant) if ai else None
+        owner = NodeRef(GAP, gap_uuid(run.project_id, new_id))
+        clarification: str | None = None
+        if answer is not None and answer.rows and run.amendments is not None:
+            await run.amendments.put(run.project_id, answer.rows)
+        try:
+            async with self._writer().transaction() as tx:
+                await tx.upsert_node(GAP, owner.key, props)
+                await self._links(tx, owner, new_id, ABOUT, nodes=about, keys=set())
+                await self._links(tx, owner, new_id, IMPACTS, nodes=impacts, keys=set())
+                await self._cites(tx, owner, new_id, quotes, set())
+                if pointer:
+                    clarification = await self._pointer(
+                        tx, owner, new_id, decision=decision, report=report, instant=instant
+                    )
+                if answer is not None:
+                    await write_answer(tx, run.project_id, answer.write)
+        except BaseException:
+            if answer is not None and answer.rows and run.amendments is not None:
+                await run.amendments.delete(run.project_id, [row.amendment_id for row in answer.rows])
+            raise
+        self.taken[new_id] = signature
+        stored = StoredGap(gap_id=new_id, props=props)
+        self.by_id[new_id] = stored
+        self.by_signature[signature] = stored
+        counts = {"about": len(about), "impacts": len(impacts), "cites": len(quotes)}
+        self._created(decision, report, stored, counts, pointer=clarification, answer=answer)
+        return "gap", new_id
+
+    def _props(
+        self,
+        decision: SiteDecision,
+        report: GapReport,
+        signature: str,
+        new_id: str,
+        instant: datetime,
+        *,
+        pointer: bool,
+        ai: bool,
+    ) -> dict[str, Any]:
+        """The properties of a new gap: ``open``, ``resolved`` by a pointer, or ``answered`` by AI (route ``ai``); a
+        gap routed ``ai`` that cannot be answered (no amendments port) is a question (route ``ask``)."""
+
+        now = instant.isoformat(timespec="milliseconds")
+        detector = primary_seed(decision.site.seeds).detector
         props: dict[str, Any] = {
             "gap_id": new_id,
             "kind": report.kind,
-            "severity": severity,
-            "status": RESOLVED if pointer else OPEN,
+            "severity": decision.severity or "major",
+            "status": RESOLVED if pointer else ANSWERED if ai else OPEN,
             "origin": ORIGIN,
-            "route": decision.route,
+            "route": "ask" if decision.mode == AI_MODE and not ai else decision.route,
             "title": report.title,
             "question": report.question,
             "why": report.why,
-            "detector": primary_seed(decision.site.seeds).detector,
+            "detector": detector,
             "signature": signature,
-            "seed_signatures": seed_signatures(decision.site, primary_seed(decision.site.seeds).detector),
+            "seed_signatures": seed_signatures(decision.site, detector),
             "blocking": NOT_BLOCKING,
-            "run_id": run.run_id,
+            "run_id": self.run.run_id,
             "created_by": RUN_ACTOR,
             "created_at": now,
             "updated_at": now,
@@ -409,60 +473,95 @@ class Recorder:
         }
         if pointer:
             props |= {"resolution": POINTER, "resolved_at": now}
-        owner = NodeRef(GAP, gap_uuid(run.project_id, new_id))
-        clarification: str | None = None
-        async with self._writer().transaction() as tx:
-            await tx.upsert_node(GAP, owner.key, props)
-            await self._links(tx, owner, new_id, ABOUT, nodes=about, keys=set())
-            await self._links(tx, owner, new_id, IMPACTS, nodes=impacts, keys=set())
-            await self._cites(tx, owner, new_id, quotes, set())
-            if pointer:
-                clarification = await self._pointer(
-                    tx, owner, new_id, decision=decision, report=report, instant=instant
-                )
-        self.taken[new_id] = signature
-        stored = StoredGap(gap_id=new_id, props=props)
-        self.by_id[new_id] = stored
-        self.by_signature[signature] = stored
+        return props
+
+    def _created(
+        self,
+        decision: SiteDecision,
+        report: GapReport,
+        gap: StoredGap,
+        counts: Mapping[str, int],
+        *,
+        pointer: str | None,
+        answer: _AiAnswer | None,
+    ) -> None:
+        """The metrics, events and option rows of a new gap."""
+
+        run, new_id = self.run, gap.gap_id
+        route, severity = str(gap.props["route"]), str(gap.props["severity"])
         self.outcome.gaps_new[(str(report.kind), severity)] += 1
-        self.outcome.routes[str(decision.route)] += 1
+        self.outcome.routes[route] += 1
         self._event(
             new_id,
             "created",
             site_id=decision.site.site_id,
             kind=report.kind,
             severity=severity,
-            route=decision.route,
-            about=len(about),
-            impacts=len(impacts),
-            cites=len(quotes),
-            options=0 if pointer else len(report.options),
+            route=route,
+            **counts,
+            options=0 if pointer is not None else len(report.options),
         )
-        self._event(
-            new_id,
-            "routed",
-            route=decision.route,
-            mode=decision.mode,
-            reasons=list(decision.reasons),
-            held_back=decision.held_back,
-        )
-        if pointer:
+        kept = route == decision.route
+        routed: dict[str, Any] = {
+            "route": route,
+            "mode": decision.mode if kept else None,
+            "reasons": list(decision.reasons) if kept else ["amendments_unavailable"],
+            "held_back": decision.held_back,
+        }
+        if decision.gates:  # every gate result, so a person sees why AI answered or why not (answers.md "Gates")
+            routed["gates"] = dict(decision.gates)
+            routed["confidence"] = decision.confidence
+        self._event(new_id, "routed", **routed)
+        answered: tuple[str, dict[str, Any]] | None = None
+        if answer is not None:
+            self.outcome.ai_answered += 1
+            detail = {"mode": AI_MODE, "placement": answer.write.props["placement"], "amendments": len(answer.rows)}
+            answered = (answer.write.clr_id, detail)
+        elif pointer is not None:
             self.outcome.pointers += 1
+            answered = (pointer, {"mode": POINTER})
+        if answered is not None:
             self.events.append(
                 EventRow(
                     gap_id=new_id,
-                    clr_id=clarification,
+                    clr_id=answered[0],
                     at=run.now(),
                     actor=AI_ACTOR,
                     event="answered",
-                    detail={"run_id": run.run_id, "mode": POINTER},
+                    detail={"run_id": run.run_id, **answered[1]},
                 )
             )
-        elif report.options:
+        if pointer is None and report.options:
             self.options[new_id] = self._option_rows(new_id, report)
         if decision.held_back:
             self.outcome.held_back += 1
-        return "gap", new_id
+
+    def _ai_answer(
+        self, gap: StoredGap, report: GapReport, decision: SiteDecision, instant: datetime
+    ) -> _AiAnswer | None:
+        """The clarification and amendment rows of an AI answer: the recommended option's edits, placed as for a
+        person's answer (answers.md "Placement rules"), ``pending`` until the host applies them."""
+
+        option = recommended(report)
+        if option is None or not option.edits:
+            return None
+        edits, placement = place(gap, option.edits, None)
+        body = "\n\n".join(edit.text for edit in edits)
+        clr = clr_id(gap.gap_id, body, instant)
+        rows = amendment_rows(AnswerGraph(gap, self.snapshot), clr, edits, instant)
+        props = clarification_props(
+            clr,
+            mode=AI_MODE,
+            placement=placement,
+            option_label=option.label,
+            text=body,
+            answered_by=AI_ACTOR,
+            answered_at=instant,
+        )
+        props["basis"] = json.dumps([item.model_dump(mode="json") for item in option.basis], ensure_ascii=False)
+        props["confidence"] = decision.confidence
+        lineages = tuple(sorted({row.lineage for row in rows}))
+        return _AiAnswer(ClarificationWrite(clr, gap, props, lineages), rows)
 
     async def _pointer(
         self, tx: OwnedWriter, owner: NodeRef, gap: str, *, decision: SiteDecision, report: GapReport, instant: datetime
@@ -578,6 +677,14 @@ class Recorder:
 
     def _writer(self) -> OwnedWriter:
         return OwnedWriter(self.run.source, self.run.ontology, OWNER, self.run.project_id, database=self.run.database)
+
+
+@dataclass(frozen=True)
+class _AiAnswer:
+    """An AI answer as the record step writes it: the clarification and its ``pending`` amendment rows."""
+
+    write: ClarificationWrite
+    rows: tuple[AmendmentRow, ...]
 
 
 def seed_signatures(site: Site, detector: str) -> list[str]:

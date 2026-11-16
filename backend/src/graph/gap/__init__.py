@@ -35,6 +35,8 @@ from graph.gap.identity import (
 )
 from graph.gap.models import (
     AddedFinding,
+    AiAnswer,
+    AiAnswerList,
     AmendmentAnchor,
     AmendmentResult,
     AmendmentRow,
@@ -82,6 +84,7 @@ from graph.gap.models import (
     RefusedPair,
     RelevanceRow,
     ReportOption,
+    RevertResult,
     RunRow,
     SectionKey,
     SectionPreview,
@@ -140,6 +143,8 @@ __all__ = [
     "BLOCK_REASONS",
     "RUN_STEPS",
     "AddedFinding",
+    "AiAnswer",
+    "AiAnswerList",
     "AmendmentAnchor",
     "AmendmentResult",
     "AmendmentRow",
@@ -228,6 +233,7 @@ __all__ = [
     "RelevanceRow",
     "RelevanceRules",
     "ReportOption",
+    "RevertResult",
     "RoutingRules",
     "RunRow",
     "SectionKey",

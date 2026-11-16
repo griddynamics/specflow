@@ -1,5 +1,5 @@
-"""Step ``route``: severity and who answers (docs/graph/gap/answers.md "Severity", "Routing", "The question card";
-FR-GRTE-01, FR-GRTE-02, FR-GRTE-04, FR-GRTE-06).
+"""Step ``route``: severity and who answers (docs/graph/gap/answers.md "Severity", "Routing", "Gates", "The valve",
+"The question card"; FR-GRTE-01 to FR-GRTE-06).
 
 Routing is code: the model only proposes a severity and the evidence (FR-GRTE-01). The severity rules, in order, on the
 severity the report proposes (``severity_of``):
@@ -12,9 +12,24 @@ severity the report proposes (``severity_of``):
 
 The route (``route_report``): ``info`` is a ``gap_note`` (no route, no node, FR-GRTE-04); a confirmed pointer (the
 second check found that a stated line answers the gap) is ``ai`` with mode ``pointer`` for every kind but
-``contradiction`` when AI answers are on; ``blocker`` and ``major`` are ``ask`` (FR-GRTE-02); so is every other gap
-until the AI branch (gates, valve) is built. ``ai_answerable`` from the report is advisory and never decides. The
-reasons of each route are kept for the gap's ``routed`` event.
+``contradiction`` when AI answers are on; ``blocker`` and ``major`` are ``ask`` (FR-GRTE-02). A ``minor`` gap is
+``ai`` with mode ``ai`` only when it is a new gap of origin ``analysis``, its kind is in ``routing.ai_kinds``
+(never ``contradiction``, ``open_question`` or ``assumption``), AI answers are on and every gate holds (FR-GRTE-03):
+
+- entailed: the recommended option has a basis quote (the check step kept only quotes found in their fragment) and the
+  second check (``gap_judge``, prompt ``AI_ANSWER_PROMPT``) found its edits entailed;
+- local: the ``ABOUT`` and ``IMPACTS`` nodes number at most ``gates.local_max_nodes`` and reach at most
+  ``gates.local_max_areas`` spine owners (work areas or owning modules);
+- consistent: the second check found no line that says otherwise;
+- confident: the second check's confidence is at least ``gates.min_confidence``.
+
+``ai_answerable`` from the report is advisory and never decides. The reasons of each route and every gate result are
+kept for the gap's ``routed`` event.
+
+The valve (``apply_valve``, FR-GRTE-05): the run's ``ai`` gaps are taken in rank order (rank score, then site id);
+before each, when the run already has ``limits.ai_answers_per_run`` AI answers or the nodes its AI answers touch
+(``ABOUT`` and ``IMPACTS``) are already ``limits.ai_answers_max_node_share`` of the project's spec nodes, the gap is
+routed ``ask`` with the reason ``ai_limit``. Pointers decide nothing new and are not counted.
 
 The new ``ask`` gaps of a run beyond ``limits.new_questions_per_run`` are held back from the inbox's default view
 until the next run (``hold_back``): ranked by severity, then reach (plan tasks behind the site), then the site's rank
@@ -23,30 +38,38 @@ score (FR-GRTE-06).
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping
-from dataclasses import dataclass
-from typing import Final, Literal
+from collections.abc import Collection, Mapping, Sequence
+from dataclasses import dataclass, field, replace
+from typing import Any, Final, Literal
 
-from graph.gap.models import GapReport
+from graph.gap.models import GapReport, ReportOption
 from graph.gap.names import GapRoute, ReportSeverity
+from graph.gap.rules import Gates
 from graph.gap.steps.snapshot import GraphSnapshot
 
 INFO: Final = "info"
 ASK: Final[GapRoute] = "ask"
 AI: Final[GapRoute] = "ai"
 POINTER: Final = "pointer"
+AI_MODE: Final = "ai"
+ANALYSIS: Final = "analysis"
+AI_LIMIT: Final = "ai_limit"
+"""The reason of a gap the valve routed ``ask`` ("AI answer limit reached")."""
+GATES: Final = ("entailed", "local", "consistent", "confident")
 _RANK: Final[dict[str, int]] = {"info": 0, "minor": 1, "major": 2, "blocker": 3}
 
 
 @dataclass(frozen=True)
 class Routed:
     """A checked gap's severity, route and why; ``route`` is None for an ``info`` note, ``mode`` ``pointer`` for a
-    pointer answer."""
+    pointer answer and ``ai`` for an AI answer; ``gates`` holds each gate's result when the gates were looked at."""
 
     severity: ReportSeverity
     route: GapRoute | None
-    mode: Literal["pointer"] | None = None
+    mode: Literal["pointer", "ai"] | None = None
     reasons: tuple[str, ...] = ()
+    gates: Mapping[str, bool] = field(default_factory=dict)
+    confidence: float | None = None
 
 
 def severity_of(report: GapReport, snapshot: GraphSnapshot, *, planned: Collection[str] | None) -> ReportSeverity:
@@ -66,31 +89,158 @@ def severity_of(report: GapReport, snapshot: GraphSnapshot, *, planned: Collecti
     return proposed
 
 
-def route_report(
+def recommended(report: GapReport) -> ReportOption | None:
+    """The report's recommended option, or None."""
+
+    return next((option for option in report.options if option.recommended), None)
+
+
+def touched(report: GapReport) -> frozenset[str]:
+    """The spec ids an answer to the gap touches: its ``ABOUT`` and ``IMPACTS`` nodes."""
+
+    return frozenset({*report.about, *report.impacts})
+
+
+def local(report: GapReport, snapshot: GraphSnapshot, gates: Gates) -> bool:
+    """The local gate: at most ``local_max_nodes`` nodes and at most ``local_max_areas`` spine owners among them."""
+
+    nodes = touched(report)
+    if len(nodes) > gates.local_max_nodes:
+        return False
+    areas = {owner for spec_id in nodes for owner in snapshot.spine_owners(spec_id)}
+    return len(areas) <= gates.local_max_areas
+
+
+def ai_candidate(
     report: GapReport,
     snapshot: GraphSnapshot,
     *,
-    planned: Collection[str] | None = None,
-    pointer: bool = False,
-    ai_answers: bool = True,
-    ai_kinds: Collection[str] = (),
-) -> Routed:
-    """The severity and route of a checked gap report (module docstring)."""
+    gates: Gates,
+    ai_kinds: Collection[str],
+    ai_answers: bool,
+    new: bool,
+) -> bool:
+    """Whether the second check of an AI answer is worth a call: a new ``minor`` gap of an AI kind, AI answers on, a
+    recommended option with a basis quote, and the local gate holding. Code routes it afterwards (``route_report``)."""
 
-    severity = severity_of(report, snapshot, planned=planned)
+    option = recommended(report)
+    return (
+        ai_answers
+        and new
+        and report.severity == "minor"
+        and report.kind in ai_kinds
+        and option is not None
+        and bool(option.basis)
+        and local(report, snapshot, gates)
+    )
+
+
+def gate_results(
+    report: GapReport, snapshot: GraphSnapshot, gates: Gates, judge: Mapping[str, Any] | None
+) -> dict[str, bool]:
+    """Each gate of answers.md "Gates" for the report and the second check's answer (all false without one)."""
+
+    option = recommended(report)
+    found = judge or {}
+    confidence = found.get("confidence")
+    return {
+        "entailed": option is not None and bool(option.basis) and found.get("entailed") is True,
+        "local": local(report, snapshot, gates),
+        "consistent": found.get("consistent") is True,
+        "confident": isinstance(confidence, int | float) and float(confidence) >= gates.min_confidence,
+    }
+
+
+@dataclass(frozen=True)
+class RouteInputs:
+    """What decides the route besides the report: the plan, the pointer check, the switches and the AI second check."""
+
+    planned: Collection[str] | None = None
+    pointer: bool = False
+    ai_answers: bool = True
+    ai_kinds: Collection[str] = ()
+    gates: Gates | None = None
+    judge: Mapping[str, Any] | None = None
+    """The second check of the AI answer (``JudgeAnswer`` as JSON), None when it was not asked."""
+    judge_failed: bool = False
+    origin: str = ANALYSIS
+    new: bool = True
+
+
+def route_report(
+    report: GapReport,
+    snapshot: GraphSnapshot,
+    inputs: RouteInputs | None = None,
+    **fields: Any,
+) -> Routed:
+    """The severity and route of a checked gap report (module docstring); ``fields`` set ``RouteInputs`` fields."""
+
+    given = replace(inputs or RouteInputs(), **fields)
+    severity = severity_of(report, snapshot, planned=given.planned)
     if severity == INFO:
         return Routed(severity, None, reasons=("info",))
-    if pointer and report.kind != "contradiction" and ai_answers:
+    if given.pointer and report.kind != "contradiction" and given.ai_answers:
         return Routed(severity, AI, POINTER, ("pointer_confirmed",))
-    reasons: list[str] = []
-    if severity in ("blocker", "major"):
-        reasons.append("severity")
-    if report.kind not in ai_kinds:
-        reasons.append("kind")
-    if not ai_answers:
-        reasons.append("ai_answers_off")
-    reasons.append("ai_branch_off")
-    return Routed(severity, ASK, reasons=tuple(reasons))
+    reasons = _ask_reasons(report, severity, given)
+    if given.gates is None:
+        return Routed(severity, ASK, reasons=(*reasons, "gates_off"))
+    gates = gate_results(report, snapshot, given.gates, given.judge)
+    confidence = (given.judge or {}).get("confidence")
+    score = float(confidence) if isinstance(confidence, int | float) else None
+    if given.judge_failed:
+        reasons.append("judge_failed")
+    reasons += [f"gate_{name}" for name in GATES if not gates[name]]
+    if reasons:
+        return Routed(severity, ASK, reasons=tuple(reasons), gates=gates, confidence=score)
+    return Routed(severity, AI, AI_MODE, ("gates_hold",), gates=gates, confidence=score)
+
+
+def _ask_reasons(report: GapReport, severity: ReportSeverity, given: RouteInputs) -> list[str]:
+    """The rules of answers.md "Routing" before the gates that send a gap to a person."""
+
+    checks = (
+        (severity in ("blocker", "major"), "severity"),
+        (report.kind not in given.ai_kinds, "kind"),
+        (given.origin != ANALYSIS, "origin"),
+        (not given.new, "existing"),
+        (not given.ai_answers, "ai_answers_off"),
+    )
+    return [reason for failed, reason in checks if failed]
+
+
+@dataclass(frozen=True)
+class ValveItem:
+    """An ``ai`` gap of the run and what orders it under the valve."""
+
+    site_id: str
+    rank_score: float
+    nodes: frozenset[str]
+
+
+def apply_valve(
+    decided: Mapping[str, Routed],
+    items: Sequence[ValveItem],
+    *,
+    limit: int,
+    max_share: float,
+    spec_nodes: int,
+) -> dict[str, Routed]:
+    """The decisions with the ``ai`` gaps over the valve routed ``ask`` (reason ``ai_limit``); module docstring."""
+
+    found = dict(decided)
+    answered = 0
+    nodes: set[str] = set()
+    for item in sorted(items, key=lambda entry: (-entry.rank_score, entry.site_id)):
+        routed = found.get(item.site_id)
+        if routed is None or routed.route != AI or routed.mode != AI_MODE:
+            continue
+        share = len(nodes) / spec_nodes if spec_nodes else 1.0
+        if answered >= limit or share >= max_share:
+            found[item.site_id] = replace(routed, route=ASK, mode=None, reasons=(AI_LIMIT,))
+            continue
+        answered += 1
+        nodes |= item.nodes
+    return found
 
 
 @dataclass(frozen=True)
@@ -116,5 +266,7 @@ def routed_payload(routed: Routed, *, held_back: bool) -> Mapping[str, object]:
         "route": routed.route,
         "mode": routed.mode,
         "reasons": list(routed.reasons),
+        "gates": dict(routed.gates),
+        "confidence": routed.confidence,
         "held_back": held_back,
     }

@@ -21,11 +21,13 @@ leave the run resumable.
 
 Investigation (investigation.md): ``investigate`` builds each site's context pack and read menu and calls
 ``ctx.investigator`` (the structured loop ``LoopInvestigator`` by default); ``check`` validates every report, finds
-duplicates and runs the second check of pointers; ``route`` decides severity and route and holds back new questions
-beyond the run's limit; ``record`` writes gaps, options and pointer clarifications. A ``not_spec`` report turns the
+duplicates and runs the second check of pointers and AI answers; ``route`` decides severity and route (the gates and
+the valve of AI answers) and holds back new questions beyond the run's limit; ``record`` writes gaps, options, pointer
+clarifications and AI answers (a ``pending`` clarification of mode ``ai`` with its amendment rows, applied like a
+person's answer by the host's quiet period). A ``not_spec`` report turns the
 sections of its nodes ``mixed`` and lists the nodes in the run's noise report (FR-GREL-07). ``close`` is the close
 check of applied answers, obsolete gaps and stale witnesses (``steps.close``, lifecycle.md "Close check"); the follow-up
-gaps it opens get a site in the same run. The AI route (gates, valve) comes with session 11.
+gaps it opens get a site in the same run.
 """
 
 from __future__ import annotations
@@ -55,7 +57,7 @@ from graph.gap.models import (
     Witness,
 )
 from graph.gap.names import GATEWAY_ROLES, RunMode
-from graph.gap.prompts import INVESTIGATE_PROMPT, JUDGE_PROMPT, RELEVANCE_PROMPT
+from graph.gap.prompts import AI_ANSWER_PROMPT, INVESTIGATE_PROMPT, JUDGE_PROMPT, RELEVANCE_PROMPT
 from graph.gap.run_store import GapRunRecord, GapRunStore
 from graph.gap.settings import GapLimits
 from graph.gap.steps.check import Checked, Checker, CheckRun
@@ -74,7 +76,16 @@ from graph.gap.steps.relevance import (
     mark_not_spec,
     noise_report,
 )
-from graph.gap.steps.route import Candidate, hold_back, route_report, routed_payload
+from graph.gap.steps.route import (
+    Candidate,
+    RouteInputs,
+    ValveItem,
+    apply_valve,
+    hold_back,
+    route_report,
+    routed_payload,
+    touched,
+)
 from graph.gap.steps.scope import scope
 from graph.gap.steps.sites import ExistingGap, Site, SiteRun, SitesOutcome, form_sites
 from graph.gap.steps.snapshot import GraphSnapshot, read_snapshot
@@ -113,7 +124,7 @@ def prompt_versions(ctx: GapContext) -> dict[str, str]:
     return {
         RELEVANCE_ROLE: RELEVANCE_PROMPT,
         INVESTIGATE_ROLE: str(version or INVESTIGATE_PROMPT),
-        JUDGE_ROLE: JUDGE_PROMPT,
+        JUDGE_ROLE: f"{JUDGE_PROMPT}+{AI_ANSWER_PROMPT}",
     }
 
 
@@ -460,6 +471,9 @@ class _Run:
                 gaps=await self.gaps(),
                 min_confidence=self.ctx.rules.routing.gates.min_confidence,
                 signature=report_signature,
+                gates=self.ctx.rules.routing.gates,
+                ai_kinds=self.ctx.rules.routing.ai_kinds,
+                ai_answers=self.ctx.settings.ai_answers,
             )
         )
         checked: Payload = {}
@@ -489,24 +503,42 @@ class _Run:
         snapshot = await self.snapshot()
         known = {gap.signature for gap in await self.gaps() if gap.signature}
         sites = {site.site_id: site for site in await self.investigated()}
+        routing = self.ctx.rules.routing
+        inputs = RouteInputs(
+            planned=planned, ai_answers=self.ctx.settings.ai_answers, ai_kinds=routing.ai_kinds, gates=routing.gates
+        )
         decided = {}
-        candidates: list[Candidate] = []
+        new: dict[str, bool] = {}
         for site_id, item in checked.items():
             if item.outcome != "gap" or item.report is None:
                 continue
-            decision = route_report(
+            site = sites[site_id]
+            new[site_id] = site.gap_id is None and report_signature(site, item.report) not in known
+            decided[site_id] = route_report(
                 item.report,
                 snapshot,
-                planned=planned,
+                inputs,
                 pointer=item.pointer,
-                ai_answers=self.ctx.settings.ai_answers,
-                ai_kinds=self.ctx.rules.routing.ai_kinds,
+                judge=item.ai_judge,
+                judge_failed=item.ai_judge_failed,
+                new=new[site_id] and item.new,
             )
-            decided[site_id] = decision
-            site = sites[site_id]
-            new = site.gap_id is None and report_signature(site, item.report) not in known
-            if decision.route == "ask" and new:
-                candidates.append(Candidate(site_id, decision.severity, site.reach, site.rank_score))
+        decided = apply_valve(
+            decided,
+            [
+                ValveItem(site_id, sites[site_id].rank_score, touched(item.report))
+                for site_id, item in checked.items()
+                if site_id in decided and item.report is not None
+            ],
+            limit=self.limits.ai_answers_per_run,
+            max_share=self.limits.ai_answers_max_node_share,
+            spec_nodes=len(snapshot.nodes),
+        )
+        candidates = [
+            Candidate(site_id, decision.severity, sites[site_id].reach, sites[site_id].rank_score)
+            for site_id, decision in decided.items()
+            if decision.route == "ask" and new[site_id]
+        ]
         held = hold_back(candidates, self.limits.new_questions_per_run)
         routed: Payload = {
             site_id: dict(routed_payload(decision, held_back=site_id in held)) for site_id, decision in decided.items()
@@ -532,7 +564,9 @@ class _Run:
                     held_back=bool(decided.get("held_back", False)),
                     gap_id=item.gap_id,
                     rejected=item.rejected,
-                    judge=item.judge,
+                    judge=item.ai_judge if decided.get("mode") == "ai" else item.judge,
+                    gates=dict(decided.get("gates") or {}),
+                    confidence=decided.get("confidence"),
                 )
             )
         outcome = await record_sites(
@@ -547,6 +581,7 @@ class _Run:
                 model=self.versions[INVESTIGATE_ROLE],
                 prompt_version=self.versions[INVESTIGATE_ROLE],
                 build_id=self.record.build_id,
+                amendments=self.ctx.amendments,
             ),
             await self.snapshot(),
             await self.gaps(),
@@ -611,6 +646,7 @@ class _Run:
             "gaps_updated": counted(recorded["gaps_updated"]),
             "routes": {"ask": recorded["routes"].get("ask", 0), "ai": recorded["routes"].get("ai", 0)},
             "pointers": int(recorded.get("pointers", 0)),
+            "ai_answered": int(recorded.get("ai_answered", 0)),
             "held_back": int(recorded.get("held_back", 0)),
             "rejected": int(recorded.get("rejected", 0)),
             "notes": int(sites["counts"].get("notes", 0)) + int(recorded["notes"]),
@@ -926,4 +962,5 @@ def existing_gap(gap: StoredGap) -> ExistingGap:
             for cite in gap.cites
         ),
         seeds=tuple(str(item) for item in gap.props.get("seed_signatures") or ()),
+        route=str(gap.props.get("route") or "ask"),
     )

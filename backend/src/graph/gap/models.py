@@ -675,6 +675,36 @@ class ApplyResult(GapModel):
     build: str | None = None
 
 
+class AiAnswer(GapModel):
+    """One row of the review list "Answered by AI" (answers.md "Review list"): a clarification of mode ``ai`` or
+    ``pointer`` with its gap's title, question and status, and the follow-up gap a revert opened."""
+
+    gap_id: str
+    title: str = ""
+    question: str = ""
+    gap_status: GapStatus
+    clarification: ClarificationView
+    follow_up: str | None = None
+
+
+class AiAnswerList(GapModel):
+    """What ``GapService.ai_answers`` returns: AI and pointer answers, newest first."""
+
+    answers: tuple[AiAnswer, ...] = ()
+
+
+class RevertResult(GapModel):
+    """What ``revert_clarification`` returns: the reverted clarification, the gap a person answers next (the
+    follow-up of a resolved gap, or the gap itself back ``open``), the amendments reverted and the build request's
+    answer (None when no text left the corpus)."""
+
+    clr_id: str
+    gap_id: str
+    follow_up: bool
+    amendments: tuple[str, ...] = ()
+    build: str | None = None
+
+
 class SectionPreview(GapModel):
     """One edit of a preview: where it goes (fragment and document lineage, or the clarifications document), the
     section's heading path, its current text and its text after the edit."""

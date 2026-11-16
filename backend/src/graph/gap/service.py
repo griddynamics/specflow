@@ -25,7 +25,7 @@ import binascii
 import json
 import re
 from collections import defaultdict
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final, TypedDict, Unpack, get_args
@@ -79,6 +79,8 @@ from graph.gap.gaps import (
 )
 from graph.gap.identity import clr_id, development_signature, gap_id, normalise_quote, person_signature
 from graph.gap.models import (
+    AiAnswer,
+    AiAnswerList,
     AnswerInput,
     AnswerResult,
     ApplyResult,
@@ -98,13 +100,16 @@ from graph.gap.models import (
     Quote,
     RaisedGap,
     Reach,
+    RevertResult,
     SuppressionRow,
     WitnessView,
 )
 from graph.gap.names import (
     ABOUT,
+    AI_ACTOR,
     CITES,
     CLARIFICATION,
+    FOLLOWS_UP,
     GAP,
     GRAPH_STATUSES,
     GROUNDED_IN,
@@ -123,6 +128,7 @@ from graph.gap.ports import Amendments, BuildRequests, GapRecords, Investigator,
 from graph.gap.resolve import resolve_spec_ids
 from graph.gap.rules import GapRules
 from graph.gap.settings import GapSettings
+from graph.gap.steps.close import follow_up_signature
 from logger.logger import INFO, WARNING, get_logger, log_event
 
 logger = get_logger(__name__)
@@ -146,6 +152,12 @@ TITLE_CHARS: Final = 160
 ABOUT_MAX: Final = 20
 NOISE_VALUE_CHARS: Final = (1, 500)
 APPLY_REASON: Final = "gap_answers"
+REVERT_REASON: Final = "gap_revert"
+REVERTED: Final = "reverted"
+REVIEWED_MODES: Final = frozenset({"ai", "pointer"})
+REVERTIBLE: Final = ("pending", "applied", "absorbed")
+IN_CORPUS_ROWS: Final = frozenset({"active", "undecided"})
+"""Amendment statuses whose text the build reads: a revert of one of them needs an update build."""
 
 Position = tuple[int, int, str]
 
@@ -203,33 +215,37 @@ def _held_back(gap: StoredGap) -> bool:
     return gap.props.get("held_back") == YES
 
 
+def clarification_view(props: Mapping[str, Any]) -> ClarificationView | None:
+    """A stored clarification as reads return it, None when its properties do not read."""
+
+    basis = props.get("basis")
+    try:
+        loaded = json.loads(basis) if isinstance(basis, str) else basis or ()
+        return ClarificationView(
+            clr_id=props["clr_id"],
+            mode=props["mode"],
+            placement=props["placement"],
+            status=props["status"],
+            option_label=props.get("option_label"),
+            text=props.get("text"),
+            answered_by=props["answered_by"],
+            answered_at=_instant(props["answered_at"]),
+            applied_build_id=props.get("applied_build_id"),
+            basis=tuple(Quote.model_validate(item) for item in loaded),
+            confidence=props.get("confidence"),
+        )
+    except (KeyError, TypeError, ValueError, ValidationError):
+        return None
+
+
 def _clarification(gap: StoredGap) -> ClarificationView | None:
     """The current clarification (pending or applied; the latest answered one), None when none reads."""
 
-    current: list[ClarificationView] = []
-    for props in gap.clarifications:
-        if props.get("status") not in CURRENT_CLARIFICATIONS:
-            continue
-        basis = props.get("basis")
-        try:
-            loaded = json.loads(basis) if isinstance(basis, str) else basis or ()
-            current.append(
-                ClarificationView(
-                    clr_id=props["clr_id"],
-                    mode=props["mode"],
-                    placement=props["placement"],
-                    status=props["status"],
-                    option_label=props.get("option_label"),
-                    text=props.get("text"),
-                    answered_by=props["answered_by"],
-                    answered_at=_instant(props["answered_at"]),
-                    applied_build_id=props.get("applied_build_id"),
-                    basis=tuple(Quote.model_validate(item) for item in loaded),
-                    confidence=props.get("confidence"),
-                )
-            )
-        except (KeyError, TypeError, ValueError, ValidationError):
-            continue
+    current = [
+        view
+        for props in gap.clarifications
+        if props.get("status") in CURRENT_CLARIFICATIONS and (view := clarification_view(props)) is not None
+    ]
     return max(current, key=lambda item: item.answered_at, default=None)
 
 
@@ -467,6 +483,42 @@ class GapService:
         return GapFindingPage(findings=tuple(found[:limit]))
 
     # Writes: answers, dismissals, raised gaps, noise rules
+
+    async def ai_answers(self, project_id: str, *, limit: int = 50) -> AiAnswerList:
+        """The review list "Answered by AI" (answers.md "Review list", FR-GANS-10): every clarification of mode
+        ``ai`` or ``pointer`` with its gap, newest first (then clarification id), at most ``limit`` (1 to 200);
+        reverted ones too, with the follow-up a revert opened. Nothing waits for a review."""
+
+        project_id = validate_project_id(project_id)
+        if not PAGE_LIMITS[0] <= limit <= PAGE_LIMITS[1]:
+            raise AnswerInvalidError(field="limit", reason="range")
+        gaps = await read_gaps(self._executor, project_id, self._ontology, statuses=GRAPH_STATUSES)
+        found: list[AiAnswer] = []
+        for gap in gaps:
+            reverted = next(
+                (
+                    item.gap_id
+                    for item in gap.follow_ups
+                    if item.direction == "continued_by" and item.reason == REVERTED
+                ),
+                None,
+            )
+            for props in gap.clarifications:
+                view = clarification_view(props) if props.get("mode") in REVIEWED_MODES else None
+                if view is None:
+                    continue
+                found.append(
+                    AiAnswer(
+                        gap_id=gap.gap_id,
+                        title=str(gap.props.get("title") or ""),
+                        question=str(gap.props.get("question") or ""),
+                        gap_status=gap.props["status"],
+                        clarification=view,
+                        follow_up=reverted if view.status == REVERTED else None,
+                    )
+                )
+        found.sort(key=lambda item: (-_millis(item.clarification.answered_at), item.clarification.clr_id))
+        return AiAnswerList(answers=tuple(found[:limit]))
 
     async def preview_edits(
         self,
@@ -789,6 +841,166 @@ class GapService:
             ],
         )
         log_event(logger, INFO, "graph.gap.dismissed", project_id=project_id, gap_id=gap.gap_id, released=len(released))
+
+    async def revert_clarification(self, project_id: str, clr_id: str, *, by: str, reason: str) -> RevertResult:
+        """Withdraw an answer, a person's or AI's (answers.md "Revert", FR-GANS-10): the clarification becomes
+        ``reverted`` and its amendments ``reverted``; an update build is requested when text the build reads leaves
+        the corpus. A resolved gap stays resolved as history and a follow-up gap (``FOLLOWS_UP`` reason ``reverted``)
+        opens with its question, nodes, witness lines and options, route ``ask``; a gap still ``answered`` or
+        ``applying`` returns to ``open`` with route ``ask``. Either way AI never answers that question again unless a
+        person sends it back. ``GapNotFoundError`` for an unknown clarification, ``GapStateError`` unless it is
+        ``pending`` on an ``answered`` or ``applying`` gap, or ``applied`` or ``absorbed``; ``AnswerInvalidError``
+        (``reason``) for a reason outside 1 to 500 characters."""
+
+        project_id = validate_project_id(project_id)
+        if not text_ok(reason, REASON_CHARS):
+            raise AnswerInvalidError(field="reason", reason="length")
+        async with self._locks[project_id]:
+            return await self._revert(project_id, clr_id, by=by, reason=reason.strip())
+
+    async def _revert(self, project_id: str, clr: str, *, by: str, reason: str) -> RevertResult:
+        gaps = await read_gaps(self._executor, project_id, self._ontology, statuses=GRAPH_STATUSES)
+        found = next(((gap, props) for gap in gaps for props in gap.clarifications if props.get("clr_id") == clr), None)
+        if found is None:
+            raise GapNotFoundError(clr_id=clr)
+        gap, props = found
+        status = str(props.get("status") or "")
+        resolved = gap.status == "resolved" and status in APPLIED_CLARIFICATIONS
+        if not resolved and not (status == PENDING and gap.status in ("answered", "applying")):
+            raise GapStateError(status=status, allowed=REVERTIBLE, gap_id=gap.gap_id)
+        rows = await self.amendments.for_clarification(project_id, clr)
+        changed = {row.amendment_id: row.status for row in rows if row.status != REVERTED}
+        in_document = props.get("placement") == "document" and (status != PENDING or bool(props.get(APPLY_MARK)))
+        needs_build = in_document or any(value in IN_CORPUS_ROWS for value in changed.values())
+        if needs_build and self.builds is None:
+            raise ConfigurationError("gap_builds_missing")
+        now = self._clock()
+        follow_up: str | None = None
+        await self.amendments.set_status(project_id, list(changed), REVERTED)
+        try:
+            async with self._writer(project_id).transaction() as tx:
+                await tx.upsert_node(
+                    CLARIFICATION,
+                    clarification_uuid(project_id, clr),
+                    {"status": REVERTED, "reverted_at": _iso(now), "reverted_by": by},
+                )
+                if resolved:
+                    follow_up = await self._revert_follow_up(tx, project_id, gap, gaps, now)
+                else:
+                    await tx.upsert_node(
+                        GAP,
+                        gap_uuid(project_id, gap.gap_id),
+                        {"status": "open", "route": "ask", "updated_at": _iso(now)},
+                    )
+        except BaseException:
+            by_status: dict[str, list[str]] = defaultdict(list)
+            for key, value in changed.items():
+                by_status[value].append(key)
+            for value, keys in by_status.items():
+                await self.amendments.set_status(project_id, keys, value)
+            raise
+        if follow_up is not None:
+            options = await self._records.options(project_id, gap.gap_id)
+            await self._records.put_options(
+                project_id, follow_up, [row.model_copy(update={"gap_id": follow_up}) for row in options]
+            )
+        events = [
+            EventRow(
+                gap_id=gap.gap_id,
+                clr_id=clr,
+                at=now,
+                actor=by,
+                event=REVERTED,
+                detail={
+                    "reason": reason,
+                    "mode": props.get("mode"),
+                    "amendments": len(changed),
+                    "follow_up": follow_up,
+                    "answered_by_ai": props.get("answered_by") == AI_ACTOR,
+                },
+            )
+        ]
+        if follow_up is not None:
+            events.append(
+                EventRow(
+                    gap_id=follow_up,
+                    at=now,
+                    actor=by,
+                    event="created",
+                    detail={"follows_up": gap.gap_id, "reason": REVERTED, "route": "ask"},
+                )
+            )
+        await self._records.log(project_id, events)
+        build = (
+            await self.builds.request_update_build(project_id, REVERT_REASON, immediate=False)
+            if needs_build and self.builds is not None
+            else None
+        )
+        log_event(
+            logger,
+            INFO,
+            "graph.gap.answer.reverted",
+            project_id=project_id,
+            gap_id=gap.gap_id,
+            clr_id=clr,
+            amendments=len(changed),
+            follow_up=follow_up,
+            build=build,
+        )
+        return RevertResult(
+            clr_id=clr,
+            gap_id=follow_up or gap.gap_id,
+            follow_up=follow_up is not None,
+            amendments=tuple(changed),
+            build=build,
+        )
+
+    async def _revert_follow_up(
+        self, tx: OwnedWriter, project_id: str, gap: StoredGap, gaps: Sequence[StoredGap], now: datetime
+    ) -> str:
+        """The follow-up of a reverted answer: a new ``open`` gap, route ``ask``, ``FOLLOWS_UP`` the old one with
+        reason ``reverted``, with the old gap's properties, ``ABOUT``, ``IMPACTS`` and ``CITES`` (lifecycle.md
+        "Follow-ups and history"). Its signature is new (``follow_up_signature``), so no run maps it to AI again."""
+
+        signature = follow_up_signature(gap, REVERTED)
+        new = gap_id(signature, {item.gap_id: item.signature for item in gaps})
+        names = ("kind", "severity", "origin", "title", "question", "why", "detector", "seed_signatures")
+        props: dict[str, Any] = {name: gap.props[name] for name in names if gap.props.get(name) is not None}
+        props |= {
+            "gap_id": new,
+            "status": "open",
+            "route": "ask",
+            "signature": signature,
+            "blocking": "no",
+            "held_back": "no",
+            "created_by": RUN_ACTOR,
+            "created_at": _iso(now),
+            "updated_at": _iso(now),
+        }
+        owner = WriterRef(GAP, gap_uuid(project_id, new))
+        await tx.upsert_node(GAP, owner.key, props)
+        old = WriterRef(GAP, gap_uuid(project_id, gap.gap_id))
+        await tx.upsert_relationship(
+            FOLLOWS_UP, owner, old, link_key(new, FOLLOWS_UP, gap.gap_id), {"reason": REVERTED}
+        )
+        for link in (*gap.about, *gap.impacts):
+            if link.uuid and link.label:
+                await tx.upsert_relationship(
+                    link.relation,
+                    owner,
+                    WriterRef(link.label, link.uuid),
+                    link_key(new, link.relation, link.spec_id),
+                    {},
+                )
+        for cite in gap.cites:
+            digest = cite.quote_hash or quote_hash(cite.quote)
+            cited: dict[str, Any] = {"quote": cite.quote, "quote_hash": digest}
+            if cite.line_start is not None:
+                cited |= {"line_start": cite.line_start, "line_end": cite.line_end or cite.line_start}
+            await tx.upsert_relationship(
+                CITES, owner, WriterRef(FRAGMENT, cite.fragment_id), cite_key(new, cite.fragment_id, digest), cited
+            )
+        return new
 
     async def raise_gap(self, project_id: str, new: NewGap) -> RaisedGap:
         """Open a gap by hand (FR-GANS-12): after the checks of a report (the ids resolve, the quotes are found in
