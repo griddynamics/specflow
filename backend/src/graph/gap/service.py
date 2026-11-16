@@ -56,6 +56,7 @@ from graph.gap.answers import (
     text_ok,
     write_clarification,
 )
+from graph.gap.corpus import clarifications_lineage, document_clarifications
 from graph.gap.errors import AnswerInvalidError, GapNotFoundError, GapStateError, StaleGapError
 from graph.gap.follow_ups import (
     APPLIED_ROWS,
@@ -85,6 +86,8 @@ from graph.gap.models import (
     AnswerResult,
     ApplyResult,
     ClarificationView,
+    DocumentAnswer,
+    DocumentAnswers,
     Edit,
     EditPreview,
     EventRow,
@@ -93,6 +96,7 @@ from graph.gap.models import (
     GapHistory,
     GapPage,
     GapView,
+    LineageAnswers,
     NewGap,
     NodeRef,
     NoiseRuleRow,
@@ -129,6 +133,7 @@ from graph.gap.resolve import resolve_spec_ids
 from graph.gap.rules import GapRules
 from graph.gap.settings import GapSettings
 from graph.gap.steps.close import follow_up_signature
+from graph.gap.steps.snapshot import heading_path_of
 from logger.logger import INFO, WARNING, get_logger, log_event
 
 logger = get_logger(__name__)
@@ -139,7 +144,7 @@ TRACE_IDS: Final = 50
 SEVERITY_ORDER: Final[dict[str, int]] = {"blocker": 0, "major": 1, "minor": 2}
 CURRENT_CLARIFICATIONS: Final = frozenset({"pending", "applied"})
 YES: Final = "yes"
-CURSOR_PARTS: Final = 3
+CURSOR_PARTS: Final = 4
 ANSWERABLE: Final = ("open", "answered", "resolved")
 """A resolved gap is answered again only while its clarification is applied (answers.md "Changing an answer")."""
 APPLIED_CLARIFICATIONS: Final = frozenset({"applied", "absorbed"})
@@ -159,7 +164,7 @@ REVERTIBLE: Final = ("pending", "applied", "absorbed")
 IN_CORPUS_ROWS: Final = frozenset({"active", "undecided"})
 """Amendment statuses whose text the build reads: a revert of one of them needs an update build."""
 
-Position = tuple[int, int, str]
+Position = tuple[int, int, int, str]
 
 
 def _instant(value: Any) -> datetime:
@@ -174,11 +179,12 @@ def _micros(value: Any) -> int:
     return int(_instant(value).timestamp() * 1_000_000)
 
 
-def position(gap: StoredGap) -> Position:
-    """Inbox order: severity (blocker, major, minor), newest first, then gap id."""
+def position(gap: StoredGap, tasks: int = 0) -> Position:
+    """Inbox order (answers.md "The question card"): severity (blocker, major, minor), then reach (``tasks``, the plan
+    tasks behind the gap's ``ABOUT`` and ``IMPACTS`` nodes, most first), newest first, then gap id."""
 
     severity = SEVERITY_ORDER.get(str(gap.props.get("severity")), len(SEVERITY_ORDER))
-    return (severity, -_micros(gap.props.get("created_at")), gap.gap_id)
+    return (severity, -tasks, -_micros(gap.props.get("created_at")), gap.gap_id)
 
 
 def encode_cursor(key: Position) -> str:
@@ -190,8 +196,8 @@ def decode_cursor(token: str) -> Position:
 
     try:
         raw = json.loads(base64.urlsafe_b64decode(token + "=" * (-len(token) % 4)))
-        if isinstance(raw, list) and len(raw) == CURSOR_PARTS and isinstance(raw[2], str):
-            return int(raw[0]), int(raw[1]), raw[2]
+        if isinstance(raw, list) and len(raw) == CURSOR_PARTS and isinstance(raw[3], str):
+            return int(raw[0]), int(raw[1]), int(raw[2]), raw[3]
     except (binascii.Error, ValueError, TypeError):
         pass
     raise AnswerInvalidError(field="cursor", reason="invalid")
@@ -284,7 +290,11 @@ def gap_view(
         impacts=tuple(NodeRef(spec_id=link.spec_id, label=link.label, name=link.name) for link in gap.impacts),
         witness=tuple(
             WitnessView(
-                fragment_id=cite.fragment_id, quote=cite.quote, line_start=cite.line_start, line_end=cite.line_end
+                fragment_id=cite.fragment_id,
+                quote=cite.quote,
+                line_start=cite.line_start,
+                line_end=cite.line_end,
+                document_id=cite.document_id,
             )
             for cite in gap.cites
         ),
@@ -403,12 +413,31 @@ class GapService:
             gaps = [gap for gap in gaps if wanted & set(gap.about_ids)]
         if story_id is not None:
             gaps = await self._of_story(project_id, story_id, gaps)
-        ordered = [gap for gap in sorted(gaps, key=position) if start is None or position(gap) > start]
+        tasks = await self._tasks_behind(project_id, gaps)
+        keys = {gap.gap_id: position(gap, tasks.get(gap.gap_id, 0)) for gap in gaps}
+        ordered = [
+            gap for gap in sorted(gaps, key=lambda item: keys[item.gap_id]) if start is None or keys[gap.gap_id] > start
+        ]
         page = ordered[:limit]
         return GapPage(
             gaps=tuple(gap_view(gap) for gap in page),
-            next=encode_cursor(position(page[-1])) if len(ordered) > limit else None,
+            next=encode_cursor(keys[page[-1].gap_id]) if len(ordered) > limit else None,
         )
+
+    async def _tasks_behind(self, project_id: str, gaps: Sequence[StoredGap]) -> dict[str, int]:
+        """Per gap the number of plan tasks implementing its ``ABOUT`` and ``IMPACTS`` nodes (one plan read for the
+        list; none without a plan)."""
+
+        ids = list(dict.fromkeys(spec_id for gap in gaps for spec_id in (*gap.about_ids, *gap.impact_ids)))
+        if self._plan is None or not ids:
+            return {}
+        found = await self._plan.tasks_for(project_id, ids)
+        return {
+            gap.gap_id: len(
+                {task.task_id for spec_id in (*gap.about_ids, *gap.impact_ids) for task in found.get(spec_id, ())}
+            )
+            for gap in gaps
+        }
 
     async def get_gap(self, project_id: str, gap_id: str) -> GapView:
         """The gap with its options, history (events and follow-up chain) and reach; ``GapNotFoundError`` when the
@@ -421,12 +450,39 @@ class GapService:
         gap = found[0]
         options = await self._records.options(project_id, gap_id)
         events = await self._records.events(project_id, gap_id)
-        return gap_view(
+        view = gap_view(
             gap,
             options=options,
             history=GapHistory(events=tuple(events), follow_ups=gap.follow_ups),
             reach=await self.reach(project_id, gap),
         )
+        return view.model_copy(update={"witness": await self._located(project_id, view.witness)})
+
+    async def _located(self, project_id: str, witness: Sequence[WitnessView]) -> tuple[WitnessView, ...]:
+        """The witness lines with their document's title and path and their section's heading path (one documents read
+        and one fragments read per cited document); a line whose fragment is gone keeps what it has."""
+
+        documents = sorted({item.document_id for item in witness if item.document_id})
+        if self._reader is None or not documents:
+            return tuple(witness)
+        known = {document.document_id: document for document in await self._reader.documents(project_id)}
+        sections: dict[str, tuple[str, ...]] = {}
+        for document_id in documents:
+            for fragment in await self._reader.fragments(project_id, document_id):
+                sections[fragment.fragment_id] = heading_path_of(fragment)
+        located = []
+        for item in witness:
+            document = known.get(item.document_id or "")
+            located.append(
+                item.model_copy(
+                    update={
+                        "document_title": None if document is None else document.title,
+                        "document_path": None if document is None else document.path,
+                        "heading_path": sections.get(item.fragment_id, item.heading_path),
+                    }
+                )
+            )
+        return tuple(located)
 
     async def reach(self, project_id: str, gap: StoredGap) -> Reach:
         """Stories and tasks behind the gap's ``ABOUT`` and ``IMPACTS`` nodes and the nodes trace reaches from them
@@ -519,6 +575,44 @@ class GapService:
                 )
         found.sort(key=lambda item: (-_millis(item.clarification.answered_at), item.clarification.clr_id))
         return AiAnswerList(answers=tuple(found[:limit]))
+
+    async def document_answers(self, project_id: str) -> DocumentAnswers:
+        """The answers each document's build text holds that its source file does not (reconcile.md "Download with
+        answers", FR-GWEB-05): per lineage the clarifications of its ``active`` and ``undecided`` amendments (one entry
+        per clarification, with its gap and the number of its amendments there), and the sections of the generated
+        clarifications document (``applied`` ones, and ``pending`` ones sent to a build). Lineages in path-free id
+        order; answers by gap title, then clarification id."""
+
+        project_id = validate_project_id(project_id)
+        gaps = await read_gaps(
+            self._executor, project_id, self._ontology, statuses=("answered", "applying", "resolved")
+        )
+        owners = {str(props.get("clr_id")): gap for gap in gaps for props in gap.clarifications}
+        lineages: list[LineageAnswers] = []
+        for lineage in sorted(await self.amendments.pending_lineages(project_id)):
+            rows = await self.amendments.for_lineage(project_id, lineage, statuses=sorted(IN_CORPUS_ROWS))
+            by_clr: dict[str, list[str]] = defaultdict(list)
+            for row in rows:
+                by_clr[row.clr_id].append(row.status)
+            answers = [
+                _document_answer(
+                    clr, owners.get(clr), "undecided" if "undecided" in statuses else "active", len(statuses)
+                )
+                for clr, statuses in by_clr.items()
+            ]
+            if answers:
+                lineages.append(LineageAnswers(lineage=lineage, answers=_sorted_answers(answers)))
+        sections = [
+            _document_answer(
+                entry.clr_id, owners.get(entry.clr_id), _clarification_status(owners.get(entry.clr_id), entry.clr_id), 0
+            )
+            for entry in await document_clarifications(self._executor, project_id, self._ontology)
+        ]
+        return DocumentAnswers(
+            lineages=tuple(lineages),
+            clarifications_lineage=clarifications_lineage(project_id),
+            clarifications=_sorted_answers(sections),
+        )
 
     async def preview_edits(
         self,
@@ -1337,6 +1431,22 @@ class GapService:
         stories = await self._plan.stories_for(project_id, ids) if ids else {}
         nodes = {spec_id for spec_id, found in stories.items() if story_id in found}
         return [gap for gap in gaps if nodes & set(gap.about_ids)]
+
+
+def _document_answer(clr: str, gap: StoredGap | None, status: str, amendments: int) -> DocumentAnswer:
+    title = "" if gap is None else str(gap.props.get("title") or gap.props.get("question") or "")
+    return DocumentAnswer(
+        clr_id=clr, gap_id=None if gap is None else gap.gap_id, title=title, status=status, amendments=amendments
+    )
+
+
+def _clarification_status(gap: StoredGap | None, clr: str) -> str:
+    props = next((item for item in (() if gap is None else gap.clarifications) if item.get("clr_id") == clr), {})
+    return str(props.get("status") or PENDING)
+
+
+def _sorted_answers(answers: Sequence[DocumentAnswer]) -> tuple[DocumentAnswer, ...]:
+    return tuple(sorted(answers, key=lambda item: (item.title, item.clr_id)))
 
 
 def suppressed_signatures(gap: StoredGap) -> list[str]:

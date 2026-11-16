@@ -171,6 +171,65 @@
         "title": "AiAnswerList",
         "type": "object"
       },
+      "AnswerDocument": {
+        "description": "One document of the document view (reconcile.md \"Download with answers\"): the id the export route takes, its\ncorpus lineage, path and title, whether Specflow generated it (the clarifications document), and the answers its\nbuild text holds that the source file does not yet.",
+        "properties": {
+          "answers": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentAnswer"
+            },
+            "title": "Answers",
+            "type": "array"
+          },
+          "document_id": {
+            "title": "Document Id",
+            "type": "string"
+          },
+          "generated": {
+            "default": false,
+            "title": "Generated",
+            "type": "boolean"
+          },
+          "lineage": {
+            "title": "Lineage",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id",
+          "lineage",
+          "path",
+          "title",
+          "answers"
+        ],
+        "title": "AnswerDocument",
+        "type": "object"
+      },
+      "AnswerDocumentList": {
+        "description": "``GET .../gaps/documents``: every corpus document in path order, then the clarifications document when it has\na section.",
+        "properties": {
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerDocument"
+            },
+            "title": "Documents",
+            "type": "array"
+          }
+        },
+        "required": [
+          "documents"
+        ],
+        "title": "AnswerDocumentList",
+        "type": "object"
+      },
       "AnswerResult": {
         "additionalProperties": false,
         "description": "What ``answer_gap`` returns: the new clarification, the clarification it replaced (if any), and when the\nanswers of the project are applied (``immediate``: at once, for a development gap that blocks its story).",
@@ -1378,6 +1437,47 @@
           "already_in_project"
         ],
         "title": "CountsOut",
+        "type": "object"
+      },
+      "DocumentAnswer": {
+        "additionalProperties": false,
+        "description": "One answer a document holds that its source file does not (reconcile.md \"Download with answers\"): the\nclarification, its gap and the gap's title, the status of its rows (an amendment's ``active`` or ``undecided``; for\nthe clarifications document the clarification's ``applied`` or ``pending``) and how many amendments it has there.",
+        "properties": {
+          "amendments": {
+            "default": 0,
+            "title": "Amendments",
+            "type": "integer"
+          },
+          "clr_id": {
+            "title": "Clr Id",
+            "type": "string"
+          },
+          "gap_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap Id"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "clr_id",
+          "status"
+        ],
+        "title": "DocumentAnswer",
         "type": "object"
       },
       "DocumentDetailOut": {
@@ -8417,11 +8517,52 @@
       },
       "WitnessView": {
         "additionalProperties": false,
-        "description": "A ``CITES`` witness of a gap.",
+        "description": "A ``CITES`` witness of a gap: the fragment, the quote and its lines, and where it is: the document (its graph id,\nthe corpus lineage), and, from ``get_gap`` only, the document's title and path and the section's heading path.",
         "properties": {
+          "document_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id"
+          },
+          "document_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Path"
+          },
+          "document_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Title"
+          },
           "fragment_id": {
             "title": "Fragment Id",
             "type": "string"
+          },
+          "heading_path": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Heading Path",
+            "type": "array"
           },
           "line_end": {
             "anyOf": [
@@ -11936,6 +12077,50 @@
           }
         },
         "summary": "Revert Clarification",
+        "tags": [
+          "gaps"
+        ]
+      }
+    },
+    "/api/v1/projects/{pid}/gaps/documents": {
+      "get": {
+        "description": "The document view (reconcile.md \"Download with answers\", FR-GWEB-05): every document of the project's corpus\nwith the answers its build text holds that its source file does not yet (\"N answers are not in the source file\nyet\"), and the generated clarifications document (\"Generated by Specflow\") while it has a section. Each\n``document_id`` downloads through ``GET .../documents/{document_id}/export?answers=1``.",
+        "operationId": "list_answer_documents_api_v1_projects__pid__gaps_documents_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pid",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Pid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnswerDocumentList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Answer Documents",
         "tags": [
           "gaps"
         ]

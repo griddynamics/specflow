@@ -9,7 +9,7 @@ from typing import Any, Final, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from graph.gap import GapRunResult
-from graph.gap.models import Edit, NoiseRuleRow, Quote
+from graph.gap.models import DocumentAnswer, Edit, NoiseRuleRow, Quote
 from graph.gap.names import EditPlacement, GapKind, GapOrigin, GapRoute, GapSeverity, GapStatus, NoiseScope
 
 MAX_ID: Final = 200
@@ -135,3 +135,23 @@ class NoiseRuleList(BaseModel):
     """The project's noise rules, oldest first."""
 
     rules: list[NoiseRuleRow]
+
+
+class AnswerDocument(BaseModel):
+    """One document of the document view (reconcile.md "Download with answers"): the id the export route takes, its
+    corpus lineage, path and title, whether Specflow generated it (the clarifications document), and the answers its
+    build text holds that the source file does not yet."""
+
+    document_id: str
+    lineage: str
+    path: str
+    title: str
+    generated: bool = False
+    answers: list[DocumentAnswer]
+
+
+class AnswerDocumentList(BaseModel):
+    """``GET .../gaps/documents``: every corpus document in path order, then the clarifications document when it has
+    a section."""
+
+    documents: list[AnswerDocument]

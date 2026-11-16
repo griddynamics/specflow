@@ -497,12 +497,17 @@ class GapEstimate(GapModel):
 
 
 class WitnessView(GapModel):
-    """A ``CITES`` witness of a gap."""
+    """A ``CITES`` witness of a gap: the fragment, the quote and its lines, and where it is: the document (its graph id,
+    the corpus lineage), and, from ``get_gap`` only, the document's title and path and the section's heading path."""
 
     fragment_id: str
     quote: str
     line_start: int | None = None
     line_end: int | None = None
+    document_id: str | None = None
+    document_title: str | None = None
+    document_path: str | None = None
+    heading_path: tuple[str, ...] = ()
 
 
 class ClarificationView(GapModel):
@@ -727,6 +732,34 @@ class EditPreview(GapModel):
     sections: tuple[SectionPreview, ...]
     drafted: bool = False
     fallback: str | None = None
+
+
+class DocumentAnswer(GapModel):
+    """One answer a document holds that its source file does not (reconcile.md "Download with answers"): the
+    clarification, its gap and the gap's title, the status of its rows (an amendment's ``active`` or ``undecided``; for
+    the clarifications document the clarification's ``applied`` or ``pending``) and how many amendments it has there."""
+
+    clr_id: str
+    gap_id: str | None = None
+    title: str = ""
+    status: str
+    amendments: int = 0
+
+
+class LineageAnswers(GapModel):
+    """The answers of one corpus lineage that are not in its source file yet."""
+
+    lineage: str
+    answers: tuple[DocumentAnswer, ...] = ()
+
+
+class DocumentAnswers(GapModel):
+    """What ``GapService.document_answers`` returns: per lineage the answers its build text holds beyond the source
+    file, and the sections of the generated clarifications document (``clarifications_lineage``)."""
+
+    lineages: tuple[LineageAnswers, ...] = ()
+    clarifications_lineage: str
+    clarifications: tuple[DocumentAnswer, ...] = ()
 
 
 class RaisedGap(GapModel):

@@ -110,6 +110,13 @@ def _unique(path: str, taken: set[str]) -> str:
 def corpus_revisions(rows: Sequence[GraphCorpusRow]) -> list[CorpusRevision]:
     """The corpus snapshot of ``list_graph_corpus`` rows (see the module docstring)."""
 
+    return [revision for revision, _ in corpus_documents(rows)]
+
+
+def corpus_documents(rows: Sequence[GraphCorpusRow]) -> list[tuple[CorpusRevision, uuid.UUID]]:
+    """``corpus_revisions`` with the id of the document each revision reads (the newest of its lineage), in path
+    order."""
+
     by_document: dict[uuid.UUID, list[GraphCorpusRow]] = defaultdict(list)
     for row in rows:
         by_document[row.document_id].append(row)
@@ -126,17 +133,16 @@ def corpus_revisions(rows: Sequence[GraphCorpusRow]) -> list[CorpusRevision]:
     taken: set[str] = set()
     revisions = []
     for path, lineage_id, row, version in sorted(current, key=lambda item: (item[0], item[1])):
-        revisions.append(
-            CorpusRevision(
-                lineage_id=lineage_id,
-                revision_id=revision_id(row.content_hash, row.parser),
-                version=version,
-                path=_unique(path, taken),
-                title=first_heading(row.markdown) or PurePosixPath(row.original_filename).stem or path,
-                markdown=row.markdown,
-            )
+        revision = CorpusRevision(
+            lineage_id=lineage_id,
+            revision_id=revision_id(row.content_hash, row.parser),
+            version=version,
+            path=_unique(path, taken),
+            title=first_heading(row.markdown) or PurePosixPath(row.original_filename).stem or path,
+            markdown=row.markdown,
         )
-    revisions.sort(key=lambda revision: revision.path)
+        revisions.append((revision, row.document_id))
+    revisions.sort(key=lambda item: item[0].path)
     return revisions
 
 
